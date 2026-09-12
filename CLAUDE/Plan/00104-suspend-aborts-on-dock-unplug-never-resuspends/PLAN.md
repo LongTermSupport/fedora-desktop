@@ -1,6 +1,9 @@
 # Plan 00104: Suspend aborts on dock unplug and never re-suspends
 
-**Status**: In Progress
+**Status**: Blocked — hardware. The remaining tasks need the physical laptop and
+dock: a dock-attached `triage.bash` run, the lid-closed half of H1, and
+reproducing the incident by unplugging within ~3 seconds of suspend. Phase 3, the
+container-side fix, is complete and already deployed.
 **Created**: 2026-09-08
 **Owner**: joseph
 **Priority**: High

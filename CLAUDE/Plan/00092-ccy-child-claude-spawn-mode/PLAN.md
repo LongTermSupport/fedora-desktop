@@ -1,6 +1,9 @@
 # Plan 00092: CCY child-claude spawn mode
 
-**Status**: In Progress
+**Status**: Blocked — Task 6.4 is HOST ACTION: `deploy.bash`, then `ccy --rebuild`
+to container 2.36, then `acceptance.bash` inside a container with the flag on and
+again with it off. Rotate the OAuth token first, or invariant I1 reports the
+2026-09-02 transcript. The feature is built and shipped through IaC.
 **Created**: 2026-09-02
 **Owner**: joseph
 **Priority**: Medium

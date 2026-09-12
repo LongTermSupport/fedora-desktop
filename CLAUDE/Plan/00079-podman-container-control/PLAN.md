@@ -1,6 +1,8 @@
 # Plan 00079: Podman container control — freeze/thaw by container, network, and CCY group
 
-**Status**: In Progress
+**Status**: Blocked — Task 3.3b is HOST ACTION and Task 3.4 is gated behind it.
+Unblocks with one `deploy.bash` run on the HOST followed by `acceptance.bash`;
+no acceptance run has ever executed against the reviewed code.
 **Created**: 2026-08-19
 **Owner**: joseph
 **Priority**: Medium

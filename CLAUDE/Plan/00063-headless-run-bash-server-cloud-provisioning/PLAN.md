@@ -1,6 +1,8 @@
 # Plan 00063: Headless `run.bash` — Server & Cloud Provisioning
 
-**Status**: In Progress
+**Status**: Blocked — every remaining task is Phase 3 verification, which needs a
+real or VM Fedora Server / Cloud box to provision. All code is written; nothing
+here can move in a CCY container. Unblocks when such a box is available.
 **Created**: 2026-07-23
 **Owner**: joseph
 **Priority**: Medium
