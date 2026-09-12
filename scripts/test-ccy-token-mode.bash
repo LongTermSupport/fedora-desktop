@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+# Unit-test select_token's per-mode answer to "no usable token" (Plan 00048, CCY 3.50.0).
+#
+# Sources the libraries from THIS repo (not the deployed /var/local copy) so a fix
+# can be verified before running the playbook.
+#
+# WHY THIS TEST EXISTS. select_token is called by BOTH launchers — ccy passes
+# "container", the host cc wrapper passes "host" — and the two modes must answer
+# an unusable pool differently: ccy hard-stops, cc offers the Desktop account.
+# A bug shipped because one branch could not tell "the pool is empty" (where
+# falling through to Desktop is the DESIGN) from "the pool has tokens, all past
+# their expiry stamp" (where falling through silently authenticates the user as a
+# DIFFERENT Claude account, with no error, no non-zero exit and no prompt).
+#
+# The expiry stamp makes that distinction load-bearing rather than academic: it is
+# a flat +90 days written into the filename at creation, because `claude
+# setup-token` does not report real expiry, and is_token_valid counts "expires
+# today" as expired. So a token that still authenticates perfectly drops out of
+# the valid set on day 90 — and on the day this was found, an entire pool had.
+#
+# Every case here is NON-INTERACTIVE: all of them return before select_token
+# reaches its `read -p` menu, which is exactly what makes the function testable
+# without a terminal, a claude binary, or a real credential. Only the FILENAME is
+# read (is_token_valid parses the date out of it and never opens the file), so the
+# fixtures hold a placeholder string and no real token is involved.
+#
+# `set -e` is deliberately NOT used: every case must run so the summary reports the
+# full picture, and each result is checked explicitly. (Same reason, same shape as
+# scripts/test-ccy-rootless-guard.bash.)
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+LIB_DIR="$REPO_ROOT/files/var/local/claude-yolo/lib"
+PURE_LIB="$LIB_DIR/common-pure.bash"
+TOKEN_LIB="$LIB_DIR/token-management.bash"
+
+for lib in "$PURE_LIB" "$TOKEN_LIB"; do
+    if [ ! -f "$lib" ]; then
+        echo "FAIL: library not found at $lib" >&2
+        exit 1
+    fi
+done
+
+# The container-mode create/renew paths reference these; cc pre-exports the same
+# empty stubs. Set here so `set -u` inside the library cannot trip on them.
+: "${GH_TOKEN:=}" "${IMAGE_NAME:=}"
+
+# source-path makes the relative source= resolve from THIS script's directory rather
+# than the caller's cwd — without it shellcheck -x reports SC1091 "does not exist".
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../files/var/local/claude-yolo/lib/common-pure.bash
+source "$PURE_LIB"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../files/var/local/claude-yolo/lib/token-management.bash
+source "$TOKEN_LIB"
+
+for fn in select_token is_token_valid; do
+    if ! declare -F "$fn" >/dev/null; then
+        echo "FAIL: $fn is not defined after sourcing the libraries" >&2
+        echo "      (the function is absent, not merely broken)" >&2
+        exit 1
+    fi
+done
+
+# Fixtures live under the repo's own gitignored scratch area rather than /tmp: the
+# tree is tracked (untracked/.gitignore ignores its contents), so it exists in a
+# fresh clone, and nothing is written outside the repository.
+WORK="$REPO_ROOT/untracked/ccy-token-mode-fixtures.$$"
+BANNERS="$WORK/banners.log"
+cleanup() { rm -rf "$WORK"; }
+trap cleanup EXIT INT TERM
+
+mkdir -p "$WORK/empty-pool" "$WORK/expired-only" "$WORK/has-valid"
+: >"$BANNERS"
+
+YESTERDAY="$(date -d '-1 day' +%Y-%m-%d)"
+TODAY="$(date +%Y-%m-%d)"
+NEXT_YEAR="$(date -d '+365 days' +%Y-%m-%d)"
+printf 'placeholder-not-a-real-token\n' >"$WORK/expired-only/stale.$YESTERDAY.token"
+printf 'placeholder-not-a-real-token\n' >"$WORK/has-valid/fresh.$NEXT_YEAR.token"
+
+PASSED=0
+FAILED=0
+
+# check <description> <token-dir> <mode> <expected-rc> <expected: EMPTY|NONEMPTY>
+check() {
+    local desc="$1" dir="$2" mode="$3" wantRc="$4" wantSel="$5"
+    local rc=0 selState="EMPTY"
+    SELECTED_TOKEN=""
+    # The banners are the human-facing payload, not the thing under test, so they
+    # are captured to a log that stays readable rather than discarded.
+    printf '\n--- %s (mode=%s) ---\n' "$desc" "$mode" >>"$BANNERS"
+    select_token "$dir" "$mode" >>"$BANNERS" 2>&1 || rc=$?
+    [ -n "$SELECTED_TOKEN" ] && selState="NONEMPTY"
+
+    if [ "$rc" -eq "$wantRc" ] && [ "$selState" = "$wantSel" ]; then
+        printf '  PASS  %-54s -> rc=%s sel=%s\n' "$desc" "$rc" "$selState"
+        PASSED=$((PASSED + 1))
+    else
+        printf '  FAIL  %-54s -> rc=%s (want %s) sel=%s (want %s)\n' \
+            "$desc" "$rc" "$wantRc" "$selState" "$wantSel"
+        printf '        banners for this case are in %s\n' "$BANNERS"
+        FAILED=$((FAILED + 1))
+    fi
+}
+
+echo ""
+echo "=== container mode: ccy must NEVER launch without a named token ==="
+# All three return 1, so claude-yolo's caller reports "No Valid Tokens Available"
+# and exits rather than starting a session with no credential.
+check "missing token dir"   "$WORK/does-not-exist" container 1 EMPTY
+check "empty pool"          "$WORK/empty-pool"     container 1 EMPTY
+check "expired tokens only" "$WORK/expired-only"   container 1 EMPTY
+
+echo ""
+echo "=== host mode: the DESIGNED Desktop short-circuit ==="
+# A genuinely empty pool is the one case where falling through to the host
+# account is intended — there is nothing else cc could offer.
+check "missing token dir -> Desktop" "$WORK/does-not-exist" host 0 EMPTY
+check "empty pool -> Desktop"        "$WORK/empty-pool"     host 0 EMPTY
+
+echo ""
+echo "=== host mode: THE case this test exists for ==="
+# Tokens are PRESENT but none passed the guessed stamp. Returning 0 here is the
+# bug: cc reads the empty SELECTED_TOKEN as "Desktop" and silently authenticates
+# as a different account. It must refuse instead.
+check "expired tokens only -> refuse" "$WORK/expired-only" host 1 EMPTY
+
+echo ""
+echo "=== expiry-stamp boundary: 'expires today' counts as expired ==="
+# is_token_valid's own contract, asserted directly because the host-mode branch
+# above depends on it. A token stamped today is NOT valid, which is how a whole
+# pool can lapse on a single day.
+if is_token_valid "$WORK/expired-only/stale.$YESTERDAY.token"; then
+    echo "  FAIL  a yesterday-stamped token was reported valid"
+    FAILED=$((FAILED + 1))
+else
+    echo "  PASS  yesterday-stamped token is expired"
+    PASSED=$((PASSED + 1))
+fi
+printf 'placeholder-not-a-real-token\n' >"$WORK/expired-only/today.$TODAY.token"
+if is_token_valid "$WORK/expired-only/today.$TODAY.token"; then
+    echo "  FAIL  a today-stamped token was reported valid (contract says expiring today = expired)"
+    FAILED=$((FAILED + 1))
+else
+    echo "  PASS  today-stamped token is expired"
+    PASSED=$((PASSED + 1))
+fi
+rm -f "$WORK/expired-only/today.$TODAY.token"
+if is_token_valid "$WORK/has-valid/fresh.$NEXT_YEAR.token"; then
+    echo "  PASS  future-stamped token is valid"
+    PASSED=$((PASSED + 1))
+else
+    echo "  FAIL  a future-stamped token was reported expired"
+    FAILED=$((FAILED + 1))
+fi
+
+echo ""
+echo "=== discrimination check ==="
+# A control that FIRES is not necessarily a control that DISCRIMINATES. If host
+# mode returned 1 unconditionally the fix case above would pass while the designed
+# Desktop short-circuit was broken, and cc would refuse to start at all. These two
+# assert the two host-mode outcomes are actually reachable and distinct.
+host_empty_rc=0
+SELECTED_TOKEN=""
+select_token "$WORK/empty-pool" host >>"$BANNERS" 2>&1 || host_empty_rc=$?
+host_expired_rc=0
+SELECTED_TOKEN=""
+select_token "$WORK/expired-only" host >>"$BANNERS" 2>&1 || host_expired_rc=$?
+if [ "$host_empty_rc" -eq "$host_expired_rc" ]; then
+    echo "  FAIL  host mode answers an empty pool and an expired pool identically (rc=$host_empty_rc)"
+    echo "        the two cases are conflated — that IS the bug this test guards"
+    FAILED=$((FAILED + 1))
+else
+    echo "  PASS  host mode distinguishes an empty pool from an expired-only pool"
+    PASSED=$((PASSED + 1))
+fi
+
+echo ""
+echo "──────────────────────────────────────────────────────────────"
+printf 'passed: %d   failed: %d\n' "$PASSED" "$FAILED"
+
+if [ "$PASSED" -eq 0 ]; then
+    echo "ERROR: zero tests ran — discovery is broken, not the code clean" >&2
+    exit 1
+fi
+if [ "$FAILED" -ne 0 ]; then
+    exit 1
+fi
+echo "OK"

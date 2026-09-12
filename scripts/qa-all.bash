@@ -200,6 +200,29 @@ rootless_summary=$(printf '%s' "$rootless_out" | grep -oE 'passed: [0-9]+') ||
     rootless_summary="passed"
 printf '✓ ccy-rootless-guard: %s\n' "$rootless_summary"
 
+# select_token's per-mode answer to an unusable token pool (Plan 00048, CCY 3.50.0).
+#
+# select_token is shared by both launchers, and the two modes must answer an
+# unusable pool differently — ccy hard-stops, host cc offers Desktop. A bug shipped
+# because one branch conflated "the pool is empty" (falling through to Desktop is
+# the design) with "the pool has tokens, all past their GUESSED +90d stamp"
+# (falling through silently authenticates as a DIFFERENT Claude account, with no
+# error and no non-zero exit). Nothing was red while that was true.
+#
+# Every case returns before select_token's `read -p` menu, so this needs no
+# terminal, no claude binary and no real credential — only filenames, which is all
+# is_token_valid reads. The suite asserts container mode is unchanged as well as
+# the fix itself, because the edit is in a function ccy also calls.
+token_mode_out=""
+if ! token_mode_out="$(bash "$SCRIPT_DIR/test-ccy-token-mode.bash" 2>&1)"; then
+    echo "$token_mode_out" >&2
+    echo "✗ QA FAILED: ccy token-mode unit tests" >&2
+    exit 1
+fi
+token_mode_summary=$(printf '%s' "$token_mode_out" | grep -oE 'passed: [0-9]+') ||
+    token_mode_summary="passed"
+printf '✓ ccy-token-mode: %s\n' "$token_mode_summary"
+
 # The fail-fast directive pattern's own unit suite (Plan 00081 F10).
 #
 # qa-ansible.bash enforces this repo's #1 rule with one regex, and that regex was
