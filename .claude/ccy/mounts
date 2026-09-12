@@ -6,5 +6,12 @@
 # already exist (start a FUSE mount first). Any problem refuses the launch.
 # Opt out for one launch: CCY_NO_PROJECT_MOUNTS=1 ccy
 # Details: docs/ccy.md, "Extra Mounts".
-
-# Google Drive folder served by the rclone mount from play-rclone.yml.
+#
+# This project declares NO extra mounts, and should not. The file is tracked, so
+# an entry here is claimed by every clone on every machine — and a host path that
+# does not exist refuses the launch. Declare a bind only if provisioning a Fedora
+# desktop genuinely needs it; a bind for your own unrelated work belongs in a
+# per-launch CCY_EXTRA_MOUNTS export, not in this file.
+#
+# Example (commented out — uncomment and adapt only if the project needs it):
+# ~/mnt/<drive-folder>:/ccy/mnt/<drive-folder>

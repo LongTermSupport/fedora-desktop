@@ -828,7 +828,7 @@ mount, declare it once and commit it. One bind per line, `#` comments allowed:
 
 ```
 # <host-src>:<container-dst>[:ro|rw]     default rw
-~/mnt/property-ai:/ccy/mnt/property-ai
+~/mnt/<drive-folder>:/ccy/mnt/<drive-folder>
 /srv/datasets:/ccy/datasets:ro
 ```
 
