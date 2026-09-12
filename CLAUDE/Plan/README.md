@@ -132,8 +132,6 @@ Use these Unicode icons in plan documents:
 
 - [00080-ccy-session-network-isolation](00080-ccy-session-network-isolation/) - Every CCY session launched without `--network` joins the same Podman bridge. Research-gated into whether that matters, with five hypotheses of which H4 (can a per-session network be cleaned up after SIGKILL?) decides feasibility. May legitimately decide to change nothing.
 
-- [00081-secret-scanner-and-qa-gate-coverage-holes](00081-secret-scanner-and-qa-gate-coverage-holes/) - Seven more instances of the partial-result defect class, two of them in the pre-commit secret scanner on a public repo: `--diff-filter=ACM` skipped staged renames entirely, and the email whitelist filtered whole lines rather than tokens. Remaining phases cover `qa-python.bash` and `qa-deployed-drift.bash`.
-
 - [00082-run-bash-github-accounts-none](00082-run-bash-github-accounts-none/) - Lets `run.bash` headless v1 provision with `RUN_BASH_GITHUB_ACCOUNTS=none`, which previously failed preflight as an unsupported follow-up. Of the two blockers Plan 00063 cited, one is confirmed fixed and the other is recorded NOT REPRODUCIBLE rather than asserted.
 
 - [00086-kernel-modules-absent-enumeration](00086-kernel-modules-absent-enumeration/) - A downstream live proof of `play-AB-dnf-upgrade.yml` on a guest lacking the `kernel-modules` package (present only `kernel-core`/`kernel-modules-core`) found the half-installed-kernel enumeration hard-failed instead of treating "not installed" as zero versions. Fixed with a probe-then-fail `assert`, not a blanket `failed_when: false`.
@@ -153,6 +151,8 @@ Use these Unicode icons in plan documents:
 - [00074-grub-cgroup-check-reports-absence-it-cannot-prove](00074-grub-cgroup-check-reports-absence-it-cannot-prove/) - `run.bash`'s legacy-grub cgroup step now distinguishes a failing `grubby` from a genuine negative and aborts on a proven failure instead of continuing
 
 ## Completed Plans
+
+- [00081-secret-scanner-and-qa-gate-coverage-holes](Completed/00081-secret-scanner-and-qa-gate-coverage-holes/) - Seven more instances of the partial-result defect class, two in the pre-commit secret scanner on a public repo; every fix has a gate that fails against the unfixed code, each proved by re-introducing the defect.
 
 - [00101-ccy-token-usage-via-ratelimit-headers](Completed/00101-ccy-token-usage-via-ratelimit-headers/) - Per-account 5-hour and weekly usage in `ccy`'s token menu, read from `/v1/messages` response headers behind a keypress. Shipped and deployed; the Fable allowance (Phase 6) is WON'T DO.
 

@@ -1,6 +1,7 @@
 # Plan 00081: Secret-scanner and QA-gate coverage holes
 
-**Status**: In Progress
+**Status**: Complete — 2026-09-12. All seven success criteria met, each fix
+proved by re-introducing the defect and watching a gate go red.
 **Created**: 2026-08-20
 **Owner**: joseph
 **Priority**: High
@@ -167,10 +168,11 @@ inside a rising count, and the published-identifier inventory.
   **BLOCK** — 2 blocking, 6 fix-before-merge, 10 nits. Every one resolved; each
   fix verified by reverting it and watching something go red. Report:
   [subagent-reports/260910-qa-review-00081-opus-5.md](subagent-reports/260910-qa-review-00081-opus-5.md)
-- [ ] ⬜ **Task 3.2**: Mark Complete, move to `Completed/`, update the README
-  index + statistics in the same commit. `CLAUDE/Plan/README.md`'s row still says
-  "remaining phases cover `qa-python.bash` and `qa-deployed-drift.bash`" — both
-  done — so rewrite it in that commit
+- [x] ✅ **Task 3.2**: Marked Complete, moved to `Completed/`, README index row
+  rewritten in the same commit — the old row advertised "remaining phases cover
+  `qa-python.bash` and `qa-deployed-drift.bash`", both of which Phase 2 closed.
+  No statistics recount was owed: this repo's `CLAUDE/Plan/README.md` carries an
+  index only, with no totals block
 
 ## Success Criteria
 
