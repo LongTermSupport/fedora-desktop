@@ -265,7 +265,7 @@ handlers:
         seed:
           default_mode: symlink
           entries:
-            - .claude/settings.local.json
+            - .claude/hooks-daemon.env
 
 # Pseudo-events: synthetic events fired from real ones with frequency control.
 # A pseudo-event ABSENT from this file is never registered, so the nitpick
