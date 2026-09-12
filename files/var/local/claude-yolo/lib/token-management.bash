@@ -1090,8 +1090,23 @@ select_token() {
         echo ""
     fi
 
-    # Host mode with empty pool: short-circuit to Desktop with instruction banner.
-    if [ "$mode" = "host" ] && [ ${#valid_tokens[@]} -eq 0 ]; then
+    # Host mode with a GENUINELY EMPTY pool: short-circuit to Desktop with the
+    # instruction banner. Both conditions are load-bearing — this branch must
+    # not fire when the pool holds tokens that merely failed the expiry check.
+    #
+    # The expiry date in a token's filename is a GUESS (a flat +90 days at
+    # creation; claude setup-token does not report real expiry), and
+    # is_token_valid counts "expires today" as expired. So a token that still
+    # authenticates perfectly drops out of valid_tokens on day 90. Treating
+    # that as an empty pool made host cc fall through and launch silently on
+    # the Desktop account — a different Claude account, with no error, no
+    # non-zero exit and no prompt, which is the prohibited skip-and-continue
+    # shape and contradicts this feature's own "Desktop is explicit, not
+    # silent" goal. Container mode always returned 1 here, so ccy was never
+    # affected. With expired tokens present we now fall through to that same
+    # `return 1`, and the caller reports it; the expired list printed above
+    # already names each token and how to renew it.
+    if [ "$mode" = "host" ] && [ ${#valid_tokens[@]} -eq 0 ] && [ ${#expired_tokens[@]} -eq 0 ]; then
         _select_token_host_empty_pool_banner "$token_dir"
         SELECTED_TOKEN=""
         return 0

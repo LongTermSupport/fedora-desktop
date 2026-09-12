@@ -116,13 +116,19 @@ including all dated progress notes, is kept verbatim in
 - [ ] 🔄 **Task 4.3**: Empty-pool sanity: rename
   `~/.claude-tokens/ccy/tokens/` to `…-bak/`, run `cc --version`, verify the
   banner prints and Desktop fallback works; restore the dir afterwards
-  - **This unexecuted check is the branch behind a live defect.** Host `cc`
-    silently launches on the Desktop account whenever no token passes the
-    *guessed* 90-day filename stamp, because host mode returns 0 with an empty
-    `SELECTED_TOKEN` where container mode returns 1. Full trace, the dated fit
-    to the report, and the two candidate fix shapes are in
-    `JOURNAL/00048-Journal-26-09-12.md`. A fix decision is pending; the
-    workaround is `ccy --create-token`.
+  - **This unexecuted check was the branch behind a live defect**, now fixed in
+    CCY 3.50.0 and awaiting a host deploy. Host `cc` silently launched on the
+    Desktop account whenever no token passed the *guessed* 90-day filename
+    stamp, because host mode returned 0 with an empty `SELECTED_TOKEN` where
+    container mode returns 1. Host mode now short-circuits only on a genuinely
+    empty pool; with expired tokens present it returns 1 and `cc` stops rather
+    than choosing an account. Three `cc` hardening fixes shipped alongside
+    (`CLAUDE_CONFIG_DIR` honoured for the credential park, the park asserted,
+    the parked credential never clobbered). Full trace and the dated fit to the
+    report: `JOURNAL/00048-Journal-26-09-12.md`.
+  - Re-verify this task against the FIXED behaviour: an empty pool still shows
+    the banner and reaches Desktop, and a pool of only expired tokens now
+    refuses with the renew instruction instead of switching account.
 - [x] ✅ **Task 4.4**: Populated-pool sanity: chooser shows named tokens plus
   Desktop — confirmed on host
 - [x] ✅ **Task 4.5**: Token-selection sanity: a named token authenticates

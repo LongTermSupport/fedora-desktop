@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.49.2"  # INTEGRITY HASH DERIVES ITS OWN SET. CCY_HASH now hashes every lib/*.bash found on disk rather than a hand-written list that was one file short — common-pure.bash was never hashed, so editing it left the hash unchanged. See docs/ccy-changelog.md.
+CCY_VERSION="3.50.0"  # Fix: host cc no longer falls through to the Desktop account when every token is past its GUESSED expiry stamp — select_token host mode short-circuits only on a genuinely empty pool, so Desktop stays a deliberate choice. ccy (container mode) unaffected. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

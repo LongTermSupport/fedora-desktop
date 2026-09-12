@@ -17,6 +17,44 @@ Two version numbers move independently — see
 
 ---
 
+## 3.50.0
+
+**Host `cc` no longer switches Claude account without being asked.**
+
+`select_token` answered "no valid token" in opposite ways per mode. Host mode printed a
+banner, set an empty `SELECTED_TOKEN` and returned 0; `cc` read that as "Desktop" and
+launched plain `claude` on the host OAuth account. Container mode returned 1 and `ccy`
+hard-stopped. So `ccy` could never run without a named token, while `cc` silently ran as a
+different account — no error, no non-zero exit, no prompt.
+
+An empty pool falling through to Desktop is the designed behaviour. The bug was that the
+branch could not tell an empty pool from "the pool has tokens, all past their expiry
+stamp" — and that stamp is a flat `+90 days` **guess** made at creation (`claude setup-token` does not report real expiry), with `is_token_valid` counting "expires today"
+as expired. A token that still authenticates perfectly dropped off the menu on day 90.
+
+Host mode now short-circuits only when the pool holds no token files at all. With expired
+tokens present it returns 1 like container mode, and `cc` reports it and stops rather than
+picking an account for you. Container mode is untouched, so `ccy` behaviour is unchanged.
+
+Three `cc` hardening fixes ship with it, all of the same silent-degradation shape:
+
+- **`CLAUDE_CONFIG_DIR` is honoured** for the credential park. It relocates the whole
+  config directory, credentials included on Linux, so hardcoding `$HOME/.claude` parked a
+  file `claude` was not reading — the real credential kept shadowing the injected token
+  while `/status` still reported the env token as active.
+- **The park is asserted.** A failed or partial move previously left the credential in
+  place and launched anyway, authenticating as the wrong account with no indication.
+- **The backup is never clobbered.** With both a live and a parked credential present (a
+  named-token session killed after `claude` wrote a fresh one), `mv -f` destroyed the
+  parked Desktop credential, after which "Desktop" authenticated as the leftover. That
+  state is now refused with the two recovery commands spelled out, because which file to
+  keep is not something a script can decide.
+
+Full trace and the dated fit to the report:
+`CLAUDE/Plan/00048-cc-token-source-parity/JOURNAL/00048-Journal-26-09-12.md`.
+
+---
+
 ## 3.49.2
 
 **`CCY_HASH` derives the set it hashes, instead of naming it.**
