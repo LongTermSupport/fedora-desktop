@@ -183,10 +183,6 @@ handlers:
   permission_request:
     auto_approve_reads: {enabled: true, priority: 10}  # Auto-approve read-only operations
 
-  # Notification - Custom notification handling
-  notification:
-    notification_logger: {enabled: true, priority: 10}  # Log notifications
-
   # UserPromptSubmit - Context injection before processing
   user_prompt_submit:
     git_context_injector: {enabled: true, priority: 20}  # Inject git context into prompts
