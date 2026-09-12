@@ -5,9 +5,15 @@ Force-regenerate the daemon's generated documentation to its canonical form,
 
 ## Usage
 
-```claude-code
-/hooks-daemon regen-docs
+A CLI verb, not a skill subcommand (Plan 00330 — the CLI name is the one
+agents use). On a self-install the wrapper is `bin/hooks-daemon`:
+
+```bash
+.claude/hooks-daemon/bin/hooks-daemon regenerate-docs
 ```
+
+It is also step 14 of the housekeeping pass, where it acts without
+confirmation because it is idempotent (see [housekeeping.md](housekeeping.md)).
 
 ## What It Regenerates
 
@@ -26,27 +32,28 @@ edit will not produce churn diffs.
 
 - **Resolving a git merge/rebase conflict** that left conflict markers or stale
   content inside `.claude/HOOKS-DAEMON.md` or the `CLAUDE.md` `<hooksdaemon>` block.
-  Run `regen-docs`, then stage the clean result — the regenerated content reflects
+  Run `regenerate-docs`, then stage the clean result — the regenerated content reflects
   your merged `.claude/hooks-daemon.yaml`, not either conflicting side.
 - After hand-editing `.claude/hooks-daemon.yaml` when you want the generated docs
   refreshed but do **not** want to bounce the running daemon.
 - Any time the generated docs have drifted from the live config.
 
-## regen-docs vs restart
+## regenerate-docs vs restart
 
-| Action       | Refreshes generated docs | Restarts daemon | Use when                                      |
-| ------------ | ------------------------ | --------------- | --------------------------------------------- |
-| `regen-docs` | Yes                      | No              | Fixing/refreshing docs only (e.g. merge fix)  |
-| `restart`    | Yes (on startup)         | Yes             | Applying config/handler changes to the daemon |
+| Action            | Refreshes generated docs | Restarts daemon | Use when                                      |
+| ----------------- | ------------------------ | --------------- | --------------------------------------------- |
+| `regenerate-docs` | Yes                      | No              | Fixing/refreshing docs only (e.g. merge fix)  |
+| `restart`         | Yes (on startup)         | Yes             | Applying config/handler changes to the daemon |
 
-A `restart` already regenerates both artifacts on startup. `regen-docs` is the
-explicit one-shot when you want the doc regeneration **without** the restart.
+A `restart` already regenerates both artifacts on startup. `regenerate-docs`
+is the explicit one-shot when you want the doc regeneration **without** the
+restart.
 
 ## Options
 
-```claude-code
-/hooks-daemon regen-docs --include-disabled   # list disabled handlers in HOOKS-DAEMON.md
-/hooks-daemon regen-docs --output PATH         # alternate HOOKS-DAEMON.md output path
+```bash
+.claude/hooks-daemon/bin/hooks-daemon regenerate-docs --include-disabled   # list disabled handlers in HOOKS-DAEMON.md
+.claude/hooks-daemon/bin/hooks-daemon regenerate-docs --output PATH         # alternate HOOKS-DAEMON.md output path
 ```
 
 ## Verify

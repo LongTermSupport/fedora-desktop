@@ -1,7 +1,7 @@
 ---
 name: hooks-daemon
-description: Manage Claude Code Hooks Daemon - install, upgrade, check health, restart, and develop project-level handlers
-argument-hint: "[install|upgrade|health|restart|check|dev-handlers|regen-docs|rule-explain|logs|release-notes] [args...]"
+description: Manage Claude Code Hooks Daemon - install, upgrade, check health, restart, run the housekeeping pass, and report issues
+argument-hint: "[install|upgrade|optimise|housekeeping|restart|health|bug-report|report] [args...]"
 disable-model-invocation: false
 user-invocable: true
 allowed-tools: Bash, Read, Write, Edit
@@ -10,6 +10,11 @@ allowed-tools: Bash, Read, Write, Edit
 # Hooks Daemon Management
 
 Manage your Claude Code Hooks Daemon installation with these commands.
+
+The routed surface is deliberately small (Plan 00330): a subcommand exists
+only for something a human types. Everything else the daemon can do is a
+CLI verb, listed under [Capabilities](#capabilities-cli-verbs) below with the
+exact command — the same verb agents already run directly.
 
 ## Available Commands
 
@@ -36,6 +41,43 @@ Update to a new version of the hooks daemon:
 
 See [upgrade.md](upgrade.md) for detailed upgrade documentation.
 
+### Optimise Configuration
+
+The config-optimisation review — the mandatory closing step of every upgrade,
+and the repeatable answer to "enable all relevant handlers and ensure optimal
+configuration for this project":
+
+```claude-code
+/hooks-daemon optimise
+```
+
+Scores every registered handler across six derived areas, surfaces handlers
+that are new or disabled-but-relevant, reports the inapplicable ones as such,
+and applies its recommendations only on explicit confirmation.
+
+See [optimise.md](optimise.md) — it starts by running
+`scripts/optimise-invoke.sh`, which prints the procedure to follow.
+
+### Housekeeping Pass
+
+One invocation for the whole housekeeping pass — plan QA, docs QA, the
+daemon's own audits, the formatters, and `optimise` to close:
+
+```claude-code
+/hooks-daemon housekeeping                     # report everything; formatters act
+/hooks-daemon housekeeping --apply prune-venvs # also release one held step
+/hooks-daemon housekeeping --list              # the steps, in order
+```
+
+Report-only steps run first, in parallel, one sub-agent each; mutating steps
+follow in a fixed order with `optimise` last because it restarts the daemon.
+Only `format-markdown` and `regenerate-docs` act without confirmation — every
+other mutating step is HELD and acts only when named on `--apply`. Each
+sub-agent reports what it CHANGED, never what it read.
+
+See [housekeeping.md](housekeeping.md) for the step list and the sub-agent
+contract.
+
 ### Restart Daemon
 
 **Required after editing `.claude/hooks-daemon.yaml` or project handlers:**
@@ -48,118 +90,59 @@ The daemon caches config at startup — restart picks up any config or handler c
 
 See [restart.md](restart.md) for details.
 
-### Regenerate Generated Docs
-
-Force-regenerate the daemon's generated documentation **without restarting**:
-
-```claude-code
-/hooks-daemon regen-docs
-```
-
-Rewrites both generated artifacts to their canonical form in one shot:
-
-- `.claude/HOOKS-DAEMON.md` — the active-handler summary.
-- The `<hooksdaemon>` guidance block inside your project `CLAUDE.md`.
-
-This is the explicit way to recover both files after a **git merge/rebase conflict**
-left them stale or conflict-marked — run it, then stage the clean result. (A normal
-`restart` also refreshes these, but `regen-docs` does it as a one-shot with no daemon
-bounce.)
-
-See [regen-docs.md](regen-docs.md) for details.
-
-### Explain a Rule
-
-Get the full, verbatim detail for any daemon rule on demand — independent of
-whether it has already fired this session:
-
-```claude-code
-/hooks-daemon rule-explain R-GIT-RESET-HARD
-/hooks-daemon rule-explain --list             # every known rule ID + handler
-```
-
-See [rule-explain.md](rule-explain.md) for details.
-
-### Plan QA
-
-Lint and sweep the plan tree on demand — the same checks the edit-time lint,
-commit gate and session sweep run automatically:
-
-```bash
-.claude/hooks-daemon/bin/hooks-daemon plan-qa --sweep          # whole tree (exit 1 on findings)
-.claude/hooks-daemon/bin/hooks-daemon plan-qa --lint <PLAN.md> # one plan document
-.claude/hooks-daemon/bin/hooks-daemon plan-qa --check-staged   # what the commit gate will say
-```
-
-See [plan-qa.md](plan-qa.md) for details.
-
 ### Check Health & Status
 
 Verify daemon is running correctly:
 
 ```claude-code
 /hooks-daemon health           # Quick health check
-/hooks-daemon logs             # View last 50 lines of logs
-/hooks-daemon logs --follow    # Stream logs in real-time
 ```
 
-See [health.md](health.md) for health check details.
+See [health.md](health.md) for health check details, including where the logs
+and the verbose environment audit are.
 
-### Check Environment & Configuration
+### Report an Issue
 
-Run a verbose, on-demand audit of the Claude Code environment:
+Two different actions — pick by what you need:
 
 ```claude-code
-/hooks-daemon check
+/hooks-daemon bug-report "description of the issue"   # diagnostic bundle for maintainers
+/hooks-daemon report "daemon stopped responding"       # LLM-driven investigation with a timeline
 ```
 
-Reports Claude Code optimal-config settings (max output tokens, bash working
-directory, effort level, extended thinking, agent teams, auto-memory) with
-fix instructions, plus the container runtime, git `core.fileMode`, and
-hook-registration drift. This is the detail that SessionStart deliberately
-keeps quiet — SessionStart now only speaks when something needs action.
+`bug-report` is fast and mechanical: version, status, config, handlers, recent
+logs and a health checklist, written to `untracked/bug-reports/`. `report` is
+an investigation: it collects evidence, builds a timeline, and writes a
+narrative to `./untracked/hooks-daemon-{description}.md`. Reach for
+`bug-report` first; use `report` when the bug-report was not enough to explain
+what happened.
 
-See [check.md](check.md) for details.
+See [bug-report.md](bug-report.md) and [report.md](report.md).
 
-### Develop Project Handlers
+## Capabilities (CLI verbs)
 
-Scaffold new project-level handlers:
+These are things the daemon does that nobody types as a skill subcommand, so
+they are not routed. Run the verb directly (on a self-install the wrapper is
+`bin/hooks-daemon` at the repository root):
 
-```claude-code
-/hooks-daemon dev-handlers     # Interactive handler scaffolding
+```bash
+.claude/hooks-daemon/bin/hooks-daemon logs               # last 50 log lines (--follow to stream)
+.claude/hooks-daemon/bin/hooks-daemon status             # one-line daemon status
+.claude/hooks-daemon/bin/hooks-daemon handlers           # every loaded handler with its priority
+.claude/hooks-daemon/bin/hooks-daemon config-validate    # validate the project config (validate-config also works)
+.claude/hooks-daemon/bin/hooks-daemon check              # verbose environment & configuration audit
+.claude/hooks-daemon/bin/hooks-daemon regenerate-docs    # rewrite HOOKS-DAEMON.md + the CLAUDE.md block, no restart
+.claude/hooks-daemon/bin/hooks-daemon explain-rule R-GIT-RESET-HARD   # full detail for a rule (--list for every ID)
+.claude/hooks-daemon/bin/hooks-daemon explain-handler destructive_git # a handler's rules + guidance
+.claude/hooks-daemon/bin/hooks-daemon init-project-handlers           # scaffold project-level handlers
+.claude/hooks-daemon/bin/hooks-daemon release-notes      # installed version's notes (--latest, --version, --list)
+.claude/hooks-daemon/bin/hooks-daemon plan-qa --sweep    # plan-tree drift (--lint <PLAN.md>, --check-staged)
+.claude/hooks-daemon/bin/hooks-daemon housekeeping --list # the housekeeping pass, step by step
 ```
 
-See [dev-handlers.md](dev-handlers.md) for handler development guide.
-
-### Investigate an Issue
-
-Generate a detailed investigation report with timeline, evidence, and analysis:
-
-```claude-code
-/hooks-daemon report "daemon stopped responding during edits"
-```
-
-The report is saved to `./untracked/hooks-daemon-{description}.md` for sharing with maintainers.
-
-See [report.md](report.md) for details.
-
-### Read Release Notes
-
-Show the daemon's release notes without leaving the terminal. With no flag it
-shows the notes for the version you currently have installed:
-
-```claude-code
-/hooks-daemon release-notes                       # installed version's notes
-/hooks-daemon release-notes --latest              # newest available version
-/hooks-daemon release-notes --version 3.27.0      # a specific version
-/hooks-daemon release-notes --from 3.20.0 --to 3.27.0   # everything you gained upgrading
-/hooks-daemon release-notes --list                # list available versions
-/hooks-daemon release-notes --version 3.27.0 --format json
-```
-
-Notes are read from the per-version `RELEASES/vX.Y.Z.md` files that ship with
-the install — no network access required. `--from` is exclusive and `--to` is
-inclusive, matching the upgrade semantics (the notes for everything you gained).
+Detail per capability: [check.md](check.md), [regen-docs.md](regen-docs.md),
+[rule-explain.md](rule-explain.md), [dev-handlers.md](dev-handlers.md),
+[plan-qa.md](plan-qa.md). `bin/hooks-daemon --help` lists every verb.
 
 ## Quick Start
 
@@ -173,11 +156,11 @@ After editing `.claude/hooks-daemon.yaml`:
 If you're experiencing issues:
 
 ```claude-code
-# 1. Check daemon status
+# 1. Check daemon health
 /hooks-daemon health
 
 # 2. View recent logs
-/hooks-daemon logs
+.claude/hooks-daemon/bin/hooks-daemon logs
 
 # 3. Generate a quick bug report with diagnostics
 /hooks-daemon bug-report "description of the issue"
@@ -219,27 +202,35 @@ case "$SUBCOMMAND" in
         bash "$SKILL_DIR/scripts/health-check.sh" "$@"
         ;;
 
-    dev-handlers)
-        bash "$SKILL_DIR/scripts/init-handlers.sh" "$@"
+    optimise|optimize)
+        # Prints the review procedure for Claude to follow (like `report`).
+        # `optimize` is accepted so the US spelling does not hit the
+        # unknown-subcommand branch.
+        bash "$SKILL_DIR/scripts/optimise-invoke.sh" "$@"
+        ;;
+
+    housekeeping)
+        # Prints the full-pass procedure (Plan 00330); every step is then
+        # delegated to a sub-agent. --apply <step> releases a held step.
+        bash "$SKILL_DIR/scripts/daemon-cli.sh" housekeeping "$@"
         ;;
 
     report)
-        # LLM-driven investigation report — outputs prompt for Claude to follow
-        cat "$SKILL_DIR/report.md" | sed "s/\$ARGUMENTS/$*/"
+        # LLM-driven investigation report — outputs prompt for Claude to follow,
+        # with the human's description standing in for report.md's $ARGUMENTS
+        # placeholder.
+        #
+        # Bash parameter expansion substitutes LITERALLY, so the description is
+        # data: no character in it can terminate the replacement or be read as
+        # a further command. Handing it to a stream editor instead made every
+        # character syntax — a `/` (a file path in the description) ended the
+        # replacement and the remainder was parsed as more editor commands.
+        REPORT_PROMPT="$(cat "$SKILL_DIR/report.md")"
+        printf '%s\n' "${REPORT_PROMPT//\$ARGUMENTS/$*}"
         ;;
 
-    regen-docs|regenerate-docs)
-        # User-facing alias regen-docs maps to the CLI command regenerate-docs.
-        bash "$SKILL_DIR/scripts/daemon-cli.sh" regenerate-docs "$@"
-        ;;
-
-    rule-explain)
-        # User-facing alias rule-explain maps to the CLI command explain-rule.
-        bash "$SKILL_DIR/scripts/daemon-cli.sh" explain-rule "$@"
-        ;;
-
-    logs|status|restart|handlers|config-validate|bug-report|check|release-notes)
-        # Forward to daemon CLI wrapper
+    restart|bug-report)
+        # Forward to daemon CLI wrapper.
         bash "$SKILL_DIR/scripts/daemon-cli.sh" "$SUBCOMMAND" "$@"
         ;;
 
@@ -249,24 +240,20 @@ case "$SUBCOMMAND" in
         echo ""
         echo "Available commands:"
         echo "  install [--force]     Install daemon (fresh clone)"
-        echo "  restart               Restart daemon (required after config changes)"
-        echo "  regen-docs            Force-regenerate HOOKS-DAEMON.md + CLAUDE.md block"
-        echo "  rule-explain ID       Full detail for a rule ID, or --list every rule"
-        echo "  health                Check daemon health and status"
         echo "  upgrade [VERSION]     Upgrade daemon to new version"
-        echo "  dev-handlers          Scaffold new project handlers"
-        echo "  logs [--follow]       View daemon logs"
-        echo "  status                Show daemon status"
-        echo "  handlers              List loaded handlers"
-        echo "  check                 Verbose environment & configuration audit"
-        echo "  bug-report DESC       Generate bug report with diagnostics"
-        echo "  report DESC           Investigate an issue and generate a detailed report"
-        echo "  release-notes [opts]  Show release notes (installed version by default)"
+        echo "  optimise              Config-optimisation review (closes every upgrade)"
+        echo "  housekeeping [--apply STEP] [--list]"
+        echo "                        Full housekeeping pass: reports first, held steps on request, optimise last"
+        echo "  restart               Restart daemon (required after config changes)"
+        echo "  health                Check daemon health and status"
+        echo "  bug-report DESC       Diagnostic bundle for maintainers"
+        echo "  report DESC           LLM-driven investigation report with a timeline"
         echo ""
         echo "After editing .claude/hooks-daemon.yaml, always run: /hooks-daemon restart"
         echo ""
-        echo "For detailed documentation, see the skill files or run:"
-        echo "  /hooks-daemon <command> --help"
+        echo "Everything else is a CLI verb: .claude/hooks-daemon/bin/hooks-daemon --help"
+        echo "(logs, status, handlers, config-validate, check, regenerate-docs, explain-rule,"
+        echo " init-project-handlers, release-notes, plan-qa ...)"
         ;;
 
     *)

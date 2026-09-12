@@ -889,6 +889,15 @@ send_request_stdin() {
     # a literal baked in at generation time so no PascalCase->kebab mapping is
     # needed here. Absent for every deployed forwarder by default (byte-identical).
     local event_sock_name="${3:-}"
+    # Plan 00295 Task 2.5: $4, when forwarder_generator's append_nc_socket_arg
+    # inserted it, is the events dir resolved (and AF_UNIX-overflow-fallback
+    # applied) AT GENERATION TIME — the same decision build_relay_guard_block
+    # makes for its own `_rl_events_dir`. Empty for every forwarder whose
+    # natural `$_untracked_dir/events$_hostname_suffix` path never overflows
+    # (the common case): the dynamic default below is computed exactly as
+    # before. HOOKS_DAEMON_EVENTS_DIR, checked first, always outranks this
+    # baked value — an operator's own override always wins.
+    local events_dir_override="${4:-}"
 
     # nc rung (rung 2): only for the plain passthrough shape (no response_mode
     # translation needed — "status"/"worktree" always go through the python3
@@ -903,7 +912,8 @@ send_request_stdin() {
     if [[ -z "$response_mode" && -n "$event_sock_name" ]] \
         && [[ "${HOOKS_DAEMON_NC_UNIX_CAPABLE:-0}" == "1" ]] \
         && command -v nc > /dev/null; then
-        local _nc_sock="$_untracked_dir/events${_hostname_suffix}/${event_sock_name}.sock"
+        local _nc_events_dir="${HOOKS_DAEMON_EVENTS_DIR:-${events_dir_override:-$_untracked_dir/events${_hostname_suffix}}}"
+        local _nc_sock="$_nc_events_dir/${event_sock_name}.sock"
         if [[ -S "$_nc_sock" ]]; then
             local _nc_payload _nc_response _nc_stderr _nc_rc
             _nc_payload="$(mktemp)"
@@ -1235,6 +1245,10 @@ except Exception as e:
 #   $2 - event_sock_name: (optional, Plan 00290) this event's bash_key, e.g.
 #        "stop" — threaded through to send_request_stdin's nc rung. Absent
 #        for every deployed forwarder by default (byte-identical).
+#   $3 - events_dir_override: (optional, Plan 00295 Task 2.5) the
+#        generation-time-resolved events dir override — threaded through to
+#        send_request_stdin's own $4. Absent unless append_nc_socket_arg's
+#        AF_UNIX-overflow decision applied at deploy time.
 #
 # Reads:
 #   stdin: Claude Code hook input JSON
@@ -1248,6 +1262,7 @@ except Exception as e:
 forward_stop_event() {
     local event_name="$1"
     local event_sock_name="${2:-}"
+    local events_dir_override="${3:-}"
     if [ -z "$event_name" ]; then
         echo '{"error":"forward_stop_event: event_name required"}' >&2
         return 1
@@ -1263,7 +1278,7 @@ forward_stop_event() {
     # translates decision=block into exit 2 + reason on stderr. The reason may
     # contain control characters, so it is printed straight from python rather
     # than round-tripped through a shell variable.
-    send_request_stdin "$event_name" "" "$event_sock_name" > "$response_file"
+    send_request_stdin "$event_name" "" "$event_sock_name" "$events_dir_override" > "$response_file"
     cat "$response_file"
 
     python3 -c "

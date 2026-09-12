@@ -11,7 +11,9 @@ allowed-tools: Task, Bash, Read, Grep, Glob
 
 This skill is a **shim**. It carries no documentation body of its own — it
 exists to dispatch the `hooks-daemon-docs-qa` agent, which does the real
-work. See `CLAUDE/DocumentationStrategy.md` for the ruleset it enforces.
+work. Where the `documentation` subsystem is enabled, the ruleset it enforces
+is written up in `CLAUDE/DocumentationStrategy.md`; the agent carries a
+compressed model of the same rules for projects that have not enabled it.
 
 ## What to do
 

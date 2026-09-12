@@ -18,9 +18,12 @@ Displays:
 
 ## View Daemon Logs
 
-```claude-code
-/hooks-daemon logs           # Last 50 lines
-/hooks-daemon logs --follow  # Stream in real-time
+Logs are a CLI verb, not a skill subcommand (Plan 00330 — nobody types it as
+one). On a self-install the wrapper is `bin/hooks-daemon`:
+
+```bash
+.claude/hooks-daemon/bin/hooks-daemon logs           # Last 50 lines
+.claude/hooks-daemon/bin/hooks-daemon logs --follow  # Stream in real-time
 ```
 
 Logs show:
@@ -58,7 +61,7 @@ Failed Handlers:
   - custom_handler: Missing required abstract method get_acceptance_tests()
   - another_handler: Import error: ModuleNotFoundError
 
-See logs for details: /hooks-daemon logs
+See logs for details: .claude/hooks-daemon/bin/hooks-daemon logs
 ```
 
 ## Common Health Issues
@@ -89,7 +92,7 @@ See logs for details: /hooks-daemon logs
 
 **Fix:**
 
-1. Check logs: `/hooks-daemon logs`
+1. Check logs: `.claude/hooks-daemon/bin/hooks-daemon logs`
 2. Fix handler issues
 3. Restart daemon
 
@@ -117,8 +120,11 @@ For detailed diagnostics when reporting issues:
 # Check handler registry
 .claude/hooks-daemon/bin/hooks-daemon handlers
 
-# Validate configuration (config-validate takes the config path)
-.claude/hooks-daemon/bin/hooks-daemon config-validate .claude/hooks-daemon.yaml
+# Validate configuration (defaults to the project's config; validate-config also works)
+.claude/hooks-daemon/bin/hooks-daemon config-validate
+
+# Verbose environment & configuration audit (see check.md)
+.claude/hooks-daemon/bin/hooks-daemon check
 ```
 
 ## Troubleshooting

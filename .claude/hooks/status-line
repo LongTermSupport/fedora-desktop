@@ -18,8 +18,12 @@ source "$SCRIPT_DIR/../init.sh"
 
 # Ensure daemon is running (lazy startup)
 if ! ensure_daemon; then
-    # ERROR: Daemon failed to start - make it visible
+    # raw_stdout event (generated; Plan 00189): Claude Code reads this
+    # hook's stdout RAW, so a JSON error here would be taken literally.
+    # Diagnostic on stderr; non-zero exit = not handled.
+    # This stdout is a DISPLAY line, so the outage stays visible.
     echo "⚠️ DAEMON FAILED"
+    echo "HOOKS DAEMON ERROR [daemon_startup_failed]: StatusLine hook: failed to start hooks daemon. Use the hooks-daemon skill to check logs (Skill tool: skill=hooks-daemon, args=logs)" >&2
     exit 1
 fi
 

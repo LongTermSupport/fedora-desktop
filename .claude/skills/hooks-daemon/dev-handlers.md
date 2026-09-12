@@ -4,11 +4,22 @@ Scaffold new project-level handlers with automatic file generation and TDD struc
 
 ## Quick Start
 
-```claude-code
-/hooks-daemon dev-handlers
+Scaffolding is a CLI verb, not a skill subcommand (Plan 00330 — agents
+scaffold through the verb). On a self-install the wrapper is
+`bin/hooks-daemon`:
+
+```bash
+.claude/hooks-daemon/bin/hooks-daemon init-project-handlers
 ```
 
-This interactive command will:
+The interactive wrapper that used to sit behind the subcommand is still
+bundled for a human who prefers prompts:
+
+```bash
+bash .claude/skills/hooks-daemon/scripts/init-handlers.sh "$@"   # pass through any arguments you were given
+```
+
+Either route will:
 
 1. Prompt for handler details (name, event type, priority)
 2. Create handler file in `.claude/project-handlers/{event_type}/`
@@ -199,7 +210,7 @@ the daemon's `constants/priority.py`, the source of truth):
 .claude/hooks-daemon/bin/hooks-daemon validate-project-handlers
 
 # Generate acceptance test playbook (includes project handlers)
-.claude/hooks-daemon/bin/hooks-daemon generate-playbook > /tmp/playbook.md
+.claude/hooks-daemon/bin/hooks-daemon generate-playbook > untracked/scratch/playbook.md
 ```
 
 ## Examples
@@ -214,9 +225,9 @@ See example project handlers:
 
 For comprehensive handler development guide:
 
-- See: `CLAUDE/HANDLER_DEVELOPMENT.md`
-- See: `CLAUDE/PROJECT_HANDLERS.md`
-- See: `CLAUDE/DEBUGGING_HOOKS.md` (event flow debugging)
+- See: the daemon clone's `CLAUDE/HANDLER_DEVELOPMENT.md`
+- See: the daemon clone's `CLAUDE/PROJECT_HANDLERS.md`
+- See: the daemon clone's `CLAUDE/DEBUGGING_HOOKS.md` (event flow debugging)
 
 ## Next Steps After Scaffolding
 

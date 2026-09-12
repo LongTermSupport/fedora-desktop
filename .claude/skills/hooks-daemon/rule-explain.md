@@ -7,10 +7,14 @@ first fire is verbose, later fires are terse and point back here.
 
 ## Usage
 
-```claude-code
-/hooks-daemon rule-explain R-GIT-RESET-HARD
-/hooks-daemon rule-explain git-reset-hard    # case-insensitive, "R-" optional
-/hooks-daemon rule-explain --list            # every known rule ID + handler
+A CLI verb, not a skill subcommand (Plan 00330): every block message already
+prints this exact form, so the skill spelling was a second name for the same
+thing. On a self-install the wrapper is `bin/hooks-daemon`:
+
+```bash
+.claude/hooks-daemon/bin/hooks-daemon explain-rule R-GIT-RESET-HARD
+.claude/hooks-daemon/bin/hooks-daemon explain-rule git-reset-hard    # case-insensitive, "R-" optional
+.claude/hooks-daemon/bin/hooks-daemon explain-rule --list            # every known rule ID + handler
 ```
 
 ## Output
@@ -40,8 +44,7 @@ Run 'hooks-daemon explain-rule --list' to see every known rule ID.
 ## Explaining a whole handler
 
 For a handler's full rule set (IDs + terse reminders) plus its CLAUDE.md
-guidance text, use the CLI directly — there is no separate skill subcommand
-for this, since it is a less frequent, more exploratory lookup:
+guidance text:
 
 ```bash
 .claude/hooks-daemon/bin/hooks-daemon explain-handler destructive_git

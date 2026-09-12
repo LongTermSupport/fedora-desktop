@@ -2,8 +2,9 @@
 #
 # DAEMON-OWNED FILE - do not edit. Deployed into your project by the
 # claude-code-hooks-daemon installer and refreshed on every upgrade, so local
-# changes are discarded. See CLAUDE/LLM-INSTALL.md, "Which Files Under
-# .claude/ Are Yours?", for the full list and the linter exclusions.
+# changes are discarded. See the daemon clone's CLAUDE/LLM-INSTALL.md,
+# "Which Files Under .claude/ Are Yours?", for the full list and the
+# linter exclusions.
 #
 # init-handlers.sh - Scaffold new project-level handlers
 #
@@ -20,10 +21,13 @@ set -euo pipefail
 # ships the user a broken flow that no in-repo fix can save once the
 # user already has the bad copy installed. Bootstrap from the GitHub
 # release artifact, sha256-verify against the manifest, and re-exec with
-# --already-bootstrapped to break recursion. Aborts loudly on any
-# network or integrity failure — never silently falls back to the local
-# stale copy (a silent fallback would mean a tampered or corrupted
-# release reaches production).
+# --already-bootstrapped to break recursion. An integrity failure aborts
+# loudly (a tampered or corrupted release must not reach production). An
+# UNREACHABLE release (network down, or a release published without its
+# assets) falls back to the installed local copy with one warning line
+# (Plan 00362 Task 1.1): the copy on disk was verified when it was
+# installed, and refusing it for want of a staleness check left every
+# client wrapper unusable when v3.62.1 shipped with no assets.
 #
 # Plan 00105 Phase 4: parameterised by `$(basename "$0")` so the same
 # stanza serves upgrade.sh, daemon-cli.sh, health-check.sh, and
@@ -61,58 +65,80 @@ else
     if [ "${HOOKS_DAEMON_BOOTSTRAP_FORCE:-0}" != "1" ] && [ -f "$_bootstrap_marker" ]; then
         : # cached: this exact body was already verified against the release manifest
     else
-        _bootstrap_tmp_checksums="$(mktemp)"
-        trap 'rm -f "$_bootstrap_tmp_checksums"' EXIT
-        if ! curl -fsSL --max-time 30 -o "$_bootstrap_tmp_checksums" \
-                "$_HOOKS_DAEMON_BOOTSTRAP_BASE_URL/bootstrap-checksums.txt"; then
-            echo "Error: failed to download bootstrap-checksums.txt from" >&2
-            echo "    $_HOOKS_DAEMON_BOOTSTRAP_BASE_URL/bootstrap-checksums.txt" >&2
-            echo "Self-bootstrap aborted. Check network connectivity and retry." >&2
-            exit 1
-        fi
-
-        _expected_sha="$(awk -v name="$_HOOKS_DAEMON_BOOTSTRAP_SCRIPT_NAME" '$2 == name {print $1; exit}' "$_bootstrap_tmp_checksums")"
-        if [ -z "$_expected_sha" ]; then
-            echo "Error: bootstrap-checksums.txt has no entry for $_HOOKS_DAEMON_BOOTSTRAP_SCRIPT_NAME" >&2
-            echo "Self-bootstrap aborted. The release manifest is incomplete." >&2
-            exit 1
-        fi
-
-        if [ "$_bootstrap_own_sha" != "$_expected_sha" ]; then
-            _bootstrap_tmp_fresh="$(mktemp)"
-            trap 'rm -f "$_bootstrap_tmp_checksums" "$_bootstrap_tmp_fresh"' EXIT
-            if ! curl -fsSL --max-time 30 -o "$_bootstrap_tmp_fresh" \
-                    "$_HOOKS_DAEMON_BOOTSTRAP_BASE_URL/$_HOOKS_DAEMON_BOOTSTRAP_SCRIPT_NAME"; then
-                echo "Error: failed to download fresh $_HOOKS_DAEMON_BOOTSTRAP_SCRIPT_NAME from" >&2
-                echo "    $_HOOKS_DAEMON_BOOTSTRAP_BASE_URL/$_HOOKS_DAEMON_BOOTSTRAP_SCRIPT_NAME" >&2
+        # A release that cannot be REACHED (network down, or the release
+        # carries no assets — v3.62.1 did) is not a reason to refuse the copy
+        # already installed: one warning, then the local copy runs, and no
+        # cache marker is written so the next invocation retries. A download
+        # that IS fetched but fails verification still aborts — that is the
+        # tamper case the manifest exists for.
+        _bootstrap_local_fallback() {
+            # $1 = what could not be fetched, $2 = its URL, $3 = curl exit code
+            if [ ! -r "$0" ]; then
+                echo "Error: failed to download $1 from $2 (curl exit $3) and no local copy of $_HOOKS_DAEMON_BOOTSTRAP_SCRIPT_NAME is readable at $0" >&2
                 echo "Self-bootstrap aborted. Check network connectivity and retry." >&2
                 exit 1
             fi
-            _fresh_sha="$(_self_sha256 "$_bootstrap_tmp_fresh")"
-            if [ "$_fresh_sha" != "$_expected_sha" ]; then
-                echo "Error: checksum mismatch for downloaded $_HOOKS_DAEMON_BOOTSTRAP_SCRIPT_NAME" >&2
-                echo "    Expected: $_expected_sha" >&2
-                echo "    Got:      $_fresh_sha" >&2
-                echo "Self-bootstrap aborted. The download was tampered with or the" >&2
-                echo "release manifest is inconsistent — do not run this script." >&2
+            echo "Warning: failed to download $1 from $2 (curl exit $3) — continuing with the installed local copy $0; self-bootstrap skipped until the release is reachable" >&2
+        }
+
+        _bootstrap_verified=0
+        _bootstrap_tmp_checksums="$(mktemp)"
+        _bootstrap_tmp_fresh="$(mktemp)"
+        trap 'rm -f "$_bootstrap_tmp_checksums" "$_bootstrap_tmp_fresh"' EXIT
+        _bootstrap_curl_rc=0
+        curl -fsL --max-time 30 -o "$_bootstrap_tmp_checksums" \
+            "$_HOOKS_DAEMON_BOOTSTRAP_BASE_URL/bootstrap-checksums.txt" || _bootstrap_curl_rc=$?
+        if [ "$_bootstrap_curl_rc" -ne 0 ]; then
+            _bootstrap_local_fallback "bootstrap-checksums.txt" \
+                "$_HOOKS_DAEMON_BOOTSTRAP_BASE_URL/bootstrap-checksums.txt" "$_bootstrap_curl_rc"
+        else
+            _expected_sha="$(awk -v name="$_HOOKS_DAEMON_BOOTSTRAP_SCRIPT_NAME" '$2 == name {print $1; exit}' "$_bootstrap_tmp_checksums")"
+            if [ -z "$_expected_sha" ]; then
+                echo "Error: bootstrap-checksums.txt has no entry for $_HOOKS_DAEMON_BOOTSTRAP_SCRIPT_NAME" >&2
+                echo "Self-bootstrap aborted. The release manifest is incomplete." >&2
                 exit 1
             fi
-            chmod +x "$_bootstrap_tmp_fresh"
-            exec bash "$_bootstrap_tmp_fresh" --already-bootstrapped "$@"
+
+            if [ "$_bootstrap_own_sha" = "$_expected_sha" ]; then
+                _bootstrap_verified=1
+            else
+                _bootstrap_curl_rc=0
+                curl -fsL --max-time 30 -o "$_bootstrap_tmp_fresh" \
+                    "$_HOOKS_DAEMON_BOOTSTRAP_BASE_URL/$_HOOKS_DAEMON_BOOTSTRAP_SCRIPT_NAME" || _bootstrap_curl_rc=$?
+                if [ "$_bootstrap_curl_rc" -ne 0 ]; then
+                    _bootstrap_local_fallback "fresh $_HOOKS_DAEMON_BOOTSTRAP_SCRIPT_NAME" \
+                        "$_HOOKS_DAEMON_BOOTSTRAP_BASE_URL/$_HOOKS_DAEMON_BOOTSTRAP_SCRIPT_NAME" "$_bootstrap_curl_rc"
+                else
+                    _fresh_sha="$(_self_sha256 "$_bootstrap_tmp_fresh")"
+                    if [ "$_fresh_sha" != "$_expected_sha" ]; then
+                        echo "Error: checksum mismatch for downloaded $_HOOKS_DAEMON_BOOTSTRAP_SCRIPT_NAME" >&2
+                        echo "    Expected: $_expected_sha" >&2
+                        echo "    Got:      $_fresh_sha" >&2
+                        echo "Self-bootstrap aborted. The download was tampered with or the" >&2
+                        echo "release manifest is inconsistent — do not run this script." >&2
+                        exit 1
+                    fi
+                    chmod +x "$_bootstrap_tmp_fresh"
+                    exec bash "$_bootstrap_tmp_fresh" --already-bootstrapped "$@"
+                fi
+            fi
         fi
 
         # Verified-current: cache so subsequent invocations of this exact
         # body skip the network round-trip. Cache write is best-effort —
         # if /tmp is read-only we surface the failure once via stderr but
         # do not abort, because the script body has already been verified.
-        if ! mkdir -p "$_bootstrap_marker_dir" 2> /dev/null; then
-            echo "Warning: could not create bootstrap cache dir $_bootstrap_marker_dir — will re-verify on next invocation" >&2
-        elif ! : > "$_bootstrap_marker" 2> /dev/null; then
-            echo "Warning: could not write bootstrap cache marker $_bootstrap_marker — will re-verify on next invocation" >&2
+        # A fallback run is NOT verified and writes no marker.
+        if [ "$_bootstrap_verified" -eq 1 ]; then
+            if ! mkdir -p "$_bootstrap_marker_dir" 2> /dev/null; then
+                echo "Warning: could not create bootstrap cache dir $_bootstrap_marker_dir — will re-verify on next invocation" >&2
+            elif ! : > "$_bootstrap_marker" 2> /dev/null; then
+                echo "Warning: could not write bootstrap cache marker $_bootstrap_marker — will re-verify on next invocation" >&2
+            fi
         fi
 
         trap - EXIT
-        rm -f "$_bootstrap_tmp_checksums"
+        rm -f "$_bootstrap_tmp_checksums" "$_bootstrap_tmp_fresh"
     fi
 fi
 # === SELF-BOOTSTRAP END ===
@@ -193,4 +219,4 @@ echo "  3. Refactor for clarity (REFACTOR phase)"
 echo "  4. Restart daemon to load handler:"
 echo "     $DAEMON_DIR/bin/hooks-daemon restart"
 echo ""
-echo "See CLAUDE/HANDLER_DEVELOPMENT.md for complete TDD workflow."
+echo "See the daemon clone's CLAUDE/HANDLER_DEVELOPMENT.md for the complete TDD workflow."

@@ -6,7 +6,7 @@ Generate a comprehensive bug report with full system diagnostics for triage.
 
 ```claude-code
 /hooks-daemon bug-report "description of the issue"
-/hooks-daemon bug-report "plan race condition" -o /tmp/report.md
+/hooks-daemon bug-report "plan race condition" -o untracked/scratch/report.md
 ```
 
 ## What's Included

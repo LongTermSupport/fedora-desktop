@@ -1,6 +1,6 @@
 # Hooks Daemon - Active Configuration
 
-> Generated on 2026-09-02 (v3.60.0) by `generate-docs`. Regenerate: `.claude/hooks-daemon/bin/hooks-daemon generate-docs`
+> Generated on 2026-09-12 (v3.63.0) by `generate-docs`. Regenerate: `.claude/hooks-daemon/bin/hooks-daemon generate-docs`
 
 ## Plan Mode
 
@@ -14,7 +14,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 
 ## Active Handlers
 
-### PreToolUse (53 handlers)
+### PreToolUse (58 handlers)
 
 | Priority | Handler | Behaviour | Description |
 |----------|---------|----------|-------------|
@@ -31,6 +31,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 13 | error_hiding_blocker | BLOCKING | Block error-hiding patterns in code written via Write or Edit tools |
 | 14 | artifact_publish_blocker | TERMINAL | Deny artefact publishing; allow read-only enumeration |
 | 14 | flaggable_content_channel_guard | BLOCKING | Deny content-revealing git/grep commands over configured flaggable paths |
+| 14 | project_containment | BLOCKING | Deny a write to a path named outside the repository root |
 | 14 | quarantine_artefact_read_guard | BLOCKING | Deny reading a quarantined DETAIL artefact from the main context |
 | 14 | secret_file_guard | BLOCKING | Deny any tool call that would put a protected file's contents into context |
 | 15 | dangerous_permissions | TERMINAL | Block chmod 777 and dangerous permission commands |
@@ -40,6 +41,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 15 | worktree_file_copy | BLOCKING | Prevent copying files between worktrees and main repo |
 | 16 | root_recursion_guard | BLOCKING | Block recursive scanners (grep -r, find, fd, rg, ...) rooted at ``/``/home/etc |
 | 16 | write_clobber_guard | BLOCKING | Deny ``Write`` to an existing file that was not read this session |
+| 17 | self_matching_process_probe | BLOCKING | Block a liveness probe whose pattern matches the shell running it |
 | 18 | github_auto_close_keywords | BLOCKING | Deny git messages carrying GitHub auto-closing keyword references |
 | 19 | ancestry_preserving_merge | BLOCKING | Block (or, in warn mode, advise against) ancestry-severing merges |
 | 20 | git_message_backtick | BLOCKING | Block a double-quoted git message whose backticks would be executed |
@@ -49,7 +51,10 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 34 | verification_result_gate | NON-TERMINAL | Advise when a verifier's exit status is never consumed before a mutator |
 | 35 | markdown_organization | BLOCKING | Enforce markdown file organization rules |
 | 36 | bash_safe_mode | NON-TERMINAL | Require a bash safety prelude on multi-statement Bash invocations |
+| 36 | remote_docs_provenance | BLOCKING | Deny a remote-tree write whose content lacks valid provenance |
+| 37 | remote_docs_routing | BLOCKING | Route a fetch to the vendored copy; warn when that copy is stale |
 | 38 | lsp_enforcement | BLOCKING | Enforce LSP tool usage instead of Grep/Bash grep for symbol lookups |
+| 38 | remote_docs_commit_gate | BLOCKING | Deny a commit that would enter an unattributed vendored document |
 | 40 | gh_issue_comments | BLOCKING | Ensure gh issue view commands always include --comments flag |
 | 40 | gh_pr_comments | BLOCKING | Ensure gh pr view commands always include --comments flag |
 | 40 | global_npm_advisor | NON-TERMINAL | Advise on global npm/yarn package installations |
@@ -72,7 +77,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 58 | flaggable_work_advisor | ADVISORY | Advise delegating safeguard-flaggable work BEFORE opening the content |
 | 60 | british_english | ADVISORY | Warn about American English spellings in content files (non-blocking) |
 
-### PostToolUse (9 handlers)
+### PostToolUse (10 handlers)
 
 | Priority | Handler | Behaviour | Description |
 |----------|---------|----------|-------------|
@@ -85,8 +90,9 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 30 | recovery_cron_advisor | ADVISORY | Advisory handler that manages failsafe recovery cron across plan lifecycle |
 | 31 | goal_injection | ADVISORY | Write a goal-intent signal when a plan flips to In Progress |
 | 32 | budget_exhaustion_detector | ADVISORY | Advisory PostToolUse handler that flags budget/quota-exhaustion messaging |
+| 33 | model_downgrade_recorder | ADVISORY | Publish Claude Code's own automatic model-downgrade record, silently |
 
-### SessionStart (20 handlers)
+### SessionStart (21 handlers)
 
 | Priority | Handler | Behaviour | Description |
 |----------|---------|----------|-------------|
@@ -110,6 +116,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 65 | tool_disable_advisor | NON-TERMINAL | Advise when a declared never-want tool is not disabled at source |
 | 66 | monorepo_detector | ADVISORY | Advise when manifests exist below the repo root but not at it |
 | 67 | config_optimisation_reminder | ADVISORY | Remind the agent when the config-optimisation review is stale |
+| 68 | remote_docs_staleness | ADVISORY | Report vendored documents that are stale or no longer parse |
 
 ### PreCompact (2 handlers)
 
