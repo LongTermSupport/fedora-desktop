@@ -110,6 +110,13 @@ if ! nokill_out="$(bash "$SCRIPT_DIR/qa-nokill-containerwatch.bash" 2>&1)"; then
     echo "✗ QA FAILED: no-kill safety gate (container-watch) rejected a process-termination call site" >&2
     exit 1
 fi
+# Pass line, for the same reason the drift gate below prints one: a gate whose
+# only visible output is a failure is indistinguishable from a gate that is not
+# running. That rule was written down beside the drift gate and never applied to
+# this one, six lines above it.
+nokill_summary=$(printf '%s' "$nokill_out" | grep -oE '[0-9]+ call site[s]? checked') ||
+    nokill_summary="no forbidden kill call sites"
+printf '✓ nokill-containerwatch: %s\n' "$nokill_summary"
 
 # Deployed-drift gate (Plan 00099): a repo-owned user script that was changed
 # but never deployed means the host is running different code from the one QA

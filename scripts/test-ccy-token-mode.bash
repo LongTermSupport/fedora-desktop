@@ -18,11 +18,17 @@
 # today" as expired. So a token that still authenticates perfectly drops out of
 # the valid set on day 90 — and on the day this was found, an entire pool had.
 #
-# Every case here is NON-INTERACTIVE: all of them return before select_token
-# reaches its `read -p` menu, which is exactly what makes the function testable
-# without a terminal, a claude binary, or a real credential. Only the FILENAME is
-# read (is_token_valid parses the date out of it and never opens the file), so the
-# fixtures hold a placeholder string and no real token is involved.
+# Most cases return before select_token reaches its `read -p` menu. The menu
+# cases drive it through piped stdin under a hard timeout, which is how the
+# unbounded-loop regression (CCY 3.51.0) is gated — a hang must fail the gate,
+# not stall CI. Only the FILENAME is ever read (is_token_valid parses the date
+# out of it and never opens the file), so the fixtures hold a placeholder string
+# and no real token is involved.
+#
+# COVERAGE IS NOT TOTAL: 9 of select_token's 12 return points. The three left
+# out need a real `claude` binary (container create/renew) or a billed API call
+# (the post-usage-fetch path). The summary line restates this, because a green
+# run must not read as "all of this code is good".
 #
 # `set -e` is deliberately NOT used: every case must run so the summary reports the
 # full picture, and each result is checked explicitly. (Same reason, same shape as
@@ -66,7 +72,10 @@ done
 # Fixtures live under the repo's own gitignored scratch area rather than /tmp: the
 # tree is tracked (untracked/.gitignore ignores its contents), so it exists in a
 # fresh clone, and nothing is written outside the repository.
-WORK="$REPO_ROOT/untracked/ccy-token-mode-fixtures.$$"
+# mktemp, not "$$": this repo is bind-mounted into containers, and a PID in one
+# namespace collides with the same PID in another, so two concurrent runs could
+# share a fixture dir and delete each other's on exit.
+WORK="$(mktemp -d "$REPO_ROOT/untracked/ccy-token-mode-fixtures.XXXXXX")"
 BANNERS="$WORK/banners.log"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT INT TERM
@@ -174,6 +183,23 @@ menu_case() {
 menu_case "EOF at the prompt -> cancelled"    ''                    2 'Cancelled'
 menu_case "runaway invalid input -> gives up" $'9\n9\n9\n9\n9\n9\n' 2 'Giving up'
 menu_case "valid pick -> selects"             $'1\n'                0 'Selected token'
+# The `d` keypress is the whole reason the hard stop is acceptable: it is how a
+# human reaches the Desktop account deliberately when the pool is usable. If it
+# regressed, cc would have no route to Desktop at all.
+menu_case "Desktop keypress -> host OAuth"    $'d\n'                0 'Using Desktop'
+
+echo ""
+echo "=== usage errors ==="
+bad_mode_rc=0
+SELECTED_TOKEN=""
+select_token "$WORK/has-valid" nonsense >>"$BANNERS" 2>&1 || bad_mode_rc=$?
+if [ "$bad_mode_rc" -eq 1 ]; then
+    echo "  PASS  an invalid mode is a usage error (rc=1), not a verdict on the pool"
+    PASSED=$((PASSED + 1))
+else
+    echo "  FAIL  invalid mode returned rc=$bad_mode_rc (want 1)"
+    FAILED=$((FAILED + 1))
+fi
 
 echo ""
 echo "=== expiry-stamp boundary: 'expires today' counts as expired ==="
@@ -204,29 +230,25 @@ else
     FAILED=$((FAILED + 1))
 fi
 
-echo ""
-echo "=== discrimination check ==="
-# A control that FIRES is not necessarily a control that DISCRIMINATES. If host
-# mode returned 1 unconditionally the fix case above would pass while the designed
-# Desktop short-circuit was broken, and cc would refuse to start at all. These two
-# assert the two host-mode outcomes are actually reachable and distinct.
-host_empty_rc=0
-SELECTED_TOKEN=""
-select_token "$WORK/empty-pool" host >>"$BANNERS" 2>&1 || host_empty_rc=$?
-host_expired_rc=0
-SELECTED_TOKEN=""
-select_token "$WORK/expired-only" host >>"$BANNERS" 2>&1 || host_expired_rc=$?
-if [ "$host_empty_rc" -eq "$host_expired_rc" ]; then
-    echo "  FAIL  host mode answers an empty pool and an expired pool identically (rc=$host_empty_rc)"
-    echo "        the two cases are conflated — that IS the bug this test guards"
-    FAILED=$((FAILED + 1))
-else
-    echo "  PASS  host mode distinguishes an empty pool from an expired-only pool"
-    PASSED=$((PASSED + 1))
-fi
+# A separate "discrimination check" re-invoking the empty-pool and expired-only
+# calls used to sit here. It was TAUTOLOGICAL: those two fixtures are already
+# asserted at rc=0 and rc=3 above, so while both pass it cannot fail, and when
+# one breaks it fires in lockstep — two failure lines for one defect, and no
+# independent signal. Removed rather than reworded; the count below is honest.
 
 echo ""
 echo "──────────────────────────────────────────────────────────────"
+# COVERAGE, stated as a number rather than implied by the length of the list
+# above. select_token has 12 return points; this suite exercises 9.
+#
+# NOT covered, and why — all three need something this container cannot give:
+#   - container renew (r<N>) and container create (0) call create_token, which
+#     needs a real `claude` binary and an interactive OAuth round trip
+#   - the post-redraw-loop `return 1` is reachable only after a usage fetch,
+#     which costs a billed API request against the allowance it reports
+#
+# A green run here means those three were NOT LOOKED AT, not that they are good.
+printf 'coverage: 9 of 12 select_token return points (see header)\n'
 printf 'passed: %d   failed: %d\n' "$PASSED" "$FAILED"
 
 if [ "$PASSED" -eq 0 ]; then
