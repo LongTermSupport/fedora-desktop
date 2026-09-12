@@ -1,10 +1,23 @@
 # Plan 00046: localhost.yml Leak Guard Hook Handler
 
-**Status**: Not Started
+**Status**: In Progress (Phase 1 research complete; implementation not started)
 **Created**: 2026-05-26
 **Owner**: joseph
 **Priority**: High (safety follow-up to today's leak incident)
 **Type**: Hooks-daemon PreToolUse handler
+
+> **Possibly superseded — needs an owner decision (noted 2026-09-12).** The
+> hooks daemon now ships a `sensitive_content` handler
+> (`R-SENSITIVE-PUBLIC-PATTERN`, `R-SENSITIVE-SECRET-TERM`) that covers most of
+> what this plan set out to build: it scans `gh issue|pr create|edit|comment`
+> bodies including `--body-file`, plus commit messages, tag and branch names and
+> `git config` identity, against named public patterns and a gitignored word
+> list. The gap is that its deny-list is **hand-maintained**, whereas this plan's
+> central idea was deriving it from `localhost.yml` automatically so it stays
+> current as aliases are added. Decide whether that derivation is still worth
+> building on top of the handler, or whether this plan should be marked
+> `Superseded` and archived. Not decided here: `Superseded` is terminal and
+> would need the archive move, README row and statistics recount in one commit.
 
 ## Overview
 

@@ -1,6 +1,6 @@
 # Plan 00062: Disk Reclaim TUI
 
-**Status**: In Progress
+**Status**: Blocked (on host access — every outstanding task is HOST-only)
 **Created**: 2026-07-21
 **Owner**: joseph
 **Priority**: Medium

@@ -1,6 +1,6 @@
 # Plan 00066: ftp-camera on untrusted WiFi — retry-loop triage + hotspot IaC gap
 
-**Status**: In Progress
+**Status**: Blocked (on host access — the open triage tasks all need a live run on the affected machine)
 **Created**: 2026-07-29
 **Owner**: joseph
 **Priority**: High

@@ -1,6 +1,6 @@
 # Plan 00074: the legacy-grub check reports an absence it cannot prove — and continues past a failure it did prove
 
-**Status**: In Progress
+**Status**: Blocked (on host access — Task 3.3 is the only task left and it is HOST-only)
 **Created**: 2026-08-03
 **Owner**: joseph
 **Priority**: High
