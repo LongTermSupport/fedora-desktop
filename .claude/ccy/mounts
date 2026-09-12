@@ -8,4 +8,3 @@
 # Details: docs/ccy.md, "Extra Mounts".
 
 # Google Drive folder served by the rclone mount from play-rclone.yml.
-~/mnt/property-ai:/ccy/mnt/property-ai
