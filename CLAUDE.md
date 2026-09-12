@@ -177,24 +177,30 @@ the topic file that owns the fact — never a copy.
 
 Each of these is the single source of truth for its subject. Follow the row you need.
 
-| File                                                      | Content                                                                     |
-| --------------------------------------------------------- | --------------------------------------------------------------------------- |
-| [ContainerRules.md](CLAUDE/ContainerRules.md)             | CCY container detection, version bump, retired ctrl+z patch                 |
-| [ContainerEngines.md](CLAUDE/ContainerEngines.md)         | Podman/Docker/LXC role split; when to use which; security trade-offs        |
-| [InfrastructureAsCode.md](CLAUDE/InfrastructureAsCode.md) | Ansible-only workflow, prohibited manual actions                            |
-| [AnsibleStyle.md](CLAUDE/AnsibleStyle.md)                 | Playbook structure, markers, packages, services, variables                  |
-| [SecurityRules.md](CLAUDE/SecurityRules.md)               | Public repo warning, vault management, pre-commit checks                    |
-| [ExampleValues.md](CLAUDE/ExampleValues.md)               | Reserved example IPs/emails/hostnames the secret scanner whitelists         |
-| [QA.md](CLAUDE/QA.md)                                     | QA scripts reference, what to run when                                      |
-| [DebugCommands.md](CLAUDE/DebugCommands.md)               | Non-interactive command rules for user diagnostics                          |
-| [InteractiveScripts.md](CLAUDE/InteractiveScripts.md)     | Human-friendly interactive script rules (validate strictly, retry on loop)  |
-| [StderrHygiene.md](CLAUDE/StderrHygiene.md)               | Diagnostics → stderr; stdout is the captured payload (bash + Python)        |
-| [GnomeShell.md](CLAUDE/GnomeShell.md)                     | GNOME Shell extension development (Wayland, ESLint, APIs)                   |
-| [PlanWorkflow.md](CLAUDE/PlanWorkflow.md)                 | Planning workflow and plan document structure                               |
-| [PlanTriage.md](CLAUDE/PlanTriage.md)                     | How to establish facts: plan-local triage scripts (probes go IN the script) |
-| [PlanJournalling.md](CLAUDE/PlanJournalling.md)           | `JOURNAL/` entry grammar and the append-only discipline                     |
-| [PlanScriptStandards.md](CLAUDE/PlanScriptStandards.md)   | Plan-folder orchestrator rules (R1–R14) and `_planlib.inc.bash`             |
-| [AgentNotes.md](CLAUDE/AgentNotes.md)                     | Working practices and project gotchas (feedback + project knowledge)        |
+| File                                                        | Content                                                                     |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------- |
+| [ContainerRules.md](CLAUDE/ContainerRules.md)               | CCY container detection, version bump, retired ctrl+z patch                 |
+| [ContainerEngines.md](CLAUDE/ContainerEngines.md)           | Podman/Docker/LXC role split; when to use which; security trade-offs        |
+| [InfrastructureAsCode.md](CLAUDE/InfrastructureAsCode.md)   | Ansible-only workflow, prohibited manual actions                            |
+| [AnsibleStyle.md](CLAUDE/AnsibleStyle.md)                   | Playbook structure, markers, packages, services, variables                  |
+| [SecurityRules.md](CLAUDE/SecurityRules.md)                 | Public repo warning, vault management, pre-commit checks                    |
+| [ExampleValues.md](CLAUDE/ExampleValues.md)                 | Reserved example IPs/emails/hostnames the secret scanner whitelists         |
+| [QA.md](CLAUDE/QA.md)                                       | QA scripts reference, what to run when                                      |
+| [DebugCommands.md](CLAUDE/DebugCommands.md)                 | Non-interactive command rules for user diagnostics                          |
+| [InteractiveScripts.md](CLAUDE/InteractiveScripts.md)       | Human-friendly interactive script rules (validate strictly, retry on loop)  |
+| [StderrHygiene.md](CLAUDE/StderrHygiene.md)                 | Diagnostics → stderr; stdout is the captured payload (bash + Python)        |
+| [GnomeShell.md](CLAUDE/GnomeShell.md)                       | GNOME Shell extension development (Wayland, ESLint, APIs)                   |
+| [PlanWorkflow.md](CLAUDE/PlanWorkflow.md)                   | Planning workflow and plan document structure                               |
+| [PlanTriage.md](CLAUDE/PlanTriage.md)                       | How to establish facts: plan-local triage scripts (probes go IN the script) |
+| [PlanJournalling.md](CLAUDE/PlanJournalling.md)             | `JOURNAL/` entry grammar and the append-only discipline                     |
+| [PlanScriptStandards.md](CLAUDE/PlanScriptStandards.md)     | Plan-folder orchestrator rules (R1–R14) and `_planlib.inc.bash`             |
+| [Worktree.md](CLAUDE/Worktree.md)                           | Git worktree discipline (extends `CLAUDE/core/Worktree.core.md`)            |
+| [DocumentationStrategy.md](CLAUDE/DocumentationStrategy.md) | Doc-tree roles (extends `CLAUDE/core/DocumentationStrategy.core.md`)        |
+| [AgentNotes.md](CLAUDE/AgentNotes.md)                       | Working practices and project gotchas (feedback + project knowledge)        |
+
+Anything under `CLAUDE/core/` is daemon-owned and replaced wholesale on every
+hooks-daemon upgrade — never edit it; put project-specific content in the
+client-owned `CLAUDE/<Name>.md` that references it.
 
 ## User Documentation
 

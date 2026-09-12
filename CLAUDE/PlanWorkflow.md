@@ -1,5 +1,10 @@
 # Planning Workflow
 
+**Read first:** [CLAUDE/core/PlanWorkflow.core.md](core/PlanWorkflow.core.md) — the
+hooks-daemon's core guidance for this subject, and the baseline everything below
+extends. That file is daemon-owned and overwritten on every daemon upgrade, so never
+edit it and never copy its content here.
+
 This document defines the planning workflow for the **fedora-desktop** repository — a
 public Ansible Infrastructure-as-Code project that provisions a Fedora desktop. All
 contributors and AI agents follow it so work stays trackable and the plan state never
