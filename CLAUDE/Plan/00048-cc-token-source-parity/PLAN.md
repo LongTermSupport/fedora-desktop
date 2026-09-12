@@ -113,9 +113,16 @@ including all dated progress notes, is kept verbatim in
   `ansible-playbook playbooks/imports/play-claude-code.yml` on host
 - [x] ✅ **Task 4.2**: `cc` alias resolves and launches the wrapper (chooser
   renders) — confirmed on host
-- [ ] ⬜ **Task 4.3**: Empty-pool sanity: rename
+- [ ] 🔄 **Task 4.3**: Empty-pool sanity: rename
   `~/.claude-tokens/ccy/tokens/` to `…-bak/`, run `cc --version`, verify the
   banner prints and Desktop fallback works; restore the dir afterwards
+  - **This unexecuted check is the branch behind a live defect.** Host `cc`
+    silently launches on the Desktop account whenever no token passes the
+    *guessed* 90-day filename stamp, because host mode returns 0 with an empty
+    `SELECTED_TOKEN` where container mode returns 1. Full trace, the dated fit
+    to the report, and the two candidate fix shapes are in
+    `JOURNAL/00048-Journal-26-09-12.md`. A fix decision is pending; the
+    workaround is `ccy --create-token`.
 - [x] ✅ **Task 4.4**: Populated-pool sanity: chooser shows named tokens plus
   Desktop — confirmed on host
 - [x] ✅ **Task 4.5**: Token-selection sanity: a named token authenticates

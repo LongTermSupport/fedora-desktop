@@ -346,10 +346,15 @@
     # the cache is a quota-saving optimisation with a 15-minute life, rebuilt on
     # demand the next time the user presses `u`, so there is nothing to preserve
     # across a deploy that might have changed the format again.
-    # Runs as the user, not root — the directory is under ~/.claude-tokens/.
+    # Addresses the user's home explicitly, never the HOME fact: with
+    # `gathering = smart` plus jsonfile fact caching, a cached fact from an
+    # elevated play makes ansible_facts['env']['HOME'] resolve to /root, so the
+    # task deleted /root/.claude-tokens/ccy/usage-cache and left the user's
+    # stale cache in place. Same trap Plan 00088 fixed; play-claude-code.yml
+    # documents it in full above its claude_state_dir var.
     - name: Discard Stale Token Usage Cache From Host
       ansible.builtin.file:
-        path: "{{ ansible_facts['env']['HOME'] }}/.claude-tokens/ccy/usage-cache"
+        path: /home/{{ user_login }}/.claude-tokens/ccy/usage-cache
         state: absent
       tags:
         - scripts
