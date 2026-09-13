@@ -29,6 +29,16 @@
 
 This is a public repository. Never commit personal information, credentials, hardcoded paths, or sensitive data. Always use Ansible variables, placeholders, and Vault encryption.
 
+**Nothing specific to any install goes anywhere in this repo — not in docs, plans,
+journals, research notes, scripts, comments, or commit messages.** That means no
+container names, project names, checkout paths, hostnames, usernames, container IDs,
+network names, or anything else that identifies what runs on a particular machine.
+Triage evidence gets anonymised **before** it is written into a tracked file: use
+placeholders (`container-A`, `project B`, `<repo>`), not the real names. The one
+permitted self-reference is `fedora-desktop`, this repository's own name. If a raw
+capture is needed, it stays under `untracked/`. This has been violated before and the
+names can only be removed from history by a force-push, so get it right the first time.
+
 **Full security rules, vault management, and pre-commit checks:** [CLAUDE/SecurityRules.md](CLAUDE/SecurityRules.md)
 
 ### Infrastructure as Code — No Manual Operations
