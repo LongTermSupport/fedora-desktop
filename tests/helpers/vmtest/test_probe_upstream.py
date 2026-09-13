@@ -109,6 +109,7 @@ class TestProbeReadsEverySignal(ProbeCase):
         self.assertIn("VMTEST-FRESHNESS-BODHI F44 current", lines)
         self.assertIn("VMTEST-FRESHNESS-TREE Server build_timestamp=1776865868", lines)
         self.assertIn("VMTEST-FRESHNESS-TREE Everything build_timestamp=1776865868", lines)
+        self.assertIn("VMTEST-FRESHNESS-TREE-URL Server https://dl.fedoraproject.org/pub/fedora/linux/releases/44/Server/x86_64/os/", lines)
         self.assertIn(
             "VMTEST-FRESHNESS-TREE-CHECKSUM Everything images/install.img "
             "c2571f26c8d46411f8700388f7ab61d8e27356f960430dcc476325b7157ac8b0",

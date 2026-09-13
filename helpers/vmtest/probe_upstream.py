@@ -132,6 +132,9 @@ def run(fedora_version: int, manifest: scenarios.Manifest, fetch: Callable[[str]
         if treeinfo is None:
             continue
         print(f"VMTEST-FRESHNESS-TREE {tree} build_timestamp={treeinfo.build_timestamp}")
+        # The tree's os/ directory is also what an Anaconda install reads packages from
+        # (`url --url=`); printed so the builder installs from exactly the tree it verified.
+        print(f"VMTEST-FRESHNESS-TREE-URL {tree} {treeinfo_url(fedora_version, tree).removesuffix('.treeinfo')}")
         for path, digest in sorted(treeinfo.checksums.items()):
             print(f"VMTEST-FRESHNESS-TREE-CHECKSUM {tree} {path} {digest}")
 

@@ -157,6 +157,7 @@
         - verify_response.py
         - retention.py
         - refresh.py
+        - render_kickstart.py
 
     - name: Ensure user local bin directory exists
       ansible.builtin.file:
@@ -184,6 +185,16 @@
       loop:
         - guest-cleanup.bash
         - guest-acceptance-server.bash
+
+    # The VM kickstart for the full server base: the deployed copy is what the builder
+    # renders, so the checkout cannot change how a base is installed underneath a run.
+    - name: Deploy the VM server kickstart
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/fedora-install/ks-vm-server.cfg"
+        dest: "{{ vm_test_lab_dir }}/ks-vm-server.cfg"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
 
     # The lab's own throwaway SSH key: baked into every base so runs can reach
     # their guest. Never the user's key, never leaves this directory.

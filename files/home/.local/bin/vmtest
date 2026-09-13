@@ -54,6 +54,11 @@ readonly BUILD_DISK_SIZE="20G"
 readonly BUILD_RECIPE_VERSION=1
 readonly SSH_WAIT_SECONDS=600
 readonly SHUTDOWN_WAIT_SECONDS=300
+# An Anaconda install from the network tree, in minutes; virt-install waits this long
+# for the installer to power off before the build is declared failed.
+readonly INSTALL_WAIT_MINUTES=90
+# The VM kickstart for a full server base, Ansible-deployed next to the guest scripts.
+readonly KS_SERVER="${VMTEST_HOME}/ks-vm-server.cfg"
 readonly PROVISION_TIMEOUT_SECONDS=5400
 readonly LIBVIRT_URI="qemu:///session"
 # RFC 2606 reserved: the guest's git identity is a placeholder by design.
@@ -146,10 +151,18 @@ run_env_assignments() {
     done
 }
 
+# recipe_digest_now <kind> — the build recipe's digest: the recipe version and the in-guest
+# cleanup for every base, plus the kickstart for a full one (§3.2: a change to how a base
+# is built invalidates it).
 recipe_digest_now() {
+    local kind="${1:?recipe_digest_now requires the base kind}"
     {
         printf 'build-recipe-version=%s\n' "${BUILD_RECIPE_VERSION}"
         cat "${GUEST_CLEANUP}"
+        if [[ "${kind}" == "full" ]]; then
+            [[ -r "${KS_SERVER}" ]] || die "no ${KS_SERVER}; deploy the lab first"
+            cat "${KS_SERVER}"
+        fi
     } | sha256sum | cut -d' ' -f1
 }
 
@@ -329,11 +342,62 @@ guest_repo_fact() {
         die "guest repoinfo has no ${field} line"
 }
 
+# build_seed_fast <image> <disk> — a fast base: seed the build disk from the published Cloud
+# image and boot it with the lab key injected through cloud-init (then cloud-init disabled).
+build_seed_fast() {
+    local image="${1:?}" disk="${2:?}"
+    log "seeding build disk from ${image}"
+    cp --reflink=auto "${IMAGES_DIR}/${image}" "${disk}"
+    qemu-img resize -q "${disk}" "${BUILD_DISK_SIZE}"
+    log "booting ${DOMAIN} (${BASE_VCPUS} vCPU, ${BASE_RAM_MIB} MiB, SSH forwarded to 127.0.0.1:${GUEST_PORT})"
+    virt-install --connect "${LIBVIRT_URI}" --name "${DOMAIN}" \
+        --memory "${BASE_RAM_MIB}" --vcpus "${BASE_VCPUS}" --cpu host-passthrough \
+        --import --disk "path=${disk},format=qcow2,bus=virtio,discard=unmap" \
+        --osinfo fedora-unknown --boot uefi --memballoon virtio \
+        --network "type=user,backend.type=passt,portForward0.proto=tcp,portForward0.range0.start=${GUEST_PORT},portForward0.range0.to=22" \
+        --cloud-init "clouduser-ssh-key=${SSH_KEY}.pub,disable=on" \
+        --graphics none --serial "file,path=${BUILD_DIR}/console.log" --noautoconsole >&2
+}
+
+# build_install_full <netinst-iso> <disk> — a full base: Anaconda from the ONE named install
+# tree, driven by the deployed VM kickstart with the lab key rendered in, on the serial
+# console, powering off when done; then the installed system is booted for the upgrade.
+build_install_full() {
+    local iso="${1:?}" disk="${2:?}" tree_url ks="${BUILD_DIR}/ks.cfg" state
+    tree_url="$(grep -E "^VMTEST-FRESHNESS-TREE-URL ${BASE_TREE} " "${PROBE_FILE}" | awk '{print $3}')"
+    [[ "${tree_url}" == https://* ]] || die "the probe printed no URL for tree ${BASE_TREE}"
+    helper render_kickstart --template "${KS_SERVER}" \
+        --set "TREE_URL=${tree_url}" --set "SSH_PUBKEY=$(cat "${SSH_KEY}.pub")" \
+        --set "FEDORA_VERSION=${VMTEST_FEDORA_VERSION}" >"${ks}"
+    qemu-img create -q -f qcow2 "${disk}" "${BUILD_DISK_SIZE}"
+    log "installing from ${tree_url} via ${iso} (Anaconda, cmdline mode on the serial console; up to ${INSTALL_WAIT_MINUTES} min)"
+    virt-install --connect "${LIBVIRT_URI}" --name "${DOMAIN}" \
+        --memory "${BASE_RAM_MIB}" --vcpus "${BASE_VCPUS}" --cpu host-passthrough \
+        --disk "path=${disk},format=qcow2,bus=virtio,discard=unmap" \
+        --location "${IMAGES_DIR}/${iso}" --initrd-inject "${ks}" \
+        --extra-args "inst.ks=file:/ks.cfg console=ttyS0,115200n8" \
+        --osinfo fedora-unknown --boot uefi --memballoon virtio \
+        --network "type=user,backend.type=passt,portForward0.proto=tcp,portForward0.range0.start=${GUEST_PORT},portForward0.range0.to=22" \
+        --graphics none --serial "file,path=${BUILD_DIR}/console.log" \
+        --noautoconsole --noreboot --wait "${INSTALL_WAIT_MINUTES}" >&2
+    state="$(virsh -c "${LIBVIRT_URI}" domstate "${DOMAIN}")"
+    [[ "${state}" == "shut off" ]] ||
+        die "the installer did not power off within ${INSTALL_WAIT_MINUTES} min (state: ${state}); see ${BUILD_DIR}/console.log"
+    grep -qE 'Installation complete|Running post-installation scripts' "${BUILD_DIR}/console.log" ||
+        die "the installer powered off without reporting completion; see ${BUILD_DIR}/console.log"
+    log "install complete; booting the installed system"
+    virsh -c "${LIBVIRT_URI}" start "${DOMAIN}" >&2
+}
+
 cmd_build_base() {
     local key="${1:?usage: vmtest build-base <base-key>}"
     load_lab
     base_facts "${key}"
-    [[ "${BASE_KIND}" == "fast" ]] || die "only fast bases are built today; ${BASE_NAME} is kind ${BASE_KIND} (Phase 3b/5)"
+    case "${BASE_KIND}" in
+        fast | full) ;;
+        *) die "unknown base kind ${BASE_KIND} for ${BASE_NAME}" ;;
+    esac
+    [[ "${BASE_PROFILE}" == "server" ]] || die "only server bases are built today; ${BASE_NAME} is profile ${BASE_PROFILE} (Phase 5)"
     cmd_fetch "${key}"
 
     local line filename sha label
@@ -362,21 +426,14 @@ cmd_build_base() {
     rm -rf "${BUILD_DIR}"
     mkdir -p "${BUILD_DIR}"
     local disk="${BUILD_DIR}/disk.qcow2"
-    log "seeding build disk from ${filename}"
-    cp --reflink=auto "${IMAGES_DIR}/${filename}" "${disk}"
-    qemu-img resize -q "${disk}" "${BUILD_DISK_SIZE}"
-
     GUEST_PORT="$(free_port)"
     local installed_at
     installed_at="$(date +%s)"
-    log "booting ${DOMAIN} (${BASE_VCPUS} vCPU, ${BASE_RAM_MIB} MiB, SSH forwarded to 127.0.0.1:${GUEST_PORT})"
-    virt-install --connect "${LIBVIRT_URI}" --name "${DOMAIN}" \
-        --memory "${BASE_RAM_MIB}" --vcpus "${BASE_VCPUS}" --cpu host-passthrough \
-        --import --disk "path=${disk},format=qcow2,bus=virtio,discard=unmap" \
-        --osinfo fedora-unknown --boot uefi --memballoon virtio \
-        --network "type=user,backend.type=passt,portForward0.proto=tcp,portForward0.range0.start=${GUEST_PORT},portForward0.range0.to=22" \
-        --cloud-init "clouduser-ssh-key=${SSH_KEY}.pub,disable=on" \
-        --graphics none --serial "file,path=${BUILD_DIR}/console.log" --noautoconsole >&2
+    if [[ "${BASE_KIND}" == "fast" ]]; then
+        build_seed_fast "${filename}" "${disk}"
+    else
+        build_install_full "${filename}" "${disk}"
+    fi
 
     wait_for_ssh
     log "upgrading packages in the guest"
@@ -412,12 +469,18 @@ cmd_build_base() {
     else
         refresh_state="incomplete"
     fi
-    recipe_digest="$(recipe_digest_now)"
+    recipe_digest="$(recipe_digest_now "${BASE_KIND}")"
+    # A full base's media identity includes the install tree's checksums (§4.4); the
+    # record reads them from the same probe the install was verified against.
+    local -a tree_args=()
+    if [[ "${BASE_KIND}" == "full" ]]; then
+        tree_args=(--treeinfo-probe "${PROBE_FILE}" --tree "${BASE_TREE}")
+    fi
 
     helper write_base_record \
         --fedora-version "${VMTEST_FEDORA_VERSION}" --profile "${BASE_PROFILE}" --kind "${BASE_KIND}" \
         --name "${BASE_NAME}" --compose-id "${compose_id}" --compose-label "${label}" \
-        --artefact "${filename}=${sha}" --recipe-digest "${recipe_digest}" \
+        --artefact "${filename}=${sha}" --recipe-digest "${recipe_digest}" "${tree_args[@]+"${tree_args[@]}"}" \
         --installed-at "${installed_at}" --last-upgraded-at "${last_upgraded_at}" \
         --last-upgraded-revision "${guest_revision}" --last-upgraded-mirror "${guest_mirror}" \
         --refresh-state "${refresh_state}" --base-sha256 "${base_sha}" \
@@ -463,11 +526,14 @@ verdict_field() {
 # reports — freshness-status — can carry on to the next base.
 freshness_verdict() {
     local base_json="${1:?}" base_disk="${2:?}" record actual_mtime actual_sha gate gate_rc=0
+    # The record-only pass needs no recipe digest of its own; the kind it reports selects one.
     record="$(helper freshness_gate --fedora-version "${VMTEST_FEDORA_VERSION}" --manifest "${MANIFEST}" \
-        --base-json "${base_json}" --probe "${PROBE_FILE}" --recipe-digest "$(recipe_digest_now)" \
+        --base-json "${base_json}" --probe "${PROBE_FILE}" --recipe-digest "$(recipe_digest_now fast)" \
         --actual-base-sha256 "$(printf '%064d' 0)" --record-only)" ||
         die "could not read ${base_json}"
     [[ "${record}" == VMTEST-BASE-RECORD* ]] || die "unexpected gate output: ${record}"
+    local kind
+    kind="$(record_field "${record}" kind)"
     # §7: size and mtime per run; the full sha256 only on refresh, reinstall and --deep.
     GATE_BASE_SIZE="$(stat -c %s "${base_disk}")"
     actual_mtime="$(stat -c %Y "${base_disk}")"
@@ -477,7 +543,7 @@ freshness_verdict() {
         die "base.qcow2 for $(record_field "${record}" name) differs from its record (size/mtime); refusing a base of unknown provenance"
     fi
     gate="$(helper freshness_gate --fedora-version "${VMTEST_FEDORA_VERSION}" --manifest "${MANIFEST}" \
-        --base-json "${base_json}" --probe "${PROBE_FILE}" --recipe-digest "$(recipe_digest_now)" \
+        --base-json "${base_json}" --probe "${PROBE_FILE}" --recipe-digest "$(recipe_digest_now "${kind}")" \
         --actual-base-sha256 "${actual_sha}" | grep '^VMTEST-FRESHNESS-VERDICT ')" || gate_rc=$?
     [[ "${gate}" == VMTEST-FRESHNESS-VERDICT* ]] || die "the freshness gate printed no verdict (exit ${gate_rc})"
     GATE_LINE="${gate}"

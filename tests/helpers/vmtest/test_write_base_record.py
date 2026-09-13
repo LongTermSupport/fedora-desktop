@@ -78,6 +78,27 @@ class TestWriteBaseRecord(unittest.TestCase):
         record = basejson.parse_record(result.stdout)
         self.assertEqual(record.treeinfo_checksums, {"images/install.img": SHA_B})
 
+    def test_full_kind_reads_treeinfo_checksums_from_the_probe_for_one_tree(self):
+        probe = (
+            "VMTEST-FRESHNESS-TREE Server build_timestamp=1\n"
+            f"VMTEST-FRESHNESS-TREE-CHECKSUM Server images/install.img {SHA_B}\n"
+            f"VMTEST-FRESHNESS-TREE-CHECKSUM Server images/pxeboot/vmlinuz {SHA_C}\n"
+            f"VMTEST-FRESHNESS-TREE-CHECKSUM Everything images/install.img {SHA_A}\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "probe.txt"
+            path.write_text(probe)
+            args = list(BASE_ARGS)
+            args[args.index("fast")] = "full"
+            args[args.index("server-fast-44")] = "server-full-44"
+            result = _run(*args, "--treeinfo-probe", str(path), "--tree", "Server")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            record = basejson.parse_record(result.stdout)
+            self.assertEqual(record.treeinfo_checksums, {"images/install.img": SHA_B, "images/pxeboot/vmlinuz": SHA_C})
+            missing = _run(*args, "--treeinfo-probe", str(path), "--tree", "Workstation")
+        self.assertEqual(missing.returncode, 2)
+        self.assertEqual(missing.stdout, "")
+
     def test_invalid_facts_exit_non_zero_with_nothing_on_stdout(self):
         args = list(BASE_ARGS)
         args[args.index("complete")] = "finished"

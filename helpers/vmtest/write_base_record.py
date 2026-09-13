@@ -31,6 +31,16 @@ def _artefact(text: str) -> dict[str, str]:
     return {"name": name, "sha256": digest}
 
 
+def checksums_from_probe(text: str, tree: str) -> dict[str, str]:
+    """`VMTEST-FRESHNESS-TREE-CHECKSUM <tree> <path> <sha256>` lines for one tree, as a mapping."""
+    checksums: dict[str, str] = {}
+    for line in text.splitlines():
+        fields = line.split()
+        if len(fields) == 4 and fields[0] == "VMTEST-FRESHNESS-TREE-CHECKSUM" and fields[1] == tree:
+            checksums[fields[2]] = fields[3]
+    return checksums
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--fedora-version", type=int, required=True)
@@ -45,6 +55,12 @@ def main(argv: list[str] | None = None) -> int:
         type=pathlib.Path,
         help="JSON object of tree-relative path -> sha256; required for a full base, forbidden for a fast one",
     )
+    parser.add_argument(
+        "--treeinfo-probe",
+        type=pathlib.Path,
+        help="alternatively, the probe's marker file: its VMTEST-FRESHNESS-TREE-CHECKSUM lines for --tree",
+    )
+    parser.add_argument("--tree", help="the install tree whose checksums to take from --treeinfo-probe")
     parser.add_argument("--recipe-digest", required=True)
     parser.add_argument("--installed-at", type=int, required=True)
     parser.add_argument("--last-upgraded-at", type=int, required=True)
@@ -62,6 +78,18 @@ def main(argv: list[str] | None = None) -> int:
             treeinfo_checksums = json.loads(args.treeinfo_checksums.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             print(f"ERROR: --treeinfo-checksums {args.treeinfo_checksums}: {exc}", file=sys.stderr)
+            return 2
+    if args.treeinfo_probe is not None:
+        if not args.tree:
+            print("ERROR: --treeinfo-probe needs --tree", file=sys.stderr)
+            return 2
+        try:
+            treeinfo_checksums = checksums_from_probe(args.treeinfo_probe.read_text(encoding="utf-8"), args.tree)
+        except OSError as exc:
+            print(f"ERROR: --treeinfo-probe {args.treeinfo_probe}: {exc}", file=sys.stderr)
+            return 2
+        if not treeinfo_checksums:
+            print(f"ERROR: the probe has no VMTEST-FRESHNESS-TREE-CHECKSUM lines for tree {args.tree!r}", file=sys.stderr)
             return 2
 
     try:

@@ -107,8 +107,8 @@ vm_test_scenarios:
       RUN_BASH_OPTIONAL_PLAYBOOKS: play-does-not-exist.yml
   server-full-provision:
     base: server-full
-    description: provision an Anaconda-installed Fedora Server guest with run.bash
-    planned: null
+    description: provision an Anaconda-installed Fedora Server guest with run.bash (the same guest checks as the fast path, on a materially different starting OS)
+    planned: 13   # the shared guest-acceptance-server.bash
     max_skipped: 0
   desktop-fresh-install:
     base: desktop
