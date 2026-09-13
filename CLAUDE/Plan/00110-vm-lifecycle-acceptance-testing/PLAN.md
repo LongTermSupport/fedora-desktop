@@ -70,7 +70,7 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 
 ### Phase 1: The freshness engine (no VM; runs in a container)
 
-- [ ] ⬜ **T1.1**: `helpers/vmtest/upstream.py`, test-first — artefact identity
+- [x] ✅ **T1.1**: `helpers/vmtest/upstream.py`, test-first — artefact identity
   and package revision from `.treeinfo`, `COMPOSE_ID`, `releases.json`, Bodhi,
   `repomd.xml`
 - [ ] ⬜ **T1.2**: `helpers/vmtest/freshness.py`, test-first — the §4.4 policy,
