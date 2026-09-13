@@ -1070,6 +1070,16 @@ Videography tools:
 
 - Installs video editing and transcoding tools (Kdenlive, FFmpeg extras, etc.)
 
+#### play-vm-test-lab.yml
+
+VM lifecycle acceptance-testing lab (rootless libvirt/QEMU):
+
+- Installs the libvirt/QEMU stack, `virt-install`, `guestfs-tools`, `virtiofsd`, `swtpm` — by name, no pinned versions
+- Asserts `/dev/kvm` is openable by the user (no TCG fallback, no group juggling)
+- Enables `systemd --user` lingering, creates `~/.local/share/vmtest/`
+- Renders `vars/vm-test-scenarios.yml` into the lab's `scenarios.json` and the bridge's scenario allowlist
+- See [VM Acceptance Testing](vm-acceptance-testing.md) for the freshness probe and the manifest
+
 ### Hardware-Specific
 
 #### play-displaylink.yml
@@ -1189,6 +1199,9 @@ ansible-playbook playbooks/imports/optional/common/play-ddev.yml
 
 # Advanced: Docker-in-LXC support
 ansible-playbook playbooks/imports/optional/experimental/play-docker-in-lxc-support.yml
+
+# VM acceptance-testing lab (rootless libvirt/QEMU)
+ansible-playbook playbooks/imports/optional/common/play-vm-test-lab.yml
 ```
 
 ## Creating Custom Playbooks

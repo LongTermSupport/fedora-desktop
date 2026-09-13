@@ -1,0 +1,199 @@
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0"); cd "${p%/playbooks/*}" && exec ansible-playbook "$p" "$@"'
+---
+# VM lifecycle acceptance-testing lab (Plan 00110)
+#
+# Installs the rootless libvirt/QEMU stack, keeps the user's systemd --user
+# manager alive across logouts, creates the lab tree under ~/.local/share/vmtest,
+# and renders the tracked scenario manifest (vars/vm-test-scenarios.yml) into the
+# JSON the lab helpers read plus the scenario allowlist the bridge enforces.
+#
+# Rootless by design (qemu:///session, CLAUDE/ContainerEngines.md): no root
+# daemon, no new root-equivalent group. /dev/kvm must be openable by the user —
+# Fedora's systemd udev rule ships it 0666 — and the play asserts that rather
+# than assuming it.
+#
+# Standalone / opt-in play — deliberately NOT imported from playbook-main.yml.
+# Run it directly, or via the plan's deploy.bash:
+#   ./playbooks/imports/optional/common/play-vm-test-lab.yml
+- hosts: desktop
+  name: VM Acceptance Testing Lab
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    vm_test_lab_dir: "/home/{{ user_login }}/.local/share/vmtest"
+    # The manifest in the shape helpers/vmtest/scenarios.py parses: the four
+    # tracked top-level keys and nothing else.
+    vm_test_manifest:
+      vm_test_ttl_upgrade_days: "{{ vm_test_ttl_upgrade_days }}"
+      vm_test_ttl_rebuild_days: "{{ vm_test_ttl_rebuild_days }}"
+      vm_test_bases: "{{ vm_test_bases }}"
+      vm_test_scenarios: "{{ vm_test_scenarios }}"
+  vars_files:
+    - "{{ root_dir }}/vars/fedora-version.yml"
+    - "{{ root_dir }}/vars/vm-test-scenarios.yml"
+  tasks:
+    # =========================================================================
+    # Preflight: KVM must be usable by the user, or nothing below is worth doing
+    # =========================================================================
+    - name: Stat /dev/kvm as the lab user
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.stat:
+        path: /dev/kvm
+      register: vm_test_kvm
+
+    - name: Assert /dev/kvm is openable read-write by the lab user
+      ansible.builtin.assert:
+        that:
+          - vm_test_kvm.stat.exists
+          - vm_test_kvm.stat.readable
+          - vm_test_kvm.stat.writeable
+        fail_msg: |
+          /dev/kvm is missing or not openable read-write by {{ user_login }}.
+          Without KVM the lab would run on TCG emulation, which it refuses.
+          Check that virtualisation is enabled in firmware and that
+          /usr/lib/udev/rules.d/50-udev-default.rules still ships kvm as 0666.
+
+    # =========================================================================
+    # Packages — by name only, no versions (DESIGN.md §9 T2.1)
+    # =========================================================================
+    - name: Install the rootless libvirt/QEMU lab stack
+      ansible.builtin.package:
+        name:
+          - libvirt-daemon-kvm
+          - libvirt-daemon-config-network
+          - libvirt-client
+          - virt-install
+          - qemu-kvm
+          - qemu-img
+          - edk2-ovmf
+          - guestfs-tools
+          - virtiofsd
+          - cloud-utils
+          - xorriso
+          - osinfo-db
+          - lorax
+          - swtpm
+          - swtpm-tools
+        state: present
+
+    # =========================================================================
+    # The user's systemd --user manager must outlive the login session, or the
+    # bridge units and any in-flight run die with the terminal.
+    # =========================================================================
+    - name: Enable systemd --user lingering for the lab user
+      ansible.builtin.command:
+        argv:
+          - loginctl
+          - enable-linger
+          - "{{ user_login }}"
+        creates: "/var/lib/systemd/linger/{{ user_login }}"
+
+    # =========================================================================
+    # The lab tree (DESIGN.md §3.2). Bases are opened read-only by runs; the
+    # directory modes are the user's, and nothing here is on the shared mount.
+    # =========================================================================
+    - name: Create the lab directory tree
+      ansible.builtin.file:
+        path: "{{ vm_test_lab_dir }}/{{ item }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      loop:
+        - ""
+        - images
+        - bases
+        - runs
+
+    # =========================================================================
+    # The manifest, validated by the same helper the lab uses, then rendered
+    # =========================================================================
+    - name: Validate the scenario manifest with helpers.vmtest.validate_manifest
+      become: false
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -m
+          - helpers.vmtest.validate_manifest
+          - --fedora-version
+          - "{{ fedora_version }}"
+        chdir: "{{ root_dir }}"
+        stdin: "{{ vm_test_manifest | to_json }}"
+      register: vm_test_manifest_check
+      changed_when: false
+      failed_when: "'VMTEST-MANIFEST-OK' not in vm_test_manifest_check.stdout"
+
+    - name: Render the manifest as JSON for the lab helpers
+      ansible.builtin.copy:
+        content: "{{ vm_test_manifest | to_nice_json }}\n"
+        dest: "{{ vm_test_lab_dir }}/scenarios.json"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+
+    - name: Read how many scenarios are runnable
+      ansible.builtin.set_fact:
+        vm_test_runnable: "{{ vm_test_manifest_check.stdout | regex_search('runnable=([0-9]+)', '\\1') | first | int }}"
+
+    # The allowlist is the bridge's authority (DESIGN.md §2.3, §6.4 step 7). It
+    # exists exactly when at least one scenario is runnable; an empty file would
+    # read as "a lab with no scenarios", so none is written in that case and any
+    # stale one is removed. The validator refuses to emit an empty list anyway.
+    - name: Render the scenario allowlist from the manifest
+      become: false
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -m
+          - helpers.vmtest.validate_manifest
+          - --fedora-version
+          - "{{ fedora_version }}"
+          - --allowlist
+        chdir: "{{ root_dir }}"
+        stdin: "{{ vm_test_manifest | to_json }}"
+      register: vm_test_allowlist
+      changed_when: false
+      when: vm_test_runnable | int > 0
+
+    - name: Deploy the scenario allowlist
+      ansible.builtin.copy:
+        content: "{{ vm_test_allowlist.stdout }}\n"
+        dest: "{{ vm_test_lab_dir }}/scenarios.allowlist"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+      when: vm_test_runnable | int > 0
+
+    - name: Remove a stale allowlist when no scenario is runnable
+      ansible.builtin.file:
+        path: "{{ vm_test_lab_dir }}/scenarios.allowlist"
+        state: absent
+      when: vm_test_runnable | int == 0
+
+    # =========================================================================
+    # Confirm the session-mode hypervisor answers as the lab user
+    # =========================================================================
+    - name: Verify qemu:///session answers as the lab user
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - virsh
+          - -c
+          - qemu:///session
+          - uri
+      register: vm_test_session_uri
+      changed_when: false
+      failed_when: vm_test_session_uri.stdout.strip() != 'qemu:///session'
+
+    - name: Display lab summary
+      ansible.builtin.debug:
+        msg:
+          - "VM acceptance lab deployed for {{ user_login }} at {{ vm_test_lab_dir }}"
+          - "Hypervisor: rootless ({{ vm_test_session_uri.stdout.strip() }})"
+          - "Manifest: {{ vm_test_manifest_check.stdout | trim }}"
+          - "Allowlist: {{ 'deployed' if vm_test_runnable | int > 0 else 'none — no scenario has a declared check count yet' }}"
+          - ""
+          - "Documentation: docs/vm-acceptance-testing.md"

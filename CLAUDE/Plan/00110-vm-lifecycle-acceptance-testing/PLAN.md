@@ -85,8 +85,21 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 
 ### Phase 2: The lab playbook
 
-- [ ] ⬜ **T2.1**: `play-vm-test-lab.yml`, `scope: general` — libvirt/qemu stack
+- [x] ✅ **T2.1**: `play-vm-test-lab.yml`, `scope: general` — libvirt/qemu stack
   by name only, no pinned versions
+- [x] ✅ **T2.2**: linger, lab tree, `/dev/kvm` openability assertion (no `kvm`
+  group — Phase 0 measured `0666`)
+- [x] ✅ **T2.3a**: `scenarios.json` and `scenarios.allowlist` rendered from
+  `vars/vm-test-scenarios.yml` through `validate_manifest.py`; the allowlist
+  exists only when a scenario is runnable
+- [ ] ⬜ **T2.3b**: deploy `files/home/.local/bin/vmtest` `0755` (the CLI is
+  Phase 3 work; the deploy task lands with it)
+- [ ] ⬜ **T2.4**: deploy the in-guest scripts to `~/.local/share/vmtest/`
+  (they are Phase 3/5 work; the deploy task lands with them)
+- [x] ✅ **T2.5**: `docs/vm-acceptance-testing.md`, a row in `docs/playbooks.md`,
+  links from `docs/README.md`
+- [x] ✅ **T2.6**: QA; deployed on the host via `deploy.bash`; idempotent on the
+  second run; commit
 
 ### Phase 3: Server fast path and the first real scenario
 
@@ -94,7 +107,7 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 - [ ] ⬜ **T3.2**: `vmtest run server-fast-provision`
 - [ ] ⬜ **T3.3**: `guest-acceptance-server.bash` with `planned` declared up front
 - [ ] ⬜ **T3.4**: The negative scenarios — **the falsifiability proof**
-- [ ] ⬜ **T3.5**: Plan-local `deploy.bash` (HOST)
+- [x] ✅ **T3.5**: Plan-local `deploy.bash` (HOST) — landed with Phase 2; it runs the lab play
 - [ ] ⬜ **T3.6**: QA; commit
 
 ### Phase 3b: Server full path (Anaconda), release-gated

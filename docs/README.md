@@ -54,6 +54,12 @@ fail-fast, fail-loud guarantee.
 
 The authoritative contract is also built into the script: `./run.bash --help-run-headless`.
 
+**[VM Acceptance Testing](vm-acceptance-testing.md)** — proving a fresh install works
+
+The optional lab that boots a fresh Fedora guest on rootless libvirt, provisions it with
+this repo and returns a verdict; plus the upstream freshness probe that answers "has the
+Fedora install media or package set moved since the base was built?".
+
 ---
 
 ### I want to add optional features
@@ -329,6 +335,7 @@ ccy --top
 - [Branching strategy](development.md#branching-strategy)
 - [Ansible style guide](development.md#ansible-style-guide)
 - [Testing procedures](development.md#testing)
+- [VM acceptance testing](vm-acceptance-testing.md) — Fresh-install lifecycle tests on rootless libvirt; the upstream freshness probe
 - [Pull request process](development.md#contributing)
 
 **Features**
