@@ -107,26 +107,29 @@ the real order the launcher executes in.
     [State](#state-and-the-claudeccy-directory)), and
     `.claude/ccy/allowed-hostnames` — if present — is matched against the current
     hostname.
-02. **SSH selection.** You pick a key (or pass `--ssh-key` / `--no-ssh`). It is mounted
+02. **Into tmux.** Unless already inside tmux, headless, or without a terminal, the
+    launcher re-executes itself inside a tmux session on CCY's own server, and everything
+    below happens there. See [Sessions survive the terminal](#sessions-survive-the-terminal).
+03. **SSH selection.** You pick a key (or pass `--ssh-key` / `--no-ssh`). It is mounted
     **read-only**, and a matching `gh` token is resolved.
-03. **Token selection.** A long-lived OAuth token is chosen from the pool and its expiry
+04. **Token selection.** A long-lived OAuth token is chosen from the pool and its expiry
     checked; an expired one forces a renewal prompt. It is passed in as an environment
     variable.
-04. **Safety guard.** The launcher refuses to continue if you are running as root.
-05. **Version check.** If the base image's version label is older than the launcher's
+05. **Safety guard.** The launcher refuses to continue if you are running as root.
+06. **Version check.** If the base image's version label is older than the launcher's
     `REQUIRED_CONTAINER_VERSION`, a rebuild is forced. Claude Code inside the image is
     also updated if it is behind — see [Keeping CCY Current](#keeping-ccy-current).
-06. **Image resolution.** If `.claude/ccy/Dockerfile` exists, the image becomes
+07. **Image resolution.** If `.claude/ccy/Dockerfile` exists, the image becomes
     `claude-yolo:<project-name>` and is rebuilt when the Dockerfile's hash changes.
     Otherwise the base `claude-yolo:latest` is used.
-07. **Network.** Any project compose network is detected and offered, or attached with
+08. **Network.** Any project compose network is detected and offered, or attached with
     `--network`.
-08. **State permission repair.** Any file or directory under the project's `.claude/`
+09. **State permission repair.** Any file or directory under the project's `.claude/`
     tree carrying group or other permissions is restricted to you, and the count is
     reported. See [State](#state-and-the-claudeccy-directory). This is advisory — it never
     blocks a launch — and it runs on **every** launch by design.
-09. **Launch.** The container starts with your project bind-mounted at `/workspace`.
-10. **Entrypoint.** Inside, the umask is set to `077` so all new session state is
+10. **Launch.** The container starts with your project bind-mounted at `/workspace`.
+11. **Entrypoint.** Inside, the umask is set to `077` so all new session state is
     owner-only, `/root/.claude` is symlinked to `/workspace/.claude/ccy/`,
     `.claude/ccy/ccy.env` is sourced if present, and `claude` is exec'd — optionally
     wrapped by a [supervisor](#the-supervisor).
@@ -138,6 +141,52 @@ becomes `my-app`, but `~/clients/acme/my-app` becomes `acme-my-app`.
 
 The container itself is ephemeral. Everything that must survive lives in
 `/workspace/.claude/`, which is your project directory on the host.
+
+---
+
+## Sessions Survive the Terminal
+
+A session's pty used to belong to the terminal tab that ran `ccy`. When the terminal
+emulator died — a Wayland protocol error once took a single-process Ptyxis down with four
+running sessions in it — every tab's pty went with it, the `podman run` client got SIGHUP
+and ran its `--rm` teardown, and the sessions were gone. Since CCY 3.52.0 the launcher
+re-executes itself inside a tmux session before its first prompt, so the tmux server owns
+the pty and the terminal only holds a disposable tmux client.
+
+What you see: one line at the top of each session naming it, and F12 opens the tmux menu
+([tmux sessions](tmux-sessions.md)). Otherwise nothing changes — until a terminal dies.
+Then `ccy` in the project directory finds the parked session and offers it:
+
+```
+Detached CCY session(s) for this project:
+  1) ccy-my-app
+Attach [1], 'n' for a new session, 'q' to quit:
+```
+
+Enter re-attaches. A session that is open in another terminal is listed as such and is not
+offered: **a session can be attached from one terminal only**. The tmux server enforces it
+too — a second client attaching to an open session is detached again at once — so two
+terminals can never mirror one `claude`, whoever wins a race.
+
+`ccy-sessions` is the view across every project: a numbered list with each session's state
+and directory, a number to attach a detached one, `k` plus a number to end one. It is how
+you get back to work after a crash without remembering which projects were open.
+
+| Event                                              | Result                                                                   |
+| -------------------------------------------------- | ------------------------------------------------------------------------ |
+| Terminal emulator crashes or is closed             | Session keeps running, detached                                          |
+| `ccy` again from the same project directory        | Re-attaches the detached session (arguments are not applied; it says so) |
+| `ccy` from the project while a session is attached | Starts a second session, `ccy-<project>-2`                               |
+| F12, Detach                                        | Leaves the session running; `ccy` re-attaches                            |
+| `claude` exits                                     | Container removed as before; the tmux session closes with it             |
+| Launcher fails inside the session                  | Window stays open showing the error until you press Enter                |
+| Host reboots                                       | Everything is gone, as before                                            |
+
+Sessions live on CCY's own tmux server (socket `ccy`), so a plain `tmux ls` does not show
+them; `ccy-sessions` does. The server is started under a transient `systemd --user` scope
+(`ccy-tmux-*.scope`), which is what keeps it out of the terminal's own cgroup. Not applied
+in `--headless` mode, when already inside tmux (you are protected either way), or when there
+is no terminal.
 
 ---
 
@@ -418,6 +467,7 @@ are forwarded unchanged.
 | `--headless`      | Run non-interactively — requires `--prompt` (not the positional form) |
 | `--supervise`     | Wrap `claude` in the in-container supervisor                          |
 | `--top`           | Container manager: list and stop running CCY containers               |
+| `ccy-sessions`    | Separate command: list every CCY tmux session, attach or end one      |
 | `--debug`         | Interactive debug-layer selection (CCY, entrypoint, Claude Code)      |
 | `--`              | End of CCY options; everything after is forwarded raw to `claude`     |
 
@@ -951,6 +1001,10 @@ absent supervisor and `--no-supervise`; both announce themselves at launch. See
 | `Ctrl+Z` freezes the session                  | No supervisor in this project, or launched with `--no-supervise` — it owns the ctrl+z guard since CCY 3.42.0. See [ctrl+z and the supervisor](#ctrlz-and-the-supervisor).                                                                          |
 | Session stalls with a full context window     | Enable [the supervisor](#the-supervisor) so it compacts automatically.                                                                                                                                                                             |
 | Stale/orphaned containers                     | `ccy --top` to list and stop them.                                                                                                                                                                                                                 |
+| Terminal died; where is my session?           | Still running, detached. `cd` to the project and run `ccy` — it offers to re-attach. `ccy-sessions` lists them all. See [Sessions Survive the Terminal](#sessions-survive-the-terminal).                                                           |
+| `ccy` offers a session I do not want          | Answer `n` for a fresh one, or end the old one from `ccy-sessions` (`k` plus its number).                                                                                                                                                          |
+| "open in another terminal" when attaching     | A session can be attached from one terminal only. Detach it there first (F12, Detach), or end it from `ccy-sessions`.                                                                                                                              |
+| "tmux is not installed"                       | `play-tmux-sessions.yml` has not run on this host. It is part of `playbook-main.yml`.                                                                                                                                                              |
 | Need to see what CCY itself is doing          | `ccy --debug` for interactive debug-layer selection.                                                                                                                                                                                               |
 
 ---

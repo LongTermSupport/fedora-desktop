@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.51.0"  # Fix: the token menu always terminates — EOF is a clean "cancelled" and invalid retries are capped at 3, closing an unbounded loop that both launchers had because calling select_token in a condition context suppresses errexit inside it. select_token's return codes are now a documented contract (0 chose / 1 usage error / 2 cancelled / 3 no usable token) and cc reports each distinctly. See docs/ccy-changelog.md.
+CCY_VERSION="3.52.0"  # Feature: interactive sessions run inside tmux on CCY's own server (socket "ccy", under a systemd user scope), so a terminal-emulator death detaches a session instead of destroying it; ccy from the same project re-attaches. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,7 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # from lib/ (see CCY_HASH), because a hand-written list of what the program
 # consists of is a list that goes stale — this one omitted common-pure.bash,
 # which common.bash sources, for two months.
-CCY_LIBS=(common token-management ssh-handling network-management dockerfile-custom docker-health)
+CCY_LIBS=(common token-management ssh-handling network-management dockerfile-custom docker-health tmux-session)
 
 if [ -f "$SCRIPT_DIR/lib/common.bash" ]; then
     source "$SCRIPT_DIR/lib/common.bash"
@@ -60,6 +60,8 @@ source "$SCRIPT_DIR/lib/network-management.bash"
 source "$SCRIPT_DIR/lib/dockerfile-custom.bash"
 # shellcheck source=lib/docker-health.bash
 source "$SCRIPT_DIR/lib/docker-health.bash"
+# shellcheck source=lib/tmux-session.bash
+source "$SCRIPT_DIR/lib/tmux-session.bash"
 
 # IMPORTANT: When modifying the Dockerfile, ALWAYS increment REQUIRED_CONTAINER_VERSION!
 # This ensures users automatically rebuild when critical container changes are made.
@@ -992,6 +994,16 @@ if [ "$UPDATE_TOKEN_MODE" = true ]; then
     fi
     create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy" "$UPDATE_TOKEN_NAME"
     exit $?
+fi
+
+# Terminal-death insulation (lib/tmux-session.bash). Every mode that exits without a
+# session has returned above and nothing has prompted yet, so this is the cheapest point
+# to re-execute the launcher inside tmux: the prompts and the pty then all happen where a
+# dying terminal cannot reach them. Headless has no terminal to lose. On the way back in
+# (TMUX set) ccy_tmux_insulate is a no-op and the banner says how to detach and return.
+if [ "$HEADLESS_MODE" != true ]; then
+    ccy_tmux_insulate "$PROJECT_NAME" "$SCRIPT_DIR/$(basename "$0")" "$@" || exit 1
+    ccy_tmux_banner || exit 1
 fi
 
 # After an interactive token create/renew, exit the right way. create_token

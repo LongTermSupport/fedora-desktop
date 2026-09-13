@@ -17,6 +17,38 @@ Two version numbers move independently — see
 
 ---
 
+## 3.52.0
+
+**A session survives the death of its terminal.**
+
+Every interactive `ccy` now re-executes itself inside a tmux session before the first
+prompt. The tmux server owns the pty; the terminal emulator only holds a disposable tmux
+client. When the emulator dies — a Wayland protocol error killed a single-process Ptyxis
+and with it four running sessions at once, which is what prompted this — the session
+detaches instead of ending, and `ccy` from the same project directory re-attaches it.
+
+- Sessions live on CCY's own server, `tmux -L ccy`, never a server a user happened to start
+  from a plain tab. The client that creates the server runs under
+  `systemd-run --user --scope`, so the server's cgroup is a `ccy-tmux-*.scope` under
+  `systemd --user`, not the terminal's scope. Both are checked by Plan 00111's acceptance.
+- Names mirror containers: `ccy-<project>`, `ccy-<project>-2`, … A launch in a project
+  that has a *detached* session (the one a dead terminal left) offers it: Enter attaches,
+  `n` starts a new one, `q` leaves. Otherwise it starts the next free name.
+- One terminal per session, enforced twice: a session open in another terminal is never
+  offered, and a server-side `client-attached` hook detaches any second client at once, so
+  even a race cannot mirror one `claude` into two terminals.
+- New `ccy-sessions` command: the view across every project — a numbered list with state
+  and directory, a number to attach a detached one, `k<number>` to end one. Deployed by the
+  same play, sources the same library.
+- No-op when already inside tmux, when there is no terminal, and in `--headless` mode. The
+  modes that exit without a session (`--top`, `--help`, token management, …) are never
+  wrapped, so their output does not vanish with a closing session.
+- A launcher failure inside the session holds the window open until Enter, so the error is
+  readable rather than lost with the session.
+- New `lib/tmux-session.bash`; the launcher sources it and the play deploys it.
+  `docs/ccy.md` has the user-facing detail; `docs/tmux-sessions.md` covers the shared tmux
+  configuration this rides on.
+
 ## 3.51.0
 
 **The token menu always terminates, and every refusal names its real cause.**

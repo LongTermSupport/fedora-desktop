@@ -118,34 +118,53 @@ owns. Full evidence and the reasoning that ruled each alternative in or out:
 
 ### Phase 3: Choose the mechanism
 
-- [ ] ⬜ **Task 3.1**: Decide between a tmux-server-owned pty and a
-  `systemd-run --user` transient unit. Triage recommends tmux; record the
-  decision and its rationale before building. Note Plan 00105 has already
-  shipped the tmux foundation, which weighs heavily for tmux.
-- [ ] ⬜ **Task 3.2**: Decide where the wrapping belongs — inside the host
-  `ccy` script, or a separate launcher the user invokes. This determines
-  whether protection is automatic or opt-in. Plan 00105 deliberately left
-  "how ccy, podman or LXC are started inside a session" as a non-goal, so
-  this is the gap it left open, not a re-litigation of its decision.
-- [ ] ⬜ **Task 3.3**: Design the session naming scheme so a session is
-  findable by project after every window has gone.
-- [ ] ⬜ **Task 3.4**: Decide whether a stale-session reaper is needed, and on
-  what trigger, so abandoned sessions do not accumulate.
+- [x] ✅ **Task 3.1**: tmux, not `systemd-run --pty`. A transient unit keeps the
+  process alive but the pty is forwarded through the `systemd-run` client,
+  which dies with the tab — nothing to re-attach to. tmux is the only option
+  where re-attaching is the design, and Plan 00105 already ships it.
+- [x] ✅ **Task 3.2**: Inside the launcher, automatic. Only the launcher knows
+  which of its modes start a session; `--top`, `--help`, token management and
+  `--headless` must not be wrapped. The re-exec sits after the last no-session
+  mode returns and before the first prompt. Sessions use a dedicated socket
+  (`tmux -L ccy`) and the server is started under `systemd-run --user --scope`,
+  so its cgroup is never a terminal's — verified by experiment before building.
+  This reverses 00105's "no wrapper", on the one fact 00105 never weighed: a
+  terminal death now costs whole sessions.
+- [x] ✅ **Task 3.3**: `ccy-<project>`, `ccy-<project>-2`, … from the same
+  `get_project_name` as the container name. A launch re-attaches a *detached*
+  session for the project if one exists, else takes the next free name.
+- [x] ✅ **Task 3.4**: No reaper. A session ends when the launcher exits; one
+  that outlives its terminal is the point. `tmux -L ccy ls` shows what is parked.
 
 ### Phase 4: Implement and deploy
 
-- [ ] ⬜ **Task 4.1**: Implement the chosen mechanism via Ansible. If tmux, this
-  extends the existing `playbooks/imports/play-tmux-sessions.yml` and
-  `files/etc/tmux.conf` from Plan 00105 rather than adding a new playbook —
-  tmux installation and configuration are already handled there.
-- [ ] ⬜ **Task 4.2**: Address the `podman run --rm` teardown path, so a tab
-  death cannot destroy a container outright as it did `container-A`.
-- [ ] ⬜ **Task 4.3**: Add `acceptance.bash` that kills Ptyxis with a live CCY
-  session running and asserts the session is recoverable.
+- [x] ✅ **Task 4.1**: Implement via Ansible. Delivered as
+  `files/var/local/claude-yolo/lib/tmux-session.bash`, sourced by the launcher
+  (CCY 3.52.0) and deployed by `play-claude-yolo.yml`'s existing lib loop.
+  `play-tmux-sessions.yml` and `tmux.conf` from Plan 00105 needed no change:
+  the mechanism is CCY's, the tmux install is theirs. Deployed with
+  `deploy.bash`. Two requirements added mid-plan by the user and delivered in
+  the same change: `ccy` *offers* a parked session (Enter attaches, `n` is new,
+  `q` quits) rather than attaching silently; and one terminal per session is
+  enforced twice — an open session is never offered, and a server-side
+  `client-attached` hook detaches any second client, so a race cannot mirror
+  one `claude` into two terminals.
+- [x] ✅ **Task 4.4**: `ccy-sessions` — a human command, not raw tmux
+  incantations in the docs. Numbered list of every CCY session with state and
+  directory; a number attaches a detached one; `k<number>` ends one. Deployed
+  to `~/.local/bin` by `play-claude-yolo.yml`, sources the same library.
+- [x] ✅ **Task 4.2**: `podman run --rm` stays. With the tmux server owning the
+  pty, the `podman run` client no longer dies with the tab, so `--rm` only runs
+  when `claude` itself exits. No launcher change, no conflict with Plan 00079.
+- [x] ✅ **Task 4.3**: `acceptance.bash` + `insulation-steps.bash`. It does not
+  kill Ptyxis — that would destroy the user's real terminals — it SIGKILLs a
+  throwaway pty owner (Python `pty`), which delivers the identical hang-up, and
+  asserts survival, detachment, re-attachment, the server's cgroup, and the
+  no-op cases, all against the deployed library.
 
 ### Phase 5: Verify
 
-- [ ] ⬜ **Task 5.1**: Run `./scripts/qa-all.bash`.
+- [x] ✅ **Task 5.1**: Run `./scripts/qa-all.bash`. Green.
 - [ ] ⬜ **Task 5.2**: Run `acceptance.bash` against a real Ptyxis kill — the
   production failure path, not a simulation of it.
 - [ ] ⬜ **Task 5.3**: Run the `qa-reviewer` agent.
@@ -154,14 +173,20 @@ owns. Full evidence and the reasoning that ruled each alternative in or out:
 
 - [ ] Killing the Ptyxis process with a live CCY session running loses no
   conversation state, and the session is re-attachable with its in-flight
-  turn present.
-- [ ] After such a kill, every surviving session is listable by project name
-  and re-attachable without knowing a pid or uuid.
-- [ ] No CCY container is killed or removed as a consequence of its terminal
-  dying.
-- [ ] The pty-owning process is a child of `systemd --user`, not of any
-  `ptyxis-spawn-*.scope` — verifiable from the cgroup path.
-- [ ] `triage.bash` correctly distinguishes an OOM kill from a Wayland client
+  turn present. (Proven for a pty hang-up by `acceptance.bash`; the real
+  Ptyxis kill is Task 5.2, by hand.)
+- [x] After such a kill, every surviving session is listable by project name
+  and re-attachable without knowing a pid or uuid — `ccy-sessions`, or `ccy`
+  in the project directory.
+- [x] No CCY container is killed or removed as a consequence of its terminal
+  dying — the `podman run` client now lives under the tmux server, so the
+  `--rm` teardown cannot be triggered by a terminal.
+- [x] The pty-owning process is a child of `systemd --user`, not of any
+  `ptyxis-spawn-*.scope` — `acceptance.bash` asserts the server's cgroup is a
+  `ccy-tmux-*.scope` under `user@`.
+- [x] A session can be attached from one terminal only; `acceptance.bash`
+  proves a second raw attach is bounced by the server.
+- [x] `triage.bash` correctly distinguishes an OOM kill from a Wayland client
   error when run against this incident's journal window.
 - [ ] `qa-all.bash` passes and `qa-reviewer` reports no findings.
 
