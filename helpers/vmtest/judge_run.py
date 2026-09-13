@@ -79,7 +79,11 @@ def main(argv: list[str] | None = None) -> int:
 
     judgement = transcript.judge(parsed, planned=args.planned, max_skipped=args.max_skipped)
     divergences = sorted(set(_csv(args.freshness_divergences)) | set(_csv(args.divergences)))
-    guest_keys = ("boot_id", "machine_id", "os_release", "kernel", "repo_commit", "default_target", "updates_revision", "updates_mirror")
+    guest_keys = (
+        "boot_id", "machine_id", "os_release", "kernel", "repo_commit", "default_target", "updates_revision", "updates_mirror",
+        # desktop-only (§5.4): absent, hence null, on a server run
+        "session_type", "gnome_shell_version", "enabled_extensions", "session_env_vars", "session_only_vars", "screenshot",
+    )
     guest_seen = parsed.evidence.get("updates_revision") or None
     guest_seen_revision = int(guest_seen) if guest_seen and guest_seen.isdigit() else None
     after = refresh.after_run(upgrade_changed=parsed.upgrade_changed, guest_seen=guest_seen_revision, probe_seen=args.probe_revision)

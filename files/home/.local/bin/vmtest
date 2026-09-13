@@ -57,8 +57,13 @@ readonly SHUTDOWN_WAIT_SECONDS=300
 # An Anaconda install from the network tree, in minutes; virt-install waits this long
 # for the installer to power off before the build is declared failed.
 readonly INSTALL_WAIT_MINUTES=90
-# The VM kickstart for a full server base, Ansible-deployed next to the guest scripts.
+# The VM kickstarts for the full bases and the desktop session runner, Ansible-deployed
+# next to the guest scripts; the deployed copies are the authority.
 readonly KS_SERVER="${VMTEST_HOME}/ks-vm-server.cfg"
+readonly KS_DESKTOP="${VMTEST_HOME}/ks-vm-desktop.cfg"
+readonly SESSION_RUNNER="${VMTEST_HOME}/vmtest-session-provision.bash"
+# Inside a desktop guest: where the session runner and the host exchange the run.
+readonly GUEST_RUN_STATE="/var/lib/vmtest"
 readonly PROVISION_TIMEOUT_SECONDS=5400
 readonly LIBVIRT_URI="qemu:///session"
 # RFC 2606 reserved: the guest's git identity is a placeholder by design.
@@ -155,15 +160,31 @@ run_env_assignments() {
 # cleanup for every base, plus the kickstart for a full one (§3.2: a change to how a base
 # is built invalidates it).
 recipe_digest_now() {
-    local kind="${1:?recipe_digest_now requires the base kind}"
+    local kind="${1:?recipe_digest_now requires the base kind}" profile="${2:?recipe_digest_now requires the profile}" ks
     {
         printf 'build-recipe-version=%s\n' "${BUILD_RECIPE_VERSION}"
         cat "${GUEST_CLEANUP}"
         if [[ "${kind}" == "full" ]]; then
-            [[ -r "${KS_SERVER}" ]] || die "no ${KS_SERVER}; deploy the lab first"
-            cat "${KS_SERVER}"
+            ks="$(kickstart_for "${profile}")"
+            cat "${ks}"
+            if [[ "${profile}" == "desktop" ]]; then
+                [[ -r "${SESSION_RUNNER}" ]] || die "no ${SESSION_RUNNER}; deploy the lab first"
+                cat "${SESSION_RUNNER}"
+            fi
         fi
     } | sha256sum | cut -d' ' -f1
+}
+
+# kickstart_for <profile> — the deployed VM kickstart a full base of this profile installs from.
+kickstart_for() {
+    local profile="${1:?}" ks
+    case "${profile}" in
+        server) ks="${KS_SERVER}" ;;
+        desktop) ks="${KS_DESKTOP}" ;;
+        *) die "no VM kickstart for profile ${profile}" ;;
+    esac
+    [[ -r "${ks}" ]] || die "no ${ks}; deploy the lab first"
+    printf '%s\n' "${ks}"
 }
 
 # probe_upstream — run the freshness probe once; its marker lines land in PROBE_FILE.
@@ -320,6 +341,7 @@ BUILD_OK=0
 teardown_build() {
     local rc=$?
     trap - EXIT INT TERM HUP
+    console_follow_stop
     if [[ -n "${DOMAIN}" ]] && virsh -c "${LIBVIRT_URI}" dominfo "${DOMAIN}" >/dev/null 2>&1; then
         if [[ "$(virsh -c "${LIBVIRT_URI}" domstate "${DOMAIN}")" != "shut off" ]]; then
             virsh -c "${LIBVIRT_URI}" destroy "${DOMAIN}" >&2 || log "could not destroy ${DOMAIN}"
@@ -359,35 +381,126 @@ build_seed_fast() {
         --graphics none --serial "file,path=${BUILD_DIR}/console.log" --noautoconsole >&2
 }
 
-# build_install_full <netinst-iso> <disk> — a full base: Anaconda from the ONE named install
+# ── the serial console of a desktop guest (§5.3a) ─────────────────────────────────────────
+# A desktop guest's root is LUKS-wrapped and every boot stops at the passphrase prompt. Its
+# serial port is therefore a unix socket the host can WRITE to, driven by
+# helpers.vmtest.serial_console: one instance answers the prompt and reports userspace, a
+# second follows the rest of the boot into console.log. A server guest keeps the plain file.
+CONSOLE_FOLLOWER_PID=""
+
+# serial_spec <dir> — the virt-install --serial argument for this profile.
+serial_spec() {
+    local dir="${1:?}"
+    if [[ "${BASE_PROFILE}" == "desktop" ]]; then
+        printf 'unix,path=%s/serial.sock,mode=bind\n' "${dir}"
+    else
+        printf 'file,path=%s/console.log\n' "${dir}"
+    fi
+}
+
+# console_follow <dir> — log the serial socket into console.log until the port closes.
+console_follow() {
+    local dir="${1:?}"
+    helper serial_console --socket "${dir}/serial.sock" --log "${dir}/console.log" \
+        --until 'VMTEST-NEVER-MATCHES' --follow --timeout 86400 --connect-wait 120 >"${dir}/console-follow.out" 2>&1 &
+    CONSOLE_FOLLOWER_PID=$!
+}
+
+console_follow_stop() {
+    local rc=0
+    if [[ -n "${CONSOLE_FOLLOWER_PID}" ]] && [[ -d "/proc/${CONSOLE_FOLLOWER_PID}" ]]; then
+        kill "${CONSOLE_FOLLOWER_PID}"
+        # 143 = ended by the SIGTERM just sent, which is the expected way a follower stops.
+        wait "${CONSOLE_FOLLOWER_PID}" || rc=$?
+        if [[ "${rc}" -ne 0 && "${rc}" -ne 143 ]]; then
+            log "console follower exited ${rc}"
+        fi
+    fi
+    CONSOLE_FOLLOWER_PID=""
+}
+
+# console_unlock <dir> <passphrase-file> — answer the LUKS prompt on this boot and wait for
+# a login prompt; a stall is named (stage: boot) with the console excerpt, never a timeout.
+console_unlock() {
+    local dir="${1:?}" passphrase_file="${2:?}" out rc=0
+    out="$(helper serial_console --socket "${dir}/serial.sock" --log "${dir}/console.log" \
+        --unlock-with "${passphrase_file}" --until 'login: ' --timeout "${SSH_WAIT_SECONDS}" --connect-wait 60)" || rc=$?
+    printf '%s\n' "${out}" | grep -E '^VMTEST-CONSOLE ' >&2
+    [[ "${rc}" -eq 0 ]] || die "the guest did not reach userspace (stage: boot): $(printf '%s\n' "${out}" | grep -oE 'reason=.*')"
+    console_follow "${dir}"
+}
+
+# desktop_artefact <prefix> — the probe's artefact filename for this base starting with <prefix>.
+desktop_artefact() {
+    local prefix="${1:?}" filename
+    filename="$(grep -E "^VMTEST-FRESHNESS-ARTEFACT ${BASE_NAME} ${prefix}" "${PROBE_FILE}" | awk '{print $3}')"
+    [[ -n "${filename}" ]] || die "the probe listed no ${prefix}* artefact for ${BASE_NAME}"
+    printf '%s\n' "${filename}"
+}
+
+# build_install_full <artefact> <disk> — a full base: Anaconda from the ONE named install
 # tree, driven by the deployed VM kickstart with the lab key rendered in, on the serial
 # console, powering off when done; then the installed system is booted for the upgrade.
+# A server base installs packages from the tree; a desktop base deploys the Workstation
+# Live filesystem via liveimg from the Live ISO attached as a second CD-ROM (§5.3), under
+# a LUKS wrapper whose throwaway passphrase is generated here and kept beside the base.
 build_install_full() {
-    local iso="${1:?}" disk="${2:?}" tree_url ks="${BUILD_DIR}/ks.cfg" state
+    local artefact="${1:?}" disk="${2:?}" tree_url ks="${BUILD_DIR}/ks.cfg" state iso
+    local -a extra_disks=() render_args=()
     tree_url="$(grep -E "^VMTEST-FRESHNESS-TREE-URL ${BASE_TREE} " "${PROBE_FILE}" | awk '{print $3}')"
     [[ "${tree_url}" == https://* ]] || die "the probe printed no URL for tree ${BASE_TREE}"
-    helper render_kickstart --template "${KS_SERVER}" \
-        --set "TREE_URL=${tree_url}" --set "SSH_PUBKEY=$(cat "${SSH_KEY}.pub")" \
-        --set "FEDORA_VERSION=${VMTEST_FEDORA_VERSION}" >"${ks}"
+    render_args=(--set "SSH_PUBKEY=$(cat "${SSH_KEY}.pub")" --set "FEDORA_VERSION=${VMTEST_FEDORA_VERSION}")
+    if [[ "${BASE_PROFILE}" == "desktop" ]]; then
+        iso="$(desktop_artefact Fedora-Everything-netinst-)"
+        local live
+        live="$(desktop_artefact Fedora-Workstation-Live-)"
+        extra_disks=(--disk "path=${IMAGES_DIR}/${live},device=cdrom,readonly=on")
+        # The LUKS passphrase and the user's password are throwaways: generated here,
+        # never tracked, the passphrase kept 0600 beside the base for every later boot.
+        (umask 077 && head -c 24 /dev/urandom | base64 | tr -d '\n' >"${BUILD_DIR}/luks-passphrase" && printf '\n' >>"${BUILD_DIR}/luks-passphrase")
+        render_args+=(--set "LUKS_PASSPHRASE=$(head -n1 "${BUILD_DIR}/luks-passphrase")" \
+            --set "USER_PASSWORD_CRYPT=$(head -c 24 /dev/urandom | base64 | openssl passwd -6 -stdin)")
+    else
+        iso="${artefact}"
+        render_args+=(--set "TREE_URL=${tree_url}")
+    fi
+    helper render_kickstart --template "$(kickstart_for "${BASE_PROFILE}")" "${render_args[@]}" >"${ks}"
+    chmod 0600 "${ks}"
     qemu-img create -q -f qcow2 "${disk}" "${BUILD_DISK_SIZE}"
+    # Name the installer's stage-2 medium explicitly. Without inst.stage2 the installer's
+    # dracut scans every attached medium for a squashfs, and with the Live ISO attached
+    # it found the Workstation LiveOS first and booted a live session instead of Anaconda
+    # (the first desktop build). The netinst's volume label pins it.
+    local stage2_label
+    stage2_label="$(blkid -o value -s LABEL "${IMAGES_DIR}/${iso}")"
+    [[ -n "${stage2_label}" ]] || die "could not read the volume label of ${iso}"
     log "installing from ${tree_url} via ${iso} (Anaconda, cmdline mode on the serial console; up to ${INSTALL_WAIT_MINUTES} min)"
+    if [[ "${BASE_PROFILE}" == "desktop" ]]; then
+        console_follow "${BUILD_DIR}"
+    fi
     virt-install --connect "${LIBVIRT_URI}" --name "${DOMAIN}" \
         --memory "${BASE_RAM_MIB}" --vcpus "${BASE_VCPUS}" --cpu host-passthrough \
-        --disk "path=${disk},format=qcow2,bus=virtio,discard=unmap" \
+        --disk "path=${disk},format=qcow2,bus=virtio,discard=unmap" "${extra_disks[@]+"${extra_disks[@]}"}" \
         --location "${IMAGES_DIR}/${iso}" --initrd-inject "${ks}" \
-        --extra-args "inst.ks=file:/ks.cfg console=ttyS0,115200n8" \
+        --extra-args "inst.ks=file:/ks.cfg inst.stage2=hd:LABEL=${stage2_label} console=ttyS0,115200n8 plymouth.enable=0" \
         --osinfo fedora-unknown --memballoon virtio \
         --boot "uefi,firmware.feature0.name=secure-boot,firmware.feature0.enabled=no" \
         --network "type=user,backend.type=passt,portForward0.proto=tcp,portForward0.range0.start=${GUEST_PORT},portForward0.range0.to=22" \
-        --graphics none --serial "file,path=${BUILD_DIR}/console.log" \
+        --graphics none --serial "$(serial_spec "${BUILD_DIR}")" \
         --noautoconsole --noreboot --wait "${INSTALL_WAIT_MINUTES}" >&2
+    console_follow_stop
     state="$(virsh -c "${LIBVIRT_URI}" domstate "${DOMAIN}")"
     [[ "${state}" == "shut off" ]] ||
         die "the installer did not power off within ${INSTALL_WAIT_MINUTES} min (state: ${state}); see ${BUILD_DIR}/console.log"
     grep -qE 'Installation complete|Running post-installation scripts' "${BUILD_DIR}/console.log" ||
         die "the installer powered off without reporting completion; see ${BUILD_DIR}/console.log"
+    # The rendered kickstart carried the passphrase; it has done its job.
+    rm -f "${ks}"
     log "install complete; booting the installed system"
     virsh -c "${LIBVIRT_URI}" start "${DOMAIN}" >&2
+    if [[ "${BASE_PROFILE}" == "desktop" ]]; then
+        console_unlock "${BUILD_DIR}" "${BUILD_DIR}/luks-passphrase"
+    fi
 }
 
 cmd_build_base() {
@@ -398,7 +511,7 @@ cmd_build_base() {
         fast | full) ;;
         *) die "unknown base kind ${BASE_KIND} for ${BASE_NAME}" ;;
     esac
-    [[ "${BASE_PROFILE}" == "server" ]] || die "only server bases are built today; ${BASE_NAME} is profile ${BASE_PROFILE} (Phase 5)"
+    [[ "${BASE_KIND}" == "full" || "${BASE_PROFILE}" == "server" ]] || die "a ${BASE_PROFILE} base must be kind full; ${BASE_NAME} is ${BASE_KIND}"
     cmd_fetch "${key}"
 
     local line filename sha label
@@ -445,6 +558,15 @@ cmd_build_base() {
     guest_mirror="$(guest_repo_fact 'Base URL' | awk '{print $1}')"
     log "guest saw updates revision ${guest_revision} from ${guest_mirror} (probe read ${probe_revision})"
 
+    if [[ "${BASE_PROFILE}" == "desktop" ]]; then
+        # The session runner is part of the base: gnome-session launches it through the
+        # autostart entry the kickstart wrote, and it waits for the host's run.env.
+        log "installing the session runner in the guest"
+        guest_scp "${SESSION_RUNNER}" "${CLOUD_USER}@127.0.0.1:/tmp/vmtest-session-provision.bash"
+        guest_ssh sudo install -o root -g root -m 0755 /tmp/vmtest-session-provision.bash /usr/local/bin/vmtest-session-provision.bash
+        guest_ssh rm -f /tmp/vmtest-session-provision.bash
+    fi
+
     log "cleaning the guest before snapshot"
     guest_scp "${GUEST_CLEANUP}" "${CLOUD_USER}@127.0.0.1:/tmp/guest-cleanup.bash"
     guest_ssh sudo bash /tmp/guest-cleanup.bash | grep -q '^VMTEST-GUEST-CLEANUP-DONE$' ||
@@ -452,6 +574,7 @@ cmd_build_base() {
     # Schedule the poweroff so the SSH session ends cleanly rather than being severed.
     guest_ssh sudo systemd-run --quiet --on-active=2 systemctl poweroff
     wait_for_shutoff
+    console_follow_stop
     virsh -c "${LIBVIRT_URI}" undefine --nvram "${DOMAIN}" >&2
     DOMAIN=""
 
@@ -459,6 +582,9 @@ cmd_build_base() {
     base_disk="${base_dir}/base.qcow2"
     mkdir -p "${base_dir}"
     mv -f "${disk}" "${base_disk}"
+    if [[ -f "${BUILD_DIR}/luks-passphrase" ]]; then
+        mv -f "${BUILD_DIR}/luks-passphrase" "${base_dir}/luks-passphrase"
+    fi
     log "hashing the flattened base"
     base_sha="$(sha256sum "${base_disk}" | cut -d' ' -f1)"
     base_size="$(stat -c %s "${base_disk}")"
@@ -470,7 +596,7 @@ cmd_build_base() {
     else
         refresh_state="incomplete"
     fi
-    recipe_digest="$(recipe_digest_now "${BASE_KIND}")"
+    recipe_digest="$(recipe_digest_now "${BASE_KIND}" "${BASE_PROFILE}")"
     # A full base's media identity includes the install tree's checksums (§4.4); the
     # record reads them from the same probe the install was verified against.
     local -a tree_args=()
@@ -529,12 +655,13 @@ freshness_verdict() {
     local base_json="${1:?}" base_disk="${2:?}" record actual_mtime actual_sha gate gate_rc=0
     # The record-only pass needs no recipe digest of its own; the kind it reports selects one.
     record="$(helper freshness_gate --fedora-version "${VMTEST_FEDORA_VERSION}" --manifest "${MANIFEST}" \
-        --base-json "${base_json}" --probe "${PROBE_FILE}" --recipe-digest "$(recipe_digest_now fast)" \
+        --base-json "${base_json}" --probe "${PROBE_FILE}" --recipe-digest "$(recipe_digest_now fast server)" \
         --actual-base-sha256 "$(printf '%064d' 0)" --record-only)" ||
         die "could not read ${base_json}"
     [[ "${record}" == VMTEST-BASE-RECORD* ]] || die "unexpected gate output: ${record}"
-    local kind
+    local kind profile
     kind="$(record_field "${record}" kind)"
+    profile="$(record_field "${record}" profile)"
     # §7: size and mtime per run; the full sha256 only on refresh, reinstall and --deep.
     GATE_BASE_SIZE="$(stat -c %s "${base_disk}")"
     actual_mtime="$(stat -c %Y "${base_disk}")"
@@ -544,7 +671,7 @@ freshness_verdict() {
         die "base.qcow2 for $(record_field "${record}" name) differs from its record (size/mtime); refusing a base of unknown provenance"
     fi
     gate="$(helper freshness_gate --fedora-version "${VMTEST_FEDORA_VERSION}" --manifest "${MANIFEST}" \
-        --base-json "${base_json}" --probe "${PROBE_FILE}" --recipe-digest "$(recipe_digest_now "${kind}")" \
+        --base-json "${base_json}" --probe "${PROBE_FILE}" --recipe-digest "$(recipe_digest_now "${kind}" "${profile}")" \
         --actual-base-sha256 "${actual_sha}" | grep '^VMTEST-FRESHNESS-VERDICT ')" || gate_rc=$?
     [[ "${gate}" == VMTEST-FRESHNESS-VERDICT* ]] || die "the freshness gate printed no verdict (exit ${gate_rc})"
     GATE_LINE="${gate}"
@@ -575,11 +702,81 @@ raw_url() {
     printf 'https://raw.githubusercontent.com/%s/%s/%s\n' "${repo}" "${commit}" "${path}"
 }
 
+# scenario_divergences — every known difference between this run and a real install of
+# its profile (§6.6 rule 09), comma-separated for judge_run.
+scenario_divergences() {
+    local list="throwaway-vault-password,lab-ssh-key-baked"
+    if [[ "${BASE_PROFILE}" == "desktop" ]]; then
+        list="${list},luks-unlock-automated,plymouth-disabled,gdm-autologin-enabled-by-harness,session-runner-autostart"
+    fi
+    printf '%s\n' "${list}"
+}
+
+# session_provision <commit> <run_env_words> <transcript> — run run.bash INSIDE the desktop
+# guest's autologin session (§5.3 item 3): hand the session runner its run.env over SSH,
+# wait for it to report run.bash's exit, then pull the run log into the transcript. Returns
+# run.bash's exit status; dies only when the guest cannot be driven at all.
+session_provision() {
+    local commit="${1:?}" run_env_words="${2-}" transcript="${3:?}" waited=0 run_rc word
+    local -a env_lines=(
+        "RUN_BASH_HEADLESS=1"
+        "RUN_BASH_USER_EMAIL=${GUEST_USER_EMAIL}"
+        "RUN_BASH_GITHUB_ACCOUNTS=none"
+        "RUN_BASH_VAULT_PASSWORD_FILE=/home/${CLOUD_USER}/.vmtest/throwaway-pw"
+        "RUN_BASH_GIT_REF=${commit}"
+        "RUN_BASH_PROVISIONING_PROFILE=${BASE_PROFILE}"
+        "TERM=dumb"
+    )
+    # run_env_assignments renders " KEY='value'" words; the runner sources plain KEY=value lines.
+    for word in ${run_env_words}; do
+        env_lines+=("$(printf '%s' "${word}" | tr -d "'")")
+    done
+    log "handing the run to the session runner (waits for ${GUEST_RUN_STATE}/run.exit, up to ${PROVISION_TIMEOUT_SECONDS}s)"
+    printf '%s\n' "${env_lines[@]}" | guest_ssh "umask 077 && cat >${GUEST_RUN_STATE}/run.env.tmp && mv -f ${GUEST_RUN_STATE}/run.env.tmp ${GUEST_RUN_STATE}/run.env"
+    while ! guest_ssh "test -r ${GUEST_RUN_STATE}/run.exit" 2>/dev/null; do
+        sleep 15
+        waited=$((waited + 15))
+        if [[ "${waited}" -ge "${PROVISION_TIMEOUT_SECONDS}" ]]; then
+            guest_ssh "cat ${GUEST_RUN_STATE}/run.log" >>"${transcript}" 2>&1 || log "could not read the run log from the guest"
+            printf 'ERROR: the session runner did not finish run.bash within %ss\n' "${PROVISION_TIMEOUT_SECONDS}" | tee -a "${transcript}" >&2
+            return 124
+        fi
+        if ((waited % 300 == 0)); then
+            log "still provisioning in the session after ${waited}s"
+        fi
+    done
+    guest_ssh "cat ${GUEST_RUN_STATE}/run.log" | tee -a "${transcript}" >&2
+    run_rc="$(guest_ssh "cat ${GUEST_RUN_STATE}/run.exit")"
+    [[ "${run_rc}" =~ ^[0-9]+$ ]] || die "the session runner wrote a malformed run.exit: ${run_rc}"
+    return "${run_rc}"
+}
+
+# collect_desktop_evidence <transcript> — §5.4 evidence-only items: the session
+# environment the runner inherited (T5.3b, diffed against a transient user unit) and a
+# screenshot of the framebuffer, with the boundary stated next to it.
+collect_desktop_evidence() {
+    local transcript="${1:?}" shot="${RUN_DIR}/screenshot.ppm"
+    guest_ssh "cat ${GUEST_RUN_STATE}/session.env" >"${RUN_DIR}/session.env" 2>&1 || log "no session.env in the guest"
+    guest_ssh "systemd-run --user --pipe --quiet --wait env | sort" >"${RUN_DIR}/transient-unit.env" 2>&1 || log "could not probe the transient-unit environment"
+    if [[ -s "${RUN_DIR}/session.env" && -s "${RUN_DIR}/transient-unit.env" ]]; then
+        # Variables the real session has and a transient user unit does not (§5.3 item 3).
+        printf 'VMTEST-EVIDENCE session_only_vars=%s\n' \
+            "$(comm -23 <(cut -d= -f1 "${RUN_DIR}/session.env" | sort) <(cut -d= -f1 "${RUN_DIR}/transient-unit.env" | sort) | tr '\n' ',')" >>"${transcript}"
+    fi
+    if virsh -c "${LIBVIRT_URI}" screenshot "${DOMAIN}" "${shot}" >&2; then
+        printf 'VMTEST-EVIDENCE screenshot=runs/%s/screenshot.ppm (evidence only: proves the compositor produced a frame, not that the frame is correct)\n' \
+            "$(basename "${RUN_DIR}")" >>"${transcript}"
+    else
+        log "screenshot failed (recorded as absent)"
+    fi
+}
+
 RUN_DIR=""
 RUN_OK=0
 teardown_run() {
     local rc=$?
     trap - EXIT INT TERM HUP
+    console_follow_stop
     if [[ -n "${DOMAIN}" ]] && virsh -c "${LIBVIRT_URI}" dominfo "${DOMAIN}" >/dev/null 2>&1; then
         if [[ "$(virsh -c "${LIBVIRT_URI}" domstate "${DOMAIN}")" != "shut off" ]]; then
             virsh -c "${LIBVIRT_URI}" destroy "${DOMAIN}" >&2 || log "could not destroy ${DOMAIN}"
@@ -653,12 +850,23 @@ cmd_run() {
     GUEST_PORT="$(free_port)"
     started_at="$(date +%s)"
     log "run ${run_id}: booting ${DOMAIN} on ${BASE_NAME} (SSH forwarded to 127.0.0.1:${GUEST_PORT})"
+    # A desktop guest needs a display for GNOME (VNC, local only, also what `virsh
+    # screenshot` reads) and a writable serial port for the LUKS unlock; a server guest
+    # needs neither.
+    local -a display_args=(--graphics none)
+    if [[ "${BASE_PROFILE}" == "desktop" ]]; then
+        display_args=(--graphics "vnc,listen=127.0.0.1" --video virtio)
+    fi
     virt-install --connect "${LIBVIRT_URI}" --name "${DOMAIN}" \
         --memory "${BASE_RAM_MIB}" --vcpus "${BASE_VCPUS}" --cpu host-passthrough \
         --import --disk "path=${RUN_DIR}/overlay.qcow2,format=qcow2,bus=virtio,discard=unmap,cache=unsafe" \
         --osinfo fedora-unknown --boot uefi --memballoon virtio \
         --network "type=user,backend.type=passt,portForward0.proto=tcp,portForward0.range0.start=${GUEST_PORT},portForward0.range0.to=22" \
-        --graphics none --serial "file,path=${RUN_DIR}/console.log" --noautoconsole >&2
+        "${display_args[@]}" --serial "$(serial_spec "${RUN_DIR}")" --noautoconsole >&2
+    if [[ "${BASE_PROFILE}" == "desktop" ]]; then
+        [[ -r "${base_dir}/luks-passphrase" ]] || die "no luks-passphrase beside ${BASE_NAME}; rebuild it (stage: boot)"
+        console_unlock "${RUN_DIR}" "${base_dir}/luks-passphrase"
+    fi
     wait_for_ssh
 
     # ── provision at the pinned commit ─────────────────────────────────────────────────
@@ -677,23 +885,35 @@ cmd_run() {
     local run_env_words
     run_env_words="$(run_env_assignments)"
     log "provisioning (headless run.bash; this is the long part — up to ${PROVISION_TIMEOUT_SECONDS}s)${run_env_words:+; overrides:${run_env_words}}"
-    timeout "${PROVISION_TIMEOUT_SECONDS}" ssh -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
-        -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ServerAliveInterval=30 \
-        -i "${SSH_KEY}" -p "${GUEST_PORT}" "${CLOUD_USER}@127.0.0.1" \
-        "env RUN_BASH_HEADLESS=1 RUN_BASH_USER_EMAIL='${GUEST_USER_EMAIL}' RUN_BASH_GITHUB_ACCOUNTS=none \
-             RUN_BASH_VAULT_PASSWORD_FILE=\$HOME/.vmtest/throwaway-pw RUN_BASH_GIT_REF='${commit}' \
-             RUN_BASH_PROVISIONING_PROFILE='${BASE_PROFILE}'${run_env_words} TERM=dumb bash ~/run.bash" \
-        2>&1 | tee -a "${transcript}" >&2 || run_rc="${PIPESTATUS[0]}"
+    if [[ "${BASE_PROFILE}" == "desktop" ]]; then
+        session_provision "${commit}" "${run_env_words}" "${transcript}" || run_rc=$?
+    else
+        timeout "${PROVISION_TIMEOUT_SECONDS}" ssh -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ServerAliveInterval=30 \
+            -i "${SSH_KEY}" -p "${GUEST_PORT}" "${CLOUD_USER}@127.0.0.1" \
+            "env RUN_BASH_HEADLESS=1 RUN_BASH_USER_EMAIL='${GUEST_USER_EMAIL}' RUN_BASH_GITHUB_ACCOUNTS=none \
+                 RUN_BASH_VAULT_PASSWORD_FILE=\$HOME/.vmtest/throwaway-pw RUN_BASH_GIT_REF='${commit}' \
+                 RUN_BASH_PROVISIONING_PROFILE='${BASE_PROFILE}'${run_env_words} TERM=dumb bash ~/run.bash" \
+            2>&1 | tee -a "${transcript}" >&2 || run_rc="${PIPESTATUS[0]}"
+    fi
     printf 'RUN-BASH-EXIT %s\n' "${run_rc}" | tee -a "${transcript}" >&2
 
     # ── in-guest acceptance ────────────────────────────────────────────────────────────
-    local accept_rc=0
+    local accept_rc=0 session_env=""
     guest_scp "${guest_script}" "${CLOUD_USER}@127.0.0.1:/tmp/guest-acceptance.bash"
-    guest_ssh "VMTEST_COMMIT='${commit}' VMTEST_USER_EMAIL='${GUEST_USER_EMAIL}' bash /tmp/guest-acceptance.bash" \
+    if [[ "${BASE_PROFILE}" == "desktop" ]]; then
+        # The checks must reach the session's GNOME Shell: the bus of the autologin session.
+        session_env="XDG_RUNTIME_DIR=/run/user/\$(id -u) DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$(id -u)/bus"
+    fi
+    guest_ssh "env ${session_env} VMTEST_COMMIT='${commit}' VMTEST_USER_EMAIL='${GUEST_USER_EMAIL}' bash /tmp/guest-acceptance.bash" \
         2>&1 | tee -a "${transcript}" >&2 || accept_rc="${PIPESTATUS[0]}"
     [[ "${accept_rc}" -eq 0 ]] || log "guest acceptance script exited ${accept_rc} (recorded; the transcript decides)"
+    if [[ "${BASE_PROFILE}" == "desktop" ]]; then
+        collect_desktop_evidence "${transcript}"
+    fi
 
     # ── destroy, judge, respond ────────────────────────────────────────────────────────
+    console_follow_stop
     virsh -c "${LIBVIRT_URI}" destroy "${DOMAIN}" >&2
     virsh -c "${LIBVIRT_URI}" undefine --nvram "${DOMAIN}" >&2
     DOMAIN=""
@@ -703,7 +923,7 @@ cmd_run() {
         --base-json "${base_json}" --scenario "${scenario_id}" --planned "${SCENARIO_PLANNED}" \
         --max-skipped "${SCENARIO_MAX_SKIPPED}" --run-id "${run_id}" --commit "${commit}" \
         --branch "${VMTEST_REPO_BRANCH}" --freshness-decision "${decision}" --freshness-degraded "${degraded}" \
-        --freshness-divergences "${divergences}" --divergences "throwaway-vault-password,lab-ssh-key-baked" \
+        --freshness-divergences "${divergences}" --divergences "$(scenario_divergences)" \
         --started-at "${started_at}" --finished-at "${finished_at}" \
         --probe-revision "$(probe_value VMTEST-FRESHNESS-REVISION)" \
         >"${RUN_DIR}/response.json" || verdict_rc=$?

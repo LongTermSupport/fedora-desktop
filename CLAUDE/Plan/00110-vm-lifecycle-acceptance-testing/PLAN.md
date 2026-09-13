@@ -111,10 +111,10 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 
 ### Phase 3b: Server full path (Anaconda), release-gated
 
-- [ ] ⬜ **T3b.1**: `server-full` base from the **Server** install tree
-- [ ] ⬜ **T3b.2**: `vmtest run server-full-provision`
-- [ ] ⬜ **T3b.3**: Record which server base ran, in transcript and `evidence.base`
-- [ ] ⬜ **T3b.4**: QA; commit
+- [x] ✅ **T3b.1**: `server-full` base from the **Server** install tree (`ks-vm-server.cfg` + `render_kickstart.py`; Anaconda cmdline mode over serial from the verified netinst ISO; `server-full-44` built in eleven minutes, tree checksums in its identity)
+- [x] ✅ **T3b.2**: `vmtest run server-full-provision` (pass, 13/13, `RUN-BASH-EXIT 0`; run `20260913T185356Z-server-full-provision`)
+- [x] ✅ **T3b.3**: Record which server base ran, in transcript and `evidence.base` (header `on base server-full-44 (full, server)`, `evidence.base.kind=full`; the acceptance leg's regex pins the pass to the full base)
+- [x] ✅ **T3b.4**: QA; commit
 
 ### Phase 4: The bridge
 

@@ -112,6 +112,6 @@ vm_test_scenarios:
     max_skipped: 0
   desktop-fresh-install:
     base: desktop
-    description: the repo's own installer shape (netinst + Workstation liveimg) plus desktop provisioning
-    planned: null
+    description: the repo's own installer shape (netinst + Workstation liveimg, btrfs under LUKS) plus desktop provisioning run inside the autologin GNOME session
+    planned: 16   # = PLANNED in files/home/.local/share/vmtest/guest-acceptance-desktop.bash
     max_skipped: 0
