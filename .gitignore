@@ -76,3 +76,12 @@ FORCE-PUSH-REQUIRED.md
 # container names, private IPs, SSIDs — and this is a public repository. The
 # pre-commit secret scanner would reject most of them anyway.
 CLAUDE/Plan/**/logs/
+
+# Scratch space for raw captures that must never be committed: journal
+# excerpts, process dumps, triage working notes. Same reasoning as the plan
+# logs above — live host state in a public repository.
+#
+# This was previously ignored ONLY by the developer's user-global gitignore
+# (~/.config/git/ignore), so a fresh clone or a CCY container did not ignore it
+# at all and a stray `git add -A` would have committed whatever was in it.
+/untracked/
