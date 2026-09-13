@@ -97,6 +97,13 @@ assumptions**, and every one is a probe inside `triage.bash` per
   (`claude-yolo:1947` mounts `/tmp/claude-config-import`), can a *synthetic* token be placed
   in PID 1's environment through ccy's own token store, and does `ccy --rebuild` succeed with
   rootless podman inside a VM. Probed on the host first, then in the guest.
+- **U8 — how the LUKS root is unlocked unattended at every boot** (§5.3a). Three sub-questions,
+  and the answer selects between routes rather than merely confirming one: does the
+  `systemd-ask-password` prompt reliably reach a serial console under this guest's boot
+  configuration (the chosen route); does libvirt in `qemu:///session` mode support a vTPM via
+  `swtpm` here (the rejected route's blocker — `swtpm-tools` exists on F44, but its
+  availability to a session-mode domain is unchecked); and does the harness's prompt-matching
+  reliably distinguish a LUKS wedge from an ordinary slow boot.
 
 Numbering is deliberately not compacted: U3 and U6 are cited elsewhere in this document's
 history and in the journal, and silently reusing their numbers for different questions would
@@ -165,7 +172,7 @@ repo (tracked, public)
 │   ├── guest-acceptance-server.bash              [new]     runs INSIDE the guest (both server bases)
 │   ├── guest-acceptance-desktop.bash             [new]     runs INSIDE the guest
 │   └── guest-cleanup.bash                        [new]     pre-snapshot hygiene, runs INSIDE the guest
-├── fedora-install/ks-vm-desktop.cfg              [new]     non-interactive kickstart, VM only (btrfs, no LUKS)
+├── fedora-install/ks-vm-desktop.cfg              [new]     non-interactive kickstart, VM only (btrfs + LUKS, per-run throwaway passphrase — §5.3a)
 ├── fedora-install/ks-vm-server.cfg               [new]     non-interactive kickstart for the server-full base
 ├── playbooks/imports/optional/common/play-vm-test-lab.yml   [new]
 ├── scripts/vmtest-request.bash                   [new]     container-side requester/reader
@@ -851,18 +858,62 @@ product.
    design fixes the requirement (Anaconda boots from netinst, squashfs reaches it somehow),
    not the mechanism.
 
-   The existing `fedora-install/ks.cfg` is **not reusable**: `ks.cfg:13-70` switches to
+   The existing `fedora-install/ks.cfg` is **not reusable as-is**: `ks.cfg:13-70` switches to
    `/dev/tty6` and interactively prompts for an authorisation code, then WiFi, LUKS and user
-   details, and `ks.cfg:359-364` builds a **LUKS-encrypted** btrfs layout whose passphrase
-   prompt has nowhere to go in an unattended VM. The VM kickstart is a separate file — and
-   that is a feature, since the shipped installer keeps its interactive safety prompts. It
-   keeps the btrfs layout (so the tested filesystem matches a real install) and drops the
-   LUKS wrapper.
+   details. The VM kickstart is a separate file, and that is a feature — the shipped installer
+   keeps its interactive safety prompts.
 
-   Verified constraint: `releases/44/Workstation/x86_64/os/.treeinfo` returns **HTTP 404** —
-   there is no Workstation install *tree*, which is precisely why the netinst tree has to
-   supply the installer and the Live ISO can only supply the payload. The fallback route is
-   the `Everything` tree plus a package environment (the only reason U5 matters).
+#### 5.3a LUKS — the blocker is every boot, not the install
+
+An earlier draft said the LUKS layout had "a passphrase prompt with nowhere to go in an
+unattended VM" and dropped encryption from the VM kickstart. **That located the problem at
+the wrong point in the lifecycle, and the fix that followed from it was therefore wrong too.**
+
+The passphrase *is* supplied to Anaconda. Both partition branches pass it inline
+(`ks.cfg:359-360` for the FDINST-present case, `:377-378` for the first-install case):
+
+```
+part btrfs.01 --fstype=btrfs --size=1 --grow --encrypted --luks-version=luks2 --passphrase="…"
+```
+
+So **the install is unattended-capable and there is no install-time prompt to answer.** The
+blocker is **every boot afterwards**: a LUKS2-encrypted root must be unlocked before the root
+filesystem exists, so the VM comes up at a `cryptsetup` prompt on the console and stays
+there — *before* userspace, so none of the in-guest transcript machinery is running to say
+why. A naive harness would record a bare timeout with no cause, which is the same
+uninformative-failure class §6.5 exists to prevent for the bridge. And unlike that one, this
+is **guaranteed on the first desktop run**, not a rare edge.
+
+Three ways to clear it:
+
+|     | Approach                                                      | Fidelity cost                                          | Why not chosen / chosen                                                                                                                                                        |
+| --- | ------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | **Drive the passphrase over the VM's serial console at boot** | lowest — the shipped kickstart stays byte-identical    | **Chosen.** The desktop base is the only profile that tests the repo's real installer, so divergence there costs exactly the thing the path exists to prove.                   |
+| 2   | vTPM + `systemd-cryptenroll`/clevis                           | changes post-install state; needs a vTPM in the domain | Closest to how an encrypted desktop *should* behave, but it adds an unverified dependency (**U8**) and alters the installed system after the install being tested. Not chosen. |
+| 3   | Enrol a keyfile into the LUKS header post-install             | highest — furthest from what ships                     | Kept as the **fallback** if U8 shows console prompting is not reliably drivable. Simplest mechanically.                                                                        |
+
+**The passphrase is generated per run and is a throwaway.** It is never the estate's, never
+`KS_LUKS1`'s value, and its value appears in no tracked file — including this one. It is
+generated into the run directory, used by the harness, and discarded with the overlay.
+
+**The harness must name this failure, not time out into silence.** The serial console is
+captured from the first instant of boot (`console=ttyS0` on the kernel command line). If the
+guest does not reach userspace, the collected console is matched against the known
+`cryptsetup`/`systemd-ask-password` prompt, and the verdict is
+`failure.stage: boot`, `failure.reason: "wedged at the LUKS passphrase prompt"` with the
+console excerpt inline — never a generic `boot timeout`. A condition we know about in advance
+and still report as "timed out" would be a self-inflicted diagnostic blind spot.
+
+**Consequence for the discharge map, stated rather than buried:** whichever option is used,
+the desktop base is **not a byte-exact reproduction of a shipped install**. Option 1 is the
+closest available — the kickstart is unchanged and only the *unlock* is automated — but the
+unlock path differs from a human typing a passphrase, and that goes in
+`evidence.divergences` as `luks-unlock-automated` alongside `gdm-autologin-enabled-by-harness`.
+
+Verified constraint: `releases/44/Workstation/x86_64/os/.treeinfo` returns **HTTP 404** —
+there is no Workstation install *tree*, which is precisely why the netinst tree has to
+supply the installer and the Live ISO can only supply the payload. The fallback route is
+the `Everything` tree plus a package environment (the only reason U5 matters).
 
 2. **GDM autologin is configured by the harness, not by the repo.** The kickstart writes
    `/etc/gdm/custom.conf` with `[daemon] AutomaticLoginEnable=True`. Verified: the repo
@@ -1001,21 +1052,47 @@ bridge exists to hold.
 the host user's uid. Everything in the spool is already owned by the host user. That mapping
 is what makes the bridge convenient, and it is what removes ownership as a control.
 
-The defence, per directory, at every use:
+**Reaching the spool root is itself the first attack surface, and `O_NOFOLLOW` alone does not
+cover it.** `O_NOFOLLOW` constrains only the **final** component of an open, so a single open
+of `<checkout>/untracked/vmtest-bridge` still traverses `untracked/` — which the sandbox owns
+and can replace with a symlink. The root must be reached by a **component-wise walk**:
 
-| Directory           | Host action                   | Defence                                                                                                                        |
-| ------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `requests/`         | scan, read, claim             | `openat` a pinned directory fd for the spool root; reject if `O_NOFOLLOW` on the dir fails or `realpath` leaves the spool root |
-| `processing/`       | `renameat` target             | same pinned fd; `renameat` relative to it, never a path string                                                                 |
-| `responses/`        | create                        | `O_CREAT\|O_EXCL\|O_NOFOLLOW` relative to the pinned fd, then `renameat`                                                       |
-| `archive/<run_id>/` | create dir + write transcript | `mkdirat` with `O_EXCL` semantics; refuse if the run-id dir already exists                                                     |
-| `quarantine/`       | move malformed input          | `renameat` relative to the pinned fd                                                                                           |
-| `tmp/`              | **never read by the host**    | it is the sandbox's staging area only                                                                                          |
+```
+fd = open(checkout, O_PATH|O_DIRECTORY|O_NOFOLLOW)
+for component in ("untracked", "vmtest-bridge"):
+    fd = openat(fd, component, O_PATH|O_DIRECTORY|O_NOFOLLOW)   # refuse on ELOOP
+```
+
+That is `openat2(RESOLVE_NO_SYMLINKS)` semantics built from `os.open(..., dir_fd=…)`, which
+Python's standard library provides. `openat2` has **no stdlib binding**, and `helpers/` is
+stdlib-only by an in-stone rule (`helpers/CLAUDE.md`), so the walk is written out rather than
+reaching for a third-party wrapper or a `ctypes` syscall. Every subsequent operation uses the
+resulting pinned root fd and never a path string.
+
+The defence, per directory, at every use — **all seven, none omitted**:
+
+| Directory           | Host action                          | Defence                                                                                                                                                                                                                                                                                              |
+| ------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `requests/`         | scan, read, claim                    | `openat` from the pinned root fd with `O_NOFOLLOW\|O_DIRECTORY`; refuse on `ELOOP`                                                                                                                                                                                                                   |
+| `processing/`       | `renameat` target                    | `renameat` relative to the pinned fds, never a path string                                                                                                                                                                                                                                           |
+| `responses/`        | create                               | `O_CREAT\|O_EXCL\|O_NOFOLLOW` relative to the pinned fd, then `renameat`                                                                                                                                                                                                                             |
+| `archive/<run_id>/` | create dir + write transcript        | `mkdirat` relative to the pinned fd, refuse if the run-id dir exists; the **run scope holds the resulting fd open for its whole life** — see below                                                                                                                                                   |
+| **`diagnostics/`**  | **heartbeat writes, every interval** | same pinned-fd discipline. **Omitted from an earlier draft's table, and it was the worst omission**: §6.5's liveness writer is a *timer-driven, repeated* write to a fixed path, which makes it the most attractive symlink target in the spool and the one a naive implementation would hit soonest |
+| `quarantine/`       | move malformed input                 | `renameat` relative to the pinned fd                                                                                                                                                                                                                                                                 |
+| `tmp/`              | **never opened by the host at all**  | the sandbox's staging area; the host's only interaction is that requests arrive *from* it by the sandbox's own `mv`                                                                                                                                                                                  |
+
+**The long-lived writers pin too, not just the oneshot.** The watcher is short-lived, but the
+`systemd-run --user --scope` run and the heartbeat timer are not: they write into a
+sandbox-writable tree repeatedly, over minutes, which is exactly the window a
+check-then-write gap is exploitable in. Both resolve their directory **once**, at start, via
+the component-wise walk, and hold the fd for their lifetime — every later write is
+`openat`/`renameat` against that fd. A re-resolution mid-run would reopen the hole the
+pinning closes.
 
 **A symlinked spool directory is a refusal, not a quarantine.** Quarantining implies
-recoverable malformed input; a symlinked `responses/` is an attempt on the host account. The
-watcher logs it to the **off-mount** audit log, writes nothing into the spool, and exits
-non-zero so the condition is visible in `systemctl --user status`.
+recoverable malformed input; a symlinked `responses/` or `diagnostics/` is an attempt on the
+host account. The watcher logs it to the **off-mount** audit log, writes nothing into the
+spool, and exits non-zero so the condition is visible in `systemctl --user status`.
 
 **D2 — the request body is read exactly once.** The earlier ordering (validate → `mv` →
 build argv) left `processing/` on the shared mount and never said where argv came from, so
@@ -1082,9 +1159,17 @@ Therefore:
 
 - the **real** limit is step 8, counted by the watcher from the off-mount audit log, which
   writes a `rejected` response and **exits 0** so neither unit ever enters `failed`;
-- the systemd limits are set deliberately **high** (`StartLimitBurst` in the hundreds,
-  `TriggerLimitBurst` likewise) and are a last-resort loop breaker only — reaching one means
-  something is badly wrong, and §6.5 makes that visible instead of silent;
+- `StartLimitBurst` is set deliberately **high** and is a last-resort loop breaker only;
+- **`TriggerLimitBurst=0`**, which disables path-unit trigger limiting outright. Setting it
+  "high" is not enough and an earlier draft was wrong to say so: the trigger limit is
+  *"enforced before the service activation is enqueued"*, so a sandbox `touch` loop in
+  `requests/` trips it **without the watcher ever running**, and no amount of watcher-side
+  limiting can cover a path the watcher is never on. The busy-loop protection it would have
+  given is provided instead by the watcher **draining every pending request in one
+  activation** rather than one per trigger — so a burst of N requests costs one activation,
+  not N, and there is no loop to break;
+- reaching the remaining limit means something is badly wrong, and §6.5 makes that visible
+  instead of silent;
 - `RuntimeMaxSec` caps the **oneshot**, never the `systemd-run --user --scope`, which must
   outlive it.
 
@@ -1208,27 +1293,44 @@ Rules that carry the weight:
 10. **The transcript's sha256 is recorded in both the shared response and the off-mount audit
     log.** Tampering with the shared copy is detectable by comparing them.
 
-11. **Every response is HMAC-signed, because the spool is sandbox-writable.** Nothing stops
-    the sandbox authoring `responses/<request>.response.json` itself — it is a file in a
-    directory it owns — and an earlier draft had the container-side reader trust it. "The
-    agent reports its own pass" is this repo's defect class with the safety rails removed. So
-    the watcher and the run scope sign each response with a key in
-    `~/.config/vmtest-bridge/<slug>/response.key` (`0600`, host-only, never on the mount), and
-    `scripts/vmtest-request.bash` treats an absent or non-verifying signature as `forged`,
-    which is non-zero and distinct from every other outcome.
+11. **Every response is HMAC-signed — and the signature is verifiable only on the HOST.** The
+    spool is sandbox-writable, so nothing stops the sandbox authoring
+    `responses/<request>.response.json` itself. The watcher and the run scope therefore sign
+    each response with a key in `~/.config/vmtest-bridge/<slug>/response.key` (`0600`,
+    host-only, never on the mount), with the request nonce inside the signed payload so a
+    previous run's response cannot be replayed.
 
-    **Stated honestly: this does not make a dishonest agent honest.** An agent that wanted to
-    mislead could simply not run the request at all and describe a result. What the signature
-    buys is that a response the host did not write is *detectable*, and that a stale response
-    from a previous run cannot be replayed (the request nonce is inside the signed payload).
-    **The off-mount `~/.local/state/vmtest-bridge/<slug>/service.log` remains the verdict of
-    record**, and `vmtest-request.bash` prints its path with every verdict so a human always
-    has somewhere to look that the sandbox cannot reach.
+    **An earlier draft then had `scripts/vmtest-request.bash` — which runs *in the
+    container* — verify that signature and report `forged`. That is not achievable, and
+    claiming it was worse than claiming nothing.** Verification needs the key; the key is
+    host-only by construction; and giving the container the key would let the sandbox forge
+    signatures, destroying the property. The check could never have run. A reader that
+    *appears* to verify and cannot is precisely the shape this document spends §6.6 arguing
+    against — it would have been a vacuous check wearing a security claim.
+
+    So the split is explicit:
+
+    - **`vmtest verify <run-id>` is a HOST command.** It is where signature verification
+      happens, it is the only place it can happen, and it is what a human runs when a verdict
+      matters.
+    - **`scripts/vmtest-request.bash` (container) does not verify and does not pretend to.**
+      It reports `signature: present, not verifiable from inside the sandbox` and prints the
+      `vmtest verify` command plus the off-mount audit-log path. It reads the response for
+      *content*, and says plainly that content is unauthenticated at its vantage point.
+
+    **Stated honestly: none of this makes a dishonest agent honest.** An agent that wanted to
+    mislead could simply not run the request and describe a result. What the signature buys is
+    that a human, on the host, can tell a response the host wrote from one it did not.
+    **The off-mount `~/.local/state/vmtest-bridge/<slug>/service.log` is the verdict of
+    record**, and both tools print its path with every verdict so there is always somewhere to
+    look that the sandbox cannot reach.
 
 `scripts/vmtest-request.bash` (container side) exits `0` **only** on
-`state == "finished" && verdict == "pass"` **and** a verifying signature. Timeout, `unknown`,
-`rejected`, `forged`, `fail` and `error` are all non-zero and each prints a distinct reason,
-as does a stale or `path_unit: failed` heartbeat (§6.5).
+`state == "finished" && verdict == "pass"`, and always states that the result is
+host-verifiable but not sandbox-verifiable. Timeout, `unknown`, `rejected`, `fail` and
+`error` are all non-zero and each prints a distinct reason, as does a stale or
+`path_unit: failed` heartbeat (§6.5). `forged` is **not** an outcome it can report — only
+`vmtest verify` on the host can reach that conclusion.
 
 ### 6.7 Known limits, stated rather than discovered
 
@@ -1256,7 +1358,7 @@ are the only numbers that belong anywhere.
 | Fetch netinst ISO (**boots Anaconda**, §5.3)  | `curl -z` + sha256 vs `Fedora-Everything-44-1.7-x86_64-CHECKSUM`                                                                                       | 1,217,329,152 B on first fetch; a 304 thereafter                                                        |
 | Fetch Workstation Live ISO (**payload only**) | `curl -z` + sha256 vs `Fedora-Workstation-44-1.7-x86_64-CHECKSUM`                                                                                      | 2,851,612,672 B on first fetch; a 304 thereafter                                                        |
 | Build **server-fast** base                    | import qcow2 + `--cloud-init` first boot + `dnf -y upgrade` + cleanup                                                                                  | the upgrade backlog; no Anaconda — but see §3.5, this is **not** an Anaconda install                    |
-| Build **server-full** base                    | `virt-install` + Anaconda from the **Server** tree (§4.3 — one tree per base)                                                                                              | package download and install; the largest beneficiary of the DNF cache below                            |
+| Build **server-full** base                    | `virt-install` + Anaconda from the **Server** tree (§4.3 — one tree per base)                                                                          | package download and install; the largest beneficiary of the DNF cache below                            |
 | Build **desktop** base                        | `virt-install`, netinst boots Anaconda, `liveimg` unpacks the Live squashfs                                                                            | the 2.8 GB squashfs unpack; network only for `%post`                                                    |
 | Refresh a base                                | **no boot of its own** — the run's own `play-AB-dnf-upgrade.yml` transaction is the probe (§4.4a); re-flatten afterwards only when it changed packages | the re-flatten alone, and it is O(1) where reflink is available; a no-change cycle costs nothing at all |
 | Create a run overlay                          | `qemu-img create -f qcow2 -F qcow2 -b`                                                                                                                 | nothing — CoW, the new file is a few hundred KB                                                         |
@@ -1389,17 +1491,17 @@ Mapped onto the three plans stuck on "Blocked — HOST ACTION". **Deliberately c
 
 ### Plan 00063 — headless `run.bash` server/cloud provisioning
 
-| Success criterion                                                                | Verdict                                                                                                                                                                                                                                                               |
-| -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Provisions a headless Fedora **Cloud** box end-to-end with zero prompts          | **Dischargeable by the fast path.** `server-fast-provision` on the Cloud Base image, with a transcript. This is the "or Cloud box" half of the criterion, and it is the half the cheap path covers.                                                                   |
-| Provisions a headless Fedora **Server** box end-to-end with zero prompts         | **Dischargeable only by `server-full-provision`** on an Anaconda-installed Server base (§3.5). The fast path does **not** discharge this: a Cloud Base image is not a Fedora Server install. Release-gated, so it is proved less often — but it is proved.            |
-| Every missing required value fails fast naming the fix, never hangs              | **Already discharged elsewhere, not by this.** 00063 Task 2.8 records 10 preflight gates passing in-container via `runuser -u nobody`. The VM adds nothing here and should not claim to.                                                                              |
-| A failed main or optional playbook makes a headless run exit non-zero            | **Dischargeable — but NOT by the scenario an earlier draft named.** See the correction below.                                                                                                                                                                         |
-| No secret bytes enter the environment or cloud-init `user-data`                  | **NOT dischargeable by the default scenarios.** See the correction below. Dischargeable only by `server-github-token`.                                                                                                                                                |
-| GitHub auth works non-interactively via a scoped token; SSH-only git auth        | **Only via the opt-in, human-gated `server-github-token` scenario** (§10). Not reachable from the bridge.                                                                                                                                                             |
-| Secret files unlinked after use; no `ssh-agent` left behind (Tasks 2.2, 2.4)     | **Dischargeable, and newly claimed.** 00063 leaves these "HOST-verified in Phase 3". A guest can assert the `RUN_BASH_*_FILE` paths are gone, no `ssh-agent` process survives, and the values appear in no `/proc/*/environ` — which the in-container gate cannot do. |
-| Desktop interactive `./run.bash` is unchanged (Task 3.2)                         | **Not dischargeable.** It is an *interactive* path; no VM proves a human's prompt experience. The lab proves the desktop *profile* provisions, which is a different and also valuable thing. This criterion stays open, or the owner re-scopes it.                    |
-| `qa-all.bash` passes; version bumped; no new `2>/dev/null`, `\|\| true` or `sed` | unchanged by this plan                                                                                                                                                                                                                                                |
+| Success criterion                                                                | Verdict                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Provisions a headless Fedora **Cloud** box end-to-end with zero prompts          | **Dischargeable by the fast path.** `server-fast-provision` on the Cloud Base image, with a transcript. This is the "or Cloud box" half of the criterion, and it is the half the cheap path covers.                                                                                                                                                                                                                                                                        |
+| Provisions a headless Fedora **Server** box end-to-end with zero prompts         | **Dischargeable only by `server-full-provision`** on an Anaconda-installed Server base (§3.5). The fast path does **not** discharge this: a Cloud Base image is not a Fedora Server install. Release-gated, so it is proved less often — but it is proved.                                                                                                                                                                                                                 |
+| Every missing required value fails fast naming the fix, never hangs              | **Already discharged elsewhere, not by this.** 00063 Task 2.8 records 10 preflight gates passing in-container via `runuser -u nobody`. The VM adds nothing here and should not claim to.                                                                                                                                                                                                                                                                                   |
+| A failed main or optional playbook makes a headless run exit non-zero            | **Dischargeable — but NOT by the scenario an earlier draft named.** See the correction below.                                                                                                                                                                                                                                                                                                                                                                              |
+| No secret bytes enter the environment or cloud-init `user-data`                  | **NOT dischargeable by the default scenarios.** See the correction below. Dischargeable only by `server-github-token`.                                                                                                                                                                                                                                                                                                                                                     |
+| GitHub auth works non-interactively via a scoped token; SSH-only git auth        | **Only via the opt-in, human-gated `server-github-token` scenario** (§10). Not reachable from the bridge.                                                                                                                                                                                                                                                                                                                                                                  |
+| Secret files unlinked after use; no `ssh-agent` left behind (Tasks 2.2, 2.4)     | **Only via `server-github-token`** — the same vacuity as the row above, and it was claimed for the default path in an earlier draft. With `GITHUB_ACCOUNTS=none` there is no token file and no SSH passphrase file to unlink and no `ssh-agent` to leave behind, so the assertions would pass by absence. The vault-password file is the one secret the default path does create, so *its* unlink is genuinely assertable there; everything else needs the token scenario. |
+| Desktop interactive `./run.bash` is unchanged (Task 3.2)                         | **Not dischargeable.** It is an *interactive* path; no VM proves a human's prompt experience. The lab proves the desktop *profile* provisions, which is a different and also valuable thing. This criterion stays open, or the owner re-scopes it.                                                                                                                                                                                                                         |
+| `qa-all.bash` passes; version bumped; no new `2>/dev/null`, `\|\| true` or `sed` | unchanged by this plan                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 #### Two corrections to this map — the plan's own defect class, caught in review
 
@@ -1416,9 +1518,18 @@ repo code:
   value. `run.bash:2632-2634` forwards it verbatim as `-e provisioning_profile=…` with no
   validation of its own, so `play-AA-preflight-sanity.yml:55-58` fails play 1 of
   `playbook-main.yml` and the failure must propagate out of `run.bash`.
-- `server-optional-playbook-fails` — request an `optional/hardware-specific/` play whose own
-  hardware assertion cannot hold on a VM, so it **runs and fails**, reaching
-  `run.bash:700-702`.
+- `server-optional-playbook-fails` — **and the obvious choice for this is wrong.** Every
+  hardware-assert play under `optional/hardware-specific/` that fails on absent hardware
+  (`play-displaylink.yml`, `play-ipu6-webcam.yml`, `play-musiccast.yml`) is `gnome`-scoped, so
+  on the server profile its scope guard `end_play`s before any assertion runs — the scenario
+  would have **skipped, proving nothing**, while looking like a passing negative test. Use
+  `play-nvidia.yml` instead: it is `scope: general` (`:12`) so it runs on the server profile,
+  and its first assertion is the MOK vault check at `:203-211`, which **cannot** hold here —
+  §10's throwaway vault writes a fresh `localhost.yml` with no vault-encrypted values, so
+  `mok_password` is definitionally absent. It runs and fails, reaching `run.bash:698-701`.
+  (Cost: it installs driver and CUDA packages before reaching the assert. If that assertion
+  ever stops failing, the fallback is to move this scenario to the desktop profile, where the
+  gnome-scoped hardware plays do run.)
 
 `server-optional-play-missing` is kept as well, correctly relabelled: it proves *argument
 validation*, which is a different criterion and a real one.
@@ -1432,14 +1543,16 @@ searches for does not exist. It is dischargeable only by `server-github-token`, 
 secrets are present, and the map now says so.
 
 **Net: Task 3.1 becomes dischargeable; Task 3.2 does not.** Counting the rows above rather
-than asserting a total: **three** criteria become machine-provable by the default scenarios
-(Cloud end-to-end; failure propagation, via the two replacement scenarios; secret-file and
-ssh-agent teardown), **one** more by the release-gated full path (Server end-to-end), and
-**two** by the opt-in token scenario (GitHub auth; no secret bytes). One was never VM work
+than asserting a total: **two** criteria become machine-provable by the default scenarios
+(Cloud end-to-end; failure propagation, via the replacement scenarios), **one** more by the
+release-gated full path (Server end-to-end), and **three** by the opt-in token scenario
+(GitHub auth; no secret bytes; secret-file and `ssh-agent` teardown). One was never VM work
 (interactive), one was already discharged in-container (preflight fail-fast), and one is
-unchanged by this plan (QA). Task 3.1's wording — "a real or VM Fedora Server **or** Cloud
-box" — is satisfied at two different cadences, and the plan must record which, not just that
-it went green.
+unchanged by this plan (QA). The teardown row moved out of the default column in this round
+for the same reason the secrets row did — with no token and no passphrase supplied, there is
+nothing to unlink and nothing to leave behind, so the assertions would have passed by
+absence. Task 3.1's wording — "a real or VM Fedora Server **or** Cloud box" — is satisfied at
+two different cadences, and the plan must record which, not just that it went green.
 
 **Stale text in 00063 that T7.2 should fix while it is there.** 00063's Non-Goals and Task 1.6
 still say the `RUN_BASH_GITHUB_ACCOUNTS=none` path is deferred to a follow-up. It shipped —
@@ -1518,20 +1631,39 @@ exists to stop.
 `CCY_CHILD_CLAUDE=1` in the project's **tracked** `.claude/ccy/ccy.env`, where it is
 commented out at every pushed commit. But §3.4 says the guest provisions from a pinned
 commit, and refuses a dirty tree, precisely so the transcript's `repo_commit` is not a lie.
-The two cannot both hold. Three options, none of them silent:
+The two cannot both hold.
 
-1. **Record the delta.** The guest applies a one-line, harness-authored change, and the
-   transcript states `repo_commit` **plus** a named divergence
-   (`ccy-env-child-claude-enabled`) with the exact diff inline. Honest, and available today.
-2. **Push a branch with the flag on** and pin *that* commit. Fully consistent with §3.4, and
-   it makes the tested tree genuinely reviewable — at the cost of a branch that exists only
-   for testing.
-3. **Ask 00092 for an environment override** so the flag need not be a tracked-file edit at
-   all. The cleanest, and the only one that removes the conflict rather than documenting it —
-   but it is a change to another plan's shipped feature, so it is not this plan's to make.
+**Recommendation: add `CCY_CHILD_CLAUDE` to the launcher's environment passthrough.** An
+earlier draft offered three options and ranked this one last, on the grounds that it was "a
+change to another plan's shipped feature". Re-measured, that reasoning does not survive:
 
-Recommended: (2) for the released path, (1) as the fallback, and (3) raised with 00092 rather
-than assumed.
+- **The container side already works.** `entrypoint.sh:362` reads `${CCY_CHILD_CLAUDE:-}`
+  from the environment *after* sourcing `ccy.env`, and does not care where the value came
+  from. Nothing there needs changing.
+- **The gap is one line.** The launcher's `-e` passthrough list
+  (`files/var/local/claude-yolo/claude-yolo:3048-3061`) simply does not carry the name. It
+  already passes `CCY_CLAUDE_WRAPPER`, `CCY_NO_SUPERVISOR` and others by exactly this
+  pattern, so the change is additive and idiomatic rather than novel.
+- **It is not what 00092 declined.** That plan's Non-Goals rule out *"a host launcher flag
+  (`ccy --child-claude`)"* — a new precedence layer with its own UX and its own
+  documentation. Passing through an environment variable the entrypoint already reads is a
+  different thing, and it adds no precedence layer: `ccy.env` remains the declaration, the
+  env is the override.
+- The cost is honest and small: it touches `files/var/local/claude-yolo/claude-yolo`, so it
+  requires a **CCY version bump** per `CLAUDE.md`'s critical rule, and that bump belongs in
+  whichever plan lands it.
+
+It is also the only option that removes the conflict rather than recording it forever. The
+alternatives, kept for the record and both worse:
+
+- **Push a branch with the flag on** and pin that commit. Consistent with §3.4 and needs no
+  code change, but it must be pushed to the **public remote** for §3.4's "exists in git and is
+  reviewable" to hold, it adds a branch that exists only for testing, and every such run
+  carries a `tested-on-test-branch` divergence. This is the fallback if the owner would rather
+  not touch CCY from this plan.
+- **Let the guest edit the tracked file** and record a `ccy-env-child-claude-enabled`
+  divergence with the diff inline. Available today, needs nothing from anyone, and pays a
+  permanent fidelity cost on every run to avoid a one-line change. Last resort.
 
 **Net, with the above caveats: Task 6.4 steps 1–4 and 6 become dischargeable; step 5 becomes
 dischargeable for every invariant using a synthetic token, conditional on U7; the
@@ -1563,6 +1695,8 @@ status icons; they are omitted here to keep this document plain text.
   `qemu:///session` networking and a host→guest port forward (U2); `virsh screenshot` and the
   `--video` options (U4); `dnf group list --hidden` for the GNOME environment id (U5);
   **whether `ccy` starts with no credential and whether `ccy --rebuild` works (U7)**;
+  **whether a `systemd-ask-password` prompt reaches a serial console, and whether `swtpm`
+  vTPM is usable from a `qemu:///session` domain (U8)**;
   `virtiofsd` present, for the DNF cache export of §7.
 
   Confirmation-only probes, whose answers are already settled from documentation (§0) and
@@ -1573,8 +1707,9 @@ status icons; they are omitted here to keep this document plain text.
   **three** bases (§3.5) plus run overlays. Without KVM, TCG emulation makes a desktop run
   impractical and the lab must refuse rather than run something nobody will wait for.
 
-- **T0.3** Record the answers to U1, U2, U4, U5 and U7 in the plan's `JOURNAL/`, and correct this document
-  where reality differs.
+- **T0.3** Record the answers to U1, U2, U4, U5, U7 and U8 in the plan's `JOURNAL/`, and
+  correct this document where reality differs. U8 in particular **selects** the LUKS route of
+  §5.3a rather than merely confirming it, so Phase 5 cannot start until it is answered.
 
 ### Phase 1 — The freshness engine (no VM needed, runs in a container)
 
@@ -1758,9 +1893,15 @@ fast/full distinction of §3.5 is a delivery boundary rather than only a paragra
 ### Phase 5 — Desktop base and desktop scenario
 
 - **T5.1** `fedora-install/ks-vm-desktop.cfg` — fully non-interactive, `liveimg`-based, UEFI
-  partitioning, **btrfs without the LUKS wrapper** (`ks.cfg:359-364` has both; an unattended
-  VM has nowhere to answer a passphrase prompt), GDM autologin, and a header stating plainly
+  partitioning, **btrfs WITH the LUKS wrapper kept** (§5.3a: the install is unattended-capable
+  because `ks.cfg:359-360` and `:377-378` pass the passphrase inline; only the *boot* needs
+  automating), a per-run throwaway passphrase, GDM autologin, and a header stating plainly
   that it is for VM testing only and is not the shipped installer.
+- **T5.1b** The LUKS boot unlock of §5.3a: `console=ttyS0`, serial-console capture from the
+  first instant of boot, the passphrase driven in at the prompt, and — the part that must be
+  tested by wedging it on purpose — a guest that does not reach userspace reports
+  `failure.stage: boot`, `reason: wedged at the LUKS passphrase prompt` with the console
+  excerpt, **never** a bare timeout.
 - **T5.2** **The boot medium, which B5 showed was missing entirely.** Fetch and verify *two*
   artefacts (§5.3): the **netinst ISO**, which boots Anaconda, and the **Workstation Live
   ISO**, from which `LiveOS/squashfs.img` is extracted as the `liveimg` payload. Then decide
@@ -1790,6 +1931,7 @@ fast/full distinction of §3.5 is a delivery boundary rather than only a paragra
 
 - **T6.1** Wire the Phase-1 policy into `vmtest`: every `run-scenario` evaluates freshness
   first and refuses on `unknown`.
+
 - **T6.2** `refresh-base` and the flat re-snapshot of §3.3, built on §4.4a: **no refresh boot
   of its own.** The guest acceptance script reports `play-AB-dnf-upgrade.yml`'s
   `dnf_upgrade` changed-package count and the **guest-seen** revision into `evidence`;
@@ -1797,20 +1939,36 @@ fast/full distinction of §3.5 is a delivery boundary rather than only a paragra
   `guest_seen >= probe_seen`; `guest_seen < probe_seen` records `refresh_state: incomplete`
   and re-runs rather than marking the base current. Uses `cp --reflink=auto` where U1 says the
   filesystem supports it.
+
 - **T6.2a** Tests for the two traps this section was built out of, each demonstrated to go red
   when the guard is removed:
+
   - a guest whose mirror lags the probe must produce `incomplete`, **never** "checked and
     unnecessary" (B7);
   - `artefact_identity` unreadable with `package_revision` readable must produce `unknown`,
     **never** `current` — the partial-outage case the earlier T1.2 could not see (B6).
+
 - **T6.2b** The host-side **DNF cache** of §7: the per-profile cache directory, the
   `virtiofsd` export, `keepcache=1` and the pinned mirror `baseurl` in the guest, all recorded
-  in `evidence.divergences`. Plus the **cache-cold scenario** that periodically runs with the
-  mount absent and the metalink restored — the check on the check, without which a cached run
-  could silently stop proving the repo works against a real mirror.
+  in `evidence.divergences` as `dnf-cache-shared` and `dnf-baseurl-pinned`.
+
+  Plus the check on the check, given a name and a cadence so it cannot decay into an intention:
+
+  - scenario id **`server-fast-provision-cold`** — the same scenario with the virtiofs mount
+    absent and the metalink restored, declared in `vars/vm-test-scenarios.yml` like any other;
+  - cadence: **on every `reinstall` of its base, and at least once per TTL-U window**,
+    whichever comes first — so the cold path is exercised on the same clock that governs base
+    freshness rather than on someone remembering;
+  - **every cached run's response carries `evidence.last_cold_pass`** — the run id and
+    timestamp of the most recent passing cold run. A cached `pass` whose `last_cold_pass` is
+    older than the cadence is reported as `degraded`, not as an ordinary pass. Without that
+    back-reference a cached green says nothing about whether the repo still works against a
+    real mirror, which is the whole reason the cold scenario exists.
+
 - **T6.3** A `systemd --user` timer running a nightly freshness **probe that only reports** —
   it writes a status file and never rebuilds unattended. An unannounced disk-churning rebuild
   on the owner's workstation is a surprise; a status file is not.
+
 - **T6.4** Disk-space floor (accounting for the 2x base-size a rebuild needs, less where
   reflink applies) and guest-RAM ceiling, both refusing loudly rather than cleaning up and
   continuing. Retention sweep covering `runs/` (keep the last N **plus every failed run**),
@@ -1818,6 +1976,7 @@ fast/full distinction of §3.5 is a delivery boundary rather than only a paragra
   `server-fast` base is discarded), and **`quarantine/`**, which is on the shared mount and
   would otherwise be an unbounded sandbox-writable directory — a trivial disk-fill. Every
   eviction is recorded in the off-mount audit log, so retention is never silent deletion.
+
 - **T6.5** `./scripts/qa-all.bash`; commit.
 
 ### Phase 7 — Discharge and review
@@ -1833,27 +1992,27 @@ fast/full distinction of §3.5 is a delivery boundary rather than only a paragra
 
 ## 10. Risks and failure modes
 
-| Risk                                                              | How it is handled                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **A broken VM run read as a failing product**                     | Three-valued verdict with a `failure.stage`. `error` means the harness could not complete (no boot, SSH timeout, no upstream signal, stale allowlist); `fail` means the product ran and an assertion failed. `error` never renders as `fail`, neither ever renders as `pass`. And `checks.planned` vs `checks.total` catches the subtler case: a harness that died after 4 of 27 checks with all 4 green reports `error`, not `pass`.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| **Disk-space exhaustion**                                         | A free-space floor is checked before every run **and** before every refresh, and the refresh floor accounts for the 2x base size a flat rebuild needs. Overlays are CoW so a run costs its writes, not a base. Retention keeps the last N runs plus every failure. The lab refuses loudly; it never deletes something to keep going.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| **Snapshot-chain corruption**                                     | Chain depth is 1 and the base is attached **read-only** to every run, so no run can write it. Refresh writes a new file and renames atomically. `base.json` records `base_sha256`; every run verifies it before cloning and refuses on mismatch — so silent bit-rot surfaces as a refusal, not as strange failures.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| **A stale base silently in use**                                  | Freshness is evaluated on **every run**, not on a timer, and the trigger is the updates-repo revision rather than a clock (§4.4). The policy is **total over its inputs**: every readable/unreadable combination has a named verdict, an unreadable `artefact_identity` is `unknown` and blocks, and a TTL-backstopped `current` is stamped `freshness.degraded: true` rather than passing as an ordinary one. The only override is host-CLI, human-typed, and recorded in `evidence.overrides`. |
-| **A lagging GUEST mirror certifying a base the guest never received** | The probe reads `dl.fedoraproject.org`; the guest's `dnf` resolves through the metalink, which today offers **45 mirror hosts, none of them the canonical one, advertising repodata across ~2 days**. So `base.json` records `last_upgraded_revision` as the revision the **guest** saw, never the probe's: `guest >= probe` is a complete refresh, `guest < probe` is `refresh_state: incomplete` and a re-run (§4.4a). This is the one comparison that can see the condition — probe-to-probe cannot. |
-| **A regressing PROBE revision misread as mirror lag**             | It is not lag: the probe reads the canonical host directly, so a backwards value there means the origin went backwards. That resolves to `unknown` and blocks. An earlier draft treated it as a retry, which protected a path that does not exist while leaving the real one (above) open. |
-| **A cheap Cloud-image pass cited as proof of a fresh install**    | The two claims are separated at the base, the scenario, the transcript header and `evidence.base.profile` (§3.5). A Cloud Base image exercises no partitioning and no kickstart, so `server-fast-provision` is never presented as installer evidence; `server-full-provision` and the `desktop` base are what carry that claim.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| **The sandbox edits the allowlist or an assertion script**        | Neither is read from the shared mount on the host path. Ansible-deployed copies are the authority; drift is reported with both digests and refused with a named remedy, never silently used.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| **Secrets on a throwaway VM**                                     | The default scenarios use `RUN_BASH_GITHUB_ACCOUNTS=none` (no PAT, no SSH passphrase — `run.bash:877-879`) and a **per-run randomly generated vault password that decrypts nothing**: with `RUN_BASH_CONFIG_SOURCE=none`, `run.bash:487-513` writes a fresh `localhost.yml` with no vault-encrypted values, while `ansible.cfg:42` still needs a readable `vault-pass.secret`. So the guest holds exactly one secret and it is worthless. The token-bearing scenario is opt-in, host-CLI only, uses a dedicated throwaway GitHub account's short-lived PAT delivered over the SSH channel into a tmpfs file — **never** via cloud-init `user-data`, per `docs/headless-provisioning.md:127-131` — and revokes it afterwards. It is not in the bridge's argument enumeration, because a sandboxed agent asking the host to put a PAT into a VM is the precise shape the bridge exists to prevent. |
-| **No KVM / nested virtualisation unavailable**                    | Phase-0 decision gate. TCG emulation is roughly an order of magnitude slower; a desktop run becomes something nobody waits for. The lab refuses rather than producing a result hours late that nobody reads.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| **The harness passes green having asserted nothing**              | Three structural defences: the negative scenario (T3.4) that must go red; the bridge selftest (T4.6) proving each rejection path rejects; and `planned` vs `total` vs `skipped` accounting in every response.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| **Fidelity divergence read as fidelity**                          | Every known divergence — harness-set GDM autologin, throwaway vault password, absent hardware, synthetic CCY fleet, synthetic OAuth token — is enumerated in `evidence.divergences` beside the verdict, so a reader sees what the green does not cover without opening a design document.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| **`run.bash` self-updating mid-run**                              | `run.bash:1993-2004`: when `RUN_BASH_GIT_REF` is set, the declared ref replaces `git pull`. Scenarios always pin a 40-hex commit, so the guest cannot drift onto a newer origin tip and make `evidence.repo.commit` a lie.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| **A request that is never answered**                              | The `accepted` response is written before dispatch; a heartbeat is refreshed while running; a terminal response is always written; rejections write responses too. The container-side reader times out into `unknown`, never into `pass`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| **Bridge rate-limit exhaustion wedging the lab**                  | An earlier draft's answer here was *wrong in the dangerous direction*: it put the limit in `StartLimitBurst=` on the oneshot and promised a "rejected response naming the limit". `systemd.path(5)` propagates a hit start limit to the **path unit**, which then fails and stops watching — so no oneshot would run, no response would be written, and the bridge would be permanently and silently dead until a human ran `systemctl --user reset-failed`. Now: the limit lives in the watcher (§6.4 step 8) and rejects with a response while exiting 0; the systemd limits are high, last-resort loop breakers; and §6.5's independent heartbeat timer makes a wedged path unit visible and names the remedy. T4.9 tests it by wedging the unit on purpose.                                                                                                                                  |
-| **The host overwriting its own files through a hostile spool**    | The sandbox can replace any spool directory with a symlink to `~/.ssh`, `~/.bashrc` or the policy directory, and ownership checks cannot help because rootless podman maps container root onto the host uid. Defence is structural (§6.3): pinned directory fds, `openat`/`renameat`, `O_NOFOLLOW\|O_EXCL`, `realpath` containment, and a **refusal** rather than a quarantine when a spool directory is a symlink. It lives in a TDD'd `helpers/vmtest/spool.py` whose tests include the attacks, because it is not safely expressible in the `mv -f` bash idiom.                                                                                                                                                                                                                                                                                                                               |
-| **A request mutated between validation and dispatch**             | The body is read **once** into memory; every check and the argv build use that buffer; the file is never re-opened (§6.3 D2). The verb is additionally encoded twice — filename and body — and disagreement is a rejection.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| **The sandbox forging its own passing response**                  | Responses are HMAC-signed with a host-only key off the mount; an unsigned or non-verifying response is reported as `forged`, distinctly. Stated honestly in §6.6 rule 11: this does not make a dishonest agent honest — it makes a response the host did not write *detectable*, and the off-mount audit log remains the verdict of record.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| **libvirt or the guest leaves a domain running after a failure**  | `vmtest` owns teardown in a trap armed for EXIT and INT/TERM/HUP; `lab-status` lists orphan domains and overlays, and the next run refuses to start while an orphan from a different run exists rather than quietly reaping it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Risk                                                                  | How it is handled                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **A broken VM run read as a failing product**                         | Three-valued verdict with a `failure.stage`. `error` means the harness could not complete (no boot, SSH timeout, no upstream signal, stale allowlist); `fail` means the product ran and an assertion failed. `error` never renders as `fail`, neither ever renders as `pass`. And `checks.planned` vs `checks.total` catches the subtler case: a harness that died after 4 of 27 checks with all 4 green reports `error`, not `pass`.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| **Disk-space exhaustion**                                             | A free-space floor is checked before every run **and** before every refresh, and the refresh floor accounts for the 2x base size a flat rebuild needs. Overlays are CoW so a run costs its writes, not a base. Retention keeps the last N runs plus every failure. The lab refuses loudly; it never deletes something to keep going.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| **Snapshot-chain corruption**                                         | Chain depth is 1 and the base is attached **read-only** to every run, so no run can write it. Refresh writes a new file and renames atomically. `base.json` records `base_sha256`; every run verifies it before cloning and refuses on mismatch — so silent bit-rot surfaces as a refusal, not as strange failures.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| **A stale base silently in use**                                      | Freshness is evaluated on **every run**, not on a timer, and the trigger is the updates-repo revision rather than a clock (§4.4). The policy is **total over its inputs**: every readable/unreadable combination has a named verdict, an unreadable `artefact_identity` is `unknown` and blocks, and a TTL-backstopped `current` is stamped `freshness.degraded: true` rather than passing as an ordinary one. The only override is host-CLI, human-typed, and recorded in `evidence.overrides`.                                                                                                                                                                                                                                                                                                                                                                                                 |
+| **A lagging GUEST mirror certifying a base the guest never received** | The probe reads `dl.fedoraproject.org`; the guest's `dnf` resolves through the metalink, which today offers **45 mirror hosts, none of them the canonical one, advertising repodata across ~2 days**. So `base.json` records `last_upgraded_revision` as the revision the **guest** saw, never the probe's: `guest >= probe` is a complete refresh, `guest < probe` is `refresh_state: incomplete` and a re-run (§4.4a). This is the one comparison that can see the condition — probe-to-probe cannot.                                                                                                                                                                                                                                                                                                                                                                                          |
+| **A regressing PROBE revision misread as mirror lag**                 | It is not lag: the probe reads the canonical host directly, so a backwards value there means the origin went backwards. That resolves to `unknown` and blocks. An earlier draft treated it as a retry, which protected a path that does not exist while leaving the real one (above) open.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| **A cheap Cloud-image pass cited as proof of a fresh install**        | The two claims are separated at the base, the scenario, the transcript header and `evidence.base.profile` (§3.5). A Cloud Base image exercises no partitioning and no kickstart, so `server-fast-provision` is never presented as installer evidence; `server-full-provision` and the `desktop` base are what carry that claim.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| **The sandbox edits the allowlist or an assertion script**            | Neither is read from the shared mount on the host path. Ansible-deployed copies are the authority; drift is reported with both digests and refused with a named remedy, never silently used.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| **Secrets on a throwaway VM**                                         | The default scenarios use `RUN_BASH_GITHUB_ACCOUNTS=none` (no PAT, no SSH passphrase — `run.bash:877-879`) and a **per-run randomly generated vault password that decrypts nothing**: with `RUN_BASH_CONFIG_SOURCE=none`, `run.bash:487-513` writes a fresh `localhost.yml` with no vault-encrypted values, while `ansible.cfg:42` still needs a readable `vault-pass.secret`. So the guest holds exactly one secret and it is worthless. The token-bearing scenario is opt-in, host-CLI only, uses a dedicated throwaway GitHub account's short-lived PAT delivered over the SSH channel into a tmpfs file — **never** via cloud-init `user-data`, per `docs/headless-provisioning.md:127-131` — and revokes it afterwards. It is not in the bridge's argument enumeration, because a sandboxed agent asking the host to put a PAT into a VM is the precise shape the bridge exists to prevent. |
+| **No KVM / nested virtualisation unavailable**                        | Phase-0 decision gate. TCG emulation is roughly an order of magnitude slower; a desktop run becomes something nobody waits for. The lab refuses rather than producing a result hours late that nobody reads.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| **The harness passes green having asserted nothing**                  | Three structural defences: the negative scenario (T3.4) that must go red; the bridge selftest (T4.6) proving each rejection path rejects; and `planned` vs `total` vs `skipped` accounting in every response.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| **Fidelity divergence read as fidelity**                              | Every known divergence — harness-set GDM autologin, throwaway vault password, absent hardware, synthetic CCY fleet, synthetic OAuth token — is enumerated in `evidence.divergences` beside the verdict, so a reader sees what the green does not cover without opening a design document.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **`run.bash` self-updating mid-run**                                  | `run.bash:1993-2004`: when `RUN_BASH_GIT_REF` is set, the declared ref replaces `git pull`. Scenarios always pin a 40-hex commit, so the guest cannot drift onto a newer origin tip and make `evidence.repo.commit` a lie.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| **A request that is never answered**                                  | The `accepted` response is written before dispatch; a heartbeat is refreshed while running; a terminal response is always written; rejections write responses too. The container-side reader times out into `unknown`, never into `pass`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **Bridge rate-limit exhaustion wedging the lab**                      | An earlier draft's answer here was *wrong in the dangerous direction*: it put the limit in `StartLimitBurst=` on the oneshot and promised a "rejected response naming the limit". `systemd.path(5)` propagates a hit start limit to the **path unit**, which then fails and stops watching — so no oneshot would run, no response would be written, and the bridge would be permanently and silently dead until a human ran `systemctl --user reset-failed`. Now: the limit lives in the watcher (§6.4 step 8) and rejects with a response while exiting 0; the systemd limits are high, last-resort loop breakers; and §6.5's independent heartbeat timer makes a wedged path unit visible and names the remedy. T4.9 tests it by wedging the unit on purpose.                                                                                                                                  |
+| **The host overwriting its own files through a hostile spool**        | The sandbox can replace any spool directory with a symlink to `~/.ssh`, `~/.bashrc` or the policy directory, and ownership checks cannot help because rootless podman maps container root onto the host uid. Defence is structural (§6.3): pinned directory fds, `openat`/`renameat`, `O_NOFOLLOW\|O_EXCL`, `realpath` containment, and a **refusal** rather than a quarantine when a spool directory is a symlink. It lives in a TDD'd `helpers/vmtest/spool.py` whose tests include the attacks, because it is not safely expressible in the `mv -f` bash idiom.                                                                                                                                                                                                                                                                                                                               |
+| **A request mutated between validation and dispatch**                 | The body is read **once** into memory; every check and the argv build use that buffer; the file is never re-opened (§6.3 D2). The verb is additionally encoded twice — filename and body — and disagreement is a rejection.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| **The sandbox forging its own passing response**                      | Responses are HMAC-signed with a host-only key off the mount; an unsigned or non-verifying response is reported as `forged`, distinctly. Stated honestly in §6.6 rule 11: this does not make a dishonest agent honest — it makes a response the host did not write *detectable*, and the off-mount audit log remains the verdict of record.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| **libvirt or the guest leaves a domain running after a failure**      | `vmtest` owns teardown in a trap armed for EXIT and INT/TERM/HUP; `lab-status` lists orphan domains and overlays, and the next run refuses to start while an orphan from a different run exists rather than quietly reaping it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 ---
 
@@ -1878,11 +2037,18 @@ fast/full distinction of §3.5 is a delivery boundary rather than only a paragra
    cannot prove an interactive prompt experience.
 6. **Whether the synthetic-fleet scenario for 00079 is worth building** given that it proves
    the tool's logic but not the live host's fleet labelling.
-7. **How 00092's `CCY_CHILD_CLAUDE=1` is reconciled with §3.4's pinned-commit rule** — the
-   flag lives in a tracked file that is commented out at every pushed commit. §8 sets out
-   three options and recommends pushing a branch with the flag on; the third (asking 00092 for
-   an environment override) is the only one that removes the conflict rather than recording
-   it, and it is not this plan's change to make.
+7. **Approve adding `CCY_CHILD_CLAUDE` to the CCY launcher's environment passthrough.** The
+   flag lives in a tracked file that is commented out at every pushed commit, which conflicts
+   with §3.4's pinned-commit rule. §8 now gives **one** recommendation rather than three
+   options: add the name to the `-e` list at `claude-yolo:3048-3061` (the entrypoint already
+   reads it at `entrypoint.sh:362`, and this is not the launcher *flag* 00092 declined), with
+   the CCY version bump that change requires. The only decision needed is whether this plan
+   may touch CCY; if not, the fallback is a test branch on the public remote carrying a
+   `tested-on-test-branch` divergence.
+8. **Which LUKS boot-unlock route the desktop base uses** (§5.3a). The design chooses serial
+   console automation because it keeps the shipped kickstart byte-identical, with a
+   post-install keyfile as the fallback and vTPM rejected as primary. U8 settles whether the
+   chosen route is drivable; the owner may prefer the fallback's simplicity over the fidelity.
 
 ---
 
