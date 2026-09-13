@@ -63,10 +63,22 @@ class TestValidateManifest(unittest.TestCase):
         self.assertEqual(
             result.stdout,
             "VMTEST-SCENARIO id=server-fast-provision base=server-fast base_name=server-fast-44 "
-            "profile=server planned=12 max_skipped=0 runnable=true\n",
+            "profile=server planned=12 max_skipped=0 runnable=true run_env=-\n",
         )
         unplanned = _run(json.dumps(MANIFEST), "--scenario", "desktop-fresh-install")
-        self.assertIn("planned=- max_skipped=0 runnable=false", unplanned.stdout)
+        self.assertIn("planned=- max_skipped=0 runnable=false run_env=-", unplanned.stdout)
+
+    def test_scenario_flag_carries_run_env_as_comma_separated_pairs(self):
+        document = json.loads(json.dumps(MANIFEST))
+        document["vm_test_scenarios"]["server-fast-provision"]["run_env"] = {
+            "RUN_BASH_OPTIONAL_PLAYBOOKS": "play-nvidia.yml",
+            "RUN_BASH_PROVISIONING_PROFILE": "server",
+        }
+        result = _run(json.dumps(document), "--scenario", "server-fast-provision")
+        self.assertIn(
+            "run_env=RUN_BASH_OPTIONAL_PLAYBOOKS=play-nvidia.yml,RUN_BASH_PROVISIONING_PROFILE=server",
+            result.stdout,
+        )
 
     def test_scenario_flag_with_an_unknown_id_fails_closed(self):
         result = _run(json.dumps(MANIFEST), "--scenario", "server-medium-provision")

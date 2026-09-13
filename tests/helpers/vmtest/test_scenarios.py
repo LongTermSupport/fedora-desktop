@@ -130,6 +130,21 @@ class TestParseManifest(unittest.TestCase):
         self.assertEqual(scenario.planned, 12)
         self.assertEqual(scenario.max_skipped, 0)
 
+    def test_run_env_defaults_to_empty_and_is_carried_when_declared(self):
+        # The negative scenarios (T3.4) differ from the positive one only by the
+        # RUN_BASH_* values the host hands run.bash; everything else is shared.
+        self.assertEqual(_parse().scenarios["server-fast-provision"].run_env, {})
+        document = copy.deepcopy(MANIFEST)
+        document["vm_test_scenarios"]["server-main-playbook-fails"] = {
+            "base": "server-fast",
+            "description": "an unrecognised profile fails play 1 and must propagate out of run.bash",
+            "planned": 12,
+            "max_skipped": 0,
+            "run_env": {"RUN_BASH_PROVISIONING_PROFILE": "not-a-profile"},
+        }
+        scenario = scenarios.parse_manifest(document, FEDORA_VERSION).scenarios["server-main-playbook-fails"]
+        self.assertEqual(scenario.run_env, {"RUN_BASH_PROVISIONING_PROFILE": "not-a-profile"})
+
     def test_scenario_without_a_planned_count_is_not_runnable(self):
         # A scenario whose guest script has not yet declared its check count
         # cannot be run: `checks.planned` would be a guess and rule 02 could not
@@ -312,6 +327,27 @@ class TestManifestRejections(unittest.TestCase):
                 document = copy.deepcopy(MANIFEST)
                 document["vm_test_scenarios"]["server-fast-provision"]["max_skipped"] = value
                 self.assert_rejected(document, "server-fast-provision", "max_skipped")
+
+    def test_run_env_keys_are_a_closed_allowlist(self):
+        # A scenario may steer run.bash's non-secret knobs and nothing else: no
+        # secret-bearing variable, no arbitrary environment, no misspelling.
+        for key in ("RUN_BASH_VAULT_PASSWORD", "RUN_BASH_GITHUB_TOKEN_FILE", "PATH", "RUN_BASH_PROVISIONING_PROFIL", "run_bash_reboot"):
+            with self.subTest(key=key):
+                document = copy.deepcopy(MANIFEST)
+                document["vm_test_scenarios"]["server-fast-provision"]["run_env"] = {key: "x"}
+                self.assert_rejected(document, "server-fast-provision", key)
+
+    def test_run_env_values_are_plain_tokens(self):
+        for value in ("", "a b", "x;rm -rf /", "$(id)", "play-a.yml\nplay-b.yml", 3):
+            with self.subTest(value=value):
+                document = copy.deepcopy(MANIFEST)
+                document["vm_test_scenarios"]["server-fast-provision"]["run_env"] = {"RUN_BASH_OPTIONAL_PLAYBOOKS": value}
+                self.assert_rejected(document, "server-fast-provision", "RUN_BASH_OPTIONAL_PLAYBOOKS")
+
+    def test_run_env_must_be_a_mapping(self):
+        document = copy.deepcopy(MANIFEST)
+        document["vm_test_scenarios"]["server-fast-provision"]["run_env"] = ["RUN_BASH_REBOOT=1"]
+        self.assert_rejected(document, "server-fast-provision", "run_env")
 
     def test_empty_description(self):
         document = copy.deepcopy(MANIFEST)

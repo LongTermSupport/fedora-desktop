@@ -116,12 +116,28 @@ scenario_facts() {
             planned=*) SCENARIO_PLANNED="${field#planned=}" ;;
             max_skipped=*) SCENARIO_MAX_SKIPPED="${field#max_skipped=}" ;;
             runnable=*) SCENARIO_RUNNABLE="${field#runnable=}" ;;
+            run_env=*) SCENARIO_RUN_ENV="${field#run_env=}" ;;
             id=*) ;;
             *) die "unknown field in validator marker: ${field}" ;;
         esac
     done
     : "${SCENARIO_BASE_KEY:?}" "${SCENARIO_BASE_NAME:?}" "${SCENARIO_PROFILE:?}" "${SCENARIO_PLANNED:?}" \
-        "${SCENARIO_MAX_SKIPPED:?}" "${SCENARIO_RUNNABLE:?}"
+        "${SCENARIO_MAX_SKIPPED:?}" "${SCENARIO_RUNNABLE:?}" "${SCENARIO_RUN_ENV:?}"
+}
+
+# run_env_assignments — the scenario's RUN_BASH_* overrides as `KEY='value'` words for the
+# guest's `env`, from the validator's comma-separated marker field ("-" when none). The
+# validator has already confined keys to a closed allowlist and values to plain tokens.
+run_env_assignments() {
+    local pair
+    if [[ "${SCENARIO_RUN_ENV}" == "-" ]]; then
+        return 0
+    fi
+    IFS=',' read -r -a pairs <<<"${SCENARIO_RUN_ENV}"
+    for pair in "${pairs[@]}"; do
+        [[ "${pair}" =~ ^RUN_BASH_[A-Z_]+=[A-Za-z0-9._,:/=-]+$ ]] || die "malformed run_env entry: ${pair}"
+        printf " %s='%s'" "${pair%%=*}" "${pair#*=}"
+    done
 }
 
 recipe_digest_now() {
@@ -555,13 +571,17 @@ cmd_run() {
     guest_ssh "curl -fsSL -o ~/run.bash '${raw}' && chmod 0755 ~/run.bash"
     # The guest's only secret: a per-run random vault password that decrypts nothing (§10).
     guest_ssh "umask 077 && mkdir -p ~/.vmtest && head -c 32 /dev/urandom | base64 > ~/.vmtest/throwaway-pw"
-    log "provisioning (headless run.bash; this is the long part — up to ${PROVISION_TIMEOUT_SECONDS}s)"
+    # The scenario's run_env overrides come LAST so they win over the defaults
+    # (the negative scenarios set an unrecognised profile or a failing play).
+    local run_env_words
+    run_env_words="$(run_env_assignments)"
+    log "provisioning (headless run.bash; this is the long part — up to ${PROVISION_TIMEOUT_SECONDS}s)${run_env_words:+; overrides:${run_env_words}}"
     timeout "${PROVISION_TIMEOUT_SECONDS}" ssh -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ServerAliveInterval=30 \
         -i "${SSH_KEY}" -p "${GUEST_PORT}" "${CLOUD_USER}@127.0.0.1" \
         "env RUN_BASH_HEADLESS=1 RUN_BASH_USER_EMAIL='${GUEST_USER_EMAIL}' RUN_BASH_GITHUB_ACCOUNTS=none \
              RUN_BASH_VAULT_PASSWORD_FILE=\$HOME/.vmtest/throwaway-pw RUN_BASH_GIT_REF='${commit}' \
-             RUN_BASH_PROVISIONING_PROFILE='${BASE_PROFILE}' TERM=dumb bash ~/run.bash" \
+             RUN_BASH_PROVISIONING_PROFILE='${BASE_PROFILE}'${run_env_words} TERM=dumb bash ~/run.bash" \
         2>&1 | tee -a "${transcript}" >&2 || run_rc="${PIPESTATUS[0]}"
     printf 'RUN-BASH-EXIT %s\n' "${run_rc}" | tee -a "${transcript}" >&2
 

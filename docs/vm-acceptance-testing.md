@@ -21,9 +21,10 @@ the operator's view.
 | Lab playbook                         | `playbooks/imports/optional/common/play-vm-test-lab.yml` | Installs the rootless libvirt/QEMU stack, enables linger, creates the lab tree, renders the manifest and allowlist |
 | QA gate                              | `scripts/qa-vmtest-manifest.bash`                        | Rejects a malformed manifest on every `./scripts/qa-all.bash` run                                                  |
 
-The base builders, the `vmtest` host CLI, the guest acceptance scripts and the
-container-to-host bridge are later phases of the same plan and are not deployed
-by this playbook yet.
+The `server-full` and `desktop` base builders, the desktop guest acceptance
+script and the container-to-host bridge are later phases of the same plan and
+are not deployed yet. What the playbook deploys today is the `vmtest` host CLI,
+the helpers it calls, the server guest scripts and the lab's own SSH key.
 
 ## Deploying the lab
 
@@ -53,6 +54,76 @@ What lands:
   line. A scenario is runnable only once its guest script has declared a
   `planned` check count in the manifest; until then the file is absent rather
   than empty.
+
+## Building a base and running a scenario
+
+Everything below is the deployed `vmtest` CLI, rootless, on the host:
+
+```bash
+vmtest fetch server-fast          # download + verify the Cloud Base image (signed CHECKSUM, GPG, sha256)
+vmtest build-base server-fast     # boot it once, upgrade, clean, flatten, write base.json
+vmtest run server-fast-provision  # the lifecycle; exit 0 only on verdict pass
+vmtest run server-fast-provision --commit <40-hex>   # a specific pushed commit
+```
+
+`fetch` locates the artefact by `releases.json`'s structured fields, downloads
+it conditionally, fetches the signed `Fedora-<Variant>-<label>-x86_64-CHECKSUM`
+from beside it, verifies the clearsignature against the Fedora release key from
+`distribution-gpg-keys` (a hard failure, not best-effort), and requires the
+sha256 to agree with both the CHECKSUM and `releases.json`.
+
+`build-base` seeds a build disk from the image, boots it with the lab's own SSH
+key injected through cloud-init (then disables cloud-init for good), upgrades
+every package, records the updates-repo revision **the guest saw** and the
+mirror that served it, runs the in-guest cleanup (DNF cache, cloud-init
+instance state, SSH host keys, machine-id, journal, histories, fstrim), powers
+off, and moves the flat disk into `bases/<name>/base.qcow2` read-only next to
+its `base.json`. That record is re-validated on every read and its identity is
+recomputed from its own fields, so a copied or edited record is refused.
+
+`run` is fail-closed at every step:
+
+1. the scenario must be runnable and on the **deployed** allowlist;
+2. the base it names must exist, and its disk's size and mtime must match the
+   record;
+3. the commit to provision is the branch tip **on the remote** (`git ls-remote`), never the checkout, unless `--commit` names a pushed one;
+4. the freshness gate runs the live probe and applies the policy: `current` or
+   `refresh` proceed, `reinstall` or `unknown` refuse and name the fix;
+5. a copy-on-write overlay is created on the read-only base, the guest boots
+   with a passt port forward to its SSH, `run.bash` is fetched raw at the
+   pinned commit and run headless with no GitHub identity and a per-run random
+   vault password that decrypts nothing;
+6. the in-guest acceptance script declares its planned check count first,
+   runs every check, and prints evidence (boot id, machine id, kernel, the
+   guest-seen updates revision);
+7. the guest is destroyed, the transcript judged, and
+   `runs/<run-id>/response.json` written. A passing run's overlay is removed;
+   a non-passing run keeps its overlay and console log for diagnosis.
+
+The verdict is three-valued. `pass` needs every check green, the count equal
+to the plan, at least one check passed, skips under the scenario's cap, a
+`PLAY RECAP` with work done, and a boot id. `fail` means the product ran and
+did not hold (`run.bash` exited non-zero, or a check failed). `error` means the
+harness could not complete, and names a stage: `provision`, `assert`,
+`collect`. A run that died after four green checks of thirteen is `error`, not
+`pass`.
+
+### The negative scenarios
+
+Three scenarios exist to go red on purpose, so the harness is known to be able
+to fail. Each must produce `verdict: fail` at stage `provision`:
+
+| Scenario                         | What it sets                                          | What it proves                                      |
+| -------------------------------- | ----------------------------------------------------- | --------------------------------------------------- |
+| `server-main-playbook-fails`     | `RUN_BASH_PROVISIONING_PROFILE=not-a-profile`         | a failed play in `playbook-main.yml` propagates out |
+| `server-optional-playbook-fails` | `RUN_BASH_OPTIONAL_PLAYBOOKS=play-nvidia.yml`         | a failed optional play propagates out               |
+| `server-optional-play-missing`   | `RUN_BASH_OPTIONAL_PLAYBOOKS=play-does-not-exist.yml` | argument validation refuses before anything runs    |
+
+A scenario's `run_env` in the manifest is a closed allowlist of `run.bash`'s
+non-secret knobs; nothing secret-bearing can be set from a scenario.
+
+The plan's `acceptance.bash` runs all four scenarios in turn and asserts each
+verdict.
 
 ## Has upstream moved?
 

@@ -2583,11 +2583,18 @@ unset _github_ssh_passphrase
 completed
 
 title "Running Ansible Playbooks"
-info "Pulling latest changes before running playbooks"
-assert_clean_worktree ~/Projects/fedora-desktop
-# See note above on `command git` — bypass any sourced git() wrapper.
-command git pull
-success "Repository up to date"
+if [[ -n "${RUN_BASH_GIT_REF:-}" ]]; then
+  # The checkout was put on the declared ref in the repository step and a pinned commit
+  # leaves HEAD detached, where `git pull` has nothing to merge with and exits 1. The ref
+  # replaces the pull here for the same reason it does there.
+  info "Headless: RUN_BASH_GIT_REF set — the checkout is already at the declared ref, no pull"
+else
+  info "Pulling latest changes before running playbooks"
+  assert_clean_worktree ~/Projects/fedora-desktop
+  # See note above on `command git` — bypass any sourced git() wrapper.
+  command git pull
+  success "Repository up to date"
+fi
 
 # V3.12: this pull is the LAST git op needing the login SSH key. Kill the ssh-agent
 # NOW (not at EXIT) so the unlocked key is not reachable via $SSH_AUTH_SOCK across

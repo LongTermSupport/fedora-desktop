@@ -13,7 +13,7 @@ Markers:
     VMTEST-MANIFEST-OK scenarios=N runnable=N bases=N
     VMTEST-MANIFEST-INVALID
     VMTEST-BASE key=K name=N kind=K profile=P tree=T|- vcpus=N ram_mib=N   (with --base KEY)
-    VMTEST-SCENARIO id=I base=K base_name=N profile=P planned=N|- max_skipped=N runnable=true|false
+    VMTEST-SCENARIO id=I base=K base_name=N profile=P planned=N|- max_skipped=N runnable=true|false run_env=K=V,K=V|-
 With `--allowlist`, stdout is the allowlist itself (one id per line), which is
 the payload Ansible writes to the host's `scenarios.allowlist`. With
 `--base KEY` or `--scenario ID`, stdout is that entry's facts as one marker
@@ -62,10 +62,12 @@ def main(argv: list[str] | None = None) -> int:
                 raise scenarios.ManifestError(
                     f"no scenario {args.scenario!r}; the manifest declares {', '.join(sorted(manifest.scenarios))}"
                 )
+            run_env = ",".join(f"{k}={v}" for k, v in scenario.run_env.items()) or "-"
             print(
                 f"VMTEST-SCENARIO id={scenario.id} base={scenario.base.key} base_name={scenario.base.name} "
                 f"profile={scenario.profile} planned={scenario.planned if scenario.planned is not None else '-'} "
-                f"max_skipped={scenario.max_skipped} runnable={'true' if scenario.runnable else 'false'}"
+                f"max_skipped={scenario.max_skipped} runnable={'true' if scenario.runnable else 'false'} "
+                f"run_env={run_env}"
             )
             return 0
         if args.allowlist:

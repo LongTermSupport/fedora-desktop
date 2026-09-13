@@ -62,6 +62,14 @@ _ARTEFACT_KEYS = frozenset({"variant", "subvariant", "prefix", "suffix"})
 # `Everything` — and nothing that could walk elsewhere.
 _TREE_RE = re.compile(r"^[A-Z][A-Za-z]+$")
 _SCENARIO_KEYS = frozenset({"base", "description", "planned", "max_skipped"})
+_SCENARIO_OPTIONAL_KEYS = frozenset({"run_env"})
+
+# The RUN_BASH_* knobs a scenario may set. A closed list: the negative
+# scenarios steer the profile and the optional-play list, and nothing that
+# carries a secret or reaches outside run.bash's documented contract.
+RUN_ENV_KEYS = frozenset({"RUN_BASH_PROVISIONING_PROFILE", "RUN_BASH_OPTIONAL_PLAYBOOKS", "RUN_BASH_REBOOT"})
+# Values travel through an SSH command line; a plain token is all they need.
+_RUN_ENV_VALUE_RE = re.compile(r"^[A-Za-z0-9._,:/=-]+$")
 
 
 class ManifestError(ValueError):
@@ -95,6 +103,7 @@ class Scenario:
     description: str
     planned: int | None
     max_skipped: int
+    run_env: Mapping[str, str]
 
     @property
     def profile(self) -> str:
@@ -131,9 +140,9 @@ def _positive_int(mapping: Mapping, key: str, where: str) -> int:
     return value
 
 
-def _require_keys(mapping: Mapping, expected: frozenset, where: str) -> None:
+def _require_keys(mapping: Mapping, expected: frozenset, where: str, optional: frozenset = frozenset()) -> None:
     missing = sorted(expected - set(mapping))
-    unknown = sorted(set(mapping) - expected)
+    unknown = sorted(set(mapping) - expected - optional)
     if missing:
         raise ManifestError(f"{where}: missing {', '.join(missing)}")
     if unknown:
@@ -211,11 +220,28 @@ def _parse_base(key: str, raw: object, fedora_version: int) -> Base:
     )
 
 
+def _parse_run_env(raw: object, where: str) -> dict[str, str]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, Mapping):
+        raise ManifestError(f"{where}: run_env must be a mapping of RUN_BASH_* names to values")
+    env: dict[str, str] = {}
+    for key, value in raw.items():
+        if key not in RUN_ENV_KEYS:
+            raise ManifestError(f"{where}: run_env key {key!r} is not one of {sorted(RUN_ENV_KEYS)}")
+        if not isinstance(value, str) or not _RUN_ENV_VALUE_RE.match(value):
+            raise ManifestError(
+                f"{where}: run_env {key} must be a plain token matching {_RUN_ENV_VALUE_RE.pattern}, got {value!r}"
+            )
+        env[key] = value
+    return dict(sorted(env.items()))
+
+
 def _parse_scenario(scenario_id: str, raw: object, bases: Mapping[str, Base]) -> Scenario:
     where = f"scenario {scenario_id!r}"
     if not isinstance(raw, Mapping):
         raise ManifestError(f"{where}: must be a mapping")
-    _require_keys(raw, _SCENARIO_KEYS, where)
+    _require_keys(raw, _SCENARIO_KEYS, where, _SCENARIO_OPTIONAL_KEYS)
 
     base = bases.get(raw["base"])
     if base is None:
@@ -248,6 +274,7 @@ def _parse_scenario(scenario_id: str, raw: object, bases: Mapping[str, Base]) ->
         description=description.strip(),
         planned=planned,
         max_skipped=max_skipped,
+        run_env=_parse_run_env(raw.get("run_env"), where),
     )
 
 

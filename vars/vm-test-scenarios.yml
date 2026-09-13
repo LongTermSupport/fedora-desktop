@@ -70,13 +70,41 @@ vm_test_bases:
 # `planned: null` means the guest script has not declared its count yet: the
 # scenario is listed but NOT runnable, and stays off the allowlist.
 # `max_skipped` caps skipped checks per scenario and must leave at least one
-# check that has to pass.
+# check that has to pass. `run_env` (optional) sets run.bash's non-secret
+# knobs from a closed allowlist; it is how the negative scenarios differ from
+# the positive one.
+#
+# The three `*-fails`/`*-missing` scenarios are the falsifiability proof: each
+# MUST produce verdict fail at stage provision (never error, never pass), and
+# each proves a different thing — a failed main play propagating out of
+# run.bash, a failed optional play propagating, and argument validation.
 vm_test_scenarios:
   server-fast-provision:
     base: server-fast
     description: provision a Fedora Cloud Base guest with run.bash (proves the product, not the installer)
     planned: 13   # = PLANNED in files/home/.local/share/vmtest/guest-acceptance-server.bash
     max_skipped: 0
+  server-main-playbook-fails:
+    base: server-fast
+    description: an unrecognised RUN_BASH_PROVISIONING_PROFILE fails play 1 of playbook-main.yml; the failure must propagate out of run.bash
+    planned: 13
+    max_skipped: 0
+    run_env:
+      RUN_BASH_PROVISIONING_PROFILE: not-a-profile
+  server-optional-playbook-fails:
+    base: server-fast
+    description: play-nvidia.yml is general-scoped so it runs on the server profile, and its MOK vault assertion cannot hold on a throwaway vault; the failure must propagate
+    planned: 13
+    max_skipped: 0
+    run_env:
+      RUN_BASH_OPTIONAL_PLAYBOOKS: play-nvidia.yml
+  server-optional-play-missing:
+    base: server-fast
+    description: a play name that does not resolve is refused before anything runs (argument validation, not failure propagation)
+    planned: 13
+    max_skipped: 0
+    run_env:
+      RUN_BASH_OPTIONAL_PLAYBOOKS: play-does-not-exist.yml
   server-full-provision:
     base: server-full
     description: provision an Anaconda-installed Fedora Server guest with run.bash
