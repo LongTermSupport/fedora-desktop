@@ -1,8 +1,11 @@
 # Plan 00063: Headless `run.bash` — Server & Cloud Provisioning
 
-**Status**: Blocked — every remaining task is Phase 3 verification, which needs a
-real or VM Fedora Server / Cloud box to provision. All code is written; nothing
-here can move in a CCY container. Unblocks when such a box is available.
+**Status**: In Progress — Phase 3 verification is being discharged by Plan
+00110's VM acceptance lab: the headless end-to-end run on a Fedora Cloud guest
+and the failure-propagation criteria are proven (see the ticks below, each
+with its run id). Still open: the GitHub-token and SSH-passphrase paths (the
+lab runs with `RUN_BASH_GITHUB_ACCOUNTS=none`) and the desktop interactive
+path.
 **Created**: 2026-07-23
 **Owner**: joseph
 **Priority**: Medium
@@ -110,30 +113,40 @@ outstanding.
   `hl_reconcile_vault` provided-or-fail, never auto-generate (v1.9.5). Code
   complete; the agent load, clone and teardown end-to-end is HOST-verified in
   Phase 3.
-- [ ] 🔄 **Task 2.5**: Read-prompt neutralisation (D9). Done: `hl_abort` backstop
+- [x] ✅ **Task 2.5**: Read-prompt neutralisation (D9). Done: `hl_abort` backstop
   at the top of every shared prompt helper (v1.9.3); every call site
   headless-branched: hostname, `hl_write_localhost_yml`, vault,
-  `hl_run_optional_playbooks`, projects restore, reboot (v1.10.0). Code complete;
-  end-to-end is HOST-verified in Phase 3.
+  `hl_run_optional_playbooks`, projects restore, reboot (v1.10.0). End-to-end
+  verified by Plan 00110's lab: a headless run over SSH with no TTY completed
+  with `RUN-BASH-EXIT 0` (run `20260913T170901Z-server-fast-provision`).
 - [x] ✅ **Task 2.6**: Failure semantics (D7): a headless main-playbook failure
   aborts loud and exits non-zero, no public-tracker prompt, no continue-anyway;
   `RUN_BASH_PROVISIONING_PROFILE` forwarded via `-e` (v1.10.0).
 - [x] ✅ **Task 2.7**: `--help` expanded and `--help-run-headless` documents the
   full v1 token-required contract with an out-of-band cloud-init example (v1.8.0,
   retuned v1.9.1).
-- [ ] 🔄 **Task 2.8**: QA and acceptance. Done: `./scripts/qa-all.bash` green each
+- [x] ✅ **Task 2.8**: QA and acceptance. Done: `./scripts/qa-all.bash` green each
   slice; plan-local [acceptance.bash](acceptance.bash) passes 10 preflight
   fail-fast gates in-container via `runuser -u nobody`; no new `2>/dev/null`,
-  `|| true` or `sed` (D10). Remaining: end-to-end execution assertions are
-  HOST-only (Phase 3).
+  `|| true` or `sed` (D10). The end-to-end execution assertions now run in
+  Plan 00110's lab (`server-fast-provision` and the three negative scenarios;
+  `acceptance.bash` there: VERDICT PASS, 2026-09-13).
 - [x] ✅ **Task 2.9**: Docs: `docs/headless-provisioning.md` (reference) and
   `docs/headless-server-install.md` (runbook), cross-linked from `docs/README.md`,
   `docs/installation.md` and the root `README.md`.
 
 ### Phase 3: Verification (HOST, not the CCY container)
 
-- [ ] ⬜ **Task 3.1**: On a real or VM Fedora Server or Cloud box, run `run.bash`
+- [x] ✅ **Task 3.1**: On a real or VM Fedora Server or Cloud box, run `run.bash`
   headless via env and confirm end-to-end provisioning with zero prompts.
+  Done by Plan 00110: a fresh Fedora 44 Cloud Base guest, `run.bash` fetched at
+  a pinned pushed commit and run headless over a non-interactive SSH session
+  (`RUN_BASH_HEADLESS=1`, `RUN_BASH_GITHUB_ACCOUNTS=none`, a `0600` vault
+  password file), `RUN-BASH-EXIT 0`, PLAY RECAP with work done, 13 in-guest
+  checks green — run `20260913T170901Z-server-fast-provision`; repeated through
+  the container-to-host bridge as `20260913T181420Z-server-fast-provision`.
+  The Anaconda-installed Server variant is `server-full-provision` (Plan 00110
+  Phase 3b).
 - [ ] ⬜ **Task 3.2**: Confirm the desktop interactive path is unchanged.
 
 ## Dependencies
@@ -146,13 +159,17 @@ outstanding.
 
 ## Success Criteria
 
-- [ ] `run.bash` provisions a headless Fedora Server or Cloud box end-to-end with
+- [x] `run.bash` provisions a headless Fedora Server or Cloud box end-to-end with
   zero interactive prompts, driven by `RUN_BASH_*` env plus `0600` secret files.
+  (Plan 00110 run `20260913T170901Z-server-fast-provision`, Cloud Base guest.)
 - [ ] Every missing required value or unmet precondition (email, GitHub account,
   token file, SSH passphrase file, vault password, NOPASSWD sudo) fails fast
   naming the exact fix, never hangs.
 - [ ] GitHub auth works non-interactively via a scoped token; SSH-only git auth.
-- [ ] A failed main or optional playbook makes a headless run exit non-zero.
+- [x] A failed main or optional playbook makes a headless run exit non-zero.
+  (Plan 00110 negative scenarios: `server-main-playbook-fails`,
+  `server-optional-playbook-fails` and `server-optional-play-missing` each
+  produced `RUN-BASH-EXIT 1` for their own reason, 2026-09-13.)
 - [ ] No secret bytes enter the environment or cloud-init `user-data`.
 - [ ] Desktop interactive `./run.bash` is unchanged.
 - [ ] `--help` points to it; `--help-run-headless` documents the full contract
