@@ -172,21 +172,23 @@ terminals can never mirror one `claude`, whoever wins a race.
 and directory, a number to attach a detached one, `k` plus a number to end one. It is how
 you get back to work after a crash without remembering which projects were open.
 
-| Event                                              | Result                                                                   |
-| -------------------------------------------------- | ------------------------------------------------------------------------ |
-| Terminal emulator crashes or is closed             | Session keeps running, detached                                          |
-| `ccy` again from the same project directory        | Re-attaches the detached session (arguments are not applied; it says so) |
-| `ccy` from the project while a session is attached | Starts a second session, `ccy-<project>-2`                               |
-| F12, Detach                                        | Leaves the session running; `ccy` re-attaches                            |
-| `claude` exits                                     | Container removed as before; the tmux session closes with it             |
-| Launcher fails inside the session                  | Window stays open showing the error until you press Enter                |
-| Host reboots                                       | Everything is gone, as before                                            |
+| Event                                              | Result                                                                                 |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Terminal emulator crashes or is closed             | Session keeps running, detached                                                        |
+| `ccy` again from the same project directory        | Offers the detached session; Enter re-attaches it (launch arguments are then not used) |
+| `ccy` from the project while a session is attached | Starts a second session, `ccy-<project>-2`                                             |
+| F12, Detach                                        | Leaves the session running; `ccy` re-attaches                                          |
+| `claude` exits                                     | Container removed as before; the tmux session closes with it                           |
+| Launcher fails inside the session                  | Window stays open showing the error until you press Enter                              |
+| Host reboots                                       | Everything is gone, as before                                                          |
 
 Sessions live on CCY's own tmux server (socket `ccy`), so a plain `tmux ls` does not show
 them; `ccy-sessions` does. The server is started under a transient `systemd --user` scope
 (`ccy-tmux-*.scope`), which is what keeps it out of the terminal's own cgroup. Not applied
-in `--headless` mode, when already inside tmux (you are protected either way), or when there
-is no terminal.
+in `--headless` mode, or when there is no terminal (it says so on stderr when stdout is
+redirected, as under `--debug`). Inside a tmux of your own, `ccy` checks where that server
+lives: one started from a terminal tab dies with the tab, so `ccy` refuses and tells you to
+detach and run it from the plain shell; a server outside any terminal's scope is left alone.
 
 ---
 

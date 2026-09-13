@@ -77,6 +77,8 @@ wait_for() {
 
 session_attached_is() { [[ "$(attached_count "${session}")" == "${1}" ]]; }
 named_session_attached_is() { [[ "$(attached_count "${1}")" == "${2}" ]]; }
+# capture-pane wants a pane target: "=name:" is the exact session, its current window/pane.
+pane_shows() { tmux -L ccy capture-pane -p -t "=${1}:" | grep -q "${2}"; }
 session_absent() { [[ -z "$(attached_count "${session}")" ]]; }
 # The probe's "No such process" is the expected answer, captured rather than printed.
 pid_alive() { local probe; probe="$(kill -0 "${1}" 2>&1)" || { [[ -n "${probe}" ]] && return 1; }; }
@@ -220,6 +222,69 @@ offer-new)
     printf "'n' started %s-2; %s left detached\n" "${session}" "${session}"
     ;;
 
+real-help)
+    # The DEPLOYED launcher itself, in a no-session mode: --help must print and exit without
+    # a tmux session ever being created (its output would vanish with one).
+    mkdir -p "${state}/ccyaccept/real"
+    git -C "${state}/ccyaccept/real" init -q
+    open_fake_terminal "${state}/real-help.log" "" "cd '${state}/ccyaccept/real' && /var/local/claude-yolo/claude-yolo --help" \
+        >"${state}/real-help.pid"
+    tpid="$(<"${state}/real-help.pid")"
+    wait_for 30 "ccy --help to exit" pid_gone "${tpid}"
+    if ! grep -q -- '--headless' "${state}/real-help.log"; then
+        printf '[FAIL] ccy --help did not print its usage:\n' >&2
+        cat "${state}/real-help.log" >&2
+        exit 1
+    fi
+    if [[ -n "$(attached_count "ccy-ccyaccept-real")" ]]; then
+        printf '[FAIL] ccy --help created a tmux session\n' >&2
+        exit 1
+    fi
+    printf 'ccy --help printed and exited with no session\n'
+    ;;
+
+real-launch)
+    # The DEPLOYED launcher, interactively, in a throwaway git repo whose project name is
+    # predictable (parent "ccyaccept" is not a generic folder, so get_project_name yields
+    # ccyaccept-real). The launcher must land in tmux BEFORE it prompts for anything: the
+    # fake terminal's pre-tmux output must hold no prompt, and the pane must be running the
+    # launcher. It is left waiting at its first prompt inside the session, then killed.
+    open_fake_terminal "${state}/real-launch.log" "" "cd '${state}/ccyaccept/real' && /var/local/claude-yolo/claude-yolo" \
+        >"${state}/real-launch.pid"
+    wait_for 30 "session ccy-ccyaccept-real attached" named_session_attached_is "ccy-ccyaccept-real" 1
+    pane_pid="$(tmux -L ccy list-panes -t "=ccy-ccyaccept-real" -F '#{pane_pid}')"
+    if ! pgrep -f -P "${pane_pid}" 'claude-yolo' >"${state}/real-launch.launcher-pid"; then
+        printf '[FAIL] the pane process %s is not running the launcher\n' "${pane_pid}" >&2
+        exit 1
+    fi
+    # The fake terminal's log also holds everything tmux later drew on the same pty, so
+    # only the bytes BEFORE the tmux client switched to the alternate screen are the
+    # launcher's pre-tmux output. A prompt there is a prompt asked outside the session.
+    python3 - "${state}/real-launch.log" <<'PY'
+import sys
+data = open(sys.argv[1], "rb").read()
+marker = b"\x1b[?1049h"
+if marker not in data:
+    sys.exit("[FAIL] tmux never took the screen (no alternate-screen switch in the log)")
+before = data.split(marker, 1)[0].decode("utf-8", "replace")
+for prompt in ("Use same configuration", "Select SSH key", "SSH key", "token"):
+    if prompt.lower() in before.lower():
+        sys.exit(f"[FAIL] the launcher prompted ({prompt!r}) BEFORE entering tmux:\n{before}")
+print("no prompt before tmux took the screen")
+PY
+    # And inside the session the first prompt appears exactly once — no double asking.
+    wait_for 60 "the launcher to reach its SSH key prompt inside the session" pane_shows "ccy-ccyaccept-real" 'Select SSH key'
+    if [[ "$(tmux -L ccy capture-pane -p -t "=ccy-ccyaccept-real:" | grep -c 'Select SSH key')" -ne 1 ]]; then
+        printf '[FAIL] expected exactly one SSH key prompt inside the session:\n' >&2
+        tmux -L ccy capture-pane -p -t "=ccy-ccyaccept-real:" >&2
+        exit 1
+    fi
+    tmux -L ccy kill-session -t "=ccy-ccyaccept-real"
+    wait_for 5 "throwaway launcher session gone" named_session_attached_is "ccy-ccyaccept-real" ""
+    printf 'deployed launcher entered tmux before its first prompt; launcher pid %s was in the pane\n' \
+        "$(<"${state}/real-launch.launcher-pid")"
+    ;;
+
 not-applicable)
     # Inside tmux already: must return 0 without exec'ing, so `false` never runs and the
     # exit status is the function's own. Same entry point string as the real steps.
@@ -236,12 +301,12 @@ not-applicable)
     ;;
 
 cleanup)
-    for f in "${state}"/terminal-*.pid; do
+    for f in "${state}"/terminal-*.pid "${state}"/real-*.pid; do
         if [[ -f "${f}" ]] && pid_alive "$(<"${f}")"; then
             kill -KILL "$(<"${f}")"
         fi
     done
-    for name in "${session}" "${session}-2"; do
+    for name in "${session}" "${session}-2" ccy-ccyaccept-real; do
         if [[ -n "$(attached_count "${name}")" ]]; then
             tmux -L ccy kill-session -t "=${name}"
         fi

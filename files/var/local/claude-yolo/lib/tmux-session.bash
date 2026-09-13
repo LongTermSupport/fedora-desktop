@@ -50,15 +50,19 @@ ccy_tmux_list() {
     return 1
 }
 
-# ccy_tmux_project_sessions <project> — the subset of ccy_tmux_list belonging to a project.
+# ccy_tmux_project_sessions — the sessions started from THIS directory. Matched on the
+# directory, not the session name: two checkouts of one repo share a project name, and
+# project "app" would otherwise claim "ccy-app-2", which is project "app-2"'s first session.
+# A listing failure is propagated, never read as "no sessions".
 ccy_tmux_project_sessions() {
-    local base="ccy-$1" name rest
-    while read -r name rest; do
+    local listing name attached dir
+    listing=$(ccy_tmux_list) || return 1
+    while read -r name attached dir; do
         [[ -n "$name" ]] || continue
-        if [[ "$name" == "$base" || "$name" == "$base"-[0-9]* ]]; then
-            printf '%s %s\n' "$name" "$rest"
+        if [[ "$dir" == "$PWD" ]]; then
+            printf '%s %s %s\n' "$name" "$attached" "$dir"
         fi
-    done < <(ccy_tmux_list)
+    done <<<"$listing"
 }
 
 # ccy_tmux_next_name <project> — the first free session name for a project.
@@ -74,8 +78,11 @@ ccy_tmux_next_name() {
 }
 
 # ccy_tmux_is_detached <name> — true only if the session exists and no client is on it.
+# A listing failure is a failure (return 2 after the error), not "gone".
 ccy_tmux_is_detached() {
-    [[ "$(ccy_tmux_list | awk -v want="$1" '$1 == want { print $2 }')" == "0" ]]
+    local listing
+    listing=$(ccy_tmux_list) || return 2
+    [[ "$(awk -v want="$1" '$1 == want { print $2 }' <<<"$listing")" == "0" ]]
 }
 
 # The hook that enforces one terminal per session. It runs on the server for every attach;
@@ -117,8 +124,9 @@ ccy_tmux_attach() {
 # EOF or a cancelled prompt is "quit" (InteractiveScripts rule 3); invalid input re-prompts
 # up to CCY_TMUX_MAX_TRIES (rule 2).
 ccy_tmux_offer() {
-    local project="$1" name attached
+    local project="$1" listing name attached
     local -a detached=() in_use=()
+    listing=$(ccy_tmux_project_sessions "$project") || return 1
     while read -r name attached _; do
         [[ -n "$name" ]] || continue
         if [[ "$attached" == "0" ]]; then
@@ -126,7 +134,7 @@ ccy_tmux_offer() {
         else
             in_use+=("$name")
         fi
-    done < <(ccy_tmux_project_sessions "$project")
+    done <<<"$listing"
 
     if [[ ${#in_use[@]} -gt 0 ]]; then
         echo "Open in other terminals (not offered): ${in_use[*]}" >&2
@@ -136,7 +144,7 @@ ccy_tmux_offer() {
         return 0
     fi
 
-    echo "Detached CCY session(s) for this project:" >&2
+    echo "Detached CCY session(s) started from ${PWD/#${HOME}/\~}:" >&2
     local i
     for i in "${!detached[@]}"; do
         printf '  %d) %s\n' "$((i + 1))" "${detached[$i]}" >&2
@@ -203,9 +211,34 @@ ccy_tmux_insulate() {
     }
 
     if [[ -n "${TMUX:-}" ]]; then
+        # Inside tmux already. On the ccy server that is the re-exec landing: nothing to
+        # do. On another server, what matters is where THAT server lives: one forked from
+        # a terminal tab sits in the tab's *-spawn-*.scope and dies with the tab — exactly
+        # the exposure this exists to remove — so wrapping is refused with the way out.
+        # Nesting tmux inside it would only hide the problem.
+        local socket="${TMUX%%,*}" server_pid server_cgroup
+        if [[ "$(basename "$socket")" == "$CCY_TMUX_SOCKET" ]]; then
+            return 0
+        fi
+        server_pid="${TMUX#*,}"
+        server_pid="${server_pid%%,*}"
+        if ! server_cgroup=$(<"/proc/${server_pid}/cgroup"); then
+            print_error "cannot read the cgroup of this tmux server (pid ${server_pid})"
+            return 1
+        fi
+        if [[ "$server_cgroup" == *-spawn-*.scope* ]]; then
+            print_error "this tmux server was started from a terminal tab and dies with it, so a session here would not survive the terminal."
+            echo "Detach (F12 then Detach, or Ctrl-b d) and run ccy from the plain shell: it starts a session on its own protected server." >&2
+            return 1
+        fi
+        echo "Already inside a tmux server outside any terminal's scope; not wrapping again." >&2
         return 0
     fi
-    if [[ ! -t 0 || ! -t 1 ]]; then
+    if [[ ! -t 0 ]]; then
+        return 0
+    fi
+    if [[ ! -t 1 ]]; then
+        echo "stdout is not a terminal (for example under --debug), so this session is NOT insulated from its terminal." >&2
         return 0
     fi
     local tool

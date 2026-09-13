@@ -17,6 +17,27 @@ Two version numbers move independently — see
 
 ---
 
+## 3.52.1
+
+**The tmux re-exec happens before the first prompt, and "inside tmux" is checked, not
+assumed.** From the `qa-reviewer` pass on 3.52.0.
+
+- 3.52.0 placed the re-exec after the Quick Launch and SSH key prompts, so every launch
+  answered them, entered tmux, and answered them again. It now sits before anything
+  prompts; `--create-token` / `--update-token` are excluded like `--headless`.
+- Inside a tmux of your own, ccy reads that server's cgroup: a server started from a
+  terminal tab (`*-spawn-*.scope`) dies with the tab, so ccy refuses and says to detach and
+  run from the plain shell. A server outside any terminal's scope is left alone. Under
+  `--debug` (stdout redirected) it says the session is not insulated instead of silently
+  skipping.
+- The offer matches sessions by the directory they were started from, not by name: two
+  checkouts of one repo share a project name, and project `app` would have claimed
+  `ccy-app-2`, which belongs to project `app-2`.
+- A failed `tmux list-sessions` is an error, no longer read as "no sessions".
+- `play-claude-yolo.yml` installs `tmux` itself and creates `~/.local/bin` before copying
+  `ccy-sessions`, so a standalone run of that play on a fresh host works.
+- Plan 00111's acceptance now runs the deployed launcher itself, not only the library.
+
 ## 3.52.0
 
 **A session survives the death of its terminal.**

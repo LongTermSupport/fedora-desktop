@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.52.0"  # Feature: interactive sessions run inside tmux on CCY's own server (socket "ccy", under a systemd user scope), so a terminal-emulator death detaches a session instead of destroying it; ccy from the same project re-attaches. See docs/ccy-changelog.md.
+CCY_VERSION="3.52.1"  # Fix: the tmux re-exec now happens before the first prompt (3.52.0 asked Quick Launch and SSH questions twice); inside a tab-spawned tmux ccy refuses instead of claiming protection; sessions matched by directory. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -882,6 +882,19 @@ if [ "$CUSTOM_DOCKER_MODE" = true ]; then
     exit 0
 fi
 
+# Terminal-death insulation (lib/tmux-session.bash). Every mode that exits without a
+# session and without prompting has returned above; the first prompt (Quick Launch, then
+# SSH key selection) comes next. Re-executing the launcher inside tmux HERE means every
+# prompt, and the pty itself, happen where a dying terminal cannot reach them — and
+# nothing is asked twice. Excluded: headless (no terminal to lose) and the token
+# create/renew modes, which prompt but exit without a session. On the way back in (TMUX
+# set to the ccy server) ccy_tmux_insulate is a no-op and the banner says how to detach
+# and return.
+if [ "$HEADLESS_MODE" != true ] && [ "$CREATE_TOKEN_MODE" != true ] && [ "$UPDATE_TOKEN_MODE" != true ]; then
+    ccy_tmux_insulate "$PROJECT_NAME" "$SCRIPT_DIR/$(basename "$0")" "$@" || exit 1
+    ccy_tmux_banner || exit 1
+fi
+
 # Try to load previous launch configuration (if no flags specified).
 #
 # There is no CONFIG_LOADED flag: it was set in three places and read in none.
@@ -994,16 +1007,6 @@ if [ "$UPDATE_TOKEN_MODE" = true ]; then
     fi
     create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy" "$UPDATE_TOKEN_NAME"
     exit $?
-fi
-
-# Terminal-death insulation (lib/tmux-session.bash). Every mode that exits without a
-# session has returned above and nothing has prompted yet, so this is the cheapest point
-# to re-execute the launcher inside tmux: the prompts and the pty then all happen where a
-# dying terminal cannot reach them. Headless has no terminal to lose. On the way back in
-# (TMUX set) ccy_tmux_insulate is a no-op and the banner says how to detach and return.
-if [ "$HEADLESS_MODE" != true ]; then
-    ccy_tmux_insulate "$PROJECT_NAME" "$SCRIPT_DIR/$(basename "$0")" "$@" || exit 1
-    ccy_tmux_banner || exit 1
 fi
 
 # After an interactive token create/renew, exit the right way. create_token

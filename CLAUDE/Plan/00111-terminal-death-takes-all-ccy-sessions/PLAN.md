@@ -75,7 +75,8 @@ owns. Full evidence and the reasoning that ruled each alternative in or out:
   was not on the table in 00105. That reversal should be argued, not assumed.
 
   Searched and confirmed absent: no tmux wrapper script anywhere in this repo or
-  in the lts-infra checkout, and the 3119-line `claude-yolo` launcher has **zero**
+  in a second, private infrastructure checkout that consumes its plays, and the
+  3119-line `claude-yolo` launcher has **zero**
   occurrences of `tmux`, `TMUX` or `screen` — no `$TMUX` detection, no re-exec, no
   warning. `ccy` itself is one line:
   `alias ccy='/var/local/claude-yolo/claude-yolo'`
@@ -167,7 +168,16 @@ owns. Full evidence and the reasoning that ruled each alternative in or out:
 - [x] ✅ **Task 5.1**: Run `./scripts/qa-all.bash`. Green.
 - [ ] ⬜ **Task 5.2**: Run `acceptance.bash` against a real Ptyxis kill — the
   production failure path, not a simulation of it.
-- [ ] ⬜ **Task 5.3**: Run the `qa-reviewer` agent.
+- [x] ✅ **Task 5.3**: Run the `qa-reviewer` agent. Round one found three real
+  blockers — the re-exec sat *after* the Quick Launch and SSH prompts, so every
+  launch prompted twice; the acceptance never ran the launcher, so it could not
+  see that; and "inside tmux means protected" was false for a tab-spawned
+  server. All fixed, with the launcher itself now under acceptance (`--help`
+  exits with no session; an interactive launch enters tmux before any prompt
+  and shows its first prompt once), plus the should-fix items: `tmux` installed
+  by the ccy play, `~/.local/bin` created first, listing failures propagated,
+  sessions matched by directory not name, `--debug` says it is uninsulated.
+  Journal 15:05 has the detail.
 
 ## Success Criteria
 
@@ -188,7 +198,7 @@ owns. Full evidence and the reasoning that ruled each alternative in or out:
   proves a second raw attach is bounced by the server.
 - [x] `triage.bash` correctly distinguishes an OOM kill from a Wayland client
   error when run against this incident's journal window.
-- [ ] `qa-all.bash` passes and `qa-reviewer` reports no findings.
+- [x] `qa-all.bash` passes and `qa-reviewer`'s findings are all addressed.
 
 ## Delivery & Milestones
 
