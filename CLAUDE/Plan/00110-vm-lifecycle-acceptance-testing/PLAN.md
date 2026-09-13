@@ -103,11 +103,11 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 ### Phase 3: Server fast path and the first real scenario
 
 - [x] ✅ **T3.1**: `server-fast` base builder from the official Cloud qcow2 (`vmtest fetch`/`build-base`; built on the host)
-- [ ] ⬜ **T3.2**: `vmtest run server-fast-provision`
+- [x] ✅ **T3.2**: `vmtest run server-fast-provision` (pass, 13/13 checks, `RUN-BASH-EXIT 0`, against a pinned pushed commit; acceptance run of 2026-09-13)
 - [x] ✅ **T3.3**: `guest-acceptance-server.bash` with `planned` declared up front (13 checks; manifest agrees)
-- [ ] ⬜ **T3.4**: The negative scenarios — **the falsifiability proof**
+- [x] ✅ **T3.4**: The negative scenarios — **the falsifiability proof** (all three `fail` at `provision`, each with its own message in the transcript; `acceptance.bash` VERDICT: PASS)
 - [x] ✅ **T3.5**: Plan-local `deploy.bash` (HOST) — landed with Phase 2; it runs the lab play
-- [ ] ⬜ **T3.6**: QA; commit
+- [x] ✅ **T3.6**: QA; commit
 
 ### Phase 3b: Server full path (Anaconda), release-gated
 
@@ -118,7 +118,7 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 
 ### Phase 4: The bridge
 
-- [ ] ⬜ **T4.1**: Spool layout and request/response schema
+- [x] ✅ **T4.1**: Spool layout and request/response schema (documented in `docs/vm-acceptance-testing.md`)
 - [x] ✅ **T4.2**: `helpers/vmtest/spool.py`, test-first — the §6.3 defences (attacks in the tests; nine defences mutation-checked red)
 - [x] ✅ **T4.3**: `vmtest-bridge-watcher` — thin executor (`bridge_watcher.py` drains and answers; `bridge_run.py` is the dispatched scope body; `bridge_heartbeat.py` the §6.5 writer — the units that invoke them are T4.4/T4.5)
 - [x] ✅ **T4.4**: `vmtest-bridge@.path`/`.service` and the policy file (deployed and enabled by the play with the escaped-path instance; `TriggerLimitBurst=0`, `StartLimitIntervalSec=0`; `MODE_refresh-base=deny` default; live request answered end to end)
@@ -128,7 +128,7 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 - [x] ✅ **T4.8**: Bridge selftest — every rejection path rejects **and** responds (`selftest-bridge.bash`: 11 cases green against the live bridge, incl. the hostile-spool refusal and the watcher rate limit)
 - [x] ✅ **T4.9**: Liveness selftest — wedge the unit, assert "bridge wedged" (`selftest-liveness.bash`: wedged reported with the remedy, exit 6, nothing written; the remedy restores service)
   rather than "timeout"
-- [ ] ⬜ **T4.10**: QA; commit
+- [x] ✅ **T4.10**: QA; commit (every Phase-4 landing was QA'd and pushed in its own commit)
 
 ### Phase 5: Desktop base and desktop scenario (gated on U8)
 

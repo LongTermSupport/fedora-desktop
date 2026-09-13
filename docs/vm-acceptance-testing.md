@@ -10,21 +10,24 @@ the operator's view.
 
 ## What is in place
 
-| Piece                                | Where                                                    | Job                                                                                                                |
-| ------------------------------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Scenario manifest                    | `vars/vm-test-scenarios.yml`                             | The bases, the scenarios, which base each scenario needs, guest sizing, freshness backstops                        |
-| Manifest parser and check accounting | `helpers/vmtest/scenarios.py`                            | Validates the manifest; derives the bridge allowlist; decides `pass`/`fail`/`error` from a run's check counters    |
-| Upstream signal parsers              | `helpers/vmtest/upstream.py`                             | Parses `COMPOSE_ID`, `.treeinfo`, `releases.json`, Bodhi and `repomd.xml` into a media identity and a revision     |
-| Freshness policy                     | `helpers/vmtest/freshness.py`                            | Decides `current`, `refresh`, `reinstall` or `unknown` for a base, failing closed per signal                       |
-| Upstream probe                       | `helpers/vmtest/probe_upstream.py`                       | Reads the signals live and prints `VMTEST-FRESHNESS-*` marker lines                                                |
-| Manifest validator                   | `helpers/vmtest/validate_manifest.py`                    | Thin executor the playbook and the QA gate both call                                                               |
-| Lab playbook                         | `playbooks/imports/optional/common/play-vm-test-lab.yml` | Installs the rootless libvirt/QEMU stack, enables linger, creates the lab tree, renders the manifest and allowlist |
-| QA gate                              | `scripts/qa-vmtest-manifest.bash`                        | Rejects a malformed manifest on every `./scripts/qa-all.bash` run                                                  |
+| Piece                                | Where                                                    | Job                                                                                                                                    |
+| ------------------------------------ | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Scenario manifest                    | `vars/vm-test-scenarios.yml`                             | The bases, the scenarios, which base each scenario needs, guest sizing, freshness backstops                                            |
+| Manifest parser and check accounting | `helpers/vmtest/scenarios.py`                            | Validates the manifest; derives the bridge allowlist; decides `pass`/`fail`/`error` from a run's check counters                        |
+| Upstream signal parsers              | `helpers/vmtest/upstream.py`                             | Parses `COMPOSE_ID`, `.treeinfo`, `releases.json`, Bodhi and `repomd.xml` into a media identity and a revision                         |
+| Freshness policy                     | `helpers/vmtest/freshness.py`                            | Decides `current`, `refresh`, `reinstall` or `unknown` for a base, failing closed per signal                                           |
+| Upstream probe                       | `helpers/vmtest/probe_upstream.py`                       | Reads the signals live and prints `VMTEST-FRESHNESS-*` marker lines                                                                    |
+| Manifest validator                   | `helpers/vmtest/validate_manifest.py`                    | Thin executor the playbook and the QA gate both call                                                                                   |
+| Lab playbook                         | `playbooks/imports/optional/common/play-vm-test-lab.yml` | Installs the rootless libvirt/QEMU stack, enables linger, creates the lab tree, renders the manifest and allowlist, deploys the bridge |
+| QA gate                              | `scripts/qa-vmtest-manifest.bash`                        | Rejects a malformed manifest on every `./scripts/qa-all.bash` run                                                                      |
+| Bridge spool I/O                     | `helpers/vmtest/spool.py`                                | Symlink-safe, read-once access to the shared spool; the request grammar and deny list                                                  |
+| Bridge watcher                       | `helpers/vmtest/bridge_watcher.py`                       | One activation: validates every pending request in order, answers each, dispatches accepted ones                                       |
+| Bridge run scope                     | `helpers/vmtest/bridge_run.py`                           | Runs the accepted verb, keeps the heartbeat fresh, archives the run, writes the signed finished response                               |
+| Response contract                    | `helpers/vmtest/verdict.py`                              | The response state machine, HMAC signing, the heartbeat document and its assessment                                                    |
+| Container-side requester             | `scripts/vmtest-request.bash`                            | Writes a request, waits, maps the answer to a distinct exit code; never claims to verify the signature                                 |
 
-The `server-full` and `desktop` base builders, the desktop guest acceptance
-script and the container-to-host bridge are later phases of the same plan and
-are not deployed yet. What the playbook deploys today is the `vmtest` host CLI,
-the helpers it calls, the server guest scripts and the lab's own SSH key.
+The `server-full` and `desktop` base builders and the desktop guest acceptance
+script are later phases of the same plan and are not deployed yet.
 
 ## Deploying the lab
 
@@ -53,7 +56,12 @@ What lands:
 - `~/.local/share/vmtest/scenarios.allowlist`, one runnable scenario id per
   line. A scenario is runnable only once its guest script has declared a
   `planned` check count in the manifest; until then the file is absent rather
-  than empty.
+  than empty;
+- the bridge: the spool under `untracked/vmtest-bridge/` in the checkout, the
+  per-checkout policy and signing key under `~/.config/vmtest-bridge/<slug>/`,
+  the audit log and lock under `~/.local/state/vmtest-bridge/<slug>/`, and the
+  `vmtest-bridge@<slug>.path` and `vmtest-bridge-heartbeat@<slug>.timer` user
+  units, enabled. `<slug>` is `systemd-escape --path <checkout>`.
 
 ## Building a base and running a scenario
 
@@ -124,6 +132,119 @@ non-secret knobs; nothing secret-bearing can be set from a scenario.
 
 The plan's `acceptance.bash` runs all four scenarios in turn and asserts each
 verdict.
+
+## Asking the lab from inside the sandbox
+
+A CCY container cannot reach the hypervisor, and must not be able to run
+anything on the host. The bridge is a file spool inside the bind-mounted
+checkout, watched by a `systemd --user` path unit on the host; the container
+writes a request, the host answers with a signed response, and nothing else
+crosses.
+
+```bash
+./scripts/vmtest-request.bash list-scenarios
+./scripts/vmtest-request.bash run-scenario server-fast-provision
+./scripts/vmtest-request.bash run-scenario server-fast-provision --timeout 5400
+```
+
+Exit `0` only on a finished `pass`. Every other outcome is a distinct non-zero
+code with its reason on stderr: `1` fail, `2` error (with the stage), `3`
+rejected (with the check that refused it), `4` no answer at all, `5` bridge not
+running (stale or absent heartbeat), `6` bridge wedged (a unit is failed or the
+path unit is not active; the remedy line is printed), `7` the host run process
+died mid-run, `64` usage. The requester reads the heartbeat **before** it
+writes, so a dead bridge is reported as dead, never as a timeout.
+
+### Verbs
+
+Five verbs and nothing else. `run-scenario <id>` (the id must be on the
+**deployed** allowlist), `list-scenarios`, `lab-status`, `refresh-base server|desktop|all`, `abort-run`. A hardcoded deny list (`exec`, `shell`,
+`bash`, `run`, `eval`, `ansible`, …) is checked before the verb set. No verb
+takes a path, a command or free text; `run-scenario`'s argument must match
+`^[a-z][a-z0-9_-]*$` **and** be in the allowlist the playbook rendered.
+
+The host policy, `~/.config/vmtest-bridge/<slug>/policy`, holds one
+`MODE_<verb>=auto|deny` line per verb. A missing file, a missing line or an
+unrecognised value is `deny`. `refresh-base` ships denied; set
+`vm_test_bridge_modes` for the host to change the defaults and re-run the
+play.
+
+### The spool
+
+```
+untracked/vmtest-bridge/
+├── tmp/          the container stages a request here, then renames it into requests/
+├── requests/     <UTC stamp>-<verb>-<16 hex nonce>.json   e.g. 20260913T114500Z-run-scenario-0123456789abcdef.json
+├── processing/   claimed by the watcher (atomic rename) before it is answered
+├── responses/    <request name>.response.json — signed by the host
+├── archive/      <run-id>/{transcript.log,response.json,console.log} for a run
+├── quarantine/   every refused request file, never deleted silently
+└── diagnostics/  bridge-heartbeat.json, written every minute by the timer
+```
+
+A request body is exactly `{"verb": …, "argument": … | null, "nonce": …}`, with
+the nonce equal to the one in the file name. The watcher judges the bytes it
+read once, not the file, so swapping the file after the read changes nothing.
+Every directory is reached by a component-wise no-follow walk and pinned as a
+descriptor: a spool directory replaced by a symlink is **refused** (logged off
+the mount, nothing written anywhere), which is a different outcome from a
+request being **rejected** (answered, and the file quarantined).
+
+### The response
+
+```json
+{
+  "schema": 1,
+  "request": "20260913T114500Z-run-scenario-0123456789abcdef.json",
+  "verb": "run-scenario",
+  "argument": "server-fast-provision",
+  "state": "accepted | running | finished | rejected",
+  "verdict": null,
+  "run_id": "20260913T114500Z-server-fast-provision",
+  "accepted_at": "…", "started_at": null, "heartbeat_at": "…", "finished_at": null,
+  "checks": { "planned": 13, "total": null, "passed": null, "failed": null, "skipped": null },
+  "failure": null,
+  "evidence": { "transcript": "untracked/vmtest-bridge/archive/<run-id>/transcript.log", "base": { "kind": "fast", "name": "server-fast-44" } },
+  "signature": { "alg": "hmac-sha256", "nonce": "0123456789abcdef", "value": "…" }
+}
+```
+
+`verdict` stays `null` until `state` is `finished`, so a reader that skips the
+state check gets a falsy value. `accepted` is written **before** the run is
+dispatched and `rejected` for every refusal, so silence is never an outcome;
+`heartbeat_at` is refreshed every minute while running, so a run whose host
+process died is detectable. `failure.stage` names where a non-pass happened:
+`freshness | allowlist | base | clone | boot | ssh | provision | assert | collect | aborted`.
+
+The signature is an HMAC over the body **and the request nonce**, keyed by
+`~/.config/vmtest-bridge/<slug>/response.key`, which never leaves the host.
+The container therefore cannot verify it and does not pretend to; the
+requester says so and prints the host command:
+
+```bash
+vmtest verify <run-id>     # on the host: VMTEST-VERIFY <run-id> signature=ok|bad …
+```
+
+The off-mount audit log, `~/.local/state/vmtest-bridge/<slug>/service.log`, is
+the verdict of record; both tools print its path.
+
+### Liveness and the remedy
+
+`diagnostics/bridge-heartbeat.json` carries the wall clock, both units'
+`ActiveState`/`Result`, the run in flight and the remedy as a literal string.
+A failed unit is **reported, not repaired**: a limit that was hit is a defect
+worth seeing. Rate limiting is the watcher's (ten answers per minute, the
+eleventh is answered `rejected: rate-limited`), because systemd's own limits
+put a unit into `failed` silently. If the heartbeat says wedged, run the line
+it prints:
+
+```bash
+systemctl --user reset-failed vmtest-bridge@<slug>.path vmtest-bridge@<slug>.service && systemctl --user start vmtest-bridge@<slug>.path
+```
+
+The plan's `selftest-bridge.bash` and `selftest-liveness.bash` exercise every
+rejection path, the hostile-spool refusal, the rate limit and the wedged
+report against the live bridge, and clean up after themselves.
 
 ## Has upstream moved?
 
