@@ -16,8 +16,8 @@
 
 ## What qa-all.bash Runs
 
-`qa-all.bash` runs **fifteen** gates. Seven merge their JSON into
-`/tmp/qa-results.json`; the other eight run separately (see below). A missing **required**
+`qa-all.bash` runs **seventeen** gates. Seven merge their JSON into
+`/tmp/qa-results.json`; the other ten run separately (see below). A missing **required**
 tool makes a stage (and the whole run) exit `2`; a real analyser crash (e.g.
 ruff/shellcheck exit ≥ 2) is a hard failure, never silently treated as "0 issues".
 
@@ -31,21 +31,22 @@ ruff/shellcheck exit ≥ 2) is a hard failure, never silently treated as "0 issu
 | `qa-js.bash`             | `node --check` on repo JS + `eslint .` in `extensions/`                                                                                                                                                                                                                                                                                       | Repo-owned `.js` (excludes vendor/node_modules) + `extensions/`                                                                                       |
 | `qa-docs.bash`           | Link targets exist; every `#anchor` matches a real heading; every play imported by `playbook-main.yml` is named in both `docs/playbooks.md` and `docs/architecture.md`; every `CLAUDE/*.md` has an index row (Plan 00070)                                                                                                                     | Core docs only — `docs/`, `CLAUDE/*.md`, `README.md`, `*/CLAUDE.md`, `.claude/rules/`. **Not** `CLAUDE/Plan/**`                                       |
 
-Nine further gates run inside `qa-all.bash` as **hard, non-structural** checks —
+Ten further gates run inside `qa-all.bash` as **hard, non-structural** checks —
 they are deliberately not jq-merged stages, so they cannot disturb the positional
 `.[0]..[6]` JSON merge. Any one of them fails the whole run immediately:
 
-| Gate                                   | Checks                                                                                     |
-| -------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `qa-nokill-containerwatch.bash`        | the container-watch watchdog has gained no process-termination call site                   |
-| `qa-deployed-drift.bash`               | every repo-owned `files/home/.local/bin/` script matches its deployed `~/.local/bin/` copy |
-| `qa-helper-tests.bash`                 | the `helpers/` unit suite (Plan 00081 F11); the run prints the case count                  |
-| `test-secret-scan.bash`                | the pre-commit secret scanner's own unit suite (Plan 00092)                                |
-| `test-planlib.bash`                    | the `_planlib.inc.bash` regression suite behind every plan script (Plan 00092)             |
-| `test-ccy-rootless-guard.bash`         | ccy's rootless-engine verdict (Plan 00072); pure function, no podman needed                |
-| `test-ccy-token-mode.bash`             | `select_token`'s per-mode answer to an unusable token pool (Plan 00048, CCY 3.50.0)        |
-| `test-qa-ansible-failfast.bash`        | the fail-fast directive regex in `qa-ansible.bash`, read from it rather than copied        |
-| `helpers.gnome.check_extension_compat` | every extension declares the GNOME Shell major this branch's Fedora ships                  |
+| Gate                                   | Checks                                                                                                    |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `qa-nokill-containerwatch.bash`        | the container-watch watchdog has gained no process-termination call site                                  |
+| `qa-deployed-drift.bash`               | every repo-owned `files/home/.local/bin/` script matches its deployed `~/.local/bin/` copy                |
+| `qa-helper-tests.bash`                 | the `helpers/` unit suite (Plan 00081 F11); the run prints the case count                                 |
+| `test-secret-scan.bash`                | the pre-commit secret scanner's own unit suite (Plan 00092)                                               |
+| `test-planlib.bash`                    | the `_planlib.inc.bash` regression suite behind every plan script (Plan 00092)                            |
+| `test-ccy-rootless-guard.bash`         | ccy's rootless-engine verdict (Plan 00072); pure function, no podman needed                               |
+| `test-ccy-token-mode.bash`             | `select_token`'s per-mode answer to an unusable token pool (Plan 00048, CCY 3.50.0)                       |
+| `test-qa-ansible-failfast.bash`        | the fail-fast directive regex in `qa-ansible.bash`, read from it rather than copied                       |
+| `helpers.gnome.check_extension_compat` | every extension declares the GNOME Shell major this branch's Fedora ships                                 |
+| `qa-vmtest-manifest.bash`              | `vars/vm-test-scenarios.yml` parses and is coherent (Plan 00110); a broken control must be rejected first |
 
 `qa-helper-tests.bash` and `check_extension_compat` were **documented here as gates and
 not run by `qa-all.bash`** until Plan 00081. Following this document's own "ALWAYS and

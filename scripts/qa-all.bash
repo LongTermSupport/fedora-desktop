@@ -258,6 +258,20 @@ fi
 compat_summary=$(printf '%s' "$compat_out" | grep -E '^All [0-9]+ extension') || compat_summary="OK"
 printf '✓ extension-compat: %s\n' "$compat_summary"
 
+# The VM-test scenario manifest (Plan 00110). vars/vm-test-scenarios.yml is the
+# source of the bridge's scenario allowlist, and the stdlib-only helper that
+# validates it cannot read YAML — so without this gate a malformed manifest is
+# first discovered by the playbook on the host. Same hard, non-merged shape as
+# the gates above; the script rejects a broken control before judging the real
+# file, so a validator that stopped judging fails the gate rather than passing it.
+manifest_out=""
+if ! manifest_out="$(bash "$SCRIPT_DIR/qa-vmtest-manifest.bash" 2>&1)"; then
+    echo "$manifest_out" >&2
+    echo "✗ QA FAILED: the VM-test scenario manifest is not valid" >&2
+    exit 1
+fi
+printf '✓ vmtest-manifest: %s\n' "$manifest_out"
+
 # Merge JSON from all checks
 STATUS="pass"
 [[ $FAILED -gt 0 ]] && STATUS="fail"

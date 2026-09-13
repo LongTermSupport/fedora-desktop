@@ -1,0 +1,61 @@
+---
+# VM lifecycle acceptance testing — the scenario manifest (Plan 00110)
+#
+# This file is the SOURCE of the bridge's scenario allowlist. Ansible renders it
+# to JSON on the host; helpers/vmtest/scenarios.py validates it and derives the
+# allowlist; scripts/qa-vmtest-manifest.bash checks it on every QA run.
+#
+# The Fedora version is NOT declared here: it comes from vars/fedora-version.yml
+# and base names are composed as "<key>-<version>" (e.g. server-fast-44).
+#
+# Freshness backstops, in days. Neither is a trigger: the base refreshes when the
+# updates-repo revision advances and reinstalls when the media identity changes.
+# TTL-U applies only when the revision could not be read; TTL-R bounds the age of
+# a base whose reinstall signal is correctly inert for a whole release.
+vm_test_ttl_upgrade_days: 7
+vm_test_ttl_rebuild_days: 90
+
+# The bases. `fast` is imported from the published Cloud qcow2 and never runs
+# Anaconda; `full` is an Anaconda install. Sizing is provisional until the
+# Phase 0 host triage reports the headroom; the lab refuses a run that would
+# take committed guest RAM past the host's ceiling either way.
+vm_test_bases:
+  server-fast:
+    kind: fast
+    profile: server
+    vcpus: 2
+    ram_mib: 4096
+  server-full:
+    kind: full
+    profile: server
+    vcpus: 2
+    ram_mib: 4096
+  desktop:
+    kind: full
+    profile: desktop
+    vcpus: 4
+    ram_mib: 8192
+
+# The scenarios. Each names the base it requires; a request whose base is absent
+# is an error, never a substitution. `planned` is the check count the guest
+# acceptance script declares up front; a run whose total differs is an error.
+# `planned: null` means the guest script has not declared its count yet: the
+# scenario is listed but NOT runnable, and stays off the allowlist.
+# `max_skipped` caps skipped checks per scenario and must leave at least one
+# check that has to pass.
+vm_test_scenarios:
+  server-fast-provision:
+    base: server-fast
+    description: provision a Fedora Cloud Base guest with run.bash (proves the product, not the installer)
+    planned: null
+    max_skipped: 0
+  server-full-provision:
+    base: server-full
+    description: provision an Anaconda-installed Fedora Server guest with run.bash
+    planned: null
+    max_skipped: 0
+  desktop-fresh-install:
+    base: desktop
+    description: the repo's own installer shape (netinst + Workstation liveimg) plus desktop provisioning
+    planned: null
+    max_skipped: 0

@@ -75,11 +75,11 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
   `repomd.xml`
 - [x] ✅ **T1.2**: `helpers/vmtest/freshness.py`, test-first — the §4.4 policy,
   parametrised over the **whole** readable/unreadable matrix and asserted total
-- [ ] ⬜ **T1.3**: `helpers/vmtest/scenarios.py` — manifest parsing, planned-check
+- [x] ✅ **T1.3**: `helpers/vmtest/scenarios.py` — manifest parsing, planned-check
   accounting
 - [ ] ⬜ **T1.4**: `helpers/vmtest/probe_upstream.py` — thin executor, marker
   lines on stdout, diagnostics on stderr
-- [ ] ⬜ **T1.5**: `vars/vm-test-scenarios.yml` — the tracked manifest
+- [x] ✅ **T1.5**: `vars/vm-test-scenarios.yml` — the tracked manifest
 - [ ] ⬜ **T1.6**: QA; commit. **This phase alone answers "has upstream moved?"
   as a runnable command**
 
