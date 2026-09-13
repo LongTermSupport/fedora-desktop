@@ -47,6 +47,38 @@ class TestValidateManifest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "server-fast-provision\nserver-full-provision\n")
 
+    def test_base_flag_prints_that_bases_facts_as_one_marker(self):
+        result = _run(json.dumps(MANIFEST), "--base", "desktop")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout,
+            "VMTEST-BASE key=desktop name=desktop-44 kind=full profile=desktop tree=Everything vcpus=4 ram_mib=8192\n",
+        )
+        fast = _run(json.dumps(MANIFEST), "--base", "server-fast")
+        self.assertIn("kind=fast profile=server tree=- vcpus=2", fast.stdout)
+
+    def test_scenario_flag_prints_that_scenarios_facts_as_one_marker(self):
+        result = _run(json.dumps(MANIFEST), "--scenario", "server-fast-provision")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout,
+            "VMTEST-SCENARIO id=server-fast-provision base=server-fast base_name=server-fast-44 "
+            "profile=server planned=12 max_skipped=0 runnable=true\n",
+        )
+        unplanned = _run(json.dumps(MANIFEST), "--scenario", "desktop-fresh-install")
+        self.assertIn("planned=- max_skipped=0 runnable=false", unplanned.stdout)
+
+    def test_scenario_flag_with_an_unknown_id_fails_closed(self):
+        result = _run(json.dumps(MANIFEST), "--scenario", "server-medium-provision")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("VMTEST-MANIFEST-INVALID", result.stdout)
+
+    def test_base_flag_with_an_unknown_key_fails_closed(self):
+        result = _run(json.dumps(MANIFEST), "--base", "server-medium")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("VMTEST-MANIFEST-INVALID", result.stdout)
+        self.assertIn("server-medium", result.stderr)
+
     def test_invalid_manifest_exits_non_zero_with_the_reason_on_stderr(self):
         document = json.loads(json.dumps(MANIFEST))
         document["vm_test_scenarios"]["server-fast-provision"]["base"] = "nope"

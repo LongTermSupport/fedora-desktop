@@ -20,7 +20,7 @@ Markers:
     VMTEST-FRESHNESS-BODHI F<v> <state>
     VMTEST-FRESHNESS-TREE <tree> build_timestamp=<int>
     VMTEST-FRESHNESS-TREE-CHECKSUM <tree> <path> <sha256>
-    VMTEST-FRESHNESS-ARTEFACT <base-name> <filename> <sha256> label=<compose-label>
+    VMTEST-FRESHNESS-ARTEFACT <base-name> <filename> <sha256> label=<compose-label> variant=<variant> url=<link>
     VMTEST-FRESHNESS-UNREADABLE <signal> <url> <error>
     VMTEST-FRESHNESS-DONE unreadable=<n>
 """
@@ -145,9 +145,12 @@ def run(fedora_version: int, manifest: scenarios.Manifest, fetch: Callable[[str]
                 except upstream.UpstreamParseError as exc:
                     probe.unreadable_signal(f"artefact {base.name}", RELEASES_JSON_URL, str(exc))
                     continue
+                # `variant` and `url` let the fetcher locate the signed CHECKSUM file
+                # (`Fedora-<Variant>-<label>-<arch>-CHECKSUM`, beside the artefact)
+                # without scraping a directory listing (§4.3).
                 print(
                     f"VMTEST-FRESHNESS-ARTEFACT {base.name} {artefact.filename} "
-                    f"{artefact.sha256} label={label}"
+                    f"{artefact.sha256} label={label} variant={artefact.variant} url={artefact.link}"
                 )
 
     print(f"VMTEST-FRESHNESS-DONE unreadable={probe.unreadable}")

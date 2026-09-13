@@ -116,12 +116,16 @@ class TestProbeReadsEverySignal(ProbeCase):
         )
         self.assertIn(
             "VMTEST-FRESHNESS-ARTEFACT server-fast-44 Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2 "
-            "28680fe5" + "0" * 50 + "f90b7f label=44-1.7",
+            "28680fe5" + "0" * 50 + "f90b7f label=44-1.7 variant=Cloud "
+            "url=https://download.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/x86_64/images/"
+            "Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2",
             lines,
         )
         self.assertIn(
             "VMTEST-FRESHNESS-ARTEFACT desktop-44 Fedora-Workstation-Live-44-1.7.x86_64.iso "
-            "1620295f" + "0" * 50 + "426ddf label=44-1.7",
+            "1620295f" + "0" * 50 + "426ddf label=44-1.7 variant=Workstation "
+            "url=https://download.fedoraproject.org/pub/fedora/linux/releases/44/Workstation/x86_64/iso/"
+            "Fedora-Workstation-Live-44-1.7.x86_64.iso",
             lines,
         )
         self.assertEqual(lines[-1], "VMTEST-FRESHNESS-DONE unreadable=0")

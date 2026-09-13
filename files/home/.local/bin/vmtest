@@ -1,0 +1,621 @@
+#!/usr/bin/bash
+# vmtest — host CLI for the VM lifecycle acceptance lab (Plan 00110).
+#
+# A thin executor: every decision (manifest parsing, freshness, the base record)
+# lives in the unit-tested helpers that play-vm-test-lab.yml deploys to
+# /usr/local/lib/ccy-helpers; this script fetches, verifies, boots and shells
+# out. It reads only Ansible-deployed copies — the manifest, the guest scripts,
+# the helpers — never the checkout (DESIGN.md §2.3).
+#
+# Usage:
+#   vmtest fetch <base-key>                  download + verify the published artefact(s) a base is built from
+#   vmtest build-base <base-key>             build a base from its artefact (fast kind: import, upgrade, clean, flatten)
+#   vmtest run <scenario-id> [--commit SHA]  the full lifecycle: freshness gate, overlay, boot, run.bash at the
+#                                            pinned commit, in-guest acceptance, transcript, verdict, destroy
+#   vmtest help
+#
+# `run` provisions from a PUSHED commit of the public repo (the branch tip on the
+# remote by default), never from a checkout — a transcript must point at code a
+# human can review (DESIGN.md §3.4). Exit 0 only on verdict pass; the response
+# document is written to runs/<run-id>/response.json either way.
+#
+# Rootless throughout: qemu:///session, user-mode networking with a passt port
+# forward to the guest's SSH, the lab's own throwaway ed25519 key. Everything
+# lands under ~/.local/share/vmtest and nothing touches the checkout.
+#
+# Exit codes: 0 success; 1 a step failed and said why; 64 usage.
+set -euo pipefail
+
+VMTEST_HOME="${VMTEST_HOME:-${HOME}/.local/share/vmtest}"
+VMTEST_HELPERS_LIB="${VMTEST_HELPERS_LIB:-/usr/local/lib/ccy-helpers}"
+readonly VMTEST_HOME VMTEST_HELPERS_LIB
+readonly LAB_ENV="${VMTEST_HOME}/lab.env"
+readonly MANIFEST="${VMTEST_HOME}/scenarios.json"
+readonly SSH_KEY="${VMTEST_HOME}/ssh/lab-key"
+readonly GUEST_CLEANUP="${VMTEST_HOME}/guest-cleanup.bash"
+readonly ALLOWLIST="${VMTEST_HOME}/scenarios.allowlist"
+readonly RUNS_DIR="${VMTEST_HOME}/runs"
+readonly IMAGES_DIR="${VMTEST_HOME}/images"
+readonly BASES_DIR="${VMTEST_HOME}/bases"
+readonly GPG_KEYDIR="/usr/share/distribution-gpg-keys/fedora"
+readonly ARCH="x86_64"
+readonly CLOUD_USER="fedora"
+readonly BUILD_DISK_SIZE="20G"
+# The base build recipe's version. Bump it whenever the way a base is BUILT
+# changes (disk size, cloud-init options, the upgrade step, what is cleaned);
+# the recipe digest is this number plus guest-cleanup.bash, so a recipe change
+# reinstalls every base (§4.4) while an unrelated edit to this CLI does not.
+readonly BUILD_RECIPE_VERSION=1
+readonly SSH_WAIT_SECONDS=600
+readonly SHUTDOWN_WAIT_SECONDS=300
+readonly PROVISION_TIMEOUT_SECONDS=5400
+readonly LIBVIRT_URI="qemu:///session"
+# RFC 2606 reserved: the guest's git identity is a placeholder by design.
+readonly GUEST_USER_EMAIL="vmtest@example.com"
+
+log() { printf '==> %s\n' "$*" >&2; }
+die() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+usage() {
+    sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]}" | grep -E '^#( |$)' | cut -c3-
+}
+helper() {
+    local module="${1:?helper requires a module}"
+    shift
+    env PYTHONPATH="${VMTEST_HELPERS_LIB}" python3 -m "helpers.vmtest.${module}" "$@"
+}
+
+# ── lab state ─────────────────────────────────────────────────────────────────────────────
+
+load_lab() {
+    [[ -r "${LAB_ENV}" ]] || die "no ${LAB_ENV}; deploy the lab with play-vm-test-lab.yml first"
+    # shellcheck source=/dev/null
+    source "${LAB_ENV}"
+    [[ "${VMTEST_FEDORA_VERSION:-}" =~ ^[0-9]+$ ]] || die "${LAB_ENV} does not set VMTEST_FEDORA_VERSION"
+    [[ "${VMTEST_REPO_URL:-}" == https://* ]] || die "${LAB_ENV} does not set an https VMTEST_REPO_URL"
+    [[ -n "${VMTEST_REPO_BRANCH:-}" ]] || die "${LAB_ENV} does not set VMTEST_REPO_BRANCH"
+    [[ -r "${MANIFEST}" ]] || die "no ${MANIFEST}; deploy the lab with play-vm-test-lab.yml first"
+    [[ -r "${SSH_KEY}" && -r "${SSH_KEY}.pub" ]] || die "no lab SSH key at ${SSH_KEY}; deploy the lab first"
+    [[ -r "${GUEST_CLEANUP}" ]] || die "no ${GUEST_CLEANUP}; deploy the lab first"
+    [[ -d "${GPG_KEYDIR}" ]] || die "${GPG_KEYDIR} is missing; distribution-gpg-keys is installed by play-vm-test-lab.yml"
+    mkdir -p "${IMAGES_DIR}" "${BASES_DIR}"
+}
+
+# base_facts <key> — the base's manifest facts as BASE_* variables, via the validator's marker.
+base_facts() {
+    local key="${1:?base_facts requires a base key}" line field
+    line="$(helper validate_manifest --fedora-version "${VMTEST_FEDORA_VERSION}" --base "${key}" <"${MANIFEST}")"
+    [[ "${line}" == VMTEST-BASE* ]] || die "unexpected validator output: ${line}"
+    for field in ${line#VMTEST-BASE }; do
+        case "${field}" in
+            name=*) BASE_NAME="${field#name=}" ;;
+            kind=*) BASE_KIND="${field#kind=}" ;;
+            profile=*) BASE_PROFILE="${field#profile=}" ;;
+            tree=*) BASE_TREE="${field#tree=}" ;;
+            vcpus=*) BASE_VCPUS="${field#vcpus=}" ;;
+            ram_mib=*) BASE_RAM_MIB="${field#ram_mib=}" ;;
+            key=*) ;;
+            *) die "unknown field in validator marker: ${field}" ;;
+        esac
+    done
+    : "${BASE_NAME:?}" "${BASE_KIND:?}" "${BASE_PROFILE:?}" "${BASE_TREE:?}" "${BASE_VCPUS:?}" "${BASE_RAM_MIB:?}"
+}
+
+# scenario_facts <id> — the scenario's manifest facts as SCENARIO_* variables.
+scenario_facts() {
+    local id="${1:?scenario_facts requires a scenario id}" line field
+    line="$(helper validate_manifest --fedora-version "${VMTEST_FEDORA_VERSION}" --scenario "${id}" <"${MANIFEST}")"
+    [[ "${line}" == VMTEST-SCENARIO* ]] || die "unexpected validator output: ${line}"
+    for field in ${line#VMTEST-SCENARIO }; do
+        case "${field}" in
+            base=*) SCENARIO_BASE_KEY="${field#base=}" ;;
+            base_name=*) SCENARIO_BASE_NAME="${field#base_name=}" ;;
+            profile=*) SCENARIO_PROFILE="${field#profile=}" ;;
+            planned=*) SCENARIO_PLANNED="${field#planned=}" ;;
+            max_skipped=*) SCENARIO_MAX_SKIPPED="${field#max_skipped=}" ;;
+            runnable=*) SCENARIO_RUNNABLE="${field#runnable=}" ;;
+            id=*) ;;
+            *) die "unknown field in validator marker: ${field}" ;;
+        esac
+    done
+    : "${SCENARIO_BASE_KEY:?}" "${SCENARIO_BASE_NAME:?}" "${SCENARIO_PROFILE:?}" "${SCENARIO_PLANNED:?}" \
+        "${SCENARIO_MAX_SKIPPED:?}" "${SCENARIO_RUNNABLE:?}"
+}
+
+recipe_digest_now() {
+    {
+        printf 'build-recipe-version=%s\n' "${BUILD_RECIPE_VERSION}"
+        cat "${GUEST_CLEANUP}"
+    } | sha256sum | cut -d' ' -f1
+}
+
+# probe_upstream — run the freshness probe once; its marker lines land in PROBE_FILE.
+# An unreadable signal is the §4.5 fail-fast case: the lab blocks rather than guessing.
+probe_upstream() {
+    PROBE_FILE="$(mktemp --tmpdir vmtest-probe.XXXXXX)"
+    if ! helper probe_upstream --fedora-version "${VMTEST_FEDORA_VERSION}" --manifest "${MANIFEST}" >"${PROBE_FILE}"; then
+        grep '^VMTEST-FRESHNESS-UNREADABLE' "${PROBE_FILE}" >&2
+        die "upstream freshness signal unavailable — cannot prove what the published media is"
+    fi
+}
+
+probe_value() {
+    local marker="${1:?probe_value requires a marker}" value
+    value="$(grep -E "^${marker} " "${PROBE_FILE}")" || die "probe printed no ${marker} line"
+    printf '%s\n' "${value#"${marker}" }"
+}
+
+# ── fetch ─────────────────────────────────────────────────────────────────────────────────
+
+# download_file <url> <dest> — curl -z, so a current local copy costs one conditional GET.
+download_file() {
+    local url="${1:?}" dest="${2:?}" temp
+    temp="${dest}.partial"
+    rm -f "${temp}"
+    local -a args=(-fL --progress-bar -o "${temp}")
+    if [[ -f "${dest}" ]]; then
+        args+=(-z "${dest}")
+    fi
+    if ! curl "${args[@]}" "${url}"; then
+        rm -f "${temp}"
+        die "download failed: ${url}"
+    fi
+    if [[ -s "${temp}" ]]; then
+        mv -f "${temp}" "${dest}"
+        log "downloaded $(basename "${dest}") ($(stat -c %s "${dest}") bytes)"
+    else
+        rm -f "${temp}"
+        [[ -f "${dest}" ]] || die "no local copy and the server sent nothing: ${url}"
+        log "$(basename "${dest}") is current (not modified upstream)"
+    fi
+}
+
+# verify_signed_checksum <checksum-file> — GPG-verify a clearsigned CHECKSUM against the
+# branch's Fedora release key. Hard failure: an unverifiable CHECKSUM certifies nothing.
+verify_signed_checksum() {
+    local file="${1:?}" key="${GPG_KEYDIR}/RPM-GPG-KEY-fedora-${VMTEST_FEDORA_VERSION}-primary" home
+    [[ -r "${key}" ]] || die "no Fedora ${VMTEST_FEDORA_VERSION} release key at ${key}"
+    home="$(mktemp -d --tmpdir vmtest-gnupg.XXXXXX)"
+    chmod 700 "${home}"
+    if ! gpg2 --homedir "${home}" --quiet --import "${key}" 2>"${home}/import.log"; then
+        cat "${home}/import.log" >&2
+        rm -rf "${home}"
+        die "could not import ${key}"
+    fi
+    if ! gpg2 --homedir "${home}" --verify "${file}" 2>"${home}/verify.log"; then
+        cat "${home}/verify.log" >&2
+        rm -rf "${home}"
+        die "GPG signature verification FAILED for $(basename "${file}") — refusing the artefact"
+    fi
+    rm -rf "${home}"
+    log "GPG signature verified on $(basename "${file}")"
+}
+
+# fetch_artefact <filename> <sha256-from-releases.json> <label> <variant> <url>
+fetch_artefact() {
+    local filename="${1:?}" sha="${2:?}" label="${3:?}" variant="${4:?}" url="${5:?}"
+    local dest="${IMAGES_DIR}/${filename}" checksum_name checksum_url checksum_file expected actual
+    download_file "${url}" "${dest}"
+
+    # The signed CHECKSUM sits beside the artefact and its name is structured
+    # (variant + compose label + arch), so no directory listing is scraped.
+    checksum_name="Fedora-${variant}-${label}-${ARCH}-CHECKSUM"
+    checksum_url="${url%/*}/${checksum_name}"
+    checksum_file="${IMAGES_DIR}/${checksum_name}"
+    download_file "${checksum_url}" "${checksum_file}"
+    verify_signed_checksum "${checksum_file}"
+
+    expected="$(grep -E "^SHA256 \(${filename}\) = [0-9a-f]{64}$" "${checksum_file}" | grep -oE '[0-9a-f]{64}$')" ||
+        die "${checksum_name} has no SHA256 entry for ${filename}"
+    [[ "${expected}" == "${sha}" ]] ||
+        die "releases.json (${sha}) and ${checksum_name} (${expected}) disagree about ${filename}"
+    log "hashing ${filename}"
+    actual="$(sha256sum "${dest}" | cut -d' ' -f1)"
+    [[ "${actual}" == "${expected}" ]] ||
+        die "SHA-256 MISMATCH for ${filename}: expected ${expected}, got ${actual}"
+    log "verified ${filename} against the signed CHECKSUM and releases.json"
+}
+
+cmd_fetch() {
+    local key="${1:?usage: vmtest fetch <base-key>}" line filename sha label variant url found=0
+    load_lab
+    base_facts "${key}"
+    probe_upstream
+    while read -r line; do
+        found=1
+        # VMTEST-FRESHNESS-ARTEFACT <base> <filename> <sha256> label=<l> variant=<v> url=<u>
+        read -r _ _ filename sha label variant url <<<"${line}"
+        fetch_artefact "${filename}" "${sha}" "${label#label=}" "${variant#variant=}" "${url#url=}"
+    done < <(grep -E "^VMTEST-FRESHNESS-ARTEFACT ${BASE_NAME} " "${PROBE_FILE}")
+    [[ "${found}" -eq 1 ]] || die "the probe listed no artefact for ${BASE_NAME}"
+}
+
+# ── build-base ────────────────────────────────────────────────────────────────────────────
+
+free_port() {
+    python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])'
+}
+
+# IdentitiesOnly: without it ssh offers every key in the user's agent before the lab
+# key, and sshd's MaxAuthTries locks the session out with "Too many authentication
+# failures" — measured on the first build.
+guest_ssh() {
+    ssh -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5 \
+        -i "${SSH_KEY}" -p "${GUEST_PORT}" "${CLOUD_USER}@127.0.0.1" "$@"
+}
+
+guest_scp() {
+    scp -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
+        -i "${SSH_KEY}" -P "${GUEST_PORT}" "$@"
+}
+
+wait_for_ssh() {
+    local waited=0
+    log "waiting for SSH on 127.0.0.1:${GUEST_PORT} (up to ${SSH_WAIT_SECONDS}s)"
+    while ! guest_ssh true 2>/dev/null; do
+        sleep 5
+        waited=$((waited + 5))
+        if [[ "${waited}" -ge "${SSH_WAIT_SECONDS}" ]]; then
+            die "guest did not answer SSH within ${SSH_WAIT_SECONDS}s; see ${BUILD_DIR}/console.log"
+        fi
+    done
+    log "guest answered SSH after ~${waited}s"
+}
+
+wait_for_shutoff() {
+    local waited=0 state
+    while state="$(virsh -c "${LIBVIRT_URI}" domstate "${DOMAIN}")" && [[ "${state}" != "shut off" ]]; do
+        sleep 5
+        waited=$((waited + 5))
+        if [[ "${waited}" -ge "${SHUTDOWN_WAIT_SECONDS}" ]]; then
+            die "guest did not shut off within ${SHUTDOWN_WAIT_SECONDS}s (state: ${state})"
+        fi
+    done
+}
+
+# Teardown is armed for EXIT and the signals, so a failed build never leaves a domain
+# running. The build directory is kept on failure for diagnosis and removed on success.
+DOMAIN=""
+BUILD_DIR=""
+BUILD_OK=0
+teardown_build() {
+    local rc=$?
+    trap - EXIT INT TERM HUP
+    if [[ -n "${DOMAIN}" ]] && virsh -c "${LIBVIRT_URI}" dominfo "${DOMAIN}" >/dev/null 2>&1; then
+        if [[ "$(virsh -c "${LIBVIRT_URI}" domstate "${DOMAIN}")" != "shut off" ]]; then
+            virsh -c "${LIBVIRT_URI}" destroy "${DOMAIN}" >&2 || log "could not destroy ${DOMAIN}"
+        fi
+        virsh -c "${LIBVIRT_URI}" undefine --nvram "${DOMAIN}" >&2 || log "could not undefine ${DOMAIN}"
+    fi
+    if [[ "${BUILD_OK}" -eq 1 && -n "${BUILD_DIR}" ]]; then
+        rm -rf "${BUILD_DIR}"
+    elif [[ -n "${BUILD_DIR}" ]]; then
+        log "build directory kept for diagnosis: ${BUILD_DIR}"
+    fi
+    rm -f "${PROBE_FILE:-}"
+    exit "${rc}"
+}
+
+# guest_repo_fact <field> — one field of `dnf repoinfo updates` from inside the guest.
+guest_repo_fact() {
+    local field="${1:?}"
+    printf '%s\n' "${GUEST_REPOINFO}" | grep -E "^\s*${field}\s*:" | sed -E 's/^[^:]*:\s*//' | grep -m1 . ||
+        die "guest repoinfo has no ${field} line"
+}
+
+cmd_build_base() {
+    local key="${1:?usage: vmtest build-base <base-key>}"
+    load_lab
+    base_facts "${key}"
+    [[ "${BASE_KIND}" == "fast" ]] || die "only fast bases are built today; ${BASE_NAME} is kind ${BASE_KIND} (Phase 3b/5)"
+    cmd_fetch "${key}"
+
+    local line filename sha label
+    line="$(grep -E "^VMTEST-FRESHNESS-ARTEFACT ${BASE_NAME} " "${PROBE_FILE}")"
+    read -r _ _ filename sha label _ <<<"${line}"
+    label="${label#label=}"
+    local compose_id probe_revision
+    compose_id="$(probe_value VMTEST-FRESHNESS-COMPOSE-ID)"
+    probe_revision="$(probe_value VMTEST-FRESHNESS-REVISION)"
+
+    DOMAIN="vmtest-build-${BASE_NAME}"
+    BUILD_DIR="${BASES_DIR}/${BASE_NAME}.build"
+    trap teardown_build EXIT INT TERM HUP
+    if virsh -c "${LIBVIRT_URI}" dominfo "${DOMAIN}" >/dev/null 2>&1; then
+        die "a domain named ${DOMAIN} already exists; a previous build did not clean up. Inspect it, then: virsh -c ${LIBVIRT_URI} undefine --nvram ${DOMAIN}"
+    fi
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    local disk="${BUILD_DIR}/disk.qcow2"
+    log "seeding build disk from ${filename}"
+    cp --reflink=auto "${IMAGES_DIR}/${filename}" "${disk}"
+    qemu-img resize -q "${disk}" "${BUILD_DISK_SIZE}"
+
+    GUEST_PORT="$(free_port)"
+    local installed_at
+    installed_at="$(date +%s)"
+    log "booting ${DOMAIN} (${BASE_VCPUS} vCPU, ${BASE_RAM_MIB} MiB, SSH forwarded to 127.0.0.1:${GUEST_PORT})"
+    virt-install --connect "${LIBVIRT_URI}" --name "${DOMAIN}" \
+        --memory "${BASE_RAM_MIB}" --vcpus "${BASE_VCPUS}" --cpu host-passthrough \
+        --import --disk "path=${disk},format=qcow2,bus=virtio,discard=unmap" \
+        --osinfo fedora-unknown --boot uefi --memballoon virtio \
+        --network "type=user,backend.type=passt,portForward0.proto=tcp,portForward0.range0.start=${GUEST_PORT},portForward0.range0.to=22" \
+        --cloud-init "clouduser-ssh-key=${SSH_KEY}.pub,disable=on" \
+        --graphics none --serial "file,path=${BUILD_DIR}/console.log" --noautoconsole >&2
+
+    wait_for_ssh
+    log "upgrading packages in the guest"
+    guest_ssh sudo dnf -y --refresh upgrade >&2
+    GUEST_REPOINFO="$(guest_ssh sudo dnf --quiet repoinfo updates)"
+    local guest_revision guest_mirror
+    guest_revision="$(guest_repo_fact Revision)"
+    guest_mirror="$(guest_repo_fact 'Base URL' | awk '{print $1}')"
+    log "guest saw updates revision ${guest_revision} from ${guest_mirror} (probe read ${probe_revision})"
+
+    log "cleaning the guest before snapshot"
+    guest_scp "${GUEST_CLEANUP}" "${CLOUD_USER}@127.0.0.1:/tmp/guest-cleanup.bash"
+    guest_ssh sudo bash /tmp/guest-cleanup.bash | grep -q '^VMTEST-GUEST-CLEANUP-DONE$' ||
+        die "guest cleanup did not complete"
+    # Schedule the poweroff so the SSH session ends cleanly rather than being severed.
+    guest_ssh sudo systemd-run --quiet --on-active=2 systemctl poweroff
+    wait_for_shutoff
+    virsh -c "${LIBVIRT_URI}" undefine --nvram "${DOMAIN}" >&2
+    DOMAIN=""
+
+    local base_dir="${BASES_DIR}/${BASE_NAME}" base_disk base_sha base_size base_mtime last_upgraded_at refresh_state recipe_digest
+    base_disk="${base_dir}/base.qcow2"
+    mkdir -p "${base_dir}"
+    mv -f "${disk}" "${base_disk}"
+    log "hashing the flattened base"
+    base_sha="$(sha256sum "${base_disk}" | cut -d' ' -f1)"
+    base_size="$(stat -c %s "${base_disk}")"
+    base_mtime="$(stat -c %Y "${base_disk}")"
+    last_upgraded_at="$(date +%s)"
+    # §4.4a: complete only if the guest's mirror had caught up with the canonical host.
+    if [[ "${guest_revision}" -ge "${probe_revision}" ]]; then
+        refresh_state="complete"
+    else
+        refresh_state="incomplete"
+    fi
+    recipe_digest="$(recipe_digest_now)"
+
+    helper write_base_record \
+        --fedora-version "${VMTEST_FEDORA_VERSION}" --profile "${BASE_PROFILE}" --kind "${BASE_KIND}" \
+        --name "${BASE_NAME}" --compose-id "${compose_id}" --compose-label "${label}" \
+        --artefact "${filename}=${sha}" --recipe-digest "${recipe_digest}" \
+        --installed-at "${installed_at}" --last-upgraded-at "${last_upgraded_at}" \
+        --last-upgraded-revision "${guest_revision}" --last-upgraded-mirror "${guest_mirror}" \
+        --refresh-state "${refresh_state}" --base-sha256 "${base_sha}" \
+        --base-size "${base_size}" --base-mtime "${base_mtime}" >"${base_dir}/base.json.new"
+    mv -f "${base_dir}/base.json.new" "${base_dir}/base.json"
+    chmod 0444 "${base_disk}"
+    BUILD_OK=1
+    log "base ${BASE_NAME} built: ${base_disk} (${base_size} bytes, refresh ${refresh_state})"
+    printf 'VMTEST-BASE-BUILT %s %s refresh_state=%s\n' "${BASE_NAME}" "${base_disk}" "${refresh_state}"
+}
+
+# ── run ───────────────────────────────────────────────────────────────────────────────────
+
+# record_field <marker-line> <field> — one key=value from a marker line.
+record_field() {
+    local line="${1:?}" key="${2:?}" field
+    for field in ${line}; do
+        if [[ "${field}" == "${key}="* ]]; then
+            printf '%s\n' "${field#"${key}"=}"
+            return 0
+        fi
+    done
+    die "marker has no ${key}: ${line}"
+}
+
+# verdict_field <verdict-line> <field> — one tab-separated key=value from the gate's marker.
+verdict_field() {
+    local line="${1:?}" key="${2:?}" field
+    line="${line#VMTEST-FRESHNESS-VERDICT }"
+    while IFS= read -r -d $'\t' field || [[ -n "${field}" ]]; do
+        if [[ "${field}" == "${key}="* ]]; then
+            printf '%s\n' "${field#"${key}"=}"
+            return 0
+        fi
+    done <<<"${line}"$'\t'
+    die "freshness verdict has no ${key}: ${line}"
+}
+
+# resolve_commit [sha] — the commit to provision from: the one given, or the branch tip
+# on the REMOTE. Never a local checkout (§3.4).
+resolve_commit() {
+    local given="${1:-}" tip
+    if [[ -n "${given}" ]]; then
+        [[ "${given}" =~ ^[0-9a-f]{40}$ ]] || die "--commit must be a 40-hex commit, got ${given}"
+        printf '%s\n' "${given}"
+        return 0
+    fi
+    tip="$(git ls-remote "${VMTEST_REPO_URL}" "refs/heads/${VMTEST_REPO_BRANCH}" | awk '{print $1}')"
+    [[ "${tip}" =~ ^[0-9a-f]{40}$ ]] || die "could not read the tip of ${VMTEST_REPO_BRANCH} from ${VMTEST_REPO_URL}"
+    printf '%s\n' "${tip}"
+}
+
+# raw_url <commit> <path> — the raw-file URL for a path at a commit of the public repo.
+raw_url() {
+    local commit="${1:?}" path="${2:?}" repo="${VMTEST_REPO_URL%.git}"
+    repo="${repo#https://github.com/}"
+    printf 'https://raw.githubusercontent.com/%s/%s/%s\n' "${repo}" "${commit}" "${path}"
+}
+
+RUN_DIR=""
+RUN_OK=0
+teardown_run() {
+    local rc=$?
+    trap - EXIT INT TERM HUP
+    if [[ -n "${DOMAIN}" ]] && virsh -c "${LIBVIRT_URI}" dominfo "${DOMAIN}" >/dev/null 2>&1; then
+        if [[ "$(virsh -c "${LIBVIRT_URI}" domstate "${DOMAIN}")" != "shut off" ]]; then
+            virsh -c "${LIBVIRT_URI}" destroy "${DOMAIN}" >&2 || log "could not destroy ${DOMAIN}"
+        fi
+        virsh -c "${LIBVIRT_URI}" undefine --nvram "${DOMAIN}" >&2 || log "could not undefine ${DOMAIN}"
+    fi
+    if [[ "${RUN_OK}" -eq 1 && -n "${RUN_DIR}" ]]; then
+        rm -f "${RUN_DIR}/overlay.qcow2"
+    elif [[ -n "${RUN_DIR}" ]]; then
+        log "overlay and console kept for diagnosis: ${RUN_DIR}"
+    fi
+    rm -f "${PROBE_FILE:-}"
+    exit "${rc}"
+}
+
+cmd_run() {
+    local scenario_id="${1:?usage: vmtest run <scenario-id> [--commit SHA]}" commit=""
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --commit)
+                commit="${2:?--commit needs a value}"
+                shift 2
+                ;;
+            *) die "unknown option: $1" ;;
+        esac
+    done
+    load_lab
+    scenario_facts "${scenario_id}"
+    [[ "${SCENARIO_RUNNABLE}" == "true" ]] ||
+        die "${scenario_id} is not runnable: its guest script has not declared a planned check count"
+    # The deployed allowlist is the authority (§2.3): the manifest alone does not admit a run.
+    if [[ ! -r "${ALLOWLIST}" ]] || ! grep -qx "${scenario_id}" "${ALLOWLIST}"; then
+        die "${scenario_id} is not in the deployed allowlist ${ALLOWLIST}; re-run play-vm-test-lab.yml on the host"
+    fi
+    base_facts "${SCENARIO_BASE_KEY}"
+    local base_dir="${BASES_DIR}/${BASE_NAME}" base_disk base_json guest_script
+    base_disk="${base_dir}/base.qcow2"
+    base_json="${base_dir}/base.json"
+    [[ -r "${base_disk}" && -r "${base_json}" ]] ||
+        die "base ${BASE_NAME} is absent (stage: base); build it with: vmtest build-base ${SCENARIO_BASE_KEY}"
+    guest_script="${VMTEST_HOME}/guest-acceptance-${BASE_PROFILE}.bash"
+    [[ -r "${guest_script}" ]] || die "no ${guest_script}; deploy the lab first"
+    commit="$(resolve_commit "${commit}")"
+
+    # ── freshness gate (§4.4, T6.1) ────────────────────────────────────────────────────
+    probe_upstream
+    local record actual_size actual_mtime actual_sha gate gate_rc=0 decision degraded divergences
+    record="$(helper freshness_gate --fedora-version "${VMTEST_FEDORA_VERSION}" --manifest "${MANIFEST}" \
+        --base-json "${base_json}" --probe "${PROBE_FILE}" --recipe-digest "$(recipe_digest_now)" \
+        --actual-base-sha256 "$(printf '%064d' 0)" --record-only)" ||
+        die "could not read ${base_json}"
+    [[ "${record}" == VMTEST-BASE-RECORD* ]] || die "unexpected gate output: ${record}"
+    # §7: size and mtime per run; the full sha256 only on refresh, reinstall and --deep.
+    actual_size="$(stat -c %s "${base_disk}")"
+    actual_mtime="$(stat -c %Y "${base_disk}")"
+    if [[ "${actual_size}" == "$(record_field "${record}" base_size)" && "${actual_mtime}" == "$(record_field "${record}" base_mtime)" ]]; then
+        actual_sha="$(record_field "${record}" base_sha256)"
+    else
+        die "base.qcow2 for ${BASE_NAME} differs from its record (size/mtime); refusing to run on a base of unknown provenance"
+    fi
+    gate="$(helper freshness_gate --fedora-version "${VMTEST_FEDORA_VERSION}" --manifest "${MANIFEST}" \
+        --base-json "${base_json}" --probe "${PROBE_FILE}" --recipe-digest "$(recipe_digest_now)" \
+        --actual-base-sha256 "${actual_sha}" | grep '^VMTEST-FRESHNESS-VERDICT ')" || gate_rc=$?
+    [[ "${gate}" == VMTEST-FRESHNESS-VERDICT* ]] || die "the freshness gate printed no verdict (exit ${gate_rc})"
+    decision="$(verdict_field "${gate}" decision)"
+    degraded="$(verdict_field "${gate}" degraded)"
+    divergences="$(verdict_field "${gate}" divergences)"
+    log "freshness: ${decision} (degraded=${degraded})"
+    if [[ "${gate_rc}" -ne 0 ]]; then
+        printf '%s\n' "${gate}" >&2
+        die "base ${BASE_NAME} may not be used (freshness: ${decision}); rebuild it with: vmtest build-base ${SCENARIO_BASE_KEY}"
+    fi
+
+    # ── overlay and boot ───────────────────────────────────────────────────────────────
+    local run_id started_at
+    run_id="$(date -u +%Y%m%dT%H%M%SZ)-${scenario_id}"
+    RUN_DIR="${RUNS_DIR}/${run_id}"
+    mkdir -p "${RUN_DIR}"
+    DOMAIN="vmtest-run-${run_id}"
+    trap teardown_run EXIT INT TERM HUP
+    qemu-img create -q -f qcow2 -F qcow2 -b "${base_disk}" "${RUN_DIR}/overlay.qcow2"
+    GUEST_PORT="$(free_port)"
+    started_at="$(date +%s)"
+    log "run ${run_id}: booting ${DOMAIN} on ${BASE_NAME} (SSH forwarded to 127.0.0.1:${GUEST_PORT})"
+    virt-install --connect "${LIBVIRT_URI}" --name "${DOMAIN}" \
+        --memory "${BASE_RAM_MIB}" --vcpus "${BASE_VCPUS}" --cpu host-passthrough \
+        --import --disk "path=${RUN_DIR}/overlay.qcow2,format=qcow2,bus=virtio,discard=unmap,cache=unsafe" \
+        --osinfo fedora-unknown --boot uefi --memballoon virtio \
+        --network "type=user,backend.type=passt,portForward0.proto=tcp,portForward0.range0.start=${GUEST_PORT},portForward0.range0.to=22" \
+        --graphics none --serial "file,path=${RUN_DIR}/console.log" --noautoconsole >&2
+    wait_for_ssh
+
+    # ── provision at the pinned commit ─────────────────────────────────────────────────
+    local transcript="${RUN_DIR}/transcript.log" run_rc=0 raw
+    {
+        printf '# vmtest run %s\n# scenario %s on base %s (%s, %s) freshness=%s commit=%s\n' \
+            "${run_id}" "${scenario_id}" "${BASE_NAME}" "${BASE_KIND}" "${BASE_PROFILE}" "${decision}" "${commit}"
+    } >"${transcript}"
+    raw="$(raw_url "${commit}" run.bash)"
+    log "fetching run.bash at ${commit:0:12} into the guest"
+    guest_ssh "curl -fsSL -o ~/run.bash '${raw}' && chmod 0755 ~/run.bash"
+    # The guest's only secret: a per-run random vault password that decrypts nothing (§10).
+    guest_ssh "umask 077 && mkdir -p ~/.vmtest && head -c 32 /dev/urandom | base64 > ~/.vmtest/throwaway-pw"
+    log "provisioning (headless run.bash; this is the long part — up to ${PROVISION_TIMEOUT_SECONDS}s)"
+    timeout "${PROVISION_TIMEOUT_SECONDS}" ssh -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ServerAliveInterval=30 \
+        -i "${SSH_KEY}" -p "${GUEST_PORT}" "${CLOUD_USER}@127.0.0.1" \
+        "env RUN_BASH_HEADLESS=1 RUN_BASH_USER_EMAIL='${GUEST_USER_EMAIL}' RUN_BASH_GITHUB_ACCOUNTS=none \
+             RUN_BASH_VAULT_PASSWORD_FILE=\$HOME/.vmtest/throwaway-pw RUN_BASH_GIT_REF='${commit}' \
+             RUN_BASH_PROVISIONING_PROFILE='${BASE_PROFILE}' TERM=dumb bash ~/run.bash" \
+        2>&1 | tee -a "${transcript}" >&2 || run_rc="${PIPESTATUS[0]}"
+    printf 'RUN-BASH-EXIT %s\n' "${run_rc}" | tee -a "${transcript}" >&2
+
+    # ── in-guest acceptance ────────────────────────────────────────────────────────────
+    local accept_rc=0
+    guest_scp "${guest_script}" "${CLOUD_USER}@127.0.0.1:/tmp/guest-acceptance.bash"
+    guest_ssh "VMTEST_COMMIT='${commit}' VMTEST_USER_EMAIL='${GUEST_USER_EMAIL}' bash /tmp/guest-acceptance.bash" \
+        2>&1 | tee -a "${transcript}" >&2 || accept_rc="${PIPESTATUS[0]}"
+    [[ "${accept_rc}" -eq 0 ]] || log "guest acceptance script exited ${accept_rc} (recorded; the transcript decides)"
+
+    # ── destroy, judge, respond ────────────────────────────────────────────────────────
+    virsh -c "${LIBVIRT_URI}" destroy "${DOMAIN}" >&2
+    virsh -c "${LIBVIRT_URI}" undefine --nvram "${DOMAIN}" >&2
+    DOMAIN=""
+    local finished_at verdict_rc=0
+    finished_at="$(date +%s)"
+    helper judge_run --transcript "${transcript}" --transcript-path "runs/${run_id}/transcript.log" \
+        --base-json "${base_json}" --scenario "${scenario_id}" --planned "${SCENARIO_PLANNED}" \
+        --max-skipped "${SCENARIO_MAX_SKIPPED}" --run-id "${run_id}" --commit "${commit}" \
+        --branch "${VMTEST_REPO_BRANCH}" --freshness-decision "${decision}" --freshness-degraded "${degraded}" \
+        --freshness-divergences "${divergences}" --divergences "throwaway-vault-password,lab-ssh-key-baked" \
+        --started-at "${started_at}" --finished-at "${finished_at}" \
+        >"${RUN_DIR}/response.json" || verdict_rc=$?
+    [[ "${verdict_rc}" -ne 2 ]] || die "could not judge the run; see ${RUN_DIR}"
+    local verdict
+    verdict="$(grep -m1 -oE '"verdict": "[a-z]+"' "${RUN_DIR}/response.json")"
+    verdict="${verdict#*: \"}"
+    verdict="${verdict%\"}"
+    if [[ "${verdict}" == "pass" ]]; then
+        RUN_OK=1
+    fi
+    log "verdict: ${verdict}; response ${RUN_DIR}/response.json; transcript ${transcript}"
+    printf 'VMTEST-RUN %s verdict=%s response=%s\n' "${run_id}" "${verdict}" "${RUN_DIR}/response.json"
+    [[ "${verdict}" == "pass" ]]
+}
+
+# ── dispatch ──────────────────────────────────────────────────────────────────────────────
+
+main() {
+    local command="${1:-help}"
+    if [[ $# -gt 0 ]]; then
+        shift
+    fi
+    case "${command}" in
+        fetch) cmd_fetch "$@" ;;
+        build-base) cmd_build_base "$@" ;;
+        run) cmd_run "$@" ;;
+        help | -h | --help) usage ;;
+        *)
+            usage >&2
+            printf 'ERROR: unknown command: %s\n' "${command}" >&2
+            exit 64
+            ;;
+    esac
+}
+
+main "$@"

@@ -75,7 +75,7 @@ vm_test_scenarios:
   server-fast-provision:
     base: server-fast
     description: provision a Fedora Cloud Base guest with run.bash (proves the product, not the installer)
-    planned: null
+    planned: 13   # = PLANNED in files/home/.local/share/vmtest/guest-acceptance-server.bash
     max_skipped: 0
   server-full-provision:
     base: server-full

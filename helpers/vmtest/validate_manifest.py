@@ -12,8 +12,13 @@ goes to stderr.
 Markers:
     VMTEST-MANIFEST-OK scenarios=N runnable=N bases=N
     VMTEST-MANIFEST-INVALID
+    VMTEST-BASE key=K name=N kind=K profile=P tree=T|- vcpus=N ram_mib=N   (with --base KEY)
+    VMTEST-SCENARIO id=I base=K base_name=N profile=P planned=N|- max_skipped=N runnable=true|false
 With `--allowlist`, stdout is the allowlist itself (one id per line), which is
-the payload Ansible writes to the host's `scenarios.allowlist`.
+the payload Ansible writes to the host's `scenarios.allowlist`. With
+`--base KEY` or `--scenario ID`, stdout is that entry's facts as one marker
+line, which is how the `vmtest` CLI reads the manifest without parsing JSON in
+bash.
 """
 
 from __future__ import annotations
@@ -37,12 +42,45 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="print the deployed allowlist (runnable scenario ids, one per line) instead of the OK marker",
     )
+    parser.add_argument(
+        "--base",
+        metavar="KEY",
+        help="print one VMTEST-BASE marker with this base's facts instead of the OK marker",
+    )
+    parser.add_argument(
+        "--scenario",
+        metavar="ID",
+        help="print one VMTEST-SCENARIO marker with this scenario's facts instead of the OK marker",
+    )
     args = parser.parse_args(argv)
 
     try:
         manifest = scenarios.load_manifest(sys.stdin.read(), args.fedora_version)
+        if args.scenario is not None:
+            scenario = manifest.scenarios.get(args.scenario)
+            if scenario is None:
+                raise scenarios.ManifestError(
+                    f"no scenario {args.scenario!r}; the manifest declares {', '.join(sorted(manifest.scenarios))}"
+                )
+            print(
+                f"VMTEST-SCENARIO id={scenario.id} base={scenario.base.key} base_name={scenario.base.name} "
+                f"profile={scenario.profile} planned={scenario.planned if scenario.planned is not None else '-'} "
+                f"max_skipped={scenario.max_skipped} runnable={'true' if scenario.runnable else 'false'}"
+            )
+            return 0
         if args.allowlist:
             sys.stdout.write(scenarios.allowlist_text(manifest))
+            return 0
+        if args.base is not None:
+            base = manifest.bases.get(args.base)
+            if base is None:
+                raise scenarios.ManifestError(
+                    f"no base {args.base!r}; the manifest declares {', '.join(sorted(manifest.bases))}"
+                )
+            print(
+                f"VMTEST-BASE key={base.key} name={base.name} kind={base.kind} "
+                f"profile={base.profile} tree={base.tree or '-'} vcpus={base.vcpus} ram_mib={base.ram_mib}"
+            )
             return 0
     except scenarios.ManifestError as exc:
         print("VMTEST-MANIFEST-INVALID")

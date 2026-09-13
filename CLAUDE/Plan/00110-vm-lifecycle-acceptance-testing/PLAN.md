@@ -92,10 +92,9 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 - [x] ✅ **T2.3a**: `scenarios.json` and `scenarios.allowlist` rendered from
   `vars/vm-test-scenarios.yml` through `validate_manifest.py`; the allowlist
   exists only when a scenario is runnable
-- [ ] ⬜ **T2.3b**: deploy `files/home/.local/bin/vmtest` `0755` (the CLI is
-  Phase 3 work; the deploy task lands with it)
-- [ ] ⬜ **T2.4**: deploy the in-guest scripts to `~/.local/share/vmtest/`
-  (they are Phase 3/5 work; the deploy task lands with them)
+- [x] ✅ **T2.3b**: deploy `files/home/.local/bin/vmtest` `0755`
+- [x] ✅ **T2.4**: deploy the in-guest scripts to `~/.local/share/vmtest/`
+  (`guest-cleanup.bash`, `guest-acceptance-server.bash`; the desktop one lands with Phase 5)
 - [x] ✅ **T2.5**: `docs/vm-acceptance-testing.md`, a row in `docs/playbooks.md`,
   links from `docs/README.md`
 - [x] ✅ **T2.6**: QA; deployed on the host via `deploy.bash`; idempotent on the
@@ -103,9 +102,9 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 
 ### Phase 3: Server fast path and the first real scenario
 
-- [ ] ⬜ **T3.1**: `server-fast` base builder from the official Cloud qcow2
+- [x] ✅ **T3.1**: `server-fast` base builder from the official Cloud qcow2 (`vmtest fetch`/`build-base`; built on the host)
 - [ ] ⬜ **T3.2**: `vmtest run server-fast-provision`
-- [ ] ⬜ **T3.3**: `guest-acceptance-server.bash` with `planned` declared up front
+- [x] ✅ **T3.3**: `guest-acceptance-server.bash` with `planned` declared up front (13 checks; manifest agrees)
 - [ ] ⬜ **T3.4**: The negative scenarios — **the falsifiability proof**
 - [x] ✅ **T3.5**: Plan-local `deploy.bash` (HOST) — landed with Phase 2; it runs the lab play
 - [ ] ⬜ **T3.6**: QA; commit
@@ -147,7 +146,7 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 
 ### Phase 6: Freshness automation, retention and guards
 
-- [ ] ⬜ **T6.1**: Wire the Phase-1 policy into `vmtest`
+- [x] ✅ **T6.1**: Wire the Phase-1 policy into `vmtest` (`freshness_gate.py`, consulted by `vmtest run` before every clone; landed early with Phase 3)
 - [ ] ⬜ **T6.2**: `refresh-base` — **no refresh boot**, the run's own transaction
   is the probe
 - [ ] ⬜ **T6.2a**: Tests for the two traps this section was built from

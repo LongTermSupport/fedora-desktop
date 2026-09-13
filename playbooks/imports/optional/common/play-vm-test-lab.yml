@@ -76,6 +76,8 @@
           - lorax
           - swtpm
           - swtpm-tools
+          - passt
+          - distribution-gpg-keys
         state: present
 
     # =========================================================================
@@ -106,6 +108,133 @@
         - images
         - bases
         - runs
+
+    # =========================================================================
+    # The helpers, the CLI and the in-guest scripts — Ansible-deployed copies
+    # outside the checkout are the only code the host executes (DESIGN.md §2.3)
+    # =========================================================================
+    - name: Ensure ccy-helpers vmtest library directory exists
+      ansible.builtin.file:
+        path: /usr/local/lib/ccy-helpers/helpers/vmtest
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Deploy vmtest helper modules
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/helpers/vmtest/{{ item }}"
+        dest: "/usr/local/lib/ccy-helpers/helpers/vmtest/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - upstream.py
+        - freshness.py
+        - scenarios.py
+        - basejson.py
+        - validate_manifest.py
+        - probe_upstream.py
+        - write_base_record.py
+        - transcript.py
+        - freshness_gate.py
+        - judge_run.py
+
+    - name: Ensure user local bin directory exists
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.local/bin"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
+    - name: Deploy the vmtest host CLI
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/vmtest"
+        dest: "/home/{{ user_login }}/.local/bin/vmtest"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
+    - name: Deploy the in-guest scripts
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/share/vmtest/{{ item }}"
+        dest: "{{ vm_test_lab_dir }}/{{ item }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      loop:
+        - guest-cleanup.bash
+        - guest-acceptance-server.bash
+
+    # The lab's own throwaway SSH key: baked into every base so runs can reach
+    # their guest. Never the user's key, never leaves this directory.
+    - name: Ensure the lab SSH key directory exists
+      ansible.builtin.file:
+        path: "{{ vm_test_lab_dir }}/ssh"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0700"
+
+    - name: Generate the lab SSH key
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - ssh-keygen
+          - -q
+          - -t
+          - ed25519
+          - -N
+          - ""
+          - -C
+          - vmtest-lab
+          - -f
+          - "{{ vm_test_lab_dir }}/ssh/lab-key"
+        creates: "{{ vm_test_lab_dir }}/ssh/lab-key"
+
+    # lab.env is how the deployed CLI learns the branch's Fedora version and the
+    # public repo URL the guests clone, without reading the checkout at run time.
+    - name: Read the checkout's origin URL for the guests to clone
+      become: false
+      ansible.builtin.command:
+        argv:
+          - git
+          - -C
+          - "{{ root_dir }}"
+          - remote
+          - get-url
+          - origin
+      register: vm_test_origin
+      changed_when: false
+
+    - name: Read the checkout's branch, whose pushed tip the guests provision from
+      become: false
+      ansible.builtin.command:
+        argv:
+          - git
+          - -C
+          - "{{ root_dir }}"
+          - rev-parse
+          - --abbrev-ref
+          - HEAD
+      register: vm_test_branch
+      changed_when: false
+      failed_when: vm_test_branch.stdout | trim in ['', 'HEAD']
+
+    # The guests clone over HTTPS with no identity (DESIGN.md §3.4), so an SSH
+    # origin on the host is normalised to the same repository's https URL.
+    - name: Render lab.env
+      ansible.builtin.copy:
+        content: |
+          VMTEST_FEDORA_VERSION={{ fedora_version }}
+          VMTEST_REPO_URL={{ vm_test_origin.stdout | trim | regex_replace('^(ssh://)?git@github[.]com[:/]', 'https://github.com/') | regex_replace('[.]git$', '') }}
+          VMTEST_REPO_BRANCH={{ vm_test_branch.stdout | trim }}
+        dest: "{{ vm_test_lab_dir }}/lab.env"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
 
     # =========================================================================
     # The manifest, validated by the same helper the lab uses, then rendered
@@ -196,4 +325,5 @@
           - "Manifest: {{ vm_test_manifest_check.stdout | trim }}"
           - "Allowlist: {{ 'deployed' if vm_test_runnable | int > 0 else 'none — no scenario has a declared check count yet' }}"
           - ""
+          - "Next: vmtest fetch server-fast; vmtest build-base server-fast"
           - "Documentation: docs/vm-acceptance-testing.md"
