@@ -147,9 +147,13 @@ on the kernel line, so the base boots without `rhgb quiet`.
 `vmtest run desktop-fresh-install` boots an overlay with a local VNC display,
 unlocks it, and hands `run.bash` to a session runner that the kickstart's GDM
 autologin launches through a GNOME autostart entry: the provisioning run
-therefore executes **inside the real session**, inheriting its environment,
-and the guest checks then speak to the session's GNOME Shell (a local, active
-Wayland session; the session bus; every enabled extension `State: ACTIVE`).
+therefore executes **inside the real session**, inheriting its environment.
+When `run.bash` returns, the run does what it tells a user to do — reboots the
+guest (a harness step in the transcript), unlocks it again and waits for the
+autologin session to be back on seat0 — because GNOME only loads the
+extensions the play installed when a new session starts. The guest checks then
+speak to that session's GNOME Shell (a local, active Wayland session; the
+session bus; every extension the repo deploys `State: ACTIVE`).
 The run collects the session environment and its diff against a transient
 user unit, and a `virsh screenshot` of the framebuffer, as evidence only. The
 response lists the divergences from a real install: `luks-unlock-automated`,

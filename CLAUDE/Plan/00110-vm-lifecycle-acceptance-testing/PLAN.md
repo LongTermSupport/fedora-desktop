@@ -132,17 +132,32 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 
 ### Phase 5: Desktop base and desktop scenario (gated on U8)
 
-- [ ] ⬜ **T5.1**: `fedora-install/ks-vm-desktop.cfg` — non-interactive, `liveimg`
-- [ ] ⬜ **T5.1b**: LUKS boot unlock — `console=ttyS0` **and `plymouth.enable=0`**;
-  test the wedge matcher with Plymouth *enabled* to prove it reports the wedge
-- [ ] ⬜ **T5.2**: The boot medium — **both** artefacts, the gap B5 exposed
-- [ ] ⬜ **T5.3**: Desktop base builder
-- [ ] ⬜ **T5.3b**: Session-environment probe inside the autologin guest
-- [ ] ⬜ **T5.4**: `vmtest run desktop-fresh-install`
-- [ ] ⬜ **T5.5**: `guest-acceptance-desktop.bash`
-- [ ] ⬜ **T5.6**: `virsh screenshot` evidence, with the evidence-not-assertion
-  boundary held
-- [ ] ⬜ **T5.7**: QA; commit
+- [x] ✅ **T5.1**: `fedora-install/ks-vm-desktop.cfg` — non-interactive, `liveimg`
+  from the Live ISO found by content in `%pre`; btrfs subvolumes under LUKS2;
+  `inst.stage2` pinned to the netinst label so the initrd cannot boot the Live squashfs
+- [x] ✅ **T5.1b**: LUKS boot unlock — `console=ttyS0` **and `plymouth.enable=0`**;
+  the prompt answered over the serial socket by `serial_console.py`, matched by
+  phrase (the real prompt has no trailing colon); a stall is named
+  `failure.stage: boot` with the console excerpt inline (unit-tested, `test_serial_console`)
+- [x] ✅ **T5.2**: The boot medium — **both** artefacts, the gap B5 exposed
+  (`base.json` names every artefact; a one-artefact record was caught as `reinstall`
+  by the gate on the first build, JOURNAL 21:05)
+- [x] ✅ **T5.3**: Desktop base builder (`desktop-44` built in ten minutes; passphrase
+  `0600` beside the base; session runner installed into the base)
+- [x] ✅ **T5.3b**: Session-environment probe inside the autologin guest
+  (`evidence.guest.session_env_vars` / `session_only_vars` on every desktop run: the
+  transient unit lacked only `_`, the two `GIO_LAUNCHED_*` and `JOURNAL_STREAM`)
+- [x] ✅ **T5.4**: `vmtest run desktop-fresh-install` — three runs, each to
+  `RUN-BASH-EXIT 0` inside the session; the run reboots the guest after `run.bash`
+  as it asks and judges the new session (runs `20260913T195546Z`,
+  `20260913T202035Z`, `20260913T204106Z-desktop-fresh-install`)
+- [x] ✅ **T5.5**: `guest-acceptance-desktop.bash` — 16 checks, manifest agrees; the
+  extension check iterates the UUIDs the repo deploys and requires `ACTIVE`. It
+  **fails on the product**: all eight are `INITIALIZED`, never enabled (JOURNAL
+  22:06) — the lab's first real finding, fixed in its own plan
+- [x] ✅ **T5.6**: `virsh screenshot` evidence, with the evidence-not-assertion
+  boundary held (`screenshot.png`, 1280×800, in the run directory; never a check)
+- [x] ✅ **T5.7**: QA; commit
 
 ### Phase 6: Freshness automation, retention and guards
 
@@ -150,16 +165,25 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 - [x] ✅ **T6.2**: `refresh-base` — **no refresh boot**, the run's own transaction
   is the probe (`refresh.py`: the run's upgrade result + guest-seen revision → current | stale | incomplete | unknown; a passing `current` run certifies `base.json` forward with no boot; `stale` names `vmtest refresh-base`, which for a fast base is a re-import — the provisioned overlay is never flattened into a base, see JOURNAL 19:35)
 - [x] ✅ **T6.2a**: Tests for the two traps this section was built from (B7 lag → `incomplete` never `current`; B6 unreadable identity → `unknown`, in `test_freshness`)
-- [ ] ⬜ **T6.2b**: Host-side DNF cache, plus the periodic **cache-cold** scenario
+- [ ] ⏸️ **T6.2b**: Host-side DNF cache, plus the periodic **cache-cold** scenario
+  — deferred: every scenario today runs cache-cold against the guest's own
+  mirror, so the cold path is the only path and is exercised on every run; the
+  cache is an optimisation to add once run time, not correctness, is the problem
 - [x] ✅ **T6.3**: Nightly freshness probe that **only reports** (`vmtest freshness-status` → `freshness-status.txt`; `vmtest-nightly.timer` at 03:30; a base needing a rebuild shows as the unit failing, never as a rebuild)
 - [x] ✅ **T6.4**: Disk-space floor (`retention.py`: floor + RAM ceiling refused before every run and rebuild; `vmtest sweep` keeps the last N passing runs and every failed one, drops failed fast builds, bounds `quarantine/` and `responses/` through the pinned spool; every eviction logged)
-- [ ] ⬜ **T6.5**: QA; commit
+- [x] ✅ **T6.5**: QA; commit (each Phase-6 landing QA'd and pushed in its own commit)
 
 ### Phase 7: Discharge and review
 
-- [ ] ⬜ **T7.1**: Run the scenarios; record which 00063/00079/00092 criteria
-  actually discharge
-- [ ] ⬜ **T7.2**: Update those three plans in the same commits
+- [x] ✅ **T7.1**: Run the scenarios; record which 00063/00079/00092 criteria
+  actually discharge — 00063 (headless `run.bash` on a server guest) is discharged
+  by `server-fast-provision` and `server-full-provision`; 00079 and 00092 are
+  **not**: their open criteria are host-side `acceptance.bash` runs behind a
+  `ccy --rebuild`, which no guest scenario exercises (the guest only proves the
+  launcher is deployed)
+- [x] ✅ **T7.2**: Update those three plans in the same commits — 00063 ticked
+  with the run ids (Tasks 2.5, 2.8, 3.1 and two criteria); 00079/00092 left as
+  they are, nothing of theirs discharged
 - [ ] ⬜ **T7.3**: QA, then `qa-reviewer` over the full diff
 
 ### Phase 8: Design (complete)
@@ -172,18 +196,24 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 
 ## Success Criteria
 
-- [ ] A single entry point runs the full lifecycle for a named profile and
-  returns a verdict that names what it actually executed.
-- [ ] Both `server` and `desktop` profiles are covered.
-- [ ] A run reuses the base snapshot; no run pays for a full OS install unless
-  the freshness policy demands one.
-- [ ] The base is rebuilt when either TTL expires, and the policy's decision is
-  visible in the run output rather than implicit.
-- [ ] The bridge exposes only enumerated scenario verbs; no verb takes a
-  free-form command, and an unknown verb fails closed.
-- [ ] A harness failure (VM never booted, provisioning never started) is
-  reported distinctly from a product failure.
-- [ ] `./scripts/qa-all.bash` passes.
+- [x] A single entry point runs the full lifecycle for a named profile and
+  returns a verdict that names what it actually executed (`vmtest run <scenario>`;
+  the response carries the base, its kind, the commit, the checks and the divergences).
+- [x] Both `server` and `desktop` profiles are covered (server-fast, server-full and
+  desktop bases; the desktop scenario's fail is the product's, see T5.5).
+- [x] A run reuses the base snapshot; no run pays for a full OS install unless
+  the freshness policy demands one (overlays on every run; the full bases were each
+  installed once).
+- [x] The base is rebuilt when either TTL expires, and the policy's decision is
+  visible in the run output rather than implicit (`==> freshness: <verdict>` first,
+  `evidence.base.freshness`; the run's own upgrade is the refresh probe).
+- [x] The bridge exposes only enumerated scenario verbs; no verb takes a
+  free-form command, and an unknown verb fails closed (selftest: 11 rejection paths
+  reject and respond).
+- [x] A harness failure (VM never booted, provisioning never started) is
+  reported distinctly from a product failure (`error` with `failure.stage`
+  boot/ssh/fetch/provision/collect against `fail` at `provision`/`assert`).
+- [x] `./scripts/qa-all.bash` passes.
 
 ## Delivery & Milestones
 
@@ -191,4 +221,13 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00110-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- <!-- milestone or delivery commit hash -->
+- `9cf465ef` — plan and reviewed design
+- `21d39cad` — Phase 1: freshness engine, upstream probe live
+- `979a74d4` — Phase 0: host triage, gate PROCEED
+- `43feb43d` — Phase 2: the lab play, deployed and idempotent
+- `8c4ee87e` — Phase 3: negative scenarios, `acceptance.bash`
+- `4f4006e5` — Phase 4: bridge and liveness selftests green against the live bridge
+- `3a13f8e1` — Phase 6: disk floor, RAM ceiling, retention sweep, nightly reporter
+- `9acaa007` — Phase 7: discharge mapped, Plan 00063 ticked with run ids
+- `392ec1dd` — Phase 3b closed; Phase 5 landed (desktop kickstart, serial unlock, session runner)
+- `a271552f` — Phase 5: the desktop run judged in the post-reboot session
