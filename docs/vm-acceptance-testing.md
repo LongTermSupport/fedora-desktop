@@ -5,7 +5,7 @@ against local virtual machines. A freshly installed Fedora guest is snapshotted
 once as a **base**, every test run boots a throwaway overlay on top of it,
 provisions it with `run.bash`, and returns a machine-readable verdict. The
 design and its reasoning live in the plan folder
-(`CLAUDE/Plan/00110-vm-lifecycle-acceptance-testing/DESIGN.md`); this page is
+(`CLAUDE/Plan/Completed/00110-vm-lifecycle-acceptance-testing/DESIGN.md`); this page is
 the operator's view.
 
 ## What is in place
@@ -38,7 +38,7 @@ Optional and rootless. Run on the host, never in a CCY container:
 ```bash
 ./playbooks/imports/optional/common/play-vm-test-lab.yml
 # or, with the plan's gated wrapper and run log:
-./CLAUDE/Plan/00110-vm-lifecycle-acceptance-testing/deploy.bash
+./CLAUDE/Plan/Completed/00110-vm-lifecycle-acceptance-testing/deploy.bash
 ```
 
 The play refuses to proceed unless `/dev/kvm` is openable read-write by the

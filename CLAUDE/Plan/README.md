@@ -36,8 +36,6 @@ Use these Unicode icons in plan documents:
 
 - [00112-gnome-extensions-enabled-state-declared](00112-gnome-extensions-enabled-state-declared/) - Plan 00110's desktop scenario found a fresh install leaves every deployed GNOME extension INITIALIZED and none enabled (the enable races the shell's scan and its failure is hidden); make the enabled list declared, idempotent gsettings state and let the desktop scenario certify it.
 
-- [00110-vm-lifecycle-acceptance-testing](00110-vm-lifecycle-acceptance-testing/) - Full fresh-install lifecycle acceptance testing against VMs for both the server and desktop profiles, off a reused base snapshot kept current by a TTL policy, triggerable from a CCY container through a closed-verb host-action bridge.
-
 - [00109-desktop-drift-detection-and-fedora-desktop-panel](00109-desktop-drift-detection-and-fedora-desktop-panel/) - A reboot into kernel 7.2.4 killed both DisplayLink monitors while every QA gate stayed green; add the missing drift axes (repo pin vs installed, play-at-last-run vs play-at-HEAD), surface breakage at login with a Claude Code handoff, and front it all with one `fedora-desktop` GNOME panel
 
 - [00104-suspend-aborts-on-dock-unplug-never-resuspends](00104-suspend-aborts-on-dock-unplug-never-resuspends/) - Unplugging the dock aborts s2idle and nothing re-suspends, so the closed laptop runs hot in a bag; make the suspend request durable (udev wakeup policy, a re-suspend hook, battery idle-suspend as backstop)
@@ -155,6 +153,8 @@ Use these Unicode icons in plan documents:
 - [00074-grub-cgroup-check-reports-absence-it-cannot-prove](00074-grub-cgroup-check-reports-absence-it-cannot-prove/) - `run.bash`'s legacy-grub cgroup step now distinguishes a failing `grubby` from a genuine negative and aborts on a proven failure instead of continuing
 
 ## Completed Plans
+
+- [00110-vm-lifecycle-acceptance-testing](Completed/00110-vm-lifecycle-acceptance-testing/) - Full fresh-install lifecycle acceptance testing against VMs for both the server and desktop profiles, off a reused base snapshot kept current by a TTL policy, triggerable from a CCY container through a closed-verb host-action bridge; its first desktop run found the extensions defect Plan 00112 carries.
 
 - [00111-terminal-death-takes-all-ccy-sessions](Completed/00111-terminal-death-takes-all-ccy-sessions/) - A Wayland protocol error killed Ptyxis and took every in-flight CCY session with it (not OOM); `ccy` and `cc` now run inside a tmux server under `systemd --user`, one attach per session, with `ccy-sessions` and the `ccy` re-attach offer to get back in. CCY 3.53.3.
 

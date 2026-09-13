@@ -1,6 +1,6 @@
 # Plan 00110: VM lifecycle acceptance testing
 
-**Status**: In Progress
+**Status**: Complete (2026-09-13; T4.11 and T6.2b deferred with reasons, the desktop scenario's product finding carried by Plan 00112)
 **Created**: 2026-09-13
 **Owner**: joseph
 **Priority**: High
@@ -240,3 +240,5 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 - `9acaa007` — Phase 7: discharge mapped, Plan 00063 ticked with run ids
 - `392ec1dd` — Phase 3b closed; Phase 5 landed (desktop kickstart, serial unlock, session runner)
 - `a271552f` — Phase 5: the desktop run judged in the post-reboot session
+- `f959da84` — Phase 5 closed: the desktop scenario's first real product finding (Plan 00112)
+- `8e4968a1` — Phase 7: qa-reviewer findings resolved; plan complete
