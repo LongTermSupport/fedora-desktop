@@ -119,7 +119,7 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 ### Phase 4: The bridge
 
 - [ ] ⬜ **T4.1**: Spool layout and request/response schema
-- [ ] ⬜ **T4.2**: `helpers/vmtest/spool.py`, test-first — the §6.3 defences
+- [x] ✅ **T4.2**: `helpers/vmtest/spool.py`, test-first — the §6.3 defences (attacks in the tests; nine defences mutation-checked red)
 - [ ] ⬜ **T4.3**: `vmtest-bridge-watcher` — thin executor
 - [ ] ⬜ **T4.4**: `vmtest-bridge@.path`/`.service` and the policy file
 - [ ] ⬜ **T4.5**: `vmtest-bridge-heartbeat@.timer` — the §6.5 liveness signal
