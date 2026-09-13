@@ -55,11 +55,108 @@ transcript.
 
 ## Tasks
 
-<!-- Populated from DESIGN.md once the design is reviewed and settled. -->
+Task detail lives in [DESIGN.md](DESIGN.md) §9; this is the tracking view.
+Phase 1 needs no VM and can run in parallel with Phase 0. **U8 selects the LUKS
+unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 
-- [ ] 🔄 **Task 0.1**: Design the system in full — architecture, VM lifecycle
-  state machine, freshness policy, the bridge verb set, and the performance
-  plan. Output: [DESIGN.md](DESIGN.md), adversarially reviewed until solid.
+### Phase 0: Host triage and the decision gate (HOST)
+
+- [ ] ⬜ **T0.1**: `triage.bash` on `_planlib.inc.bash` — probe U1, U2, U4, U5,
+  U7, U8 plus KVM, reflink, space, `virtiofsd`
+- [ ] ⬜ **T0.2**: Decision gate — KVM present and headroom for three bases;
+  refuse rather than run a TCG-emulated desktop nobody will wait for
+- [ ] ⬜ **T0.3**: Record answers in `JOURNAL/`; correct DESIGN.md where reality
+  differs
+
+### Phase 1: The freshness engine (no VM; runs in a container)
+
+- [ ] ⬜ **T1.1**: `helpers/vmtest/upstream.py`, test-first — artefact identity
+  and package revision from `.treeinfo`, `COMPOSE_ID`, `releases.json`, Bodhi,
+  `repomd.xml`
+- [ ] ⬜ **T1.2**: `helpers/vmtest/freshness.py`, test-first — the §4.4 policy,
+  parametrised over the **whole** readable/unreadable matrix and asserted total
+- [ ] ⬜ **T1.3**: `helpers/vmtest/scenarios.py` — manifest parsing, planned-check
+  accounting
+- [ ] ⬜ **T1.4**: `helpers/vmtest/probe_upstream.py` — thin executor, marker
+  lines on stdout, diagnostics on stderr
+- [ ] ⬜ **T1.5**: `vars/vm-test-scenarios.yml` — the tracked manifest
+- [ ] ⬜ **T1.6**: QA; commit. **This phase alone answers "has upstream moved?"
+  as a runnable command**
+
+### Phase 2: The lab playbook
+
+- [ ] ⬜ **T2.1**: `play-vm-test-lab.yml`, `scope: general` — libvirt/qemu stack
+  by name only, no pinned versions
+
+### Phase 3: Server fast path and the first real scenario
+
+- [ ] ⬜ **T3.1**: `server-fast` base builder from the official Cloud qcow2
+- [ ] ⬜ **T3.2**: `vmtest run server-fast-provision`
+- [ ] ⬜ **T3.3**: `guest-acceptance-server.bash` with `planned` declared up front
+- [ ] ⬜ **T3.4**: The negative scenarios — **the falsifiability proof**
+- [ ] ⬜ **T3.5**: Plan-local `deploy.bash` (HOST)
+- [ ] ⬜ **T3.6**: QA; commit
+
+### Phase 3b: Server full path (Anaconda), release-gated
+
+- [ ] ⬜ **T3b.1**: `server-full` base from the **Server** install tree
+- [ ] ⬜ **T3b.2**: `vmtest run server-full-provision`
+- [ ] ⬜ **T3b.3**: Record which server base ran, in transcript and `evidence.base`
+- [ ] ⬜ **T3b.4**: QA; commit
+
+### Phase 4: The bridge
+
+- [ ] ⬜ **T4.1**: Spool layout and request/response schema
+- [ ] ⬜ **T4.2**: `helpers/vmtest/spool.py`, test-first — the §6.3 defences
+- [ ] ⬜ **T4.3**: `vmtest-bridge-watcher` — thin executor
+- [ ] ⬜ **T4.4**: `vmtest-bridge@.path`/`.service` and the policy file
+- [ ] ⬜ **T4.5**: `vmtest-bridge-heartbeat@.timer` — the §6.5 liveness signal
+- [ ] ⬜ **T4.6**: Response state machine, HMAC signing, heartbeat
+- [ ] ⬜ **T4.7**: `scripts/vmtest-request.bash` — container-side requester
+- [ ] ⬜ **T4.8**: Bridge selftest — every rejection path rejects **and** responds
+- [ ] ⬜ **T4.9**: Liveness selftest — wedge the unit, assert "bridge wedged"
+  rather than "timeout"
+- [ ] ⬜ **T4.10**: QA; commit
+
+### Phase 5: Desktop base and desktop scenario (gated on U8)
+
+- [ ] ⬜ **T5.1**: `fedora-install/ks-vm-desktop.cfg` — non-interactive, `liveimg`
+- [ ] ⬜ **T5.1b**: LUKS boot unlock — `console=ttyS0` **and `plymouth.enable=0`**;
+  test the wedge matcher with Plymouth *enabled* to prove it reports the wedge
+- [ ] ⬜ **T5.2**: The boot medium — **both** artefacts, the gap B5 exposed
+- [ ] ⬜ **T5.3**: Desktop base builder
+- [ ] ⬜ **T5.3b**: Session-environment probe inside the autologin guest
+- [ ] ⬜ **T5.4**: `vmtest run desktop-fresh-install`
+- [ ] ⬜ **T5.5**: `guest-acceptance-desktop.bash`
+- [ ] ⬜ **T5.6**: `virsh screenshot` evidence, with the evidence-not-assertion
+  boundary held
+- [ ] ⬜ **T5.7**: QA; commit
+
+### Phase 6: Freshness automation, retention and guards
+
+- [ ] ⬜ **T6.1**: Wire the Phase-1 policy into `vmtest`
+- [ ] ⬜ **T6.2**: `refresh-base` — **no refresh boot**, the run's own transaction
+  is the probe
+- [ ] ⬜ **T6.2a**: Tests for the two traps this section was built from
+- [ ] ⬜ **T6.2b**: Host-side DNF cache, plus the periodic **cache-cold** scenario
+- [ ] ⬜ **T6.3**: Nightly freshness probe that **only reports**
+- [ ] ⬜ **T6.4**: Disk-space floor
+- [ ] ⬜ **T6.5**: QA; commit
+
+### Phase 7: Discharge and review
+
+- [ ] ⬜ **T7.1**: Run the scenarios; record which 00063/00079/00092 criteria
+  actually discharge
+- [ ] ⬜ **T7.2**: Update those three plans in the same commits
+- [ ] ⬜ **T7.3**: QA, then `qa-reviewer` over the full diff
+
+### Phase 8: Design (complete)
+
+- [x] ✅ **T8.1**: Design the system in full and harden it adversarially.
+  [DESIGN.md](DESIGN.md), 2,149 lines. Four review rounds, eleven blocking
+  findings, all verified at source; three were introduced by earlier rounds'
+  fixes, and three were the same defect — a check that cannot fail. Certified
+  implementable against blob `85fd9f2e`. Reports in `subagent-reports/`.
 
 ## Success Criteria
 

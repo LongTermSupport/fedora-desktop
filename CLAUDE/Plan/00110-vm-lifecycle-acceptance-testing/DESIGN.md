@@ -99,8 +99,10 @@ assumptions**, and every one is a probe inside `triage.bash` per
   rootless podman inside a VM. Probed on the host first, then in the guest.
 - **U8 — how the LUKS root is unlocked unattended at every boot** (§5.3a). Three sub-questions,
   and the answer selects between routes rather than merely confirming one: does the
-  `systemd-ask-password` prompt reliably reach a serial console under this guest's boot
-  configuration (the chosen route); does libvirt in `qemu:///session` mode support a vTPM via
+  `systemd-ask-password` prompt reliably reach a serial console **with `plymouth.enable=0`
+  set** — `ks.cfg:444` ships `rhgb quiet`, and with Plymouth active the prompt goes to the
+  display and never to `ttyS0`, which would silently reduce the wedge matcher to a bare
+  timeout (the chosen route, and its guard); does libvirt in `qemu:///session` mode support a vTPM via
   `swtpm` here (the rejected route's blocker — `swtpm-tools` exists on F44, but its
   availability to a session-mode domain is unchecked); and does the harness's prompt-matching
   reliably distinguish a LUKS wedge from an ordinary slow boot.
@@ -445,8 +447,8 @@ not worth building often.
 **The economics are deliberately asymmetric, and the layout follows.**
 
 - `server-fast` is **nearly free** — its base is an import plus an upgrade. It can be
-  rebuilt casually, and a `refresh` on it may simply be a rebuild rather than a boot-and-
-  upgrade cycle, whichever the freshness verdict makes cheaper.
+  rebuilt casually, and a `refresh` on it may simply be a rebuild, whichever the freshness
+  verdict makes cheaper. (No base has a refresh boot of its own — §4.4a.)
 - `desktop` is **expensive** — Anaconda plus a 2.8 GB squashfs unpack — so it must be reused
   aggressively. This is where the read-only base plus copy-on-write overlay of §3.3 earns
   its keep: every desktop run costs an overlay, never an install.
@@ -663,10 +665,18 @@ a named outcome:
 | differs             | *either*           | `reinstall`                                                                                                                          | the media changed                                                                                        |
 | matches             | advanced           | `refresh`                                                                                                                            | new packages exist                                                                                       |
 | matches             | unchanged          | `current`                                                                                                                            | nothing to do                                                                                            |
-| matches             | unreadable         | `refresh` if `now - last_upgraded_at >= TTL-U`, else `current` — **both carry `freshness.degraded: true`** and a `divergences` entry | the TTL backstop applies *only* here                                                                     |
+| matches             | unreadable         | `refresh` if `now - last_upgraded_at >= TTL-U`, else `current` — **both carry `freshness.degraded: true`** and a `divergences` entry | the TTL backstop applies *only* here; the resulting refresh has no `probe_seen` to compare against, so see the rule below |
 
 `reinstall` additionally fires on `recipe_digest` changed or `base_sha256` mismatch (neither
 needs the network), and on `now - installed_at >= TTL-R` as the backstop.
+
+**A TTL-backstopped refresh cannot be judged complete, and is never judged incomplete.**
+§4.4a's completeness test compares the guest-seen revision against the probe-seen one — but
+this is the branch where there *is* no probe value. So such a refresh records the
+**guest-seen** revision as `last_upgraded_revision`, sets `refresh_state: degraded`, and
+carries `freshness.degraded: true` through to the response. It is never marked `complete`
+(nothing established that the guest's mirror was current) and never `incomplete` (nothing
+established that it was not) — inventing either would be a verdict the data does not support.
 
 **Unreadable identity is not a realistic partial outage anyway**, which is why blocking on it
 costs nothing: `COMPOSE_ID`, `.treeinfo` and `repomd.xml` all come from
@@ -886,20 +896,33 @@ is **guaranteed on the first desktop run**, not a rare edge.
 
 Three ways to clear it:
 
-|     | Approach                                                      | Fidelity cost                                          | Why not chosen / chosen                                                                                                                                                        |
-| --- | ------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | **Drive the passphrase over the VM's serial console at boot** | lowest — the shipped kickstart stays byte-identical    | **Chosen.** The desktop base is the only profile that tests the repo's real installer, so divergence there costs exactly the thing the path exists to prove.                   |
-| 2   | vTPM + `systemd-cryptenroll`/clevis                           | changes post-install state; needs a vTPM in the domain | Closest to how an encrypted desktop *should* behave, but it adds an unverified dependency (**U8**) and alters the installed system after the install being tested. Not chosen. |
-| 3   | Enrol a keyfile into the LUKS header post-install             | highest — furthest from what ships                     | Kept as the **fallback** if U8 shows console prompting is not reliably drivable. Simplest mechanically.                                                                        |
+|     | Approach                                                      | Fidelity cost                                                        | Why not chosen / chosen                                                                                                                                                                                |
+| --- | ------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | **Drive the passphrase over the VM's serial console at boot** | lowest — the **partition stanza** stays identical to the shipped one | **Chosen.** The desktop base is the only profile that tests the repo's real installer, so divergence there costs exactly the thing the path exists to prove. Requires `plymouth.enable=0` — see below. |
+| 2   | vTPM + `systemd-cryptenroll`/clevis                           | changes post-install state; needs a vTPM in the domain               | Closest to how an encrypted desktop *should* behave, but it adds an unverified dependency (**U8**) and alters the installed system after the install being tested. Not chosen.                         |
+| 3   | Enrol a keyfile into the LUKS header post-install             | highest — furthest from what ships                                   | Kept as the **fallback** if U8 shows console prompting is not reliably drivable. Simplest mechanically.                                                                                                |
 
 **The passphrase is generated per run and is a throwaway.** It is never the estate's, never
 `KS_LUKS1`'s value, and its value appears in no tracked file — including this one. It is
 generated into the run directory, used by the harness, and discarded with the overlay.
 
+**Plymouth blocks route 1 unless it is disabled.** `ks.cfg:444` sets
+`bootloader --append="rhgb quiet"`, so Plymouth runs in the initramfs and takes over the
+password agent: the prompt is drawn on the virtio-gpu display and
+`systemd-ask-password-console` never writes to `ttyS0`. Route 1 therefore requires
+**`plymouth.enable=0`** on the VM kernel command line, recorded in `evidence.divergences` as
+`plymouth-disabled`.
+
+**And the second-order effect is the dangerous one.** Without that flag the prompt never
+reaches the serial console, so the matcher below sees nothing and the run degrades into
+precisely the bare timeout this subsection exists to forbid — the guard silently becoming a
+no-op, which is this repo's documented defect class. The matcher's own coverage is therefore
+part of **U8 sub-question 1**, not an assumption.
+
 **The harness must name this failure, not time out into silence.** The serial console is
-captured from the first instant of boot (`console=ttyS0` on the kernel command line). If the
-guest does not reach userspace, the collected console is matched against the known
-`cryptsetup`/`systemd-ask-password` prompt, and the verdict is
+captured from the first instant of boot (`console=ttyS0` plus `plymouth.enable=0` on the
+kernel command line). If the guest does not reach userspace, the collected console is matched
+against the known `cryptsetup`/`systemd-ask-password` prompt, and the verdict is
 `failure.stage: boot`, `failure.reason: "wedged at the LUKS passphrase prompt"` with the
 console excerpt inline — never a generic `boot timeout`. A condition we know about in advance
 and still report as "timed out" would be a self-inflicted diagnostic blind spot.
@@ -1060,8 +1083,16 @@ and can replace with a symlink. The root must be reached by a **component-wise w
 ```
 fd = open(checkout, O_PATH|O_DIRECTORY|O_NOFOLLOW)
 for component in ("untracked", "vmtest-bridge"):
-    fd = openat(fd, component, O_PATH|O_DIRECTORY|O_NOFOLLOW)   # refuse on ELOOP
+    fd = openat(fd, component, O_PATH|O_DIRECTORY|O_NOFOLLOW)   # refuse on ELOOP *or* ENOTDIR
+    assert S_ISDIR(fstat(fd).st_mode)                           # and confirm, do not infer
 ```
+
+**The errno here is not the obvious one, and a test expecting `ELOOP` would pass on a
+symlink.** `O_PATH|O_NOFOLLOW` on a symlink **succeeds** — that combination is precisely how
+one obtains a descriptor to the link itself — so `O_NOFOLLOW` does not raise. What rejects it
+is `O_DIRECTORY`, because the fd refers to a symlink rather than a directory, and it fails
+with **`ENOTDIR`**. Refuse on **either** errno, and `fstat` for `S_ISDIR` rather than
+inferring success from the absence of an error.
 
 That is `openat2(RESOLVE_NO_SYMLINKS)` semantics built from `os.open(..., dir_fd=…)`, which
 Python's standard library provides. `openat2` has **no stdlib binding**, and `helpers/` is
@@ -1071,15 +1102,15 @@ resulting pinned root fd and never a path string.
 
 The defence, per directory, at every use — **all seven, none omitted**:
 
-| Directory           | Host action                          | Defence                                                                                                                                                                                                                                                                                              |
-| ------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `requests/`         | scan, read, claim                    | `openat` from the pinned root fd with `O_NOFOLLOW\|O_DIRECTORY`; refuse on `ELOOP`                                                                                                                                                                                                                   |
-| `processing/`       | `renameat` target                    | `renameat` relative to the pinned fds, never a path string                                                                                                                                                                                                                                           |
-| `responses/`        | create                               | `O_CREAT\|O_EXCL\|O_NOFOLLOW` relative to the pinned fd, then `renameat`                                                                                                                                                                                                                             |
-| `archive/<run_id>/` | create dir + write transcript        | `mkdirat` relative to the pinned fd, refuse if the run-id dir exists; the **run scope holds the resulting fd open for its whole life** — see below                                                                                                                                                   |
-| **`diagnostics/`**  | **heartbeat writes, every interval** | same pinned-fd discipline. **Omitted from an earlier draft's table, and it was the worst omission**: §6.5's liveness writer is a *timer-driven, repeated* write to a fixed path, which makes it the most attractive symlink target in the spool and the one a naive implementation would hit soonest |
-| `quarantine/`       | move malformed input                 | `renameat` relative to the pinned fd                                                                                                                                                                                                                                                                 |
-| `tmp/`              | **never opened by the host at all**  | the sandbox's staging area; the host's only interaction is that requests arrive *from* it by the sandbox's own `mv`                                                                                                                                                                                  |
+| Directory           | Host action                          | Defence                                                                                                                                                                                                                                                                                                                                     |
+| ------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `requests/`         | scan, read, claim                    | `openat` from the pinned root fd, refusing on `ELOOP` **or `ENOTDIR`** and confirming `S_ISDIR`. Each request file is opened `O_NOFOLLOW`, then `fstat`-checked for **`S_ISREG`** and against a **size cap** before any read — a FIFO would block the watcher indefinitely and an oversized file would exhaust it, and neither is a request |
+| `processing/`       | `renameat` target                    | `renameat` relative to the pinned fds, never a path string                                                                                                                                                                                                                                                                                  |
+| `responses/`        | create                               | `O_CREAT\|O_EXCL\|O_NOFOLLOW` relative to the pinned fd, then `renameat`                                                                                                                                                                                                                                                                    |
+| `archive/<run_id>/` | create dir + write transcript        | `mkdirat` relative to the pinned fd, refuse if the run-id dir exists; the **run scope holds the resulting fd open for its whole life** — see below                                                                                                                                                                                          |
+| **`diagnostics/`**  | **heartbeat writes, every interval** | same pinned-fd discipline. **Omitted from an earlier draft's table, and it was the worst omission**: §6.5's liveness writer is a *timer-driven, repeated* write to a fixed path, which makes it the most attractive symlink target in the spool and the one a naive implementation would hit soonest                                        |
+| `quarantine/`       | move malformed input                 | `renameat` relative to the pinned fd                                                                                                                                                                                                                                                                                                        |
+| `tmp/`              | **never opened by the host at all**  | the sandbox's staging area; the host's only interaction is that requests arrive *from* it by the sandbox's own `mv`                                                                                                                                                                                                                         |
 
 **The long-lived writers pin too, not just the oneshot.** The watcher is short-lived, but the
 `systemd-run --user --scope` run and the heartbeat timer are not: they write into a
@@ -1159,7 +1190,11 @@ Therefore:
 
 - the **real** limit is step 8, counted by the watcher from the off-mount audit log, which
   writes a `rejected` response and **exits 0** so neither unit ever enters `failed`;
-- `StartLimitBurst` is set deliberately **high** and is a last-resort loop breaker only;
+- **`StartLimitIntervalSec=0`**, which disables start-rate limiting on the service. Leaving
+  `StartLimitBurst` merely "high" was not enough either: a sandbox `touch` loop re-triggers at
+  machine speed, so any finite burst is reached, and reaching it fails the service *and* the
+  path unit (the quote above). Disabling the interval removes the kill switch that the loop
+  would otherwise aim at;
 - **`TriggerLimitBurst=0`**, which disables path-unit trigger limiting outright. Setting it
   "high" is not enough and an earlier draft was wrong to say so: the trigger limit is
   *"enforced before the service activation is enqueued"*, so a sandbox `touch` loop in
@@ -1167,7 +1202,9 @@ Therefore:
   limiting can cover a path the watcher is never on. The busy-loop protection it would have
   given is provided instead by the watcher **draining every pending request in one
   activation** rather than one per trigger — so a burst of N requests costs one activation,
-  not N, and there is no loop to break;
+  not N — plus a short **debounce sleep at the end of each activation**, so a loop that keeps
+  writing during the drain is absorbed by the next pass rather than causing an immediate
+  re-trigger;
 - reaching the remaining limit means something is badly wrong, and §6.5 makes that visible
   instead of silent;
 - `RuntimeMaxSec` caps the **oneshot**, never the `systemd-run --user --scope`, which must
@@ -1338,6 +1375,19 @@ Multi-second dispatch latency; a fixed verb set that only a host playbook run ca
 limiting that will reject a burst; no human-confirmation mode (a verb is `auto` or `deny`,
 never "ask"); single-flight, so a second `run-scenario` while one is in flight is rejected
 rather than queued.
+
+Two residuals worth naming rather than discovering:
+
+- **A wedged path unit needs a human.** If either unit does reach `failed`, recovery is
+  `systemctl --user reset-failed vmtest-bridge@<slug>.path .service` typed on the host. §6.5's
+  heartbeat reports the condition and prints that command, but it deliberately does not run
+  it — self-repair would restore service while hiding that the limit was hit.
+- **A determined `touch` loop still costs throughput.** `TriggerLimitBurst=0`,
+  `StartLimitIntervalSec=0`, drain-all-per-activation and the end-of-activation debounce
+  together remove the *wedge*, not the *load*: a sandbox writing continuously keeps the
+  watcher busy and delays real requests behind rate-limit rejections. The bridge degrades
+  loudly under that rather than dying silently, which is the property being bought; it is not
+  an abuse-proof queue.
 
 ---
 
@@ -1647,8 +1697,12 @@ change to another plan's shipped feature". Re-measured, that reasoning does not 
 - **It is not what 00092 declined.** That plan's Non-Goals rule out *"a host launcher flag
   (`ccy --child-claude`)"* — a new precedence layer with its own UX and its own
   documentation. Passing through an environment variable the entrypoint already reads is a
-  different thing, and it adds no precedence layer: `ccy.env` remains the declaration, the
-  env is the override.
+  different thing. **Precedence, stated the right way round:** `entrypoint.sh:340` sources
+  `ccy.env` *after* the container environment is in place, and the template line is a plain
+  `export` (`.claude/ccy/ccy.env:36`), so an **uncommented `ccy.env` entry overrides the
+  environment** — the env supplies the value only when `ccy.env` is silent. That is the
+  existing behaviour, unchanged; the passthrough adds a way to set the flag without editing a
+  tracked file, not a new layer above one.
 - The cost is honest and small: it touches `files/var/local/claude-yolo/claude-yolo`, so it
   requires a **CCY version bump** per `CLAUDE.md`'s critical rule, and that bump belongs in
   whichever plan lands it.
@@ -1859,35 +1913,53 @@ fast/full distinction of §3.5 is a delivery boundary rather than only a paragra
 
 - **T4.1** Spool layout and the request/response schema, documented in
   `docs/vm-acceptance-testing.md`.
+
 - **T4.2** Test-first, then `helpers/vmtest/spool.py` — the §6.3 defences. This lands
   **before** the watcher, because the watcher is only safe if this exists. Tests must include
   the attacks, not just the happy path: a symlinked `responses/`, a symlinked
-  `archive/<run_id>/`, a `requests/` entry that is a symlink, a body swapped between
-  validation and dispatch, and a filename verb that disagrees with the body verb. Each must be
-  demonstrated to fail the check when the defence is removed.
+  `archive/<run_id>/`, a symlinked **`diagnostics/`**, a symlinked **`untracked/`** (the
+  component-walk case), a `requests/` entry that is a symlink, **a FIFO and an oversized file
+  in `requests/`**, a body swapped between validation and dispatch, and a filename verb that
+  disagrees with the body verb. Each must be demonstrated to fail the check when the defence
+  is removed.
+
+  **Assert on the refusal, not on a particular errno.** `O_PATH|O_NOFOLLOW` on a symlink
+  succeeds, so a test expecting `ELOOP` would pass against a symlink while proving nothing;
+  the rejection comes from `O_DIRECTORY` as `ENOTDIR`, and the `S_ISDIR` confirmation is what
+  makes it certain (§6.3).
+
 - **T4.3** `files/home/.local/bin/vmtest-bridge-watcher` — thin executor over `spool.py`, with
   the §6.4 validation order including the **watcher-side** rate limit at step 8.
+
 - **T4.4** `vmtest-bridge@.path` / `.service` and the policy file, deployed and enabled by
-  the play with the escaped-path instance name, systemd limits set **high** as a last-resort
-  loop breaker only (§6.4), and `MODE_refresh-base=deny` shipped as the default.
+  the play with the escaped-path instance name, **`TriggerLimitBurst=0`** and
+  **`StartLimitIntervalSec=0`** (§6.4 — a hostile `touch` loop reaches any finite limit, and
+  reaching one wedges the path unit), and `MODE_refresh-base=deny` shipped as the default.
+
 - **T4.5** `vmtest-bridge-heartbeat@.timer` / `.service` and the writer — the §6.5 liveness
   path, deliberately not path-triggered.
+
 - **T4.6** The response state machine, HMAC signing and heartbeat in
   `helpers/vmtest/verdict.py`, with the `accepted` stub written before dispatch, and the
   `passed >= 1` / `max_skipped` pass rule of §6.6 rule 03.
+
 - **T4.7** `scripts/vmtest-request.bash` — the container-side requester and reader. Checks the
-  heartbeat *before* writing a request; exits 0 only on `finished` + `pass` + verifying
-  signature; prints the off-mount audit-log path with every verdict.
+  heartbeat *before* writing a request; exits 0 only on `finished` + `pass`; states that the
+  signature is present but **not verifiable from inside the sandbox** and prints the
+  `vmtest verify <run-id>` line; prints the off-mount audit-log path with every verdict.
+
 - **T4.8** A bridge selftest proving each rejection path rejects **and** produces a response:
   bad filename, denylisted verb, unknown verb, verb/body disagreement, unknown argument,
-  `MODE=deny`, missing policy file, watcher rate limit, in-flight lock, forged response,
+  `MODE=deny`, missing policy file, watcher rate limit, in-flight lock,
   symlinked spool directory (which refuses rather than responds — assert *that* distinction).
   Modelled on 00092's `selftest-probes.bash`, which found two real defects in its own probes
   on first run.
+
 - **T4.9** A liveness selftest: stop the `.path` unit, put it in `failed`, and assert that
   `vmtest-request.bash` reports "bridge wedged" with the remedy command — **not** a timeout
   and **not** a `fail`. This is the test for the defect B1 found; without it the fix is
   unproven.
+
 - **T4.10** `./scripts/qa-all.bash`; commit.
 
 ### Phase 5 — Desktop base and desktop scenario
@@ -1897,11 +1969,15 @@ fast/full distinction of §3.5 is a delivery boundary rather than only a paragra
   because `ks.cfg:359-360` and `:377-378` pass the passphrase inline; only the *boot* needs
   automating), a per-run throwaway passphrase, GDM autologin, and a header stating plainly
   that it is for VM testing only and is not the shipped installer.
-- **T5.1b** The LUKS boot unlock of §5.3a: `console=ttyS0`, serial-console capture from the
-  first instant of boot, the passphrase driven in at the prompt, and — the part that must be
-  tested by wedging it on purpose — a guest that does not reach userspace reports
-  `failure.stage: boot`, `reason: wedged at the LUKS passphrase prompt` with the console
-  excerpt, **never** a bare timeout.
+- **T5.1b** The LUKS boot unlock of §5.3a: `console=ttyS0` **and `plymouth.enable=0`** on the
+  kernel command line (without the second, `ks.cfg:444`'s `rhgb quiet` leaves Plymouth owning
+  the password agent and nothing reaches the serial console), `plymouth-disabled` recorded in
+  `evidence.divergences`, serial capture from the first instant of boot, the passphrase driven
+  in at the prompt, and — the part that must be tested by wedging it on purpose — a guest that
+  does not reach userspace reports `failure.stage: boot`,
+  `reason: wedged at the LUKS passphrase prompt` with the console excerpt, **never** a bare
+  timeout. Test the matcher itself with Plymouth left enabled, to prove it reports the wedge
+  rather than degrading into the timeout it exists to replace.
 - **T5.2** **The boot medium, which B5 showed was missing entirely.** Fetch and verify *two*
   artefacts (§5.3): the **netinst ISO**, which boots Anaconda, and the **Workstation Live
   ISO**, from which `LiveOS/squashfs.img` is extracted as the `liveimg` payload. Then decide
@@ -2000,18 +2076,18 @@ fast/full distinction of §3.5 is a delivery boundary rather than only a paragra
 | **A stale base silently in use**                                      | Freshness is evaluated on **every run**, not on a timer, and the trigger is the updates-repo revision rather than a clock (§4.4). The policy is **total over its inputs**: every readable/unreadable combination has a named verdict, an unreadable `artefact_identity` is `unknown` and blocks, and a TTL-backstopped `current` is stamped `freshness.degraded: true` rather than passing as an ordinary one. The only override is host-CLI, human-typed, and recorded in `evidence.overrides`.                                                                                                                                                                                                                                                                                                                                                                                                 |
 | **A lagging GUEST mirror certifying a base the guest never received** | The probe reads `dl.fedoraproject.org`; the guest's `dnf` resolves through the metalink, which today offers **45 mirror hosts, none of them the canonical one, advertising repodata across ~2 days**. So `base.json` records `last_upgraded_revision` as the revision the **guest** saw, never the probe's: `guest >= probe` is a complete refresh, `guest < probe` is `refresh_state: incomplete` and a re-run (§4.4a). This is the one comparison that can see the condition — probe-to-probe cannot.                                                                                                                                                                                                                                                                                                                                                                                          |
 | **A regressing PROBE revision misread as mirror lag**                 | It is not lag: the probe reads the canonical host directly, so a backwards value there means the origin went backwards. That resolves to `unknown` and blocks. An earlier draft treated it as a retry, which protected a path that does not exist while leaving the real one (above) open.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| **A cheap Cloud-image pass cited as proof of a fresh install**        | The two claims are separated at the base, the scenario, the transcript header and `evidence.base.profile` (§3.5). A Cloud Base image exercises no partitioning and no kickstart, so `server-fast-provision` is never presented as installer evidence; `server-full-provision` and the `desktop` base are what carry that claim.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| **A cheap Cloud-image pass cited as proof of a fresh install**        | The two claims are separated at the base, the scenario, the transcript header and — bound in the data rather than in prose — `evidence.base.kind` and `evidence.base.name` (§3.5; `profile` is `server` for both and cannot distinguish them). A Cloud Base image exercises no partitioning and no kickstart, so `server-fast-provision` is never presented as installer evidence; `server-full-provision` and the `desktop` base are what carry that claim.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | **The sandbox edits the allowlist or an assertion script**            | Neither is read from the shared mount on the host path. Ansible-deployed copies are the authority; drift is reported with both digests and refused with a named remedy, never silently used.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | **Secrets on a throwaway VM**                                         | The default scenarios use `RUN_BASH_GITHUB_ACCOUNTS=none` (no PAT, no SSH passphrase — `run.bash:877-879`) and a **per-run randomly generated vault password that decrypts nothing**: with `RUN_BASH_CONFIG_SOURCE=none`, `run.bash:487-513` writes a fresh `localhost.yml` with no vault-encrypted values, while `ansible.cfg:42` still needs a readable `vault-pass.secret`. So the guest holds exactly one secret and it is worthless. The token-bearing scenario is opt-in, host-CLI only, uses a dedicated throwaway GitHub account's short-lived PAT delivered over the SSH channel into a tmpfs file — **never** via cloud-init `user-data`, per `docs/headless-provisioning.md:127-131` — and revokes it afterwards. It is not in the bridge's argument enumeration, because a sandboxed agent asking the host to put a PAT into a VM is the precise shape the bridge exists to prevent. |
 | **No KVM / nested virtualisation unavailable**                        | Phase-0 decision gate. TCG emulation is roughly an order of magnitude slower; a desktop run becomes something nobody waits for. The lab refuses rather than producing a result hours late that nobody reads.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| **The harness passes green having asserted nothing**                  | Three structural defences: the negative scenario (T3.4) that must go red; the bridge selftest (T4.6) proving each rejection path rejects; and `planned` vs `total` vs `skipped` accounting in every response.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| **The harness passes green having asserted nothing**                  | Three structural defences: the negative scenarios (T3.4) that must go red; the bridge selftest (T4.8) proving each rejection path rejects; and `planned` vs `total` vs `skipped` accounting in every response.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | **Fidelity divergence read as fidelity**                              | Every known divergence — harness-set GDM autologin, throwaway vault password, absent hardware, synthetic CCY fleet, synthetic OAuth token — is enumerated in `evidence.divergences` beside the verdict, so a reader sees what the green does not cover without opening a design document.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | **`run.bash` self-updating mid-run**                                  | `run.bash:1993-2004`: when `RUN_BASH_GIT_REF` is set, the declared ref replaces `git pull`. Scenarios always pin a 40-hex commit, so the guest cannot drift onto a newer origin tip and make `evidence.repo.commit` a lie.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | **A request that is never answered**                                  | The `accepted` response is written before dispatch; a heartbeat is refreshed while running; a terminal response is always written; rejections write responses too. The container-side reader times out into `unknown`, never into `pass`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| **Bridge rate-limit exhaustion wedging the lab**                      | An earlier draft's answer here was *wrong in the dangerous direction*: it put the limit in `StartLimitBurst=` on the oneshot and promised a "rejected response naming the limit". `systemd.path(5)` propagates a hit start limit to the **path unit**, which then fails and stops watching — so no oneshot would run, no response would be written, and the bridge would be permanently and silently dead until a human ran `systemctl --user reset-failed`. Now: the limit lives in the watcher (§6.4 step 8) and rejects with a response while exiting 0; the systemd limits are high, last-resort loop breakers; and §6.5's independent heartbeat timer makes a wedged path unit visible and names the remedy. T4.9 tests it by wedging the unit on purpose.                                                                                                                                  |
+| **Bridge rate-limit exhaustion wedging the lab**                      | An earlier draft's answer here was *wrong in the dangerous direction*: it put the limit in `StartLimitBurst=` on the oneshot and promised a "rejected response naming the limit". `systemd.path(5)` propagates a hit start limit to the **path unit**, which then fails and stops watching — so no oneshot would run, no response would be written, and the bridge would be permanently and silently dead until a human ran `systemctl --user reset-failed`. Now: the limit lives in the watcher (§6.4 step 8) and rejects with a response while exiting 0; `TriggerLimitBurst=0` and `StartLimitIntervalSec=0` remove the systemd kill switches a hostile loop would otherwise aim at, with drain-all-per-activation plus a debounce providing the busy-loop protection instead; and §6.5's independent heartbeat timer makes a wedged path unit visible and names the `systemctl --user reset-failed` remedy. T4.9 tests it by wedging the unit on purpose.                                                                                                                                  |
 | **The host overwriting its own files through a hostile spool**        | The sandbox can replace any spool directory with a symlink to `~/.ssh`, `~/.bashrc` or the policy directory, and ownership checks cannot help because rootless podman maps container root onto the host uid. Defence is structural (§6.3): pinned directory fds, `openat`/`renameat`, `O_NOFOLLOW\|O_EXCL`, `realpath` containment, and a **refusal** rather than a quarantine when a spool directory is a symlink. It lives in a TDD'd `helpers/vmtest/spool.py` whose tests include the attacks, because it is not safely expressible in the `mv -f` bash idiom.                                                                                                                                                                                                                                                                                                                               |
 | **A request mutated between validation and dispatch**                 | The body is read **once** into memory; every check and the argv build use that buffer; the file is never re-opened (§6.3 D2). The verb is additionally encoded twice — filename and body — and disagreement is a rejection.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| **The sandbox forging its own passing response**                      | Responses are HMAC-signed with a host-only key off the mount; an unsigned or non-verifying response is reported as `forged`, distinctly. Stated honestly in §6.6 rule 11: this does not make a dishonest agent honest — it makes a response the host did not write *detectable*, and the off-mount audit log remains the verdict of record.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| **The sandbox forging its own passing response**                      | Responses are HMAC-signed with a host-only key off the mount, and the signature is checked by **`vmtest verify <run-id>` on the HOST** — the container reader cannot verify it and does not pretend to (§6.6 rule 11). Stated honestly: this does not make a dishonest agent honest. It lets a human, on the host, tell a response the host wrote from one it did not, and the off-mount audit log remains the verdict of record.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | **libvirt or the guest leaves a domain running after a failure**      | `vmtest` owns teardown in a trap armed for EXIT and INT/TERM/HUP; `lab-status` lists orphan domains and overlays, and the next run refuses to start while an orphan from a different run exists rather than quietly reaping it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 ---
@@ -2046,8 +2122,10 @@ fast/full distinction of §3.5 is a delivery boundary rather than only a paragra
    may touch CCY; if not, the fallback is a test branch on the public remote carrying a
    `tested-on-test-branch` divergence.
 8. **Which LUKS boot-unlock route the desktop base uses** (§5.3a). The design chooses serial
-   console automation because it keeps the shipped kickstart byte-identical, with a
-   post-install keyfile as the fallback and vTPM rejected as primary. U8 settles whether the
+   console automation because it keeps the **partition stanza** identical to the shipped one
+   (the VM kickstart is a separate, per-run-rendered file either way), with a post-install
+   keyfile as the fallback and vTPM rejected as primary. It costs one recorded divergence,
+   `plymouth-disabled`. U8 settles whether the
    chosen route is drivable; the owner may prefer the fallback's simplicity over the fidelity.
 
 ---
