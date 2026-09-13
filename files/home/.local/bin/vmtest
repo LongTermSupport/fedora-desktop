@@ -376,7 +376,8 @@ build_install_full() {
         --disk "path=${disk},format=qcow2,bus=virtio,discard=unmap" \
         --location "${IMAGES_DIR}/${iso}" --initrd-inject "${ks}" \
         --extra-args "inst.ks=file:/ks.cfg console=ttyS0,115200n8" \
-        --osinfo fedora-unknown --boot uefi --memballoon virtio \
+        --osinfo fedora-unknown --memballoon virtio \
+        --boot "uefi,firmware.feature0.name=secure-boot,firmware.feature0.enabled=no" \
         --network "type=user,backend.type=passt,portForward0.proto=tcp,portForward0.range0.start=${GUEST_PORT},portForward0.range0.to=22" \
         --graphics none --serial "file,path=${BUILD_DIR}/console.log" \
         --noautoconsole --noreboot --wait "${INSTALL_WAIT_MINUTES}" >&2
