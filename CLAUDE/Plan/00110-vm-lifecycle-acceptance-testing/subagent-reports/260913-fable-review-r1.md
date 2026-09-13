@@ -240,7 +240,7 @@ but revision readable" is not a realistic outage shape anyway); only an unreadab
 
 The probe reads the revision from `dl.fedoraproject.org` (§4.1 URLs). The guest's
 `dnf -y upgrade` resolves through the **metalink redirector** to whichever mirror it is
-handed — today `mirror.cov.ukservers.com` / `fedora.mirrorservice.org` (checked via
+handed — today `mirror-a` / `mirror-b` (checked via
 `mirrors.fedoraproject.org/metalink?repo=updates-released-f44`). If that mirror lags the
 canonical host, the transaction "changed no packages", the gate says *checked and
 unnecessary*, and `base.json` records the **probe's** newer revision as `last_upgraded`. The

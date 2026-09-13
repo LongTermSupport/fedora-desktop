@@ -161,9 +161,11 @@ case_missing_policy() {
     local n name rc=0
     POLICY_ASIDE="${CONFIG_DIR}/policy.selftest-aside"
     mv "${CONFIG_DIR}/policy" "${POLICY_ASIDE}"
+    # list-scenarios is the verb the shipped policy allows, so a refusal here can only be
+    # the missing file, not the policy's own deny.
     n="$(nonce)"
-    name="$(stamp)-lab-status-${n}.json"
-    plant "${name}" "{\"verb\": \"lab-status\", \"argument\": null, \"nonce\": \"${n}\"}"
+    name="$(stamp)-list-scenarios-${n}.json"
+    plant "${name}" "{\"verb\": \"list-scenarios\", \"argument\": null, \"nonce\": \"${n}\"}"
     expect_rejected "missing policy file (deny by default)" "${name}" "policy-deny" || rc=$?
     mv -f "${POLICY_ASIDE}" "${CONFIG_DIR}/policy"
     POLICY_ASIDE=""

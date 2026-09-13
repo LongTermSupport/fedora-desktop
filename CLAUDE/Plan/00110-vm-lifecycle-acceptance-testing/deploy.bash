@@ -6,10 +6,13 @@
 # (CLAUDE/PlanScriptStandards.md R2) — Ansible never runs in the CCY container.
 #
 # EFFECT ON THE HOST: play-vm-test-lab.yml installs packages (virt-install, guestfs-tools,
-# cloud-utils, xorriso, lorax, and the libvirt/QEMU stack where absent), enables systemd
-# --user lingering for the user, creates ~/.local/share/vmtest/, renders scenarios.json and
-# the scenario allowlist. It does not build a base or boot anything. Gated before anything
-# mutates (R8).
+# cloud-utils, xorriso, lorax, passt, and the libvirt/QEMU stack where absent), enables
+# systemd --user lingering for the user, creates ~/.local/share/vmtest/ with the CLI, the
+# guest scripts and the VM kickstarts, renders scenarios.json and the scenario allowlist,
+# installs the helper package under /usr/local/lib, generates the lab SSH keypair and the
+# bridge's HMAC signing key (both only if absent), and enables six user units: the bridge
+# path/service, its heartbeat timer and the nightly timer. It does not build a base or
+# boot anything. Gated before anything mutates (R8).
 #
 # Usage: ./deploy.bash [-h|--help] [--check]
 set -euo pipefail
@@ -55,7 +58,7 @@ plan_require_host "it runs Ansible against this machine's hypervisor stack and u
 plan_prime_sudo
 plan_start_log auto
 
-plan_gate_change "virt packages installed, systemd --user linger enabled, ~/.local/share/vmtest created, scenario manifest and allowlist rendered"
+plan_gate_change "virt packages installed, systemd --user linger enabled, ~/.local/share/vmtest populated (CLI, guest scripts, kickstarts, manifest, allowlist), helpers under /usr/local/lib, lab SSH keypair and bridge signing key generated if absent, six vmtest user units enabled (bridge path/service, heartbeat timer, nightly timer)"
 
 plan_deploy_leg "play-vm-test-lab.yml" \
     plan_ansible_playbook playbooks/imports/optional/common/play-vm-test-lab.yml

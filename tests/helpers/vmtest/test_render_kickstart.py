@@ -79,6 +79,30 @@ class TestExecutor(unittest.TestCase):
             self.assertEqual(bad.returncode, 2)
             self.assertEqual(bad.stdout, "")
 
+    def test_values_on_stdin_never_appear_in_argv(self):
+        # A passphrase handed as --set would be readable in /proc/<pid>/cmdline by any
+        # local user; --set-stdin reads NAME=VALUE lines from stdin instead, one per line.
+        with tempfile.TemporaryDirectory() as tmp:
+            template = pathlib.Path(tmp) / "t.cfg"
+            template.write_text("url --url=@TREE_URL@\nrootpw --iscrypted @PW@\n")
+            ok = subprocess.run(
+                [sys.executable, "-m", "helpers.vmtest.render_kickstart", "--template", str(template),
+                 "--set", "TREE_URL=https://example.com/os/", "--set-stdin"],
+                input="PW=$6$salt$hash=with=equals\n",
+                cwd=REPO_ROOT, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(ok.returncode, 0, ok.stderr)
+            self.assertIn("rootpw --iscrypted $6$salt$hash=with=equals\n", ok.stdout)
+            blank = subprocess.run(
+                [sys.executable, "-m", "helpers.vmtest.render_kickstart", "--template", str(template),
+                 "--set", "TREE_URL=x", "--set-stdin"],
+                input="PW=a\n\nnot-a-pair\n",
+                cwd=REPO_ROOT, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(blank.returncode, 2)
+            self.assertEqual(blank.stdout, "")
+            self.assertIn("not-a-pair", blank.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

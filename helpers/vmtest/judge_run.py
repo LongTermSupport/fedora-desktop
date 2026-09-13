@@ -82,7 +82,8 @@ def main(argv: list[str] | None = None) -> int:
     guest_keys = (
         "boot_id", "machine_id", "os_release", "kernel", "repo_commit", "default_target", "updates_revision", "updates_mirror",
         # desktop-only (§5.4): absent, hence null, on a server run
-        "session_type", "gnome_shell_version", "enabled_extensions", "session_env_vars", "session_only_vars", "screenshot",
+        "session_type", "gnome_shell_version", "deployed_extensions", "enabled_extensions_live", "enabled_extensions_settings",
+        "disable_user_extensions", "system_extensions", "session_env_vars", "session_only_vars", "screenshot",
     )
     guest_seen = parsed.evidence.get("updates_revision") or None
     guest_seen_revision = int(guest_seen) if guest_seen and guest_seen.isdigit() else None

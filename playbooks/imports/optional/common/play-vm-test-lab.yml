@@ -25,13 +25,15 @@
     vm_test_spool_dir: "{{ root_dir }}/untracked/vmtest-bridge"
     # Bridge policy (DESIGN.md §6.4 step 9): MODE_<verb>=auto|deny. refresh-base
     # ships denied — an unannounced base rebuild is a surprise on a workstation;
-    # override vm_test_bridge_modes per host to enable it.
+    # override vm_test_bridge_modes per host to enable it. lab-status and abort-run
+    # are in the verb set but not yet implemented by the scope, so they ship denied
+    # and are rejected by policy rather than answered "not implemented".
     vm_test_bridge_default_modes:
       list-scenarios: auto
-      lab-status: auto
+      lab-status: deny
       run-scenario: auto
       refresh-base: deny
-      abort-run: auto
+      abort-run: deny
     # The manifest in the shape helpers/vmtest/scenarios.py parses: the four
     # tracked top-level keys and nothing else.
     vm_test_manifest:
@@ -138,27 +140,12 @@
         owner: root
         group: root
         mode: "0644"
-      loop:
-        - upstream.py
-        - freshness.py
-        - scenarios.py
-        - basejson.py
-        - validate_manifest.py
-        - probe_upstream.py
-        - write_base_record.py
-        - transcript.py
-        - freshness_gate.py
-        - judge_run.py
-        - spool.py
-        - verdict.py
-        - bridge_watcher.py
-        - bridge_run.py
-        - bridge_heartbeat.py
-        - verify_response.py
-        - retention.py
-        - refresh.py
-        - render_kickstart.py
-        - serial_console.py
+      # Every module in the package, derived rather than listed: a module added later and
+      # forgotten in a hand-kept list would fail only on the code path that imports it.
+      # request.py is the container-side requester and is the one deliberate exclusion.
+      loop: >-
+        {{ lookup('ansible.builtin.fileglob', root_dir ~ '/helpers/vmtest/*.py', wantlist=true)
+           | map('basename') | reject('equalto', 'request.py') | sort }}
 
     - name: Ensure user local bin directory exists
       ansible.builtin.file:

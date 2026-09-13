@@ -26,8 +26,10 @@ the operator's view.
 | Response contract                    | `helpers/vmtest/verdict.py`                              | The response state machine, HMAC signing, the heartbeat document and its assessment                                                    |
 | Container-side requester             | `scripts/vmtest-request.bash`                            | Writes a request, waits, maps the answer to a distinct exit code; never claims to verify the signature                                 |
 
-All three bases (`server-fast`, `server-full`, `desktop`) and both guest
-acceptance scripts are deployed by the play.
+The play deploys everything the lab runs from: the CLI, the guest scripts, the
+two VM kickstarts, the manifest and the bridge. The three bases (`server-fast`,
+`server-full`, `desktop`) are built on the host by `vmtest build-base`, never
+by the play.
 
 ## Deploying the lab
 
@@ -48,7 +50,8 @@ What lands:
 - packages: `libvirt-daemon-kvm`, `libvirt-daemon-config-network`,
   `libvirt-client`, `virt-install`, `qemu-kvm`, `qemu-img`, `edk2-ovmf`,
   `guestfs-tools`, `virtiofsd`, `cloud-utils`, `xorriso`, `osinfo-db`, `lorax`,
-  `swtpm`, `swtpm-tools` (names only, no pinned versions);
+  `swtpm`, `swtpm-tools`, `passt` (the guest's SSH port forward) and
+  `distribution-gpg-keys` (names only, no pinned versions);
 - `loginctl enable-linger` for the user, so the user's systemd manager survives
   a logout;
 - `~/.local/share/vmtest/{images,bases,runs}`;
@@ -174,8 +177,9 @@ to fail. Each must produce `verdict: fail` at stage `provision`:
 A scenario's `run_env` in the manifest is a closed allowlist of `run.bash`'s
 non-secret knobs; nothing secret-bearing can be set from a scenario.
 
-The plan's `acceptance.bash` runs all four scenarios in turn and asserts each
-verdict.
+The plan's `acceptance.bash` runs all six scenarios in turn (the four server
+fast legs, `server-full-provision` and `desktop-fresh-install`) and asserts
+each verdict.
 
 ## Asking the lab from inside the sandbox
 
@@ -196,13 +200,16 @@ code with its reason on stderr: `1` fail, `2` error (with the stage), `3`
 rejected (with the check that refused it), `4` no answer at all, `5` bridge not
 running (stale or absent heartbeat), `6` bridge wedged (a unit is failed or the
 path unit is not active; the remedy line is printed), `7` the host run process
-died mid-run, `64` usage. The requester reads the heartbeat **before** it
+died mid-run, `8` the response was malformed or its shape unknown, `64` usage. The requester reads the heartbeat **before** it
 writes, so a dead bridge is reported as dead, never as a timeout.
 
 ### Verbs
 
 Five verbs and nothing else. `run-scenario <id>` (the id must be on the
-**deployed** allowlist), `list-scenarios`, `lab-status`, `refresh-base server|desktop|all`, `abort-run`. A hardcoded deny list (`exec`, `shell`,
+**deployed** allowlist), `list-scenarios`, `lab-status`, `refresh-base server|desktop|all`, `abort-run`. Of these, `lab-status` and `abort-run` are
+in the verb set but not yet implemented by the run scope, so the shipped
+policy denies them (a request is rejected by policy, never answered "not
+implemented"); `refresh-base` ships denied by choice. A hardcoded deny list (`exec`, `shell`,
 `bash`, `run`, `eval`, `ansible`, …) is checked before the verb set. No verb
 takes a path, a command or free text; `run-scenario`'s argument must match
 `^[a-z][a-z0-9_-]*$` **and** be in the allowlist the playbook rendered.
@@ -345,19 +352,26 @@ from the canonical host, the run's `evidence.refresh.state` is one of:
 | `incomplete` | the guest's mirror was behind the probe, so nothing was checked against the current revision | nothing is certified; the base stays as it was                         |
 | `unknown`    | the transcript did not carry the upgrade result or a revision                                | nothing is certified                                                   |
 
-A fast base's refresh is a rebuild from the published image (minutes). The
-overlay of a provisioned run is never flattened into a base: a base is a fresh
-install plus updates, and a provisioned system is not one.
+A refresh is a rebuild from the published artefacts: a fast base is re-imported
+from its image (minutes), a full base is reinstalled from its verified media
+(the same Anaconda run as `build-base`). The overlay of a provisioned run is
+never flattened into a base: a base is a fresh install plus updates, and a
+provisioned system is not one.
 
 ## Nightly report and retention
 
-`vmtest-nightly.timer` runs `vmtest nightly` at 03:30: a freshness report,
+`vmtest-nightly.timer` runs `vmtest nightly` at 03:30: a deep freshness report,
 then the retention sweep. Neither rebuilds anything.
 
 ```bash
-vmtest freshness-status   # one probe; one line per built base into ~/.local/share/vmtest/freshness-status.txt
-vmtest sweep              # apply the retention policy; every eviction goes to ~/.local/share/vmtest/retention.log
+vmtest freshness-status          # one probe; one line per built base into ~/.local/share/vmtest/freshness-status.txt
+vmtest freshness-status --deep   # the same, re-hashing every base disk against its record (the nightly form)
+vmtest sweep                     # apply the retention policy; every eviction goes to ~/.local/share/vmtest/retention.log
 ```
+
+A run checks a base's size and mtime against its record before booting it and
+refuses a mismatch; only the deep pass reads the whole disk and compares the
+hash, so the status line says which (`integrity=quick|deep`).
 
 `freshness-status` exits with the worst verdict it found, so a base that needs
 a rebuild shows up as the nightly unit failing in `systemctl --user list-units --failed`, not as an unattended rebuild on a workstation. The

@@ -165,12 +165,21 @@ else
     check fail gnome-shell-running "${shell_version}"
 fi
 
-# Every extension the REPO deploys — the user extensions run.bash installed under
-# ~/.local/share/gnome-shell/extensions — must report ACTIVE in the live session, not
-# merely be enabled in a settings list: this is the check verify_extension.py cannot make
-# without a session (§5.4). Fedora's own system extensions (background-logo) are not the
-# repo's and are recorded as evidence only.
-deployed="$(find "${HOME}/.local/share/gnome-shell/extensions" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>&1 | sort)"
+# Every extension the REPO deploys must report ACTIVE in the live session, not merely be
+# enabled in a settings list: this is the check verify_extension.py cannot make without a
+# session (§5.4). The population is the user extensions under
+# ~/.local/share/gnome-shell/extensions, and its size is held against what the extensions
+# play declares (its extensions.gnome.org ids plus the custom extensions it copies), so a
+# partial install cannot pass as "all ACTIVE". Fedora's own system extensions
+# (background-logo) are not the repo's and are recorded as evidence only.
+extensions_play="${REPO}/playbooks/imports/play-gnome-shell-extensions.yml"
+expected=$(($(grep -cE '^\s+id: [0-9]+' "${extensions_play}") + $(grep -cE '^\s+- name: Deploy Custom Extension' "${extensions_play}")))
+user_extensions="${HOME}/.local/share/gnome-shell/extensions"
+deployed=""
+if [[ -d "${user_extensions}" ]]; then
+    deployed="$(find "${user_extensions}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)"
+fi
+deployed_count="$(printf '%s' "${deployed}" | grep -c .)"
 enabled_live="$(gnome-extensions list --enabled 2>&1 | sort | tr '\n' ',')"
 enabled_settings="$(gsettings get org.gnome.shell enabled-extensions 2>&1)"
 inactive=""
@@ -183,12 +192,13 @@ for uuid in ${deployed}; do
         inactive="${inactive} ${uuid}=${state:-unknown}"
     fi
 done
-if [[ -z "${deployed}" ]]; then
-    check fail deployed-extensions-active "no user extensions under ~/.local/share/gnome-shell/extensions (the repo installs several)"
+coverage="COVERAGE: ${active_count} of ${expected} declared ACTIVE (${deployed_count} on disk)"
+if [[ "${deployed_count}" -lt "${expected}" ]]; then
+    check fail deployed-extensions-active "${coverage}; the play declares ${expected} but ${deployed_count} are installed"
 elif [[ -z "${inactive}" ]]; then
-    check pass deployed-extensions-active "${active_count} deployed, all ACTIVE"
+    check pass deployed-extensions-active "${coverage}"
 else
-    check fail deployed-extensions-active "not ACTIVE:${inactive}"
+    check fail deployed-extensions-active "${coverage}; not ACTIVE:${inactive}"
 fi
 
 # ── evidence (never a check; §6.6 rule 04, §5.3b) ─────────────────────────────────────

@@ -9,7 +9,8 @@
 #
 # Exit 0 ONLY when the host reports a finished pass. Every other outcome —
 # fail, error, rejected, no answer, bridge not running, bridge wedged, host
-# process died — is a distinct non-zero code with its reason on stderr.
+# process died, malformed response — is a distinct non-zero code (1..8, 64
+# usage) with its reason on stderr.
 #
 # The response is signed by the host, and this side cannot verify it: the key
 # never leaves the host. The reader says so and prints the `vmtest verify`

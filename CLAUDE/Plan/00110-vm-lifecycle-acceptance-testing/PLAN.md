@@ -129,6 +129,11 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 - [x] ✅ **T4.9**: Liveness selftest — wedge the unit, assert "bridge wedged" (`selftest-liveness.bash`: wedged reported with the remedy, exit 6, nothing written; the remedy restores service)
   rather than "timeout"
 - [x] ✅ **T4.10**: QA; commit (every Phase-4 landing was QA'd and pushed in its own commit)
+- [ ] ⏸️ **T4.11**: `lab-status` and `abort-run` — in the verb set and specified in
+  DESIGN.md §6, not implemented by the run scope. Deferred: both ship `deny` in the
+  policy so a request is rejected by policy rather than answered "not implemented";
+  implement (with `vmtest lab-status` and the §7 orphan-domain refusal) when a
+  container-side caller needs them
 
 ### Phase 5: Desktop base and desktop scenario (gated on U8)
 
@@ -184,7 +189,11 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 - [x] ✅ **T7.2**: Update those three plans in the same commits — 00063 ticked
   with the run ids (Tasks 2.5, 2.8, 3.1 and two criteria); 00079/00092 left as
   they are, nothing of theirs discharged
-- [ ] ⬜ **T7.3**: QA, then `qa-reviewer` over the full diff
+- [x] ✅ **T7.3**: QA, then `qa-reviewer` over the full diff — nine findings and
+  three nits, all resolved (JOURNAL 22:31): full-base refresh, the two unimplemented
+  verbs denied (T4.11), the deep hash pass, extension coverage, derived helper list,
+  drift gate over the lab's deployed copies, extension evidence keys, secrets off argv,
+  docs and header drift, mirror hostnames anonymised
 
 ### Phase 8: Design (complete)
 

@@ -42,12 +42,19 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--template", required=True, type=pathlib.Path)
     parser.add_argument("--set", action="append", default=[], metavar="NAME=VALUE")
+    parser.add_argument(
+        "--set-stdin", action="store_true",
+        help="also read NAME=VALUE lines from stdin — for values that must not appear in argv (a passphrase)",
+    )
     args = parser.parse_args(argv)
+    pairs = list(args.set)
+    if args.set_stdin:
+        pairs.extend(line.rstrip("\n") for line in sys.stdin if line.strip())
     values: dict[str, str] = {}
-    for item in args.set:
+    for item in pairs:
         name, separator, value = item.partition("=")
         if not separator or not PLACEHOLDER_RE.fullmatch(f"@{name}@"):
-            print(f"ERROR: --set expects NAME=VALUE with an upper-case NAME, got {item!r}", file=sys.stderr)
+            print(f"ERROR: expected NAME=VALUE with an upper-case NAME, got {item!r}", file=sys.stderr)
             return 2
         values[name] = value
     try:

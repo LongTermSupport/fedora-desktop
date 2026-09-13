@@ -14,10 +14,11 @@
 #                                            pinned commit, in-guest acceptance, transcript, verdict, destroy
 #   vmtest verify <run-id>                   check a bridge response's signature under the host-only key
 #   vmtest refresh-base <base-key|profile|all>   bring a base up to date: a fast base is re-imported from the
-#                                            published image (its refresh IS a rebuild, minutes not hours)
-#   vmtest freshness-status                  probe upstream and REPORT every base's freshness; never rebuilds
+#                                            published image (minutes); a full base is reinstalled from its media
+#   vmtest freshness-status [--deep]         probe upstream and REPORT every base's freshness; never rebuilds.
+#                                            --deep re-hashes every base disk against its record
 #   vmtest sweep                             apply the retention policy (runs, failed builds, spool); logs every eviction
-#   vmtest nightly                           freshness-status then sweep — what the nightly timer runs
+#   vmtest nightly                           freshness-status --deep, then sweep — what the nightly timer runs
 #   vmtest help
 #
 # `run` provisions from a PUSHED commit of the public repo (the branch tip on the
@@ -457,14 +458,17 @@ build_install_full() {
         extra_disks=(--disk "path=${IMAGES_DIR}/${live},device=cdrom,readonly=on")
         # The LUKS passphrase and the user's password are throwaways: generated here,
         # never tracked, the passphrase kept 0600 beside the base for every later boot.
+        # Both reach the renderer on stdin, never in argv (SecurityRules: no secrets in argv).
         (umask 077 && head -c 24 /dev/urandom | base64 | tr -d '\n' >"${BUILD_DIR}/luks-passphrase" && printf '\n' >>"${BUILD_DIR}/luks-passphrase")
-        render_args+=(--set "LUKS_PASSPHRASE=$(head -n1 "${BUILD_DIR}/luks-passphrase")" \
-            --set "USER_PASSWORD_CRYPT=$(head -c 24 /dev/urandom | base64 | openssl passwd -6 -stdin)")
+        {
+            printf 'LUKS_PASSPHRASE=%s\n' "$(head -n1 "${BUILD_DIR}/luks-passphrase")"
+            printf 'USER_PASSWORD_CRYPT=%s\n' "$(head -c 24 /dev/urandom | base64 | openssl passwd -6 -stdin)"
+        } | helper render_kickstart --template "$(kickstart_for "${BASE_PROFILE}")" "${render_args[@]}" --set-stdin >"${ks}"
     else
         iso="${artefact}"
         render_args+=(--set "TREE_URL=${tree_url}")
+        helper render_kickstart --template "$(kickstart_for "${BASE_PROFILE}")" "${render_args[@]}" >"${ks}"
     fi
-    helper render_kickstart --template "$(kickstart_for "${BASE_PROFILE}")" "${render_args[@]}" >"${ks}"
     chmod 0600 "${ks}"
     qemu-img create -q -f qcow2 "${disk}" "${BUILD_DISK_SIZE}"
     # Name the installer's stage-2 medium explicitly. Without inst.stage2 the installer's
@@ -665,7 +669,7 @@ verdict_field() {
 # read as ONE base; a refusing verdict is data (GATE_RC != 0), so a caller that only
 # reports — freshness-status — can carry on to the next base.
 freshness_verdict() {
-    local base_json="${1:?}" base_disk="${2:?}" record actual_mtime actual_sha gate gate_rc=0
+    local base_json="${1:?}" base_disk="${2:?}" depth="${3:-quick}" record actual_mtime actual_sha gate gate_rc=0
     # The record-only pass needs no recipe digest of its own; the kind it reports selects one.
     record="$(helper freshness_gate --fedora-version "${VMTEST_FEDORA_VERSION}" --manifest "${MANIFEST}" \
         --base-json "${base_json}" --probe "${PROBE_FILE}" --recipe-digest "$(recipe_digest_now fast server)" \
@@ -675,7 +679,10 @@ freshness_verdict() {
     local kind profile
     kind="$(record_field "${record}" kind)"
     profile="$(record_field "${record}" profile)"
-    # §7: size and mtime per run; the full sha256 only on refresh, reinstall and --deep.
+    # §7: size and mtime on every run (a run must not pay to hash a base); the full
+    # sha256 only when asked for (`freshness-status --deep`, which the nightly timer is).
+    # A quick pass hands the gate the record's own hash, so its hash comparison can only
+    # fail on a deep pass — the quick pass's integrity claim is size+mtime, nothing more.
     GATE_BASE_SIZE="$(stat -c %s "${base_disk}")"
     actual_mtime="$(stat -c %Y "${base_disk}")"
     if [[ "${GATE_BASE_SIZE}" == "$(record_field "${record}" base_size)" && "${actual_mtime}" == "$(record_field "${record}" base_mtime)" ]]; then
@@ -683,6 +690,11 @@ freshness_verdict() {
     else
         die "base.qcow2 for $(record_field "${record}" name) differs from its record (size/mtime); refusing a base of unknown provenance"
     fi
+    if [[ "${depth}" == "deep" ]]; then
+        log "hashing ${base_disk} (deep check; this reads the whole base)"
+        actual_sha="$(sha256sum "${base_disk}" | cut -d' ' -f1)"
+    fi
+    GATE_INTEGRITY="${depth}"
     gate="$(helper freshness_gate --fedora-version "${VMTEST_FEDORA_VERSION}" --manifest "${MANIFEST}" \
         --base-json "${base_json}" --probe "${PROBE_FILE}" --recipe-digest "$(recipe_digest_now "${kind}" "${profile}")" \
         --actual-base-sha256 "${actual_sha}" | grep '^VMTEST-FRESHNESS-VERDICT ')" || gate_rc=$?
@@ -1008,8 +1020,11 @@ cmd_verify() {
 # ── refresh-base (§4.4a, §9 T6.2) ─────────────────────────────────────────────────────────
 
 # cmd_refresh_base <base-key|server|desktop|all> — refresh every matching base that has been
-# built. A fast base's refresh is a rebuild from the published image (§4.4a: the overlay of
-# a provisioned run is never flattened into a base). Other kinds are Phase 3b/5.
+# built. A refresh is a rebuild from the published artefacts — the re-import of a fast
+# base's image, the Anaconda install of a full one — because §4.4a forbids flattening a
+# provisioned run's overlay into a base. A named target is matched by key before the
+# manifest is consulted, so `refresh-base <key>` cannot be aborted by a directory the
+# manifest does not know; `all` and the profiles visit every directory and fail on one.
 cmd_refresh_base() {
     local target="${1:?usage: vmtest refresh-base <base-key|server|desktop|all>}" base_json base_dir name key done=0
     load_lab
@@ -1018,14 +1033,20 @@ cmd_refresh_base() {
         base_dir="$(dirname "${base_json}")"
         name="$(basename "${base_dir}")"
         key="${name%-"${VMTEST_FEDORA_VERSION}"}"
-        base_facts "${key}"
         case "${target}" in
-            all) ;;
-            server | desktop) [[ "${BASE_PROFILE}" == "${target}" ]] || continue ;;
+            all | server | desktop) ;;
             *) [[ "${key}" == "${target}" ]] || continue ;;
         esac
-        [[ "${BASE_KIND}" == "fast" ]] || die "refresh of a ${BASE_KIND} base (${name}) is not built yet (Phase 3b/5)"
-        log "refreshing ${name}: re-importing the published image and upgrading"
+        base_facts "${key}"
+        case "${target}" in
+            server | desktop) [[ "${BASE_PROFILE}" == "${target}" ]] || continue ;;
+            *) ;;
+        esac
+        if [[ "${BASE_KIND}" == "fast" ]]; then
+            log "refreshing ${name}: re-importing the published image and upgrading"
+        else
+            log "refreshing ${name}: reinstalling from the verified media and upgrading (a full base; this takes a while)"
+        fi
         cmd_build_base "${key}"
         done=$((done + 1))
     done
@@ -1038,15 +1059,23 @@ cmd_refresh_base() {
 readonly STATUS_FILE="${VMTEST_HOME}/freshness-status.txt"
 readonly RETENTION_LOG="${VMTEST_HOME}/retention.log"
 
-# cmd_freshness_status — one probe, one verdict line per built base, written to a status
-# file and printed. REPORTS ONLY: a `reinstall` here is a line in a file, never a rebuild.
+# cmd_freshness_status [--deep] — one probe, one verdict line per built base, written to a
+# status file and printed. REPORTS ONLY: a `reinstall` here is a line in a file, never a
+# rebuild. `--deep` re-hashes every base disk against its record (the nightly timer does).
 cmd_freshness_status() {
+    local depth=quick
+    case "${1:-}" in
+        --deep) depth=deep ;;
+        "") ;;
+        *) die "usage: vmtest freshness-status [--deep]" ;;
+    esac
     load_lab
     probe_upstream
     trap 'rm -f "${PROBE_FILE:-}"' EXIT
     local status_new="${STATUS_FILE}.new" base_dir base_json base_disk name worst=0
     {
         printf 'written_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'integrity=%s\n' "${depth}"
         printf 'probe_revision=%s\n' "$(probe_value VMTEST-FRESHNESS-REVISION)"
         printf 'probe_compose_id=%s\n' "$(probe_value VMTEST-FRESHNESS-COMPOSE-ID)"
     } >"${status_new}"
@@ -1056,10 +1085,10 @@ cmd_freshness_status() {
         base_disk="${base_dir}/base.qcow2"
         name="$(basename "${base_dir}")"
         [[ -r "${base_disk}" ]] || die "${name} has a record but no base.qcow2"
-        freshness_verdict "${base_json}" "${base_disk}"
-        printf 'base=%s\tdecision=%s\tdegraded=%s\tdivergences=%s\n' \
-            "${name}" "${GATE_DECISION}" "${GATE_DEGRADED}" "${GATE_DIVERGENCES}" >>"${status_new}"
-        printf 'VMTEST-FRESHNESS-STATUS %s decision=%s degraded=%s\n' "${name}" "${GATE_DECISION}" "${GATE_DEGRADED}"
+        freshness_verdict "${base_json}" "${base_disk}" "${depth}"
+        printf 'base=%s\tdecision=%s\tdegraded=%s\tintegrity=%s\tdivergences=%s\n' \
+            "${name}" "${GATE_DECISION}" "${GATE_DEGRADED}" "${GATE_INTEGRITY}" "${GATE_DIVERGENCES}" >>"${status_new}"
+        printf 'VMTEST-FRESHNESS-STATUS %s decision=%s degraded=%s integrity=%s\n' "${name}" "${GATE_DECISION}" "${GATE_DEGRADED}" "${GATE_INTEGRITY}"
         if [[ "${GATE_RC}" -gt "${worst}" ]]; then
             worst="${GATE_RC}"
         fi
@@ -1080,7 +1109,7 @@ cmd_sweep() {
 
 cmd_nightly() {
     local rc=0
-    cmd_freshness_status || rc=$?
+    cmd_freshness_status --deep || rc=$?
     cmd_sweep
     return "${rc}"
 }

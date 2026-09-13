@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Plan 00110 — acceptance.bash
 #
-# PURPOSE: the pass/fail gate for the server fast path (DESIGN.md §9 T3.2 and T3.4). It runs
-# the positive scenario and the three negative scenarios through the DEPLOYED `vmtest` and
-# asserts each verdict is exactly the one the design requires:
+# PURPOSE: the pass/fail gate for every scenario the manifest carries (DESIGN.md §9 T3.2,
+# T3.4, T3b.2, T5.4). It runs the positive scenarios and the three negative ones through the
+# DEPLOYED `vmtest` and asserts each verdict is exactly the one the design requires:
 #
 #   server-fast-provision           pass
 #   server-main-playbook-fails      fail  @ provision   (a failed main play propagates)
@@ -94,6 +94,9 @@ plan_gather_leg "server-full-provision must pass on the Anaconda-installed base"
     bash "${PLAN_SCRIPT_DIR}/run-scenario-leg.bash" server-full-provision pass - \
     "on base server-full-[0-9]+ \(full, server\)" "${REPORT}"
 # Phase 5: the repo's own installer shape, provisioned inside the autologin GNOME session.
+# KNOWN RED until Plan 00112 lands: a fresh install leaves every deployed extension
+# INITIALIZED and none enabled, so `deployed-extensions-active` fails on the product. The
+# expectation stays `pass` on purpose — this gate is what proves 00112's fix.
 plan_gather_leg "desktop-fresh-install must pass on the desktop base" \
     bash "${PLAN_SCRIPT_DIR}/run-scenario-leg.bash" desktop-fresh-install pass - \
     "on base desktop-[0-9]+ \(full, desktop\)" "${REPORT}"

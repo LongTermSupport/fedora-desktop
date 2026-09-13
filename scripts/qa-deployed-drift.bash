@@ -13,9 +13,10 @@
 # This gate closes that hole by comparing the two. It is the one QA check whose
 # subject is the host rather than the source tree.
 #
-# SCOPE: files/home/.local/bin/ — the user-facing tools. A file is checked only
-# when a deployed copy already EXISTS, so a machine that never installed a
-# feature is never nagged about it.
+# SCOPE: files/home/.local/bin/ — the user-facing tools — plus the VM acceptance
+# lab's deployed copies (guest scripts, kickstarts, user units, helper package;
+# see LAB_PAIRS below). A file is checked only when a deployed copy already
+# EXISTS, so a machine that never installed a feature is never nagged about it.
 #
 # stdout: terse — findings and a one-line summary.
 # Exit 0 = in sync (or nothing deployed to compare against); 1 = drift found.
@@ -189,6 +190,51 @@ for src in "$SRC_DIR"/*; do
     echo "    deploy it with:" >&2
     owning_play "$name" >&2
     echo >&2
+done
+
+# ── The VM acceptance lab's other deployed copies (Plan 00110) ───────────────
+#
+# The lab makes its DEPLOYED copies authoritative: `vmtest` hashes the deployed
+# guest-cleanup script, kickstart and session runner into every base's recipe
+# digest, and the bridge runs the deployed helper package. A repo edit to any of
+# them that is never deployed leaves every base certified against a recipe the
+# repo no longer has, with QA green — the same hole as above, one directory over.
+# Each pair is "repo glob -> deployed directory"; as above, a file is compared
+# only when its deployed copy exists.
+LAB_PAIRS=(
+    "files/home/.local/share/vmtest/*|$HOME/.local/share/vmtest"
+    "fedora-install/ks-vm-*.cfg|$HOME/.local/share/vmtest"
+    "files/home/.config/systemd/user/vmtest-*|$HOME/.config/systemd/user"
+    "helpers/vmtest/*.py|/usr/local/lib/ccy-helpers/helpers/vmtest"
+)
+for pair in "${LAB_PAIRS[@]}"; do
+    glob="${pair%%|*}"
+    deployed_dir="${pair#*|}"
+    for src in "$REPO_ROOT"/$glob; do
+        [ -f "$src" ] || continue
+        name="$(basename "$src")"
+        # request.py is the container-side requester; the play deliberately never deploys it.
+        [ "$name" != "request.py" ] || continue
+        dep="$deployed_dir/$name"
+        if [ ! -f "$dep" ]; then
+            NOT_DEPLOYED=$((NOT_DEPLOYED + 1))
+            continue
+        fi
+        CHECKED=$((CHECKED + 1))
+        if cmp -s "$src" "$dep"; then
+            continue
+        fi
+        DRIFTED=$((DRIFTED + 1))
+        if [ "$DRIFTED" -eq 1 ]; then
+            echo "✗ deployed-drift: repo changes that were never deployed" >&2
+            echo >&2
+        fi
+        echo "  ${src#"$REPO_ROOT"/}" >&2
+        echo "    deployed: $dep" >&2
+        echo "    deploy it with:" >&2
+        echo "    ansible-playbook playbooks/imports/optional/common/play-vm-test-lab.yml" >&2
+        echo >&2
+    done
 done
 
 if [ "$DRIFTED" -gt 0 ]; then
