@@ -22,6 +22,16 @@
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     vm_test_lab_dir: "/home/{{ user_login }}/.local/share/vmtest"
+    vm_test_spool_dir: "{{ root_dir }}/untracked/vmtest-bridge"
+    # Bridge policy (DESIGN.md §6.4 step 9): MODE_<verb>=auto|deny. refresh-base
+    # ships denied — an unannounced base rebuild is a surprise on a workstation;
+    # override vm_test_bridge_modes per host to enable it.
+    vm_test_bridge_default_modes:
+      list-scenarios: auto
+      lab-status: auto
+      run-scenario: auto
+      refresh-base: deny
+      abort-run: auto
     # The manifest in the shape helpers/vmtest/scenarios.py parses: the four
     # tracked top-level keys and nothing else.
     vm_test_manifest:
@@ -144,6 +154,7 @@
         - bridge_watcher.py
         - bridge_run.py
         - bridge_heartbeat.py
+        - verify_response.py
 
     - name: Ensure user local bin directory exists
       ansible.builtin.file:
@@ -236,6 +247,7 @@
           VMTEST_FEDORA_VERSION={{ fedora_version }}
           VMTEST_REPO_URL={{ vm_test_origin.stdout | trim | regex_replace('^(ssh://)?git@github[.]com[:/]', 'https://github.com/') | regex_replace('[.]git$', '') }}
           VMTEST_REPO_BRANCH={{ vm_test_branch.stdout | trim }}
+          VMTEST_CHECKOUT={{ root_dir }}
         dest: "{{ vm_test_lab_dir }}/lab.env"
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
@@ -307,6 +319,133 @@
       when: vm_test_runnable | int == 0
 
     # =========================================================================
+    # The bridge (DESIGN.md §6): the spool is the only shared surface; policy,
+    # signing key, audit log and lock live off the mount under a per-checkout
+    # slug that is also the units' instance name.
+    # =========================================================================
+    - name: Derive the bridge slug from the checkout path
+      become: false
+      ansible.builtin.command:
+        argv:
+          - systemd-escape
+          - --path
+          - "{{ root_dir }}"
+      register: vm_test_bridge_slug
+      changed_when: false
+
+    - name: Create the bridge spool directories in the checkout
+      ansible.builtin.file:
+        path: "{{ vm_test_spool_dir }}/{{ item }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      loop:
+        - ""
+        - tmp
+        - requests
+        - processing
+        - responses
+        - archive
+        - quarantine
+        - diagnostics
+
+    - name: Create the bridge configuration and state directories off the mount
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0700"
+      loop:
+        - "/home/{{ user_login }}/.config/vmtest-bridge/{{ vm_test_bridge_slug.stdout | trim }}"
+        - "/home/{{ user_login }}/.local/state/vmtest-bridge/{{ vm_test_bridge_slug.stdout | trim }}"
+
+    - name: Render the bridge policy
+      ansible.builtin.copy:
+        content: |
+          {% for verb, mode in (vm_test_bridge_modes | default(vm_test_bridge_default_modes)).items() %}
+          MODE_{{ verb }}={{ mode }}
+          {% endfor %}
+        dest: "/home/{{ user_login }}/.config/vmtest-bridge/{{ vm_test_bridge_slug.stdout | trim }}/policy"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0600"
+
+    # The response signing key: host-only, never on the mount, generated once.
+    - name: Generate the bridge response signing key
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - rand
+          - -out
+          - "/home/{{ user_login }}/.config/vmtest-bridge/{{ vm_test_bridge_slug.stdout | trim }}/response.key"
+          - "64"
+        creates: "/home/{{ user_login }}/.config/vmtest-bridge/{{ vm_test_bridge_slug.stdout | trim }}/response.key"
+
+    - name: Restrict the bridge response signing key
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/vmtest-bridge/{{ vm_test_bridge_slug.stdout | trim }}/response.key"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0600"
+
+    - name: Deploy the bridge entry-point CLI
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/vmtest-bridge-watcher"
+        dest: "/home/{{ user_login }}/.local/bin/vmtest-bridge-watcher"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
+    - name: Ensure the user systemd unit directory exists
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/systemd/user"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
+    - name: Deploy the bridge user systemd units
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.config/systemd/user/{{ item }}"
+        dest: "/home/{{ user_login }}/.config/systemd/user/{{ item }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+      loop:
+        - vmtest-bridge@.path
+        - vmtest-bridge@.service
+        - vmtest-bridge-heartbeat@.timer
+        - vmtest-bridge-heartbeat@.service
+      register: vm_test_bridge_units
+
+    - name: Look up the lab user's uid for the user manager's runtime directory
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ user_login }}"
+
+    # Lingering is enabled above, so the user manager is there to answer. A
+    # changed unit file is reloaded and the instances restarted so the running
+    # bridge is the deployed one.
+    - name: Enable and start the bridge path unit and heartbeat timer
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        scope: user
+        enabled: true
+        state: "{{ 'restarted' if vm_test_bridge_units.changed else 'started' }}"
+        daemon_reload: true
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.getent_passwd[user_login][1] }}"
+      loop:
+        - "vmtest-bridge@{{ vm_test_bridge_slug.stdout | trim }}.path"
+        - "vmtest-bridge-heartbeat@{{ vm_test_bridge_slug.stdout | trim }}.timer"
+
+    # =========================================================================
     # Confirm the session-mode hypervisor answers as the lab user
     # =========================================================================
     - name: Verify qemu:///session answers as the lab user
@@ -329,6 +468,7 @@
           - "Hypervisor: rootless ({{ vm_test_session_uri.stdout.strip() }})"
           - "Manifest: {{ vm_test_manifest_check.stdout | trim }}"
           - "Allowlist: {{ 'deployed' if vm_test_runnable | int > 0 else 'none — no scenario has a declared check count yet' }}"
+          - "Bridge: vmtest-bridge@{{ vm_test_bridge_slug.stdout | trim }}.path watching {{ vm_test_spool_dir }}/requests"
           - ""
           - "Next: vmtest fetch server-fast; vmtest build-base server-fast"
           - "Documentation: docs/vm-acceptance-testing.md"

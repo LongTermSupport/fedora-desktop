@@ -229,6 +229,10 @@ class TestHeartbeat(unittest.TestCase):
         self.assertEqual(beat["path_unit"]["active_state"], "active")
         self.assertEqual(beat["in_flight"], "20260913T114501Z-server-fast-provision")
         self.assertIn("systemctl --user reset-failed vmtest-bridge@home-user-Projects-fedora-desktop.path", beat["remedy"])
+        # The container cannot compute the slug (it sees /workspace, not the host
+        # path), so the heartbeat carries it and the off-mount audit-log path.
+        self.assertEqual(beat["slug"], "home-user-Projects-fedora-desktop")
+        self.assertEqual(beat["audit_log"], "~/.local/state/vmtest-bridge/home-user-Projects-fedora-desktop/service.log")
 
     def test_fresh_and_healthy_is_ok(self):
         assessment = verdict.assess_heartbeat(self.heartbeat(), now=NOW + 30, max_age=120)

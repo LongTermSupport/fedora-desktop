@@ -1,0 +1,78 @@
+#!/usr/bin/bash
+# vmtest-bridge-watcher — the systemd --user entry points of the container-to-host
+# bridge (Plan 00110, DESIGN.md §6). Deployed by play-vm-test-lab.yml; the units
+# call it with the checkout path that %f unescaped from their instance name.
+#
+#   vmtest-bridge-watcher watch     <checkout>   one activation: drain and answer the spool
+#   vmtest-bridge-watcher heartbeat <checkout>   write the liveness heartbeat once
+#   vmtest-bridge-watcher status    <checkout>   print the off-mount paths and unit names
+#
+# Everything the bridge trusts lives OFF the shared mount: the policy and the
+# signing key under ~/.config/vmtest-bridge/<slug>/, the audit log and the
+# in-flight lock under ~/.local/state/vmtest-bridge/<slug>/, and the deployed
+# scenario allowlist under ~/.local/share/vmtest/. Only the spool is shared.
+set -euo pipefail
+
+VMTEST_HOME="${VMTEST_HOME:-${HOME}/.local/share/vmtest}"
+VMTEST_HELPERS_LIB="${VMTEST_HELPERS_LIB:-/usr/local/lib/ccy-helpers}"
+readonly VMTEST_HOME VMTEST_HELPERS_LIB
+
+die() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+usage() {
+    printf 'usage: vmtest-bridge-watcher watch|heartbeat|status <checkout>\n' >&2
+    exit 64
+}
+
+helper() {
+    local module="${1:?helper requires a module}"
+    shift
+    env PYTHONPATH="${VMTEST_HELPERS_LIB}" python3 -m "helpers.vmtest.${module}" "$@"
+}
+
+# The slug is `systemd-escape --path <checkout>`: the unit instance name, and the
+# name of the per-checkout directories off the mount.
+bridge_paths() {
+    local checkout="${1:?checkout required}"
+    [[ "${checkout}" == /* ]] || die "checkout must be an absolute path: ${checkout}"
+    [[ -d "${checkout}" ]] || die "checkout is not a directory: ${checkout}"
+    SLUG="$(systemd-escape --path "${checkout}")"
+    CONFIG_DIR="${HOME}/.config/vmtest-bridge/${SLUG}"
+    STATE_DIR="${HOME}/.local/state/vmtest-bridge/${SLUG}"
+    ALLOWLIST="${VMTEST_HOME}/scenarios.allowlist"
+    readonly SLUG CONFIG_DIR STATE_DIR ALLOWLIST
+    [[ -d "${CONFIG_DIR}" ]] || die "no bridge configuration at ${CONFIG_DIR}; re-run play-vm-test-lab.yml"
+    mkdir -p "${STATE_DIR}"
+}
+
+cmd_watch() {
+    bridge_paths "$1"
+    helper bridge_watcher --checkout "$1" --slug "${SLUG}" \
+        --config-dir "${CONFIG_DIR}" --state-dir "${STATE_DIR}" --allowlist "${ALLOWLIST}"
+}
+
+cmd_heartbeat() {
+    bridge_paths "$1"
+    helper bridge_heartbeat --checkout "$1" --slug "${SLUG}" --state-dir "${STATE_DIR}"
+}
+
+cmd_status() {
+    bridge_paths "$1"
+    printf 'slug=%s\nconfig_dir=%s\nstate_dir=%s\nallowlist=%s\npath_unit=vmtest-bridge@%s.path\ntimer_unit=vmtest-bridge-heartbeat@%s.timer\n' \
+        "${SLUG}" "${CONFIG_DIR}" "${STATE_DIR}" "${ALLOWLIST}" "${SLUG}" "${SLUG}"
+}
+
+main() {
+    [[ $# -eq 2 ]] || usage
+    case "$1" in
+        watch) cmd_watch "$2" ;;
+        heartbeat) cmd_heartbeat "$2" ;;
+        status) cmd_status "$2" ;;
+        *) usage ;;
+    esac
+}
+
+main "$@"

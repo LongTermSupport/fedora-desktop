@@ -3,7 +3,7 @@
 The thin executor the path unit starts. It drains every request in the spool
 in one activation, answers each one — `accepted` before dispatch, `rejected`
 with the code of the check that refused it — and dispatches an accepted
-request as a `systemd-run --user --scope` that outlives this oneshot. It never
+request as a transient `systemd-run --user` service that outlives this oneshot. It never
 exits non-zero for bad INPUT (that would let a sandbox loop wedge the unit);
 it exits non-zero only when the spool itself cannot be trusted, and then it
 writes nothing into it.
@@ -123,16 +123,25 @@ def enumeration_check(request: spool.Request, allowlist: list[str] | None) -> No
         )
 
 
-def build_argv(request: spool.Request, slug: str, checkout: str) -> list[str]:
+def build_argv(request: spool.Request, slug: str, checkout: str, config_dir: str, state_dir: str) -> list[str]:
     """A hardcoded array from the buffer's fields; never a shell, never a path from the request."""
+    # A transient SERVICE, not a --scope: systemd-run --scope runs the command in
+    # the foreground, so the oneshot would block for the whole run and hit its
+    # RuntimeMaxSec — failing the service the heartbeat reports on. A transient
+    # service starts asynchronously in the user manager, outside the oneshot's
+    # cgroup, and outlives it; it inherits no environment, so the helpers path
+    # is passed explicitly.
     unit = f"vmtest-bridge-run-{slug}-{request.nonce}"
     argv = [
         "--user",
-        "--scope",
         "--quiet",
         "--collect",
         "--unit",
         unit,
+    ]
+    if os.environ.get("PYTHONPATH"):
+        argv.append(f"--setenv=PYTHONPATH={os.environ['PYTHONPATH']}")
+    argv += [
         sys.executable,
         "-m",
         "helpers.vmtest.bridge_run",
@@ -140,6 +149,10 @@ def build_argv(request: spool.Request, slug: str, checkout: str) -> list[str]:
         checkout,
         "--slug",
         slug,
+        "--config-dir",
+        config_dir,
+        "--state-dir",
+        state_dir,
         "--request",
         request.name,
         "--verb",
@@ -202,9 +215,12 @@ class Activation:
         self.in_flight.write_text(f"{run_id}\n", encoding="utf-8")
         self.respond(fds["responses"], name, verdict.accepted(request, run_id=run_id, now=self.now), request.nonce)
         self.audit.record(self.now, "accepted", name, run_id)
-        argv = [self.args.dispatcher, *build_argv(request, self.args.slug, self.args.checkout)]
+        argv = [
+            self.args.dispatcher,
+            *build_argv(request, self.args.slug, self.args.checkout, self.args.config_dir, self.args.state_dir),
+        ]
         subprocess.run(argv, check=True)
-        self.audit.record(self.now, "dispatched", name, argv[6] if len(argv) > 6 else "")
+        self.audit.record(self.now, "dispatched", name, argv[argv.index("--unit") + 1])
         return True
 
     def run(self) -> int:

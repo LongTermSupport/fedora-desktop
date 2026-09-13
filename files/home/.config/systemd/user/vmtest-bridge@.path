@@ -1,0 +1,19 @@
+[Unit]
+Description=Watch the vmtest bridge spool of checkout %f for requests
+Documentation=https://github.com/LongTermSupport/fedora-desktop
+# The instance is `systemd-escape --path <checkout>`; %f unescapes it back to
+# the absolute checkout path (systemd.unit(5)).
+
+[Path]
+DirectoryNotEmpty=%f/untracked/vmtest-bridge/requests
+PathModified=%f/untracked/vmtest-bridge/requests
+Unit=vmtest-bridge@%i.service
+# Trigger limiting is a KILL SWITCH here, not a throttle: reaching the limit
+# puts this unit into `failed`, silently, before the watcher ever runs, and a
+# sandbox write loop reaches any finite burst. Disabled outright; the watcher
+# drains every request per activation, debounces, and rate-limits from its
+# off-mount audit log instead (Plan 00110 DESIGN.md §6.4).
+TriggerLimitBurst=0
+
+[Install]
+WantedBy=default.target

@@ -121,10 +121,10 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 - [ ] ⬜ **T4.1**: Spool layout and request/response schema
 - [x] ✅ **T4.2**: `helpers/vmtest/spool.py`, test-first — the §6.3 defences (attacks in the tests; nine defences mutation-checked red)
 - [x] ✅ **T4.3**: `vmtest-bridge-watcher` — thin executor (`bridge_watcher.py` drains and answers; `bridge_run.py` is the dispatched scope body; `bridge_heartbeat.py` the §6.5 writer — the units that invoke them are T4.4/T4.5)
-- [ ] ⬜ **T4.4**: `vmtest-bridge@.path`/`.service` and the policy file
-- [ ] ⬜ **T4.5**: `vmtest-bridge-heartbeat@.timer` — the §6.5 liveness signal
+- [x] ✅ **T4.4**: `vmtest-bridge@.path`/`.service` and the policy file (deployed and enabled by the play with the escaped-path instance; `TriggerLimitBurst=0`, `StartLimitIntervalSec=0`; `MODE_refresh-base=deny` default; live request answered end to end)
+- [x] ✅ **T4.5**: `vmtest-bridge-heartbeat@.timer` — the §6.5 liveness signal (timer + `bridge_heartbeat.py`; heartbeat observed live)
 - [x] ✅ **T4.6**: Response state machine, HMAC signing, heartbeat (`verdict.py`; the watcher and units that write them are T4.3–T4.5)
-- [ ] ⬜ **T4.7**: `scripts/vmtest-request.bash` — container-side requester
+- [x] ✅ **T4.7**: `scripts/vmtest-request.bash` — container-side requester (`helpers/vmtest/request.py`; heartbeat first, distinct exit per outcome, states what it cannot verify; `vmtest verify <run-id>` is the host half)
 - [ ] ⬜ **T4.8**: Bridge selftest — every rejection path rejects **and** responds
 - [ ] ⬜ **T4.9**: Liveness selftest — wedge the unit, assert "bridge wedged"
   rather than "timeout"

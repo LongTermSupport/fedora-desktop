@@ -1,0 +1,9 @@
+[Unit]
+Description=Write the vmtest bridge liveness heartbeat for checkout %f
+Documentation=https://github.com/LongTermSupport/fedora-desktop
+
+[Service]
+Type=oneshot
+# Reports the bridge units' state and the remedy for a failed one; never resets
+# a failed unit itself (Plan 00110 DESIGN.md §6.5).
+ExecStart=%h/.local/bin/vmtest-bridge-watcher heartbeat %f

@@ -1,0 +1,14 @@
+[Unit]
+Description=Drain and answer the vmtest bridge spool of checkout %f
+Documentation=https://github.com/LongTermSupport/fedora-desktop
+# A hit start-rate limit is propagated to the path unit and fails it too
+# (systemd.path(5)), so start-rate limiting is disabled: the watcher is the
+# rate limiter, and it answers "rejected: rate-limited" and exits 0.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+# Caps the drain, never the run: an accepted request is handed to a transient
+# `systemd-run --user` service that outlives this oneshot.
+RuntimeMaxSec=120
+ExecStart=%h/.local/bin/vmtest-bridge-watcher watch %f

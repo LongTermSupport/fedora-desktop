@@ -237,6 +237,11 @@ def remedy_for(slug: str) -> str:
     return f"systemctl --user reset-failed vmtest-bridge@{slug}.path vmtest-bridge@{slug}.service"
 
 
+def audit_log_for(slug: str) -> str:
+    """The verdict of record (§6.6 rule 11), off the mount; the sandbox can only be told where it is."""
+    return f"~/.local/state/vmtest-bridge/{slug}/service.log"
+
+
 def heartbeat(*, now: int, path_unit: dict, service_unit: dict, in_flight: str | None, slug: str) -> dict:
     return {
         "schema": SCHEMA,
@@ -244,6 +249,8 @@ def heartbeat(*, now: int, path_unit: dict, service_unit: dict, in_flight: str |
         "path_unit": {"active_state": path_unit["active_state"], "result": path_unit["result"]},
         "service_unit": {"active_state": service_unit["active_state"], "result": service_unit["result"]},
         "in_flight": in_flight,
+        "slug": slug,
+        "audit_log": audit_log_for(slug),
         "remedy": remedy_for(slug),
     }
 

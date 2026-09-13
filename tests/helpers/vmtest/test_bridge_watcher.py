@@ -109,10 +109,18 @@ class TestAccept(WatcherCase):
         self.assertIsNone(response["verdict"])
         self.assertEqual(response["signature"]["nonce"], "0123456789abcdef")
         argv = self.dispatched()
-        self.assertEqual(argv[:2], ["--user", "--scope"])
+        self.assertEqual(argv[0], "--user")
+        # A transient service, never a --scope: a scope runs in the foreground
+        # and would hold the oneshot open for the whole run (see build_argv).
+        self.assertNotIn("--scope", argv)
         self.assertIn("--unit", argv)
         self.assertIn("run-scenario", argv)
         self.assertEqual(argv[-1], "server-fast-provision")
+        # The scope body needs the same off-mount directories the watcher used,
+        # or it could not verify the stub it is about to move to running.
+        self.assertEqual(argv[argv.index("--config-dir") + 1], str(self.config))
+        self.assertEqual(argv[argv.index("--state-dir") + 1], str(self.state))
+        self.assertEqual(argv[argv.index("-m") + 1], "helpers.vmtest.bridge_run")
         self.assertIn("accepted", self.audit())
 
     def test_accepted_response_is_written_before_dispatch(self):

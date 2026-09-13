@@ -1,0 +1,14 @@
+[Unit]
+Description=Write the vmtest bridge liveness heartbeat for checkout %f every minute
+Documentation=https://github.com/LongTermSupport/fedora-desktop
+# Deliberately a timer and not path-triggered: it must keep reporting when the
+# path unit has failed, which is exactly the state it exists to make visible.
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=vmtest-bridge-heartbeat@%i.service
+
+[Install]
+WantedBy=timers.target

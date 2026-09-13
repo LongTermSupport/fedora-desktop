@@ -12,6 +12,7 @@
 #   vmtest build-base <base-key>             build a base from its artefact (fast kind: import, upgrade, clean, flatten)
 #   vmtest run <scenario-id> [--commit SHA]  the full lifecycle: freshness gate, overlay, boot, run.bash at the
 #                                            pinned commit, in-guest acceptance, transcript, verdict, destroy
+#   vmtest verify <run-id>                   check a bridge response's signature under the host-only key
 #   vmtest help
 #
 # `run` provisions from a PUSHED commit of the public repo (the branch tip on the
@@ -618,6 +619,19 @@ cmd_run() {
     [[ "${verdict}" == "pass" ]]
 }
 
+# ── verify: the only place a bridge response signature can be checked (§6.6 rule 11) ─────
+
+cmd_verify() {
+    local run_id="${1:?usage: vmtest verify <run-id>}" slug key
+    load_lab
+    [[ -d "${VMTEST_CHECKOUT:-}" ]] || die "${LAB_ENV} does not name an existing VMTEST_CHECKOUT; re-run play-vm-test-lab.yml"
+    slug="$(systemd-escape --path "${VMTEST_CHECKOUT}")"
+    key="${HOME}/.config/vmtest-bridge/${slug}/response.key"
+    [[ -r "${key}" ]] || die "no bridge signing key at ${key}; re-run play-vm-test-lab.yml"
+    helper verify_response --checkout "${VMTEST_CHECKOUT}" --key "${key}" --run-id "${run_id}"
+    log "verdict of record: ${HOME}/.local/state/vmtest-bridge/${slug}/service.log"
+}
+
 # ── dispatch ──────────────────────────────────────────────────────────────────────────────
 
 main() {
@@ -629,6 +643,7 @@ main() {
         fetch) cmd_fetch "$@" ;;
         build-base) cmd_build_base "$@" ;;
         run) cmd_run "$@" ;;
+        verify) cmd_verify "$@" ;;
         help | -h | --help) usage ;;
         *)
             usage >&2
