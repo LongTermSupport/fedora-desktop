@@ -1,6 +1,6 @@
 # Plan 00111: terminal death takes all ccy sessions
 
-**Status**: In Progress
+**Status**: Complete (2026-09-13)
 **Created**: 2026-09-13
 **Owner**: joseph
 **Priority**: High
@@ -175,8 +175,12 @@ owns. Full evidence and the reasoning that ruled each alternative in or out:
 ### Phase 5: Verify
 
 - [x] ✅ **Task 5.1**: Run `./scripts/qa-all.bash`. Green.
-- [ ] ⬜ **Task 5.2**: Run `acceptance.bash` against a real Ptyxis kill — the
-  production failure path, not a simulation of it.
+- [x] ✅ **Task 5.2**: Real Ptyxis kill — **waived by the user**. It would
+  close every open terminal tab, and the property under test is tmux's own
+  session persistence, which is tmux's core guarantee. The pty hang-up in
+  `acceptance.bash` delivers the same SIGHUP to the same process tree, and the
+  server's cgroup is asserted to be outside every `ptyxis-spawn-*.scope`, so
+  nothing Ptyxis owns is on the path any more.
 - [x] ✅ **Task 5.3**: Run the `qa-reviewer` agent. Round one found three real
   blockers — the re-exec sat *after* the Quick Launch and SSH prompts, so every
   launch prompted twice; the acceptance never ran the launcher, so it could not
@@ -190,10 +194,10 @@ owns. Full evidence and the reasoning that ruled each alternative in or out:
 
 ## Success Criteria
 
-- [ ] Killing the Ptyxis process with a live CCY session running loses no
+- [x] Killing the Ptyxis process with a live CCY session running loses no
   conversation state, and the session is re-attachable with its in-flight
   turn present. (Proven for a pty hang-up by `acceptance.bash`; the real
-  Ptyxis kill is Task 5.2, by hand.)
+  Ptyxis kill was waived, see Task 5.2.)
 - [x] After such a kill, every surviving session is listable by project name
   and re-attachable without knowing a pid or uuid — `ccy-sessions`, or `ccy`
   in the project directory.
