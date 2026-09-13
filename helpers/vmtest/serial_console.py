@@ -28,7 +28,10 @@ import socket
 import sys
 import time
 
-PROMPT_RE = re.compile(r"(Please enter passphrase for disk|Enter passphrase for|passphrase for disk)[^\n]*:\s*$")
+# systemd-ask-password on a serial console prints, without a trailing newline,
+# "Please enter passphrase for disk luks-…: (press TAB for no echo) ", so the prompt is
+# matched by its phrase, not by a colon at end of line.
+PROMPT_RE = re.compile(r"(Please enter passphrase for disk|Enter passphrase for)[^\n]*:")
 REFUSED_RE = re.compile(r"(Sorry, try again|No key available with this passphrase|Failed to activate with specified passphrase)")
 EXCERPT_LINES = 25
 

@@ -27,7 +27,8 @@ import unittest
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
-PROMPT = "Please enter passphrase for disk luks-1234 (cryptroot):"
+# Verbatim from a Fedora 44 guest's serial console: no trailing newline, and a hint after the colon.
+PROMPT = "\x1b[0;1;39mPlease enter passphrase for disk luks-49e43c29-ae1a-4d97-bb83-23a1b4d25ba1: (press TAB for no echo) \x1b[0m"
 
 
 class FakeGuest:
