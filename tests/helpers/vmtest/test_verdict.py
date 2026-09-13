@@ -253,6 +253,15 @@ class TestHeartbeat(unittest.TestCase):
         beat = self.heartbeat(service_unit={"active_state": "failed", "result": "exit-code"})
         self.assertEqual(verdict.assess_heartbeat(beat, now=NOW + 1, max_age=120).state, "wedged")
 
+    def test_a_path_unit_that_is_not_active_is_wedged_not_ok(self):
+        # Stopped or never started: nothing is watching, so a request would never be
+        # answered. The remedy therefore starts the path unit, not only resets it.
+        beat = self.heartbeat(path_unit={"active_state": "inactive", "result": "success"})
+        assessment = verdict.assess_heartbeat(beat, now=NOW + 1, max_age=120)
+        self.assertEqual(assessment.state, "wedged")
+        self.assertIn("inactive", assessment.reason)
+        self.assertIn("systemctl --user start vmtest-bridge@home-user-Projects-fedora-desktop.path", beat["remedy"])
+
     def test_absent_heartbeat_is_never_installed(self):
         assessment = verdict.assess_heartbeat(None, now=NOW, max_age=120)
         self.assertEqual(assessment.state, "absent")

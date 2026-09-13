@@ -125,8 +125,8 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 - [x] ✅ **T4.5**: `vmtest-bridge-heartbeat@.timer` — the §6.5 liveness signal (timer + `bridge_heartbeat.py`; heartbeat observed live)
 - [x] ✅ **T4.6**: Response state machine, HMAC signing, heartbeat (`verdict.py`; the watcher and units that write them are T4.3–T4.5)
 - [x] ✅ **T4.7**: `scripts/vmtest-request.bash` — container-side requester (`helpers/vmtest/request.py`; heartbeat first, distinct exit per outcome, states what it cannot verify; `vmtest verify <run-id>` is the host half)
-- [ ] ⬜ **T4.8**: Bridge selftest — every rejection path rejects **and** responds
-- [ ] ⬜ **T4.9**: Liveness selftest — wedge the unit, assert "bridge wedged"
+- [x] ✅ **T4.8**: Bridge selftest — every rejection path rejects **and** responds (`selftest-bridge.bash`: 11 cases green against the live bridge, incl. the hostile-spool refusal and the watcher rate limit)
+- [x] ✅ **T4.9**: Liveness selftest — wedge the unit, assert "bridge wedged" (`selftest-liveness.bash`: wedged reported with the remedy, exit 6, nothing written; the remedy restores service)
   rather than "timeout"
 - [ ] ⬜ **T4.10**: QA; commit
 

@@ -234,7 +234,11 @@ def aborted(document: dict, *, now: int, reason: str) -> dict:
 
 
 def remedy_for(slug: str) -> str:
-    return f"systemctl --user reset-failed vmtest-bridge@{slug}.path vmtest-bridge@{slug}.service"
+    """Clear a failed unit AND make sure the path unit is listening again; either half alone can leave the bridge deaf."""
+    return (
+        f"systemctl --user reset-failed vmtest-bridge@{slug}.path vmtest-bridge@{slug}.service"
+        f" && systemctl --user start vmtest-bridge@{slug}.path"
+    )
 
 
 def audit_log_for(slug: str) -> str:
@@ -276,4 +280,11 @@ def assess_heartbeat(document: dict | None, *, now: int, max_age: int) -> Heartb
                 "wedged",
                 f"the bridge {label} is failed ({unit.get('result')}); a human must run: {document.get('remedy')}",
             )
+    # A path unit that is not active is not watching: a request written now would never be
+    # answered. That is as deaf as a failed unit, and reported the same way.
+    if path_unit.get("active_state") != "active":
+        return HeartbeatAssessment(
+            "wedged",
+            f"the bridge path unit is {path_unit.get('active_state')}, not active; a human must run: {document.get('remedy')}",
+        )
     return HeartbeatAssessment("ok", "bridge alive")
