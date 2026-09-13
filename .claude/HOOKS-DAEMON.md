@@ -1,6 +1,6 @@
 # Hooks Daemon - Active Configuration
 
-> Generated on 2026-09-12 (v3.63.0) by `generate-docs`. Regenerate: `.claude/hooks-daemon/bin/hooks-daemon generate-docs`
+> Generated on 2026-09-13 (v3.63.0) by `generate-docs`. Regenerate: `.claude/hooks-daemon/bin/hooks-daemon generate-docs`
 
 ## Plan Mode
 
