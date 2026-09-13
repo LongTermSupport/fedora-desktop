@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-# ccy-sessions — see every CCY and cc session, return to a parked one, or end one.
+# ccy-sessions — see every CCY and cc session, return to a detached one, or end one.
 #
 # ccy and cc run each interactive session inside tmux on CCY's own server (see
 # docs/ccy.md "Sessions Survive the Terminal"), so a session outlives the terminal that
-# showed it. This is the way back: a picker you move through with the arrow keys. Enter
-# attaches, Ctrl-X ends a session, Ctrl-N starts a new ccy session in the current project
-# folder (by running ccy the normal way), Esc leaves. `ccy` and `cc` themselves offer
-# their own parked session when run in the project directory; this is for when you do
-# not remember which project, or want to see everything at once.
+# showed it. This is the way back: the same picker ccy and cc show themselves, over every
+# session at once. Arrow keys move; Enter attaches; Ctrl-X ends a session; Ctrl-N starts
+# a new ccy session in the current project folder (by running ccy the normal way); Esc or
+# q leaves. Nothing needs Enter after it.
 #
 # A session can be attached from ONE terminal only. One that is open elsewhere is shown
 # as such and Enter on it is refused — the tmux server enforces the same rule, so even a
@@ -21,6 +20,7 @@
 set -euo pipefail
 
 CCY_LIB="/var/local/claude-yolo/lib"
+CCY_LAUNCHER="/var/local/claude-yolo/claude-yolo"
 MAX_TRIES=3
 
 usage() {
@@ -51,52 +51,37 @@ if [[ ! -f "${CCY_LIB}/tmux-session.bash" ]]; then
     fi
     exit 1
 fi
-if [[ -z "$(command -v fzf)" ]]; then
-    echo "ccy-sessions needs fzf, which playbooks/imports/play-claude-yolo.yml installs. Run that play." >&2
-    exit 1
-fi
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../var/local/claude-yolo/lib/common-pure.bash
 source "${CCY_LIB}/common-pure.bash"
 # shellcheck source=../../../var/local/claude-yolo/lib/tmux-session.bash
 source "${CCY_LIB}/tmux-session.bash"
 
-# rows — one line per session for the picker: name, state, directory, columns aligned.
+# rows — every session as a picker row, in the library's house format.
 rows() {
-    local name attached dir state
+    local name attached dir
     while read -r name attached dir; do
         [[ -n "${name}" ]] || continue
-        if [[ "${attached}" == "0" ]]; then
-            state="parked"
-        else
-            state="open elsewhere"
-        fi
-        printf '%-28s  %-15s  %s\n' "${name}" "${state}" "${dir/#${HOME}/\~}"
+        ccy_tmux_row "${name}" "${attached}" "${dir}"
+        printf '\n'
     done < <(ccy_tmux_list)
 }
 
-# confirm_end <name> — end a session and everything in it, after a [y/N] that defaults No.
+# confirm_end <name> — end a session and everything in it, after the picker's yes/no
+# (no is the default row).
 confirm_end() {
-    local name="${1}" reply
-    printf "End '%s' and everything running in it? [y/N] " "${name}" >&2
-    if ! read -r reply </dev/tty; then
-        reply=""
-    fi
-    case "${reply}" in
-    y | Y | yes | YES)
+    local name="${1}"
+    if ccy_tmux_confirm "End ${name}?" "Everything running in it will be killed." "end '${name}'"; then
         ccy_tmux kill-session -t "=${name}"
         echo "Ended '${name}'." >&2
-        ;;
-    *)
+    else
         echo "Kept '${name}'." >&2
-        ;;
-    esac
+    fi
 }
 
 # A new session is only ever started the normal way — by running ccy itself, which does
 # every check and prompt it always does — and only from a project folder, which for ccy
 # means a git work tree. Anywhere else the key is shown as unavailable rather than hidden.
-CCY_LAUNCHER="/var/local/claude-yolo/claude-yolo"
 here="${PWD/#${HOME}/\~}"
 project_here() {
     local probe
@@ -108,68 +93,57 @@ start_ccy_here() {
 }
 
 if project_here; then
-    new_line="Ctrl-N start a new ccy session in ${here}"
+    new_line="Ctrl-N starts a new ccy session in ${here}"
 else
     new_line="Ctrl-N unavailable: ${here} is not a project folder (no git repository)"
 fi
-HEADER="↑↓ choose   Enter attach   Ctrl-X end the session   Esc quit
-${new_line}
-\"open elsewhere\" is attached in another terminal: it cannot be attached here, only ended."
+HEADER="$(ccy_tmux_header "Enter attach   Ctrl-X end   Ctrl-N new   Esc or q quit" \
+    "${new_line}" \
+    "\"open elsewhere\" is attached in another terminal: it can be ended here, not attached")"
 
 attempt=1
 while :; do
     listing="$(rows)"
     if [[ -z "${listing}" ]]; then
         if project_here; then
-            printf 'No CCY or cc sessions. Start ccy in %s? [Y/n] ' "${here}" >&2
-            if ! read -r reply </dev/tty; then
-                reply="n"
+            if ccy_tmux_confirm "CCY sessions" "No sessions are running. Start ccy in ${here}?" "start ccy here"; then
+                start_ccy_here
             fi
-            case "${reply}" in
-            "" | y | Y | yes | YES) start_ccy_here ;;
-            esac
             exit 0
         fi
-        echo "No CCY or cc sessions. Start one with ccy or cc in a project directory." >&2
+        echo "No CCY or cc sessions are running. Start one with ccy or cc in a project directory." >&2
         exit 0
     fi
-    # fzf prints the key that closed it (empty for Enter) on the first line, then the row.
-    if ! picked="$(fzf --height=~50% --reverse --no-multi --no-sort \
-        --prompt="session > " --header="${HEADER}" --expect=ctrl-x,ctrl-n <<<"${listing}")"; then
-        exit 0 # Esc, or nothing chosen
+    # The picker prints the key that closed it (empty for Enter), then the chosen row.
+    if ! picked="$(ccy_tmux_pick "CCY sessions" "${HEADER}" "ctrl-x,ctrl-n" <<<"${listing%$'\n'}")"; then
+        exit 0 # Esc or q
     fi
     key="${picked%%$'\n'*}"
     row="${picked#*$'\n'}"
     name="${row%% *}"
-    state="parked"
-    if [[ "${row}" == *"open elsewhere"* ]]; then
-        state="open elsewhere"
-    fi
 
-    if [[ "${key}" == "ctrl-n" ]]; then
+    case "${key}" in
+    ctrl-n)
         if project_here; then
             start_ccy_here
         fi
         echo "${here} is not a project folder (no git repository), so ccy cannot be started here." >&2
-        attempt=$((attempt + 1))
-        if [[ "${attempt}" -gt "${MAX_TRIES}" ]]; then
-            echo "Nothing started after ${MAX_TRIES} tries. Nothing changed." >&2
-            exit 1
-        fi
-        continue
-    fi
-    if [[ "${key}" == "ctrl-x" ]]; then
+        ;;
+    ctrl-x)
         confirm_end "${name}"
         continue
-    fi
-    if [[ "${state}" == "parked" ]]; then
-        if ccy_tmux_attach "${name}"; then
-            exit 0
+        ;;
+    *)
+        if [[ "${row}" != *"open elsewhere"* ]]; then
+            if ccy_tmux_attach "${name}"; then
+                exit 0
+            fi
+            echo "'${name}' was taken or ended just now — the list has been refreshed." >&2
+        else
+            echo "'${name}' is open in another terminal. Detach it there (F12, Detach), or end it here with Ctrl-X." >&2
         fi
-        echo "'${name}' was taken or ended just now — the list has been refreshed." >&2
-    else
-        echo "'${name}' is open in another terminal. Detach it there (F12, Detach), or end it here with Ctrl-X." >&2
-    fi
+        ;;
+    esac
     attempt=$((attempt + 1))
     if [[ "${attempt}" -gt "${MAX_TRIES}" ]]; then
         echo "Nothing attached after ${MAX_TRIES} tries. Nothing changed." >&2

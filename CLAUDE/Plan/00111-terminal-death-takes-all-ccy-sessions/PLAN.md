@@ -135,7 +135,7 @@ owns. Full evidence and the reasoning that ruled each alternative in or out:
   `get_project_name` as the container name. A launch re-attaches a *detached*
   session for the project if one exists, else takes the next free name.
 - [x] ✅ **Task 3.4**: No reaper. A session ends when the launcher exits; one
-  that outlives its terminal is the point. `tmux -L ccy ls` shows what is parked.
+  that outlives its terminal is the point. `tmux -L ccy ls` shows what is detached.
 
 ### Phase 4: Implement and deploy
 
@@ -145,14 +145,14 @@ owns. Full evidence and the reasoning that ruled each alternative in or out:
   `play-tmux-sessions.yml` and `tmux.conf` from Plan 00105 needed no change:
   the mechanism is CCY's, the tmux install is theirs. Deployed with
   `deploy.bash`. Two requirements added mid-plan by the user and delivered in
-  the same change: `ccy` *offers* a parked session (Enter attaches, `n` is new,
+  the same change: `ccy` *offers* a detached session (Enter attaches, `n` is new,
   `q` quits) rather than attaching silently; and one terminal per session is
   enforced twice — an open session is never offered, and a server-side
   `client-attached` hook detaches any second client, so a race cannot mirror
   one `claude` into two terminals.
 - [x] ✅ **Task 4.4**: `ccy-sessions` — a human command, not raw tmux
   incantations in the docs. An fzf picker of every session with state and
-  directory: arrows choose, Enter attaches a parked one, Ctrl-X ends one,
+  directory: arrows choose, Enter attaches a detached one, Ctrl-X ends one,
   Ctrl-N runs a normal `ccy` in the current directory (git project folders
   only), Esc leaves; an open-elsewhere row refuses Enter. The first cut was a numbered
   menu with `k<number>`, which the user found unclear; replaced the same day.

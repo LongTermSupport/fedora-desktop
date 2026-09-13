@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.53.0"  # Feature: the host cc wrapper gets the same tmux insulation as ccy (sessions cc-<project> on the shared server); ccy-sessions is an fzf picker (arrows, Enter attaches, Ctrl-X ends); get_project_name moved to common-pure.bash. See docs/ccy-changelog.md.
+CCY_VERSION="3.53.1"  # UI: the parked-session offer in ccy and cc is the same bordered fzf picker as ccy-sessions, drawn by shared library functions; single keystrokes throughout (Enter attach, Ctrl-N new, Esc or q quit). See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

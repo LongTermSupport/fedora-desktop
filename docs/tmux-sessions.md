@@ -40,8 +40,8 @@ Sessions are transient dev state by design. Nothing restarts them after a reboot
 `ccy` puts every interactive session into tmux automatically, on a separate server so that
 no session ever lands in a server a plain tab happened to start. Inside one, F12 and
 everything above work the same. A plain `tmux ls` does not list them: `ccy-sessions` is
-the menu for those — list, attach a parked one, end one — and `ccy` in a project directory
-offers its own parked session. The full behaviour, including the one-terminal-per-session
+the menu for those — list, attach a detached one, end one — and `ccy` in a project directory
+offers its own detached session. The full behaviour, including the one-terminal-per-session
 rule, is in [CCY: Sessions Survive the Terminal](ccy.md#sessions-survive-the-terminal).
 
 ## How you know you are inside one

@@ -156,29 +156,25 @@ the pty and the terminal only holds a disposable tmux client.
 What you see: the terminal's window title reads `tmux: ccy-<project>  (F12 then Detach leaves it running)`, one line at the top of the session says the same, and F12 opens the
 tmux menu ([tmux sessions](tmux-sessions.md)). Otherwise nothing changes — until a
 terminal dies.
-Then `ccy` in the project directory finds the parked session and offers it:
-
-```
-Detached CCY session(s) for this project:
-  1) ccy-my-app
-Attach [1], 'n' for a new session, 'q' to quit:
-```
-
-Enter re-attaches. A session that is open in another terminal is listed as such and is not
-offered: **a session can be attached from one terminal only**. The tmux server enforces it
-too — a second client attaching to an open session is detached again at once — so two
-terminals can never mirror one `claude`, whoever wins a race.
+Then `ccy` in the project directory finds the detached session and offers it in a picker:
+the same bordered list `ccy-sessions` uses, with the session name, its state and its
+directory. Enter re-attaches, Ctrl-N starts a new session instead, Esc or `q` leaves.
+Every key acts on its own; nothing needs Enter after it. A session that is open in
+another terminal is named in the header and is not offered: **a session can be attached
+from one terminal only**. The tmux server enforces it too — a second client attaching to
+an open session is detached again at once — so two terminals can never mirror one
+`claude`, whoever wins a race.
 
 `ccy-sessions` is the view across every project: a picker listing each session with its
-state and directory. Arrow keys choose, Enter attaches a parked one, Ctrl-X ends one (it
-asks first), Ctrl-N starts a new `ccy` session in the current directory, Esc leaves. A
-session that is open in another terminal says so and Enter on it is refused. Ctrl-N only
+state and directory. Arrow keys choose, Enter attaches a detached one, Ctrl-X ends one (it
+asks first), Ctrl-N starts a new `ccy` session in the current directory, Esc or `q`
+leaves. A session that is open in another terminal says so and Enter on it is refused. Ctrl-N only
 works from a project folder (a git repository) and simply runs `ccy` the normal way, with
 every check and prompt it always has. It is how you get back to work after a crash without
 remembering which projects were open.
 
 The host `cc` wrapper does all of the same: its sessions are `cc-<project>` on the same
-server, `cc` in a project directory offers a parked one back, and `ccy-sessions` lists
+server, `cc` in a project directory offers a detached one back, and `ccy-sessions` lists
 both kinds. From the keyboard the two feel identical; only the container differs.
 
 | Event                                              | Result                                                                                 |

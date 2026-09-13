@@ -27,7 +27,6 @@
 # CLAUDE/InteractiveScripts.md: strict validation, bounded re-prompt, EOF is a clean exit.
 
 CCY_TMUX_SOCKET="ccy"
-CCY_TMUX_MAX_TRIES=3
 # The launcher this library is serving, which names its sessions: ccy-<project> for the
 # container launcher, cc-<project> for the host wrapper (cc sets this before calling).
 # Both live on the one server, so ccy-sessions shows them side by side.
@@ -125,76 +124,94 @@ ccy_tmux_attach() {
 
 # ccy_tmux_offer <project> — when the project has detached sessions, ask what to do. Prints
 # exactly one line on stdout: "attach <name>", "create", or "quit". Prompts go to stderr.
-# EOF or a cancelled prompt is "quit" (InteractiveScripts rule 3); invalid input re-prompts
-# up to CCY_TMUX_MAX_TRIES (rule 2).
+# It is the same picker as ccy-sessions — one look for the whole human layer — shown only
+# when there is something to offer. Esc is "quit" (InteractiveScripts rule 3).
 ccy_tmux_offer() {
-    local project="$1" listing name attached
-    local -a detached=() in_use=()
+    local project="$1" listing name attached dir rows="" in_use=""
     listing=$(ccy_tmux_project_sessions "$project") || return 1
-    while read -r name attached _; do
+    while read -r name attached dir; do
         [[ -n "$name" ]] || continue
         if [[ "$attached" == "0" ]]; then
-            detached+=("$name")
+            rows+="$(ccy_tmux_row "$name" "$attached" "$dir")"$'\n'
         else
-            in_use+=("$name")
+            in_use+="${in_use:+, }$name"
         fi
     done <<<"$listing"
 
-    if [[ ${#in_use[@]} -gt 0 ]]; then
-        echo "Open in other terminals (not offered): ${in_use[*]}" >&2
-    fi
-    if [[ ${#detached[@]} -eq 0 ]]; then
+    if [[ -z "$rows" ]]; then
+        if [[ -n "$in_use" ]]; then
+            echo "Open in other terminals: ${in_use}. Starting a new session." >&2
+        fi
         printf 'create\n'
         return 0
     fi
 
-    echo "Detached CCY session(s) started from ${PWD/#${HOME}/\~}:" >&2
-    local i
-    for i in "${!detached[@]}"; do
-        printf '  %d) %s\n' "$((i + 1))" "${detached[$i]}" >&2
-    done
-
-    local attempt=1 reply range=""
-    if [[ ${#detached[@]} -gt 1 ]]; then
-        range=" or a number up to ${#detached[@]}"
+    local header picked key row
+    header="$(ccy_tmux_header "Enter attach   Ctrl-N new session   Esc or q quit" \
+        "Detached sessions started from ${PWD/#${HOME}/\~}" \
+        "${in_use:+Open in other terminals (cannot be attached): ${in_use}}")"
+    if ! picked="$(ccy_tmux_pick "${CCY_TMUX_SESSION_PREFIX}: a session is detached here" "$header" "ctrl-n" <<<"${rows%$'\n'}")"; then
+        echo "Nothing started." >&2
+        printf 'quit\n'
+        return 0
     fi
-    while :; do
-        printf "Attach [1]%s, 'n' for a new session, 'q' to quit: " "$range" >&2
-        if ! read -r reply </dev/tty; then
-            echo >&2
-            echo "Cancelled. Nothing started." >&2
-            printf 'quit\n'
-            return 0
-        fi
-        case "$reply" in
-        "" | 1)
-            printf 'attach %s\n' "${detached[0]}"
-            return 0
-            ;;
-        n | N)
-            printf 'create\n'
-            return 0
-            ;;
-        q | Q)
-            echo "Nothing started." >&2
-            printf 'quit\n'
-            return 0
-            ;;
-        *)
-            if [[ "$reply" =~ ^[0-9]+$ ]] && ((reply >= 1 && reply <= ${#detached[@]})); then
-                printf 'attach %s\n' "${detached[$((reply - 1))]}"
-                return 0
-            fi
-            echo "  '$reply' is not a listed number, 'n' or 'q' — let's try again." >&2
-            ;;
-        esac
-        attempt=$((attempt + 1))
-        if [[ "$attempt" -gt "$CCY_TMUX_MAX_TRIES" ]]; then
-            echo "Giving up after $CCY_TMUX_MAX_TRIES attempts. Nothing started." >&2
-            printf 'quit\n'
-            return 0
-        fi
+    key="${picked%%$'\n'*}"
+    row="${picked#*$'\n'}"
+    if [[ "$key" == "ctrl-n" ]]; then
+        printf 'create\n'
+        return 0
+    fi
+    printf 'attach %s\n' "${row%% *}"
+}
+
+# ── the shared picker: one look for ccy, cc and ccy-sessions ─────────────────────────────
+
+# ccy_tmux_row <name> <attached> <dir> — one aligned picker row. The state words are what
+# the pickers test for, so they are defined once here.
+ccy_tmux_row() {
+    local state="detached"
+    if [[ "$2" != "0" ]]; then
+        state="open elsewhere"
+    fi
+    printf '%-28s  %-15s  %s' "$1" "$state" "${3/#${HOME}/\~}"
+}
+
+# ccy_tmux_confirm <title> <question> <yes-label> — a yes/no question in the same picker,
+# so no prompt in the human layer is a bare read. The safe answer is the first row and
+# therefore the default; Esc or q is "no" too. Returns 0 only when the yes row is chosen.
+ccy_tmux_confirm() {
+    local picked
+    if ! picked="$(ccy_tmux_pick "$1" "$(ccy_tmux_header "Enter choose   Esc or q back" "$2")" "" \
+        <<<"No, leave it as it is"$'\n'"Yes, $3")"; then
+        return 1
+    fi
+    [[ "${picked#*$'\n'}" == "Yes, "* ]]
+}
+
+# ccy_tmux_header <keys line> [more lines...] — the picker header: the key legend first,
+# then any context lines; empty ones are dropped.
+ccy_tmux_header() {
+    local line out="↑↓ choose   $1"
+    shift
+    for line in "$@"; do
+        [[ -n "$line" ]] && out+=$'\n'"$line"
     done
+    printf '%s' "$out"
+}
+
+# ccy_tmux_pick <title> <header> <expect-keys> — run fzf over the rows on stdin with the
+# house style: a bordered, padded box with the title on its frame, the legend above the
+# rows, one keystroke per action (q quits as well as Esc, so nothing needs Enter after
+# it). Prints "<key>\n<row>" (key empty for Enter); non-zero on Esc or q.
+ccy_tmux_pick() {
+    if [[ -z "$(command -v fzf)" ]]; then
+        print_error "fzf is not installed; playbooks/imports/play-claude-yolo.yml installs it."
+        return 1
+    fi
+    fzf --height=~70% --layout=reverse --no-multi --no-sort --no-info \
+        --border=rounded --border-label=" $1 " --border-label-pos=3 \
+        --margin=1,2 --padding=1,2 --header-first --pointer='▶' \
+        --prompt="filter > " --header="$2"$'\n' --expect="$3" --bind='q:abort'
 }
 
 # ccy_tmux_insulate <project> <command> [args...] — the launcher's entry point.

@@ -23,7 +23,7 @@ Two version numbers move independently — see
 
 - The host `cc` wrapper re-executes itself inside tmux before its token chooser, exactly
   as `ccy` does, on the same server. Its sessions are `cc-<project>`; `cc` in a project
-  directory offers a parked one back; `ccy-sessions` lists both kinds. From the keyboard
+  directory offers a detached one back; `ccy-sessions` lists both kinds. From the keyboard
   it feels the same as `ccy` — the only difference is that nothing is in a container.
 - `ccy-sessions` uses fzf: arrow keys to choose, Enter attaches, Ctrl-X ends a session
   (after a [y/N]), Ctrl-N starts a new `ccy` in the current directory by running `ccy`
@@ -34,6 +34,10 @@ Two version numbers move independently — see
   only the engine-free library, names its session the same way `ccy` names its container.
 - The terminal's window title now reads `tmux: <session>  (F12 then Detach leaves it running)` inside any session, via the system-wide `tmux.conf` from `play-tmux-sessions.yml`.
   With the status bar off it is the one visible sign of being inside tmux.
+- One picker for the whole human layer. The offer `ccy` and `cc` show for a detached session
+  is the same bordered fzf list as `ccy-sessions` — name, state, directory — drawn by
+  shared library functions, with room around it and a title on the frame. Every key acts on
+  its own: Enter attaches, Ctrl-N is new, Esc or `q` leaves; no Enter after a letter.
 
 ## 3.52.1
 

@@ -93,7 +93,12 @@ pid_gone() { ! pid_alive "${1}"; }
 open_fake_terminal() {
     local log="${1}" keys="${2}"
     shift 2
-    printf '%s' "${keys}" | python3 -c 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]))' \
+    # The keystrokes are typed after a pause: fzf flushes pending input when it takes the
+    # terminal into raw mode, so a key sent before the picker is up is discarded.
+    (
+        sleep 3
+        printf '%s' "${keys}"
+    ) | python3 -c 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]))' \
         bash -c "$@" >"${log}" 2>&1 &
     printf '%s\n' "$!"
 }
@@ -108,8 +113,12 @@ raw_attach_client() {
 
 # The stand-in "launcher" invocation, sourced libs first. Shared by start and reattach so
 # both go through the identical production entry point. The dollars are escaped because
-# they are expanded inside the fake terminal's bash, not here.
-entry_point="source \"\$1/common-pure.bash\" && source \"\$1/tmux-session.bash\" && ccy_tmux_insulate \"\$2\" \"\${@:3}\""
+# they are expanded inside the fake terminal's bash, not here. It runs from a scratch
+# directory of its own: the offer matches parked sessions by directory, so running from
+# the repo root would find the operator's own parked session and offer that instead.
+stand_in_dir="${state}/stand-in"
+mkdir -p "${stand_in_dir}"
+entry_point="cd '${stand_in_dir}' && source \"\$1/common-pure.bash\" && source \"\$1/tmux-session.bash\" && ccy_tmux_insulate \"\$2\" \"\${@:3}\""
 
 # ── steps ────────────────────────────────────────────────────────────────────────────────
 
@@ -185,17 +194,20 @@ assert-survived)
     ;;
 
 reattach)
-    # The offer is answered with Enter (default: attach). The stand-in would exit 99 at once
-    # if it ran; attaching means it must NOT run.
-    open_fake_terminal "${state}/terminal-2.log" $'\n' "${entry_point}" _ "${CCY_LIB_DEPLOYED}" "${project}" bash -c 'exit 99' \
+    # The offer is a picker; Enter on its first row attaches. The stand-in would exit 99 at
+    # once if it ran; attaching means it must NOT run. fzf reads the tty in raw mode, so the
+    # keystroke is a carriage return.
+    open_fake_terminal "${state}/terminal-2.log" $'\r' "${entry_point}" _ "${CCY_LIB_DEPLOYED}" "${project}" bash -c 'exit 99' \
         >"${state}/terminal-2.pid"
     wait_for 15 "session ${session} re-attached" session_attached_is 1
     if [[ "$(tmux -L ccy list-panes -t "=${session}" -F '#{pane_pid}')" != "$(<"${state}/pane.pid")" ]]; then
         printf '[FAIL] a new session was started instead of re-attaching the detached one\n' >&2
         exit 1
     fi
-    if ! grep -q 'Detached CCY session' "${state}/terminal-2.log"; then
-        printf '[FAIL] the offer was not shown:\n' >&2
+    # fzf draws straight to the tty and little of it survives in the log; the offer's own
+    # "Attaching to" line is the proof that the attach branch was chosen through it.
+    if ! grep -q "Attaching to '${session}'" "${state}/terminal-2.log"; then
+        printf '[FAIL] the offer did not take the attach branch:\n' >&2
         cat "${state}/terminal-2.log" >&2
         exit 1
     fi
@@ -216,13 +228,14 @@ bounce)
     ;;
 
 offer-new)
-    # Kill terminal 2 so the session is detached again, then answer the offer with 'n':
-    # a second session for the same project must appear, and the first must be untouched.
+    # Kill terminal 2 so the session is detached again, then answer the offer with Ctrl-N
+    # (byte 0x0e): a second session for the same project must appear, and the first must be
+    # untouched.
     tpid="$(<"${state}/terminal-2.pid")"
     kill -KILL "${tpid}"
     wait_for 5 "terminal 2 to die" pid_gone "${tpid}"
     wait_for 5 "session ${session} detached again" session_attached_is 0
-    open_fake_terminal "${state}/terminal-4.log" $'n\n' "${entry_point}" _ "${CCY_LIB_DEPLOYED}" "${project}" sleep 600 \
+    open_fake_terminal "${state}/terminal-4.log" $'\x0e' "${entry_point}" _ "${CCY_LIB_DEPLOYED}" "${project}" sleep 600 \
         >"${state}/terminal-4.pid"
     wait_for 15 "second session ${session}-2 attached" named_session_attached_is "${session}-2" 1
     if ! session_attached_is 0; then
