@@ -768,7 +768,8 @@ session_provision() {
 # environment the runner inherited (T5.3b, diffed against a transient user unit) and a
 # screenshot of the framebuffer, with the boundary stated next to it.
 collect_desktop_evidence() {
-    local transcript="${1:?}" shot="${RUN_DIR}/screenshot.ppm"
+    # virsh screenshot writes PNG for a VNC-backed display whatever the name says.
+    local transcript="${1:?}" shot="${RUN_DIR}/screenshot.png"
     guest_ssh "cat ${GUEST_RUN_STATE}/session.env" >"${RUN_DIR}/session.env" 2>&1 || log "no session.env in the guest"
     guest_ssh "systemd-run --user --pipe --quiet --wait env | sort" >"${RUN_DIR}/transient-unit.env" 2>&1 || log "could not probe the transient-unit environment"
     if [[ -s "${RUN_DIR}/session.env" && -s "${RUN_DIR}/transient-unit.env" ]]; then
@@ -777,7 +778,7 @@ collect_desktop_evidence() {
             "$(comm -23 <(cut -d= -f1 "${RUN_DIR}/session.env" | sort) <(cut -d= -f1 "${RUN_DIR}/transient-unit.env" | sort) | tr '\n' ',')" >>"${transcript}"
     fi
     if virsh -c "${LIBVIRT_URI}" screenshot "${DOMAIN}" "${shot}" >&2; then
-        printf 'VMTEST-EVIDENCE screenshot=runs/%s/screenshot.ppm (evidence only: proves the compositor produced a frame, not that the frame is correct)\n' \
+        printf 'VMTEST-EVIDENCE screenshot=runs/%s/screenshot.png (evidence only: proves the compositor produced a frame, not that the frame is correct)\n' \
             "$(basename "${RUN_DIR}")" >>"${transcript}"
     else
         log "screenshot failed (recorded as absent)"

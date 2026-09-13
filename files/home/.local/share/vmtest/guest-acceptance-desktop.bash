@@ -165,12 +165,17 @@ else
     check fail gnome-shell-running "${shell_version}"
 fi
 
-# Every extension the session has enabled must be ACTIVE, not merely enabled: this is the
-# check verify_extension.py cannot make without a session.
-enabled="$(gsettings get org.gnome.shell enabled-extensions 2>&1 | tr -d "[]'," | tr ' ' '\n' | grep -v '^$')"
+# Every extension the REPO deploys — the user extensions run.bash installed under
+# ~/.local/share/gnome-shell/extensions — must report ACTIVE in the live session, not
+# merely be enabled in a settings list: this is the check verify_extension.py cannot make
+# without a session (§5.4). Fedora's own system extensions (background-logo) are not the
+# repo's and are recorded as evidence only.
+deployed="$(find "${HOME}/.local/share/gnome-shell/extensions" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>&1 | sort)"
+enabled_live="$(gnome-extensions list --enabled 2>&1 | sort | tr '\n' ',')"
+enabled_settings="$(gsettings get org.gnome.shell enabled-extensions 2>&1)"
 inactive=""
 active_count=0
-for uuid in ${enabled}; do
+for uuid in ${deployed}; do
     state="$(gnome-extensions info "${uuid}" 2>&1 | grep -E '^\s*State:' | awk '{print $2}')"
     if [[ "${state}" == "ACTIVE" ]]; then
         active_count=$((active_count + 1))
@@ -178,12 +183,12 @@ for uuid in ${enabled}; do
         inactive="${inactive} ${uuid}=${state:-unknown}"
     fi
 done
-if [[ -z "${enabled}" ]]; then
-    check fail enabled-extensions-active "no extensions enabled in the session (the repo enables several)"
+if [[ -z "${deployed}" ]]; then
+    check fail deployed-extensions-active "no user extensions under ~/.local/share/gnome-shell/extensions (the repo installs several)"
 elif [[ -z "${inactive}" ]]; then
-    check pass enabled-extensions-active "${active_count} active"
+    check pass deployed-extensions-active "${active_count} deployed, all ACTIVE"
 else
-    check fail enabled-extensions-active "not ACTIVE:${inactive}"
+    check fail deployed-extensions-active "not ACTIVE:${inactive}"
 fi
 
 # ── evidence (never a check; §6.6 rule 04, §5.3b) ─────────────────────────────────────
@@ -195,7 +200,11 @@ evidence repo_commit "${head}"
 evidence default_target "${default_target}"
 evidence session_type "$(printf '%s' "${session_facts}" | grep -oE 'Type=[a-z0-9]+' | cut -d= -f2)"
 evidence gnome_shell_version "${shell_version#GNOME Shell }"
-evidence enabled_extensions "$(printf '%s' "${enabled}" | tr '\n' ',')"
+evidence deployed_extensions "$(printf '%s' "${deployed}" | tr '\n' ',')"
+evidence enabled_extensions_live "${enabled_live}"
+evidence enabled_extensions_settings "${enabled_settings}"
+evidence disable_user_extensions "$(gsettings get org.gnome.shell disable-user-extensions 2>&1)"
+evidence system_extensions "$(find /usr/share/gnome-shell/extensions -mindepth 1 -maxdepth 1 -type d -printf '%f,' 2>&1)"
 session_env_count=0
 if [[ -r /var/lib/vmtest/session.env ]]; then
     session_env_count="$(wc -l </var/lib/vmtest/session.env)"
