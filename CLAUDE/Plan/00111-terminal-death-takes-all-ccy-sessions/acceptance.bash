@@ -87,6 +87,8 @@ plan_deploy_leg "a raw second attach to the open session is bounced by the serve
     bash "${STEPS}" bounce "${STATE}"
 plan_deploy_leg "answering the offer with n starts a -2 session, leaves the first alone" \
     bash "${STEPS}" offer-new "${STATE}"
+plan_deploy_leg "the yes/no picker and ccy-sessions open and close cleanly" \
+    bash "${STEPS}" pickers "${STATE}"
 plan_deploy_leg "deployed launcher: --help prints and exits with no session" \
     bash "${STEPS}" real-help "${STATE}"
 plan_deploy_leg "deployed launcher: enters tmux before its first prompt" \

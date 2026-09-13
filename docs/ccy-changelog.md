@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.53.2
+
+**`ccy-sessions` failed with "key names required".** The yes/no picker (end a session,
+start ccy when nothing is running) passed an empty `--expect` to fzf, which refuses it.
+The flag is now passed only when there are keys. Plan 00111's acceptance drives both the
+yes/no picker and `ccy-sessions` itself, so an fzf usage error cannot ship again.
+
 ## 3.53.0
 
 **`cc` survives the terminal too, and `ccy-sessions` is a real picker.**

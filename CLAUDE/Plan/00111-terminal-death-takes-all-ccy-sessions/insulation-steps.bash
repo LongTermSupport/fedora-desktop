@@ -336,6 +336,32 @@ PY
     printf 'deployed cc entered tmux before its token chooser, as cc-ccyaccept-real\n'
     ;;
 
+pickers)
+    # The two picker shapes the human layer uses, driven for real in a fake terminal: the
+    # yes/no confirm (no --expect keys) answered with q must return 1, and the deployed
+    # ccy-sessions list left with Esc must exit 0. Neither may print an fzf usage error.
+    open_fake_terminal "${state}/confirm.log" "q" \
+        "source '${CCY_LIB_DEPLOYED}/common-pure.bash' && source '${CCY_LIB_DEPLOYED}/tmux-session.bash' && if ccy_tmux_confirm 'Acceptance' 'Say no.' 'do it'; then echo CONFIRM-RC=0; else echo CONFIRM-RC=1; fi" \
+        >"${state}/confirm.pid"
+    wait_for 15 "confirm picker to exit" pid_gone "$(<"${state}/confirm.pid")"
+    if ! grep -q 'CONFIRM-RC=1' "${state}/confirm.log" || grep -q -i 'key names required' "${state}/confirm.log"; then
+        printf '[FAIL] the yes/no picker did not answer no cleanly:\n' >&2
+        tr -d '\r' <"${state}/confirm.log" >&2
+        exit 1
+    fi
+    mkdir -p "${state}/ccyaccept/real"
+    git -C "${state}/ccyaccept/real" init -q
+    open_fake_terminal "${state}/list.log" $'\x1b' "cd '${state}/ccyaccept/real' && ${HOME}/.local/bin/ccy-sessions; echo LIST-RC=\$?" \
+        >"${state}/list.pid"
+    wait_for 15 "ccy-sessions to exit" pid_gone "$(<"${state}/list.pid")"
+    if ! grep -q 'LIST-RC=0' "${state}/list.log" || grep -q -i 'key names required' "${state}/list.log"; then
+        printf '[FAIL] ccy-sessions did not open and close cleanly:\n' >&2
+        tr -d '\r' <"${state}/list.log" >&2
+        exit 1
+    fi
+    printf 'yes/no picker answered no with q; ccy-sessions opened and closed with Esc\n'
+    ;;
+
 not-applicable)
     # Inside tmux already: must return 0 without exec'ing, so `false` never runs and the
     # exit status is the function's own. Same entry point string as the real steps.
@@ -352,7 +378,7 @@ not-applicable)
     ;;
 
 cleanup)
-    for f in "${state}"/terminal-*.pid "${state}"/real-*.pid; do
+    for f in "${state}"/terminal-*.pid "${state}"/real-*.pid "${state}"/confirm.pid "${state}"/list.pid; do
         if [[ -f "${f}" ]] && pid_alive "$(<"${f}")"; then
             kill -KILL "$(<"${f}")"
         fi

@@ -208,10 +208,21 @@ ccy_tmux_pick() {
         print_error "fzf is not installed; playbooks/imports/play-claude-yolo.yml installs it."
         return 1
     fi
-    fzf --height=~70% --layout=reverse --no-multi --no-sort --no-info \
+    # fzf refuses an empty --expect ("key names required"), so the flag is only passed when
+    # there are keys; the "<key>\n<row>" shape is kept either way.
+    local -a expect=()
+    if [[ -n "$3" ]]; then
+        expect=(--expect="$3")
+    fi
+    local out
+    out=$(fzf --height=~70% --layout=reverse --no-multi --no-sort --no-info \
         --border=rounded --border-label=" $1 " --border-label-pos=3 \
         --margin=1,2 --padding=1,2 --header-first --pointer='▶' \
-        --prompt="filter > " --header="$2"$'\n' --expect="$3" --bind='q:abort'
+        --prompt="filter > " --header="$2"$'\n' --bind='q:abort' "${expect[@]}") || return $?
+    if [[ ${#expect[@]} -eq 0 ]]; then
+        printf '\n'
+    fi
+    printf '%s\n' "$out"
 }
 
 # ccy_tmux_insulate <project> <command> [args...] — the launcher's entry point.
