@@ -32,6 +32,11 @@ _CHECK_RE = re.compile(r"^VMTEST-CHECK (pass|fail|skip) (\S+)(?: (.*))?$")
 _EVIDENCE_RE = re.compile(r"^VMTEST-EVIDENCE ([A-Za-z0-9_]+)=(.*)$")
 _DONE_RE = re.compile(r"^VMTEST-CHECKS-DONE total=(\d+) passed=(\d+) failed=(\d+) skipped=(\d+)$")
 _EXIT_RE = re.compile(r"^RUN-BASH-EXIT (\d+)$")
+# §4.4a: the product's own upgrade transaction is the refresh probe. Ansible prints the
+# task header, then one status line per host for it.
+_UPGRADE_TASK_RE = re.compile(r"^TASK \[Upgrade all packages to latest available\]")
+_TASK_RE = re.compile(r"^TASK \[")
+_STATUS_RE = re.compile(r"^(ok|changed|failed|fatal|skipping): \[")
 _RECAP_RE = re.compile(
     r"^\S+\s+:\s+ok=(\d+)\s+changed=(\d+)\s+unreachable=(\d+)\s+failed=(\d+)\s+"
     r"skipped=(\d+)\s+rescued=(\d+)\s+ignored=(\d+)\s*$"
@@ -58,6 +63,7 @@ class Transcript:
     run_bash_exit: int | None
     recaps: tuple[dict[str, int], ...]
     evidence: dict[str, str]
+    upgrade_changed: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -76,8 +82,15 @@ def parse(text: str) -> Transcript:
     run_bash_exit = None
     recaps: list[dict[str, int]] = []
     evidence: dict[str, str] = {}
+    upgrade_changed: bool | None = None
+    in_upgrade_task = False
     for raw in text.splitlines():
         line = raw.rstrip("\r")
+        if _TASK_RE.match(line):
+            in_upgrade_task = bool(_UPGRADE_TASK_RE.match(line))
+        elif in_upgrade_task and _STATUS_RE.match(line):
+            upgrade_changed = line.startswith("changed:")
+            in_upgrade_task = False
         if line.startswith("VMTEST-CHECK-PLANNED"):
             match = _PLANNED_RE.match(line)
             if not match:
@@ -114,6 +127,7 @@ def parse(text: str) -> Transcript:
         run_bash_exit=run_bash_exit,
         recaps=tuple(recaps),
         evidence=evidence,
+        upgrade_changed=upgrade_changed,
     )
 
 

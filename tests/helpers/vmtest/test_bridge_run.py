@@ -37,7 +37,14 @@ RUN_ID = f"{STAMP}-{SCENARIO}"
 
 FAKE_VMTEST = """#!/usr/bin/bash
 set -euo pipefail
-# fake vmtest: `run <scenario>` writes a run directory and prints the marker
+# fake vmtest: `run <scenario>` writes a run directory and prints the marker;
+# `refresh-base <target>` prints what a rebuild prints
+if [[ "$1" == refresh-base ]]; then
+    printf 'VMTEST-BASE-BUILT server-fast-44 /lab/bases/server-fast-44/base.qcow2 refresh_state=complete\\n'
+    [[ "${{FAKE_VERDICT}}" == pass ]] || {{ echo 'ERROR: guest did not answer SSH' >&2; exit 1; }}
+    printf 'VMTEST-REFRESH-DONE refreshed=1\\n'
+    exit 0
+fi
 [[ "$1" == run ]] || {{ echo "fake vmtest: unexpected subcommand $1" >&2; exit 64; }}
 run_id="{run_id}"
 dir="$VMTEST_HOME/runs/$run_id"
@@ -251,8 +258,27 @@ class TestOtherVerbs(BridgeRunCase):
         self.assertEqual(response["evidence"]["allowlist"], [SCENARIO])
         self.assertFalse((self.state / "in-flight").exists())
 
+    def test_refresh_base_finishes_pass_with_the_bases_it_built(self):
+        name = self.plant_accepted(verb="refresh-base", argument="server", run_id=f"{STAMP}-server", planned=None)
+        result = self.run_scope(name, "refresh-base", "server")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        response = self.response(name)
+        self.assertEqual(response["verdict"], "pass")
+        self.assertEqual(len(response["evidence"]["bases_built"]), 1)
+        self.assertIn("server-fast-44", response["evidence"]["bases_built"][0])
+        self.assertFalse((self.state / "in-flight").exists())
+
+    def test_refresh_base_that_dies_is_a_finished_error_at_base(self):
+        name = self.plant_accepted(verb="refresh-base", argument="server", run_id=f"{STAMP}-server", planned=None)
+        result = self.run_scope(name, "refresh-base", "server", fake_verdict="fail")
+        self.assertNotEqual(result.returncode, 0)
+        response = self.response(name)
+        self.assertEqual(response["verdict"], "error")
+        self.assertEqual(response["failure"]["stage"], "base")
+        self.assertIn("did not answer SSH", response["failure"]["reason"])
+
     def test_unimplemented_verbs_finish_as_error_not_silence(self):
-        for verb, argument in (("lab-status", None), ("refresh-base", "server"), ("abort-run", None)):
+        for verb, argument in (("lab-status", None), ("abort-run", None)):
             with self.subTest(verb=verb):
                 name = self.plant_accepted(verb=verb, argument=argument, run_id=f"{STAMP}-{argument or verb}", planned=None)
                 result = self.run_scope(name, verb, argument)

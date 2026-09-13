@@ -147,9 +147,9 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 ### Phase 6: Freshness automation, retention and guards
 
 - [x] ✅ **T6.1**: Wire the Phase-1 policy into `vmtest` (`freshness_gate.py`, consulted by `vmtest run` before every clone; landed early with Phase 3)
-- [ ] ⬜ **T6.2**: `refresh-base` — **no refresh boot**, the run's own transaction
-  is the probe
-- [ ] ⬜ **T6.2a**: Tests for the two traps this section was built from
+- [x] ✅ **T6.2**: `refresh-base` — **no refresh boot**, the run's own transaction
+  is the probe (`refresh.py`: the run's upgrade result + guest-seen revision → current | stale | incomplete | unknown; a passing `current` run certifies `base.json` forward with no boot; `stale` names `vmtest refresh-base`, which for a fast base is a re-import — the provisioned overlay is never flattened into a base, see JOURNAL 19:35)
+- [x] ✅ **T6.2a**: Tests for the two traps this section was built from (B7 lag → `incomplete` never `current`; B6 unreadable identity → `unknown`, in `test_freshness`)
 - [ ] ⬜ **T6.2b**: Host-side DNF cache, plus the periodic **cache-cold** scenario
 - [x] ✅ **T6.3**: Nightly freshness probe that **only reports** (`vmtest freshness-status` → `freshness-status.txt`; `vmtest-nightly.timer` at 03:30; a base needing a rebuild shows as the unit failing, never as a rebuild)
 - [x] ✅ **T6.4**: Disk-space floor (`retention.py`: floor + RAM ceiling refused before every run and rebuild; `vmtest sweep` keeps the last N passing runs and every failed one, drops failed fast builds, bounds `quarantine/` and `responses/` through the pinned spool; every eviction logged)

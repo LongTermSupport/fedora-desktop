@@ -229,6 +229,40 @@ class Scope:
         final["evidence"] = evidence
         return final
 
+    def refresh_base(self, stub: dict) -> dict:
+        """`vmtest refresh-base <server|desktop|all>`: a rebuild, so the same heartbeat loop; no judge."""
+        run_id = stub["run_id"]
+        log_dir = pathlib.Path(self.args.state_dir) / "runs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / f"{run_id}.log"
+        with log_path.open("wb") as log:
+            proc = subprocess.Popen([str(self.args.vmtest), "refresh-base", self.args.argument], stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+            while True:
+                try:
+                    proc.wait(timeout=self.args.heartbeat_seconds)
+                    break
+                except subprocess.TimeoutExpired:
+                    self.write_response(verdict.running(self.document, now=self.clock.now()))
+                    self.audit.record(self.clock.now(), "heartbeat", self.args.request, run_id)
+        log_text = log_path.read_text(encoding="utf-8", errors="replace")
+        built = [line for line in log_text.splitlines() if line.startswith("VMTEST-BASE-BUILT ")]
+        if proc.returncode != 0 or not any(line.startswith("VMTEST-REFRESH-DONE ") for line in log_text.splitlines()):
+            stage, reason = infer_failure(log_text)
+            return verdict.errored(self.document, now=self.clock.now(), stage="base", reason=f"vmtest refresh-base exited {proc.returncode} during {stage}: {reason}")
+        now = self.clock.now()
+        judged = {
+            "state": verdict.STATE_FINISHED,
+            "verdict": "pass",
+            "verb": stub["verb"],
+            "argument": stub["argument"],
+            "run_id": run_id,
+            "finished_at": verdict._iso(now),
+            "checks": {"planned": None, "total": None, "passed": None, "failed": None, "skipped": None},
+            "failure": None,
+            "evidence": {"bases_built": built},
+        }
+        return verdict.finished(self.document, judged)
+
     def list_scenarios(self, stub: dict) -> dict:
         home = pathlib.Path(os.environ.get("VMTEST_HOME", str(pathlib.Path.home() / ".local" / "share" / "vmtest")))
         manifest = json.loads((home / "scenarios.json").read_text(encoding="utf-8"))
@@ -262,7 +296,7 @@ class Scope:
         stub = load_stub(self.fds["responses"], self.key, self.args)
         self.write_response(verdict.running(stub, now=self.clock.now()))
         self.audit.record(self.clock.now(), "running", self.args.request, stub["run_id"])
-        handlers = {"run-scenario": self.run_scenario, "list-scenarios": self.list_scenarios}
+        handlers = {"run-scenario": self.run_scenario, "list-scenarios": self.list_scenarios, "refresh-base": self.refresh_base}
         try:
             final = handlers.get(self.args.verb, self.not_implemented)(stub)
         except Exception as exc:

@@ -287,6 +287,24 @@ has not moved since compose), so the reinstall trigger fires on a Fedora version
 change or the rebuild backstop, and the check's value is proving that the media
 and the branch still agree.
 
+## Keeping a base fresh without a refresh boot
+
+Every run performs the product's own package upgrade on its overlay, and the
+transcript records whether that transaction changed anything and which
+updates revision the **guest** saw. Judged against the revision the probe read
+from the canonical host, the run's `evidence.refresh.state` is one of:
+
+| State        | Meaning                                                                                      | What happens                                                           |
+| ------------ | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `current`    | the guest had caught up with the probe and the upgrade changed nothing                       | a **passing** run advances `base.json` to that revision; no extra boot |
+| `stale`      | the guest had caught up and the upgrade changed packages                                     | the run says so; refresh with `vmtest refresh-base <base-key>`         |
+| `incomplete` | the guest's mirror was behind the probe, so nothing was checked against the current revision | nothing is certified; the base stays as it was                         |
+| `unknown`    | the transcript did not carry the upgrade result or a revision                                | nothing is certified                                                   |
+
+A fast base's refresh is a rebuild from the published image (minutes). The
+overlay of a provisioned run is never flattened into a base: a base is a fresh
+install plus updates, and a provisioned system is not one.
+
 ## Nightly report and retention
 
 `vmtest-nightly.timer` runs `vmtest nightly` at 03:30: a freshness report,

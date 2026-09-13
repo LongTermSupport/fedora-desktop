@@ -28,7 +28,7 @@ import json
 import pathlib
 import sys
 
-from helpers.vmtest import basejson, scenarios, transcript
+from helpers.vmtest import basejson, refresh, scenarios, transcript
 
 SCHEMA = 1
 
@@ -59,6 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--override", action="append", default=[], help="a host-CLI override, recorded verbatim")
     parser.add_argument("--started-at", type=int, required=True)
     parser.add_argument("--finished-at", type=int, required=True)
+    parser.add_argument("--probe-revision", type=int, default=None, help="the updates revision the probe read (§4.4a)")
     args = parser.parse_args(argv)
 
     try:
@@ -79,6 +80,9 @@ def main(argv: list[str] | None = None) -> int:
     judgement = transcript.judge(parsed, planned=args.planned, max_skipped=args.max_skipped)
     divergences = sorted(set(_csv(args.freshness_divergences)) | set(_csv(args.divergences)))
     guest_keys = ("boot_id", "machine_id", "os_release", "kernel", "repo_commit", "default_target", "updates_revision", "updates_mirror")
+    guest_seen = parsed.evidence.get("updates_revision") or None
+    guest_seen_revision = int(guest_seen) if guest_seen and guest_seen.isdigit() else None
+    after = refresh.after_run(upgrade_changed=parsed.upgrade_changed, guest_seen=guest_seen_revision, probe_seen=args.probe_revision)
 
     response = {
         "schema": SCHEMA,
@@ -111,6 +115,14 @@ def main(argv: list[str] | None = None) -> int:
                 "refresh_state": record.refresh_state,
             },
             "guest": {key: parsed.evidence.get(key) or None for key in guest_keys},
+            # §4.4a: the run's own upgrade transaction, judged against the guest-seen revision.
+            "refresh": {
+                "upgrade_changed": parsed.upgrade_changed,
+                "guest_seen_revision": guest_seen_revision,
+                "probe_revision": args.probe_revision,
+                "state": after.state,
+                "reason": after.reason,
+            },
             "repo": {"commit": args.commit, "branch": args.branch},
             "playbook_recap": parsed.recaps[-1] if parsed.recaps else None,
             "run_bash_exit": parsed.run_bash_exit,

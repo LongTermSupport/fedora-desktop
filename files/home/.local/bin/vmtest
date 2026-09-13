@@ -13,6 +13,8 @@
 #   vmtest run <scenario-id> [--commit SHA]  the full lifecycle: freshness gate, overlay, boot, run.bash at the
 #                                            pinned commit, in-guest acceptance, transcript, verdict, destroy
 #   vmtest verify <run-id>                   check a bridge response's signature under the host-only key
+#   vmtest refresh-base <base-key|profile|all>   bring a base up to date: a fast base is re-imported from the
+#                                            published image (its refresh IS a rebuild, minutes not hours)
 #   vmtest freshness-status                  probe upstream and REPORT every base's freshness; never rebuilds
 #   vmtest sweep                             apply the retention policy (runs, failed builds, spool); logs every eviction
 #   vmtest nightly                           freshness-status then sweep — what the nightly timer runs
@@ -636,6 +638,7 @@ cmd_run() {
         --branch "${VMTEST_REPO_BRANCH}" --freshness-decision "${decision}" --freshness-degraded "${degraded}" \
         --freshness-divergences "${divergences}" --divergences "throwaway-vault-password,lab-ssh-key-baked" \
         --started-at "${started_at}" --finished-at "${finished_at}" \
+        --probe-revision "$(probe_value VMTEST-FRESHNESS-REVISION)" \
         >"${RUN_DIR}/response.json" || verdict_rc=$?
     [[ "${verdict_rc}" -ne 2 ]] || die "could not judge the run; see ${RUN_DIR}"
     local verdict
@@ -644,6 +647,15 @@ cmd_run() {
     verdict="${verdict%\"}"
     if [[ "${verdict}" == "pass" ]]; then
         RUN_OK=1
+    fi
+    # §4.4a: the run was the refresh probe. A passing run whose upgrade changed nothing at a
+    # guest-seen revision at or past the probe's certifies the base current — no extra boot.
+    local certified
+    certified="$(helper refresh certify --response "${RUN_DIR}/response.json" --base-json "${base_json}")" ||
+        die "could not apply the run's refresh outcome to ${base_json}"
+    log "${certified}"
+    if [[ "${certified}" == *"reason=refresh outcome is 'stale'"* ]]; then
+        log "base ${BASE_NAME} is stale: refresh it with: vmtest refresh-base ${SCENARIO_BASE_KEY}"
     fi
     log "verdict: ${verdict}; response ${RUN_DIR}/response.json; transcript ${transcript}"
     printf 'VMTEST-RUN %s verdict=%s response=%s\n' "${run_id}" "${verdict}" "${RUN_DIR}/response.json"
@@ -661,6 +673,34 @@ cmd_verify() {
     [[ -r "${key}" ]] || die "no bridge signing key at ${key}; re-run play-vm-test-lab.yml"
     helper verify_response --checkout "${VMTEST_CHECKOUT}" --key "${key}" --run-id "${run_id}"
     log "verdict of record: ${HOME}/.local/state/vmtest-bridge/${slug}/service.log"
+}
+
+# ── refresh-base (§4.4a, §9 T6.2) ─────────────────────────────────────────────────────────
+
+# cmd_refresh_base <base-key|server|desktop|all> — refresh every matching base that has been
+# built. A fast base's refresh is a rebuild from the published image (§4.4a: the overlay of
+# a provisioned run is never flattened into a base). Other kinds are Phase 3b/5.
+cmd_refresh_base() {
+    local target="${1:?usage: vmtest refresh-base <base-key|server|desktop|all>}" base_json base_dir name key done=0
+    load_lab
+    for base_json in "${BASES_DIR}"/*/base.json; do
+        [[ -r "${base_json}" ]] || continue
+        base_dir="$(dirname "${base_json}")"
+        name="$(basename "${base_dir}")"
+        key="${name%-"${VMTEST_FEDORA_VERSION}"}"
+        base_facts "${key}"
+        case "${target}" in
+            all) ;;
+            server | desktop) [[ "${BASE_PROFILE}" == "${target}" ]] || continue ;;
+            *) [[ "${key}" == "${target}" ]] || continue ;;
+        esac
+        [[ "${BASE_KIND}" == "fast" ]] || die "refresh of a ${BASE_KIND} base (${name}) is not built yet (Phase 3b/5)"
+        log "refreshing ${name}: re-importing the published image and upgrading"
+        cmd_build_base "${key}"
+        done=$((done + 1))
+    done
+    [[ "${done}" -gt 0 ]] || die "no built base matches ${target}; build one with: vmtest build-base <base-key>"
+    printf 'VMTEST-REFRESH-DONE refreshed=%s\n' "${done}"
 }
 
 # ── freshness-status / sweep / nightly (§9 T6.3, T6.4) ───────────────────────────────────
@@ -727,6 +767,7 @@ main() {
         build-base) cmd_build_base "$@" ;;
         run) cmd_run "$@" ;;
         verify) cmd_verify "$@" ;;
+        refresh-base) cmd_refresh_base "$@" ;;
         freshness-status) cmd_freshness_status "$@" ;;
         sweep) cmd_sweep "$@" ;;
         nightly) cmd_nightly "$@" ;;
