@@ -139,6 +139,11 @@
         - transcript.py
         - freshness_gate.py
         - judge_run.py
+        - spool.py
+        - verdict.py
+        - bridge_watcher.py
+        - bridge_run.py
+        - bridge_heartbeat.py
 
     - name: Ensure user local bin directory exists
       ansible.builtin.file:
