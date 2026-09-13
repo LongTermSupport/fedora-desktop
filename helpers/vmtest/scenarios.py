@@ -26,6 +26,8 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from helpers.vmtest.upstream import ArtefactSelector
+
 SECONDS_PER_DAY = 86400
 
 KIND_FAST = "fast"
@@ -53,7 +55,12 @@ VERDICTS = frozenset({VERDICT_PASS, VERDICT_FAIL, VERDICT_ERROR})
 _TOP_LEVEL_KEYS = frozenset(
     {"vm_test_ttl_upgrade_days", "vm_test_ttl_rebuild_days", "vm_test_bases", "vm_test_scenarios"}
 )
-_BASE_KEYS = frozenset({"kind", "profile", "vcpus", "ram_mib"})
+_BASE_KEYS = frozenset({"kind", "profile", "tree", "artefacts", "vcpus", "ram_mib"})
+_ARTEFACT_KEYS = frozenset({"variant", "subvariant", "prefix", "suffix"})
+
+# An install tree is a variant directory under releases/<v>/ — `Server`,
+# `Everything` — and nothing that could walk elsewhere.
+_TREE_RE = re.compile(r"^[A-Z][A-Za-z]+$")
 _SCENARIO_KEYS = frozenset({"base", "description", "planned", "max_skipped"})
 
 
@@ -63,10 +70,20 @@ class ManifestError(ValueError):
 
 @dataclass(frozen=True)
 class Base:
+    """A base and what it is built from (§3.5, §4.3).
+
+    `tree` is the ONE install tree an Anaconda (`full`) base installs from, and
+    None for a `fast` base, which is imported from a published image and never
+    runs Anaconda. `artefacts` selects the published artefact(s) whose hashes
+    make up the base's media identity.
+    """
+
     key: str
     name: str
     kind: str
     profile: str
+    tree: str | None
+    artefacts: tuple[ArtefactSelector, ...]
     vcpus: int
     ram_mib: int
 
@@ -133,6 +150,44 @@ def _identifier(raw: object, where: str) -> str:
     return raw
 
 
+def _parse_tree(kind: str, raw: object, where: str) -> str | None:
+    if kind == KIND_FAST:
+        if raw is not None:
+            raise ManifestError(
+                f"{where}: a {KIND_FAST!r} base is imported from a published image and has no "
+                f"install tree, but tree is {raw!r}"
+            )
+        return None
+    if not isinstance(raw, str) or not _TREE_RE.match(raw):
+        raise ManifestError(
+            f"{where}: a {KIND_FULL!r} base installs from exactly one tree; tree must be a "
+            f"variant name such as Server or Everything, got {raw!r}"
+        )
+    return raw
+
+
+def _parse_artefacts(raw: object, where: str) -> tuple[ArtefactSelector, ...]:
+    if not isinstance(raw, list) or not raw:
+        raise ManifestError(f"{where}: artefacts must be a non-empty list of selectors")
+    selectors: list[ArtefactSelector] = []
+    for position, entry in enumerate(raw):
+        entry_where = f"{where} artefacts[{position}]"
+        if not isinstance(entry, Mapping):
+            raise ManifestError(f"{entry_where}: must be a mapping")
+        _require_keys(entry, _ARTEFACT_KEYS, entry_where)
+        fields = {}
+        for field in sorted(_ARTEFACT_KEYS):
+            value = entry[field]
+            if not isinstance(value, str) or not value:
+                raise ManifestError(f"{entry_where}: {field} must be a non-empty string")
+            fields[field] = value
+        selector = ArtefactSelector(**fields)
+        if selector in selectors:
+            raise ManifestError(f"{where}: the same artefact selector is listed twice: {selector}")
+        selectors.append(selector)
+    return tuple(selectors)
+
+
 def _parse_base(key: str, raw: object, fedora_version: int) -> Base:
     where = f"base {key!r}"
     if not isinstance(raw, Mapping):
@@ -149,6 +204,8 @@ def _parse_base(key: str, raw: object, fedora_version: int) -> Base:
         name=f"{key}-{fedora_version}",
         kind=kind,
         profile=profile,
+        tree=_parse_tree(kind, raw["tree"], where),
+        artefacts=_parse_artefacts(raw["artefacts"], where),
         vcpus=_positive_int(raw, "vcpus", where),
         ram_mib=_positive_int(raw, "ram_mib", where),
     )

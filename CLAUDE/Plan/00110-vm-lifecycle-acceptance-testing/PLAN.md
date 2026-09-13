@@ -68,7 +68,7 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 - [ ] ⬜ **T0.3**: Record answers in `JOURNAL/`; correct DESIGN.md where reality
   differs
 
-### Phase 1: The freshness engine (no VM; runs in a container)
+### Phase 1: The freshness engine (no VM; runs in a container) — complete
 
 - [x] ✅ **T1.1**: `helpers/vmtest/upstream.py`, test-first — artefact identity
   and package revision from `.treeinfo`, `COMPOSE_ID`, `releases.json`, Bodhi,
@@ -77,10 +77,10 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
   parametrised over the **whole** readable/unreadable matrix and asserted total
 - [x] ✅ **T1.3**: `helpers/vmtest/scenarios.py` — manifest parsing, planned-check
   accounting
-- [ ] ⬜ **T1.4**: `helpers/vmtest/probe_upstream.py` — thin executor, marker
+- [x] ✅ **T1.4**: `helpers/vmtest/probe_upstream.py` — thin executor, marker
   lines on stdout, diagnostics on stderr
 - [x] ✅ **T1.5**: `vars/vm-test-scenarios.yml` — the tracked manifest
-- [ ] ⬜ **T1.6**: QA; commit. **This phase alone answers "has upstream moved?"
+- [x] ✅ **T1.6**: QA; commit. **This phase alone answers "has upstream moved?"
   as a runnable command**
 
 ### Phase 2: The lab playbook

@@ -33,18 +33,31 @@ MANIFEST = {
         "server-fast": {
             "kind": "fast",
             "profile": "server",
+            "tree": None,
+            "artefacts": [
+                {"variant": "Cloud", "subvariant": "Cloud_Base", "prefix": "Fedora-Cloud-Base-Generic-", "suffix": ".qcow2"},
+            ],
             "vcpus": 2,
             "ram_mib": 4096,
         },
         "server-full": {
             "kind": "full",
             "profile": "server",
+            "tree": "Server",
+            "artefacts": [
+                {"variant": "Server", "subvariant": "Server", "prefix": "Fedora-Server-netinst-", "suffix": ".iso"},
+            ],
             "vcpus": 2,
             "ram_mib": 4096,
         },
         "desktop": {
             "kind": "full",
             "profile": "desktop",
+            "tree": "Everything",
+            "artefacts": [
+                {"variant": "Everything", "subvariant": "Everything", "prefix": "Fedora-Everything-netinst-", "suffix": ".iso"},
+                {"variant": "Workstation", "subvariant": "Workstation", "prefix": "Fedora-Workstation-Live-", "suffix": ".iso"},
+            ],
             "vcpus": 4,
             "ram_mib": 8192,
         },
@@ -95,6 +108,20 @@ class TestParseManifest(unittest.TestCase):
         self.assertEqual(base.profile, "server")
         self.assertEqual(base.vcpus, 2)
         self.assertEqual(base.ram_mib, 4096)
+
+    def test_base_names_its_one_tree_and_its_artefacts(self):
+        # §4.3: each base names exactly ONE install tree, and the desktop base
+        # hashes BOTH the netinst it boots and the Live squashfs it installs.
+        manifest = _parse()
+        self.assertIsNone(manifest.bases["server-fast"].tree)
+        self.assertEqual(manifest.bases["server-full"].tree, "Server")
+        self.assertEqual(manifest.bases["desktop"].tree, "Everything")
+        self.assertEqual(len(manifest.bases["desktop"].artefacts), 2)
+        selector = manifest.bases["server-fast"].artefacts[0]
+        self.assertEqual(
+            (selector.variant, selector.subvariant, selector.prefix, selector.suffix),
+            ("Cloud", "Cloud_Base", "Fedora-Cloud-Base-Generic-", ".qcow2"),
+        )
 
     def test_scenario_resolves_its_base_by_name(self):
         scenario = _parse().scenarios["server-full-provision"]
@@ -201,6 +228,54 @@ class TestManifestRejections(unittest.TestCase):
         document = copy.deepcopy(MANIFEST)
         document["vm_test_bases"]["server-fast"]["profile"] = "laptop"
         self.assert_rejected(document, "server-fast", "laptop")
+
+    def test_full_base_must_name_a_tree(self):
+        # A `full` base is an Anaconda install; without a tree there are no
+        # installer hashes and the reinstall trigger would be vacuous.
+        for value in (None, "", 7):
+            with self.subTest(tree=value):
+                document = copy.deepcopy(MANIFEST)
+                document["vm_test_bases"]["server-full"]["tree"] = value
+                self.assert_rejected(document, "server-full", "tree")
+
+    def test_fast_base_must_not_name_a_tree(self):
+        # A `fast` base never runs Anaconda; a tree here would bind its identity
+        # to media it was not built from.
+        document = copy.deepcopy(MANIFEST)
+        document["vm_test_bases"]["server-fast"]["tree"] = "Server"
+        self.assert_rejected(document, "server-fast", "tree")
+
+    def test_tree_must_be_a_variant_name(self):
+        document = copy.deepcopy(MANIFEST)
+        document["vm_test_bases"]["server-full"]["tree"] = "../rawhide"
+        self.assert_rejected(document, "server-full", "tree")
+
+    def test_base_needs_at_least_one_artefact(self):
+        for value in ([], None, "Fedora-Server-netinst"):
+            with self.subTest(artefacts=value):
+                document = copy.deepcopy(MANIFEST)
+                document["vm_test_bases"]["server-fast"]["artefacts"] = value
+                self.assert_rejected(document, "server-fast", "artefacts")
+
+    def test_artefact_selector_fields_are_exact_and_non_empty(self):
+        for key in ("variant", "subvariant", "prefix", "suffix"):
+            with self.subTest(missing=key):
+                document = copy.deepcopy(MANIFEST)
+                del document["vm_test_bases"]["server-fast"]["artefacts"][0][key]
+                self.assert_rejected(document, "server-fast", key)
+            with self.subTest(empty=key):
+                document = copy.deepcopy(MANIFEST)
+                document["vm_test_bases"]["server-fast"]["artefacts"][0][key] = ""
+                self.assert_rejected(document, "server-fast", key)
+        document = copy.deepcopy(MANIFEST)
+        document["vm_test_bases"]["server-fast"]["artefacts"][0]["arch"] = "x86_64"
+        self.assert_rejected(document, "server-fast", "arch")
+
+    def test_duplicate_artefact_selector_is_rejected(self):
+        document = copy.deepcopy(MANIFEST)
+        artefacts = document["vm_test_bases"]["desktop"]["artefacts"]
+        artefacts.append(dict(artefacts[0]))
+        self.assert_rejected(document, "desktop", "twice")
 
     def test_base_sizing_must_be_positive_integers(self):
         for key, value in itertools.product(("vcpus", "ram_mib"), (0, -1, "2", 2.5, None)):

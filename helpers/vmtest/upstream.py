@@ -84,12 +84,39 @@ class ArtefactRef:
 
 @dataclass(frozen=True)
 class ReleaseArtefact:
-    """One entry from releases.json, keyed elsewhere by `filename`."""
+    """One entry from releases.json, keyed elsewhere by `filename`.
+
+    `version`, `arch`, `variant` and `subvariant` are releases.json's own
+    structured fields, and they are how a base's artefact is selected: the
+    filename embeds a compose label (`44-1.7`) that is not known until the
+    document is read, so selecting by name would mean guessing the label.
+    """
 
     filename: str
     link: str
     sha256: str
     size: int
+    version: str
+    arch: str
+    variant: str
+    subvariant: str
+
+
+@dataclass(frozen=True)
+class ArtefactSelector:
+    """How a base names the published artefact it is built from (§4.3).
+
+    Matched against `ReleaseArtefact.variant`/`subvariant` plus a filename
+    prefix and suffix, for the branch's Fedora version and architecture. The
+    prefix is needed because siblings can share every structured field:
+    measured live, the Server DVD and the Server netinst are both
+    `variant=Server subvariant=Server` `.iso`. Exactly one entry must match.
+    """
+
+    variant: str
+    subvariant: str
+    prefix: str
+    suffix: str
 
 
 @dataclass(frozen=True)
@@ -238,11 +265,20 @@ def parse_releases_json(text: str) -> dict[str, ReleaseArtefact]:
             raise UpstreamParseError(
                 f"releases.json entry for {filename} has a non-numeric size: {raw_size!r}"
             ) from exc
+        structured: dict[str, str] = {}
+        for field in ("version", "arch", "variant", "subvariant"):
+            value = entry.get(field)
+            if not isinstance(value, str) or not value:
+                raise UpstreamParseError(
+                    f"releases.json entry for {filename} has no {field}; cannot be selected"
+                )
+            structured[field] = value
         artefact = ReleaseArtefact(
             filename=filename,
             link=link,
             sha256=str(entry.get("sha256") or ""),
             size=size,
+            **structured,
         )
         existing = index.get(filename)
         # A repeated filename is fine while it names the same bytes. Two
@@ -268,6 +304,47 @@ def find_artefact(index: Mapping[str, ReleaseArtefact], filename: str) -> Releas
     if not _SHA256_RE.match(artefact.sha256):
         raise UpstreamParseError(f"releases.json entry for {filename} has no usable sha256")
     return artefact
+
+
+def select_artefact(
+    index: Mapping[str, ReleaseArtefact],
+    fedora_version: int,
+    arch: str,
+    selector: ArtefactSelector,
+) -> ReleaseArtefact:
+    """The one artefact matching a base's selector for this version and arch.
+
+    Zero matches is the §4.5 fail-fast case. More than one — two respins
+    published side by side — is an error too: choosing between them by label
+    order would be a guess, and the selector should be narrowed instead.
+    """
+    for field in ("variant", "subvariant", "prefix", "suffix"):
+        if not getattr(selector, field):
+            raise UpstreamParseError(f"artefact selector has an empty {field}")
+    version = str(fedora_version)
+    matches = [
+        artefact
+        for artefact in index.values()
+        if artefact.version == version
+        and artefact.arch == arch
+        and artefact.variant == selector.variant
+        and artefact.subvariant == selector.subvariant
+        and artefact.filename.startswith(selector.prefix)
+        and artefact.filename.endswith(selector.suffix)
+    ]
+    description = (
+        f"version {version} {arch} variant={selector.variant} "
+        f"subvariant={selector.subvariant} prefix={selector.prefix} suffix={selector.suffix}"
+    )
+    if not matches:
+        raise UpstreamParseError(f"releases.json lists no artefact for {description}")
+    if len(matches) > 1:
+        names = ", ".join(sorted(m.filename for m in matches))
+        raise UpstreamParseError(
+            f"releases.json lists {len(matches)} artefacts for {description}: {names}; "
+            "narrow the selector"
+        )
+    return find_artefact(index, matches[0].filename)
 
 
 def compose_label_from_link(link: str) -> str:

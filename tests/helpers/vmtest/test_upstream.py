@@ -333,6 +333,91 @@ class TestParseReleasesJson(unittest.TestCase):
             upstream.parse_releases_json("<html>502</html>")
 
 
+class TestSelectArtefact(unittest.TestCase):
+    """The base's artefact is chosen by releases.json's structured fields, never by
+    a filename that embeds a compose label nobody knows in advance."""
+
+    SELECTOR = upstream.ArtefactSelector(
+        variant="Cloud", subvariant="Cloud_Base", prefix="Fedora-Cloud-Base-Generic-", suffix=".qcow2"
+    )
+
+    def test_selects_by_version_arch_variant_subvariant_and_suffix(self):
+        index = upstream.parse_releases_json(RELEASES_JSON_TEXT)
+        entry = upstream.select_artefact(index, 44, "x86_64", self.SELECTOR)
+        self.assertEqual(entry.filename, CLOUD_QCOW2)
+
+    def test_carries_the_structured_fields(self):
+        entry = upstream.find_artefact(upstream.parse_releases_json(RELEASES_JSON_TEXT), CLOUD_QCOW2)
+        self.assertEqual((entry.version, entry.arch, entry.variant, entry.subvariant), ("44", "x86_64", "Cloud", "Cloud_Base"))
+
+    def test_no_match_raises(self):
+        index = upstream.parse_releases_json(RELEASES_JSON_TEXT)
+        with self.assertRaises(upstream.UpstreamParseError):
+            upstream.select_artefact(index, 45, "x86_64", self.SELECTOR)
+        with self.assertRaises(upstream.UpstreamParseError):
+            upstream.select_artefact(index, 44, "aarch64", self.SELECTOR)
+        with self.assertRaises(upstream.UpstreamParseError):
+            upstream.select_artefact(index, 44, "x86_64", dataclasses.replace(self.SELECTOR, suffix=".raw.xz"))
+        with self.assertRaises(upstream.UpstreamParseError):
+            upstream.select_artefact(
+                index, 44, "x86_64", dataclasses.replace(self.SELECTOR, prefix="Fedora-Cloud-Base-UEFI-UKI-")
+            )
+
+    def test_prefix_separates_siblings_that_share_every_structured_field(self):
+        # Measured live: Fedora-Server-dvd-… and Fedora-Server-netinst-… are both
+        # variant=Server subvariant=Server .iso. Only the filename prefix tells
+        # them apart, which is why the selector carries one.
+        doc = json.loads(RELEASES_JSON_TEXT)
+        dvd = dict(doc[2])
+        dvd["variant"] = dvd["subvariant"] = "Server"
+        dvd["link"] = dvd["link"].replace("Fedora-Everything-netinst", "Fedora-Server-dvd")
+        dvd["sha256"] = "1" * 64
+        netinst = dict(dvd)
+        netinst["link"] = dvd["link"].replace("Fedora-Server-dvd", "Fedora-Server-netinst")
+        netinst["sha256"] = "2" * 64
+        doc += [dvd, netinst]
+        index = upstream.parse_releases_json(json.dumps(doc))
+        chosen = upstream.select_artefact(
+            index,
+            44,
+            "x86_64",
+            upstream.ArtefactSelector("Server", "Server", "Fedora-Server-netinst-", ".iso"),
+        )
+        self.assertEqual(chosen.sha256, "2" * 64)
+
+    def test_ambiguous_match_raises(self):
+        # Two respins published side by side would both match; picking the
+        # "newest" by string comparison of labels is a guess the design does not
+        # make. It is an error until the selector is narrowed.
+        doc = json.loads(RELEASES_JSON_TEXT)
+        respin = dict(doc[0])
+        respin["link"] = respin["link"].replace("44-1.7", "44-1.8")
+        respin["sha256"] = "e" * 64
+        doc.append(respin)
+        index = upstream.parse_releases_json(json.dumps(doc))
+        with self.assertRaises(upstream.UpstreamParseError):
+            upstream.select_artefact(index, 44, "x86_64", self.SELECTOR)
+
+    def test_entry_missing_a_structured_field_raises_at_parse(self):
+        for field in ("version", "arch", "variant", "subvariant"):
+            with self.subTest(field=field):
+                doc = json.loads(RELEASES_JSON_TEXT)
+                del doc[0][field]
+                with self.assertRaises(upstream.UpstreamParseError):
+                    upstream.parse_releases_json(json.dumps(doc))
+
+    def test_selector_fields_must_be_non_empty(self):
+        for field in ("variant", "subvariant", "prefix", "suffix"):
+            with self.subTest(field=field):
+                with self.assertRaises(upstream.UpstreamParseError):
+                    upstream.select_artefact(
+                        upstream.parse_releases_json(RELEASES_JSON_TEXT),
+                        44,
+                        "x86_64",
+                        dataclasses.replace(self.SELECTOR, **{field: ""}),
+                    )
+
+
 class TestComposeLabelFromLink(unittest.TestCase):
     def test_reads_the_label_from_the_qcow2_filename(self):
         entry = upstream.find_artefact(upstream.parse_releases_json(RELEASES_JSON_TEXT), CLOUD_QCOW2)

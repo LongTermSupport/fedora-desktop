@@ -16,23 +16,51 @@ vm_test_ttl_upgrade_days: 7
 vm_test_ttl_rebuild_days: 90
 
 # The bases. `fast` is imported from the published Cloud qcow2 and never runs
-# Anaconda; `full` is an Anaconda install. Sizing is provisional until the
-# Phase 0 host triage reports the headroom; the lab refuses a run that would
-# take committed guest RAM past the host's ceiling either way.
+# Anaconda; `full` is an Anaconda install from exactly ONE install tree (`tree`
+# is the variant directory under releases/<version>/). `artefacts` selects the
+# published artefact(s) in releases.json by its structured fields plus a
+# filename prefix/suffix — never by a full filename, which embeds a compose
+# label that is not known until the document is read. Their hashes (and the
+# tree's .treeinfo checksums for a full base) are the base's media identity.
+# Sizing is provisional until the Phase 0 host triage reports the headroom; the
+# lab refuses a run that would take committed guest RAM past the host's ceiling
+# either way.
 vm_test_bases:
   server-fast:
     kind: fast
     profile: server
+    tree: null
+    artefacts:
+      - variant: Cloud
+        subvariant: Cloud_Base
+        prefix: Fedora-Cloud-Base-Generic-
+        suffix: .qcow2
     vcpus: 2
     ram_mib: 4096
   server-full:
     kind: full
     profile: server
+    tree: Server
+    artefacts:
+      - variant: Server
+        subvariant: Server
+        prefix: Fedora-Server-netinst-
+        suffix: .iso
     vcpus: 2
     ram_mib: 4096
   desktop:
     kind: full
     profile: desktop
+    tree: Everything
+    artefacts:
+      - variant: Everything
+        subvariant: Everything
+        prefix: Fedora-Everything-netinst-
+        suffix: .iso
+      - variant: Workstation
+        subvariant: Workstation
+        prefix: Fedora-Workstation-Live-
+        suffix: .iso
     vcpus: 4
     ram_mib: 8192
 
