@@ -514,10 +514,23 @@ cmd_build_base() {
     [[ "${BASE_KIND}" == "full" || "${BASE_PROFILE}" == "server" ]] || die "a ${BASE_PROFILE} base must be kind full; ${BASE_NAME} is ${BASE_KIND}"
     cmd_fetch "${key}"
 
-    local line filename sha label
-    line="$(grep -E "^VMTEST-FRESHNESS-ARTEFACT ${BASE_NAME} " "${PROBE_FILE}")"
-    read -r _ _ filename sha label _ <<<"${line}"
-    label="${label#label=}"
+    # Every artefact the base is built from is part of its media identity (§4.4): the
+    # desktop base has two (netinst + Live ISO), and a record naming only one would
+    # differ from the live identity and read as `reinstall` on every run.
+    local line filename sha label first=1
+    local -a artefact_args=()
+    while read -r line; do
+        local this_file this_sha this_label
+        read -r _ _ this_file this_sha this_label _ <<<"${line}"
+        artefact_args+=(--artefact "${this_file}=${this_sha}")
+        if [[ "${first}" -eq 1 ]]; then
+            filename="${this_file}"
+            sha="${this_sha}"
+            label="${this_label#label=}"
+            first=0
+        fi
+    done < <(grep -E "^VMTEST-FRESHNESS-ARTEFACT ${BASE_NAME} " "${PROBE_FILE}")
+    [[ "${first}" -eq 0 ]] || die "the probe listed no artefact for ${BASE_NAME}"
     local compose_id probe_revision
     compose_id="$(probe_value VMTEST-FRESHNESS-COMPOSE-ID)"
     probe_revision="$(probe_value VMTEST-FRESHNESS-REVISION)"
@@ -607,7 +620,7 @@ cmd_build_base() {
     helper write_base_record \
         --fedora-version "${VMTEST_FEDORA_VERSION}" --profile "${BASE_PROFILE}" --kind "${BASE_KIND}" \
         --name "${BASE_NAME}" --compose-id "${compose_id}" --compose-label "${label}" \
-        --artefact "${filename}=${sha}" --recipe-digest "${recipe_digest}" "${tree_args[@]+"${tree_args[@]}"}" \
+        "${artefact_args[@]}" --recipe-digest "${recipe_digest}" "${tree_args[@]+"${tree_args[@]}"}" \
         --installed-at "${installed_at}" --last-upgraded-at "${last_upgraded_at}" \
         --last-upgraded-revision "${guest_revision}" --last-upgraded-mirror "${guest_mirror}" \
         --refresh-state "${refresh_state}" --base-sha256 "${base_sha}" \

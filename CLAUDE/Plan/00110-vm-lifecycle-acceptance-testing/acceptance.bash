@@ -93,6 +93,10 @@ plan_gather_leg "server-optional-play-missing must fail at provision on name res
 plan_gather_leg "server-full-provision must pass on the Anaconda-installed base" \
     bash "${PLAN_SCRIPT_DIR}/run-scenario-leg.bash" server-full-provision pass - \
     "on base server-full-[0-9]+ \(full, server\)" "${REPORT}"
+# Phase 5: the repo's own installer shape, provisioned inside the autologin GNOME session.
+plan_gather_leg "desktop-fresh-install must pass on the desktop base" \
+    bash "${PLAN_SCRIPT_DIR}/run-scenario-leg.bash" desktop-fresh-install pass - \
+    "on base desktop-[0-9]+ \(full, desktop\)" "${REPORT}"
 
 if [[ -n "${PLAN_FAILED_LEGS}" ]]; then
     printf '\nVERDICT: FAIL — %s\n' "${PLAN_FAILED_LEGS}" >>"${REPORT}"
