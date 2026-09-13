@@ -360,7 +360,7 @@ pickers)
         tr -d '\r' <"${state}/list.log" >&2
         exit 1
     fi
-    printf 'yes/no picker answered no with q; ccy-sessions opened and closed with Esc\n'
+    printf 'yes/no picker: Enter on its default Exit row meant no; ccy-sessions opened and closed with Esc\n'
     ;;
 
 not-applicable)
