@@ -123,7 +123,7 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 - [ ] ⬜ **T4.3**: `vmtest-bridge-watcher` — thin executor
 - [ ] ⬜ **T4.4**: `vmtest-bridge@.path`/`.service` and the policy file
 - [ ] ⬜ **T4.5**: `vmtest-bridge-heartbeat@.timer` — the §6.5 liveness signal
-- [ ] ⬜ **T4.6**: Response state machine, HMAC signing, heartbeat
+- [x] ✅ **T4.6**: Response state machine, HMAC signing, heartbeat (`verdict.py`; the watcher and units that write them are T4.3–T4.5)
 - [ ] ⬜ **T4.7**: `scripts/vmtest-request.bash` — container-side requester
 - [ ] ⬜ **T4.8**: Bridge selftest — every rejection path rejects **and** responds
 - [ ] ⬜ **T4.9**: Liveness selftest — wedge the unit, assert "bridge wedged"
