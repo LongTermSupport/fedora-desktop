@@ -77,11 +77,20 @@ FORCE-PUSH-REQUIRED.md
 # pre-commit secret scanner would reject most of them anyway.
 CLAUDE/Plan/**/logs/
 
-# Scratch space for raw captures that must never be committed: journal
-# excerpts, process dumps, triage working notes. Same reasoning as the plan
-# logs above — live host state in a public repository.
+# Scratch space for raw captures: journal excerpts, process dumps, triage working
+# notes, agent reports. Same reasoning as the plan logs above — live host state in
+# a public repository.
 #
-# This was previously ignored ONLY by the developer's user-global gitignore
-# (~/.config/git/ignore), so a fresh clone or a CCY container did not ignore it
-# at all and a stray `git add -A` would have committed whatever was in it.
-/untracked/
+# Belt and braces, deliberately. untracked/.gitignore already self-excludes the
+# directory ("*" plus "!.gitignore", so the rule itself stays tracked and ships
+# with the repo), which means this line is redundant — and that is the point. Two
+# independent rules means deleting either one still leaves the directory
+# protected, and neither depends on the developer's user-global gitignore, which
+# covers this path locally but ships with nothing.
+#
+# Written as "untracked/*" and not "/untracked/" so the nested .gitignore can be
+# re-included: git does not descend into an excluded DIRECTORY, so a negation
+# inside one can never take effect. Excluding the directory's contents instead
+# leaves the negation reachable.
+untracked/*
+!untracked/.gitignore

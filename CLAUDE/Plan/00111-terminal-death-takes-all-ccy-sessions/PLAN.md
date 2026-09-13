@@ -59,6 +59,29 @@ owns. Full evidence and the reasoning that ruled each alternative in or out:
   foundation this plan builds on, and named "no changes to how ccy, podman or
   LXC are started inside a session" as an explicit non-goal. Plan 00111 fills
   exactly that gap.
+
+  What 00105 actually shipped is **config only, no script**: a 25-line
+  `files/etc/tmux.conf` (mouse on, 50k scrollback, status off, F12 session menu)
+  deployed by `playbooks/imports/play-tmux-sessions.yml`, plus
+  `docs/tmux-sessions.md`. The config has **no `new-session -A`, no
+  `has-session`, no auto-attach**.
+
+  It also **explicitly rejected a wrapper**: 00105's non-goals bar "no
+  auto-attach on SSH login, no custom picker script, no per-project session
+  templates", and its journal rejects a systemd layer as "overkill" and a login
+  picker with per-project templates as "over engineered". Task 3.2 therefore
+  **revisits a decision that was deliberately made, not an oversight** — the new
+  evidence being that a terminal-emulator death now costs whole sessions, which
+  was not on the table in 00105. That reversal should be argued, not assumed.
+
+  Searched and confirmed absent: no tmux wrapper script anywhere in this repo or
+  in the lts-infra checkout, and the 3119-line `claude-yolo` launcher has **zero**
+  occurrences of `tmux`, `TMUX` or `screen` — no `$TMUX` detection, no re-exec, no
+  warning. `ccy` itself is one line:
+  `alias ccy='/var/local/claude-yolo/claude-yolo'`
+  (`files/home/bashrc-includes/claude-yolo.bash`), which is a convenient seam for
+  wrapping without touching the launcher.
+
 - **Plan 00079 — Podman container control (Blocked)** already records that
   `podman run --rm` prevents checkpoint/restore. Same subsystem as Task 4.2 and
   the same flag, different aim (freeze/thaw rather than surviving tab death);
@@ -75,14 +98,19 @@ owns. Full evidence and the reasoning that ruled each alternative in or out:
 - [x] ✅ **Task 1.3**: Determine why three containers survived and one was
   destroyed, and whether container survival preserves a session. It does
   not — the pty is what matters.
-- [ ] ⬜ **Task 1.4**: Persist the triage evidence as a supporting document in
+- [x] ✅ **Task 1.4**: Persist the triage evidence as a supporting document in
   this plan folder, and add `triage.bash` so the OOM-vs-Wayland
-  determination is re-runnable against a future incident.
+  determination is re-runnable against a future incident. Delivered as
+  `triage.bash` + `probe-mass-terminal-death.bash`; a run reproduces the whole
+  determination — four OOM negatives, the Wayland positive, the Ptyxis-restart
+  fingerprint, and whether any session is currently insulated.
 
 ### Phase 2: Recover the current loss
 
-- [ ] ⬜ **Task 2.1**: Reap the three orphaned `claude` processes that hold a
-  pty-less `Ssl+` state and ~1.8 GiB RSS between them.
+- [x] ✅ **Task 2.1**: Reap the orphaned pty-less `claude` processes. No action
+  needed in the end — all three exited on their own before anything was done to
+  them. Recorded rather than dropped, because "it resolved itself" is the sort of
+  thing that otherwise gets rediscovered as a mystery.
 - [ ] ⬜ **Task 2.2**: Confirm the on-disk transcripts for all four affected
   projects are intact and that `--continue` recovers each conversation.
 
