@@ -88,6 +88,11 @@ plan_gather_leg "server-optional-playbook-fails must fail at provision on play-n
 plan_gather_leg "server-optional-play-missing must fail at provision on name resolution" \
     bash "${PLAN_SCRIPT_DIR}/run-scenario-leg.bash" server-optional-play-missing fail provision \
     "not found under playbooks/imports/optional/" "${REPORT}"
+# Phase 3b: the same checks on the Anaconda-installed Server base. The transcript header
+# and evidence.base carry the base's kind and name, so this pass is never the fast one's.
+plan_gather_leg "server-full-provision must pass on the Anaconda-installed base" \
+    bash "${PLAN_SCRIPT_DIR}/run-scenario-leg.bash" server-full-provision pass - \
+    "on base server-full-[0-9]+ \(full, server\)" "${REPORT}"
 
 if [[ -n "${PLAN_FAILED_LEGS}" ]]; then
     printf '\nVERDICT: FAIL — %s\n' "${PLAN_FAILED_LEGS}" >>"${REPORT}"

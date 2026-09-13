@@ -26,8 +26,8 @@ the operator's view.
 | Response contract                    | `helpers/vmtest/verdict.py`                              | The response state machine, HMAC signing, the heartbeat document and its assessment                                                    |
 | Container-side requester             | `scripts/vmtest-request.bash`                            | Writes a request, waits, maps the answer to a distinct exit code; never claims to verify the signature                                 |
 
-The `server-full` and `desktop` base builders and the desktop guest acceptance
-script are later phases of the same plan and are not deployed yet.
+The `desktop` base builder and the desktop guest acceptance script are a later
+phase of the same plan and are not deployed yet.
 
 ## Deploying the lab
 
@@ -70,9 +70,21 @@ Everything below is the deployed `vmtest` CLI, rootless, on the host:
 ```bash
 vmtest fetch server-fast          # download + verify the Cloud Base image (signed CHECKSUM, GPG, sha256)
 vmtest build-base server-fast     # boot it once, upgrade, clean, flatten, write base.json
+vmtest build-base server-full     # Anaconda from the Server tree via the verified netinst ISO, then the same
 vmtest run server-fast-provision  # the lifecycle; exit 0 only on verdict pass
+vmtest run server-full-provision  # the same checks on the Anaconda-installed base
 vmtest run server-fast-provision --commit <40-hex>   # a specific pushed commit
 ```
+
+A `full` base is installed by `fedora-install/ks-vm-server.cfg`, a VM-only,
+non-interactive Fedora Server kickstart: Anaconda runs in cmdline mode on the
+serial console from the one install tree the manifest names, creates the lab's
+`fedora` user with the lab key, and powers off; the builder then boots the
+result for the same upgrade, cleanup and snapshot as the fast base. The
+deployed copy of the kickstart is what is rendered, and it is part of the
+base's recipe digest. The install domain boots the installer kernel directly,
+which the Secure Boot firmware refuses, so it runs with that firmware feature
+off; runs of the resulting base boot through shim with the default firmware.
 
 `fetch` locates the artefact by `releases.json`'s structured fields, downloads
 it conditionally, fetches the signed `Fedora-<Variant>-<label>-x86_64-CHECKSUM`
