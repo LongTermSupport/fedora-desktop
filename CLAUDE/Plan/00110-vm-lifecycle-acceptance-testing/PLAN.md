@@ -59,13 +59,13 @@ Task detail lives in [DESIGN.md](DESIGN.md) §9; this is the tracking view.
 Phase 1 needs no VM and can run in parallel with Phase 0. **U8 selects the LUKS
 unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 
-### Phase 0: Host triage and the decision gate (HOST)
+### Phase 0: Host triage and the decision gate (HOST) — complete
 
-- [ ] ⬜ **T0.1**: `triage.bash` on `_planlib.inc.bash` — probe U1, U2, U4, U5,
+- [x] ✅ **T0.1**: `triage.bash` on `_planlib.inc.bash` — probe U1, U2, U4, U5,
   U7, U8 plus KVM, reflink, space, `virtiofsd`
-- [ ] ⬜ **T0.2**: Decision gate — KVM present and headroom for three bases;
+- [x] ✅ **T0.2**: Decision gate — KVM present and headroom for three bases;
   refuse rather than run a TCG-emulated desktop nobody will wait for
-- [ ] ⬜ **T0.3**: Record answers in `JOURNAL/`; correct DESIGN.md where reality
+- [x] ✅ **T0.3**: Record answers in `JOURNAL/`; correct DESIGN.md where reality
   differs
 
 ### Phase 1: The freshness engine (no VM; runs in a container) — complete

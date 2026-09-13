@@ -267,8 +267,11 @@ commit** — never from the mount. See §3.4.
   concurrent runs simply take different local ports;
 - the only host→guest channel the harness needs is that one SSH port.
 
-The cost is that `qemu:///session` still needs read/write on `/dev/kvm` (Fedora ships it
-`root:kvm 0660`), so the play adds the user to the `kvm` group.
+`qemu:///session` still needs read/write on `/dev/kvm`. An earlier draft said Fedora ships
+it `root:kvm 0660` and had the play add the user to the `kvm` group; Phase-0 triage measured
+`root:kvm 0666`, set by systemd's own `50-udev-default.rules`, so no group membership is
+needed and the running user can open it without a re-login. The play asserts that
+`/dev/kvm` is openable read-write by the running user and fails loud if it is not.
 
 **Fallback, if U2 says session-mode networking or KVM permissions do not work here:**
 `qemu:///system` with the stock `default` NAT network. That is rootful and is the reason it
@@ -1835,11 +1838,11 @@ status icons; they are omitted here to keep this document plain text.
   (`libguestfs-tools-c` does **not** exist on F44 — mdapi returns 400 — so `guestfs-tools` is
   the correct name. That one is a name fact, not a version fact, and stands.)
 
-- **T2.2** Enable the libvirt user session, the network, `loginctl enable-linger`, and `kvm`
-  group membership. Create `~/.local/share/vmtest/` with explicit `owner/group/mode` on every
-  file task. **`kvm` group membership does not apply to an already-open session**, so the play
-  asserts the running user's effective groups afterwards and **fails loud** naming the
-  re-login, rather than leaving a lab that appears deployed and cannot open `/dev/kvm`.
+- **T2.2** Enable the libvirt user session, the network, and `loginctl enable-linger`. Create
+  `~/.local/share/vmtest/` with explicit `owner/group/mode` on every file task. Assert that
+  `/dev/kvm` is openable read-write by the running user and **fail loud** if it is not (§2.4:
+  triage measured it `0666`, so no `kvm` group membership and no re-login are needed; the
+  assertion is what catches a host where that is not so).
 
 - **T2.3** Deploy `files/home/.local/bin/vmtest` `0755`, and render
   `~/.local/share/vmtest/scenarios.allowlist` from `vars/vm-test-scenarios.yml` — the
