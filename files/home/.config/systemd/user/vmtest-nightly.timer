@@ -1,0 +1,12 @@
+[Unit]
+Description=Nightly VM-lab freshness report and retention sweep
+Documentation=https://github.com/LongTermSupport/fedora-desktop
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=20min
+Persistent=true
+Unit=vmtest-nightly.service
+
+[Install]
+WantedBy=timers.target

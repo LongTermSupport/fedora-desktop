@@ -1,0 +1,11 @@
+[Unit]
+Description=VM-lab freshness report and retention sweep (reporting-only; never rebuilds)
+Documentation=https://github.com/LongTermSupport/fedora-desktop
+
+[Service]
+Type=oneshot
+# `freshness-status` writes ~/.local/share/vmtest/freshness-status.txt and exits with the
+# worst verdict, so a base that needs a rebuild shows as this unit failing — visibly, not
+# as an unattended disk-churning rebuild on the owner's workstation (Plan 00110 §9 T6.3).
+# `sweep` applies the retention policy and logs every eviction.
+ExecStart=%h/.local/bin/vmtest nightly

@@ -287,6 +287,29 @@ has not moved since compose), so the reinstall trigger fires on a Fedora version
 change or the rebuild backstop, and the check's value is proving that the media
 and the branch still agree.
 
+## Nightly report and retention
+
+`vmtest-nightly.timer` runs `vmtest nightly` at 03:30: a freshness report,
+then the retention sweep. Neither rebuilds anything.
+
+```bash
+vmtest freshness-status   # one probe; one line per built base into ~/.local/share/vmtest/freshness-status.txt
+vmtest sweep              # apply the retention policy; every eviction goes to ~/.local/share/vmtest/retention.log
+```
+
+`freshness-status` exits with the worst verdict it found, so a base that needs
+a rebuild shows up as the nightly unit failing in `systemctl --user list-units --failed`, not as an unattended rebuild on a workstation. The
+sweep keeps the newest ten passing runs and **every** run that did not pass
+(its overlay and console are the diagnosis), removes a leftover fast-base
+build directory but keeps a desktop one, and bounds `quarantine/` and
+`responses/` on the shared mount to their newest two hundred entries, through
+the same pinned descriptors the watcher uses.
+
+Before every run and every base build the CLI refuses when the disk cannot
+carry the step (an overlay may grow to the base's size; a rebuild holds two
+bases until the rename; two gigabytes of headroom on top) or when the guest's
+RAM exceeds three quarters of the host's. It never cleans up and continues.
+
 ## The manifest
 
 `vars/vm-test-scenarios.yml` is the single tracked source. Each base declares

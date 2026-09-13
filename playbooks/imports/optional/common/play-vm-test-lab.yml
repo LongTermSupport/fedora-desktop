@@ -155,6 +155,7 @@
         - bridge_run.py
         - bridge_heartbeat.py
         - verify_response.py
+        - retention.py
 
     - name: Ensure user local bin directory exists
       ansible.builtin.file:
@@ -420,6 +421,8 @@
         - vmtest-bridge@.service
         - vmtest-bridge-heartbeat@.timer
         - vmtest-bridge-heartbeat@.service
+        - vmtest-nightly.timer
+        - vmtest-nightly.service
       register: vm_test_bridge_units
 
     - name: Look up the lab user's uid for the user manager's runtime directory
@@ -444,6 +447,7 @@
       loop:
         - "vmtest-bridge@{{ vm_test_bridge_slug.stdout | trim }}.path"
         - "vmtest-bridge-heartbeat@{{ vm_test_bridge_slug.stdout | trim }}.timer"
+        - vmtest-nightly.timer
 
     # =========================================================================
     # Confirm the session-mode hypervisor answers as the lab user

@@ -151,8 +151,8 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
   is the probe
 - [ ] ⬜ **T6.2a**: Tests for the two traps this section was built from
 - [ ] ⬜ **T6.2b**: Host-side DNF cache, plus the periodic **cache-cold** scenario
-- [ ] ⬜ **T6.3**: Nightly freshness probe that **only reports**
-- [ ] ⬜ **T6.4**: Disk-space floor
+- [x] ✅ **T6.3**: Nightly freshness probe that **only reports** (`vmtest freshness-status` → `freshness-status.txt`; `vmtest-nightly.timer` at 03:30; a base needing a rebuild shows as the unit failing, never as a rebuild)
+- [x] ✅ **T6.4**: Disk-space floor (`retention.py`: floor + RAM ceiling refused before every run and rebuild; `vmtest sweep` keeps the last N passing runs and every failed one, drops failed fast builds, bounds `quarantine/` and `responses/` through the pinned spool; every eviction logged)
 - [ ] ⬜ **T6.5**: QA; commit
 
 ### Phase 7: Discharge and review

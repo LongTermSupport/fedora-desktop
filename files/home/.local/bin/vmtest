@@ -13,6 +13,9 @@
 #   vmtest run <scenario-id> [--commit SHA]  the full lifecycle: freshness gate, overlay, boot, run.bash at the
 #                                            pinned commit, in-guest acceptance, transcript, verdict, destroy
 #   vmtest verify <run-id>                   check a bridge response's signature under the host-only key
+#   vmtest freshness-status                  probe upstream and REPORT every base's freshness; never rebuilds
+#   vmtest sweep                             apply the retention policy (runs, failed builds, spool); logs every eviction
+#   vmtest nightly                           freshness-status then sweep — what the nightly timer runs
 #   vmtest help
 #
 # `run` provisions from a PUSHED commit of the public repo (the branch tip on the
@@ -339,6 +342,15 @@ cmd_build_base() {
     compose_id="$(probe_value VMTEST-FRESHNESS-COMPOSE-ID)"
     probe_revision="$(probe_value VMTEST-FRESHNESS-REVISION)"
 
+    # §10: refuse loudly before a rebuild that would exhaust the disk or the host's RAM.
+    local floor_size
+    floor_size="$(stat -c %s "${IMAGES_DIR}/${filename}")"
+    if [[ -r "${BASES_DIR}/${BASE_NAME}/base.qcow2" ]]; then
+        floor_size="$(stat -c %s "${BASES_DIR}/${BASE_NAME}/base.qcow2")"
+    fi
+    helper retention floor --path "${BASES_DIR}" --base-size "${floor_size}" --step rebuild --guest-mib "${BASE_RAM_MIB}" >&2 ||
+        die "the host cannot carry a rebuild of ${BASE_NAME} (stage: base); see the VMTEST-DISK/VMTEST-RAM lines above"
+
     DOMAIN="vmtest-build-${BASE_NAME}"
     BUILD_DIR="${BASES_DIR}/${BASE_NAME}.build"
     trap teardown_build EXIT INT TERM HUP
@@ -442,6 +454,37 @@ verdict_field() {
     die "freshness verdict has no ${key}: ${line}"
 }
 
+# freshness_verdict <base.json> <base.qcow2> — the §4.4 verdict for one base, from the
+# probe already in PROBE_FILE, as GATE_* variables: DECISION, DEGRADED, DIVERGENCES, RC,
+# LINE (the verdict marker) and BASE_SIZE. Dies only when the record or the disk cannot be
+# read as ONE base; a refusing verdict is data (GATE_RC != 0), so a caller that only
+# reports — freshness-status — can carry on to the next base.
+freshness_verdict() {
+    local base_json="${1:?}" base_disk="${2:?}" record actual_mtime actual_sha gate gate_rc=0
+    record="$(helper freshness_gate --fedora-version "${VMTEST_FEDORA_VERSION}" --manifest "${MANIFEST}" \
+        --base-json "${base_json}" --probe "${PROBE_FILE}" --recipe-digest "$(recipe_digest_now)" \
+        --actual-base-sha256 "$(printf '%064d' 0)" --record-only)" ||
+        die "could not read ${base_json}"
+    [[ "${record}" == VMTEST-BASE-RECORD* ]] || die "unexpected gate output: ${record}"
+    # §7: size and mtime per run; the full sha256 only on refresh, reinstall and --deep.
+    GATE_BASE_SIZE="$(stat -c %s "${base_disk}")"
+    actual_mtime="$(stat -c %Y "${base_disk}")"
+    if [[ "${GATE_BASE_SIZE}" == "$(record_field "${record}" base_size)" && "${actual_mtime}" == "$(record_field "${record}" base_mtime)" ]]; then
+        actual_sha="$(record_field "${record}" base_sha256)"
+    else
+        die "base.qcow2 for $(record_field "${record}" name) differs from its record (size/mtime); refusing a base of unknown provenance"
+    fi
+    gate="$(helper freshness_gate --fedora-version "${VMTEST_FEDORA_VERSION}" --manifest "${MANIFEST}" \
+        --base-json "${base_json}" --probe "${PROBE_FILE}" --recipe-digest "$(recipe_digest_now)" \
+        --actual-base-sha256 "${actual_sha}" | grep '^VMTEST-FRESHNESS-VERDICT ')" || gate_rc=$?
+    [[ "${gate}" == VMTEST-FRESHNESS-VERDICT* ]] || die "the freshness gate printed no verdict (exit ${gate_rc})"
+    GATE_LINE="${gate}"
+    GATE_RC="${gate_rc}"
+    GATE_DECISION="$(verdict_field "${gate}" decision)"
+    GATE_DEGRADED="$(verdict_field "${gate}" degraded)"
+    GATE_DIVERGENCES="$(verdict_field "${gate}" divergences)"
+}
+
 # resolve_commit [sha] — the commit to provision from: the one given, or the branch tip
 # on the REMOTE. Never a local checkout (§3.4).
 resolve_commit() {
@@ -515,32 +558,20 @@ cmd_run() {
 
     # ── freshness gate (§4.4, T6.1) ────────────────────────────────────────────────────
     probe_upstream
-    local record actual_size actual_mtime actual_sha gate gate_rc=0 decision degraded divergences
-    record="$(helper freshness_gate --fedora-version "${VMTEST_FEDORA_VERSION}" --manifest "${MANIFEST}" \
-        --base-json "${base_json}" --probe "${PROBE_FILE}" --recipe-digest "$(recipe_digest_now)" \
-        --actual-base-sha256 "$(printf '%064d' 0)" --record-only)" ||
-        die "could not read ${base_json}"
-    [[ "${record}" == VMTEST-BASE-RECORD* ]] || die "unexpected gate output: ${record}"
-    # §7: size and mtime per run; the full sha256 only on refresh, reinstall and --deep.
-    actual_size="$(stat -c %s "${base_disk}")"
-    actual_mtime="$(stat -c %Y "${base_disk}")"
-    if [[ "${actual_size}" == "$(record_field "${record}" base_size)" && "${actual_mtime}" == "$(record_field "${record}" base_mtime)" ]]; then
-        actual_sha="$(record_field "${record}" base_sha256)"
-    else
-        die "base.qcow2 for ${BASE_NAME} differs from its record (size/mtime); refusing to run on a base of unknown provenance"
-    fi
-    gate="$(helper freshness_gate --fedora-version "${VMTEST_FEDORA_VERSION}" --manifest "${MANIFEST}" \
-        --base-json "${base_json}" --probe "${PROBE_FILE}" --recipe-digest "$(recipe_digest_now)" \
-        --actual-base-sha256 "${actual_sha}" | grep '^VMTEST-FRESHNESS-VERDICT ')" || gate_rc=$?
-    [[ "${gate}" == VMTEST-FRESHNESS-VERDICT* ]] || die "the freshness gate printed no verdict (exit ${gate_rc})"
-    decision="$(verdict_field "${gate}" decision)"
-    degraded="$(verdict_field "${gate}" degraded)"
-    divergences="$(verdict_field "${gate}" divergences)"
+    local decision degraded divergences actual_size
+    freshness_verdict "${base_json}" "${base_disk}"
+    decision="${GATE_DECISION}"
+    degraded="${GATE_DEGRADED}"
+    divergences="${GATE_DIVERGENCES}"
+    actual_size="${GATE_BASE_SIZE}"
     log "freshness: ${decision} (degraded=${degraded})"
-    if [[ "${gate_rc}" -ne 0 ]]; then
-        printf '%s\n' "${gate}" >&2
+    if [[ "${GATE_RC}" -ne 0 ]]; then
+        printf '%s\n' "${GATE_LINE}" >&2
         die "base ${BASE_NAME} may not be used (freshness: ${decision}); rebuild it with: vmtest build-base ${SCENARIO_BASE_KEY}"
     fi
+    # §10: refuse loudly before an overlay that would exhaust the disk or the host's RAM.
+    helper retention floor --path "${RUNS_DIR}" --base-size "${actual_size}" --step run --guest-mib "${BASE_RAM_MIB}" >&2 ||
+        die "the host cannot carry a run on ${BASE_NAME} (stage: clone); see the VMTEST-DISK/VMTEST-RAM lines above"
 
     # ── overlay and boot ───────────────────────────────────────────────────────────────
     local run_id started_at
@@ -632,6 +663,58 @@ cmd_verify() {
     log "verdict of record: ${HOME}/.local/state/vmtest-bridge/${slug}/service.log"
 }
 
+# ── freshness-status / sweep / nightly (§9 T6.3, T6.4) ───────────────────────────────────
+
+readonly STATUS_FILE="${VMTEST_HOME}/freshness-status.txt"
+readonly RETENTION_LOG="${VMTEST_HOME}/retention.log"
+
+# cmd_freshness_status — one probe, one verdict line per built base, written to a status
+# file and printed. REPORTS ONLY: a `reinstall` here is a line in a file, never a rebuild.
+cmd_freshness_status() {
+    load_lab
+    probe_upstream
+    trap 'rm -f "${PROBE_FILE:-}"' EXIT
+    local status_new="${STATUS_FILE}.new" base_dir base_json base_disk name worst=0
+    {
+        printf 'written_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'probe_revision=%s\n' "$(probe_value VMTEST-FRESHNESS-REVISION)"
+        printf 'probe_compose_id=%s\n' "$(probe_value VMTEST-FRESHNESS-COMPOSE-ID)"
+    } >"${status_new}"
+    for base_json in "${BASES_DIR}"/*/base.json; do
+        [[ -r "${base_json}" ]] || continue
+        base_dir="$(dirname "${base_json}")"
+        base_disk="${base_dir}/base.qcow2"
+        name="$(basename "${base_dir}")"
+        [[ -r "${base_disk}" ]] || die "${name} has a record but no base.qcow2"
+        freshness_verdict "${base_json}" "${base_disk}"
+        printf 'base=%s\tdecision=%s\tdegraded=%s\tdivergences=%s\n' \
+            "${name}" "${GATE_DECISION}" "${GATE_DEGRADED}" "${GATE_DIVERGENCES}" >>"${status_new}"
+        printf 'VMTEST-FRESHNESS-STATUS %s decision=%s degraded=%s\n' "${name}" "${GATE_DECISION}" "${GATE_DEGRADED}"
+        if [[ "${GATE_RC}" -gt "${worst}" ]]; then
+            worst="${GATE_RC}"
+        fi
+    done
+    mv -f "${status_new}" "${STATUS_FILE}"
+    log "freshness status written: ${STATUS_FILE}"
+    # The exit reports the worst verdict (a timer's unit state carries it); nothing was changed.
+    return "${worst}"
+}
+
+# cmd_sweep — the T6.4 retention policy over the lab tree and the bridge spool.
+cmd_sweep() {
+    load_lab
+    [[ -d "${VMTEST_CHECKOUT:-}" ]] || die "${LAB_ENV} does not name an existing VMTEST_CHECKOUT; re-run play-vm-test-lab.yml"
+    helper retention sweep --lab-dir "${VMTEST_HOME}" --checkout "${VMTEST_CHECKOUT}" --log "${RETENTION_LOG}"
+    log "every eviction is recorded in ${RETENTION_LOG}"
+}
+
+cmd_nightly() {
+    local rc=0
+    cmd_freshness_status || rc=$?
+    cmd_sweep
+    return "${rc}"
+}
+
 # ── dispatch ──────────────────────────────────────────────────────────────────────────────
 
 main() {
@@ -644,6 +727,9 @@ main() {
         build-base) cmd_build_base "$@" ;;
         run) cmd_run "$@" ;;
         verify) cmd_verify "$@" ;;
+        freshness-status) cmd_freshness_status "$@" ;;
+        sweep) cmd_sweep "$@" ;;
+        nightly) cmd_nightly "$@" ;;
         help | -h | --help) usage ;;
         *)
             usage >&2
