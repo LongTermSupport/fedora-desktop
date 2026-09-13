@@ -111,8 +111,10 @@ owns. Full evidence and the reasoning that ruled each alternative in or out:
   needed in the end — all three exited on their own before anything was done to
   them. Recorded rather than dropped, because "it resolved itself" is the sort of
   thing that otherwise gets rediscovered as a mystery.
-- [ ] ⬜ **Task 2.2**: Confirm the on-disk transcripts for all four affected
-  projects are intact and that `--continue` recovers each conversation.
+- [x] ✅ **Task 2.2**: Confirm the on-disk transcripts for all four affected
+  projects are intact and that `--continue` recovers each conversation. All
+  four transcripts parse cleanly with no torn records; two sessions were already
+  resumed by the user before the check ran, which is the `--continue` proof.
 
 ### Phase 3: Choose the mechanism
 
