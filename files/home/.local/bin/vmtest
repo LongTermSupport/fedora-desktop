@@ -764,6 +764,28 @@ session_provision() {
     return "${run_rc}"
 }
 
+# desktop_reboot_into_session <base-dir> <transcript> — the reboot a real user does when
+# run.bash finishes: reboot the guest, answer the LUKS prompt again, wait for SSH and then
+# for the autologin session to be back on seat0, so the checks judge the session GNOME
+# starts AFTER provisioning. Recorded in the transcript as a harness step.
+desktop_reboot_into_session() {
+    local base_dir="${1:?}" transcript="${2:?}" waited=0
+    printf '# harness: rebooting the guest after run.bash, as run.bash asks; checks run in the new session\n' | tee -a "${transcript}" >&2
+    guest_ssh sudo systemd-run --quiet --on-active=2 systemctl reboot
+    sleep 10
+    console_follow_stop
+    console_unlock "${RUN_DIR}" "${base_dir}/luks-passphrase"
+    wait_for_ssh
+    log "waiting for the autologin session on seat0 (up to 180s)"
+    while ! guest_ssh "loginctl list-sessions --no-legend" 2>&1 | grep -qE "^\s*[0-9]+\s+[0-9]+\s+${CLOUD_USER}\s+seat0"; do
+        sleep 5
+        waited=$((waited + 5))
+        [[ "${waited}" -lt 180 ]] || die "no autologin session on seat0 within 180s after the reboot (stage: boot)"
+    done
+    # gnome-shell needs a moment after the session appears before its D-Bus interface answers.
+    sleep 15
+}
+
 # collect_desktop_evidence <transcript> — §5.4 evidence-only items: the session
 # environment the runner inherited (T5.3b, diffed against a transient user unit) and a
 # screenshot of the framebuffer, with the boundary stated next to it.
@@ -913,6 +935,13 @@ cmd_run() {
     printf 'RUN-BASH-EXIT %s\n' "${run_rc}" | tee -a "${transcript}" >&2
 
     # ── in-guest acceptance ────────────────────────────────────────────────────────────
+    # A desktop is judged after the reboot run.bash itself asks for: GNOME loads the
+    # extensions the run installed at session start, not into the session that installed
+    # them (Wayland cannot reload the shell). The first desktop run showed exactly that —
+    # every installed extension unknown to the live shell until a new session.
+    if [[ "${BASE_PROFILE}" == "desktop" ]]; then
+        desktop_reboot_into_session "${base_dir}" "${transcript}"
+    fi
     local accept_rc=0 session_env=""
     guest_scp "${guest_script}" "${CLOUD_USER}@127.0.0.1:/tmp/guest-acceptance.bash"
     if [[ "${BASE_PROFILE}" == "desktop" ]]; then
