@@ -94,3 +94,7 @@ CLAUDE/Plan/**/logs/
 # leaves the negation reachable.
 untracked/*
 !untracked/.gitignore
+
+# The sensitive_content handler's word list. Its whole purpose is to name things
+# that must never leave this machine, so the list itself must never be committed.
+*.secrets
