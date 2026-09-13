@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.53.3
+
+**Every picker has an "Exit" row.** Leaving is a visible choice in the list, not only Esc
+or `q`. The yes/no picker's rows are now "Yes, …" and "Exit", and it starts on Exit, so
+Enter alone is the safe answer.
+
 ## 3.53.2
 
 **`ccy-sessions` failed with "key names required".** The yes/no picker (end a session,

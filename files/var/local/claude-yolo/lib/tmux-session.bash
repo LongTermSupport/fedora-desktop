@@ -181,8 +181,8 @@ ccy_tmux_row() {
 # therefore the default; Esc or q is "no" too. Returns 0 only when the yes row is chosen.
 ccy_tmux_confirm() {
     local picked
-    if ! picked="$(ccy_tmux_pick "$1" "$(ccy_tmux_header "Enter choose   Esc or q back" "$2")" "" \
-        <<<"No, leave it as it is"$'\n'"Yes, $3")"; then
+    if ! picked="$(ccy_tmux_pick "$1" "$(ccy_tmux_header "Enter choose   Esc or q exit" "$2")" "" last \
+        <<<"Yes, $3")"; then
         return 1
     fi
     [[ "${picked#*$'\n'}" == "Yes, "* ]]
@@ -199,10 +199,13 @@ ccy_tmux_header() {
     printf '%s' "$out"
 }
 
-# ccy_tmux_pick <title> <header> <expect-keys> — run fzf over the rows on stdin with the
-# house style: a bordered, padded box with the title on its frame, the legend above the
-# rows, one keystroke per action (q quits as well as Esc, so nothing needs Enter after
-# it). Prints "<key>\n<row>" (key empty for Enter); non-zero on Esc or q.
+# ccy_tmux_pick <title> <header> <expect-keys> [cursor] — run fzf over the rows on stdin
+# with the house style: a bordered, padded box with the title on its frame, the legend
+# above the rows, one keystroke per action (q quits as well as Esc, so nothing needs
+# Enter after it), and an "Exit" row always present as the last row so leaving is a
+# visible choice, not only a key. [cursor]="last" starts on that Exit row — the safe
+# default for a yes/no. Prints "<key>\n<row>" (key empty for Enter); non-zero on Esc, q
+# or Exit.
 ccy_tmux_pick() {
     if [[ -z "$(command -v fzf)" ]]; then
         print_error "fzf is not installed; playbooks/imports/play-claude-yolo.yml installs it."
@@ -210,20 +213,28 @@ ccy_tmux_pick() {
     fi
     # fzf refuses an empty --expect ("key names required"), so the flag is only passed when
     # there are keys; the "<key>\n<row>" shape is kept either way.
-    local -a expect=()
+    local -a opts=()
     if [[ -n "$3" ]]; then
-        expect=(--expect="$3")
+        opts+=(--expect="$3")
     fi
-    local out
-    out=$(fzf --height=~70% --layout=reverse --no-multi --no-sort --no-info \
+    if [[ "${4:-}" == "last" ]]; then
+        opts+=(--bind='start:last')
+    fi
+    local rows out
+    rows=$(cat -)
+    out=$(printf '%s\n%s\n' "${rows%$'\n'}" "$CCY_TMUX_EXIT_ROW" | fzf --height=~70% --layout=reverse --no-multi --no-sort --no-info \
         --border=rounded --border-label=" $1 " --border-label-pos=3 \
         --margin=1,2 --padding=1,2 --header-first --pointer='▶' \
-        --prompt="filter > " --header="$2"$'\n' --bind='q:abort' "${expect[@]}") || return $?
-    if [[ ${#expect[@]} -eq 0 ]]; then
-        printf '\n'
+        --prompt="filter > " --header="$2"$'\n' --bind='q:abort' "${opts[@]}") || return $?
+    if [[ -z "$3" ]]; then
+        out=$'\n'"$out"
+    fi
+    if [[ "${out#*$'\n'}" == "$CCY_TMUX_EXIT_ROW" ]]; then
+        return 1
     fi
     printf '%s\n' "$out"
 }
+CCY_TMUX_EXIT_ROW="Exit"
 
 # ccy_tmux_insulate <project> <command> [args...] — the launcher's entry point.
 #

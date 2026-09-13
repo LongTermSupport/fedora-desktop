@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.53.2"  # Fix: the yes/no picker passed an empty --expect to fzf ("key names required"), which broke ccy-sessions when nothing was running; the flag is now only passed with keys. See docs/ccy-changelog.md.
+CCY_VERSION="3.53.3"  # UI: every picker ends with an "Exit" row; the yes/no picker starts on it, so Enter alone is the safe answer. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

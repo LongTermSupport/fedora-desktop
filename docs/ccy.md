@@ -158,7 +158,8 @@ tmux menu ([tmux sessions](tmux-sessions.md)). Otherwise nothing changes — unt
 terminal dies.
 Then `ccy` in the project directory finds the detached session and offers it in a picker:
 the same bordered list `ccy-sessions` uses, with the session name, its state and its
-directory. Enter re-attaches, Ctrl-N starts a new session instead, Esc or `q` leaves.
+directory. Enter re-attaches, Ctrl-N starts a new session instead, and the last row is
+always Exit (Esc or `q` do the same).
 Every key acts on its own; nothing needs Enter after it. A session that is open in
 another terminal is named in the header and is not offered: **a session can be attached
 from one terminal only**. The tmux server enforces it too — a second client attaching to
@@ -167,8 +168,10 @@ an open session is detached again at once — so two terminals can never mirror 
 
 `ccy-sessions` is the view across every project: a picker listing each session with its
 state and directory. Arrow keys choose, Enter attaches a detached one, Ctrl-X ends one (it
-asks first), Ctrl-N starts a new `ccy` session in the current directory, Esc or `q`
-leaves. A session that is open in another terminal says so and Enter on it is refused. Ctrl-N only
+asks first), Ctrl-N starts a new `ccy` session in the current directory, and the last
+row is always Exit (Esc or `q` do the same). Every yes/no question is the same picker,
+starting on Exit so Enter alone is the safe answer. A session that is open in another
+terminal says so and Enter on it is refused. Ctrl-N only
 works from a project folder (a git repository) and simply runs `ccy` the normal way, with
 every check and prompt it always has. It is how you get back to work after a crash without
 remembering which projects were open.

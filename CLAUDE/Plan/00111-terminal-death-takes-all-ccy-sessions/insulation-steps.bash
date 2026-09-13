@@ -338,9 +338,10 @@ PY
 
 pickers)
     # The two picker shapes the human layer uses, driven for real in a fake terminal: the
-    # yes/no confirm (no --expect keys) answered with q must return 1, and the deployed
-    # ccy-sessions list left with Esc must exit 0. Neither may print an fzf usage error.
-    open_fake_terminal "${state}/confirm.log" "q" \
+    # yes/no confirm (no --expect keys) answered with a bare Enter must return 1 — its
+    # cursor starts on the Exit row — and the deployed ccy-sessions list left with Esc
+    # must exit 0. Neither may print an fzf usage error.
+    open_fake_terminal "${state}/confirm.log" $'\r' \
         "source '${CCY_LIB_DEPLOYED}/common-pure.bash' && source '${CCY_LIB_DEPLOYED}/tmux-session.bash' && if ccy_tmux_confirm 'Acceptance' 'Say no.' 'do it'; then echo CONFIRM-RC=0; else echo CONFIRM-RC=1; fi" \
         >"${state}/confirm.pid"
     wait_for 15 "confirm picker to exit" pid_gone "$(<"${state}/confirm.pid")"
