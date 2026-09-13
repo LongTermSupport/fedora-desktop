@@ -73,7 +73,7 @@ unlock route, so Phase 5 cannot start until Phase 0 answers it.**
 - [x] ✅ **T1.1**: `helpers/vmtest/upstream.py`, test-first — artefact identity
   and package revision from `.treeinfo`, `COMPOSE_ID`, `releases.json`, Bodhi,
   `repomd.xml`
-- [ ] ⬜ **T1.2**: `helpers/vmtest/freshness.py`, test-first — the §4.4 policy,
+- [x] ✅ **T1.2**: `helpers/vmtest/freshness.py`, test-first — the §4.4 policy,
   parametrised over the **whole** readable/unreadable matrix and asserted total
 - [ ] ⬜ **T1.3**: `helpers/vmtest/scenarios.py` — manifest parsing, planned-check
   accounting
