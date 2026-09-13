@@ -91,10 +91,10 @@ Three of four CCY containers survived; one was destroyed:
 
 | Container                          | Claude PID | Outcome                |
 | ---------------------------------- | ---------- | ---------------------- |
-| `lts-property_yolo`                | 501461     | survived               |
-| `ec-claude-code-hooks-daemon_yolo` | 1204504    | survived               |
-| `fedora-desktop_yolo`              | 1731869    | survived               |
-| `family-qnap_yolo`                 | —          | **killed and removed** |
+| `container-C`                | 501461     | survived               |
+| `container-B` | 1204504    | survived               |
+| `container-D`              | 1731869    | survived               |
+| `container-A`                 | —          | **killed and removed** |
 
 All four hit the same console failure the instant their pty vanished, so the
 console failure is not the discriminator:
@@ -103,7 +103,7 @@ console failure is not the discriminator:
 13:23:45 conmon[1170662]: conmon a60224f2dc8f… <nwarn>: Failed to write to remote console socket   ← survived
 13:23:45 conmon[1729365]: conmon bb073b3a99e3… <nwarn>: Failed to write to remote console socket   ← survived
 13:23:45 conmon[501011]:  conmon 8453a8dbcd64… <nwarn>: Failed to write to remote console socket   ← survived
-13:23:45 podman[3892681]: container kill   f6b77e1f66f5…  (name=family-qnap_yolo)                  ← destroyed
+13:23:45 podman[3892681]: container kill   f6b77e1f66f5…  (name=container-A)                  ← destroyed
 13:23:45 podman[3892681]: container died   f6b77e1f66f5…
 13:23:47 podman[3892681]: container remove f6b77e1f66f5…
 ```
@@ -114,7 +114,7 @@ The discriminator is the **foreground `podman run` client**:
   1170662, 1729365), and `conmon`'s **ppid is 2266, `systemd --user`**. It lives
   in its own `libpod-*.scope`, outside any `ptyxis-spawn-*.scope`, already
   reparented clear of the tab. The tab's death could not reach it.
-- `family-qnap_yolo`'s `podman` client (pid 3892681) was **still alive in a dying
+- `container-A`'s `podman` client (pid 3892681) was **still alive in a dying
   tab**. Losing its terminal, it ran its ordinary `--rm` teardown: kill, then
   remove. Podman destroyed that container deliberately, as instructed — it was
   not collateral damage.
@@ -167,7 +167,7 @@ needed.
 ### Secondary hardening
 
 `podman run --rm` in a tab means **any** tab death destroys that container
-outright, as `family-qnap_yolo` shows. Worth addressing even once a pty survives
+outright, as `container-A` shows. Worth addressing even once a pty survives
 the tab, because `--rm` turns a recoverable interruption into an unrecoverable
 one. Independent of the pty question and should not be conflated with it.
 

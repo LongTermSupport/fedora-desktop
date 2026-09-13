@@ -139,7 +139,7 @@ owns. Full evidence and the reasoning that ruled each alternative in or out:
   `files/etc/tmux.conf` from Plan 00105 rather than adding a new playbook —
   tmux installation and configuration are already handled there.
 - [ ] ⬜ **Task 4.2**: Address the `podman run --rm` teardown path, so a tab
-  death cannot destroy a container outright as it did `family-qnap_yolo`.
+  death cannot destroy a container outright as it did `container-A`.
 - [ ] ⬜ **Task 4.3**: Add `acceptance.bash` that kills Ptyxis with a live CCY
   session running and asserts the session is recoverable.
 
