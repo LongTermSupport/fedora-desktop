@@ -48,6 +48,18 @@ fi
 source "$COMMON_PURE"
 # shellcheck source=../claude-yolo/lib/token-management.bash
 source "$TOKEN_MGMT"
+# shellcheck source=../claude-yolo/lib/tmux-session.bash
+source "$CCY_LIB_DIR/tmux-session.bash"
+
+# Terminal-death insulation, the same as ccy's and on the same server: the session is
+# re-executed inside tmux BEFORE the token chooser, so the prompt and the claude pty both
+# live where a dying terminal cannot reach them. Sessions are cc-<project>; a parked one
+# is offered on the next cc from this directory, and ccy-sessions lists them with ccy's.
+# Inside a tmux of its own already, ccy_tmux_insulate decides (see the library); on the
+# way back in it is a no-op and the banner says how to detach and return.
+CCY_TMUX_SESSION_PREFIX="cc"
+ccy_tmux_insulate "$(get_project_name)" "$(cd "$(dirname "$0")" && pwd)/$(basename "$0")" "$@"
+ccy_tmux_banner
 
 # Stale-credential shadow-proofing (full rationale in the named-token branch
 # below). claude reads .credentials.json even when CLAUDE_CODE_OAUTH_TOKEN is

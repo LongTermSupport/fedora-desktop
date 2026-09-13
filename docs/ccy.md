@@ -153,8 +153,9 @@ and ran its `--rm` teardown, and the sessions were gone. Since CCY 3.52.0 the la
 re-executes itself inside a tmux session before its first prompt, so the tmux server owns
 the pty and the terminal only holds a disposable tmux client.
 
-What you see: one line at the top of each session naming it, and F12 opens the tmux menu
-([tmux sessions](tmux-sessions.md)). Otherwise nothing changes — until a terminal dies.
+What you see: the terminal's window title reads `tmux: ccy-<project>  (F12 then Detach leaves it running)`, one line at the top of the session says the same, and F12 opens the
+tmux menu ([tmux sessions](tmux-sessions.md)). Otherwise nothing changes — until a
+terminal dies.
 Then `ccy` in the project directory finds the parked session and offers it:
 
 ```
@@ -168,9 +169,17 @@ offered: **a session can be attached from one terminal only**. The tmux server e
 too — a second client attaching to an open session is detached again at once — so two
 terminals can never mirror one `claude`, whoever wins a race.
 
-`ccy-sessions` is the view across every project: a numbered list with each session's state
-and directory, a number to attach a detached one, `k` plus a number to end one. It is how
-you get back to work after a crash without remembering which projects were open.
+`ccy-sessions` is the view across every project: a picker listing each session with its
+state and directory. Arrow keys choose, Enter attaches a parked one, Ctrl-X ends one (it
+asks first), Ctrl-N starts a new `ccy` session in the current directory, Esc leaves. A
+session that is open in another terminal says so and Enter on it is refused. Ctrl-N only
+works from a project folder (a git repository) and simply runs `ccy` the normal way, with
+every check and prompt it always has. It is how you get back to work after a crash without
+remembering which projects were open.
+
+The host `cc` wrapper does all of the same: its sessions are `cc-<project>` on the same
+server, `cc` in a project directory offers a parked one back, and `ccy-sessions` lists
+both kinds. From the keyboard the two feel identical; only the container differs.
 
 | Event                                              | Result                                                                                 |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------- |
@@ -1004,7 +1013,7 @@ absent supervisor and `--no-supervise`; both announce themselves at launch. See
 | Session stalls with a full context window     | Enable [the supervisor](#the-supervisor) so it compacts automatically.                                                                                                                                                                             |
 | Stale/orphaned containers                     | `ccy --top` to list and stop them.                                                                                                                                                                                                                 |
 | Terminal died; where is my session?           | Still running, detached. `cd` to the project and run `ccy` — it offers to re-attach. `ccy-sessions` lists them all. See [Sessions Survive the Terminal](#sessions-survive-the-terminal).                                                           |
-| `ccy` offers a session I do not want          | Answer `n` for a fresh one, or end the old one from `ccy-sessions` (`k` plus its number).                                                                                                                                                          |
+| `ccy` offers a session I do not want          | Answer `n` for a fresh one, or end the old one from `ccy-sessions` (choose it, Ctrl-X).                                                                                                                                                            |
 | "open in another terminal" when attaching     | A session can be attached from one terminal only. Detach it there first (F12, Detach), or end it from `ccy-sessions`.                                                                                                                              |
 | "tmux is not installed"                       | `play-tmux-sessions.yml` has not run on this host. It is part of `playbook-main.yml`.                                                                                                                                                              |
 | Need to see what CCY itself is doing          | `ccy --debug` for interactive debug-layer selection.                                                                                                                                                                                               |

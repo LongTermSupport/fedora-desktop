@@ -243,6 +243,24 @@ ccy_validate_mount_line() {
     printf '%s|%s|%s\n' "$src" "$dst" "$opt"
 }
 
+# Project name from the working directory: "<parent>-<dir>" unless the parent is a
+# generic folder, lowercased, odd characters replaced by "_". Names the CCY container
+# and, since 3.53.0, the tmux session of both ccy and the host cc wrapper — which is
+# why it lives here rather than in common.bash: cc loads only this engine-free library.
+get_project_name() {
+    local project_dir parent_dir
+    project_dir=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/_/g')
+    parent_dir=$(basename "$(dirname "$(pwd)")" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/_/g')
+    local generic_folders="projects|repos|work|src|code|dev|home"
+
+    if ! echo "$parent_dir" | grep -qiE "^($generic_folders)$"; then
+        echo "${parent_dir}-${project_dir}"
+    else
+        echo "$project_dir"
+    fi
+}
+
 export -f print_error
 export -f is_token_valid
 export -f ccy_validate_mount_line
+export -f get_project_name

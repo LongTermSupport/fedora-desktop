@@ -17,6 +17,24 @@ Two version numbers move independently — see
 
 ---
 
+## 3.53.0
+
+**`cc` survives the terminal too, and `ccy-sessions` is a real picker.**
+
+- The host `cc` wrapper re-executes itself inside tmux before its token chooser, exactly
+  as `ccy` does, on the same server. Its sessions are `cc-<project>`; `cc` in a project
+  directory offers a parked one back; `ccy-sessions` lists both kinds. From the keyboard
+  it feels the same as `ccy` — the only difference is that nothing is in a container.
+- `ccy-sessions` uses fzf: arrow keys to choose, Enter attaches, Ctrl-X ends a session
+  (after a [y/N]), Ctrl-N starts a new `ccy` in the current directory by running `ccy`
+  itself — only from a git project folder — and Esc leaves. A session that is open in
+  another terminal is labelled so and Enter on it is refused; it can still be ended. The
+  numbered `k<number>` menu is gone. fzf is installed by `play-claude-yolo.yml`.
+- `get_project_name` moved from `common.bash` to `common-pure.bash` so `cc`, which loads
+  only the engine-free library, names its session the same way `ccy` names its container.
+- The terminal's window title now reads `tmux: <session>  (F12 then Detach leaves it running)` inside any session, via the system-wide `tmux.conf` from `play-tmux-sessions.yml`.
+  With the status bar off it is the one visible sign of being inside tmux.
+
 ## 3.52.1
 
 **The tmux re-exec happens before the first prompt, and "inside tmux" is checked, not

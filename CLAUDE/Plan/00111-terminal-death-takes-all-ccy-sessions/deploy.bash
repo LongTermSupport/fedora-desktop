@@ -55,9 +55,17 @@ plan_require_host "it runs Ansible against this machine's CCY install"
 plan_prime_sudo
 plan_start_log auto
 
-plan_gate_change "CCY launcher and lib/ redeployed to /var/local/claude-yolo (whole play-claude-yolo.yml reconciled; may rebuild the image)"
+plan_gate_change "CCY launcher and lib/ redeployed to /var/local/claude-yolo (whole play-claude-yolo.yml reconciled; may rebuild the image); host cc wrapper redeployed by play-claude-code.yml"
 
 plan_deploy_leg "play-claude-yolo.yml" \
     plan_ansible_playbook playbooks/imports/play-claude-yolo.yml
+# The host cc wrapper sources the library the play above installs, and is deployed by the
+# play that owns Claude Code on the host.
+plan_deploy_leg "play-claude-code.yml" \
+    plan_ansible_playbook playbooks/imports/play-claude-code.yml
+# The window title that says "you are in tmux" is in the system-wide tmux.conf that Plan
+# 00105's play owns; the ccy server reads that file, so the play is part of this deploy.
+plan_deploy_leg "play-tmux-sessions.yml" \
+    plan_ansible_playbook playbooks/imports/play-tmux-sessions.yml
 
 plan_finish

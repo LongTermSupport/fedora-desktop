@@ -91,6 +91,8 @@ plan_deploy_leg "deployed launcher: --help prints and exits with no session" \
     bash "${STEPS}" real-help "${STATE}"
 plan_deploy_leg "deployed launcher: enters tmux before its first prompt" \
     bash "${STEPS}" real-launch "${STATE}"
+plan_deploy_leg "deployed host cc wrapper: enters tmux before its token chooser" \
+    bash "${STEPS}" real-cc-launch "${STATE}"
 plan_deploy_leg "no-op inside tmux and without a terminal" \
     bash "${STEPS}" not-applicable "${STATE}"
 plan_deploy_leg "throwaway session removed" \

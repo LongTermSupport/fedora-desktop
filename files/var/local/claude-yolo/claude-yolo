@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.52.1"  # Fix: the tmux re-exec now happens before the first prompt (3.52.0 asked Quick Launch and SSH questions twice); inside a tab-spawned tmux ccy refuses instead of claiming protection; sessions matched by directory. See docs/ccy-changelog.md.
+CCY_VERSION="3.53.0"  # Feature: the host cc wrapper gets the same tmux insulation as ccy (sessions cc-<project> on the shared server); ccy-sessions is an fzf picker (arrows, Enter attaches, Ctrl-X ends); get_project_name moved to common-pure.bash. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

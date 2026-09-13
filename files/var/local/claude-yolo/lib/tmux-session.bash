@@ -28,6 +28,10 @@
 
 CCY_TMUX_SOCKET="ccy"
 CCY_TMUX_MAX_TRIES=3
+# The launcher this library is serving, which names its sessions: ccy-<project> for the
+# container launcher, cc-<project> for the host wrapper (cc sets this before calling).
+# Both live on the one server, so ccy-sessions shows them side by side.
+: "${CCY_TMUX_SESSION_PREFIX:=ccy}"
 
 # The same tmux invocation everywhere, so no call can land on the default server by mistake.
 ccy_tmux() {
@@ -59,7 +63,7 @@ ccy_tmux_project_sessions() {
     listing=$(ccy_tmux_list) || return 1
     while read -r name attached dir; do
         [[ -n "$name" ]] || continue
-        if [[ "$dir" == "$PWD" ]]; then
+        if [[ "$dir" == "$PWD" && "$name" == "${CCY_TMUX_SESSION_PREFIX}-"* ]]; then
             printf '%s %s %s\n' "$name" "$attached" "$dir"
         fi
     done <<<"$listing"
@@ -67,7 +71,7 @@ ccy_tmux_project_sessions() {
 
 # ccy_tmux_next_name <project> — the first free session name for a project.
 ccy_tmux_next_name() {
-    local base="ccy-$1" listing n=1 candidate
+    local base="${CCY_TMUX_SESSION_PREFIX}-$1" listing n=1 candidate
     listing=$(ccy_tmux_list) || return 1
     candidate="$base"
     while awk -v want="$candidate" '$1 == want { found = 1 } END { exit found ? 0 : 1 }' <<<"$listing"; do
@@ -268,10 +272,10 @@ ccy_tmux_insulate() {
     esac
 
     name=$(ccy_tmux_next_name "$project") || return 1
-    echo "Starting session '$name' under tmux. If this terminal dies, run ccy here again to re-attach." >&2
+    echo "Starting session '$name' under tmux. If this terminal dies, run ${CCY_TMUX_SESSION_PREFIX} here again to re-attach." >&2
     # The trampoline's dollars are escaped: they expand in the bash tmux starts, not here.
     local hold_on_failure
-    hold_on_failure="\"\$@\"; rc=\$?; if [ \"\$rc\" -ne 0 ]; then printf '\\nccy exited with status %s. Press Enter to close this session.\\n' \"\$rc\"; read -r; fi; exit \"\$rc\""
+    hold_on_failure="\"\$@\"; rc=\$?; if [ \"\$rc\" -ne 0 ]; then printf '\\n${CCY_TMUX_SESSION_PREFIX} exited with status %s. Press Enter to close this session.\\n' \"\$rc\"; read -r; fi; exit \"\$rc\""
     # The scope keeps the server out of the terminal's cgroup; --collect lets systemd forget
     # it once empty, whatever its exit status. The session is created detached, the
     # single-attach hook is installed, and only then is this client attached — one server
@@ -292,5 +296,5 @@ ccy_tmux_banner() {
     [[ "$(basename "$socket")" == "$CCY_TMUX_SOCKET" ]] || return 0
     local name
     name=$(tmux display-message -p '#S') || return 1
-    echo "tmux session '$name': F12 then Detach leaves it running; ccy here or ccy-sessions brings it back." >&2
+    echo "tmux session '$name': F12 then Detach leaves it running; ${CCY_TMUX_SESSION_PREFIX} here or ccy-sessions brings it back." >&2
 }

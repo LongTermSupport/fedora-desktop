@@ -151,9 +151,18 @@ owns. Full evidence and the reasoning that ruled each alternative in or out:
   `client-attached` hook detaches any second client, so a race cannot mirror
   one `claude` into two terminals.
 - [x] ✅ **Task 4.4**: `ccy-sessions` — a human command, not raw tmux
-  incantations in the docs. Numbered list of every CCY session with state and
-  directory; a number attaches a detached one; `k<number>` ends one. Deployed
-  to `~/.local/bin` by `play-claude-yolo.yml`, sources the same library.
+  incantations in the docs. An fzf picker of every session with state and
+  directory: arrows choose, Enter attaches a parked one, Ctrl-X ends one,
+  Ctrl-N runs a normal `ccy` in the current directory (git project folders
+  only), Esc leaves; an open-elsewhere row refuses Enter. The first cut was a numbered
+  menu with `k<number>`, which the user found unclear; replaced the same day.
+  Deployed to `~/.local/bin` by `play-claude-yolo.yml`, sources the same library.
+- [x] ✅ **Task 4.5**: The host `cc` wrapper gets the same insulation
+  (CCY 3.53.0), on the same server, as `cc-<project>` sessions: offer on
+  re-launch, single attach, listed by `ccy-sessions`. `get_project_name` moved
+  to `common-pure.bash` so `cc` names sessions the way `ccy` names containers.
+  Acceptance launches the deployed `cc` and checks it enters tmux before its
+  token chooser.
 - [x] ✅ **Task 4.2**: `podman run --rm` stays. With the tmux server owning the
   pty, the `podman run` client no longer dies with the tab, so `--rm` only runs
   when `claude` itself exits. No launcher change, no conflict with Plan 00079.

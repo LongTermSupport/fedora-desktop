@@ -21,6 +21,9 @@
 #                       with Enter: it must attach, not start anew
 #   bounce              a raw tmux attach from a third terminal is thrown off by the server
 #   offer-new           terminal 2 killed; a fourth answers 'n': a -2 session starts
+#   real-help           the deployed ccy launcher, --help: prints, exits, no session
+#   real-launch         the deployed ccy launcher, interactive: in tmux before any prompt
+#   real-cc-launch      the deployed host cc wrapper: in tmux before its token chooser
 #   not-applicable      inside tmux, or without a terminal, the entry point is a no-op
 #   cleanup             kill whatever this run started; safe to call twice
 set -euo pipefail
@@ -128,7 +131,14 @@ preconditions)
         printf '[FAIL] session %s already exists from an earlier run; run the cleanup step\n' "${session}" >&2
         exit 1
     fi
-    printf 'deployed lib matches repo; no stale %s\n' "${session}"
+    # The deployed /etc/tmux.conf must put "tmux: <session>" in the window title — that is
+    # the only visible sign of being inside a session once the status bar is off.
+    titles="$(TERM=xterm-256color tmux -L config-check -f /etc/tmux.conf start-server \; show-option -gv set-titles-string \; kill-server)"
+    if [[ "${titles}" != "tmux: #S"* ]]; then
+        printf '[FAIL] /etc/tmux.conf does not set the window title to name the session (got: %s); run deploy.bash\n' "${titles}" >&2
+        exit 1
+    fi
+    printf 'deployed lib matches repo; window title configured; no stale %s\n' "${session}"
     ;;
 
 start)
@@ -285,6 +295,34 @@ PY
         "$(<"${state}/real-launch.launcher-pid")"
     ;;
 
+real-cc-launch)
+    # The DEPLOYED host cc wrapper, same throwaway repo: it must enter tmux before its
+    # token chooser, as a cc-<project> session, and show that chooser exactly once.
+    open_fake_terminal "${state}/real-cc.log" "" "cd '${state}/ccyaccept/real' && /var/local/claude-code/cc" \
+        >"${state}/real-cc.pid"
+    wait_for 30 "session cc-ccyaccept-real attached" named_session_attached_is "cc-ccyaccept-real" 1
+    python3 - "${state}/real-cc.log" <<'PY'
+import sys
+data = open(sys.argv[1], "rb").read()
+marker = b"\x1b[?1049h"
+if marker not in data:
+    sys.exit("[FAIL] tmux never took the screen for cc (no alternate-screen switch in the log)")
+before = data.split(marker, 1)[0].decode("utf-8", "replace")
+if "select token" in before.lower():
+    sys.exit(f"[FAIL] cc prompted for a token BEFORE entering tmux:\n{before}")
+print("no prompt before tmux took the screen (cc)")
+PY
+    wait_for 60 "cc to reach its token chooser inside the session" pane_shows "cc-ccyaccept-real" 'Select token'
+    if [[ "$(tmux -L ccy capture-pane -p -t "=cc-ccyaccept-real:" | grep -c 'Select token')" -ne 1 ]]; then
+        printf '[FAIL] expected exactly one token prompt inside the cc session:\n' >&2
+        tmux -L ccy capture-pane -p -t "=cc-ccyaccept-real:" >&2
+        exit 1
+    fi
+    tmux -L ccy kill-session -t "=cc-ccyaccept-real"
+    wait_for 5 "throwaway cc session gone" named_session_attached_is "cc-ccyaccept-real" ""
+    printf 'deployed cc entered tmux before its token chooser, as cc-ccyaccept-real\n'
+    ;;
+
 not-applicable)
     # Inside tmux already: must return 0 without exec'ing, so `false` never runs and the
     # exit status is the function's own. Same entry point string as the real steps.
@@ -306,7 +344,7 @@ cleanup)
             kill -KILL "$(<"${f}")"
         fi
     done
-    for name in "${session}" "${session}-2" ccy-ccyaccept-real; do
+    for name in "${session}" "${session}-2" ccy-ccyaccept-real cc-ccyaccept-real; do
         if [[ -n "$(attached_count "${name}")" ]]; then
             tmux -L ccy kill-session -t "=${name}"
         fi

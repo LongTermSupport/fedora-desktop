@@ -44,6 +44,12 @@ the menu for those — list, attach a parked one, end one — and `ccy` in a pro
 offers its own parked session. The full behaviour, including the one-terminal-per-session
 rule, is in [CCY: Sessions Survive the Terminal](ccy.md#sessions-survive-the-terminal).
 
+## How you know you are inside one
+
+The terminal's window title. With the status bar off it is the one visible sign, so the
+config sets it to `tmux: <session>  (F12 then Detach leaves it running)` for every
+session — `ccy-<project>`, `cc-<project>`, or the name you gave `tmux new -s`.
+
 ## Why the tmux status bar is off
 
 Claude Code draws its own status line at the bottom of the terminal. A tmux bar would sit
