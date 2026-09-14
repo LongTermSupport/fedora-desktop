@@ -250,7 +250,7 @@ for FILE in "${STAGED_FILE_LIST[@]}"; do
         #
         # A filter that cannot run is a hard failure: an empty result would read
         # as "no leak found", which is the defect class this plan is about.
-        if ! MATCH_LINES=$(printf '%s\n' "$MATCH_LINES" | hook_filter_match_lines "$PATTERN"); then
+        if ! MATCH_LINES=$(printf '%s\n' "$MATCH_LINES" | hook_filter_match_lines "$PATTERN" "$REPO_ROOT"); then
             echo -e "${RED}ERROR: whitelist filtering failed for: $DESCRIPTION${NC}" >&2
             exit 1
         fi

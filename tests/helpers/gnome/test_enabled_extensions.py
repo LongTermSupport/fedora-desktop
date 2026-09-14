@@ -140,63 +140,121 @@ class TestMerge(unittest.TestCase):
         self.assertFalse(second.changed)
 
 
-class TestDiscoverDeployedUuids(unittest.TestCase):
+class TestValidateUuid(unittest.TestCase):
+    def test_a_plain_uuid_is_returned_unchanged(self):
+        self.assertEqual(ee.validate_uuid(CUSTOM), CUSTOM)
+
+    def test_a_comma_is_rejected(self):
+        # The executor reports the declared list comma-separated; one would become two.
+        with self.assertRaises(ValueError) as caught:
+            ee.validate_uuid("a,b@x")
+        self.assertIn("comma", str(caught.exception))
+
+    def test_a_newline_is_rejected(self):
+        # It would split the marker line in two and corrupt the play's set_fact.
+        with self.assertRaises(ValueError):
+            ee.validate_uuid("a\nb@x")
+
+    def test_a_space_is_rejected(self):
+        # The marker is "GNOME-EXT-DEPLOYED <csv>"; the play splits on the first space.
+        with self.assertRaises(ValueError):
+            ee.validate_uuid("a b@x")
+
+    def test_empty_is_rejected(self):
+        with self.assertRaises(ValueError):
+            ee.validate_uuid("")
+
+
+class TestResolveDeclared(unittest.TestCase):
+    """The deployed set is DECLARED by the play; disk only confirms it.
+
+    Discovering it from the extensions directory instead was wrong in both
+    directions: too wide (it swept up the user's own extensions, so a stale
+    third-party one aborted provisioning and a deliberately-disabled one was
+    re-enabled every deploy) and too narrow (six of seven downloaded read as
+    complete success, because nothing held the count against the declaration).
+    """
+
     def _extension(self, root: pathlib.Path, directory: str, metadata: object) -> None:
         path = root / directory
         path.mkdir(parents=True)
         if metadata is not None:
             (path / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
 
-    def test_reads_the_uuid_from_metadata_not_the_directory_name(self):
+    def test_declared_and_present_resolves(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
-            self._extension(root, CUSTOM, {"uuid": CUSTOM, "name": "Workspace Names"})
-            self.assertEqual(ee.discover_deployed_uuids(str(root)), [CUSTOM])
+            self._extension(root, CUSTOM, {"uuid": CUSTOM})
+            result = ee.resolve_declared([str(root)], [CUSTOM])
+        self.assertEqual(result.found, [CUSTOM])
+        self.assertEqual(result.missing, [])
 
-    def test_result_is_sorted_for_determinism(self):
+    def test_declared_order_is_preserved_not_sorted(self):
+        # The play's order is the declaration's order; re-sorting would make the
+        # marker line disagree with the play for no reason.
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             for uuid in ("c@x", "a@x", "b@x"):
                 self._extension(root, uuid, {"uuid": uuid})
-            self.assertEqual(ee.discover_deployed_uuids(str(root)), ["a@x", "b@x", "c@x"])
+            result = ee.resolve_declared([str(root)], ["c@x", "a@x", "b@x"])
+        self.assertEqual(result.found, ["c@x", "a@x", "b@x"])
 
-    def test_missing_directory_yields_nothing(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            absent = str(pathlib.Path(tmp) / "no-such-dir")
-            self.assertEqual(ee.discover_deployed_uuids(absent), [])
-
-    def test_directory_without_metadata_is_not_an_extension(self):
+    def test_a_declared_uuid_that_is_not_on_disk_is_missing_not_skipped(self):
+        # The partial-install hole: six of seven downloaded must not read as success.
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
-            self._extension(root, "leftover", None)
-            self.assertEqual(ee.discover_deployed_uuids(str(root)), [])
+            self._extension(root, "a@x", {"uuid": "a@x"})
+            result = ee.resolve_declared([str(root)], ["a@x", "b@x"])
+        self.assertEqual(result.found, ["a@x"])
+        self.assertEqual(result.missing, ["b@x"])
 
-    def test_uuid_disagreeing_with_the_directory_name_is_an_error(self):
-        # GNOME Shell refuses to load such an extension; a silent skip here would
-        # hand the play a shorter list and pass. Fail instead.
+    def test_an_undeclared_extension_on_disk_is_ignored(self):
+        # The user's own extensions are not ours to judge, enable, or fail on.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            self._extension(root, CUSTOM, {"uuid": CUSTOM})
+            self._extension(root, "theirs@example.com", {"uuid": "theirs@example.com"})
+            result = ee.resolve_declared([str(root)], [CUSTOM])
+        self.assertEqual(result.found, [CUSTOM])
+        self.assertNotIn("theirs@example.com", result.found)
+
+    def test_searches_every_path_in_order(self):
+        # dash-to-dock is a DNF-installed SYSTEM extension, in a second directory.
+        with tempfile.TemporaryDirectory() as tmp:
+            user = pathlib.Path(tmp) / "user"
+            system = pathlib.Path(tmp) / "system"
+            self._extension(user, CUSTOM, {"uuid": CUSTOM})
+            self._extension(system, "dock@x", {"uuid": "dock@x"})
+            result = ee.resolve_declared([str(user), str(system)], [CUSTOM, "dock@x"])
+        self.assertEqual(result.found, [CUSTOM, "dock@x"])
+        self.assertEqual(result.missing, [])
+        self.assertTrue(result.locations["dock@x"].startswith(str(system)))
+
+    def test_a_search_path_that_does_not_exist_is_not_an_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            self._extension(root, CUSTOM, {"uuid": CUSTOM})
+            absent = str(pathlib.Path(tmp) / "no-such-dir")
+            result = ee.resolve_declared([absent, str(root)], [CUSTOM])
+        self.assertEqual(result.found, [CUSTOM])
+
+    def test_metadata_uuid_disagreeing_with_the_directory_is_an_error(self):
+        # GNOME Shell refuses to load such an extension; treating it as present
+        # would declare a UUID the shell will never enable.
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             self._extension(root, "a@x", {"uuid": "b@x"})
             with self.assertRaises(ValueError) as caught:
-                ee.discover_deployed_uuids(str(root))
+                ee.resolve_declared([str(root)], ["a@x"])
             self.assertIn("a@x", str(caught.exception))
             self.assertIn("b@x", str(caught.exception))
-
-    def test_uuid_containing_a_comma_is_an_error(self):
-        # The executor reports the list comma-separated; one would become two.
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            self._extension(root, "a,b@x", {"uuid": "a,b@x"})
-            with self.assertRaises(ValueError) as caught:
-                ee.discover_deployed_uuids(str(root))
-            self.assertIn("comma", str(caught.exception))
 
     def test_metadata_without_a_uuid_is_an_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             self._extension(root, "a@x", {"name": "No UUID"})
             with self.assertRaises(ValueError):
-                ee.discover_deployed_uuids(str(root))
+                ee.resolve_declared([str(root)], ["a@x"])
 
     def test_unparseable_metadata_is_an_error(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -205,19 +263,27 @@ class TestDiscoverDeployedUuids(unittest.TestCase):
             path.mkdir()
             (path / "metadata.json").write_text("{not json", encoding="utf-8")
             with self.assertRaises(ValueError):
-                ee.discover_deployed_uuids(str(root))
+                ee.resolve_declared([str(root)], ["a@x"])
 
+    def test_a_directory_without_metadata_counts_as_missing(self):
+        # An interrupted extract leaves the directory and no metadata.json.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            self._extension(root, "a@x", None)
+            result = ee.resolve_declared([str(root)], ["a@x"])
+        self.assertEqual(result.missing, ["a@x"])
 
-class TestCheckRequired(unittest.TestCase):
-    def test_all_present_returns_nothing_missing(self):
-        self.assertEqual(ee.missing_required([CUSTOM, "a@x"], [CUSTOM]), [])
+    def test_an_invalid_declared_uuid_is_rejected_before_any_disk_access(self):
+        result_dir = "/nonexistent-on-purpose"
+        with self.assertRaises(ValueError):
+            ee.resolve_declared([result_dir], ["a,b@x"])
 
-    def test_absent_required_uuid_is_reported(self):
-        # The custom extension's copy step failing must not pass as "7 deployed".
-        self.assertEqual(ee.missing_required(["a@x"], [CUSTOM]), [CUSTOM])
-
-    def test_missing_is_reported_in_the_order_required(self):
-        self.assertEqual(ee.missing_required([], ["b@x", "a@x"]), ["b@x", "a@x"])
+    def test_duplicate_declarations_collapse(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            self._extension(root, CUSTOM, {"uuid": CUSTOM})
+            result = ee.resolve_declared([str(root)], [CUSTOM, CUSTOM])
+        self.assertEqual(result.found, [CUSTOM])
 
 
 if __name__ == "__main__":

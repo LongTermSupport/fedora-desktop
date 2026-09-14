@@ -128,22 +128,75 @@ def merge(current: Iterable[str], deployed: Iterable[str]) -> MergeResult:
     return MergeResult(values=values, changed=values != current_list, added=added)
 
 
-def discover_deployed_uuids(extensions_dir: str) -> list[str]:
-    """The UUIDs of every extension deployed under `extensions_dir`, sorted.
+# The executor reports the declared set on a marker line the play splits: first on
+# the first space, then on commas. A UUID holding any of those would silently become
+# two UUIDs, or truncate the list, so the shape is refused where the message can name
+# the offender rather than three tasks later.
+_FORBIDDEN_IN_UUID = {",": "comma", "\n": "newline", "\r": "carriage return", " ": "space"}
 
-    The UUID comes from each `metadata.json`, not from the directory name, and a
-    disagreement between the two is an error: GNOME Shell refuses to load such an
-    extension, so skipping it would hand the caller a short list that then passes
-    as "everything deployed is enabled".
+
+@dataclasses.dataclass(frozen=True)
+class Resolution:
+    """Which declared UUIDs are on disk, which are not, and where they were found."""
+
+    found: list[str]
+    missing: list[str]
+    locations: dict[str, str]
+
+
+def validate_uuid(uuid: str) -> str:
+    """Return `uuid`, or raise if it cannot survive the play's marker-line contract."""
+    if not uuid:
+        raise ValueError("an extension UUID cannot be empty")
+    for character, name in _FORBIDDEN_IN_UUID.items():
+        if character in uuid:
+            raise ValueError(
+                f"extension UUID {uuid!r} contains a {name}; that cannot be reported "
+                "to the play unambiguously"
+            )
+    return uuid
+
+
+def resolve_declared(
+    search_paths: Sequence[str], declared: Iterable[str]
+) -> Resolution:
+    """Confirm each DECLARED UUID is on disk, searching `search_paths` in order.
+
+    The deployed set is what the play declares, never what a directory happens to
+    contain. Enumerating `~/.local/share/gnome-shell/extensions` instead was wrong
+    in both directions: it is also where the user's own extensions live, so the
+    caller would judge and re-enable extensions this repo does not own — and
+    nothing held the result against the declaration, so a partial install (six of
+    seven downloaded) read as complete success.
+
+    A declared UUID that is not on disk is `missing`, never silently dropped.
+    An extension on disk that was not declared is ignored.
     """
-    if not os.path.isdir(extensions_dir):
-        return []
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for uuid in declared:
+        validate_uuid(uuid)
+        if uuid not in seen:
+            seen.add(uuid)
+            ordered.append(uuid)
 
-    uuids: list[str] = []
-    for name in sorted(os.listdir(extensions_dir)):
-        directory = os.path.join(extensions_dir, name)
-        if not os.path.isdir(directory):
+    found: list[str] = []
+    missing: list[str] = []
+    locations: dict[str, str] = {}
+    for uuid in ordered:
+        location = _locate(search_paths, uuid)
+        if location is None:
+            missing.append(uuid)
             continue
+        found.append(uuid)
+        locations[uuid] = location
+    return Resolution(found=found, missing=missing, locations=locations)
+
+
+def _locate(search_paths: Sequence[str], uuid: str) -> str | None:
+    """The directory holding `uuid`, or None. Raises if its metadata is unusable."""
+    for base in search_paths:
+        directory = os.path.join(base, uuid)
         metadata_path = os.path.join(directory, "metadata.json")
         if not os.path.isfile(metadata_path):
             continue
@@ -154,26 +207,18 @@ def discover_deployed_uuids(extensions_dir: str) -> list[str]:
             except json.JSONDecodeError as error:
                 raise ValueError(f"{metadata_path} is not valid JSON: {error}") from error
 
-        uuid = metadata.get("uuid") if isinstance(metadata, dict) else None
-        if not isinstance(uuid, str) or not uuid:
+        declared_uuid = metadata.get("uuid") if isinstance(metadata, dict) else None
+        if not isinstance(declared_uuid, str) or not declared_uuid:
             raise ValueError(
                 f"{metadata_path} declares no 'uuid'; GNOME Shell cannot load it"
             )
-        if uuid != name:
+        if declared_uuid != uuid:
             raise ValueError(
-                f"{metadata_path} declares uuid {uuid!r} but sits in directory "
-                f"{name!r}; GNOME Shell requires them to match and will not load it"
+                f"{metadata_path} declares uuid {declared_uuid!r} but sits in directory "
+                f"{uuid!r}; GNOME Shell requires them to match and will not load it"
             )
-        # The executor reports this list on a comma-separated marker line the play
-        # splits. No real UUID holds a comma; one that did would silently become two
-        # UUIDs there, so it is refused here where the message can name the file.
-        if "," in uuid:
-            raise ValueError(
-                f"{metadata_path} declares uuid {uuid!r}, which contains a comma; "
-                "that cannot be reported to the play unambiguously"
-            )
-        uuids.append(uuid)
-    return uuids
+        return directory
+    return None
 
 
 def missing_required(deployed: Iterable[str], required: Iterable[str]) -> list[str]:

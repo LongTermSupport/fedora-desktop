@@ -36,18 +36,30 @@ def _dbus_env() -> dict[str, str]:
     return env
 
 
-def _metadata_shell_versions(extensions_dir: str, uuid: str) -> list[str]:
-    path = os.path.join(extensions_dir, uuid, "metadata.json")
-    if not os.path.isfile(path):
-        sys.exit(
-            f"ERROR: {path} not found — the extension is not deployed. Run the "
-            "'Deploy Custom Extension' play step before verifying."
-        )
-    with open(path, encoding="utf-8") as handle:
-        data = json.load(handle)
-    versions = data.get("shell-version", [])
-    # metadata may list integers or strings; normalise to strings for comparison.
-    return [str(v) for v in versions]
+def _metadata_shell_versions(extensions_dirs: list[str], uuid: str) -> list[str]:
+    """The `shell-version` list from the first directory holding this extension.
+
+    The search path is a list because the play verifies BOTH the user's extensions
+    and the DNF-installed system ones, which live in different directories.
+    """
+    for extensions_dir in extensions_dirs:
+        path = os.path.join(extensions_dir, uuid, "metadata.json")
+        if os.path.isfile(path):
+            with open(path, encoding="utf-8") as handle:
+                data = json.load(handle)
+            versions = data.get("shell-version", [])
+            # metadata may list integers or strings; normalise for comparison.
+            return [str(v) for v in versions]
+
+    # No remedy is named on purpose. This helper is run over every UUID the play
+    # deploys, from three different install routes, so any single "run step X"
+    # instruction would be wrong for most of them — it said "run the Deploy Custom
+    # Extension play step" while covering seven extensions that step never touches.
+    searched = ", ".join(extensions_dirs)
+    sys.exit(
+        f"ERROR: {uuid}/metadata.json not found under any of: {searched} — the "
+        "extension is not deployed, so its runtime state cannot be verified."
+    )
 
 
 def _shell_major(env: dict[str, str]) -> str | None:
@@ -90,13 +102,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--uuid", required=True, help="Extension UUID to verify.")
     parser.add_argument(
         "--extensions-dir",
-        default=os.path.expanduser("~/.local/share/gnome-shell/extensions"),
-        help="Base extensions directory (default: the user's local extensions dir).",
+        action="append",
+        metavar="DIR",
+        help=(
+            "Directory to search for the extension; repeatable, searched in order. "
+            "Defaults to the user's local extensions dir."
+        ),
     )
     args = parser.parse_args(argv)
 
     env = _dbus_env()
-    metadata_versions = _metadata_shell_versions(args.extensions_dir, args.uuid)
+    extensions_dirs = args.extensions_dir or [
+        os.path.expanduser("~/.local/share/gnome-shell/extensions")
+    ]
+    metadata_versions = _metadata_shell_versions(extensions_dirs, args.uuid)
     session_available, live_state = _live_state(args.uuid, env)
     shell_major = _shell_major(env) if session_available else None
 

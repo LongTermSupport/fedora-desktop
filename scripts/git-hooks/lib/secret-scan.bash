@@ -101,17 +101,74 @@ hook_keep_unwhitelisted() {
     true
 }
 
+# GNOME Shell extension UUIDs are shaped exactly like email addresses
+# (`Vitals@CoreCoding.com`, `clipboard-indicator@tudmotu.com`), so the email
+# pattern flags every one of them and the repo cannot name the extensions it
+# deploys. The exemption is DERIVED from vars/gnome-shell-extensions.yml rather
+# than hand-kept here, so adding an extension is one edit and not two — and only
+# a value under a `uuid` key in that one tracked, reviewed file is ever exempt.
+#
+# $1 = repo root. Prints one anchored whole-token ERE per UUID.
+# Non-zero = hard failure: a gate that could not build its exemption list has not
+# passed, it has not run.
+hook_extension_uuid_allowlist() {
+    local repo_root="$1"
+    local yml="$repo_root/vars/gnome-shell-extensions.yml"
+
+    if [ ! -f "$yml" ]; then
+        return 0
+    fi
+
+    python3 - "$yml" <<'PYEOF'
+import re
+import sys
+
+import yaml
+
+with open(sys.argv[1]) as handle:
+    document = yaml.safe_load(handle) or {}
+
+groups = document.get("gnome_shell_extensions") or {}
+if not isinstance(groups, dict):
+    raise SystemExit("gnome_shell_extensions must be a mapping of groups")
+
+for entries in groups.values():
+    for entry in entries or []:
+        uuid = entry.get("uuid") if isinstance(entry, dict) else None
+        if not isinstance(uuid, str) or not uuid:
+            continue
+        # Anchored whole-token literal. This exempts exactly this string, never
+        # anything merely containing it, so a real address cannot ride along on a
+        # UUID's coat-tails.
+        print("^" + re.escape(uuid) + "$")
+PYEOF
+}
+
 # Apply the whitelist appropriate to a sensitive-pattern regex.
 # stdin: `N:content` match lines. stdout: the lines that still look like leaks.
+# $1 = pattern. $2 = repo root (optional; without it the derived GNOME extension
+# UUID exemption is simply not applied, so the gate errs towards flagging).
 hook_filter_match_lines() {
-    local pattern="$1"
+    local pattern="$1" repo_root="${2:-}"
     case "$pattern" in
         *@*)
+            local extension_res=() extension_list
+            if [ -n "$repo_root" ]; then
+                if ! extension_list=$(hook_extension_uuid_allowlist "$repo_root"); then
+                    echo "ERROR: could not build the GNOME extension UUID allowlist from" \
+                        "$repo_root/vars/gnome-shell-extensions.yml" >&2
+                    return 1
+                fi
+                if [ -n "$extension_list" ]; then
+                    mapfile -t extension_res <<<"$extension_list"
+                fi
+            fi
             hook_keep_unwhitelisted "$pattern" \
                 'i:@([A-Za-z0-9-]+\.)*example\.(com|org|net)$' \
                 'i:@[A-Za-z0-9.-]+\.(example|test|invalid|localhost)$' \
                 '^git@[A-Za-z0-9.-]+' \
-                '@[A-Za-z0-9_.:-]+\.(service|socket|timer|target|mount|path|slice|scope|device|swap|automount)$'
+                '@[A-Za-z0-9_.:-]+\.(service|socket|timer|target|mount|path|slice|scope|device|swap|automount)$' \
+                ${extension_res[@]+"${extension_res[@]}"}
             ;;
         */home/*)
             # The token regex is widened by `(files)?` so a repo path

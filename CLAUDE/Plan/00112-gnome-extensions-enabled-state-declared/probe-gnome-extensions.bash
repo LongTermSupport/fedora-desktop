@@ -57,9 +57,14 @@ probe() {
 
 # extension_state <uuid> — the live State GNOME reports, or the reason there is none.
 extension_state() {
-    local uuid="$1" info line
-    if ! info="$(gnome-extensions info "${uuid}" 2>&1)"; then
-        printf '(no session / gnome-extensions unavailable)'
+    local uuid="$1" info line status=0
+    # The captured text is the reason and is printed verbatim. Naming a cause here
+    # instead — "no session" — would print the same string for a third cause: the
+    # shell not knowing this UUID at all, which is exactly the state Plan 00110
+    # found. This is a triage script, so an invented narrative becomes the finding.
+    info="$(gnome-extensions info "${uuid}" 2>&1)" || status=$?
+    if [[ "${status}" -ne 0 ]]; then
+        printf 'UNREADABLE (exit %s): %s' "${status}" "${info}"
         return 0
     fi
     if line="$(printf '%s\n' "${info}" | grep -E '^[[:space:]]*State:')"; then
@@ -67,21 +72,23 @@ extension_state() {
         printf '%s' "${line# }"
         return 0
     fi
-    printf '(no State line reported)'
+    printf 'NO State LINE in: %s' "${info}"
 }
 
 # declared_uuid <metadata-path> — the uuid metadata.json claims, or why it could not be read.
 declared_uuid() {
-    local metadata="$1" value
+    local metadata="$1" value status=0
     if [[ ! -f "${metadata}" ]]; then
-        printf '(no metadata.json)'
+        printf 'NO metadata.json at %s' "${metadata}"
         return 0
     fi
-    if value="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("uuid", "(no uuid key)"))' "${metadata}" 2>&1)"; then
+    # As above: print the interpreter's own error, not a guess at what it was.
+    value="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("uuid", "(no uuid key)"))' "${metadata}" 2>&1)" || status=$?
+    if [[ "${status}" -eq 0 ]]; then
         printf '%s' "${value}"
         return 0
     fi
-    printf '(unreadable metadata.json)'
+    printf 'UNREADABLE (exit %s): %s' "${status}" "${value}"
 }
 
 {

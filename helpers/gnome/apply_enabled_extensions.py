@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Declare every deployed GNOME extension in `org.gnome.shell enabled-extensions`.
+"""Declare the play's extensions in `org.gnome.shell enabled-extensions`.
 
-The side-effecting half of `enabled_extensions.py`. It discovers the UUIDs
-deployed under the user's extensions directory, merges them into the current
-gsettings value without removing anything, writes the result back, and re-reads
-it to prove the write took.
+The side-effecting half of `enabled_extensions.py`. It confirms every UUID the
+play DECLARES is on disk, merges them into the current gsettings value without
+removing anything, writes the result back, and re-reads it to prove the write
+took.
 
 Why this exists rather than `gnome-extensions enable`: that command asks the
 *running shell* to enable a UUID, and on a fresh install the shell has not
@@ -14,11 +14,18 @@ none enabled. The gsettings key is read by the shell at session start and
 watched live, so declaring it works whether or not a shell has loaded the
 extension yet.
 
+**The set is declared, never discovered.** `~/.local/share/gnome-shell/extensions`
+is also where the user's own extensions live: enumerating it would re-enable what
+they deliberately disabled and hand the play's verify loop extensions this repo
+never installed, while still missing a partial install. The play passes `--uuid`
+per extension it deploys and this confirms each against the search path.
+
 Invoked from the play as a module from the repo root:
 
     python3 -m helpers.gnome.apply_enabled_extensions \\
         --extensions-dir ~/.local/share/gnome-shell/extensions \\
-        --require workspace-names-overview@fedora-desktop
+        --extensions-dir /usr/share/gnome-shell/extensions \\
+        --uuid blur-my-shell@aunetx --uuid ...
 
 Marker lines on stdout (the payload the play keys `changed_when` on):
 
@@ -37,12 +44,13 @@ import dataclasses
 import os
 import subprocess
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from helpers.gnome import enabled_extensions
 
 DEFAULT_SCHEMA = "org.gnome.shell"
 DEFAULT_KEY = "enabled-extensions"
+DEFAULT_DISABLE_KEY = "disable-user-extensions"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -54,7 +62,9 @@ class SessionBus:
     source: str
 
 
-def resolve_session_bus(environ: Mapping[str, str], runtime_dir: str) -> SessionBus:
+def resolve_session_bus(
+    environ: Mapping[str, str], runtime_dirs: Sequence[str]
+) -> SessionBus:
     """Pick the bus to write through, preferring the user's live one.
 
     A live session's bus means the running shell sees the change immediately. With
@@ -62,19 +72,35 @@ def resolve_session_bus(environ: Mapping[str, str], runtime_dir: str) -> Session
     throwaway one and the value still lands in the user's database, so the play
     needs no `failed_when: false` for the no-session case.
 
-    The socket is tested for access, not mere existence: `sudo -u` can leave a
-    stale XDG_RUNTIME_DIR pointing at another user's `0700` runtime directory, and
-    connecting to that would fail where falling back succeeds.
+    `runtime_dirs` is tried in order and each socket is tested for ACCESS, not mere
+    existence: `sudo -u` can leave a stale `XDG_RUNTIME_DIR` pointing at another
+    user's `0700` runtime directory, and the uid-derived path behind it is the one
+    that actually reaches the live session.
     """
     address = environ.get("DBUS_SESSION_BUS_ADDRESS", "").strip()
     if address:
         return SessionBus(prefix=[], address=address, source="environment")
 
-    socket = os.path.join(runtime_dir, "bus")
-    if os.access(socket, os.R_OK | os.W_OK):
-        return SessionBus(prefix=[], address=f"unix:path={socket}", source="runtime-socket")
+    for runtime_dir in runtime_dirs:
+        socket = os.path.join(runtime_dir, "bus")
+        if os.access(socket, os.R_OK | os.W_OK):
+            return SessionBus(
+                prefix=[], address=f"unix:path={socket}", source="runtime-socket"
+            )
 
     return SessionBus(prefix=["dbus-run-session", "--"], address=None, source="dbus-run-session")
+
+
+def _runtime_dirs() -> list[str]:
+    """Candidate runtime directories, most specific first (see resolve_session_bus)."""
+    candidates = [os.environ.get("XDG_RUNTIME_DIR", ""), f"/run/user/{os.getuid()}"]
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for candidate in candidates:
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            ordered.append(candidate)
+    return ordered
 
 
 def _gsettings(bus: SessionBus, *args: str) -> str:
@@ -101,45 +127,58 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--extensions-dir",
-        default=os.path.expanduser("~/.local/share/gnome-shell/extensions"),
-        help="Base extensions directory (default: the user's local extensions dir).",
+        action="append",
+        required=True,
+        metavar="DIR",
+        help="Directory to search for a declared UUID; repeatable, searched in order.",
     )
     parser.add_argument(
-        "--require",
+        "--uuid",
         action="append",
-        default=[],
+        required=True,
         metavar="UUID",
-        help="A UUID that MUST be deployed; repeatable. Absence fails before any write.",
+        help="A UUID the play deploys; repeatable. This IS the declared set.",
     )
     parser.add_argument("--schema", default=DEFAULT_SCHEMA, help="GSettings schema.")
     parser.add_argument("--key", default=DEFAULT_KEY, help="GSettings key holding the list.")
+    parser.add_argument(
+        "--disable-key",
+        default=DEFAULT_DISABLE_KEY,
+        help="The master switch that defeats every user extension when true.",
+    )
     args = parser.parse_args(argv)
 
     try:
-        deployed = enabled_extensions.discover_deployed_uuids(args.extensions_dir)
+        resolution = enabled_extensions.resolve_declared(args.extensions_dir, args.uuid)
     except ValueError as error:
         return _fail("bad-extension-metadata", str(error))
 
-    if not deployed:
+    if resolution.missing:
         return _fail(
-            "nothing-deployed",
-            f"no extensions found under {args.extensions_dir} — the install steps "
-            "above this task did not deploy anything, so there is nothing to enable.",
+            "declared-extension-not-deployed",
+            f"declared but not found under {', '.join(args.extensions_dir)}: "
+            f"{', '.join(resolution.missing)}. The install step above did not deploy "
+            "them; enabling what did arrive would report a partial install as success.",
         )
 
-    missing = enabled_extensions.missing_required(deployed, args.require)
-    if missing:
-        return _fail(
-            "required-uuid-not-deployed",
-            f"required but not deployed under {args.extensions_dir}: "
-            f"{', '.join(missing)}. Deployed: {', '.join(deployed)}.",
-        )
-
+    deployed = resolution.found
     print(f"GNOME-EXT-DEPLOYED {','.join(deployed)}")
 
-    runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
-    bus = resolve_session_bus(os.environ, runtime_dir)
+    bus = resolve_session_bus(os.environ, _runtime_dirs())
     print(f"reaching dconf via {bus.source}", file=sys.stderr)
+
+    # This key defeats every user extension whatever the list says, so writing the
+    # list while it is true would report success over a session with nothing
+    # enabled — Plan 00110's finding one key over. It is false on a fresh install;
+    # if someone set it, that is a deliberate act to undo deliberately.
+    disabled = _gsettings(bus, "get", args.schema, args.disable_key).strip()
+    if disabled == "true":
+        return _fail(
+            "user-extensions-disabled",
+            f"{args.schema} {args.disable_key} is true, so GNOME will run none of "
+            "these whatever the enabled list holds. Set it false "
+            f"(`gsettings set {args.schema} {args.disable_key} false`) and re-run.",
+        )
 
     raw = _gsettings(bus, "get", args.schema, args.key)
     try:
@@ -156,7 +195,9 @@ def main(argv: list[str] | None = None) -> int:
         print("GNOME-EXT-ENABLED-UNCHANGED")
         return 0
 
-    _gsettings(bus, "set", args.schema, args.key, enabled_extensions.format_string_list(merged.values))
+    _gsettings(
+        bus, "set", args.schema, args.key, enabled_extensions.format_string_list(merged.values)
+    )
 
     # dconf can accept a write and keep the old value (locked or read-only
     # database). Read it back, or this task reports ok while the session comes up

@@ -7,6 +7,16 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    user_extensions_dir: "/home/{{ user_login }}/.local/share/gnome-shell/extensions"
+    system_extensions_dir: /usr/share/gnome-shell/extensions
+    # Every UUID this play deploys, from all three groups. This is the DECLARED
+    # set the enable step works from — see vars/gnome-shell-extensions.yml for why
+    # it is declared rather than read off the disk.
+    declared_extension_uuids: >-
+      {{ (gnome_shell_extensions.egos + gnome_shell_extensions.system + gnome_shell_extensions.custom)
+         | map(attribute='uuid') | list }}
+  vars_files:
+    - "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}/vars/gnome-shell-extensions.yml"
   tasks:
     - name: Scope guard — assert provisioning_profile is recognised
       ansible.builtin.assert:
@@ -43,10 +53,12 @@
           # panel, and Fedora no longer ships this app by default, so without it
           # there is no graphical way to enable/disable/configure extensions.
           - gnome-extensions-app
-          # EXT-08: DNF resolves the per-release build automatically (105-1.fc44 on Fedora 44).
-          # No version pin needed — the distro package always targets the bundled GNOME major.
-          - gnome-shell-extension-dash-to-dock
-          # Note: just-perfection is installed via ID below as DNF package may be outdated
+      # EXT-08: DNF resolves the per-release build automatically (105-1.fc44 on Fedora 44).
+      # No version pin needed — the distro package always targets the bundled GNOME major.
+      # Note: just-perfection comes from extensions.gnome.org below, not DNF, which lags.
+    - name: Install Gnome Shell Extensions Packaged by DNF
+      ansible.builtin.dnf:
+        name: "{{ gnome_shell_extensions.system | map(attribute='package') | list }}"
 
     # PERF-09: --update makes the installer skip the re-download (and its restart) when the
     # installed version is already current, instead of unconditionally re-fetching all seven
@@ -57,29 +69,9 @@
       register: gse_install
       changed_when: "'Downloading extension' in gse_install.stdout"
       failed_when: gse_install.rc not in [0, 2]
-      loop:
-        # Verified compatibility status checked against GNOME Shell 50 (Fedora 44)
-        - name: Blur my Shell
-          id: 3193
-          # https://extensions.gnome.org/extension/3193/blur-my-shell/
-        - name: Vitals
-          id: 1460
-          # https://extensions.gnome.org/extension/1460/vitals/
-        - name: AppIndicator and KStatusNotifierItem Support
-          id: 615
-          # https://extensions.gnome.org/extension/615/appindicator-support/
-        - name: Clipboard Indicator
-          id: 779
-          # https://extensions.gnome.org/extension/779/clipboard-indicator/
-        - name: Just Perfection
-          id: 3843
-          # https://extensions.gnome.org/extension/3843/just-perfection/
-        - name: Tiling Shell
-          id: 7065
-          # https://extensions.gnome.org/extension/7065/tiling-shell/
-        - name: Space Bar
-          id: 5090
-          # https://extensions.gnome.org/extension/5090/space-bar/
+      loop: "{{ gnome_shell_extensions.egos }}"
+      loop_control:
+        label: "{{ item.name }}"
 
     # EXT-09: gnome-shell-extension-installer v1.7 does NOT run glib-compile-schemas
     # after extracting the zip. Extensions that ship only the .gschema.xml source
@@ -126,27 +118,32 @@
     # whether or not a shell has loaded the extension. Additive: the user's own enabled
     # extensions are never removed. The helper re-reads what it wrote, so a dconf database
     # that refused the write fails the play instead of passing silently (Plan 00112).
+    #
+    # The set is what this repo DECLARES, never what the extensions directory contains —
+    # the user's own extensions live in the same place, and judging or re-enabling those
+    # is not this play's business. A declared UUID that is not on disk fails here, which
+    # is what stops a partial install reading as success.
+    #
+    # Both directories are searched because dash-to-dock is a DNF-installed SYSTEM
+    # extension and is enabled through the very same key. It was NOT being enabled, so
+    # the dconf settings written for it further down were a no-op on every fresh install.
     - name: Declare Deployed Extensions Enabled
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.command:
-        argv:
-          - python3
-          - -m
-          - helpers.gnome.apply_enabled_extensions
-          - --extensions-dir
-          - "/home/{{ user_login }}/.local/share/gnome-shell/extensions"
-          # The custom extension is copied, not downloaded, so its absence would otherwise
-          # read as "seven deployed, all enabled" rather than a failed copy.
-          - --require
-          - workspace-names-overview@fedora-desktop
+        # `--uuid=<value>` rather than a `--uuid <value>` pair, so the declared list maps
+        # to argv with one filter instead of an interleave nobody can read.
+        argv: "{{ ['python3', '-m', 'helpers.gnome.apply_enabled_extensions',
+                   '--extensions-dir', user_extensions_dir,
+                   '--extensions-dir', system_extensions_dir]
+                  + (declared_extension_uuids | map('regex_replace', '^', '--uuid=') | list) }}"
         chdir: "{{ root_dir }}" # repo root on sys.path so the helpers package imports
       register: gse_enabled
       changed_when: "'GNOME-EXT-ENABLED-CHANGED' in gse_enabled.stdout"
 
-    # The helper is the one place that knows what is deployed; the verify loop below reads
-    # its marker line rather than re-deriving the list from the play's own literals, which
-    # would drift the moment an extension id is added above.
+    # The helper is the one place that reports what it actually resolved on disk; the verify
+    # loop below reads its marker line rather than re-deriving the list, so the two can never
+    # disagree about which extensions were judged.
     #
     # Skipped under --check because the task above is: the command module has no check mode,
     # so it never runs and never prints the marker. Without this guard a --check preview dies
@@ -156,6 +153,21 @@
       ansible.builtin.set_fact:
         gse_deployed_uuids: >-
           {{ (gse_enabled.stdout_lines | select('match', '^GNOME-EXT-DEPLOYED ') | first).split(' ', 1)[1].split(',') }}
+
+    # `loop` is templated BEFORE `when` is evaluated, so the verify task below cannot carry
+    # the check-mode guard itself and has to tolerate an unset fact. `| default([])` on its
+    # own would then turn this repo's fail-fast verify gate into a silent zero-iteration
+    # no-op for any future reason the fact goes unset — a `when:`, a --tags selection, an
+    # edit to the applier task. This assertion is what keeps that loud.
+    - name: Assert Deployed Extension UUIDs Were Collected
+      when: not ansible_check_mode
+      ansible.builtin.assert:
+        that:
+          - gse_deployed_uuids | default([]) | length == declared_extension_uuids | length
+        fail_msg: >-
+          Expected {{ declared_extension_uuids | length }} deployed extension UUIDs from
+          the GNOME-EXT-DEPLOYED marker, got {{ gse_deployed_uuids | default([]) | length }}.
+          The verify loop below would silently judge nothing.
 
     # EXT-05: declaring the gsettings list above says nothing about whether GNOME accepted
     # each extension — it can still reject one as OUT_OF_DATE (wrong shell-version) or ERROR.
@@ -177,12 +189,15 @@
           - --uuid
           - "{{ item }}"
           - --extensions-dir
-          - "/home/{{ user_login }}/.local/share/gnome-shell/extensions"
+          - "{{ user_extensions_dir }}"
+          - --extensions-dir
+          - "{{ system_extensions_dir }}"
         chdir: "{{ root_dir }}" # repo root on sys.path so the helpers package imports
       register: gse_verify
       changed_when: false
       # Empty under --check, where the fact above is never set and there is nothing deployed
-      # by this run to verify.
+      # by this run to verify. The assertion above is what makes an unexpectedly empty list
+      # loud rather than a silent zero-iteration pass.
       loop: "{{ gse_deployed_uuids | default([]) }}"
       # The helper exits non-zero ONLY on a genuine version mismatch or load ERROR (it prints
       # EXT-FAIL ...). Pending-Wayland-reload and no-session both exit 0 (EXT-OK ...). The

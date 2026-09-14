@@ -167,38 +167,56 @@ fi
 
 # Every extension the REPO deploys must report ACTIVE in the live session, not merely be
 # enabled in a settings list: this is the check verify_extension.py cannot make without a
-# session (§5.4). The population is the user extensions under
-# ~/.local/share/gnome-shell/extensions, and its size is held against what the extensions
-# play declares (its extensions.gnome.org ids plus the custom extensions it copies), so a
-# partial install cannot pass as "all ACTIVE". Fedora's own system extensions
-# (background-logo) are not the repo's and are recorded as evidence only.
-extensions_play="${REPO}/playbooks/imports/play-gnome-shell-extensions.yml"
-expected=$(($(grep -cE '^\s+id: [0-9]+' "${extensions_play}") + $(grep -cE '^\s+- name: Deploy Custom Extension' "${extensions_play}")))
+# session (§5.4).
+#
+# The population is DECLARED by vars/gnome-shell-extensions.yml, not discovered by listing
+# ~/.local/share/gnome-shell/extensions. That directory is also where a user's own
+# extensions live, so listing it judged extensions the repo never installed while still
+# missing a partial install. Declaring it also brings in dash-to-dock, which is a DNF
+# SYSTEM extension living in a different directory and was silently excluded before —
+# a run of 2026-09-14 found it installed and never enabled.
+extensions_vars="${REPO}/vars/gnome-shell-extensions.yml"
+declared="$(python3 -c '
+import sys
+
+import yaml
+
+with open(sys.argv[1]) as handle:
+    groups = (yaml.safe_load(handle) or {}).get("gnome_shell_extensions") or {}
+for group in ("egos", "system", "custom"):
+    for entry in groups.get(group) or []:
+        print(entry["uuid"])
+' "${extensions_vars}" 2>&1)" || declared="READ-FAILED ${declared}"
+
 user_extensions="${HOME}/.local/share/gnome-shell/extensions"
-deployed=""
+on_disk=""
 if [[ -d "${user_extensions}" ]]; then
-    deployed="$(find "${user_extensions}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)"
+    on_disk="$(find "${user_extensions}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)"
 fi
-deployed_count="$(printf '%s' "${deployed}" | grep -c .)"
 enabled_live="$(gnome-extensions list --enabled 2>&1 | sort | tr '\n' ',')"
 enabled_settings="$(gsettings get org.gnome.shell enabled-extensions 2>&1)"
-inactive=""
-active_count=0
-for uuid in ${deployed}; do
-    state="$(gnome-extensions info "${uuid}" 2>&1 | grep -E '^\s*State:' | awk '{print $2}')"
-    if [[ "${state}" == "ACTIVE" ]]; then
-        active_count=$((active_count + 1))
-    else
-        inactive="${inactive} ${uuid}=${state:-unknown}"
-    fi
-done
-coverage="COVERAGE: ${active_count} of ${expected} declared ACTIVE (${deployed_count} on disk)"
-if [[ "${deployed_count}" -lt "${expected}" ]]; then
-    check fail deployed-extensions-active "${coverage}; the play declares ${expected} but ${deployed_count} are installed"
-elif [[ -z "${inactive}" ]]; then
-    check pass deployed-extensions-active "${coverage}"
+
+if [[ "${declared}" == READ-FAILED* ]]; then
+    # A check whose population could not be read has not passed, it has not run.
+    check fail deployed-extensions-active "cannot read ${extensions_vars}: ${declared#READ-FAILED }"
 else
-    check fail deployed-extensions-active "${coverage}; not ACTIVE:${inactive}"
+    expected="$(printf '%s' "${declared}" | grep -c .)"
+    inactive=""
+    active_count=0
+    for uuid in ${declared}; do
+        state="$(gnome-extensions info "${uuid}" 2>&1 | grep -E '^\s*State:' | awk '{print $2}')"
+        if [[ "${state}" == "ACTIVE" ]]; then
+            active_count=$((active_count + 1))
+        else
+            inactive="${inactive} ${uuid}=${state:-unknown}"
+        fi
+    done
+    coverage="COVERAGE: ${active_count} of ${expected} declared ACTIVE"
+    if [[ -z "${inactive}" ]]; then
+        check pass deployed-extensions-active "${coverage}"
+    else
+        check fail deployed-extensions-active "${coverage}; not ACTIVE:${inactive}"
+    fi
 fi
 
 # ── evidence (never a check; §6.6 rule 04, §5.3b) ─────────────────────────────────────
@@ -210,7 +228,8 @@ evidence repo_commit "${head}"
 evidence default_target "${default_target}"
 evidence session_type "$(printf '%s' "${session_facts}" | grep -oE 'Type=[a-z0-9]+' | cut -d= -f2)"
 evidence gnome_shell_version "${shell_version#GNOME Shell }"
-evidence deployed_extensions "$(printf '%s' "${deployed}" | tr '\n' ',')"
+evidence declared_extensions "$(printf '%s' "${declared}" | tr '\n' ',')"
+evidence user_extensions_on_disk "$(printf '%s' "${on_disk}" | tr '\n' ',')"
 evidence enabled_extensions_live "${enabled_live}"
 evidence enabled_extensions_settings "${enabled_settings}"
 evidence disable_user_extensions "$(gsettings get org.gnome.shell disable-user-extensions 2>&1)"

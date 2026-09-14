@@ -523,15 +523,28 @@ ccy --custom
 
 - **workspace-names-overview**: Show workspace names in overview
 
-**Enabling**: every extension the play deploys is written into
-`org.gnome.shell enabled-extensions` as declared state, not requested with
-`gnome-extensions enable`. That command asks the *running* shell to enable a
-UUID, and on a fresh install the shell has not scanned the new directory yet, so
-the request is lost — the VM acceptance lab found a fresh desktop ending with all
-eight installed, compiled and loaded, and none enabled. The setting is read at
-session start and watched live, so declaring it works either way. The merge is
-additive: extensions you enabled yourself are never removed. On a fresh install
-they come up in the session after the reboot `run.bash` recommends.
+**The declared set**: all three groups above are listed in
+`vars/gnome-shell-extensions.yml`, which is the single source the play, the VM
+acceptance check and the pre-commit secret scanner all read. Nothing keeps a
+second copy.
+
+**Enabling**: every extension in that file — including the DNF-installed
+dash-to-dock — is written into `org.gnome.shell enabled-extensions` as declared
+state, not requested with `gnome-extensions enable`. That command asks the
+*running* shell to enable a UUID, and on a fresh install the shell has not
+scanned the new directory yet, so the request is lost: the VM acceptance lab
+found a fresh desktop ending with everything installed, compiled and loaded, and
+none of it enabled. The setting is read at session start and watched live, so
+declaring it works either way.
+
+Two things the play deliberately does **not** do. It never removes anything from
+the list, so extensions you enabled yourself survive every run. And it only ever
+declares, enables and health-checks the UUIDs in that file — your own extensions
+in the same directory are not touched, not re-enabled if you turned them off, and
+cannot fail the run if one of them goes stale.
+
+On a fresh install they come up in the session after the reboot `run.bash`
+recommends.
 
 **What you get**:
 

@@ -1,0 +1,70 @@
+---
+# The GNOME Shell extensions this repo deploys — the single source of truth.
+#
+# This file exists because the deployed set must be DECLARED, never discovered.
+# `~/.local/share/gnome-shell/extensions` is also where the user's own extensions
+# live, so enumerating it would re-enable what they deliberately disabled and hand
+# the play's verify loop extensions this repo never installed — while still missing
+# a partial install, because nothing would hold the result against a declaration.
+#
+# Three consumers read this file, and none keeps its own copy:
+#   1. playbooks/imports/play-gnome-shell-extensions.yml — installs and enables
+#   2. files/home/.local/share/vmtest/guest-acceptance-desktop.bash — the VM
+#      acceptance check's expected population
+#   3. scripts/git-hooks/lib/secret-scan.bash — derives its allowlist from the
+#      `uuid` values here, because a GNOME extension UUID is shaped exactly like
+#      an email address and the pre-commit scanner cannot tell them apart. Only
+#      values under a `uuid` key in THIS file are exempt; nothing else is.
+#
+# Every `uuid` below was read from an authoritative source, not typed from memory:
+# the seven `egos` entries from `extensions.gnome.org/extension-info/?pk=<id>`,
+# and `dash-to-dock` from a VM acceptance run's own `system_extensions` evidence.
+# A wrong uuid fails the play loudly (`declared-extension-not-deployed`) rather
+# than silently shrinking the set, but verify it at the source when adding one.
+
+gnome_shell_extensions:
+  # Fetched from extensions.gnome.org by numeric id. Compatibility with the GNOME
+  # Shell that Fedora ships is checked by scripts/qa-extension-compat.bash.
+  egos:
+    - name: Blur my Shell
+      id: 3193
+      uuid: blur-my-shell@aunetx
+      # https://extensions.gnome.org/extension/3193/blur-my-shell/
+    - name: Vitals
+      id: 1460
+      uuid: Vitals@CoreCoding.com
+      # https://extensions.gnome.org/extension/1460/vitals/
+    - name: AppIndicator and KStatusNotifierItem Support
+      id: 615
+      uuid: appindicatorsupport@rgcjonas.gmail.com
+      # https://extensions.gnome.org/extension/615/appindicator-support/
+    - name: Clipboard Indicator
+      id: 779
+      uuid: clipboard-indicator@tudmotu.com
+      # https://extensions.gnome.org/extension/779/clipboard-indicator/
+    - name: Just Perfection
+      id: 3843
+      uuid: just-perfection-desktop@just-perfection
+      # https://extensions.gnome.org/extension/3843/just-perfection/
+    - name: Tiling Shell
+      id: 7065
+      uuid: tilingshell@ferrarodomenico.com
+      # https://extensions.gnome.org/extension/7065/tiling-shell/
+    - name: Space Bar
+      id: 5090
+      uuid: space-bar@luchrioh
+      # https://extensions.gnome.org/extension/5090/space-bar/
+
+  # Installed by DNF into /usr/share/gnome-shell/extensions, not the user's
+  # directory — but enabled through the SAME gsettings key. A VM acceptance run
+  # found it installed and not enabled, which made the play's dash-to-dock dconf
+  # settings a no-op on every fresh install (Plan 00112).
+  system:
+    - name: Dash to Dock
+      package: gnome-shell-extension-dash-to-dock
+      uuid: dash-to-dock@micxgx.gmail.com
+
+  # Copied from this repo's own extensions/ directory.
+  custom:
+    - name: Workspace Names in Overview
+      uuid: workspace-names-overview@fedora-desktop
