@@ -76,11 +76,14 @@ plan's acceptance test: it certifies `desktop-44` forward only when the check
 
 ### Phase 2: Acceptance
 
-- [ ] ⬜ **Task 2.1**: HOST: deploy the play on the host (`deploy.bash`), confirm
-  idempotent, and confirm the host's own list is unchanged (nothing removed).
-- [ ] ⬜ **Task 2.2**: HOST: `vmtest run desktop-fresh-install` against the pushed
+- [ ] ⬜ **Task 2.1**: HOST — the operator's step. `triage.bash`, then `deploy.bash`,
+  then `deploy.bash` again (idempotent: no change on the second run), then
+  `triage.bash` again. The two `triage-runs/` reports are the evidence that the
+  host's own list gained the deployed UUIDs and lost nothing
+- [ ] ⬜ **Task 2.2**: `vmtest run desktop-fresh-install` against the pushed
   commit; `deployed-extensions-active` green in the post-reboot session; run id
-  recorded here; `desktop-44` certified forward by the passing run.
+  recorded here; `desktop-44` certified forward by the passing run. Requested
+  through the Plan 00110 bridge from the container, so this needs no operator
 - [ ] ⬜ **Task 2.3**: QA, then `qa-reviewer` over the diff.
 
 ## Success Criteria
