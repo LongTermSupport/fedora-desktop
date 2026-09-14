@@ -268,16 +268,16 @@ A retired branch without one is a bug — run `mark-branches-superseded.bash`.
 
 ```bash
 # Syntax check
-ansible-playbook playbooks/playbook-main.yml --syntax-check
+./run.bash --play playbooks/playbook-main.yml --syntax-check
 
 # Dry run
-ansible-playbook playbooks/playbook-main.yml --check
+./run.bash --play playbooks/playbook-main.yml --check
 
 # Run specific tags
-ansible-playbook playbooks/playbook-main.yml --tags packages
+./run.bash --play playbooks/playbook-main.yml --tags packages
 
 # Test individual playbook
-ansible-playbook playbooks/imports/play-basic-configs.yml -vv
+./run.bash --play playbooks/imports/play-basic-configs.yml -vv
 ```
 
 ### Debugging

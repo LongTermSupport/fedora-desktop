@@ -163,7 +163,7 @@ Docker is an application containerization platform designed for packaging, distr
 compatibility engine, e.g. for DDEV). Install it via the optional play:
 
 ```bash
-ansible-playbook playbooks/imports/optional/common/play-docker.yml
+./run.bash --play playbooks/imports/optional/common/play-docker.yml
 ```
 
 Configuration details:
@@ -310,7 +310,7 @@ You get Ubuntu's package ecosystem and compatibility while:
 Optional playbook (run manually):
 
 ```bash
-ansible-playbook playbooks/imports/optional/common/play-distrobox.yml
+./run.bash --play playbooks/imports/optional/common/play-distrobox.yml
 ```
 
 ### Basic Usage

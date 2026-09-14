@@ -39,7 +39,7 @@ KB already accumulated.
 ### Basic Installation (Recommended)
 
 ```bash
-ansible-playbook playbooks/imports/optional/common/play-fast-file-manager.yml
+./run.bash --play playbooks/imports/optional/common/play-fast-file-manager.yml
 ```
 
 This applies:

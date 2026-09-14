@@ -62,14 +62,14 @@ way to run a play and it works on every sudo configuration.
 
 ### Phase 2: One documented way — BLOCKED BY Phase 1
 
-- [ ] ⬜ **Task 2.1**: `README.md` and `docs/playbooks.md` state the mode and why a bare
+- [x] ✅ **Task 2.1**: `README.md` and `docs/playbooks.md` state the mode and why a bare
   invocation fails on password sudo.
-- [ ] ⬜ **Task 2.2**: Every doc line invoking a play bare is rewritten to `--play`, keeping
+- [x] ✅ **Task 2.2**: Every doc line invoking a play bare is rewritten to `--play`, keeping
   any trailing ansible flags.
 
 ### Phase 3: Proof — BLOCKED BY Phase 1
 
-- [ ] ⬜ **Task 3.1**: `scripts/qa-all.bash` green.
+- [ ] 🔄 **Task 3.1**: `scripts/qa-all.bash` green.
 - [x] ✅ **Task 3.2**: Failure modes exercised: missing path, path outside `playbooks/`,
   `--optional-only` combination, `--headless` combination.
 - [ ] ⬜ **Task 3.3**: Live: on a password-sudo box, `./run.bash --play` on a real play prompts
@@ -79,8 +79,8 @@ way to run a play and it works on every sudo configuration.
 
 - [ ] One play runs to completion on a password-sudo box via `--play` with no flags the user
   had to know.
-- [ ] No tracked doc invokes a play bare.
-- [ ] Every abort path names its fix and exits non-zero.
+- [x] No tracked doc invokes a play bare.
+- [x] Every abort path names its fix and exits non-zero.
 
 ## Delivery & Milestones
 
