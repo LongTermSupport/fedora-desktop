@@ -114,9 +114,11 @@
     # `declared-extension-not-deployed`. Loud rather than silent, but a failure
     # whose cause is two files apart, for a declaration that should have one home.
     #
-    # `mode` is per-file: an extension is JS, JSON and CSS, none of it executable,
-    # and only the directories need the search bit. Same form as the sibling
-    # play-container-watch.yml, which copies a repo extension directory.
+    # `mode` is per-file: nothing an extension ships is executable (JS, JSON, CSS
+    # and a README), and only the directories need the search bit. Same form as the
+    # sibling play-container-watch.yml, which copies a repo extension directory.
+    # It is still a whole-directory copy, so the README and any stray file in the
+    # source dir do deploy — the open half of Plan 00049's EXT-13.
     - name: Deploy Declared Custom Extensions
       become: true
       become_user: "{{ user_login }}"

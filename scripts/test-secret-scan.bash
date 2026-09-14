@@ -190,7 +190,9 @@ assert_filter "a case-differing near-miss of a UUID is NOT exempt" \
 #
 # The emitter prints "^" + re.escape(uuid) + "$". Without those two anchors the exemption
 # becomes a substring match, and every case above STILL PASSES — measured: a variant with
-# the anchors dropped ships `passed: 24` and a green qa-all.bash. So the suite proved the
+# the anchors dropped ships every case that predates them green, and a green qa-all.bash. (It was
+# `passed: 24` when measured, before the three anchor and two escaping cases; reproducing it today
+# gives 26 green out of 29.) So the suite proved the
 # exemption worked and not that it was tight, which is the only property that matters here.
 # Each anchor is held by at least one case below, which is the property that matters and is
 # not the same as every case holding both. Measured, naming the fixtures rather than the

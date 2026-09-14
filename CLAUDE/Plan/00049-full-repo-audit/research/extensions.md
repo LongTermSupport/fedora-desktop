@@ -167,12 +167,16 @@ During recording, `_startCountdown` (extension.js lines 624–626) and `_startEl
 
 **Severity: low — area: playbooks**
 
-> **CLOSED by Plan 00112.** The task is now `Deploy Declared Custom Extensions` and carries
-> `owner`/`group: "{{ user_login }}"`, `mode: '0644'` and `directory_mode: '0755'` — the
-> `play-container-watch.yml` form rather than the explicit file loop recommended below, which
-> is the same outcome without enumerating filenames a third time. The UUID also stopped being
-> hardcoded there: it loops over `gnome_shell_extensions.custom`. Kept for the record; the
-> line and task-name citations below are pre-fix.
+> **PARTLY CLOSED by Plan 00112 — the modes half.** The task is now
+> `Deploy Declared Custom Extensions` and carries `owner`/`group: "{{ user_login }}"`,
+> `mode: '0644'` and `directory_mode: '0755'` — the `play-container-watch.yml` form rather than
+> the explicit file loop recommended below. Same outcome **for mode and ownership only**.
+> The UUID also stopped being hardcoded there: it loops over `gnome_shell_extensions.custom`.
+>
+> **Still open:** the second half of this finding. It is still a whole-directory copy, so
+> `README.md` still deploys and so would any stray file added to the source dir — only the
+> explicit file loop below fixes that. Kept for the record; the line and task-name citations
+> below are pre-fix.
 
 `playbooks/imports/play-gnome-shell-extensions.yml` ("Deploy Custom Extension - Workspace Names in Overview", lines ~51–57) copies the whole extension directory with a single `mode: '0755'` and no `owner:`/`group:`. Result: `extension.js`, `metadata.json`, `stylesheet.css` and `README.md` are deployed executable, deviating from the AnsibleStyle rule "Always set `owner:`, `group:`, `mode:` on every file task" and from the sibling playbooks (`play-speech-to-text.yml` lines 343–353 and `play-remote-desktop-toggle.yml` lines 90–97 both use explicit file loops with `mode: '0644'` and owner/group). The whole-directory copy also deploys `README.md` unnecessarily and would deploy any stray file added to the source dir.
 

@@ -115,11 +115,11 @@ is the single source instead, and disk only confirms it.
     no reason to exempt. It describes the shape instead
   - **Deferred, with the reason recorded** rather than left as a carried nit:
     `hook_extension_uuid_allowlist` does not call `enabled_extensions.validate_uuid`.
-    Measured across the four shapes `validate_uuid` rejects: an empty value is
-    silently skipped, a value with a space or a comma emits a live allowlist entry,
-    and **only** a newline-bearing one fails — and it fails at the *filter*
-    (`grep: Trailing backslash`), not at the builder, which returns 0 either way.
-    So the direction is safe — none of
+    Measured across all **five** shapes `validate_uuid` rejects: an empty value is
+    silently skipped; a space, a comma or a **carriage return** each emit a live
+    allowlist entry; and **only** a newline-bearing one fails — at the *filter*
+    (`grep: Trailing backslash`, GNU grep's wording), not at the builder, which
+    returns 0 in all five. So the direction is safe — none of
     them widens the exemption to cover a real address — but what is missing is an
     operator message, not a guard, and "hard-fails, confirmed" is not what the code
     does. Fixing it edits a live public-repo security gate and needs its own control
@@ -173,7 +173,13 @@ is the single source instead, and disk only confirms it.
   The harness defect is [Plan 00117](../00117-vmtest-acceptance-script-version-gate/PLAN.md).
   It is not this plan's to fix, but it is this plan's blocker
 
-- [ ] ⬜ **Task 2.3**: QA, then `qa-reviewer` over the diff.
+- [x] ✅ **Task 2.3**: QA green, and `qa-reviewer` over the diff across five rounds.
+  Each round found something real, and the recurring shape was mine rather than the
+  code's: a fix that reached the helper and stopped at the play (round 1), a gate
+  that passed `0 of 0` on an empty population — the fix reproducing its own subject
+  (round 2), two sentences claiming "measured" that were not (round 4), and an
+  exhaustive-sounding sweep that covered four of five shapes (round 5). Reports in
+  [subagent-reports/](subagent-reports/)
 
 ## Success Criteria
 
