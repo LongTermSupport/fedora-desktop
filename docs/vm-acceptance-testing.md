@@ -36,7 +36,7 @@ by the play.
 Optional and rootless. Run on the host, never in a CCY container:
 
 ```bash
-./playbooks/imports/optional/common/play-vm-test-lab.yml
+./run.bash --play playbooks/imports/optional/common/play-vm-test-lab.yml
 # or, with the plan's gated wrapper and run log:
 ./CLAUDE/Plan/Completed/00110-vm-lifecycle-acceptance-testing/deploy.bash
 ```

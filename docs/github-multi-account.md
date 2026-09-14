@@ -41,7 +41,7 @@ you. To (re)run it manually for every account defined in `localhost.yml`:
 
 ```bash
 ./scripts/gh-account-setup.bash --setup-all
-ansible-playbook playbooks/imports/play-github-cli-multi.yml
+./run.bash --play playbooks/imports/play-github-cli-multi.yml
 ```
 
 ## Adding a New Account (the important workflow)
@@ -90,7 +90,7 @@ works.)
 ### 3. Deploy SSH config + shell helpers
 
 ```bash
-ansible-playbook playbooks/imports/play-github-cli-multi.yml
+./run.bash --play playbooks/imports/play-github-cli-multi.yml
 ```
 
 This regenerates the per-account shell functions and writes the
@@ -194,7 +194,7 @@ Verify every configured account is authenticated, scoped, keyed, and reachable
 1. Remove the alias from `github_accounts` in `localhost.yml`.
 2. Re-run the playbook — the shell functions regenerate without that account:
    ```bash
-   ansible-playbook playbooks/imports/play-github-cli-multi.yml
+   ./run.bash --play playbooks/imports/play-github-cli-multi.yml
    ```
 3. Optionally remove the key material and SSH config block:
    ```bash

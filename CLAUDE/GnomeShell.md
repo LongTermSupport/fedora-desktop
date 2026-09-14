@@ -36,7 +36,7 @@ files/home/.local/share/gnome-shell/extensions/
 Extensions are deployed via Ansible playbook:
 
 ```bash
-ansible-playbook playbooks/imports/optional/common/play-speech-to-text.yml
+./run.bash --play playbooks/imports/optional/common/play-speech-to-text.yml
 ```
 
 This copies extension files from `files/home/.local/share/gnome-shell/extensions/` to user home directory.

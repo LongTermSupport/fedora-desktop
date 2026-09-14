@@ -10,7 +10,7 @@ Three wired UniFi APs, all sharing the same SSID, managed by a single controller
 
 ```bash
 cd ~/Projects/fedora-desktop
-./playbooks/imports/optional/common/play-unifi-controller.yml
+./run.bash --play playbooks/imports/optional/common/play-unifi-controller.yml
 unifi-controller start
 ```
 
@@ -181,7 +181,7 @@ unifi-controller stop
 sudo rm -rf ~/.local/share/unifi    # sudo needed — container UID remapping
 
 # Re-run the playbook
-./playbooks/imports/optional/common/play-unifi-controller.yml
+./run.bash --play playbooks/imports/optional/common/play-unifi-controller.yml
 ```
 
 ## Troubleshooting

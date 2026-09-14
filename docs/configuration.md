@@ -149,7 +149,7 @@ To authenticate a new account (with the required OAuth scopes) and deploy:
 
 ```bash
 ./scripts/gh-account-setup.bash --add=alias:username
-ansible-playbook playbooks/imports/play-github-cli-multi.yml
+./run.bash --play playbooks/imports/play-github-cli-multi.yml
 ```
 
 See the full guide for the complete workflow, commands, and troubleshooting:

@@ -93,7 +93,7 @@ considerably slower that way, but it works.
 
 ```bash
 cd ~/Projects/fedora-desktop
-ansible-playbook playbooks/imports/optional/hardware-specific/play-nvidia.yml
+./run.bash --play playbooks/imports/optional/hardware-specific/play-nvidia.yml
 ```
 
 Reboot after driver installation to ensure CUDA is available.
@@ -102,7 +102,7 @@ Reboot after driver installation to ensure CUDA is available.
 
 ```bash
 cd ~/Projects/fedora-desktop
-ansible-playbook playbooks/imports/optional/common/play-speech-to-text.yml
+./run.bash --play playbooks/imports/optional/common/play-speech-to-text.yml
 ```
 
 **Installation time**: 5-15 minutes on first run
@@ -181,7 +181,7 @@ The authoritative list is `_whisperModels` in
 **Re-run playbook after changing model:**
 
 ```bash
-ansible-playbook playbooks/imports/optional/common/play-speech-to-text.yml
+./run.bash --play playbooks/imports/optional/common/play-speech-to-text.yml
 ```
 
 Models are cached in `~/.cache/huggingface/hub/` and shared between batch and streaming modes.
@@ -487,7 +487,7 @@ In Claude post-processing modes the panel **label** is additionally prefixed wit
 
    ```bash
    pip uninstall -y nvidia-cublas-cu12 nvidia-cudnn-cu12
-   ansible-playbook playbooks/imports/optional/common/play-speech-to-text.yml
+   ./run.bash --play playbooks/imports/optional/common/play-speech-to-text.yml
    ```
 
 4. If GPU still unavailable, extension falls back to CPU (slower but functional)
@@ -539,7 +539,7 @@ The playbook configures ydotool as a system service with world-writable socket (
 4. Re-run playbook:
 
    ```bash
-   ansible-playbook playbooks/imports/optional/common/play-speech-to-text.yml
+   ./run.bash --play playbooks/imports/optional/common/play-speech-to-text.yml
    ```
 
 ### Keybinding Conflicts
