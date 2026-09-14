@@ -26,6 +26,62 @@ print_error() {
     echo -e "${COLOR_RED}ERROR:${COLOR_RESET} $*" >&2
 }
 
+# Decide whether SELinux will refuse this container's reads of a home-directory bind.
+#
+# On an Enforcing host a ccy container runs as container_t and is denied `read`
+# on user_home_t (the project) and ssh_home_t (a key) — measured, audit log in
+# hand. The remedy is a relabel on the mounts, and this is the function that
+# says whether one is needed. PURE, like engine_rootless_verdict: both answers
+# arrive as text, so every combination is testable
+# (scripts/test-ccy-selinux-verdict.bash).
+#
+# Args:   `getenforce` output ("" when the command does not exist),
+#         the engine's SELinux report — podman's
+#         `info --format '{{.Host.Security.SELinuxEnabled}}'`, exactly `true`
+#         or `false` when it worked
+# Prints: enforcing | off | unknown
+#
+# `off` needs BOTH halves to say so: Permissive/Disabled means nothing is
+# refused, and an engine that does not label (`label=false` in containers.conf)
+# runs its containers unconfined, so an Enforcing host is still `off` for them.
+# `unknown` is anything that cannot be read as one of those, and the caller
+# treats it as enforcing: relabelling a readable tree costs nothing, while not
+# relabelling an unreadable one costs the whole session.
+selinux_enforcing_verdict() {
+    local enforce report
+    enforce=$(printf '%s' "$1" | tr -d '[:space:]')
+    report=$(printf '%s' "$2" | tr -d '[:space:]')
+
+    case "$enforce" in
+        Permissive|Disabled)
+            printf 'off\n'
+            return 0
+            ;;
+        "")
+            # No SELinux userland. The engine's own answer is the only one left.
+            if [ "$report" = "false" ]; then
+                printf 'off\n'
+            else
+                printf 'unknown\n'
+            fi
+            return 0
+            ;;
+        Enforcing)
+            ;;
+        *)
+            printf 'unknown\n'
+            return 0
+            ;;
+    esac
+
+    case "$report" in
+        true)  printf 'enforcing\n' ;;
+        false) printf 'off\n' ;;
+        *)     printf 'unknown\n' ;;
+    esac
+    return 0
+}
+
 # Decide, from a container engine's OWN report, whether it is rootless.
 #
 # ccy runs `claude --dangerously-skip-permissions` and bind-mounts the project at

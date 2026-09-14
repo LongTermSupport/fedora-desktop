@@ -57,6 +57,50 @@ export -f container_cmd
 #
 # Returns 0 when the engine reports rootless, 1 otherwise. It does NOT exit — the
 # caller owns that, so this stays usable from a test and from `cc`.
+# Gather the two answers selinux_enforcing_verdict needs and record the verdict.
+#
+# Sets: CCY_SELINUX_MODE (enforcing|off|unknown), CCY_MOUNT_RELABEL — the mount
+# option that makes a bind readable under confinement: "z" (shared relabel,
+# so a second ccy session on the same project can still read it) when the
+# verdict is not `off`, empty otherwise. Callers append it to their own
+# option lists; a key staging directory uses the private "Z" itself.
+CCY_SELINUX_MODE=""
+CCY_MOUNT_RELABEL=""
+ccy_selinux_mode() {
+    local enforce="" report="" rc=0
+
+    if command_exists getenforce; then
+        # 2>&1 into a capture: an error becomes text the verdict cannot read,
+        # which is `unknown`, which relabels — the safe side.
+        enforce=$(getenforce 2>&1) || rc=$?
+    fi
+
+    case "$CONTAINER_ENGINE" in
+        podman)
+            report=$(container_cmd info --format '{{.Host.Security.SELinuxEnabled}}' 2>&1) || rc=$?
+            ;;
+        docker)
+            # docker has no boolean; its SecurityOptions list names selinux when
+            # the daemon labels. Reduce it to the same two words.
+            report=$(container_cmd info --format '{{.SecurityOptions}}' 2>&1) || rc=$?
+            case "$report" in
+                *selinux*) report="true" ;;
+                *)         report="false" ;;
+            esac
+            ;;
+    esac
+
+    CCY_SELINUX_MODE=$(selinux_enforcing_verdict "$enforce" "$report")
+    if [ "$CCY_SELINUX_MODE" = "off" ]; then
+        CCY_MOUNT_RELABEL=""
+    else
+        CCY_MOUNT_RELABEL="z"
+    fi
+    export CCY_SELINUX_MODE CCY_MOUNT_RELABEL
+    debug "selinux: getenforce='$enforce' engine='$report' → $CCY_SELINUX_MODE (relabel='${CCY_MOUNT_RELABEL}')"
+    return 0
+}
+
 engine_assert_rootless() {
     local fmt="" report="" verdict="" rc=0
 

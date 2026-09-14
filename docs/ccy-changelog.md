@@ -17,6 +17,20 @@ Two version numbers move independently — see
 
 ---
 
+## 3.55.0
+
+**A ccy container on an SELinux-enforcing host can now read its workspace.** Measured on a
+headless box: `container_t` is denied `read` on `user_home_t` (the project) and `ssh_home_t` (a
+key), so ccy started and then could not see the project. Desktops never showed it because they
+are not enforcing. Now, when `getenforce` says `Enforcing` AND the engine reports labelling,
+the workspace is mounted with the shared relabel (`:z`, so a second session on the same project
+still reads it), the per-session config import with the private one, and key files are staged
+into an owner-only tmpfs directory under `$XDG_RUNTIME_DIR` mounted `:Z,ro` — the person's own
+key file is never relabelled. `unknown` (either answer unreadable) relabels too; a permissive
+host's `podman run` line is unchanged. Extra project mounts and display sockets are not
+relabelled and stay unreadable on such a host; the launch says so.
+`scripts/test-ccy-selinux-verdict.bash` drives the decision.
+
 ## 3.54.1
 
 **An alias key written as `IdentityFile ~/…` was reported missing.** `ssh -G` prints the
