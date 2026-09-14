@@ -119,12 +119,19 @@
       ansible.builtin.getent:
         database: passwd
         key: "{{ user_login }}"
+        # `fail_key: false` hands the verdict to the assert below, so the operator gets
+        # its fail_msg rather than the module's "key could not be found". It does NOT
+        # make the key absent: getent sets it to `None` and exits successfully, so
+        # `is defined` is True even for a missing user, and indexing `[1]` would raise
+        # UndefinedError before the fail_msg was ever reached. Each clause below makes
+        # the next one safe to evaluate.
         fail_key: false
 
     - name: Assert The Session User Exists
       ansible.builtin.assert:
         that:
           - ansible_facts['getent_passwd'][user_login] is defined
+          - ansible_facts['getent_passwd'][user_login] is not none
           - ansible_facts['getent_passwd'][user_login][1] | int > 0
         fail_msg: >-
           Could not resolve a uid for {{ user_login }}, so this play cannot find that

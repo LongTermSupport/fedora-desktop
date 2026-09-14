@@ -319,6 +319,18 @@
         creates: /usr/bin/yq
       tags: yq
 
+    # Gates the probe below, and exists only for `--check`. On a real run the install
+    # above has just guaranteed this path — a failed install aborts the play — so this
+    # is always true and the probe always runs. Under `--check` on a host that has no
+    # yq yet, the install is skipped, and without this gate the probe would run
+    # `yq --version` against an absent binary and fail the preview on exactly the host
+    # the install was about to fix.
+    - name: Probe Whether A YQ Binary Is Present
+      ansible.builtin.stat:
+        path: /usr/bin/yq
+      register: yq_binary
+      tags: yq
+
     # The pinned `lts.vault-scripts` role needs yq **v4** — `dumpSecretsInFiles` and
     # `rekeyVaultFile` use v4 syntax, and its `assertYqInstalled` refuses anything
     # else. The task above cannot guarantee that on its own, in two ways that both
@@ -332,11 +344,20 @@
     # Asserted here so both surface at provision time, naming the fix, instead of
     # inside a vault script at the moment someone needs a secret. `yq --version` is
     # also the probe for the truncated case: a broken binary cannot answer it.
+    #
+    # `check_mode: false` because this reads and changes nothing. Without it the
+    # command module is skipped under `--check` and still registers `stdout=''`, which
+    # renders as major 0 and fails the assert below on EVERY host — including one
+    # running a perfectly good v4.53.3 — breaking `playbook-main.yml --check` and every
+    # plan `deploy.bash --check`. `play-suspend-and-lid-policy.yml` and
+    # `play-gnome-shell-extensions.yml` carry this same guard for this same reason.
     - name: Probe The Installed YQ Version
       become: true
       ansible.builtin.command: yq --version
       register: yq_version
       changed_when: false
+      check_mode: false
+      when: yq_binary.stat.exists
       tags: yq
 
     # v4 OR NEWER, matching the role's own `assertYqInstalled`, which extracts the
@@ -358,21 +379,20 @@
         that:
           - yq_major | int >= 4
         fail_msg: |
-          yq reports: {{ yq_version.stdout | default('nothing') }}
+          yq reports: {{ yq_version.stdout | default('nothing', true) }}
 
           The vault scripts require mikefarah yq v4 or newer — every yq call in them
           is v4 syntax. This host has something else: most likely v3 left by an
-          earlier run, since the install task above skips when /usr/bin/yq already
-          exists, or a truncated download sitting at that path.
+          earlier run, or a truncated download sitting at /usr/bin/yq.
 
-          Fix by removing the old binary so the install task runs again:
-
-              sudo rm /usr/bin/yq
-
-          then re-run this play with `--tags yq`.
+          The install task above will not replace it: `creates:` treats "the file
+          exists" as "nothing to do", so every future run skips it too. The fix
+          belongs in that task — gating the install on this probe rather than on the
+          file's existence — so every host self-heals rather than just this one.
         success_msg: "yq is v{{ yq_major }}, which the vault scripts support (v4+)"
       vars:
-        yq_major: "{{ yq_version.stdout | regex_replace('^.*version v?([0-9]+)[.].*$', '\\1') }}"
+        yq_major: "{{ yq_version.stdout | default('nothing', true) | regex_replace('^.*version v?([0-9]+)[.].*$', '\\1') }}"
+      when: yq_binary.stat.exists
       tags: yq
 
     - name: DNF Parallel
