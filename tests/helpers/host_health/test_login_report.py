@@ -160,6 +160,44 @@ class TestTheNotificationIsNotTheOnlyChannel(unittest.TestCase):
         self.assertEqual([line.strip() for line in written], ["one", "two"])
 
 
+class TestTheDkmsSeamDoesNotFabricateAnAnswer(unittest.TestCase):
+    """A probe that could not run must not be handed on as empty output.
+
+    `ProbeOutcome.text` is `""` when the probe failed, and empty `dkms status` is a
+    legitimate healthy state — no modules. Passing the text straight through would
+    turn "dkms is not installed" into "pinned 1.15.0, nothing installed": a
+    confident claim about this host that nothing measured. Not a silent pass, but
+    the same family — an unmeasured fact reported as a measured one.
+    """
+
+    def test_a_failed_probe_raises_rather_than_returning_empty_text(self) -> None:
+        failed = probe_results.ProbeOutcome(
+            ok=False, text="", error="dkms: command not found")
+        with self.assertRaises(Exception) as caught:
+            login_report.dkms_text(lambda _argv: failed)
+        self.assertIn("command not found", str(caught.exception))
+
+    def test_a_successful_probe_returns_its_text(self) -> None:
+        ok = probe_results.ProbeOutcome(ok=True, text=HEALTHY_DKMS, error="")
+        self.assertEqual(login_report.dkms_text(lambda _argv: ok), HEALTHY_DKMS)
+
+    def test_genuinely_empty_output_is_returned_not_rejected(self) -> None:
+        """A host with no DKMS modules is real and healthy, and must stay
+        distinguishable from a host where dkms could not be asked."""
+        empty = probe_results.ProbeOutcome(ok=True, text="", error="")
+        self.assertEqual(login_report.dkms_text(lambda _argv: empty), "")
+
+    def test_it_asks_dkms_for_its_status(self) -> None:
+        seen: list[list[str]] = []
+
+        def runner(argv: list[str]) -> probe_results.ProbeOutcome:
+            seen.append(argv)
+            return probe_results.ProbeOutcome(ok=True, text="", error="")
+
+        login_report.dkms_text(runner)
+        self.assertEqual(seen, [["dkms", "status"]])
+
+
 class TestExitStatus(unittest.TestCase):
     def test_clean_and_findings_are_distinct(self) -> None:
         self.assertNotEqual(login_report.EXIT_OK, login_report.EXIT_FINDINGS)

@@ -114,6 +114,22 @@ def emit(
     return EXIT_FINDINGS
 
 
+def dkms_text(runner: Callable[[list[str]], probe_results.ProbeOutcome]) -> str:
+    """`dkms status` output, raising if the probe could not run.
+
+    `ProbeOutcome.text` is `""` on failure, and empty `dkms status` output is a
+    legitimate healthy state — a host with no DKMS modules. Passing the text
+    straight through would therefore turn "dkms is not installed" into
+    "pinned 1.15.0, nothing installed": a confident claim about this host that
+    nothing measured. `check_pins` turns the raise into "could not be checked",
+    which is the honest answer.
+    """
+    outcome = runner(["dkms", "status"])
+    if not outcome.ok:
+        raise check_pins.ResolutionError(outcome.error)
+    return outcome.text
+
+
 def _notify_send(body: str) -> None:
     subprocess.run(
         ["notify-send", "--app-name=fedora-desktop", "--urgency=normal", _SUMMARY, body],
@@ -171,7 +187,7 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
         pins=lambda: check_pins.check(
             pins=_declared_pins(arguments.repo_root),
             playbook_text=lambda relative: _read(arguments.repo_root, relative),
-            dkms_status=lambda: probe.run_probe(["dkms", "status"]).text,
+            dkms_status=lambda: dkms_text(probe.run_probe),
         ),
     )
     notifier: Callable[[str], None] = (lambda _: None) if arguments.no_notify else _notify_send
