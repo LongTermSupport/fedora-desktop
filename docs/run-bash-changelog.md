@@ -15,6 +15,13 @@ the index, not the record.
 
 ---
 
+## 1.20.2 — the localhost.yml reconcile compares without `diff` (Plan 00119)
+
+1.20.1's reconcile read the file's current GitHub half through `diff`, which exits 1 on any
+difference — exactly the case the reconcile exists for — and `set -e` took that as a failure,
+so the first run that needed the reconcile died silently at "Loading Personal Configuration".
+One awk classifier now yields both views (strip and extract) with no diff involved.
+
 ## 1.20.1 — headless: the GitHub inputs are reconciled into an existing localhost.yml; 443 applied before the first SSH use (Plan 00119)
 
 Two defects found on the first real headless run with an account. (1) An existing

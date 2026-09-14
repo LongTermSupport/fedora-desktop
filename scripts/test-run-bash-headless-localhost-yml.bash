@@ -33,7 +33,7 @@ trap 'rm -rf "$work"' EXIT
 # The function under test and the two renderers it composes, each bounded by its own
 # `name() {` … `}` at column 0.
 : > "$work/fn.bash"
-for fn in hl_render_github_block hl_strip_github_block hl_write_localhost_yml; do
+for fn in hl_render_github_block hl_strip_github_block hl_extract_github_block _hl_github_block_filter hl_write_localhost_yml; do
     awk -v fn="$fn" '$0 == fn "() {" {p=1} p {print} p && /^\}/ {exit}' "$RUN_BASH" >> "$work/fn.bash"
     if ! grep -q "^${fn}() {" "$work/fn.bash"; then
         echo "FAIL: could not extract ${fn} from run.bash" >&2

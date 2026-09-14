@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.20.1"
+RUN_BASH_VERSION="1.20.2"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -532,17 +532,32 @@ hl_render_github_block() {
 # `github_ssh_over_443` key, and the two comment lines the renderer writes. Vaulted values,
 # identity and anything a play appended are passed through untouched. stdout is the payload.
 hl_strip_github_block() {
-  awk '
-    /^github_accounts:/ { in_accounts = 1; next }
-    in_accounts && /^[[:space:]]+/ { next }
+  _hl_github_block_filter keep "$1"
+}
+
+# hl_extract_github_block <localhost_yml> — the exact complement of hl_strip_github_block:
+# only the GitHub half, in file order, so it can be compared with the renderer's output.
+hl_extract_github_block() {
+  _hl_github_block_filter github "$1"
+}
+
+# _hl_github_block_filter keep|github <file> — ONE classifier, two views. Each line is
+# either part of the GitHub half or not; `keep` prints the rest, `github` prints the half.
+# A single classifier is what makes strip and extract exact complements. Never a diff:
+# diff exits 1 on a difference, which `set -e` reads as a failure.
+_hl_github_block_filter() {
+  awk -v mode="$1" '
+    function emit(is_github) { if ((mode == "github") == is_github) print }
+    /^github_accounts:/ { in_accounts = 1; emit(1); next }
+    in_accounts && /^[[:space:]]+/ { emit(1); next }
     { in_accounts = 0 }
-    /^github_ssh_over_443:/ { next }
-    /^# No GitHub identity configured \(RUN_BASH_GITHUB_ACCOUNTS=none\)/ { next }
-    /^# scripts\/gh-account-setup\.bash --add=alias:username$/ { next }
-    /^# GitHub CLI accounts — to add more later:/ { next }
-    /^# GitHub SSH always-on over ssh\.github\.com:443/ { next }
-    { print }
-  ' "$1"
+    /^github_ssh_over_443:/ { emit(1); next }
+    /^# No GitHub identity configured \(RUN_BASH_GITHUB_ACCOUNTS=none\)/ { emit(1); next }
+    /^# scripts\/gh-account-setup\.bash --add=alias:username$/ { emit(1); next }
+    /^# GitHub CLI accounts — to add more later:/ { emit(1); next }
+    /^# GitHub SSH always-on over ssh\.github\.com:443/ { emit(1); next }
+    { emit(0) }
+  ' "$2"
 }
 
 # hl_write_localhost_yml <localhost_yml> — headless replacement for the interactive
@@ -568,8 +583,8 @@ hl_write_localhost_yml() {
   if [[ -f "$yml" ]] && grep -qE '(!vault|github_accounts)' "$yml"; then
     local want have tmp
     want=$(hl_render_github_block)
-    # The file's CURRENT GitHub half, in the renderer's shape: whatever the strip removes.
-    have=$(diff <(hl_strip_github_block "$yml") "$yml" | awk '/^> / { sub(/^> /, ""); print }')
+    # The file's CURRENT GitHub half, in the renderer's shape.
+    have=$(hl_extract_github_block "$yml")
     if [[ "$have" == "$want" ]]; then
       info "Headless: existing localhost.yml already declares the GitHub inputs — kept"
       return 0
