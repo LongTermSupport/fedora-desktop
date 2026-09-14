@@ -192,7 +192,9 @@ assert_filter "a case-differing near-miss of a UUID is NOT exempt" \
 # becomes a substring match, and every case above STILL PASSES — measured: a variant with
 # the anchors dropped ships `passed: 24` and a green qa-all.bash. So the suite proved the
 # exemption worked and not that it was tight, which is the only property that matters here.
-# Each case below fails if either anchor is removed.
+# Each anchor is held by at least one case below, which is the property that matters and is
+# not the same as every case holding both: measured, dropping only `^` fails the strict-suffix
+# case alone, and dropping only `$` fails the strict-prefix and deeper-domain cases.
 #
 # These three are derived from the declared UUID rather than written out, so they grow no
 # new address-shaped literal and cannot drift if the declared set changes. Named for where
@@ -210,8 +212,10 @@ EMBEDDED="${DECLARED_UUID}.evil.${RESERVED_TLD}"
 # letter for an interior dot leaves a string the email pattern still matches, which an
 # unescaped `.` would match as a wildcard.
 #
-# This one IS written out — the three above have no interior dot to substitute — so unlike
-# them it drifts if that extension ever leaves vars/gnome-shell-extensions.yml. The first
+# This one IS written out, because the three above cannot carry the property: the declared
+# UUID they derive from has no interior dot whose substitution leaves a string the email
+# pattern still matches, and a near-miss the pattern does not match is never reached by the
+# exemption at all. So unlike them it drifts if that extension ever leaves the vars file. The first
 # assertion below is what makes the drift loud: without it the near-miss would keep passing
 # on the wrong grounds, because an UNDECLARED UUID's near-miss is flagged either way, and
 # the case would prove nothing about escaping while still reporting green.

@@ -107,13 +107,20 @@
         creates: "{{ item }}/gschemas.compiled"
       loop: "{{ gse_schema_files.files | map(attribute='path') | map('dirname') | unique | sort }}"
 
-    - name: Deploy Custom Extension - Workspace Names in Overview
+    # The UUID comes from the vars file, not from this task. Spelling it here too
+    # would make the play a second copy of the declaration, which the vars header
+    # promises no consumer keeps — and a rename there would then deploy one
+    # directory while the applier enabled a different one.
+    - name: Deploy Custom Extensions From This Repo
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.copy:
-        src: "{{ root_dir }}/extensions/workspace-names-overview@fedora-desktop/"
-        dest: "{{ user_extensions_dir }}/workspace-names-overview@fedora-desktop/"
+        src: "{{ root_dir }}/extensions/{{ item.uuid }}/"
+        dest: "{{ user_extensions_dir }}/{{ item.uuid }}/"
         mode: '0755'
+      loop: "{{ gnome_shell_extensions.custom }}"
+      loop_control:
+        label: "{{ item.uuid }}"
 
     # EXT-10: `gnome-extensions enable` asks the RUNNING shell to enable a UUID, so on a
     # fresh install — where the shell has not scanned the new directory yet — the request

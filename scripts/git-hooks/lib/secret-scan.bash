@@ -101,10 +101,13 @@ hook_keep_unwhitelisted() {
     true
 }
 
-# GNOME Shell extension UUIDs are shaped exactly like email addresses
-# (`Vitals@CoreCoding.com`, `clipboard-indicator@tudmotu.com`), so the email
-# pattern flags every one of them and the repo cannot name the extensions it
-# deploys. The exemption is DERIVED from vars/gnome-shell-extensions.yml rather
+# GNOME Shell extension UUIDs are shaped exactly like email addresses —
+# `<name>@<author-domain>` — so the email pattern flags every one of them and the
+# repo cannot name the extensions it deploys. No worked example is written out
+# here: a real UUID would make this file committable only for as long as that
+# extension stays declared, and an illustrative fake one would be a genuine
+# address-shaped literal this very function has no reason to exempt.
+# The exemption is DERIVED from vars/gnome-shell-extensions.yml rather
 # than hand-kept here, so adding an extension is one edit and not two — and only
 # a value under a `uuid` key in that one tracked, reviewed file is ever exempt.
 #

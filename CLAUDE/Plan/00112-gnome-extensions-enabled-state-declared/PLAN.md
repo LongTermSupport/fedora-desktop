@@ -87,6 +87,10 @@ is the single source instead, and disk only confirms it.
   three groups, read by the play, the VM acceptance check and the secret scanner.
   No consumer keeps a copy, and all three enumerate **every** group, so a fourth
   cannot be silently half-adopted
+  - [x] ✅ One consumer *did* keep a copy: the custom-extension deploy task spelled
+    the UUID in its `src` and `dest`, so a rename in the vars file would have
+    deployed one directory while the applier enabled another. Now a loop over
+    `gnome_shell_extensions.custom`, which is what the header always claimed
 - [x] ✅ **Task 1.6**: dash-to-dock joins the declared set with
   `/usr/share/gnome-shell/extensions` as a second search path. A VM run's own
   evidence showed it installed and never enabled, which made the play's
@@ -102,6 +106,17 @@ is the single source instead, and disk only confirms it.
   **anchors and `re.escape` are pinned separately** — without them the exemption
   silently widens to a substring match and every earlier case still passed, so each
   is held by a case that fails if only that property is dropped
+  - [x] ✅ The scanner's own comment no longer carries worked-example UUIDs. Real
+    ones made its source committable only for as long as those extensions stayed
+    declared; an invented one would be an address-shaped literal the function has
+    no reason to exempt. It describes the shape instead
+  - [ ] ⬜ **Deferred, with the reason recorded** rather than left as a carried nit:
+    `hook_extension_uuid_allowlist` still does not call
+    `enabled_extensions.validate_uuid`. The direction is already safe — a malformed
+    `uuid:` hard-fails the hook, confirmed — so what is missing is an operator
+    message, not a guard. It edits a live public-repo security gate, which needs
+    its own control fixture, and that is a poor thing to bolt onto a plan whose
+    acceptance is already blocked elsewhere
 - [x] ✅ **Task 1.9**: A live session that has no record of a UUID is
   `PENDING_SCAN`, not `SKIP_NO_SESSION`. `gnome-extensions info` exits non-zero for
   both, and conflating them let a nine-iteration gate report OK having judged
