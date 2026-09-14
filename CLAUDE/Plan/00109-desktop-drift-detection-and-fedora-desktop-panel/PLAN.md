@@ -137,28 +137,18 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   different answers. Design, verdict table and the two structural silences:
   [DESIGN-play-ledger.md](DESIGN-play-ledger.md) §6. Smoke-tested against this
   repo, both the findings path and the sentinel path
-- [ ] 🔄 **Task 2.2**: Installed-vs-pinned check — the axis that failed
-  - [x] ✅ The comparison: `helpers/version_pins/compare.py`, 30 tests. Five states,
-    **only `MATCH` clean** — `AHEAD` is a finding (the repo no longer describes this
-    host) and `UNDETERMINED` is a finding rather than a pass, which is this task's
-    own fail-loudly requirement. Ordering is numeric and canonical; as strings
-    `1.14.16` sorts *before* `1.14.9`
-  - [x] ✅ **The gate this task demands**: a host a minor version behind its pin is a
-    finding, *and* the state after the fix is clean — both asserted, so the check can
-    fail against the failure it was built for and is not merely noisy
-  - [x] ✅ The manifest is `vars/version-pins.yml`, read by both consumers — the shape
-    `vars/gnome-shell-extensions.yml` took in Plan 00112. Extraction proved
-    byte-identical against the heredoc taken out of git, rather than retyped into
-    agreement. `scripts/qa-version-pins.bash` validates it in `qa-all`, because
-    **neither consumer runs there** (one needs `gh`, one needs a real host) and a row
-    naming a renamed var reports the old value for ever. 30 validator tests, eight
-    mutation controls, and one end-to-end control through `qa-all` itself
-  - [ ] ⬜ Resolve what is *installed* per pin (rpm query, binary `--version`, DKMS
-    status) — this is per-pin logic and cannot be fully generic; fail loudly on
-    a pin whose install state cannot be determined rather than reporting a pass
-  - [ ] ⬜ Gate: must report FAIL against the 2026-09-11 state (evdi 1.14.16
-    installed, 1.15.0 pinned). A check that cannot fail against the incident it
-    was built for is not a check.
+- [x] ✅ **Task 2.2**: Installed-vs-pinned check — the axis that failed. Detail:
+  [DESIGN-version-pins.md](DESIGN-version-pins.md)
+  - [x] ✅ `compare.py` (5 states, only `MATCH` clean), `manifest.py` +
+    `vars/version-pins.yml` (the declaration both consumers read),
+    `check_pins.py` (per-pin resolution), `scripts/qa-version-pins.bash`. 94 tests
+  - [x] ✅ **The gate this task demands, both directions**, against the states the
+    journal records: `evdi/1.14.16` against a `1.15.0` pin is a finding, and
+    `evdi/1.15.0-1.github_evdi` is clean — release suffix and all. A check that
+    cannot fail against its incident is not a check; one that cannot pass is noise
+  - [x] ✅ **Resolution is declared, never guessed.** A pin declares `installed:` or
+    is rejected — "nobody decided" is not a reachable state — and 1 of 9 is tracked
+    today, a split the gate **prints** so the gap is a number, not an absence
 - [x] ✅ **Task 2.3**: Wire both into the QA suite where appropriate — **decided:
   neither belongs in `qa-all.bash`.** Both ask "is this host what the repo says",
   which pre-commit is not asking and cannot act on; in a container both would find

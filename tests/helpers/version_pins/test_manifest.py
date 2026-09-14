@@ -168,6 +168,77 @@ class TestFieldsCannotCorruptTheRowEncoding(unittest.TestCase):
             manifest.parse(document(dict(MANUAL_ROW, note="line one\nline two")))
 
 
+class TestInstalledDeclaration(unittest.TestCase):
+    """How to resolve what is INSTALLED — the axis the incident drifted on.
+
+    It cannot be generic, and guessing it is worse than omitting it: the
+    `displaylink_version` pin is a release tag (`v6.3.0-1`) while the installed
+    rpm's own version tracks evdi (`displaylink-1.14.16-2`), so a plausible-looking
+    rpm resolver would have reported a permanent false finding.
+
+    So a pin either declares a resolver or declares, with a reason, that its install
+    state is not tracked. There is no third state where nobody decided.
+    """
+
+    def test_a_pin_with_no_installed_block_is_rejected(self) -> None:
+        with self.assertRaises(manifest.ManifestError):
+            manifest.parse(document(GOOD_ROW), require_installed=True)
+
+    def test_it_is_optional_unless_asked_for(self) -> None:
+        """The upstream-drift consumer does not need it; only the host one does."""
+        self.assertEqual(manifest.parse(document(GOOD_ROW))[0].installed, None)
+
+    def test_a_dkms_resolver_parses(self) -> None:
+        row = dict(GOOD_ROW, installed={"kind": "dkms", "name": "evdi"})
+        pin = manifest.parse(document(row), require_installed=True)[0]
+        self.assertEqual(pin.installed.kind, "dkms")
+        self.assertEqual(pin.installed.name, "evdi")
+
+    def test_an_untracked_declaration_needs_a_reason(self) -> None:
+        """'untracked' with no why is an omission wearing a decision's clothes."""
+        row = dict(GOOD_ROW, installed={"kind": "untracked"})
+        with self.assertRaises(manifest.ManifestError):
+            manifest.parse(document(row), require_installed=True)
+
+    def test_an_untracked_declaration_with_a_reason_parses(self) -> None:
+        row = dict(GOOD_ROW, installed={"kind": "untracked", "why": "no host-side value exists"})
+        pin = manifest.parse(document(row), require_installed=True)[0]
+        self.assertEqual(pin.installed.kind, manifest.UNTRACKED)
+        self.assertIn("no host-side value", pin.installed.why)
+
+    def test_a_resolver_kind_needs_a_name(self) -> None:
+        row = dict(GOOD_ROW, installed={"kind": "dkms"})
+        with self.assertRaises(manifest.ManifestError):
+            manifest.parse(document(row), require_installed=True)
+
+    def test_an_unknown_resolver_kind_is_rejected(self) -> None:
+        """Not silently treated as untracked — that would turn a typo into a
+        decision nobody made."""
+        row = dict(GOOD_ROW, installed={"kind": "magic", "name": "evdi"})
+        with self.assertRaises(manifest.ManifestError):
+            manifest.parse(document(row), require_installed=True)
+
+    def test_an_unknown_key_inside_installed_is_rejected(self) -> None:
+        row = dict(GOOD_ROW, installed={"kind": "dkms", "naem": "evdi"})
+        with self.assertRaises(manifest.ManifestError):
+            manifest.parse(document(row), require_installed=True)
+
+    def test_installed_must_be_a_mapping(self) -> None:
+        with self.assertRaises(manifest.ManifestError):
+            manifest.parse(document(dict(GOOD_ROW, installed="dkms:evdi")), require_installed=True)
+
+    def test_untracked_is_not_a_resolver(self) -> None:
+        row = dict(GOOD_ROW, installed={"kind": "untracked", "why": "x"})
+        self.assertFalse(manifest.parse(document(row), require_installed=True)[0].is_tracked)
+
+    def test_a_real_resolver_is_tracked(self) -> None:
+        row = dict(GOOD_ROW, installed={"kind": "dkms", "name": "evdi"})
+        self.assertTrue(manifest.parse(document(row), require_installed=True)[0].is_tracked)
+
+    def test_a_pin_with_no_installed_block_is_not_tracked(self) -> None:
+        self.assertFalse(manifest.parse(document(GOOD_ROW))[0].is_tracked)
+
+
 class TestRowEncoding(unittest.TestCase):
     def test_a_row_renders_the_five_fields_the_consumer_reads(self) -> None:
         self.assertEqual(
@@ -185,17 +256,43 @@ class TestRowEncoding(unittest.TestCase):
             self.assertEqual(len(manifest.to_row(pin).split("|")), 5)
 
 
+DKMS_ROW = dict(GOOD_ROW, installed={"kind": "dkms", "name": "evdi"})
+UNTRACKED_ROW = dict(MANUAL_ROW, installed={"kind": "untracked", "why": "not established"})
+
+
 class TestMain(unittest.TestCase):
     def test_a_valid_manifest_prints_the_OK_marker_and_the_rows(self) -> None:
         import io
         import json
 
         stdout = io.StringIO()
-        status = main_with(json.dumps(document(GOOD_ROW, MANUAL_ROW)), stdout)
+        status = main_with(json.dumps(document(DKMS_ROW, UNTRACKED_ROW)), stdout)
         self.assertEqual(status, 0)
         lines = stdout.getvalue().splitlines()
         self.assertTrue(lines[0].startswith(manifest.OK_MARKER))
         self.assertEqual(len(lines), 3)
+
+    def test_main_requires_the_installed_declaration(self) -> None:
+        """This is the only place every row is read on every qa-all run, so it is
+        where a pin nobody has decided about has to be caught."""
+        import io
+        import json
+
+        stdout = io.StringIO()
+        self.assertNotEqual(main_with(json.dumps(document(GOOD_ROW)), stdout), 0)
+        self.assertIn(manifest.INVALID_MARKER, stdout.getvalue())
+
+    def test_the_marker_line_counts_tracked_and_untracked_separately(self) -> None:
+        """The gap is printed rather than hidden: an untracked pin is not a pin
+        with no findings, and the two must not read alike."""
+        import io
+        import json
+
+        stdout = io.StringIO()
+        main_with(json.dumps(document(DKMS_ROW, UNTRACKED_ROW)), stdout)
+        first = stdout.getvalue().splitlines()[0]
+        self.assertIn("1 with install state tracked", first)
+        self.assertIn("1 declared untracked", first)
 
     def test_an_invalid_manifest_prints_the_INVALID_marker_and_fails(self) -> None:
         import io

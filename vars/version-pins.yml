@@ -25,41 +25,97 @@
 #   tag_prefix  any tag prefix beyond a leading 'v' to strip before comparing
 #               (e.g. a project tagging releases as `release-5.6.0`)
 #   note        free text shown for a MANUAL row; required when github is omitted
+#   installed   how to resolve what is INSTALLED on this host, for the third drift
+#               axis (repo pin vs host). `kind: dkms|rpm|command` plus a `name:`, or
+#               `kind: untracked` plus a `why:` recording the decision not to.
+#               Required by the host-side check and rejected if absent, because
+#               "nobody decided" must not be a reachable state.
+#
+# Guessing a resolver is worse than declaring `untracked`. The displaylink pin below
+# is the worked example: it is a release TAG, while the installed rpm's own version
+# tracks evdi, so a plausible-looking rpm resolver reports a permanent false finding.
+# Most rows are `untracked` with "not yet established" — a to-do that is visible in
+# this file and counted by ./scripts/qa-version-pins.bash, rather than an absence.
 
 version_pins:
   - playbook: playbooks/imports/play-nvm-install.yml
     var: nvm_version
     github: nvm-sh/nvm
+    installed:
+      kind: untracked
+      why: >-
+        Not yet established. Needs a host to determine how the installed version is
+        resolved; declared rather than omitted so the gap is counted, not invisible.
 
   - playbook: playbooks/imports/play-markless.yml
     var: marklessVersion
     github: jvanderberg/markless
+    installed:
+      kind: untracked
+      why: >-
+        Not yet established. Needs a host to determine how the installed version is
+        resolved; declared rather than omitted so the gap is counted, not invisible.
 
   - playbook: playbooks/imports/optional/common/play-qobuz.yml
     var: rescrobbledVersion
     github: InputUsername/rescrobbled
+    installed:
+      kind: untracked
+      why: >-
+        Not yet established. Needs a host to determine how the installed version is
+        resolved; declared rather than omitted so the gap is counted, not invisible.
 
   - playbook: playbooks/imports/optional/common/play-compression-helpers.yml
     var: ouchVersion
     github: ouch-org/ouch
+    installed:
+      kind: untracked
+      why: >-
+        Not yet established. Needs a host to determine how the installed version is
+        resolved; declared rather than omitted so the gap is counted, not invisible.
 
   - playbook: playbooks/imports/optional/common/play-photography.yml
     var: rapidraw_version
     github: CyberTimon/RapidRAW
+    installed:
+      kind: untracked
+      why: >-
+        Not yet established. Needs a host to determine how the installed version is
+        resolved; declared rather than omitted so the gap is counted, not invisible.
 
   - playbook: playbooks/imports/optional/common/play-photography.yml
     var: art_version
     github: artraweditor/ART
+    installed:
+      kind: untracked
+      why: >-
+        Not yet established. Needs a host to determine how the installed version is
+        resolved; declared rather than omitted so the gap is counted, not invisible.
 
   - playbook: playbooks/imports/optional/hardware-specific/play-displaylink.yml
     var: displaylink_version
     github: displaylink-rpm/displaylink-rpm
+    installed:
+      kind: untracked
+      why: >-
+        The pin is the displaylink-rpm RELEASE TAG (v6.3.0-1). The installed rpm's own
+        version tracks evdi instead (displaylink-1.14.16-2 during the 2026-09-11
+        incident), so there is no host-side value that this pin can be compared with.
+        Comparing the rpm version would report a permanent false finding.
 
   - playbook: playbooks/imports/optional/hardware-specific/play-displaylink.yml
     var: evdi_version
     github: DisplayLink/evdi
+    installed:
+      kind: dkms
+      name: evdi
 
   - playbook: playbooks/imports/optional/hardware-specific/play-nvidia.yml
     var: cudnn_version
     note: >-
       NVIDIA cuDNN — check developer.nvidia.com / the CUDA repo manually
+    installed:
+      kind: untracked
+      why: >-
+        Not yet established. Needs a host to determine how the installed version is
+        resolved; declared rather than omitted so the gap is counted, not invisible.
