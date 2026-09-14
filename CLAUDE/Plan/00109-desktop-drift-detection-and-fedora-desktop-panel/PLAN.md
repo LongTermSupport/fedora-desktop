@@ -139,133 +139,55 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 
 ### Phase 3: Login-time health surfacing and Claude Code handoff
 
-- [ ] 🔄 **Task 3.1**: Post-boot health probe — probe done, login wiring pending
-  - [x] ✅ `helpers/host_health/probe_results.py`. DKMS modules with no `installed`
-    build **for the kernel that actually booted** — the incident's own shape, and why a
-    non-empty `dkms status` fooled everyone — plus failed system and user units. A probe
-    that could not run is a **finding**, not a skip.
-    [DESIGN-host-health.md](DESIGN-host-health.md) §§1–3
-  - [x] ✅ Coordinated, not duplicated: neither Plan 00086 nor 00074 owns a reusable
-    probe — both are fixes *inside* a play and inside `run.bash`.
-    [DESIGN-host-health.md](DESIGN-host-health.md) §4
-  - [x] ✅ `helpers/host_health/probe.py` — the half that touches the machine. Every
-    route out of `run_probe` ends in a `ProbeOutcome`, never a traceback, and **the
-    classifier enforced that for `dkms` only** — a `systemctl` that could not run
-    returned an empty unit list, identical to a healthy host.
-    [DESIGN-host-health.md](DESIGN-host-health.md) §6
-  - [x] ✅ Running it at **end of login** rather than at boot:
-    `host-health.service`, `After=graphical-session.target`, deployed by
-    `play-host-health-login-report.yml`. `WorkingDirectory` is templated from
-    `root_dir` — no checkout path reaches the repo. `SuccessExitStatus=0 1`, because
-    exit 1 means "there are findings", and a drifted host must not also register as
-    a broken service: two alarms for one fact is how both get ignored
+> Design: [DESIGN-host-health.md](DESIGN-host-health.md) §§1–11.
+
+- [ ] 🔄 **Task 3.1**: Post-boot health probe — code done, HOST wiring pending
+  - [x] ✅ `probe_results.py` (verdicts) and `probe.py` (the half that touches the
+    machine); `host-health.service`, deployed by `play-host-health-login-report.yml`
   - [ ] ⬜ **HOST**: run the play, then assert the unit is actually *wanted* —
-    `systemctl --user list-dependencies graphical-session.target` must name it. Not
-    "the play succeeded": `WantedBy=graphical-session.target` is new in this repo
-    (`play-container-watch.yml` is timer-activated and has no `[Install]` at all), and
-    deployed-but-not-enabled already shipped once today looking exactly like success
+    `systemctl --user list-dependencies graphical-session.target` must name it. "The
+    play succeeded" is a different claim
 - [ ] 🔄 **Task 3.2**: Surface findings to the user — code done, HOST run pending
-  - [x] ✅ `helpers/host_health/login_report.py`. **One** notification listing
-    everything, not three; **silent when clean**; host-health findings first,
-    because something broken now outranks something that merely drifted
-  - [x] ✅ **The freshness seam keeps its two channels apart** — what it found about
-    the host, and what happened to it while looking. One sink made every diagnostic a
-    finding. [DESIGN-host-health.md](DESIGN-host-health.md) §9
-  - [x] ✅ **Merged, not chained**, and **the notification is not the only channel** —
-    a raising check names itself instead of silencing the others, and a bus that is not
-    there does not discard the findings. [DESIGN-host-health.md](DESIGN-host-health.md) §10
-  - [ ] ⬜ **HOST**: confirm a real notification arrives, and that a clean login is
-    genuinely silent
-  - [ ] 🔄 **A server profile gets no drift detection at all.** The play is
-    `scope: gnome`, so it ends the play there — correctly for the *delivery*
-    (`notify-send` needs a session bus, and `graphical-session.target` never
-    activates on a server), but the ledger, play-freshness and installed-vs-pinned
-    checks are profile-agnostic and a server is where unattended drift matters most.
-    Needs a second delivery route, not a scope change. Raised by the user
-    - [x] ✅ The half both routes share is built: `helpers/host_health/status_document.py`
-      writes the checks' verdict to a file, so *running the checks* and *telling the
-      user* stop being one step. That is what makes a server route affordable — a
-      synchronous `git fetch` at every SSH login would add latency to every login and
-      can hang, while printing a cached document costs nothing
-    - [x] ✅ The renderer: `helpers/host_health/login_message.py`. Silent when clean
-      **and fresh** — both, because a clean document nobody has updated for a month
-      describes the host as it was a month ago, so the document's own age is a finding
-      past `STALE_AFTER_DAYS`. Same shape as
-      [DESIGN-host-health.md](DESIGN-host-health.md) §8's fetch clock, same reason.
-      `main` always exits 0: a non-zero status from a sourced profile snippet can trip
-      `set -e` in the surrounding shell, and a reporter that costs the user the login
-      is worse than no reporter
-    - [ ] ⬜ The delivery: a `--user` timer to run the producer on a server (nothing
-      triggers it without `graphical-session.target`), a profile snippet calling
-      `python3 -m helpers.host_health.login_message`, and a play to deploy both. Needs
-      the timer cadence decided against `STALE_AFTER_DAYS`
-- [ ] 🔄 **Task 3.3**: Claude Code handoff — file and offer done, one-click is Phase 4
-  - [x] ✅ `helpers/host_health/handoff.py`. The prompt file separates *"this is
-    wrong"* from *"this was not looked at"*, and says of the second that these are
-    **not** clean results. Mode `0600`: it records what is broken about this host
-  - [x] ✅ **The split is carried in the data, not guessed from the prose** —
-    `Finding.checked`, the producing check's own answer. Substring matching misfiled
-    **6 of 13**; measured again after, **0 of 13**.
-    [DESIGN-host-health.md](DESIGN-host-health.md) §11
-  - [x] ✅ The prompt asks for a **diagnosis and a discussion**, and says in terms
-    not to apply a fix or run a playbook. Strict IaC and the plan's own Non-Goals
-    both say re-running a play is the operator's decision
-  - [x] ✅ Offered, never automatic: `offer()` returns a **string** naming the file
-    and the `claude` command — `claude`, not `ccy`, because diagnosing a broken host
-    from inside a container cannot see the host. A test exists so that growing a
-    subprocess call here gets noticed
-  - [ ] ⬜ The **one-click** offer. A printed command is the offer today; a clickable
-    one needs a surface that can receive a click, which is Phase 4's panel
+  - [x] ✅ `login_report.py` — one notification, silent when clean
+  - [ ] ⬜ **HOST**: confirm a real notification arrives, and a clean login is silent
+  - [ ] 🔄 **A server profile gets no drift detection.** `scope: gnome` is right for the
+    *delivery* and wrong for the checks, which are profile-agnostic. Needs a second
+    route, not a scope change
+    - [x] ✅ `status_document.py` (producer) and `login_message.py` (renderer)
+    - [ ] ⬜ The delivery: a `--user` timer, a profile snippet calling
+      `python3 -m helpers.host_health.login_message`, and a play for both. Cadence to be
+      decided against `STALE_AFTER_DAYS`
+- [ ] 🔄 **Task 3.3**: Claude Code handoff — file and offer done
+  - [x] ✅ `handoff.py`, mode `0600`; the wrong/not-looked-at split is carried in
+    `Finding.checked`, not read from the prose
+  - [ ] ⬜ The **one-click** offer — needs a surface that can receive a click, which is
+    Phase 4's panel
 
 ### Phase 4: `fedora-desktop` GNOME panel extension
 
-- [ ] 🔄 **Task 4.1**: Scaffold `extensions/fedora-desktop@fedora-desktop`
-  - [x] ✅ Design settled in writing first — [DESIGN-panel.md](DESIGN-panel.md) — covering
-    the two things the existing extension pattern does not: one aggregate status document
-    rather than one file per producer, and the three states `ok`/`findings`/**`unavailable`**,
-    because an absent document is ignorance and must not render as health
-  - [x] ✅ **The producer, before either consumer**: `helpers/host_health/status_document.py`.
-    Three states distinct in the data, `unavailable` read from `Finding.checked` rather
-    than the wording, and an absent or unparseable or unknown-schema document reported as
-    `unavailable` — never as an empty one, which renders as health. Its atomicity test
-    survived a mutant that wrote straight to the destination; the test now pins what a
-    *failed* write leaves behind, which is the only thing that tells the two apart
-  - [x] ✅ The scaffold, landing with 4.2's health section registered — a registry with
-    nothing in it cannot be exercised. `extensions/fedora-desktop@fedora-desktop/`:
-    `metadata.json`, `statusDocument.js` (the reader), `sections/health.js`,
-    `extension.js`, `stylesheet.css`. ESLint clean, compat gate green.
-    **`unavailable` has its own icon**, never the neutral one — the panel's version of
-    the rule the whole plan turns on
-  - [x] ✅ **The two-language contract is a gate, not a comment.**
-    `helpers/gnome/check_panel_contract.py` in `qa-all.bash`: the file name, schema
-    number and three state strings are declared in both Python and JavaScript, and a
-    disagreement is silent, because the panel then reports `unavailable` for ever —
-    which by design reads as "nothing is known about this host". Falsifiable on four
-    axes (name drift, schema drift, state drift, constant deleted); a constant it
-    cannot find in the JS is a finding, never treated as agreement
-- [ ] ⬜ **Task 4.2**: Health section — surface Phase 3 findings, offer the handoff
-  - [ ] ⬜ **Nothing checks that the ledger has any content**, and the panel is where it
-    shows. A smoke run against an empty state directory publishes
-    `play-freshness: ok` — correct for the question that check asks (no ledgered play
-    has drifted, because there are none), and a green tick on a host with no ledger.
-    Not a defect in `check_freshness`: an empty ledger has no holes in it, the
-    `EXIT_OK` is tested and reasoned, and it has other callers whose contract that
-    exit code is. The gap is a **missing check** — at login the case is reachable only
-    one way, because the unit is deployed by a play and `run.bash` ledgers every play,
-    so an empty ledger at login means it was lost. Needs its own section, not a
-    reinterpretation of this one
+> Design: [DESIGN-panel.md](DESIGN-panel.md) §§1–10.
+
+- [x] ✅ **Task 4.1**: Scaffold `extensions/fedora-desktop@fedora-desktop` —
+  `metadata.json`, `statusDocument.js`, `sections/health.js`, `extension.js`,
+  `stylesheet.css`, plus the producer `helpers/host_health/status_document.py` and the
+  cross-language contract gate `helpers/gnome/check_panel_contract.py` in `qa-all.bash`
+- [ ] 🔄 **Task 4.2**: Health section — renders Phase 3's three checks
+  - [x] ✅ Registered and rendering; `unavailable` has its own icon, never the neutral one
+  - [ ] ⬜ **Nothing checks that the ledger has any content.** An empty state directory
+    publishes `play-freshness: ok` — right for the question that check asks, and a green
+    tick on a host with no ledger. Needs its own section, not a reinterpretation of that
+    one; at login an empty ledger can only mean it was lost, since `run.bash` ledgers
+    every play and a play deploys the unit
+  - [ ] ⬜ What a finding does when activated — a Task 3.3 decision
+    ([DESIGN-panel.md](DESIGN-panel.md) §9)
 - [ ] ⬜ **Task 4.3**: Play/task runner — plays with their ledger state, launched in a
-  visible terminal, never in the background
-- [ ] ⬜ **Task 4.4**: Sections registered, not hardcoded, so quick-launch and other
-  tools can be added without a rewrite
+  visible terminal, never in the background. Which plays it lists needs the ledger's real
+  contents from Task 1.2's HOST run
+- [x] ✅ **Task 4.4**: Sections registered, not hardcoded — one array entry per section
 - [ ] 🔄 **Task 4.5**: ESLint clean, deployed by its own play, Wayland-correct
-  - [x] ✅ ESLint clean (`cd extensions && node_modules/.bin/eslint .`) and the compat
-    gate green — `shell-version` covers the GNOME Shell this Fedora ships
-  - [x] ✅ **Its own play**: `play-fedora-desktop-panel.yml`. Enabled through Plan
-    00112's declared-state route, and it deliberately does **not** assert the producer
-    play is installed. [DESIGN-panel.md](DESIGN-panel.md) §§7, 10
-  - [ ] ⬜ **HOST**: run the play, log out and back in, and confirm the panel appears
-    and renders the three sections. Never run in a GNOME Shell
+  - [x] ✅ ESLint and compat gate green; `play-fedora-desktop-panel.yml` deploys it
+  - [ ] ⬜ **HOST**: run the play, log out and back in, confirm the panel appears and
+    renders the three sections
 
 ### Phase 5: Recover the desktop background after a monitor change
 
@@ -273,37 +195,23 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 > [RESEARCH-wallpaper-and-backgrounds.md](RESEARCH-wallpaper-and-backgrounds.md) §Recovery.
 > Task state stays here.
 
-- [x] ✅ **Task 5.1**: Establish the real cost and the real bug — **a rendering
-  failure, not a texture failure**, so image size is irrelevant. Converges on
-  upstream `mutter#4767`; neither candidate is fixable here
-  - [ ] 🚫 **Blocked on the user, one question**: are the monitors literally black,
-    or dark blue-grey? Blue-grey is the flat `primary-color` and would overturn the
-    above, pointing back at the other candidate. Nothing here can answer it
-- [x] ❌ **Task 5.2**: ~~Scale the wallpaper~~ — **cancelled, wrong problem.** Image
-  size is irrelevant (5.1), and a playbook is the wrong mechanism for wallpaper. The
-  rejected draft's two defects are in the 12:05 journal entry as markers for the class
-- [x] ❌ **Task 5.3**: ~~Per-monitor pre-scaled caching~~ — **cancelled with 5.2.**
-  GNOME already ships it (background `.xml` with `<size>`) and no third-party tool does
+- [x] ✅ **Task 5.1**: Establish the real cost and the real bug — a **rendering**
+  failure, not a texture failure, so image size is irrelevant. Converges on upstream
+  `mutter#4767`; neither candidate is fixable here. The black-versus-blue-grey question
+  that would have discriminated between the two candidates was **closed by the owner as
+  resolved without a recorded answer**, so the `mutter#4767` attribution stands on the
+  rendering evidence alone and was never confirmed on that axis
+- [x] ❌ **Task 5.2**: ~~Scale the wallpaper~~ — cancelled, wrong problem
+- [x] ❌ **Task 5.3**: ~~Per-monitor pre-scaled caching~~ — cancelled; GNOME ships it
 - [x] ✅ **Task 5.4**: Recover the background after a monitor reconfiguration —
-  delivered in `9a79dd7`, `Action.REFRESH_BACKGROUND` in
-  `helpers/displaylink_recovery/`, fired by the dock udev rule and the suspend
-  service, after the wedge ladder and never while locked. Adding it found **three
-  faults meaning Plan 00056's recovery had never run on this host at all**
-  - ⚠️ **Known limitation — the resume path is effectively inert**, because the
-    screen is already locked when the suspend service runs, so the run correctly
-    refuses and prints `action=none`. The dock/udev path still works
-  - [ ] ⬜ **T5.4a**: Cover the unlock case. Needs something in the *user* session
-    that reacts to unlock, not a root oneshot — Phase 4's panel is the natural owner
-  - [ ] ⬜ **Still to confirm in the wild**: that the refresh clears the black
-    background when the symptom is present. Exercised on a *healthy* desktop only
-  - [x] ✅ Decide the home — **extend** `helpers/displaylink_recovery/`, not a
-    sibling: the compositor-layer failure shares the driver-layer one's trigger, so it
-    reuses the existing udev rule and suspend service rather than inventing one
-  - [x] ✅ Idempotence and loop-safety — `needs_background_refresh` returns False once
-    `attempted_background_refresh` is set, so the toggle cannot re-trigger on the key
-    it writes, and False while locked, keeping it off the `gnome-shell#9188` leak path
-  - [ ] ⬜ **HOST**: deploy and verify. Distinct from the confirmation above — this
-    is "the shipped code runs on the host", not "the toggle cures the fault"
+  `Action.REFRESH_BACKGROUND` in `helpers/displaylink_recovery/`, fired by the dock udev
+  rule and the suspend service, after the wedge ladder and never while locked
+  - ⚠️ **Known limitation — the resume path is effectively inert**: the screen is already
+    locked when the suspend service runs, so the run correctly refuses. Dock/udev works
+  - [ ] ⬜ **T5.4a**: Cover the unlock case. Needs something in the *user* session that
+    reacts to unlock, not a root oneshot — Phase 4's panel is the natural owner
+  - [ ] ⬜ **HOST**: deploy it, and separately confirm the refresh actually clears a
+    black background when the symptom is present — exercised on a healthy desktop only
 
 ## Dependencies
 
