@@ -98,7 +98,10 @@ is the single source instead, and disk only confirms it.
   vars file at scan time — a GNOME extension UUID is shaped exactly like an email
   address. Only values under a `uuid` key in that one tracked file are exempt, each
   an anchored whole-token literal, and `scripts/test-secret-scan.bash` now covers
-  it: a real address still flags, including on a line that also holds a UUID
+  it: a real address still flags, including on a line that also holds a UUID. The
+  **anchors and `re.escape` are pinned separately** — without them the exemption
+  silently widens to a substring match and every earlier case still passed, so each
+  is held by a case that fails if only that property is dropped
 - [x] ✅ **Task 1.9**: A live session that has no record of a UUID is
   `PENDING_SCAN`, not `SKIP_NO_SESSION`. `gnome-extensions info` exits non-zero for
   both, and conflating them let a nine-iteration gate report OK having judged
@@ -109,9 +112,16 @@ is the single source instead, and disk only confirms it.
   print a command task's stdout without `-v`, so at **play** level nine judged and nine
   unjudged were still byte-identical. `Assert Every Deployed Extension Produced A Readable Verdict` now consumes the results and reports `COVERAGE: n of m judged against a live session`. It fails only on a verdict it cannot read — `pending_scan`
   before the reboot is legitimate and must not fail a fresh install — so the gate that
-  *proves* the outcome remains the post-reboot acceptance check. Verified against
-  Ansible's own templar on three shapes: fresh install (1 of 9, passes), all healthy
-  (9 of 9, passes), a missing marker (**fails**)
+  *proves* the outcome remains the post-reboot acceptance check.
+  - [x] ✅ The **population** is pinned against `declared_extension_uuids`, not against
+    the verify results alone. Both counts derive from `gse_verify.results`, so on their
+    own they agree at zero: a `when:` on the verify task left the gate reporting
+    `COVERAGE: 0 of 0` and passing — the fix reproducing the defect it was written for
+  - [x] ✅ Verified against Ansible's own templar on **eight** shapes, the expressions
+    read out of the play rather than retyped so the harness cannot drift from the task
+    it vouches for. Pass: all-healthy, fresh-install all-`pending_scan`, nothing
+    declared. **Fail**: an unreadable verdict, a short loop, `results: []`, a register
+    with no `results` key, `gse_verify` undefined
 
 ### Phase 2: Acceptance
 

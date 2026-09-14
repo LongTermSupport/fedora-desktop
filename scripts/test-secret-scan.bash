@@ -194,10 +194,11 @@ assert_filter "a case-differing near-miss of a UUID is NOT exempt" \
 # exemption worked and not that it was tight, which is the only property that matters here.
 # Each case below fails if either anchor is removed.
 #
-# All three are derived from the declared UUID rather than written out, so this file grows
-# no new address-shaped literal and nothing drifts if the declared set changes.
-SUFFIXED="${DECLARED_UUID}pany"                 # a real address with a UUID as a strict PREFIX
-PREFIXED="x${DECLARED_UUID}"                    # a UUID as a strict SUFFIX
+# These three are derived from the declared UUID rather than written out, so they grow no
+# new address-shaped literal and cannot drift if the declared set changes. Named for where
+# the EXTRA text sits, because naming them for the operation reads as the opposite.
+UUID_WITH_TAIL="${DECLARED_UUID}pany"           # a longer address the UUID is a strict PREFIX of
+UUID_WITH_HEAD="x${DECLARED_UUID}"              # a longer address the UUID is a strict SUFFIX of
 # A deeper domain under the same left-hand side. The TLD must be one the scanner does NOT
 # already whitelist, or the case proves nothing: a first draft used `.example`, which is
 # RFC 2606 reserved and correctly exempt for that reason, so it passed the filter and looked
@@ -208,16 +209,24 @@ EMBEDDED="${DECLARED_UUID}.evil.${RESERVED_TLD}"
 # the SAME LENGTH is inside the anchors, so only the escaping can reject it. Substituting a
 # letter for an interior dot leaves a string the email pattern still matches, which an
 # unescaped `.` would match as a wildcard.
+#
+# This one IS written out — the three above have no interior dot to substitute — so unlike
+# them it drifts if that extension ever leaves vars/gnome-shell-extensions.yml. The first
+# assertion below is what makes the drift loud: without it the near-miss would keep passing
+# on the wrong grounds, because an UNDECLARED UUID's near-miss is flagged either way, and
+# the case would prove nothing about escaping while still reporting green.
 DOTTED_UUID="appindicatorsupport@rgcjonas.gmail.com"   # exempt: itself a declared UUID
 WILDCARD_NEAR_MISS="${DOTTED_UUID/rgcjonas./rgcjonasX}"
 
+assert_filter "the dotted UUID is itself exempt" \
+    "" "${REPO_ROOT}" "1: ${DOTTED_UUID}"
 assert_filter "a same-length near-miss that only an unescaped dot would match is NOT exempt" \
     "1: ${WILDCARD_NEAR_MISS}" "${REPO_ROOT}" "1: ${WILDCARD_NEAR_MISS}"
 
 assert_filter "a longer address starting with a declared UUID is NOT exempt" \
-    "1: ${SUFFIXED}" "${REPO_ROOT}" "1: ${SUFFIXED}"
+    "1: ${UUID_WITH_TAIL}" "${REPO_ROOT}" "1: ${UUID_WITH_TAIL}"
 assert_filter "an address ending with a declared UUID is NOT exempt" \
-    "1: ${PREFIXED}" "${REPO_ROOT}" "1: ${PREFIXED}"
+    "1: ${UUID_WITH_HEAD}" "${REPO_ROOT}" "1: ${UUID_WITH_HEAD}"
 assert_filter "a declared UUID extended by a further domain is NOT exempt" \
     "1: ${EMBEDDED}" "${REPO_ROOT}" "1: ${EMBEDDED}"
 # Without a repo root the exemption is simply absent, which is the safe direction:

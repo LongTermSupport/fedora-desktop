@@ -225,14 +225,24 @@
     - name: Assert Every Deployed Extension Produced A Readable Verdict
       ansible.builtin.assert:
         that:
+          # Both counts derive from gse_verify.results, so on their own they agree at
+          # zero and this gate reports "0 of 0" and passes — the same shape it exists
+          # to catch. The population is pinned against what the repo DECLARES, which no
+          # `when:` on the loop above can shrink.
+          - gse_total | int == declared_extension_uuids | length
           - gse_marked | int == gse_total | int
         fail_msg: >-
-          {{ gse_total | int - (gse_marked | int) }} of {{ gse_total }} verify runs produced
-          no EXT-OK/EXT-FAIL marker, so their verdict is unknown and this gate has not run.
+          Verified {{ gse_total }} of {{ declared_extension_uuids | length }} declared
+          extensions, {{ gse_marked }} of which produced an EXT-OK/EXT-FAIL marker. Both
+          must equal the declared count. A short verified count means the loop above did
+          not run over every extension. A short marker count means a verdict could not be
+          read. Either way their state is unknown and this gate has not run.
         success_msg: >-
           COVERAGE: {{ gse_live }} of {{ gse_total }} deployed extensions judged against a
           live session; {{ gse_scan }} awaiting a shell rescan (expected before the reboot);
           {{ gse_nosession }} with no session reachable. Only the {{ gse_live }} are evidence.
+        # Load-bearing, not boilerplate: it sets _ansible_verbose_always, which is what
+        # prints success_msg without -v. quiet: true deletes the COVERAGE line silently.
         quiet: false
       vars:
         gse_stdout: "{{ gse_verify.results | default([]) | map(attribute='stdout') | list }}"
