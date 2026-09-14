@@ -3,9 +3,9 @@
 #
 #   scripts/test-secret-scan.bash
 #
-# Run this whenever the scanner is touched. It is not wired into qa-all.bash, for the same
-# reason test-planlib.bash is not: it covers a library that changes rarely and is exercised
-# on every commit anyway.
+# Run this whenever the scanner is touched. It IS wired into qa-all.bash (the
+# `secret-scan-tests` gate), so a regression here fails QA — this file previously claimed
+# the opposite, which invited an author to treat it as optional.
 #
 # EVERY value here is SYNTHETIC. The real denylist is built from a gitignored file holding
 # the owner's actual identifiers, and a test that hardcoded those would put them in this
@@ -132,6 +132,84 @@ EMPTY_DL="${TMPROOT}/empty.tsv"
 : >"${EMPTY_DL}"
 assert_scan "an empty denylist reports nothing" "" "${EMPTY_DL}" "acme is everywhere"
 assert_scan "empty text reports nothing" "" "${DL}" ""
+
+# ── the derived GNOME extension UUID exemption ───────────────────────────────────────────
+#
+# A GNOME extension UUID is shaped exactly like an email address, so the email pattern
+# flags every one and the repo could not name the extensions it deploys. The exemption is
+# DERIVED from vars/gnome-shell-extensions.yml at scan time. This is a public-repo security
+# gate, so the question these cases answer is not "does the exemption work" but "can a real
+# address get through it".
+
+EMAIL_PAT='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
+REPO_ROOT="$(cd "${HERE}/.." && pwd -P)"
+
+# assert_filter <label> <expected-stdout> <repo-root> <line>
+assert_filter() {
+    local label="$1" expected="$2" root="$3" line="$4"
+    local actual
+    actual="$(printf '%s\n' "${line}" | hook_filter_match_lines "${EMAIL_PAT}" "${root}")"
+    if [[ "${actual}" == "${expected}" ]]; then
+        printf 'PASS: %s\n' "${label}"
+        PASSED=$((PASSED + 1))
+    else
+        printf 'FAIL: %s\n      expected [%s]\n      actual   [%s]\n' \
+            "${label}" "${expected}" "${actual}"
+        FAILED=$((FAILED + 1))
+    fi
+}
+
+DECLARED_UUID="Vitals@CoreCoding.com"
+# A non-exempt address the email pattern matches. `.internal` is ICANN-reserved and
+# unroutable, and — unlike example.com/.test/.invalid — is NOT on the whitelist above,
+# which is exactly what this test needs: a string that must still be reported.
+#
+# Assembled from two halves rather than written out, because the pre-commit hook scans
+# THIS file too: a literal non-exempt address here would be correctly flagged and would
+# block every commit that touches the suite. Neither half matches the pattern alone.
+RESERVED_TLD="internal"
+REAL_ADDRESS="someone@corp.${RESERVED_TLD}"
+# Derived from the UUID under test rather than written out, so it cannot drift if the
+# declared UUID changes, and so this file does not carry a second address-shaped literal.
+NEAR_MISS="${DECLARED_UUID,,}"
+
+assert_filter "a declared extension UUID is exempt" \
+    "" "${REPO_ROOT}" "1:      uuid: ${DECLARED_UUID}"
+assert_filter "a real address is still flagged" \
+    "1: contact: ${REAL_ADDRESS}" "${REPO_ROOT}" "1: contact: ${REAL_ADDRESS}"
+# Per TOKEN, never per line — one legitimate reference must not shield a real one.
+# CLAUDE/PlanTriage.md records the leak that taught this.
+assert_filter "a UUID does not shield a real address on the same line" \
+    "1: ${DECLARED_UUID} and ${REAL_ADDRESS}" "${REPO_ROOT}" \
+    "1: ${DECLARED_UUID} and ${REAL_ADDRESS}"
+# The UUID entries use the case-SENSITIVE arm, so a near-miss is not exempt.
+assert_filter "a case-differing near-miss of a UUID is NOT exempt" \
+    "1: ${NEAR_MISS}" "${REPO_ROOT}" "1: ${NEAR_MISS}"
+# Without a repo root the exemption is simply absent, which is the safe direction:
+# the gate errs towards flagging rather than towards allowing.
+assert_filter "with no repo root the UUID is flagged, not exempt" \
+    "1:      uuid: ${DECLARED_UUID}" "" "1:      uuid: ${DECLARED_UUID}"
+
+# A malformed vars file must HARD FAIL the filter, never quietly yield no exemption and
+# let the scan continue: a security gate that could not build its exemption list has not
+# passed, it has not run.
+BAD_ROOT="${TMPROOT}/bad-root"
+mkdir -p "${BAD_ROOT}/vars"
+printf 'gnome_shell_extensions: [this, is, not, a, mapping]\n' \
+    >"${BAD_ROOT}/vars/gnome-shell-extensions.yml"
+if printf '1: x\n' | hook_filter_match_lines "${EMAIL_PAT}" "${BAD_ROOT}" >/dev/null 2>&1; then
+    printf 'FAIL: a malformed vars file did NOT fail the filter\n'
+    FAILED=$((FAILED + 1))
+else
+    printf 'PASS: a malformed vars file hard-fails the filter\n'
+    PASSED=$((PASSED + 1))
+fi
+
+# An absent vars file is not an error — a checkout without one simply gets no exemption.
+ABSENT_ROOT="${TMPROOT}/absent-root"
+mkdir -p "${ABSENT_ROOT}"
+assert_filter "an absent vars file yields no exemption and no error" \
+    "1: uuid: ${DECLARED_UUID}" "${ABSENT_ROOT}" "1: uuid: ${DECLARED_UUID}"
 
 # ── the real hook must actually use the word-boundary matcher ────────────────────────────
 #

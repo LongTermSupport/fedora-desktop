@@ -286,5 +286,36 @@ class TestResolveDeclared(unittest.TestCase):
         self.assertEqual(result.found, [CUSTOM])
 
 
+
+class TestMissingRequired(unittest.TestCase):
+    """`missing_required` is the read-back check in the applier.
+
+    It is the single most important assertion in Plan 00112 — the one that turns
+    "dconf accepted the write and kept the old value" from a silent pass into a
+    failure. It briefly lost its direct coverage during the rework and survived
+    only as an indirect path through one executor test; that is not enough for
+    the function whose job is to notice nothing happened.
+    """
+
+    def test_all_present_returns_nothing_missing(self):
+        self.assertEqual(ee.missing_required([CUSTOM, "a@x"], [CUSTOM]), [])
+
+    def test_absent_required_uuid_is_reported(self):
+        self.assertEqual(ee.missing_required(["a@x"], [CUSTOM]), [CUSTOM])
+
+    def test_missing_is_reported_in_the_order_required(self):
+        self.assertEqual(ee.missing_required([], ["b@x", "a@x"]), ["b@x", "a@x"])
+
+    def test_an_empty_required_set_is_vacuously_satisfied(self):
+        # Callers must not rely on this to mean "the write took" — the applier
+        # guards the empty declaration with argparse `required=True` upstream.
+        self.assertEqual(ee.missing_required([], []), [])
+
+    def test_extra_entries_present_are_not_a_problem(self):
+        # The merge is additive; the user's own extensions being in the read-back
+        # is the expected case, not a discrepancy.
+        self.assertEqual(ee.missing_required([STOCK, CUSTOM], [CUSTOM]), [])
+
+
 if __name__ == "__main__":
     unittest.main()

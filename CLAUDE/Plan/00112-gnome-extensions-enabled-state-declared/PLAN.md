@@ -56,23 +56,54 @@ plan's acceptance test: it certifies `desktop-44` forward only when the check
 ### Phase 1: The declared enabled list
 
 - [x] ✅ **Task 1.1**: `helpers/gnome/enabled_extensions.py` — pure parse/merge/format
-  of the GVariant list plus `metadata.json` UUID discovery (36 tests). The
-  side-effecting half is `apply_enabled_extensions.py`: it resolves a session bus
-  (live socket, else `dbus-run-session`), merges, writes, and **re-reads what it
-  wrote** so a refused write fails rather than passing (15 tests)
+  of the GVariant list, plus `resolve_declared`, which confirms a declared UUID
+  against disk. The side-effecting half is `apply_enabled_extensions.py`: it
+  resolves a session bus (`session_bus.py`), refuses to write while
+  `disable-user-extensions` is true, merges, writes, and **re-reads what it wrote**
+  so a refused write fails rather than passing
 - [x] ✅ **Task 1.2**: The play calls the applier once, after the schemas are
-  compiled and the custom extension is copied; it discovers the UUIDs from
-  `metadata.json` under the user's extensions directory, and `--require` pins the
-  custom one so a failed copy cannot read as "seven deployed, all enabled".
+  compiled and the custom extension is copied, passing every UUID it deploys.
   `changed_when` keys on `GNOME-EXT-ENABLED-CHANGED`
 - [x] ✅ **Task 1.3**: The `failed_when: false` enable task is gone;
   `helpers.gnome.verify_extension` now loops over every deployed UUID, taken from
   the applier's `GNOME-EXT-DEPLOYED` marker rather than re-derived from the play's
-  own literals. Its pending-Wayland-reload rule is unchanged
+  own literals. Its pending-Wayland-reload rule is unchanged, and a live session
+  that has not scanned an extension is now its own verdict rather than being
+  reported as "no session"
 - [x] ✅ **Task 1.4**: Confirmed — `run.bash`'s closing "System Reboot" step
   recommends a reboot on every path (interactive prompt, and the headless message
   whether or not `RUN_BASH_REBOOT=1`), so it already covers the case where this
   play changed the list. No change needed
+
+### Phase 1b: The set is declared, not discovered (from the first qa-reviewer pass)
+
+The first implementation read the population off
+`~/.local/share/gnome-shell/extensions`, which is also where the **user's own**
+extensions live. That made the play judge and re-enable extensions this repo does
+not own, while still missing a partial install. `vars/gnome-shell-extensions.yml`
+is the single source instead, and disk only confirms it.
+
+- [x] ✅ **Task 1.5**: `vars/gnome-shell-extensions.yml` — every deployed UUID, in
+  three groups, read by the play, the VM acceptance check and the secret scanner.
+  No consumer keeps a copy, and all three enumerate **every** group, so a fourth
+  cannot be silently half-adopted
+- [x] ✅ **Task 1.6**: dash-to-dock joins the declared set with
+  `/usr/share/gnome-shell/extensions` as a second search path. A VM run's own
+  evidence showed it installed and never enabled, which made the play's
+  `intellihide-mode` write a no-op on every fresh install
+- [x] ✅ **Task 1.7**: `disable-user-extensions` is read before anything is written.
+  True, it defeats every extension whatever the list holds, so the play would
+  otherwise go green over a session with nothing enabled
+- [x] ✅ **Task 1.8**: The pre-commit secret scanner derives an allowlist from the
+  vars file at scan time — a GNOME extension UUID is shaped exactly like an email
+  address. Only values under a `uuid` key in that one tracked file are exempt, each
+  an anchored whole-token literal, and `scripts/test-secret-scan.bash` now covers
+  it: a real address still flags, including on a line that also holds a UUID
+- [x] ✅ **Task 1.9**: A live session that has no record of a UUID is
+  `PENDING_SCAN`, not `SKIP_NO_SESSION`. `gnome-extensions info` exits non-zero for
+  both, and conflating them let a nine-iteration gate report OK having judged
+  nothing. `session_bus.py` is shared, so the applier and the verifier can no longer
+  disagree about which session they are looking at
 
 ### Phase 2: Acceptance
 

@@ -9,12 +9,17 @@
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     user_extensions_dir: "/home/{{ user_login }}/.local/share/gnome-shell/extensions"
     system_extensions_dir: /usr/share/gnome-shell/extensions
-    # Every UUID this play deploys, from all three groups. This is the DECLARED
-    # set the enable step works from — see vars/gnome-shell-extensions.yml for why
-    # it is declared rather than read off the disk.
+    # Every UUID this play deploys, across EVERY group — `.values()`, not the three
+    # group names spelled out. A fourth group added to the vars file would then be
+    # enabled and verified rather than silently ignored here, and if nothing
+    # installs it the applier fails loudly with `declared-extension-not-deployed`,
+    # which is the outcome you want from a half-added group.
+    #
+    # The install tasks below stay group-specific on purpose: `egos` entries carry
+    # an `id` to fetch and `system` entries a `package` to install, and those are
+    # not interchangeable. Only the UUID population is generic.
     declared_extension_uuids: >-
-      {{ (gnome_shell_extensions.egos + gnome_shell_extensions.system + gnome_shell_extensions.custom)
-         | map(attribute='uuid') | list }}
+      {{ gnome_shell_extensions.values() | sum(start=[]) | map(attribute='uuid') | list }}
   vars_files:
     - "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}/vars/gnome-shell-extensions.yml"
   tasks:
@@ -53,9 +58,9 @@
           # panel, and Fedora no longer ships this app by default, so without it
           # there is no graphical way to enable/disable/configure extensions.
           - gnome-extensions-app
-      # EXT-08: DNF resolves the per-release build automatically (105-1.fc44 on Fedora 44).
-      # No version pin needed — the distro package always targets the bundled GNOME major.
-      # Note: just-perfection comes from extensions.gnome.org below, not DNF, which lags.
+    # EXT-08: DNF resolves the per-release build automatically (105-1.fc44 on Fedora 44).
+    # No version pin needed — the distro package always targets the bundled GNOME major.
+    # Note: just-perfection comes from extensions.gnome.org below, not DNF, which lags.
     - name: Install Gnome Shell Extensions Packaged by DNF
       ansible.builtin.dnf:
         name: "{{ gnome_shell_extensions.system | map(attribute='package') | list }}"
@@ -85,7 +90,7 @@
     - name: Discover Extension GSettings Schemas
       become: false
       ansible.builtin.find:
-        paths: "/home/{{ user_login }}/.local/share/gnome-shell/extensions"
+        paths: "{{ user_extensions_dir }}"
         patterns: "*.gschema.xml"
         recurse: true
         file_type: file
@@ -107,7 +112,7 @@
       become_user: "{{ user_login }}"
       ansible.builtin.copy:
         src: "{{ root_dir }}/extensions/workspace-names-overview@fedora-desktop/"
-        dest: "/home/{{ user_login }}/.local/share/gnome-shell/extensions/workspace-names-overview@fedora-desktop/"
+        dest: "{{ user_extensions_dir }}/workspace-names-overview@fedora-desktop/"
         mode: '0755'
 
     # EXT-10: `gnome-extensions enable` asks the RUNNING shell to enable a UUID, so on a
@@ -167,7 +172,9 @@
         fail_msg: >-
           Expected {{ declared_extension_uuids | length }} deployed extension UUIDs from
           the GNOME-EXT-DEPLOYED marker, got {{ gse_deployed_uuids | default([]) | length }}.
-          The verify loop below would silently judge nothing.
+          The verify loop below would silently judge nothing. A short count with no other
+          error usually means a duplicate `uuid:` in vars/gnome-shell-extensions.yml, which
+          the helper collapses and this length comparison does not.
 
     # EXT-05: declaring the gsettings list above says nothing about whether GNOME accepted
     # each extension — it can still reject one as OUT_OF_DATE (wrong shell-version) or ERROR.
