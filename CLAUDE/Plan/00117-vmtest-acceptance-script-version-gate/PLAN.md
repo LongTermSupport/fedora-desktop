@@ -87,8 +87,10 @@ currently carries the evidence to say so.
 ### Phase 3: Re-judge what rests on a stale run
 
 - [ ] ⬜ **Task 3.1**: Plan 00112 Task 2.2 rests on `deployed-extensions-active` being green.
-  Both `20260914T100220Z` and `20260914T110446Z` used the stale checker, so neither certifies
-  it. Re-run once the host has redeployed, and record which run finally did
+  Both `20260914T100220Z` (`d307ed28`) and `20260914T110446Z` (`be73d3b0`) used the stale
+  checker and both reported `8 of 1` — a prediction made before the second finished, which is
+  the cheapest confirmation there was. Neither certifies it. Re-run once the host has
+  redeployed, and record which run finally did
 - [ ] ⬜ **Task 3.2**: QA, then `qa-reviewer` over the diff
 
 ## Success Criteria
