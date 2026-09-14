@@ -69,11 +69,12 @@ way to run a play and it works on every sudo configuration.
 
 ### Phase 3: Proof — BLOCKED BY Phase 1
 
-- [ ] 🔄 **Task 3.1**: `scripts/qa-all.bash` green.
+- [x] ✅ **Task 3.1**: `scripts/qa-all.bash` green.
 - [x] ✅ **Task 3.2**: Failure modes exercised: missing path, path outside `playbooks/`,
   `--optional-only` combination, `--headless` combination.
-- [ ] ⬜ **Task 3.3**: Live: on a password-sudo box, `./run.bash --play` on a real play prompts
-  for the become password once and the play completes.
+- [ ] 🔄 **Task 3.3**: Live: on a password-sudo box, `./run.bash --play` on a real play prompts
+  for the become password once and the play completes. Prompt half proven from the
+  controller; the typed-password completion is the operator's, at a terminal.
 
 ## Success Criteria
 
@@ -84,4 +85,4 @@ way to run a play and it works on every sudo configuration.
 
 ## Delivery & Milestones
 
-- Delivery commit: pending.
+- `b0f9c76` the mode; `ba6baaf` the docs sweep.
