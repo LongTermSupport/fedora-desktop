@@ -230,8 +230,19 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     `unavailable` — never as an empty one, which renders as health. Its atomicity test
     survived a mutant that wrote straight to the destination; the test now pins what a
     *failed* write leaves behind, which is the only thing that tells the two apart
-  - [ ] ⬜ The scaffold, landing with 4.2's section as its first consumer — a registry
-    with nothing registered cannot be exercised
+  - [x] ✅ The scaffold, landing with 4.2's health section registered — a registry with
+    nothing in it cannot be exercised. `extensions/fedora-desktop@fedora-desktop/`:
+    `metadata.json`, `statusDocument.js` (the reader), `sections/health.js`,
+    `extension.js`, `stylesheet.css`. ESLint clean, compat gate green.
+    **`unavailable` has its own icon**, never the neutral one — the panel's version of
+    the rule the whole plan turns on
+  - [x] ✅ **The two-language contract is a gate, not a comment.**
+    `helpers/gnome/check_panel_contract.py` in `qa-all.bash`: the file name, schema
+    number and three state strings are declared in both Python and JavaScript, and a
+    disagreement is silent, because the panel then reports `unavailable` for ever —
+    which by design reads as "nothing is known about this host". Falsifiable on four
+    axes (name drift, schema drift, state drift, constant deleted); a constant it
+    cannot find in the JS is a finding, never treated as agreement
 - [ ] ⬜ **Task 4.2**: Health section — surface Phase 3 findings, offer the handoff
   - [ ] ⬜ **Nothing checks that the ledger has any content**, and the panel is where it
     shows. A smoke run against an empty state directory publishes

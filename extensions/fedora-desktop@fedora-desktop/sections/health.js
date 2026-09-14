@@ -1,0 +1,108 @@
+/**
+ * The health section (Plan 00109, Tasks 4.1 and 4.2).
+ *
+ * The scaffold's first real consumer, which is what keeps the registry honest: a
+ * registry with nothing registered cannot be exercised (DESIGN-panel.md §5).
+ *
+ * It renders the three checks Phase 3 built — post-boot health, play freshness, and
+ * installed-versus-pinned — and it renders them, never re-implements them. A check
+ * reimplemented in JavaScript would be a second check that drifts from the one under
+ * test.
+ *
+ * The one rule this file exists to hold: known faults and things nobody could check are
+ * shown as different kinds of thing. A list that mixes them and distinguishes neither
+ * reads like a complete picture of a machine, which is how the incident happened.
+ */
+
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+
+import * as StatusDocument from '../statusDocument.js';
+
+/** Section ids, matching `login_report.HEALTH` / `FRESHNESS` / `PINS`. These are the
+ * document's keys, so they are interface: rename one here and the section silently
+ * reports unavailable for ever. */
+const CHECKS = [
+    {id: 'post-boot-health', title: 'This machine now'},
+    {id: 'play-freshness', title: 'Plays since they last ran'},
+    {id: 'installed-vs-pinned', title: 'Installed versus pinned'},
+];
+
+/** One line per finding. `reactive: false` because activating it does nothing yet — what
+ * a click should do is a Task 3.3 decision (copy the handoff command, or open a terminal
+ * running it), and a row that looks clickable and is not would be its own small lie. */
+function findingItem(text, styleClass) {
+    const item = new PopupMenu.PopupMenuItem('', {reactive: false});
+    item.label.text = text;
+    item.label.style_class = styleClass;
+    return item;
+}
+
+function appendCheck(menu, document, check) {
+    const section = StatusDocument.sectionOf(document, check.id);
+
+    const header = new PopupMenu.PopupMenuItem(check.title, {reactive: false});
+    header.label.style = 'font-weight: bold;';
+    menu.addMenuItem(header);
+
+    if (section.state === StatusDocument.OK) {
+        menu.addMenuItem(findingItem('nothing to report', 'fedora-desktop-detail'));
+        return;
+    }
+
+    for (const text of section.findings) {
+        menu.addMenuItem(findingItem(text, 'fedora-desktop-finding'));
+    }
+
+    if (section.unchecked.length > 0) {
+        // Stated, not implied by styling alone. "Not checked" reads as a mild caveat
+        // next to a fault; it is in fact a statement that nothing is known, and the
+        // heading has to say so in words.
+        const caveat = new PopupMenu.PopupMenuItem('', {reactive: false});
+        caveat.label.text = 'not checked — nothing is known about these:';
+        caveat.label.style_class = 'fedora-desktop-caveat';
+        menu.addMenuItem(caveat);
+        for (const text of section.unchecked) {
+            menu.addMenuItem(findingItem(text, 'fedora-desktop-detail'));
+        }
+    }
+}
+
+/** When the document was collected, always shown. A panel presenting login-time findings
+ * at teatime as current states something the checks did not measure (DESIGN-panel.md §4).
+ * An unknown age is reported as unknown rather than omitted, because omitting it reads
+ * as "recent". */
+function appendCollectedAt(menu, document, nowMillis) {
+    const age = StatusDocument.ageDays(document, nowMillis);
+    let text;
+    if (age === null) {
+        text = 'collection time unknown';
+    } else if (age === 0) {
+        text = 'collected today';
+    } else if (age === 1) {
+        text = 'collected yesterday';
+    } else {
+        text = `collected ${age} days ago`;
+    }
+    const item = new PopupMenu.PopupMenuItem('', {reactive: false});
+    item.label.text = text;
+    item.label.style_class = 'fedora-desktop-detail';
+    menu.addMenuItem(item);
+}
+
+export const section = {
+    id: 'health',
+    title: 'Host health',
+
+    /** Every check id this section reads, so the panel can compute its overall state
+     * from the same set the menu renders — rather than from a second list that could
+     * disagree with it. */
+    documentSections: CHECKS.map(check => check.id),
+
+    build(menu, document, nowMillis) {
+        appendCollectedAt(menu, document, nowMillis);
+        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        for (const check of CHECKS) {
+            appendCheck(menu, document, check);
+        }
+    },
+};
