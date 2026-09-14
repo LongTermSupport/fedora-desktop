@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.19.0"
+RUN_BASH_VERSION="1.20.0"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -309,6 +309,23 @@ headless_preflight() {
     fi
   fi
 
+  # RUN_BASH_GITHUB_SSH_443 (Plan 00119): 1 = the fresh localhost.yml declares
+  # `github_ssh_over_443: true`, so play-github-cli-multi.yml installs the always-on
+  # ssh.github.com:443 route (docs/github-ssh-over-443.md §2) in the same unattended run.
+  # For a box whose egress blocks port 22: the key upload is HTTPS and would succeed, and
+  # every later SSH use of the key would then hang on a firewalled port. Strictly 0 or 1.
+  # Meaningless without a GitHub identity — refused with 'none', not silently ignored.
+  HL_GITHUB_SSH_443="${RUN_BASH_GITHUB_SSH_443:-0}"
+  case "$HL_GITHUB_SSH_443" in
+    0|1) ;;
+    *) headless_fail "RUN_BASH_GITHUB_SSH_443='${HL_GITHUB_SSH_443}' is not 0 or 1." \
+         "Set 1 to route GitHub SSH over ssh.github.com:443 always-on, 0 (default) to leave port 22." ;;
+  esac
+  if [[ "$HL_GITHUB_SSH_443" == "1" && "$HL_GITHUB_ACCOUNTS" == "none" ]]; then
+    headless_fail "RUN_BASH_GITHUB_SSH_443=1 was set together with RUN_BASH_GITHUB_ACCOUNTS=none." \
+      "The 443 route applies to the GitHub account's SSH key; with no identity there is nothing to route — set a real RUN_BASH_GITHUB_ACCOUNTS, or drop RUN_BASH_GITHUB_SSH_443."
+  fi
+
   # Vault password: must be PROVIDED (either form, file preferred), NEVER
   # auto-generated headless (V3.3/D6). Resolved here for both paths — ansible.cfg
   # sets vault_password_file, so ansible-playbook needs a readable vault-pass.secret
@@ -530,6 +547,10 @@ hl_write_localhost_yml() {
     printf '# GitHub CLI accounts — to add more later: scripts/gh-account-setup.bash --add=alias:username\n'
     printf 'github_accounts:\n'
     printf '  %s: "%s"\n' "$_alias" "$_user"
+    if [[ "${HL_GITHUB_SSH_443:-0}" == "1" ]]; then
+      printf '# GitHub SSH always-on over ssh.github.com:443 (RUN_BASH_GITHUB_SSH_443=1 at provisioning)\n'
+      printf 'github_ssh_over_443: true\n'
+    fi
   } > "$yml"
   success "Headless: localhost.yml written (fresh)"
 }
@@ -848,6 +869,10 @@ NON-SECRET CONFIG (plain RUN_BASH_* env)
                                    Requires a real RUN_BASH_GITHUB_ACCOUNTS.
   RUN_BASH_PROVISIONING_PROFILE=   Force desktop|server (default: auto-detect).
   RUN_BASH_PS1_COLOUR=...          Prompt colour, e.g. purpleBold (default: lightblueBold).
+  RUN_BASH_GITHUB_SSH_443=0|1      1 = declare github_ssh_over_443 in the fresh
+                                   localhost.yml (always-on ssh.github.com:443; for a
+                                   box whose egress blocks port 22). Requires a real
+                                   RUN_BASH_GITHUB_ACCOUNTS. (default: 0)
   RUN_BASH_GIT_REF=...             Branch name (tracks its tip) or 40-hex commit (pinned,
                                    detached) to provision from. (default: default branch)
                                    HTTPS/no-identity path only.
