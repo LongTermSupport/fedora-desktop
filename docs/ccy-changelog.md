@@ -17,6 +17,37 @@ Two version numbers move independently — see
 
 ---
 
+## 3.54.0 — container 2.37
+
+**A box with no GitHub account can run ccy with its deploy key, and a person logged in
+over `ssh -A` can push through it.**
+
+- **The project remote's alias is a key source.** When the remote is
+  `git@<alias>:owner/repo.git`, ccy asks `ssh -G <alias>` what the alias means; if it is
+  bound to `github.com` or `ssh.github.com`, the first existing `IdentityFile` is the
+  project's own key (a per-repository deploy key on a headless box). It is offered in the
+  key menu, and selected outright when there is no `github_` key and no agent. The
+  container receives a `Host <alias>` stanza (`SSH_CONFIG_EXTRA_B64`) and pins the alias's
+  endpoint in `known_hosts` (`SSH_KNOWN_HOSTS_PINS`), so the remote URL works inside
+  unchanged. A deploy key authenticates as `owner/repo`; ccy reports it as a deploy key
+  and never treats it as an account. An alias whose key file is missing is an error that
+  names the alias and the path, not a fall-through to "no keys".
+- **`--ssh-agent`.** Mounts `$SSH_AUTH_SOCK` into the container and points the
+  container's `SSH_AUTH_SOCK` at it; the entrypoint then starts no agent of its own and
+  wires mounted key files by `IdentityFile` instead of `ssh-add`, so nothing is ever added
+  to the person's agent. The identity is probed through the agent like a key. The
+  container runs with `--security-opt label=disable`, announced in a launch banner:
+  measured on an Enforcing host, `container_t` may not connect to a socket served by an
+  unconfined agent process, and relabelling the socket file does not change that. The
+  menu offers the agent whenever `ssh-add -l` lists a key.
+- **An exported `GH_TOKEN` is cross-checked.** When an account identity is known (agent
+  or key) the token's owner must match it, the same check the `gh-token-<alias>` path
+  makes; with no account identity it is used unverified as before. The "not
+  authenticated" error now names `export GH_TOKEN=…` as the alternative to `gh auth login`.
+
+`scripts/test-ccy-ssh-handling.bash` drives the alias resolution, URL parsing, stanza
+rendering, agent checks and identity classification against a stub `ssh`.
+
 ## 3.53.3
 
 **Every picker has an "Exit" row.** Leaving is a visible choice in the list, not only Esc

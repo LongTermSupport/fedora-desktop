@@ -72,7 +72,7 @@ install or update it on its own:
 
 | Requirement                 | Notes                                                                                   |
 | --------------------------- | --------------------------------------------------------------------------------------- |
-| A container engine (Podman) | `./playbooks/imports/play-podman.yml`                                    |
+| A container engine (Podman) | `./playbooks/imports/play-podman.yml`                                                   |
 | `podman-compose`            | Same playbook — needed for compose-network integration                                  |
 | The engine is reachable     | Rootless Podman needs no daemon; verify with `podman ps` (an empty table, not an error) |
 
@@ -110,8 +110,10 @@ the real order the launcher executes in.
 02. **Into tmux.** Unless already inside tmux, headless, or without a terminal, the
     launcher re-executes itself inside a tmux session on CCY's own server, and everything
     below happens there. See [Sessions survive the terminal](#sessions-survive-the-terminal).
-03. **SSH selection.** You pick a key (or pass `--ssh-key` / `--no-ssh`). It is mounted
-    **read-only**, and a matching `gh` token is resolved.
+03. **SSH selection.** You pick an identity: a `github_` account key, the project remote's
+    own key (an ssh-config alias bound to GitHub), or the session's ssh-agent — or pass
+    `--ssh-key` / `--ssh-agent` / `--no-ssh`. A key file is mounted **read-only**, and a
+    matching `gh` token is resolved. See [SSH and GitHub](#ssh-and-github).
 04. **Token selection.** A long-lived OAuth token is chosen from the pool and its expiry
     checked; an expired one forces a renewal prompt. It is passed in as an environment
     variable.
@@ -245,7 +247,10 @@ The residual risks worth naming honestly:
 
 - **Your SSH key is in there** (read-only), and its push access is not limited to this
   repository. Use a dedicated key if that matters, or `--no-ssh` when you do not need
-  git remote access.
+  git remote access. A project's own deploy key is the narrow choice: it reaches one
+  repository. A forwarded agent (`--ssh-agent`) is the widest: every key it holds can be
+  used to sign, for as long as the session lasts, and that container also runs without
+  SELinux confinement.
 - **Your Claude and GitHub tokens are live inside the container.** Combined with
   unrestricted network access, a misled or compromised agent process could exfiltrate
   them, not merely misuse them locally.
@@ -502,6 +507,7 @@ are forwarded unchanged.
 | `--list-tokens`    | List tokens with expiry                                            |
 | `--export-token`   | Export token(s) as a portable import script                        |
 | `--ssh-key PATH`   | Mount a specific key (repeatable)                                  |
+| `--ssh-agent`      | Forward the session's ssh-agent (SELinux labelling off)            |
 | `--no-ssh`         | Mount no key (git push will not work)                              |
 | `--github-443`     | Route GitHub SSH over `ssh.github.com:443` when port 22 is blocked |
 | `--network NET`    | Auto-connect to a container network on launch                      |
@@ -854,15 +860,43 @@ Nothing inside the container reads these labels, so they change no session behav
 
 ## SSH and GitHub
 
-On launch you pick which SSH private key to mount. It is mounted read-only at
-`/root/.ssh/key_N`, and CCY resolves the matching GitHub account and token so `gh` works
-inside the container.
+On launch you pick which SSH identity the container gets. A key file is mounted read-only
+at `/root/.ssh/key_N`, and CCY resolves the matching GitHub account and token so `gh` works
+inside the container. Three sources are offered:
+
+- **`~/.ssh/github_<alias>` account keys**, written by `play-github-cli-multi.yml`. Each
+  has a `gh-token-<alias>` function, and the menu defaults to the one whose token has push
+  access to the project's remote.
+- **The project remote's own key.** When the remote is `git@<alias>:owner/repo.git`, CCY
+  asks `ssh -G <alias>` what your `~/.ssh/config` binds the alias to. If that is GitHub,
+  the alias's `IdentityFile` is the project's key — typically a per-repository **deploy
+  key** on a box provisioned with no GitHub account at all. CCY hands the container a
+  matching `Host <alias>` stanza and pins the alias's endpoint, so the remote URL works
+  inside unchanged. With no `github_` key and no agent, that key is selected without a
+  prompt. A deploy key authenticates as `owner/repo`, not as a user: it can fetch, and
+  push only if it was registered read/write, and it never stands in for a `gh` login — the
+  container's `gh` still needs a token, which such a box takes from an exported
+  `GH_TOKEN`.
+- **The session's ssh-agent** (`--ssh-agent`, or the menu row that appears whenever
+  `ssh-add -l` lists a key). Logged in over `ssh -A`, that is your own agent from your own
+  machine: pushes authenticate as you, and nothing is persisted on the box. See the
+  SELinux note below.
 
 ```bash
-ccy --ssh-key ~/.ssh/id_ed25519_work   # specific key (repeatable)
-ccy --no-ssh                           # no key at all
-ccy --github-443                       # tunnel GitHub SSH over port 443
+ccy --ssh-key ~/.ssh/<key>   # specific key file (repeatable)
+ccy --ssh-agent              # forward the session's ssh-agent
+ccy --no-ssh                 # no key at all
+ccy --github-443             # tunnel GitHub SSH over port 443
 ```
+
+**`--ssh-agent` disables SELinux labelling for that container.** On an Enforcing host the
+container's `container_t` domain may not connect to a socket served by an unconfined
+process, and relabelling the socket file does not change that, so the socket can only be
+used with `--security-opt label=disable`. CCY says so in a launch banner. The mount
+namespace still limits the container to what is mounted; what is given up is the
+type-enforcement layer on those paths. With an agent forwarded, the entrypoint starts no
+agent of its own and never runs `ssh-add` — a mounted key file is wired by `IdentityFile`
+instead, so nothing is ever loaded into your agent.
 
 `--github-443` is for networks that block outbound port 22 — it routes Git-over-SSH via
 `ssh.github.com:443`. You can also enable it host-wide with `export GITHUB_SSH_443=1`
@@ -1004,7 +1038,8 @@ absent supervisor and `--no-supervise`; both announce themselves at launch. See
 | Refuses to start, "sensitive files tracked"   | Runtime state under `.claude/ccy/` has been committed. Untrack it (`git rm --cached`) and re-launch.                                                                                                                                               |
 | Container image build fails                   | CCY prints an AI-assisted fix prompt. Recover with `ccy --disable-custom-docker` to get a session in the base image.                                                                                                                               |
 | Token expired / rejected                      | `ccy --update-token=NAME`, or `ccy --create-token` for a fresh one.                                                                                                                                                                                |
-| `git push` fails inside the container         | No key mounted, or the wrong one. Relaunch and select the right key, or use `--ssh-key`.                                                                                                                                                           |
+| `git push` fails inside the container         | No key mounted, or the wrong one. Relaunch and select the right key, or use `--ssh-key`. A deploy key is read-only unless it was registered read/write: push from an `ssh -A` session with `--ssh-agent` instead.                                  |
+| "No github\_ SSH key" on a box that has none  | Expected: such a box has no account. In a project whose remote is `git@<alias>:…` the alias's deploy key is used; anywhere else, `--ssh-agent` from an `ssh -A` session, and `export GH_TOKEN=…` for `gh`.                                         |
 | Git-over-SSH hangs on a restricted network    | Port 22 blocked — use `ccy --github-443`.                                                                                                                                                                                                          |
 | `NETWORK ERROR: '...' has no internet access` | The reachability preflight needs an `alpine` pull and plain-http egress to `google.com`. If the network is known-good by other means (e.g. a fenced CI runner that proves its own egress beforehand), skip it: `CCY_SKIP_NETWORK_PREFLIGHT=1 ccy`. |
 | Agent cannot reach the database               | Not on the network. `ccy --network <net>`, or `ccy --connect` from another terminal.                                                                                                                                                               |

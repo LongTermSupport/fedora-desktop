@@ -230,6 +230,24 @@ token_mode_summary=$(printf '%s' "$token_mode_out" | grep -oE 'passed: [0-9]+') 
     token_mode_summary="passed"
 printf '✓ ccy-token-mode: %s\n' "$token_mode_summary"
 
+# ccy's SSH identity resolution (Plan 00116, CCY 3.54.0).
+#
+# A box provisioned with per-repository deploy keys and no GitHub account holds no
+# ~/.ssh/github_* key, and ccy used to see nothing else — it warned "No github_
+# SSH keys found" in a project whose remote named a working key through an
+# ssh-config alias. The suite drives alias resolution (`ssh -G`), remote-URL
+# parsing, the container stanza, the agent checks and deploy-key classification
+# against a stub ssh/ssh-add on PATH: no network, no agent, no real key.
+ssh_handling_out=""
+if ! ssh_handling_out="$(bash "$SCRIPT_DIR/test-ccy-ssh-handling.bash" 2>&1)"; then
+    echo "$ssh_handling_out" >&2
+    echo "✗ QA FAILED: ccy ssh-handling unit tests" >&2
+    exit 1
+fi
+ssh_handling_summary=$(printf '%s' "$ssh_handling_out" | grep -oE 'passed: [0-9]+') ||
+    ssh_handling_summary="passed"
+printf '✓ ccy-ssh-handling: %s\n' "$ssh_handling_summary"
+
 # The fail-fast directive pattern's own unit suite (Plan 00081 F10).
 #
 # qa-ansible.bash enforces this repo's #1 rule with one regex, and that regex was

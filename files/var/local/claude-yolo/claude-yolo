@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.53.3"  # UI: every picker ends with an "Exit" row; the yes/no picker starts on it, so Enter alone is the safe answer. See docs/ccy-changelog.md.
+CCY_VERSION="3.54.0"  # SSH: the project remote's ssh-config alias (deploy key) is resolved with ssh -G and offered; --ssh-agent forwards the session's agent (SELinux label=disable). See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -68,7 +68,7 @@ source "$SCRIPT_DIR/lib/tmux-session.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.36"
+REQUIRED_CONTAINER_VERSION="2.37"
 
 set -e
 
@@ -206,6 +206,10 @@ Options:
   --debug                Interactive debug layer selection (CCY, entrypoint, Claude Code)
   --engine ENGINE        Use specific container engine (docker/podman, default: podman)
   --ssh-key PATH         SSH private key to mount (can be specified multiple times)
+  --ssh-agent            Forward the session's ssh-agent ($SSH_AUTH_SOCK, e.g. from ssh -A)
+                         into the container; pushes authenticate as whoever it signs as.
+                         Runs that container with SELinux labelling disabled (the only
+                         way container_t can reach an unconfined agent's socket).
   --no-ssh               Skip SSH key selection (git push will not work)
   --github-443           Route GitHub SSH over ssh.github.com:443 (use when port 22 is firewall-blocked)
                          Equivalent: export GITHUB_SSH_443=1 before launch (host-level enable)
@@ -579,6 +583,8 @@ for arg in "$@"; do
         DISABLE_CUSTOM_DOCKER=true
     elif [ "$arg" = "--no-ssh" ]; then
         NO_SSH_MODE=true
+    elif [ "$arg" = "--ssh-agent" ]; then
+        SSH_KEYS+=("$SSH_AGENT_SENTINEL")
     elif [ "$arg" = "--github-443" ]; then
         GITHUB_443_MODE=true
     elif [ "$arg" = "--no-network" ]; then
@@ -963,7 +969,9 @@ fi
 # Discover and select SSH keys (sets SSH_KEYS array)
 # Only prompt for selection if no SSH keys specified and not in no-ssh mode
 if [ "$NO_SSH_MODE" = false ] && [ ${#SSH_KEYS[@]} -eq 0 ]; then
-    discover_and_select_ssh_keys "ccy"
+    # Non-zero only when the remote names a GitHub alias whose key is missing:
+    # a provisioning fault this box cannot work around, so it stops here.
+    discover_and_select_ssh_keys "ccy" || exit 1
 fi
 
 # Build SSH mounts and validate GitHub access
@@ -989,6 +997,22 @@ if [ "${GITHUB_SSH_443:-0}" = "1" ]; then
     echo "  Same host keys, same identity — only the endpoint changes."
     echo -e "  Trigger: ${COLOR_BOLD}${github_443_trigger}${COLOR_RESET}"
     echo "  Scope:   this ccy session (host + container git over 443)."
+    echo -e "${COLOR_YELLOW}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}"
+    echo ""
+fi
+
+# Banner: a forwarded agent widens what the container can push as, and costs
+# the container its SELinux confinement. Neither should pass unnoticed.
+if [ "${SSH_AGENT_FORWARDED:-0}" = "1" ]; then
+    echo ""
+    echo -e "${COLOR_YELLOW}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}${COLOR_BOLD}  🔑 SSH-AGENT FORWARDED INTO THE CONTAINER${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}"
+    echo "  The session's agent ($SSH_AUTH_SOCK) is mounted; git inside signs with"
+    echo "  every key it holds, as ${GITHUB_USERNAME:-its identity}."
+    echo "  SELinux labelling is DISABLED for this container (--security-opt label=disable):"
+    echo "  it is the only way container_t can connect to an unconfined agent's socket."
+    echo "  The mount namespace still limits the container to what is mounted."
     echo -e "${COLOR_YELLOW}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}"
     echo ""
 fi
@@ -1913,7 +1937,9 @@ if [ "$DEBUG_CCY" = true ]; then
     echo "  - Sessions: ccy/ (symlinked from /root/.claude in container)"
     echo "Token file: $SELECTED_TOKEN"
     echo "Token type: Long-lived OAuth (CLAUDE_CODE_OAUTH_TOKEN)"
-    echo "SSH keys mounted: ${#SSH_KEYS[@]}"
+    echo "SSH keys mounted: ${#SSH_KEY_PATHS[@]}"
+    echo "SSH agent forwarded: ${SSH_AGENT_FORWARDED:-0}"
+    echo "SSH alias stanza: ${SSH_CONFIG_EXTRA_B64:+yes} pins: ${SSH_KNOWN_HOSTS_PINS:-none}"
     echo ""
     echo "Docker command (simplified):"
     echo "  $CONTAINER_ENGINE run -it --rm \\"
@@ -3059,6 +3085,7 @@ container_cmd run $DOCKER_FLAGS --rm \
     --device /dev/dri:/dev/dri \
     "${DOCKER_MOUNTS[@]}" \
     "${SSH_MOUNTS[@]}" \
+    "${SSH_RUN_OPTS[@]}" \
     "${GUI_MOUNTS[@]}" \
     -e CLAUDE_CODE_OAUTH_TOKEN \
     -e GH_TOKEN \
@@ -3066,6 +3093,9 @@ container_cmd run $DOCKER_FLAGS --rm \
     -e "DEBUG_MODE=$DEBUG_MODE" \
     -e "DEBUG_ENTRYPOINT=$DEBUG_ENTRYPOINT" \
     -e "SSH_KEY_PATHS=$SSH_KEY_PATHS_STR" \
+    -e "SSH_AGENT_FORWARDED=${SSH_AGENT_FORWARDED:-0}" \
+    -e "SSH_CONFIG_EXTRA_B64=${SSH_CONFIG_EXTRA_B64:-}" \
+    -e "SSH_KNOWN_HOSTS_PINS=${SSH_KNOWN_HOSTS_PINS:-}" \
     -e "GITHUB_SSH_443=$GITHUB_SSH_443" \
     -e "CCY_CLAUDE_WRAPPER=${CCY_CLAUDE_WRAPPER:-}" \
     -e "CCY_NO_SUPERVISOR=${CCY_NO_SUPERVISOR:-}" \
