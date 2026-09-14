@@ -128,7 +128,7 @@ measurement (E9).
 
 ## Dependencies
 
-- **Blocks**: the ccy CI implementation plan, not yet created.
+- **Blocks**: Plan 00113 (ccy CI runner — implementation), created 2026-09-14 by Task 4.1.
 - **Consumed by**: lts-infra Plan 00030, which owns the runner-side dispatch.
 
 ## Success Criteria
@@ -151,7 +151,7 @@ measurement (E9).
      JOURNAL/00068-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
 - Phases 1 and 2 delivered: host verdicts and the 46-site fail-fast contract.
-- Folder truncated to live mechanisms only: `0dde4f0`.
+- Folder truncated to live mechanisms only: `5785c55f`, twenty-nine files.
 - Phase 3 scope settled by the owner (Decisions 7, 8, 9); Tasks 3.1, 3.2, 3.3, 3.5 delivered.
 - E9 measured; Phase 4 ungated.
 - Plan slimmed: history to `PLAN_archive.md`, decisions to `DECISIONS.md`.

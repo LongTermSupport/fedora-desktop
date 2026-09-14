@@ -224,7 +224,11 @@ to GitHub can have an allowlist that never mentions it.
 > TTY-less job blocking on the trust dialog. Trust assertion is local state and costs no egress, so
 > the CI entrypoint both keeps the empty allowlist **and** must write it. This was the strongest
 > statement of the conflation — the other two sites said only "prepares nothing".
-> See [ci-entrypoint-spec.md](ci-entrypoint-spec.md).
+> `ci-entrypoint-spec.md`, cited here originally, was deleted by the 2026-07-31 truncation
+> (`5785c55f`) as a retracted mechanism and must not be reconstructed. The live statement of the
+> entrypoint's CI behaviour is [ci-flow.md](ci-flow.md) — step 3 for the two guards that already
+> tolerate a CI launch, and "The entrypoint" under *what this does not settle* for what remains
+> untested. The trust-dialog obligation above stands on `entrypoint.sh:257` directly.
 
 The **runtime** allowlist is a different set and belongs to the workload, not to ccy. The estate's
 version is in `lts-infra`'s `RUNNER-VM-DESIGN.md` §5.6.

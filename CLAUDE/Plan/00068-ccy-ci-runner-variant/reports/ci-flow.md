@@ -50,10 +50,11 @@ Differences from `:2764-2786`, each already argued elsewhere:
 
 - **no `--device /dev/dri`** — measured `exit 125` on a headless host (E6)
 - **`-i`, never `-it`** — no TTY
-- **`--dangerously-skip-permissions` is KEPT** — this line previously said the opposite,
-  gated on E8. E8 was dissolved on 2026-08-10 when the mechanism was measured to *compose*
-  with it, so CI keeps `bypassPermissions` and Decision 9's restricted tool surface is
-  imposed by `--disallowedTools` alongside it, not instead of it (DECISIONS.md, Decision 9)
+- **`--disallowedTools <class list>` is ADDED** — the one addition here, and the only
+  security-carrying flag the desktop path does not already pass. Decision 9's restricted tool
+  surface rides *alongside* `--dangerously-skip-permissions`, which CI **keeps** unchanged
+  from `:2764-2786` (so it is not itself a difference): E9 measured on 2026-08-10 that the two
+  compose. The per-class list is [ci-tool-surface.md](ci-tool-surface.md)
 - **`--mcp-config <container-local path>`** — Decision 7; never under `/root/.claude`, which
   `entrypoint.sh:183-195` symlinks into the checkout
 
@@ -88,8 +89,13 @@ mechanism — it just has six callers, not forty-six.
 
 ## What this does not settle
 
-- **E8** — whether an ungranted tool refuses or prompts. Step 7's tool surface is unimplementable
-  until that is measured against the real CLI, and ccy auto-updates that CLI daily.
+- ~~**E8** — whether an ungranted tool refuses or prompts.~~ **Dissolved 2026-08-10**
+  ([DECISIONS.md §9](../DECISIONS.md)): E9 measured that `--disallowedTools` composes with
+  `--dangerously-skip-permissions`, so CI never drops that flag and there is no prompt to hang
+  on. Step 7's tool surface is therefore implementable, and is specified in
+  [ci-tool-surface.md](ci-tool-surface.md). What survives is narrower: ccy auto-updates the CLI
+  daily, so the flags must be confirmed present against the binary about to run — Plan 00113
+  Task 0.3.
 - **The entrypoint** — this flow assumes the desktop `entrypoint.sh` is reused unchanged, which
   its two `-n` guards make plausible but which is untested with no SSH key and no
   `GITHUB_USERNAME`.

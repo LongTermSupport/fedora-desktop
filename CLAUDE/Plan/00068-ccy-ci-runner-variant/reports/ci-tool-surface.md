@@ -32,8 +32,11 @@ The agent runs `./.claude/ccy/ci.bash` (Plan 00030) and reads the tree.
 
 **`Bash` is a write vector, and removing `Edit`/`Write` does not close it.** Decision 9 already
 concedes "read-only cannot be literal" here; this states the consequence rather than leaving it
-implied. What actually stops a class-A job committing or pushing is **the credential**, not the
-tool list:
+implied. Decision 9 forbids three things — "never write to it, commit, or push" — and the
+credential only reaches the third. **Nothing stops a local `git commit`, and nothing stops a
+shell redirect into the working tree**; the runner keeps a *persistent* checkout, so a dirtied
+tree or a stray commit outlives the job that made it and lands on the next one. What the
+credential does close is push:
 
 > **Required property (to confirm against lts-infra, which has no checkout in this container):
 > the token a class-A job receives must carry no push scope.** If it does, the tool surface is
@@ -43,6 +46,11 @@ The tool list is defence in depth against the *accidental* write — an agent th
 because that is what it usually does. It is not a boundary against a determined one. Say so in
 the implementation plan; a boundary described as stronger than it is, is worse than a weak one
 described honestly.
+
+For the write and commit halves the credential does not reach, the boundary has to be the
+checkout itself — a clean tree asserted after the job, or a checkout the job cannot keep. That
+is the runner's side, so it is stated here as a requirement on lts-infra Plan 00030 rather than
+specified: **a class-A job must not be able to leave the persistent checkout dirty.**
 
 ### Class B — `issues`, `issue_comment`
 
@@ -85,6 +93,10 @@ and the flag string, the startup assertion and the documentation must all be gen
 it. Three hand-kept copies of the same list is how one of them ends up wrong, and the one that
 ends up wrong is never the one anybody reads.
 
+That one place holds the **whole expected set**, not just the denied names — assertion 2 diffs
+against it, so the two are the same artefact seen from opposite ends: what is subtracted becomes
+the `--disallowedTools` string, what remains is what the session must be observed to have.
+
 ## 5. The assertions, which must be able to fail
 
 A restriction nobody checks is a comment. Each of these fails the job at startup, before the
@@ -95,24 +107,48 @@ agent's first turn:
    written against. A CLI silently lacking `--disallowedTools` would run with the full tool set
    and report success. Assert on the build about to run — not on a pinned version, which is a
    proxy for the property rather than the property.
-2. **Tool absence, by name.** Capture the session's actual tool list and assert every name in
-   the class's must-be-absent list is not in it. **Never assert a count** (§1).
-3. **Tool presence, by name.** Assert `Bash` is present for class A. A class-A job whose
-   `Bash` went missing would skip the suite and pass — the failure mode this whole plan exists
-   to prevent, arriving through the mechanism meant to prevent it.
-4. **MCP vocabulary.** For class B, assert the tool the job intends to call actually exists in
-   the configured server (Decision 9 §MCP: *"an unconfigured or misnamed MCP tool is silently
-   inert"*). Assert against the server's captured vocabulary, not a hand-kept list.
 
-Assertion 3 is the one an implementer will be tempted to skip as redundant. It is the only one
-that catches an over-tightened denylist, and over-tightening is the likelier mistake once one
-list feeds two classes (§4).
+2. **The whole tool list, diffed against a declared set.** Capture the session's actual tool
+   list and assert it **equals** the class's declared expected set — unexpected members fail,
+   missing members fail. **Never assert a count** (§1); the comparison is over names.
+
+   > Checking only that the must-be-absent names are absent is the same shape §3 rejects for
+   > MCP, and fails open the same way: the vocabulary is Anthropic's, not ours, and assertion
+   > 1's own rationale is that the CLI changes underneath this design daily. A write primitive
+   > that is renamed, or newly added, is absent-by-name — and every assertion passes green over
+   > a class-A job that can now write. A diff against a declared set is the only form where the
+   > unexpected member is what fails.
+   >
+   > The cost is real and is the point: a benign new read tool also fails the job, until someone
+   > adds it to the declared set. That is a person reviewing one new tool name, which is the
+   > work this assertion exists to force. Fail-closed here, or do not bother.
+
+3. **`Bash` present for class A.** Formally the presence half of assertion 2, named separately
+   because its failure mode is the silent one: a class-A job whose `Bash` went missing would
+   **skip the suite and pass green** — the failure this whole plan exists to prevent, arriving
+   through the mechanism meant to prevent it. An implementer who reads assertion 2 as "the
+   denylist" will drop this; the declared set is not a denylist, and dropping it is how
+   over-tightening ships. Over-tightening is the likelier mistake once one list feeds two
+   classes (§4).
+
+4. **MCP vocabulary.** For class B, assert the tool the job intends to call actually exists in
+   the configured server ([DECISIONS.md](../DECISIONS.md) **Decision 7**: *"an unconfigured or
+   misnamed MCP tool is silently inert"*). Assert against the server's captured vocabulary, not
+   a hand-kept list.
 
 ## 6. What this does not settle
 
 - The class-A token's scopes (§2) — a property of lts-infra's token store, unreadable from
   here. It is named as a required property, not asserted as a fact.
+
 - The concrete default tool vocabulary. The 2026-08-10 measurement recorded counts, not names,
   and this specification deliberately does not invent the missing names: it names the
   primitives that must be absent and requires the implementation to capture the real list and
   assert against it. Anything else would be a hand-kept list of exactly the kind §4 forbids.
+
+  This is now a **prerequisite**, not a loose end: assertion 2 diffs against a declared set, and
+  that set cannot be declared until the names are captured. Plan 00113 Task 0.3 captures them
+  from the binary about to run; Task 2.1 is where they become the one place per class.
+
+- Whether the dirty-tree half of §2's boundary is enforced on the runner. Stated there as a
+  requirement on lts-infra Plan 00030; nothing in this repo can assert it.

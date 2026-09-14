@@ -7,8 +7,9 @@
 **Owner**: joseph
 **Priority**: High
 
-> **This folder was truncated on 2026-07-31 at commit `0dde4f0`.** Twenty-two reports and one
-> probe were deleted, not archived — they specified mechanisms that were retracted, or rested
+> **This folder was truncated on 2026-07-31 at commit `5785c55f`.** Twenty-nine files were
+> deleted, not archived — twenty-five reports, the three `analysis/` scripts and
+> `probe-label.bash` — they specified mechanisms that were retracted, or rested
 > on premises since disproved. Git has them; nothing here should be reconstructed from them.
 > `JOURNAL/` is kept in full: it is append-only by rule and is self-evidently a log of what
 > happened, including the wrong turns. The danger being removed is a *report* that reads like
