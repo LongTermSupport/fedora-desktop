@@ -43,9 +43,10 @@ Exit status:
   1  one or more pins are behind, or a manual-review pin needs a human
   2  hard error (gh missing/unauthenticated, or a manifest row is stale)
 
-To track a new pin, add a row to the MANIFEST heredoc inside this script:
-  <playbook-path>|<var-name>|<owner/repo>|<extra-tag-prefix>|<note>
-Leave <owner/repo> empty for a non-GitHub pin that must be checked by hand.
+To track a new pin, add an entry to vars/version-pins.yml — the declared manifest
+this script and Plan 00109's installed-vs-pinned check both read. Omit `github:`
+for a pin with no automated source; it then needs a `note:` saying how to check it
+by hand. ./scripts/qa-version-pins.bash validates the file on every qa-all run.
 EOF
 }
 
@@ -71,25 +72,37 @@ fi
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
-# MANIFEST — one row per pin: file|var|owner/repo|extra_prefix|note
-# * file/var: where the pin lives; the current value is read from the file.
-# * owner/repo: GitHub project whose latest release we compare against. Empty
-#   means "no automated source" — reported as MANUAL for a human to check.
-# * extra_prefix: any tag prefix beyond a leading 'v' to strip before comparing
-#   (e.g. darktable tags releases as `release-5.6.0`).
-# * note: free-text hint shown for MANUAL rows.
-MANIFEST="$(cat <<'EOF'
-playbooks/imports/play-nvm-install.yml|nvm_version|nvm-sh/nvm||
-playbooks/imports/play-markless.yml|marklessVersion|jvanderberg/markless||
-playbooks/imports/optional/common/play-qobuz.yml|rescrobbledVersion|InputUsername/rescrobbled||
-playbooks/imports/optional/common/play-compression-helpers.yml|ouchVersion|ouch-org/ouch||
-playbooks/imports/optional/common/play-photography.yml|rapidraw_version|CyberTimon/RapidRAW||
-playbooks/imports/optional/common/play-photography.yml|art_version|artraweditor/ART||
-playbooks/imports/optional/hardware-specific/play-displaylink.yml|displaylink_version|displaylink-rpm/displaylink-rpm||
-playbooks/imports/optional/hardware-specific/play-displaylink.yml|evdi_version|DisplayLink/evdi||
-playbooks/imports/optional/hardware-specific/play-nvidia.yml|cudnn_version|||NVIDIA cuDNN — check developer.nvidia.com / the CUDA repo manually
-EOF
-)"
+# MANIFEST — read from vars/version-pins.yml, one row per pin:
+#   file|var|owner/repo|extra_prefix|note
+# The declaration is a tracked file rather than a heredoc here because two
+# consumers read it: this script (pin vs upstream latest) and Plan 00109's
+# installed-vs-pinned check (pin vs what is installed on the host). They ask
+# different questions of the same population, and the population must not be able
+# to differ between them.
+#
+# helpers/version_pins/manifest.py validates the shape and emits the rows; it is
+# stdlib-only, so the YAML conversion happens here with the PyYAML that Ansible
+# already depends on. An invalid manifest is a hard error, never a short list:
+# silently dropping a row would hide a pin rather than report it.
+manifest_out=""
+if ! manifest_out="$(python3 -c \
+    'import json, sys, yaml; json.dump(yaml.safe_load(open("vars/version-pins.yml")), sys.stdout)' \
+    | python3 -m helpers.version_pins.manifest 2>&1)"; then
+    echo "ERROR: vars/version-pins.yml could not be read:" >&2
+    echo "$manifest_out" >&2
+    echo "Run ./scripts/qa-version-pins.bash for the full diagnosis." >&2
+    exit 2
+fi
+if [[ "$manifest_out" != VERSION-PINS-OK* ]]; then
+    echo "ERROR: the manifest validator exited 0 without its OK marker: $manifest_out" >&2
+    exit 2
+fi
+# Drop the marker line; the rest is the payload.
+MANIFEST="$(printf '%s\n' "$manifest_out" | tail -n +2)"
+if [ -z "$MANIFEST" ]; then
+    echo "ERROR: the manifest validated but produced no rows; nothing would be checked." >&2
+    exit 2
+fi
 
 # Strip a leading 'v' and an optional extra prefix, for tolerant comparison.
 normalise() {

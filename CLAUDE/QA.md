@@ -47,6 +47,7 @@ they are deliberately not jq-merged stages, so they cannot disturb the positiona
 | `test-qa-ansible-failfast.bash`        | the fail-fast directive regex in `qa-ansible.bash`, read from it rather than copied                       |
 | `helpers.gnome.check_extension_compat` | every extension declares the GNOME Shell major this branch's Fedora ships                                 |
 | `qa-vmtest-manifest.bash`              | `vars/vm-test-scenarios.yml` parses and is coherent (Plan 00110); a broken control must be rejected first |
+| `qa-version-pins.bash`                 | `vars/version-pins.yml` parses, and every row still names a playbook that declares that var (Plan 00109)  |
 
 `qa-helper-tests.bash` and `check_extension_compat` were **documented here as gates and
 not run by `qa-all.bash`** until Plan 00081. Following this document's own "ALWAYS and

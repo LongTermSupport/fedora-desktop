@@ -1,0 +1,65 @@
+---
+# Upstream version pins declared across the playbooks — the manifest, not the pins.
+#
+# Several playbooks hardcode an upstream release in a play var (e.g.
+# `marklessVersion: "0.9.6"`). This file says WHERE each of those lives and what
+# upstream project it tracks; the pinned value itself is never copied here, because
+# the playbook is its single source of truth and a second copy is a second thing to
+# forget.
+#
+# Two consumers read this, which is why it is a declared file rather than a heredoc
+# inside one of them:
+#   * scripts/check-pinned-versions.bash — repo pin vs UPSTREAM latest
+#   * Plan 00109's installed-vs-pinned check — repo pin vs what is INSTALLED here
+# They ask different questions of the same population, and the population must not
+# be able to differ between them.
+#
+# scripts/qa-version-pins.bash validates this file on every qa-all run, including
+# that each playbook still exists and still declares its var.
+#
+# Fields:
+#   playbook    (required) path, from the repo root, to the playbook holding the pin
+#   var         (required) the play var whose value is the pinned version
+#   github      owner/repo to compare against. Omit for a pin with no automated
+#               source — it is then reported as MANUAL and needs a note
+#   tag_prefix  any tag prefix beyond a leading 'v' to strip before comparing
+#               (e.g. a project tagging releases as `release-5.6.0`)
+#   note        free text shown for a MANUAL row; required when github is omitted
+
+version_pins:
+  - playbook: playbooks/imports/play-nvm-install.yml
+    var: nvm_version
+    github: nvm-sh/nvm
+
+  - playbook: playbooks/imports/play-markless.yml
+    var: marklessVersion
+    github: jvanderberg/markless
+
+  - playbook: playbooks/imports/optional/common/play-qobuz.yml
+    var: rescrobbledVersion
+    github: InputUsername/rescrobbled
+
+  - playbook: playbooks/imports/optional/common/play-compression-helpers.yml
+    var: ouchVersion
+    github: ouch-org/ouch
+
+  - playbook: playbooks/imports/optional/common/play-photography.yml
+    var: rapidraw_version
+    github: CyberTimon/RapidRAW
+
+  - playbook: playbooks/imports/optional/common/play-photography.yml
+    var: art_version
+    github: artraweditor/ART
+
+  - playbook: playbooks/imports/optional/hardware-specific/play-displaylink.yml
+    var: displaylink_version
+    github: displaylink-rpm/displaylink-rpm
+
+  - playbook: playbooks/imports/optional/hardware-specific/play-displaylink.yml
+    var: evdi_version
+    github: DisplayLink/evdi
+
+  - playbook: playbooks/imports/optional/hardware-specific/play-nvidia.yml
+    var: cudnn_version
+    note: >-
+      NVIDIA cuDNN — check developer.nvidia.com / the CUDA repo manually

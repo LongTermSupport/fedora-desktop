@@ -306,6 +306,20 @@ if ! manifest_out="$(bash "$SCRIPT_DIR/qa-vmtest-manifest.bash" 2>&1)"; then
 fi
 printf '✓ vmtest-manifest: %s\n' "$manifest_out"
 
+# The upstream version-pin manifest (Plan 00109). vars/version-pins.yml says where
+# every pinned version lives, and neither of its two consumers runs here — the
+# review tool needs an authenticated gh, the installed-vs-pinned check needs a real
+# host. So without this gate a row that had drifted away from the playbooks would
+# surface only when somebody happened to run a review tool, and a row naming a
+# renamed var reports the old value for ever. Same hard, non-merged shape as above.
+pins_out=""
+if ! pins_out="$(bash "$SCRIPT_DIR/qa-version-pins.bash" 2>&1)"; then
+    echo "$pins_out" >&2
+    echo "✗ QA FAILED: the upstream version-pin manifest is not valid" >&2
+    exit 1
+fi
+printf '✓ version-pins: %s\n' "$pins_out"
+
 # Merge JSON from all checks
 STATUS="pass"
 [[ $FAILED -gt 0 ]] && STATUS="fail"

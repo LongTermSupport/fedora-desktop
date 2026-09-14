@@ -146,11 +146,13 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   - [x] ✅ **The gate this task demands**: a host a minor version behind its pin is a
     finding, *and* the state after the fix is clean — both asserted, so the check can
     fail against the failure it was built for and is not merely noisy
-  - [ ] ⬜ Reuse the existing pin manifest in `check-pinned-versions.bash` rather
-    than duplicating it (it already maps playbook→var→upstream repo). **It is a
-    heredoc inside that script**, so reuse means extracting it to a declared file
-    both read — the shape `vars/gnome-shell-extensions.yml` took in Plan 00112.
-    That edits a live QA gate, so it needs its own control fixture
+  - [x] ✅ The manifest is `vars/version-pins.yml`, read by both consumers — the shape
+    `vars/gnome-shell-extensions.yml` took in Plan 00112. Extraction proved
+    byte-identical against the heredoc taken out of git, rather than retyped into
+    agreement. `scripts/qa-version-pins.bash` validates it in `qa-all`, because
+    **neither consumer runs there** (one needs `gh`, one needs a real host) and a row
+    naming a renamed var reports the old value for ever. 30 validator tests, eight
+    mutation controls, and one end-to-end control through `qa-all` itself
   - [ ] ⬜ Resolve what is *installed* per pin (rpm query, binary `--version`, DKMS
     status) — this is per-pin logic and cannot be fully generic; fail loudly on
     a pin whose install state cannot be determined rather than reporting a pass
