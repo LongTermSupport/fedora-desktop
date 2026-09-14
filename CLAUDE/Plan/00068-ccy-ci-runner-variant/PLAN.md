@@ -119,7 +119,12 @@ The scope below is the owner's, settled 2026-08-01 (Decisions 7, 8, 9).
 Ungated since 2026-08-10: the scope is the owner's and the restriction mechanism is settled by
 measurement (E9).
 
-- [ ] ⬜ **Task 4.1**: Create the implementation plan.
+- [x] ✅ **Task 4.1**: Created —
+  [Plan 00113: ccy CI runner — implementation](../00113-ccy-ci-runner-implementation/PLAN.md).
+  Its Phase 0 re-measures two things this plan derived rather than measured (the
+  prompt-site count, and whether the auto-updating CLI still exposes the flags),
+  and it carries forward the two owner questions and the token-scope property
+  that nothing in this repo can answer
 
 ## Dependencies
 

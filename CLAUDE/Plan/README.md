@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00113-ccy-ci-runner-implementation](00113-ccy-ci-runner-implementation/) - Build the non-interactive `ccy` Plan 00068 specified: close every prompt site on the CI path, propagate the container's exit status rather than the compose block's, and impose the per-event tool surface with four startup assertions that can each actually fail.
+
 - [00112-gnome-extensions-enabled-state-declared](00112-gnome-extensions-enabled-state-declared/) - Plan 00110's desktop scenario found a fresh install leaves every deployed GNOME extension INITIALIZED and none enabled (the enable races the shell's scan and its failure is hidden); make the enabled list declared, idempotent gsettings state and let the desktop scenario certify it.
 
 - [00109-desktop-drift-detection-and-fedora-desktop-panel](00109-desktop-drift-detection-and-fedora-desktop-panel/) - A reboot into kernel 7.2.4 killed both DisplayLink monitors while every QA gate stayed green; add the missing drift axes (repo pin vs installed, play-at-last-run vs play-at-HEAD), surface breakage at login with a Claude Code handoff, and front it all with one `fedora-desktop` GNOME panel
