@@ -54,6 +54,23 @@ UNAVAILABLE = "unavailable"
 #: rather than empty, so the consumer renders a reason instead of an absence.
 SELF_SECTION = "status"
 
+#: The one Python source of truth for the file name. The panel is a second process in a
+#: second language and has to find the same file; a mismatch does not announce itself,
+#: because a panel looking at the wrong path reports `unavailable` for ever, which reads
+#: exactly like a producer that has never run. Task 4.5 owes a gate comparing the
+#: extension's literal against this.
+FILE_NAME = "host-status.json"
+
+
+def path(state_dir: str) -> str:
+    """Where the document lives, given this host's `fedora-desktop` state directory.
+
+    Host state, not repo state — it must not be committable, and it must survive a
+    re-clone, for the same reason the ledger must. `ledger.state_dir` resolves it, and
+    `GLib.get_user_state_dir()` applies the identical XDG rule on the reading side.
+    """
+    return os.path.join(state_dir, FILE_NAME)
+
 
 def section(findings: list[probe_results.Finding]) -> dict:
     """One section: its state, and both groups kept apart.
@@ -89,13 +106,21 @@ def build(
 def collect(
     producers: dict[str, Callable[[], list[probe_results.Finding]]],
 ) -> dict[str, list[probe_results.Finding]]:
-    """Run each producer under its own guard.
+    """Run each producer under its own guard, keyed by section id.
 
-    Merged, not chained — the rule `login_report.collect` needed, one layer on. A
-    producer that raises becomes its own section's `unavailable` carrying the reason,
-    and is **named**, so the reader learns which one stopped working rather than that
-    something, somewhere, did. It never becomes a missing key, which a consumer would
-    have to invent a meaning for, and never an empty list, which reads as health.
+    Merged, not chained. A producer that raises becomes its own section's `unavailable`
+    carrying the reason, and is **named**, so the reader learns which check stopped
+    working rather than that something, somewhere, did. It never becomes a missing key,
+    which a consumer would have to invent a meaning for, and never an empty list, which
+    reads as health.
+
+    This is the **only** implementation of that guard. `login_report.collect_sections`
+    calls it rather than keeping a second copy, because the notification and the
+    document must not be able to disagree about which checks ran — two copies of a rule
+    this plan exists to enforce is two chances to fix only one of them.
+
+    Insertion order is preserved, which is what keeps host health first in the report:
+    something broken on this machine now outranks something that has merely drifted.
     """
     sections: dict[str, list[probe_results.Finding]] = {}
     for name, produce in producers.items():
@@ -103,7 +128,7 @@ def collect(
             sections[name] = produce()
         except Exception as error:
             sections[name] = [
-                probe_results.unchecked(f"the {name} section could not be built: {error}")
+                probe_results.unchecked(f"the {name} check could not run: {error}")
             ]
     return sections
 

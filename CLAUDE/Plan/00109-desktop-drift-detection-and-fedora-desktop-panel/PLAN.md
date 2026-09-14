@@ -259,6 +259,16 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   - [ ] ⬜ The scaffold, landing with 4.2's section as its first consumer — a registry
     with nothing registered cannot be exercised
 - [ ] ⬜ **Task 4.2**: Health section — surface Phase 3 findings, offer the handoff
+  - [ ] ⬜ **Nothing checks that the ledger has any content**, and the panel is where it
+    shows. A smoke run against an empty state directory publishes
+    `play-freshness: ok` — correct for the question that check asks (no ledgered play
+    has drifted, because there are none), and a green tick on a host with no ledger.
+    Not a defect in `check_freshness`: an empty ledger has no holes in it, the
+    `EXIT_OK` is tested and reasoned, and it has other callers whose contract that
+    exit code is. The gap is a **missing check** — at login the case is reachable only
+    one way, because the unit is deployed by a play and `run.bash` ledgers every play,
+    so an empty ledger at login means it was lost. Needs its own section, not a
+    reinterpretation of this one
 - [ ] ⬜ **Task 4.3**: Play/task runner — plays with their ledger state, launched in a
   visible terminal, never in the background
 - [ ] ⬜ **Task 4.4**: Sections registered, not hardcoded, so quick-launch and other
@@ -296,16 +306,11 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   - [ ] ⬜ **Still to confirm in the wild**: that the refresh clears the black
     background when the symptom is present. Exercised on a *healthy* desktop only
   - [x] ✅ Decide the home — **extend** `helpers/displaylink_recovery/`, not a
-    sibling: the compositor-layer failure shares the driver-layer one's trigger, so
-    it reuses the existing udev rule and suspend service rather than inventing a
-    trigger path. `Action.REFRESH_BACKGROUND` (`recovery.py:64`), dispatched at
-    `run_recovery.py:411` (`9a79dd77`)
-  - [x] ✅ Idempotence and loop-safety — `needs_background_refresh`
-    (`recovery.py:101`) returns False once `attempted_background_refresh` is set, so
-    the toggle cannot re-trigger on the key it writes, and False while
-    `session_locked`, which is what keeps it off the `gnome-shell#9188` leak path
-  - [x] ✅ Tests first, stdlib-only, mirroring the helper path
-    (`tests/helpers/displaylink_recovery/test_recovery.py`); QA green
+    sibling: the compositor-layer failure shares the driver-layer one's trigger, so it
+    reuses the existing udev rule and suspend service rather than inventing one
+  - [x] ✅ Idempotence and loop-safety — `needs_background_refresh` returns False once
+    `attempted_background_refresh` is set, so the toggle cannot re-trigger on the key
+    it writes, and False while locked, keeping it off the `gnome-shell#9188` leak path
   - [ ] ⬜ **HOST**: deploy and verify. Distinct from the confirmation above — this
     is "the shipped code runs on the host", not "the toggle cures the fault"
 
