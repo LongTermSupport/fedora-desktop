@@ -90,14 +90,12 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   - [x] ✅ Run `play-displaylink.yml` on HOST; verify module built, signed, loaded
   - [x] ✅ Verify both DisplayLink heads enumerate (`card2-DVI-I-1`, `card3-DVI-I-2`)
 - [ ] 🔄 **Task 0.2**: Remove orphaned DKMS source trees — probe written, answer pending
-  - [x] ✅ The probe is in `triage.bash`: every `/usr/src/evdi-*` tree, `rpm -qf` on
-    each (an unowned tree reports non-zero, which is why each probe prints its own
-    rc), what DKMS still has registered, and `/var/lib/dkms/evdi`. It also runs the
-    Phase 3 login report so a HOST run shows what a login would surface
-  - [ ] ⬜ **HOST**: run it. The cleanup cannot be written before the answer, because
-    the two cases need opposite mechanisms — an rpm-owned tree goes by removing the
-    package, an unowned one by deleting the directory — and guessing makes the play
-    either a no-op or a fight with the package manager
+  - [x] ✅ The probe is in `triage.bash` — every `/usr/src/evdi-*` tree, `rpm -qf` on
+    each, what DKMS still has registered, and the Phase 3 login report
+  - [ ] ⬜ **HOST**: run it. The cleanup cannot be written first: the two cases need
+    opposite mechanisms — an rpm-owned tree goes by removing the package, an unowned
+    one by deleting the directory — so guessing makes the play a no-op or a fight
+    with the package manager
   - [ ] ⬜ Add cleanup to the owning play, gated on the tree being unregistered in DKMS
   - [ ] ⬜ Run QA, deploy on HOST, re-run `triage.bash` to confirm
 - [ ] 🚫 **Task 0.3**: Fix group/world-readable vault password file permissions
@@ -211,20 +209,24 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     host, against §8's decision — and turned each commit line under a stale play
     into a finding of its own. Its `UNTRUSTWORTHY` answer now carries the reason
     instead of pointing at output the user was never shown
-  - [x] ✅ **Merged, not chained.** Each check is guarded separately, so a raising
-    one becomes a finding naming itself and cannot suppress the other two — the
-    same defect this plan is about, one level up
-  - [x] ✅ **The notification is not the only channel.** A failing notifier still
-    leaves every finding on stdout and the exit status intact, and reports its own
-    failure. A broken notifier must not turn a broken host into a silent one
+  - [x] ✅ **Merged, not chained**, and **the notification is not the only channel.**
+    Each check is guarded separately, so a raising one names itself and cannot
+    suppress the other two; a failing notifier still leaves every finding on stdout
+    with the exit status intact, and reports its own failure. Both are this plan's
+    defect one level up: a broken notifier must not make a broken host a silent one
   - [ ] ⬜ **HOST**: confirm a real notification arrives, and that a clean login is
     genuinely silent
 - [ ] 🔄 **Task 3.3**: Claude Code handoff — file and offer done, one-click is Phase 4
-  - [x] ✅ `helpers/host_health/handoff.py`, 15 tests. The prompt file separates
+  - [x] ✅ `helpers/host_health/handoff.py`. The prompt file separates
     *"this is wrong"* from *"this was not looked at"*, and says of the second that
     these are **not** clean results — a list that mixes them and distinguishes
     neither reads like a complete picture of a machine, which is how the incident
     happened. Mode `0600`: it records what is broken about this host
+  - [x] ✅ **The split is carried in the data, not guessed from the prose.** Every
+    finding carries `Finding.checked`, the producing check's own answer. Matching
+    wording misfiled **6 of 13** unchecked findings under the heading that calls them
+    known faults, in the file whose one job is keeping those apart. Measured again
+    after: **0 of 13**, and restoring the substring split fails the tests that pin it
   - [x] ✅ The prompt asks for a **diagnosis and a discussion**, and says in terms
     not to apply a fix or run a playbook. Strict IaC and the plan's own Non-Goals
     both say re-running a play is the operator's decision

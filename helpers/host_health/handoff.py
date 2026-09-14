@@ -22,20 +22,29 @@ from __future__ import annotations
 
 import os
 
+from helpers.host_health import probe_results
+
 #: Written beside the ledger so it travels with the rest of this plan's state.
 FILE_NAME = "host-health-findings.md"
 
-#: The shape every "could not run" finding takes, across all three checks.
-_UNCHECKED_MARKER = "could not run"
+def _split(
+    findings: list[probe_results.Finding],
+) -> tuple[list[str], list[str]]:
+    """Split on what each finding SAYS it is, never on how it is worded.
 
-
-def _split(findings: list[str]) -> tuple[list[str], list[str]]:
-    broken = [f for f in findings if _UNCHECKED_MARKER not in f and "could not be checked" not in f]
-    unchecked = [f for f in findings if f not in broken]
+    Matching the prose could not do this. Two substrings — "could not run" and "could
+    not be checked" — covered seven of the messages the three checks emit and missed
+    six, and every one of the six landed under *"What is wrong"*: a file whose whole
+    purpose is keeping those apart, telling the reader that things nobody had looked at
+    were known faults. `Finding.checked` is the producers' own answer, so a new message
+    cannot be misfiled by being phrased differently.
+    """
+    broken = [f.text for f in findings if f.checked]
+    unchecked = [f.text for f in findings if not f.checked]
     return broken, unchecked
 
 
-def render(*, findings: list[str], kernel: str, at: str) -> str:
+def render(*, findings: list[probe_results.Finding], kernel: str, at: str) -> str:
     """The prompt file's content.
 
     Raises on an empty list: there is nothing to hand off on a healthy host, and an
@@ -85,7 +94,9 @@ def render(*, findings: list[str], kernel: str, at: str) -> str:
     return "\n".join(lines)
 
 
-def write(base: str, *, findings: list[str], kernel: str, at: str) -> str:
+def write(
+    base: str, *, findings: list[probe_results.Finding], kernel: str, at: str
+) -> str:
     """Write the prompt file and return its path.
 
     Overwrites: a stale handoff describing a break that is already fixed is worse

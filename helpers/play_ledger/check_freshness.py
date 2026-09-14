@@ -47,6 +47,7 @@ def run(
     repo_root: str,
     stdout: TextIO,
     stderr: TextIO,
+    unchecked: TextIO | None = None,
     fetch: Callable[[str], None] | None = None,
     changes_since: Callable[[str, str, str], list[tuple[str, str]]] | None = None,
     play_sha256_at_head: Callable[[str, str], str | None] | None = None,
@@ -54,6 +55,12 @@ def run(
     """Print the freshness findings and return the exit status.
 
     The three git callables are seams for testing; unsupplied, the real ones are used.
+
+    `unchecked` is where findings that mean *"nothing was checked against upstream"* go
+    — the refs-are-old answer, which is a real finding but not a fault anybody has
+    established. It defaults to `stdout`, so run by hand this prints exactly as before;
+    the login surface passes a separate sink so it can label them, because a consumer
+    that has to tell them apart by wording gets it wrong.
     """
     fetch = fetch or git_history.fetch
     changes_since = changes_since or (
@@ -126,8 +133,10 @@ def run(
     status = _emit(freshness.build_report(verdicts=verdicts, broken_reason=None), stdout, stderr)
     if offline is not None:
         # An offline run still judged, on the refs it had. What is reported is the
-        # age of those refs, and only once it is past the bound.
-        stdout.write(f"{offline}\n")
+        # age of those refs, and only once it is past the bound. It goes to the
+        # `unchecked` sink because that is what it means — nothing was compared
+        # against upstream — and not to a fault this host has been shown to have.
+        (unchecked or stdout).write(f"{offline}\n")
         return EXIT_FINDINGS
     return status
 

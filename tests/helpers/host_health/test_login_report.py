@@ -33,7 +33,13 @@ RUNNING_KERNEL = "7.2.4-200.fc44.x86_64"
 HEALTHY_DKMS = f"evdi/1.15.0, {RUNNING_KERNEL}, x86_64: installed"
 
 CLEAN_PROBE = probe_results.Report(())
-DIRTY_PROBE = probe_results.Report(("evdi: no DKMS module for the running kernel",))
+DIRTY_PROBE = probe_results.Report(
+    (probe_results.broken("evdi: no DKMS module for the running kernel"),))
+
+
+def found(*texts: str) -> list[probe_results.Finding]:
+    """Stub findings from a check that ran and found something."""
+    return [probe_results.broken(text) for text in texts]
 
 
 def run(**overrides) -> tuple[int, list[str], list[str]]:
@@ -69,24 +75,24 @@ class TestOneNotificationNotThree(unittest.TestCase):
     def test_findings_from_all_three_checks_are_merged(self) -> None:
         _status, findings, _sent = run(
             health=lambda: DIRTY_PROBE,
-            freshness=lambda: ["playbooks/a.yml — changed since it was run here"],
-            pins=lambda: ["evdi_version (behind): pinned 1.15.0, installed 1.14.16"],
+            freshness=lambda: found("playbooks/a.yml — changed since it was run here"),
+            pins=lambda: found("evdi_version (behind): pinned 1.15.0, installed 1.14.16"),
         )
         self.assertEqual(len(findings), 3)
 
     def test_exactly_one_notification_is_sent(self) -> None:
         _status, _findings, sent = run(
             health=lambda: DIRTY_PROBE,
-            freshness=lambda: ["playbooks/a.yml — changed"],
-            pins=lambda: ["evdi_version (behind)"],
+            freshness=lambda: found("playbooks/a.yml — changed"),
+            pins=lambda: found("evdi_version (behind)"),
         )
         self.assertEqual(len(sent), 1)
 
     def test_the_one_notification_mentions_every_finding(self) -> None:
         _status, _findings, sent = run(
             health=lambda: DIRTY_PROBE,
-            freshness=lambda: ["playbooks/a.yml — changed"],
-            pins=lambda: ["evdi_version (behind)"],
+            freshness=lambda: found("playbooks/a.yml — changed"),
+            pins=lambda: found("evdi_version (behind)"),
         )
         self.assertIn("evdi", sent[0])
         self.assertIn("playbooks/a.yml", sent[0])
@@ -95,8 +101,8 @@ class TestOneNotificationNotThree(unittest.TestCase):
     def test_the_health_findings_come_first(self) -> None:
         """Something broken on this host outranks something that merely drifted."""
         _status, findings, _sent = run(
-            health=lambda: DIRTY_PROBE, pins=lambda: ["evdi_version (behind)"])
-        self.assertIn("no DKMS module", findings[0])
+            health=lambda: DIRTY_PROBE, pins=lambda: found("evdi_version (behind)"))
+        self.assertIn("no DKMS module", findings[0].text)
 
 
 class TestOneBrokenCheckDoesNotSuppressTheOthers(unittest.TestCase):
@@ -106,7 +112,7 @@ class TestOneBrokenCheckDoesNotSuppressTheOthers(unittest.TestCase):
 
         _status, findings, _sent = run(freshness=explode)
         self.assertEqual(len(findings), 1)
-        self.assertIn("unreadable", findings[0])
+        self.assertIn("unreadable", findings[0].text)
 
     def test_a_raising_check_does_not_hide_another_check_findings(self) -> None:
         """Chaining would have lost these. Merging is why it cannot."""
@@ -132,7 +138,7 @@ class TestOneBrokenCheckDoesNotSuppressTheOthers(unittest.TestCase):
             raise RuntimeError("boom")
 
         _status, findings, _sent = run(freshness=explode)
-        self.assertIn("play-freshness", findings[0])
+        self.assertIn("play-freshness", findings[0].text)
 
 
 class TestTheNotificationIsNotTheOnlyChannel(unittest.TestCase):
@@ -143,7 +149,7 @@ class TestTheNotificationIsNotTheOnlyChannel(unittest.TestCase):
 
         written: list[str] = []
         status = login_report.emit(
-            ["evdi: broken"], notify=explode, write=written.append)
+            found("evdi: broken"), notify=explode, write=written.append)
         self.assertEqual(status, login_report.EXIT_FINDINGS)
         self.assertTrue(any("evdi: broken" in line for line in written))
 
@@ -152,13 +158,13 @@ class TestTheNotificationIsNotTheOnlyChannel(unittest.TestCase):
             raise RuntimeError("no session bus")
 
         written: list[str] = []
-        login_report.emit(["evdi: broken"], notify=explode, write=written.append)
+        login_report.emit(found("evdi: broken"), notify=explode, write=written.append)
         self.assertTrue(any("no session bus" in line for line in written))
 
     def test_findings_reach_stdout_one_per_line(self) -> None:
         written: list[str] = []
         login_report.emit(
-            ["one", "two"], notify=lambda _: None, write=written.append)
+            found("one", "two"), notify=lambda _: None, write=written.append)
         self.assertEqual([line.strip() for line in written], ["one", "two"])
 
 
@@ -223,13 +229,13 @@ class TestExitStatus(unittest.TestCase):
 
 class TestTheNotificationText(unittest.TestCase):
     def test_the_summary_counts_the_findings(self) -> None:
-        self.assertIn("3", login_report.message(["a", "b", "c"]))
+        self.assertIn("3", login_report.message(found("a", "b", "c")))
 
     def test_one_finding_is_not_pluralised(self) -> None:
-        self.assertNotIn("findings", login_report.message(["a"]))
+        self.assertNotIn("findings", login_report.message(found("a")))
 
     def test_several_findings_are(self) -> None:
-        self.assertIn("findings", login_report.message(["a", "b"]))
+        self.assertIn("findings", login_report.message(found("a", "b")))
 
     def test_an_empty_list_never_produces_a_message(self) -> None:
         """Belt and braces: `emit` already refuses, and a caller that reached here
@@ -279,7 +285,10 @@ class TestTheFreshnessSeamKeepsItsChannelsApart(unittest.TestCase):
             out="playbooks/a.yml — changed since it was run here\n",
             err="play-freshness: git fetch failed, judging on the refs on hand: boom\n",
         )
-        self.assertEqual(findings, ["playbooks/a.yml — changed since it was run here"])
+        self.assertEqual(
+            [f.text for f in findings],
+            ["playbooks/a.yml — changed since it was run here"],
+        )
 
     def test_a_diagnostic_still_reaches_stderr(self) -> None:
         """Kept out of the payload, not thrown away — it is a diagnostic, so it goes
@@ -303,7 +312,7 @@ class TestTheFreshnessSeamKeepsItsChannelsApart(unittest.TestCase):
             ),
         )
         self.assertEqual(len(findings), 1)
-        self.assertIn("disk full", findings[0])
+        self.assertIn("disk full", findings[0].text)
 
     def test_one_stale_play_is_one_finding_carrying_its_commits(self) -> None:
         findings, _ = self._findings(
@@ -315,8 +324,8 @@ class TestTheFreshnessSeamKeepsItsChannelsApart(unittest.TestCase):
             ),
         )
         self.assertEqual(len(findings), 1)
-        self.assertIn("aaa1111", findings[0])
-        self.assertIn("bbb2222", findings[0])
+        self.assertIn("aaa1111", findings[0].text)
+        self.assertIn("bbb2222", findings[0].text)
 
     def test_every_finding_is_a_single_line(self) -> None:
         """`emit` writes one finding per line and `test_probe.py` pins that as a
@@ -339,7 +348,7 @@ class TestTheFreshnessSeamKeepsItsChannelsApart(unittest.TestCase):
         findings, _ = self._findings(
             check_freshness.EXIT_FINDINGS, out="    aaa1111  an orphan\n"
         )
-        self.assertEqual(findings, ["aaa1111  an orphan"])
+        self.assertEqual([f.text for f in findings], ["aaa1111  an orphan"])
 
 
 if __name__ == "__main__":

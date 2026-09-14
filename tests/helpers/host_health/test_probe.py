@@ -131,7 +131,7 @@ class TestCollect(unittest.TestCase):
         runner = FakeRunner({"dkms": (True, DKMS_STALE_ONLY, "")})
         report = probe.collect(running_kernel=RUNNING_KERNEL, runner=runner)
         self.assertFalse(report.clean)
-        self.assertTrue(any("evdi" in f for f in report.findings))
+        self.assertTrue(any("evdi" in f for f in report.texts))
 
     def test_a_missing_dkms_is_a_finding_not_a_crash(self) -> None:
         runner = FakeRunner({"dkms": (False, "", "dkms: command not found")})

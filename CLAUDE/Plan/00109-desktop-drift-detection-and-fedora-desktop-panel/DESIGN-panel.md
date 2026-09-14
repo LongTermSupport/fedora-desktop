@@ -58,8 +58,14 @@ distinct rather than inferable:
 | `findings`    | Checked, and here is what is wrong    | Attention icon, one entry per finding      |
 | `unavailable` | **Not checked** — with the reason why | A *distinct* icon, and the reason in words |
 
-Two consequences that are easy to get wrong and are therefore requirements:
+Three consequences that are easy to get wrong and are therefore requirements:
 
+- **`unavailable` comes from the data, never from the wording.** Phase 3's findings each carry
+  `probe_results.Finding.checked`, the producing check's own answer to "did I manage to look",
+  and the aggregator reads that field. It must not re-derive the distinction from the text. The
+  handoff file tried: two substrings covered seven of the messages the three checks emit and
+  missed six, and all six then read as established faults. A panel that classifies by phrase
+  would inherit that, and a reworded message would silently change its colour.
 - **`unavailable` is not a quiet state.** The panel icon must not be neutral while any section is
   `unavailable`. "I could not look" is closer to "something is wrong" than to "nothing is wrong",
   which is the ordering Phase 3 already uses.

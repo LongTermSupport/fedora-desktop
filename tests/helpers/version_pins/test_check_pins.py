@@ -107,9 +107,9 @@ class TestTheGateThisTaskDemands(unittest.TestCase):
             dkms_status=lambda: DKMS_INCIDENT,
         )
         self.assertEqual(len(findings), 1)
-        self.assertIn("evdi_version", findings[0])
-        self.assertIn("1.14.16", findings[0])
-        self.assertIn("1.15.0", findings[0])
+        self.assertIn("evdi_version", findings[0].text)
+        self.assertIn("1.14.16", findings[0].text)
+        self.assertIn("1.15.0", findings[0].text)
 
     def test_the_state_AFTER_the_fix_is_clean(self) -> None:
         """The other half of the gate. A check that cannot pass gets muted, and a
@@ -127,7 +127,7 @@ class TestTheGateThisTaskDemands(unittest.TestCase):
         findings = check_pins.check(
             pins=[pin()], playbook_text=lambda _: PLAYBOOK, dkms_status=lambda: "")
         self.assertEqual(len(findings), 1)
-        self.assertIn("nothing installed", findings[0])
+        self.assertIn("nothing installed", findings[0].text)
 
 
 class TestFailuresAreFindings(unittest.TestCase):
@@ -138,7 +138,7 @@ class TestFailuresAreFindings(unittest.TestCase):
         findings = check_pins.check(
             pins=[pin()], playbook_text=lambda _: PLAYBOOK, dkms_status=explode)
         self.assertEqual(len(findings), 1)
-        self.assertIn("command not found", findings[0])
+        self.assertIn("command not found", findings[0].text)
 
     def test_an_unreadable_playbook_is_a_finding_not_a_pass(self) -> None:
         def explode(_path: str) -> str:
@@ -157,7 +157,7 @@ class TestFailuresAreFindings(unittest.TestCase):
         findings = check_pins.check(
             pins=[pin()], playbook_text=lambda _: PLAYBOOK, dkms_status=explode)
         self.assertEqual(len(findings), 1)
-        self.assertIn("permission denied", findings[0])
+        self.assertIn("permission denied", findings[0].text)
 
     def test_the_dkms_probe_runs_at_most_once_for_several_pins(self) -> None:
         calls = []

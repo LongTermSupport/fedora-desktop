@@ -26,19 +26,20 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from helpers.host_health import handoff
+from helpers.host_health import handoff, probe_results
 
-FINDINGS = [
+FINDING_TEXTS = [
     "evdi: no DKMS module installed for the running kernel 7.2.4-200.fc44.x86_64",
     "playbooks/imports/optional/hardware-specific/play-displaylink.yml — changed since it was run here",
 ]
+FINDINGS = [probe_results.broken(text) for text in FINDING_TEXTS]
 NOW = "2026-09-14T16:00:00Z"
 
 
 class TestRender(unittest.TestCase):
     def test_every_finding_appears(self) -> None:
         text = handoff.render(findings=FINDINGS, kernel="7.2.4", at=NOW)
-        for finding in FINDINGS:
+        for finding in FINDING_TEXTS:
             self.assertIn(finding, text)
 
     def test_the_running_kernel_is_recorded(self) -> None:
@@ -69,7 +70,8 @@ class TestRender(unittest.TestCase):
         """A list that mixes 'this is broken' with 'this was not looked at' and
         distinguishes neither is the shape that let the incident happen."""
         text = handoff.render(
-            findings=["the dkms probe could not run: dkms: command not found"],
+            findings=[probe_results.unchecked(
+                "the dkms probe could not run: dkms: command not found")],
             kernel="7.2.4", at=NOW)
         self.assertIn("could not be checked", text.lower())
 
@@ -84,7 +86,7 @@ class TestWrite(unittest.TestCase):
             path = handoff.write(base, findings=FINDINGS, kernel="7.2.4", at=NOW)
             self.assertTrue(os.path.exists(path))
             with open(path, encoding="utf-8") as handle:
-                self.assertIn(FINDINGS[0], handle.read())
+                self.assertIn(FINDING_TEXTS[0], handle.read())
 
     def test_it_creates_its_directory(self) -> None:
         with tempfile.TemporaryDirectory() as base:
@@ -97,11 +99,13 @@ class TestWrite(unittest.TestCase):
         than none: it is a confident description of a machine that has moved on."""
         with tempfile.TemporaryDirectory() as base:
             handoff.write(base, findings=FINDINGS, kernel="7.2.4", at=NOW)
-            path = handoff.write(base, findings=["only this one"], kernel="7.2.4", at=NOW)
+            path = handoff.write(
+                base, findings=[probe_results.broken("only this one")],
+                kernel="7.2.4", at=NOW)
             with open(path, encoding="utf-8") as handle:
                 text = handle.read()
             self.assertIn("only this one", text)
-            self.assertNotIn(FINDINGS[0], text)
+            self.assertNotIn(FINDING_TEXTS[0], text)
 
     def test_it_is_not_world_readable(self) -> None:
         """It records what is broken about this machine."""
@@ -125,6 +129,64 @@ class TestTheOffer(unittest.TestCase):
         """`offer` returns a string. If it ever grows a subprocess call this test
         is where that gets noticed — the handoff is offered, never automatic."""
         self.assertIsInstance(handoff.offer("/x"), str)
+
+
+class TestTheSplitDoesNotGuessFromWording(unittest.TestCase):
+    """The split is on `Finding.checked`, never on the prose.
+
+    Matching substrings could not do this job. Two of them — "could not run" and
+    "could not be checked" — covered seven of the messages the three checks emit and
+    missed six, and all six landed under *"What is wrong"*, in the file whose one job
+    is keeping those groups apart. These are real messages from the three producers,
+    deliberately worded in ways no substring rule would catch.
+    """
+
+    #: Every one of these is an "I could not look" message, and not one of them
+    #: contains "could not run" or "could not be checked".
+    AWKWARDLY_WORDED = [
+        "play-freshness has never successfully reached the remote on this host, "
+        "so no play has ever been checked for staleness here",
+        "play-freshness cannot tell when it last reached the remote "
+        "(unreadable timestamp 'whenever'), so its verdicts cannot be trusted",
+        "play-freshness last reached the remote in the future (2027-01-01T00:00:00Z), "
+        "so this host's clock cannot be trusted",
+        "play-freshness has not reached the remote for 9 days, so nothing has been "
+        "checked against upstream in that time",
+        "the dkms probe output could not be read: unreadable line 'garbage'",
+        "play-freshness could not give an answer, so no play was judged: the ledger "
+        "is marked BROKEN",
+    ]
+
+    def test_none_of_these_would_be_caught_by_the_old_substrings(self) -> None:
+        """Guards the fixture itself: if a message is reworded to contain one of the
+        phrases, this case stops proving anything and says so."""
+        for text in self.AWKWARDLY_WORDED:
+            self.assertNotIn("could not run", text)
+            self.assertNotIn("could not be checked", text)
+
+    def test_they_all_land_under_what_could_not_be_checked(self) -> None:
+        findings = [probe_results.unchecked(text) for text in self.AWKWARDLY_WORDED]
+        text = handoff.render(findings=findings, kernel="7.2.4", at=NOW)
+        self.assertIn("What could not be checked", text)
+        self.assertNotIn("What is wrong", text)
+
+    def test_a_real_fault_still_lands_under_what_is_wrong(self) -> None:
+        text = handoff.render(
+            findings=[probe_results.broken("evdi: no DKMS module for the running kernel")],
+            kernel="7.2.4", at=NOW)
+        self.assertIn("What is wrong", text)
+        self.assertNotIn("What could not be checked", text)
+
+    def test_a_mixed_list_is_split_and_not_merged(self) -> None:
+        text = handoff.render(
+            findings=[
+                probe_results.broken("evdi: no DKMS module for the running kernel"),
+                probe_results.unchecked(self.AWKWARDLY_WORDED[0]),
+            ],
+            kernel="7.2.4", at=NOW)
+        self.assertIn("What is wrong", text)
+        self.assertIn("What could not be checked", text)
+        self.assertLess(text.index("What is wrong"), text.index("What could not be checked"))
 
 
 if __name__ == "__main__":

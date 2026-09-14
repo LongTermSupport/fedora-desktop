@@ -133,14 +133,14 @@ def check(
     dkms_status: Callable[[], str],
     rpm_version: Callable[[str], str | None] | None = None,
     command_version: Callable[[str], str | None] | None = None,
-) -> list[str]:
+) -> list[probe_results.Finding]:
     """One finding per pin that is not a clean MATCH. The probes are seams.
 
     `dkms_status` is called lazily and at most once, so a host with no DKMS modules
     and no tracked DKMS pin never pays for it — and, more to the point, never gets a
     finding about a probe it had no reason to run.
     """
-    findings: list[str] = []
+    findings: list[probe_results.Finding] = []
     dkms_cache: list[str] = []
 
     def dkms() -> str:
@@ -165,13 +165,17 @@ def check(
         except Exception as error:
             # Deliberately broad: the alternative is an exception escaping into a
             # login-time surface, where the user sees nothing at all and nothing
-            # distinguishes that from a clean host.
-            findings.append(f"{pin.var}: could not be checked — {error}")
+            # distinguishes that from a clean host. `unchecked`, because a pin whose
+            # installed version could not be resolved says nothing about this host —
+            # reading it as a fault names a problem nobody has established.
+            findings.append(
+                probe_results.unchecked(f"{pin.var}: could not be checked — {error}")
+            )
             continue
 
         verdict = compare.classify(pinned=pinned, installed=installed)
         if not verdict.is_clean:
-            findings.append(f"{pin.var} ({verdict.state}): {verdict.detail}")
+            findings.append(probe_results.broken(f"{pin.var} ({verdict.state}): {verdict.detail}"))
     return findings
 
 
@@ -228,7 +232,7 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
     if not findings:
         return EXIT_OK
     for finding in findings:
-        out.write(f"{finding}\n")
+        out.write(f"{finding.text}\n")
     return EXIT_FINDINGS
 
 

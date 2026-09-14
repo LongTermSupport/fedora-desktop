@@ -147,13 +147,13 @@ class TestProbeFailuresAreFindings(unittest.TestCase):
             dkms=probe_results.ProbeOutcome(ok=False, text="", error="dkms: command not found"),
             failed_system=NO_UNITS, failed_user=NO_UNITS, running_kernel=RUNNING_KERNEL)
         self.assertFalse(report.clean)
-        self.assertTrue(any("dkms" in f for f in report.findings))
+        self.assertTrue(any("dkms" in f for f in report.texts))
 
     def test_the_error_text_reaches_the_report(self) -> None:
         report = probe_results.build_report(
             dkms=probe_results.ProbeOutcome(ok=False, text="", error="dkms: command not found"),
             failed_system=NO_UNITS, failed_user=NO_UNITS, running_kernel=RUNNING_KERNEL)
-        self.assertTrue(any("command not found" in f for f in report.findings))
+        self.assertTrue(any("command not found" in f for f in report.texts))
 
     def test_unreadable_dkms_output_is_a_finding_not_a_crash(self) -> None:
         """parse_dkms raises; the report must turn that into a finding rather than
@@ -173,7 +173,7 @@ class TestProbeFailuresAreFindings(unittest.TestCase):
                 ok=False, text="", error="Failed to connect to bus"),
             failed_user=NO_UNITS, running_kernel=RUNNING_KERNEL)
         self.assertFalse(report.clean)
-        self.assertTrue(any("system" in f and "Failed to connect" in f for f in report.findings))
+        self.assertTrue(any("system" in f and "Failed to connect" in f for f in report.texts))
 
     def test_a_failed_USER_unit_probe_is_a_finding_naming_its_scope(self) -> None:
         report = probe_results.build_report(
@@ -183,7 +183,7 @@ class TestProbeFailuresAreFindings(unittest.TestCase):
                 ok=False, text="", error="Failed to connect to bus"),
             running_kernel=RUNNING_KERNEL)
         self.assertFalse(report.clean)
-        self.assertTrue(any("user" in f for f in report.findings))
+        self.assertTrue(any("user" in f for f in report.texts))
 
     def test_every_probe_failing_produces_every_finding(self) -> None:
         """One broken probe must not mask the other two."""
@@ -192,6 +192,55 @@ class TestProbeFailuresAreFindings(unittest.TestCase):
             dkms=broken, failed_system=broken, failed_user=broken,
             running_kernel=RUNNING_KERNEL)
         self.assertEqual(len(report.findings), 3)
+
+
+class TestFindingsSayWhetherTheCheckLooked(unittest.TestCase):
+    """`Finding.checked` is the producer's own answer, carried in the data.
+
+    The consumer that needs it — the handoff file, and next the panel — cannot
+    recover it from the wording: two substrings covered seven of the messages the
+    three checks emit and missed six, and every one of the six then read as a known
+    fault. So each producer marks its own, and this pins that it does.
+    """
+
+    def test_a_probe_that_could_not_run_is_UNCHECKED(self) -> None:
+        report = probe_results.build_report(
+            dkms=probe_results.ProbeOutcome(ok=False, text="", error="dkms: not found"),
+            failed_system=NO_UNITS, failed_user=NO_UNITS, running_kernel=RUNNING_KERNEL)
+        self.assertEqual([f.checked for f in report.findings], [False])
+
+    def test_a_real_fault_is_CHECKED(self) -> None:
+        """The incident's own shape: dkms ran, and said the module is not built."""
+        report = probe_results.build_report(
+            dkms=probe_results.ProbeOutcome(ok=True, text="evdi/1.14.16: added", error=""),
+            failed_system=NO_UNITS, failed_user=NO_UNITS, running_kernel=RUNNING_KERNEL)
+        self.assertFalse(report.clean)
+        self.assertEqual([f.checked for f in report.findings], [True])
+
+    def test_a_failed_unit_is_CHECKED_and_a_failed_unit_PROBE_is_not(self) -> None:
+        """Both are findings and they are not the same kind of finding: one is a fault
+        on this host, the other is the fact that nobody could ask."""
+        report = probe_results.build_report(
+            dkms=probe_results.ProbeOutcome(ok=True, text=DKMS_HEALTHY, error=""),
+            failed_system=probe_results.ProbeOutcome(
+                ok=True, text="a.service loaded failed failed A", error=""),
+            failed_user=probe_results.ProbeOutcome(ok=False, text="", error="no bus"),
+            running_kernel=RUNNING_KERNEL)
+        by_kind = {f.checked for f in report.findings}
+        self.assertEqual(by_kind, {True, False})
+
+    def test_unreadable_output_is_UNCHECKED_not_a_fault(self) -> None:
+        """Output nothing could parse means the DKMS state is unknown — not healthy,
+        and not established as broken either."""
+        report = probe_results.build_report(
+            dkms=probe_results.ProbeOutcome(ok=True, text="garbage", error=""),
+            failed_system=NO_UNITS, failed_user=NO_UNITS, running_kernel=RUNNING_KERNEL)
+        self.assertEqual([f.checked for f in report.findings], [False])
+
+    def test_the_constructors_are_the_readable_way_to_say_it(self) -> None:
+        self.assertTrue(probe_results.broken("x").checked)
+        self.assertFalse(probe_results.unchecked("x").checked)
+        self.assertEqual(probe_results.broken("x").text, "x")
 
 
 class TestReport(unittest.TestCase):

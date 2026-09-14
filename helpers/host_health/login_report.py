@@ -56,22 +56,22 @@ _SUMMARY = "fedora-desktop: this machine needs attention"
 _TIMEOUT_SECONDS = 15
 
 
-def message(findings: list[str]) -> str:
+def message(findings: list[probe_results.Finding]) -> str:
     """The notification body. Raises on an empty list rather than sending nothing."""
     if not findings:
         raise ValueError("no findings, so there is no notification to send")
     count = len(findings)
     noun = "finding" if count == 1 else "findings"
-    body = "\n".join(f"• {finding}" for finding in findings)
+    body = "\n".join(f"• {finding.text}" for finding in findings)
     return f"{count} {noun}:\n{body}"
 
 
 def collect(
     *,
     health: Callable[[], probe_results.Report],
-    freshness: Callable[[], list[str]],
-    pins: Callable[[], list[str]],
-) -> list[str]:
+    freshness: Callable[[], list[probe_results.Finding]],
+    pins: Callable[[], list[probe_results.Finding]],
+) -> list[probe_results.Finding]:
     """Every finding from every check, host health first.
 
     Each check is called independently and separately guarded. Chaining them — or
@@ -81,26 +81,32 @@ def collect(
     Host-health findings come first: something broken on this machine now outranks
     something that has merely drifted.
     """
-    findings: list[str] = []
+    findings: list[probe_results.Finding] = []
 
     try:
         findings.extend(health().findings)
     except Exception as error:
-        findings.append(f"the post-boot health probe could not run: {error}")
+        findings.append(
+            probe_results.unchecked(f"the post-boot health probe could not run: {error}")
+        )
 
     for label, check in (("play-freshness", freshness), ("installed-vs-pinned", pins)):
         try:
             findings.extend(check())
         except Exception as error:
             # Named, so the user learns WHICH check stopped working rather than
-            # that something, somewhere, did.
-            findings.append(f"the {label} check could not run: {error}")
+            # that something, somewhere, did. Every guard here produces an
+            # `unchecked` finding by construction: reaching this line means the
+            # check did not complete, so nothing is known about its subject.
+            findings.append(
+                probe_results.unchecked(f"the {label} check could not run: {error}")
+            )
 
     return findings
 
 
 def emit(
-    findings: list[str],
+    findings: list[probe_results.Finding],
     *,
     notify: Callable[[str], None],
     # `object`, not `None`: the real caller is `sys.stdout.write`, which returns an
@@ -112,7 +118,7 @@ def emit(
     if not findings:
         return EXIT_OK
     for finding in findings:
-        write(f"{finding}\n")
+        write(f"{finding.text}\n")
     try:
         notify(message(findings))
     except Exception as error:
@@ -192,7 +198,7 @@ def freshness_findings(
     *,
     stderr: TextIO,
     run: Callable[..., int] = check_freshness.run,
-) -> list[str]:
+) -> list[probe_results.Finding]:
     """The freshness check's findings, via its real entry point.
 
     Its two channels are kept apart deliberately. Sharing one sink between them made
@@ -205,8 +211,17 @@ def freshness_findings(
     `run` is injected for the same reason `dkms_text`'s runner is: this seam is where
     the defects were, and it is only testable if it can be driven.
     """
-    out, diagnostics = _Sink(), _Sink()
-    status = run(base=base, repo_root=repo_root, stdout=out, stderr=diagnostics)
+    # Three sinks, one per meaning: findings, diagnostics, and findings that mean
+    # nothing was checked. The check knows which is which; a consumer reading the
+    # wording does not.
+    out, diagnostics, not_checked = _Sink(), _Sink(), _Sink()
+    status = run(
+        base=base,
+        repo_root=repo_root,
+        stdout=out,
+        stderr=diagnostics,
+        unchecked=not_checked,
+    )
 
     # Diagnostics are not findings, and they are not discarded either — they go where
     # diagnostics go (CLAUDE/StderrHygiene.md).
@@ -220,10 +235,16 @@ def freshness_findings(
         # exists to say why, and a finding that pointed at "its stderr output above"
         # sent the reader looking for something never shown to them.
         reason = "; ".join(diagnostics.lines()) or "it gave no reason"
-        return [f"play-freshness could not give an answer, so no play was judged: {reason}"]
+        return [
+            probe_results.unchecked(
+                f"play-freshness could not give an answer, so no play was judged: {reason}"
+            )
+        ]
     if status == check_freshness.EXIT_OK:
         return []
-    return _fold_detail_lines(out.lines())
+    return [
+        probe_results.broken(text) for text in _fold_detail_lines(out.lines())
+    ] + [probe_results.unchecked(text) for text in not_checked.lines()]
 
 
 def main(

@@ -47,12 +47,46 @@ class ProbeOutcome(NamedTuple):
     error: str
 
 
+class Finding(NamedTuple):
+    """One thing to tell the user, and whether the check managed to look.
+
+    That second field is this plan's whole subject carried in the data rather than in
+    the wording. *"This is broken"* and *"this was not looked at"* must never render
+    alike, and a consumer cannot recover the difference from the prose: matching on
+    phrases like "could not run" covered seven of the messages the checks emit and
+    missed six, and all six read as known-wrong in the handoff file.
+
+    Build these with `broken()` and `unchecked()` rather than the constructor, so the
+    choice is a word at the call site instead of a boolean nobody reads.
+    """
+
+    text: str
+    #: True: the check ran and this is wrong. False: it could not run, so nothing is
+    #: known about the thing it was meant to look at — NOT a clean result.
+    checked: bool
+
+
+def broken(text: str) -> Finding:
+    """The check looked, and found this."""
+    return Finding(text, checked=True)
+
+
+def unchecked(text: str) -> Finding:
+    """The check could not look. Reporting this as clean is the defect the plan exists for."""
+    return Finding(text, checked=False)
+
+
 class Report(NamedTuple):
-    findings: tuple[str, ...]
+    findings: tuple[Finding, ...]
 
     @property
     def clean(self) -> bool:
         return not self.findings
+
+    @property
+    def texts(self) -> tuple[str, ...]:
+        """Just the wording, for display and for tests that only care about it."""
+        return tuple(finding.text for finding in self.findings)
 
 
 def parse_dkms(text: str) -> list[DkmsEntry]:
@@ -110,15 +144,16 @@ def failed_unit_findings(text: str, *, scope: str) -> list[str]:
     return findings
 
 
-def _unit_outcome_findings(outcome: ProbeOutcome, *, scope: str) -> list[str]:
+def _unit_outcome_findings(outcome: ProbeOutcome, *, scope: str) -> list[Finding]:
     """Failed units, or the fact that the question could not be asked.
 
     A `systemctl` that cannot run returns no units — byte-identical to a host with
-    nothing failing. Reporting the failure is what keeps those two apart.
+    nothing failing. Reporting the failure is what keeps those two apart, and marking
+    it `unchecked` is what stops the handoff file calling it a known fault.
     """
     if not outcome.ok:
-        return [f"the {scope}-scope failed-unit probe could not run: {outcome.error}"]
-    return failed_unit_findings(outcome.text, scope=scope)
+        return [unchecked(f"the {scope}-scope failed-unit probe could not run: {outcome.error}")]
+    return [broken(text) for text in failed_unit_findings(outcome.text, scope=scope)]
 
 
 def build_report(
@@ -139,17 +174,22 @@ def build_report(
     computed first, and a raising check would take this report down with it instead of
     becoming a finding of its own.
     """
-    findings: list[str] = []
+    findings: list[Finding] = []
 
     if not dkms.ok:
-        findings.append(f"the dkms probe could not run: {dkms.error}")
+        findings.append(unchecked(f"the dkms probe could not run: {dkms.error}"))
     else:
         try:
-            findings.extend(dkms_findings(parse_dkms(dkms.text), running_kernel=running_kernel))
+            findings.extend(
+                broken(text)
+                for text in dkms_findings(parse_dkms(dkms.text), running_kernel=running_kernel)
+            )
         except ValueError as error:
             # A shape this cannot read is a finding, not an exception that takes the
-            # whole login-time probe down and reports nothing at all.
-            findings.append(f"the dkms probe output could not be read: {error}")
+            # whole login-time probe down and reports nothing at all. `unchecked`:
+            # output nothing could read means the DKMS state is unknown, not healthy
+            # and not broken.
+            findings.append(unchecked(f"the dkms probe output could not be read: {error}"))
 
     findings.extend(_unit_outcome_findings(failed_system, scope="system"))
     findings.extend(_unit_outcome_findings(failed_user, scope="user"))
