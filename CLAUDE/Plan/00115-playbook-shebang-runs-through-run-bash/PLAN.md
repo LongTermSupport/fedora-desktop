@@ -57,18 +57,18 @@ run.bash refuses a single play in headless mode.
 
 ### Phase 2: Proof — BLOCKED BY Phase 1
 
-- [ ] ⬜ **Task 2.1**: `qa-all.bash` green (bar the pre-existing docs findings).
-- [ ] ⬜ **Task 2.2**: Live, password-sudo guest: `./playbooks/imports/play-claude-yolo.yml --check` from the repo root and from `/` both reach run.bash's sudo probe and the
+- [x] ✅ **Task 2.1**: `qa-all.bash` green (bar the pre-existing docs findings).
+- [x] ✅ **Task 2.2**: Live, password-sudo guest: `./playbooks/imports/play-claude-yolo.yml --check` from the repo root and from `/` both reach run.bash's sudo probe and the
   `BECOME password:` prompt.
-- [ ] ⬜ **Task 2.3**: Headless still converges: an estate guest rebuild or a headless smoke
+- [ ] 🚫 **Task 2.3**: Headless still converges: an estate guest rebuild or a headless smoke
   proves no recursion and no `interactive-only` abort.
 
 ## Success Criteria
 
 - [ ] `./playbooks/imports/play-x.yml` on a password-sudo box prompts once and runs.
-- [ ] No play file is executed by run.bash itself.
-- [ ] `qa-ansible` asserts the new shebang on every play.
+- [x] No play file is executed by run.bash itself.
+- [x] `qa-ansible` asserts the new shebang on every play.
 
 ## Delivery & Milestones
 
-- Delivery commit: pending.
+- `9a4d55b` the reroute.
