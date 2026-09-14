@@ -15,6 +15,15 @@ the index, not the record.
 
 ---
 
+## 1.20.0 — `RUN_BASH_GITHUB_SSH_443`: a headless box declares the always-on 443 route (Plan 00119)
+
+Headless provisioning with a GitHub account had no input for `github_ssh_over_443`, so a box
+whose egress blocks port 22 could upload its key (HTTPS) and then hang on every SSH use of it.
+`RUN_BASH_GITHUB_SSH_443=1` writes `github_ssh_over_443: true` into the fresh `localhost.yml`,
+and `play-github-cli-multi.yml` installs the always-on `ssh.github.com:443` route in the same
+run. Strictly `0`/`1`; refused together with `RUN_BASH_GITHUB_ACCOUNTS=none`, where there is no
+key to route.
+
 ## 1.19.0 — `RUN_BASH_PS1_COLOUR`: a headless box gets a prompt colour (Plan 00108)
 
 A headless run reached `play-basic-configs.yml`'s interactive colour prompt with no tty, the

@@ -264,6 +264,18 @@ selinux_verdict_summary=$(printf '%s' "$selinux_verdict_out" | grep -oE 'passed:
     selinux_verdict_summary="passed"
 printf '✓ ccy-selinux-verdict: %s\n' "$selinux_verdict_summary"
 
+# hl_write_localhost_yml (Plan 00119): the headless localhost.yml writer, driven through the
+# 443 flag on/off/unset, the empty-identity path and the keep-existing-file promise.
+localhost_yml_out=""
+if ! localhost_yml_out="$(bash "$SCRIPT_DIR/test-run-bash-headless-localhost-yml.bash" 2>&1)"; then
+    echo "$localhost_yml_out" >&2
+    echo "✗ QA FAILED: run.bash headless localhost.yml unit tests" >&2
+    exit 1
+fi
+localhost_yml_summary=$(printf '%s' "$localhost_yml_out" | grep -oE 'passed: [0-9]+') ||
+    localhost_yml_summary="passed"
+printf '✓ run-bash-headless-localhost-yml: %s\n' "$localhost_yml_summary"
+
 # The fail-fast directive pattern's own unit suite (Plan 00081 F10).
 #
 # qa-ansible.bash enforces this repo's #1 rule with one regex, and that regex was
