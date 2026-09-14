@@ -144,3 +144,52 @@ worse than no check:
 | "this play ran here, at commit X, and the play file has since changed" | "this play is up to date" — imports and vars are outside the hash (§1)                   |
 | "this play has never been run here"                                    | "this play has never been run" — another user or a bypassed invocation is invisible (§3) |
 | "the ledger is untrustworthy" (sentinel present)                       | anything at all, while the sentinel is present                                           |
+
+## 6. The freshness check (Task 2.1)
+
+`helpers/play_ledger/freshness.py` decides, `git_history.py` supplies git's answers,
+`check_freshness.py` wires them and prints. Run it with
+`python3 -m helpers.play_ledger.check_freshness`.
+
+### Four verdicts, because two would lie
+
+| verdict       | when                                                              | why it is not folded into another                                                                            |
+| ------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `FRESH`       | no commit touched it since the run, and the bytes still match     | not reported at all                                                                                          |
+| `STALE`       | a commit touched it, **or** a dirty run's bytes no longer match   | the actionable case                                                                                          |
+| `GONE`        | ledgered, absent from HEAD                                        | outranks `STALE` however many commits touched it: "re-run this play" is wrong advice for a play that is gone |
+| `UNEXPLAINED` | clean run, no commit, different bytes                             | the ledger and the repo disagree and nothing available says which is right; guessing is how a check starts lying |
+
+**Git history is the authority; `play_sha256` is only the dirty-tree guard** (§1). So a
+commit that reverts a play to byte-identical content is still `STALE` — the play's history
+moved since the run even though its content did not, and that is what a reader deciding
+whether to re-run wants to know. Conversely a dirty run whose hash still matches is `FRESH`:
+the tree was dirty but *this play* was not among the edited files, which is exactly the
+discrimination the hash was added for.
+
+### The two silences, both structural
+
+Neither is a filter someone can later drop:
+
+1. **A play the ledger has never seen is never queried.** `plays_to_query` reads the ledger,
+   not the playbook tree, so the 43 never-run optional plays cannot appear — there is no code
+   path that would mention them. §4's reporting rule is enforced by the shape of the data.
+2. **A `BROKEN` sentinel withholds every verdict**, rather than printing them under a warning.
+   A per-play answer folded from a history with an acknowledged hole is a *specific false
+   statement*; the general warning it would sit beside does not undo it. `check_freshness`
+   also skips the `git fetch` entirely in that state — answering nothing means doing nothing.
+
+### Exit statuses
+
+`0` clean, silent. `1` findings, on stdout. `2` **untrustworthy** — the sentinel, a corrupt
+ledger line, a failed fetch, or a ledgered commit git cannot resolve.
+
+`2` exists because "nothing is stale" and "I cannot tell you whether anything is stale" are
+different answers, and a caller that cannot distinguish them will read the second as the
+first. That is this plan's entire subject, so its own check must not commit it. In particular
+an unresolvable ledgered commit — a dropped branch, a shallow clone — raises rather than
+reading as "no commits touched it", which would report such a play fresh for ever.
+
+`git_history` never merges, pulls, checks out, resets or rebases, and a test asserts those
+verbs never reach the argv: this runs at the end of a login on a machine somebody is using,
+and moving their working tree is a Non-Goal of this plan, not merely a rudeness.

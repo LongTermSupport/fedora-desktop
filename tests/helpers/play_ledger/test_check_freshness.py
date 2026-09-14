@@ -1,0 +1,240 @@
+"""Tests for helpers.play_ledger.check_freshness — the play-freshness executor.
+
+The wiring between ledger, git and report. What is pinned here is the behaviour a
+human sees: silence when clean, the sentinel refusing to answer, and an exit
+status that distinguishes "nothing to say" from "I could not tell you".
+"""
+
+from __future__ import annotations
+
+import io
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+
+from helpers.play_ledger import check_freshness, ledger, store
+
+FORTY_HEX = "e" * 40
+SIXTY_FOUR_HEX = "1" * 64
+OTHER_SHA = "2" * 64
+STAMP = "2026-09-14T09:00:00Z"
+
+
+def _seed(base: str, plays: list[str], *, play_sha256: str = SIXTY_FOUR_HEX) -> None:
+    store.ensure_ledger(base, commit=FORTY_HEX, at=STAMP)
+    for play in plays:
+        store.append_record(base, ledger.build_record(
+            play=play, name=play, commit=FORTY_HEX, dirty=False,
+            play_sha256=play_sha256, outcome="ok", changed=0,
+            started=STAMP, finished=STAMP,
+        ))
+
+
+class TestCleanRun(unittest.TestCase):
+    def test_a_fresh_ledger_says_nothing_on_stdout(self) -> None:
+        """Silent when clean. A health check that always speaks gets muted, and then
+        it is not a health check."""
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, ["playbooks/a.yml"])
+            out, err = io.StringIO(), io.StringIO()
+            code = check_freshness.run(
+                base=base, repo_root="/repo", stdout=out, stderr=err,
+                fetch=lambda root: None,
+                changes_since=lambda root, commit, play: [],
+                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
+            )
+            self.assertEqual(out.getvalue(), "")
+            self.assertEqual(code, 0)
+
+    def test_an_empty_ledger_is_clean_and_asks_git_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            store.ensure_ledger(base, commit=FORTY_HEX, at=STAMP)
+            asked = []
+            code = check_freshness.run(
+                base=base, repo_root="/repo", stdout=io.StringIO(), stderr=io.StringIO(),
+                fetch=lambda root: None,
+                changes_since=lambda root, commit, play: asked.append(play) or [],
+                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
+            )
+            self.assertEqual(asked, [])
+            self.assertEqual(code, 0)
+
+    def test_an_absent_ledger_is_clean_not_an_error(self) -> None:
+        """Nothing has been run here since it would have been created. That is a state
+        to handle, not a failure."""
+        with tempfile.TemporaryDirectory() as outer:
+            code = check_freshness.run(
+                base=os.path.join(outer, "never-made"), repo_root="/repo",
+                stdout=io.StringIO(), stderr=io.StringIO(),
+                fetch=lambda root: None,
+                changes_since=lambda root, commit, play: [],
+                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
+            )
+            self.assertEqual(code, 0)
+
+
+class TestStaleRun(unittest.TestCase):
+    def test_a_stale_play_is_named_on_stdout_with_its_commits(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, ["playbooks/a.yml"])
+            out = io.StringIO()
+            code = check_freshness.run(
+                base=base, repo_root="/repo", stdout=out, stderr=io.StringIO(),
+                fetch=lambda root: None,
+                changes_since=lambda root, commit, play: [("abc1234", "rework the play")],
+                play_sha256_at_head=lambda root, play: OTHER_SHA,
+            )
+            printed = out.getvalue()
+            self.assertIn("playbooks/a.yml", printed)
+            self.assertIn("abc1234", printed)
+            self.assertIn("rework the play", printed)
+            self.assertEqual(code, check_freshness.EXIT_FINDINGS)
+
+    def test_a_fresh_play_is_not_named_alongside_a_stale_one(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, ["playbooks/fresh.yml", "playbooks/stale.yml"])
+            out = io.StringIO()
+            check_freshness.run(
+                base=base, repo_root="/repo", stdout=out, stderr=io.StringIO(),
+                fetch=lambda root: None,
+                changes_since=lambda root, commit, play: (
+                    [("abc1234", "x")] if "stale" in play else []
+                ),
+                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
+            )
+            self.assertNotIn("playbooks/fresh.yml", out.getvalue())
+
+
+class TestBrokenLedger(unittest.TestCase):
+    def test_the_sentinel_refuses_to_answer_and_exits_distinctly(self) -> None:
+        """Not EXIT_FINDINGS: "I could not tell you" and "here is what is stale" are
+        different outcomes and a caller must be able to tell them apart."""
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, ["playbooks/a.yml"])
+            store.mark_broken(base, error="disk full", at=STAMP)
+            err = io.StringIO()
+            code = check_freshness.run(
+                base=base, repo_root="/repo", stdout=io.StringIO(), stderr=err,
+                fetch=lambda root: None,
+                changes_since=lambda root, commit, play: [("a", "b")],
+                play_sha256_at_head=lambda root, play: OTHER_SHA,
+            )
+            self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
+            self.assertIn("disk full", err.getvalue())
+
+    def test_no_per_play_verdict_is_printed_while_broken(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, ["playbooks/a.yml"])
+            store.mark_broken(base, error="disk full", at=STAMP)
+            out = io.StringIO()
+            check_freshness.run(
+                base=base, repo_root="/repo", stdout=out, stderr=io.StringIO(),
+                fetch=lambda root: None,
+                changes_since=lambda root, commit, play: [("a", "b")],
+                play_sha256_at_head=lambda root, play: OTHER_SHA,
+            )
+            self.assertNotIn("playbooks/a.yml", out.getvalue())
+
+    def test_git_is_never_consulted_while_broken(self) -> None:
+        """Answering nothing means doing nothing — a fetch at login costs the user
+        time for a result that will be discarded."""
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, ["playbooks/a.yml"])
+            store.mark_broken(base, error="disk full", at=STAMP)
+            fetched = []
+            check_freshness.run(
+                base=base, repo_root="/repo", stdout=io.StringIO(), stderr=io.StringIO(),
+                fetch=lambda root: fetched.append(root),
+                changes_since=lambda root, commit, play: [],
+                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
+            )
+            self.assertEqual(fetched, [])
+
+
+class TestFailures(unittest.TestCase):
+    def test_a_corrupt_ledger_line_fails_loudly(self) -> None:
+        """fold_latest raises on a corrupt line rather than skipping it, and this must
+        not soften that into a clean report."""
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, ["playbooks/a.yml"])
+            with open(ledger.runs_path(base), "a", encoding="utf-8") as handle:
+                handle.write("{not json\n")
+            code = check_freshness.run(
+                base=base, repo_root="/repo", stdout=io.StringIO(), stderr=io.StringIO(),
+                fetch=lambda root: None,
+                changes_since=lambda root, commit, play: [],
+                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
+            )
+            self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
+
+    def test_a_git_failure_is_untrustworthy_not_clean(self) -> None:
+        """An unresolvable ledgered commit must never read as 'nothing changed'."""
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, ["playbooks/a.yml"])
+            def boom(root, commit, play):
+                raise subprocess.CalledProcessError(128, ["git"])
+            err = io.StringIO()
+            code = check_freshness.run(
+                base=base, repo_root="/repo", stdout=io.StringIO(), stderr=err,
+                fetch=lambda root: None,
+                changes_since=boom,
+                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
+            )
+            self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
+            self.assertIn("playbooks/a.yml", err.getvalue())
+
+    def test_a_fetch_failure_is_untrustworthy_not_clean(self) -> None:
+        """Offline at login is common; reporting 'nothing stale' from stale refs is the
+        wrong answer, and silence would be indistinguishable from it."""
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, ["playbooks/a.yml"])
+            def boom(root):
+                raise subprocess.CalledProcessError(128, ["git", "fetch"])
+            code = check_freshness.run(
+                base=base, repo_root="/repo", stdout=io.StringIO(), stderr=io.StringIO(),
+                fetch=boom,
+                changes_since=lambda root, commit, play: [],
+                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
+            )
+            self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
+
+
+class TestStreams(unittest.TestCase):
+    def test_findings_go_to_stdout_and_diagnostics_to_stderr(self) -> None:
+        """stdout is the payload a caller captures; the sentinel warning is not it."""
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, ["playbooks/a.yml"])
+            store.mark_broken(base, error="disk full", at=STAMP)
+            out, err = io.StringIO(), io.StringIO()
+            check_freshness.run(
+                base=base, repo_root="/repo", stdout=out, stderr=err,
+                fetch=lambda root: None,
+                changes_since=lambda root, commit, play: [],
+                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
+            )
+            self.assertEqual(out.getvalue(), "")
+            self.assertNotEqual(err.getvalue(), "")
+
+
+class TestDefaultWiring(unittest.TestCase):
+    def test_run_defaults_to_the_real_git_functions(self) -> None:
+        """The injected seams are for tests; the executor must work with none supplied."""
+        with tempfile.TemporaryDirectory() as base, \
+             mock.patch("helpers.play_ledger.git_history.fetch") as fetch, \
+             mock.patch("helpers.play_ledger.git_history.changes_since", return_value=[]), \
+             mock.patch("helpers.play_ledger.git_history.play_sha256_at_head",
+                        return_value=SIXTY_FOUR_HEX):
+            _seed(base, ["playbooks/a.yml"])
+            code = check_freshness.run(base=base, repo_root="/repo",
+                                       stdout=io.StringIO(), stderr=io.StringIO())
+            self.assertEqual(code, 0)
+            fetch.assert_called_once_with("/repo")
+
+
+if __name__ == "__main__":
+    unittest.main()

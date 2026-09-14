@@ -129,18 +129,14 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 
 ### Phase 2: Drift checks built on the ledger
 
-- [ ] 🔄 **Task 2.1**: Play-freshness check — `freshness.py` + `git_history.py`, 34
-  tests. Verdicts `FRESH`/`STALE`/`GONE`/`UNEXPLAINED`, each carrying the commit
-  subjects that touched the play, so the report says *what* changed
-  - [x] ✅ Fetch only — a test asserts `merge`/`pull`/`checkout`/`reset`/`rebase`
-    never reach the argv. An unresolvable ledgered commit is an **error**, not
-    "nothing changed", which would report such a play fresh for ever
-  - [x] ✅ Never-run plays are silent **by construction**: only ledgered plays are
-    queried, and only the three reportable states reach the report
-  - [x] ✅ A `BROKEN` sentinel **withholds every verdict** rather than flagging them
-    — a per-play answer folded from an acknowledged hole is a specific false
-    statement (DESIGN §5)
-  - [ ] ⬜ The executor that wires ledger + git + report together and prints it
+- [x] ✅ **Task 2.1**: Play-freshness check — `freshness.py` (verdicts),
+  `git_history.py` (fetch-only git), `check_freshness.py` (executor), 47 tests.
+  Findings name the commit subjects that touched each play, so the report says
+  *what* changed. Three exit statuses: clean and silent, findings, and
+  **untrustworthy** — because "nothing is stale" and "I cannot tell you" are
+  different answers. Design, verdict table and the two structural silences:
+  [DESIGN-play-ledger.md](DESIGN-play-ledger.md) §6. Smoke-tested against this
+  repo, both the findings path and the sentinel path
 - [ ] ⬜ **Task 2.2**: Installed-vs-pinned check — the axis that failed
   - [ ] ⬜ Reuse the existing pin manifest in `check-pinned-versions.bash` rather
     than duplicating it (it already maps playbook→var→upstream repo)
