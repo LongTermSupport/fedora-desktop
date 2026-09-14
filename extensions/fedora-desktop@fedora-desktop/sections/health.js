@@ -23,6 +23,10 @@ import * as StatusDocument from '../statusDocument.js';
  * reports unavailable for ever. */
 const CHECKS = [
     {id: 'post-boot-health', title: 'This machine now'},
+    // Second, in the document's own order: an empty ledger is a fault here and now, and
+    // it is also why the two ledger-reading checks below would have nothing to say — so
+    // reading top to bottom meets the cause before the silence it explains.
+    {id: 'play-ledger', title: 'Record of what has run here'},
     {id: 'play-freshness', title: 'Plays since they last ran'},
     {id: 'installed-vs-pinned', title: 'Installed versus pinned'},
 ];

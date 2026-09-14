@@ -25,6 +25,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 from helpers.gnome import check_panel_contract
+from helpers.host_health import login_report
 
 JS = """
 export const OK = 'ok';
@@ -125,9 +126,18 @@ class TestTheKeysAreDerivedNotListed(unittest.TestCase):
         )
 
     def test_the_section_ids_come_from_the_real_seam(self) -> None:
+        """Against the producer's own constants, not copies of their values. A literal
+        list here would need editing every time a section is added — the enumeration
+        this class exists to avoid, reintroduced in the test that guards it. Order is
+        asserted too: it is the report's priority order, and the panel inherits it."""
         self.assertEqual(
-            sorted(check_panel_contract.section_ids()),
-            sorted(["post-boot-health", "play-freshness", "installed-vs-pinned"]),
+            check_panel_contract.section_ids(),
+            [
+                login_report.HEALTH,
+                login_report.LEDGER,
+                login_report.FRESHNESS,
+                login_report.PINS,
+            ],
         )
 
     def test_a_name_the_javascript_never_mentions_is_a_finding(self) -> None:

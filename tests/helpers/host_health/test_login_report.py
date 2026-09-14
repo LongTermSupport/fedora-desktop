@@ -48,13 +48,17 @@ def run(**overrides) -> tuple[int, list[str], list[str]]:
     sent: list[str] = []
     arguments = {
         "health": lambda: CLEAN_PROBE,
+        "ledger_present": lambda: [],
         "freshness": lambda: [],
         "pins": lambda: [],
         "notify": sent.append,
     }
     arguments.update(overrides)
     findings = login_report.collect(
-        health=arguments["health"], freshness=arguments["freshness"], pins=arguments["pins"])
+        health=arguments["health"],
+        ledger_present=arguments["ledger_present"],
+        freshness=arguments["freshness"],
+        pins=arguments["pins"])
     status = login_report.emit(findings, notify=arguments["notify"], write=lambda _: None)
     return status, findings, sent
 
@@ -367,14 +371,24 @@ class TestSectionsKeepTheirIdentity(unittest.TestCase):
     """
 
     def _sections(self, **overrides):
-        arguments = {"health": lambda: CLEAN_PROBE, "freshness": lambda: [], "pins": lambda: []}
+        arguments = {
+            "health": lambda: CLEAN_PROBE,
+            "ledger_present": lambda: [],
+            "freshness": lambda: [],
+            "pins": lambda: [],
+        }
         arguments.update(overrides)
         return login_report.collect_sections(**arguments)
 
     def test_every_check_gets_its_own_named_section(self) -> None:
         self.assertEqual(
             list(self._sections()),
-            [login_report.HEALTH, login_report.FRESHNESS, login_report.PINS],
+            [
+                login_report.HEALTH,
+                login_report.LEDGER,
+                login_report.FRESHNESS,
+                login_report.PINS,
+            ],
         )
 
     def test_health_comes_first_because_broken_now_outranks_drifted(self) -> None:
@@ -405,6 +419,7 @@ class TestSectionsKeepTheirIdentity(unittest.TestCase):
         and the document describe different hosts."""
         arguments = {
             "health": lambda: DIRTY_PROBE,
+            "ledger_present": lambda: found("no play run has ever been recorded here"),
             "freshness": lambda: found("playbooks/a.yml — changed since it last ran"),
             "pins": lambda: found("evdi: pinned 1.15.0, installed 1.14.0"),
         }
@@ -424,7 +439,12 @@ class TestTheDocumentIsWrittenWhetherOrNotAnythingIsWrong(unittest.TestCase):
     """
 
     def _published(self, base: str, **overrides) -> dict:
-        arguments = {"health": lambda: CLEAN_PROBE, "freshness": lambda: [], "pins": lambda: []}
+        arguments = {
+            "health": lambda: CLEAN_PROBE,
+            "ledger_present": lambda: [],
+            "freshness": lambda: [],
+            "pins": lambda: [],
+        }
         arguments.update(overrides)
         login_report.publish(
             base,

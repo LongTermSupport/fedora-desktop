@@ -36,7 +36,7 @@ from collections.abc import Callable
 from typing import TextIO
 
 from helpers.host_health import handoff, probe, probe_results, status_document
-from helpers.play_ledger import check_freshness, ledger, repo
+from helpers.play_ledger import check_freshness, ledger, ledger_presence, repo
 from helpers.version_pins import check_pins
 
 #: Clean: nothing the user must act on, and nothing shown.
@@ -55,6 +55,7 @@ EXIT_FINDINGS = 3
 #: keys — which are the panel registry's lookup keys, so these are interface, not
 #: labels. Renaming one silently makes the panel's section render `unavailable`.
 HEALTH = "post-boot-health"
+LEDGER = "play-ledger"
 FRESHNESS = "play-freshness"
 PINS = "installed-vs-pinned"
 
@@ -75,6 +76,7 @@ def message(findings: list[probe_results.Finding]) -> str:
 def collect_sections(
     *,
     health: Callable[[], probe_results.Report],
+    ledger_present: Callable[[], list[probe_results.Finding]],
     freshness: Callable[[], list[probe_results.Finding]],
     pins: Callable[[], list[probe_results.Finding]],
 ) -> dict[str, list[probe_results.Finding]]:
@@ -86,7 +88,10 @@ def collect_sections(
     others, which is the failure mode this whole plan is about one level up.
 
     Host health comes first, and dict order carries it through to `collect`: something
-    broken on this machine now outranks something that has merely drifted.
+    broken on this machine now outranks something that has merely drifted. The ledger's
+    own emptiness sits second for the same reason — it is a fault here and now, and it
+    is also the explanation for anything the two ledger-reading checks below it fail to
+    say, so a user reading top to bottom meets the cause before the silence.
 
     The section ids are the panel's registry keys, so they are part of the interface
     and not just labels. They read as check names because a guard failure quotes them
@@ -95,6 +100,7 @@ def collect_sections(
     return status_document.collect(
         {
             HEALTH: lambda: list(health().findings),
+            LEDGER: ledger_present,
             FRESHNESS: freshness,
             PINS: pins,
         }
@@ -104,6 +110,7 @@ def collect_sections(
 def collect(
     *,
     health: Callable[[], probe_results.Report],
+    ledger_present: Callable[[], list[probe_results.Finding]],
     freshness: Callable[[], list[probe_results.Finding]],
     pins: Callable[[], list[probe_results.Finding]],
 ) -> list[probe_results.Finding]:
@@ -112,7 +119,9 @@ def collect(
     Derived from `collect_sections` rather than collected again, so the notification
     and the status document cannot disagree about which checks ran.
     """
-    sections = collect_sections(health=health, freshness=freshness, pins=pins)
+    sections = collect_sections(
+        health=health, ledger_present=ledger_present, freshness=freshness, pins=pins
+    )
     return [finding for group in sections.values() for finding in group]
 
 
@@ -318,6 +327,7 @@ def main(
 
     sections = collect_sections(
         health=lambda: probe.collect(running_kernel=probe.running_kernel()),
+        ledger_present=lambda: ledger_presence.findings(base),
         freshness=lambda: freshness_findings(base, arguments.repo_root, stderr=diagnostics),
         pins=lambda: check_pins.check(
             pins=check_pins.declared_pins(arguments.repo_root),

@@ -22,6 +22,7 @@ Design: CLAUDE/Plan/00109-desktop-drift-detection-and-fedora-desktop-panel/DESIG
 
 from __future__ import annotations
 
+import inspect
 import os
 import re
 import sys
@@ -84,21 +85,36 @@ def document_keys() -> set[str]:
     return keys
 
 
+class _NoFindings(list):
+    """A clean answer in either shape a section callable can return.
+
+    `collect_sections` takes one callable per section and they do not agree on a return
+    type — one yields a `Report`, the rest yield lists — so a stub has to satisfy both.
+    Being an empty list that reports itself as its own `findings` does.
+    """
+
+    @property
+    def findings(self) -> _NoFindings:
+        return self
+
+
 def section_ids() -> list[str]:
     """The document's section ids, from the seam that names them.
 
     `sections/health.js` says of exactly these: "These are the document's keys, so they
     are interface: rename one here and the section silently reports unavailable for
     ever." Taken from `collect_sections` rather than re-listed, so the gate reads the
-    same three names the producer writes.
+    same names the producer writes.
+
+    The stubs are built by inspecting the signature rather than spelled out. Naming them
+    here would couple this gate to the seam's parameter list, so adding a section would
+    stop the gate with a TypeError instead of producing the finding that a new section
+    the panel does not register is exactly what this exists to report — a gate that
+    crashes on the change it is meant to judge.
     """
-    return list(
-        login_report.collect_sections(
-            health=lambda: probe_results.Report(findings=[]),
-            freshness=lambda: [],
-            pins=lambda: [],
-        )
-    )
+    parameters = inspect.signature(login_report.collect_sections).parameters
+    stubs = {name: (lambda: _NoFindings()) for name in parameters}
+    return list(login_report.collect_sections(**stubs))
 
 
 def unmentioned(javascript: str, names: set[str] | list[str]) -> list[str]:

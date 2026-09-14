@@ -175,11 +175,13 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   - [x] ✅ Registered and rendering; `unavailable` has its own icon, never the neutral one
   - [x] ✅ Renders the document's self-section reason, so an unreadable document says why
     rather than showing three derived "no such section" lines
-  - [ ] ⬜ **Nothing checks that the ledger has any content.** An empty state directory
-    publishes `play-freshness: ok` — right for the question that check asks, and a green
-    tick on a host with no ledger. Needs its own section, not a reinterpretation of that
-    one; at login an empty ledger can only mean it was lost, since `run.bash` ledgers
-    every play and a play deploys the unit
+  - [x] ✅ **The ledger's emptiness is now its own check**, `play-ledger`, not a
+    reinterpretation of `play-freshness` — whose `EXIT_OK` on an empty ledger is correct
+    for the question it asks, tested twice with reasoning, and has other callers.
+    Emptiness is reported as a **fault**, not an unknown: `run.bash` ledgers every play
+    and a play deploys the unit that runs this, so by the time anything reads it a record
+    must exist. Silent while the `BROKEN` sentinel exists, which says the same absence
+    with more detail. `helpers/play_ledger/ledger_presence.py`, 9 tests
   - [ ] ⬜ What a finding does when activated — a Task 3.3 decision
     ([DESIGN-panel.md](DESIGN-panel.md) §9)
 - [ ] ⬜ **Task 4.3**: Play/task runner — plays with their ledger state, launched in a
