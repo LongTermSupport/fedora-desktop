@@ -17,7 +17,7 @@ from pathlib import Path
 
 ANSIBLE = re.compile(r"(?<![\w./-])ansible-playbook\s+(?:\./)?(playbooks/[^\s`)\"']+\.yml)")
 SHEBANG = re.compile(r"(?<![\w./-])\./(playbooks/[^\s`)\"']+\.yml)")
-ASK_PASS = re.compile(r"(\./run\.bash --play [^\n`]*?) --ask-become-pass")
+ASK_PASS = re.compile(r"(\./run\.bash playbooks/[^\n`]*?) --ask-become-pass")
 
 
 def rewrite(text: str) -> str:
