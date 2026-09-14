@@ -112,3 +112,38 @@ Neither rule wins on its own terms. The question is whether an unreachable remot
 the **host** (which this surface reports) or about the **network** (which it does not), and it should
 be settled in writing before the unit exists — not discovered from whichever behaviour the first
 implementation happened to have.
+
+## 8. Settled: what an offline login says
+
+§7 left this open deliberately, so it would be decided in writing rather than inherited from
+whichever behaviour the first draft happened to have. Decided.
+
+The two rules genuinely do conflict as stated. *"I could not look" must never render as "nothing
+is wrong"* says report it; *a check that speaks on every login gets muted* says do not, because
+offline at login is ordinary — a train, a hotel, a laptop that woke before the wifi did.
+
+Neither wins, because the question was posed wrongly. "Can I reach the remote **right now**" is a
+fact about the network. **"How long is it since I last could"** is a fact about this host, and it
+is the one that matters: a freshness answer computed from refs fetched an hour ago is worth
+having, and the same answer computed from refs three weeks old is not.
+
+So the check records the timestamp of each **successful** fetch, and an offline run:
+
+| Time since the last successful fetch | Behaviour                                     |
+| ------------------------------------ | --------------------------------------------- |
+| within the staleness bound           | judge against the refs on hand, and say nothing if clean |
+| beyond it                            | **a finding**, naming how long it has been    |
+| never (no record at all)             | **a finding** — nothing has ever been checked here |
+
+This keeps both rules. Nothing is emitted on an ordinary offline login, and *"I have not been able
+to check for two weeks"* is reported as what it is: a fact about this machine, not about the cafe's
+wifi. It also removes the worst outcome available under either simple answer — a host that quietly
+stops being checked at all, which is this plan's subject in its purest form.
+
+The bound is a declared constant, not a guess buried in a branch, and the never-fetched case is
+**not** folded into "beyond the bound": a host that has never successfully fetched has a different
+problem from one that fetched last month, and one message for both would describe neither.
+
+`check_freshness.EXIT_UNTRUSTWORTHY` stays. It is the right answer for *"the ledger is BROKEN"* and
+for *"a ledgered commit cannot be resolved"* — states where no verdict can be given at all. What
+changes is that a failed fetch alone stops being one of them.

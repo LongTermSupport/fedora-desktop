@@ -17,7 +17,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from helpers.play_ledger import check_freshness, ledger, store
+from helpers.play_ledger import check_freshness, fetch_clock, ledger, repo, store
 
 FORTY_HEX = "e" * 40
 SIXTY_FOUR_HEX = "1" * 64
@@ -188,20 +188,83 @@ class TestFailures(unittest.TestCase):
             self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
             self.assertIn("playbooks/a.yml", err.getvalue())
 
-    def test_a_fetch_failure_is_untrustworthy_not_clean(self) -> None:
-        """Offline at login is common; reporting 'nothing stale' from stale refs is the
-        wrong answer, and silence would be indistinguishable from it."""
+    def test_a_fetch_failure_alone_is_NOT_untrustworthy(self) -> None:
+        """Settled in DESIGN-host-health.md §8, and this test previously asserted the
+        opposite. Offline at login is ordinary — a train, a hotel — and reporting on
+        it every time is how the whole surface gets muted. What is reported instead
+        is how long it has been, which is a fact about this host rather than about
+        the network. Here the fetch has only just failed, so: silence."""
         with tempfile.TemporaryDirectory() as base:
             _seed(base, ["playbooks/a.yml"])
+            fetch_clock.record_success(base, at=repo.utc_now())
+
             def boom(root):
                 raise subprocess.CalledProcessError(128, ["git", "fetch"])
+
+            stdout = io.StringIO()
             code = check_freshness.run(
-                base=base, repo_root="/repo", stdout=io.StringIO(), stderr=io.StringIO(),
+                base=base, repo_root="/repo", stdout=stdout, stderr=io.StringIO(),
                 fetch=boom,
                 changes_since=lambda root, commit, play: [],
                 play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
             )
-            self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
+            self.assertEqual(code, check_freshness.EXIT_OK)
+            self.assertEqual(stdout.getvalue(), "")
+
+    def test_a_fetch_failure_after_a_LONG_gap_is_a_finding(self) -> None:
+        """The other half. A host that has quietly stopped being checked at all is
+        this plan's subject in its purest form."""
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, ["playbooks/a.yml"])
+            long_ago = fetch_clock.shift(
+                repo.utc_now(), days=-(fetch_clock.STALE_AFTER_DAYS + 30))
+            fetch_clock.record_success(base, at=long_ago)
+
+            def boom(root):
+                raise subprocess.CalledProcessError(128, ["git", "fetch"])
+
+            stdout = io.StringIO()
+            code = check_freshness.run(
+                base=base, repo_root="/repo", stdout=stdout, stderr=io.StringIO(),
+                fetch=boom,
+                changes_since=lambda root, commit, play: [],
+                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
+            )
+            self.assertEqual(code, check_freshness.EXIT_FINDINGS)
+            self.assertIn("has not reached the remote", stdout.getvalue())
+
+    def test_a_fetch_failure_with_NO_record_at_all_is_a_finding(self) -> None:
+        """Nothing has ever been checked here, which is not the same as offline
+        today and must not read the same."""
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, ["playbooks/a.yml"])
+
+            def boom(root):
+                raise subprocess.CalledProcessError(128, ["git", "fetch"])
+
+            stdout = io.StringIO()
+            code = check_freshness.run(
+                base=base, repo_root="/repo", stdout=stdout, stderr=io.StringIO(),
+                fetch=boom,
+                changes_since=lambda root, commit, play: [],
+                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
+            )
+            self.assertEqual(code, check_freshness.EXIT_FINDINGS)
+            self.assertIn("never", stdout.getvalue())
+
+    def test_a_SUCCESSFUL_fetch_stamps_the_clock(self) -> None:
+        """Without this the bound never advances and every host eventually reports
+        the long-gap finding for ever — a check that cries wolf, permanently."""
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, ["playbooks/a.yml"])
+            self.assertIsNone(fetch_clock.last_success(base))
+            check_freshness.run(
+                base=base, repo_root="/repo", stdout=io.StringIO(), stderr=io.StringIO(),
+                fetch=lambda root: None,
+                changes_since=lambda root, commit, play: [],
+                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
+            )
+            self.assertIsNotNone(fetch_clock.last_success(base))
 
 
 class TestStreams(unittest.TestCase):

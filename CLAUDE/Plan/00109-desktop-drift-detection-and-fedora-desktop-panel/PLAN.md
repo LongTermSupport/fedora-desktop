@@ -137,6 +137,14 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   different answers. Design, verdict table and the two structural silences:
   [DESIGN-play-ledger.md](DESIGN-play-ledger.md) §6. Smoke-tested against this
   repo, both the findings path and the sentinel path
+  - [x] ✅ **An offline login is silent, and a long silence is a finding.** A failed
+    `git fetch` is no longer untrustworthy on its own: "can I reach the remote now"
+    is a fact about the network, "how long since I last could" is a fact about this
+    host. `fetch_clock` stamps each success; past the declared bound it reports the
+    gap, and never-fetched is its own message. The decision, and why neither simple
+    answer was right: [DESIGN-host-health.md](DESIGN-host-health.md) §8. This
+    **reversed** a ticked behaviour, so the test that asserted the opposite was
+    rewritten to pin the new rule rather than deleted
 - [x] ✅ **Task 2.2**: Installed-vs-pinned check — the axis that failed. Detail:
   [DESIGN-version-pins.md](DESIGN-version-pins.md)
   - [x] ✅ `compare.py` (5 states, only `MATCH` clean), `manifest.py` +
@@ -178,9 +186,10 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     the container, which has neither `dkms` nor a systemd bus: 3 findings, 3
     lines, exit 1, and 2 of them are what that hole swallowed.
     [DESIGN-host-health.md](DESIGN-host-health.md) §6
-  - [ ] ⬜ Running it at **end of login** rather than at boot. Lands with Task 3.2
-    — a login unit whose output nothing surfaces is not a deliverable, and the
-    open decision is 3.2's: [DESIGN-host-health.md](DESIGN-host-health.md) §7
+  - [ ] ⬜ Running it at **end of login** rather than at boot. Lands with Task 3.2 —
+    a login unit whose output nothing surfaces is not a deliverable. §7's open
+    decision is now **settled and implemented**
+    ([DESIGN-host-health.md](DESIGN-host-health.md) §8), so nothing blocks it
 - [ ] ⬜ **Task 3.2**: Surface findings to the user
   - [ ] ⬜ Desktop notification on findings; **silent when clean** (a health check
     that always speaks gets muted, and then it is not a health check)

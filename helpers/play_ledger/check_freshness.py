@@ -25,7 +25,7 @@ import sys
 from collections.abc import Callable
 from typing import TextIO
 
-from helpers.play_ledger import freshness, git_history, ledger, store
+from helpers.play_ledger import fetch_clock, freshness, git_history, ledger, repo, store
 
 #: Clean: nothing the user must act on.
 EXIT_OK = 0
@@ -83,14 +83,18 @@ def run(
         # Nothing has ever been run here. Silence is the correct output.
         return EXIT_OK
 
+    offline: str | None = None
     try:
         fetch(repo_root)
+        fetch_clock.record_success(base, at=repo.utc_now())
     except Exception as error:
-        # Offline at login is ordinary. Reporting "nothing stale" from refs that may
-        # be weeks old would be the wrong answer, and silence is indistinguishable
-        # from the right one.
-        stderr.write(f"play-freshness: git fetch failed, so HEAD may be stale: {error}\n")
-        return EXIT_UNTRUSTWORTHY
+        # Offline at login is ordinary, so a failed fetch is NOT untrustworthy on its
+        # own. What matters is how long it has been — a fact about this host rather
+        # than about the network. DESIGN-host-health.md §8.
+        stderr.write(f"play-freshness: git fetch failed, judging on the refs on hand: {error}\n")
+        offline = fetch_clock.offline_finding(
+            last=fetch_clock.last_success(base), now=repo.utc_now()
+        )
 
     verdicts: list[freshness.Verdict] = []
     for play in plays:
@@ -104,7 +108,13 @@ def run(
             return EXIT_UNTRUSTWORTHY
         verdicts.append(freshness.classify(record=record, changes=changes, head_sha256=head))
 
-    return _emit(freshness.build_report(verdicts=verdicts, broken_reason=None), stdout, stderr)
+    status = _emit(freshness.build_report(verdicts=verdicts, broken_reason=None), stdout, stderr)
+    if offline is not None:
+        # An offline run still judged, on the refs it had. What is reported is the
+        # age of those refs, and only once it is past the bound.
+        stdout.write(f"{offline}\n")
+        return EXIT_FINDINGS
+    return status
 
 
 def _emit(report: freshness.Report, stdout: TextIO, stderr: TextIO) -> int:
