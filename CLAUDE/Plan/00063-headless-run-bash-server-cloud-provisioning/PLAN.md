@@ -33,8 +33,10 @@ environment variables (non-secret values) and `0600` secret files (paths via
 env), so the same script provisions a desktop interactively or a server/cloud box
 unattended. GitHub setup remains mandatory and is fed from a scoped token. The
 design was hardened through three rounds of hostile review before implementation
-(Decision 3) and is code-complete at `run.bash` v1.10.0; host verification is
-outstanding.
+(Decision 3) and was code-complete at `run.bash` v1.10.0. Verification is now
+partly discharged: Plan 00110's VM lab proves the headless end-to-end run and the
+failure-propagation criteria (see the Phase 3 ticks and their run ids). What
+remains needs a secret no VM scenario carries — see the Status note above.
 
 ## Goals
 
@@ -64,8 +66,11 @@ outstanding.
   the target.
 - No kickstart or ISO changes (Plan 00018/00022 territory).
 - No answers-file mechanism (Decision 1).
-- The `RUN_BASH_GITHUB_ACCOUNTS=none` HTTPS-only path is deferred to a follow-up
-  plan (Decision 2, Task 1.6).
+- The `RUN_BASH_GITHUB_ACCOUNTS=none` HTTPS-only path was out of scope here
+  (Decision 2, Task 1.6). It has since **shipped** under Plan 00082
+  (`run.bash:293`), and every VM acceptance scenario now depends on it — so this
+  is a record of what this plan did not do, not a description of a missing
+  feature.
 
 ## Tasks
 
@@ -92,6 +97,8 @@ outstanding.
 - [x] ✅ **Task 1.6**: Owner decision: defer the empty-GitHub path. v1 is
   GitHub-token-required; `RUN_BASH_GITHUB_ACCOUNTS=none` fails fast in
   `headless_preflight` naming the follow-up (run.bash v1.9.1). Design re-frozen.
+  **Superseded**: Plan 00082 implemented that path; `none` is now an accepted
+  value with its own guards (`run.bash:293`), not a fail-fast.
 
 ### Phase 2: Implementation
 
