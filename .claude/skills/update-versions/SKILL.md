@@ -73,7 +73,7 @@ For each pin the user agrees to update:
 
 7. **Deploy + test on the HOST, not in the CCY container** (this repo is
    edit-and-commit-only inside `/workspace/`). Tell the user the exact play to
-   run, e.g. `./run.bash --play playbooks/imports/play-markless.yml`.
+   run, e.g. `./run.bash playbooks/imports/play-markless.yml`.
 
 8. **Commit** the version (and checksum/asset) change, referencing the upstream
    release. Do not bundle unrelated pins in one commit.

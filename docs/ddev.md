@@ -5,7 +5,7 @@ DDEV is a Docker-based local development tool for PHP/CMS projects (Drupal, Word
 ## Installation
 
 ```bash
-./run.bash --play playbooks/imports/optional/common/play-ddev.yml
+./run.bash playbooks/imports/optional/common/play-ddev.yml
 ```
 
 This installs:
@@ -17,7 +17,7 @@ This installs:
 podman-first policy):
 
 ```bash
-./run.bash --play playbooks/imports/optional/common/play-docker.yml
+./run.bash playbooks/imports/optional/common/play-docker.yml
 ```
 
 This installs Docker CE as a system-wide daemon and adds your user to the `docker` group. After the first run you must **log out and back in** (or run `newgrp docker` in your shell) before `docker` commands work without `sudo`.

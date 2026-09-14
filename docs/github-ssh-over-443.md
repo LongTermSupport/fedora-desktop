@@ -46,7 +46,7 @@ github-ssh-443 off
 That's it. Everything below is detail and the always-on option.
 
 > `github-ssh-443` is installed by the GitHub playbook. If the command isn't found,
-> run `./run.bash --play playbooks/imports/play-github-cli-multi.yml` once (or the
+> run `./run.bash playbooks/imports/play-github-cli-multi.yml` once (or the
 > all-in-one `./CLAUDE/Plan/00054-github-ssh-443-host-level/update.bash`).
 
 ---
@@ -109,7 +109,7 @@ github_443_extra_aliases:
 Then re-run the playbook:
 
 ```bash
-./run.bash --play playbooks/imports/play-github-cli-multi.yml
+./run.bash playbooks/imports/play-github-cli-multi.yml
 ssh -T -p 443 git@ssh.github.com    # expect: "Hi <you>! You've successfully authenticated..."
 ```
 
@@ -176,7 +176,7 @@ any you may have set up anyway.)
 
 - **Temporary:** `github-ssh-443 off`
 - **Always-on:** set `github_ssh_over_443: false` and re-run
-  `./run.bash --play playbooks/imports/play-github-cli-multi.yml`
+  `./run.bash playbooks/imports/play-github-cli-multi.yml`
 
 Leaving 443 on is harmless on a normal network (it works everywhere), but turning it
 off is good hygiene and the right move if you hit the DPI caveat below.
@@ -188,7 +188,7 @@ off is good hygiene and the right move if you hit the DPI caveat below.
 | Symptom                                                     | Cause / Fix                                                                                                                                  |
 | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `git push` hangs / `Connection refused` on `git@github.com` | Port 22 is firewalled. Run `github-ssh-443 auto` then `eval "$(github-ssh-443 env)"`.                                                        |
-| `github-ssh-443: command not found`                         | The CLI isn't deployed yet. Run `./run.bash --play playbooks/imports/play-github-cli-multi.yml` (or `update.bash`), then open a new terminal. |
+| `github-ssh-443: command not found`                         | The CLI isn't deployed yet. Run `./run.bash playbooks/imports/play-github-cli-multi.yml` (or `update.bash`), then open a new terminal. |
 | 443 is on, plain `git` works, but `git-<alias>` still fails | The per-account helpers follow the env var — run `eval "$(github-ssh-443 env)"` (or use always-on mode).                                     |
 | `ccy` doesn't route over 443                                | Set `export GITHUB_SSH_443=1` before launch, or use `ccy --github-443`, or rely on its auto-probe.                                           |
 | Both 22 **and** 443 are blocked at the TCP level            | You may be on a DPI / TLS-only proxy that rejects raw SSH-over-443. Fall back to **HTTPS remotes** for read/pull, which *are* TLS.           |

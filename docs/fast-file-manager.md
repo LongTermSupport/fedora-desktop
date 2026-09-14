@@ -39,7 +39,7 @@ KB already accumulated.
 ### Basic Installation (Recommended)
 
 ```bash
-./run.bash --play playbooks/imports/optional/common/play-fast-file-manager.yml
+./run.bash playbooks/imports/optional/common/play-fast-file-manager.yml
 ```
 
 This applies:

@@ -41,14 +41,14 @@ Sessions are plain files on disk — there is nothing to "watch" at idle. Launch
 
 ### Prerequisites
 
-- Podman installed (`./run.bash --play playbooks/imports/play-podman.yml`)
+- Podman installed (`./run.bash playbooks/imports/play-podman.yml`)
 - `~/.bashrc-includes/` directory (created by main playbook)
 - Internet access to clone `https://github.com/matt1398/claude-devtools` during install
 
 ### Deploy with Ansible
 
 ```bash
-./run.bash --play playbooks/imports/optional/common/play-claude-devtools.yml
+./run.bash playbooks/imports/optional/common/play-claude-devtools.yml
 ```
 
 The playbook:
@@ -190,7 +190,7 @@ Stop the conflicting process, then retry `ccdt`.
 If the container image was not built during installation:
 
 ```bash
-./run.bash --play playbooks/imports/optional/common/play-claude-devtools.yml
+./run.bash playbooks/imports/optional/common/play-claude-devtools.yml
 ```
 
 This re-clones the repo (or pulls updates) and rebuilds the image.
@@ -233,7 +233,7 @@ To update to the latest claude-devtools:
 
 ```bash
 # On host system (not in CCY container)
-./run.bash --play playbooks/imports/optional/common/play-claude-devtools.yml
+./run.bash playbooks/imports/optional/common/play-claude-devtools.yml
 ```
 
 The playbook pulls the latest source and rebuilds the image.

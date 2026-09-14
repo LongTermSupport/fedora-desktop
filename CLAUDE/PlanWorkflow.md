@@ -64,7 +64,7 @@ CLAUDE/
 they deploy or touch the live system — never run Ansible inside the CCY container):
 
 - **`deploy.bash`** — runs the plan's Ansible command(s) (e.g.
-  `./run.bash --play playbooks/imports/.../play-foo.yml`). A thin, idempotent wrapper.
+  `./run.bash playbooks/imports/.../play-foo.yml`). A thin, idempotent wrapper.
 - **`triage.bash`** — gathers grounded facts. **Every diagnostic probe belongs
   in this script — never hand the user a one-off command to run in chat.**
   Full reference, patterns and checklist: [PlanTriage.md](PlanTriage.md).

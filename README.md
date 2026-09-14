@@ -77,14 +77,14 @@ To add a new GitHub account after initial setup:
 
 ```bash
 ./scripts/gh-account-setup.bash --add=alias:username
-./run.bash --play playbooks/imports/play-github-cli-multi.yml
+./run.bash playbooks/imports/play-github-cli-multi.yml
 ```
 
 The setup script handles everything: GitHub CLI authentication **with the required OAuth scopes**, SSH key generation, key upload, and verification. The playbook then deploys the SSH config and regenerates the per-account shell helpers.
 
 ### Running One Play
 
-`./run.bash --play <playbook>` runs a single play from this checkout and sorts out sudo for you. Do not run a play directly or under `sudo`: on password sudo the first privileged task fails with `sudo: a password is required`, and root has no `ansible-playbook`. Anything after the path goes to `ansible-playbook`. Details: [docs/playbooks.md](docs/playbooks.md).
+`./run.bash <playbook>` runs a single play from this checkout and sorts out sudo for you. Do not run a play directly or under `sudo`: on password sudo the first privileged task fails with `sudo: a password is required`, and root has no `ansible-playbook`. Anything after the path goes to `ansible-playbook`. Details: [docs/playbooks.md](docs/playbooks.md).
 
 > **Do not authenticate with a bare `gh auth login`** — it logs in without the required scopes and the playbook's scope audit will fail. Always use the setup script. See the [full guide](docs/github-multi-account.md#do-not-authenticate-with-a-bare-gh-auth-login).
 

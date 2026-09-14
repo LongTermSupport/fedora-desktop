@@ -295,7 +295,7 @@ any optional playbooks you had set up previously:
 cd ~/Projects/fedora-desktop
 
 # Example: restore speech-to-text
-./run.bash --play playbooks/imports/optional/common/play-speech-to-text.yml
+./run.bash playbooks/imports/optional/common/play-speech-to-text.yml
 
 # Or run the optional playbooks menu
 ./run.bash --optional-only

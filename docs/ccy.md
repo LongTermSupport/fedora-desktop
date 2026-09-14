@@ -65,14 +65,14 @@ CCY is a **core** part of this repo — `playbooks/playbook-main.yml` installs i
 install or update it on its own:
 
 ```bash
-./run.bash --play playbooks/imports/play-claude-yolo.yml
+./run.bash playbooks/imports/play-claude-yolo.yml
 ```
 
 **Prerequisites** (the playbook asserts these and fails with instructions if missing):
 
 | Requirement                 | Notes                                                                                   |
 | --------------------------- | --------------------------------------------------------------------------------------- |
-| A container engine (Podman) | `./run.bash --play playbooks/imports/play-podman.yml`                                    |
+| A container engine (Podman) | `./run.bash playbooks/imports/play-podman.yml`                                    |
 | `podman-compose`            | Same playbook — needed for compose-network integration                                  |
 | The engine is reachable     | Rootless Podman needs no daemon; verify with `podman ps` (an empty table, not an error) |
 

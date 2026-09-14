@@ -22,26 +22,26 @@ via `--become-password-file`, a NOPASSWD box runs the play bare after `sudo -k -
 password-sudo box runs it with `--ask-become-pass`. The gap is that this logic is unreachable
 from outside the installer flow.
 
-This plan exposes it: `./run.bash --play <playbook> [ansible-playbook args…]` runs exactly one
+This plan exposes it: `./run.bash <playbook> [ansible-playbook args…]` runs exactly one
 play through that runner, from the repo checkout, and exits with the play's status. Every doc
 that told the reader to invoke a play bare now names this instead, so there is one documented
 way to run a play and it works on every sudo configuration.
 
 ## Goals
 
-- `./run.bash --play playbooks/imports/play-<name>.yml` runs the play through the existing
+- `./run.bash playbooks/imports/play-<name>.yml` runs the play through the existing
   runner; extra arguments after the path pass through to `ansible-playbook`.
 - Fail fast, with a message naming the fix, when: the path is missing or not a playbook under
   `playbooks/`; the script is streamed rather than run from a checkout; ansible is not
-  installed; `--play` is combined with `--optional-only` or a headless run.
+  installed; a playbook path is combined with `--optional-only` or a headless run.
 - The help text, `README.md`, `docs/playbooks.md` and every doc that shows a bare play
-  invocation name `--play` instead.
-- Proven: `--play` on a password-sudo box prompts once and converges; the failure modes above
+  invocation name a playbook path instead.
+- Proven: a playbook path on a password-sudo box prompts once and converges; the failure modes above
   each abort with their message and a non-zero status.
 
 ## Non-Goals
 
-- Supporting `--play` inside a headless run. Headless already has
+- Supporting a playbook path inside a headless run. Headless already has
   `RUN_BASH_OPTIONAL_PLAYBOOKS` with the same become contract.
 - Changing the become logic itself. The runner's three branches are proven and untouched.
 - Setting `become_ask_pass` in `ansible.cfg`. It fires on NOPASSWD boxes too, and the CLI
@@ -51,8 +51,9 @@ way to run a play and it works on every sudo configuration.
 
 ### Phase 1: The mode
 
-- [x] ✅ **Task 1.1**: Argument parsing accepts `--play <path>` and captures everything after
-  the path as pass-through arguments; `--play` with no path, with `--optional-only`, or
+- [x] ✅ **Task 1.1**: Argument parsing accepts a bare `<path>.yml` (run.bash takes no other
+  positional, so a `.yml` argument can only be a playbook) and captures everything after
+  the path as pass-through arguments; a playbook path with no path, with `--optional-only`, or
   under headless aborts.
 - [x] ✅ **Task 1.2**: After the runner function is defined and before the install steps,
   dispatch: resolve the repo root from the script's own location, validate the play,
@@ -64,7 +65,7 @@ way to run a play and it works on every sudo configuration.
 
 - [x] ✅ **Task 2.1**: `README.md` and `docs/playbooks.md` state the mode and why a bare
   invocation fails on password sudo.
-- [x] ✅ **Task 2.2**: Every doc line invoking a play bare is rewritten to `--play`, keeping
+- [x] ✅ **Task 2.2**: Every doc line invoking a play bare is rewritten to a playbook path, keeping
   any trailing ansible flags.
 
 ### Phase 3: Proof — BLOCKED BY Phase 1
@@ -78,7 +79,7 @@ way to run a play and it works on every sudo configuration.
 
 ## Success Criteria
 
-- [ ] One play runs to completion on a password-sudo box via `--play` with no flags the user
+- [ ] One play runs to completion on a password-sudo box via a playbook path with no flags the user
   had to know.
 - [x] No tracked doc invokes a play bare.
 - [x] Every abort path names its fix and exits non-zero.
