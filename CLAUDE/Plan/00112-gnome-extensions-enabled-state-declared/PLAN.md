@@ -153,7 +153,7 @@ is the single source instead, and disk only confirms it.
     declared. **Fail**: an unreadable verdict, a short loop, `results: []`, a register
     with no `results` key, `gse_verify` undefined
 
-- [x] ✅ **Task 1.9**: **The same defect in the sibling play.** `play-container-watch.yml`
+- [x] ✅ **Task 1.11**: **The same defect in the sibling play.** `play-container-watch.yml`
   still asked the running shell to enable its extension, with `failed_when: false` on the
   probe, the disable AND the enable, then a `debug` saying the extension "will be enabled
   on next GNOME session start". Nothing enabled it later: a failed `enable` never wrote
@@ -209,7 +209,7 @@ is the single source instead, and disk only confirms it.
   none of them and reports no change.
 - [x] No `FAIL-FAST-OK` annotation remains on the enable path. Both enable paths: the
   declared-state route this plan built, and `play-container-watch.yml`, which was still
-  on the mechanism this plan replaced (Task 1.9). The one remaining `failed_when` under
+  on the mechanism this plan replaced (Task 1.11). The one remaining `failed_when` under
   `playbooks/imports/play-gnome-shell-extensions.yml` is on the *installer* and is the
   permitted probe-then-fail form — its `rc not in [0, 2]` is an explicit check.
 - [x] `./scripts/qa-all.bash` passes — 856 files.

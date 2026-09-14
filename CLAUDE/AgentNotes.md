@@ -819,6 +819,40 @@ plausible — right shape, right count, no crash. What catches it is naming the 
 are least sure of and measuring that specifically. Give the join a named function so it
 can have tests of its own.
 
+### Completed narrative in a PLAN is where superseded reasoning survives
+
+A plan that carries *why* each finished task was built the way it was will trip its size
+gate, and the length is the symptom rather than the cost. The cost is that the argument
+for a decision outlives the decision, in a file every session reads in full, indexed as
+current state.
+
+Measured instance: a task read *"`SuccessExitStatus=0 1`, because exit 1 means there are
+findings"* for a day after that exact line was fixed as a blocking review finding — Python
+exits 1 for any uncaught exception, so `0 1` declared a crashed service a success. The
+code said `3`. The plan was still arguing for the defect.
+
+- **Completed tasks collapse to what they delivered**, one line, with design reasoning
+  behind a link. `JOURNAL/` is append-only and unbounded by design and already holds the
+  narrative; the design docs hold the reasoning. A plan holding a third copy is the copy
+  that goes stale, because nothing re-reads it to check.
+- **Fix the cause, not the edit in front of you.** Four size-gate trips got four
+  trims of whichever phase was being touched. Measuring first showed the largest phase
+  was a *finished* one at 6,003 bytes against the live phase's 3,785 — so the split I had
+  proposed would have left the remainder still dominated by dead work.
+- **Check before deleting, not after.** Confirm the journal and design docs actually hold
+  the detail. Here they held 88.6k and 59.2k.
+
+### Read the whole list before appending to it
+
+Task numbers inside a plan have no allocator. Plan *folder* numbers do —
+`mkplan.bash` takes a lock and allocates atomically, because two sessions once created a
+plan 00082 on the same day. Nothing equivalent guards `Task N.M`.
+
+So inferring the next number from the tasks nearest your insertion point produces a
+duplicate: appending after a list ending `1.9`, `1.10` and reading the first of those
+yields a second `1.9`. Every later reference then points at one of two tasks, including
+commit messages, which cannot be corrected.
+
 ### A test of the happy path cannot test a failure-path guarantee
 
 Atomicity, locking, rollback, cleanup-on-error, timeouts: the whole value of each is what
