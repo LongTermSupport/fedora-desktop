@@ -179,7 +179,7 @@ done < "$TMP_MATCHES"
 # Single source of truth for the line is scripts/make-playbooks-executable.bash,
 # which also explains it; this must match byte for byte.
 read -r SHEBANG <<'EOF'
-#!/usr/bin/env -S bash -c 'p=$(realpath "$0"); cd "${p%/playbooks/*}" && exec ansible-playbook "$p" "$@"'
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
 EOF
 HYGIENE_VIOLATIONS=()
 PLAYBOOK_COUNT=0

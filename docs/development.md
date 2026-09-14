@@ -268,16 +268,16 @@ A retired branch without one is a bug — run `mark-branches-superseded.bash`.
 
 ```bash
 # Syntax check
-./run.bash playbooks/playbook-main.yml --syntax-check
+./playbooks/playbook-main.yml --syntax-check
 
 # Dry run
-./run.bash playbooks/playbook-main.yml --check
+./playbooks/playbook-main.yml --check
 
 # Run specific tags
-./run.bash playbooks/playbook-main.yml --tags packages
+./playbooks/playbook-main.yml --tags packages
 
 # Test individual playbook
-./run.bash playbooks/imports/play-basic-configs.yml -vv
+./playbooks/imports/play-basic-configs.yml -vv
 ```
 
 ### Debugging

@@ -171,7 +171,7 @@ chmod 600 vault-pass.secret
 ### Step 7: Run Main Playbook
 
 ```bash
-./run.bash playbooks/playbook-main.yml
+./playbooks/playbook-main.yml
 ```
 
 Enter your sudo password when prompted. This runs all core playbooks automatically.
@@ -231,16 +231,16 @@ Popular optional components:
 cd ~/Projects/fedora-desktop
 
 # Docker (rootful compatibility engine — required for DDEV)
-./run.bash playbooks/imports/optional/common/play-docker.yml
+./playbooks/imports/optional/common/play-docker.yml
 
 # Distrobox
-./run.bash playbooks/imports/optional/common/play-distrobox.yml
+./playbooks/imports/optional/common/play-distrobox.yml
 
 # Python development (pyenv + multiple Python versions)
-./run.bash playbooks/imports/optional/common/play-python.yml
+./playbooks/imports/optional/common/play-python.yml
 
 # VS Code
-./run.bash playbooks/imports/optional/common/play-vscode.yml
+./playbooks/imports/optional/common/play-vscode.yml
 ```
 
 ## Verifying Installation
@@ -296,7 +296,7 @@ git fetch origin
 git checkout F44  # Replace with your version
 
 # 4. Re-run the playbook
-./run.bash playbooks/playbook-main.yml
+./playbooks/playbook-main.yml
 ```
 
 ### Bootstrap Script Fails to Download
@@ -337,7 +337,7 @@ sudo dnf install -y \
 
 # Re-run the playbook
 cd ~/Projects/fedora-desktop
-./run.bash playbooks/playbook-main.yml
+./playbooks/playbook-main.yml
 ```
 
 ### Permission Denied Errors
@@ -420,7 +420,7 @@ cat ~/.ssh/id.pub
 - **Check activity:** Look for disk I/O or network activity
 - **Increase verbosity:** Run with `-v` flag to see what's happening:
   ```bash
-  ./run.bash playbooks/playbook-main.yml -v
+  ./playbooks/playbook-main.yml -v
   ```
 
 **Force timeout if truly stuck:**
@@ -478,7 +478,7 @@ ls -la ~/.nvm/
 
 # Re-run NVM playbook
 cd ~/Projects/fedora-desktop
-./run.bash playbooks/imports/play-nvm-install.yml
+./playbooks/imports/play-nvm-install.yml
 ```
 
 ### Still Having Issues?
@@ -497,7 +497,7 @@ cd ~/Projects/fedora-desktop
 
 ```bash
 # Run playbook with maximum verbosity
-./run.bash playbooks/playbook-main.yml -vvv
+./playbooks/playbook-main.yml -vvv
 
 # Check Ansible facts
 ansible desktop -m setup

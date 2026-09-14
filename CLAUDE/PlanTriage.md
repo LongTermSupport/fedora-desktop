@@ -242,7 +242,7 @@ the feature and point at the play:
 if ! command -v tcpdump > /dev/null; then
     echo "ERROR: tcpdump is not installed." >&2
     echo "  It is declared in play-<feature>.yml. Deploy it with:" >&2
-    echo "    ./run.bash playbooks/imports/.../play-<feature>.yml" >&2
+    echo "    ./playbooks/imports/.../play-<feature>.yml" >&2
     echo "  Do NOT install it by hand." >&2
     return 1
 fi

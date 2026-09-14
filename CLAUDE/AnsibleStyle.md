@@ -260,7 +260,7 @@ A `gnome`- or `server`-scoped play **must** carry this exact 2-task guard as its
       when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
 ```
 
-The guard makes **every play safe to run standalone** — `./run.bash playbooks/imports/play-firefox.yml` auto-detects and self-gates, no
+The guard makes **every play safe to run standalone** — `./playbooks/imports/play-firefox.yml` auto-detects and self-gates, no
 `playbook-main.yml` needed. Override detection with
 `-e provisioning_profile=desktop|server`.
 

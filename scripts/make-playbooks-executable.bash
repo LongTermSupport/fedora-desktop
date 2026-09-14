@@ -5,17 +5,21 @@ set -e
 # This allows running playbooks by path, from any directory, instead of
 # `cd <repo> && ansible-playbook path/to/playbook.yml`.
 #
-# Ansible only discovers ansible.cfg (inventory, vault password, roles path)
-# in the current directory, so the shebang changes to the repo root before
-# exec-ing ansible-playbook. The root is everything before /playbooks/ in the
-# play's resolved path, so one shebang fits every depth. env -S splits the
-# single shebang argument into words; realpath keeps the play resolvable after
-# the cd; "$@" passes -e/--tags/... through. Kept under the 127-byte shebang
-# limit of older kernels.
+# The shebang hands the play to run.bash, which cds to the repo root (Ansible only
+# discovers ansible.cfg there), probes sudo and adds --ask-become-pass only when the
+# box needs it, then execs ansible-playbook. A play exec'd straight into
+# ansible-playbook dies on password sudo with "a password is required". The root is
+# everything before /playbooks/ in the play's resolved path, so one shebang fits every
+# depth; env -S splits the single shebang argument into words; "$@" passes
+# -e/--tags/... through. Kept under the 127-byte shebang limit of older kernels.
+# run.bash itself never executes a play file (it would re-enter here): it calls
+# ansible-playbook explicitly.
 read -r SHEBANG <<'EOF'
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
+EOF
+read -r LEGACY_SHEBANG <<'EOF'
 #!/usr/bin/env -S bash -c 'p=$(realpath "$0"); cd "${p%/playbooks/*}" && exec ansible-playbook "$p" "$@"'
 EOF
-LEGACY_SHEBANG="#!/usr/bin/env ansible-playbook"
 PLAYBOOK_DIR="playbooks"
 COUNT_UPDATED=0
 COUNT_SKIPPED=0

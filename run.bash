@@ -695,7 +695,8 @@ hl_run_optional_playbooks() {
     if [[ "${#HL_SUDO_OPTS[@]}" -gt 0 ]]; then
       _optional_become=(--become-password-file "$HL_SUDO_PW_FILE")
     fi
-    if ! "$found" "${_optional_become[@]}"; then
+    # ansible-playbook explicitly, never the play file: its shebang re-enters run.bash.
+    if ! ansible-playbook "$found" "${_optional_become[@]}"; then
       hl_abort "optional playbook ${name}" "${found} FAILED" \
         "scroll up for the Ansible output; fix it, drop it from RUN_BASH_OPTIONAL_PLAYBOOKS, or set =none"
     fi
@@ -765,6 +766,8 @@ Options:
                        you: NOPASSWD runs bare, password sudo gets Ansible's
                        BECOME prompt. Anything after the path goes to
                        ansible-playbook (e.g. -vvv, --check). Interactive only.
+                       Every play's shebang calls this, so
+                       ./playbooks/imports/play-x.yml is the same thing.
   --headless           Force unattended mode (no prompts); config from RUN_BASH_* env
   --interactive        Force interactive mode even with no TTY / RUN_BASH_* set
   -h, --help           Show this help message
@@ -777,11 +780,10 @@ Interactive first run (desktop):
 Subsequent runs:
   ./run.bash --optional-only  Re-run only the optional playbooks menu
                               (useful for adding components after initial setup)
-  ./run.bash playbooks/imports/play-podman.yml
-                              Re-run one play. Do NOT run a play directly or under
-                              sudo: on password sudo the first become task fails
-                              with "a password is required", and root has no
-                              ansible-playbook.
+  ./playbooks/imports/play-podman.yml
+                              Re-run one play (its shebang routes through this
+                              script, which sorts out sudo). Never under sudo:
+                              root has no ansible-playbook.
 
 Headless (server / cloud) — provision unattended from RUN_BASH_* env vars:
   RUN_BASH_HEADLESS=1 RUN_BASH_USER_EMAIL=... RUN_BASH_GITHUB_ACCOUNTS=... \
@@ -1581,13 +1583,14 @@ run_playbook_with_issue_option(){
   # the timestamp the preflight probe just established.
   local _sudo_probe=""
   exit_code=0
+  # ansible-playbook explicitly, never the play file: its shebang re-enters run.bash.
   if [[ "${#HL_SUDO_OPTS[@]}" -gt 0 ]]; then
-    "$playbook" --become-password-file "$HL_SUDO_PW_FILE" "${extra_args[@]}" || exit_code=$?
+    ansible-playbook "$playbook" --become-password-file "$HL_SUDO_PW_FILE" "${extra_args[@]}" || exit_code=$?
   elif _sudo_probe="$(sudo -k -n true 2>&1)"; then
-    "$playbook" "${extra_args[@]}" || exit_code=$?
+    ansible-playbook "$playbook" "${extra_args[@]}" || exit_code=$?
   else
     info "sudo needs a password — Ansible will prompt for it (sudo: ${_sudo_probe:-a password is required})"
-    "$playbook" --ask-become-pass "${extra_args[@]}" || exit_code=$?
+    ansible-playbook "$playbook" --ask-become-pass "${extra_args[@]}" || exit_code=$?
   fi
   
   if [[ $exit_code -eq 0 ]]; then
@@ -2733,15 +2736,16 @@ fi
 # --become-password-file (non-interactive; --ask-become-pass would hang with no TTY).
 # Checked before the probe so `sudo -k` never runs on that path and never discards the
 # timestamp the preflight probe just established.
+# ansible-playbook explicitly, never the play file: its shebang re-enters run.bash.
 _main_sudo_probe=""
 if [[ "${#HL_SUDO_OPTS[@]}" -gt 0 ]]; then
   echo -e "${CYAN}${INFO} Headless: Ansible BECOME password supplied via --become-password-file${NC}"
-  ./playbooks/playbook-main.yml "${_main_pb_args[@]}" --become-password-file "$HL_SUDO_PW_FILE" || main_exit_code=$?
+  ansible-playbook playbooks/playbook-main.yml "${_main_pb_args[@]}" --become-password-file "$HL_SUDO_PW_FILE" || main_exit_code=$?
 elif _main_sudo_probe="$(sudo -k -n true 2>&1)"; then
-  ./playbooks/playbook-main.yml "${_main_pb_args[@]}" || main_exit_code=$?
+  ansible-playbook playbooks/playbook-main.yml "${_main_pb_args[@]}" || main_exit_code=$?
 else
   echo -e "${YELLOW}${INFO} sudo needs a password — Ansible will now prompt you for it (BECOME password; sudo: ${_main_sudo_probe:-a password is required})${NC}"
-  ./playbooks/playbook-main.yml "${_main_pb_args[@]}" --ask-become-pass || main_exit_code=$?
+  ansible-playbook playbooks/playbook-main.yml "${_main_pb_args[@]}" --ask-become-pass || main_exit_code=$?
 fi
 unset _main_sudo_probe
 

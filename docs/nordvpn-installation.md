@@ -56,7 +56,7 @@ If credentials are already present in `localhost.yml` (as `nordvpn_username` /
 ### Step 2: Run the Playbook
 
 ```bash
-./run.bash playbooks/imports/optional/common/play-nordvpn-openvpn.yml
+./playbooks/imports/optional/common/play-nordvpn-openvpn.yml
 ```
 
 This playbook:
@@ -144,7 +144,7 @@ view or remove them via the GUI.
 Re-run the playbook to regenerate `~/.config/nordvpn/.credentials`:
 
 ```bash
-./run.bash playbooks/imports/optional/common/play-nordvpn-openvpn.yml
+./playbooks/imports/optional/common/play-nordvpn-openvpn.yml
 ```
 
 ### Connection fails
@@ -179,7 +179,7 @@ applied", start firewalld and re-run:
 
 ```bash
 sudo systemctl start firewalld
-./run.bash playbooks/imports/optional/common/play-nordvpn-openvpn.yml
+./playbooks/imports/optional/common/play-nordvpn-openvpn.yml
 ```
 
 ## File Locations

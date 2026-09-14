@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00115-playbook-shebang-runs-through-run-bash](00115-playbook-shebang-runs-through-run-bash/) - Every play's shebang hands it to run.bash, so `./playbooks/…/play-x.yml` works on password sudo; run.bash calls ansible-playbook explicitly so it never re-enters itself.
+
 - [00114-run-bash-single-play-mode](00114-run-bash-single-play-mode/) - Running one play by hand dies on password sudo (`sudo: a password is required`) because nothing tells Ansible to prompt; expose run.bash's proven become logic as `./run.bash <playbook>` and make every doc name it.
 
 - [00113-ccy-ci-runner-implementation](00113-ccy-ci-runner-implementation/) - Build the non-interactive `ccy` Plan 00068 specified: close every prompt site on the CI path, propagate the container's exit status rather than the compose block's, and impose the per-event tool surface with four startup assertions that can each actually fail.
