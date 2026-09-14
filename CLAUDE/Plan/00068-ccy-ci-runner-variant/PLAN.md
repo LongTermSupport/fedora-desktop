@@ -101,13 +101,14 @@ The scope below is the owner's, settled 2026-08-01 (Decisions 7, 8, 9).
   ([DECISIONS.md §6](DECISIONS.md#6-task-35--the-ci-flow-and-composenetworking)). The site
   count is a derivation, not a measurement: confirm by instrumenting the CI path before
   implementing.
-- [ ] ⬜ **Task 3.4**: The CI tool surface (Decision 9). No longer gated: `--disallowedTools`
-  composes with `--dangerously-skip-permissions`, measured 2026-08-10. Remaining work:
-  1. Specify the per-event surfaces: `push`/`pull_request` (may run `ci.bash` and read; no write,
-     commit or push) and `issues`/`issue_comment` (narrower, no `ci.bash`).
-  2. Derive every layer from one per-class list, and assert the tool names absent from the
-     session, never a tool count.
-  3. Prefer an allowlist wherever the vocabulary is not ours; a denylist fails open on a typo.
+- [x] ✅ **Task 3.4**: The CI tool surface, in
+  [reports/ci-tool-surface.md](reports/ci-tool-surface.md). Two classes: `push`/`pull_request`
+  keeps `Bash` and loses `Edit`/`Write`/`NotebookEdit`; `issues`/`issue_comment` loses `Bash`
+  too, which also removes `gh`, so its one permitted write becomes an enumerated MCP tool. MCP
+  is allowlisted at **server** granularity (`--mcp-config` + `--strict-mcp-config`), never by
+  denying `mcp__*` names. Four startup assertions, each able to fail; none on a tool count.
+  Records what the tool list does **not** buy: `Bash` is a write vector, so what stops a
+  class-A job pushing is the token's scopes, a property of lts-infra to confirm
 - [x] ✅ **Task 3.3**: Unattended-launch hygiene: four cited defects, each with a guard-shaped fix
   ([DECISIONS.md §7](DECISIONS.md#7-task-33--unattended-launch-defects)). The container-naming
   race (3.3.1) is primarily fixed by serialising jobs on the runner, lts-infra Plan 00030
