@@ -1,4 +1,4 @@
-# Plan 00116: the acceptance lab certifies a commit with a checker from a different one
+# Plan 00117: the acceptance lab certifies a commit with a checker from a different one
 
 **Status**: Not Started
 **Created**: 2026-09-14
@@ -112,6 +112,6 @@ currently carries the evidence to say so.
 
 <!-- Curated milestones + delivery commit hashes only (git is the SSoT for
      "when" — do not add dates). The blow-by-blow activity log lives in
-     JOURNAL/00116-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
+     JOURNAL/00117-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
 - <!-- milestone or delivery commit hash -->

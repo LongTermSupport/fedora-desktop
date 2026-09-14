@@ -130,7 +130,7 @@ is the single source instead, and disk only confirms it.
     `0 + 1` and eight actives cleared it. A run in flight at `20260914T110446Z`
     against `be73d3b0` inherits the same stale checker
 
-  The harness defect is [Plan 00116](../00116-vmtest-acceptance-script-version-gate/PLAN.md).
+  The harness defect is [Plan 00117](../00117-vmtest-acceptance-script-version-gate/PLAN.md).
   It is not this plan's to fix, but it is this plan's blocker
 
 - [ ] ⬜ **Task 2.3**: QA, then `qa-reviewer` over the diff.
