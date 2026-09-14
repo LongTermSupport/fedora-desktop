@@ -753,6 +753,24 @@ Container process watchdog — **reporting only, it never kills or throttles any
 - Its no-kill guarantee is enforced by a dedicated QA gate — see
   [CLAUDE/QA.md](../CLAUDE/QA.md)
 
+#### play-host-health-login-report.yml
+
+Login-time host health report — **reporting only, it never re-runs a play or installs
+anything**:
+
+- Deploys a `systemd --user` unit that runs at the **end of a graphical login**, not at
+  boot, so somebody is present to read it
+- Merges three checks into **one** notification: DKMS modules missing a build for the
+  **running** kernel, failed system and user units, plays that have changed since they
+  were last run here, and repo pins that differ from what is installed
+- **Silent when clean.** Nothing is shown on a healthy login — a check that speaks every
+  time gets muted
+- A check that *could not run* is reported as a finding, never as a pass. That is the
+  whole point: the failure this exists for was a reboot that left both DisplayLink
+  monitors dark while every automated check in the repo stayed green
+- Exit 1 means "there are findings", which is a successful run — only a crash is a unit
+  failure
+
 #### play-ddev.yml
 
 DDEV local development environment:

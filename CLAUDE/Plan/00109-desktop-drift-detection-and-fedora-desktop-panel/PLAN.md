@@ -186,13 +186,25 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     the container, which has neither `dkms` nor a systemd bus: 3 findings, 3
     lines, exit 1, and 2 of them are what that hole swallowed.
     [DESIGN-host-health.md](DESIGN-host-health.md) §6
-  - [ ] ⬜ Running it at **end of login** rather than at boot. Lands with Task 3.2 —
-    a login unit whose output nothing surfaces is not a deliverable. §7's open
-    decision is now **settled and implemented**
-    ([DESIGN-host-health.md](DESIGN-host-health.md) §8), so nothing blocks it
-- [ ] ⬜ **Task 3.2**: Surface findings to the user
-  - [ ] ⬜ Desktop notification on findings; **silent when clean** (a health check
-    that always speaks gets muted, and then it is not a health check)
+  - [x] ✅ Running it at **end of login** rather than at boot:
+    `host-health.service`, `After=graphical-session.target`, deployed by
+    `play-host-health-login-report.yml`. `WorkingDirectory` is templated from
+    `root_dir` — no checkout path reaches the repo. `SuccessExitStatus=0 1`, because
+    exit 1 means "there are findings", and a drifted host must not also register as
+    a broken service: two alarms for one fact is how both get ignored
+  - [ ] ⬜ **HOST**: run the play and confirm the unit fires at login
+- [ ] 🔄 **Task 3.2**: Surface findings to the user — code done, HOST run pending
+  - [x] ✅ `helpers/host_health/login_report.py`, 19 tests. **One** notification
+    listing everything, not three; **silent when clean**; host-health findings
+    first, because something broken now outranks something that merely drifted
+  - [x] ✅ **Merged, not chained.** Each check is guarded separately, so a raising
+    one becomes a finding naming itself and cannot suppress the other two — the
+    same defect this plan is about, one level up
+  - [x] ✅ **The notification is not the only channel.** A failing notifier still
+    leaves every finding on stdout and the exit status intact, and reports its own
+    failure. A broken notifier must not turn a broken host into a silent one
+  - [ ] ⬜ **HOST**: confirm a real notification arrives, and that a clean login is
+    genuinely silent
 - [ ] ⬜ **Task 3.3**: Claude Code handoff
   - [ ] ⬜ Write a findings/prompt file describing what broke and the evidence
   - [ ] ⬜ Offer to launch **CC** (not CCY) against the repo with an initial prompt

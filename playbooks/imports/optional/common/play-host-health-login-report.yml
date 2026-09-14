@@ -1,0 +1,128 @@
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
+---
+# Login-time host health report (Plan 00109, Tasks 3.1 and 3.2) — reporting-only.
+#
+# Deploys the systemd --user unit that runs helpers.host_health.login_report at the
+# END of a graphical login. The report merges three checks into one notification:
+# post-boot health (DKMS against the running kernel, failed units), play freshness
+# against the ledger, and repo-pin versus installed. It is SILENT when clean.
+#
+# Why this exists: a reboot into a new kernel left both DisplayLink monitors dark
+# because a DKMS module could not build, and every automated check in this repo was
+# green throughout — none of them looks at the host.
+#
+# Reporting-only, and that is a hard boundary: nothing here re-runs a play, installs
+# anything or moves the working tree. Re-running a play is always a human decision.
+#
+# Standalone / opt-in play — deliberately NOT imported from playbook-main.yml. Run
+# it directly:
+#   ./playbooks/imports/optional/common/play-host-health-login-report.yml
+- hosts: desktop
+  name: Login-Time Host Health Report
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    unit_name: host-health.service
+    user_units_dir: "/home/{{ user_login }}/.config/systemd/user"
+  tasks:
+    - name: Scope guard — assert provisioning_profile is recognised
+      ansible.builtin.assert:
+        that:
+          - provisioning_profile in ['desktop', 'server']
+        fail_msg: |
+          provisioning_profile={{ provisioning_profile }} is not recognised.
+          Valid values: desktop, server.
+          Auto-detected from `systemctl get-default`
+          (see environment/localhost/group_vars/desktop.yml) or overridden
+          via -e provisioning_profile=desktop|server.
+
+    - name: Scope guard — end play if provisioning_profile does not match declared scope
+      ansible.builtin.meta: end_play
+      when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
+
+    # `notify-send` is the only external tool the report needs. Per the missing
+    # dependency rule this is declared here rather than tolerated at runtime — a
+    # report that cannot be delivered is the defect this play exists to fix.
+    - name: Install The Notification Sender
+      ansible.builtin.dnf:
+        name: libnotify
+        state: present
+
+    - name: Ensure User Systemd Unit Directory Exists
+      ansible.builtin.file:
+        path: "{{ user_units_dir }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
+    # Templated, not copied: WorkingDirectory is this checkout's path, which is a
+    # property of the machine and is never written into the repo.
+    - name: Deploy The Login-Time Health Report Unit
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/home/.config/systemd/user/{{ unit_name }}.j2"
+        dest: "{{ user_units_dir }}/{{ unit_name }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+      register: hh_unit
+
+    # Resolved, not assumed. A sibling play writes `/run/user/{{ uid | default(1000) }}`,
+    # and a wrong default there does not fail — it silently points the probe at
+    # another user's runtime directory, or at nothing, and the enable step then
+    # reports "no user manager" on a host that has one.
+    - name: Resolve The Session User UID
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ user_login }}"
+
+    - name: Assert The Session User Exists
+      ansible.builtin.assert:
+        that:
+          - getent_passwd[user_login] is defined
+          - getent_passwd[user_login][1] | int > 0
+        fail_msg: >-
+          Could not resolve a uid for {{ user_login }}, so this play cannot find that
+          user's systemd manager. It would otherwise guess, and a guessed uid points
+          at the wrong runtime directory without failing.
+
+    # The CCY container has no user systemd; the deployed HOST does. Probe for a
+    # usable manager rather than assuming one, and check the result explicitly.
+    - name: Probe For A Usable Systemd User Manager
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command: systemctl --user is-system-running
+      changed_when: false
+      failed_when: false # FAIL-FAST-OK: the rc is the probe's answer and is checked below
+      register: hh_user_systemd
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ getent_passwd[user_login][1] }}"
+
+    - name: Enable The Login-Time Health Report
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.systemd:
+        name: "{{ unit_name }}"
+        scope: user
+        enabled: true
+        daemon_reload: "{{ hh_unit.changed }}"
+      when: hh_user_systemd.rc == 0
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ getent_passwd[user_login][1] }}"
+
+    # Not a "skip and warn": the unit is deployed and WantedBy graphical-session,
+    # so the next login enables it. This states which of the two paths ran, because
+    # a play that says nothing about it leaves the operator unable to tell whether
+    # the report is live.
+    - name: Report Which Enable Path Ran
+      ansible.builtin.assert:
+        that:
+          - hh_user_systemd.rc is defined
+        success_msg: >-
+          {{ 'Enabled now against the running user manager.'
+             if hh_user_systemd.rc == 0
+             else 'No user manager reachable from here, so the unit was deployed but not
+                   enabled by this run; it is WantedBy graphical-session.target and the
+                   next login picks it up.' }}
+        quiet: false

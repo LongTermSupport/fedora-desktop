@@ -1,0 +1,29 @@
+{{ ansible_managed | comment }}
+[Unit]
+Description=fedora-desktop host health report (login-time, reporting-only)
+Documentation=https://github.com/LongTermSupport/fedora-desktop
+# END of login, not boot. The whole point is that somebody is present to read it:
+# a report delivered to an empty greeter is a report nobody sees, and the failure
+# this exists for was a broken host nobody was told about. After
+# graphical-session.target so the session bus exists for the notification.
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=oneshot
+# Reporting-only. It runs dkms status, systemctl --failed and a git fetch, and it
+# writes nothing outside the ledger's own directory. It never re-runs a play,
+# never installs anything and never moves the working tree - re-running a play is
+# always a human decision (see the plan's Non-Goals).
+#
+# WorkingDirectory is the repo checkout, templated rather than assumed, so the
+# helpers package imports. No path is hardcoded anywhere in this repo.
+ExecStart=/usr/bin/python3 -m helpers.host_health.login_report
+WorkingDirectory={{ root_dir }}
+# Exit 1 means "there are findings", which is a successful run of the check. Only
+# a crash is a unit failure, so a drifted host does not also show up as a broken
+# service - two alarms for one fact is how both come to be ignored.
+SuccessExitStatus=0 1
+
+[Install]
+WantedBy=graphical-session.target
