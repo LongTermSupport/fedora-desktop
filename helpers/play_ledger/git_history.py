@@ -14,6 +14,7 @@ Every call names the repo with `-C`: the caller's cwd is not the checkout.
 from __future__ import annotations
 
 import hashlib
+import os
 import subprocess
 from collections.abc import Callable
 
@@ -25,13 +26,28 @@ Runner = Callable[..., subprocess.CompletedProcess]
 _FIELD_SEP = "\x1f"
 
 
+#: The one genuinely network-bound call on the login path, so the one that needs a
+#: bound. Without it the backstop is systemd's 90s default `TimeoutStartSec`, which
+#: kills the unit — turning a slow network into a *failed unit*, which is the
+#: opposite of what `SuccessExitStatus=0 1` is there to achieve. A check that stalls
+#: the session gets removed from the session.
+_FETCH_TIMEOUT_SECONDS = 20
+
+
 def fetch(repo_root: str, *, run: Runner = subprocess.run) -> None:
-    """Refresh remote refs. Never touches the working tree."""
+    """Refresh remote refs. Never touches the working tree, and never blocks on input.
+
+    `GIT_TERMINAL_PROMPT=0` because a credential prompt on a login path has no
+    terminal to appear on: git would wait for an answer nobody can give, and the
+    timeout below would then be the only thing that ended the login's last step.
+    """
     run(
         ["git", "-C", repo_root, "fetch", "--quiet"],
         check=True,
         capture_output=True,
         text=True,
+        timeout=_FETCH_TIMEOUT_SECONDS,
+        env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": ""},
     )
 
 

@@ -84,8 +84,8 @@
     - name: Assert The Session User Exists
       ansible.builtin.assert:
         that:
-          - getent_passwd[user_login] is defined
-          - getent_passwd[user_login][1] | int > 0
+          - ansible_facts['getent_passwd'][user_login] is defined
+          - ansible_facts['getent_passwd'][user_login][1] | int > 0
         fail_msg: >-
           Could not resolve a uid for {{ user_login }}, so this play cannot find that
           user's systemd manager. It would otherwise guess, and a guessed uid points
@@ -112,4 +112,4 @@
         enabled: true
         daemon_reload: "{{ hh_unit.changed }}"
       environment:
-        XDG_RUNTIME_DIR: "/run/user/{{ getent_passwd[user_login][1] }}"
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"

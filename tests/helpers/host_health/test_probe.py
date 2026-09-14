@@ -146,11 +146,12 @@ class TestCollect(unittest.TestCase):
         report = probe.collect(running_kernel=RUNNING_KERNEL, runner=runner)
         self.assertFalse(report.clean)
 
-    def test_phase_2_findings_are_merged_into_the_same_report(self) -> None:
-        report = probe.collect(
-            running_kernel=RUNNING_KERNEL, runner=healthy(),
-            extra=["evdi: pinned 1.15.0, installed 1.14.16"])
-        self.assertIn("evdi: pinned 1.15.0, installed 1.14.16", report.findings)
+    def test_it_reports_on_the_host_only(self) -> None:
+        """Phase 2's findings do not come through here. They merge in
+        `login_report.collect`, which is the only layer that can guard each check
+        separately, and whose own tests pin the one-notification property."""
+        report = probe.collect(running_kernel=RUNNING_KERNEL, runner=healthy())
+        self.assertTrue(report.clean)
 
 
 class TestRunningKernel(unittest.TestCase):

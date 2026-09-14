@@ -72,6 +72,15 @@ class TestOfflineVerdict(unittest.TestCase):
         at_bound = fetch_clock.shift(NOW, days=-fetch_clock.STALE_AFTER_DAYS)
         self.assertIsNone(fetch_clock.offline_finding(last=at_bound, now=NOW))
 
+    def test_the_FIRST_day_past_the_bound_is_a_finding(self) -> None:
+        """The bound plus one, not the bound plus three. With a comfortable margin a
+        bound widened by a day still satisfies both this and the silence test above,
+        so the pair would agree that a boundary was pinned while leaving it free."""
+        first_past = fetch_clock.shift(NOW, days=-(fetch_clock.STALE_AFTER_DAYS + 1))
+        finding = fetch_clock.offline_finding(last=first_past, now=NOW)
+        self.assertIsNotNone(finding)
+        self.assertIn(str(fetch_clock.STALE_AFTER_DAYS + 1), finding)
+
     def test_beyond_the_bound_is_a_finding_naming_the_gap(self) -> None:
         past = fetch_clock.shift(NOW, days=-(fetch_clock.STALE_AFTER_DAYS + 3))
         finding = fetch_clock.offline_finding(last=past, now=NOW)
@@ -93,6 +102,10 @@ class TestOfflineVerdict(unittest.TestCase):
         )
 
     def test_an_unparseable_stamp_is_a_finding_not_silence(self) -> None:
+        """An input guard on a public function, and NOT the route a corrupt stamp on
+        disk takes: `last_success` filters an unreadable one to `None`, so via `run()`
+        a corrupt stamp reports "never fetched" instead. Both are findings, so neither
+        is a silent pass — this pins the guard for a caller that passes the raw text."""
         finding = fetch_clock.offline_finding(last="whenever", now=NOW)
         self.assertIsNotNone(finding)
 

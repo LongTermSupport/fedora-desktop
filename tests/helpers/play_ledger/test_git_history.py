@@ -36,6 +36,37 @@ class TestFetch(unittest.TestCase):
         git_history.fetch("/repo", run=run)
         self.assertEqual(run.call_args.args[0][:3], ["git", "-C", "/repo"])
 
+    def test_it_is_bounded_by_a_timeout(self) -> None:
+        """The one genuinely network-bound call on the login path. Unbounded, the only
+        backstop is systemd's 90s `TimeoutStartSec`, which KILLS the unit — so a slow
+        network would register as a failed unit, the exact outcome `SuccessExitStatus=0 1`
+        exists to avoid. A check that stalls the session gets removed from the session."""
+        run = mock.Mock(return_value=_completed())
+        git_history.fetch("/repo", run=run)
+        timeout = run.call_args.kwargs.get("timeout")
+        self.assertTrue(
+            isinstance(timeout, (int, float)) and timeout > 0,
+            f"fetch must pass a positive timeout, got {timeout!r}",
+        )
+
+    def test_it_never_waits_for_credentials_nobody_can_type(self) -> None:
+        """A login path has no terminal for a prompt to appear on, so git would wait
+        for an answer that cannot come and the timeout above would be the only thing
+        that ended the last step of the login."""
+        run = mock.Mock(return_value=_completed())
+        git_history.fetch("/repo", run=run)
+        environment = run.call_args.kwargs.get("env") or {}
+        self.assertEqual(environment.get("GIT_TERMINAL_PROMPT"), "0")
+
+    def test_it_passes_the_rest_of_the_environment_through(self) -> None:
+        """Replacing the environment rather than extending it would drop HOME, and
+        git reads its own configuration from there."""
+        run = mock.Mock(return_value=_completed())
+        git_history.fetch("/repo", run=run)
+        environment = run.call_args.kwargs.get("env") or {}
+        for name in os.environ:
+            self.assertIn(name, environment)
+
 
 class TestChangesSince(unittest.TestCase):
     def test_parses_short_sha_and_subject(self) -> None:

@@ -127,14 +127,17 @@ def build_report(
     failed_system: ProbeOutcome,
     failed_user: ProbeOutcome,
     running_kernel: str,
-    extra: list[str] | None = None,
 ) -> Report:
-    """Every finding, from every source, in one report.
+    """Every host-health finding, from every probe, in one report.
 
     Each probe is judged independently, so one that could not run never masks
-    another's findings. `extra` is where Phase 2's play-freshness and
-    installed-vs-pinned findings join, so a broken host produces one notification
-    rather than three.
+    another's findings.
+
+    Phase 2's play-freshness and installed-vs-pinned findings do **not** arrive here.
+    They merge a layer up, in `login_report.collect`, which is the only place that can
+    guard each check separately — passed in as an argument they would have to be
+    computed first, and a raising check would take this report down with it instead of
+    becoming a finding of its own.
     """
     findings: list[str] = []
 
@@ -150,5 +153,4 @@ def build_report(
 
     findings.extend(_unit_outcome_findings(failed_system, scope="system"))
     findings.extend(_unit_outcome_findings(failed_user, scope="user"))
-    findings.extend(extra or [])
     return Report(tuple(findings))

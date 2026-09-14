@@ -18,8 +18,10 @@ What is pinned here:
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
@@ -196,6 +198,60 @@ class TestUntrackedPinsAreSilent(unittest.TestCase):
                 pins=[untracked], playbook_text=lambda _: PLAYBOOK, dkms_status=explode),
             [],
         )
+
+
+class TestTheRealResolvers(unittest.TestCase):
+    """`_rpm_version` and `_command_version`, which had no tests — so the fallbacks the
+    module falls back TO were asserted to work and never exercised.
+
+    The one that matters is ABSENT. `installed_from_dkms`'s own docstring calls a
+    missing package "a real, reportable state, and the incident's own worst case", and
+    `_rpm_version` is meant to return `None` for it. It could not: the error it matches
+    on is built from the probe's output, and a failing `rpm -q` reports on stdout.
+    """
+
+    @staticmethod
+    def _completed(returncode: int, stdout: str = "", stderr: str = ""):
+        return subprocess.CompletedProcess(
+            args=["probe"], returncode=returncode, stdout=stdout, stderr=stderr
+        )
+
+    def _with_probe(self, completed):
+        """Patch the ONE subprocess call, so the real `_run` is what gets exercised."""
+        return mock.patch.object(check_pins.subprocess, "run", return_value=completed)
+
+    def test_an_absent_package_is_None_not_an_error(self) -> None:
+        """`rpm -q` says so on STDOUT and exits non-zero, which is the shape that made
+        this branch unreachable."""
+        absent = self._completed(1, stdout="package nope is not installed\n")
+        with self._with_probe(absent):
+            self.assertIsNone(check_pins._rpm_version("nope"))
+
+    def test_an_installed_package_returns_its_version(self) -> None:
+        with self._with_probe(self._completed(0, stdout="1.14.16")):
+            self.assertEqual(check_pins._rpm_version("evdi"), "1.14.16")
+
+    def test_a_genuine_rpm_failure_still_raises(self) -> None:
+        """ABSENT must not become the catch-all for every non-zero exit — that would
+        report a broken rpm database as "nothing installed"."""
+        with self._with_probe(self._completed(1, stderr="rpmdb: BDB0113 corrupt")):
+            with self.assertRaises(check_pins.ResolutionError):
+                check_pins._rpm_version("evdi")
+
+    def test_the_probe_runs_in_a_predictable_locale(self) -> None:
+        """The ABSENT check matches English text, so a translated message would make it
+        miss — working on a developer's machine and failing on a user's."""
+        with self._with_probe(self._completed(0, stdout="1.0")) as run:
+            check_pins._rpm_version("evdi")
+        self.assertEqual(run.call_args.kwargs["env"]["LC_ALL"], "C")
+
+    def test_command_version_returns_the_output(self) -> None:
+        with self._with_probe(self._completed(0, stdout="evdi 1.15.0\n")):
+            self.assertEqual(check_pins._command_version("evdi"), "evdi 1.15.0")
+
+    def test_command_version_with_no_output_is_None(self) -> None:
+        with self._with_probe(self._completed(0, stdout="   \n")):
+            self.assertIsNone(check_pins._command_version("evdi"))
 
 
 class TestExitStatus(unittest.TestCase):

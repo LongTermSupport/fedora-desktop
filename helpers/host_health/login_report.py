@@ -29,6 +29,7 @@ Design: CLAUDE/Plan/00109-desktop-drift-detection-and-fedora-desktop-panel/DESIG
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -42,7 +43,14 @@ from helpers.version_pins import check_pins
 #: Clean: nothing the user must act on, and nothing shown.
 EXIT_OK = 0
 #: Something is wrong, or could not be checked. Both are the user's business.
-EXIT_FINDINGS = 1
+#:
+#: **3, not 1, and that is load-bearing.** The unit declares this status a success, so
+#: that a drifted host does not also register as a broken service. Python exits **1**
+#: for any uncaught exception — a wrong `WorkingDirectory`, a renamed helper, a typo in
+#: a module — so at 1 the unit would declare a permanently dead health surface a
+#: success, deliver nothing, and leave `is-failed` silent. That is this plan's own
+#: incident, rebuilt inside the code written to prevent it. 1 and 2 stay failures.
+EXIT_FINDINGS = 3
 
 _SUMMARY = "fedora-desktop: this machine needs attention"
 _TIMEOUT_SECONDS = 15
@@ -145,31 +153,85 @@ def _repo_root_default() -> str:
     return os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
 
-def _freshness_findings(base: str, repo_root: str) -> list[str]:
-    """The freshness check's own output, as lines, via its real entry point."""
-    captured: list[str] = []
+class _Sink:
+    """Collects one channel's output. Two of these, never one shared between both."""
 
-    class _Sink:
-        def write(self, text: str) -> None:
-            captured.append(text)
+    def __init__(self) -> None:
+        self._chunks: list[str] = []
 
-    status = check_freshness.run(
-        base=base, repo_root=repo_root, stdout=_Sink(), stderr=_Sink()
-    )
+    def write(self, text: str) -> None:
+        self._chunks.append(text)
+
+    def lines(self) -> list[str]:
+        return [line for line in "".join(self._chunks).splitlines() if line.strip()]
+
+
+def _fold_detail_lines(lines: list[str]) -> list[str]:
+    """One finding per line, with each finding's indented detail folded into it.
+
+    `check_freshness` writes a stale play as a headline followed by indented commit
+    lines. Returned as peers they became findings in their own right: the count said
+    four problems where there was one, and the notification listed commits as though
+    each were something to fix.
+
+    An indented line with nothing above it is kept as its own finding. Dropping it
+    would be the worse failure — this is the layer that must not lose anything.
+    """
+    findings: list[str] = []
+    for line in lines:
+        if line.startswith((" ", "\t")) and findings:
+            findings[-1] = f"{findings[-1]}; {line.strip()}"
+        else:
+            findings.append(line.strip())
+    return findings
+
+
+def freshness_findings(
+    base: str,
+    repo_root: str,
+    *,
+    stderr: TextIO,
+    run: Callable[..., int] = check_freshness.run,
+) -> list[str]:
+    """The freshness check's findings, via its real entry point.
+
+    Its two channels are kept apart deliberately. Sharing one sink between them made
+    every diagnostic a user-facing finding: "git fetch failed" was reported as a
+    problem with this host on any login that had any other finding — which is
+    precisely what [DESIGN-host-health.md](../../CLAUDE/Plan/00109-desktop-drift-detection-and-fedora-desktop-panel/DESIGN-host-health.md)
+    §8 decided against — and in the long-gap case it appeared twice, once as the raw
+    exception and once as `offline_finding`'s sentence.
+
+    `run` is injected for the same reason `dkms_text`'s runner is: this seam is where
+    the defects were, and it is only testable if it can be driven.
+    """
+    out, diagnostics = _Sink(), _Sink()
+    status = run(base=base, repo_root=repo_root, stdout=out, stderr=diagnostics)
+
+    # Diagnostics are not findings, and they are not discarded either — they go where
+    # diagnostics go (CLAUDE/StderrHygiene.md).
+    for line in diagnostics.lines():
+        stderr.write(f"{line}\n")
+
     if status == check_freshness.EXIT_UNTRUSTWORTHY:
         # "I cannot tell you" is a finding. It is the state the BROKEN sentinel and
         # an unresolvable ledgered commit produce, and reporting it as clean is the
-        # exact defect this plan exists for.
-        return [
-            "play-freshness could not give an answer, so no play was judged "
-            "(see its stderr output above)"
-        ]
+        # exact defect this plan exists for. It carries the REASON: the sentinel
+        # exists to say why, and a finding that pointed at "its stderr output above"
+        # sent the reader looking for something never shown to them.
+        reason = "; ".join(diagnostics.lines()) or "it gave no reason"
+        return [f"play-freshness could not give an answer, so no play was judged: {reason}"]
     if status == check_freshness.EXIT_OK:
         return []
-    return [line.rstrip("\n") for line in "".join(captured).splitlines() if line.strip()]
+    return _fold_detail_lines(out.lines())
 
 
-def main(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
+def main(
+    argv: list[str] | None = None,
+    *,
+    stdout: TextIO | None = None,
+    stderr: TextIO | None = None,
+) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", default=_repo_root_default())
     parser.add_argument(
@@ -179,11 +241,15 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
     )
     arguments = parser.parse_args(argv)
     out = stdout if stdout is not None else sys.stdout
+    # The findings are the payload and go to stdout; the checks' own diagnostics are
+    # not findings and go here. One stream for both is what made a failed fetch read
+    # as a problem with the host.
+    diagnostics = stderr if stderr is not None else sys.stderr
     base = ledger.ledger_dir(os.environ, os.path.expanduser("~"))
 
     findings = collect(
         health=lambda: probe.collect(running_kernel=probe.running_kernel()),
-        freshness=lambda: _freshness_findings(base, arguments.repo_root),
+        freshness=lambda: freshness_findings(base, arguments.repo_root, stderr=diagnostics),
         pins=lambda: check_pins.check(
             pins=_declared_pins(arguments.repo_root),
             playbook_text=lambda relative: _read(arguments.repo_root, relative),
@@ -218,8 +284,6 @@ def _read(root: str, relative: str) -> str:
 
 def _declared_pins(root: str):
     """The pin manifest, converted outside the stdlib-only helpers as ever."""
-    import json
-
     from helpers.version_pins import manifest
 
     decoded = json.loads(

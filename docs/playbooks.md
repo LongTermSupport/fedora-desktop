@@ -768,8 +768,11 @@ anything**:
 - A check that *could not run* is reported as a finding, never as a pass. That is the
   whole point: the failure this exists for was a reboot that left both DisplayLink
   monitors dark while every automated check in the repo stayed green
-- Exit 1 means "there are findings", which is a successful run — only a crash is a unit
-  failure
+- Exit 3 means "there are findings", which is a successful run of the check, so a drifted
+  host does not also register as a broken service. It is deliberately not 1: Python exits
+  1 for an uncaught exception, so a report that crashed would otherwise be indistinguishable
+  from one that ran and found something — and `systemctl --user is-failed` would stay silent
+  about a health surface that had stopped working
 
 #### play-ddev.yml
 

@@ -82,4 +82,5 @@ produce a finding about a question nobody decided to ask, on a host that may leg
 Not in `qa-all.bash` — see [DESIGN-play-ledger.md](DESIGN-play-ledger.md) §7 for why neither drift
 check belongs there. Its **tests** are in `qa-all` via `qa-helper-tests.bash`, and its **manifest**
 is validated there by `qa-version-pins.bash`; the check itself belongs to Phase 3's login surface,
-where its findings merge into the one report through `probe_results.build_report`'s `extra`.
+where its findings merge into the one report in `login_report.collect` — the layer that guards
+each check separately, so this one raising cannot silence the other two.

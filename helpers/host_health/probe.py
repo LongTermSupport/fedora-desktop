@@ -32,7 +32,9 @@ from helpers.host_health import probe_results
 #: Clean: nothing the user must act on, and nothing printed.
 EXIT_OK = 0
 #: Something is wrong, or could not be checked. Both are the user's business.
-EXIT_FINDINGS = 1
+#: 3 rather than 1, matching `login_report`: 1 is what Python exits for an uncaught
+#: exception, so a status of 1 cannot mean "the check ran and found something".
+EXIT_FINDINGS = 3
 
 #: `--no-legend` suppresses the "N loaded units listed" footer, which would otherwise
 #: parse as a unit named after the count. `--plain` drops the leading bullet and
@@ -91,13 +93,13 @@ def collect(
     *,
     running_kernel: str,
     runner: Runner | None = None,
-    extra: list[str] | None = None,
 ) -> probe_results.Report:
     """Run all three probes and classify what they returned.
 
     `runner` is the seam the tests drive; unsupplied, the real one is used.
-    `extra` carries Phase 2's findings into the same report, so a host with a stale
-    play and a failed unit and a drifted pin produces one notification, not three.
+
+    This reports on the HOST only. Phase 2's findings join in `login_report.collect`,
+    which is where each check can be guarded on its own — see `build_report`.
     """
     run = runner or run_probe
     return probe_results.build_report(
@@ -105,7 +107,6 @@ def collect(
         failed_system=run(list(_FAILED_UNITS)),
         failed_user=run([_FAILED_UNITS[0], "--user", *_FAILED_UNITS[1:]]),
         running_kernel=running_kernel,
-        extra=extra,
     )
 
 

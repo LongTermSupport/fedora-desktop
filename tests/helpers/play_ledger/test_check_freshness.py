@@ -252,6 +252,33 @@ class TestFailures(unittest.TestCase):
             self.assertEqual(code, check_freshness.EXIT_FINDINGS)
             self.assertIn("never", stdout.getvalue())
 
+    def test_a_STAMP_WRITE_failure_is_not_blamed_on_the_fetch(self) -> None:
+        """The stamp write used to live inside the fetch's own `try`, so a full disk
+        produced two confident statements about a fetch that had just succeeded:
+        "git fetch failed" on stderr, and "has never successfully reached the remote"
+        on stdout. Neither was true.
+
+        The failure is injected by putting a DIRECTORY where the stamp file belongs —
+        a real `IsADirectoryError` from the real code path. Permissions would not do
+        it here: these tests run as root, which bypasses the mode check.
+        """
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, ["playbooks/a.yml"])
+            os.mkdir(os.path.join(base, fetch_clock.STAMP_NAME))
+
+            stdout, stderr = io.StringIO(), io.StringIO()
+            code = check_freshness.run(
+                base=base, repo_root="/repo", stdout=stdout, stderr=stderr,
+                fetch=lambda root: None,
+                changes_since=lambda root, commit, play: [],
+                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
+            )
+            self.assertEqual(code, check_freshness.EXIT_OK)
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertNotIn("git fetch failed", stderr.getvalue())
+            self.assertNotIn("never", stderr.getvalue())
+            self.assertIn("the fetch succeeded", stderr.getvalue())
+
     def test_a_SUCCESSFUL_fetch_stamps_the_clock(self) -> None:
         """Without this the bound never advances and every host eventually reports
         the long-gap finding for ever — a check that cries wolf, permanently."""

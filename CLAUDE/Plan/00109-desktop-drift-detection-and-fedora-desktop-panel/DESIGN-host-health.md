@@ -66,9 +66,14 @@ human to read afterwards — it classifies nothing, so it is a sibling, not a ba
 `Report.clean` is true exactly when there are no findings, and Task 3.2's notification fires
 only when it is false. Nothing reaches the user on a healthy login.
 
-Phase 2's findings arrive through a single `extra` argument rather than a second report, so a
-host with a stale play *and* a failed unit *and* a drifted pin produces **one** notification
+A host with a stale play *and* a failed unit *and* a drifted pin produces **one** notification
 listing three things — not three notifications, which is the other way a check gets muted.
+
+Phase 2's findings join in `login_report.collect`, **not** in `build_report`. That is the only
+layer that can guard each check on its own: handed to `build_report` as an argument they would
+have to be computed first, and a check that raised would take the host report down with it
+rather than becoming a finding that names itself. Merging where the guards are is what makes
+"merged, not chained" true rather than aspirational.
 
 ## 6. The executor, and the hole the split hid
 

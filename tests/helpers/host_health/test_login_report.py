@@ -19,6 +19,7 @@ What is pinned here, all of it about the ways a health surface stops being one:
 
 from __future__ import annotations
 
+import io
 import os
 import sys
 import unittest
@@ -26,6 +27,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 from helpers.host_health import login_report, probe_results
+from helpers.play_ledger import check_freshness
 
 RUNNING_KERNEL = "7.2.4-200.fc44.x86_64"
 HEALTHY_DKMS = f"evdi/1.15.0, {RUNNING_KERNEL}, x86_64: installed"
@@ -199,6 +201,18 @@ class TestTheDkmsSeamDoesNotFabricateAnAnswer(unittest.TestCase):
 
 
 class TestExitStatus(unittest.TestCase):
+    def test_findings_cannot_be_confused_with_an_interpreter_crash(self) -> None:
+        """The unit declares the findings status a SUCCESS, so a drifted host does not
+        also read as a broken service. Python exits 1 for any uncaught exception, so if
+        findings were 1 the unit would call a permanently dead health surface a success
+        and say nothing — this plan's own incident, inside the code preventing it.
+
+        2 is excluded as well: `argparse` exits 2 on a usage error, so a unit started
+        with a bad flag must not read as findings either.
+        """
+        self.assertNotIn(login_report.EXIT_FINDINGS, (1, 2))
+        self.assertNotEqual(login_report.EXIT_FINDINGS, login_report.EXIT_OK)
+
     def test_clean_and_findings_are_distinct(self) -> None:
         self.assertNotEqual(login_report.EXIT_OK, login_report.EXIT_FINDINGS)
 
@@ -222,6 +236,110 @@ class TestTheNotificationText(unittest.TestCase):
         with nothing would otherwise send an empty notification."""
         with self.assertRaises(ValueError):
             login_report.message([])
+
+
+class TestTheFreshnessSeamKeepsItsChannelsApart(unittest.TestCase):
+    """The seam between this module and `check_freshness`, which had no tests at all.
+
+    `check_freshness` answers on two channels that mean different things: stdout
+    carries findings, stderr carries the reason it could not answer. Handed a single
+    sink for both, every diagnostic became a user-facing finding — "git fetch failed"
+    reported as a problem with the host, which `DESIGN-host-health.md` §8 decided it
+    must not be — and every commit line beneath a stale play became a peer finding, so
+    one stale play with three commits counted as four problems.
+
+    The same seam one file over (`dkms_text`) got its own class because this lesson had
+    already been paid for. This one had not, which is why it was where the defects were.
+    """
+
+    @staticmethod
+    def _fake(status: int, out: str, err: str):
+        """Stands in for `check_freshness.run`, writing to the channels it is given."""
+
+        def run(*, stdout, stderr, **_arguments) -> int:
+            stdout.write(out)
+            stderr.write(err)
+            return status
+
+        return run
+
+    def _findings(self, status: int, out: str = "", err: str = "") -> tuple[list[str], str]:
+        errors = io.StringIO()
+        findings = login_report.freshness_findings(
+            "/state/base", "/repo", stderr=errors, run=self._fake(status, out, err)
+        )
+        return findings, errors.getvalue()
+
+    def test_a_clean_run_reports_nothing(self) -> None:
+        self.assertEqual(self._findings(check_freshness.EXIT_OK)[0], [])
+
+    def test_a_diagnostic_is_not_a_finding(self) -> None:
+        findings, _ = self._findings(
+            check_freshness.EXIT_FINDINGS,
+            out="playbooks/a.yml — changed since it was run here\n",
+            err="play-freshness: git fetch failed, judging on the refs on hand: boom\n",
+        )
+        self.assertEqual(findings, ["playbooks/a.yml — changed since it was run here"])
+
+    def test_a_diagnostic_still_reaches_stderr(self) -> None:
+        """Kept out of the payload, not thrown away — it is a diagnostic, so it goes
+        where diagnostics go (`CLAUDE/StderrHygiene.md`)."""
+        _, errors = self._findings(
+            check_freshness.EXIT_FINDINGS,
+            out="playbooks/a.yml — changed\n",
+            err="play-freshness: git fetch failed: boom\n",
+        )
+        self.assertIn("git fetch failed: boom", errors)
+
+    def test_the_untrustworthy_reason_reaches_the_user(self) -> None:
+        """The BROKEN sentinel exists to say WHY. A finding that dropped the reason and
+        pointed at "its stderr output above" sent the reader looking for something that
+        was never shown to them."""
+        findings, _ = self._findings(
+            check_freshness.EXIT_UNTRUSTWORTHY,
+            err=(
+                "play-freshness: the ledger is marked BROKEN and cannot be trusted.\n"
+                "  reason: the callback could not write a record: disk full\n"
+            ),
+        )
+        self.assertEqual(len(findings), 1)
+        self.assertIn("disk full", findings[0])
+
+    def test_one_stale_play_is_one_finding_carrying_its_commits(self) -> None:
+        findings, _ = self._findings(
+            check_freshness.EXIT_FINDINGS,
+            out=(
+                "playbooks/a.yml — changed since it was run here\n"
+                "    aaa1111  first change\n"
+                "    bbb2222  second change\n"
+            ),
+        )
+        self.assertEqual(len(findings), 1)
+        self.assertIn("aaa1111", findings[0])
+        self.assertIn("bbb2222", findings[0])
+
+    def test_every_finding_is_a_single_line(self) -> None:
+        """`emit` writes one finding per line and `test_probe.py` pins that as a
+        contract; this is the one place that produced multi-line findings."""
+        findings, _ = self._findings(
+            check_freshness.EXIT_FINDINGS,
+            out=(
+                "playbooks/a.yml — changed\n"
+                "    aaa1111  first change\n"
+                "playbooks/b.yml — changed\n"
+            ),
+        )
+        self.assertEqual(len(findings), 2)
+        for finding in findings:
+            self.assertNotIn("\n", finding)
+
+    def test_an_orphan_detail_line_is_kept_not_dropped(self) -> None:
+        """The fold must not be able to lose a line. An indented line with no headline
+        before it becomes its own finding rather than being swallowed."""
+        findings, _ = self._findings(
+            check_freshness.EXIT_FINDINGS, out="    aaa1111  an orphan\n"
+        )
+        self.assertEqual(findings, ["aaa1111  an orphan"])
 
 
 if __name__ == "__main__":

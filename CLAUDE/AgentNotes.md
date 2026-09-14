@@ -777,6 +777,34 @@ if [ "$status" -ne 0 ]; then case "$status" in …; esac; fi
 
 Assert on the **output**, not only the status, when a control exercises a failure path.
 
+### A guard is only as good as the question its probe answers
+
+Before trusting a probe's exit code, check **which states it collapses**. A guard that
+reads a status as the answer to your question, when the tool is answering a different
+one, skips the work on exactly the hosts that needed it.
+
+Measured instance: a play gated its enable step on `systemctl --user is-system-running`
+returning 0, meaning it to answer *"is there a user manager here"*. systemd's source is
+`streq(state, "running") ? EXIT_SUCCESS : EXIT_FAILURE`, so it answers *"is everything
+healthy"* — `degraded` exits 1 too. A user manager that was up but had one failed unit
+read as no manager at all, and the enable was skipped on precisely the unhealthy host
+the play existed to report on.
+
+Two habits that follow:
+
+- **Read the tool's own source or man page for the exit semantics.** "Non-zero when
+  absent" is usually true and usually not the whole answer.
+- **Ask why the tolerance exists.** That probe was there to tolerate the CCY container,
+  where there is no user systemd — a case that is prohibited anyway. Engineering for a
+  case that must never happen bought a false negative on the case that does. Deleting
+  the guard fixed it: the operation itself is the probe, and it fails loudly.
+
+Also: a `when:` that skips an operation needs a paired claim about what happens instead,
+and that claim must be true. The same play told the operator the unit was `WantedBy`
+`graphical-session.target` so "the next login picks it up" — `WantedBy` in `[Install]`
+is inert until `enable` writes the `.wants` symlink, so the sentence described a report
+that would never fire.
+
 ### The seam between two tested components is where the tests are not looking
 
 Two helpers, each with full unit coverage, joined by one line of wiring, is the shape

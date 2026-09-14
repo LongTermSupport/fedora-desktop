@@ -84,9 +84,10 @@ def run(
         return EXIT_OK
 
     offline: str | None = None
+    reached_remote = False
     try:
         fetch(repo_root)
-        fetch_clock.record_success(base, at=repo.utc_now())
+        reached_remote = True
     except Exception as error:
         # Offline at login is ordinary, so a failed fetch is NOT untrustworthy on its
         # own. What matters is how long it has been — a fact about this host rather
@@ -95,6 +96,20 @@ def run(
         offline = fetch_clock.offline_finding(
             last=fetch_clock.last_success(base), now=repo.utc_now()
         )
+
+    if reached_remote:
+        # Stamped in its OWN try. Inside the fetch's, a stamp that cannot be written —
+        # a full disk, a read-only state directory — was reported as a failed fetch,
+        # and `offline_finding` then read the absent stamp and said the remote had
+        # never been reached. Two confident statements, both false, about a fetch that
+        # had just succeeded.
+        try:
+            fetch_clock.record_success(base, at=repo.utc_now())
+        except Exception as error:
+            stderr.write(
+                "play-freshness: the fetch succeeded, but recording its timestamp "
+                f"failed, so the next run will judge the gap from an older stamp: {error}\n"
+            )
 
     verdicts: list[freshness.Verdict] = []
     for play in plays:

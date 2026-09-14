@@ -212,22 +212,16 @@ class TestReport(unittest.TestCase):
             running_kernel=RUNNING_KERNEL)
         self.assertEqual(len(report.findings), 3)
 
-    def test_extra_findings_from_phase_2_are_merged_in(self) -> None:
-        """Play-freshness and installed-vs-pinned are separate checks; this is where
-        their findings join the login report rather than being a second notification."""
+    def test_a_healthy_host_produces_a_clean_report(self) -> None:
+        """This report covers the host probes and nothing else. Play-freshness and
+        installed-vs-pinned findings merge in `login_report.collect`, which can guard
+        each check on its own — so a raising one becomes a finding instead of taking
+        this report down."""
         report = probe_results.build_report(
             dkms=probe_results.ProbeOutcome(ok=True, text=DKMS_HEALTHY, error=""),
-            failed_system=NO_UNITS, failed_user=NO_UNITS, running_kernel=RUNNING_KERNEL,
-            extra=["evdi: pinned 1.15.0, installed 1.14.16"])
-        self.assertFalse(report.clean)
-        self.assertIn("evdi: pinned 1.15.0, installed 1.14.16", report.findings)
-
-    def test_no_extra_findings_keeps_a_clean_host_silent(self) -> None:
-        report = probe_results.build_report(
-            dkms=probe_results.ProbeOutcome(ok=True, text=DKMS_HEALTHY, error=""),
-            failed_system=NO_UNITS, failed_user=NO_UNITS, running_kernel=RUNNING_KERNEL,
-            extra=[])
+            failed_system=NO_UNITS, failed_user=NO_UNITS, running_kernel=RUNNING_KERNEL)
         self.assertTrue(report.clean)
+        self.assertEqual(report.findings, ())
 
 
 if __name__ == "__main__":

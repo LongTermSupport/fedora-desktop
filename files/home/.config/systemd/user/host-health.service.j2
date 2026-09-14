@@ -7,7 +7,9 @@ Documentation=https://github.com/LongTermSupport/fedora-desktop
 # this exists for was a broken host nobody was told about. After
 # graphical-session.target so the session bus exists for the notification.
 After=graphical-session.target
-PartOf=graphical-session.target
+# No PartOf=. It propagates stop and restart from the target, and there is nothing to
+# propagate to a oneshot that has already exited — it is the idiom for a long-running
+# session service, and carrying it here would suggest this is one.
 
 [Service]
 Type=oneshot
@@ -20,10 +22,15 @@ Type=oneshot
 # helpers package imports. No path is hardcoded anywhere in this repo.
 ExecStart=/usr/bin/python3 -m helpers.host_health.login_report
 WorkingDirectory={{ root_dir }}
-# Exit 1 means "there are findings", which is a successful run of the check. Only
-# a crash is a unit failure, so a drifted host does not also show up as a broken
-# service - two alarms for one fact is how both come to be ignored.
-SuccessExitStatus=0 1
+# Exit 3 means "there are findings", which is a successful run of the check: a
+# drifted host must not also show up as a broken service, because two alarms for one
+# fact is how both come to be ignored.
+#
+# 3 and not 1, deliberately. Python exits 1 for any uncaught exception - a wrong
+# WorkingDirectory, a renamed helper, a typo - so listing 1 here would declare a
+# permanently dead health surface a success, deliver no findings, and leave
+# `systemctl --user is-failed` silent about it. 1 and 2 are left as real failures.
+SuccessExitStatus=3
 
 [Install]
 WantedBy=graphical-session.target

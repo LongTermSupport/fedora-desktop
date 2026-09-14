@@ -23,8 +23,9 @@ compares the repo pin against **what is actually installed on this host**, which
 the axis that failed. Nothing watches that axis today.
 
 The exposure is structural, not specific to DisplayLink. `playbook-main.yml` imports
-the core plays, so those get re-run whenever main is run. The other **43 plays under
-`playbooks/imports/optional/`** are run by hand, once, and then forgotten — there is
+the core plays, so those get re-run whenever main is run. The **plays under
+`playbooks/imports/optional/`** (45 today, and this plan added one of them) are run
+by hand, once, and then forgotten — there is
 no record that they were ever run, at what commit, or whether they have changed
 since. DisplayLink is simply the one that bit first, and it bit at the worst moment:
 after a reboot, with no visible explanation.
@@ -128,15 +129,16 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     plus one row per play; `--check` adds nothing; a second run appends
 - [x] ✅ **Task 1.3**: Backfill — **none.** The day-one flood is answered by a
   reporting rule rather than invented history: a play with no record has never been
-  run here, and silence is the correct output for it, so the 43 never-run plays say
-  nothing instead of 43 wrong things. A `genesis` record at creation is what makes
+  run here, and silence is the correct output for it, so every never-run play says
+  nothing instead of saying something wrong. A `genesis` record at creation is what makes
   that silence unambiguous. `ledger.genesis_record` + `store.ensure_ledger`;
   reasoning in [DESIGN-play-ledger.md](DESIGN-play-ledger.md) §4
 
 ### Phase 2: Drift checks built on the ledger
 
 - [x] ✅ **Task 2.1**: Play-freshness check — `freshness.py` (verdicts),
-  `git_history.py` (fetch-only git), `check_freshness.py` (executor), 47 tests.
+  `git_history.py` (fetch-only git, bounded by a timeout because it is the one
+  network call on the login path), `check_freshness.py` (executor).
   Findings name the commit subjects that touched each play, so the report says
   *what* changed. Three exit statuses: clean and silent, findings, and
   **untrustworthy** — because "nothing is stale" and "I cannot tell you" are
@@ -174,12 +176,14 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 ### Phase 3: Login-time health surfacing and Claude Code handoff
 
 - [ ] 🔄 **Task 3.1**: Post-boot health probe — probe done, login wiring pending
-  - [x] ✅ `helpers/host_health/probe_results.py`, 29 tests. DKMS modules with no
+  - [x] ✅ `helpers/host_health/probe_results.py`. DKMS modules with no
     `installed` build **for the kernel that actually booted** — the incident's own
     shape, and why a non-empty `dkms status` fooled everyone — plus failed system and
     user units. A probe that could not run is a **finding**, not a skip. Phase 2's
-    findings merge through one `extra` argument, so a broken host gets one
-    notification rather than three. Detail: [DESIGN-host-health.md](DESIGN-host-health.md)
+    findings merge in `login_report.collect`, where the per-check guards are, so a
+    broken host gets one notification rather than three, and a raising check names
+    itself instead of taking the report down.
+    Detail: [DESIGN-host-health.md](DESIGN-host-health.md)
   - [x] ✅ Coordinated, not duplicated: neither Plan 00086 nor 00074 owns a reusable
     probe — both are fixes *inside* a play and inside `run.bash` — so there is nothing
     to call, and what is avoided is re-implementing their logic
@@ -199,9 +203,14 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     a broken service: two alarms for one fact is how both get ignored
   - [ ] ⬜ **HOST**: run the play and confirm the unit fires at login
 - [ ] 🔄 **Task 3.2**: Surface findings to the user — code done, HOST run pending
-  - [x] ✅ `helpers/host_health/login_report.py`, 19 tests. **One** notification
-    listing everything, not three; **silent when clean**; host-health findings
-    first, because something broken now outranks something that merely drifted
+  - [x] ✅ `helpers/host_health/login_report.py`. **One** notification listing
+    everything, not three; **silent when clean**; host-health findings first,
+    because something broken now outranks something that merely drifted
+  - [x] ✅ **The freshness seam keeps its two channels apart.** One sink for both
+    made every diagnostic a finding — a failed fetch reported as a fault in the
+    host, against §8's decision — and turned each commit line under a stale play
+    into a finding of its own. Its `UNTRUSTWORTHY` answer now carries the reason
+    instead of pointing at output the user was never shown
   - [x] ✅ **Merged, not chained.** Each check is guarded separately, so a raising
     one becomes a finding naming itself and cannot suppress the other two — the
     same defect this plan is about, one level up
@@ -270,35 +279,23 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     `helpers/displaylink_recovery/`, fired by the existing dock udev rule and
     suspend service, strictly after the wedge ladder and never while locked.
   - **Three faults found while adding it meant Plan 00056's recovery had never
-    run on this host at all** — a deploy that always failed on a missing parent
-    directory, a wedge signature that was always true (`getsize()` on sysfs
-    returns 0), and dconf writes discarded because `sudo` strips the bus address.
-    Each verified on HOST and fixed in `9a79dd7`; detail in the 13:05 journal
-    entry.
+    run on this host at all** — a deploy that always failed, a wedge signature
+    that was always true, and dconf writes silently discarded. Each verified on
+    HOST and fixed in `9a79dd7`; the three, and why the `picture-uri` toggle is
+    the only signal that recovers this, are in the 13:05 journal entry and
+    [RESEARCH-wallpaper-and-backgrounds.md](RESEARCH-wallpaper-and-backgrounds.md).
   - ⚠️ **Known limitation — the resume path is effectively inert.** Measured on
-    this host: `lock-enabled true`, `lock-delay 0`, so the screen is already
-    locked when `displaylink-suspend.service` runs. `_session_locked()` then
-    correctly refuses (the toggle leaks ~57 MB per monitor from a lock screen)
-    and the run prints `action=none` — indistinguishable from "nothing needed".
-    The **dock/udev path still works**, since a user moving monitors around is
-    present and unlocked; the close-lid → reopen → unlock case is not covered.
+    this host: the screen is already locked when `displaylink-suspend.service`
+    runs, so `_session_locked()` correctly refuses (the toggle leaks ~57 MB per
+    monitor from a lock screen) and prints `action=none` — indistinguishable from
+    "nothing needed". The **dock/udev path still works**; close-lid → reopen →
+    unlock is not covered.
   - [ ] ⬜ **T5.4a**: Cover the unlock case. Needs something in the *user*
     session that reacts to unlock, not a root oneshot — Phase 4's panel or a
     user systemd unit is the natural owner.
-  - [ ] ⬜ **Still to confirm in the wild**: that the refresh actually clears the
-    black background when the symptom is present. It has been exercised on a
-    *healthy* desktop (runs clean, all three background keys unchanged) but not
-    yet against the live fault.
-  - **The one workaround that matches this failure**: force a real `bg-changed` by
-    toggling `picture-uri`. That is the only signal that re-sets
-    `CHANGED_BACKGROUND`; another `monitors-changed` does not recover it, and
-    `updateResolution()` refreshes only the animation. Restarting gnome-shell also
-    works but is not available under Wayland.
-  - ⚠️ **Do not toggle while the session is locked** — `gnome-shell#9188` reports
-    a ~57 MB per-monitor leak on that path. The recovery must check lock state and
-    defer.
-  - [ ] ⬜ Confirm the toggle actually recovers it on this host before building
-    anything around it — one manual toggle, next time the symptom appears
+  - [ ] ⬜ **Still to confirm in the wild**: that the refresh clears the black
+    background when the symptom is present. Exercised on a *healthy* desktop
+    (runs clean, all three background keys unchanged), not against the live fault.
   - [x] ✅ Decide the home — **extend** `helpers/displaylink_recovery/`, not a
     sibling: the compositor-layer failure shares the driver-layer one's trigger, so
     it reuses the existing udev rule and suspend service rather than inventing a
@@ -352,7 +349,7 @@ no record has never been run here, and silence is the correct output for it.
 - [ ] The installed-vs-pinned check **fails** when pointed at the 2026-09-11 state
   and passes now — demonstrated, not asserted
 - [ ] The freshness check reports a play edited after its ledgered run, and stays
-  silent about the 43 plays never run here
+  silent about every play never run here
 - [ ] A clean system produces **no notification at all** at login
 - [ ] The panel opens from one icon and shows health plus play state
 - [ ] `./scripts/qa-all.bash` passes; ESLint passes for the extension

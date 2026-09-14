@@ -21,7 +21,7 @@ Three rules, each a way this could have been a check that cannot fail:
 
 Run it: `python3 -m helpers.version_pins.check_pins` (host-side; needs `dkms`)
 
-Design: CLAUDE/Plan/00109-desktop-drift-detection-and-fedora-desktop-panel/DESIGN-play-ledger.md
+Design: CLAUDE/Plan/00109-desktop-drift-detection-and-fedora-desktop-panel/DESIGN-version-pins.md
 """
 
 from __future__ import annotations
@@ -93,16 +93,35 @@ def installed_from_dkms(dkms_text: str, module: str) -> str | None:
 
 
 def _run(argv: list[str]) -> str:
+    """Run a probe and return its stdout, raising `ResolutionError` on any failure.
+
+    `LC_ALL=C` because every caller parses this output, and a resolver that reads a
+    translated message is a resolver that works on the developer's machine. It is set
+    here rather than per-caller so no future probe has to remember.
+    """
     try:
         completed = subprocess.run(
-            argv, capture_output=True, text=True, check=False, timeout=_TIMEOUT_SECONDS
+            argv,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_TIMEOUT_SECONDS,
+            env={**os.environ, "LC_ALL": "C"},
         )
     except FileNotFoundError as error:
         raise ResolutionError(f"{argv[0]}: command not found") from error
     except subprocess.TimeoutExpired as error:
         raise ResolutionError(f"{argv[0]}: no answer after {_TIMEOUT_SECONDS}s") from error
     if completed.returncode != 0:
-        detail = " ".join(completed.stderr.split()) or f"exit status {completed.returncode}"
+        # stdout as well as stderr. A failing tool does not necessarily report on
+        # stderr — `rpm -q` prints "package X is not installed" to STDOUT and exits
+        # non-zero — so an error built from stderr alone was empty for the one case
+        # `_rpm_version` has to recognise, leaving its ABSENT branch unreachable and
+        # an uninstalled package reported as "could not be checked".
+        detail = (
+            " ".join(f"{completed.stderr} {completed.stdout}".split())
+            or f"exit status {completed.returncode}"
+        )
         raise ResolutionError(f"{argv[0]}: {detail}")
     return completed.stdout
 
