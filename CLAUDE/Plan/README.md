@@ -34,8 +34,6 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00120-ccy-gpu-device-optional-on-headless-hosts](00120-ccy-gpu-device-optional-on-headless-hosts/) - ccy handed every container `--device /dev/dri` unconditionally, and on a host with no GPU (a headless server, a serial-console VM) podman aborted the session with `stat /dev/dri: no such file or directory`, exit 125; the flags are now a pure function of whether the node exists.
-
 - [00119-headless-github-ssh-443-input](00119-headless-github-ssh-443-input/) - Headless provisioning had no input for the always-on `ssh.github.com:443` route, so a box whose egress blocks port 22 could upload its GitHub key and then hang on every SSH use of it; `RUN_BASH_GITHUB_SSH_443=1` writes `github_ssh_over_443: true` into the fresh localhost.yml.
 
 - [00118-ccy-selinux-enforcing-host](00118-ccy-selinux-enforcing-host/) - On an SELinux-enforcing host a ccy container cannot read the project it was handed (container_t vs user_home_t; desktops only worked because they are not enforcing); relabel the workspace `:z` and stage key files into a `:Z` tmpfs dir, decided from getenforce and the engine report.
@@ -167,6 +165,8 @@ Use these Unicode icons in plan documents:
 - [00074-grub-cgroup-check-reports-absence-it-cannot-prove](00074-grub-cgroup-check-reports-absence-it-cannot-prove/) - `run.bash`'s legacy-grub cgroup step now distinguishes a failing `grubby` from a genuine negative and aborts on a proven failure instead of continuing
 
 ## Completed Plans
+
+- [00120-ccy-gpu-device-optional-on-headless-hosts](Completed/00120-ccy-gpu-device-optional-on-headless-hosts/) - ccy handed every container `--device /dev/dri` unconditionally, and on a host with no GPU (a headless server, a serial-console VM) podman aborted the session with `stat /dev/dri: no such file or directory`, exit 125; the flags are now a pure function of whether the node exists (ccy 3.56.0, PR #43).
 
 - [00068-ccy-ci-runner-variant](Completed/00068-ccy-ci-runner-variant/) - Specifies what `ccy` owes a headless CI runner: the fail-fast contract at every prompt site, a per-event tool surface asserted at startup, and compose/networking kept as capability minus negotiation. No code here — Plan 00113 implements it.
 

@@ -1,6 +1,6 @@
 # Plan 00120: ccy starts on a host with no GPU
 
-**Status**: In Progress
+**Status**: Complete
 **Created**: 2026-09-14
 **Owner**: joseph
 **Priority**: High
@@ -44,15 +44,17 @@ the no-GPU case is testable on a desktop and the with-GPU case on a server.
 
 - [x] ✅ **Task 2.1**: `qa-bash` (which shellchecks the launcher and library) and the other
   runnable gates green on the branch; see JOURNAL for the two container-environment gates.
-- [ ] ⬜ **Task 2.2**: On a host with no `/dev/dri`, `ccy` reaches the container (deployed by the
-  playbook that installs the launcher, then run by the operator).
+- [x] ✅ **Task 2.2**: On a headless VM with no `/dev/dri`, after its provisioning run: the old
+  argv reproduces the abort at the podman layer, the new argv runs the image, and a headless
+  `ccy` passes the device stage (stopping only at the human-only token login).
 
 ## Success Criteria
 
-- [ ] `ccy` on a host without `/dev/dri` starts a session instead of exiting 125.
-- [ ] `ccy` on a desktop still passes the GPU (the run argv carries the same two flags).
-- [ ] Unit test and `qa-all.bash` green.
+- [x] `ccy` on a host without `/dev/dri` gets past the device stage instead of exiting 125.
+- [x] `ccy` on a desktop still passes the GPU (the run argv carries the same two flags).
+- [x] Unit test and the runnable `qa-all.bash` gates green.
 
 ## Delivery & Milestones
 
-- Branch `ccy-gpu-device-optional`.
+- 72a3c92 — the change, on branch `ccy-gpu-device-optional`.
+- b315046 — merged into F44 (PR #43).
