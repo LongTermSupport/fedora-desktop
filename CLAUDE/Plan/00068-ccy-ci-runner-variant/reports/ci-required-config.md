@@ -318,8 +318,9 @@ token-by-value is no longer load-bearing for CI.
 > is about launch-config reuse, nothing in §6 touches it, and it stands.
 
 No compose opt-in flag is specified here. `podman-compose` is on the VM and the workflow can run
-it. **Superseded with the rows above**: §6 item 2 puts the declaration in the project's own
-`.claude/ccy/`, so the caller this paragraph said would not exist is the CI path itself.
+it. **Superseded with the `_do_compose_start` row above** — the one row in this section that §6
+reverses: §6 item 2 puts the declaration in the project's own `.claude/ccy/`, so the caller this
+paragraph said would not exist is the CI path itself.
 
 ---
 

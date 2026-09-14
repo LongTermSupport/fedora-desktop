@@ -66,7 +66,7 @@ Differences from `:2764-2786`, each already argued elsewhere:
 - **`--mcp-config <container-local path>`** — Decision 7; never under `/root/.claude`, which
   `entrypoint.sh:183-195` symlinks into the checkout
 
-## Requirement 1, re-derived: ~6 sites, not 46
+## Requirement 1, re-derived: ~6 sites, not 46 — SUPERSEDED, see the note below the table
 
 `ci-required-config.md` §4.3 groups the 46 census sites by owner. Mapping each group onto the flow
 above — a site is only reachable if the flow enters the code path that contains it:
@@ -98,9 +98,14 @@ mechanism — it just has six callers, not forty-six.
 > to be established rather than inherited.
 >
 > The `≈6` was derived under the deferral and is superseded with it. **Plan 00113 Task 0.2 measures
-> the real figure**; nothing may forward `≈6` as a fact in the meantime. `:822` (config restore),
-> the SSH-key, `create_token`, token-export, Dockerfile-authoring, token-resolution and migration
-> rows are untouched by §6 and stand.
+> the real figure**; nothing may forward `≈6` as a fact in the meantime. Every other row is
+> untouched by §6 and stands — the complete list, so that this enumeration is not itself a
+> partial claim sitting next to a superseded set: `:822` (config restore, carved out of (c)),
+> **(a) already correct**, **(e) SSH-key selection**, **(e) `create_token`**, **(e) token
+> export**, **(d) guided Dockerfile authoring**, **(e) token resolution**, **(e) `select_token`
+> interactive** and **(d) migration**. The last two of those are the rows that made up the `≈6`,
+> so they survive the supersession — what does not survive is the total, and the claim that all
+> of it was credential resolution.
 
 > **This is a derivation, not a measurement.** It maps the census's own grouping onto the flow
 > above; it does not re-walk each of the 46 sites in the source. Confirm before implementing, by

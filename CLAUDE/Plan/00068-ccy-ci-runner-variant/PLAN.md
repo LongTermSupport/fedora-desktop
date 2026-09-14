@@ -95,12 +95,14 @@ The scope below is the owner's, settled 2026-08-01 (Decisions 7, 8, 9).
 - [x] ✅ **Task 3.2**: `--egress` dropped by the owner (Decision 8). ccy gets unfettered egress at
   launch. C3 retained for any future revisit.
 - [x] ✅ **Task 3.5**: The CI flow, in [reports/ci-flow.md](reports/ci-flow.md). Eight steps, each
-  naming what it reuses and what it never enters. Requirement 1 re-derived: about 6 reachable
-  prompt sites, not 46, all credential resolution. Compose and networking are CI requirements;
+  naming what it reuses and what it never enters. Compose and networking are CI requirements;
   what CI drops is the negotiation
-  ([DECISIONS.md §6](DECISIONS.md#6-task-35--the-ci-flow-and-composenetworking)). The site
-  count is a derivation, not a measurement: confirm by instrumenting the CI path before
-  implementing.
+  ([DECISIONS.md §6](DECISIONS.md#6-task-35--the-ci-flow-and-composenetworking)).
+  **The figure this task originally delivered — "about 6 reachable prompt sites, not 46, all
+  credential resolution" — is superseded, not merely caveated.** It was derived under a
+  compose/networking deferral that §6 reversed, and the reversal puts 13 network/compose sites
+  back in play; any that come back are not credential resolution. Nothing may forward ≈6 as a
+  fact. Plan 00113 Task 0.2 measures the real figure by instrumenting the CI path.
 - [x] ✅ **Task 3.4**: The CI tool surface, in
   [reports/ci-tool-surface.md](reports/ci-tool-surface.md). Two classes: `push`/`pull_request`
   keeps `Bash` and loses `Edit`/`Write`/`NotebookEdit`; `issues`/`issue_comment` loses `Bash`
@@ -140,11 +142,14 @@ measurement (E9).
 - [x] ✅ Task 1.1's host facts are answered by a run, not by inference.
 - [x] ✅ Every surviving report describes a live mechanism, **or carries a supersession note
   naming what replaced it**. The 2026-07-31 truncation deleted the reports that were wholly
-  retracted; what remained were three passages that a later owner decision reversed in part —
-  `ci-flow.md`'s compose/networking deferral and the derivation resting on it, and
-  `ci-required-config.md`'s two compose rows — each now marked rather than silently wrong. A
-  report is not required to be right about everything it ever said; it is required not to read
-  as current where it is not.
+  retracted; what remains is marked rather than silently wrong. In `ci-required-config.md`,
+  **one** superseded row — §4.3(f)'s `_do_compose_start` — plus a *rationale correction* on
+  §4.3(c)'s two **network** rows whose verdicts stand; §4.3(c)'s compose row (`claude-yolo:2091`)
+  is deliberately unmarked because §6 does not reverse it. In `ci-flow.md`, two passages: the
+  compose/networking deferral and the site-count derivation resting on it. Already marked before
+  this sweep: `mcp-and-egress.md`'s three dead premises and its supersession, and
+  `host-run-verdicts.md`'s superseded run. A report is not required to be right about everything
+  it ever said; it is required not to read as current where it is not.
 - [x] ✅ MCP, `--egress` and the unattended-launch capabilities are resolved against the current
   architecture, and by the owner rather than by this plan's internal reasoning.
 - [x] ✅ The restriction mechanism is settled by measurement (E9), and E8 dissolved with it.

@@ -65,9 +65,13 @@ launcher's hardest dependency as written but unproven, and see Task 0.6.
   0.5 carry the rest, and `triage.bash` cannot substitute for either
 
 - [ ] ⬜ **Task 0.2**: Instrument the CI path and **count the prompt sites**.
-  `reports/ci-flow.md` says about six, and says of itself that this is "a
-  derivation, not a measurement: confirm by instrumenting the CI path before
-  implementing". A derivation that turns out to be fourteen changes Phase 1's shape
+  Start from no number. `reports/ci-flow.md`'s "about six" is **superseded**, not
+  merely caveated: it was derived under a compose/networking deferral that
+  DECISIONS.md §6 reversed, and the report's own note (`ci-flow.md`, the
+  derivation table) says nothing may forward it as a fact. §6 puts 13 network and
+  compose sites back in play, so the honest prior is a range of roughly 6–19 and
+  the task is to replace it with a measurement. Anything above the low end changes
+  Phase 1's shape, which is why this is Phase 0 work and not an implementation detail
 
 - [ ] ⬜ **Task 0.3**: Confirm the CLI about to run exposes every
   security-carrying flag the design uses, **and capture the tool vocabulary by
@@ -97,11 +101,12 @@ launcher's hardest dependency as written but unproven, and see Task 0.6.
     population; this plan observes.
 
   B3 is two runs: podman **with** a network, expecting the **network preflight**
-  to abort — the block guarded by `CCY_SKIP_NETWORK_PREFLIGHT`, whose `exit 1` is
-  at `claude-yolo:2845` *at the time of writing* — versus Docker with **no**
-  network, expecting the preflight never to run at all. Cite it **by name, not by
-  line**: the checklist's original `:2597` had drifted to a `case` arm in an
-  unrelated prompt, and `:2845` moved again while this task was being corrected.
+  to abort — the block guarded by `CCY_SKIP_NETWORK_PREFLIGHT`, whose `exit 1`
+  closes the branch that prints the `CCY_SKIP_NETWORK_PREFLIGHT=1 ccy` hint —
+  versus Docker with **no** network, expecting the preflight never to run at all.
+  Cite it **by name, not by line**: the checklist's original `:2597` had drifted
+  to a `case` arm in an unrelated prompt, and every launcher line number written
+  into this plan since has gone stale within the hour of being verified.
   The original also conditioned B3's `exit 1` on *restricted egress*, a posture
   Decision 8 dropped — so the condition to state is now simply that the runner
   cannot reach what the preflight probes. B4 attempts an outbound connection from
@@ -200,9 +205,14 @@ keep/drop split over `lib/network-management.bash`, function by function.
     That last one is the trap: the function is kept and its prompt is not, so
     "keep `_do_compose_start`" taken literally ships a `read` onto a stdin-closed
     CI path — the exact hang Phase 1 exists to remove
-  - `reports/ci-required-config.md` §4.3(c) and §4.3(f) specified the **opposite**
-    ("do not start") until 2026-09-14 and now carry supersession notes. If a
-    surviving 00068 report still tells you not to start compose, §6 wins
+  - `reports/ci-required-config.md` needs reading precisely — **§6 does not simply
+    beat every "do not start" in it.** Exactly one row is superseded: §4.3(f)'s
+    `_do_compose_start`. §4.3(c)'s two **network** rows carry a *rationale
+    correction* with their verdicts intact. And §4.3(c)'s actual compose row —
+    `claude-yolo:2091`, reached only inside the cross-engine mismatch wizard — is
+    **not** superseded and its "do not start" stands, because §6 item 2 requires CI
+    to start **declared** services, not discovered ones. The wizard is one of §6's
+    own Drop constructs, so keeping that row and dropping the wizard agree
 - [ ] ⬜ **Task 2.6**: **Resolve the network before `podman run`** — it is a
   create-time argument, so either compose starts first or `connect_to_network`
   attaches afterwards. §6 says "pick one deliberately"; record which and why
