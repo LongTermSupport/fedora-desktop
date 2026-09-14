@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00116-vmtest-acceptance-script-version-gate](00116-vmtest-acceptance-script-version-gate/) - An acceptance run copies its guest checker from the host's DEPLOYED copy, so a run certifies one commit with a checker from another: `20260914T100220Z` passed 16/16 with `deployed-extensions-active` expecting 1 of 9. Record the checker's version and fail a mismatch as a harness failure.
+
 - [00115-playbook-shebang-runs-through-run-bash](00115-playbook-shebang-runs-through-run-bash/) - Every play's shebang hands it to run.bash, so `./playbooks/…/play-x.yml` works on password sudo; run.bash calls ansible-playbook explicitly so it never re-enters itself.
 
 - [00114-run-bash-single-play-mode](00114-run-bash-single-play-mode/) - Running one play by hand dies on password sudo (`sudo: a password is required`) because nothing tells Ansible to prompt; expose run.bash's proven become logic as `./run.bash <playbook>` and make every doc name it.
