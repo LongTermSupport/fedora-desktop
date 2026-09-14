@@ -82,6 +82,27 @@ selinux_enforcing_verdict() {
     return 0
 }
 
+# Emit the `--device` flags that hand the container the host's GPU render nodes, or nothing.
+#
+# The DRM directory (/dev/dri) exists only where a kernel graphics driver is loaded: every
+# desktop, and a VM with a virtual GPU. A headless server or a serial-console VM has no such
+# directory, and `podman run --device /dev/dri` then aborts the whole session with
+# `stat /dev/dri: no such file or directory` — measured on a dev VM, exit 125 before Claude
+# ever started. The device only matters for hardware-accelerated browser rendering, which a
+# headless box cannot use anyway, so its absence is a fact to adapt to, not an error.
+#
+# PURE: takes the path to test as an argument (the caller passes /dev/dri; tests pass a
+# throwaway directory or a path that does not exist) and prints one flag per line so the
+# caller can `mapfile` them into the run argv. Prints nothing when the path is not a
+# directory. Never fails: a missing GPU is the answer, not an error.
+gpu_device_flags() {
+    local dri="${1:?gpu_device_flags: path required}"
+    if [ -d "$dri" ]; then
+        printf -- '--device\n%s:%s\n' "$dri" "$dri"
+    fi
+    return 0
+}
+
 # Decide, from a container engine's OWN report, whether it is rootless.
 #
 # ccy runs `claude --dangerously-skip-permissions` and bind-mounts the project at
