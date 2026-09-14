@@ -19,10 +19,12 @@ like a complete picture of a machine, which is the thing that went wrong.
 
 from __future__ import annotations
 
+import io
 import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
@@ -129,6 +131,46 @@ class TestTheOffer(unittest.TestCase):
         """`offer` returns a string. If it ever grows a subprocess call this test
         is where that gets noticed — the handoff is offered, never automatic."""
         self.assertIsInstance(handoff.offer("/x"), str)
+
+
+class TestTheHandoffCanBeSuppressedForTriage(unittest.TestCase):
+    """`--no-handoff` exists so a triage run does not clobber the operator's file.
+
+    A triage script that announces itself as read-only and then overwrites the one
+    artefact somebody was about to read is a small lie of the kind this plan is
+    otherwise about. Driven through `main`, so the flag is exercised rather than
+    asserted to exist.
+    """
+
+    def _run(self, *flags: str) -> tuple[str, bool]:
+        from helpers.host_health import login_report
+
+        with tempfile.TemporaryDirectory() as home:
+            out = io.StringIO()
+            environment = {"XDG_STATE_HOME": os.path.join(home, "state")}
+            with mock.patch.dict(os.environ, environment, clear=False):
+                login_report.main(
+                    ["--no-notify", *flags], stdout=out, stderr=io.StringIO())
+                base = os.path.join(home, "state", "fedora-desktop", "play-ledger")
+                return out.getvalue(), os.path.exists(os.path.join(base, handoff.FILE_NAME))
+
+    def test_by_default_the_handoff_file_is_written(self) -> None:
+        """This container always has findings — no dkms, no systemd bus — which is
+        what makes it a usable fixture for the write path."""
+        printed, written = self._run()
+        self.assertTrue(written)
+        self.assertIn("To discuss this with Claude Code", printed)
+
+    def test_with_no_handoff_nothing_is_written_and_nothing_is_offered(self) -> None:
+        printed, written = self._run("--no-handoff")
+        self.assertFalse(written)
+        self.assertNotIn("To discuss this with Claude Code", printed)
+
+    def test_the_findings_are_still_reported_either_way(self) -> None:
+        """Suppressing the file must not suppress the report — that would make a
+        triage run look like a clean host."""
+        printed, _ = self._run("--no-handoff")
+        self.assertIn("could not run", printed)
 
 
 class TestTheSplitDoesNotGuessFromWording(unittest.TestCase):

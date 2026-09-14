@@ -175,27 +175,99 @@ class TestFailuresAreFindings(unittest.TestCase):
 
 
 class TestUntrackedPinsAreSilent(unittest.TestCase):
+    """A pin declared `untracked` with a reason contributes nothing.
+
+    Each fixture keeps one TRACKED pin alongside, so these cases test what they claim
+    — that an untracked pin adds nothing to a real comparison — rather than that an
+    empty comparison comes back empty. `TestZeroCoverageIsItsOwnFinding` owns the case
+    where nothing is tracked at all.
+    """
+
     def test_an_untracked_pin_produces_nothing(self) -> None:
-        untracked = pin(installed={"kind": "untracked", "why": "no host-side value exists"})
+        untracked = pin(
+            var="displaylink_version",
+            installed={"kind": "untracked", "why": "no host-side value exists"})
         self.assertEqual(
             check_pins.check(
-                pins=[untracked],
+                pins=[pin(), untracked],
                 playbook_text=lambda _: PLAYBOOK,
-                dkms_status=lambda: DKMS_INCIDENT,
+                dkms_status=lambda: DKMS_FIXED,
             ),
             [],
         )
 
-    def test_an_untracked_pin_does_not_even_probe(self) -> None:
+    def test_an_untracked_pin_does_not_even_probe_for_itself(self) -> None:
         """Otherwise a host with no dkms would report a finding for a pin nobody
-        decided to track."""
-        def explode() -> str:
-            raise AssertionError("probed for an untracked pin")
+        decided to track. The tracked pin beside it is resolved from one cached probe."""
+        probes: list[int] = []
 
-        untracked = pin(installed={"kind": "untracked", "why": "x"})
+        def counted() -> str:
+            probes.append(1)
+            return DKMS_FIXED
+
+        untracked = pin(var="displaylink_version", installed={"kind": "untracked", "why": "x"})
+        findings = check_pins.check(
+            pins=[pin(), untracked], playbook_text=lambda _: PLAYBOOK, dkms_status=counted)
+        self.assertEqual(findings, [])
+        self.assertEqual(len(probes), 1)
+
+
+class TestZeroCoverageIsItsOwnFinding(unittest.TestCase):
+    """Partial coverage is a decision; zero coverage is a check that cannot fail.
+
+    Every pin may be declared `untracked` one at a time, each with a good reason, and
+    at the end of that road this check compares nothing, returns nothing, and looks
+    exactly like a host whose every version matches. That is a whole drift axis gone
+    quiet — on the axis the incident happened on.
+    """
+
+    @staticmethod
+    def _all_untracked(count: int) -> list[manifest.Pin]:
+        rows = [
+            {
+                "playbook": "playbooks/imports/optional/hardware-specific/play-displaylink.yml",
+                "var": f"pin_{index}_version",
+                "github": "DisplayLink/evdi",
+                "installed": {"kind": "untracked", "why": "nothing host-side to compare"},
+            }
+            for index in range(count)
+        ]
+        return manifest.parse({"version_pins": rows}, require_installed=True)
+
+    def test_nothing_tracked_is_reported_with_the_number(self) -> None:
+        findings = check_pins.check(
+            pins=self._all_untracked(9),
+            playbook_text=lambda _: PLAYBOOK,
+            dkms_status=lambda: DKMS_FIXED,
+        )
+        self.assertEqual(len(findings), 1)
+        self.assertIn("0 of 9", findings[0].text)
+
+    def test_it_is_UNCHECKED_not_a_fault_on_this_host(self) -> None:
+        """Nobody has shown anything wrong here. What is wrong is the coverage."""
+        findings = check_pins.check(
+            pins=self._all_untracked(3),
+            playbook_text=lambda _: PLAYBOOK,
+            dkms_status=lambda: DKMS_FIXED,
+        )
+        self.assertFalse(findings[0].checked)
+
+    def test_one_tracked_pin_is_enough_to_stay_silent(self) -> None:
+        """The floor is one. A deliberate 1-of-9 split is the state today, and the QA
+        gate is where that number is printed on every run."""
+        pins = [pin(), *self._all_untracked(8)]
         self.assertEqual(
             check_pins.check(
-                pins=[untracked], playbook_text=lambda _: PLAYBOOK, dkms_status=explode),
+                pins=pins, playbook_text=lambda _: PLAYBOOK, dkms_status=lambda: DKMS_FIXED),
+            [],
+        )
+
+    def test_an_empty_manifest_is_the_manifest_validator_job_not_this_one(self) -> None:
+        """`manifest.parse` already refuses an empty document, and `qa-version-pins`
+        controls for it. Reporting it here too would be a second voice on one fact."""
+        self.assertEqual(
+            check_pins.check(
+                pins=[], playbook_text=lambda _: PLAYBOOK, dkms_status=lambda: DKMS_FIXED),
             [],
         )
 

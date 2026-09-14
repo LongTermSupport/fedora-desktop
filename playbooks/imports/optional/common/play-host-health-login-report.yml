@@ -45,12 +45,18 @@
       ansible.builtin.meta: end_play
       when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
 
-    # `notify-send` is the only external tool the report needs. Per the missing
-    # dependency rule this is declared here rather than tolerated at runtime — a
-    # report that cannot be delivered is the defect this play exists to fix.
-    - name: Install The Notification Sender
+    # PyYAML for the SYSTEM interpreter, which is what the unit runs
+    # (`ExecStart=/usr/bin/python3`). The pin check converts `vars/version-pins.yml`
+    # through it, and Ansible's own PyYAML may live in a pipx venv that
+    # `/usr/bin/python3` cannot import — so assuming it was an assumption about a
+    # host, on the one drift axis this plan was written for. Declared, per CLAUDE.md's
+    # missing-dependency rule, rather than tolerated at runtime.
+    #
+    # `libnotify` is NOT here: `play-gnome-shell.yml` owns it, because it owns the
+    # desktop and two other core-path consumers need it too.
+    - name: Install The Report's Runtime Dependencies
       ansible.builtin.dnf:
-        name: libnotify
+        name: python3-pyyaml
         state: present
 
     - name: Ensure User Systemd Unit Directory Exists

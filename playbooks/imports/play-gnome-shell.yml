@@ -26,3 +26,9 @@
       ansible.builtin.dnf:
         name:
           - gnome-tweaks.noarch
+          # `notify-send`, and this play owns it because this play owns the desktop.
+          # Three things in the repo send desktop notifications — the DisplayLink
+          # recovery, the kernel-version manager and the login health report — and
+          # two of them are reached from core paths, so the package cannot belong to
+          # an opt-in play a host may never run.
+          - libnotify

@@ -31,6 +31,12 @@ WorkingDirectory={{ root_dir }}
 # permanently dead health surface a success, deliver no findings, and leave
 # `systemctl --user is-failed` silent about it. 1 and 2 are left as real failures.
 SuccessExitStatus=3
+# Stated, not inherited. systemd DISABLES the start timeout for Type=oneshot by
+# default (src/core/service.c: "Oneshot services have disabled start timeout by
+# default"), so without this a hung probe would hold graphical-session.target in
+# `activating` for ever. The helpers each bound their own subprocess well inside
+# this; this is the backstop for anything that does not.
+TimeoutStartSec=120
 
 [Install]
 WantedBy=graphical-session.target

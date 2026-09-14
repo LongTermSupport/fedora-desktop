@@ -27,10 +27,12 @@ _FIELD_SEP = "\x1f"
 
 
 #: The one genuinely network-bound call on the login path, so the one that needs a
-#: bound. Without it the backstop is systemd's 90s default `TimeoutStartSec`, which
-#: kills the unit — turning a slow network into a *failed unit*, which is the
-#: opposite of what `SuccessExitStatus=0 1` is there to achieve. A check that stalls
-#: the session gets removed from the session.
+#: bound — and there is no systemd backstop underneath it. `src/core/service.c`
+#: carries the comment "Oneshot services have disabled start timeout by default" and
+#: sets `timeout_start_usec = USEC_INFINITY` unless the unit names one, so an
+#: unbounded hung fetch would hold `graphical-session.target` in `activating` with
+#: nothing ever ending it. The unit also sets `TimeoutStartSec=` explicitly, so this
+#: does not rest on that default either way.
 _FETCH_TIMEOUT_SECONDS = 20
 
 

@@ -12,7 +12,12 @@ set -euo pipefail
 # It also records what the host-health probe sees, so a HOST run of Phase 3's
 # checks can be compared against what this plan believes about the machine.
 #
-# READ-ONLY. It removes nothing, registers nothing and runs no playbook.
+# It removes nothing, registers nothing and runs no playbook. Not quite read-only,
+# and the difference is worth stating rather than glossing: running the login report
+# below does a `git fetch` in this checkout (refs only — never the working tree) and
+# stamps the fetch clock in the ledger directory. `--no-handoff` keeps it from
+# overwriting an existing handoff file, which is the one write an operator might have
+# been about to read.
 # Its stdout IS the payload (CLAUDE/StderrHygiene.md's report-command exception).
 #
 #   CLAUDE/Plan/00109-desktop-drift-detection-and-fedora-desktop-panel/triage.bash
@@ -103,7 +108,8 @@ probe 'the installed displaylink package, whose version tracks evdi not the pin'
 # package imports, and with --no-notify so a triage run never pops a desktop
 # notification at the operator.
 printf '### the login-time health report, as it would run at login\n'
-if (cd "${PLAN_REPO_ROOT}" && python3 -m helpers.host_health.login_report --no-notify 2>&1); then
+if (cd "${PLAN_REPO_ROOT}" \
+    && python3 -m helpers.host_health.login_report --no-notify --no-handoff 2>&1); then
     printf '(exit 0 — the report found nothing to say, which is the clean case)\n'
 else
     printf '(exit non-zero — the findings above are what a login would surface)\n'

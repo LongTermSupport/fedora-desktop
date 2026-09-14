@@ -139,9 +139,24 @@ def check(
     `dkms_status` is called lazily and at most once, so a host with no DKMS modules
     and no tracked DKMS pin never pays for it — and, more to the point, never gets a
     finding about a probe it had no reason to run.
+
+    **Zero coverage is itself a finding.** A pin declared `untracked` with a reason is a
+    decision somebody wrote down, so it stays silent and the QA gate prints the split.
+    But if *nothing* is tracked, this check compares no pins, returns no findings, and
+    is indistinguishable from a host whose every version matches — a whole drift axis
+    gone quiet, on the axis the incident happened on. Partial coverage is a decision;
+    zero coverage is a check that cannot fail, and it says so with the number.
     """
     findings: list[probe_results.Finding] = []
     dkms_cache: list[str] = []
+    tracked = sum(1 for pin in pins if pin.is_tracked)
+    if pins and tracked == 0:
+        findings.append(
+            probe_results.unchecked(
+                f"the installed-vs-pinned check compared 0 of {len(pins)} declared pins, "
+                "so nothing on this host was held against the repo's versions"
+            )
+        )
 
     def dkms() -> str:
         if not dkms_cache:
@@ -179,6 +194,24 @@ def check(
     return findings
 
 
+def declared_pins(root: str) -> list[manifest.Pin]:
+    """The pin manifest, parsed. The single route both consumers take.
+
+    The YAML conversion lives outside the stdlib-only helpers, exactly as
+    `scripts/qa-version-pins.bash` does it — and it goes through `_run`, so a failure
+    carries the interpreter's own stderr. A second copy of this subprocess without
+    that reported `returned non-zero exit status 1` and threw away the
+    `ModuleNotFoundError` that said which module was missing: "could not run" with
+    nothing after it tells the user precisely nothing.
+    """
+    document = _run([
+        sys.executable, "-c",
+        "import json,sys,yaml; json.dump(yaml.safe_load(open(sys.argv[1])), sys.stdout)",
+        os.path.join(root, "vars", "version-pins.yml"),
+    ])
+    return manifest.parse(json.loads(document), require_installed=True)
+
+
 def _rpm_version(package: str) -> str | None:
     """The installed rpm's version, or None if the package is not installed."""
     try:
@@ -212,18 +245,8 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
         except OSError as error:
             raise ResolutionError(str(error)) from error
 
-    manifest_path = os.path.join(root, "vars", "version-pins.yml")
-    # The YAML conversion lives outside the stdlib-only helpers, exactly as
-    # scripts/qa-version-pins.bash does it.
     try:
-        decoded = json.loads(
-            _run([
-                sys.executable, "-c",
-                "import json,sys,yaml; json.dump(yaml.safe_load(open(sys.argv[1])), sys.stdout)",
-                manifest_path,
-            ])
-        )
-        pins = manifest.parse(decoded, require_installed=True)
+        pins = declared_pins(root)
     except (ResolutionError, ValueError, manifest.ManifestError) as error:
         out.write(f"the version-pin manifest could not be read: {error}\n")
         return EXIT_FINDINGS

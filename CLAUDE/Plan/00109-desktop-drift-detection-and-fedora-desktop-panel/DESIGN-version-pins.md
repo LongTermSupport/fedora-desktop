@@ -43,8 +43,19 @@ report a permanent false finding — and a check that cries wolf gets muted just
 that never speaks.
 
 So most rows are `untracked` with *"not yet established"*. That is a to-do **declared in a tracked
-file and counted on every run** — the gate prints `N with install state tracked, M declared untracked` — rather than an absence that reads like a clean result. One of nine is tracked today,
-and the report says so out loud.
+file and counted on every run** — `qa-version-pins.bash` prints
+`N with install state tracked, M declared untracked` on every QA run — rather than an absence that
+reads like a clean result. One of nine is tracked today.
+
+**Partial coverage is a decision; zero coverage is a check that cannot fail.** Those are handled
+differently on purpose. An `untracked` row is silent at login, because somebody decided it in
+writing and gave a reason, and a surface that names every deliberate non-check on every login is
+a surface that gets muted. But each pin can be declared `untracked` one at a time, and at the end
+of that road the login check compares nothing, returns nothing, and is indistinguishable from a
+host whose every version matches — on the axis the incident actually happened on. So there is a
+floor at one: the gate **fails** when nothing is tracked, and `check_pins.check` reports
+`compared 0 of N declared pins` as an `unchecked` finding. The number, not an implication from an
+empty list.
 
 ## 3. The gate, in both directions
 

@@ -160,6 +160,24 @@ if ! [[ "$declared" =~ ^[0-9]+$ ]]; then
     exit 1
 fi
 
+# `VERSION-PINS-OK 9 pin(s), 1 with install state tracked, 8 declared untracked`
+tracked="$(printf '%s\n' "$marker" | awk '{print $4}')"
+if ! [[ "$tracked" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: could not read the tracked pin count from the marker: [$marker]" >&2
+    exit 1
+fi
+# A coverage FLOOR. Every pin may legitimately be declared untracked one at a time,
+# and at the end of that road the login-time check compares nothing, finds nothing,
+# and this gate still exits 0 — a drift axis that has quietly stopped existing, which
+# is the whole subject of Plan 00109. One tracked pin is the minimum that makes the
+# axis real.
+if [ "$tracked" -eq 0 ]; then
+    echo "ERROR: $MANIFEST declares $declared pin(s) and tracks the installed version" \
+         "of NONE of them, so the installed-vs-pinned check compares nothing and" \
+         "cannot fail. Give at least one pin an 'installed:' block." >&2
+    exit 1
+fi
+
 if [ "$rows" -eq 0 ]; then
     echo "ERROR: no rows reached the on-disk check, so nothing was verified" >&2
     exit 1

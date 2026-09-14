@@ -37,10 +37,10 @@ class TestFetch(unittest.TestCase):
         self.assertEqual(run.call_args.args[0][:3], ["git", "-C", "/repo"])
 
     def test_it_is_bounded_by_a_timeout(self) -> None:
-        """The one genuinely network-bound call on the login path. Unbounded, the only
-        backstop is systemd's 90s `TimeoutStartSec`, which KILLS the unit — so a slow
-        network would register as a failed unit, the exact outcome `SuccessExitStatus=0 1`
-        exists to avoid. A check that stalls the session gets removed from the session."""
+        """The one genuinely network-bound call on the login path, and nothing underneath
+        it: systemd disables the start timeout for `Type=oneshot` by default, so an
+        unbounded hung fetch would hold `graphical-session.target` in `activating` with
+        nothing ever ending it. A check that stalls the session gets removed from it."""
         run = mock.Mock(return_value=_completed())
         git_history.fetch("/repo", run=run)
         timeout = run.call_args.kwargs.get("timeout")

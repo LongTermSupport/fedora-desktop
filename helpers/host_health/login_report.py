@@ -29,7 +29,6 @@ Design: CLAUDE/Plan/00109-desktop-drift-detection-and-fedora-desktop-panel/DESIG
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import subprocess
 import sys
@@ -260,6 +259,11 @@ def main(
         action="store_true",
         help="report on stdout only; for running it by hand",
     )
+    parser.add_argument(
+        "--no-handoff",
+        action="store_true",
+        help="do not write the handoff file; for a triage run that must not clobber it",
+    )
     arguments = parser.parse_args(argv)
     out = stdout if stdout is not None else sys.stdout
     # The findings are the payload and go to stdout; the checks' own diagnostics are
@@ -272,7 +276,7 @@ def main(
         health=lambda: probe.collect(running_kernel=probe.running_kernel()),
         freshness=lambda: freshness_findings(base, arguments.repo_root, stderr=diagnostics),
         pins=lambda: check_pins.check(
-            pins=_declared_pins(arguments.repo_root),
+            pins=check_pins.declared_pins(arguments.repo_root),
             playbook_text=lambda relative: _read(arguments.repo_root, relative),
             dkms_status=lambda: dkms_text(probe.run_probe),
         ),
@@ -280,7 +284,7 @@ def main(
     notifier: Callable[[str], None] = (lambda _: None) if arguments.no_notify else _notify_send
     status = emit(findings, notify=notifier, write=out.write)
 
-    if findings:
+    if findings and not arguments.no_handoff:
         # Task 3.3: the handoff file, so diagnosing a break is not archaeology from
         # scratch. Written, named, and NOT launched — the handoff is offered, always.
         # Guarded because a failure to write it must not lose the findings above,
@@ -301,23 +305,6 @@ def main(
 def _read(root: str, relative: str) -> str:
     with open(os.path.join(root, relative), encoding="utf-8") as handle:
         return handle.read()
-
-
-def _declared_pins(root: str):
-    """The pin manifest, converted outside the stdlib-only helpers as ever."""
-    from helpers.version_pins import manifest
-
-    decoded = json.loads(
-        subprocess.run(
-            [
-                sys.executable, "-c",
-                "import json,sys,yaml; json.dump(yaml.safe_load(open(sys.argv[1])), sys.stdout)",
-                os.path.join(root, "vars", "version-pins.yml"),
-            ],
-            check=True, capture_output=True, text=True, timeout=_TIMEOUT_SECONDS,
-        ).stdout
-    )
-    return manifest.parse(decoded, require_installed=True)
 
 
 if __name__ == "__main__":
