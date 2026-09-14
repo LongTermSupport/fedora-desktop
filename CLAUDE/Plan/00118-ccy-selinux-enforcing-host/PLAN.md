@@ -77,12 +77,12 @@ stay unreadable and the launch says so.
 
 - [ ] ⬜ **Task 3.1**: Live on an enforcing headless box: `ccy` in a project with a deploy-key
   remote reads `/workspace` and completes `git fetch` inside.
-- [ ] ⬜ **Task 3.2**: `qa-all.bash` green; `CCY_VERSION` minor bump.
+- [x] ✅ **Task 3.2**: `qa-all.bash` green; `CCY_VERSION` minor bump.
 
 ## Success Criteria
 
-- [ ] `head /workspace/README.md` inside a ccy container on an enforcing host succeeds.
-- [ ] A mounted key authenticates to GitHub from inside the container on that host.
+- [x] `head /workspace/README.md` inside a ccy container on an enforcing host succeeds.
+- [x] A mounted key authenticates to GitHub from inside the container on that host.
 - [ ] `git diff` of the `podman run` argument list between a permissive and an enforcing host
   differs only by `:Z` suffixes and the staged-key directory.
 

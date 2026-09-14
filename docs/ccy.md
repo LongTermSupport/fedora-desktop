@@ -916,6 +916,14 @@ type-enforcement layer on those paths. With an agent forwarded, the entrypoint s
 agent of its own and never runs `ssh-add` — a mounted key file is wired by `IdentityFile`
 instead, so nothing is ever loaded into your agent.
 
+**A forwarded agent lasts exactly as long as the SSH session that forwarded it.** sshd
+creates the socket inside that session and removes it on disconnect; a reconnect gets a new
+socket at a new path. A container launched with `--ssh-agent` and left running under tmux
+keeps `gh` (the token is stored inside the container at start) but loses every SSH push the
+moment you disconnect, and does not get it back on reconnect. `--ssh-agent` is for attended
+work; a session that must push unattended needs a key that lives on the box (a deploy key
+registered read/write, or an account key).
+
 `--github-443` is for networks that block outbound port 22 — it routes Git-over-SSH via
 `ssh.github.com:443`. You can also enable it host-wide with `export GITHUB_SSH_443=1`
 before launching; CCY inherits that and shows it in the launch banner, and falls back to
