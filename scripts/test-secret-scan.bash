@@ -185,6 +185,41 @@ assert_filter "a UUID does not shield a real address on the same line" \
 # The UUID entries use the case-SENSITIVE arm, so a near-miss is not exempt.
 assert_filter "a case-differing near-miss of a UUID is NOT exempt" \
     "1: ${NEAR_MISS}" "${REPO_ROOT}" "1: ${NEAR_MISS}"
+
+# ── the ANCHORS are the load-bearing part, so they get their own cases ────────────────────
+#
+# The emitter prints "^" + re.escape(uuid) + "$". Without those two anchors the exemption
+# becomes a substring match, and every case above STILL PASSES — measured: a variant with
+# the anchors dropped ships `passed: 24` and a green qa-all.bash. So the suite proved the
+# exemption worked and not that it was tight, which is the only property that matters here.
+# Each case below fails if either anchor is removed.
+#
+# All three are derived from the declared UUID rather than written out, so this file grows
+# no new address-shaped literal and nothing drifts if the declared set changes.
+SUFFIXED="${DECLARED_UUID}pany"                 # a real address with a UUID as a strict PREFIX
+PREFIXED="x${DECLARED_UUID}"                    # a UUID as a strict SUFFIX
+# A deeper domain under the same left-hand side. The TLD must be one the scanner does NOT
+# already whitelist, or the case proves nothing: a first draft used `.example`, which is
+# RFC 2606 reserved and correctly exempt for that reason, so it passed the filter and looked
+# like an anchoring hole. See CLAUDE/ExampleValues.md for the reserved set.
+EMBEDDED="${DECLARED_UUID}.evil.${RESERVED_TLD}"
+
+# re.escape is the OTHER load-bearing call, and the anchors do not cover it: a near-miss of
+# the SAME LENGTH is inside the anchors, so only the escaping can reject it. Substituting a
+# letter for an interior dot leaves a string the email pattern still matches, which an
+# unescaped `.` would match as a wildcard.
+DOTTED_UUID="appindicatorsupport@rgcjonas.gmail.com"   # exempt: itself a declared UUID
+WILDCARD_NEAR_MISS="${DOTTED_UUID/rgcjonas./rgcjonasX}"
+
+assert_filter "a same-length near-miss that only an unescaped dot would match is NOT exempt" \
+    "1: ${WILDCARD_NEAR_MISS}" "${REPO_ROOT}" "1: ${WILDCARD_NEAR_MISS}"
+
+assert_filter "a longer address starting with a declared UUID is NOT exempt" \
+    "1: ${SUFFIXED}" "${REPO_ROOT}" "1: ${SUFFIXED}"
+assert_filter "an address ending with a declared UUID is NOT exempt" \
+    "1: ${PREFIXED}" "${REPO_ROOT}" "1: ${PREFIXED}"
+assert_filter "a declared UUID extended by a further domain is NOT exempt" \
+    "1: ${EMBEDDED}" "${REPO_ROOT}" "1: ${EMBEDDED}"
 # Without a repo root the exemption is simply absent, which is the safe direction:
 # the gate errs towards flagging rather than towards allowing.
 assert_filter "with no repo root the UUID is flagged, not exempt" \

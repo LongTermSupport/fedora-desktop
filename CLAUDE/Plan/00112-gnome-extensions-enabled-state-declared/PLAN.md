@@ -104,6 +104,14 @@ is the single source instead, and disk only confirms it.
   both, and conflating them let a nine-iteration gate report OK having judged
   nothing. `session_bus.py` is shared, so the applier and the verifier can no longer
   disagree about which session they are looking at
+- [x] ✅ **Task 1.10**: The verdict split reached the helper and stopped there — every
+  non-failing verdict still exits 0, nothing read `gse_verify`, and Ansible does not
+  print a command task's stdout without `-v`, so at **play** level nine judged and nine
+  unjudged were still byte-identical. `Assert Every Deployed Extension Produced A Readable Verdict` now consumes the results and reports `COVERAGE: n of m judged against a live session`. It fails only on a verdict it cannot read — `pending_scan`
+  before the reboot is legitimate and must not fail a fresh install — so the gate that
+  *proves* the outcome remains the post-reboot acceptance check. Verified against
+  Ansible's own templar on three shapes: fresh install (1 of 9, passes), all healthy
+  (9 of 9, passes), a missing marker (**fails**)
 
 ### Phase 2: Acceptance
 

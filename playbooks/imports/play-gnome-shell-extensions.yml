@@ -210,6 +210,39 @@
       # EXT-FAIL ...). Pending-Wayland-reload and no-session both exit 0 (EXT-OK ...). The
       # command module already fails the play on a non-zero rc; this is the fail-fast gate.
 
+    # A pass above is NOT evidence the extensions are healthy, and this task exists so the
+    # transcript cannot pretend otherwise. Every non-failing verdict exits 0, so on a fresh
+    # install — where the shell has not rescanned the extensions directory — all iterations
+    # return EXT-OK [pending_scan] and the output is byte-identical to a genuine all-clear.
+    # Ansible does not print a command task's stdout without -v, so nothing distinguished
+    # "nine judged healthy" from "nine not judged at all".
+    #
+    # It deliberately does NOT fail on pending_scan or skip_no_session: both are legitimate
+    # here (the shell rescans on the reboot run.bash already requires), and failing would
+    # break every fresh install. What it fails on is a verdict it cannot read — that is the
+    # case where the gate genuinely did not run. The gate that PROVES the outcome is the
+    # post-reboot `deployed-extensions-active` check in the desktop acceptance scenario.
+    - name: Assert Every Deployed Extension Produced A Readable Verdict
+      ansible.builtin.assert:
+        that:
+          - gse_marked | int == gse_total | int
+        fail_msg: >-
+          {{ gse_total | int - (gse_marked | int) }} of {{ gse_total }} verify runs produced
+          no EXT-OK/EXT-FAIL marker, so their verdict is unknown and this gate has not run.
+        success_msg: >-
+          COVERAGE: {{ gse_live }} of {{ gse_total }} deployed extensions judged against a
+          live session; {{ gse_scan }} awaiting a shell rescan (expected before the reboot);
+          {{ gse_nosession }} with no session reachable. Only the {{ gse_live }} are evidence.
+        quiet: false
+      vars:
+        gse_stdout: "{{ gse_verify.results | default([]) | map(attribute='stdout') | list }}"
+        gse_total: "{{ gse_stdout | length }}"
+        gse_marked: "{{ gse_stdout | select('match', 'EXT-(OK|FAIL) .[a-z_]+. ') | list | length }}"
+        gse_live: "{{ gse_stdout | select('match', 'EXT-OK .ok. |EXT-OK .pending_reload. ') | list | length }}"
+        gse_scan: "{{ gse_stdout | select('search', 'pending_scan') | list | length }}"
+        gse_nosession: "{{ gse_stdout | select('search', 'skip_no_session') | list | length }}"
+      when: not ansible_check_mode
+
     # Default Space Bar behaviour is: first click opens Overview, second click
     # selects the workspace. We want a single click to switch directly.
     # Use dconf write (not gsettings set) because the Space Bar schema is
