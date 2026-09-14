@@ -20,9 +20,17 @@ Every line reference is `files/var/local/claude-yolo/claude-yolo` unless prefixe
 | 7   | Run                | `container_cmd run` with a fixed flag set                        | `--device /dev/dri` `:2767`, `-it` (use `-i`)                |
 | 8   | Exit               | the container's status, propagated                               | `save_launch_config` `:2607`, `stty` `:2726-2729`            |
 
-Networking and compose are **deferred entirely** (lts-infra Plan 00030: the case study does not
+~~Networking and compose are **deferred entirely** (lts-infra Plan 00030: the case study does not
 need them), so steps 5–7 pass no `--network` and the flow never enters `:1789-2498` or the
-preflight at `:2518-2593`.
+preflight at `:2518-2593`.~~
+
+> **SUPERSEDED by [DECISIONS.md](../DECISIONS.md) §6** (owner, 2026-08-01, `9f514222`): *"i would
+> not assume that CI doesn't need compose or podman network stuff"*. **CI keeps the capability and
+> drops only the negotiation** — §6 gives the keep/drop split function by function, and Plan 00113
+> Phase 2b implements it. This paragraph was written at `e67abde2`, 07:24 the same day, *after*
+> the decision was already in the branch: written contradicted, not overtaken by it.
+>
+> It is load-bearing, not decorative — see the note on the derivation table below.
 
 ### Step 3 — credentials, token-first
 
@@ -82,10 +90,23 @@ above — a site is only reachable if the flow enters the code path that contain
 unresolvable `--token` fails fast naming the flag. The guarded primitive in §4.2 is still the right
 mechanism — it just has six callers, not forty-six.
 
+> **SUPERSEDED — four rows and therefore the ≈6 figure**, by [DECISIONS.md](../DECISIONS.md) §6,
+> the same reversal noted above. Rows **(b) 4**, **(c) 4**, **(e) network selection 4** and
+> **(e) engine/network recovery 2** are marked "No" *because networking and compose were deferred*.
+> §6 restores the kept half of that block to the CI path, so **13 of those sites must be re-judged**
+> — some stay excluded because §6 drops them as negotiation, but that is a different reason and has
+> to be established rather than inherited.
+>
+> The `≈6` was derived under the deferral and is superseded with it. **Plan 00113 Task 0.2 measures
+> the real figure**; nothing may forward `≈6` as a fact in the meantime. `:822` (config restore),
+> the SSH-key, `create_token`, token-export, Dockerfile-authoring, token-resolution and migration
+> rows are untouched by §6 and stand.
+
 > **This is a derivation, not a measurement.** It maps the census's own grouping onto the flow
 > above; it does not re-walk each of the 46 sites in the source. Confirm before implementing, by
 > instrumenting the CI path and asserting which `read` calls it can reach. Recording the
-> distinction because this plan's recurring defect is exactly a derivation reported as a fact.
+> distinction because this plan's recurring defect is exactly a derivation reported as a fact —
+> and the note above is that defect landing anyway, by a route the caveat did not cover.
 
 ## What this does not settle
 

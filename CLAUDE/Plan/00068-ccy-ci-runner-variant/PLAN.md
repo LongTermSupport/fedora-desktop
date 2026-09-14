@@ -138,7 +138,13 @@ measurement (E9).
 - [x] ✅ Desktop ccy is provably unaffected when the new flags are absent.
 - [x] ✅ The fully non-interactive contract is specified site by site.
 - [x] ✅ Task 1.1's host facts are answered by a run, not by inference.
-- [x] ✅ Every surviving report describes a live mechanism.
+- [x] ✅ Every surviving report describes a live mechanism, **or carries a supersession note
+  naming what replaced it**. The 2026-07-31 truncation deleted the reports that were wholly
+  retracted; what remained were three passages that a later owner decision reversed in part —
+  `ci-flow.md`'s compose/networking deferral and the derivation resting on it, and
+  `ci-required-config.md`'s two compose rows — each now marked rather than silently wrong. A
+  report is not required to be right about everything it ever said; it is required not to read
+  as current where it is not.
 - [x] ✅ MCP, `--egress` and the unattended-launch capabilities are resolved against the current
   architecture, and by the owner rather than by this plan's internal reasoning.
 - [x] ✅ The restriction mechanism is settled by measurement (E9), and E8 dissolved with it.

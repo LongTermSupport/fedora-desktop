@@ -96,13 +96,21 @@ launcher's hardest dependency as written but unproven, and see Task 0.6.
     that keeps this plan away from plaintext secrets. The owner arranges the
     population; this plan observes.
 
-  B3 is two runs (podman with a network, expecting `exit 1` at
-  `claude-yolo:2597`, versus Docker with no network, expecting the preflight
-  never to run); B4 attempts an outbound connection from inside a
-  `--no-network` container. Task 0.2's instrumentation covers the same ground as
-  B1/B2 and may be cited here instead of measuring twice — **Task 3.2 may not**:
-  it runs after Phase 1 has closed every prompt site, and a post-fix pass cannot
-  evidence pre-fix behaviour
+  B3 is two runs: podman **with** a network, expecting the **network preflight**
+  to abort — the block guarded by `CCY_SKIP_NETWORK_PREFLIGHT`, whose `exit 1` is
+  at `claude-yolo:2845` *at the time of writing* — versus Docker with **no**
+  network, expecting the preflight never to run at all. Cite it **by name, not by
+  line**: the checklist's original `:2597` had drifted to a `case` arm in an
+  unrelated prompt, and `:2845` moved again while this task was being corrected.
+  The original also conditioned B3's `exit 1` on *restricted egress*, a posture
+  Decision 8 dropped — so the condition to state is now simply that the runner
+  cannot reach what the preflight probes. B4 attempts an outbound connection from
+  inside a `--no-network` container.
+
+  Task 0.2's instrumentation covers the same ground as B1/B2 and may be cited
+  here instead of measuring twice — **Task 3.2 may not**: it runs after Phase 1
+  has closed every prompt site, and a post-fix pass cannot evidence pre-fix
+  behaviour
 
 - [ ] ⬜ **Task 0.5**: §9 obligations **C1/C2** — borrowed from another repo's
   runner and never re-measured under ccy's container shape. Method: a **listener

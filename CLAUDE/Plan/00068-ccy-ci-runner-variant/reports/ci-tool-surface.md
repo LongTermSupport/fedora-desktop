@@ -15,8 +15,9 @@ Measured 2026-08-10 (journal of that date; the table is in Decision 9):
   inert; under headless `-p` an unlisted tool is refused *by CLI default*, not by decision.
   Nothing in this specification may rest on it.
 - **Removing `Bash` adds `Glob` and `Grep`** — the CLI substitutes narrower tools for a
-  withdrawn capability. 29 − 3 = 26; the measurement says 28. Every assertion below is on
-  **tool names**, never on a count.
+  withdrawn capability. 29 − 3 = 26; the measurement says 28. **No assertion below rests on a
+  count** — assertions 2 and 3 are on tool names, assertion 1 on flag names, assertion 4 on the
+  MCP server's vocabulary.
 
 > **The substitution is why the expected set cannot be derived on paper.** "Default minus denied"
 > is wrong: the session's real set is default − denied **+ whatever the CLI substitutes**, and
@@ -105,10 +106,17 @@ That one place holds two things per class: the **denied names**, which become th
 
 They are not two views of one list, and treating them as one is the mistake this paragraph
 previously made. Because the CLI **substitutes** narrower tools for a withdrawn capability (§1),
-the expected set is *not* "the default minus the denied" — removing `Bash` for class B adds
-`Glob` and `Grep`, so subtraction would predict 26 names where 28 were measured, and assertion 2
-would fail on every run. The expected set is **captured**, per class, from a session launched
-with that class's deny string (00113 Task 0.3), and thereafter maintained as a declared artefact.
+the expected set is *not* "the default minus the denied": the one measurement there is —
+`--disallowedTools Bash,Edit,Write`, three names — yielded **28**, where subtracting from 29
+predicts 26. Assertion 2 built on subtraction would fail on every run.
+
+**Neither class's string has been measured.** That measured config is not class A's list
+(`Edit`, `Write`, `NotebookEdit` — three, but withdrawing no capability, so possibly no
+substitution at all) nor class B's (`Bash`, `Edit`, `Write`, `NotebookEdit` — four). Quoting the
+28 as though it were class B's would be exactly the paper derivation this paragraph forbids, one
+paragraph after forbidding it. The expected set is **captured**, per class, from a session
+launched with that class's own deny string (00113 Task 0.3), and thereafter maintained as a
+declared artefact.
 
 ## 5. The assertions, which must be able to fail
 
@@ -154,14 +162,17 @@ agent's first turn:
 - The class-A token's scopes (§2) — a property of lts-infra's token store, unreadable from
   here. It is named as a required property, not asserted as a fact.
 
-- The concrete default tool vocabulary. The 2026-08-10 measurement recorded counts, not names,
-  and this specification deliberately does not invent the missing names: it names the
-  primitives that must be absent and requires the implementation to capture the real list and
-  assert against it. Anything else would be a hand-kept list of exactly the kind §4 forbids.
+- **The per-class tool vocabulary, by name.** The 2026-08-10 measurement recorded counts, not
+  names, and only for `--disallowedTools Bash,Edit,Write` — which is neither class's string. This
+  specification deliberately does not invent the missing names: it names the primitives that must
+  be absent and requires the implementation to capture the real list and assert against it.
+  Anything else would be a hand-kept list of exactly the kind §4 forbids.
 
-  This is now a **prerequisite**, not a loose end: assertion 2 diffs against a declared set, and
-  that set cannot be declared until the names are captured. Plan 00113 Task 0.3 captures them
-  from the binary about to run; Task 2.1 is where they become the one place per class.
+  This is a **prerequisite**, not a loose end: assertion 2 diffs against a declared set, and that
+  set cannot be declared until the names are captured. Plan 00113 Task 0.3 captures them from the
+  binary about to run, **once per class, with that class's own deny string applied** — not the
+  bare default, which §1 and §4 both establish cannot be subtracted from. Task 2.1 is where they
+  become the one place per class.
 
 - Whether the dirty-tree half of §2's boundary is enforced on the runner. Stated there as a
   requirement on lts-infra Plan 00030; nothing in this repo can assert it.
