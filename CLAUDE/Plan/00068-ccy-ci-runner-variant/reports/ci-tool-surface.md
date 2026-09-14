@@ -15,8 +15,15 @@ Measured 2026-08-10 (journal of that date; the table is in Decision 9):
   inert; under headless `-p` an unlisted tool is refused *by CLI default*, not by decision.
   Nothing in this specification may rest on it.
 - **Removing `Bash` adds `Glob` and `Grep`** — the CLI substitutes narrower tools for a
-  withdrawn capability. 29 − 3 = 26; the measurement says 28. Every assertion below is on a
-  **tool name being absent**, never on a count.
+  withdrawn capability. 29 − 3 = 26; the measurement says 28. Every assertion below is on
+  **tool names**, never on a count.
+
+> **The substitution is why the expected set cannot be derived on paper.** "Default minus denied"
+> is wrong: the session's real set is default − denied **+ whatever the CLI substitutes**, and
+> which tools it substitutes for which withdrawal is not documented — it was discovered by
+> measuring. So §5's assertion 2 diffs against a set that must be **captured per class, with that
+> class's `--disallowedTools` string applied**, not computed from a default vocabulary. Plan 00113
+> Task 0.3 captures it that way.
 
 ## 2. The two classes
 
@@ -93,9 +100,15 @@ and the flag string, the startup assertion and the documentation must all be gen
 it. Three hand-kept copies of the same list is how one of them ends up wrong, and the one that
 ends up wrong is never the one anybody reads.
 
-That one place holds the **whole expected set**, not just the denied names — assertion 2 diffs
-against it, so the two are the same artefact seen from opposite ends: what is subtracted becomes
-the `--disallowedTools` string, what remains is what the session must be observed to have.
+That one place holds two things per class: the **denied names**, which become the
+`--disallowedTools` string, and the **expected observed set**, which assertion 2 diffs against.
+
+They are not two views of one list, and treating them as one is the mistake this paragraph
+previously made. Because the CLI **substitutes** narrower tools for a withdrawn capability (§1),
+the expected set is *not* "the default minus the denied" — removing `Bash` for class B adds
+`Glob` and `Grep`, so subtraction would predict 26 names where 28 were measured, and assertion 2
+would fail on every run. The expected set is **captured**, per class, from a session launched
+with that class's deny string (00113 Task 0.3), and thereafter maintained as a declared artefact.
 
 ## 5. The assertions, which must be able to fail
 

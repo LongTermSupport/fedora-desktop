@@ -150,7 +150,7 @@ Use these Unicode icons in plan documents:
 
 - [00089-ssh-handling-runner-token-guard](00089-ssh-handling-runner-token-guard/) - A carve-out from Plan 00068 (unmerged). Not a bug fix — `gh` already gives an exported `GH_TOKEN` precedence — but it makes that explicit and drops the `gh auth token` dependency for a runner authenticating purely by token via `--no-ssh`.
 
-- [00068-ccy-ci-runner-variant](00068-ccy-ci-runner-variant/) - Design and audit of what `ccy` owes a headless CI runner: an image `LABEL` identity and a small CI entrypoint, with no code changes in this plan
+- [00068-ccy-ci-runner-variant](00068-ccy-ci-runner-variant/) - Specifies what `ccy` owes a headless CI runner: the fail-fast contract at every prompt site, a per-event tool surface imposed by `--disallowedTools` and asserted at startup, and compose/networking kept as capability minus negotiation. No code changes here — Plan 00113 implements it
 
 - [00069-plan-md-edited-in-place](00069-plan-md-edited-in-place/) - State in `PlanWorkflow.md` that `PLAN.md` is edited in place with git as its history, and narration belongs in `JOURNAL/`
 
