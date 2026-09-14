@@ -40,73 +40,19 @@ Everything else goes to stderr.
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import os
 import subprocess
 import sys
-from collections.abc import Mapping, Sequence
 
-from helpers.gnome import enabled_extensions
+from helpers.gnome import enabled_extensions, session_bus
 
 DEFAULT_SCHEMA = "org.gnome.shell"
 DEFAULT_KEY = "enabled-extensions"
 DEFAULT_DISABLE_KEY = "disable-user-extensions"
 
 
-@dataclasses.dataclass(frozen=True)
-class SessionBus:
-    """How to reach a D-Bus session so dconf accepts the write."""
-
-    prefix: list[str]
-    address: str | None
-    source: str
-
-
-def resolve_session_bus(
-    environ: Mapping[str, str], runtime_dirs: Sequence[str]
-) -> SessionBus:
-    """Pick the bus to write through, preferring the user's live one.
-
-    A live session's bus means the running shell sees the change immediately. With
-    no bus at all — `run.bash` from a TTY — `dbus-run-session` gives dconf a
-    throwaway one and the value still lands in the user's database, so the play
-    needs no `failed_when: false` for the no-session case.
-
-    `runtime_dirs` is tried in order and each socket is tested for ACCESS, not mere
-    existence: `sudo -u` can leave a stale `XDG_RUNTIME_DIR` pointing at another
-    user's `0700` runtime directory, and the uid-derived path behind it is the one
-    that actually reaches the live session.
-    """
-    address = environ.get("DBUS_SESSION_BUS_ADDRESS", "").strip()
-    if address:
-        return SessionBus(prefix=[], address=address, source="environment")
-
-    for runtime_dir in runtime_dirs:
-        socket = os.path.join(runtime_dir, "bus")
-        if os.access(socket, os.R_OK | os.W_OK):
-            return SessionBus(
-                prefix=[], address=f"unix:path={socket}", source="runtime-socket"
-            )
-
-    return SessionBus(prefix=["dbus-run-session", "--"], address=None, source="dbus-run-session")
-
-
-def _runtime_dirs() -> list[str]:
-    """Candidate runtime directories, most specific first (see resolve_session_bus)."""
-    candidates = [os.environ.get("XDG_RUNTIME_DIR", ""), f"/run/user/{os.getuid()}"]
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for candidate in candidates:
-        if candidate and candidate not in seen:
-            seen.add(candidate)
-            ordered.append(candidate)
-    return ordered
-
-
-def _gsettings(bus: SessionBus, *args: str) -> str:
-    env = dict(os.environ)
-    if bus.address:
-        env["DBUS_SESSION_BUS_ADDRESS"] = bus.address
+def _gsettings(bus: session_bus.SessionBus, *args: str) -> str:
+    env = session_bus.env_for(bus, os.environ)
     result = subprocess.run(
         [*bus.prefix, "gsettings", *args],
         text=True,
@@ -164,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     deployed = resolution.found
     print(f"GNOME-EXT-DEPLOYED {','.join(deployed)}")
 
-    bus = resolve_session_bus(os.environ, _runtime_dirs())
+    bus = session_bus.current()
     print(f"reaching dconf via {bus.source}", file=sys.stderr)
 
     # This key defeats every user extension whatever the list says, so writing the

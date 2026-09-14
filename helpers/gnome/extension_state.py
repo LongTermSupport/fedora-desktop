@@ -27,6 +27,13 @@ _OUT_OF_DATE = {"OUT OF DATE", "OUT_OF_DATE"}
 class Verdict(enum.Enum):
     OK = "ok"
     PENDING_RELOAD = "pending_reload"
+    #: A session is live and the shell has no record of this UUID at all. Distinct
+    #: from SKIP_NO_SESSION, which it was silently folded into until Plan 00112:
+    #: `gnome-extensions info` exits non-zero for BOTH, so "the shell has never
+    #: scanned this extension" — the exact state Plan 00110's lab found on a fresh
+    #: install — was reported as "there is no session", and a nine-iteration gate
+    #: could report OK having judged nothing.
+    PENDING_SCAN = "pending_scan"
     SKIP_NO_SESSION = "skip_no_session"
     FAIL_VERSION = "fail_version"
     FAIL_ERROR = "fail_error"
@@ -53,12 +60,26 @@ def classify(
     live_state: str | None,
     shell_major: str | None,
     metadata_shell_versions: list[str],
+    known_to_shell: bool = True,
 ) -> Classification:
     """Decide the verdict for one extension. See module docstring for the why."""
     if not session_available:
         return Classification(
             Verdict.SKIP_NO_SESSION,
             f"{uuid}: no GNOME session / D-Bus available — skipping live state check.",
+        )
+
+    if not known_to_shell:
+        # Not a failure: on a fresh install the extension is on disk and the running
+        # shell has simply not rescanned, which a logout fixes and which the reboot
+        # run.bash recommends already covers. It is reported as its own verdict
+        # rather than as OK so a transcript full of these cannot be mistaken for a
+        # transcript full of live, checked, healthy extensions.
+        return Classification(
+            Verdict.PENDING_SCAN,
+            f"{uuid}: a session is live but GNOME Shell has no record of this "
+            "extension — it is on disk and has not been scanned. Log out and back "
+            "in to load it. Not failing the play.",
         )
 
     state = (live_state or "").strip().upper()

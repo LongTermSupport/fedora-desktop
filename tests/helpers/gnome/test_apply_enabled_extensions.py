@@ -37,65 +37,6 @@ def _completed(stdout: str = "", returncode: int = 0) -> subprocess.CompletedPro
     return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr="")
 
 
-class TestResolveSessionBus(unittest.TestCase):
-    def test_environment_address_wins(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            bus = aee.resolve_session_bus(
-                {"DBUS_SESSION_BUS_ADDRESS": "unix:path=/somewhere/bus"}, [tmp]
-            )
-        self.assertEqual(bus.prefix, [])
-        self.assertEqual(bus.address, "unix:path=/somewhere/bus")
-        self.assertEqual(bus.source, "environment")
-
-    def test_runtime_socket_is_used_when_the_environment_is_bare(self):
-        # Ansible's become_user gives no DBUS_SESSION_BUS_ADDRESS, but the user's
-        # systemd bus socket is there — writing through it reaches the live shell.
-        with tempfile.TemporaryDirectory() as tmp:
-            (pathlib.Path(tmp) / "bus").touch()
-            bus = aee.resolve_session_bus({}, [tmp])
-        self.assertEqual(bus.prefix, [])
-        self.assertEqual(bus.address, f"unix:path={tmp}/bus")
-        self.assertEqual(bus.source, "runtime-socket")
-
-    def test_falls_back_to_dbus_run_session_with_no_bus_at_all(self):
-        # run.bash from a TTY on a machine with no session: the write must still
-        # land in the user's dconf database, or the play would have to tolerate a
-        # failure — which is what this plan exists to remove.
-        with tempfile.TemporaryDirectory() as tmp:
-            bus = aee.resolve_session_bus({}, [tmp])
-        self.assertEqual(bus.prefix, ["dbus-run-session", "--"])
-        self.assertIsNone(bus.address)
-        self.assertEqual(bus.source, "dbus-run-session")
-
-    def test_empty_environment_address_is_not_an_address(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            bus = aee.resolve_session_bus({"DBUS_SESSION_BUS_ADDRESS": ""}, [tmp])
-        self.assertEqual(bus.source, "dbus-run-session")
-
-    def test_an_unreachable_socket_falls_back_rather_than_being_used(self):
-        # `sudo -u` can leave XDG_RUNTIME_DIR pointing at another user's 0700
-        # runtime directory. The socket is there; we cannot connect to it.
-        with tempfile.TemporaryDirectory() as tmp:
-            (pathlib.Path(tmp) / "bus").touch()
-            with mock.patch.object(aee.os, "access", return_value=False):
-                bus = aee.resolve_session_bus({}, [tmp])
-        self.assertEqual(bus.source, "dbus-run-session")
-
-    def test_a_stale_runtime_dir_falls_through_to_the_uid_derived_one(self):
-        # XDG_RUNTIME_DIR can be another user's; /run/user/<uid> is derived from
-        # who we actually are. Trying only the first would miss the live session
-        # and write through a throwaway bus the running shell never sees.
-        with tempfile.TemporaryDirectory() as tmp:
-            stale = pathlib.Path(tmp) / "stale"
-            real = pathlib.Path(tmp) / "real"
-            stale.mkdir()
-            real.mkdir()
-            (real / "bus").touch()
-            bus = aee.resolve_session_bus({}, [str(stale), str(real)])
-        self.assertEqual(bus.source, "runtime-socket")
-        self.assertEqual(bus.address, f"unix:path={real}/bus")
-
-
 class TestMain(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -125,7 +66,9 @@ class TestMain(unittest.TestCase):
         with (
             mock.patch.object(aee.subprocess, "run", side_effect=run_side_effect),
             mock.patch.dict(
-                aee.os.environ, {"XDG_RUNTIME_DIR": str(self.runtime_dir)}, clear=True
+                aee.session_bus.os.environ,
+                {"XDG_RUNTIME_DIR": str(self.runtime_dir)},
+                clear=True,
             ),
             mock.patch.object(sys, "stdout", stdout),
             mock.patch.object(sys, "stderr", stderr),
@@ -327,11 +270,14 @@ class TestMain(unittest.TestCase):
         self.assertEqual(seen["argv"][:2], ["dbus-run-session", "--"])
 
     def test_schema_and_key_are_overridable(self):
+        # Capturing only the FIRST gsettings call silently dropped the --key
+        # assertion once disable-user-extensions became the first read. Capture
+        # every call and assert against the one that carries the enabled key.
         self._deploy(self.user_dir, BLUR)
-        seen: dict[str, Any] = {}
+        calls: list[list[str]] = []
 
         def fake_run(argv, **kwargs):
-            seen.setdefault("argv", argv)
+            calls.append(argv)
             if "some-other-key" in argv:
                 return _completed(stdout="false\n")
             return _completed(stdout=f"['{BLUR}']\n")
@@ -352,7 +298,9 @@ class TestMain(unittest.TestCase):
         )
 
         self.assertEqual(code, 0)
-        self.assertIn("org.example.thing", seen["argv"])
+        self.assertTrue(all("org.example.thing" in argv for argv in calls))
+        self.assertTrue(any("some-key" in argv for argv in calls))
+        self.assertTrue(any("some-other-key" in argv for argv in calls))
 
     def test_bad_extension_metadata_fails_before_any_write(self):
         path = self.user_dir / BLUR

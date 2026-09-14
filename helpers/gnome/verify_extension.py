@@ -25,15 +25,7 @@ import os
 import subprocess
 import sys
 
-from helpers.gnome import extension_state
-
-
-def _dbus_env() -> dict[str, str]:
-    env = dict(os.environ)
-    env.setdefault(
-        "DBUS_SESSION_BUS_ADDRESS", f"unix:path=/run/user/{os.getuid()}/bus"
-    )
-    return env
+from helpers.gnome import extension_state, session_bus
 
 
 def _metadata_shell_versions(extensions_dirs: list[str], uuid: str) -> list[str]:
@@ -78,13 +70,40 @@ def _shell_major(env: dict[str, str]) -> str | None:
     return token.split(".")[0] or None
 
 
-def _live_state(uuid: str, env: dict[str, str]) -> tuple[bool, str | None]:
-    """Return (session_available, state). gnome-extensions exits non-zero with no session."""
-    # check=False is deliberate — see _shell_major above. A non-zero exit here
-    # means "no live session", which is exactly what this function returns as
-    # session_available=False; the returncode is checked on the next line.
+def _session_available(bus: session_bus.SessionBus, env: dict[str, str]) -> bool:
+    """Whether a GNOME Shell is there to answer at all.
+
+    An INDEPENDENT probe, and the reason this function exists. `gnome-extensions
+    info <uuid>` exits non-zero for two completely different reasons — there is no
+    session, and the shell has no record of that UUID — and reading the second as
+    the first is what let a fresh install report "no session" for eight extensions
+    that were sitting on disk in a live session (Plan 00110's finding, Plan 00112's
+    fix). `list` takes no UUID, so it can only fail for the first reason.
+    """
+    # check=False is deliberate — see _shell_major above. A non-zero exit IS the
+    # answer this function returns, and the returncode is inspected on the next line.
     result = subprocess.run(
-        ["gnome-extensions", "info", uuid], text=True, capture_output=True, env=env, check=False
+        [*bus.prefix, "gnome-extensions", "list"],
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def _live_state(
+    uuid: str, bus: session_bus.SessionBus, env: dict[str, str]
+) -> tuple[bool, str | None]:
+    """Return (known_to_shell, state). Call only once a session is known to exist."""
+    # check=False is deliberate — see above. With a session confirmed, a non-zero
+    # exit means the shell does not know this UUID, which is a RESULT.
+    result = subprocess.run(
+        [*bus.prefix, "gnome-extensions", "info", uuid],
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
     )
     if result.returncode != 0:
         return False, None
@@ -111,12 +130,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    env = _dbus_env()
+    bus = session_bus.current()
+    env = session_bus.env_for(bus, os.environ)
     extensions_dirs = args.extensions_dir or [
         os.path.expanduser("~/.local/share/gnome-shell/extensions")
     ]
     metadata_versions = _metadata_shell_versions(extensions_dirs, args.uuid)
-    session_available, live_state = _live_state(args.uuid, env)
+
+    session_available = _session_available(bus, env)
+    known_to_shell, live_state = (
+        _live_state(args.uuid, bus, env) if session_available else (False, None)
+    )
     shell_major = _shell_major(env) if session_available else None
 
     verdict = extension_state.classify(
@@ -125,6 +149,7 @@ def main(argv: list[str] | None = None) -> int:
         live_state=live_state,
         shell_major=shell_major,
         metadata_shell_versions=metadata_versions,
+        known_to_shell=known_to_shell,
     )
 
     prefix = "EXT-FAIL" if verdict.is_failure else "EXT-OK"

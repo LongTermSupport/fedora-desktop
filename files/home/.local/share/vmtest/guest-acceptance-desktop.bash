@@ -182,10 +182,18 @@ import sys
 import yaml
 
 with open(sys.argv[1]) as handle:
-    groups = (yaml.safe_load(handle) or {}).get("gnome_shell_extensions") or {}
-for group in ("egos", "system", "custom"):
-    for entry in groups.get(group) or []:
-        print(entry["uuid"])
+    groups = (yaml.safe_load(handle) or {}).get("gnome_shell_extensions")
+# Every group, not three names spelled out: a fourth group must not be silently
+# uncounted here while the play enables it. A missing or renamed top-level key is
+# an ERROR, not an empty population — "0 of 0 declared ACTIVE" would otherwise be
+# a clean pass over a check that examined nothing.
+if not isinstance(groups, dict) or not groups:
+    raise SystemExit("gnome_shell_extensions is missing or not a mapping of groups")
+uuids = [entry["uuid"] for entries in groups.values() for entry in entries or []]
+if not uuids:
+    raise SystemExit("gnome_shell_extensions declares no extensions at all")
+for uuid in uuids:
+    print(uuid)
 ' "${extensions_vars}" 2>&1)" || declared="READ-FAILED ${declared}"
 
 user_extensions="${HOME}/.local/share/gnome-shell/extensions"
@@ -212,7 +220,12 @@ else
         fi
     done
     coverage="COVERAGE: ${active_count} of ${expected} declared ACTIVE"
-    if [[ -z "${inactive}" ]]; then
+    if [[ "${expected}" -eq 0 ]]; then
+        # The population and the expectation are now the same list, so nothing
+        # else guards zero. "0 of 0 ACTIVE" is the repo's highest-recurrence
+        # defect shape and must never be a pass.
+        check fail deployed-extensions-active "${extensions_vars} parsed to no extensions at all"
+    elif [[ -z "${inactive}" ]]; then
         check pass deployed-extensions-active "${coverage}"
     else
         check fail deployed-extensions-active "${coverage}; not ACTIVE:${inactive}"
