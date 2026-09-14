@@ -154,7 +154,30 @@ remains needs a secret no VM scenario carries — see the Status note above.
   the container-to-host bridge as `20260913T181420Z-server-fast-provision`.
   The Anaconda-installed Server variant is `server-full-provision` (Plan 00110
   Phase 3b).
-- [ ] ⬜ **Task 3.2**: Confirm the desktop interactive path is unchanged.
+- [ ] ⬜ **Task 3.2**: Confirm the desktop interactive path is unchanged. Needs a
+  human at a terminal by definition — an automated scenario cannot answer "does
+  this still prompt correctly". `desktop-fresh-install` does not cover it: the
+  lab drives every guest with `RUN_BASH_HEADLESS=1` (`files/home/.local/bin/vmtest:747`)
+- [ ] 🚫 **Task 3.3**: **HOST, needs a real credential** — the GitHub token path
+  (Task 2.3). `gh auth login --with-token` with a scoped PAT on stdin, then
+  `gh-account-setup.bash` failing loud under `RUN_BASH_HEADLESS` instead of
+  opening a device flow. No VM scenario can stand in: all six run
+  `RUN_BASH_GITHUB_ACCOUNTS=none` (`vmtest:749`, `:942`), which is the branch that
+  skips this code entirely. An agent must not create or handle the PAT
+- [ ] 🚫 **Task 3.4**: **HOST, needs a real credential** — the SSH path (Tasks 2.2
+  and 2.4): a passphrase file accepted in preflight, `hl_ssh_agent_start` /
+  `hl_ssh_agent_stop` bracketing the run, the transient `SSH_ASKPASS` helper gone
+  afterwards, `hl_cleanup` firing on EXIT, and the secret files deleted after use.
+  Same reason as 3.3 — with `GITHUB_ACCOUNTS=none` no key is ever loaded, so the
+  agent is never started and its teardown is never exercised
+
+> **Why Tasks 2.2, 2.3 and 2.4 stay open.** Each says "HOST-verified in Phase 3",
+> and until now Phase 3 held nothing that verified any of them: Task 3.1 is
+> discharged by a lab that runs the `none` branch, and 3.2 is about the desktop.
+> Tasks 3.3 and 3.4 above are those obligations stated with a method, rather than
+> pointed at a phase that did not cover them. **This plan cannot be completed by
+> an agent**: what remains needs a real PAT, a real SSH passphrase and a human at
+> an interactive terminal.
 
 ## Dependencies
 
