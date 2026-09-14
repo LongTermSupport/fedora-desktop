@@ -1,0 +1,15 @@
+{
+  "name": "Fedora Desktop",
+  "description": "Panel indicator for this machine's drift state, read from the host status document written by the host-health checks. Reports three states, because a host nothing has checked must not look like a healthy one.",
+  "uuid": "fedora-desktop@fedora-desktop",
+  "shell-version": [
+    "45",
+    "46",
+    "47",
+    "48",
+    "49",
+    "50"
+  ],
+  "version": 1,
+  "url": "https://github.com/LongTermSupport/fedora-desktop"
+}

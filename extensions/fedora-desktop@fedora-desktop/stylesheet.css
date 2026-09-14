@@ -1,0 +1,20 @@
+/* The panel's three kinds of line. The distinction between a fault and something
+ * nobody could check is stated in words by the menu itself — these styles reinforce
+ * it, they never carry it alone, because colour is not a statement. */
+
+.fedora-desktop-finding {
+    font-size: 0.95em;
+    padding-left: 1em;
+}
+
+.fedora-desktop-caveat {
+    font-size: 0.9em;
+    font-style: italic;
+    padding-left: 1em;
+}
+
+.fedora-desktop-detail {
+    font-size: 0.9em;
+    color: #aaaaaa;
+    padding-left: 1em;
+}

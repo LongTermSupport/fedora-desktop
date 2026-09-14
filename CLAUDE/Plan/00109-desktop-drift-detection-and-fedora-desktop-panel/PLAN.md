@@ -106,72 +106,36 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 
 ### Phase 1: Host play-run ledger
 
-- [x] ✅ **Task 1.1**: Design the ledger record and its location —
-  [DESIGN-play-ledger.md](DESIGN-play-ledger.md), Decision 2 below. One record per
-  **play**, not per playbook run; append-only JSONL at
-  `~/.local/state/fedora-desktop/play-ledger/runs.jsonl` (`0600`), so it survives a
-  re-clone and cannot be committed. The hash's job is corrected there: git already
-  answers "did this play change between two commits" — `play_sha256` is the
-  **dirty-tree guard**, for the case where the commit is a lie
-- [ ] ⬜ **Task 1.2**: Write the ledger on every play run
-  - [x] ✅ Hook point: `callback_plugins/play_ledger.py`, enabled in `ansible.cfg`,
-    which declared no `callback_plugins` path before this. Caught by `./run.bash`, by
-    a playbook's shebang and by a bare `ansible-playbook` alike — but **defeated by
-    `ANSIBLE_CONFIG`**, so Phase 2 may never call the ledger complete by construction
-  - [x] ✅ Fail-fast in the only form available: Ansible **swallows** a callback's
-    exception, so a write failure becomes a `BROKEN` sentinel plus a stderr
-    `LEDGER-WRITE-FAILED`, which Phase 2 reads first and refuses to answer past.
-    `--check` and `--list-*` runs record nothing — they applied nothing. Reasoning and
-    the corrected outcome-folding: [DESIGN-play-ledger.md](DESIGN-play-ledger.md) §3
+> Complete except one HOST item. Record shape, the hash's dirty-tree-guard job, the
+> callback hook point and its `ANSIBLE_CONFIG` hole, the swallowed-exception fail-fast
+> route, and the no-backfill decision are all in
+> [DESIGN-play-ledger.md](DESIGN-play-ledger.md) §§1–4.
+
+- [x] ✅ **Task 1.1**: Design the ledger record and its location
+- [ ] 🔄 **Task 1.2**: Write the ledger on every play run — `callback_plugins/play_ledger.py`
   - [ ] ⬜ **HOST**: verify against a real run — unprovable in the container. Genesis
     plus one row per play; `--check` adds nothing; a second run appends
-- [x] ✅ **Task 1.3**: Backfill — **none.** The day-one flood is answered by a
-  reporting rule rather than invented history: a play with no record has never been
-  run here, and silence is the correct output for it, so every never-run play says
-  nothing instead of saying something wrong. A `genesis` record at creation is what makes
-  that silence unambiguous. `ledger.genesis_record` + `store.ensure_ledger`;
-  reasoning in [DESIGN-play-ledger.md](DESIGN-play-ledger.md) §4
+- [x] ✅ **Task 1.3**: Backfill — **none**, answered by a reporting rule instead: a play
+  with no record has never been run here, and silence is correct for it
 
 ### Phase 2: Drift checks built on the ledger
 
-- [x] ✅ **Task 2.1**: Play-freshness check — `freshness.py` (verdicts),
-  `git_history.py` (fetch-only git, bounded by a timeout because it is the one
-  network call on the login path), `check_freshness.py` (executor).
-  Findings name the commit subjects that touched each play, so the report says
-  *what* changed. Three exit statuses: clean and silent, findings, and
-  **untrustworthy** — because "nothing is stale" and "I cannot tell you" are
-  different answers. Design, verdict table and the two structural silences:
-  [DESIGN-play-ledger.md](DESIGN-play-ledger.md) §6. Smoke-tested against this
-  repo, both the findings path and the sentinel path
-  - [x] ✅ **An offline login is silent, and a long silence is a finding.** A failed
-    `git fetch` is no longer untrustworthy on its own: "can I reach the remote now"
-    is a fact about the network, "how long since I last could" is a fact about this
-    host. `fetch_clock` stamps each success; past the declared bound it reports the
-    gap, and never-fetched is its own message. The decision, and why neither simple
-    answer was right: [DESIGN-host-health.md](DESIGN-host-health.md) §8. This
-    **reversed** a ticked behaviour, so the test that asserted the opposite was
-    rewritten to pin the new rule rather than deleted
-- [x] ✅ **Task 2.2**: Installed-vs-pinned check — the axis that failed. Detail:
-  [DESIGN-version-pins.md](DESIGN-version-pins.md)
-  - [x] ✅ `compare.py` (5 states, only `MATCH` clean), `manifest.py` +
-    `vars/version-pins.yml` (the declaration both consumers read),
-    `check_pins.py` (per-pin resolution), `scripts/qa-version-pins.bash`
-  - [x] ✅ **The gate this task demands, both directions**, against the states the
-    journal records: `evdi/1.14.16` against a `1.15.0` pin is a finding, and
-    `evdi/1.15.0-1.github_evdi` is clean — release suffix and all. A check that
-    cannot fail against its incident is not a check; one that cannot pass is noise
-  - [x] ✅ **Resolution is declared, never guessed**, and **coverage has a floor.** A
-    pin declares `installed:` or is rejected; 1 of 9 is tracked today and the gate
-    prints that split. Partial coverage is a decision, but zero is a check that
-    cannot fail — so the gate fails at zero and the login report says
-    `compared 0 of N`
-- [x] ✅ **Task 2.3**: Wire both into the QA suite — **decided: neither belongs in
-  `qa-all.bash`.** Both ask "is this host what the repo says", which in a container
-  finds nothing and exits 0: two gates that cannot fail wherever CI runs them. Their
-  home is Phase 3's login surface; their **tests** are already in `qa-all` via
-  `qa-helper-tests.bash`, which is the part that belongs there. Reasoning, and why
-  `qa-deployed-drift.bash` is the exception:
-  [DESIGN-play-ledger.md](DESIGN-play-ledger.md) §7
+> Complete. Verdict table, the three exit statuses and the two structural silences are in
+> [DESIGN-play-ledger.md](DESIGN-play-ledger.md) §§6–7; the offline-login decision in
+> [DESIGN-host-health.md](DESIGN-host-health.md) §8; the pin axis in
+> [DESIGN-version-pins.md](DESIGN-version-pins.md).
+
+- [x] ✅ **Task 2.1**: Play-freshness — `freshness.py`, `git_history.py`,
+  `check_freshness.py`. Clean-and-silent, findings, and **untrustworthy** are three
+  different answers. An offline login is silent; a long silence is a finding. Reversing
+  that ticked behaviour meant rewriting the test that asserted the opposite, not deleting it
+- [x] ✅ **Task 2.2**: Installed-vs-pinned — the axis that actually failed. Passes both
+  directions against the states the journal records, resolution is declared rather than
+  guessed, and coverage has a floor: partial is a decision, zero is a check that cannot fail
+- [x] ✅ **Task 2.3**: **Neither belongs in `qa-all.bash`.** Both ask "is this host what
+  the repo says", which in a container finds nothing and exits 0 — two gates that cannot
+  fail wherever CI runs them. Their tests are in `qa-all` via `qa-helper-tests.bash`,
+  which is the part that does belong there
 
 ### Phase 3: Login-time health surfacing and Claude Code handoff
 
@@ -223,8 +187,18 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
       user* stop being one step. That is what makes a server route affordable — a
       synchronous `git fetch` at every SSH login would add latency to every login and
       can hang, while printing a cached document costs nothing
-    - [ ] ⬜ The route itself: which schedule writes it, and what prints it at login.
-      Unowned decision
+    - [x] ✅ The renderer: `helpers/host_health/login_message.py`. Silent when clean
+      **and fresh** — both, because a clean document nobody has updated for a month
+      describes the host as it was a month ago, so the document's own age is a finding
+      past `STALE_AFTER_DAYS`. Same shape as
+      [DESIGN-host-health.md](DESIGN-host-health.md) §8's fetch clock, same reason.
+      `main` always exits 0: a non-zero status from a sourced profile snippet can trip
+      `set -e` in the surrounding shell, and a reporter that costs the user the login
+      is worse than no reporter
+    - [ ] ⬜ The delivery: a `--user` timer to run the producer on a server (nothing
+      triggers it without `graphical-session.target`), a profile snippet calling
+      `python3 -m helpers.host_health.login_message`, and a play to deploy both. Needs
+      the timer cadence decided against `STALE_AFTER_DAYS`
 - [ ] 🔄 **Task 3.3**: Claude Code handoff — file and offer done, one-click is Phase 4
   - [x] ✅ `helpers/host_health/handoff.py`. The prompt file separates *"this is
     wrong"* from *"this was not looked at"*, and says of the second that these are
@@ -256,9 +230,30 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     `unavailable` — never as an empty one, which renders as health. Its atomicity test
     survived a mutant that wrote straight to the destination; the test now pins what a
     *failed* write leaves behind, which is the only thing that tells the two apart
-  - [ ] ⬜ The scaffold, landing with 4.2's section as its first consumer — a registry
-    with nothing registered cannot be exercised
+  - [x] ✅ The scaffold, landing with 4.2's health section registered — a registry with
+    nothing in it cannot be exercised. `extensions/fedora-desktop@fedora-desktop/`:
+    `metadata.json`, `statusDocument.js` (the reader), `sections/health.js`,
+    `extension.js`, `stylesheet.css`. ESLint clean, compat gate green.
+    **`unavailable` has its own icon**, never the neutral one — the panel's version of
+    the rule the whole plan turns on
+  - [x] ✅ **The two-language contract is a gate, not a comment.**
+    `helpers/gnome/check_panel_contract.py` in `qa-all.bash`: the file name, schema
+    number and three state strings are declared in both Python and JavaScript, and a
+    disagreement is silent, because the panel then reports `unavailable` for ever —
+    which by design reads as "nothing is known about this host". Falsifiable on four
+    axes (name drift, schema drift, state drift, constant deleted); a constant it
+    cannot find in the JS is a finding, never treated as agreement
 - [ ] ⬜ **Task 4.2**: Health section — surface Phase 3 findings, offer the handoff
+  - [ ] ⬜ **Nothing checks that the ledger has any content**, and the panel is where it
+    shows. A smoke run against an empty state directory publishes
+    `play-freshness: ok` — correct for the question that check asks (no ledgered play
+    has drifted, because there are none), and a green tick on a host with no ledger.
+    Not a defect in `check_freshness`: an empty ledger has no holes in it, the
+    `EXIT_OK` is tested and reasoned, and it has other callers whose contract that
+    exit code is. The gap is a **missing check** — at login the case is reachable only
+    one way, because the unit is deployed by a play and `run.bash` ledgers every play,
+    so an empty ledger at login means it was lost. Needs its own section, not a
+    reinterpretation of this one
 - [ ] ⬜ **Task 4.3**: Play/task runner — plays with their ledger state, launched in a
   visible terminal, never in the background
 - [ ] ⬜ **Task 4.4**: Sections registered, not hardcoded, so quick-launch and other
@@ -296,16 +291,11 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   - [ ] ⬜ **Still to confirm in the wild**: that the refresh clears the black
     background when the symptom is present. Exercised on a *healthy* desktop only
   - [x] ✅ Decide the home — **extend** `helpers/displaylink_recovery/`, not a
-    sibling: the compositor-layer failure shares the driver-layer one's trigger, so
-    it reuses the existing udev rule and suspend service rather than inventing a
-    trigger path. `Action.REFRESH_BACKGROUND` (`recovery.py:64`), dispatched at
-    `run_recovery.py:411` (`9a79dd77`)
-  - [x] ✅ Idempotence and loop-safety — `needs_background_refresh`
-    (`recovery.py:101`) returns False once `attempted_background_refresh` is set, so
-    the toggle cannot re-trigger on the key it writes, and False while
-    `session_locked`, which is what keeps it off the `gnome-shell#9188` leak path
-  - [x] ✅ Tests first, stdlib-only, mirroring the helper path
-    (`tests/helpers/displaylink_recovery/test_recovery.py`); QA green
+    sibling: the compositor-layer failure shares the driver-layer one's trigger, so it
+    reuses the existing udev rule and suspend service rather than inventing one
+  - [x] ✅ Idempotence and loop-safety — `needs_background_refresh` returns False once
+    `attempted_background_refresh` is set, so the toggle cannot re-trigger on the key
+    it writes, and False while locked, keeping it off the `gnome-shell#9188` leak path
   - [ ] ⬜ **HOST**: deploy and verify. Distinct from the confirmation above — this
     is "the shipped code runs on the host", not "the toggle cures the fault"
 

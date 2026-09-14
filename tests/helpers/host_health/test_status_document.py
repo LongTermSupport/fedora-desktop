@@ -204,6 +204,25 @@ class TestTheWrite(unittest.TestCase):
             self.assertEqual(sorted(os.listdir(base)), ["status.json"])
 
 
+class TestWhereItLives(unittest.TestCase):
+    """One Python source of truth for the path, because the panel is a second process
+    in a second language that has to find the same file.
+
+    A mismatch does not announce itself: the panel would report `unavailable` for ever,
+    which is indistinguishable from a producer that has never run. Task 4.5 owes a gate
+    comparing the extension's literal against `FILE_NAME`.
+    """
+
+    def test_it_sits_in_the_hosts_state_directory_beside_the_ledger(self) -> None:
+        self.assertEqual(
+            status_document.path("/state/fedora-desktop"),
+            os.path.join("/state/fedora-desktop", status_document.FILE_NAME),
+        )
+
+    def test_the_name_is_json_so_the_panel_can_parse_it(self) -> None:
+        self.assertTrue(status_document.FILE_NAME.endswith(".json"))
+
+
 class TestReadingItBack(unittest.TestCase):
     """The consumer half, and the rule that decides whether the panel is honest.
 

@@ -45,22 +45,32 @@ _RUN_FIELDS = (
 )
 
 
-def ledger_dir(environ: dict[str, str] | Any, home: str) -> str:
-    """The ledger directory: `$XDG_STATE_HOME/fedora-desktop/play-ledger`.
+def state_dir(environ: dict[str, str] | Any, home: str) -> str:
+    """This host's `fedora-desktop` state directory: `$XDG_STATE_HOME/fedora-desktop`.
 
     Host state, never repo state — it must not be committable, and it must
     survive a re-clone, because a re-clone must not reset the host's memory of
     what has been run on it.
+
+    The ledger is one thing kept here; `host_health.status_document` is another. Both
+    resolve the location through this function rather than each spelling out the XDG
+    rule, so a host cannot end up with two state trees because one of them fell back
+    differently.
     """
     state_home = (environ.get("XDG_STATE_HOME") or "").strip()
     if state_home and not state_home.startswith("/"):
         raise ValueError(
-            f"XDG_STATE_HOME={state_home!r} is not absolute; the ledger's location "
+            f"XDG_STATE_HOME={state_home!r} is not absolute; this host's state location "
             "would then depend on the cwd of whoever ran the play"
         )
     if not state_home:
         state_home = os.path.join(home, ".local", "state")
-    return os.path.join(state_home, "fedora-desktop", "play-ledger")
+    return os.path.join(state_home, "fedora-desktop")
+
+
+def ledger_dir(environ: dict[str, str] | Any, home: str) -> str:
+    """The ledger directory: `$XDG_STATE_HOME/fedora-desktop/play-ledger`."""
+    return os.path.join(state_dir(environ, home), "play-ledger")
 
 
 def runs_path(base: str) -> str:

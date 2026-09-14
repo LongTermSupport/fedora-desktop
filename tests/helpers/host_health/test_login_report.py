@@ -22,11 +22,12 @@ from __future__ import annotations
 import io
 import os
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from helpers.host_health import login_report, probe_results
+from helpers.host_health import login_report, probe_results, status_document
 from helpers.play_ledger import check_freshness
 
 RUNNING_KERNEL = "7.2.4-200.fc44.x86_64"
@@ -353,3 +354,111 @@ class TestTheFreshnessSeamKeepsItsChannelsApart(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSectionsKeepTheirIdentity(unittest.TestCase):
+    """The notification flattens three checks into one list; the status document must
+    not, because the panel's registry matches a section by id and a section it cannot
+    find renders `unavailable`.
+
+    Both come from ONE call, so the notification and the document cannot disagree about
+    which checks ran. Two copies of the merged-not-chained guard would be two chances to
+    fix only one of them.
+    """
+
+    def _sections(self, **overrides):
+        arguments = {"health": lambda: CLEAN_PROBE, "freshness": lambda: [], "pins": lambda: []}
+        arguments.update(overrides)
+        return login_report.collect_sections(**arguments)
+
+    def test_every_check_gets_its_own_named_section(self) -> None:
+        self.assertEqual(
+            list(self._sections()),
+            [login_report.HEALTH, login_report.FRESHNESS, login_report.PINS],
+        )
+
+    def test_health_comes_first_because_broken_now_outranks_drifted(self) -> None:
+        """Order is the report's priority, and the flattened list inherits it."""
+        self.assertEqual(list(self._sections())[0], login_report.HEALTH)
+
+    def test_a_findings_stay_under_the_check_that_produced_them(self) -> None:
+        sections = self._sections(
+            health=lambda: DIRTY_PROBE, pins=lambda: found("evdi: pinned 1.15.0, installed 1.14.0"))
+        self.assertEqual(
+            [finding.text for finding in sections[login_report.HEALTH]],
+            ["evdi: no DKMS module for the running kernel"])
+        self.assertEqual(sections[login_report.FRESHNESS], [])
+        self.assertIn("1.14.0", sections[login_report.PINS][0].text)
+
+    def test_a_raising_check_becomes_its_own_section_unchecked_and_names_itself(self) -> None:
+        def explode() -> list[probe_results.Finding]:
+            raise RuntimeError("the ledger is unreadable")
+
+        sections = self._sections(freshness=explode)
+        finding = sections[login_report.FRESHNESS][0]
+        self.assertFalse(finding.checked)
+        self.assertIn(login_report.FRESHNESS, finding.text)
+        self.assertIn("unreadable", finding.text)
+
+    def test_the_flattened_list_holds_exactly_the_sections_findings(self) -> None:
+        """`collect` must be the same findings in the same order, or the notification
+        and the document describe different hosts."""
+        arguments = {
+            "health": lambda: DIRTY_PROBE,
+            "freshness": lambda: found("playbooks/a.yml — changed since it last ran"),
+            "pins": lambda: found("evdi: pinned 1.15.0, installed 1.14.0"),
+        }
+        sections = login_report.collect_sections(**arguments)
+        flattened = [finding.text for group in sections.values() for finding in group]
+        self.assertEqual([f.text for f in login_report.collect(**arguments)], flattened)
+
+
+class TestTheDocumentIsWrittenWhetherOrNotAnythingIsWrong(unittest.TestCase):
+    """A document that only appears when something is wrong makes a clean host look
+    exactly like a host nothing has ever checked — this plan's own defect, moved into
+    the file format. `ok` is a result and has to be recorded as one.
+
+    The handoff file is the opposite case and correctly only written when there are
+    findings: it exists to be handed to Claude Code, and there is nothing to diagnose
+    about a healthy host.
+    """
+
+    def _published(self, base: str, **overrides) -> dict:
+        arguments = {"health": lambda: CLEAN_PROBE, "freshness": lambda: [], "pins": lambda: []}
+        arguments.update(overrides)
+        login_report.publish(
+            base,
+            sections=login_report.collect_sections(**arguments),
+            kernel=RUNNING_KERNEL,
+            at="2026-09-14T18:00:00Z",
+        )
+        return status_document.read(status_document.path(base))
+
+    def test_a_clean_host_still_publishes_and_says_ok(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            document = self._published(base)
+        self.assertEqual(document["sections"][login_report.HEALTH]["state"], status_document.OK)
+        self.assertEqual(document["kernel"], RUNNING_KERNEL)
+
+    def test_findings_reach_the_document_under_their_own_section(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            document = self._published(base, health=lambda: DIRTY_PROBE)
+        section = document["sections"][login_report.HEALTH]
+        self.assertEqual(section["state"], status_document.FINDINGS)
+        self.assertIn("evdi", section["findings"][0])
+
+    def test_a_check_that_could_not_run_is_unavailable_in_the_document(self) -> None:
+        def explode() -> list[probe_results.Finding]:
+            raise RuntimeError("boom")
+
+        with tempfile.TemporaryDirectory() as base:
+            document = self._published(base, freshness=explode)
+        self.assertEqual(
+            document["sections"][login_report.FRESHNESS]["state"], status_document.UNAVAILABLE)
+
+    def test_it_records_when_it_was_collected(self) -> None:
+        """The panel shows the age. Presenting login-time findings at teatime as
+        current states something the checks did not measure."""
+        with tempfile.TemporaryDirectory() as base:
+            document = self._published(base)
+        self.assertEqual(document["generated_at"], "2026-09-14T18:00:00Z")

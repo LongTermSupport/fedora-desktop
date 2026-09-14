@@ -35,7 +35,7 @@ import sys
 from collections.abc import Callable
 from typing import TextIO
 
-from helpers.host_health import handoff, probe, probe_results
+from helpers.host_health import handoff, probe, probe_results, status_document
 from helpers.play_ledger import check_freshness, ledger, repo
 from helpers.version_pins import check_pins
 
@@ -51,6 +51,13 @@ EXIT_OK = 0
 #: incident, rebuilt inside the code written to prevent it. 1 and 2 stay failures.
 EXIT_FINDINGS = 3
 
+#: Section ids, shared by the notification's guard messages and the status document's
+#: keys — which are the panel registry's lookup keys, so these are interface, not
+#: labels. Renaming one silently makes the panel's section render `unavailable`.
+HEALTH = "post-boot-health"
+FRESHNESS = "play-freshness"
+PINS = "installed-vs-pinned"
+
 _SUMMARY = "fedora-desktop: this machine needs attention"
 _TIMEOUT_SECONDS = 15
 
@@ -65,43 +72,74 @@ def message(findings: list[probe_results.Finding]) -> str:
     return f"{count} {noun}:\n{body}"
 
 
+def collect_sections(
+    *,
+    health: Callable[[], probe_results.Report],
+    freshness: Callable[[], list[probe_results.Finding]],
+    pins: Callable[[], list[probe_results.Finding]],
+) -> dict[str, list[probe_results.Finding]]:
+    """Every check's findings, kept under the id of the check that produced them.
+
+    Each check is called independently and separately guarded by
+    `status_document.collect`, which is the **only** copy of that guard. Chaining them
+    — or letting one exception escape — would let a single broken check hide the
+    others, which is the failure mode this whole plan is about one level up.
+
+    Host health comes first, and dict order carries it through to `collect`: something
+    broken on this machine now outranks something that has merely drifted.
+
+    The section ids are the panel's registry keys, so they are part of the interface
+    and not just labels. They read as check names because a guard failure quotes them
+    back to the user.
+    """
+    return status_document.collect(
+        {
+            HEALTH: lambda: list(health().findings),
+            FRESHNESS: freshness,
+            PINS: pins,
+        }
+    )
+
+
 def collect(
     *,
     health: Callable[[], probe_results.Report],
     freshness: Callable[[], list[probe_results.Finding]],
     pins: Callable[[], list[probe_results.Finding]],
 ) -> list[probe_results.Finding]:
-    """Every finding from every check, host health first.
+    """The same findings flattened, for the notification and for stdout.
 
-    Each check is called independently and separately guarded. Chaining them — or
-    letting one exception escape — would let a single broken check hide the others,
-    which is the failure mode this whole plan is about one level up.
-
-    Host-health findings come first: something broken on this machine now outranks
-    something that has merely drifted.
+    Derived from `collect_sections` rather than collected again, so the notification
+    and the status document cannot disagree about which checks ran.
     """
-    findings: list[probe_results.Finding] = []
+    sections = collect_sections(health=health, freshness=freshness, pins=pins)
+    return [finding for group in sections.values() for finding in group]
 
-    try:
-        findings.extend(health().findings)
-    except Exception as error:
-        findings.append(
-            probe_results.unchecked(f"the post-boot health probe could not run: {error}")
-        )
 
-    for label, check in (("play-freshness", freshness), ("installed-vs-pinned", pins)):
-        try:
-            findings.extend(check())
-        except Exception as error:
-            # Named, so the user learns WHICH check stopped working rather than
-            # that something, somewhere, did. Every guard here produces an
-            # `unchecked` finding by construction: reaching this line means the
-            # check did not complete, so nothing is known about its subject.
-            findings.append(
-                probe_results.unchecked(f"the {label} check could not run: {error}")
-            )
+def publish(
+    base: str,
+    *,
+    sections: dict[str, list[probe_results.Finding]],
+    kernel: str,
+    at: str,
+) -> str:
+    """Write the machine-readable document, and return where it went.
 
-    return findings
+    Written on **every** run, clean or not. A document that only appears when
+    something is wrong makes a healthy host look exactly like a host nothing has ever
+    checked — this plan's own defect, moved into the file format. `ok` is a result.
+
+    (The handoff file is the opposite case and correctly conditional: it exists to be
+    handed to Claude Code, and a healthy host has nothing to diagnose.)
+
+    A named function because this is the seam between two separately tested modules,
+    which is where this repo's defects live. Inline in `main` it would have no tests.
+    """
+    path = status_document.path(base)
+    status_document.write_atomic(
+        path, status_document.build(sections=sections, kernel=kernel, at=at)
+    )
+    return path
 
 
 def emit(
@@ -262,7 +300,8 @@ def main(
     parser.add_argument(
         "--no-handoff",
         action="store_true",
-        help="do not write the handoff file; for a triage run that must not clobber it",
+        help="write no host state — neither the handoff file nor the status document; "
+        "for a triage run that must not clobber what the last real login left",
     )
     arguments = parser.parse_args(argv)
     out = stdout if stdout is not None else sys.stdout
@@ -270,9 +309,14 @@ def main(
     # not findings and go here. One stream for both is what made a failed fetch read
     # as a problem with the host.
     diagnostics = stderr if stderr is not None else sys.stderr
-    base = ledger.ledger_dir(os.environ, os.path.expanduser("~"))
+    home = os.path.expanduser("~")
+    base = ledger.ledger_dir(os.environ, home)
+    # The status document is host-health state, not ledger state, so it sits one level
+    # up beside the ledger rather than inside it. `GLib.get_user_state_dir()` applies
+    # the identical XDG rule, which is how the panel finds the same file.
+    state_base = ledger.state_dir(os.environ, home)
 
-    findings = collect(
+    sections = collect_sections(
         health=lambda: probe.collect(running_kernel=probe.running_kernel()),
         freshness=lambda: freshness_findings(base, arguments.repo_root, stderr=diagnostics),
         pins=lambda: check_pins.check(
@@ -281,8 +325,23 @@ def main(
             dkms_status=lambda: dkms_text(probe.run_probe),
         ),
     )
+    findings = [finding for group in sections.values() for finding in group]
     notifier: Callable[[str], None] = (lambda _: None) if arguments.no_notify else _notify_send
     status = emit(findings, notify=notifier, write=out.write)
+
+    # Unconditional: a clean host must be distinguishable from one nothing has checked.
+    # Guarded because the report above has already been delivered — losing the panel's
+    # copy is a degradation, and one worth naming, but not a reason to fail the login.
+    if not arguments.no_handoff:
+        try:
+            publish(
+                state_base,
+                sections=sections,
+                kernel=probe.running_kernel(),
+                at=repo.utc_now(),
+            )
+        except Exception as error:
+            diagnostics.write(f"the host status document could not be written: {error}\n")
 
     if findings and not arguments.no_handoff:
         # Task 3.3: the handoff file, so diagnosing a break is not archaeology from

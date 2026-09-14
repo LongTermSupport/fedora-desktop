@@ -304,6 +304,22 @@ fi
 compat_summary=$(printf '%s' "$compat_out" | grep -E '^All [0-9]+ extension') || compat_summary="OK"
 printf '✓ extension-compat: %s\n' "$compat_summary"
 
+# The host status document is written by Python and read by the panel's JavaScript, so
+# its file name, schema number and three state strings are each declared twice. A
+# disagreement is SILENT: the panel reports `unavailable`, which by design means "nothing
+# is known about this host" and is indistinguishable from a producer that never ran. So
+# the panel would confidently report ignorance about a machine whose file it simply
+# cannot find. Nothing at runtime can catch that, which is what makes it a gate.
+panel_contract_out=""
+if ! panel_contract_out="$(cd "$SCRIPT_DIR/.." && python3 -m helpers.gnome.check_panel_contract . 2>&1)"; then
+    echo "$panel_contract_out" >&2
+    echo "✗ QA FAILED: the panel and the status document producer disagree" >&2
+    exit 1
+fi
+panel_contract_summary=$(printf '%s' "$panel_contract_out" | grep -E '^PANEL-CONTRACT-OK') ||
+    panel_contract_summary="OK"
+printf '✓ panel-contract: %s\n' "${panel_contract_summary#PANEL-CONTRACT-OK }"
+
 # The VM-test scenario manifest (Plan 00110). vars/vm-test-scenarios.yml is the
 # source of the bridge's scenario allowlist, and the stdlib-only helper that
 # validates it cannot read YAML — so without this gate a malformed manifest is
