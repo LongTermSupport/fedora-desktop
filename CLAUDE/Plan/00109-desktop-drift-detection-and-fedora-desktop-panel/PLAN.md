@@ -258,8 +258,14 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   visible terminal, never in the background
 - [ ] ⬜ **Task 4.4**: Sections registered, not hardcoded, so quick-launch and other
   tools can be added without a rewrite
-- [ ] ⬜ **Task 4.5**: ESLint clean (`cd extensions && node_modules/.bin/eslint`),
-  deployed by its own play, Wayland-correct
+- [ ] 🔄 **Task 4.5**: ESLint clean, deployed by its own play, Wayland-correct
+  - [x] ✅ ESLint clean (`cd extensions && node_modules/.bin/eslint .`) and the compat
+    gate green — `shell-version` covers the GNOME Shell this Fedora ships
+  - [x] ✅ **Its own play**: `play-fedora-desktop-panel.yml`. Enabled through Plan
+    00112's declared-state route, and it deliberately does **not** assert the producer
+    play is installed. [DESIGN-panel.md](DESIGN-panel.md) §§7, 10
+  - [ ] ⬜ **HOST**: run the play, log out and back in, and confirm the panel appears
+    and renders the three sections. Never run in a GNOME Shell
 
 ### Phase 5: Recover the desktop background after a monitor change
 

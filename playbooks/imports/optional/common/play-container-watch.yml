@@ -140,8 +140,13 @@
     # The `debug` deferral beside it was a prohibited skip-and-warn (CLAUDE.md, Fail
     # Fast) carrying a false claim: the timer is `WantedBy=timers.target`, which is
     # inert until `enable` writes the `.wants` symlink, so nothing was going to pick
-    # it up on the next session. Run this from inside a graphical session; an
-    # unreachable user bus now fails the play and says so.
+    # it up on the next session.
+    #
+    # This needs `user_login`'s systemd manager reachable, which does NOT mean a
+    # graphical session: `play-systemd-user-tweaks.yml` (`scope: general`) enables
+    # linger and then explicitly starts `user@UID.service`, blocking until it signals
+    # READY=1, so on any host provisioned by playbook-main the manager is there. An
+    # unreachable user bus fails this task, loudly, which is the intended answer.
     - name: Enable and start the container-watch user timer
       become: true
       become_user: "{{ user_login }}"

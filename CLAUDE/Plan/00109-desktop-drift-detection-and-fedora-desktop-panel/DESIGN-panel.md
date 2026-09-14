@@ -166,3 +166,29 @@ is explicit that the alternatives do not work.
 - **Task 4.3**: which plays the runner lists. Every play is a long list with no ordering; the
   ledger knows which have ever run here, which is a different and probably better answer. Needs
   the ledger's real contents from a HOST run (Task 1.2) before it can be settled on evidence.
+
+## 10. As built — the deployment, and the one assertion it deliberately does not make
+
+`play-fedora-desktop-panel.yml`, its own play for the reasons in §7. Two decisions the
+task tree is too small to hold:
+
+**It does not assert the producer play is installed.** The status document comes from
+`play-host-health-login-report.yml`, and a tempting `assert` would check for it. That
+would be backwards. The panel reads an absent document as `unavailable` — "nothing is
+known about this host" — which is the honest state and precisely the state this whole
+design exists to render rather than hide. A reporting surface that refuses to deploy over
+the thing it reports on has confused its own installation with its subject.
+
+**The enable goes through Plan 00112's declared-state route, never
+`gnome-extensions enable`.** That command asks the *running* shell, and on a fresh deploy
+the shell has not scanned the new directory, so the request is silently lost — 00110's
+desktop acceptance run found eight extensions installed, compiled, loaded and none
+enabled. `apply_enabled_extensions` writes the gsettings key the shell reads at session
+start, merges without removing so the user's own enabled extensions survive, and re-reads
+the key to prove the write took. That self-check is why the task carries no `failed_when`:
+the operation is its own probe.
+
+The play ends by telling the operator to log out, on every run. On Wayland nothing else
+loads new extension JavaScript — `Alt+F2 r` is X11-only and toggling the extension
+restarts code already in memory — so an operator who skips it is testing the previous
+version and will report its behaviour as this one's.

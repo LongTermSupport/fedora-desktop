@@ -1,0 +1,129 @@
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
+---
+# The `fedora-desktop` panel (Plan 00109, Task 4.5) — a read-only surface.
+#
+# Deploys the GNOME Shell extension that renders this machine's drift state from the
+# host status document. It renders; it runs no check, applies no fix and launches no
+# play. Re-running a play is always a human decision, and a clickable surface is
+# exactly where that boundary erodes.
+#
+# **Its own play, not an addition to `play-host-health-login-report.yml`.** The two
+# have different dependencies and either is useful without the other: the report needs
+# only `notify-send` and is meaningful on a server profile, while this needs GNOME
+# Shell. Folding the panel in would make a GNOME extension a dependency of a text
+# report. DESIGN-panel.md §7.
+#
+# **The producer is a separate play and this does not deploy it.** The document comes
+# from `play-host-health-login-report.yml`. Missing it is not an error here: the panel
+# reads an absent document as `unavailable` — "nothing is known about this host" — which
+# is the honest state and exactly what it was built to show. Asserting the producer
+# were installed would make a reporting surface refuse to deploy over the thing it
+# reports on.
+#
+# Deliberately NOT in `vars/gnome-shell-extensions.yml`. That file is the declaration
+# for the extensions `play-gnome-shell-extensions.yml` owns; the custom extensions with
+# their own backend are deployed by their own opt-in plays and are correctly absent from
+# it. This one has a backend, so it follows them.
+#
+# Standalone / opt-in play — deliberately NOT imported from playbook-main.yml. Run it
+# directly:
+#   ./playbooks/imports/optional/common/play-fedora-desktop-panel.yml
+- hosts: desktop
+  name: Fedora Desktop Panel
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    extension_name: fedora-desktop@fedora-desktop
+    extension_src: "{{ root_dir }}/extensions/{{ extension_name }}"
+    user_extensions_dir: "/home/{{ user_login }}/.local/share/gnome-shell/extensions"
+    extension_dest: "{{ user_extensions_dir }}/{{ extension_name }}"
+  tasks:
+    - name: Scope guard — assert provisioning_profile is recognised
+      ansible.builtin.assert:
+        that:
+          - provisioning_profile in ['desktop', 'server']
+        fail_msg: |
+          provisioning_profile={{ provisioning_profile }} is not recognised.
+          Valid values: desktop, server.
+          Auto-detected from `systemctl get-default`
+          (see environment/localhost/group_vars/desktop.yml) or overridden
+          via -e provisioning_profile=desktop|server.
+
+    - name: Scope guard — end play if provisioning_profile does not match declared scope
+      ansible.builtin.meta: end_play
+      when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
+
+    # A whole-directory copy, the `play-container-watch.yml` form. The extension is
+    # several files including `sections/`, and an explicit per-file loop is one more
+    # place to forget a new one — a file that exists in the repo and never deploys
+    # fails silently at runtime, which extensions/CLAUDE.md records as having happened.
+    - name: Deploy The fedora-desktop Panel Extension
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.copy:
+        src: "{{ extension_src }}/"
+        dest: "{{ extension_dest }}/"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+        directory_mode: '0755'
+      register: panel_deploy
+
+    # Declared state, never a request to the running shell. `gnome-extensions enable`
+    # asks the shell to enable a UUID, and on a fresh deploy the shell has not scanned
+    # the new directory yet, so the request is silently lost — Plan 00110's desktop
+    # acceptance run found eight extensions installed, compiled, loaded and none
+    # enabled. The gsettings key is read at session start and watched live, so
+    # declaring it works whether or not a shell has loaded the extension yet.
+    #
+    # It merges without removing, so extensions the user enabled themselves survive,
+    # and it re-reads the key to prove the write took. That self-check is why this
+    # carries no `failed_when`: the operation is its own probe and fails loudly.
+    - name: Declare The fedora-desktop Panel Enabled
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -m
+          - helpers.gnome.apply_enabled_extensions
+          - --extensions-dir
+          - "{{ user_extensions_dir }}"
+          - --extensions-dir
+          - /usr/share/gnome-shell/extensions
+          - "--uuid={{ extension_name }}"
+        chdir: "{{ root_dir }}"   # repo root on sys.path so the helpers package imports
+      register: panel_enabled
+      changed_when: "'GNOME-EXT-ENABLED-CHANGED' in panel_enabled.stdout"
+
+    # Asserted rather than assumed. `apply_enabled_extensions` confirms the UUID is on
+    # disk and re-reads the key, so a green run above is already evidence — this states
+    # the outcome in the play's own output so an operator reading a successful run knows
+    # what it established, rather than inferring it from a task name.
+    - name: Assert The Panel Is Declared Enabled
+      ansible.builtin.assert:
+        that:
+          - "'GNOME-EXT-FAIL' not in panel_enabled.stdout"
+        fail_msg: |
+          The panel extension was deployed but could not be declared enabled:
+
+          {{ panel_enabled.stdout }}
+
+          A deployed-but-not-enabled extension never loads, and nothing later enables
+          it — the gsettings key is the only thing the shell reads.
+        success_msg: >-
+          {{ extension_name }} is deployed and declared enabled; the shell reads that
+          key at session start
+
+    # Every deploy ends with this, because on Wayland nothing else reloads extension
+    # JavaScript. `Alt+F2 r` is X11-only and toggling the extension only restarts code
+    # already loaded, so an operator who skips this is testing the previous version and
+    # will report its behaviour as this one's. extensions/CLAUDE.md is explicit.
+    - name: Tell The Operator The Logout Is Required
+      ansible.builtin.debug:
+        msg: >-
+          Log out and log back in. On Wayland that is the ONLY way to load the new
+          extension code — Alt+F2 r is X11-only, and disabling and re-enabling the
+          extension just restarts the code already in memory. Until then the panel
+          shows the previous version, or nothing.
