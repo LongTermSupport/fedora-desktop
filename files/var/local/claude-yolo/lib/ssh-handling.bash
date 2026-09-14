@@ -2,7 +2,15 @@
 # SSH Handling Library
 # Shared SSH key operations for claude-yolo (ccy)
 #
-# Version: 1.3.0 - GitHub probes now unlock passphrase keys into a PRIVATE
+# Version: 1.4.0 - Two identities a box may hold besides a github_<alias> key:
+#                  the project remote's own key, reached through an ssh-config
+#                  alias that `ssh -G` resolves to GitHub (a deploy key on a
+#                  box provisioned with no GitHub account), and the session's
+#                  forwarded ssh-agent (SSH_AGENT_SENTINEL in SSH_KEYS). The
+#                  alias stanza and its known_hosts pin travel to the container
+#                  as SSH_CONFIG_EXTRA_B64 / SSH_KNOWN_HOSTS_PINS; an exported
+#                  GH_TOKEN is cross-checked against an account identity.
+#          1.3.0 - GitHub probes now unlock passphrase keys into a PRIVATE
 #                  throwaway ssh-agent BEFORE any connection is opened. A
 #                  passphrase prompt left waiting used to outlive GitHub's
 #                  ~2-minute sshd LoginGraceTime on the already-open port-22
@@ -58,8 +66,71 @@ get_project_remote_url() {
     return 0
 }
 
-# Parse owner/repo from a GitHub remote URL. Handles ssh, https, and the
-# alias form (git@github.com-<alias>:owner/repo).
+# The host part of an SSH remote URL: `git@HOST:path` or `ssh://git@HOST[:port]/path`.
+# Echoes the host, or nothing for any other URL shape (https, empty, …).
+remote_ssh_host() {
+    local url="$1"
+    if [[ "$url" =~ ^git@([^:/]+):.+$ ]]; then
+        echo "${BASH_REMATCH[1]}"
+    elif [[ "$url" =~ ^ssh://git@([^:/]+)(:[0-9]+)?/.+$ ]]; then
+        echo "${BASH_REMATCH[1]}"
+    fi
+    return 0
+}
+
+# Ask ssh what an ssh-config alias means, and answer only if it is GitHub.
+#
+# A box provisioned without a GitHub account reaches its repositories through
+# per-repository deploy keys bound to `Host <alias>` stanzas in ~/.ssh/config, and
+# its remotes are `git@<alias>:owner/repo.git`. The alias's NAME is whatever the
+# provisioning system chose, so it is never pattern-matched here: `ssh -G` prints
+# the effective hostname, port and identity files for it from the user's own
+# config, `~` already expanded, and that is the only authority consulted.
+#
+# Args: $1 = alias (the host part of the remote URL)
+# Echoes "hostname<TAB>port<TAB>keyfile" when the alias resolves to github.com or
+# ssh.github.com. keyfile is the FIRST identity file that exists on disk, or empty
+# when none does — that case is still rc 0, because "the remote names a GitHub
+# alias whose key is missing" must be reported, not treated as "no keys here".
+# Returns 1 when the host is GitHub written literally, empty, or bound to
+# something that is not GitHub.
+resolve_github_ssh_alias() {
+    local alias="$1"
+    case "$alias" in
+        ""|github.com|ssh.github.com) return 1 ;;
+    esac
+    local cfg
+    cfg=$(ssh -G "$alias" 2>/dev/null) || return 1
+    local hostname port
+    hostname=$(awk '$1 == "hostname" { print $2; exit }' <<< "$cfg")
+    port=$(awk '$1 == "port" { print $2; exit }' <<< "$cfg")
+    case "$hostname" in
+        github.com|ssh.github.com) ;;
+        *) return 1 ;;
+    esac
+    # `ssh -G` prints IdentityFile values AS WRITTEN — a leading `~/` is not
+    # expanded until ssh opens the file (measured: a config line
+    # `IdentityFile ~/.ssh/deploy_keys/x` comes back verbatim), so it is
+    # expanded here before the existence test.
+    local keyfile="" candidate
+    while IFS= read -r candidate; do
+        [ -n "$candidate" ] || continue
+        case "$candidate" in
+            \~/*) candidate="$HOME/${candidate#\~/}" ;;
+            \~)   candidate="$HOME" ;;
+        esac
+        if [ -f "$candidate" ]; then
+            keyfile="$candidate"
+            break
+        fi
+    done < <(awk '$1 == "identityfile" { print $2 }' <<< "$cfg")
+    printf '%s\t%s\t%s\n' "$hostname" "${port:-22}" "$keyfile"
+    return 0
+}
+
+# Parse owner/repo from a GitHub remote URL. Handles ssh, https, the
+# `git@github.com-<alias>:` form, and any ssh-config alias that `ssh -G`
+# resolves to GitHub (resolve_github_ssh_alias).
 #
 # Args: $1 = URL
 # Echoes "owner/repo" on stdout, or empty if not a recognised GitHub URL.
@@ -78,8 +149,129 @@ parse_github_owner_repo() {
         echo "${BASH_REMATCH[2]}"
         return 0
     fi
+    local host
+    host=$(remote_ssh_host "$url")
+    if [ -n "$host" ] && resolve_github_ssh_alias "$host" >/dev/null; then
+        if [[ "$url" =~ ^git@[^:/]+:(.+)$ ]] || [[ "$url" =~ ^ssh://git@[^:/]+(:[0-9]+)?/(.+)$ ]]; then
+            echo "${BASH_REMATCH[${#BASH_REMATCH[@]}-1]}"
+            return 0
+        fi
+    fi
     return 1
 }
+
+# The project remote's GitHub alias, if it has one.
+#
+# Sets GITHUB_ALIAS_HOST (the alias as written in the remote URL),
+# GITHUB_ALIAS_HOSTNAME, GITHUB_ALIAS_PORT and GITHUB_ALIAS_KEY (the existing
+# identity file the alias binds). All four are cleared first.
+#
+# Args: $1 = repo path
+# Returns 0 when the remote uses a GitHub alias with a key on disk; 1 when the
+# project has no such remote (not a repo, no remote, literal GitHub host, alias
+# bound elsewhere); 2 when the alias IS GitHub but its identity file does not
+# exist — printed to stderr with the alias and the path, because that box was
+# provisioned to reach this repo and the key it was given is gone.
+GITHUB_ALIAS_HOST=""
+GITHUB_ALIAS_HOSTNAME=""
+GITHUB_ALIAS_PORT=""
+GITHUB_ALIAS_KEY=""
+detect_project_github_alias() {
+    local repo_path="${1:-.}"
+    GITHUB_ALIAS_HOST=""
+    GITHUB_ALIAS_HOSTNAME=""
+    GITHUB_ALIAS_PORT=""
+    GITHUB_ALIAS_KEY=""
+
+    local url host resolved
+    url=$(get_project_remote_url "$repo_path")
+    [ -n "$url" ] || return 1
+    host=$(remote_ssh_host "$url")
+    [ -n "$host" ] || return 1
+    resolved=$(resolve_github_ssh_alias "$host") || return 1
+
+    local hostname port keyfile
+    IFS=$'\t' read -r hostname port keyfile <<< "$resolved"
+    if [ -z "$keyfile" ]; then
+        local declared=""
+        if ! declared=$(ssh -G "$host" 2>&1 | awk '$1 == "identityfile" { print $2 }' | paste -sd ' '); then
+            declared=""
+        fi
+        echo "ERROR: the remote $url uses the ssh alias '$host', which your ~/.ssh/config binds to" >&2
+        echo "       $hostname:$port — but none of its IdentityFile entries exist on disk:" >&2
+        echo "         ${declared:-(none declared)}" >&2
+        echo "       The key this box was given for the repository is missing. Re-run the" >&2
+        echo "       provisioning that writes it; ccy will not guess another identity." >&2
+        return 2
+    fi
+    GITHUB_ALIAS_HOST="$host"
+    GITHUB_ALIAS_HOSTNAME="$hostname"
+    GITHUB_ALIAS_PORT="$port"
+    GITHUB_ALIAS_KEY="$keyfile"
+    return 0
+}
+
+# The `Host` stanza the container needs so the remote's alias resolves inside it.
+#
+# Args: $1 = alias, $2 = hostname, $3 = port,
+#       $4 = key path INSIDE the container, or empty when the alias key is not
+#            mounted — then no IdentityFile is named and the container's own
+#            agent (holding whatever account key was chosen) answers for the alias,
+#       $5 = "yes" to pin ssh to that key (IdentitiesOnly), "no" to leave the line
+#            out — used when an agent is forwarded, so that ssh offers the agent's
+#            identities first and a push authenticates as the person, while the
+#            deploy key remains the fallback for a fetch.
+render_ssh_alias_stanza() {
+    local alias="$1" hostname="$2" port="$3" keypath="$4" identities_only="$5"
+    printf 'Host %s\n    HostName %s\n    Port %s\n    User git\n' "$alias" "$hostname" "$port"
+    if [ -n "$keypath" ]; then
+        printf '    IdentityFile %s\n' "$keypath"
+        if [ "$identities_only" = "yes" ]; then
+            printf '    IdentitiesOnly yes\n'
+        fi
+    fi
+}
+
+# What the launcher hands the entrypoint for an alias: the stanza, base64 so a
+# multi-line value survives `-e`, and the host:port the entrypoint must ALSO pin
+# in known_hosts when it is not plain github.com:22 (which it pins already).
+#
+# Args: as render_ssh_alias_stanza
+# Sets: SSH_CONFIG_EXTRA_B64, SSH_KNOWN_HOSTS_PINS
+SSH_CONFIG_EXTRA_B64=""
+SSH_KNOWN_HOSTS_PINS=""
+compose_ssh_alias_exports() {
+    local hostname="$2" port="$3"
+    SSH_CONFIG_EXTRA_B64=$(render_ssh_alias_stanza "$@" | base64 -w0)
+    if [ "$hostname:$port" != "github.com:22" ]; then
+        SSH_KNOWN_HOSTS_PINS="$hostname:$port"
+    else
+        SSH_KNOWN_HOSTS_PINS=""
+    fi
+}
+
+# Is there a forwarded (or otherwise live) ssh-agent holding at least one key?
+# `ssh-add -l` is 0 with identities, 1 with an empty agent, 2 when it cannot
+# connect; only the first is an agent worth mounting. What ssh-add said is kept
+# in SSH_AGENT_PROBE_OUTPUT for the caller's message.
+SSH_AGENT_PROBE_OUTPUT=""
+ssh_agent_usable() {
+    SSH_AGENT_PROBE_OUTPUT=""
+    [ -n "${SSH_AUTH_SOCK:-}" ] || return 1
+    [ -S "$SSH_AUTH_SOCK" ] || [ -e "$SSH_AUTH_SOCK" ] || return 1
+    local rc=0
+    SSH_AGENT_PROBE_OUTPUT=$(ssh-add -l 2>&1) || rc=$?
+    [ "$rc" -eq 0 ]
+}
+
+# A GitHub greeting names a LOGIN for an account key and OWNER/REPO for a
+# deploy key. The slash is the whole distinction.
+github_identity_is_deploy_key() {
+    [[ "$1" == */* ]]
+}
+
+# The literal SSH_KEYS entry that means "the session's ssh-agent, not a file".
+readonly SSH_AGENT_SENTINEL="ssh-agent"
 
 # Probe each ~/.ssh/github_<alias> key by checking whether the matching
 # `gh-token-<alias>` token (from play-github-cli-multi.yml) has PUSH
@@ -164,9 +356,20 @@ probe_gh_keys_for_remote() {
 }
 
 # Function to discover and interactively select SSH keys
+#
+# Three sources, in the order they are offered:
+#   1. the project remote's own key — an ssh-config alias `ssh -G` resolves to
+#      GitHub (a deploy key on a box with no GitHub account);
+#   2. the ~/.ssh/github_<alias> account keys play-github-cli-multi.yml writes;
+#   3. the session's ssh-agent, when it holds a key (typically forwarded by
+#      `ssh -A`; pushes then authenticate as that person).
+# When the remote's key is the ONLY candidate it is selected without a prompt:
+# there is nothing to choose between, and that is exactly the headless-box case.
+#
 # Args: $1 = tool_name (for display)
 # Modifies: SSH_KEYS global array
-# Returns: 0 on success, exits on error
+# Returns: 0 on success (possibly with no key chosen), 1 when the remote names a
+#          GitHub alias whose key is missing — a provisioning fault, not a menu.
 discover_and_select_ssh_keys() {
     local tool_name="$1"
 
@@ -175,141 +378,193 @@ discover_and_select_ssh_keys() {
     # See: playbooks/imports/optional/common/play-github-cli-multi.yml:163-183
     mapfile -t GITHUB_KEYS < <(find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" 2>/dev/null | sort)
 
-    if [ ${#GITHUB_KEYS[@]} -gt 0 ]; then
-        # Probe every key against the project's remote in parallel so we can
-        # default the selection to the key(s) that actually have access.
-        # Picking the wrong key here silently mis-routes git push to the
-        # wrong account, so steering the user toward a verified-working key
-        # is the primary purpose of this prompt.
-        local remote_url=""
-        local suggested_index=""
-        local probe_status="skipped (not a git repo or no remote)"
+    local alias_rc=0
+    detect_project_github_alias "." || alias_rc=$?
+    if [ "$alias_rc" -eq 2 ]; then
+        return 1
+    fi
 
-        remote_url=$(get_project_remote_url ".")
-        if [ -n "$remote_url" ]; then
-            echo ""
-            echo "Probing GitHub accounts against remote: $remote_url"
-            echo "(checks .permissions.push via gh-token-<alias> — sequential, ~1-3 seconds)"
+    local agent_ok=false agent_key_count=0
+    if ssh_agent_usable; then
+        agent_ok=true
+        agent_key_count=$(grep -c . <<< "$SSH_AGENT_PROBE_OUTPUT")
+    fi
 
-            local working_keys
-            working_keys=$(probe_gh_keys_for_remote "$remote_url")
+    local remote_url=""
+    remote_url=$(get_project_remote_url ".")
 
-            local match_count=0
-            if [ -n "$working_keys" ]; then
-                match_count=$(echo "$working_keys" | grep -c .)
-            fi
-
-            case "$match_count" in
-                0)  probe_status="no keys have push access to this remote (logs: $PROBE_LOG_DIR/)" ;;
-                1)
-                    local winner
-                    winner=$(echo "$working_keys" | head -1)
-                    for i in "${!GITHUB_KEYS[@]}"; do
-                        if [ "${GITHUB_KEYS[$i]}" = "$winner" ]; then
-                            suggested_index=$((i+1))
-                            break
-                        fi
-                    done
-                    probe_status="1 key has push access"
-                    ;;
-                *)  probe_status="$match_count keys have push access — pick manually" ;;
-            esac
-        fi
-
+    # The remote's key, alone: nothing to choose, so nothing to ask.
+    if [ "$alias_rc" -eq 0 ] && [ ${#GITHUB_KEYS[@]} -eq 0 ] && [ "$agent_ok" = false ]; then
+        SSH_KEYS+=("$GITHUB_ALIAS_KEY")
         echo ""
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo "SSH Key Selection for Claude YOLO"
-        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "✓ Using the project remote's key: $GITHUB_ALIAS_KEY"
+        echo "  (alias $GITHUB_ALIAS_HOST → $GITHUB_ALIAS_HOSTNAME:$GITHUB_ALIAS_PORT in ~/.ssh/config; no github_ key, no agent)"
         echo ""
-        echo "No SSH key was specified with --ssh-key flag."
-        echo "Probe result: $probe_status"
-        echo ""
-        echo "Available GitHub SSH keys (managed by play-github-cli-multi.yml):"
-        echo ""
-        echo "  0) Continue without SSH key (git push will NOT work)"
-        echo ""
+        return 0
+    fi
 
-        for i in "${!GITHUB_KEYS[@]}"; do
-            local marker=""
-            if [ -n "$working_keys" ] && grep -qxF "${GITHUB_KEYS[$i]}" <<< "$working_keys"; then
-                marker="  ✓ has push access to this remote"
-            fi
-            if [ -n "$suggested_index" ] && [ "$((i+1))" = "$suggested_index" ]; then
-                marker="${marker} ← default"
-            fi
-            echo "  $((i+1))) ${GITHUB_KEYS[$i]}${marker}"
-        done
-
-        echo ""
-        if [ -n "$suggested_index" ]; then
-            echo "Press ENTER to accept the verified default ($suggested_index)."
-        fi
-        echo "You can also specify keys manually with: $tool_name --ssh-key <path>"
-        echo ""
-
-        local prompt_text="Select SSH key [0-${#GITHUB_KEYS[@]}]"
-        [ -n "$suggested_index" ] && prompt_text="$prompt_text (default: $suggested_index)"
-        prompt_text="$prompt_text: "
-
-        while true; do
-            read -rp "$prompt_text" selection
-            echo ""
-
-            # Empty input → accept the verified default if we have one
-            if [ -z "$selection" ]; then
-                if [ -n "$suggested_index" ]; then
-                    selection="$suggested_index"
-                else
-                    echo "No default available — please enter a number between 0 and ${#GITHUB_KEYS[@]}"
-                    echo ""
-                    continue
-                fi
-            fi
-
-            if [ "$selection" = "0" ]; then
-                echo "⚠  Continuing WITHOUT SSH key - git push operations will fail"
-                echo ""
-                break
-            elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#GITHUB_KEYS[@]} ] 2>/dev/null; then
-                SSH_KEYS+=("${GITHUB_KEYS[$((selection-1))]}")
-                echo "✓ Selected: ${GITHUB_KEYS[$((selection-1))]}"
-                echo ""
-                break
-            else
-                echo "Invalid selection: $selection"
-                echo "Please enter a number between 0 and ${#GITHUB_KEYS[@]}"
-                echo ""
-            fi
-        done
-
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo ""
-    else
+    if [ "$alias_rc" -ne 0 ] && [ ${#GITHUB_KEYS[@]} -eq 0 ] && [ "$agent_ok" = false ]; then
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo "⚠  WARNING: No SSH Keys Available"
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
-        echo "No github_ SSH keys found in ~/.ssh/"
+        echo "No github_ SSH key in ~/.ssh/, no ssh-agent holding a key, and the project"
+        echo "remote does not use an ssh-config alias bound to GitHub."
         echo "Git push operations will NOT work without SSH keys."
         echo ""
         echo "To set up GitHub SSH keys, run:"
         echo "  ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
         echo ""
         echo "Or specify a key manually:"
-        echo "  $tool_name --ssh-key ~/.ssh/id_ed25519"
+        echo "  $tool_name --ssh-key ~/.ssh/<your-key>"
+        echo ""
+        echo "Or log in with agent forwarding (ssh -A) and pass:"
+        echo "  $tool_name --ssh-agent"
         echo ""
         read -rp "Press Enter to continue WITHOUT SSH key, or Ctrl+C to cancel: " _unused
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
+        return 0
     fi
+
+    # Probe every account key against the project's remote so we can default
+    # the selection to the key(s) that actually have access. Picking the wrong
+    # key here silently mis-routes git push to the wrong account, so steering
+    # the user toward a verified-working key is the primary purpose of this
+    # prompt.
+    local working_keys=""
+    local probe_status="skipped (not a git repo or no remote)"
+    local suggested_key=""
+    if [ ${#GITHUB_KEYS[@]} -gt 0 ] && [ -n "$remote_url" ]; then
+        echo ""
+        echo "Probing GitHub accounts against remote: $remote_url"
+        echo "(checks .permissions.push via gh-token-<alias> — sequential, ~1-3 seconds)"
+
+        working_keys=$(probe_gh_keys_for_remote "$remote_url")
+
+        local match_count=0
+        if [ -n "$working_keys" ]; then
+            match_count=$(echo "$working_keys" | grep -c .)
+        fi
+
+        case "$match_count" in
+            0)  probe_status="no account keys have push access to this remote (logs: $PROBE_LOG_DIR/)" ;;
+            1)  suggested_key=$(echo "$working_keys" | head -1)
+                probe_status="1 account key has push access" ;;
+            *)  probe_status="$match_count account keys have push access — pick manually" ;;
+        esac
+    elif [ ${#GITHUB_KEYS[@]} -eq 0 ]; then
+        probe_status="no github_ account keys to probe"
+    fi
+    # With no verified account key, the remote's own key is the natural default.
+    if [ -z "$suggested_key" ] && [ "$alias_rc" -eq 0 ]; then
+        suggested_key="$GITHUB_ALIAS_KEY"
+    fi
+
+    local -a candidates=() labels=()
+    if [ "$alias_rc" -eq 0 ]; then
+        candidates+=("$GITHUB_ALIAS_KEY")
+        labels+=("$GITHUB_ALIAS_KEY  — the project remote's key (alias $GITHUB_ALIAS_HOST → $GITHUB_ALIAS_HOSTNAME:$GITHUB_ALIAS_PORT)")
+    fi
+    local i
+    for i in "${!GITHUB_KEYS[@]}"; do
+        local marker=""
+        if [ -n "$working_keys" ] && grep -qxF "${GITHUB_KEYS[$i]}" <<< "$working_keys"; then
+            marker="  ✓ has push access to this remote"
+        fi
+        candidates+=("${GITHUB_KEYS[$i]}")
+        labels+=("${GITHUB_KEYS[$i]}${marker}")
+    done
+    if [ "$agent_ok" = true ]; then
+        candidates+=("$SSH_AGENT_SENTINEL")
+        labels+=("the session's ssh-agent ($agent_key_count key(s)) — pushes as whoever it signs as; runs the container with SELinux labelling off")
+    fi
+
+    local suggested_index=""
+    if [ -n "$suggested_key" ]; then
+        for i in "${!candidates[@]}"; do
+            if [ "${candidates[$i]}" = "$suggested_key" ]; then
+                suggested_index=$((i+1))
+                break
+            fi
+        done
+    fi
+
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "SSH Key Selection for Claude YOLO"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "No SSH key was specified with --ssh-key flag."
+    echo "Probe result: $probe_status"
+    echo ""
+    echo "Available identities:"
+    echo ""
+    echo "  0) Continue without SSH key (git push will NOT work)"
+    echo ""
+
+    for i in "${!candidates[@]}"; do
+        local suffix=""
+        if [ -n "$suggested_index" ] && [ "$((i+1))" = "$suggested_index" ]; then
+            suffix=" ← default"
+        fi
+        echo "  $((i+1))) ${labels[$i]}${suffix}"
+    done
+
+    echo ""
+    if [ -n "$suggested_index" ]; then
+        echo "Press ENTER to accept the default ($suggested_index)."
+    fi
+    echo "You can also specify keys manually with: $tool_name --ssh-key <path>"
+    echo ""
+
+    local prompt_text="Select SSH key [0-${#candidates[@]}]"
+    [ -n "$suggested_index" ] && prompt_text="$prompt_text (default: $suggested_index)"
+    prompt_text="$prompt_text: "
+
+    while true; do
+        read -rp "$prompt_text" selection
+        echo ""
+
+        # Empty input → accept the default if we have one
+        if [ -z "$selection" ]; then
+            if [ -n "$suggested_index" ]; then
+                selection="$suggested_index"
+            else
+                echo "No default available — please enter a number between 0 and ${#candidates[@]}"
+                echo ""
+                continue
+            fi
+        fi
+
+        if [ "$selection" = "0" ]; then
+            echo "⚠  Continuing WITHOUT SSH key - git push operations will fail"
+            echo ""
+            break
+        elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#candidates[@]} ] 2>/dev/null; then
+            SSH_KEYS+=("${candidates[$((selection-1))]}")
+            echo "✓ Selected: ${labels[$((selection-1))]}"
+            echo ""
+            break
+        else
+            echo "Invalid selection: $selection"
+            echo "Please enter a number between 0 and ${#candidates[@]}"
+            echo ""
+        fi
+    done
+
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    return 0
 }
 
-# Probe GitHub for the authenticated username using a specific key + endpoint.
-# Echoes the username on success, nothing on failure (grep returns 1, but callers
-# run inside build_ssh_mounts_and_validate which is invoked as `|| exit 1`, so
-# set -e is disabled — an empty result does not abort).
+# Probe GitHub for the identity a key (or the session's agent) authenticates as.
+# Echoes it on success — a login for an account key, `owner/repo` for a deploy
+# key — and nothing on failure (grep returns 1, but callers run inside
+# build_ssh_mounts_and_validate which is invoked as `|| exit 1`, so set -e is
+# disabled — an empty result does not abort).
 # CRITICAL isolation flags — without them the probe falls through to ~/.ssh/config's
 # default `Host github.com` entry and/or the USER'S ssh-agent, returning the
 # wrong account:
@@ -317,15 +572,21 @@ discover_and_select_ssh_keys() {
 #   -o IdentitiesOnly=yes → only try the -i key
 #   -o IdentityAgent=…    → ONLY ccy's private probe agent (below), never the
 #                           user's; `none` when no probe agent is running
+# The one deliberate exception is the SSH_AGENT_SENTINEL: then the user's agent
+# IS the identity under test, so the probe signs through $SSH_AUTH_SOCK with
+# whatever it holds and no -i at all.
 # ConnectTimeout bounds the wait so a DROP-firewalled port 22 fails fast (~10s)
 # instead of hanging on the default TCP timeout before any 443 fallback can run.
-_github_probe_user() {
+_github_probe_identity() {
     local key="$1" host="$2" port="$3"
-    local agent="${CCY_PROBE_AGENT_SOCK:-none}"
-    ssh -T -i "$key" \
+    local -a identity_opts
+    if [ "$key" = "$SSH_AGENT_SENTINEL" ]; then
+        identity_opts=(-o IdentitiesOnly=no -o IdentityAgent="${SSH_AUTH_SOCK:-none}")
+    else
+        identity_opts=(-i "$key" -o IdentitiesOnly=yes -o IdentityAgent="${CCY_PROBE_AGENT_SOCK:-none}")
+    fi
+    ssh -T "${identity_opts[@]}" \
         -F /dev/null \
-        -o IdentitiesOnly=yes \
-        -o IdentityAgent="$agent" \
         -o StrictHostKeyChecking=no \
         -o ConnectTimeout=10 \
         -p "$port" \
@@ -469,8 +730,9 @@ resolve_token_owner_login() {
 
 # Function to build SSH mounts and validate GitHub connection
 # Args: $1 = tool_name (for display)
-# Requires: SSH_KEYS global array
-# Sets: SSH_MOUNTS, SSH_KEY_PATHS, GITHUB_USERNAME, GH_TOKEN global variables
+# Requires: SSH_KEYS global array (paths, or SSH_AGENT_SENTINEL for the session's agent)
+# Sets: SSH_MOUNTS, SSH_KEY_PATHS, SSH_RUN_OPTS, SSH_AGENT_FORWARDED,
+#       SSH_CONFIG_EXTRA_B64, SSH_KNOWN_HOSTS_PINS, GITHUB_USERNAME, GH_TOKEN
 # Returns: 0 on success, exits on error
 build_ssh_mounts_and_validate() {
     local tool_name="$1"
@@ -479,6 +741,11 @@ build_ssh_mounts_and_validate() {
     # This needs to happen early so GH_TOKEN is available for create_token
     SSH_MOUNTS=()
     SSH_KEY_PATHS=()
+    SSH_RUN_OPTS=()
+    SSH_AGENT_FORWARDED=0
+    SSH_CONFIG_EXTRA_B64=""
+    SSH_KNOWN_HOSTS_PINS=""
+    export SSH_AGENT_FORWARDED SSH_CONFIG_EXTRA_B64 SSH_KNOWN_HOSTS_PINS
     GITHUB_USERNAME=""
 
     # BSH-06: the PRIMARY key (index 0) defines the container identity — both
@@ -502,6 +769,8 @@ build_ssh_mounts_and_validate() {
         if [ -n "$CCY_PROBE_AGENT_SOCK" ]; then
             local unlock_key
             for unlock_key in "${SSH_KEYS[@]}"; do
+                # The session's agent is already unlocked by definition.
+                [ "$unlock_key" = "$SSH_AGENT_SENTINEL" ] && continue
                 if ! _probe_agent_add_key "$unlock_key"; then
                     print_error "Could not unlock SSH key: $unlock_key"
                     echo "The passphrase was not accepted. Re-run $tool_name to try again."
@@ -511,29 +780,72 @@ build_ssh_mounts_and_validate() {
         fi
     fi
 
-    for i in "${!SSH_KEYS[@]}"; do
-        SSH_MOUNTS+=("-v" "${SSH_KEYS[$i]}:/root/.ssh/key_$i:ro")
-        SSH_KEY_PATHS+=("/root/.ssh/key_$i")
+    # The project's alias, if any: its stanza must reach the container whichever
+    # identity is chosen, or the remote URL cannot even be fetched inside.
+    local alias_rc=0
+    detect_project_github_alias "." || alias_rc=$?
+    if [ "$alias_rc" -eq 2 ]; then
+        return 1
+    fi
+    local alias_container_key=""
+    local primary_key=""
 
-        # Probe for the username. GITHUB_SSH_443=1 (the --github-443 flag, or an
+    for i in "${!SSH_KEYS[@]}"; do
+        local key="${SSH_KEYS[$i]}"
+        local key_label
+        if [ "$key" = "$SSH_AGENT_SENTINEL" ]; then
+            if ! ssh_agent_usable; then
+                print_error "--ssh-agent: no usable ssh-agent in this session"
+                echo "  SSH_AUTH_SOCK=${SSH_AUTH_SOCK:-(unset)}"
+                echo "  ssh-add -l said: ${SSH_AGENT_PROBE_OUTPUT:-(nothing)}"
+                echo "Log in with agent forwarding (ssh -A), or load a key with ssh-add, then retry."
+                return 1
+            fi
+            # SELinux: container_t may not connect to a socket served by the
+            # unconfined agent process, and relabelling the socket file does not
+            # change that (measured: `:z` moved it to container_file_t, connect
+            # still denied). Labelling is disabled for THIS container only.
+            SSH_AGENT_FORWARDED=1
+            SSH_RUN_OPTS+=("-v" "$SSH_AUTH_SOCK:/run/ccy/ssh-agent"
+                           "-e" "SSH_AUTH_SOCK=/run/ccy/ssh-agent"
+                           "--security-opt" "label=disable")
+            key_label="ssh-agent"
+        else
+            SSH_MOUNTS+=("-v" "$key:/root/.ssh/key_$i:ro")
+            SSH_KEY_PATHS+=("/root/.ssh/key_$i")
+            key_label="key $(basename "$key")"
+            if [ "$alias_rc" -eq 0 ] && [ "$key" = "$GITHUB_ALIAS_KEY" ]; then
+                alias_container_key="/root/.ssh/key_$i"
+            fi
+        fi
+
+        # Probe for the identity. GITHUB_SSH_443=1 (the --github-443 flag, or an
         # accepted auto-fallback below) routes over ssh.github.com:443; otherwise
         # the standard github.com:22. ssh.github.com:443 serves the same host keys.
+        # The project's alias key is probed where its alias points, because that
+        # is the only endpoint the box was configured to reach it on.
         local gh_ssh_host="github.com" gh_ssh_port="22"
         if [ "${GITHUB_SSH_443:-0}" = "1" ]; then
             gh_ssh_host="ssh.github.com"
             gh_ssh_port="443"
         fi
+        local key_is_alias=false
+        if [ "$alias_rc" -eq 0 ] && [ "$key" = "$GITHUB_ALIAS_KEY" ]; then
+            key_is_alias=true
+            gh_ssh_host="$GITHUB_ALIAS_HOSTNAME"
+            gh_ssh_port="$GITHUB_ALIAS_PORT"
+        fi
         local detected_user
-        detected_user=$(_github_probe_user "${SSH_KEYS[$i]}" "$gh_ssh_host" "$gh_ssh_port")
+        detected_user=$(_github_probe_identity "$key" "$gh_ssh_host" "$gh_ssh_port")
 
         # Auto-fallback: only on the PRIMARY key, only when not already on 443.
         # If port 22 failed but ssh.github.com:443 authenticates, port 22 is
         # firewall-blocked — offer to enable 443 for THIS session. GITHUB_SSH_443
         # propagates to the container env + entrypoint, and to subsequent keys in
         # this loop (they recompute the endpoint from it each iteration).
-        if [ -z "$detected_user" ] && [ "$i" -eq 0 ] && [ "${GITHUB_SSH_443:-0}" != "1" ]; then
+        if [ -z "$detected_user" ] && [ "$i" -eq 0 ] && [ "$key_is_alias" = false ] && [ "${GITHUB_SSH_443:-0}" != "1" ]; then
             local user_443
-            user_443=$(_github_probe_user "${SSH_KEYS[$i]}" "ssh.github.com" "443")
+            user_443=$(_github_probe_identity "$key" "ssh.github.com" "443")
             if [ -n "$user_443" ]; then
                 echo ""
                 echo "⚠ GitHub SSH on port 22 failed, but ssh.github.com:443 works (authenticated as $user_443)."
@@ -566,34 +878,62 @@ build_ssh_mounts_and_validate() {
         fi
 
         if [ -z "$detected_user" ]; then
-            print_error "SSH key authentication to GitHub failed: ${SSH_KEYS[$i]}"
+            if [ "$key" = "$SSH_AGENT_SENTINEL" ]; then
+                print_error "None of the ssh-agent's keys authenticates to GitHub ($gh_ssh_host:$gh_ssh_port)"
+                echo ""
+                echo "  ssh-add -l: ${SSH_AGENT_PROBE_OUTPUT}"
+                echo ""
+                echo "Load the key GitHub knows into the agent, or pick a key file instead."
+                return 1
+            fi
+            print_error "SSH key authentication to GitHub failed: $key"
             echo ""
-            echo "The selected SSH key is not registered with any GitHub account."
+            echo "The selected SSH key is not registered with any GitHub account or repository."
             echo ""
             echo "To fix this:"
             echo "  1. Go to https://github.com/settings/keys"
             echo "  2. Click 'New SSH key'"
-            echo "  3. Add the public key from: ${SSH_KEYS[$i]}.pub"
+            echo "  3. Add the public key from: $key.pub"
             echo ""
             echo "Or set up GitHub keys with:"
             echo "  ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
             return 1
         fi
 
-        if [ "$i" -eq 0 ]; then
+        if github_identity_is_deploy_key "$detected_user"; then
+            # Repository-scoped; it names no account, so it can never be the
+            # container's identity and never maps to a gh-token-<alias>.
+            echo "✓ Deploy key for $detected_user ($key_label) — repository-scoped, no account identity"
+        elif [ -z "$primary_user" ]; then
             primary_user="$detected_user"
-            echo "✓ Primary GitHub account (key $(basename "${SSH_KEYS[0]}")): $detected_user"
+            primary_key="$key"
+            echo "✓ GitHub account ($key_label): $detected_user"
         else
-            echo "✓ Additional SSH key authenticates as: $detected_user"
+            echo "✓ Additional identity ($key_label) authenticates as: $detected_user"
             if [ "$detected_user" != "$primary_user" ]; then
-                echo "  note: this key maps to a different account; the container"
+                echo "  note: this maps to a different account; the container"
                 echo "        will use the primary account ($primary_user)."
             fi
         fi
     done
 
-    # Identity is the primary key's account (see BSH-06 note above).
+    # Identity is the first ACCOUNT identity's login (see BSH-06 note above); a
+    # deploy key ahead of it in the list does not count.
     GITHUB_USERNAME="$primary_user"
+
+    # The alias stanza for the container. With the alias key mounted it names the
+    # key; with an agent forwarded it leaves IdentitiesOnly out so the agent's
+    # identities are tried first and a push authenticates as the person; with
+    # neither it carries no IdentityFile and the container's own agent (holding
+    # the mounted account key) answers for the alias.
+    if [ "$alias_rc" -eq 0 ]; then
+        local identities_only="yes"
+        if [ "$SSH_AGENT_FORWARDED" = "1" ]; then
+            identities_only="no"
+        fi
+        compose_ssh_alias_exports "$GITHUB_ALIAS_HOST" "$GITHUB_ALIAS_HOSTNAME" "$GITHUB_ALIAS_PORT" \
+            "$alias_container_key" "$identities_only"
+    fi
 
     # Get GitHub token from gh CLI
     if ! command_exists gh; then
@@ -602,13 +942,16 @@ build_ssh_mounts_and_validate() {
         return 1
     fi
 
-    # If we detected a GitHub username from SSH key, get the account-specific token
-    # This requires play-github-cli-multi.yml to be configured and shell reloaded
-    if [ -n "$GITHUB_USERNAME" ] && [ ${#SSH_KEYS[@]} -gt 0 ]; then
-        # Extract alias from the first SSH key
-        local key_basename
-        key_basename=$(basename "${SSH_KEYS[0]}")
-        if [[ "$key_basename" =~ ^github_(.+)$ ]]; then
+    # An account identity from a github_<alias> key has an account-specific token
+    # function; this requires play-github-cli-multi.yml to be configured and the
+    # shell reloaded. Any other identity (agent, deploy key, none) takes the
+    # caller's GH_TOKEN, else the active gh login's token.
+    local key_basename=""
+    if [ -n "$primary_key" ] && [ "$primary_key" != "$SSH_AGENT_SENTINEL" ]; then
+        key_basename=$(basename "$primary_key")
+    fi
+    if [ -n "$GITHUB_USERNAME" ] && [[ "$key_basename" =~ ^github_(.+)$ ]]; then
+        {
             local alias
             alias="${BASH_REMATCH[1]}"
             local token_func
@@ -715,23 +1058,58 @@ build_ssh_mounts_and_validate() {
             fi
 
             echo "✓ SSH key → $GITHUB_USERNAME ✓ gh token → $token_user (via $token_func)"
-        fi
+        }
     elif [ -n "${GH_TOKEN:-}" ]; then
-        # No SSH key / GitHub username detected, but the caller already
-        # exported GH_TOKEN (e.g. a CI runner launching with --no-ssh and a
-        # pre-set token). `gh help environment` documents that GH_TOKEN
-        # already takes precedence over gh's own stored credentials, so
-        # `gh auth token` below would in practice echo this same value back
-        # (measured: `GH_TOKEN=x gh auth token` -> x, rc=0) — this branch is
-        # not fixing a live clobbering bug. It makes that precedence
-        # explicit and self-documenting in OUR code, and drops the
-        # `gh auth token` subprocess call (and its "gh must already be
-        # logged in" requirement) from this path — the caller's token is
-        # used directly. There is no SSH identity to cross-check it
-        # against, so it is used unverified.
-        echo "✓ Using caller-supplied GH_TOKEN (no SSH key / GitHub username detected, unverified)"
+        # The caller exported GH_TOKEN (a CI runner with --no-ssh and a pre-set
+        # token, or a session on a box with no gh login that received the token
+        # from the person's own machine). `gh help environment` documents that
+        # GH_TOKEN takes precedence over gh's stored credentials, so this is the
+        # token the container would end up with anyway; using it directly drops
+        # the "gh must already be logged in" requirement from this path.
+        #
+        # With an ACCOUNT identity in hand (an agent, or a key that is not a
+        # github_<alias> one) the token is cross-checked against it, exactly as
+        # the gh-token-<alias> path does: a token for one account paired with a
+        # key that pushes as another would otherwise surface later, inside the
+        # container, as a baffling identity mismatch. With no account identity
+        # there is nothing to check against and the token is used unverified.
+        if [ -n "$GITHUB_USERNAME" ]; then
+            local env_token_user=""
+            if resolve_token_owner_login "$GH_TOKEN"; then
+                env_token_user="$TOKEN_OWNER_LOGIN"
+            fi
+            if [ -z "$env_token_user" ]; then
+                print_error "Could not verify which account the exported GH_TOKEN belongs to"
+                echo ""
+                echo "  GitHub's API did not return a usable answer after 3 attempts."
+                echo "  What it said:"
+                echo ""
+                printf '    %s\n' "${TOKEN_OWNER_LOOKUP_ERROR:-(no output)}"
+                echo ""
+                echo "This is almost always GitHub being briefly unavailable. To launch anyway:"
+                echo ""
+                echo "  CCY_SKIP_TOKEN_OWNER_CHECK=1 ccy"
+                echo ""
+                if [ -z "${CCY_SKIP_TOKEN_OWNER_CHECK:-}" ]; then
+                    return 1
+                fi
+                echo "CCY_SKIP_TOKEN_OWNER_CHECK is set — continuing unverified."
+            elif [ "$env_token_user" != "$GITHUB_USERNAME" ]; then
+                print_error "Exported GH_TOKEN belongs to a different account than the SSH identity"
+                echo ""
+                echo "  SSH identity authenticates as: $GITHUB_USERNAME"
+                echo "  GH_TOKEN is owned by:           $env_token_user"
+                echo ""
+                echo "Export the token for $GITHUB_USERNAME, or select that account's key."
+                return 1
+            else
+                echo "✓ SSH identity → $GITHUB_USERNAME ✓ exported GH_TOKEN → $env_token_user"
+            fi
+        else
+            echo "✓ Using caller-supplied GH_TOKEN (no account identity to cross-check; unverified)"
+        fi
     else
-        # No GitHub username detected and no caller-supplied token - fall
+        # No account-specific token function and no caller-supplied token - fall
         # back to the active gh CLI account's default token.
         # Status checked rather than discarded: `gh auth token` prints its
         # complaint on failure, and an emptiness test alone would accept that
@@ -744,9 +1122,13 @@ build_ssh_mounts_and_validate() {
 
         if [ -z "$GH_TOKEN" ] || [ -n "$auth_err" ]; then
             GH_TOKEN=""
-            print_error "Not authenticated with GitHub CLI"
+            print_error "No GitHub token: gh is not logged in and GH_TOKEN is not exported"
             echo ""
-            echo "Run: gh auth login"
+            echo "The container's gh needs a token. Either:"
+            echo "  - log this box in:        gh auth login"
+            echo "  - or export one for THIS session (a box that deliberately holds no"
+            echo "    GitHub login gets it from the person's own machine):"
+            echo "                            export GH_TOKEN=…   then re-run ccy"
             echo ""
             echo "For multi-account setup with github_ SSH keys, run:"
             echo "  ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
@@ -758,3 +1140,11 @@ build_ssh_mounts_and_validate() {
 # Export functions
 export -f discover_and_select_ssh_keys
 export -f build_ssh_mounts_and_validate
+export -f resolve_github_ssh_alias
+export -f remote_ssh_host
+export -f detect_project_github_alias
+export -f render_ssh_alias_stanza
+export -f compose_ssh_alias_exports
+export -f ssh_agent_usable
+export -f github_identity_is_deploy_key
+export -f _github_probe_identity

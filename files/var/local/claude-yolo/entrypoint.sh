@@ -110,8 +110,28 @@ if ! gh auth status 2>&1; then
     exit 1
 fi
 
-# Configure SSH for git operations if keys provided
-if [ -n "$SSH_KEY_PATHS" ]; then
+# Configure SSH for git operations if keys provided.
+#
+# With the launcher's SSH_AGENT_FORWARDED=1 the session's own agent is mounted at
+# $SSH_AUTH_SOCK: no agent is started here, and mounted key FILES are wired by
+# IdentityFile (github_key_directives, folded into the github.com stanza below)
+# rather than ssh-add — adding to a forwarded agent would load keys into the
+# person's agent on the far side, which is theirs, not this container's.
+github_key_directives=()
+if [ "${SSH_AGENT_FORWARDED:-0}" = "1" ]; then
+    if ! ssh-add -l >/tmp/ccy-agent-probe.out 2>&1; then
+        echo "ERROR: SSH_AGENT_FORWARDED=1 but the agent at ${SSH_AUTH_SOCK:-(unset)} answers nothing usable:" >&2
+        cat /tmp/ccy-agent-probe.out >&2
+        exit 1
+    fi
+    echo "✓ Forwarded ssh-agent in use ($(grep -c . /tmp/ccy-agent-probe.out) key(s))"
+    if [ -n "$SSH_KEY_PATHS" ]; then
+        IFS=: read -ra KEYS <<< "$SSH_KEY_PATHS"
+        for key in "${KEYS[@]}"; do
+            github_key_directives+=("    IdentityFile $key")
+        done
+    fi
+elif [ -n "$SSH_KEY_PATHS" ]; then
     eval "$(ssh-agent -s)" > /dev/null 2>&1
 
     IFS=: read -ra KEYS <<< "$SSH_KEY_PATHS"
@@ -172,13 +192,24 @@ fi
 if [ -n "$github_ssh_keys" ]; then
     # Pin the fetched keys. In 443 mode also pin them under [ssh.github.com]:443 —
     # the known_hosts lookup key SSH uses once HostName/Port are rewritten — so the
-    # first push does not hang on an interactive host-key prompt.
+    # first push does not hang on an interactive host-key prompt. The same applies
+    # to every host:port the launcher's alias stanza points at (SSH_KNOWN_HOSTS_PINS,
+    # space-separated): GitHub serves the same host keys on all of them.
     while IFS= read -r ghkey; do
         [ -n "$ghkey" ] || continue
         echo "github.com $ghkey"
         if [ "${GITHUB_SSH_443:-0}" = "1" ]; then
             echo "[ssh.github.com]:443 $ghkey"
         fi
+        for pin in ${SSH_KNOWN_HOSTS_PINS:-}; do
+            pin_host="${pin%:*}"
+            pin_port="${pin##*:}"
+            if [ "$pin_port" = "22" ]; then
+                echo "$pin_host $ghkey"
+            else
+                echo "[$pin_host]:$pin_port $ghkey"
+            fi
+        done
     done <<< "$github_ssh_keys" >> ~/.ssh/known_hosts
     chmod 600 ~/.ssh/known_hosts
     echo "✓ GitHub SSH host keys pinned in known_hosts"
@@ -188,13 +219,32 @@ else
 fi
 
 # Write the github.com config stanza if any directives were collected (the 443
-# endpoint rewrite and/or the offline accept-new fallback).
-if [ "${#github_ssh_directives[@]}" -gt 0 ]; then
+# endpoint rewrite, the offline accept-new fallback, and/or the IdentityFile lines
+# that stand in for ssh-add when an agent is forwarded).
+if [ "${#github_ssh_directives[@]}" -gt 0 ] || [ "${#github_key_directives[@]}" -gt 0 ]; then
     {
         echo "Host github.com"
-        printf '%s\n' "${github_ssh_directives[@]}"
+        if [ "${#github_ssh_directives[@]}" -gt 0 ]; then
+            printf '%s\n' "${github_ssh_directives[@]}"
+        fi
+        if [ "${#github_key_directives[@]}" -gt 0 ]; then
+            printf '%s\n' "${github_key_directives[@]}"
+        fi
     } >> ~/.ssh/config
     chmod 600 ~/.ssh/config
+fi
+
+# The project remote's alias stanza, rendered by the launcher from the host's own
+# ssh config (SSH_CONFIG_EXTRA_B64). Without it `git@<alias>:owner/repo.git`
+# resolves nothing in here and the checkout cannot even fetch.
+if [ -n "${SSH_CONFIG_EXTRA_B64:-}" ]; then
+    if ! printf '%s' "$SSH_CONFIG_EXTRA_B64" | base64 -d >> ~/.ssh/config; then
+        echo "ERROR: SSH_CONFIG_EXTRA_B64 is not valid base64" >&2
+        exit 1
+    fi
+    echo "" >> ~/.ssh/config
+    chmod 600 ~/.ssh/config
+    echo "✓ Remote alias stanza written to ~/.ssh/config: $(printf '%s' "$SSH_CONFIG_EXTRA_B64" | base64 -d | awk 'NR==1')"
 fi
 
 # Set sandbox mode to bypass root detection
