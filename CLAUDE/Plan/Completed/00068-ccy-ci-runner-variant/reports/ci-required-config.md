@@ -10,6 +10,14 @@ converts UNDEFINED into EMPTY and blinds the check.
 See [CLAUDE.md § Fail Fast — HARD RULE](../../../../CLAUDE.md#fail-fast--hard-rule), which bans the
 "skip and warn" pattern by name.
 
+> **Line references are to the ccy tree as it stood when this report was written. Treat them as
+> pointers, not as current line numbers.** Every launcher citation below has drifted since, and
+> two of them have swapped onto each other's neighbourhoods: `claude-yolo:822`, cited at §4.3 as
+> the *"Use same configuration? [Y/n]"* reuse prompt, is today the `--headless` precondition this
+> same report cites 90 lines earlier. So a reader spot-checking a number can land on live ccy code
+> from this very document and conclude the citation holds. Re-locate by the construct named beside
+> each number — the prompt text, the function name — never by the number.
+
 Nothing here has been executed. The plan implements nothing.
 
 ---
@@ -129,7 +137,7 @@ result.
 | Code | Meaning                                          | Where                 |
 | ---- | ------------------------------------------------ | --------------------- |
 | 0    | success                                          | unchanged             |
-| 1    | every failure `ccy` exits 1 for today (35 sites) | **unchanged**         |
+| 1    | every failure `ccy` exits 1 for today (30 sites) | **unchanged**         |
 | 64   | `EX_USAGE` — the invocation itself is wrong      | **new branches only** |
 | 78   | `EX_CONFIG` — a precondition is unmet            | **new branches only** |
 
@@ -242,7 +250,7 @@ recorded here so it is not read later as an oversight.
 | `claude-yolo:78`             | migration                  | `case … *)` at `:92` — anything unrecognised keeps the files |
 | `dockerfile-custom.bash:763` | `create_dockerfile_guided` | "Press Enter to continue" — no value is consumed             |
 
-#### (e) Must fail fast — 35 sites
+#### (e) Must fail fast — 30 sites
 
 | Concern                 | Sites                                                                                                                                         | Named in the message                                     |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |

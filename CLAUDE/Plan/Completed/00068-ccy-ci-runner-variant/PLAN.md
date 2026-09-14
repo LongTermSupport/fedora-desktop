@@ -1,6 +1,6 @@
 # Plan 00068: Make ccy fully non-interactive so CI can invoke it
 
-**Status**: In Progress
+**Status**: Complete (2026-09-14)
 **Created**: 2026-07-29
 **Owner**: joseph
 **Priority**: High
@@ -155,7 +155,12 @@ measurement (E9).
 - [x] ✅ MCP, `--egress` and the unattended-launch capabilities are resolved against the current
   architecture, and by the owner rather than by this plan's internal reasoning.
 - [x] ✅ The restriction mechanism is settled by measurement (E9), and E8 dissolved with it.
-- [ ] ⬜ The CI tool surface is specified per event.
+- [x] ✅ The CI tool surface is specified per event: two classes with per-class
+  present/absent tables, MCP allowlisted at **server** granularity with
+  `--strict-mcp-config`, and four startup assertions each able to fail —
+  [reports/ci-tool-surface.md](reports/ci-tool-surface.md). What it does not buy is
+  recorded with it: `Bash` is a write vector, so what stops a class-A job pushing is
+  the token's scopes, which only lts-infra can confirm.
 
 ## Delivery & Milestones
 

@@ -8,6 +8,10 @@ stop. This document is where those facts become decisions. It covers two host ru
 | `20260731-214921` | 1 of 4 ✗ | **Superseded.** Two probes measured the wrong thing — see §4             |
 | `20260731-225344` | 4 of 4 ✓ | **Authoritative.** `all legs OK` — every probe reached a definite answer |
 
+> **Line references are to the ccy tree as it stood when this report was written. Treat them as
+> pointers, not as current line numbers** — both launcher citations below have drifted since.
+> Re-locate by the construct named beside each one.
+
 ---
 
 ## 1. E6 — ccy's unconditional `--device /dev/dri` is a CONFIRMED blocker for a headless runner

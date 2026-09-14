@@ -11,6 +11,12 @@
 > by auditing against this plan's working rule and never against the owner's steer — the failure
 > this plan's own risk table lists as materialised three times.
 >
+> **Line references are to the ccy tree as it stood when this report was written. Treat them as
+> pointers, not as current line numbers** — every launcher citation in it has drifted since, and a
+> stale number lands on plausible-looking neighbouring code. Re-locate by the construct named
+> beside each one. (The `:282` note below preserves the numbers deliberately, because later review
+> rounds cite them; that is a reason not to renumber, not a reason to trust them.)
+>
 > **What is still valid** — and it is most of the document: the MCP interface, the rule that the
 > config must NOT be written under `/root/.claude` (it is symlinked into the checkout), the
 > `--strict-mcp-config` decision, the flag-existence assertion, the pasta mechanism, the

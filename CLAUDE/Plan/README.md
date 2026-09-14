@@ -154,8 +154,6 @@ Use these Unicode icons in plan documents:
 
 - [00089-ssh-handling-runner-token-guard](00089-ssh-handling-runner-token-guard/) - A carve-out from Plan 00068 (unmerged). Not a bug fix — `gh` already gives an exported `GH_TOKEN` precedence — but it makes that explicit and drops the `gh auth token` dependency for a runner authenticating purely by token via `--no-ssh`.
 
-- [00068-ccy-ci-runner-variant](00068-ccy-ci-runner-variant/) - Specifies what `ccy` owes a headless CI runner: the fail-fast contract at every prompt site, a per-event tool surface imposed by `--disallowedTools` and asserted at startup, and compose/networking kept as capability minus negotiation. No code changes here — Plan 00113 implements it
-
 - [00069-plan-md-edited-in-place](00069-plan-md-edited-in-place/) - State in `PlanWorkflow.md` that `PLAN.md` is edited in place with git as its history, and narration belongs in `JOURNAL/`
 
 - [00072-ccy-assert-rootless-engine](00072-ccy-assert-rootless-engine/) - `ccy` now asks the container engine whether it is rootless and refuses when the answer is no or unreadable; Dormant pending a HOST desktop check
@@ -165,6 +163,8 @@ Use these Unicode icons in plan documents:
 - [00074-grub-cgroup-check-reports-absence-it-cannot-prove](00074-grub-cgroup-check-reports-absence-it-cannot-prove/) - `run.bash`'s legacy-grub cgroup step now distinguishes a failing `grubby` from a genuine negative and aborts on a proven failure instead of continuing
 
 ## Completed Plans
+
+- [00068-ccy-ci-runner-variant](Completed/00068-ccy-ci-runner-variant/) - Specifies what `ccy` owes a headless CI runner: the fail-fast contract at every prompt site, a per-event tool surface asserted at startup, and compose/networking kept as capability minus negotiation. No code here — Plan 00113 implements it.
 
 - [00110-vm-lifecycle-acceptance-testing](Completed/00110-vm-lifecycle-acceptance-testing/) - Full fresh-install lifecycle acceptance testing against VMs for both the server and desktop profiles, off a reused base snapshot kept current by a TTL policy, triggerable from a CCY container through a closed-verb host-action bridge; its first desktop run found the extensions defect Plan 00112 carries.
 

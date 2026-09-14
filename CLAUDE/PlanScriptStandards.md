@@ -241,7 +241,7 @@ without extending that test.
 
 The bootstrap block is identical everywhere and elided as `<BOOTSTRAP>`; copy it verbatim from
 R1. A working, lint-clean example lives at
-[`Plan/00068-ccy-ci-runner-variant/triage.bash`](Plan/00068-ccy-ci-runner-variant/triage.bash).
+[`Plan/Completed/00068-ccy-ci-runner-variant/triage.bash`](Plan/Completed/00068-ccy-ci-runner-variant/triage.bash).
 
 ```bash
 #!/usr/bin/env bash

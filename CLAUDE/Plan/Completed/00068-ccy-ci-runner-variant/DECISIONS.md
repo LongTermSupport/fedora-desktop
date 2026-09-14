@@ -326,9 +326,10 @@ save-and-disable pair, whose restore is the `stty "$_CCY_STTY_SAVED"` in `cleanu
    worse problem of two jobs checking out different SHAs into one working tree
    (`runner_instances: 4` today). On ccy's side: accept a caller-supplied `--container-name` and
    never `rm -f` it.
-2. **ccy dirties the job checkout before the agent starts.** `save_launch_config` — one definition,
-   one tail-of-script call — writes `.claude/ccy/.last-launch.conf` with a timestamp into the tree the job is
-   about to test. Fix: skip the write under non-interactive. Same class: `entrypoint.sh:183-195`
+2. **ccy dirties the job checkout before the agent starts.** `save_launch_config` — one
+   definition, one tail-of-script call — writes `.claude/ccy/.last-launch.conf` with a
+   timestamp into the tree the job is about to test.
+   Fix: skip the write under non-interactive. Same class: `entrypoint.sh:183-195`
    symlinks `/root/.claude` into the checkout (open decision 3).
 3. **Compose teardown prompts after the container exits** (`:2789` onwards, gated on
    `CCY_COMPOSE_WAS_STARTED`). Fix: under non-interactive, act on an announced default.

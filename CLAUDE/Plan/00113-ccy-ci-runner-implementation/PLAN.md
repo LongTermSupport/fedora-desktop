@@ -31,9 +31,9 @@ launch with `GH_TOKEN` pre-exported, live on HOST — is unticked. Treat the
 launcher's hardest dependency as written but unproven, and see Task 0.6.
 
 **Read before starting**, in this order — none of it is restated here:
-[00068 DECISIONS.md](../00068-ccy-ci-runner-variant/DECISIONS.md) ·
-[reports/ci-flow.md](../00068-ccy-ci-runner-variant/reports/ci-flow.md) ·
-[reports/ci-tool-surface.md](../00068-ccy-ci-runner-variant/reports/ci-tool-surface.md)
+[00068 DECISIONS.md](../Completed/00068-ccy-ci-runner-variant/DECISIONS.md) ·
+[reports/ci-flow.md](../Completed/00068-ccy-ci-runner-variant/reports/ci-flow.md) ·
+[reports/ci-tool-surface.md](../Completed/00068-ccy-ci-runner-variant/reports/ci-tool-surface.md)
 
 ## Goals
 
@@ -153,7 +153,7 @@ launcher's hardest dependency as written but unproven, and see Task 0.6.
   block's (defect 4). **The test must fail before the fix** — a container exiting
   non-zero while the job reports success is the whole point
 - [ ] ⬜ **Task 1.5**: The unattended-launch hygiene fixes, four cited defects
-  ([DECISIONS.md §7](../00068-ccy-ci-runner-variant/DECISIONS.md)). The
+  ([DECISIONS.md §7](../Completed/00068-ccy-ci-runner-variant/DECISIONS.md)). The
   container-naming race is primarily fixed by serialising jobs on the runner
   (lts-infra Plan 00030 Task 2.8) — do not re-solve it here
 - [ ] ⬜ **Task 1.6**: CCY version bump (mandatory when
@@ -169,7 +169,7 @@ launcher's hardest dependency as written but unproven, and see Task 0.6.
   substitutes narrower tools for a withdrawn capability, so the observed set is
   not the default minus the denied and must not be computed as such
 - [ ] ⬜ **Task 2.2**: The four startup assertions of
-  [reports/ci-tool-surface.md](../00068-ccy-ci-runner-variant/reports/ci-tool-surface.md).
+  [reports/ci-tool-surface.md](../Completed/00068-ccy-ci-runner-variant/reports/ci-tool-surface.md).
   Assertion 2 is a **set diff, not an absence check** — a renamed or newly added
   write primitive is absent-by-name and would pass a denylist green. It must fail
   on an unexpected member, which also means a benign new tool fails the job until
@@ -188,7 +188,7 @@ launcher's hardest dependency as written but unproven, and see Task 0.6.
 ### Phase 2b: Compose and networking — the capability, not the negotiation
 
 An owner requirement, not an inference (owner, 2026-08-01, quoted at
-[DECISIONS.md §6](../00068-ccy-ci-runner-variant/DECISIONS.md)): *"i would not
+[DECISIONS.md §6](../Completed/00068-ccy-ci-runner-variant/DECISIONS.md)): *"i would not
 assume that CI doesn't need compose or podman network stuff"*. A project whose
 `ci.bash` needs postgres needs the services up and the container attached. **What
 CI drops is the negotiation, not the capability** — and §6 already gives the
