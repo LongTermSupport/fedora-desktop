@@ -234,14 +234,19 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     defer.
   - [ ] ⬜ Confirm the toggle actually recovers it on this host before building
     anything around it — one manual toggle, next time the symptom appears
-  - [ ] ⬜ Decide the home. `helpers/displaylink_recovery/` already runs on dock
-    events via a udev rule and a suspend service, but it currently recovers
-    *wedged heads* (a driver-layer failure). This is a different failure at the
-    compositor layer sharing the same trigger — extend that helper, or add a
-    sibling, rather than inventing a new trigger path.
-  - [ ] ⬜ Idempotence and loop-safety: the toggle writes the key it watches
-  - [ ] ⬜ Tests first (stdlib-only, mirroring the helper path under `tests/`),
-    then QA, deploy on HOST, verify
+  - [x] ✅ Decide the home — **extend** `helpers/displaylink_recovery/`, not a
+    sibling: the compositor-layer failure shares the driver-layer one's trigger, so
+    it reuses the existing udev rule and suspend service rather than inventing a
+    trigger path. `Action.REFRESH_BACKGROUND` (`recovery.py:64`), dispatched at
+    `run_recovery.py:411` (`9a79dd77`)
+  - [x] ✅ Idempotence and loop-safety — `needs_background_refresh`
+    (`recovery.py:101`) returns False once `attempted_background_refresh` is set, so
+    the toggle cannot re-trigger on the key it writes, and False while
+    `session_locked`, which is what keeps it off the `gnome-shell#9188` leak path
+  - [x] ✅ Tests first, stdlib-only, mirroring the helper path
+    (`tests/helpers/displaylink_recovery/test_recovery.py`); QA green
+  - [ ] ⬜ **HOST**: deploy and verify. Distinct from the confirmation above — this
+    is "the shipped code runs on the host", not "the toggle cures the fault"
 
 ## Dependencies
 
