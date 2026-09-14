@@ -110,18 +110,31 @@ def failed_unit_findings(text: str, *, scope: str) -> list[str]:
     return findings
 
 
+def _unit_outcome_findings(outcome: ProbeOutcome, *, scope: str) -> list[str]:
+    """Failed units, or the fact that the question could not be asked.
+
+    A `systemctl` that cannot run returns no units — byte-identical to a host with
+    nothing failing. Reporting the failure is what keeps those two apart.
+    """
+    if not outcome.ok:
+        return [f"the {scope}-scope failed-unit probe could not run: {outcome.error}"]
+    return failed_unit_findings(outcome.text, scope=scope)
+
+
 def build_report(
     *,
     dkms: ProbeOutcome,
-    failed_system: str,
-    failed_user: str,
+    failed_system: ProbeOutcome,
+    failed_user: ProbeOutcome,
     running_kernel: str,
     extra: list[str] | None = None,
 ) -> Report:
     """Every finding, from every source, in one report.
 
-    `extra` is where Phase 2's play-freshness and installed-vs-pinned findings join,
-    so a broken host produces one notification rather than three.
+    Each probe is judged independently, so one that could not run never masks
+    another's findings. `extra` is where Phase 2's play-freshness and
+    installed-vs-pinned findings join, so a broken host produces one notification
+    rather than three.
     """
     findings: list[str] = []
 
@@ -135,7 +148,7 @@ def build_report(
             # whole login-time probe down and reports nothing at all.
             findings.append(f"the dkms probe output could not be read: {error}")
 
-    findings.extend(failed_unit_findings(failed_system, scope="system"))
-    findings.extend(failed_unit_findings(failed_user, scope="user"))
+    findings.extend(_unit_outcome_findings(failed_system, scope="system"))
+    findings.extend(_unit_outcome_findings(failed_user, scope="user"))
     findings.extend(extra or [])
     return Report(tuple(findings))

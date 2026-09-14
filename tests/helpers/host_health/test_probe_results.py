@@ -25,6 +25,9 @@ from helpers.host_health import probe_results
 
 RUNNING_KERNEL = "7.2.4-200.fc44.x86_64"
 
+#: Most tests care about one probe at a time; the other two are a clean nothing.
+NO_UNITS = probe_results.ProbeOutcome(ok=True, text="", error="")
+
 DKMS_HEALTHY = f"evdi/1.15.0, {RUNNING_KERNEL}, x86_64: installed"
 DKMS_OTHER_KERNEL_ONLY = "evdi/1.15.0, 7.1.9-200.fc44.x86_64, x86_64: installed"
 DKMS_ADDED_NOT_BUILT = "evdi/1.14.16: added"
@@ -142,14 +145,14 @@ class TestProbeFailuresAreFindings(unittest.TestCase):
         host, so 'I could not look' must never read as 'nothing wrong'."""
         report = probe_results.build_report(
             dkms=probe_results.ProbeOutcome(ok=False, text="", error="dkms: command not found"),
-            failed_system="", failed_user="", running_kernel=RUNNING_KERNEL)
+            failed_system=NO_UNITS, failed_user=NO_UNITS, running_kernel=RUNNING_KERNEL)
         self.assertFalse(report.clean)
         self.assertTrue(any("dkms" in f for f in report.findings))
 
     def test_the_error_text_reaches_the_report(self) -> None:
         report = probe_results.build_report(
             dkms=probe_results.ProbeOutcome(ok=False, text="", error="dkms: command not found"),
-            failed_system="", failed_user="", running_kernel=RUNNING_KERNEL)
+            failed_system=NO_UNITS, failed_user=NO_UNITS, running_kernel=RUNNING_KERNEL)
         self.assertTrue(any("command not found" in f for f in report.findings))
 
     def test_unreadable_dkms_output_is_a_finding_not_a_crash(self) -> None:
@@ -157,23 +160,55 @@ class TestProbeFailuresAreFindings(unittest.TestCase):
         letting it take the whole login-time probe down."""
         report = probe_results.build_report(
             dkms=probe_results.ProbeOutcome(ok=True, text="garbage", error=""),
-            failed_system="", failed_user="", running_kernel=RUNNING_KERNEL)
+            failed_system=NO_UNITS, failed_user=NO_UNITS, running_kernel=RUNNING_KERNEL)
         self.assertFalse(report.clean)
+
+    def test_a_failed_SYSTEM_unit_probe_is_a_finding(self) -> None:
+        """The same rule as dkms, and it was not enforced here at first: a systemctl
+        that cannot run reported an empty failed-unit list, which is exactly the
+        shape of a healthy host."""
+        report = probe_results.build_report(
+            dkms=probe_results.ProbeOutcome(ok=True, text=DKMS_HEALTHY, error=""),
+            failed_system=probe_results.ProbeOutcome(
+                ok=False, text="", error="Failed to connect to bus"),
+            failed_user=NO_UNITS, running_kernel=RUNNING_KERNEL)
+        self.assertFalse(report.clean)
+        self.assertTrue(any("system" in f and "Failed to connect" in f for f in report.findings))
+
+    def test_a_failed_USER_unit_probe_is_a_finding_naming_its_scope(self) -> None:
+        report = probe_results.build_report(
+            dkms=probe_results.ProbeOutcome(ok=True, text=DKMS_HEALTHY, error=""),
+            failed_system=NO_UNITS,
+            failed_user=probe_results.ProbeOutcome(
+                ok=False, text="", error="Failed to connect to bus"),
+            running_kernel=RUNNING_KERNEL)
+        self.assertFalse(report.clean)
+        self.assertTrue(any("user" in f for f in report.findings))
+
+    def test_every_probe_failing_produces_every_finding(self) -> None:
+        """One broken probe must not mask the other two."""
+        broken = probe_results.ProbeOutcome(ok=False, text="", error="nope")
+        report = probe_results.build_report(
+            dkms=broken, failed_system=broken, failed_user=broken,
+            running_kernel=RUNNING_KERNEL)
+        self.assertEqual(len(report.findings), 3)
 
 
 class TestReport(unittest.TestCase):
     def test_a_healthy_host_produces_NO_findings(self) -> None:
         report = probe_results.build_report(
             dkms=probe_results.ProbeOutcome(ok=True, text=DKMS_HEALTHY, error=""),
-            failed_system="", failed_user="", running_kernel=RUNNING_KERNEL)
+            failed_system=NO_UNITS, failed_user=NO_UNITS, running_kernel=RUNNING_KERNEL)
         self.assertTrue(report.clean)
         self.assertEqual(report.findings, ())
 
     def test_findings_from_every_source_are_collected(self) -> None:
         report = probe_results.build_report(
             dkms=probe_results.ProbeOutcome(ok=True, text=DKMS_ADDED_NOT_BUILT, error=""),
-            failed_system="a.service loaded failed failed A",
-            failed_user="b.service loaded failed failed B",
+            failed_system=probe_results.ProbeOutcome(
+                ok=True, text="a.service loaded failed failed A", error=""),
+            failed_user=probe_results.ProbeOutcome(
+                ok=True, text="b.service loaded failed failed B", error=""),
             running_kernel=RUNNING_KERNEL)
         self.assertEqual(len(report.findings), 3)
 
@@ -182,7 +217,7 @@ class TestReport(unittest.TestCase):
         their findings join the login report rather than being a second notification."""
         report = probe_results.build_report(
             dkms=probe_results.ProbeOutcome(ok=True, text=DKMS_HEALTHY, error=""),
-            failed_system="", failed_user="", running_kernel=RUNNING_KERNEL,
+            failed_system=NO_UNITS, failed_user=NO_UNITS, running_kernel=RUNNING_KERNEL,
             extra=["evdi: pinned 1.15.0, installed 1.14.16"])
         self.assertFalse(report.clean)
         self.assertIn("evdi: pinned 1.15.0, installed 1.14.16", report.findings)
@@ -190,7 +225,8 @@ class TestReport(unittest.TestCase):
     def test_no_extra_findings_keeps_a_clean_host_silent(self) -> None:
         report = probe_results.build_report(
             dkms=probe_results.ProbeOutcome(ok=True, text=DKMS_HEALTHY, error=""),
-            failed_system="", failed_user="", running_kernel=RUNNING_KERNEL, extra=[])
+            failed_system=NO_UNITS, failed_user=NO_UNITS, running_kernel=RUNNING_KERNEL,
+            extra=[])
         self.assertTrue(report.clean)
 
 

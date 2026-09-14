@@ -168,8 +168,8 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 
 ### Phase 3: Login-time health surfacing and Claude Code handoff
 
-- [ ] 🔄 **Task 3.1**: Post-boot health probe — classifier done, executor pending
-  - [x] ✅ `helpers/host_health/probe_results.py`, 26 tests. DKMS modules with no
+- [ ] 🔄 **Task 3.1**: Post-boot health probe — probe done, login wiring pending
+  - [x] ✅ `helpers/host_health/probe_results.py`, 29 tests. DKMS modules with no
     `installed` build **for the kernel that actually booted** — the incident's own
     shape, and why a non-empty `dkms status` fooled everyone — plus failed system and
     user units. A probe that could not run is a **finding**, not a skip. Phase 2's
@@ -178,7 +178,17 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   - [x] ✅ Coordinated, not duplicated: neither Plan 00086 nor 00074 owns a reusable
     probe — both are fixes *inside* a play and inside `run.bash` — so there is nothing
     to call, and what is avoided is re-implementing their logic
-  - [ ] ⬜ The executor, and running it at **end of login** rather than at boot
+  - [x] ✅ `helpers/host_health/probe.py`, 21 tests — the half that touches the
+    machine. Every route out of `run_probe` ends in a `ProbeOutcome`, never a
+    traceback, and **the classifier enforced that for `dkms` only**: `systemctl`
+    was plain text, so one that could not run returned an empty unit list —
+    identical to a healthy host. Both scopes now carry an outcome. Smoke-run in
+    the container, which has neither `dkms` nor a systemd bus: 3 findings, 3
+    lines, exit 1, and 2 of them are what that hole swallowed.
+    [DESIGN-host-health.md](DESIGN-host-health.md) §6
+  - [ ] ⬜ Running it at **end of login** rather than at boot. Lands with Task 3.2
+    — a login unit whose output nothing surfaces is not a deliverable, and the
+    open decision is 3.2's: [DESIGN-host-health.md](DESIGN-host-health.md) §7
 - [ ] ⬜ **Task 3.2**: Surface findings to the user
   - [ ] ⬜ Desktop notification on findings; **silent when clean** (a health check
     that always speaks gets muted, and then it is not a health check)
