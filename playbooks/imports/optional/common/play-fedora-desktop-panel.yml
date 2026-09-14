@@ -7,11 +7,15 @@
 # play. Re-running a play is always a human decision, and a clickable surface is
 # exactly where that boundary erodes.
 #
-# **Its own play, not an addition to `play-host-health-login-report.yml`.** The two
-# have different dependencies and either is useful without the other: the report needs
-# only `notify-send` and is meaningful on a server profile, while this needs GNOME
-# Shell. Folding the panel in would make a GNOME extension a dependency of a text
-# report. DESIGN-panel.md §7.
+# **Its own play, not an addition to `play-host-health-login-report.yml`.** The panel is
+# a generic multi-section surface — Task 4.3's play runner and Task 4.4's registry add
+# sections that have nothing to do with host health — rather than that report's UI. Its
+# sections arrive and leave independently of the health document, so its lifecycle is its
+# own and does not depend on any one producer.
+#
+# `play-container-watch.yml` deploys a backend and its extension together, which is right
+# there because that extension is that backend's only surface. This one fronts several,
+# so it is tied to none of them. DESIGN-panel.md §7.
 #
 # **The producer is a separate play and this does not deploy it.** The document comes
 # from `play-host-health-login-report.yml`. Missing it is not an error here: the panel

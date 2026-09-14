@@ -774,6 +774,25 @@ anything**:
   from one that ran and found something — and `systemctl --user is-failed` would stay silent
   about a health surface that had stopped working
 
+#### play-fedora-desktop-panel.yml
+
+The `fedora-desktop` GNOME Shell panel — **a read-only surface**:
+
+- Deploys the panel extension that renders this machine's drift state from the host
+  status document
+- It renders; it runs no check, applies no fix and launches no play. Re-running a play is
+  a human decision, and a clickable surface is where that boundary erodes
+- **An absent document reads as `unavailable`, never as healthy.** "Nothing is known
+  about this host" is a third state, distinct from "nothing is wrong" — conflating them is
+  the failure this plan exists for
+- Enables the extension by **declaring the gsettings key**, not by asking the running
+  shell: a fresh deploy has not been scanned yet, so `gnome-extensions enable` is silently
+  lost
+- Its own play rather than part of `play-host-health-login-report.yml` because the panel
+  is a generic multi-section surface with a lifecycle of its own, not that report's UI
+- **Log out and back in afterwards.** On Wayland that is the only way to load extension
+  JavaScript; toggling the extension just restarts the code already in memory
+
 #### play-ddev.yml
 
 DDEV local development environment:

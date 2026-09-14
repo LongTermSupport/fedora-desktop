@@ -126,10 +126,19 @@ plays, and watches them.
 ## 7. Deployment
 
 **Its own play**, `play-fedora-desktop-panel.yml`, not an addition to
-`play-host-health-login-report.yml`. The two have different dependencies and one is useful without
-the other: the login report needs only `notify-send` and is meaningful on a server profile, while
-the panel needs GNOME Shell. Folding the panel into the reporting play would make a GNOME
-extension a dependency of a text report.
+`play-host-health-login-report.yml`.
+
+Not on a dependency argument, because that one does not survive measurement: the login report is
+itself `scope: gnome`, `meta: end_play`s on a server profile, and installs `python3-pyyaml`, so the
+two plays are identical on `hosts`, `become`, `scope` and main-import — every axis such an argument
+would rest on. "The report is meaningful on a server" describes a state this plan records as still
+open (§ *A server profile gets no drift detection*), in the present tense.
+
+The reason that does hold: **the panel is a generic multi-section surface, not this report's UI.**
+Task 4.3's play runner and Task 4.4's registry add sections with nothing to do with host health, so
+its sections arrive and leave independently of the health document and its lifecycle is its own.
+`play-container-watch.yml` bundles a backend with its extension, and is right to — there the
+extension is that backend's only surface. This one fronts several, so it belongs to none of them.
 
 **The declaration.** `vars/gnome-shell-extensions.yml` is the single source of truth for
 extensions deployed by `play-gnome-shell-extensions.yml`, and its `custom:` list holds exactly the

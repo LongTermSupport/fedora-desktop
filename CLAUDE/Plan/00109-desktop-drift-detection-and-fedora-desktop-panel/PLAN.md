@@ -24,7 +24,7 @@ the axis that failed. Nothing watches that axis today.
 
 The exposure is structural, not specific to DisplayLink. `playbook-main.yml` imports
 the core plays, so those get re-run whenever main is run. The **plays under
-`playbooks/imports/optional/`** (45 today, and this plan added one of them) are run
+`playbooks/imports/optional/`** (46 today, one of them added by this plan) are run
 by hand, once, and then forgotten — there is
 no record that they were ever run, at what commit, or whether they have changed
 since. DisplayLink is simply the one that bit first, and it bit at the worst moment:
@@ -173,6 +173,8 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   cross-language contract gate `helpers/gnome/check_panel_contract.py` in `qa-all.bash`
 - [ ] 🔄 **Task 4.2**: Health section — renders Phase 3's three checks
   - [x] ✅ Registered and rendering; `unavailable` has its own icon, never the neutral one
+  - [x] ✅ Renders the document's self-section reason, so an unreadable document says why
+    rather than showing three derived "no such section" lines
   - [ ] ⬜ **Nothing checks that the ledger has any content.** An empty state directory
     publishes `play-freshness: ok` — right for the question that check asks, and a green
     tick on a host with no ledger. Needs its own section, not a reinterpretation of that
@@ -186,6 +188,9 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 - [x] ✅ **Task 4.4**: Sections registered, not hardcoded — one array entry per section
 - [ ] 🔄 **Task 4.5**: ESLint clean, deployed by its own play, Wayland-correct
   - [x] ✅ ESLint and compat gate green; `play-fedora-desktop-panel.yml` deploys it
+  - [x] ✅ The contract gate compares a **derived** set — 7 constants, plus every key of
+    a built document and every section id from the real seam — so a name added on the
+    producer side cannot be one the gate forgot. Falsified on five mutants
   - [ ] ⬜ **HOST**: run the play, log out and back in, confirm the panel appears and
     renders the three sections
 
