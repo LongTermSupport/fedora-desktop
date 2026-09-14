@@ -61,9 +61,11 @@ This plan specifies; it does not build. Implementation is handed to a separate p
   [mcp-and-egress.md](reports/mcp-and-egress.md).
 - Probes: `triage.bash` (HOST only) drives `probe-engine.bash`, `probe-launcher.bash` and
   `probe-network.bash`.
-- The folder was truncated at commit `0dde4f0`: twenty-two reports and one probe that specified
-  retracted mechanisms were deleted, not archived. Git has them; nothing here should be
-  reconstructed from them.
+- The folder was truncated at commit `5785c55f`: twenty-nine files that specified retracted
+  mechanisms were deleted, not archived — twenty-five reports, the three `analysis/` scripts
+  and `probe-label.bash`. Git has them; nothing here should be reconstructed from them. (The
+  hash previously given here, `0dde4f0`, is Plan 00072's commit and never touched this
+  folder.)
 
 ## Tasks
 

@@ -50,7 +50,10 @@ Differences from `:2764-2786`, each already argued elsewhere:
 
 - **no `--device /dev/dri`** — measured `exit 125` on a headless host (E6)
 - **`-i`, never `-it`** — no TTY
-- **no `--dangerously-skip-permissions`** — Decision 9's restricted tool surface, **gated on E8**
+- **`--dangerously-skip-permissions` is KEPT** — this line previously said the opposite,
+  gated on E8. E8 was dissolved on 2026-08-10 when the mechanism was measured to *compose*
+  with it, so CI keeps `bypassPermissions` and Decision 9's restricted tool surface is
+  imposed by `--disallowedTools` alongside it, not instead of it (DECISIONS.md, Decision 9)
 - **`--mcp-config <container-local path>`** — Decision 7; never under `/root/.claude`, which
   `entrypoint.sh:183-195` symlinks into the checkout
 
