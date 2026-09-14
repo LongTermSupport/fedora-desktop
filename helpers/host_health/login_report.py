@@ -35,8 +35,8 @@ import sys
 from collections.abc import Callable
 from typing import TextIO
 
-from helpers.host_health import probe, probe_results
-from helpers.play_ledger import check_freshness, ledger
+from helpers.host_health import handoff, probe, probe_results
+from helpers.play_ledger import check_freshness, ledger, repo
 from helpers.version_pins import check_pins
 
 #: Clean: nothing the user must act on, and nothing shown.
@@ -191,7 +191,24 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
         ),
     )
     notifier: Callable[[str], None] = (lambda _: None) if arguments.no_notify else _notify_send
-    return emit(findings, notify=notifier, write=out.write)
+    status = emit(findings, notify=notifier, write=out.write)
+
+    if findings:
+        # Task 3.3: the handoff file, so diagnosing a break is not archaeology from
+        # scratch. Written, named, and NOT launched — the handoff is offered, always.
+        # Guarded because a failure to write it must not lose the findings above,
+        # which have already been reported by this point.
+        try:
+            path = handoff.write(
+                base,
+                findings=findings,
+                kernel=probe.running_kernel(),
+                at=repo.utc_now(),
+            )
+            out.write(f"{handoff.offer(path)}\n")
+        except Exception as error:
+            out.write(f"the handoff file could not be written: {error}\n")
+    return status
 
 
 def _read(root: str, relative: str) -> str:

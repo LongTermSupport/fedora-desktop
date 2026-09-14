@@ -205,11 +205,21 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     failure. A broken notifier must not turn a broken host into a silent one
   - [ ] ⬜ **HOST**: confirm a real notification arrives, and that a clean login is
     genuinely silent
-- [ ] ⬜ **Task 3.3**: Claude Code handoff
-  - [ ] ⬜ Write a findings/prompt file describing what broke and the evidence
-  - [ ] ⬜ Offer to launch **CC** (not CCY) against the repo with an initial prompt
-    to read that file and discuss — reproducing the 2026-09-11 session automatically
-  - [ ] ⬜ Handoff is **offered**, never automatic
+- [ ] 🔄 **Task 3.3**: Claude Code handoff — file and offer done, one-click is Phase 4
+  - [x] ✅ `helpers/host_health/handoff.py`, 15 tests. The prompt file separates
+    *"this is wrong"* from *"this was not looked at"*, and says of the second that
+    these are **not** clean results — a list that mixes them and distinguishes
+    neither reads like a complete picture of a machine, which is how the incident
+    happened. Mode `0600`: it records what is broken about this host
+  - [x] ✅ The prompt asks for a **diagnosis and a discussion**, and says in terms
+    not to apply a fix or run a playbook. Strict IaC and the plan's own Non-Goals
+    both say re-running a play is the operator's decision
+  - [x] ✅ Offered, never automatic: `offer()` returns a **string** naming the file
+    and the `claude` command — `claude`, not `ccy`, because diagnosing a broken host
+    from inside a container cannot see the host. A test exists so that growing a
+    subprocess call here gets noticed
+  - [ ] ⬜ The **one-click** offer. A printed command is the offer today; a clickable
+    one needs a surface that can receive a click, which is Phase 4's panel
 
 ### Phase 4: `fedora-desktop` GNOME panel extension
 
