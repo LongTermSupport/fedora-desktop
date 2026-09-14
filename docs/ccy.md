@@ -259,6 +259,24 @@ The residual risks worth naming honestly:
 - **The display socket is not confined the way the filesystem is.** A process with it
   can open windows and interact with your live desktop session while the container runs.
 
+### SELinux-enforcing hosts
+
+The container runs as `container_t`, which on an **Enforcing** host may not read files
+labelled `user_home_t` (your project) or `ssh_home_t` (your keys). CCY decides once per launch,
+from `getenforce` and the engine's own report, whether that applies:
+
+- **Enforcing (or unreadable):** the workspace is mounted with the shared relabel (`:z`, so a
+  second session on the same project still reads it), the per-session config import with the
+  private one, and key files are copied into an owner-only tmpfs directory under
+  `$XDG_RUNTIME_DIR`, mounted `:Z,ro` and removed when CCY exits. Your own key file is never
+  relabelled. The launch prints a `🔒 SELinux enforcing` line.
+- **Permissive, disabled, or an engine that does not label:** nothing changes.
+
+Not relabelled on such a host, and therefore unreadable inside: the tracked
+[extra project mounts](#extra-mounts) (their no-relabel rule stands) and the display sockets
+(a `connectto` to your compositor that no file label permits). A forwarded agent
+(`--ssh-agent`) is the same shape and is why that flag disables labelling for its container.
+
 For projects where CCY should never run, or should only run on one machine, see
 [allowed-hostnames](#3-allowed-hostnames--restricting-where-ccy-can-run).
 
@@ -949,7 +967,8 @@ finding listed, before a container exists:
   `/tmp/claude-config-import`). Outside the checkout, such as `/ccy/mnt/<name>`, is
   best: repo tools never walk it.
 - The only options are `ro` and `rw`. No SELinux relabels (`:z`, `:Z`): relabelling a
-  home directory affects every container on the machine, and FUSE cannot be labelled.
+  home directory affects every container on the machine, and FUSE cannot be labelled. On
+  an [enforcing host](#selinux-enforcing-hosts) that leaves these mounts unreadable inside.
 - A container path may be declared once.
 
 Every accepted bind is printed at launch as `✓ Project mount: <src> → <dst> (<opt>)`.

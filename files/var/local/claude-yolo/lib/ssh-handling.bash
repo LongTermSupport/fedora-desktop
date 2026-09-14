@@ -811,11 +811,32 @@ build_ssh_mounts_and_validate() {
                            "--security-opt" "label=disable")
             key_label="ssh-agent"
         else
-            SSH_MOUNTS+=("-v" "$key:/root/.ssh/key_$i:ro")
-            SSH_KEY_PATHS+=("/root/.ssh/key_$i")
+            local container_key_path="/root/.ssh/key_$i"
+            if [ "${CCY_SELINUX_MODE:-off}" != "off" ]; then
+                # container_t may not read ssh_home_t, and a relabel IN PLACE would
+                # change the label of the person's own key file. So the key is
+                # copied into a per-session tmpfs directory (owner-only, removed by
+                # cleanup) and THAT directory is mounted with the private relabel.
+                if [ -z "${CCY_KEY_STAGE_DIR:-}" ]; then
+                    if ! CCY_KEY_STAGE_DIR=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/ccy-keys.XXXXXX"); then
+                        print_error "Could not create a staging directory for SSH keys under ${XDG_RUNTIME_DIR:-/tmp}"
+                        return 1
+                    fi
+                    export CCY_KEY_STAGE_DIR
+                    SSH_MOUNTS+=("-v" "$CCY_KEY_STAGE_DIR:/root/.ssh/ccy-keys:ro,Z")
+                fi
+                if ! install -m 0600 "$key" "$CCY_KEY_STAGE_DIR/key_$i"; then
+                    print_error "Could not stage SSH key $key into $CCY_KEY_STAGE_DIR"
+                    return 1
+                fi
+                container_key_path="/root/.ssh/ccy-keys/key_$i"
+            else
+                SSH_MOUNTS+=("-v" "$key:$container_key_path:ro")
+            fi
+            SSH_KEY_PATHS+=("$container_key_path")
             key_label="key $(basename "$key")"
             if [ "$alias_rc" -eq 0 ] && [ "$key" = "$GITHUB_ALIAS_KEY" ]; then
-                alias_container_key="/root/.ssh/key_$i"
+                alias_container_key="$container_key_path"
             fi
         fi
 

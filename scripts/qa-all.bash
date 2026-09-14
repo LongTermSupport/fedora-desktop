@@ -248,6 +248,22 @@ ssh_handling_summary=$(printf '%s' "$ssh_handling_out" | grep -oE 'passed: [0-9]
     ssh_handling_summary="passed"
 printf '✓ ccy-ssh-handling: %s\n' "$ssh_handling_summary"
 
+# ccy's SELinux relabel decision (Plan 00118, CCY 3.55.0).
+#
+# On an Enforcing host container_t may not read user_home_t, so a ccy container
+# could not read the project it was handed; desktops never showed it because they
+# are not enforcing. The decision is a pure function of getenforce's text and the
+# engine's own report, driven here across every pair a real host could produce.
+selinux_verdict_out=""
+if ! selinux_verdict_out="$(bash "$SCRIPT_DIR/test-ccy-selinux-verdict.bash" 2>&1)"; then
+    echo "$selinux_verdict_out" >&2
+    echo "✗ QA FAILED: ccy selinux-verdict unit tests" >&2
+    exit 1
+fi
+selinux_verdict_summary=$(printf '%s' "$selinux_verdict_out" | grep -oE 'passed: [0-9]+') ||
+    selinux_verdict_summary="passed"
+printf '✓ ccy-selinux-verdict: %s\n' "$selinux_verdict_summary"
+
 # The fail-fast directive pattern's own unit suite (Plan 00081 F10).
 #
 # qa-ansible.bash enforces this repo's #1 rule with one regex, and that regex was

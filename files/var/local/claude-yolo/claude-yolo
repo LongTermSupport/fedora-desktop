@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.54.1"  # SSH: an alias IdentityFile written as ~/… is expanded before the existence test (ssh -G prints it verbatim). See docs/ccy-changelog.md.
+CCY_VERSION="3.55.0"  # SELinux-enforcing hosts: workspace mounted :z, key files staged into a private tmpfs dir mounted :Z, decided from getenforce + the engine report. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -974,9 +974,20 @@ if [ "$NO_SSH_MODE" = false ] && [ ${#SSH_KEYS[@]} -eq 0 ]; then
     discover_and_select_ssh_keys "ccy" || exit 1
 fi
 
+# Will SELinux confine this container's reads of what we bind? Decided once, from
+# getenforce and the engine's own report; every mount below reads the answer.
+ccy_selinux_mode
+
 # Build SSH mounts and validate GitHub access
 # This sets: SSH_MOUNTS, SSH_KEY_PATHS, GITHUB_USERNAME, GH_TOKEN
 build_ssh_mounts_and_validate "ccy" || exit 1
+
+if [ "${CCY_SELINUX_MODE:-off}" != "off" ]; then
+    echo ""
+    echo "🔒 SELinux ${CCY_SELINUX_MODE}: the workspace is mounted with a shared relabel (:z) and"
+    echo "   key files are staged into a private tmpfs directory (:Z) so the container can read"
+    echo "   them. Extra project mounts and display sockets are NOT relabelled — see docs/ccy.md."
+fi
 
 # Banner: make 443 mode impossible to miss. Fires whenever GitHub SSH ends up
 # routed over ssh.github.com:443 — whether forced (--github-443), inherited from
@@ -1910,6 +1921,11 @@ cleanup() {
     fi
 
     rm -rf "$CONFIG_TEMP"
+    # Staged key copies (SELinux-enforcing hosts, lib/ssh-handling.bash) live in
+    # a per-session tmpfs directory; they must not outlive the session.
+    if [ -n "${CCY_KEY_STAGE_DIR:-}" ]; then
+        rm -rf "$CCY_KEY_STAGE_DIR"
+    fi
 
     # Show debug log if CCY debugging is enabled
     if [ "$DEBUG_CCY" = true ] && [ -n "$DEBUG_LOG" ]; then
@@ -1983,9 +1999,12 @@ fi
 # Build mount arguments
 # Note: /workspace includes .claude/ directory - Claude Code uses this for ALL state
 # The entrypoint will symlink /root/.claude -> /workspace/.claude/ccy/ for session persistence
+# On an SELinux-enforcing host container_t may not read user_home_t, so the
+# workspace carries the shared relabel (`:z`) and the per-session config import
+# the private one; both are empty on a permissive host (ccy_selinux_mode).
 DOCKER_MOUNTS=(
-    -v "$PWD:/workspace"
-    -v "$CONFIG_TEMP:/tmp/claude-config-import:ro"
+    -v "$PWD:/workspace${CCY_MOUNT_RELABEL:+:$CCY_MOUNT_RELABEL}"
+    -v "$CONFIG_TEMP:/tmp/claude-config-import:ro${CCY_MOUNT_RELABEL:+,Z}"
 )
 
 # BSH-12: honour CCY_EXTRA_MOUNTS — a space-separated list of `-v src:dst:opts`
