@@ -101,13 +101,13 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 
 ### Phase 1: Host play-run ledger
 
-- [ ] ⬜ **Task 1.1**: Design the ledger record and its location
-  - [ ] ⬜ Decide record shape: play path, repo commit at run, play file hash, run
-    outcome, timestamp. Hash matters because commit alone cannot tell you
-    whether *this play* changed.
-  - [ ] ⬜ Decide storage location and ownership (host state, not repo state — it
-    must not be committed, and must survive a re-clone)
-  - [ ] ⬜ Record the decision in `## Technical Decisions`
+- [x] ✅ **Task 1.1**: Design the ledger record and its location —
+  [DESIGN-play-ledger.md](DESIGN-play-ledger.md), Decision 2 below. One record per
+  **play**, not per playbook run; append-only JSONL at
+  `~/.local/state/fedora-desktop/play-ledger/runs.jsonl` (`0600`), so it survives a
+  re-clone and cannot be committed. The hash's job is corrected there: git already
+  answers "did this play change between two commits" — `play_sha256` is the
+  **dirty-tree guard**, for the case where the commit is a lie
 - [ ] ⬜ **Task 1.2**: Write the ledger on every play run
   - [ ] ⬜ Establish the hook point that cannot be bypassed by running
     `ansible-playbook` directly — a callback plugin is the candidate; confirm
@@ -268,6 +268,19 @@ unattended Ansible run on a desktop at login is a way to lose a working machine.
 **Decision**: B. The whole incident was survivable; what made it expensive was not
 knowing *why*. Information is the deliverable.
 **Date**: 2026-09-11
+
+### Decision 2: The ledger is per-play host state, and its failures are recorded not raised
+
+**Context**: every Phase 2 check compares against the ledger, so a silently wrong
+ledger makes every check downstream silently wrong.
+**Decision**: one record per **play**, append-only JSONL under
+`$XDG_STATE_HOME/fedora-desktop/play-ledger/`, written by a callback plugin. Since
+Ansible **swallows exceptions raised inside a callback**, a write failure cannot
+fail the run — it leaves a `BROKEN` sentinel and Phase 2 reports FAIL while it
+exists, turning an unfailable hook into a failable check. No backfill: a play with
+no record has never been run here, and silence is the correct output for it.
+**Reasoning, record shape, limits**: [DESIGN-play-ledger.md](DESIGN-play-ledger.md).
+**Date**: 2026-09-14
 
 ## Success Criteria
 
