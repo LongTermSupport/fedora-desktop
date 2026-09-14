@@ -86,6 +86,12 @@
       ansible.builtin.getent:
         database: passwd
         key: "{{ user_login }}"
+        # `fail_key` defaults to true, which fails this task on a missing key and
+        # makes the `is defined` clause of the assert below unreachable — a check that
+        # cannot fail, guarding the one thing this play must not guess. Handing the
+        # verdict to the assert instead is what makes its fail_msg the report the
+        # operator actually gets.
+        fail_key: false
 
     - name: Assert The Session User Exists
       ansible.builtin.assert:

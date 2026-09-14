@@ -841,12 +841,20 @@ The recurring defect across a long review cycle is not a wrong fix — it is a *
 applied to one of its sites**. The correction lands where you were reading, and the file
 that *consumes* it keeps asserting the pre-fix state, one directory out.
 
-Two specific traps:
+Three specific traps:
 
 - **A `SUPERSEDED` marker on a row that still applies** is a false statement carrying
   authority. Check what the superseding decision actually reverses, clause by clause.
 - **A figure has more spellings than you grepped for.** `≈6`, `~6`, `about 6`, `about six`, `roughly six`, `6 of the 46` are all the same claim. Grep for the *concept*, and
   check numbered requirement lists — they read as structure, not as claims.
+- **The sibling site may be worse than the one you fixed, so go and look rather than
+  assuming it is the same.** A play was fixed for using `{{ user_login_uid | default(1000) }}`
+  on the grounds that a guessed uid points at the wrong runtime directory without failing.
+  The remaining instance turned out not to be a guess at all: `user_login_uid` is assigned
+  **nowhere** in the repo, so the default was a hardcoded 1000 on every run. The same file
+  also carried three further copies of defects fixed hours earlier — a status guard that
+  skipped the work, a `failed_when: false` swallowing the failure, and a prohibited `debug`
+  skip-and-warn repeating a claim already disproved that session.
 
 Before committing a fix of this class, sweep for every other file asserting the same
 thing, and prefer a citation that survives an edit (a function name, a greppable prompt

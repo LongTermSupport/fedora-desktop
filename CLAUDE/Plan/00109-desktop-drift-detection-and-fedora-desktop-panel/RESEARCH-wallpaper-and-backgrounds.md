@@ -152,3 +152,38 @@ Two caveats before adopting it:
   Conclusions rest on issue bodies and source.
 - Mesa was not instrumented to confirm 24 vs 32 bpp for `GL_RGB8`; 4 B/px is a
   conservative budget, not a measurement.
+
+## Recovery: what was built, and the half of it that does not fire
+
+Task 5.4's reasoning, kept here so `PLAN.md` carries task state and this carries the detail.
+
+**What it does.** `Action.REFRESH_BACKGROUND` in `helpers/displaylink_recovery/`, fired by the
+existing dock udev rule and the suspend service, strictly after the wedge ladder and never while
+the session is locked. The mechanism is a `picture-uri` toggle, which is the **only** signal that
+re-sets `CHANGED_BACKGROUND`: another `monitors-changed` does not recover it, and
+`updateResolution()` refreshes only the animation. Restarting gnome-shell also works, and is not
+available under Wayland.
+
+**Why it never toggles while locked.** `gnome-shell#9188` reports a ~57 MB per-monitor leak on
+that path, so the recovery reads lock state and defers instead.
+
+**Three faults found while adding it, which together meant Plan 00056's recovery had never run
+on this host at all:**
+
+1. a deploy step that always failed on a missing parent directory, so the code was never in place;
+2. a wedge signature that was always true — `getsize()` on a sysfs file returns 0, so the
+   comparison it fed could not distinguish anything;
+3. dconf writes silently discarded, because `sudo` strips the bus address the write needs.
+
+Each was verified on the HOST and fixed in `9a79dd7`. The combination is the part worth naming:
+three independent faults, each individually plausible as "written but never exercised", adding up
+to a recovery mechanism that had never once executed while appearing to be deployed.
+
+**Known limitation — the resume path is effectively inert.** Measured on this host:
+`lock-enabled true` and `lock-delay 0`, so the screen is already locked by the time
+`displaylink-suspend.service` runs. The lock check then correctly refuses and the run prints
+`action=none` — indistinguishable from "nothing needed", and that ambiguity is why this is
+written down rather than left to be rediscovered. The **dock/udev path still works**, since
+somebody moving monitors around is present and unlocked. The close-lid → reopen → unlock case is
+not covered, and covering it needs something in the *user* session that reacts to unlock rather
+than a root oneshot.

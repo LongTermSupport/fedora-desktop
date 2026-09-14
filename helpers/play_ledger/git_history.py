@@ -101,5 +101,11 @@ def play_sha256_at_head(
             capture_output=True,
         )
     except subprocess.CalledProcessError:
+        # Any non-zero git becomes GONE, which would be too generous on its own — a
+        # broken repository is not a deleted play. It is safe here because the caller
+        # runs `changes_since` FIRST with `check=True` and no catch, so a repository
+        # git cannot read has already become UNTRUSTWORTHY before this line runs. That
+        # ordering is the guard; without it this branch would report a dead clone as
+        # "the play was deleted".
         return None
     return hashlib.sha256(result.stdout).hexdigest()

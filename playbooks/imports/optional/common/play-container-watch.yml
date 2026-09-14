@@ -111,19 +111,37 @@
     # =========================================================================
     # Enable the user TIMER (not the service)
     # =========================================================================
-    # The CCY container has no user systemd; the deployed HOST does. Probe for a
-    # usable user manager first, then only attempt enable when one is present.
-    - name: Probe for a usable systemd --user manager
-      become: true
-      become_user: "{{ user_login }}"
-      ansible.builtin.command:
-        cmd: systemctl --user is-system-running
-      register: user_systemd_probe
-      changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe — no user bus in CCY container is expected
-      environment:
-        XDG_RUNTIME_DIR: "/run/user/{{ user_login_uid | default(1000) }}"
+    # Resolved, never defaulted. `user_login_uid` is assigned nowhere in this repo,
+    # so `| default(1000)` was not a fallback — it was a hardcoded 1000 on every run,
+    # and on a host whose user is not uid 1000 it pointed the enable at another
+    # user's runtime directory without failing.
+    - name: Resolve The Session User UID
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ user_login }}"
+        fail_key: false
 
+    - name: Assert The Session User Exists
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['getent_passwd'][user_login] is defined
+          - ansible_facts['getent_passwd'][user_login][1] | int > 0
+        fail_msg: >-
+          Could not resolve a uid for {{ user_login }}, so this play cannot find that
+          user's systemd manager. It would otherwise guess, and a guessed uid points
+          at the wrong runtime directory without failing.
+
+    # Unconditional, and the enable is its own probe. The `is-system-running` guard
+    # that stood here could not tell "no user manager" from "manager with a failed
+    # unit" — systemd returns success only for the literal state `running`, so
+    # `degraded` exits 1 too — and it skipped the enable on exactly the host most
+    # likely to want a container watchdog.
+    #
+    # The `debug` deferral beside it was a prohibited skip-and-warn (CLAUDE.md, Fail
+    # Fast) carrying a false claim: the timer is `WantedBy=timers.target`, which is
+    # inert until `enable` writes the `.wants` symlink, so nothing was going to pick
+    # it up on the next session. Run this from inside a graphical session; an
+    # unreachable user bus now fails the play and says so.
     - name: Enable and start the container-watch user timer
       become: true
       become_user: "{{ user_login }}"
@@ -133,14 +151,8 @@
         enabled: true
         state: started
         daemon_reload: true
-      when: user_systemd_probe.rc == 0
-      register: timer_enable
-      failed_when: false  # FAIL-FAST-OK: enable may fail if no active user session; timer activates on next login
-
-    - name: Container-watch timer enable deferred
-      ansible.builtin.debug:
-        msg: "Container-watch timer will be enabled on next user session start (no active systemd --user manager detected)"
-      when: user_systemd_probe.rc != 0
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
 
     # =========================================================================
     # Enable the GNOME extension (same probe/disable/enable pattern as STT play)

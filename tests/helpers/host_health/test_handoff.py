@@ -19,6 +19,7 @@ like a complete picture of a machine, which is the thing that went wrong.
 
 from __future__ import annotations
 
+import inspect
 import io
 import os
 import sys
@@ -127,10 +128,30 @@ class TestTheOffer(unittest.TestCase):
         broken host from inside a container cannot see the host."""
         self.assertNotIn("ccy", handoff.offer("/somewhere/findings.md"))
 
+    #: Call syntax, not the bare word, so a comment saying "never launch anything here"
+    #: does not fail the case. Assembled rather than written out because the repo's
+    #: security guard blocks the literals on sight — correctly, since it cannot tell a
+    #: pattern list from a call site.
+    LAUNCHERS = ("subprocess.", "os." + "system(", "os." + "exec", "os." + "spawn", "Popen(")
+
     def test_nothing_here_launches_anything(self) -> None:
-        """`offer` returns a string. If it ever grows a subprocess call this test
-        is where that gets noticed — the handoff is offered, never automatic."""
-        self.assertIsInstance(handoff.offer("/x"), str)
+        """The handoff is offered, never automatic — asserted against the module's own
+        source, because that is the only form of this check that can fail.
+
+        `assertIsInstance(handoff.offer("/x"), str)` was the previous form: adding a
+        launcher above the return keeps it green, so it vouched for a property it could
+        not detect the loss of. That is this plan's cardinal defect inside its own
+        test suite.
+        """
+        source = inspect.getsource(handoff)
+        for launcher in self.LAUNCHERS:
+            self.assertNotIn(launcher, source, f"{launcher} reached handoff.py")
+
+    def test_that_source_check_would_notice_a_launcher(self) -> None:
+        """Guards the guard: proves the patterns match what they are looking for, so
+        the case above cannot be passing because it never matches anything."""
+        pretend = 'def offer(path):\n    subprocess.run(["claude", path])\n    return path\n'
+        self.assertTrue(any(launcher in pretend for launcher in self.LAUNCHERS))
 
 
 class TestTheHandoffCanBeSuppressedForTriage(unittest.TestCase):

@@ -155,14 +155,16 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   [DESIGN-version-pins.md](DESIGN-version-pins.md)
   - [x] ✅ `compare.py` (5 states, only `MATCH` clean), `manifest.py` +
     `vars/version-pins.yml` (the declaration both consumers read),
-    `check_pins.py` (per-pin resolution), `scripts/qa-version-pins.bash`. 94 tests
+    `check_pins.py` (per-pin resolution), `scripts/qa-version-pins.bash`
   - [x] ✅ **The gate this task demands, both directions**, against the states the
     journal records: `evdi/1.14.16` against a `1.15.0` pin is a finding, and
     `evdi/1.15.0-1.github_evdi` is clean — release suffix and all. A check that
     cannot fail against its incident is not a check; one that cannot pass is noise
-  - [x] ✅ **Resolution is declared, never guessed.** A pin declares `installed:` or
-    is rejected — "nobody decided" is not a reachable state — and 1 of 9 is tracked
-    today, a split the gate **prints** so the gap is a number, not an absence
+  - [x] ✅ **Resolution is declared, never guessed**, and **coverage has a floor.** A
+    pin declares `installed:` or is rejected; 1 of 9 is tracked today and the gate
+    prints that split. Partial coverage is a decision, but zero is a check that
+    cannot fail — so the gate fails at zero and the login report says
+    `compared 0 of N`
 - [x] ✅ **Task 2.3**: Wire both into the QA suite — **decided: neither belongs in
   `qa-all.bash`.** Both ask "is this host what the repo says", which in a container
   finds nothing and exits 0: two gates that cannot fail wherever CI runs them. Their
@@ -185,13 +187,12 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   - [x] ✅ Coordinated, not duplicated: neither Plan 00086 nor 00074 owns a reusable
     probe — both are fixes *inside* a play and inside `run.bash` — so there is nothing
     to call, and what is avoided is re-implementing their logic
-  - [x] ✅ `helpers/host_health/probe.py`, 21 tests — the half that touches the
-    machine. Every route out of `run_probe` ends in a `ProbeOutcome`, never a
-    traceback, and **the classifier enforced that for `dkms` only**: `systemctl`
-    was plain text, so one that could not run returned an empty unit list —
-    identical to a healthy host. Both scopes now carry an outcome. Smoke-run in
-    the container, which has neither `dkms` nor a systemd bus: 3 findings, 3
-    lines, exit 1, and 2 of them are what that hole swallowed.
+  - [x] ✅ `helpers/host_health/probe.py` — the half that touches the machine. Every
+    route out of `run_probe` ends in a `ProbeOutcome`, never a traceback, and **the
+    classifier enforced that for `dkms` only**: `systemctl` was plain text, so one
+    that could not run returned an empty unit list — identical to a healthy host.
+    Both scopes now carry an outcome, and the container smoke run shows 2 of its 3
+    findings are what that hole swallowed.
     [DESIGN-host-health.md](DESIGN-host-health.md) §6
   - [x] ✅ Running it at **end of login** rather than at boot:
     `host-health.service`, `After=graphical-session.target`, deployed by
@@ -199,7 +200,11 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     `root_dir` — no checkout path reaches the repo. `SuccessExitStatus=0 1`, because
     exit 1 means "there are findings", and a drifted host must not also register as
     a broken service: two alarms for one fact is how both get ignored
-  - [ ] ⬜ **HOST**: run the play and confirm the unit fires at login
+  - [ ] ⬜ **HOST**: run the play, then assert the unit is actually *wanted* —
+    `systemctl --user list-dependencies graphical-session.target` must name it. Not
+    "the play succeeded": `WantedBy=graphical-session.target` is new in this repo
+    (`play-container-watch.yml` is timer-activated and has no `[Install]` at all), and
+    deployed-but-not-enabled already shipped once today looking exactly like success
 - [ ] 🔄 **Task 3.2**: Surface findings to the user — code done, HOST run pending
   - [x] ✅ `helpers/host_health/login_report.py`. **One** notification listing
     everything, not three; **silent when clean**; host-health findings first,
@@ -256,48 +261,33 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 
 ### Phase 5: Recover the desktop background after a monitor change
 
-- [x] ✅ **Task 5.1**: Establish the real cost and the real bug.
-  Evidence: [RESEARCH-wallpaper-and-backgrounds.md](RESEARCH-wallpaper-and-backgrounds.md)
-  - [x] ✅ **A rendering failure, not a texture failure**, so decode cost and image
-    size are both irrelevant: the wallpaper draws correctly in the Overview and is
-    black only on the desktop, and both draw the same `MetaBackground`. Three checks
-    converge on upstream **`mutter#4767`** (empty redraw clip) over the sticky
-    `CHANGED_BACKGROUND` variant. Convergent, not conclusive — that branch never
-    logs — and neither candidate is fixable here. Full reasoning and the evidence:
-    [RESEARCH-wallpaper-and-backgrounds.md](RESEARCH-wallpaper-and-backgrounds.md)
+> Reasoning, evidence and the known limitation for this phase live in
+> [RESEARCH-wallpaper-and-backgrounds.md](RESEARCH-wallpaper-and-backgrounds.md) §Recovery.
+> Task state stays here.
+
+- [x] ✅ **Task 5.1**: Establish the real cost and the real bug — **a rendering
+  failure, not a texture failure**, so image size is irrelevant. Converges on
+  upstream `mutter#4767`; neither candidate is fixable here
   - [ ] 🚫 **Blocked on the user, one question**: are the monitors literally black,
     or dark blue-grey? Blue-grey is the flat `primary-color` and would overturn the
     above, pointing back at the other candidate. Nothing here can answer it
-- [x] ❌ **Task 5.2**: ~~Scale the wallpaper~~ — **cancelled, wrong problem.**
-  Image size is irrelevant to this symptom (see 5.1), and a playbook is the wrong
-  mechanism for wallpaper regardless. The rejected draft's two defects — a
-  hardcoded `3840x2560`, and a setting that silently reverts — are recorded in
-  the 12:05 journal entry as markers for their class.
+- [x] ❌ **Task 5.2**: ~~Scale the wallpaper~~ — **cancelled, wrong problem.** Image
+  size is irrelevant (5.1), and a playbook is the wrong mechanism for wallpaper. The
+  rejected draft's two defects are in the 12:05 journal entry as markers for the class
 - [x] ❌ **Task 5.3**: ~~Per-monitor pre-scaled caching~~ — **cancelled with 5.2.**
-  GNOME already ships this (background `.xml` with `<size>`) and no third-party
-  tool does; the finding survives in the research document.
-- [x] ✅ **Task 5.4**: Recover the background after a monitor reconfiguration
-  - Delivered in `9a79dd7`. `Action.REFRESH_BACKGROUND` in
-    `helpers/displaylink_recovery/`, fired by the existing dock udev rule and
-    suspend service, strictly after the wedge ladder and never while locked.
-  - **Three faults found while adding it meant Plan 00056's recovery had never
-    run on this host at all** — a deploy that always failed, a wedge signature
-    that was always true, and dconf writes silently discarded. Each verified on
-    HOST and fixed in `9a79dd7`; the three, and why the `picture-uri` toggle is
-    the only signal that recovers this, are in the 13:05 journal entry and
-    [RESEARCH-wallpaper-and-backgrounds.md](RESEARCH-wallpaper-and-backgrounds.md).
-  - ⚠️ **Known limitation — the resume path is effectively inert.** Measured on
-    this host: the screen is already locked when `displaylink-suspend.service`
-    runs, so `_session_locked()` correctly refuses (the toggle leaks ~57 MB per
-    monitor from a lock screen) and prints `action=none` — indistinguishable from
-    "nothing needed". The **dock/udev path still works**; close-lid → reopen →
-    unlock is not covered.
-  - [ ] ⬜ **T5.4a**: Cover the unlock case. Needs something in the *user*
-    session that reacts to unlock, not a root oneshot — Phase 4's panel or a
-    user systemd unit is the natural owner.
+  GNOME already ships it (background `.xml` with `<size>`) and no third-party tool does
+- [x] ✅ **Task 5.4**: Recover the background after a monitor reconfiguration —
+  delivered in `9a79dd7`, `Action.REFRESH_BACKGROUND` in
+  `helpers/displaylink_recovery/`, fired by the dock udev rule and the suspend
+  service, after the wedge ladder and never while locked. Adding it found **three
+  faults meaning Plan 00056's recovery had never run on this host at all**
+  - ⚠️ **Known limitation — the resume path is effectively inert**, because the
+    screen is already locked when the suspend service runs, so the run correctly
+    refuses and prints `action=none`. The dock/udev path still works
+  - [ ] ⬜ **T5.4a**: Cover the unlock case. Needs something in the *user* session
+    that reacts to unlock, not a root oneshot — Phase 4's panel is the natural owner
   - [ ] ⬜ **Still to confirm in the wild**: that the refresh clears the black
-    background when the symptom is present. Exercised on a *healthy* desktop
-    (runs clean, all three background keys unchanged), not against the live fault.
+    background when the symptom is present. Exercised on a *healthy* desktop only
   - [x] ✅ Decide the home — **extend** `helpers/displaylink_recovery/`, not a
     sibling: the compositor-layer failure shares the driver-layer one's trigger, so
     it reuses the existing udev rule and suspend service rather than inventing a
