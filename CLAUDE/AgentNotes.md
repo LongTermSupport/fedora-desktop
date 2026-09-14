@@ -734,6 +734,100 @@ key.
 
 ---
 
+### A control experiment that surprises you is usually a broken control
+
+Changing a gate means proving the new version can fail. The proof is a **mutation
+control**: break the thing deliberately, confirm the gate rejects it, restore, confirm
+it passes again. Two ways that proof silently stops being one:
+
+- **No baseline.** Run the *unmutated* variant through the harness first and confirm it
+  passes. Without that, a harness that breaks everything looks like a gate that catches
+  everything.
+- **Quoting layers.** Substituting code through `bash -c "python3 -c \"…\""` lets `\$`
+  reach Python as a literal backslash-dollar. The mutated regex then matches nothing,
+  so the *exemption* cases fail while the near-miss cases pass — the opposite of the
+  expected pattern. Build the variant with a script file and an `assert` that the target
+  string was found exactly once, and print what was emitted.
+
+The diagnostic is the surprise itself. If a control fails in a direction the hypothesis
+does not predict, suspect the control before the code. Both instances of this in the
+repo's history were broken harnesses, not discovered defects.
+
+### `$?` inside `if ! cmd; then` is the negation's status, always 0
+
+```bash
+if ! pin_is_live "$file" "$var"; then
+    case $? in                      # ← always 0 here; every arm misses
+        1) echo "no such file" ;;
+        2) echo "var not declared" ;;
+    esac
+    exit 1                          # exits non-zero, says nothing
+fi
+```
+
+The gate still fails, so a test that only checks the exit code passes. What is lost is
+the message naming *which* row was wrong — and a gate that fails without saying why
+sends the reader to bisect the input by hand. Capture it explicitly:
+
+```bash
+status=0
+pin_is_live "$file" "$var" || status=$?
+if [ "$status" -ne 0 ]; then case "$status" in …; esac; fi
+```
+
+Assert on the **output**, not only the status, when a control exercises a failure path.
+
+### The seam between two tested components is where the tests are not looking
+
+Two helpers, each with full unit coverage, joined by one line of wiring, is the shape
+that ships defects. A real instance: `ProbeOutcome.text` is `""` when a probe **failed**,
+and empty `dkms status` output is also a legitimate healthy state — a host with no DKMS
+modules. Passing `.text` straight through collapsed the two, so a missing `dkms` reported
+`pinned 1.15.0, nothing installed`: a confident claim about a host, derived from a probe
+that never ran. Both sides were tested; the join was not.
+
+An end-to-end smoke run does **not** catch this on its own, because the output is
+plausible — right shape, right count, no crash. What catches it is naming the thing you
+are least sure of and measuring that specifically. Give the join a named function so it
+can have tests of its own.
+
+### "Measured" is a claim with a scope, and the scope is usually wrong
+
+Writing *measured*, *verified* or *confirmed* into a plan, a commit message or a comment
+asserts something a reader will rely on instead of re-checking. Three ways it goes wrong,
+all observed:
+
+- **Repeating someone else's measurement as your own.** A review's finding is evidence
+  that *they* measured it. Re-derive before restating it in a tracked file.
+- **A sweep narrower than its wording.** "Measured across the four shapes X rejects, and
+  **only** one fails" reads as exhaustive. Count the shapes from the source
+  (`_FORBIDDEN_IN_UUID` is four characters *plus* an empty check — five) before writing
+  a universal quantifier.
+- **Environment-dependent output quoted as fixed.** `grep: Trailing backslash` is GNU
+  grep's wording; an interactive shell here shims `grep` to ugrep, which says `invalid escape`. Anyone re-measuring without `unset -f grep` gets a different string and
+  concludes the note is wrong. Say which tool produced the string.
+
+### Generalise a fix past the file you were reading
+
+The recurring defect across a long review cycle is not a wrong fix — it is a **right fix
+applied to one of its sites**. The correction lands where you were reading, and the file
+that *consumes* it keeps asserting the pre-fix state, one directory out.
+
+Two specific traps:
+
+- **A `SUPERSEDED` marker on a row that still applies** is a false statement carrying
+  authority. Check what the superseding decision actually reverses, clause by clause.
+- **A figure has more spellings than you grepped for.** `≈6`, `~6`, `about 6`, `about six`, `roughly six`, `6 of the 46` are all the same claim. Grep for the *concept*, and
+  check numbered requirement lists — they read as structure, not as claims.
+
+Before committing a fix of this class, sweep for every other file asserting the same
+thing, and prefer a citation that survives an edit (a function name, a greppable prompt
+string, `CCY_SKIP_NETWORK_PREFLIGHT`) over a line number. Launcher line numbers in this
+repo have gone stale within the hour of being verified, and a stale number that lands on
+plausible neighbouring code is worse than no citation at all.
+
+---
+
 ## Already Documented Elsewhere
 
 These memories duplicate guidance already in the tracked docs — pointers only,
