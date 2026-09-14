@@ -281,8 +281,33 @@ token-by-value is no longer load-bearing for CI.
 | `check_project_containers_startup` (`docker-health.bash`) | `:486 :509` | do not start | a CI job declares its own services; starting found ones is unasked-for state  |
 | `_do_compose_start` (`network-management.bash`)           | `:546`      | do not start | same; a job that needs compose starts it before invoking `ccy`                |
 
-No compose opt-in flag is specified. `podman-compose` is on the VM and the workflow can run it — a
-new flag would be a mechanism with no caller.
+> **SUPERSEDED for `_do_compose_start`, and for the `check_project_containers_startup` row above
+> it, by [DECISIONS.md](../DECISIONS.md) §6 (owner, 2026-08-01, commit `9f514222`).** The owner's
+> steer was *"i would not assume that CI doesn't need compose or podman network stuff"*: **CI
+> keeps the capability and drops only the negotiation.** §6's keep column names
+> `_do_compose_start` explicitly, and Plan 00113 Task 2.5 instructs an implementer to keep it —
+> so "do not start" is now the opposite of the live specification.
+>
+> What survives is the **prompt**, not the function: the `read -rp` confirmation *inside*
+> `_do_compose_start` (`network-management.bash:586` today) is dropped, and CI starts compose
+> from its own declared services
+> (§6 item 2) rather than by asking. Teardown then removes only what CI started, which
+> `CCY_COMPOSE_WAS_STARTED` already tracks.
+>
+> This table was written 2026-07-31 and the reversal landed the next day; it stood contradicted
+> until 2026-09-14.
+
+> **SUPERSEDED — the compose and network rows of §4.3(c) above** (`claude-yolo:2091`, `:2266`,
+> `:2301`), by the same decision. Their stated reason, *"the opposite of a restricted egress
+> posture"*, rests on a posture **Decision 8 dropped** on measured cost; the safety story moved to
+> the tool surface (Decision 9). Auto-**discovery** of a network is still wrong for CI — §6 drops
+> the project-name heuristic, the mismatch wizard and the selection menus — but attaching to a
+> **declared** network is now required, not forbidden. The `claude-yolo:822` reuse row is
+> unaffected and stands.
+
+No compose opt-in flag is specified here. `podman-compose` is on the VM and the workflow can run
+it. **Superseded with the rows above**: §6 item 2 puts the declaration in the project's own
+`.claude/ccy/`, so the caller this paragraph said would not exist is the CI path itself.
 
 ---
 

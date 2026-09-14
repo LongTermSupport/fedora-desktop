@@ -281,12 +281,15 @@ doesn't need compose or podman network stuff"*). A project whose `ci.bash` needs
 needs the services up and the ccy container attached to their network. What CI drops is the
 negotiation, not the capability, and `lib/network-management.bash` already splits on that line:
 
-| Keep — mechanism, no prompts                                               | Drop — discovery and negotiation                  |
-| -------------------------------------------------------------------------- | ------------------------------------------------- |
-| `get_expected_network_name` `:10`, `has_compose_files` `:448`              | the project-name-matching heuristic               |
-| `_compose_already_running` `:613`, `network_has_running_containers` `:427` | the cross-engine mismatch wizard (`:1973-2243`)   |
-| `ensure_network_dns` `:703`, `connect_to_network` `:98`                    | the "select network [0-N]" menus (`:271`, `:274`) |
-| `_do_compose_start` `:505`, one confirmation at `:546`                     | that confirmation; `offer_compose_start` `:667`   |
+| Keep — mechanism, no prompts                                               | Drop — discovery and negotiation                                 |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `get_expected_network_name` `:15`, `has_compose_files` `:488`              | the project-name-matching heuristic                              |
+| `_compose_already_running` `:653`, `network_has_running_containers` `:464` | the cross-engine mismatch wizard                                 |
+| `ensure_network_dns` `:743`, `connect_to_network` `:105`                   | the "select network [0-N]" menus                                 |
+| `_do_compose_start` `:545`                                                 | its `read -rp` confirmation `:586`; `offer_compose_start` `:707` |
+
+> Line numbers re-verified 2026-09-14 against `lib/network-management.bash`; they had drifted
+> ~40 lines. The **names** are the durable reference — re-check the numbers before citing them.
 
 Teardown already tracks `CCY_COMPOSE_WAS_STARTED`, the right shape: tear down what CI started,
 leave pre-existing services alone. Two things this forces into the design:

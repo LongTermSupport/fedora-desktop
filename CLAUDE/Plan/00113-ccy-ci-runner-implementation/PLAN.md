@@ -63,26 +63,47 @@ launcher's hardest dependency as written but unproven, and see Task 0.6.
   run `20260731-225344`, but Plan 00089 has changed the launcher since, so
   re-confirmation is the point. It discharges **nothing else** — Tasks 0.4 and
   0.5 carry the rest, and `triage.bash` cannot substitute for either
+
 - [ ] ⬜ **Task 0.2**: Instrument the CI path and **count the prompt sites**.
   `reports/ci-flow.md` says about six, and says of itself that this is "a
   derivation, not a measurement: confirm by instrumenting the CI path before
   implementing". A derivation that turns out to be fourteen changes Phase 1's shape
+
 - [ ] ⬜ **Task 0.3**: Confirm the CLI about to run exposes every
-  security-carrying flag the design uses, **and capture its default tool
-  vocabulary by name**. ccy auto-updates Claude Code daily, so the binary is not
-  the one 00068 measured — and that measurement recorded counts, not names. The
-  names are a hard prerequisite for Task 2.2's assertion 2, which diffs against a
+  security-carrying flag the design uses, **and capture the tool vocabulary by
+  name — once per class, with that class's `--disallowedTools` string applied**,
+  never just the default. The class deny-lists are already specified, so this is
+  runnable now. Capturing only the default and subtracting would be wrong: the CLI
+  **substitutes** narrower tools for a withdrawn capability (removing `Bash` adds
+  `Glob` and `Grep`), so subtraction predicts 26 names where 28 were measured and
+  assertion 2 would fail on every run. ccy auto-updates Claude Code daily, so the
+  binary is not the one 00068 measured — and that measurement recorded counts, not
+  names. The names are a hard prerequisite for Task 2.2's assertion 2, which diffs against a
   declared set and cannot be written until the set can be declared
-- [ ] ⬜ **Task 0.4**: §9 obligations **B1–B4** — spin-vs-abort. A read-only
-  probe cannot settle these: each needs a real container and a real session on
-  the owner's machine, burning quota, which is why triage never attempted them.
-  Method: `ccy --headless --prompt x < /dev/null`, hang-vs-exit observed under a
-  **controlled token-file population** (≥2 files for B1; exactly 1 for B2, whose
-  stdout/stderr must then be checked for a message naming the prompt); B3 two
-  runs, podman-with-a-network versus Docker-with-none; B4 an outbound connection
-  attempted from inside a `--no-network` container. Task 0.2's instrumentation
-  and Task 3.2's stdin-closed run cover the same ground as B1/B2 — settle them
-  there and cite it here rather than measuring twice
+
+- [ ] 🚫 **Task 0.4**: §9 obligations **B1–B4** — spin-vs-abort. **An interactive
+  investigation with the owner, not a hand-over script**, and not something this
+  plan may automate. Two constraints from
+  `00068 JOURNAL/00068-Journal-26-07-31.md:118-131`, both easy to lose:
+
+  - **The exit code does not discriminate.** A spin bounded by `timeout` exits
+    124 — and so does a real session that never spun and was killed by the same
+    `timeout`. Only the **captured stdout/stderr** tells them apart, which means
+    a real container and a real session on the owner's machine, burning quota.
+  - **Nothing here scripts the token store.** B1 and B2 need a specific
+    token-file population (≥2 files, then exactly 1), and creating or removing
+    those means manipulating the owner's credentials — barred by the same rule
+    that keeps this plan away from plaintext secrets. The owner arranges the
+    population; this plan observes.
+
+  B3 is two runs (podman with a network, expecting `exit 1` at
+  `claude-yolo:2597`, versus Docker with no network, expecting the preflight
+  never to run); B4 attempts an outbound connection from inside a
+  `--no-network` container. Task 0.2's instrumentation covers the same ground as
+  B1/B2 and may be cited here instead of measuring twice — **Task 3.2 may not**:
+  it runs after Phase 1 has closed every prompt site, and a post-fix pass cannot
+  evidence pre-fix behaviour
+
 - [ ] ⬜ **Task 0.5**: §9 obligations **C1/C2** — borrowed from another repo's
   runner and never re-measured under ccy's container shape. Method: a **listener
   on the host**, which is exactly why `probe-network.bash:224` excludes them (a
@@ -91,11 +112,18 @@ launcher's hardest dependency as written but unproven, and see Task 0.6.
   under `--map-host-loopback`, how much of the host's loopback the container can
   reach. Either stays open until measured — do not close it with an adjacent,
   easier probe
+
 - [ ] ⬜ **Task 0.6**: Discharge Plan 00089's unticked success criterion — a
   `--no-ssh` launch with `GH_TOKEN` pre-exported, live on HOST — or record that
   it failed. This plan's credential story rests on it, and 00089 landed the code
   without the proof. If it fails, Phase 1 gains the fix before it gains anything
   else
+
+- [ ] ⬜ **Task 0.7**: Run `entrypoint.sh` with **no SSH key and no
+  `GITHUB_USERNAME`** and record what happens. `reports/ci-flow.md` files this
+  under *what this does not settle*: the flow assumes the desktop entrypoint is
+  reused unchanged, which its two `-n` guards make plausible and which nobody has
+  tested. A Phase 0 fact, not compose work — whatever breaks becomes a Phase 1 task
 
 ### Phase 1: The launcher's non-interactive path
 
@@ -118,11 +146,13 @@ launcher's hardest dependency as written but unproven, and see Task 0.6.
 
 ### Phase 2: The tool surface
 
-- [ ] ⬜ **Task 2.1**: One list per class, and every layer derived from it —
-  flag string, startup assertion and documentation generated from one place,
-  never three hand-kept copies. That place holds the **whole expected set** from
-  Task 0.3, not just the denied names: what is subtracted becomes the
-  `--disallowedTools` string, what remains is what assertion 2 diffs against
+- [ ] ⬜ **Task 2.1**: One place per class, and every layer derived from it —
+  flag string, startup assertion and documentation generated from it, never three
+  hand-kept copies. It holds **two** things: the **denied names**, which become
+  the `--disallowedTools` string, and the **expected observed set** captured by
+  Task 0.3, which assertion 2 diffs against. Not two views of one list — the CLI
+  substitutes narrower tools for a withdrawn capability, so the observed set is
+  not the default minus the denied and must not be computed as such
 - [ ] ⬜ **Task 2.2**: The four startup assertions of
   [reports/ci-tool-surface.md](../00068-ccy-ci-runner-variant/reports/ci-tool-surface.md).
   Assertion 2 is a **set diff, not an absence check** — a renamed or newly added
@@ -149,11 +179,22 @@ assume that CI doesn't need compose or podman network stuff"*. A project whose
 CI drops is the negotiation, not the capability** — and §6 already gives the
 keep/drop split over `lib/network-management.bash`, function by function.
 
-- [ ] ⬜ **Task 2.5**: Keep the mechanism, drop the negotiation, exactly per §6's
-  table. The prompting members — the project-name heuristic, the mismatch wizard,
-  the "select network [0-N]" menus, `offer_compose_start` — are unreachable on the
-  CI path; `get_expected_network_name`, `has_compose_files`, `ensure_network_dns`,
-  `connect_to_network`, `_do_compose_start` stay
+- [ ] ⬜ **Task 2.5**: Keep the mechanism, drop the negotiation, per §6's table —
+  which is the authority; the lists below are a summary, so **read it, do not work
+  from these bullets alone**. Its line numbers were re-verified 2026-09-14 after
+  drifting ~40 lines; the function names are the durable reference.
+  - **Keep**: `get_expected_network_name`, `has_compose_files`,
+    `_compose_already_running`, `network_has_running_containers`,
+    `ensure_network_dns`, `connect_to_network`, `_do_compose_start`
+  - **Drop**: the project-name heuristic, the cross-engine mismatch wizard, the
+    "select network [0-N]" menus, `offer_compose_start`, **and the `read -rp`
+    confirmation inside `_do_compose_start` itself** (`network-management.bash:586`).
+    That last one is the trap: the function is kept and its prompt is not, so
+    "keep `_do_compose_start`" taken literally ships a `read` onto a stdin-closed
+    CI path — the exact hang Phase 1 exists to remove
+  - `reports/ci-required-config.md` §4.3(c) and §4.3(f) specified the **opposite**
+    ("do not start") until 2026-09-14 and now carry supersession notes. If a
+    surviving 00068 report still tells you not to start compose, §6 wins
 - [ ] ⬜ **Task 2.6**: **Resolve the network before `podman run`** — it is a
   create-time argument, so either compose starts first or `connect_to_network`
   attaches afterwards. §6 says "pick one deliberately"; record which and why
@@ -163,9 +204,6 @@ keep/drop split over `lib/network-management.bash`, function by function.
 - [ ] ⬜ **Task 2.8**: Teardown tears down **only what CI started** —
   `CCY_COMPOSE_WAS_STARTED` is already the right shape. A pre-existing service
   the developer was using must survive the job
-- [ ] ⬜ **Task 2.9**: `entrypoint.sh` on the CI path is untested with no SSH key
-  and no `GITHUB_USERNAME` ([reports/ci-flow.md](../00068-ccy-ci-runner-variant/reports/ci-flow.md)).
-  Run it that way and fix what breaks
 
 ### Phase 3: Acceptance
 
