@@ -30,16 +30,22 @@ fi
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-awk '/^hl_write_localhost_yml\(\) \{/ {p=1} p {print} p && /^\}/ {exit}' "$RUN_BASH" > "$work/fn.bash"
-if ! grep -q '^hl_write_localhost_yml() {' "$work/fn.bash"; then
-    echo "FAIL: could not extract hl_write_localhost_yml from run.bash" >&2
-    exit 1
-fi
+# The function under test and the two renderers it composes, each bounded by its own
+# `name() {` … `}` at column 0.
+: > "$work/fn.bash"
+for fn in hl_render_github_block hl_strip_github_block hl_write_localhost_yml; do
+    awk -v fn="$fn" '$0 == fn "() {" {p=1} p {print} p && /^\}/ {exit}' "$RUN_BASH" >> "$work/fn.bash"
+    if ! grep -q "^${fn}() {" "$work/fn.bash"; then
+        echo "FAIL: could not extract ${fn} from run.bash" >&2
+        exit 1
+    fi
+done
 
 # The function's collaborators, stubbed: messages are noise here, and the config-repo
 # import path is not under test.
 info() { :; }
 success() { :; }
+error() { echo "ERROR: $*" >&2; }
 hl_pull_config_source() { echo "FAIL: hl_pull_config_source must not be called" >&2; return 1; }
 # The extract is generated at run time, so there is no tracked path for shellcheck to follow.
 # shellcheck source=/dev/null
@@ -90,12 +96,52 @@ HL_GITHUB_ACCOUNTS="none" HL_GITHUB_SSH_443="0" hl_write_localhost_yml "$yml"
 check "accounts none: empty map, no 443 line" "1" "$(grep -c '^github_accounts: {}$' "$yml")"
 check "accounts none: no github_ssh_over_443 line" "0" "$(grep -c 'github_ssh_over_443' "$yml")"
 
-yml="$work/kept.yml"
-printf 'user_login: "kept"\ngithub_accounts:\n  old: "old-user"\n' > "$yml"
+echo "=== reconcile of an existing file (RUN_BASH_CONFIG_SOURCE=none) ==="
+
+# A box first provisioned with no account, then declared an account: the GitHub half is
+# rewritten to the inputs; identity and a vaulted value survive untouched.
+yml="$work/reconcile.yml"
+{
+    printf 'user_login: "kept"\n'
+    printf '# No GitHub identity configured (RUN_BASH_GITHUB_ACCOUNTS=none). To add one later:\n'
+    printf '# scripts/gh-account-setup.bash --add=alias:username\n'
+    printf 'github_accounts: {}\n\n'
+    printf 'github_ssh_passphrase: !vault |\n'
+    printf '          %sANSIBLE_VAULT;1.1;AES256\n' '$'
+    printf '          6162636465\n'
+} > "$yml"
+HL_GITHUB_ACCOUNTS="bot:example-bot" HL_GITHUB_SSH_443="1" hl_write_localhost_yml "$yml"
+check "reconcile: the declared account replaces the empty map" "1" "$(grep -c '^  bot: "example-bot"$' "$yml")"
+check "reconcile: the empty map is gone" "0" "$(grep -c '^github_accounts: {}$' "$yml")"
+check "reconcile: the none-path comment is gone" "0" "$(grep -c 'RUN_BASH_GITHUB_ACCOUNTS=none' "$yml")"
+check "reconcile: the 443 flag is declared" "1" "$(grep -c '^github_ssh_over_443: true$' "$yml")"
+check "reconcile: identity preserved" "1" "$(grep -c '^user_login: "kept"$' "$yml")"
+check "reconcile: the vaulted value preserved (both lines)" "2" "$(grep -c -E '^(github_ssh_passphrase: !vault \|| +6162636465)$' "$yml")"
+
+# Second run with the same inputs: byte-identical (the reconcile is idempotent).
 before=$(sha256sum "$yml" | cut -d' ' -f1)
 HL_GITHUB_ACCOUNTS="bot:example-bot" HL_GITHUB_SSH_443="1" hl_write_localhost_yml "$yml"
 after=$(sha256sum "$yml" | cut -d' ' -f1)
-check "an already-configured file is kept byte-identical (flag 1 does not rewrite it)" "$before" "$after"
+check "reconcile: a second run with the same inputs is byte-identical" "$before" "$after"
+
+# Flag flipped off on a later run: the 443 line is removed, the account stays.
+HL_GITHUB_ACCOUNTS="bot:example-bot" HL_GITHUB_SSH_443="0" hl_write_localhost_yml "$yml"
+check "reconcile: flag 0 removes the 443 line" "0" "$(grep -c 'github_ssh_over_443' "$yml")"
+check "reconcile: flag 0 keeps the account" "1" "$(grep -c '^  bot: "example-bot"$' "$yml")"
+
+# Account changed on a later run: the old alias is replaced, not accumulated.
+HL_GITHUB_ACCOUNTS="other:other-user" HL_GITHUB_SSH_443="0" hl_write_localhost_yml "$yml"
+check "reconcile: a changed account replaces the old alias" "0" "$(grep -c 'example-bot' "$yml")"
+check "reconcile: a changed account is declared" "1" "$(grep -c '^  other: "other-user"$' "$yml")"
+check "reconcile: exactly one github_accounts key" "1" "$(grep -c '^github_accounts:' "$yml")"
+
+# With a config source declared, an already-configured file is kept byte-identical.
+yml="$work/kept.yml"
+printf 'user_login: "kept"\ngithub_accounts:\n  old: "old-user"\n' > "$yml"
+before=$(sha256sum "$yml" | cut -d' ' -f1)
+RUN_BASH_CONFIG_SOURCE="my-host" HL_GITHUB_ACCOUNTS="bot:example-bot" HL_GITHUB_SSH_443="1" hl_write_localhost_yml "$yml"
+after=$(sha256sum "$yml" | cut -d' ' -f1)
+check "config source set: an already-configured file is kept byte-identical" "$before" "$after"
 
 echo
 echo "passed: $passed  failed: $failed"

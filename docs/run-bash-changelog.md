@@ -15,6 +15,22 @@ the index, not the record.
 
 ---
 
+## 1.20.1 — headless: the GitHub inputs are reconciled into an existing localhost.yml; 443 applied before the first SSH use (Plan 00119)
+
+Two defects found on the first real headless run with an account. (1) An existing
+`localhost.yml` was kept untouched, so a box first provisioned with
+`RUN_BASH_GITHUB_ACCOUNTS=none` and later declared an account kept `github_accounts: {}`:
+the multi-account play generated no key and no Host block while `gh` was logged in. With the
+default `RUN_BASH_CONFIG_SOURCE=none` the inputs are the declaration, so the file's GitHub
+half (`github_accounts`, `github_ssh_over_443`, their comments) is now reconciled to them on
+every run — rewritten only on a difference, everything else in the file preserved. A declared
+config source keeps the old keep-if-configured behaviour. (2) With `RUN_BASH_GITHUB_SSH_443=1`,
+step 10 switched the repository's origin to SSH and pulled over `github.com:22` before
+`play-github-cli-multi.yml` had written the 443 override, so a port-22-blocked box timed out
+there. Step 10 now applies the override first, through the repository's own `helpers/github443`
+module (same managed blocks the play reconciles), bootstrapping the checkout over HTTPS on a
+fresh box.
+
 ## 1.20.0 — `RUN_BASH_GITHUB_SSH_443`: a headless box declares the always-on 443 route (Plan 00119)
 
 Headless provisioning with a GitHub account had no input for `github_ssh_over_443`, so a box

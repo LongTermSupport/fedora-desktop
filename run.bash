@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.20.0"
+RUN_BASH_VERSION="1.20.1"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -499,39 +499,17 @@ hl_pull_config_source() {
   success "Headless: pulled config ${path} from github.com/${repo}"
 }
 
-# hl_write_localhost_yml <localhost_yml> — headless replacement for the interactive
-# config-import menu. Idempotent: keeps an already-configured localhost.yml. Otherwise
-# pulls RUN_BASH_CONFIG_SOURCE from the private config repo, or (the default 'none')
-# writes a FRESH localhost.yml from RUN_BASH_* identity + RUN_BASH_GITHUB_ACCOUNTS.
-hl_write_localhost_yml() {
-  local yml="$1"
-  if [[ -f "$yml" ]] && grep -qE '(!vault|github_accounts)' "$yml"; then
-    info "Headless: keeping existing configured localhost.yml"
-    return 0
-  fi
-  local src="${RUN_BASH_CONFIG_SOURCE:-none}"
-  if [[ -n "$src" && "$src" != "none" ]]; then
-    info "Headless: importing saved config '${src}' from the config repo"
-    hl_pull_config_source "$yml" "$src"
-    return 0
-  fi
-  info "Headless: writing fresh localhost.yml (identity + github_accounts)"
+# hl_render_github_block — the GitHub half of a headless localhost.yml, rendered from
+# RUN_BASH_GITHUB_ACCOUNTS and RUN_BASH_GITHUB_SSH_443. stdout is the payload. One
+# renderer for the fresh write AND the reconcile, so the two can never disagree.
+hl_render_github_block() {
   if [[ "$HL_GITHUB_ACCOUNTS" == "none" ]]; then
     # Empty-GitHub path (Plan 00082): an explicit empty map, not an omitted key —
     # play-github-cli-multi.yml's `github_accounts is defined and length > 0` guard
-    # reads {} as "not configured" (correct), AND this function's own idempotency
-    # check above (`grep -qE '(!vault|github_accounts)'`) still matches the literal
-    # string 'github_accounts' on a re-run, so a second headless run does not
-    # re-write the file from scratch.
-    {
-      printf 'user_login: "%s"\n' "$HL_USER_LOGIN"
-      printf 'user_name: "%s"\n' "$HL_USER_NAME"
-      printf 'user_email: "%s"\n' "$HL_USER_EMAIL"
-      printf '# No GitHub identity configured (RUN_BASH_GITHUB_ACCOUNTS=none). To add one later:\n'
-      printf '# scripts/gh-account-setup.bash --add=alias:username\n'
-      printf 'github_accounts: {}\n'
-    } > "$yml"
-    success "Headless: localhost.yml written (fresh, no GitHub identity)"
+    # reads {} as "not configured".
+    printf '# No GitHub identity configured (RUN_BASH_GITHUB_ACCOUNTS=none). To add one later:\n'
+    printf '# scripts/gh-account-setup.bash --add=alias:username\n'
+    printf 'github_accounts: {}\n'
     return 0
   fi
   local _alias _user
@@ -540,19 +518,89 @@ hl_write_localhost_yml() {
   else
     _alias="personal"; _user="$HL_GITHUB_ACCOUNTS"
   fi
+  printf '# GitHub CLI accounts — to add more later: scripts/gh-account-setup.bash --add=alias:username\n'
+  printf 'github_accounts:\n'
+  printf '  %s: "%s"\n' "$_alias" "$_user"
+  if [[ "${HL_GITHUB_SSH_443:-0}" == "1" ]]; then
+    printf '# GitHub SSH always-on over ssh.github.com:443 (RUN_BASH_GITHUB_SSH_443=1 at provisioning)\n'
+    printf 'github_ssh_over_443: true\n'
+  fi
+}
+
+# hl_strip_github_block <localhost_yml> — everything in the file EXCEPT the GitHub half
+# hl_render_github_block owns: the `github_accounts` key and its indented children, the
+# `github_ssh_over_443` key, and the two comment lines the renderer writes. Vaulted values,
+# identity and anything a play appended are passed through untouched. stdout is the payload.
+hl_strip_github_block() {
+  awk '
+    /^github_accounts:/ { in_accounts = 1; next }
+    in_accounts && /^[[:space:]]+/ { next }
+    { in_accounts = 0 }
+    /^github_ssh_over_443:/ { next }
+    /^# No GitHub identity configured \(RUN_BASH_GITHUB_ACCOUNTS=none\)/ { next }
+    /^# scripts\/gh-account-setup\.bash --add=alias:username$/ { next }
+    /^# GitHub CLI accounts — to add more later:/ { next }
+    /^# GitHub SSH always-on over ssh\.github\.com:443/ { next }
+    { print }
+  ' "$1"
+}
+
+# hl_write_localhost_yml <localhost_yml> — headless replacement for the interactive
+# config-import menu. With RUN_BASH_CONFIG_SOURCE set, an existing configured file is kept
+# and a missing one is pulled from the private config repo. With the default 'none', the
+# RUN_BASH_* inputs ARE the declaration: a missing file is written fresh from identity +
+# github_accounts, and an existing file has its GitHub half RECONCILED to the inputs —
+# rewritten only when it differs, everything else in the file (vaulted values, identity,
+# what a play appended) preserved. Without that, a box first provisioned with
+# RUN_BASH_GITHUB_ACCOUNTS=none never picks up an account declared on a later run.
+hl_write_localhost_yml() {
+  local yml="$1"
+  local src="${RUN_BASH_CONFIG_SOURCE:-none}"
+  if [[ -n "$src" && "$src" != "none" ]]; then
+    if [[ -f "$yml" ]] && grep -qE '(!vault|github_accounts)' "$yml"; then
+      info "Headless: keeping existing configured localhost.yml"
+      return 0
+    fi
+    info "Headless: importing saved config '${src}' from the config repo"
+    hl_pull_config_source "$yml" "$src"
+    return 0
+  fi
+  if [[ -f "$yml" ]] && grep -qE '(!vault|github_accounts)' "$yml"; then
+    local want have tmp
+    want=$(hl_render_github_block)
+    # The file's CURRENT GitHub half, in the renderer's shape: whatever the strip removes.
+    have=$(diff <(hl_strip_github_block "$yml") "$yml" | awk '/^> / { sub(/^> /, ""); print }')
+    if [[ "$have" == "$want" ]]; then
+      info "Headless: existing localhost.yml already declares the GitHub inputs — kept"
+      return 0
+    fi
+    info "Headless: reconciling localhost.yml's GitHub half to RUN_BASH_GITHUB_ACCOUNTS / _SSH_443"
+    tmp=$(mktemp "${yml}.XXXXXX")
+    {
+      hl_strip_github_block "$yml"
+      printf '%s\n' "$want"
+    } > "$tmp"
+    if ! grep -q '^github_accounts:' "$tmp"; then
+      rm -f "$tmp"
+      error "localhost.yml reconcile produced no github_accounts key — refusing to replace the file"
+      exit 1
+    fi
+    mv "$tmp" "$yml"
+    success "Headless: localhost.yml GitHub half reconciled (everything else preserved)"
+    return 0
+  fi
+  info "Headless: writing fresh localhost.yml (identity + github_accounts)"
   {
     printf 'user_login: "%s"\n' "$HL_USER_LOGIN"
     printf 'user_name: "%s"\n' "$HL_USER_NAME"
     printf 'user_email: "%s"\n' "$HL_USER_EMAIL"
-    printf '# GitHub CLI accounts — to add more later: scripts/gh-account-setup.bash --add=alias:username\n'
-    printf 'github_accounts:\n'
-    printf '  %s: "%s"\n' "$_alias" "$_user"
-    if [[ "${HL_GITHUB_SSH_443:-0}" == "1" ]]; then
-      printf '# GitHub SSH always-on over ssh.github.com:443 (RUN_BASH_GITHUB_SSH_443=1 at provisioning)\n'
-      printf 'github_ssh_over_443: true\n'
-    fi
+    hl_render_github_block
   } > "$yml"
-  success "Headless: localhost.yml written (fresh)"
+  if [[ "$HL_GITHUB_ACCOUNTS" == "none" ]]; then
+    success "Headless: localhost.yml written (fresh, no GitHub identity)"
+  else
+    success "Headless: localhost.yml written (fresh)"
+  fi
 }
 
 # hl_reconcile_vault <localhost_yml> <vault_pass_file> — headless vault reconciliation
@@ -2297,6 +2345,21 @@ mkdir -p ~/Projects
 # github.com's host keys in ~/.ssh/known_hosts — so `git@github.com:` is
 # guaranteed to work non-interactively.
 fedora_desktop_ssh_url="git@github.com:LongTermSupport/fedora-desktop.git"
+# Headless with RUN_BASH_GITHUB_SSH_443=1: the box cannot reach github.com:22, and the
+# always-on 443 override is normally written by play-github-cli-multi.yml — which runs
+# AFTER this clone. So the override is applied here first, from the repository's own
+# helpers/github443 module (the same module and the same managed-block markers the play
+# reconciles later, so the play finds it in place). On a fresh box that module does not
+# exist yet: the repository is public, so it is bootstrapped over HTTPS, then routed.
+if [[ "$HEADLESS" == "true" && "$HL_GITHUB_SSH_443" == "1" ]]; then
+  if [[ ! -d ~/Projects/fedora-desktop ]]; then
+    info "Headless 443: bootstrapping the repository over HTTPS (port 22 is not assumed reachable)"
+    git clone "https://github.com/LongTermSupport/fedora-desktop.git" ~/Projects/fedora-desktop
+  fi
+  info "Headless 443: applying the ssh.github.com:443 override before any SSH use of GitHub"
+  (cd ~/Projects/fedora-desktop && python3 -m helpers.github443.cli on --ssh-dir ~/.ssh --no-teardown)
+  success "GitHub SSH routed over 443"
+fi
 if [[ ! -d ~/Projects/fedora-desktop ]]; then
   info "Cloning fedora-desktop repository via SSH"
   git clone "$fedora_desktop_ssh_url" ~/Projects/fedora-desktop
