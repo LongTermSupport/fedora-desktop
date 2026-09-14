@@ -429,10 +429,26 @@ FACT_NAMES=(
     service_mgr pkg_mgr virtualization_type virtualization_role
     product_name product_version form_factor bios_version
 )
+# Facts a module injects WITHOUT the `ansible_` prefix. ansible-core's
+# `config/base.yml` says these "will have the exact names that are returned by the
+# module", so the `ansible_`-anchored pattern below can never match one — no addition
+# to FACT_NAMES above would have helped, which is why one `getent_passwd` reference
+# outlived nine correct sites and every QA run until a review read the module source.
+UNPREFIXED_FACT_NAMES=(
+    getent_passwd getent_group getent_shadow getent_hosts
+    getent_services getent_protocols getent_ahostsv4 getent_ahostsv6
+)
+
 # Word-boundary both ends so `ansible_distribution` does not match inside
 # `ansible_distribution_major_version` (the alternation is longest-first anyway,
 # but \b makes it independent of ordering).
+#
+# The three lookbehinds exempt the CORRECT form, which necessarily contains the same
+# name: `ansible_facts['getent_passwd']`, `ansible_facts["getent_passwd"]` and
+# `ansible_facts.getent_passwd`. Without them this rule would flag every fixed site.
 FACTVAR_PATTERN="\\bansible_($(IFS='|'; echo "${FACT_NAMES[*]}"))\\b"
+FACTVAR_PATTERN+="|(?<!ansible_facts\\[')(?<!ansible_facts\\[\")(?<!ansible_facts\\.)"
+FACTVAR_PATTERN+="\\b($(IFS='|'; echo "${UNPREFIXED_FACT_NAMES[*]}"))\\b"
 FACTVAR_VIOLATIONS=()
 
 factvar_rc=0
@@ -459,6 +475,38 @@ while IFS= read -r line; do
     rel_line="${line#"$REPO_ROOT"/}"
     echo "  ERROR (deprecated fact var): $rel_line"
     echo "    Use ansible_facts['<name>'] — top-level injection is removed in ansible-core 2.24."
+    FACTVAR_VIOLATIONS+=("$rel_line")
+    ERRORS=$((ERRORS + 1))
+done < "$TMP_MATCHES"
+
+# A user's runtime directory must come from a RESOLVED uid, never a default. The
+# instance this catches read `/run/user/{{ user_login_uid | default(1000) }}`, and
+# `user_login_uid` was assigned nowhere in the repo — so it was not a fallback for a
+# rare host, it was a hardcoded 1000 on every run. A wrong uid there does not fail; it
+# points at another user's runtime directory, or at nothing, and the task that follows
+# reports "no user manager" about a host that has one.
+RUNTIMEDIR_PATTERN="/run/user/\\{\\{(?!.*getent_passwd)"
+runtimedir_rc=0
+grep -rnP \
+    --include='*.yml' \
+    --include='*.yaml' \
+    --exclude-dir=vendor \
+    "$RUNTIMEDIR_PATTERN" \
+    "${FF_SEARCH_DIRS[@]}" \
+    > "$TMP_MATCHES" 2>"$TMP_GREP_ERR" || runtimedir_rc=$?
+
+if [[ $runtimedir_rc -ge 2 ]]; then
+    echo "ERROR: runtime-dir uid grep failed (rc=$runtimedir_rc):" >&2
+    cat "$TMP_GREP_ERR" >&2
+    exit 2
+fi
+
+while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    [[ "${line#*:*:}" =~ ^[[:space:]]*# ]] && continue
+    rel_line="${line#"$REPO_ROOT"/}"
+    echo "  ERROR (guessed uid in a runtime path): $rel_line"
+    echo "    Resolve it: ansible.builtin.getent + ansible_facts['getent_passwd'][user_login][1]."
     FACTVAR_VIOLATIONS+=("$rel_line")
     ERRORS=$((ERRORS + 1))
 done < "$TMP_MATCHES"
