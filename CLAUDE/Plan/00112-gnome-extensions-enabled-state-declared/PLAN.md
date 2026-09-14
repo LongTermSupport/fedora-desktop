@@ -1,6 +1,6 @@
 # Plan 00112: GNOME extensions — the enabled list as declared state
 
-**Status**: Not Started
+**Status**: In Progress
 **Created**: 2026-09-13
 **Owner**: Repo owner + Claude
 **Priority**: High
@@ -55,18 +55,24 @@ plan's acceptance test: it certifies `desktop-44` forward only when the check
 
 ### Phase 1: The declared enabled list
 
-- [ ] ⬜ **Task 1.1**: A stdlib-only helper (`helpers/gnome/enabled_extensions.py`,
-  test-first) that takes the current `enabled-extensions` value and the deployed
-  UUIDs and returns the merged list and whether it changed; the play calls it
-  through `gsettings get`/`set`, with `changed_when` keyed on the helper's answer.
-- [ ] ⬜ **Task 1.2**: The play collects the deployed UUIDs from the installer's
-  loop (`metadata.json` `uuid` under the user's extensions directory) plus the
-  custom extension, and applies Task 1.1 once, after the schemas are compiled.
-- [ ] ⬜ **Task 1.3**: Drop the `failed_when: false` enable task; run
-  `helpers.gnome.verify_extension` over every deployed UUID (loop), keeping its
-  pending-Wayland-reload rule.
-- [ ] ⬜ **Task 1.4**: The `run.bash` closing message already recommends a reboot;
-  confirm it says so when this play changed the enabled list.
+- [x] ✅ **Task 1.1**: `helpers/gnome/enabled_extensions.py` — pure parse/merge/format
+  of the GVariant list plus `metadata.json` UUID discovery (36 tests). The
+  side-effecting half is `apply_enabled_extensions.py`: it resolves a session bus
+  (live socket, else `dbus-run-session`), merges, writes, and **re-reads what it
+  wrote** so a refused write fails rather than passing (15 tests)
+- [x] ✅ **Task 1.2**: The play calls the applier once, after the schemas are
+  compiled and the custom extension is copied; it discovers the UUIDs from
+  `metadata.json` under the user's extensions directory, and `--require` pins the
+  custom one so a failed copy cannot read as "seven deployed, all enabled".
+  `changed_when` keys on `GNOME-EXT-ENABLED-CHANGED`
+- [x] ✅ **Task 1.3**: The `failed_when: false` enable task is gone;
+  `helpers.gnome.verify_extension` now loops over every deployed UUID, taken from
+  the applier's `GNOME-EXT-DEPLOYED` marker rather than re-derived from the play's
+  own literals. Its pending-Wayland-reload rule is unchanged
+- [x] ✅ **Task 1.4**: Confirmed — `run.bash`'s closing "System Reboot" step
+  recommends a reboot on every path (interactive prompt, and the headless message
+  whether or not `RUN_BASH_REBOOT=1`), so it already covers the case where this
+  play changed the list. No change needed
 
 ### Phase 2: Acceptance
 

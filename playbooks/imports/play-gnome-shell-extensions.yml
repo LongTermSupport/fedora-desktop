@@ -118,25 +118,50 @@
         dest: "/home/{{ user_login }}/.local/share/gnome-shell/extensions/workspace-names-overview@fedora-desktop/"
         mode: '0755'
 
-    - name: Enable Workspace Names in Overview Extension
+    # EXT-10: `gnome-extensions enable` asks the RUNNING shell to enable a UUID, so on a
+    # fresh install — where the shell has not scanned the new directory yet — the request
+    # is silently lost. Plan 00110's desktop acceptance run found all eight extensions
+    # installed, compiled and loaded, and not one enabled, with every task reporting ok.
+    # The gsettings list is read at session start and watched live, so declaring it works
+    # whether or not a shell has loaded the extension. Additive: the user's own enabled
+    # extensions are never removed. The helper re-reads what it wrote, so a dconf database
+    # that refused the write fails the play instead of passing silently (Plan 00112).
+    - name: Declare Deployed Extensions Enabled
       become: true
       become_user: "{{ user_login }}"
-      ansible.builtin.shell:
-        cmd: |
-          export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
-          gnome-extensions enable workspace-names-overview@fedora-desktop
-      changed_when: false
-      failed_when: false  # FAIL-FAST-OK: GNOME session may not be active during playbook run
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -m
+          - helpers.gnome.apply_enabled_extensions
+          - --extensions-dir
+          - "/home/{{ user_login }}/.local/share/gnome-shell/extensions"
+          # The custom extension is copied, not downloaded, so its absence would otherwise
+          # read as "seven deployed, all enabled" rather than a failed copy.
+          - --require
+          - workspace-names-overview@fedora-desktop
+        chdir: "{{ root_dir }}" # repo root on sys.path so the helpers package imports
+      register: gse_enabled
+      changed_when: "'GNOME-EXT-ENABLED-CHANGED' in gse_enabled.stdout"
 
-    # EXT-05: gnome-extensions enable only flips the gsettings list — it succeeds even when
-    # GNOME rejected the extension as OUT_OF_DATE (wrong shell-version) or ERROR. This step
-    # verifies the actual runtime state, but is Wayland-reload-aware: an OUT OF DATE verdict
+    # The helper is the one place that knows what is deployed; the verify loop below reads
+    # its marker line rather than re-deriving the list from the play's own literals, which
+    # would drift the moment an extension id is added above.
+    - name: Collect Deployed Extension UUIDs
+      ansible.builtin.set_fact:
+        gse_deployed_uuids: >-
+          {{ (gse_enabled.stdout_lines | select('match', '^GNOME-EXT-DEPLOYED ') | first).split(' ', 1)[1].split(',') }}
+
+    # EXT-05: declaring the gsettings list above says nothing about whether GNOME accepted
+    # each extension — it can still reject one as OUT_OF_DATE (wrong shell-version) or ERROR.
+    # This step verifies the actual runtime state of EVERY deployed UUID, not just the custom
+    # one it originally covered, but is Wayland-reload-aware: an OUT OF DATE verdict
     # whose cause is already fixed on disk (metadata.json lists the running GNOME major, but
     # the live session has not re-validated because Wayland cannot reload the shell without a
     # logout) must NOT fail the play — only a genuine version mismatch or load ERROR should.
     # That decision is non-trivial, so it lives in a unit-tested helper rather than inline
     # shell (see helpers/gnome/extension_state.py and this repo's complex-logic rule).
-    - name: Verify Workspace Names in Overview Extension Is Active
+    - name: Verify Deployed Extensions Are Healthy
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.command:
@@ -145,12 +170,13 @@
           - -m
           - helpers.gnome.verify_extension
           - --uuid
-          - workspace-names-overview@fedora-desktop
+          - "{{ item }}"
           - --extensions-dir
           - "/home/{{ user_login }}/.local/share/gnome-shell/extensions"
         chdir: "{{ root_dir }}" # repo root on sys.path so the helpers package imports
       register: gse_verify
       changed_when: false
+      loop: "{{ gse_deployed_uuids }}"
       # The helper exits non-zero ONLY on a genuine version mismatch or load ERROR (it prints
       # EXT-FAIL ...). Pending-Wayland-reload and no-session both exit 0 (EXT-OK ...). The
       # command module already fails the play on a non-zero rc; this is the fail-fast gate.
