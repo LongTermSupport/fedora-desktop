@@ -147,7 +147,12 @@
     # The helper is the one place that knows what is deployed; the verify loop below reads
     # its marker line rather than re-deriving the list from the play's own literals, which
     # would drift the moment an extension id is added above.
+    #
+    # Skipped under --check because the task above is: the command module has no check mode,
+    # so it never runs and never prints the marker. Without this guard a --check preview dies
+    # on an undefined attribute instead of previewing.
     - name: Collect Deployed Extension UUIDs
+      when: not ansible_check_mode
       ansible.builtin.set_fact:
         gse_deployed_uuids: >-
           {{ (gse_enabled.stdout_lines | select('match', '^GNOME-EXT-DEPLOYED ') | first).split(' ', 1)[1].split(',') }}
@@ -176,7 +181,9 @@
         chdir: "{{ root_dir }}" # repo root on sys.path so the helpers package imports
       register: gse_verify
       changed_when: false
-      loop: "{{ gse_deployed_uuids }}"
+      # Empty under --check, where the fact above is never set and there is nothing deployed
+      # by this run to verify.
+      loop: "{{ gse_deployed_uuids | default([]) }}"
       # The helper exits non-zero ONLY on a genuine version mismatch or load ERROR (it prints
       # EXT-FAIL ...). Pending-Wayland-reload and no-session both exit 0 (EXT-OK ...). The
       # command module already fails the play on a non-zero rc; this is the fail-fast gate.
