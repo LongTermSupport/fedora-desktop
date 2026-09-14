@@ -14,6 +14,10 @@
 # Reporting-only, and that is a hard boundary: nothing here re-runs a play, installs
 # anything or moves the working tree. Re-running a play is always a human decision.
 #
+# Run it from inside a graphical session for `user_login`. Enabling a --user unit
+# needs that user's systemd manager reachable, and this play enables rather than
+# merely deploying, because an unenabled unit never fires.
+#
 # Standalone / opt-in play — deliberately NOT imported from playbook-main.yml. Run
 # it directly:
 #   ./playbooks/imports/optional/common/play-host-health-login-report.yml
@@ -87,18 +91,18 @@
           user's systemd manager. It would otherwise guess, and a guessed uid points
           at the wrong runtime directory without failing.
 
-    # The CCY container has no user systemd; the deployed HOST does. Probe for a
-    # usable manager rather than assuming one, and check the result explicitly.
-    - name: Probe For A Usable Systemd User Manager
-      become: true
-      become_user: "{{ user_login }}"
-      ansible.builtin.command: systemctl --user is-system-running
-      changed_when: false
-      failed_when: false # FAIL-FAST-OK: the rc is the probe's answer and is checked below
-      register: hh_user_systemd
-      environment:
-        XDG_RUNTIME_DIR: "/run/user/{{ getent_passwd[user_login][1] }}"
-
+    # Unconditional, and the enable is its own probe. Two reasons it is not guarded:
+    #
+    # A deployed-but-unenabled unit NEVER runs — `WantedBy=` in `[Install]` does
+    # nothing until `enable` writes the `graphical-session.target.wants/` symlink.
+    # So there is no second path to fall back to and describe.
+    #
+    # And `systemctl --user is-system-running` cannot tell "no manager" from
+    # "manager with a failed unit": systemd returns
+    # `streq(state, "running") ? EXIT_SUCCESS : EXIT_FAILURE`, so `degraded` exits
+    # 1 too. Guarding on it skipped the enable on precisely the host this plan
+    # exists to detect. An unreachable user bus fails this task, loudly, which is
+    # the answer that probe was reaching for.
     - name: Enable The Login-Time Health Report
       become: true
       become_user: "{{ user_login }}"
@@ -107,22 +111,5 @@
         scope: user
         enabled: true
         daemon_reload: "{{ hh_unit.changed }}"
-      when: hh_user_systemd.rc == 0
       environment:
         XDG_RUNTIME_DIR: "/run/user/{{ getent_passwd[user_login][1] }}"
-
-    # Not a "skip and warn": the unit is deployed and WantedBy graphical-session,
-    # so the next login enables it. This states which of the two paths ran, because
-    # a play that says nothing about it leaves the operator unable to tell whether
-    # the report is live.
-    - name: Report Which Enable Path Ran
-      ansible.builtin.assert:
-        that:
-          - hh_user_systemd.rc is defined
-        success_msg: >-
-          {{ 'Enabled now against the running user manager.'
-             if hh_user_systemd.rc == 0
-             else 'No user manager reachable from here, so the unit was deployed but not
-                   enabled by this run; it is WantedBy graphical-session.target and the
-                   next login picks it up.' }}
-        quiet: false

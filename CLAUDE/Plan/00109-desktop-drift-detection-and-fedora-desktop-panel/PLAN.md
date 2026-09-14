@@ -88,9 +88,15 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   - [x] ✅ Confirm repo pin (1.15.0) already carries the upstream fix
   - [x] ✅ Run `play-displaylink.yml` on HOST; verify module built, signed, loaded
   - [x] ✅ Verify both DisplayLink heads enumerate (`card2-DVI-I-1`, `card3-DVI-I-2`)
-- [ ] ⬜ **Task 0.2**: Remove orphaned DKMS source trees
-  - [ ] ⬜ Establish whether `/usr/src/evdi-1.14.{10,11,12,16}` are reclaimable and
-    who owns them (RPM-owned vs left behind) — probe goes in `triage.bash`
+- [ ] 🔄 **Task 0.2**: Remove orphaned DKMS source trees — probe written, answer pending
+  - [x] ✅ The probe is in `triage.bash`: every `/usr/src/evdi-*` tree, `rpm -qf` on
+    each (an unowned tree reports non-zero, which is why each probe prints its own
+    rc), what DKMS still has registered, and `/var/lib/dkms/evdi`. It also runs the
+    Phase 3 login report so a HOST run shows what a login would surface
+  - [ ] ⬜ **HOST**: run it. The cleanup cannot be written before the answer, because
+    the two cases need opposite mechanisms — an rpm-owned tree goes by removing the
+    package, an unowned one by deleting the directory — and guessing makes the play
+    either a no-op or a fight with the package manager
   - [ ] ⬜ Add cleanup to the owning play, gated on the tree being unregistered in DKMS
   - [ ] ⬜ Run QA, deploy on HOST, re-run `triage.bash` to confirm
 - [ ] 🚫 **Task 0.3**: Fix group/world-readable vault password file permissions
@@ -240,23 +246,16 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 
 - [x] ✅ **Task 5.1**: Establish the real cost and the real bug.
   Evidence: [RESEARCH-wallpaper-and-backgrounds.md](RESEARCH-wallpaper-and-backgrounds.md)
-  - [x] ✅ Decode is **once, not per monitor** — a ~520 MiB claim made during
-    triage was wrong — and is paid roughly **once per login**, not per dock cycle.
-  - [x] ✅ **The symptom is a rendering failure, not a texture failure.** The
-    wallpaper renders correctly in the Overview and is black only on the normal
-    desktop; both draw the same `MetaBackground`, so a valid Overview render
-    **proves the texture exists**, ruling out a cache miss, a slow decode and a
-    NULL texture together.
-  - [x] ✅ Therefore the cause is in the `MetaBackgroundContent` paint path for the
-    desktop view. Three checks converge on **`mutter#4767`** (empty redraw clip)
-    over the sticky `CHANGED_BACKGROUND` variant: no Cogl/framebuffer errors are
-    logged this boot (the sticky variant stems from FBO allocation failure); the
-    host runs `mutter-50.4`, which carries #4767 unfixed; and the monitors go
-    *black*, whereas the sticky variant would paint the flat `primary-color`,
-    here a dark slate blue. Convergent, not conclusive — that branch never logs.
-    Both are upstream and open; neither is fixable here.
-  - [ ] ⬜ **Confirm with the user**: literally black, or dark blue-grey? Blue-grey
-    would overturn the above and point back at the flat-colour path.
+  - [x] ✅ **A rendering failure, not a texture failure**, so decode cost and image
+    size are both irrelevant: the wallpaper draws correctly in the Overview and is
+    black only on the desktop, and both draw the same `MetaBackground`. Three checks
+    converge on upstream **`mutter#4767`** (empty redraw clip) over the sticky
+    `CHANGED_BACKGROUND` variant. Convergent, not conclusive — that branch never
+    logs — and neither candidate is fixable here. Full reasoning and the evidence:
+    [RESEARCH-wallpaper-and-backgrounds.md](RESEARCH-wallpaper-and-backgrounds.md)
+  - [ ] 🚫 **Blocked on the user, one question**: are the monitors literally black,
+    or dark blue-grey? Blue-grey is the flat `primary-color` and would overturn the
+    above, pointing back at the other candidate. Nothing here can answer it
 - [x] ❌ **Task 5.2**: ~~Scale the wallpaper~~ — **cancelled, wrong problem.**
   Image size is irrelevant to this symptom (see 5.1), and a playbook is the wrong
   mechanism for wallpaper regardless. The rejected draft's two defects — a
