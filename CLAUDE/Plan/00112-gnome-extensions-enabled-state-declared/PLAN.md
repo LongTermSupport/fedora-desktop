@@ -87,6 +87,7 @@ is the single source instead, and disk only confirms it.
   three groups, read by the play, the VM acceptance check and the secret scanner.
   No consumer keeps a copy, and all three enumerate **every** group, so a fourth
   cannot be silently half-adopted
+
   - [x] ✅ One consumer *did* keep a copy: the custom-extension deploy task spelled
     the UUID in its `src` and `dest`. Measured, not narrated: a rename in the vars
     file alone deployed the **old** directory and the applier then hard-failed with
@@ -94,13 +95,16 @@ is the single source instead, and disk only confirms it.
     sat two files from its symptom. Now a loop over `gnome_shell_extensions.custom`,
     which is what the header always claimed, with per-file `mode` and `owner`/`group`
     per AnsibleStyle (this closes Plan 00049's EXT-13)
+
 - [x] ✅ **Task 1.6**: dash-to-dock joins the declared set with
   `/usr/share/gnome-shell/extensions` as a second search path. A VM run's own
   evidence showed it installed and never enabled, which made the play's
   `intellihide-mode` write a no-op on every fresh install
+
 - [x] ✅ **Task 1.7**: `disable-user-extensions` is read before anything is written.
   True, it defeats every extension whatever the list holds, so the play would
   otherwise go green over a session with nothing enabled
+
 - [x] ✅ **Task 1.8**: The pre-commit secret scanner derives an allowlist from the
   vars file at scan time — a GNOME extension UUID is shaped exactly like an email
   address. Only values under a `uuid` key in that one tracked file are exempt, each
@@ -109,6 +113,7 @@ is the single source instead, and disk only confirms it.
   **anchors and `re.escape` are pinned separately** — without them the exemption
   silently widens to a substring match and every earlier case still passed, so each
   is held by a case that fails if only that property is dropped
+
   - [x] ✅ The scanner's own comment no longer carries worked-example UUIDs. Real
     ones made its source committable only for as long as those extensions stayed
     declared; an invented one would be an address-shaped literal the function has
@@ -124,17 +129,20 @@ is the single source instead, and disk only confirms it.
     operator message, not a guard, and "hard-fails, confirmed" is not what the code
     does. Fixing it edits a live public-repo security gate and needs its own control
     fixture, which is a poor thing to bolt onto a plan already blocked elsewhere
+
 - [x] ✅ **Task 1.9**: A live session that has no record of a UUID is
   `PENDING_SCAN`, not `SKIP_NO_SESSION`. `gnome-extensions info` exits non-zero for
   both, and conflating them let a nine-iteration gate report OK having judged
   nothing. `session_bus.py` is shared, so the applier and the verifier can no longer
   disagree about which session they are looking at
+
 - [x] ✅ **Task 1.10**: The verdict split reached the helper and stopped there — every
   non-failing verdict still exits 0, nothing read `gse_verify`, and Ansible does not
   print a command task's stdout without `-v`, so at **play** level nine judged and nine
   unjudged were still byte-identical. `Assert Every Deployed Extension Produced A Readable Verdict` now consumes the results and reports `COVERAGE: n of m judged against a live session`. It fails only on a verdict it cannot read — `pending_scan`
   before the reboot is legitimate and must not fail a fresh install — so the gate that
   *proves* the outcome remains the post-reboot acceptance check.
+
   - [x] ✅ The **population** is pinned against `declared_extension_uuids`, not against
     the verify results alone. Both counts derive from `gse_verify.results`, so on their
     own they agree at zero: a `when:` on the verify task left the gate reporting
@@ -144,6 +152,18 @@ is the single source instead, and disk only confirms it.
     it vouches for. Pass: all-healthy, fresh-install all-`pending_scan`, nothing
     declared. **Fail**: an unreadable verdict, a short loop, `results: []`, a register
     with no `results` key, `gse_verify` undefined
+
+- [x] ✅ **Task 1.9**: **The same defect in the sibling play.** `play-container-watch.yml`
+  still asked the running shell to enable its extension, with `failed_when: false` on the
+  probe, the disable AND the enable, then a `debug` saying the extension "will be enabled
+  on next GNOME session start". Nothing enabled it later: a failed `enable` never wrote
+  the key, so that sentence was false in the same way this plan's own was. The dance
+  existed to force a reload, which on Wayland cannot work at all — only a logout reloads
+  extension JavaScript. Replaced with this plan's `apply_enabled_extensions` route, which
+  merges without removing and re-reads the key to prove the write took, so it needs no
+  `failed_when`: the operation is its own probe. Three prohibited suppressions and one
+  prohibited skip-and-warn removed; `--syntax-check` and `qa-all.bash` green.
+  Found by the Phase 4 extension survey in Plan 00109, not by a gate
 
 ### Phase 2: Acceptance
 
@@ -187,8 +207,12 @@ is the single source instead, and disk only confirms it.
   after the reboot.
 - [ ] Re-running the play on a host with extra user-enabled extensions removes
   none of them and reports no change.
-- [ ] No `FAIL-FAST-OK` annotation remains on the enable path.
-- [ ] `./scripts/qa-all.bash` passes.
+- [x] No `FAIL-FAST-OK` annotation remains on the enable path. Both enable paths: the
+  declared-state route this plan built, and `play-container-watch.yml`, which was still
+  on the mechanism this plan replaced (Task 1.9). The one remaining `failed_when` under
+  `playbooks/imports/play-gnome-shell-extensions.yml` is on the *installer* and is the
+  permitted probe-then-fail form — its `rc not in [0, 2]` is an explicit check.
+- [x] `./scripts/qa-all.bash` passes — 856 files.
 
 ## Delivery & Milestones
 

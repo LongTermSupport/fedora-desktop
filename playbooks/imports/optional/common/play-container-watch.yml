@@ -155,57 +155,42 @@
         XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
 
     # =========================================================================
-    # Enable the GNOME extension (same probe/disable/enable pattern as STT play)
+    # Enable the GNOME extension — declared state, not a request to the shell
     # =========================================================================
-    - name: Check if container-watch extension is currently enabled
-      become: true
-      become_user: "{{ user_login }}"
-      ansible.builtin.shell:
-        cmd: gnome-extensions list --enabled | grep -q "{{ extension_name }}"
-      register: extension_enabled
-      changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe — extension may not be enabled yet
-      when: provisioning_profile != 'server'
-
-    - name: Disable container-watch extension to force reload
-      become: true
-      become_user: "{{ user_login }}"
-      ansible.builtin.command:
-        cmd: gnome-extensions disable {{ extension_name }}
-      when:
-        - provisioning_profile != 'server'
-        - extension_enabled.rc == 0
-      register: disable_result
-      changed_when: disable_result.rc == 0
-      failed_when: false  # FAIL-FAST-OK: disable may fail if GNOME session is unavailable
-
-    - name: Wait for container-watch extension to unload
-      ansible.builtin.pause:
-        seconds: 2
-      when:
-        - provisioning_profile != 'server'
-        - extension_enabled.rc == 0
-
-    - name: Enable container-watch extension
+    # `gnome-extensions enable` asks the RUNNING shell to enable a UUID, and on a
+    # fresh install the shell has not scanned the new directory yet, so the request
+    # is silently lost. Plan 00110's desktop acceptance run found eight extensions
+    # installed, compiled, loaded and NONE enabled. The gsettings key is read at
+    # session start and watched live, so declaring it works whether or not a shell
+    # has loaded the extension yet — Plan 00112 built this route for that reason and
+    # `play-gnome-shell-extensions.yml` already uses it.
+    #
+    # It merges without removing, so extensions the user enabled themselves survive,
+    # and it re-reads the key to prove the write took. That self-check is why this
+    # needs no `failed_when`: the operation is its own probe and fails loudly.
+    #
+    # What was here before: a probe, a disable, a two-second pause and an enable,
+    # each with `failed_when: false`, then a `debug` saying the extension "will be
+    # enabled on next GNOME session start". Three prohibited suppressions and a
+    # false statement — nothing enabled it later, because a failed `enable` never
+    # wrote the key. The dance's stated purpose was forcing a reload, which on
+    # Wayland cannot work at all: only a logout reloads extension JavaScript
+    # (extensions/CLAUDE.md), so it bought nothing and hid the one thing that
+    # mattered.
+    - name: Declare The container-watch Extension Enabled
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.command:
-        cmd: gnome-extensions enable {{ extension_name }}
-      register: enable_result
-      changed_when: "'is now enabled' in enable_result.stderr or enable_result.rc == 0"
-      failed_when: false  # FAIL-FAST-OK: enable may fail if GNOME session is unavailable
+        argv:
+          - python3
+          - -m
+          - helpers.gnome.apply_enabled_extensions
+          - --extensions-dir
+          - "{{ extension_dest | dirname }}"
+          - --extensions-dir
+          - /usr/share/gnome-shell/extensions
+          - "--uuid={{ extension_name }}"
+        chdir: "{{ root_dir }}"   # repo root on sys.path so the helpers package imports
+      register: cw_enabled
+      changed_when: "'GNOME-EXT-ENABLED-CHANGED' in cw_enabled.stdout"
       when: provisioning_profile != 'server'
-
-    - name: Container-watch extension reload complete
-      ansible.builtin.debug:
-        msg: "Container-watch extension reloaded successfully"
-      when:
-        - provisioning_profile != 'server'
-        - enable_result.rc == 0
-
-    - name: Container-watch extension enable deferred
-      ansible.builtin.debug:
-        msg: "Container-watch extension will be enabled on next GNOME session start (no active session detected)"
-      when:
-        - provisioning_profile != 'server'
-        - enable_result.rc != 0
