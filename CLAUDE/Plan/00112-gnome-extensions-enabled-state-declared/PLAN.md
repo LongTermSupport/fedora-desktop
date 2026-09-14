@@ -110,11 +110,29 @@ is the single source instead, and disk only confirms it.
 - [ ] ⬜ **Task 2.1**: HOST — the operator's step. `triage.bash`, then `deploy.bash`,
   then `deploy.bash` again (idempotent: no change on the second run), then
   `triage.bash` again. The two `triage-runs/` reports are the evidence that the
-  host's own list gained the deployed UUIDs and lost nothing
-- [ ] ⬜ **Task 2.2**: `vmtest run desktop-fresh-install` against the pushed
+  host's own list gained the deployed UUIDs and lost nothing.
+  **Also re-run `play-vm-test-lab.yml`** — Task 2.2 cannot mean anything until the
+  host's deployed guest checker matches this plan's version of it
+
+- [ ] 🚫 **Task 2.2**: `vmtest run desktop-fresh-install` against the pushed
   commit; `deployed-extensions-active` green in the post-reboot session; run id
-  recorded here; `desktop-44` certified forward by the passing run. Requested
-  through the Plan 00110 bridge from the container, so this needs no operator
+  recorded here; `desktop-44` certified forward by the passing run.
+  **Blocked on Task 2.1's lab redeploy, not on the code.** Two runs have gone
+  green and neither certifies this:
+
+  - `20260914T085408Z-desktop-fresh-install` — pass 16/16 against `cb88ec4e`,
+    `COVERAGE: 8 of 8`. Predates every Phase 1b fix
+  - `20260914T100220Z-desktop-fresh-install` — pass 16/16 against `d307ed28`,
+    but `COVERAGE: **8 of 1** declared ACTIVE`. Nine are declared. `vmtest` copies
+    the checker from the **host's deployed copy**, not the guest's checkout, and
+    that copy predates this plan: it counted `id: <n>` lines in the *play*, which
+    Task 1.5 moved into `vars/gnome-shell-extensions.yml`. Expected collapsed to
+    `0 + 1` and eight actives cleared it. A run in flight at `20260914T110446Z`
+    against `be73d3b0` inherits the same stale checker
+
+  The harness defect is [Plan 00117](../00117-vmtest-acceptance-script-version-gate/PLAN.md).
+  It is not this plan's to fix, but it is this plan's blocker
+
 - [ ] ⬜ **Task 2.3**: QA, then `qa-reviewer` over the diff.
 
 ## Success Criteria

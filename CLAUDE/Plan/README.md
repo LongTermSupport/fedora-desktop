@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00117-vmtest-acceptance-script-version-gate](00117-vmtest-acceptance-script-version-gate/) - An acceptance run copies its guest checker from the host's DEPLOYED copy, so a run certifies one commit with a checker from another: `20260914T100220Z` passed 16/16 with `deployed-extensions-active` expecting 1 of 9. Record the checker's version and fail a mismatch as a harness failure.
+
 - [00116-ccy-deploy-keys-and-forwarded-agent](00116-ccy-deploy-keys-and-forwarded-agent/) - ccy only knows `~/.ssh/github_*` account keys, so a box provisioned with per-repo deploy keys and no GitHub account cannot run it; teach ccy the remote's ssh-config alias (deploy key) and a `--ssh-agent` forwarded from the operator's session.
 
 - [00115-playbook-shebang-runs-through-run-bash](00115-playbook-shebang-runs-through-run-bash/) - Every play's shebang hands it to run.bash, so `./playbooks/…/play-x.yml` works on password sudo; run.bash calls ansible-playbook explicitly so it never re-enters itself.

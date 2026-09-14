@@ -120,19 +120,27 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     the corrected outcome-folding: [DESIGN-play-ledger.md](DESIGN-play-ledger.md) §3
   - [ ] ⬜ **HOST**: verify against a real run — unprovable in the container. Genesis
     plus one row per play; `--check` adds nothing; a second run appends
-- [ ] ⬜ **Task 1.3**: Backfill what is already known
-  - [ ] ⬜ A fresh ledger claims nothing has ever been run, which would report all 43
-    optional plays as stale on day one. Decide how the first run seeds itself
-    without either lying or flooding.
+- [x] ✅ **Task 1.3**: Backfill — **none.** The day-one flood is answered by a
+  reporting rule rather than invented history: a play with no record has never been
+  run here, and silence is the correct output for it, so the 43 never-run plays say
+  nothing instead of 43 wrong things. A `genesis` record at creation is what makes
+  that silence unambiguous. `ledger.genesis_record` + `store.ensure_ledger`;
+  reasoning in [DESIGN-play-ledger.md](DESIGN-play-ledger.md) §4
 
 ### Phase 2: Drift checks built on the ledger
 
-- [ ] ⬜ **Task 2.1**: Play-freshness check
-  - [ ] ⬜ `git fetch` only; compare each ledgered play against its state at HEAD
-  - [ ] ⬜ Report only plays **run here** that have since changed; never mention
-    plays never run
-  - [ ] ⬜ Report *what* changed (commit subjects touching that play), not just that
-    it did
+- [ ] 🔄 **Task 2.1**: Play-freshness check — `freshness.py` + `git_history.py`, 34
+  tests. Verdicts `FRESH`/`STALE`/`GONE`/`UNEXPLAINED`, each carrying the commit
+  subjects that touched the play, so the report says *what* changed
+  - [x] ✅ Fetch only — a test asserts `merge`/`pull`/`checkout`/`reset`/`rebase`
+    never reach the argv. An unresolvable ledgered commit is an **error**, not
+    "nothing changed", which would report such a play fresh for ever
+  - [x] ✅ Never-run plays are silent **by construction**: only ledgered plays are
+    queried, and only the three reportable states reach the report
+  - [x] ✅ A `BROKEN` sentinel **withholds every verdict** rather than flagging them
+    — a per-play answer folded from an acknowledged hole is a specific false
+    statement (DESIGN §5)
+  - [ ] ⬜ The executor that wires ledger + git + report together and prints it
 - [ ] ⬜ **Task 2.2**: Installed-vs-pinned check — the axis that failed
   - [ ] ⬜ Reuse the existing pin manifest in `check-pinned-versions.bash` rather
     than duplicating it (it already maps playbook→var→upstream repo)
