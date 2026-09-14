@@ -168,12 +168,17 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 
 ### Phase 3: Login-time health surfacing and Claude Code handoff
 
-- [ ] ⬜ **Task 3.1**: Post-boot health probe
-  - [ ] ⬜ Detect: failed DKMS builds, failed/degraded systemd units (system and
-    user), kernel modules expected-but-absent, plus Phase 2 drift
-  - [ ] ⬜ Coordinate with Plan 00086 (kernel modules absent enumeration) and
-    Plan 00074 (boot preflight) rather than duplicating their logic
-  - [ ] ⬜ Run at **end of login**, not at boot, so the user is present to see it
+- [ ] 🔄 **Task 3.1**: Post-boot health probe — classifier done, executor pending
+  - [x] ✅ `helpers/host_health/probe_results.py`, 26 tests. DKMS modules with no
+    `installed` build **for the kernel that actually booted** — the incident's own
+    shape, and why a non-empty `dkms status` fooled everyone — plus failed system and
+    user units. A probe that could not run is a **finding**, not a skip. Phase 2's
+    findings merge through one `extra` argument, so a broken host gets one
+    notification rather than three. Detail: [DESIGN-host-health.md](DESIGN-host-health.md)
+  - [x] ✅ Coordinated, not duplicated: neither Plan 00086 nor 00074 owns a reusable
+    probe — both are fixes *inside* a play and inside `run.bash` — so there is nothing
+    to call, and what is avoided is re-implementing their logic
+  - [ ] ⬜ The executor, and running it at **end of login** rather than at boot
 - [ ] ⬜ **Task 3.2**: Surface findings to the user
   - [ ] ⬜ Desktop notification on findings; **silent when clean** (a health check
     that always speaks gets muted, and then it is not a health check)
