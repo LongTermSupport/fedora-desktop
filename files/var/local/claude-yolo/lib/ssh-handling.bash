@@ -108,9 +108,17 @@ resolve_github_ssh_alias() {
         github.com|ssh.github.com) ;;
         *) return 1 ;;
     esac
+    # `ssh -G` prints IdentityFile values AS WRITTEN — a leading `~/` is not
+    # expanded until ssh opens the file (measured: a config line
+    # `IdentityFile ~/.ssh/deploy_keys/x` comes back verbatim), so it is
+    # expanded here before the existence test.
     local keyfile="" candidate
     while IFS= read -r candidate; do
         [ -n "$candidate" ] || continue
+        case "$candidate" in
+            \~/*) candidate="$HOME/${candidate#\~/}" ;;
+            \~)   candidate="$HOME" ;;
+        esac
         if [ -f "$candidate" ]; then
             keyfile="$candidate"
             break

@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.54.0"  # SSH: the project remote's ssh-config alias (deploy key) is resolved with ssh -G and offered; --ssh-agent forwards the session's agent (SELinux label=disable). See docs/ccy-changelog.md.
+CCY_VERSION="3.54.1"  # SSH: an alias IdentityFile written as ~/… is expanded before the existence test (ssh -G prints it verbatim). See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

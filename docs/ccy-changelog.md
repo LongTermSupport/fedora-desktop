@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.54.1
+
+**An alias key written as `IdentityFile ~/…` was reported missing.** `ssh -G` prints the
+value as written, tilde and all; the first live run on a deploy-key box therefore failed the
+existence test and stopped with "the key this box was given is missing". A leading `~/` is now
+expanded against `$HOME` before the test.
+
 ## 3.54.0 — container 2.37
 
 **A box with no GitHub account can run ccy with its deploy key, and a person logged in

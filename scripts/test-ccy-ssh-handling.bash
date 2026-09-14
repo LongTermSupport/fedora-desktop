@@ -112,6 +112,9 @@ printf 'hostname github.com\nport 22\nuser git\nidentityfile %s\n' \
     "$KEY_DIR/does_not_exist" > "$WORK/ssh-G/gh-alias-missing"
 printf 'hostname gitlab.example.com\nport 22\nuser git\nidentityfile %s\n' \
     "$KEY_DIR/project_a" > "$WORK/ssh-G/not-github"
+# As ssh -G really prints it: the tilde unexpanded (measured on OpenSSH 10).
+printf 'hostname ssh.github.com\nport 443\nuser git\nidentityfile ~/keys/project_a\n' \
+    > "$WORK/ssh-G/gh-alias-tilde"
 
 passed=0
 failed=0
@@ -144,6 +147,14 @@ if [ "$rc" -eq 0 ] && [ "$out" = "$expected" ]; then
     pass "GitHub alias with no existing key → empty key field, still rc 0 (caller must fail loudly)"
 else
     fail "missing-key alias: rc=$rc out='$out'"
+fi
+
+out=$(HOME="$WORK" resolve_github_ssh_alias gh-alias-tilde); rc=$?
+expected=$(printf 'ssh.github.com\t443\t%s' "$WORK/keys/project_a")
+if [ "$rc" -eq 0 ] && [ "$out" = "$expected" ]; then
+    pass "a '~/' IdentityFile (as ssh -G prints it) is expanded against HOME before the existence test"
+else
+    fail "tilde alias: rc=$rc out='$out' (wanted '$expected')"
 fi
 
 out=$(resolve_github_ssh_alias not-github); rc=$?
