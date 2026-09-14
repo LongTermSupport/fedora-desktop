@@ -95,7 +95,12 @@ produces three findings, two of which the previous shape swallowed silently.
 That is worth naming plainly: the defect was in the code whose entire subject is *checks that cannot
 fail*, and it survived a design document that asserted the opposite.
 
-## 7. Open decision for Task 3.2: what an offline login should say
+## 7. The decision Task 3.2 had to make — SETTLED, see §8
+
+> **This section states the question, not the answer, and the question is closed.** It is kept
+> because the framing is the reasoning §8 needed, but nothing here is still open: a heading
+> reading "open decision" over a decided question is a false statement carrying a design
+> document's authority. §8 has the answer and the three-state table.
 
 The login unit is a `--user` service `After=graphical-session.target`, on the pattern
 `play-container-watch.yml` already establishes. It is deliberately **not** delivered before Task
@@ -129,11 +134,11 @@ having, and the same answer computed from refs three weeks old is not.
 
 So the check records the timestamp of each **successful** fetch, and an offline run:
 
-| Time since the last successful fetch | Behaviour                                     |
-| ------------------------------------ | --------------------------------------------- |
+| Time since the last successful fetch | Behaviour                                                |
+| ------------------------------------ | -------------------------------------------------------- |
 | within the staleness bound           | judge against the refs on hand, and say nothing if clean |
-| beyond it                            | **a finding**, naming how long it has been    |
-| never (no record at all)             | **a finding** — nothing has ever been checked here |
+| beyond it                            | **a finding**, naming how long it has been               |
+| never (no record at all)             | **a finding** — nothing has ever been checked here       |
 
 This keeps both rules. Nothing is emitted on an ordinary offline login, and *"I have not been able
 to check for two weeks"* is reported as what it is: a fact about this machine, not about the cafe's

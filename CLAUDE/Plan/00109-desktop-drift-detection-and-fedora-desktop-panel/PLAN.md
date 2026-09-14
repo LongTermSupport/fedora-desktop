@@ -163,14 +163,13 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   - [x] ✅ **Resolution is declared, never guessed.** A pin declares `installed:` or
     is rejected — "nobody decided" is not a reachable state — and 1 of 9 is tracked
     today, a split the gate **prints** so the gap is a number, not an absence
-- [x] ✅ **Task 2.3**: Wire both into the QA suite where appropriate — **decided:
-  neither belongs in `qa-all.bash`.** Both ask "is this host what the repo says",
-  which pre-commit is not asking and cannot act on; in a container both would find
-  nothing, exit 0, and become two gates that cannot fail wherever CI runs them.
-  Their home is Phase 3's login surface. Reasoning, and why
-  `qa-deployed-drift.bash` is the exception rather than the counter-example:
-  [DESIGN-play-ledger.md](DESIGN-play-ledger.md) §7. Their **tests** are already in
-  `qa-all` via `qa-helper-tests.bash`, which is the part that belongs there
+- [x] ✅ **Task 2.3**: Wire both into the QA suite — **decided: neither belongs in
+  `qa-all.bash`.** Both ask "is this host what the repo says", which in a container
+  finds nothing and exits 0: two gates that cannot fail wherever CI runs them. Their
+  home is Phase 3's login surface; their **tests** are already in `qa-all` via
+  `qa-helper-tests.bash`, which is the part that belongs there. Reasoning, and why
+  `qa-deployed-drift.bash` is the exception:
+  [DESIGN-play-ledger.md](DESIGN-play-ledger.md) §7
 
 ### Phase 3: Login-time health surfacing and Claude Code handoff
 
@@ -229,18 +228,20 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 
 ### Phase 4: `fedora-desktop` GNOME panel extension
 
-- [ ] ⬜ **Task 4.1**: Scaffold `extensions/fedora-desktop@fedora-desktop`
-  - [ ] ⬜ Follow the established pattern of the four existing extensions; reuse the
-    extension→CLI-helper split proven by Plan 00041
-  - [ ] ⬜ Single panel icon opening a generic, section-based panel
+- [ ] 🔄 **Task 4.1**: Scaffold `extensions/fedora-desktop@fedora-desktop`
+  - [x] ✅ Design settled in writing first — [DESIGN-panel.md](DESIGN-panel.md) — covering
+    the two things the existing extension pattern does not: one aggregate status document
+    rather than one file per producer, and the three states `ok`/`findings`/**`unavailable`**,
+    because an absent document is ignorance and must not render as health
+  - [ ] ⬜ The scaffold, landing with 4.2's section as its first consumer — a registry
+    with nothing registered cannot be exercised
 - [ ] ⬜ **Task 4.2**: Health section — surface Phase 3 findings, offer the handoff
-- [ ] ⬜ **Task 4.3**: Play/task runner section — list plays, show ledger state
-  (last run, stale or not), launch a run in a terminal
-  - [ ] ⬜ Never run a play silently in the background; always in a visible terminal
-- [ ] ⬜ **Task 4.4**: Keep the panel generic — sections are registered, not
-  hardcoded, so quick-launch and other tools can be added without a rewrite
+- [ ] ⬜ **Task 4.3**: Play/task runner — plays with their ledger state, launched in a
+  visible terminal, never in the background
+- [ ] ⬜ **Task 4.4**: Sections registered, not hardcoded, so quick-launch and other
+  tools can be added without a rewrite
 - [ ] ⬜ **Task 4.5**: ESLint clean (`cd extensions && node_modules/.bin/eslint`),
-  deployed by a play, Wayland-correct
+  deployed by its own play, Wayland-correct
 
 ### Phase 5: Recover the desktop background after a monitor change
 
