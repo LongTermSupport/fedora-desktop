@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00114-run-bash-single-play-mode](00114-run-bash-single-play-mode/) - Running one play by hand dies on password sudo (`sudo: a password is required`) because nothing tells Ansible to prompt; expose run.bash's proven become logic as `./run.bash --play <playbook>` and make every doc name it.
+
 - [00113-ccy-ci-runner-implementation](00113-ccy-ci-runner-implementation/) - Build the non-interactive `ccy` Plan 00068 specified: close every prompt site on the CI path, propagate the container's exit status rather than the compose block's, and impose the per-event tool surface with four startup assertions that can each actually fail.
 
 - [00112-gnome-extensions-enabled-state-declared](00112-gnome-extensions-enabled-state-declared/) - Plan 00110's desktop scenario found a fresh install leaves every deployed GNOME extension INITIALIZED and none enabled (the enable races the shell's scan and its failure is hidden); make the enabled list declared, idempotent gsettings state and let the desktop scenario certify it.
