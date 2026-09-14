@@ -137,9 +137,20 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   different answers. Design, verdict table and the two structural silences:
   [DESIGN-play-ledger.md](DESIGN-play-ledger.md) §6. Smoke-tested against this
   repo, both the findings path and the sentinel path
-- [ ] ⬜ **Task 2.2**: Installed-vs-pinned check — the axis that failed
+- [ ] 🔄 **Task 2.2**: Installed-vs-pinned check — the axis that failed
+  - [x] ✅ The comparison: `helpers/version_pins/compare.py`, 30 tests. Five states,
+    **only `MATCH` clean** — `AHEAD` is a finding (the repo no longer describes this
+    host) and `UNDETERMINED` is a finding rather than a pass, which is this task's
+    own fail-loudly requirement. Ordering is numeric and canonical; as strings
+    `1.14.16` sorts *before* `1.14.9`
+  - [x] ✅ **The gate this task demands**: a host a minor version behind its pin is a
+    finding, *and* the state after the fix is clean — both asserted, so the check can
+    fail against the failure it was built for and is not merely noisy
   - [ ] ⬜ Reuse the existing pin manifest in `check-pinned-versions.bash` rather
-    than duplicating it (it already maps playbook→var→upstream repo)
+    than duplicating it (it already maps playbook→var→upstream repo). **It is a
+    heredoc inside that script**, so reuse means extracting it to a declared file
+    both read — the shape `vars/gnome-shell-extensions.yml` took in Plan 00112.
+    That edits a live QA gate, so it needs its own control fixture
   - [ ] ⬜ Resolve what is *installed* per pin (rpm query, binary `--version`, DKMS
     status) — this is per-pin logic and cannot be fully generic; fail loudly on
     a pin whose install state cannot be determined rather than reporting a pass
