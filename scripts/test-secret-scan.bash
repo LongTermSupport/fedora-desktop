@@ -193,8 +193,9 @@ assert_filter "a case-differing near-miss of a UUID is NOT exempt" \
 # the anchors dropped ships `passed: 24` and a green qa-all.bash. So the suite proved the
 # exemption worked and not that it was tight, which is the only property that matters here.
 # Each anchor is held by at least one case below, which is the property that matters and is
-# not the same as every case holding both: measured, dropping only `^` fails the strict-suffix
-# case alone, and dropping only `$` fails the strict-prefix and deeper-domain cases.
+# not the same as every case holding both. Measured, naming the fixtures rather than the
+# operation because the two read as opposites: dropping only `^` fails UUID_WITH_HEAD alone,
+# and dropping only `$` fails UUID_WITH_TAIL and EMBEDDED.
 #
 # These three are derived from the declared UUID rather than written out, so they grow no
 # new address-shaped literal and cannot drift if the declared set changes. Named for where

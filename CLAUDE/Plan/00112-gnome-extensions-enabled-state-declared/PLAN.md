@@ -88,9 +88,12 @@ is the single source instead, and disk only confirms it.
   No consumer keeps a copy, and all three enumerate **every** group, so a fourth
   cannot be silently half-adopted
   - [x] ✅ One consumer *did* keep a copy: the custom-extension deploy task spelled
-    the UUID in its `src` and `dest`, so a rename in the vars file would have
-    deployed one directory while the applier enabled another. Now a loop over
-    `gnome_shell_extensions.custom`, which is what the header always claimed
+    the UUID in its `src` and `dest`. Measured, not narrated: a rename in the vars
+    file alone deployed the **old** directory and the applier then hard-failed with
+    `declared-extension-not-deployed` — loud, not silent, but a failure whose cause
+    sat two files from its symptom. Now a loop over `gnome_shell_extensions.custom`,
+    which is what the header always claimed, with per-file `mode` and `owner`/`group`
+    per AnsibleStyle (this closes Plan 00049's EXT-13)
 - [x] ✅ **Task 1.6**: dash-to-dock joins the declared set with
   `/usr/share/gnome-shell/extensions` as a second search path. A VM run's own
   evidence showed it installed and never enabled, which made the play's
@@ -110,13 +113,17 @@ is the single source instead, and disk only confirms it.
     ones made its source committable only for as long as those extensions stayed
     declared; an invented one would be an address-shaped literal the function has
     no reason to exempt. It describes the shape instead
-  - [ ] ⬜ **Deferred, with the reason recorded** rather than left as a carried nit:
-    `hook_extension_uuid_allowlist` still does not call
-    `enabled_extensions.validate_uuid`. The direction is already safe — a malformed
-    `uuid:` hard-fails the hook, confirmed — so what is missing is an operator
-    message, not a guard. It edits a live public-repo security gate, which needs
-    its own control fixture, and that is a poor thing to bolt onto a plan whose
-    acceptance is already blocked elsewhere
+  - **Deferred, with the reason recorded** rather than left as a carried nit:
+    `hook_extension_uuid_allowlist` does not call `enabled_extensions.validate_uuid`.
+    Measured across the four shapes `validate_uuid` rejects: an empty value is
+    silently skipped, a value with a space or a comma emits a live allowlist entry,
+    and **only** a newline-bearing one fails — and it fails at the *filter*
+    (`grep: Trailing backslash`), not at the builder, which returns 0 either way.
+    So the direction is safe — none of
+    them widens the exemption to cover a real address — but what is missing is an
+    operator message, not a guard, and "hard-fails, confirmed" is not what the code
+    does. Fixing it edits a live public-repo security gate and needs its own control
+    fixture, which is a poor thing to bolt onto a plan already blocked elsewhere
 - [x] ✅ **Task 1.9**: A live session that has no record of a UUID is
   `PENDING_SCAN`, not `SKIP_NO_SESSION`. `gnome-extensions info` exits non-zero for
   both, and conflating them let a nine-iteration gate report OK having judged

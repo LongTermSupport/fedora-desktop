@@ -167,6 +167,13 @@ During recording, `_startCountdown` (extension.js lines 624–626) and `_startEl
 
 **Severity: low — area: playbooks**
 
+> **CLOSED by Plan 00112.** The task is now `Deploy Declared Custom Extensions` and carries
+> `owner`/`group: "{{ user_login }}"`, `mode: '0644'` and `directory_mode: '0755'` — the
+> `play-container-watch.yml` form rather than the explicit file loop recommended below, which
+> is the same outcome without enumerating filenames a third time. The UUID also stopped being
+> hardcoded there: it loops over `gnome_shell_extensions.custom`. Kept for the record; the
+> line and task-name citations below are pre-fix.
+
 `playbooks/imports/play-gnome-shell-extensions.yml` ("Deploy Custom Extension - Workspace Names in Overview", lines ~51–57) copies the whole extension directory with a single `mode: '0755'` and no `owner:`/`group:`. Result: `extension.js`, `metadata.json`, `stylesheet.css` and `README.md` are deployed executable, deviating from the AnsibleStyle rule "Always set `owner:`, `group:`, `mode:` on every file task" and from the sibling playbooks (`play-speech-to-text.yml` lines 343–353 and `play-remote-desktop-toggle.yml` lines 90–97 both use explicit file loops with `mode: '0644'` and owner/group). The whole-directory copy also deploys `README.md` unnecessarily and would deploy any stray file added to the source dir.
 
 **Recommendation**: switch to the explicit file-loop pattern used by the other two extension playbooks (`extension.js`, `metadata.json`, `stylesheet.css`; `mode: '0644'`, `owner`/`group: "{{ user_login }}"`), with a `file` task for the directory at `0755`.

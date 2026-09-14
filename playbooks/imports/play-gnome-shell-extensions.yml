@@ -109,15 +109,24 @@
 
     # The UUID comes from the vars file, not from this task. Spelling it here too
     # would make the play a second copy of the declaration, which the vars header
-    # promises no consumer keeps — and a rename there would then deploy one
-    # directory while the applier enabled a different one.
-    - name: Deploy Custom Extensions From This Repo
+    # promises no consumer keeps — so a rename there used to deploy the OLD
+    # directory, and the applier then hard-failed with
+    # `declared-extension-not-deployed`. Loud rather than silent, but a failure
+    # whose cause is two files apart, for a declaration that should have one home.
+    #
+    # `mode` is per-file: an extension is JS, JSON and CSS, none of it executable,
+    # and only the directories need the search bit. Same form as the sibling
+    # play-container-watch.yml, which copies a repo extension directory.
+    - name: Deploy Declared Custom Extensions
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.copy:
         src: "{{ root_dir }}/extensions/{{ item.uuid }}/"
         dest: "{{ user_extensions_dir }}/{{ item.uuid }}/"
-        mode: '0755'
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+        directory_mode: '0755'
       loop: "{{ gnome_shell_extensions.custom }}"
       loop_control:
         label: "{{ item.uuid }}"
