@@ -72,9 +72,26 @@ two concurrent runs interleave records rather than corrupting one.
 `ansible.builtin.default` (`callbacks_enabled`, `stdout_callback`). So a callback plugin is a new
 mechanism here, not an extension of one.
 
-- `v2_playbook_on_play_start` gives the play and its name.
-- `v2_playbook_on_stats` gives the outcome. The plugin holds the started-at per play and writes
-  records at stats time.
+- `v2_playbook_on_play_start` gives the play and its name, and its `_ds.ansible_pos` gives the
+  **source file** — which is what makes per-play granularity possible at all, since a play
+  imported by `playbook-main.yml` must be recorded against its own path, not the importer's.
+- `v2_playbook_on_stats` is when the records are written.
+
+> **CORRECTED.** This section previously said "`v2_playbook_on_stats` gives the outcome".
+> It does not: stats are **per-host totals for the whole run**, so a failure in them cannot be
+> attributed to any particular play — and with `playbook-main.yml` importing many plays, that is
+> every run. The outcome is instead folded from the per-task `v2_runner_on_ok` /
+> `on_failed` / `on_unreachable` events into whichever play is currently open, worst-wins, with
+> `unreachable` outranking `failed` (a host that could not be reached did not run the play at
+> all, and "failed" would claim it ran and did not work). An **ignored** failure
+> (`ignore_errors`) folds as `ok`: the run continued by design, and recording it as failed would
+> make every later report distrust a good run. Stats remains the write trigger, nothing more.
+
+**A `--check` run is not recorded**, nor is `--syntax-check` or any `--list-*` run. None of them
+applies anything, and a record from one would tell Phase 2 the play is fresh on a host that never
+received it — the precise lie this plan exists to catch. The plugin is a pure adapter over
+`helpers/play_ledger/`, because `ansible` is not importable by the interpreter that runs this
+repo's tests: anything decided inside the plugin is decided untested.
 
 **Why this is close to unbypassable, and where it is not.** Ansible loads `callbacks_enabled`
 from `ansible.cfg`, and every playbook in this repo is executed through a shebang that `cd`s to

@@ -109,10 +109,17 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   answers "did this play change between two commits" — `play_sha256` is the
   **dirty-tree guard**, for the case where the commit is a lie
 - [ ] ⬜ **Task 1.2**: Write the ledger on every play run
-  - [ ] ⬜ Establish the hook point that cannot be bypassed by running
-    `ansible-playbook` directly — a callback plugin is the candidate; confirm
-    whether `ansible.cfg` already loads one
-  - [ ] ⬜ Fail-fast: a ledger write failure must not silently produce a blank ledger
+  - [x] ✅ Hook point: `callback_plugins/play_ledger.py`, enabled in `ansible.cfg`,
+    which declared no `callback_plugins` path before this. Caught by `./run.bash`, by
+    a playbook's shebang and by a bare `ansible-playbook` alike — but **defeated by
+    `ANSIBLE_CONFIG`**, so Phase 2 may never call the ledger complete by construction
+  - [x] ✅ Fail-fast in the only form available: Ansible **swallows** a callback's
+    exception, so a write failure becomes a `BROKEN` sentinel plus a stderr
+    `LEDGER-WRITE-FAILED`, which Phase 2 reads first and refuses to answer past.
+    `--check` and `--list-*` runs record nothing — they applied nothing. Reasoning and
+    the corrected outcome-folding: [DESIGN-play-ledger.md](DESIGN-play-ledger.md) §3
+  - [ ] ⬜ **HOST**: verify against a real run — unprovable in the container. Genesis
+    plus one row per play; `--check` adds nothing; a second run appends
 - [ ] ⬜ **Task 1.3**: Backfill what is already known
   - [ ] ⬜ A fresh ledger claims nothing has ever been run, which would report all 43
     optional plays as stale on day one. Decide how the first run seeds itself

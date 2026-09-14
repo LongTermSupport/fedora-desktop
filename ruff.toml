@@ -43,6 +43,14 @@ select = ["E4", "E7", "E9", "F"]
 "**/tests/*.py" = ["E402"]
 "**/tests/**/*.py" = ["E402"]
 
+# An Ansible callback plugin is imported by Ansible's own plugin loader, whose
+# sys.path does not include this repo. The plugin must therefore put the repo
+# root on sys.path — derived from its own file location, since a callback's cwd
+# is wherever the operator was — before `helpers.play_ledger` can be imported at
+# all. Same shape as the tests entry above: a statement that must precede an
+# import, which is exactly what E402 flags.
+"**/callback_plugins/*.py" = ["E402"]
+
 # PyGObject requires gi.require_version() to run BEFORE `from gi.repository
 # import ...`, so the version calls are statements that must precede an import —
 # which is precisely what E402 flags, and there is no way to write it otherwise.
