@@ -14,9 +14,19 @@
 # Reporting-only, and that is a hard boundary: nothing here re-runs a play, installs
 # anything or moves the working tree. Re-running a play is always a human decision.
 #
-# Run it from inside a graphical session for `user_login`. Enabling a --user unit
-# needs that user's systemd manager reachable, and this play enables rather than
-# merely deploying, because an unenabled unit never fires.
+# Needs `user_login`'s systemd manager reachable, because this play ENABLES rather
+# than merely deploying — an unenabled unit never fires. That does NOT require a
+# graphical session: `play-systemd-user-tweaks.yml` (import 8 of playbook-main,
+# `scope: general`) enables linger and then explicitly starts `user@UID.service`,
+# blocking until it signals READY=1. So on any host provisioned by playbook-main the
+# manager is there. Run this on a fresh host before that play and the enable fails,
+# loudly, which is the intended answer.
+#
+# `scope: gnome`, so this ends the play on a server profile. The delivery is what is
+# desktop-bound — `notify-send` needs a session bus, and `graphical-session.target`
+# never activates on a server — but the three CHECKS behind it are not. A server
+# therefore gets no drift detection at all, which is a gap recorded in PLAN.md
+# Task 3.2 rather than papered over here.
 #
 # Standalone / opt-in play — deliberately NOT imported from playbook-main.yml. Run
 # it directly:

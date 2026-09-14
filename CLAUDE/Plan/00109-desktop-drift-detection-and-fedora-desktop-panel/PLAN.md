@@ -221,6 +221,13 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     defect one level up: a broken notifier must not make a broken host a silent one
   - [ ] ⬜ **HOST**: confirm a real notification arrives, and that a clean login is
     genuinely silent
+  - [ ] ⬜ **A server profile gets no drift detection at all.** The play is
+    `scope: gnome`, so it ends the play there — correctly for the *delivery*
+    (`notify-send` needs a session bus, and `graphical-session.target` never
+    activates on a server), but the ledger, play-freshness and installed-vs-pinned
+    checks are profile-agnostic and a server is where unattended drift matters most.
+    Needs a second delivery route, not a scope change: a timer plus the journal, or
+    a login-shell message. Unowned decision, raised by the user
 - [ ] 🔄 **Task 3.3**: Claude Code handoff — file and offer done, one-click is Phase 4
   - [x] ✅ `helpers/host_health/handoff.py`. The prompt file separates
     *"this is wrong"* from *"this was not looked at"*, and says of the second that
