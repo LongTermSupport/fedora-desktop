@@ -264,6 +264,19 @@ selinux_verdict_summary=$(printf '%s' "$selinux_verdict_out" | grep -oE 'passed:
     selinux_verdict_summary="passed"
 printf '✓ ccy-selinux-verdict: %s\n' "$selinux_verdict_summary"
 
+# gpu_device_flags (Plan 00120): the GPU device is handed to the container only where the host
+# has /dev/dri; a headless server used to abort the run. Driven with a present directory, an
+# absent path and a plain file, plus a check that the launcher consumes the array.
+gpu_device_out=""
+if ! gpu_device_out="$(bash "$SCRIPT_DIR/test-ccy-gpu-device.bash" 2>&1)"; then
+    echo "$gpu_device_out" >&2
+    echo "✗ QA FAILED: ccy gpu-device unit tests" >&2
+    exit 1
+fi
+gpu_device_summary=$(printf '%s' "$gpu_device_out" | grep -oE 'passed: [0-9]+') ||
+    gpu_device_summary="passed"
+printf '✓ ccy-gpu-device: %s\n' "$gpu_device_summary"
+
 # hl_write_localhost_yml (Plan 00119): the headless localhost.yml writer, driven through the
 # 443 flag on/off/unset, the empty-identity path and the keep-existing-file promise.
 localhost_yml_out=""

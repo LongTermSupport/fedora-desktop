@@ -17,6 +17,19 @@ Two version numbers move independently — see
 
 ---
 
+## 3.56.0
+
+**ccy starts on a host with no GPU.** `podman run` was handed `--device /dev/dri:/dev/dri`
+unconditionally, and on a headless server or a serial-console VM, where no DRM driver is
+loaded and `/dev/dri` does not exist, podman aborted the whole session before Claude started:
+`Error: stat /dev/dri: no such file or directory`, exit 125. Every desktop has a GPU, so it
+never showed there. The device flags are now produced by `gpu_device_flags` in
+`lib/common-pure.bash`, a pure function of the path: present, the container gets the render
+nodes exactly as before; absent, it gets none and a debug line says so. Hardware-accelerated
+browser rendering was the only consumer, and a headless box has nothing to accelerate.
+Unit-tested (`scripts/test-ccy-gpu-device.bash`) with a present directory, an absent path, a
+plain file, and a check that the launcher consumes the array where the old line stood.
+
 ## 3.55.0
 
 **A ccy container on an SELinux-enforcing host can now read its workspace.** Measured on a

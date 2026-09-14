@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.55.0"  # SELinux-enforcing hosts: workspace mounted :z, key files staged into a private tmpfs dir mounted :Z, decided from getenforce + the engine report. See docs/ccy-changelog.md.
+CCY_VERSION="3.56.0"  # /dev/dri is passed to the container only where the host has one, so a headless server no longer aborts with `stat /dev/dri`. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -2993,6 +2993,15 @@ elif [ -n "$DISPLAY" ]; then
     )
 fi
 
+# GPU render nodes for hardware-accelerated browser rendering — only where the host has any.
+# A headless server has no /dev/dri, and podman aborts the run on a --device that does not
+# exist (gpu_device_flags in lib/common-pure.bash says why and is where this is tested).
+GPU_DEVICE_FLAGS=()
+mapfile -t GPU_DEVICE_FLAGS < <(gpu_device_flags /dev/dri)
+if [ "${#GPU_DEVICE_FLAGS[@]}" -eq 0 ]; then
+    debug "No /dev/dri on this host — no GPU passed to the container; browser rendering is software-only"
+fi
+
 # Disable CTRL+Z (suspend) for this terminal session. Inside a CCY container
 # there is no way to foreground a backgrounded podman process, so it only
 # causes lost work. Saved state is restored in cleanup() on exit.
@@ -3101,7 +3110,7 @@ container_cmd run $DOCKER_FLAGS --rm \
     --label "ccy-token=$CCY_LABEL_TOKEN" \
     --label "ccy-ssh-keys=$CCY_LABEL_SSH_KEYS" \
     $NETWORK_FLAG \
-    --device /dev/dri:/dev/dri \
+    "${GPU_DEVICE_FLAGS[@]}" \
     "${DOCKER_MOUNTS[@]}" \
     "${SSH_MOUNTS[@]}" \
     "${SSH_RUN_OPTS[@]}" \
