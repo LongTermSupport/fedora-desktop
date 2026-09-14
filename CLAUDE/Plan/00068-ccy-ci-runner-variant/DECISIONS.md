@@ -281,22 +281,24 @@ doesn't need compose or podman network stuff"*). A project whose `ci.bash` needs
 needs the services up and the ccy container attached to their network. What CI drops is the
 negotiation, not the capability, and `lib/network-management.bash` already splits on that line:
 
-| Keep — mechanism, no prompts                                               | Drop — discovery and negotiation                                 |
-| -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `get_expected_network_name` `:15`, `has_compose_files` `:488`              | the project-name-matching heuristic                              |
-| `_compose_already_running` `:653`, `network_has_running_containers` `:464` | the cross-engine mismatch wizard                                 |
-| `ensure_network_dns` `:743`, `connect_to_network` `:105`                   | the "select network [0-N]" menus                                 |
-| `_do_compose_start` `:545`                                                 | its `read -rp` confirmation `:586`; `offer_compose_start` `:707` |
+| Keep — mechanism, no prompts                                               | Drop — discovery and negotiation                                  |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `get_expected_network_name` `:15`, `has_compose_files` `:488`              | the project-name-matching heuristic — `claude-yolo:2172`, `:2194` |
+| `_compose_already_running` `:653`, `network_has_running_containers` `:464` | the cross-engine mismatch wizard — `claude-yolo:2241`, `:2260`    |
+| `ensure_network_dns` `:743`, `connect_to_network` `:105`                   | the "select network [0-N]" menus — `:287`, `:290`                 |
+| `_do_compose_start` `:545`                                                 | its `read -rp` confirmation `:586`; `offer_compose_start` `:707`  |
 
-> Line numbers re-verified 2026-09-14 against `lib/network-management.bash`; they had drifted
-> ~40 lines. The **names** are the durable reference — re-check the numbers before citing them.
+> Line numbers re-verified 2026-09-14; the Keep column had drifted ~40 lines. Unqualified numbers
+> are `lib/network-management.bash`; the heuristic and the wizard live in `claude-yolo` itself and
+> are qualified, which an earlier version of this table did not make clear. The **names** are the
+> durable reference — this launcher moves, so re-check any number before citing it.
 
 Teardown already tracks `CCY_COMPOSE_WAS_STARTED`, the right shape: tear down what CI started,
 leave pre-existing services alone. Two things this forces into the design:
 
 1. **The network must be known before `podman run`**, since `--network` is a create-time
    argument. Either ccy resolves and starts compose before launching, or it uses
-   `connect_to_network` (`:98`) to attach the running container afterwards. Pick one deliberately.
+   `connect_to_network` (`:105`) to attach the running container afterwards. Pick one deliberately.
 2. **CI declares rather than discovers.** The natural home is the project's `.claude/ccy/`. Unlike
    egress rules this is not a security boundary: a project describing its own test dependencies is
    the same category as its `Dockerfile`.
