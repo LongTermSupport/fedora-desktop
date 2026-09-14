@@ -39,32 +39,33 @@ the same playbooks. Which one you get is **auto-detected with zero flags** — t
 Detection is **server-biased when uncertain**: only a confirmed graphical target
 is treated as a desktop, so a headless box never tries to run GNOME-only tasks.
 
-**Run a play through `./run.bash --play`, never directly.** Every play escalates with
-`become`, and Ansible runs that escalation in its own pty, so a sudo ticket in your shell
-is invisible to it. On a box with ordinary password sudo, which is every server profile
-and any desktop without NOPASSWD, a play run bare dies at its first privileged task with
-`sudo: a password is required`, and running it under `sudo` fails instead because root has
-no `ansible-playbook`. `--play` hands the play to the same runner the installer uses: it
-probes sudo, adds `--ask-become-pass` only when the box needs it, and passes anything
-after the path (`-vvv`, `--check`, `-e …`) straight to `ansible-playbook`.
+**Run a play by its path, from any directory, never under `sudo` and never via a bare
+`ansible-playbook`.** Every play's shebang hands it to `run.bash`, which changes to the
+repo root (Ansible only finds `ansible.cfg` there), probes sudo, and adds
+`--ask-become-pass` only when the box needs it. That matters because Ansible runs
+`become` in its own pty, so a sudo ticket in your shell is invisible to it: on ordinary
+password sudo, which is every server profile and any desktop without NOPASSWD, a bare
+`ansible-playbook` run dies at its first privileged task with `sudo: a password is required`. Running under `sudo` fails differently, because root has no `ansible-playbook`.
+Anything after the path (`-vvv`, `--check`, `-e …`) passes straight through.
+`./run.bash <playbook>` is the same thing spelled out.
 
 ```bash
 # Zero-flag default — auto-detects desktop vs. server:
-./run.bash --play playbooks/playbook-main.yml
+./playbooks/playbook-main.yml
 
 # Force a profile (testing / CI / an atypical box):
-./run.bash --play playbooks/playbook-main.yml -e provisioning_profile=server
-./run.bash --play playbooks/playbook-main.yml -e provisioning_profile=desktop
+./playbooks/playbook-main.yml -e provisioning_profile=server
+./playbooks/playbook-main.yml -e provisioning_profile=desktop
 ```
 
 **Every playbook is safe to run standalone.** Each GUI-oriented play self-guards,
 so running one on its own auto-detects and cleanly no-ops on a server:
 
 ```bash
-./run.bash --play playbooks/imports/play-firefox.yml
+./playbooks/imports/play-firefox.yml
 # runs fully on a desktop; ends immediately (guard) on a server
 
-./run.bash --play playbooks/imports/play-podman.yml
+./playbooks/imports/play-podman.yml
 # general play — runs on both desktop and server
 ```
 
@@ -681,7 +682,7 @@ Run these manually as needed after the main installation completes.
 
 ```bash
 cd ~/Projects/fedora-desktop
-./run.bash --play playbooks/imports/optional/<category>/<playbook>.yml
+./playbooks/imports/optional/<category>/<playbook>.yml
 ```
 
 **Note:** Most optional playbooks don't require `--ask-become-pass` as they use sudo internally. If prompted for a password, just enter your sudo password.
@@ -1201,8 +1202,8 @@ Build the Windows 11 VM itself (download + import + interactive-use tuning):
 - Run the engine play first:
 
 ```bash
-./run.bash --play playbooks/imports/optional/experimental/play-virtualbox-windows.yml
-./run.bash --play playbooks/imports/optional/experimental/play-virtualbox-windows-vm-setup.yml
+./playbooks/imports/optional/experimental/play-virtualbox-windows.yml
+./playbooks/imports/optional/experimental/play-virtualbox-windows-vm-setup.yml
 ```
 
 ### Archived
@@ -1221,19 +1222,19 @@ Laptop power management (deprecated):
 # No need to run play-comms.yml manually
 
 # Install Distrobox
-./run.bash --play playbooks/imports/optional/common/play-distrobox.yml
+./playbooks/imports/optional/common/play-distrobox.yml
 
 # Install NVIDIA drivers
-./run.bash --play playbooks/imports/optional/hardware-specific/play-nvidia.yml
+./playbooks/imports/optional/hardware-specific/play-nvidia.yml
 
 # Set up DDEV (requires Docker, which is core)
-./run.bash --play playbooks/imports/optional/common/play-ddev.yml
+./playbooks/imports/optional/common/play-ddev.yml
 
 # Advanced: Docker-in-LXC support
-./run.bash --play playbooks/imports/optional/experimental/play-docker-in-lxc-support.yml
+./playbooks/imports/optional/experimental/play-docker-in-lxc-support.yml
 
 # VM acceptance-testing lab (rootless libvirt/QEMU)
-./run.bash --play playbooks/imports/optional/common/play-vm-test-lab.yml
+./playbooks/imports/optional/common/play-vm-test-lab.yml
 ```
 
 ## Creating Custom Playbooks

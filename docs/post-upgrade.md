@@ -157,7 +157,7 @@ sudo diff /etc/some.conf /etc/some.conf.rpmnew
 2. **Look for an open issue on GitHub** filed against the new Fedora version — someone else may have hit it first.
 3. **Run the failing playbook directly with `-vvv`** to see the actual Ansible error:
    ```bash
-   ./run.bash --play playbooks/imports/play-<name>.yml -vvv
+   ./playbooks/imports/play-<name>.yml -vvv
    ```
 4. **File an issue** using the automated reporter in `run.bash` (it will offer on failure) or manually at the repo's issue tracker.
 

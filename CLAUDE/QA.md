@@ -486,7 +486,7 @@ while a changed script is still undeployed:
 vim files/home/.local/bin/wsi-stream
 
 # 2. Deploy and TEST the actual script (on HOST, not in CCY container)
-./run.bash --play playbooks/imports/optional/common/play-speech-to-text.yml
+./playbooks/imports/optional/common/play-speech-to-text.yml
 ~/.local/bin/wsi-stream --help  # Verify it imports/runs
 
 # 3. Run QA — now the repo and the host agree

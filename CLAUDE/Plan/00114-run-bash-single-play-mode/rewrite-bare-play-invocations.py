@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Rewrite bare play invocations in tracked docs to `./run.bash --play …` (Plan 00114 T2.2).
+"""Rewrite bare play invocations in tracked docs to `./run.bash …` (Plan 00114 T2.2).
 
 Two shapes are rewritten wherever they appear as a command (code block, inline code, echo
 hint):
 
-    ansible-playbook [./]playbooks/<x>.yml [args]   ->  ./run.bash --play playbooks/<x>.yml [args]
-    ./playbooks/<x>.yml [args]                       ->  ./run.bash --play playbooks/<x>.yml [args]
+    ansible-playbook [./]playbooks/<x>.yml [args]   ->  ./run.bash playbooks/<x>.yml [args]
+    ./playbooks/<x>.yml [args]                       ->  ./run.bash playbooks/<x>.yml [args]
 
 A trailing ` --ask-become-pass` is dropped from a rewritten line: the runner supplies it
 when the box needs it. Files are given explicitly on argv; nothing is discovered.
@@ -17,12 +17,12 @@ from pathlib import Path
 
 ANSIBLE = re.compile(r"(?<![\w./-])ansible-playbook\s+(?:\./)?(playbooks/[^\s`)\"']+\.yml)")
 SHEBANG = re.compile(r"(?<![\w./-])\./(playbooks/[^\s`)\"']+\.yml)")
-ASK_PASS = re.compile(r"(\./run\.bash --play [^\n`]*?) --ask-become-pass")
+ASK_PASS = re.compile(r"(\./run\.bash playbooks/[^\n`]*?) --ask-become-pass")
 
 
 def rewrite(text: str) -> str:
-    text = ANSIBLE.sub(r"./run.bash --play \1", text)
-    text = SHEBANG.sub(r"./run.bash --play \1", text)
+    text = ANSIBLE.sub(r"./run.bash \1", text)
+    text = SHEBANG.sub(r"./run.bash \1", text)
     return ASK_PASS.sub(r"\1", text)
 
 

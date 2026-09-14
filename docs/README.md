@@ -173,7 +173,7 @@ Everything for contributors:
 
 # Re-run main playbook
 cd ~/Projects/fedora-desktop
-./run.bash --play playbooks/playbook-main.yml
+./playbooks/playbook-main.yml
 
 # Check what's installed
 ansible desktop -m setup | grep ansible_distribution
@@ -185,19 +185,19 @@ ansible desktop -m setup | grep ansible_distribution
 cd ~/Projects/fedora-desktop
 
 # Install rootful Docker (optional — needed for DDEV; Podman is the default engine)
-./run.bash --play playbooks/imports/optional/common/play-docker.yml
+./playbooks/imports/optional/common/play-docker.yml
 
 # Install Distrobox
-./run.bash --play playbooks/imports/optional/common/play-distrobox.yml
+./playbooks/imports/optional/common/play-distrobox.yml
 
 # Install Python environment (core — also runs automatically via main playbook)
-./run.bash --play playbooks/imports/play-python.yml
+./playbooks/imports/play-python.yml
 
 # Add VS Code (core — also runs automatically via main playbook)
-./run.bash --play playbooks/imports/play-vscode.yml
+./playbooks/imports/play-vscode.yml
 
 # Install DDEV (local PHP/CMS development)
-./run.bash --play playbooks/imports/optional/common/play-ddev.yml
+./playbooks/imports/optional/common/play-ddev.yml
 ```
 
 ### Configuration Management

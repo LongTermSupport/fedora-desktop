@@ -1,4 +1,4 @@
-#!/usr/bin/env -S bash -c 'p=$(realpath "$0"); cd "${p%/playbooks/*}" && exec ansible-playbook "$p" "$@"'
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
 ---
 - hosts: desktop
   name: Claude DevTools (ccdt) - On-Demand Session Viewer Installation

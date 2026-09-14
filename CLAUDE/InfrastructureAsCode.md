@@ -34,7 +34,7 @@ vim extensions/my-extension/script.sh
 vim playbooks/imports/optional/common/play-my-feature.yml
 
 # 3. Deploy via Ansible
-./run.bash --play playbooks/imports/optional/common/play-my-feature.yml
+./playbooks/imports/optional/common/play-my-feature.yml
 
 # 4. Test the deployed result
 ~/.local/bin/script.sh --test
