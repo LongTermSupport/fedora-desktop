@@ -5,7 +5,11 @@ framing correction). A CI mode is **a different flow through the launcher**, sha
 and the image/token seams. It is not the desktop flow with guards bolted on, and it is not a
 second product.
 
-Every line reference is `files/var/local/claude-yolo/claude-yolo` unless prefixed.
+Every line reference is `files/var/local/claude-yolo/claude-yolo` unless prefixed, and is to the
+tree as it stood when this report was written. **Treat them as pointers, not as current line
+numbers** — the same caveat `DECISIONS.md` carries, and it is not a formality here: every launcher
+number below has since drifted, several onto plausible-looking neighbours. Re-locate by the
+construct named beside each one before relying on it.
 
 ## The flow
 
@@ -103,9 +107,15 @@ mechanism — it just has six callers, not forty-six.
 > partial claim sitting next to a superseded set: `:822` (config restore, carved out of (c)),
 > **(a) already correct**, **(e) SSH-key selection**, **(e) `create_token`**, **(e) token
 > export**, **(d) guided Dockerfile authoring**, **(e) token resolution**, **(e) `select_token`
-> interactive** and **(d) migration**. The last two of those are the rows that made up the `≈6`,
-> so they survive the supersession — what does not survive is the total, and the claim that all
-> of it was credential resolution.
+> interactive** and **(d) migration**. The **token-resolution** and **`select_token`** rows are
+> the two that made up the `≈6` (5 + 1; migration is the "Probably" row), so they survive the
+> supersession — what does not survive is the total, and the claim that all of it was credential
+> resolution.
+>
+> Complete with respect to **this table's rows**, which map 33 of the census's 46 sites: (f)'s 5,
+> and (e)'s Dockerfile-authoring, debug-layer and container-manager rows, never appear in it. The
+> whole section is superseded and Task 0.2 measures, so this is a limit of the table rather than
+> of the enumeration — but the table is a partial view of the population it says it maps.
 
 > **This is a derivation, not a measurement.** It maps the census's own grouping onto the flow
 > above; it does not re-walk each of the 46 sites in the source. Confirm before implementing, by

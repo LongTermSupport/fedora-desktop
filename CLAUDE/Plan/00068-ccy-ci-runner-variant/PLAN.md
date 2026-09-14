@@ -58,7 +58,8 @@ This plan specifies; it does not build. Implementation is handed to a separate p
   [DECISIONS.md §8–10](DECISIONS.md#8-open-decisions--owner).
 - Reports: [host-run-verdicts.md](reports/host-run-verdicts.md),
   [ci-required-config.md](reports/ci-required-config.md), [ci-flow.md](reports/ci-flow.md),
-  [mcp-and-egress.md](reports/mcp-and-egress.md).
+  [mcp-and-egress.md](reports/mcp-and-egress.md),
+  [ci-tool-surface.md](reports/ci-tool-surface.md).
 - Probes: `triage.bash` (HOST only) drives `probe-engine.bash`, `probe-launcher.bash` and
   `probe-network.bash`.
 - The folder was truncated at commit `5785c55f`: twenty-nine files that specified retracted
@@ -144,8 +145,9 @@ measurement (E9).
   naming what replaced it**. The 2026-07-31 truncation deleted the reports that were wholly
   retracted; what remains is marked rather than silently wrong. In `ci-required-config.md`,
   **one** superseded row — §4.3(f)'s `_do_compose_start` — plus a *rationale correction* on
-  §4.3(c)'s two **network** rows whose verdicts stand; §4.3(c)'s compose row (`claude-yolo:2091`)
-  is deliberately unmarked because §6 does not reverse it. In `ci-flow.md`, two passages: the
+  §4.3(c)'s two **network** rows whose verdicts stand; §4.3(c)'s compose row (`claude-yolo:2091`
+  as the census numbered it — the compose prompt inside the cross-engine mismatch wizard) is
+  deliberately unmarked because §6 does not reverse it. In `ci-flow.md`, two passages: the
   compose/networking deferral and the site-count derivation resting on it. Already marked before
   this sweep: `mcp-and-egress.md`'s three dead premises and its supersession, and
   `host-run-verdicts.md`'s superseded run. A report is not required to be right about everything

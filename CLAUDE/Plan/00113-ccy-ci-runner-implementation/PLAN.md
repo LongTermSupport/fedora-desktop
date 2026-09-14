@@ -15,9 +15,11 @@ cited, and **where this plan and 00068 disagree, 00068 wins**; a disagreement is
 a defect in this plan, to fix here rather than to reason around.
 
 The product is `files/var/local/claude-yolo/claude-yolo`, the launcher. Today it
-negotiates with a human at roughly six credential-resolution sites, assumes a TTY,
-probes for a GUI, and reports the compose block's exit status rather than the
-container's. A GitHub Actions self-hosted runner can drive none of that.
+negotiates with a human at an **unmeasured** number of prompt sites — 00068
+derived roughly six, all credential resolution, and Task 0.2 supersedes and
+measures that figure — assumes a TTY, probes for a GUI, and reports the compose
+block's exit status rather than the container's. A GitHub Actions self-hosted
+runner can drive none of that.
 
 Two things make this worth doing now rather than later. The restriction mechanism
 stopped being a guess on 2026-08-10, when `--disallowedTools` was **measured** to
@@ -194,8 +196,9 @@ keep/drop split over `lib/network-management.bash`, function by function.
 
 - [ ] ⬜ **Task 2.5**: Keep the mechanism, drop the negotiation, per §6's table —
   which is the authority; the lists below are a summary, so **read it, do not work
-  from these bullets alone**. Its line numbers were re-verified 2026-09-14 after
-  drifting ~40 lines; the function names are the durable reference.
+  from these bullets alone**. §6's `network-management.bash` numbers were
+  re-verified 2026-09-14 after drifting ~40 lines; its launcher references are
+  constructs rather than numbers, on purpose.
   - **Keep**: `get_expected_network_name`, `has_compose_files`,
     `_compose_already_running`, `network_has_running_containers`,
     `ensure_network_dns`, `connect_to_network`, `_do_compose_start`

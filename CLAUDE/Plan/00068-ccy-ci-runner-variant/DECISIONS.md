@@ -75,8 +75,12 @@ cannot do the job. If that statement cannot be written truthfully, the mechanism
 1. **A CI flow, not 46 guarded prompts.** `reports/ci-required-config.md` specified a fail-fast
    guard at each of 46 prompt sites. That count is an artefact of insisting CI walk the desktop's
    interactive discovery path. The census stays valuable as the inventory of what the desktop path
-   does. `reports/ci-flow.md` derives that the flow reaches about 6 of the 46, all credential
-   resolution; the guarded primitive is still the right mechanism, with six callers.
+   does. `reports/ci-flow.md` derived that the flow reaches about 6 of the 46, all credential
+   resolution — **both clauses superseded by §6 below**, which restores the network and compose
+   block to the CI path and so puts 13 more sites back in play; any that return are not
+   credential resolution. Plan 00113 Task 0.2 measures the real figure, and nothing may forward
+   the derived one meanwhile. The guarded primitive is still the right mechanism; only its
+   caller count is unknown.
 
 2. **Desktop assumptions a CI flow never makes**, each an explicit decision:
 
@@ -307,21 +311,23 @@ leave pre-existing services alone. Two things this forces into the design:
    the same category as its `Dockerfile`.
 
 Still not on this path, cited by construct for the reason above: `save_launch_config` (its
-tail-of-script call), the leftover-container `container_cmd rm -f "$CONTAINER_NAME"`, and the
-`stty -g` / `stty susp undef` save-and-restore pair.
+tail-of-script call), the leftover-container `container_cmd rm -f "$CONTAINER_NAME"` under
+*"Safety net: remove any leftover container"*, and the `stty -g` / `stty susp undef`
+save-and-disable pair, whose restore is the `stty "$_CCY_STTY_SAVED"` in `cleanup()`.
 
 ## 7. Task 3.3 — unattended-launch defects
 
 1. **Container naming races, and the loser is killed.** `get_next_container_name`
-   (`common.bash:653-686`) is check-then-act over `podman ps -a` with no lock, and `:2741` runs
-   `container_cmd rm -f "$CONTAINER_NAME"` as leftover cleanup. Two jobs for one repo can both
+   (`common.bash:653-686`) is check-then-act over `podman ps -a` with no lock, and the launcher's
+   sole `container_cmd rm -f "$CONTAINER_NAME"` runs under *"Safety net: remove any leftover
+   container"* — the same construct §6 names, cited the same way. Two jobs for one repo can both
    choose `<repo>_yolo`, and the second one's `rm -f` destroys the first job's running container.
    Fix: serialise the jobs on the runner (lts-infra Plan 00030 Task 2.8), which also fixes the
    worse problem of two jobs checking out different SHAs into one working tree
    (`runner_instances: 4` today). On ccy's side: accept a caller-supplied `--container-name` and
    never `rm -f` it.
-2. **ccy dirties the job checkout before the agent starts.** `save_launch_config` (`:2607`, body
-   at `:368-392`) writes `.claude/ccy/.last-launch.conf` with a timestamp into the tree the job is
+2. **ccy dirties the job checkout before the agent starts.** `save_launch_config` — one definition,
+   one tail-of-script call — writes `.claude/ccy/.last-launch.conf` with a timestamp into the tree the job is
    about to test. Fix: skip the write under non-interactive. Same class: `entrypoint.sh:183-195`
    symlinks `/root/.claude` into the checkout (open decision 3).
 3. **Compose teardown prompts after the container exits** (`:2789` onwards, gated on
