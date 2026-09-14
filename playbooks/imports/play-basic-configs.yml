@@ -319,6 +319,62 @@
         creates: /usr/bin/yq
       tags: yq
 
+    # The pinned `lts.vault-scripts` role needs yq **v4** — `dumpSecretsInFiles` and
+    # `rekeyVaultFile` use v4 syntax, and its `assertYqInstalled` refuses anything
+    # else. The task above cannot guarantee that on its own, in two ways that both
+    # end with the host looking provisioned:
+    #
+    # `creates:` skips the download whenever /usr/bin/yq exists, so a host carrying
+    # v3 from an older run keeps v3 for ever. And a `wget` that dies partway leaves
+    # a truncated file at that path, which `creates:` then skips on every future
+    # run — a failed install that never retries.
+    #
+    # Asserted here so both surface at provision time, naming the fix, instead of
+    # inside a vault script at the moment someone needs a secret. `yq --version` is
+    # also the probe for the truncated case: a broken binary cannot answer it.
+    - name: Probe The Installed YQ Version
+      become: true
+      ansible.builtin.command: yq --version
+      register: yq_version
+      changed_when: false
+      tags: yq
+
+    # v4 OR NEWER, matching the role's own `assertYqInstalled`, which extracts the
+    # major and rejects `< 4`. Pinning to exactly v4 would be stricter than the thing
+    # this assert exists to protect, and the install above fetches `latest` — so the
+    # day yq v5 ships, a stricter check here would fail provisioning on a host whose
+    # vault scripts would have run perfectly.
+    #
+    # The regex is the role's: mikefarah v3 prints `yq version 3.4.1`, v4 prints
+    # `... version v4.53.3`, and the unrelated python (kislyuk) yq prints `yq 3.2.3`,
+    # which matches no `version` form at all and is rejected as unrecognised.
+    # `regex_replace`, not `regex_search`: search returns None when nothing matches,
+    # and `| first` on None raises a templating error instead of failing the assert —
+    # so the check would blow up rather than report. replace returns the input
+    # unchanged on no match, which `| int` renders 0, and 0 fails the comparison
+    # cleanly. `[.]` rather than an escaped dot keeps YAML backslash rules out of it.
+    - name: Assert YQ Is A Major Version The Vault Scripts Support
+      ansible.builtin.assert:
+        that:
+          - yq_major | int >= 4
+        fail_msg: |
+          yq reports: {{ yq_version.stdout | default('nothing') }}
+
+          The vault scripts require mikefarah yq v4 or newer — every yq call in them
+          is v4 syntax. This host has something else: most likely v3 left by an
+          earlier run, since the install task above skips when /usr/bin/yq already
+          exists, or a truncated download sitting at that path.
+
+          Fix by removing the old binary so the install task runs again:
+
+              sudo rm /usr/bin/yq
+
+          then re-run this play with `--tags yq`.
+        success_msg: "yq is v{{ yq_major }}, which the vault scripts support (v4+)"
+      vars:
+        yq_major: "{{ yq_version.stdout | regex_replace('^.*version v?([0-9]+)[.].*$', '\\1') }}"
+      tags: yq
+
     - name: DNF Parallel
       ansible.builtin.lineinfile:
         path: /etc/dnf/dnf.conf
