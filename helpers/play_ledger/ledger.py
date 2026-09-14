@@ -45,6 +45,15 @@ _RUN_FIELDS = (
 )
 
 
+#: The directory name under `$XDG_STATE_HOME`. Named rather than inline because the panel
+#: is a second process in a second language computing the same path from `GLib`, so this
+#: is interface, and `helpers/gnome/check_panel_contract.py` compares the two halves. A
+#: disagreement here does not announce itself: the panel would read an absent document and
+#: report `unavailable` for ever, which by design reads exactly like a producer that has
+#: never run.
+STATE_DIR_NAME = "fedora-desktop"
+
+
 def state_dir(environ: dict[str, str] | Any, home: str) -> str:
     """This host's `fedora-desktop` state directory: `$XDG_STATE_HOME/fedora-desktop`.
 
@@ -65,7 +74,7 @@ def state_dir(environ: dict[str, str] | Any, home: str) -> str:
         )
     if not state_home:
         state_home = os.path.join(home, ".local", "state")
-    return os.path.join(state_home, "fedora-desktop")
+    return os.path.join(state_home, STATE_DIR_NAME)
 
 
 def ledger_dir(environ: dict[str, str] | Any, home: str) -> str:

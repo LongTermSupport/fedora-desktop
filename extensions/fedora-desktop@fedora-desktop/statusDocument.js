@@ -37,16 +37,22 @@ export const SCHEMA_VERSION = 1;
 /** Must match `status_document.SELF_SECTION`. */
 export const SELF_SECTION = 'status';
 
-/** Must match `status_document.FILE_NAME`. Task 4.5 owes a QA gate comparing the two:
- * a mismatch makes the panel report unavailable for ever, which is indistinguishable
- * from a producer that never ran, so nothing would announce it. */
-const FILE_NAME = 'host-status.json';
+/** Must match `status_document.FILE_NAME`. `helpers/gnome/check_panel_contract.py` is
+ * the gate that compares the two: a mismatch makes the panel report unavailable for
+ * ever, which is indistinguishable from a producer that never ran, so nothing at runtime
+ * would announce it. */
+export const FILE_NAME = 'host-status.json';
+
+/** Must match `ledger.STATE_DIR_NAME`, and compared by the same gate. Half of the path
+ * agreeing is not enough: the wrong directory and the wrong file name fail identically
+ * and silently. */
+export const STATE_DIR_NAME = 'fedora-desktop';
 
 /** `GLib.get_user_state_dir()` applies the same XDG rule as `ledger.state_dir`. The
  * runtime dir that `container-watch` uses would be wrong here: it is cleared at boot,
  * and a post-boot health verdict that vanishes at boot has no reader. */
 export function documentPath() {
-    return GLib.build_filenamev([GLib.get_user_state_dir(), 'fedora-desktop', FILE_NAME]);
+    return GLib.build_filenamev([GLib.get_user_state_dir(), STATE_DIR_NAME, FILE_NAME]);
 }
 
 /** A document describing why there is no document — the same shape, so every consumer

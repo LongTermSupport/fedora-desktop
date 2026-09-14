@@ -254,7 +254,21 @@ class TestZeroCoverageIsItsOwnFinding(unittest.TestCase):
 
     def test_one_tracked_pin_is_enough_to_stay_silent(self) -> None:
         """The floor is one. A deliberate 1-of-9 split is the state today, and the QA
-        gate is where that number is printed on every run."""
+        gate is where that number is printed on every run — verbatim:
+
+            VERSION-PINS-OK 9 pin(s), 1 with install state tracked, 8 declared
+            untracked — COVERAGE: 9 of 9 resolve to a live playbook var
+
+        The `COVERAGE:` token is a DIFFERENT population — rows resolving to a live
+        playbook var, not pins whose installed version was compared — so read the
+        `with install state tracked` clause for this number, not that one. A review
+        pass mistook the two and concluded partial coverage went unreported anywhere.
+
+        Kept off the login surface deliberately. Coverage is a property of the repo's
+        manifest, identical on every host and not actionable by whoever is reading a
+        login prompt; a permanent line there is how a surface earns being ignored.
+        Zero coverage is different in kind, and `check` reports it — see this class's
+        docstring."""
         pins = [pin(), *self._all_untracked(8)]
         self.assertEqual(
             check_pins.check(

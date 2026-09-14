@@ -485,7 +485,13 @@ done < "$TMP_MATCHES"
 # rare host, it was a hardcoded 1000 on every run. A wrong uid there does not fail; it
 # points at another user's runtime directory, or at nothing, and the task that follows
 # reports "no user manager" about a host that has one.
-RUNTIMEDIR_PATTERN="/run/user/\\{\\{(?!.*getent_passwd)"
+#
+# Two forms, because the first version of this rule only matched the templated one — it
+# required `{{` immediately after `/run/user/`, so a bare `/run/user/1000`, which is the
+# WORST version of the same defect (guessed and not even marked as a guess), sailed
+# through the gate written to catch it. A digit after the slash can only ever be a
+# hardcoded uid.
+RUNTIMEDIR_PATTERN="/run/user/(?:\\{\\{(?!.*getent_passwd)|[0-9])"
 runtimedir_rc=0
 grep -rnP \
     --include='*.yml' \

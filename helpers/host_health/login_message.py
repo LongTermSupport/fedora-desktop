@@ -46,6 +46,15 @@ from helpers.play_ledger import ledger, repo
 #: graphical login, so a laptop left shut over a long weekend must not cry stale.
 STALE_AFTER_DAYS = 14
 
+#: How far ahead of now the document's stamp may sit before the clock itself is reported.
+#: Deliberately not zero. `(now - then).days` floors, so any stamp between one second and
+#: one day ahead reads as -1 — and the producer and consumer are the same host, so an NTP
+#: correction of a few seconds landing between the write and the read would otherwise cry
+#: "wrong clock" at every login on a perfectly healthy machine. A stamp more than a full
+#: day ahead cannot be ordinary skew. Declared next to the staleness bound because it is
+#: the same kind of judgement, and a reader comparing the two has to find both.
+FUTURE_TOLERANCE_DAYS = 1
+
 _HEADER = "fedora-desktop: this machine needs attention"
 _NOT_CHECKED = "Not checked — these are NOT clean results, nothing is known about them:"
 
@@ -54,16 +63,29 @@ def _age_days(generated_at: object, now: str) -> int | None:
     """Whole days between the two stamps, or None if either cannot be read.
 
     None means *unknown*, and by this plan's standing rule an unknown age is not a fresh
-    one — `render` reports it rather than assuming the document is current.
+    one — `render` reports it rather than assuming the document is current. A negative
+    answer means the stamp is in the future, which `render` reports too.
+
+    A stamp carrying no timezone designator counts as unreadable. `fromisoformat` accepts
+    naive and aware forms alike, so mixing the two raises `TypeError` on the subtraction
+    — out of the one function whose entire purpose is that a login shell never sees a
+    traceback, and past an `except ValueError` that cannot catch it. The producer always
+    writes `Z`, so a naive stamp came from another version, a hand-edit or a truncation;
+    assuming UTC for it would invent an age rather than admit to not knowing one.
+
+    `fetch_clock._parse` is immune to this by using a strict `strptime` format, which
+    yields a naive datetime on both sides and so cannot mix them.
     """
     if not isinstance(generated_at, str) or not generated_at:
         return None
     try:
         then = datetime.datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
         current = datetime.datetime.fromisoformat(now.replace("Z", "+00:00"))
-    except ValueError:
+        if then.tzinfo is None or current.tzinfo is None:
+            return None
+        return (current - then).days
+    except (TypeError, ValueError):
         return None
-    return (current - then).days
 
 
 def _texts(section: object, key: str) -> list[str]:
@@ -103,11 +125,25 @@ def render(document: object, *, now: str) -> str:
     age = _age_days(
         document.get("generated_at") if isinstance(document, dict) else None, now
     )
+    # A future stamp past the tolerance is reported unconditionally, unlike an unknown
+    # one. A negative age can never reach STALE_AFTER_DAYS, so without this branch a
+    # clock that ran backwards buys unlimited silence — and a wrong clock invalidates
+    # every age in the document, which is worth saying even alongside real findings.
+    # `fetch_clock` rejects the same condition on the sibling clock for the same reason.
+    #
+    # No day count in the message: `.days` floors, so the number here is a lower bound
+    # rather than a measurement, and this report does not print figures it cannot stand
+    # behind.
+    if age is not None and age < -FUTURE_TOLERANCE_DAYS:
+        unchecked.append(
+            "the host status is stamped in the future, so this host's clock cannot be "
+            "trusted and the age of these results is unknown"
+        )
     # An unknown age is reported only when the document is otherwise silent. A document
     # that already says `unavailable` has explained itself — `status_document.read` puts
     # the reason in the self section — and adding "its age cannot be read" to that would
     # describe the same absence twice.
-    if age is None and not broken and not unchecked:
+    elif age is None and not broken and not unchecked:
         unchecked.append(
             "the host status file gives no readable collection time, so it is not known "
             "how old these results are"

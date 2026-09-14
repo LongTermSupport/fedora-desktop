@@ -67,6 +67,39 @@ function appendCheck(menu, document, check) {
     }
 }
 
+/**
+ * The document's own account of itself, when it has one.
+ *
+ * `StatusDocument.read` answers an absent, unparseable or unknown-schema file with a
+ * document whose ONLY section is `SELF_SECTION`, holding the one sentence that says what
+ * actually happened. A real document has no such section, which is what makes its
+ * presence the test here — `sectionOf` cannot be used to decide this, because it answers
+ * for a missing section by deriving an `unavailable` one, so it says the same thing about
+ * a healthy document as about an unreadable one.
+ *
+ * Rendering the three checks against such a document produces three derived "has no
+ * <id> section" lines and drops the reason entirely, which makes "this host has never
+ * recorded a status" and "the file is corrupt" look identical. The server-side login
+ * report prints that reason; this is the primary surface and cannot say less.
+ *
+ * Returns true when it rendered, so the caller skips the checks: there is no data behind
+ * them, and three `unavailable` blocks restate one absence three times.
+ */
+function appendSelfReport(menu, document) {
+    const self = document?.sections?.[StatusDocument.SELF_SECTION];
+    if (!self) {
+        return false;
+    }
+    const normalised = StatusDocument.sectionOf(document, StatusDocument.SELF_SECTION);
+    for (const text of normalised.findings) {
+        menu.addMenuItem(findingItem(text, 'fedora-desktop-finding'));
+    }
+    for (const text of normalised.unchecked) {
+        menu.addMenuItem(findingItem(text, 'fedora-desktop-detail'));
+    }
+    return true;
+}
+
 /** When the document was collected, always shown. A panel presenting login-time findings
  * at teatime as current states something the checks did not measure (DESIGN-panel.md §4).
  * An unknown age is reported as unknown rather than omitted, because omitting it reads
@@ -101,6 +134,9 @@ export const section = {
     build(menu, document, nowMillis) {
         appendCollectedAt(menu, document, nowMillis);
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        if (appendSelfReport(menu, document)) {
+            return;
+        }
         for (const check of CHECKS) {
             appendCheck(menu, document, check);
         }

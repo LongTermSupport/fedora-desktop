@@ -101,9 +101,65 @@ class TestTheRealPair(unittest.TestCase):
         names = set(check_panel_contract.expected())
         self.assertLessEqual(
             {"FILE_NAME", "SCHEMA_VERSION", "SELF_SECTION", "OK", "FINDINGS",
-             "UNAVAILABLE"},
+             "UNAVAILABLE", "STATE_DIR_NAME"},
             names,
         )
+
+
+class TestTheKeysAreDerivedNotListed(unittest.TestCase):
+    """The set of names compared is derived from the producer, never hand-listed.
+
+    A hand-written list covers whatever its author thought of and keeps passing while
+    the document grows a key the panel never learned to read. That matters most for the
+    section ids, which `sections/health.js` itself calls interface: *"rename one here
+    and the section silently reports unavailable for ever."* Deriving the set means a
+    key the gate would have forgotten cannot exist.
+    """
+
+    def test_the_document_keys_come_from_a_real_built_document(self) -> None:
+        keys = check_panel_contract.document_keys()
+        self.assertLessEqual(
+            {"schema", "generated_at", "kernel", "sections",
+             "state", "findings", "unchecked"},
+            keys,
+        )
+
+    def test_the_section_ids_come_from_the_real_seam(self) -> None:
+        self.assertEqual(
+            sorted(check_panel_contract.section_ids()),
+            sorted(["post-boot-health", "play-freshness", "installed-vs-pinned"]),
+        )
+
+    def test_a_name_the_javascript_never_mentions_is_a_finding(self) -> None:
+        self.assertEqual(
+            check_panel_contract.unmentioned("const state = 1;", {"state"}), []
+        )
+        self.assertEqual(
+            check_panel_contract.unmentioned("const state = 1;", {"not_checked"}),
+            ["not_checked"],
+        )
+
+    def test_a_renamed_document_key_is_caught_against_the_shipped_javascript(self) -> None:
+        """Renaming `unchecked` on the Python side leaves `health.js` reading a key the
+        document does not carry: it sees `length === 0`, skips the caveat block, and
+        renders a section in the `unavailable` state with no findings and no
+        explanation — the "neutral icon over an empty menu" that file exists to
+        prevent. This is the mutation that must produce a finding."""
+        javascript = self._shipped_javascript()
+        self.assertEqual(check_panel_contract.unmentioned(javascript, {"unchecked"}), [])
+        self.assertEqual(
+            check_panel_contract.unmentioned(javascript, {"not_checked_after_rename"}),
+            ["not_checked_after_rename"],
+        )
+
+    def test_the_shipped_javascript_mentions_every_derived_name(self) -> None:
+        root = os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        self.assertEqual(check_panel_contract.check(root), [])
+
+    @staticmethod
+    def _shipped_javascript() -> str:
+        root = os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        return check_panel_contract.panel_javascript(root)
 
 
 if __name__ == "__main__":

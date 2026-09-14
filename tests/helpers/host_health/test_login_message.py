@@ -83,6 +83,28 @@ class TestStalenessIsReported(unittest.TestCase):
         self.assertIsInstance(login_message.STALE_AFTER_DAYS, int)
         self.assertGreater(login_message.STALE_AFTER_DAYS, 0)
 
+    def test_a_document_stamped_in_the_future_is_not_treated_as_fresh(self) -> None:
+        """`(now - then).days` floors, so a stamp six days ahead gives -6, and
+        `-6 >= STALE_AFTER_DAYS` is False — a wrong clock buying unlimited silence.
+        `fetch_clock.offline_finding` treats exactly this condition on the sibling clock
+        as a finding; an impossible age is no more a fresh one than an unknown age is."""
+        message = render({"health": []}, at="2026-09-20T18:00:00Z", now=NOW)
+        self.assertNotEqual(message, "")
+        self.assertIn("future", message)
+
+    def test_ordinary_clock_skew_is_not_called_a_broken_clock(self) -> None:
+        """`.days` floors, so a stamp twenty minutes ahead reads as -1. The producer and
+        the consumer are the same host, so an NTP correction landing between the write
+        and the read must not cry "wrong clock" at every login — that is how a health
+        surface earns being ignored. Caught by the clean-document test, which stamps a
+        fixed NOW and reads it back against the real clock."""
+        message = render({"health": []}, at="2026-09-14T18:20:00Z", now=NOW)
+        self.assertEqual(message, "")
+
+    def test_the_future_tolerance_is_a_declared_constant_too(self) -> None:
+        self.assertIsInstance(login_message.FUTURE_TOLERANCE_DAYS, int)
+        self.assertGreater(login_message.FUTURE_TOLERANCE_DAYS, 0)
+
 
 class TestFindingsAreReported(unittest.TestCase):
     def test_a_fault_is_named(self) -> None:
@@ -148,6 +170,18 @@ class TestItNeverRaises(unittest.TestCase):
         plan's own rule is not the same as fresh."""
         message = render({"health": []}, at="not-a-timestamp", now=NOW)
         self.assertNotEqual(message, "")
+
+    def test_a_timestamp_carrying_no_timezone_does_not_raise(self) -> None:
+        """The one input that defeated the `except ValueError`. `fromisoformat` accepts
+        a naive stamp *and* an aware one, so the subtraction that follows raises
+        TypeError — out of `_age_days`, `render`, `read_and_render` and `main`, from
+        inside the function written to keep a traceback away from a login shell.
+
+        The producer always writes `Z`, so this is a document from another version, a
+        hand-edit, or a truncation — every one of which reaches this code path."""
+        message = render({"health": []}, at="2026-08-01T18:00:00", now=NOW)
+        self.assertIsInstance(message, str)
+        self.assertNotEqual(message, "", "an unreadable age must be reported, not assumed fresh")
 
     def test_a_section_whose_lists_are_the_wrong_type_does_not_raise(self) -> None:
         broken_document = {

@@ -26,11 +26,21 @@ import os
 import re
 import sys
 
-from helpers.host_health import status_document
+from helpers.host_health import login_report, probe_results, status_document
+from helpers.play_ledger import ledger
 
-#: The JavaScript half of the contract.
+#: The JavaScript half of the contract: the file declaring the shared constants.
 PANEL_JS = os.path.join(
     "extensions", "fedora-desktop@fedora-desktop", "statusDocument.js"
+)
+
+#: Every panel source that reads the document. The document's keys and the section ids
+#: are not all declared in one file — the ids live with the section that registers them —
+#: so a name is looked for across the panel rather than in `PANEL_JS` alone.
+PANEL_SOURCES = (
+    PANEL_JS,
+    os.path.join("extensions", "fedora-desktop@fedora-desktop", "sections", "health.js"),
+    os.path.join("extensions", "fedora-desktop@fedora-desktop", "extension.js"),
 )
 
 
@@ -48,7 +58,62 @@ def expected() -> dict[str, str]:
         "OK": status_document.OK,
         "FINDINGS": status_document.FINDINGS,
         "UNAVAILABLE": status_document.UNAVAILABLE,
+        "STATE_DIR_NAME": ledger.STATE_DIR_NAME,
     }
+
+
+def document_keys() -> set[str]:
+    """Every key a real document carries — built, not listed.
+
+    A hand-written list of names covers what its author thought of, and then keeps
+    passing while the document grows a key the panel never learned to read. Building a
+    document with the producer means the set cannot fall behind the producer: add a key
+    there and this gate immediately demands the panel mention it.
+
+    Both levels, because the panel reads both: the top-level envelope and the per-section
+    shape inside `sections`.
+    """
+    document = status_document.build(
+        sections={login_report.HEALTH: [probe_results.broken("a finding")]},
+        kernel="7.2.4-200.fc44.x86_64",
+        at="2026-01-01T00:00:00Z",
+    )
+    keys = set(document)
+    for section in document["sections"].values():
+        keys.update(section)
+    return keys
+
+
+def section_ids() -> list[str]:
+    """The document's section ids, from the seam that names them.
+
+    `sections/health.js` says of exactly these: "These are the document's keys, so they
+    are interface: rename one here and the section silently reports unavailable for
+    ever." Taken from `collect_sections` rather than re-listed, so the gate reads the
+    same three names the producer writes.
+    """
+    return list(
+        login_report.collect_sections(
+            health=lambda: probe_results.Report(findings=[]),
+            freshness=lambda: [],
+            pins=lambda: [],
+        )
+    )
+
+
+def unmentioned(javascript: str, names: set[str] | list[str]) -> list[str]:
+    """Names that appear nowhere in the JavaScript, as whole words.
+
+    A weaker test than the constant comparison — it asks only that the panel mentions
+    the name, not what it does with it — and deliberately so. The strong form would need
+    a JS runtime; this catches the failure that actually happens, which is one side
+    renaming a key and the other never hearing about it.
+    """
+    return sorted(
+        name
+        for name in names
+        if not re.search(r"\b" + re.escape(name) + r"\b", javascript)
+    )
 
 
 def _declared(javascript: str, name: str) -> str | None:
@@ -90,11 +155,41 @@ def mismatches(javascript: str, wanted: dict[str, str]) -> list[str]:
     return findings
 
 
+def panel_javascript(root: str) -> str:
+    """Every panel source concatenated, for the whole-word name search."""
+    chunks: list[str] = []
+    for relative in PANEL_SOURCES:
+        with open(os.path.join(root, relative), encoding="utf-8") as handle:
+            chunks.append(handle.read())
+    return "\n".join(chunks)
+
+
 def check(root: str) -> list[str]:
-    """The gate: read the panel's JavaScript and compare it against Python."""
-    path = os.path.join(root, PANEL_JS)
-    with open(path, encoding="utf-8") as handle:
-        return mismatches(handle.read(), expected())
+    """The gate: read the panel's JavaScript and compare it against Python.
+
+    Three comparisons, because the two halves share three kinds of name: the declared
+    constants (compared by value, against the file that declares them), the document's
+    keys, and the section ids (both only asked to appear, across the whole panel).
+    """
+    with open(os.path.join(root, PANEL_JS), encoding="utf-8") as handle:
+        findings = mismatches(handle.read(), expected())
+
+    javascript = panel_javascript(root)
+    for name in unmentioned(javascript, document_keys()):
+        findings.append(
+            f"PANEL-CONTRACT-FAIL document key {name!r}: written by "
+            f"status_document.build and mentioned nowhere in the panel, so the panel "
+            f"cannot be reading it. A key the panel does not read is a section that "
+            f"renders as though the producer said nothing about it."
+        )
+    for name in unmentioned(javascript, section_ids()):
+        findings.append(
+            f"PANEL-CONTRACT-FAIL section id {name!r}: produced by "
+            f"login_report.collect_sections and mentioned nowhere in the panel, so that "
+            f"section would report `unavailable` for ever — which reads as a host "
+            f"nothing has checked."
+        )
+    return findings
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -105,9 +200,15 @@ def main(argv: list[str] | None = None) -> int:
     if findings:
         return 1
     wanted = expected()
+    keys, ids = document_keys(), section_ids()
+    # Each population named, not just totalled. A bare count cannot show which names a
+    # gate compared, so a gap in its coverage would be invisible in a passing run — and
+    # the coverage gap is the way a text-matching gate fails.
     print(
         f"PANEL-CONTRACT-OK {len(wanted)} constant(s) agree between "
-        f"status_document.py and the panel: {', '.join(sorted(wanted))}"
+        f"status_document.py and the panel: {', '.join(sorted(wanted))}; "
+        f"{len(keys)} document key(s) present: {', '.join(sorted(keys))}; "
+        f"{len(ids)} section id(s) present: {', '.join(sorted(ids))}"
     )
     return 0
 
