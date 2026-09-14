@@ -157,9 +157,14 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   - [ ] ⬜ Gate: must report FAIL against the 2026-09-11 state (evdi 1.14.16
     installed, 1.15.0 pinned). A check that cannot fail against the incident it
     was built for is not a check.
-- [ ] ⬜ **Task 2.3**: Wire both into the QA suite where appropriate
-  - [ ] ⬜ Decide which belong in `qa-all.bash` (host-only checks must skip cleanly
-    in CCY and CI, as `qa-deployed-drift.bash` already does)
+- [x] ✅ **Task 2.3**: Wire both into the QA suite where appropriate — **decided:
+  neither belongs in `qa-all.bash`.** Both ask "is this host what the repo says",
+  which pre-commit is not asking and cannot act on; in a container both would find
+  nothing, exit 0, and become two gates that cannot fail wherever CI runs them.
+  Their home is Phase 3's login surface. Reasoning, and why
+  `qa-deployed-drift.bash` is the exception rather than the counter-example:
+  [DESIGN-play-ledger.md](DESIGN-play-ledger.md) §7. Their **tests** are already in
+  `qa-all` via `qa-helper-tests.bash`, which is the part that belongs there
 
 ### Phase 3: Login-time health surfacing and Claude Code handoff
 

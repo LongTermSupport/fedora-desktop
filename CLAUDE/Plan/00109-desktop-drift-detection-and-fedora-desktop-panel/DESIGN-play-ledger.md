@@ -193,3 +193,32 @@ reading as "no commits touched it", which would report such a play fresh for eve
 `git_history` never merges, pulls, checks out, resets or rebases, and a test asserts those
 verbs never reach the argv: this runs at the end of a login on a machine somebody is using,
 and moving their working tree is a Non-Goal of this plan, not merely a rudeness.
+
+## 7. Why neither drift check belongs in `qa-all.bash` (Task 2.3)
+
+Both checks answer one question: **is this host what the repo says it should be?**
+`qa-all.bash` runs before every commit, and at that moment nobody is asking it — the
+answer cannot change what the commit should contain, and a developer cannot act on it
+without stopping to run a playbook. The freshness check would also `git fetch` on every
+commit, putting the network on the commit path.
+
+Their home is Phase 3's login-time health surface, where the user is present, the answer
+is actionable, and silence-when-clean is the designed behaviour.
+
+**The "skip cleanly in CCY and CI" requirement is the argument, not a detail.** In a
+container there is no ledger and none of the pinned software is installed, so both checks
+would find nothing and exit 0 — two gates that **cannot fail wherever CI runs them**,
+installed into the gate suite by the very plan written because a green gate suite hid a
+broken host. A check that is structurally incapable of failing in the environment that
+runs it is worse than no check, because it is counted.
+
+`qa-deployed-drift.bash` looks like a counter-example and is not. Its subject is a
+**deployed artefact the commit under review may have just invalidated** — edit a script in
+`files/home/.local/bin/` and its deployed copy is stale *because of this commit*. That
+makes pre-commit exactly its moment, and it is why it earns its host skip rather than
+being defeated by it.
+
+What does belong in `qa-all.bash` is the **tests**: `qa-helper-tests.bash` already runs
+every test in `helpers/play_ledger/` and `helpers/version_pins/`, so a regression in the
+logic fails QA on the machine that made it. The logic is repo state; the verdicts are host
+state; only the first is a pre-commit concern.
