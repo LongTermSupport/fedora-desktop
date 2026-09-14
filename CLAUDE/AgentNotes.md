@@ -819,6 +819,31 @@ plausible — right shape, right count, no crash. What catches it is naming the 
 are least sure of and measuring that specifically. Give the join a named function so it
 can have tests of its own.
 
+### A test of the happy path cannot test a failure-path guarantee
+
+Atomicity, locking, rollback, cleanup-on-error, timeouts: the whole value of each is what
+happens when the operation **does not finish**. A test that runs the operation to
+completion and inspects the result exercises none of it, because the naive implementation
+produces an identical result. It will pass, it will look like coverage, and the property
+will be unguarded.
+
+Measured instance: `write_atomic` (`tempfile.mkstemp` + `os.replace`) had four tests —
+contents read back, directory created, second write wins, no temp file left behind.
+Replacing the whole body with `open(path, "w")` passed all four, because every one of
+those is equally true of a plain truncating write. The test asserting the property was
+even *named* for it (`…never_sees_a_half_written_file`) and did not test it.
+
+- **Write the test against the interrupted operation.** Here: write a good document, force
+  a write that raises partway, assert the good one is still readable. `json.dump` with an
+  `indent` serialises incrementally, so an unserialisable value gives you a genuine
+  partial write for free — no mocking.
+- **Mutate the implementation, not just the inputs.** Deleting the mechanism and re-running
+  is the only thing that distinguishes a test from a test-shaped thing. A test suite is not
+  evidence until each test has been shown to fail.
+- **Name a test for what it asserts.** A name describing an unchecked property is worse
+  than no test: the name is what gets read in review, and it answers the question nobody
+  then goes and checks.
+
 ### "Measured" is a claim with a scope, and the scope is usually wrong
 
 Writing *measured*, *verified* or *confirmed* into a plan, a commit message or a comment

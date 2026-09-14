@@ -176,23 +176,18 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 ### Phase 3: Login-time health surfacing and Claude Code handoff
 
 - [ ] 🔄 **Task 3.1**: Post-boot health probe — probe done, login wiring pending
-  - [x] ✅ `helpers/host_health/probe_results.py`. DKMS modules with no
-    `installed` build **for the kernel that actually booted** — the incident's own
-    shape, and why a non-empty `dkms status` fooled everyone — plus failed system and
-    user units. A probe that could not run is a **finding**, not a skip. Phase 2's
-    findings merge in `login_report.collect`, where the per-check guards are, so a
-    broken host gets one notification rather than three, and a raising check names
-    itself instead of taking the report down.
-    Detail: [DESIGN-host-health.md](DESIGN-host-health.md)
+  - [x] ✅ `helpers/host_health/probe_results.py`. DKMS modules with no `installed`
+    build **for the kernel that actually booted** — the incident's own shape, and why a
+    non-empty `dkms status` fooled everyone — plus failed system and user units. A probe
+    that could not run is a **finding**, not a skip.
+    [DESIGN-host-health.md](DESIGN-host-health.md) §§1–3
   - [x] ✅ Coordinated, not duplicated: neither Plan 00086 nor 00074 owns a reusable
-    probe — both are fixes *inside* a play and inside `run.bash` — so there is nothing
-    to call, and what is avoided is re-implementing their logic
+    probe — both are fixes *inside* a play and inside `run.bash`.
+    [DESIGN-host-health.md](DESIGN-host-health.md) §4
   - [x] ✅ `helpers/host_health/probe.py` — the half that touches the machine. Every
     route out of `run_probe` ends in a `ProbeOutcome`, never a traceback, and **the
-    classifier enforced that for `dkms` only**: `systemctl` was plain text, so one
-    that could not run returned an empty unit list — identical to a healthy host.
-    Both scopes now carry an outcome, and the container smoke run shows 2 of its 3
-    findings are what that hole swallowed.
+    classifier enforced that for `dkms` only** — a `systemctl` that could not run
+    returned an empty unit list, identical to a healthy host.
     [DESIGN-host-health.md](DESIGN-host-health.md) §6
   - [x] ✅ Running it at **end of login** rather than at boot:
     `host-health.service`, `After=graphical-session.target`, deployed by
@@ -209,36 +204,35 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   - [x] ✅ `helpers/host_health/login_report.py`. **One** notification listing
     everything, not three; **silent when clean**; host-health findings first,
     because something broken now outranks something that merely drifted
-  - [x] ✅ **The freshness seam keeps its two channels apart.** One sink for both
-    made every diagnostic a finding — a failed fetch reported as a fault in the
-    host, against §8's decision — and turned each commit line under a stale play
-    into a finding of its own. Its `UNTRUSTWORTHY` answer now carries the reason
-    instead of pointing at output the user was never shown
-  - [x] ✅ **Merged, not chained**, and **the notification is not the only channel.**
-    Each check is guarded separately, so a raising one names itself and cannot
-    suppress the other two; a failing notifier still leaves every finding on stdout
-    with the exit status intact, and reports its own failure. Both are this plan's
-    defect one level up: a broken notifier must not make a broken host a silent one
+  - [x] ✅ **The freshness seam keeps its two channels apart** — what it found about
+    the host, and what happened to it while looking. One sink made every diagnostic a
+    finding. [DESIGN-host-health.md](DESIGN-host-health.md) §9
+  - [x] ✅ **Merged, not chained**, and **the notification is not the only channel** —
+    a raising check names itself instead of silencing the others, and a bus that is not
+    there does not discard the findings. [DESIGN-host-health.md](DESIGN-host-health.md) §10
   - [ ] ⬜ **HOST**: confirm a real notification arrives, and that a clean login is
     genuinely silent
-  - [ ] ⬜ **A server profile gets no drift detection at all.** The play is
+  - [ ] 🔄 **A server profile gets no drift detection at all.** The play is
     `scope: gnome`, so it ends the play there — correctly for the *delivery*
     (`notify-send` needs a session bus, and `graphical-session.target` never
     activates on a server), but the ledger, play-freshness and installed-vs-pinned
     checks are profile-agnostic and a server is where unattended drift matters most.
-    Needs a second delivery route, not a scope change: a timer plus the journal, or
-    a login-shell message. Unowned decision, raised by the user
+    Needs a second delivery route, not a scope change. Raised by the user
+    - [x] ✅ The half both routes share is built: `helpers/host_health/status_document.py`
+      writes the checks' verdict to a file, so *running the checks* and *telling the
+      user* stop being one step. That is what makes a server route affordable — a
+      synchronous `git fetch` at every SSH login would add latency to every login and
+      can hang, while printing a cached document costs nothing
+    - [ ] ⬜ The route itself: which schedule writes it, and what prints it at login.
+      Unowned decision
 - [ ] 🔄 **Task 3.3**: Claude Code handoff — file and offer done, one-click is Phase 4
-  - [x] ✅ `helpers/host_health/handoff.py`. The prompt file separates
-    *"this is wrong"* from *"this was not looked at"*, and says of the second that
-    these are **not** clean results — a list that mixes them and distinguishes
-    neither reads like a complete picture of a machine, which is how the incident
-    happened. Mode `0600`: it records what is broken about this host
-  - [x] ✅ **The split is carried in the data, not guessed from the prose.** Every
-    finding carries `Finding.checked`, the producing check's own answer. Matching
-    wording misfiled **6 of 13** unchecked findings under the heading that calls them
-    known faults, in the file whose one job is keeping those apart. Measured again
-    after: **0 of 13**, and restoring the substring split fails the tests that pin it
+  - [x] ✅ `helpers/host_health/handoff.py`. The prompt file separates *"this is
+    wrong"* from *"this was not looked at"*, and says of the second that these are
+    **not** clean results. Mode `0600`: it records what is broken about this host
+  - [x] ✅ **The split is carried in the data, not guessed from the prose** —
+    `Finding.checked`, the producing check's own answer. Substring matching misfiled
+    **6 of 13**; measured again after, **0 of 13**.
+    [DESIGN-host-health.md](DESIGN-host-health.md) §11
   - [x] ✅ The prompt asks for a **diagnosis and a discussion**, and says in terms
     not to apply a fix or run a playbook. Strict IaC and the plan's own Non-Goals
     both say re-running a play is the operator's decision
@@ -256,6 +250,12 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     the two things the existing extension pattern does not: one aggregate status document
     rather than one file per producer, and the three states `ok`/`findings`/**`unavailable`**,
     because an absent document is ignorance and must not render as health
+  - [x] ✅ **The producer, before either consumer**: `helpers/host_health/status_document.py`.
+    Three states distinct in the data, `unavailable` read from `Finding.checked` rather
+    than the wording, and an absent or unparseable or unknown-schema document reported as
+    `unavailable` — never as an empty one, which renders as health. Its atomicity test
+    survived a mutant that wrote straight to the destination; the test now pins what a
+    *failed* write leaves behind, which is the only thing that tells the two apart
   - [ ] ⬜ The scaffold, landing with 4.2's section as its first consumer — a registry
     with nothing registered cannot be exercised
 - [ ] ⬜ **Task 4.2**: Health section — surface Phase 3 findings, offer the handoff

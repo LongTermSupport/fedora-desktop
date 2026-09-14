@@ -1,0 +1,167 @@
+"""The machine-readable form of the login report (Plan 00109, Tasks 3.2 and 4.1).
+
+One producer, two consumers that cannot share a delivery:
+
+* the **GNOME panel** on a desktop, which reads this file and renders sections;
+* a **login-shell message** on a server, where `notify-send` has no session bus to
+  reach and `graphical-session.target` never activates — so the desktop surface ends
+  its play there and a server would otherwise get no drift reporting at all.
+
+Splitting *when the check runs* from *when the user is told* is what makes the second
+one workable. A `git fetch` on every SSH login would add latency to every login and can
+hang; reading a cached document costs nothing. The check runs on its own schedule, this
+file is what it leaves behind, and both consumers read it.
+
+Three rules, each the answer to a way a status surface stops being one:
+
+1. **Three states, distinct in the data.** `ok`, `findings`, `unavailable`. A neutral
+   icon over an empty menu is what a healthy host looks like — and also what a missing
+   file, an unparseable one and a crashed producer look like. Collapsing those is this
+   plan's incident rebuilt one layer up, in the UI.
+2. **`unavailable` is read from `Finding.checked`**, the producing check's own answer,
+   never inferred from the wording. Substring-matching the prose was tried: it covered
+   seven of the messages the checks emit and misfiled six.
+3. **An absent document is ignorance, not health.** `container-watch` falls back to an
+   empty findings list and is right to, because its subject is live processes. These
+   facts are not live — a dead DKMS module for the running kernel stays true — so
+   absence here has to read as "not checked".
+
+Design: CLAUDE/Plan/00109-desktop-drift-detection-and-fedora-desktop-panel/DESIGN-panel.md
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+from collections.abc import Callable
+
+from helpers.host_health import probe_results
+
+#: Bumped when the shape changes in a way a reader must notice. A consumer that finds a
+#: schema it does not know reports `unavailable` rather than rendering what happens to
+#: parse — see `read`.
+SCHEMA_VERSION = 1
+
+#: Checked, nothing to report.
+OK = "ok"
+#: Checked, and here is what is wrong.
+FINDINGS = "findings"
+#: NOT checked. Never a quiet state: a consumer must not show a neutral icon for it.
+UNAVAILABLE = "unavailable"
+
+#: The section id used to report on the document itself when it cannot be read. Named
+#: rather than empty, so the consumer renders a reason instead of an absence.
+SELF_SECTION = "status"
+
+
+def section(findings: list[probe_results.Finding]) -> dict:
+    """One section: its state, and both groups kept apart.
+
+    When a section has faults *and* things nobody could check, the state is `findings`
+    — something known-wrong outranks something unknown — but the unchecked list is
+    still carried. Dropping it there would show a partial picture as a complete one,
+    which is the failure this plan exists for.
+    """
+    broken = [finding.text for finding in findings if finding.checked]
+    unchecked = [finding.text for finding in findings if not finding.checked]
+    if broken:
+        state = FINDINGS
+    elif unchecked:
+        state = UNAVAILABLE
+    else:
+        state = OK
+    return {"state": state, "findings": broken, "unchecked": unchecked}
+
+
+def build(
+    *, sections: dict[str, list[probe_results.Finding]], kernel: str, at: str
+) -> dict:
+    """The whole document. Plain JSON types throughout — JavaScript reads this."""
+    return {
+        "schema": SCHEMA_VERSION,
+        "generated_at": at,
+        "kernel": kernel,
+        "sections": {name: section(findings) for name, findings in sections.items()},
+    }
+
+
+def collect(
+    producers: dict[str, Callable[[], list[probe_results.Finding]]],
+) -> dict[str, list[probe_results.Finding]]:
+    """Run each producer under its own guard.
+
+    Merged, not chained — the rule `login_report.collect` needed, one layer on. A
+    producer that raises becomes its own section's `unavailable` carrying the reason,
+    and is **named**, so the reader learns which one stopped working rather than that
+    something, somewhere, did. It never becomes a missing key, which a consumer would
+    have to invent a meaning for, and never an empty list, which reads as health.
+    """
+    sections: dict[str, list[probe_results.Finding]] = {}
+    for name, produce in producers.items():
+        try:
+            sections[name] = produce()
+        except Exception as error:
+            sections[name] = [
+                probe_results.unchecked(f"the {name} section could not be built: {error}")
+            ]
+    return sections
+
+
+def write_atomic(path: str, document: dict) -> None:
+    """Write via a temporary file and rename, so a reader never sees a half-written one.
+
+    A consumer polling this path must not catch it mid-write and conclude the host is
+    unparseable — which, by rule 3 above, it would report as `unavailable`. The same
+    shape `helpers/containerwatch/cli.py` uses for `report.json`.
+    """
+    directory = os.path.dirname(path)
+    os.makedirs(directory, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(dir=directory, prefix=".status-", suffix=".tmp")
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(document, handle, indent=2)
+        os.replace(temporary, path)
+    except BaseException:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+        raise
+
+
+def _cannot_read(reason: str) -> dict:
+    """A document describing why there is no document. Same shape, so every consumer
+    renders it through the path it already has."""
+    return {
+        "schema": SCHEMA_VERSION,
+        "generated_at": "",
+        "kernel": "",
+        "sections": {SELF_SECTION: section([probe_results.unchecked(reason)])},
+    }
+
+
+def read(path: str) -> dict:
+    """The document, or a document saying why it could not be had.
+
+    Never raises and never returns an empty-but-healthy-looking shape. The three ways
+    this fails — absent, unparseable, a schema this does not know — are all reported as
+    `unavailable`, because each means the same thing to a reader: nothing here has been
+    established about this host.
+    """
+    try:
+        with open(path, encoding="utf-8") as handle:
+            document = json.load(handle)
+    except FileNotFoundError:
+        return _cannot_read(
+            "no host status has been recorded yet, so nothing is known about this host"
+        )
+    except (OSError, ValueError) as error:
+        return _cannot_read(f"the host status file could not be read: {error}")
+
+    if not isinstance(document, dict) or document.get("schema") != SCHEMA_VERSION:
+        # Rendering whatever happens to parse out of an unknown shape is how a consumer
+        # reports confidently about a document it did not understand.
+        return _cannot_read(
+            f"the host status file declares schema {document.get('schema')!r}, "
+            f"and this reader only understands {SCHEMA_VERSION}"
+        )
+    return document

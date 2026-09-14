@@ -157,3 +157,51 @@ problem from one that fetched last month, and one message for both would describ
 `check_freshness.EXIT_UNTRUSTWORTHY` stays. It is the right answer for *"the ledger is BROKEN"* and
 for *"a ledgered commit cannot be resolved"* — states where no verdict can be given at all. What
 changes is that a failed fetch alone stops being one of them.
+
+## 9. Two channels, and the one sink that merged them
+
+A check has two things to say and they are not the same kind of statement: **what it found
+about the host**, and **what happened to it while looking**. `check_freshness.run` was given a
+single sink for both.
+
+Everything it printed therefore arrived at the report as a finding. A failed `git fetch` —
+which §8 had just decided is a fact about the network, not the host — was reported as a fault in
+the machine. Each commit line listed under a stale play became a peer finding in its own right,
+so one drifted play read as five problems. And the `UNTRUSTWORTHY` verdict pointed the user at
+output they were never shown, because the notification carries findings, not stdout.
+
+Three sinks, named for what passes through them: `out` (the verdict's own lines), `diagnostics`
+(what happened while looking), `not_checked` (what could not be established). The seam is where
+the distinction has to live, because a caller cannot recover it afterwards — by then both kinds
+are strings in one list.
+
+## 10. Merged, not chained — and the notification is not the only channel
+
+Two failure shapes, both of which turn this surface into the thing it was built to prevent.
+
+**A raising check must not take the report down.** The checks run under their own guards in
+`login_report.collect`, so one that raises becomes a finding naming itself and the other two
+still report. Chained, a `dkms` that could not run would have silenced the pin check as well —
+a broken host reporting nothing, which is the incident.
+
+**A failing notifier must not make a broken host a silent one.** `notify-send` needs a session
+bus, and a bus that is not there is not a reason to discard the findings. So every finding goes
+to stdout with the exit status intact whatever the notifier does, and the notifier's own failure
+is reported too. The unit's journal therefore holds the report even when nothing rendered it.
+
+## 11. The split is carried in the data, not read from the prose
+
+The handoff file separates *"this is wrong"* from *"this was not looked at"*, and the second
+group is labelled as **not** clean results. That distinction is the whole value of the file: a
+list that mixes them and marks neither reads like a complete picture of a machine, which is how
+the incident happened.
+
+The first implementation recovered the split by matching substrings in the message text. Measured
+against the messages the checks actually emit, it misfiled **6 of 13** unchecked findings under
+the heading that calls them known faults — in the file whose one job is keeping them apart. Prose
+is not a data channel: every new check would have had to phrase its messages to suit a matcher it
+does not know exists.
+
+`probe_results.Finding` carries `checked`, the producing check's own answer, and the split reads
+that field. Re-measured after: **0 of 13**. The substring version, restored, fails the tests that
+pin it.
