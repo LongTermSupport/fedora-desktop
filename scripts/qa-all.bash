@@ -406,6 +406,23 @@ run_log_scrub_summary=$(printf '%s' "$run_log_scrub_out" | grep -oE 'passed: [0-
     run_log_scrub_summary="passed"
 printf '✓ run-log-scrub: %s\n' "$run_log_scrub_summary"
 
+# lxcfreeze's decisions (Plan 00122). The tool itself cannot run here — this container has
+# no lxc, and a freeze tool that would report an empty machine from inside a container
+# refuses to start by design. So its decisions are pure functions and this drives them
+# directly, which is the same split scripts/test-ccy-rootless-guard.bash makes and for the
+# same reason. The cases that matter are the refusals: `lxc-info` output that cannot be read
+# must not resolve to STOPPED, and a container config that cannot be read must not report as
+# having no network — both would be a confident claim about a host from a probe that failed.
+lxcfreeze_out=""
+if ! lxcfreeze_out="$(bash "$SCRIPT_DIR/test-lxcfreeze.bash" 2>&1)"; then
+    echo "$lxcfreeze_out" >&2
+    echo "✗ QA FAILED: lxcfreeze decision unit tests" >&2
+    exit 1
+fi
+lxcfreeze_summary=$(printf '%s' "$lxcfreeze_out" | grep -oE 'passed: [0-9]+') ||
+    lxcfreeze_summary="passed"
+printf '✓ lxcfreeze: %s\n' "$lxcfreeze_summary"
+
 # The server login snippet (Plan 00109 Task 3.2). It is the first thing this repo puts in
 # ~/.bashrc-includes that PRINTS, and bash reads ~/.bashrc for a non-interactive shell too
 # when sshd started it — so a missing interactive guard breaks scp, sftp and rsync to the

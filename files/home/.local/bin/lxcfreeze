@@ -1,0 +1,900 @@
+#!/usr/bin/env bash
+# lxcfreeze — freeze and thaw LXC containers, singly, by bridge, or all at once.
+#
+# The LXC counterpart to `podfreeze`. Same idea, deliberately a separate tool:
+#
+#   - Podman here is ROOTLESS and `podfreeze` never escalates. This repo's LXC is
+#     ROOTFUL — `lxc-ls`, `lxc-info`, `lxc-freeze` and `/var/lib/lxc` all need root,
+#     as files/var/local/docker-in-lxc has always done. A group row cannot say
+#     "FREEZE 3" without first reading /var/lib/lxc, so one combined tool would
+#     prompt for root on every menu open, including for someone who only wanted
+#     Podman.
+#   - LXC has no CCY session, no GitHub account and no Anthropic token to group by.
+#     Those axes are absent here rather than present and empty.
+#
+# WHY THIS EXISTS (prior art, and where it falls short):
+#
+#   lxc-freeze -n NAME    The underlying mechanism, and all this wrapper calls. It
+#                         takes one container, needs its exact name, and tells you
+#                         nothing about what is there to act on.
+#   lxc-ls -f             Lists containers with their state, as aligned human
+#                         columns. Readable; no verb, no grouping, no preview.
+#   lxc-top               Live resource view. Read-only.
+#
+# So this adds what was missing and delegates the rest: a menu of GROUPS each
+# saying what choosing it does right now, a derived verb, and a dry run.
+#
+# THE VERB IS DERIVED, NOT ASKED. For any set there is one sensible move: anything
+# running gets frozen, and a set with nothing running gets thawed. So running
+# lxcfreeze twice on the same target toggles it. An explicit `freeze` / `thaw` on
+# the command line still wins, because a script must be able to say what it means
+# rather than depend on current state.
+#
+# FREEZE IS NOT SUSPEND-TO-DISK. `lxc-freeze` is the cgroup freezer: the processes
+# stay resident in RAM and stop being scheduled. Frozen containers do NOT survive a
+# reboot. The reboot-surviving equivalent is `lxc-checkpoint` (CRIU), which is a
+# different operation with different requirements and is not what this tool does.
+#
+# STOPPED CONTAINERS ARE NOT INVENTORIED. A stopped container can be neither frozen
+# nor thawed, so offering one as a candidate would only invite a confusing no-op.
+#
+# Usage:
+#   lxcfreeze [list|freeze|thaw] [target] [options]
+#
+# Targets (exactly one, or none for the interactive menu):
+#   NAME...            One or more container names.
+#   --bridge BR        Every container whose first interface is on bridge BR.
+#   --all              Every running or frozen container.
+#
+# Options:
+#   -n, --dry-run      Print the resolved set and exit. Changes nothing.
+#   -h, --help         Show this help and exit.
+#
+# Examples:
+#   lxcfreeze                         # menu: pick a group, it acts, repeat
+#   lxcfreeze list                    # what is running, what is frozen
+#   lxcfreeze --all                   # toggle everything
+#   lxcfreeze freeze --all            # explicitly freeze them
+#   lxcfreeze freeze --bridge lxcbr0 -n   # preview only
+#   lxcfreeze thaw mycontainer
+#
+# SOURCING THIS FILE IS SUPPORTED, and scripts/test-lxcfreeze.bash relies on it: the
+# dispatch at the bottom is guarded on `BASH_SOURCE[0] == $0`, so sourcing defines
+# the functions and runs nothing. Note that the `set -euo pipefail` below DOES apply
+# to a sourcing shell — the test restores its own options afterwards and asserts it
+# did, because inheriting errexit into a test that drives deliberate failures aborts
+# it on the first one.
+set -euo pipefail
+
+# LXC's own words for the two states this tool acts on, and the third it excludes.
+# Named rather than inlined because they appear in the parser, the partition and the
+# table, and a state word spelled differently in one of those is a silent mis-group.
+STATE_RUNNING="RUNNING"
+STATE_FROZEN="FROZEN"
+
+# Where rootful LXC keeps per-container configuration. The bridge is read from
+# `lxc.net.0.link` in $LXC_CONFIG_DIR/NAME/config — the same file and the same key
+# files/var/local/docker-in-lxc reads.
+LXC_CONFIG_DIR="/var/lib/lxc"
+
+# The two non-bridge answers for a container's bridge column. Neither is a bridge, so
+# neither is ever offered as a group — but they are not the same thing, and
+# lxcf_bridge_label exists to keep them apart. Both contain whitespace, which a Linux
+# interface name cannot — that is what makes `bridge_names`' filter on these exact
+# strings safe, rather than a hope that nobody names a bridge this.
+BRIDGE_NONE="(no network)"
+BRIDGE_UNREADABLE="(could not read)"
+
+MAX_TRIES=3   # bounded retries on a recoverable menu-input mistake
+
+DRY_RUN=0
+ACTION=""
+TARGET_MODE=""
+TARGET_BRIDGE=""
+declare -a TARGET_NAMES=()
+
+# The inventory: three parallel arrays, one entry per container that can be frozen
+# or thawed. Populated by load_inventory; read by every decision below.
+declare -a INV_NAME=()
+declare -a INV_STATE=()
+declare -a INV_BRIDGE=()
+
+# The resolved selection, set by one of the select_* functions.
+declare -a SELECTED=()
+
+# do_action's three buckets, set by lxcf_partition.
+declare -a LXCF_TARGETS=()
+declare -a LXCF_SKIPPED=()
+declare -a LXCF_VANISHED=()
+
+# ---------------------------------------------------------------------------
+# Output conventions: stdout is the payload, everything else is stderr.
+# `list` and `--help` are the exception — printing for a human IS their job.
+# ---------------------------------------------------------------------------
+
+log() { printf '==> %s\n' "$*" >&2; }
+
+die() {
+    printf 'lxcfreeze: %s\n' "$*" >&2
+    exit 1
+}
+
+have() {
+    command -v "$1" > /dev/null
+}
+
+usage() {
+    echo "Usage: lxcfreeze [list|freeze|thaw] [target] [options]"
+    echo ""
+    echo "  Freeze and thaw LXC containers — one, a whole bridge, or all of them."
+    echo "  The Podman counterpart is 'podfreeze'; this is its LXC sibling, and is"
+    echo "  separate because this repo's LXC is rootful and Podman here is not."
+    echo ""
+    echo "  Run with no target for a menu of GROUPS, each row saying what choosing"
+    echo "  it does right now (\"FREEZE 3\", \"THAW 1\"). Choosing one opens the"
+    echo "  group: the first row acts on all of it, the rest are its containers if"
+    echo "  you want only some. It acts, then returns to the menu, until you quit."
+    echo ""
+    echo "  The verb is derived: anything running is frozen, a set with nothing"
+    echo "  running is thawed. So the same choice twice toggles it. There is no"
+    echo "  confirmation prompt — freezing is undone by doing it again."
+    echo ""
+    echo "  Freezing is the cgroup freezer, not suspend-to-disk: frozen containers"
+    echo "  do NOT survive a reboot."
+    echo ""
+    echo "  Every operation needs root, including the read-only inventory:"
+    echo "  /var/lib/lxc is root-only. You will be prompted once per run."
+    echo ""
+    echo "Verbs (optional — omit to let the state decide):"
+    echo "  list               Show running and frozen containers, then exit."
+    echo "  freeze             Freeze the target containers."
+    echo "  thaw               Thaw the target containers."
+    echo ""
+    echo "Targets (exactly one, or none for the menu):"
+    echo "  NAME...            One or more container names."
+    echo "  --bridge BR        Every container whose first interface is on BR."
+    echo "  --all              Every running or frozen container."
+    echo ""
+    echo "  A STOPPED container is listed by neither: it can be neither frozen nor"
+    echo "  thawed, so it is not a candidate."
+    echo ""
+    echo "Options:"
+    echo "  -n, --dry-run      Print the resolved set and exit; change nothing."
+    echo "  -h, --help         Show this help and exit."
+    echo ""
+    echo "Examples:"
+    echo "  lxcfreeze                       menu: pick a group, it acts, repeat"
+    echo "  lxcfreeze list"
+    echo "  lxcfreeze --all                 toggle everything"
+    echo "  lxcfreeze freeze --all"
+    echo "  lxcfreeze freeze --bridge lxcbr0 -n"
+    echo "  lxcfreeze thaw mycontainer"
+}
+
+# ---------------------------------------------------------------------------
+# Pure parsers. Separated from the queries that feed them precisely so they can
+# be tested — this container has no lxc, and a tool that refuses to run inside a
+# container cannot be exercised end to end here at all. Same split, same reason,
+# as engine_rootless_verdict in files/var/local/claude-yolo/lib/common-pure.bash.
+# ---------------------------------------------------------------------------
+
+# lxcf_parse_state <lxc-info-output> — echoes RUNNING, FROZEN, STOPPED, or NOTHING.
+#
+# Empty output is NOT a state, and specifically is not STOPPED. `lxc-info` exits
+# non-zero and complains on stdout for a container it does not know, and a probe that
+# could not answer must not be read as a fact about the machine: treating it as
+# STOPPED would drop the container from the inventory, so a container that exists and
+# is running would silently not be offered. "Could not tell" is its own answer.
+#
+# An unrecognised state word is the same refusal. LXC has transient states
+# (ABORTING, STARTING, STOPPING) that are neither freezable nor thawable, and
+# guessing which side of the line a new one falls on is how a wrong verb gets sent.
+lxcf_parse_state() {
+    local raw="${1-}" value
+    # The value after the first `State:` key, whitespace-trimmed. `-m1` because
+    # lxc-info prints one State line and a second would mean output we do not
+    # understand.
+    value="$(printf '%s\n' "$raw" | grep -m1 -E '^[[:space:]]*State:' || true)"
+    value="${value#*:}"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    case "$value" in
+        "$STATE_RUNNING" | "$STATE_FROZEN" | STOPPED) printf '%s' "$value" ;;
+        *) printf '' ;;
+    esac
+}
+
+# lxcf_parse_bridge <config-file-text> — echoes the first interface's bridge, or
+# NOTHING when the container has no network configured.
+#
+# `lxc.net.0.link` only. Three things are deliberately not matched:
+#   - a commented-out key, which is not configuration and would report a bridge the
+#     container is not on, grouping it with containers that are;
+#   - `lxc.net.1.link` and beyond, so a two-NIC container has one answer rather than
+#     whichever line the matcher reached last;
+#   - `lxc.network.link`, the pre-2.1 spelling. This repo installs LXC 4.x from the
+#     ganto/lxc4 Copr, which does not read that key, and honouring it here would
+#     report a bridge from configuration LXC itself is ignoring.
+lxcf_parse_bridge() {
+    local raw="${1-}" line value grep_rc=0
+    line="$(printf '%s\n' "$raw" | grep -m1 -E '^[[:space:]]*lxc\.net\.0\.link[[:space:]]*=')" || grep_rc=$?
+    # grep exits 1 for "no such line", which here means "this container declares no
+    # first interface" — an answer, not a failure. Anything above 1 is grep itself
+    # failing and is not something to paper over.
+    if [ "$grep_rc" -gt 1 ]; then
+        printf ''
+        return 0
+    fi
+    value="${line#*=}"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s' "$value"
+}
+
+# lxcf_bridge_label <config-read-rc> <config-text> — the table/group value for one
+# container's bridge: a bridge name, BRIDGE_NONE, or BRIDGE_UNREADABLE.
+#
+# THREE answers, because two would collapse a distinction the groups depend on. A
+# config that declares no network means the container genuinely has no bridge; a
+# config that could not be read means nobody knows which bridge it is on. Reporting
+# the second as the first states a fact about the machine that was never established
+# — and since `bridge_names` offers a group row per bridge in use, a container of
+# unknown bridge silently joining the "no network" pile is a container the bridge
+# groups can never reach.
+#
+# Same shape as `probe_results.DkmsRegistry` in Plan 00109: one read, one value, and
+# the "could not tell" carried rather than folded into the boring answer.
+lxcf_bridge_label() {
+    local rc="${1:?}" raw="${2-}" bridge
+    if [ "$rc" -ne 0 ]; then
+        printf '%s' "$BRIDGE_UNREADABLE"
+        return 0
+    fi
+    bridge="$(lxcf_parse_bridge "$raw")"
+    if [ -z "$bridge" ]; then
+        printf '%s' "$BRIDGE_NONE"
+        return 0
+    fi
+    printf '%s' "$bridge"
+}
+
+# ---------------------------------------------------------------------------
+# Pure decisions. Every one of these reads the inventory arrays and returns an
+# answer; none of them shells out.
+# ---------------------------------------------------------------------------
+
+# lxcf_index_of <name> — echoes the inventory index, or returns 1.
+#
+# An exact string comparison, not a pattern match: a name that is a prefix of a real
+# one must not resolve to it, or a selection acts on a container nobody chose.
+lxcf_index_of() {
+    local wanted="${1:?}" i
+    for i in "${!INV_NAME[@]}"; do
+        if [ "${INV_NAME[$i]}" = "$wanted" ]; then
+            printf '%s' "$i"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# lxcf_count_in_state <state> <name>... — how many of THOSE NAMES are in that state.
+#
+# Scoped to the names given rather than to the whole inventory: this is what the menu
+# labels are built from, and a row that counted the machine instead of the group would
+# promise to act on containers outside it. A name not in the inventory contributes
+# nothing — lxcf_partition is what reports those.
+lxcf_count_in_state() {
+    local want="${1:?}"
+    shift
+    local name i n=0
+    for name in "$@"; do
+        if i="$(lxcf_index_of "$name")" && [ "${INV_STATE[$i]}" = "$want" ]; then
+            n=$((n + 1))
+        fi
+    done
+    printf '%s' "$n"
+}
+
+# lxcf_infer_action — the derived verb for the current SELECTED set.
+#
+# Anything running means freeze; a set with nothing running means thaw. The whole set
+# is scanned, not just its first member: a group is usually mixed, and the common case
+# is exactly "most of these are frozen and one is still running".
+#
+# An empty selection yields `thaw` because nothing in it is running. That is the
+# rule's consequence rather than a decision about empty sets — do_action refuses an
+# empty selection before the verb matters.
+lxcf_infer_action() {
+    local name i
+    for name in "${SELECTED[@]+${SELECTED[@]}}"; do
+        if i="$(lxcf_index_of "$name")" && [ "${INV_STATE[$i]}" = "$STATE_RUNNING" ]; then
+            printf 'freeze'
+            return 0
+        fi
+    done
+    printf 'thaw'
+}
+
+# lxcf_target_effect <name>... — what choosing this group would do, right now.
+#
+# It applies the same rule lxcf_infer_action does, or an explicit CLI verb when one
+# was given, so a menu row can never disagree with the outcome of choosing it. The
+# count is of containers the verb will TOUCH, not of the group's size.
+#
+# The two explicit-verb refusals are worded differently from each other and from the
+# derived one. One shared "nothing to do" would tell a user who asked to thaw about
+# freezing, and would let a single string satisfy three different cases.
+lxcf_target_effect() {
+    local running frozen
+    running="$(lxcf_count_in_state "$STATE_RUNNING" "$@")"
+    frozen="$(lxcf_count_in_state "$STATE_FROZEN" "$@")"
+
+    case "$ACTION" in
+        freeze)
+            if [ "$running" -gt 0 ]; then
+                printf 'FREEZE %s' "$running"
+            else
+                printf 'nothing to freeze'
+            fi
+            return 0
+            ;;
+        thaw)
+            if [ "$frozen" -gt 0 ]; then
+                printf 'THAW   %s' "$frozen"
+            else
+                printf 'nothing to thaw'
+            fi
+            return 0
+            ;;
+    esac
+
+    if [ "$running" -gt 0 ]; then
+        printf 'FREEZE %s' "$running"
+    elif [ "$frozen" -gt 0 ]; then
+        printf 'THAW   %s' "$frozen"
+    else
+        printf 'nothing to do'
+    fi
+}
+
+# lxcf_partition <freeze|thaw> <name>... — split a selection three ways, into
+# LXCF_TARGETS, LXCF_SKIPPED and LXCF_VANISHED.
+#
+# THREE buckets, not two. A name already in the requested state is SKIPPED; a name
+# that is not in the inventory at all has VANISHED since the inventory was read, and
+# is reported as that rather than folded in with the skips. Collapsing them would tell
+# the user a container is "already in that state" when the truth is nobody knows where
+# it went — and dropping it silently would act on fewer containers than were chosen
+# and say nothing about the difference.
+#
+# Targets keep the order they were given, which is the order the user typed or the
+# group listed, not inventory order.
+lxcf_partition() {
+    local action="${1:?}"
+    shift
+    local name i want_state
+
+    if [ "$action" = "freeze" ]; then
+        want_state="$STATE_RUNNING"
+    else
+        want_state="$STATE_FROZEN"
+    fi
+
+    # Reset, or a second pass through the interactive loop would act on a target the
+    # user chose a screen ago.
+    LXCF_TARGETS=()
+    LXCF_SKIPPED=()
+    LXCF_VANISHED=()
+
+    for name in "$@"; do
+        if ! i="$(lxcf_index_of "$name")"; then
+            LXCF_VANISHED+=("$name")
+        elif [ "${INV_STATE[$i]}" = "$want_state" ]; then
+            LXCF_TARGETS+=("$name")
+        else
+            LXCF_SKIPPED+=("$name")
+        fi
+    done
+}
+
+# ---------------------------------------------------------------------------
+# Preflight. Each guard answers one question, and none of them answers it with
+# an empty inventory.
+# ---------------------------------------------------------------------------
+
+# Inside a container the host's LXC is not reachable, so every probe below would
+# report an empty machine — a misleading empty result, which is worse than an error.
+assert_on_host() {
+    if [ -f /run/.containerenv ] || [ -f /.dockerenv ] || [ -n "${container:-}" ]; then
+        die "this is a container — run lxcfreeze on the HOST.
+  The host's LXC is not reachable from in here, so every container would look
+  absent and this tool would report a machine with nothing on it."
+    fi
+}
+
+# `lxc-ls` absent and `lxc-ls` returning nothing are DIFFERENT answers, and this is
+# the guard that keeps them apart. No LXC installed is a missing dependency with an
+# IaC remedy; LXC installed with no containers is a correct, boring empty. Reporting
+# the first as the second would tell someone their containers are gone.
+assert_lxc() {
+    local missing=()
+    have lxc-ls || missing+=("lxc-ls")
+    have lxc-info || missing+=("lxc-info")
+    have lxc-freeze || missing+=("lxc-freeze")
+    have lxc-unfreeze || missing+=("lxc-unfreeze")
+    if [ "${#missing[@]}" -gt 0 ]; then
+        die "LXC is not installed on this host — missing: ${missing[*]}
+  This is not 'no containers': nothing here can answer the question at all.
+  LXC is declared in playbooks/imports/play-lxc-install-config.yml, which
+  playbook-main.yml imports. Deploy it with:
+    ansible-playbook playbooks/imports/play-lxc-install-config.yml
+  Do NOT install it by hand."
+    fi
+}
+
+# Every query below needs root, including the read-only ones: /var/lib/lxc is
+# root-only, so even listing containers escalates. Say so BEFORE prompting — an
+# unexplained password prompt from a tool the user just asked to list things is
+# indistinguishable from something going wrong.
+#
+# A refused or unavailable sudo is a NAMED FAILURE. If it were allowed through, every
+# query would fail, the inventory would come back empty, and the tool would report a
+# host with no containers on it — the tool confidently answering a question it was
+# never able to ask.
+assert_sudo() {
+    have sudo || die "no sudo on this host, and every LXC query needs root."
+    # A cached credential means no prompt is coming, so say nothing.
+    if sudo -n true 2> /dev/null; then
+        return 0
+    fi
+    log "LXC here is rootful: /var/lib/lxc is root-only, so even listing containers"
+    log "needs root. Authenticating once for this run."
+    sudo true ||
+        die "sudo was refused, so no LXC state could be read.
+  Nothing was changed. This is NOT 'no containers found' — the question was
+  never asked, and reporting an empty machine here would be a guess."
+}
+
+# ---------------------------------------------------------------------------
+# The queries. Untested by scripts/test-lxcfreeze.bash, deliberately and for the
+# same reason the parsers above are split out of them: nothing here can run in
+# the container the suite runs in. Plan 00122 Task 3.4 is the HOST check that
+# confirms these commands emit what the parsers expect.
+# ---------------------------------------------------------------------------
+
+# One name per line from `lxc-ls -1`, rather than parsing `lxc-ls -f`'s aligned human
+# columns. The fancy format is for reading, not for machines: its column set and
+# widths are presentation, and a parser keyed on them breaks on a version that adds a
+# column. `-1` and `lxc-info -s` are both single-purpose and stable.
+load_inventory() {
+    local names name state bridge config config_rc
+
+    if ! names="$(sudo lxc-ls -1 2>&1)"; then
+        die "lxc-ls failed, so the container list is unknown: ${names}"
+    fi
+
+    INV_NAME=()
+    INV_STATE=()
+    INV_BRIDGE=()
+
+    while read -r name; do
+        [ -n "$name" ] || continue
+        # lxc-info exits non-zero for a container that went away between the list and
+        # this call — a real race, since nothing holds a lock across the two. The
+        # parser answers NOTHING for that output, which is why its status is captured
+        # rather than judged: a vanished container is skipped here, and a container
+        # whose state simply cannot be read is skipped for the same reason. Neither is
+        # inventoried, because a container of unknown state must not be offered a verb.
+        state="$(lxcf_parse_state "$(sudo lxc-info -n "$name" -s 2>&1 || true)")"
+        case "$state" in
+            "$STATE_RUNNING" | "$STATE_FROZEN") ;;
+            *) continue ;;
+        esac
+        # The config is root-only, so this is `sudo cat` rather than a readability
+        # test — and its status is captured because a config that cannot be read is a
+        # different fact from a config that declares no network. lxcf_bridge_label
+        # is where that distinction is made; here we only supply both halves of it.
+        config_rc=0
+        config="$(sudo cat "${LXC_CONFIG_DIR}/${name}/config" 2>&1)" || config_rc=$?
+        bridge="$(lxcf_bridge_label "$config_rc" "$config")"
+        INV_NAME+=("$name")
+        INV_STATE+=("$state")
+        INV_BRIDGE+=("$bridge")
+    done <<< "$names"
+}
+
+# ---------------------------------------------------------------------------
+# Selectors
+# ---------------------------------------------------------------------------
+
+select_all() {
+    SELECTED=("${INV_NAME[@]+${INV_NAME[@]}}")
+}
+
+# Bridge names actually in use, one per line, deduplicated. Neither of the two
+# non-bridge labels is offered as a group: "no network" is not a bridge and a row for
+# it would read as one, and "unreadable" is not a set anyone can ask to freeze.
+bridge_names() {
+    local i
+    for i in "${!INV_BRIDGE[@]}"; do
+        case "${INV_BRIDGE[$i]}" in
+            "$BRIDGE_NONE" | "$BRIDGE_UNREADABLE") continue ;;
+        esac
+        printf '%s\n' "${INV_BRIDGE[$i]}"
+    done | sort -u
+}
+
+# A bridge nobody is on returns an empty set, which would read as "nothing is on it" —
+# a confident answer to a question that was never asked. So the bridge is verified to
+# be in use first, and an unknown one is an error that lists the known ones.
+select_bridge() {
+    local want="${1:?}" i
+    local -a known=()
+    mapfile -t known < <(bridge_names)
+    local found=0 bridge
+    for bridge in "${known[@]+${known[@]}}"; do
+        [ "$bridge" = "$want" ] && found=1
+    done
+    if [ "$found" -eq 0 ]; then
+        if [ "${#known[@]}" -eq 0 ]; then
+            echo "lxcfreeze: no running or frozen container is on any bridge." >&2
+        else
+            echo "lxcfreeze: no running or frozen container is on bridge '$want'." >&2
+            echo "  In use right now: ${known[*]}" >&2
+        fi
+        return 1
+    fi
+    SELECTED=()
+    for i in "${!INV_BRIDGE[@]}"; do
+        if [ "${INV_BRIDGE[$i]}" = "$want" ]; then
+            SELECTED+=("${INV_NAME[$i]}")
+        fi
+    done
+}
+
+select_names() {
+    local name
+    local -a unknown=()
+    SELECTED=()
+    for name in "$@"; do
+        if lxcf_index_of "$name" > /dev/null; then
+            SELECTED+=("$name")
+        else
+            unknown+=("$name")
+        fi
+    done
+    if [ "${#unknown[@]}" -gt 0 ]; then
+        echo "lxcfreeze: not a running or frozen container: ${unknown[*]}" >&2
+        echo "  Run 'lxcfreeze list' to see what is available. A STOPPED container" >&2
+        echo "  is not listed: it can be neither frozen nor thawed." >&2
+        exit 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Reporting
+# ---------------------------------------------------------------------------
+
+print_table() {
+    local name i
+    printf '  %-34s %-8s %s\n' "NAME" "STATE" "BRIDGE"
+    for name in "$@"; do
+        if ! i="$(lxcf_index_of "$name")"; then
+            continue
+        fi
+        printf '  %-34s %-8s %s\n' "$name" "${INV_STATE[$i]}" "${INV_BRIDGE[$i]}"
+    done
+}
+
+do_list() {
+    local -a running=() frozen=()
+    local i
+
+    for i in "${!INV_NAME[@]}"; do
+        if [ "${INV_STATE[$i]}" = "$STATE_FROZEN" ]; then
+            frozen+=("${INV_NAME[$i]}")
+        else
+            running+=("${INV_NAME[$i]}")
+        fi
+    done
+
+    echo "=== frozen (${#frozen[@]}) ==="
+    if [ "${#frozen[@]}" -eq 0 ]; then
+        echo "  (none)"
+    else
+        print_table "${frozen[@]}"
+        echo ""
+        echo "  Thaw them all with: lxcfreeze thaw --all"
+    fi
+    echo ""
+    echo "=== running (${#running[@]}) ==="
+    if [ "${#running[@]}" -eq 0 ]; then
+        echo "  (none)"
+    else
+        print_table "${running[@]}"
+    fi
+    # An empty inventory on a host that HAS lxc is a real, boring answer, and it is
+    # said out loud so it cannot be confused with the failures that also produce no
+    # rows. assert_lxc and assert_sudo have already ruled out the other two reasons
+    # this could be empty.
+    if [ "${#INV_NAME[@]}" -eq 0 ]; then
+        echo ""
+        echo "  LXC is installed and has no running or frozen containers."
+        echo "  (A STOPPED container is not counted — see 'sudo lxc-ls -f'.)"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# The action
+# ---------------------------------------------------------------------------
+
+do_action() {
+    local action="$1"
+    local name past lxc_verb out
+    local failed=0
+
+    if [ "$action" = "freeze" ]; then
+        lxc_verb="lxc-freeze"
+        past="FROZEN"
+    else
+        lxc_verb="lxc-unfreeze"
+        past="THAWED"
+    fi
+
+    if [ "${#SELECTED[@]}" -eq 0 ]; then
+        die "nothing matched — the selection is empty.
+  Run 'lxcfreeze list' to see what is running and what is frozen."
+    fi
+
+    lxcf_partition "$action" "${SELECTED[@]}"
+
+    if [ "${#LXCF_VANISHED[@]}" -gt 0 ]; then
+        echo "Skipped — no longer present (gone since the inventory was read): ${LXCF_VANISHED[*]}" >&2
+    fi
+    if [ "${#LXCF_SKIPPED[@]}" -gt 0 ]; then
+        echo "Skipped — not in the state '$action' acts on: ${LXCF_SKIPPED[*]}" >&2
+    fi
+    if [ "${#LXCF_TARGETS[@]}" -eq 0 ]; then
+        echo "Nothing to do — every selected container is already in the requested state." >&2
+        return 0
+    fi
+
+    if [ "$DRY_RUN" -eq 1 ]; then
+        echo "DRY RUN — ${#LXCF_TARGETS[@]} container(s) would be $past:"
+        print_table "${LXCF_TARGETS[@]}"
+        return 0
+    fi
+
+    # Printed before acting, not to ask permission but to leave a record of exactly
+    # what was touched. There is deliberately no confirmation prompt: freezing is the
+    # cgroup freezer and is undone by running lxcfreeze again on the same target, so a
+    # prompt would guard a reversible act — and in the interactive path the menu row
+    # already named the verb and the count before it was chosen.
+    echo "${#LXCF_TARGETS[@]} container(s) being $past:" >&2
+    print_table "${LXCF_TARGETS[@]}" >&2
+
+    # Each container is acted on individually so a single failure is NAMED rather than
+    # collapsing the batch into one opaque exit status, and so a failure part-way
+    # through does not silently abandon the rest. Every failure is printed and the
+    # command still exits non-zero.
+    for name in "${LXCF_TARGETS[@]}"; do
+        if out="$(sudo "$lxc_verb" -n "$name" 2>&1)"; then
+            echo "  ✓ $name" >&2
+        else
+            echo "  ✗ $name — $out" >&2
+            failed=$((failed + 1))
+        fi
+    done
+
+    if [ "$action" = "freeze" ]; then
+        echo "" >&2
+        echo "  Thaw them with: lxcfreeze thaw ${LXCF_TARGETS[*]}" >&2
+    fi
+
+    # Returns rather than dies, so the interactive loop can report a failure and carry
+    # on. The one-shot path runs this as its last command, so the status still becomes
+    # the script's.
+    if [ "$failed" -gt 0 ]; then
+        echo "lxcfreeze: $failed of ${#LXCF_TARGETS[@]} container(s) failed — see above." >&2
+        return 1
+    fi
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Interactive menu. Groups first and per-container picking last, because acting
+# on a whole group is the common case.
+#
+# Validate strictly, recover kindly (CLAUDE/InteractiveScripts.md): a bad
+# keypress re-prompts inside a bounded loop rather than aborting, and running out
+# of tries is the hard failure.
+# ---------------------------------------------------------------------------
+
+# Echoes a target key: "all", "bridge:<name>", "name:<name>", or "quit".
+pick_target() {
+    local reply attempt total i
+    local -a keys=() labels=()
+
+    if [ ! -t 2 ] || [ ! -r /dev/tty ]; then
+        die "no terminal to ask on — name a target explicitly: NAME..., --bridge BR,
+  or --all. See 'lxcfreeze --help'."
+    fi
+
+    keys+=("all")
+    labels+=("$(printf 'All LXC containers (%s)' "$(lxcf_target_effect "${INV_NAME[@]+${INV_NAME[@]}}")")")
+
+    local -a bridges=()
+    mapfile -t bridges < <(bridge_names)
+    local bridge
+    for bridge in "${bridges[@]+${bridges[@]}}"; do
+        local -a members=()
+        for i in "${!INV_BRIDGE[@]}"; do
+            [ "${INV_BRIDGE[$i]}" = "$bridge" ] && members+=("${INV_NAME[$i]}")
+        done
+        keys+=("bridge:${bridge}")
+        labels+=("$(printf 'Bridge %-16s (%s)' "$bridge" "$(lxcf_target_effect "${members[@]}")")")
+    done
+
+    for i in "${!INV_NAME[@]}"; do
+        keys+=("name:${INV_NAME[$i]}")
+        labels+=("$(printf '  %-32s (%s)' "${INV_NAME[$i]}" "$(lxcf_target_effect "${INV_NAME[$i]}")")")
+    done
+
+    total="${#keys[@]}"
+    attempt=0
+    while [ "$attempt" -lt "$MAX_TRIES" ]; do
+        attempt=$((attempt + 1))
+        {
+            echo ""
+            echo "lxcfreeze — choose a group, or a single container:"
+            for i in "${!keys[@]}"; do
+                printf '  %2d) %s\n' "$((i + 1))" "${labels[$i]}"
+            done
+            echo "   q) quit"
+            printf 'choice: '
+        } >&2
+        read -r reply < /dev/tty || reply="q"
+        case "$reply" in
+            q | Q | quit) printf 'quit'; return 0 ;;
+        esac
+        # Strictly a number in range. An out-of-range or non-numeric answer is a
+        # recoverable mistake, so it says what was wrong and asks again.
+        if [[ "$reply" =~ ^[0-9]+$ ]] && [ "$reply" -ge 1 ] && [ "$reply" -le "$total" ]; then
+            printf '%s' "${keys[$((reply - 1))]}"
+            return 0
+        fi
+        echo "  not a choice: '${reply}' — enter 1-${total}, or q to quit." >&2
+    done
+    die "no valid choice after ${MAX_TRIES} attempts."
+}
+
+# The interactive session: menu, act, refresh, menu again — the inventory is re-read
+# every pass so the counts describe the machine as it is now, not as it was when the
+# tool started. Leaves only when you quit.
+interactive_loop() {
+    local picked status=0
+    while true; do
+        load_inventory
+        if [ "${#INV_NAME[@]}" -eq 0 ]; then
+            log "no running or frozen LXC containers on this host — nothing to do."
+            return 0
+        fi
+        picked="$(pick_target)"
+        case "$picked" in
+            quit) return "$status" ;;
+            all) select_all ;;
+            bridge:*)
+                if ! select_bridge "${picked#bridge:}"; then
+                    continue
+                fi
+                ;;
+            name:*) select_names "${picked#name:}" ;;
+            *) die "internal: unrecognised menu key '${picked}'" ;;
+        esac
+        do_action "${ACTION:-$(lxcf_infer_action)}" || status=1
+    done
+}
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+set_target_mode() {
+    if [ -n "$TARGET_MODE" ]; then
+        die "choose one target only — '$TARGET_MODE' and '$1' are mutually exclusive."
+    fi
+    TARGET_MODE="$1"
+}
+
+parse_args() {
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            -h | --help)
+                usage
+                exit 0
+                ;;
+            -n | --dry-run)
+                DRY_RUN=1
+                shift
+                ;;
+            --all)
+                set_target_mode "--all"
+                shift
+                ;;
+            --bridge)
+                set_target_mode "--bridge"
+                shift
+                if [ "$#" -eq 0 ]; then
+                    die "--bridge needs a bridge name — see 'lxcfreeze --help'."
+                fi
+                TARGET_BRIDGE="$1"
+                shift
+                ;;
+            list | freeze | thaw)
+                if [ -n "$ACTION" ]; then
+                    die "only one verb at a time — already have '$ACTION'."
+                fi
+                ACTION="$1"
+                shift
+                ;;
+            -*)
+                die "unknown option '$1' — see 'lxcfreeze --help'."
+                ;;
+            *)
+                TARGET_NAMES+=("$1")
+                shift
+                ;;
+        esac
+    done
+    if [ "${#TARGET_NAMES[@]}" -gt 0 ]; then
+        set_target_mode "names"
+    fi
+}
+
+main() {
+    parse_args "$@"
+
+    assert_on_host
+    assert_lxc
+    assert_sudo
+    load_inventory
+
+    if [ "$ACTION" = "list" ]; then
+        if [ -n "$TARGET_MODE" ]; then
+            die "'list' takes no target — it reports everything."
+        fi
+        do_list
+        exit 0
+    fi
+
+    # No target on the command line means the interactive session, which loops until
+    # you quit. A named target is the one-shot, scriptable form.
+    if [ -z "$TARGET_MODE" ]; then
+        interactive_loop
+        exit $?
+    fi
+
+    case "$TARGET_MODE" in
+        "--all") select_all ;;
+        # Explicit exit, because select_bridge RETURNS on an unknown bridge rather
+        # than exiting: the interactive loop re-prompts, but from a script an unknown
+        # bridge must still be a hard failure, and `set -e` does not apply to a
+        # command in a condition.
+        "--bridge")
+            if ! select_bridge "$TARGET_BRIDGE"; then
+                exit 1
+            fi
+            ;;
+        "names") select_names "${TARGET_NAMES[@]}" ;;
+    esac
+
+    do_action "${ACTION:-$(lxcf_infer_action)}"
+}
+
+# Guarded so scripts/test-lxcfreeze.bash can source this file for its functions
+# without running the tool — which it could not do anyway, since assert_on_host
+# refuses inside a container and the suite runs in one.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+    main "$@"
+fi

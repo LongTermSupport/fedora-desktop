@@ -152,3 +152,7 @@ Yes — once, to pick up the new `docker` group membership. Log out and back in,
 - `playbooks/imports/play-podman.yml` — Podman setup
 - `playbooks/imports/optional/common/play-docker.yml` — Docker setup (optional)
 - `playbooks/imports/play-lxc-install-config.yml` — LXC setup
+- `podfreeze` / `lxcfreeze` — freeze and thaw containers by group, one tool per engine.
+  Two tools rather than one because Podman here is rootless and LXC is rootful, so a
+  combined tool would prompt for root on every menu open
+  (`playbooks/imports/optional/common/play-podfreeze.yml`, `play-lxcfreeze.yml`)

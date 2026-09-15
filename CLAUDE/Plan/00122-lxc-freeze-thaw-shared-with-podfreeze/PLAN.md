@@ -1,4 +1,4 @@
-# Plan 00122: freeze and thaw LXC containers, on machinery podfreeze already has
+# Plan 00122: freeze and thaw LXC containers, as podfreeze does for Podman
 
 **Status**: In Progress
 **Created**: 2026-09-15
@@ -21,7 +21,7 @@ a flag on `podfreeze`:
 | Axis      | Podman here                                          | LXC here                                      |
 | --------- | ---------------------------------------------------- | --------------------------------------------- |
 | Privilege | rootless, no `sudo`                                  | **rootful** — every query and action needs it |
-| Inventory | `podman ps`                                          | `sudo lxc-ls -f` / `sudo lxc-info`            |
+| Inventory | `podman ps`                                          | `sudo lxc-ls -1` + `sudo lxc-info -s`         |
 | States    | `running` / `paused`                                 | `RUNNING` / `STOPPED` / `FROZEN`              |
 | Groups    | CCY session, network, GitHub account, token, SSH key | none of those exist                           |
 
@@ -32,22 +32,39 @@ over that, and over the misnaming a `podfreeze` that does LXC would carry.
 
 What the two **do** share is everything that is not the engine: the group menu, the
 drill-down, the derived verb, the dry run, the bounded retry on a bad keypress, the
-refusal to run inside a container, and the per-target act-and-report loop. That goes
-into a sourced library, so `lxcfreeze` is the LXC-specific parts and nothing else.
+refusal to run inside a container, and the per-target act-and-report loop.
+
+> **SCOPE, set by the owner after the plan was filed**: *"for now dont touch podfreeze
+> just make lxcfreeze"*, and *"we can worry about DRY later"*. So the shared library is
+> **not** built here and `podfreeze` is **not** refactored. `lxcfreeze` is standalone and
+> will re-implement the menu, the derived verb and the dry run for itself.
+>
+> That duplication is a **recorded decision, not an oversight**. The reason it is the
+> right call today: extracting a library from a 1,261-line tool that has no test anywhere
+> in the repo and is used daily means the refactor's only safety net would be a suite
+> written for the occasion — and a suite written after a refactor proves the refactor's
+> own idea of correct. Building `lxcfreeze` first produces the second caller that shows
+> which seams are actually shared, rather than guessing them from one. The extraction is
+> [Phase 4](#phase-4-the-shared-library-deferred), left explicit so it is findable.
 
 ## Goals
 
 - `lxcfreeze` freezes and thaws LXC containers singly, by bridge, or all of them, with
   the same derived-verb and dry-run behaviour `podfreeze` has.
-- The shared machinery lives in **one** place, sourced by both tools.
-- `podfreeze`'s behaviour is **unchanged** by the extraction — proven, not asserted.
-- Both tools and the library are deployed by one play, since neither has a lifecycle of
-  its own and copying the deploy tasks is how the pair would drift.
+- Its **decisions** are pure functions with a test suite, so the parts that cannot be
+  exercised in a container are still falsifiable — the pattern
+  `scripts/test-ccy-rootless-guard.bash` already establishes here.
+- `podfreeze` is **not touched**: not one line, so its behaviour cannot regress.
+- Deployed by its own play, `play-lxcfreeze.yml`. That is **not** what this plan first
+  concluded — see Task 3.1 for why the owner's "don't touch podfreeze" outranks the
+  one-play derivation, and where the two get reconciled.
 
 ## Non-Goals
 
-- **Renaming or re-scoping `podfreeze`.** It keeps its name, its groups and its rootless
-  behaviour. This plan adds a sibling and extracts what they share.
+- **Touching `podfreeze` at all**, per the owner's instruction above. Not its name, not
+  its groups, not its rootless behaviour, and not a library extracted out of it.
+- **De-duplicating the two tools.** Deferred to Phase 4 by the same instruction. The
+  duplication is deliberate and written down rather than discovered later.
 - **CCY groups for LXC.** `ccy=true`, `ccy-github`, `ccy-token` and `ccy-ssh-keys` are
   labels CCY stamps on Podman containers at launch. LXC sessions have no equivalent, and
   inventing one is not this plan's business.
@@ -61,63 +78,94 @@ into a sourced library, so `lxcfreeze` is the LXC-specific parts and nothing els
 
 ## Tasks
 
-### Phase 1: The shared library, with `podfreeze` unchanged
+### Phase 1: The decisions, and a suite that can falsify them
 
-- [ ] ⬜ **Task 1.1**: A test suite for the machinery **before** it moves. There is none
-  today, so the extraction has no safety net: `podfreeze` is 1,261 lines, it works, and it
-  is used daily. The suite drives the real functions against stub engines
-- [ ] ⬜ **Task 1.2**: Extract the engine-agnostic functions into
-  `files/home/.local/lib/freeze/freezelib.bash`. Engine-specific behaviour enters through
-  a named hook, not through an `if` on the engine inside shared code
-- [ ] ⬜ **Task 1.3**: `podfreeze` sources the library and keeps its own Podman inventory,
-  CCY groups and identity axes. The suite from 1.1 must pass unchanged across the move — a
-  test written after the refactor proves the refactor's own idea of correct
+The queries and the guards cannot run here — this container has no `lxc`, and a
+freeze-tool's own guard refuses to run inside a container by design. So the **decisions**
+are pure functions over fabricated inventories and are tested directly, while the query
+that feeds them is not. That split is the repo's existing pattern, stated in
+`scripts/test-ccy-rootless-guard.bash`: *"you cannot ask a real engine to be rootful just
+to prove the guard notices."*
+
+- [x] ✅ **Task 1.1**: `scripts/test-lxcfreeze.bash` — written first, against the pure
+  decision functions. Every state list arrives **out of order and non-uniform**, or a
+  mutant that drops the sort or reads the wrong list survives every case
+- [x] ✅ **Task 1.2**: The decisions themselves, sourceable without executing the tool:
+  the derived verb, the menu label, the state counts, and the partition of a selection
+  into act / skip / vanished
 
 ### Phase 2: `lxcfreeze`
 
-- [ ] ⬜ **Task 2.1**: The inventory. `sudo lxc-ls -f`, parsed into the shared arrays;
-  `FROZEN` maps to the frozen state and `STOPPED` is excluded
-- [ ] ⬜ **Task 2.2**: The actions — `sudo lxc-freeze -n` / `sudo lxc-unfreeze -n`, one
+- [x] ✅ **Task 2.1**: The inventory. `sudo lxc-ls -1` for names and `sudo lxc-info -n NAME -s` for each state — **not** `lxc-ls -f`, whose aligned human columns are the
+  fragile thing to parse. `FROZEN` and `RUNNING` are inventoried; `STOPPED` is excluded
+- [x] ✅ **Task 2.2**: The actions — `sudo lxc-freeze -n` / `sudo lxc-unfreeze -n`, one
   container at a time so a single failure is named rather than collapsing the batch
-- [ ] ⬜ **Task 2.3**: Groups worth having: all containers, and by bridge. LXC has no
-  session identity, so those axes are absent rather than empty
-- [ ] ⬜ **Task 2.4**: The `sudo` story. A tool that needs root for a read-only inventory
-  must say so before prompting, and a refused `sudo` is a named failure — never an empty
-  set read as "nothing to freeze"
-- [ ] ⬜ **Task 2.5**: `lxc` absent is its own answer, distinct from "LXC installed, no
+- [x] ✅ **Task 2.3**: Groups worth having: all containers, and by bridge (read from
+  `lxc.net.0.link` in `/var/lib/lxc/NAME/config`). LXC has no session identity, so those
+  axes are absent rather than empty
+- [x] ✅ **Task 2.4**: The `sudo` story. A tool that needs root for a read-only inventory
+  says so before prompting, and a refused `sudo` is a named failure — never an empty set
+  read as "nothing to freeze"
+- [x] ✅ **Task 2.5**: `lxc` absent is its own answer, distinct from "LXC installed, no
   containers" — the same distinction `probe.dkms_registry` had to carry in Plan 00109, and
   for the same reason: one of them is a fault and the other is not
+- [x] ✅ **Task 2.6**: Refuse to run inside a container, as `podfreeze` does. The host's
+  LXC is not reachable from in here, so every probe would report an empty machine — and a
+  misleading empty answer is worse than an error
 
 ### Phase 3: Deploy, QA, docs
 
-- [ ] ⬜ **Task 3.1**: Extend `play-podfreeze.yml` to deploy the library and `lxcfreeze`
-  alongside `podfreeze`. One play: same `hosts`, same `become`, same `scope`, and both
-  engines are core imports of `playbook-main.yml`, so neither tool needs a guard the other
-  does not. A second play would copy four deploy tasks, which is the shape that drifts
-- [ ] ⬜ **Task 3.2**: Wire the suite into `qa-all.bash`; update `CLAUDE/QA.md`'s gate
+- [x] ✅ **Task 3.1**: A new `play-lxcfreeze.yml`.
+  **This reverses the plan's first answer, and the reason is the owner's instruction.**
+  The repo's own test — a play earns its own file when it has "a lifecycle of its own"
+  (`docs/playbooks.md`) — says `lxcfreeze` does *not*: same `hosts`, same `become`, same
+  `scope`, and both engines are core imports of `playbook-main.yml`, so one play should
+  own both. But extending `play-podfreeze.yml` means either its name stops matching what
+  it does, or it gets renamed — and a rename churns the catalogue heading, the
+  `#play-podfreezeyml` anchor `docs/ccy.md` links, and Plan 00079's `PLAN.md` and
+  `deploy.bash`. Against *"for now dont touch podfreeze"* and *"we can worry about DRY
+  later"*, the three duplicated deploy tasks are the cheaper debt, and Phase 4 is where
+  both plays and both tools get reconciled together
+- [x] ✅ **Task 3.2**: Wire the suite into `qa-all.bash`; update `CLAUDE/QA.md`'s gate
   count and table
-- [ ] ⬜ **Task 3.3**: `docs/playbooks.md` — the catalogue entry covers both tools, and the
-  `#play-podfreezeyml` anchor `docs/ccy.md` links must keep resolving
+- [x] ✅ **Task 3.3**: `docs/playbooks.md` gains a `play-lxcfreeze.yml` entry;
+  `CLAUDE/ContainerEngines.md` gains the pair. The existing `#play-podfreezeyml` anchor
+  is untouched, so `docs/ccy.md`'s link to it keeps resolving
 - [ ] ⬜ **Task 3.4**: **HOST** — run the play, then `lxcfreeze list`, freeze a container,
-  confirm `sudo lxc-info -n NAME -s` reports `FROZEN`, thaw it, and confirm `podfreeze`
-  still behaves exactly as before on the same machine
+  confirm `sudo lxc-info -n NAME -s` reports `FROZEN`, thaw it, and confirm it reports
+  `RUNNING` again. This is also where the real `lxc-ls -1` / `lxc-info -s` output shapes
+  are confirmed: the suite proves the decisions against fabricated output, so only a host
+  can say the parser was handed what it expected
 - [ ] ⬜ **Task 3.5**: `qa-reviewer` over the diff
+
+### Phase 4: The shared library (deferred)
+
+Not part of this plan's delivery. Recorded because the duplication it removes is
+deliberate, and an undocumented duplication is indistinguishable from a mistake.
+
+- [ ] 💤 **Task 4.1**: With two callers in hand, extract what they actually share rather
+  than what one of them suggests. The seam looks like: the derived verb, the menu label,
+  the state counts, the act/skip/vanished partition, the menu loop and its bounded retry.
+  The engine-specific parts are the inventory query, the act call, the availability guard,
+  the two state words, and the extra table columns
+- [ ] 💤 **Task 4.2**: Whatever is extracted needs `podfreeze` behaviour pinned **first**,
+  by a suite written against the current tool — not after the move
 
 ## Success Criteria
 
 - [ ] `lxcfreeze` freezes a running LXC container and thaws it again, verified with
   `lxc-info -s` rather than by the tool's own report
 - [ ] Running `lxcfreeze` twice on the same target toggles it, as `podfreeze` does
-- [ ] `podfreeze` behaves identically before and after the extraction — the same suite
-  passes against both
+- [ ] `git diff` touches **no** line of `files/home/.local/bin/podfreeze`
 - [ ] A refused or absent `sudo` produces a named failure, never an empty selection
 - [ ] `lxc` not installed is reported as such, and is distinguishable from zero containers
+- [ ] Every decision the suite covers has a mutant that kills it
 - [ ] `./scripts/qa-all.bash` passes
 
 ## Dependencies
 
 - **Builds on**: Plan 00079 (podman container control) — owns `podfreeze` and the play
-  this plan extends. Not reopened; this adds a sibling and a shared library
+  this plan extends. Not reopened, and `podfreeze` itself is not modified
 - **Requires**: `playbooks/imports/play-lxc-install-config.yml` (core import) for the
   `lxc-freeze` / `lxc-unfreeze` binaries
 - **Related**: `CLAUDE/ContainerEngines.md` — the Podman/Docker/LXC role split this plan

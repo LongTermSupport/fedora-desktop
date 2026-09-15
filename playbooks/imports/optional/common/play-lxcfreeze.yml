@@ -1,0 +1,103 @@
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
+---
+# lxcfreeze — freeze/thaw LXC containers by name, bridge, or all at once.
+#
+# Deploys ~/.local/bin/lxcfreeze. The tool shells out to the `lxc-*` CLI installed
+# by playbooks/imports/play-lxc-install-config.yml (a core play imported by
+# playbook-main.yml, so it is always present) and adds nothing to the host but
+# itself.
+#
+# WHY A SEPARATE PLAY FROM play-podfreeze.yml. By this repo's own test
+# (docs/playbooks.md) it should not be: a play earns its own file when it has "a
+# lifecycle of its own", and this has none — same hosts, same become, same scope,
+# and both container engines are core imports, so one play could own both tools.
+# What decides it is the NAME. Deploying lxcfreeze from a file called
+# play-podfreeze.yml makes the name stop describing the play, and renaming that
+# play churns the docs catalogue heading, the #play-podfreezeyml anchor docs/ccy.md
+# links, and Plan 00079's PLAN.md and deploy.bash. The owner asked for lxcfreeze
+# without touching podfreeze, so the duplicated deploy tasks are the cheaper debt
+# for now. Plan 00122 Phase 4 reconciles the pair — both plays and both tools —
+# once there is a second caller to derive the shared seam from rather than guess it.
+#
+# WHY A WRAPPER AND NOT JUST `lxc-freeze`:
+#   - `lxc-freeze -n NAME` takes one container, needs its exact name, and says
+#     nothing about what is there to act on. The wrapper's interactive form is a
+#     menu of GROUPS — all containers, or everything on a given bridge — each row
+#     saying what choosing it does right now ("FREEZE 3", "THAW 1").
+#   - The verb is derived rather than asked: anything running is frozen, a set with
+#     nothing running is thawed, so the same choice twice toggles it.
+#   - `lxc-ls -f` lists state as aligned human columns: readable, but no verb, no
+#     grouping and no preview.
+#
+# ROOTFUL, UNLIKE podfreeze. /var/lib/lxc is root-only, so even the read-only
+# inventory escalates — the tool says so before it prompts, and treats a refused
+# sudo as a named failure rather than as an empty machine.
+#
+# `lxc-freeze` is the cgroup freezer, NOT suspend-to-disk: frozen containers do not
+# survive a reboot. The reboot-surviving equivalent is `lxc-checkpoint` (CRIU),
+# which is a different operation and not what this tool does.
+- hosts: desktop
+  name: LXC Freeze — freeze/thaw containers by name, bridge, or all at once
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    lxcfreeze_binary: "/home/{{ user_login }}/.local/bin/lxcfreeze"
+  tasks:
+    # =========================================================================
+    # The tool itself
+    #
+    # No package tasks: every binary lxcfreeze calls (lxc-ls, lxc-info,
+    # lxc-freeze, lxc-unfreeze) comes from the `lxc` package that
+    # playbooks/imports/play-lxc-install-config.yml installs, and that play is a
+    # core import of playbook-main.yml. The tool still checks for them at run
+    # time and names that play in its error, because "LXC is not installed" and
+    # "LXC has no containers" are different answers and only one of them is a
+    # missing dependency.
+    # =========================================================================
+
+    - name: Ensure User Local Bin Directory Exists
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.local/bin"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+      tags:
+        - lxcfreeze
+
+    - name: Deploy the lxcfreeze Command
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/lxcfreeze"
+        dest: "{{ lxcfreeze_binary }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+      tags:
+        - lxcfreeze
+
+    - name: LXC Freeze Ready
+      ansible.builtin.debug:
+        msg:
+          - "✓ lxcfreeze deployed to {{ lxcfreeze_binary }}"
+          - ""
+          - "  lxcfreeze                      menu of groups; acts, then repeats"
+          - "  lxcfreeze list                 running and frozen containers"
+          - "  lxcfreeze freeze NAME          freeze one by name"
+          - "  lxcfreeze freeze --all         freeze every running container"
+          - "  lxcfreeze freeze --bridge BR -n  preview a bridge freeze"
+          - "  lxcfreeze thaw --all           thaw everything frozen"
+          - "  lxcfreeze --help               full usage"
+          - ""
+          - "  Every operation needs root, including the read-only inventory:"
+          - "  /var/lib/lxc is root-only. You are prompted once per run."
+          - ""
+          - "  A STOPPED container is listed by neither verb — it can be neither"
+          - "  frozen nor thawed, so it is not offered as a candidate."
+          - ""
+          - "  Freezing is the cgroup freezer, not suspend-to-disk — frozen"
+          - "  containers do NOT survive a reboot."
+          - ""
+          - "  The Podman counterpart is 'podfreeze' (play-podfreeze.yml)."
+      tags:
+        - lxcfreeze
