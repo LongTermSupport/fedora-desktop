@@ -44,8 +44,12 @@ def document(sections: dict, *, at: str = NOW) -> dict:
     return status_document.build(sections=sections, kernel=KERNEL, at=at)
 
 
-def render(sections: dict, *, at: str = NOW, now: str = NOW) -> str:
-    return login_message.render(document(sections, at=at), now=now)
+def render(
+    sections: dict, *, at: str = NOW, now: str = NOW, running_kernel: str = KERNEL
+) -> str:
+    return login_message.render(
+        document(sections, at=at), now=now, running_kernel=running_kernel
+    )
 
 
 class TestSilentWhenCleanAndFresh(unittest.TestCase):
@@ -144,15 +148,86 @@ class TestAnAbsentDocumentIsNotAHealthyHost(unittest.TestCase):
 
     def test_an_unavailable_document_is_reported(self) -> None:
         message = login_message.render(
-            status_document.read("/nowhere/at/all/status.json"), now=NOW)
+            status_document.read("/nowhere/at/all/status.json"),
+            now=NOW, running_kernel=KERNEL)
         self.assertNotEqual(message, "")
 
     def test_it_does_not_claim_an_age_it_cannot_know(self) -> None:
         """An unreadable document has no `generated_at`, and printing an age derived
         from an empty string would be a measurement of nothing."""
         message = login_message.render(
-            status_document.read("/nowhere/at/all/status.json"), now=NOW)
+            status_document.read("/nowhere/at/all/status.json"),
+            now=NOW, running_kernel=KERNEL)
         self.assertNotIn("days ago", message)
+
+    def test_it_does_not_claim_a_kernel_mismatch_it_cannot_know(self) -> None:
+        """The unavailable shape carries `kernel: ""`. Comparing that against the
+        running kernel would report a mismatch on every login on a host whose only
+        problem is that nothing has run yet, and the document already says so."""
+        message = login_message.render(
+            status_document.read("/nowhere/at/all/status.json"),
+            now=NOW, running_kernel=KERNEL)
+        self.assertNotIn("now running", message)
+
+
+class TestADocumentFromAnotherBootIsNotAboutThisOne(unittest.TestCase):
+    """The exposure the SERVER route introduces, and the desktop route does not have.
+
+    On a desktop the producer re-runs at every graphical login, so the document always
+    describes the boot the reader is in. On a server it runs on a timer, so a document
+    can outlive a reboot — and after a reboot into a NEW kernel, a document collected
+    under the old one is still fresh, still says `ok`, and the report stays silent about
+    a host whose DKMS modules are not built for the kernel it is now running.
+
+    That is this plan's founding incident exactly: a reboot into kernel 7.2.4 left both
+    DisplayLink monitors dark while every check stayed green. Staleness does not cover
+    it — the document can be minutes old and still be about a different kernel.
+    """
+
+    OTHER = "7.1.9-200.fc44.x86_64"
+
+    def test_a_fresh_clean_document_from_another_kernel_is_not_silent(self) -> None:
+        self.assertNotEqual(render({"health": []}, running_kernel=self.OTHER), "")
+
+    def test_it_names_both_kernels(self) -> None:
+        """Which one it was collected under and which one is running — a reader has to
+        be able to tell a reboot from a kernel that was removed under them."""
+        message = render({"health": []}, running_kernel=self.OTHER)
+        self.assertIn(KERNEL, message)
+        self.assertIn(self.OTHER, message)
+
+    def test_it_is_reported_as_not_checked_rather_than_as_a_fault(self) -> None:
+        """Nothing is known to be broken. What is known is that these results do not
+        describe the running kernel, which is the not-checked group's whole meaning."""
+        message = render({"health": []}, running_kernel=self.OTHER)
+        self.assertIn("not checked", message.lower())
+
+    def test_the_same_kernel_is_silent(self) -> None:
+        self.assertEqual(render({"health": []}, running_kernel=KERNEL), "")
+
+    def test_it_is_reported_alongside_real_findings_not_instead_of_them(self) -> None:
+        message = render(
+            {"health": [probe_results.broken("evdi: no DKMS module")]},
+            running_kernel=self.OTHER,
+        )
+        self.assertIn("evdi: no DKMS module", message)
+        self.assertIn(self.OTHER, message)
+
+    def test_a_stale_document_from_another_kernel_reports_both(self) -> None:
+        """Independent conditions. A timer that died before a reboot produces both, and
+        collapsing them would hide whichever was reported second."""
+        message = render(
+            {"health": []}, at="2026-08-01T18:00:00Z", now=NOW, running_kernel=self.OTHER
+        )
+        self.assertIn("days ago", message)
+        self.assertIn(self.OTHER, message)
+
+    def test_an_unknown_running_kernel_claims_no_mismatch(self) -> None:
+        """`probe.running_kernel` reads `os.uname()` and cannot realistically return
+        empty, but "I could not tell" must not render as "they differ" — that would be
+        a finding manufactured out of ignorance, which is the inverse of this plan's
+        rule and just as wrong."""
+        self.assertEqual(render({"health": []}, running_kernel=""), "")
 
 
 class TestItNeverRaises(unittest.TestCase):
@@ -160,10 +235,25 @@ class TestItNeverRaises(unittest.TestCase):
     than any report it could have printed."""
 
     def test_a_document_missing_its_sections_does_not_raise(self) -> None:
-        self.assertIsInstance(login_message.render({"schema": 1}, now=NOW), str)
+        self.assertIsInstance(
+            login_message.render({"schema": 1}, now=NOW, running_kernel=KERNEL), str)
 
     def test_a_document_that_is_not_a_dict_does_not_raise(self) -> None:
-        self.assertIsInstance(login_message.render("nonsense", now=NOW), str)
+        self.assertIsInstance(
+            login_message.render("nonsense", now=NOW, running_kernel=KERNEL), str)
+
+    def test_a_document_whose_kernel_is_not_a_string_does_not_raise(self) -> None:
+        """The kernel comparison reads a value off a file that may have been written by
+        another version, truncated or hand-edited — the same defensiveness every other
+        field in here already has."""
+        odd = {
+            "schema": status_document.SCHEMA_VERSION,
+            "generated_at": NOW,
+            "kernel": ["not", "a", "string"],
+            "sections": {},
+        }
+        self.assertIsInstance(
+            login_message.render(odd, now=NOW, running_kernel=KERNEL), str)
 
     def test_an_unparseable_timestamp_does_not_raise_and_is_reported(self) -> None:
         """A timestamp that cannot be read means the age is unknown, which by this
@@ -190,7 +280,8 @@ class TestItNeverRaises(unittest.TestCase):
             "kernel": KERNEL,
             "sections": {"health": {"state": "findings", "findings": "not a list"}},
         }
-        self.assertIsInstance(login_message.render(broken_document, now=NOW), str)
+        self.assertIsInstance(
+            login_message.render(broken_document, now=NOW, running_kernel=KERNEL), str)
 
 
 class TestTheEntryPointALoginShellCalls(unittest.TestCase):

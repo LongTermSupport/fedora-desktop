@@ -93,18 +93,22 @@ make_state() {
         printf '%s' "$home"
         return 0
     fi
-    python3 - "$home/fedora-desktop/host-status.json" "$kind" "$FINDING_TEXT" <<'PYEOF'
+    # The RUNNING kernel, not a placeholder. `login_message` reports a document collected
+    # under a different kernel as not-checked — a real rule, exercised by its own tests —
+    # so a fixture with an invented kernel makes every case here speak and the silent
+    # cases stop testing what they were written for.
+    python3 - "$home/fedora-desktop/host-status.json" "$kind" "$FINDING_TEXT" "$(uname -r)" <<'PYEOF'
 import datetime
 import json
 import sys
 
-dest, kind, finding = sys.argv[1:4]
+dest, kind, finding, kernel = sys.argv[1:5]
 now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 findings = [finding] if kind == "findings" else []
 document = {
     "schema": 1,
     "generated_at": now,
-    "kernel": "0.0.0-test",
+    "kernel": kernel,
     "sections": {
         "health": {
             "state": "findings" if findings else "ok",

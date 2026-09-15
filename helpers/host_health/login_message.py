@@ -22,6 +22,11 @@ Both are kept by treating the document's own age as a finding past a declared bo
 the same shape `DESIGN-host-health.md` §8 settled for the fetch clock, for the same
 reason.
 
+Age is not the only way a fresh document can fail to describe this host. The producer
+runs on a timer here, so a document can outlive a **reboot**: collected minutes ago,
+`ok`, and entirely about the kernel that is no longer running. A kernel mismatch is
+therefore reported in its own right, independently of age.
+
 **Nothing here raises.** It is called from a login shell, so a traceback costs the user
 their prompt, and that is worse than any report it might have printed. Every branch ends
 in a string.
@@ -37,7 +42,7 @@ import os
 import sys
 from typing import TextIO
 
-from helpers.host_health import status_document
+from helpers.host_health import probe, status_document
 from helpers.play_ledger import ledger, repo
 
 #: How old the document may be before its age is itself reported. Declared, not buried in
@@ -103,7 +108,7 @@ def _texts(section: object, key: str) -> list[str]:
     return [line for line in lines if isinstance(line, str)]
 
 
-def render(document: object, *, now: str) -> str:
+def render(document: object, *, now: str, running_kernel: str) -> str:
     """The message, or `""` to say nothing.
 
     Known faults first — something broken now outranks something merely unknown — then
@@ -154,6 +159,30 @@ def render(document: object, *, now: str) -> str:
             f"describes this machine as it is now"
         )
 
+    # A document can outlive a reboot on the SERVER route, where the producer runs on a
+    # timer rather than at every login. A document collected under the previous kernel is
+    # still fresh and can still say `ok` while every DKMS module on the box is unbuilt for
+    # the kernel that actually booted — this plan's founding incident, and staleness does
+    # not cover it: the document can be minutes old and still be about a different kernel.
+    #
+    # Both sides must be known before this is a finding. The `unavailable` shape carries
+    # `kernel: ""`, and an empty running kernel means "could not tell"; neither is evidence
+    # of a mismatch, and manufacturing one out of ignorance is the inverse of this plan's
+    # rule and just as wrong. Read defensively for the same reason every other field here
+    # is: the document may have been written by another version, or truncated.
+    collected_under = document.get("kernel") if isinstance(document, dict) else None
+    if (
+        isinstance(collected_under, str)
+        and collected_under
+        and running_kernel
+        and collected_under != running_kernel
+    ):
+        unchecked.append(
+            f"these results were collected under kernel {collected_under} and this host "
+            f"is now running {running_kernel}, so nothing here describes the running "
+            "kernel"
+        )
+
     if not broken and not unchecked:
         return ""
 
@@ -165,14 +194,14 @@ def render(document: object, *, now: str) -> str:
     return "\n".join(lines)
 
 
-def read_and_render(path: str, *, now: str) -> str:
+def read_and_render(path: str, *, now: str, running_kernel: str) -> str:
     """The whole server-side job: read the document, render it.
 
     `status_document.read` already turns absent, unparseable and unknown-schema into an
     `unavailable` document rather than an empty one, so this cannot accidentally report a
     missing file as a healthy host.
     """
-    return render(status_document.read(path), now=now)
+    return render(status_document.read(path), now=now, running_kernel=running_kernel)
 
 
 def main(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
@@ -198,7 +227,13 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
     state_dir = arguments.state_dir or ledger.state_dir(
         os.environ, os.path.expanduser("~")
     )
-    message = read_and_render(status_document.path(state_dir), now=repo.utc_now())
+    message = read_and_render(
+        status_document.path(state_dir),
+        now=repo.utc_now(),
+        # One definition of "the running kernel", shared with the producer, rather than a
+        # second `os.uname()` here that could drift from it.
+        running_kernel=probe.running_kernel(),
+    )
     if message:
         out.write(f"{message}\n")
     return 0

@@ -162,6 +162,11 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     - [x] ✅ The snippet prints **only for an interactive shell** — bash reads
       `~/.bashrc` for sshd's non-interactive shells too, so an unconditional print breaks
       `scp` to the host it reports on. 12 assertions, six mutants
+    - [x] ✅ **A fresh document can still be about the previous boot.** Only the timer
+      route can outlive a reboot, and a document collected under the old kernel stays
+      `ok` while every DKMS module is unbuilt for the one running — this plan's own
+      incident, which staleness does not catch. `render` now takes the running kernel and
+      reports a mismatch in its own right. Four mutants
     - [ ] ⬜ **HOST**: run the play on a server profile — the timer arms, a document
       appears, an interactive login shows findings, and an `scp` still completes
 - [ ] 🔄 **Task 3.3**: Claude Code handoff — file and offer done

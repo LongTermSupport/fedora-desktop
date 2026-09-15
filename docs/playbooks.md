@@ -794,6 +794,10 @@ The same report on a **server** profile, where `notify-send` has nothing to talk
   breaks `scp`, `sftp` and `rsync` to the host with a protocol error
 - Fails loudly if `~/.bashrc` does not source `~/.bashrc-includes` — run
   `playbook-main.yml` first. A snippet nothing reads looks exactly like a healthy host
+- **A document from before the last reboot is reported as not-checked**, however recent
+  it is. Only this route can outlive a reboot, and results collected under the previous
+  kernel say nothing about DKMS modules for the one now running — which is the exact
+  shape of the failure that started this work
 
 #### play-fedora-desktop-panel.yml
 
