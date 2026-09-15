@@ -223,6 +223,59 @@ class TestWhereItLives(unittest.TestCase):
         self.assertTrue(status_document.FILE_NAME.endswith(".json"))
 
 
+class TestWhetherItDescribesThisBoot(unittest.TestCase):
+    """"Is this document about the boot I am in?" is a property of the DOCUMENT.
+
+    It therefore lives here, not in whichever consumer noticed it first. There are two
+    declared consumers — `login_message` and the panel — and a predicate implemented in
+    one of them is a question the other silently never asks. That is not hypothetical:
+    the panel renders `post-boot-health` findings as current faults with no kernel
+    awareness at all, and the reason a desktop was thought immune — the producer runs at
+    every graphical login — fails exactly when that unit fails, which is one of the
+    things this plan exists to detect.
+
+    Both sides must be known before this can be true. The `unavailable` shape carries
+    `kernel: ""` and an empty running kernel means "could not tell"; manufacturing a
+    mismatch out of either is the inverse of this plan's rule and just as wrong.
+    """
+
+    KERNEL = "7.2.4-200.fc44.x86_64"
+    OTHER = "7.1.9-200.fc44.x86_64"
+
+    def document(self, kernel: str) -> dict:
+        return status_document.build(sections={}, kernel=kernel, at=NOW)
+
+    def test_a_different_kernel_is_stale(self) -> None:
+        self.assertTrue(status_document.is_boot_stale(
+            self.document(self.OTHER), running_kernel=self.KERNEL))
+
+    def test_the_same_kernel_is_not(self) -> None:
+        self.assertFalse(status_document.is_boot_stale(
+            self.document(self.KERNEL), running_kernel=self.KERNEL))
+
+    def test_a_document_that_does_not_say_is_not_stale(self) -> None:
+        """`_cannot_read` carries `kernel: ""`, and it has already explained itself."""
+        self.assertFalse(status_document.is_boot_stale(
+            status_document.read("/nowhere/at/all.json"), running_kernel=self.KERNEL))
+
+    def test_an_unknown_running_kernel_is_not_a_mismatch(self) -> None:
+        self.assertFalse(status_document.is_boot_stale(
+            self.document(self.OTHER), running_kernel=""))
+
+    def test_it_never_raises_on_a_document_it_cannot_read(self) -> None:
+        for odd in ("nonsense", {"schema": 1}, {"kernel": ["not", "a", "string"]}, None):
+            with self.subTest(document=odd):
+                self.assertIsInstance(
+                    status_document.is_boot_stale(odd, running_kernel=self.KERNEL), bool)
+
+    def test_the_collecting_kernel_is_readable_without_a_second_defensive_read(self) -> None:
+        """A consumer naming the kernel in a message must not re-implement the guard."""
+        self.assertEqual(
+            status_document.collected_kernel(self.document(self.OTHER)), self.OTHER)
+        self.assertEqual(status_document.collected_kernel("nonsense"), "")
+        self.assertEqual(status_document.collected_kernel({"kernel": 7}), "")
+
+
 class TestReadingItBack(unittest.TestCase):
     """The consumer half, and the rule that decides whether the panel is honest.
 

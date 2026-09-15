@@ -126,6 +126,23 @@ tree.
   the same `dkms_registered_modules()` tri-state as the probe, so the two cannot disagree
   about whether this host has DKMS.
 
+### 4.2 The predicate belongs to the document, and the panel does not ask it
+
+`is_boot_stale(document, *, running_kernel)` and `collected_kernel(document)` live in
+`status_document`, not in `login_message`. "Is this document about the boot I am in?" is
+a property of the document, and a predicate implemented in one of its two declared
+consumers is a question the other silently never asks.
+
+Which is the state the panel is in: `statusDocument.js` carries `kernel: ''` as a default
+and compares it to nothing, so it renders `post-boot-health` findings as current faults
+whichever boot produced them. The reason a desktop looked immune — the producer runs at
+every graphical login — holds only while `host-health.service` works, and that unit
+failing is one of the things this plan exists to detect.
+
+Lifting the predicate is the half that can be done in a container. The panel consuming it
+is Phase 4 work: it needs the running kernel in GJS, a rendering decision for a stale
+section, and a Wayland log-out-and-in to verify. Recorded as a Task 4.2 item.
+
 ### 5.1 The first answer to the pin half silenced the founding incident
 
 Applicability was first taken from the play ledger for the whole population: a pin

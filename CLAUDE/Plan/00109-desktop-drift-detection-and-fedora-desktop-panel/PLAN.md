@@ -205,6 +205,10 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     with more detail. `helpers/play_ledger/ledger_presence.py`, 9 tests
   - [ ] ⬜ What a finding does when activated — a Task 3.3 decision
     ([DESIGN-panel.md](DESIGN-panel.md) §9)
+  - [ ] ⬜ **The panel is not boot-aware** (qa-reviewer, 26-09-15) — it renders
+    `post-boot-health` findings as current faults whichever boot produced them. The
+    predicate is `status_document.is_boot_stale`; the panel has to ask it
+    ([DESIGN-server-route.md](DESIGN-server-route.md) §4.2)
 - [ ] ⬜ **Task 4.3**: Play/task runner — plays with their ledger state, launched in a
   visible terminal, never in the background. Which plays it lists needs the ledger's real
   contents from Task 1.2's HOST run

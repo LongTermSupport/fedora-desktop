@@ -124,13 +124,11 @@ def render(document: object, *, now: str, running_kernel: str) -> str:
     # Established BEFORE the sections are read, because it decides how one of them is
     # read. See the block below the loop for why a mismatch is a finding at all; here it
     # decides whether the boot-scoped section's faults are still faults.
-    collected_under = document.get("kernel") if isinstance(document, dict) else None
-    rebooted = bool(
-        isinstance(collected_under, str)
-        and collected_under
-        and running_kernel
-        and collected_under != running_kernel
-    )
+    #
+    # The predicate itself belongs to the document, not to this consumer: the panel is
+    # the other declared reader and asks the same question of the same file.
+    collected_under = status_document.collected_kernel(document)
+    rebooted = status_document.is_boot_stale(document, running_kernel=running_kernel)
 
     broken: list[str] = []
     unchecked: list[str] = []

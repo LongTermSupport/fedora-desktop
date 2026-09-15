@@ -84,6 +84,36 @@ def path(state_dir: str) -> str:
     return os.path.join(state_dir, FILE_NAME)
 
 
+def collected_kernel(document: object) -> str:
+    """The kernel this document was collected under, or `""` when it does not say.
+
+    Read defensively once, here, so a consumer naming the kernel in a message does not
+    re-implement the guard: the document comes off disk and may be from another version,
+    truncated or hand-edited.
+    """
+    if not isinstance(document, dict):
+        return ""
+    kernel = document.get("kernel")
+    return kernel if isinstance(kernel, str) else ""
+
+
+def is_boot_stale(document: object, *, running_kernel: str) -> bool:
+    """Whether this document describes a boot other than the one now running.
+
+    A property of the DOCUMENT, so it lives with the document rather than in whichever
+    consumer noticed it first. There are two declared consumers and a predicate
+    implemented in one of them is a question the other silently never asks — see
+    `BOOT_SCOPED_SECTION` for what turns on the answer.
+
+    Both sides must be known. `_cannot_read` carries `kernel: ""` and has already
+    explained itself; an empty running kernel means "could not tell". Reporting a
+    mismatch from either would be a finding manufactured out of ignorance, which is the
+    inverse of this plan's rule and just as wrong.
+    """
+    collected = collected_kernel(document)
+    return bool(collected and running_kernel and collected != running_kernel)
+
+
 def section(findings: list[probe_results.Finding]) -> dict:
     """One section: its state, and both groups kept apart.
 
