@@ -1,6 +1,8 @@
 # Plan 00121: run log secret scrubber and token scenario
 
-**Status**: In Progress
+**Status**: Dormant (parked by the owner as lower priority. Phase 1 and Phase 2 Tasks 2.1–2.5
+are complete, QA-green and pushed; Task 2.6 needs a real PAT on a throwaway account and can
+only be run by a human on the HOST; Phase 3 is open and doable in a container)
 **Created**: 2026-09-15
 **Owner**: joseph
 **Priority**: High
@@ -162,3 +164,14 @@ If the verification pass finds anything, the artefact is not published and the r
 - Plan created; scope split from Plan 00063's Phase 3 obligations.
 - Phase 1 delivered: `scripts/lib/run-log-scrub.bash`, its falsified 20-assertion suite, and
   the `run-log-scrub` stage in `qa-all.bash`. The off-mount Non-Goal is unchanged by it.
+  `8af28800`, `a60b9f9a`, `4595185b`.
+- Phase 2 machinery: the manifest's `host_only` flag, the two disjoint enumerations derived
+  from it, and `bridge_run`'s refusal read from the manifest rather than the allowlist —
+  `854da026`.
+- Phase 2 host-CLI gate: `host_only_preflight`, three independent gates, 19 assertions and
+  five mutants — `89bbdc59`.
+- Phase 2 scenario: `server-github-token`, its own guest checker, secret delivery, the needles
+  round-trip, the scrubber over the artefacts, and the `planned`↔`PLANNED` tie in
+  `qa-vmtest-manifest.bash` — `e40d5c60`.
+- **Parked here** at the owner's request. The next unit is Task 2.6, which needs a human and a
+  real PAT; Phase 3 needs neither and can be picked up in a container.

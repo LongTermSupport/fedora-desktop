@@ -36,6 +36,19 @@ The deny-list is data-driven (always current as the user adds new
 aliases or personas), and the allowlist is the only thing the user
 maintains by hand.
 
+> **A gap deriving from `localhost.yml` would not close, noted 2026-09-15.** The machine's
+> own **hostname** is an install identifier and is not stored in `localhost.yml` at all —
+> `RUN_BASH_HOSTNAME` is applied via `hostnamectl` and never written back — so neither the
+> hand-maintained deny-list nor this plan's derivation currently knows it. CCY 3.57.0
+> (`5d0afc88`) widened the exposure by injecting `CCY_HOST_HOSTNAME` into every container,
+> which is a convenience worth having and also a new way for that name to reach a tracked
+> file in a public repo. Teaching the deny-list the live hostname is a small change —
+> `CCY_HOST_HOSTNAME` inside a container, `uname -n` outside — but it was deliberately not
+> bundled with 3.57.0: a hostname that happens to be a common English word would block every
+> commit containing that word until it was added to
+> `.claude/public-token-allowlist.yml`. **Owner decision needed** on whether to accept that
+> trade, alongside the supersede question above.
+
 ## Goals
 
 - Block `gh issue|pr|gist (create|edit|comment)` and HTTP-POST
