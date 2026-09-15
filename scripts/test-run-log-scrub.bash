@@ -28,7 +28,7 @@ fi
 # shellcheck source=/dev/null
 source "$LIB"
 
-for fn in scrub_redact scrub_verify; do
+for fn in scrub_redact scrub_verify scrub_backstop; do
     if ! declare -F "$fn" >/dev/null; then
         echo "FAIL: ${fn} is not defined after sourcing the library" >&2
         exit 1
@@ -156,6 +156,54 @@ case "$err" in
     *value-UNTOLD*) check "the refusal does not echo the secret it found" "clean" "it leaked the secret" ;;
     *) check "the refusal does not echo the secret it found" "clean" "clean" ;;
 esac
+
+# ---------------------------------------------------------------------------
+# Task 1.4 — the pattern backstop, over the SAME engine the commit gate uses
+# ---------------------------------------------------------------------------
+#
+# Known-value redaction covers what a run was handed. The backstop is for what it was not:
+# an install identifier that reached the log by another route. It is explicitly the second
+# line of defence — if it is ever the thing that saves you, the first line had a hole.
+
+denylist=$(printf '%s' "$work/denylist")
+printf 'user_login\tjdoe\nhost_name\tworkstation-7\n' > "$denylist"
+
+# A denylisted identifier in the artefact is refused, and reported by FIELD NAME. The value is
+# what we are trying to keep out of messages, so the message must not contain it.
+logD=$(artefact logD "provisioning host workstation-7 now" "all done")
+err=$(scrub_backstop "$logD" "$denylist" 2>&1); rc=$?
+check "a denylisted identifier is refused" "1" "$rc"
+case "$err" in
+    *host_name*) check "the refusal names the field" "yes" "yes" ;;
+    *) check "the refusal names the field" "yes" "no: ${err}" ;;
+esac
+case "$err" in
+    *workstation-7*) check "the refusal does not echo the value" "clean" "it leaked the value" ;;
+    *) check "the refusal does not echo the value" "clean" "clean" ;;
+esac
+
+# A clean artefact passes. The backstop must not be a gate that refuses everything either.
+logE=$(artefact logE "provisioning a host" "all done")
+scrub_backstop "$logE" "$denylist"; rc=$?
+check "a clean artefact passes the backstop" "0" "$rc"
+
+# An EMPTY denylist is refused. The underlying engine returns 0 early on one, so a wrapper
+# that passed it through would be a backstop over nothing — scanning zero tokens and
+# reporting clean, which is this repo's cardinal defect wearing a security control's clothes.
+emptydeny=$(printf '%s' "$work/denylist-empty")
+: > "$emptydeny"
+err=$(scrub_backstop "$logE" "$emptydeny" 2>&1); rc=$?
+check "an empty denylist is refused" "1" "$rc"
+
+# A BINARY artefact must not hide an identifier. The engine reads its text through a command
+# substitution, which drops NUL bytes — so a console log (which always has some) could carry a
+# secret past a naive wrapper that piped the file straight in.
+logF="$work/logF"
+printf 'start\n' > "$logF"
+printf 'host workstation-7 here\n' >> "$logF"
+printf 'raw \xff\xfe\x00 bytes\n' >> "$logF"
+err=$(scrub_backstop "$logF" "$denylist" 2>&1); rc=$?
+check "a binary artefact does not hide an identifier" "1" "$rc"
 
 printf '\npassed: %s failed: %s\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]

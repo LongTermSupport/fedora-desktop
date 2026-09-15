@@ -75,12 +75,18 @@ If the verification pass finds anything, the artefact is not published and the r
   survives, naming which secret file and never the value — the message is read by a human and
   may be pasted into a ticket. An unreadable or empty secret file is also a refusal: a secret
   that could not be checked has not been shown to be absent
-- [ ] ⬜ **Task 1.4**: Pattern backstop reusing `hook_scan_text_for_private`, so there is one
-  matcher and one allowlist
-- [x] ✅ **Task 1.5**: `scripts/test-run-log-scrub.bash`, 14 assertions, wired into
-  `qa-all.bash`. Falsified on four mutants — a `scrub_verify` that never refuses, regex instead
-  of literal matching, a tolerated empty secret, and first-occurrence-only replacement — each
-  caught by the assertion written for it, against a clean 14/14 baseline
+- [x] ✅ **Task 1.4**: `scrub_backstop` over `hook_scan_text_for_private`, sourced rather than
+  reimplemented, so there is one matcher and one allowlist. Reports the **field name**, never
+  the value. Two guards it would be wrong without: an empty denylist is refused, because the
+  engine returns 0 early on one and a wrapper passing that through would scan zero tokens and
+  report clean; and the artefact is projected to printable text first, because the engine reads
+  through a command substitution that drops NUL bytes, so a console log could otherwise carry
+  an identifier straight past the scan
+- [x] ✅ **Task 1.5**: `scripts/test-run-log-scrub.bash`, 20 assertions, wired into
+  `qa-all.bash`. Falsified on six mutants — a `scrub_verify` that never refuses, regex instead
+  of literal matching, a tolerated empty secret, first-occurrence-only replacement, a dropped
+  binary projection, and a tolerated empty denylist — each caught by the assertion written for
+  it, against a clean 20/20 baseline
 
 ### Phase 2: `server-github-token`
 
@@ -109,9 +115,9 @@ If the verification pass finds anything, the artefact is not published and the r
 
 ## Success Criteria
 
-- [ ] The scrubber refuses to publish an artefact that still contains a supplied secret, proven
+- [x] The scrubber refuses to publish an artefact that still contains a supplied secret, proven
   by a fixture where redaction was deliberately incomplete.
-- [ ] One detection engine and one allowlist, shared with the pre-commit scanner.
+- [x] One detection engine and one allowlist, shared with the pre-commit scanner.
 - [ ] `server-github-token` runs from the host CLI, refuses to run from the bridge, and writes
   nothing secret-bearing to the shared mount.
 - [ ] Plan 00063 Tasks 3.3 and 3.4 are discharged by a run id, not by an assertion.
@@ -130,3 +136,5 @@ If the verification pass finds anything, the artefact is not published and the r
      JOURNAL/00121-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
 - Plan created; scope split from Plan 00063's Phase 3 obligations.
+- Phase 1 delivered: `scripts/lib/run-log-scrub.bash`, its falsified 20-assertion suite, and
+  the `run-log-scrub` stage in `qa-all.bash`. The off-mount Non-Goal is unchanged by it.
