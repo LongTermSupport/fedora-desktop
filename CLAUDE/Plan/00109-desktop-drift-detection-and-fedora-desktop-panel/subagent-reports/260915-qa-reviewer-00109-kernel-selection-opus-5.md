@@ -66,8 +66,7 @@ pre-existing; `shellcheck -S style` clean on both files.
 | ---------------------------------- | -------------------------------------------------------------------------------------- |
 | BLOCKING — transaction status lost | Fixed. Reproduced first. Every guest-changing command now carries `\|\| die`, and the  |
 |                                    | header records that `set -e` covers nothing in this function                           |
-| BLOCKING — root cause, harness     | Fixed. `run_case` now calls the function in a command substitution, as the fixture     |
-|                                    | does, so the harness no longer tests semantics production never has                    |
+| BLOCKING — why the tests missed it | My first answer was WRONG and is corrected below the table                             |
 | 1 — sorts unfalsifiable            | Fixed. Both stub lists arrive oldest-first; a mutant deleting both sorts now dies      |
 | 2 — case 4 cements a misdiagnosis  | Fixed. An unusable repository and "only the running kernel" are told apart, with       |
 |                                    | different messages, and case 4 fails if it sees case 3's                               |
@@ -77,6 +76,27 @@ pre-existing; `shellcheck -S style` clean on both files.
 | 5 — `STUB_INSTALL_RC` dead         | Fixed. Reachable once the harness was faithful; case 6a drives it, 6b the bootloader   |
 | Nits                               | All fixed except the rpm/dnf stderr asymmetry, which was also fixed — rpm's stderr now |
 |                                    | goes to the same file dnf's does                                                       |
+
+### Correction to my own diagnosis
+
+I first recorded that twelve tests missed the blocking defect because **the harness ran
+the function in a `( … )` subshell, where errexit is live**, and that moving to a command
+substitution is what made the case expressible. That is wrong, and it reached the commit
+message of `5d5c8d36`, the design doc, PLAN.md and the journal before I checked it.
+
+This suite deliberately runs without `set -e`. A `( … )` subshell therefore inherited
+errexit **off** — the same state a command substitution gives it. Measured by reverting
+`run_case` to the old shape with the new case present: `a-failed-install-refuses` catches
+the blocking mutant perfectly well.
+
+The real reason is duller. **No case ever set `STUB_INSTALL_RC`.** It sat in the stub file
+from the first draft, and the one command that actually changes the guest had its exit
+status unexamined by anything. A knob I wrote, looked at repeatedly, and never asked why
+nothing used.
+
+The command-substitution shape was kept — matching the fixture's call syntax exactly is
+worth a little on its own — but it fixed nothing, and the comment that claimed otherwise
+has been replaced with one that says so.
 
 Found while acting on the above, not raised by the reviewer: `grubby --set-default` and
 `record` had the identical discarded-status shape as the install, and are guarded too.

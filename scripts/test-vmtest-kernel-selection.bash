@@ -169,13 +169,14 @@ run_case() {
     for k in "$@"; do
         printf 'vmlinuz\n' >"$work/boot/vmlinuz-$k"
     done
-    # A COMMAND SUBSTITUTION, because that is how the fixture calls it — and bash switches
-    # errexit OFF inside one unless `inherit_errexit` is set. A `( … )` subshell here
-    # instead would run the function under errexit, which production never gives it: an
-    # unguarded failing command would abort in the test and be stepped over on the guest.
-    # That is not a pedantic difference. It is how a failing package transaction passed
-    # twelve cases, and it made STUB_INSTALL_RC unreachable — a knob advertising coverage
-    # the harness could not have.
+    # A command substitution, because that is how the fixture calls it. This is a small
+    # point, deliberately stated small: an earlier version of this comment claimed the
+    # previous `( … )` shape ran the function under errexit and that switching to this one
+    # is what let a failing package transaction be caught. Not so — this suite runs
+    # without `set -e`, so the subshell inherited errexit OFF exactly as a command
+    # substitution does, and reverting to it with case 6a present still catches the
+    # mutant. The transaction went untested because nobody wrote the case, not because
+    # the harness could not express it.
     local out_file="$work/out"
     STDOUT="$(
         {
@@ -371,12 +372,13 @@ else
 fi
 
 # ── 6a. the package transaction FAILS → refuse, naming the transaction ────────────────
-# The case the old harness could not express. It ran the function in a `( … )` subshell,
-# where errexit is live; the fixture calls it in a command substitution, where bash turns
-# errexit OFF. So an unguarded `dnf -y install` aborted under test and was stepped over on
-# a real guest — and STUB_INSTALL_RC sat in the stub file unreachable, advertising exactly
-# the coverage that was missing. On a guest that already carries two kernels the run would
-# then have SUCCEEDED, with PREPARED_WANTED_KERNEL naming a kernel nothing ever downloaded.
+# The case nobody wrote. STUB_INSTALL_RC existed from the first draft of this file and no
+# case ever set it, so the one command that actually changes the guest had its exit status
+# unexamined by anything. That mattered because extracting this step into a function moved
+# the install from script top level, where errexit was live, into a function the fixture
+# calls in a command substitution — where bash turns errexit OFF. On a guest that already
+# carries two kernels the run would then have SUCCEEDED, with PREPARED_WANTED_KERNEL
+# naming a kernel nothing ever downloaded.
 if STUB_REPOQUERY="$K_OLD
 $K_NEW" STUB_RPM="$K_OLD
 $K_NEW" STUB_INSTALL_RC=1 run_case "$K_OLD" "$K_NEW" "$K_OLD"; then

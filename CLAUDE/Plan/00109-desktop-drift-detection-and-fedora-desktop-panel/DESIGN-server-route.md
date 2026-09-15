@@ -424,11 +424,20 @@ Three things that exercise found, none visible by reading:
   nothing downloaded. Every command that changes the guest now carries its own `|| die`,
   and the function's header says why, because `set -e` protects nothing inside it.
 
-  The reason twelve tests missed it is worth more than the defect: **the harness ran the
-  function in a `( … )` subshell, where errexit is live.** It was testing semantics
-  production never has. It now calls the function in a command substitution, exactly as
-  the fixture does — which is also what made `STUB_INSTALL_RC` reachable, a knob that had
-  been sitting in the stub file advertising coverage the harness could not have.
+  **Why twelve tests missed it: no case ever failed the install.** `STUB_INSTALL_RC` sat
+  in the stub file from the first draft with nothing setting it — a knob advertising
+  coverage that was never written. That is the whole explanation, and it is duller than
+  the one first recorded here.
+
+  > **CORRECTION.** This section previously claimed the harness had been running the
+  > function in a `( … )` subshell "where errexit is live", and that switching to a
+  > command substitution is what made the case expressible. That is **wrong**. The suite
+  > deliberately runs without `set -e`, so the `( … )` subshell inherited errexit *off* —
+  > the same state a command substitution gives. Measured by reverting the harness to the
+  > old shape with the new case present: it catches the blocking mutant perfectly well.
+  > The harness was never unfaithful on that axis; a case was simply missing. The call
+  > shape was kept because matching the fixture's syntax exactly is worth a little on its
+  > own, but it fixed nothing and no claim should rest on it.
 
 - **`rpm -q` prints its complaint on stdout and exits 1**, and a process substitution's
   exit status is not part of the pipeline, so `pipefail` never sees it. Read straight into

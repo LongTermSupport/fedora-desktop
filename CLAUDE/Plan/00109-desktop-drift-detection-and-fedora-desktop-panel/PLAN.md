@@ -190,9 +190,10 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
       caller captures its answer, and bash disables errexit inside a command substitution
       — so the package transaction's status was discarded, and on a guest already holding
       two kernels the run would have *succeeded* naming a kernel nothing downloaded. The
-      harness missed it by running the function in a plain subshell, where errexit is
-      live: it was testing semantics production never has. Every guest-changing command
-      now carries its own refusal, and the harness calls it as the fixture does (§8.2).
+      tests missed it because **no case ever failed the install** — `STUB_INSTALL_RC` was
+      a knob nothing set (an initial diagnosis blaming the harness's subshell shape was
+      wrong, and is corrected in §8.2). Every guest-changing command now carries its own
+      refusal, and a case drives each one.
       Also from that review: `--showduplicates` is required or a guest on the newest
       kernel is offered only itself, and both sorts were unfalsifiable because every
       stub list was already in order
