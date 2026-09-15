@@ -54,6 +54,18 @@ UNAVAILABLE = "unavailable"
 #: rather than empty, so the consumer renders a reason instead of an absence.
 SELF_SECTION = "status"
 
+#: The one section whose findings are true only of the boot they were collected in:
+#: DKMS state against the kernel that was running, and units that failed during it.
+#:
+#: Declared here, beside the schema, rather than in the producer that names the section
+#: — because it is a CONSUMER that needs it. A finding like "no DKMS module installed
+#: for the running kernel 7.1.9" is written at collection time and read later; after a
+#: reboot it names a kernel that is no longer running while still reading as a claim
+#: about now. `login_message` demotes this section on a kernel mismatch for that reason.
+#: The other three sections — the ledger, play freshness, installed-vs-pinned — survive
+#: a reboot unchanged, so demoting them too would be its own overclaim.
+BOOT_SCOPED_SECTION = "post-boot-health"
+
 #: The one Python source of truth for the file name. The panel is a second process in a
 #: second language and has to find the same file; a mismatch does not announce itself,
 #: because a panel looking at the wrong path reports `unavailable` for ever, which reads

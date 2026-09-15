@@ -121,10 +121,32 @@ def render(document: object, *, now: str, running_kernel: str) -> str:
     if not isinstance(sections, dict):
         sections = {}
 
+    # Established BEFORE the sections are read, because it decides how one of them is
+    # read. See the block below the loop for why a mismatch is a finding at all; here it
+    # decides whether the boot-scoped section's faults are still faults.
+    collected_under = document.get("kernel") if isinstance(document, dict) else None
+    rebooted = bool(
+        isinstance(collected_under, str)
+        and collected_under
+        and running_kernel
+        and collected_under != running_kernel
+    )
+
     broken: list[str] = []
     unchecked: list[str] = []
-    for section in sections.values():
-        broken.extend(_texts(section, "findings"))
+    for name, section in sections.items():
+        findings = _texts(section, "findings")
+        if rebooted and name == status_document.BOOT_SCOPED_SECTION:
+            # DEMOTED, not repeated. These read as present tense — "no DKMS module
+            # installed for the running kernel 7.1.9" — but the text was written at
+            # collection time and 7.1.9 is not what is running now. Left in the fault
+            # list they put two different values for "the running kernel" on consecutive
+            # lines of the same report, one of them wrong, in exactly the scenario this
+            # rule exists for. Unchecked is what they now are: nobody has looked at the
+            # kernel this host is on.
+            unchecked.extend(findings)
+        else:
+            broken.extend(findings)
         unchecked.extend(_texts(section, "unchecked"))
 
     age = _age_days(
@@ -170,17 +192,17 @@ def render(document: object, *, now: str, running_kernel: str) -> str:
     # of a mismatch, and manufacturing one out of ignorance is the inverse of this plan's
     # rule and just as wrong. Read defensively for the same reason every other field here
     # is: the document may have been written by another version, or truncated.
-    collected_under = document.get("kernel") if isinstance(document, dict) else None
-    if (
-        isinstance(collected_under, str)
-        and collected_under
-        and running_kernel
-        and collected_under != running_kernel
-    ):
-        unchecked.append(
+    if rebooted:
+        # FIRST in the not-checked group, because it explains the demoted lines that
+        # follow it. Scoped to what it can actually claim: the ledger, play freshness
+        # and installed-vs-pinned all survive a reboot unchanged, so "nothing here
+        # describes the running kernel" would be an overclaim about three of the four
+        # sections.
+        unchecked.insert(
+            0,
             f"these results were collected under kernel {collected_under} and this host "
-            f"is now running {running_kernel}, so nothing here describes the running "
-            "kernel"
+            f"is now running {running_kernel}, so the post-boot checks describe a "
+            "different boot and nothing has looked at the kernel you are on",
         )
 
     if not broken and not unchecked:

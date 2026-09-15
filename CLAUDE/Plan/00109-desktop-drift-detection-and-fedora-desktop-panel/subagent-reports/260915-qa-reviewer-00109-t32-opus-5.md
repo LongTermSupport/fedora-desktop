@@ -334,3 +334,156 @@ correctly independent and both reported
 - Note for the fold: moving to `scope: general` also retires round-1 finding 4
   (`CLAUDE/AnsibleStyle.md:240`, "no core/optional play is `server` today"), since no
   `scope: server` play would remain.
+
+---
+
+# Round 3 — verification of `7fa9edef`
+
+**Verdict**: all six fixes land. Three residual holes, all of the same family, none
+blocking. `qa-all.bash` is green (876 files) with the round-2 work in the tree.
+
+The tree has moved past `7fa9edef` again — `login_report.HEALTH` now reads
+`status_document.BOOT_SCOPED_SECTION` and `DESIGN-server-route.md` §4.1 describes the
+demotion fix for R2-1. Uncommitted and **not reviewed here**.
+
+## Fix-by-fix
+
+| # | Fix | Verified |
+| - | --- | -------- |
+| 1 | healthy server silent | **Yes, both halves — and the spelling proved** (below) |
+| 2 | fetch credentials left reported | **Agreed**, with one qualification |
+| 3 | play merge | **Yes** — one `scope: general` play, server play deleted, both deliveries `when:`-gated, recognition assert correctly named |
+| 4 | `AnsibleStyle.md:240` | **Confirmed dissolved** — `grep -rn "scope: server" playbooks/` returns nothing, so the sentence is true again |
+| 5 | derived QA gate inventory | **Yes** — 28 gates parsed, 0 missing rows; two guard gaps |
+| 6 | fragile assertions | **Yes** — `PROBE:` marker with `NO-PROBE-LINE` for absence; fixture built through `status_document.build`/`write_atomic` |
+| — | nits | timer is a `.j2` with the `ansible_managed` header; the `RandomizedDelaySec` comment states the 5–35 minute window |
+
+### On fix 1, the verification the container could not give you
+
+"No dkms, no ledger → both sections return nothing" passes **whether or not
+`pin.playbook` and the ledger key are the same spelling**: an empty ledger empties
+`applicable` either way. So it cannot distinguish a working filter from one that never
+matches — which would have silenced the whole install-state axis on every host. I drove
+`check_pins.check` across five ledger states:
+
+```
+[ledger unreadable (None)]                    -> evdi_version (behind): pinned 1.15.0, installed 1.14.16
+[ledger has displaylink]                      -> evdi_version (behind): pinned 1.15.0, installed 1.14.16
+[ledger has only nvm]                         -> compared 0 of 1 pins applicable to this host
+[ledger non-empty, no pinned play at all]     -> 0 findings
+[empty ledger]                                -> 0 findings
+```
+
+Row 2 is the one that matters: the filter fires, so `pin.playbook` and
+`ledger.fold_latest`'s key agree. Fix 1 is correctly wired.
+
+### On fix 2 — agreed, with one qualification
+
+The distinction is right and I withdraw the finding. An unreachable remote names a real
+gap in the host's own setup with an operator-side remedy; a DisplayLink pin on a box with
+no DisplayLink names nothing. Documented in the unit, the docs and a HOST item is the
+right disposition.
+
+The qualification: `fetch_clock.offline_finding(last=None)` returns its finding
+**immediately**, not after `STALE_AFTER_DAYS`. So on a server whose fetch never works this
+is permanent noise from the first login, not a bounded grace period. The HOST item should
+therefore *confirm* the remote fetches anonymously rather than assume it — if it does not,
+this is finding 1 again wearing a different hat.
+
+## Residual holes
+
+### H1 — the desktop consequence you asked about, and it is the founding incident
+
+Measured, row 3 above. A host whose ledger has rows but **no `play-displaylink.yml` row**
+— which is every host today, because Task 1.3 chose no backfill and the callback only
+started recording recently — no longer reports `evdi_version (behind): pinned 1.15.0,
+installed 1.14.16`. It reports `compared 0 of 1 pins applicable to this host` instead: a
+statement about the checker, not a finding an operator can act on. Before `7fa9edef` that
+host reported the drift.
+
+Worse, row 4: a ledger with rows and **no pinned play at all** gives `applicable == []`,
+the `applicable and tracked == 0` guard is skipped, and the output is **empty** —
+indistinguishable from "every pin matched". The zero-coverage guard covers *some
+applicable, none tracked* and is blind to *none applicable*, which is the silencing value.
+That is this repo's named class with the sign flipped.
+
+**Fix**: state coverage unconditionally, e.g.
+`COVERAGE: 1 of 9 declared pins applicable here (7 plays in the ledger)`, so "the ledger
+predates these plays" is distinguishable from "this host runs none of them".
+
+**And re-derive rather than transplant.** Task 1.3's rule was settled for the *freshness*
+axis, where "never run here → silent" is benign: nobody wants nagging about a play they
+never ran. On the *install-state* axis the same rule silences the check this plan exists to
+add, on the host the incident happened on. The two axes ask different questions of the same
+absence.
+
+### H2 — the tri-state hole you asked about
+
+The shape is sound: `FileNotFoundError → []`, `OSError → None`, `None` falls through to
+the unchecked branch, and a stray file (`dkms_dbversion`) is correctly filtered out. I
+exercised all of those.
+
+The hole is `os.path.isdir()`: it swallows **any** `OSError` and answers `False`, so an
+entry that cannot be statted silently leaves the list. `os.listdir` having succeeded means
+the result is a short list or `[]` — never `None` — so a partial read renders as a
+complete one, in the direction that buys silence. Demonstrated adjacent behaviour: a
+dangling symlink is dropped with no trace (`['evdi']`, `orphan` gone). Narrow in practice
+— `/var/lib/dkms` is 0755 with statable entries, and a tightened parent raises in
+`listdir` and correctly answers `None` — and I could not reproduce the permission variant
+because this container runs as root.
+
+**Fix**: `os.scandir` with a per-entry `try: entry.is_dir() except OSError: return None`.
+Three lines, and it closes the one direction the tri-state cannot currently express.
+
+### H3 — the derived gate inventory is derived in one direction, by one spelling
+
+`qa_gates` requires the literal `$SCRIPT_DIR/`. Demonstrated:
+
+```
+$SCRIPT_DIR/x.bash        -> ['x.bash']
+${SCRIPT_DIR}/x.bash      -> []
+$REPO_ROOT/scripts/x.bash -> []
+```
+
+A future gate invoked in either of the other two forms is **silently exempt** from the
+documentation requirement, and the zero-discovery guard fires only if *every* form fails.
+That is the partial case, unguarded, inside the check written to fix a partial-coverage
+problem.
+
+Second: the check is one-directional, gates ⊆ doc. A row for a gate that no longer runs
+stays for ever — which is precisely the failure `CLAUDE/QA.md` narrates two paragraphs
+under the table (`qa-helper-tests.bash` and `check_extension_compat` "documented here as
+gates and not run by `qa-all.bash` until Plan 00081"). I checked: 0 orphans today, so this
+is a guard gap rather than a live defect. Assert both directions.
+
+Third: "twenty-eight / twenty-one" are still hand-written prose. Correct today; nothing
+derives them, so they can go stale while the table stays right.
+
+## Nit
+
+`probe_results.build_report`'s message says *"dkms is not installed, but N DKMS module
+tree(s) are still registered"*, but `missing=True` comes from `FileNotFoundError` out of
+`subprocess.run`, which means "not found on **this process's** PATH". A systemd `--user`
+unit has a narrower PATH than a login shell, so the sentence can send an operator to
+install something already installed — the R2-1 overclaim family. Not live on F44 (`dkms`
+resolves under `/usr/bin`). Reword to "dkms could not be found on this service's PATH".
+
+## Convergence gap in the merged play
+
+`playbooks/imports/optional/common/play-host-health-login-report.yml:141,161` gate the
+desktop delivery on `not is_server`, and `:172-238` gate the server delivery on
+`is_server`. Neither branch **removes** the other's artefacts. Run once with
+`-e provisioning_profile=desktop` on a server (the documented override, and the recognition
+assert exists precisely because a human types it), correct it, re-run — and the host keeps
+an enabled `host-health.service` it can never deliver from, alongside the timer. The two
+separate plays had the same gap, so this is not a regression; the merge is the natural
+place to close it, with `state: absent` / `enabled: false` on the other profile's units.
+
+## Mechanical gates (round 3)
+
+- `qa-all.bash`: **✓ QA passed: 876 files checked** — `helper-tests` 1282 tests,
+  `host-health-login-snippet: passed: 12`, `docs: 71 files OK`, `ansible` clean (the
+  general-scope guard error from round 2 is resolved), `panel-contract` 7 constants agree,
+  `version-pins: COVERAGE: 9 of 9`.
+- The six snippet mutants are asserted by the commit message; I did not re-kill them, as
+  that needs mutating tracked files.

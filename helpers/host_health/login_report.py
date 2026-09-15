@@ -54,7 +54,10 @@ EXIT_FINDINGS = 3
 #: Section ids, shared by the notification's guard messages and the status document's
 #: keys — which are the panel registry's lookup keys, so these are interface, not
 #: labels. Renaming one silently makes the panel's section render `unavailable`.
-HEALTH = "post-boot-health"
+#: Read from `status_document` rather than spelled again: a consumer keys on this id to
+#: recognise the one boot-scoped section, and two spellings of it would let the producer
+#: and that consumer disagree without anything saying so.
+HEALTH = status_document.BOOT_SCOPED_SECTION
 LEDGER = "play-ledger"
 FRESHNESS = "play-freshness"
 PINS = "installed-vs-pinned"

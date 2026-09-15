@@ -160,7 +160,8 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     - [x] ✅ The snippet prints **only for an interactive shell**, or it breaks `scp` to
       the host it reports on. 12 assertions, six mutants (§3)
     - [x] ✅ A fresh document can be about the **previous boot** — `render` reports a
-      kernel mismatch in its own right (§4)
+      kernel mismatch in its own right, and demotes the one boot-scoped section rather
+      than repeating its findings as present-tense faults (§4, §4.1)
     - [x] ✅ **A healthy server was never going to be silent** (qa-reviewer, 26-09-15).
       Two permanent findings, one root: no `dkms` on a server (§5)
     - [ ] ⬜ **HOST**: run the play on a server profile — the timer arms, a document
@@ -169,6 +170,10 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
       surface survives contact with a user
     - [ ] ⬜ **HOST**: confirm this checkout has a remote the timer can fetch **without
       an agent**, or the freshness axis reports "never reached the remote" for ever (§6)
+    - [ ] ⬜ **HOST**: **reboot into a different kernel** and log in before the timer
+      next fires — the scenario the whole route was built for, and the one the four
+      claims above do not cover. The report must name the boot mismatch and must not
+      present the previous boot's DKMS findings as current (§4.1)
 - [ ] 🔄 **Task 3.3**: Claude Code handoff — file and offer done
   - [x] ✅ `handoff.py`, mode `0600`; the wrong/not-looked-at split is carried in
     `Finding.checked`, not read from the prose

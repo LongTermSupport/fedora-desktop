@@ -80,6 +80,32 @@ results do not describe the running kernel. Both sides must be known first — t
 `unavailable` shape carries `kernel: ""`, and an empty running kernel means "could not
 tell", so neither is evidence of a mismatch.
 
+### 4.1 The rule contradicted itself before round 2 caught it
+
+Reporting the mismatch made the report *speak* in the scenario it was written for, and
+what it then said was wrong. `dkms_findings` bakes the collecting kernel into its text —
+"no DKMS module installed for the running kernel 7.1.9" — written at collection time and
+read later, so after a reboot the report carried two consecutive lines with two different
+values for "the running kernel", the first presented as a known fault about now:
+
+```
+  - evdi: no DKMS module installed for the running kernel 7.1.9-…
+  Not checked …
+  - these results were collected under kernel 7.1.9-… and this host is now running 7.2.4-…
+```
+
+Worse, a test asserted that exact pairing and recorded it as correct, so nothing would
+have found it later.
+
+**On a mismatch the boot-scoped section's findings are demoted to the not-checked
+group**, under the explanation that causes them. `status_document.BOOT_SCOPED_SECTION`
+names the one section this applies to — DKMS state and units that failed during a boot.
+The ledger, play freshness and installed-vs-pinned survive a reboot unchanged, so
+demoting them would be the mirror image of the same overclaim, and the wording was
+narrowed for the same reason: "nothing here describes the running kernel" was false about
+three sections out of four. Four mutants: the demotion disabled, every section demoted,
+the explanation placed after what it explains, and the wording reverted.
+
 ## 5. A healthy server has to be silent, and was not
 
 Found by the `qa-reviewer` pass on 26-09-15 (`subagent-reports/260915-qa-reviewer-00109-t32-opus-5.md`),

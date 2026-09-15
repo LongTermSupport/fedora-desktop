@@ -207,11 +207,74 @@ class TestADocumentFromAnotherBootIsNotAboutThisOne(unittest.TestCase):
 
     def test_it_is_reported_alongside_real_findings_not_instead_of_them(self) -> None:
         message = render(
-            {"health": [probe_results.broken("evdi: no DKMS module")]},
+            {"play-freshness": [probe_results.broken("play-x.yml has changed")]},
             running_kernel=self.OTHER,
         )
-        self.assertIn("evdi: no DKMS module", message)
+        self.assertIn("play-x.yml has changed", message)
         self.assertIn(self.OTHER, message)
+
+    def test_the_boot_scoped_findings_stop_being_present_tense_faults(self) -> None:
+        """THE defect this rule nearly introduced. `dkms_findings` bakes the collecting
+        kernel into its text — "no DKMS module installed for the running kernel 7.1.9" —
+        which is written at collection time and read later. Left in the fault list after
+        a reboot it put two different values for "the running kernel" on consecutive
+        lines of one report, one of them wrong, in precisely the scenario the mismatch
+        rule exists for. Demoted, they are what they now are: nobody has looked."""
+        stale = f"evdi: no DKMS module installed for the running kernel {KERNEL}"
+        message = render(
+            {status_document.BOOT_SCOPED_SECTION: [probe_results.broken(stale)]},
+            running_kernel=self.OTHER,
+        )
+        self.assertIn(stale, message)
+        self.assertLess(
+            message.lower().index("not checked"),
+            message.index(stale),
+            "a finding about a kernel that is no longer running must sit under the "
+            "not-checked heading, not above it as a known fault",
+        )
+
+    def test_a_section_that_survives_a_reboot_keeps_its_faults(self) -> None:
+        """Only `post-boot-health` is boot-scoped. Play freshness, the ledger and
+        installed-vs-pinned are unchanged by a reboot, so demoting them would be its
+        own overclaim — the mirror image of the defect above."""
+        message = render(
+            {
+                status_document.BOOT_SCOPED_SECTION: [probe_results.broken("dkms thing")],
+                "installed-vs-pinned": [probe_results.broken("evdi: pinned 1.15.0")],
+            },
+            running_kernel=self.OTHER,
+        )
+        self.assertLess(
+            message.index("evdi: pinned 1.15.0"),
+            message.lower().index("not checked"),
+            "a pin comparison is not invalidated by a reboot",
+        )
+
+    def test_the_same_boot_leaves_the_boot_scoped_findings_as_faults(self) -> None:
+        message = render(
+            {status_document.BOOT_SCOPED_SECTION: [probe_results.broken("dkms thing")]},
+            running_kernel=KERNEL,
+        )
+        self.assertIn("dkms thing", message)
+        self.assertNotIn("not checked", message.lower())
+
+    def test_it_does_not_claim_the_other_three_sections_are_invalidated(self) -> None:
+        """"Nothing here describes the running kernel" was the first wording and it
+        overclaimed about three sections out of four."""
+        message = render({"play-freshness": []}, running_kernel=self.OTHER)
+        self.assertIn("post-boot checks", message)
+        self.assertNotIn("nothing here describes", message)
+
+    def test_the_explanation_comes_before_what_it_explains(self) -> None:
+        message = render(
+            {status_document.BOOT_SCOPED_SECTION: [probe_results.broken("dkms thing")]},
+            running_kernel=self.OTHER,
+        )
+        self.assertLess(
+            message.index("different boot"),
+            message.index("dkms thing"),
+            "a demoted line read before its reason is a line with no reason",
+        )
 
     def test_a_stale_document_from_another_kernel_reports_both(self) -> None:
         """Independent conditions. A timer that died before a reboot produces both, and

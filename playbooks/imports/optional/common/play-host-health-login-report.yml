@@ -53,11 +53,16 @@
     bashrc_includes_marker: "# BEGIN ANSIBLE MANAGED: Source bashrc includes"
     is_server: "{{ provisioning_profile == 'server' }}"
   tasks:
-    # NOT a scope guard — `scope: general` has work for both profiles, so there is no
-    # end_play here and qa-ansible.bash correctly rejects one. This is a recognition
-    # assert, and it is load-bearing for a different reason: both delivery blocks below
-    # branch on `provisioning_profile`, and an unrecognised value would quietly take the
-    # desktop branch on a server rather than failing.
+    # NOT the scope guard. AnsibleStyle.md's "a general play carries no guard" is about
+    # the two-task `meta: end_play` block, which would be wrong here: this play has work
+    # for BOTH profiles, and qa-ansible.bash rejects that block on a general scope.
+    #
+    # This validates an input instead, and it is load-bearing because a human types that
+    # input: auto-detection can only ever yield desktop or server, but
+    # `-e provisioning_profile=…` is the documented override and takes highest
+    # precedence. A typo there would leave `is_server` false and quietly run the desktop
+    # delivery on a server — deploying a notify-send unit to a box with no session bus
+    # and no login report at all.
     - name: Assert The Provisioning Profile Is Recognised
       ansible.builtin.assert:
         that:
