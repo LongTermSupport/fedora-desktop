@@ -188,19 +188,36 @@ record PREPARED_TIMER_AFTER "${timer_after}"
 record PREPARED_TIMER_AFTER_RC "${timer_after_rc}"
 
 # ── 7. a second kernel, and the next boot pointed at it ───────────────────────────────
-# One path, always taken: ask for the release kernel by name (a no-op when it is
-# already installed), then choose an installed kernel that is not the running one.
-# A guest that still has only one kernel afterwards is a hard failure — there is
-# no version of this scenario that proves anything without a second kernel.
+# One path, always taken: ask every enabled repo what kernel versions exist, install the
+# newest that is NOT the one running, then confirm an installed kernel other than the
+# running one is now on disk. Not restricted to the release repo: a guest running the
+# release kernel needs a newer one and a guest running the newest needs an older one, and
+# "the newest available that is not this one" answers both without a branch per case.
+#
+# A guest that still has only one kernel afterwards is a hard failure. There is no
+# version of this scenario that proves anything without a second kernel, and a run that
+# quietly rebooted into the same one would pass check 7 nowhere and confuse every check
+# after it.
 command -v grubby >/dev/null || die "no grubby in this guest; the boot entry cannot be selected"
-release_query=""
-if ! release_query="$(sudo -n dnf -q repoquery --repo=fedora --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-core 2>&1)"; then
-    die "querying the fedora repo for kernel-core failed: ${release_query}"
+query_errors="${EVIDENCE_DIR}/repoquery.err"
+available=""
+if ! available="$(sudo -n dnf -q repoquery --queryformat '%{version}-%{release}.%{arch}\n' kernel-core 2>"${query_errors}")"; then
+    die "asking dnf which kernel-core versions exist failed: $(cat "${query_errors}")"
 fi
-release_kernel="$(printf '%s\n' "${release_query}" | sort -V | tail -1)"
-[[ -n "${release_kernel}" ]] || die "the fedora repo offered no kernel-core; cannot guarantee a second kernel"
-log "ensuring the release kernel ${release_kernel} is installed alongside ${running_kernel}"
-sudo -n dnf -y install "kernel-${release_kernel}" >&2
+
+wanted=""
+while read -r candidate; do
+    [[ -n "${candidate}" ]] || continue
+    [[ "${candidate}" == "${running_kernel}" ]] && continue
+    wanted="${candidate}"
+    break
+done < <(printf '%s\n' "${available}" | sort -Vr)
+[[ -n "${wanted}" ]] ||
+    die "every kernel-core the repos offer is ${running_kernel}; this guest cannot be given a second kernel"
+record PREPARED_WANTED_KERNEL "${wanted}"
+
+log "installing kernel ${wanted} alongside the running ${running_kernel}"
+sudo -n dnf -y install "kernel-${wanted}" >&2
 
 target_kernel=""
 while read -r candidate; do
@@ -209,10 +226,13 @@ while read -r candidate; do
     [[ -r "/boot/vmlinuz-${candidate}" ]] || continue
     target_kernel="${candidate}"
     break
+# `rpm` in its own conventional case, `dnf repoquery` above in its: rpm tag names are
+# case-insensitive, but dnf5's format tags are documented lowercase and the long
+# `--queryformat` is spelled out on both, so neither depends on an abbreviation.
 done < <(rpm -q kernel-core --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -Vr)
 
 [[ -n "${target_kernel}" ]] ||
-    die "no installed kernel other than ${running_kernel} (release kernel ${release_kernel}); the guest cannot reboot into a different one"
+    die "dnf installed ${wanted} but no kernel other than ${running_kernel} has a /boot/vmlinuz-*; the guest cannot reboot into a different one"
 record PREPARED_TARGET_KERNEL "${target_kernel}"
 
 log "selecting ${target_kernel} for the next boot"
