@@ -46,6 +46,13 @@ refusal to run inside a container, and the per-target act-and-report loop.
 > own idea of correct. Building `lxcfreeze` first produces the second caller that shows
 > which seams are actually shared, rather than guessing them from one. The extraction is
 > [Phase 4](#phase-4-the-shared-library-deferred), left explicit so it is findable.
+>
+> **SUPERSEDED by the owner on first use** — *"totally different UX to the podfreeze
+> system though, maybe we can extract some DRY helpers"*. Phase 4 was reopened and done:
+> the library exists, `podfreeze` was refactored onto it, and the safety net is the
+> 187-case pin written against `podfreeze` BEFORE anything moved. Everything above this
+> line is the reasoning as it stood when the plan was filed, kept because it is why the
+> order was right — not because it still describes the code.
 
 ## Goals
 
@@ -54,17 +61,25 @@ refusal to run inside a container, and the per-target act-and-report loop.
 - Its **decisions** are pure functions with a test suite, so the parts that cannot be
   exercised in a container are still falsifiable — the pattern
   `scripts/test-ccy-rootless-guard.bash` already establishes here.
-- `podfreeze` is **not touched**: not one line, so its behaviour cannot regress.
+- ~~`podfreeze` is **not touched**: not one line, so its behaviour cannot regress.~~
+  **Superseded in Phase 4.** `podfreeze` was refactored onto the shared library. What
+  replaces the guarantee is `scripts/test-podfreeze.bash`, 187 cases written against
+  the tool as it was and passing unchanged across the extraction — a weaker promise
+  than "not one line", and an actually checkable one.
 - Deployed by its own play, `play-lxcfreeze.yml`. That is **not** what this plan first
   concluded — see Task 3.1 for why the owner's "don't touch podfreeze" outranks the
   one-play derivation, and where the two get reconciled.
 
 ## Non-Goals
 
-- **Touching `podfreeze` at all**, per the owner's instruction above. Not its name, not
-  its groups, not its rootless behaviour, and not a library extracted out of it.
-- **De-duplicating the two tools.** Deferred to Phase 4 by the same instruction. The
-  duplication is deliberate and written down rather than discovered later.
+- ~~**Touching `podfreeze` at all**, per the owner's instruction above. Not its name, not
+  its groups, not its rootless behaviour, and not a library extracted out of it.~~
+  **Superseded in Phase 4**, which the owner reopened. Its name, its groups and its
+  rootless behaviour are still untouched; the library WAS extracted out of it.
+- ~~**De-duplicating the two tools.** Deferred to Phase 4 by the same instruction. The
+  duplication is deliberate and written down rather than discovered later.~~
+  **Done, in Phase 4.** The duplication was deliberate for exactly as long as the
+  deferral held, and is gone.
 - **CCY groups for LXC.** `ccy=true`, `ccy-github`, `ccy-token` and `ccy-ssh-keys` are
   labels CCY stamps on Podman containers at launch. LXC sessions have no equivalent, and
   inventing one is not this plan's business.
@@ -134,7 +149,29 @@ to prove the guard notices."*
 - [x] ✅ **Task 3.4**: **HOST** — the owner ran it: *"i ran it and it seems to work"*. So
   `sudo lxc-ls -1` and `sudo lxc-info -n NAME -s` do emit what the parsers expect, which
   is the one thing the suite structurally could not establish
-- [ ] ⬜ **Task 3.5**: `qa-reviewer` over the diff
+- [x] ✅ **Task 3.5**: `qa-reviewer` over the diff — FIX-BEFORE-MERGE, 11 findings, all
+  acted on. Report:
+  [subagent-reports/260915-qa-reviewer-opus-5.md](subagent-reports/260915-qa-reviewer-opus-5.md).
+  The two that justified the whole pass: a `sudo lxc-info` failure was laundered into
+  "this container does not exist", dropping it from the inventory silently while a
+  comment asserted the preflight guards had ruled that out; and the extracted menu
+  layer — the only thing Phase 4 exists to share — had **no behavioural coverage in any
+  suite**, because `pick_target` and `drill_into_group` were stubbed out in the file
+  whose own comment said this layer "is not left to a host to find out". Fixes below in
+  Task 3.6
+- [x] ✅ **Task 3.6**: Act on all 11 — done; per-finding detail in the journal. The
+  shape of the fixes: statuses captured and unreadable containers DISCLOSED rather than
+  dropped (`INV_UNREADABLE` / `warn_unreadable`); `FREEZE_SELECT_GONE` so "that group
+  went away" and "the hook broke" stop sharing a status; `parse_member_choice` split
+  out of `drill_into_group` so the menu grammar is testable at all; the table hooks pad
+  their own columns; `fzf` moved into the shared task file. Suites 231 / 76 / 187
+- [ ] 🚫 **Task 3.7**: **BLOCKED, owner's call.** The review found
+  `.semgrep/bash-conventions.yml`'s `|| true` rule is line-anchored and cannot see the
+  enclosed form (`$( cmd || true )`) at all — which is how the two above shipped.
+  Widening it locally found **18 further live sites across 8 files**, two of them the
+  git hooks that gate secret scanning for this public repo. The widening was reverted
+  so this plan could land; the exact sites are in the journal. Needs its own plan
+  because the git-hook half carries real risk, not because the work is large
 
 ### Phase 4: The shared library — no longer deferred, and not for DRY
 
@@ -160,7 +197,8 @@ divergent as it is now — which is the half that was actually complained about.
   is now**, before any extraction touches it. This is not optional and it is not
   ceremony: the tool is 1,261 lines, has no test anywhere in the repo, is used daily, and
   a suite written after the move proves only that the refactor agrees with itself.
-  `scripts/test-podfreeze.bash`, 183 cases, wired into `qa-all.bash`. `podfreeze` itself is
+  `scripts/test-podfreeze.bash`, 187 cases once Task 4.1b added four, wired into
+  `qa-all.bash`. `podfreeze` itself is
   unchanged: the suite sources only the definitions above the tool's argument loop, with
   the boundary derived from the file's own content. 15 mutants were each killed by a named
   case — see the journal
@@ -182,19 +220,22 @@ divergent as it is now — which is the half that was actually complained about.
   **and** the menu layer, deployed to `~/.local/lib/freeze/` and sourced by both tools.
   User-scope tools get a user-scope library, and because `files/` mirrors the target
   filesystem one relative path (`../lib/freeze/…`) resolves from the checkout and from
-  `~/.local/bin` alike. Seven named hooks and five declared settings; **no `if` on an
+  `~/.local/bin` alike. Seven named hooks and six declared settings — five the contract
+  requires, plus the optional `FREEZE_LIST_NOTE`; **no `if` on an
   engine name anywhere in the shared half**. Its own suite,
-  `scripts/test-freezelib.bash` (204 cases), drives every decision under BOTH engines'
+  `scripts/test-freezelib.bash` (231 cases), drives every decision under BOTH engines'
   state vocabularies — a hardcoded `running` passes one pass and fails the other — and
   20 mutants were each killed by a named case
 - [x] ✅ **Task 4.3**: `lxcfreeze` adopted it and gained `fzf`, the two-level
   drill-down, `TAB`/`2,4,5` member selection, and the `ENTER`/`1`/`b`/`q` keys. Its own
-  suite is 74 cases: the ~25 that drove the now-shared decisions MOVED to the library
+  suite is 76 cases: the ~25 that drove the now-shared decisions MOVED to the library
   suite with their assertions intact, and the cases that replaced them cover what is
   genuinely LXC's — the bridge group axis, and the hooks
-- [x] ✅ **Task 4.4**: `scripts/test-podfreeze.bash` passes **187/187 with the file
-  byte-identical** — `git diff` touches not one line of it. That is the guarantee the
-  suite was written first to be able to give
+- [x] ✅ **Task 4.4**: `scripts/test-podfreeze.bash` passes **187/187 with the SUITE
+  FILE byte-identical** — `git diff` touches not one line of the suite across the
+  extraction commit. That is the guarantee it was written first to be able to give.
+  Said precisely because "the file" read as `podfreeze` to at least one reader, and
+  `podfreeze` is 698 lines changed: what is unchanged is the yardstick, not the tool
 - [x] ✅ **Task 4.5**: Reconciled, and the answer was **not** to merge the plays. What
   they genuinely share is one artefact, so `tasks/deploy-freeze-lib.yml` is included by
   both — the pattern `tasks/ensure-jq.yml` already establishes here. A third play owning

@@ -39,20 +39,12 @@
     # =========================================================================
     # Dependencies
     #
-    # fzf is the good multi-select picker. It is OPTIONAL to the tool — without
-    # it a plain numbered menu is used instead — but it is installed here so the
-    # play is self-contained rather than depending on play-open-command.yml
-    # having been run.
+    # fzf moved to tasks/deploy-freeze-lib.yml in Plan 00122 Task 3.5. It is the
+    # LIBRARY that branches on it, and installing it here left play-lxcfreeze.yml
+    # — which includes the same library — offering a different menu on a fresh
+    # host while both plays claimed the menus were identical. The play is still
+    # self-contained: the include below brings the picker with the library.
     # =========================================================================
-
-    - name: Install the Interactive Picker Used by podfreeze
-      ansible.builtin.dnf:
-        name:
-          - fzf
-        state: present
-      tags:
-        - packages
-        - podfreeze
 
     # =========================================================================
     # The tool itself

@@ -108,14 +108,34 @@ FREEZE_LIST_NOTE=""
 # rather than from this file, which is what scripts/test-podfreeze.bash needs: it
 # sources the definitions above the argument loop out of a temp file, so by then
 # this file's own location is a temp directory.
+#
+# A candidate whose directory will not resolve is reported, not discarded. "The
+# library is missing" and "a parent directory is unreadable, or the cwd was deleted
+# under us" send the reader to different places, and naming an expected path while
+# the real problem is one directory up is worse than saying nothing.
+#
+# Both answers are GLOBALS rather than stdout, because a `$(freeze_lib_path)` capture
+# runs the function in a subshell and the reasons collected in there would be
+# discarded at exactly the moment they are needed.
+FREEZE_LIB=""
+FREEZE_LIB_WHY=""
 freeze_lib_path() {
     local src dir candidate
+    FREEZE_LIB=""
+    FREEZE_LIB_WHY=""
     for src in "${BASH_SOURCE[0]}" "$0"; do
-        dir="$(cd -- "$(dirname -- "$src")" 2> /dev/null && pwd -P)" || continue
+        # cd's stderr is merged into the capture, so a failure leaves its reason in
+        # `dir` rather than in /dev/null. On success cd says nothing and `pwd -P`
+        # supplies the value.
+        if ! dir="$(cd -- "$(dirname -- "$src")" 2>&1 && pwd -P)"; then
+            FREEZE_LIB_WHY="${FREEZE_LIB_WHY}${FREEZE_LIB_WHY:+
+}  could not resolve '${src}': ${dir}"
+            continue
+        fi
         for candidate in "$dir/../lib/freeze/freeze-common.bash" \
             "$dir/../files/home/.local/lib/freeze/freeze-common.bash"; do
             if [ -r "$candidate" ]; then
-                printf '%s' "$candidate"
+                FREEZE_LIB="$candidate"
                 return 0
             fi
         done
@@ -123,8 +143,15 @@ freeze_lib_path() {
     return 1
 }
 
-if ! FREEZE_LIB="$(freeze_lib_path)"; then
+# `if !` suspends errexit through the call, which is safe here only because this
+# function has exactly one non-zero meaning — nothing found — and no internal step
+# that could fail on the way to an answer.
+if ! freeze_lib_path; then
     echo "podfreeze: the shared freeze library is missing." >&2
+    if [ -n "$FREEZE_LIB_WHY" ]; then
+        echo "  Some locations could not even be checked:" >&2
+        echo "$FREEZE_LIB_WHY" >&2
+    fi
     echo "  Expected at ~/.local/lib/freeze/freeze-common.bash — half of this" >&2
     echo "  tool lives there, so nothing here can run without it." >&2
     echo "  Deploy it with:" >&2
@@ -671,13 +698,19 @@ freeze_hook_refresh() {
 # The two columns this tool shows after NAME and STATE. Header and row are
 # formatted with the same widths, so they cannot drift out of step — a header
 # that no longer sits over its own column is a table that misreads.
+#
+# NETWORKS is padded to 22 even though it is the last field here, because it is
+# NOT the last field in the drill-down: pick a group and the menu prints the verb
+# after it. An unpadded final column is invisible in one caller and ragged in the
+# other, so the width belongs to the hook that owns the column rather than to
+# whichever caller happens to print something next.
 freeze_hook_table_header() {
-    printf '%-4s %s' "CCY" "NETWORKS"
+    printf '%-4s %-22s' "CCY" "NETWORKS"
 }
 
 freeze_hook_table_row() {
     local i="$1"
-    printf '%-4s %s' "$(ccy_marker "${INV_NAME[$i]}")" "${INV_NETS[$i]}"
+    printf '%-4s %-22s' "$(ccy_marker "${INV_NAME[$i]}")" "${INV_NETS[$i]}"
 }
 
 # The group rows, in menu order: the CCY session group, everything, each network
@@ -731,9 +764,10 @@ freeze_hook_select() {
         net:*)
             # A network can be removed between the menu being drawn and this row
             # being chosen. select_network has already explained it, so this is
-            # a re-prompt rather than the end of the session.
+            # a re-prompt rather than the end of the session — and it says so with
+            # FREEZE_SELECT_GONE, the one status the loop treats that way.
             if ! select_network "${key#net:}"; then
-                return 1
+                return "$FREEZE_SELECT_GONE"
             fi
             ;;
         id:*)

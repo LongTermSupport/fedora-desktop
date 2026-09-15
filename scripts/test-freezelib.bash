@@ -263,10 +263,14 @@ freeze_hook_menu_rows() {
 
 # `gone` stands in for a group that stopped existing between the menu being drawn
 # and the row being chosen, which is the recoverable case the loop must re-prompt on.
+# `broke` is the OTHER non-zero: a hook that failed on its way to an answer. The two
+# must not be one status — capturing a status suspends errexit through the hook body,
+# so a hook that breaks halfway returns 1 exactly like a bare "recoverable" would.
 freeze_hook_select() {
     case "$1" in
         all) select_all ;;
-        gone) return 1 ;;
+        gone) return "$FREEZE_SELECT_GONE" ;;
+        broke) return 1 ;;
         empty) SELECTED=() ;;
         *) die "internal error: unknown target key '$1'." ;;
     esac
@@ -690,6 +694,68 @@ contains "the count of failures is reported"  "$act_out" "2 of 2"
 reset_engine
 
 echo ""
+echo "=== parse_member_choice: the drill-down's answer, resolved ==="
+# The rest of drill_into_group needs a terminal, so before this function was split out
+# the entire member-choice grammar — the `2,4,5` parse, the row/index shift, every
+# rejection — shipped on one host run and nothing else. These are the cases that used
+# to be reachable only by typing into the menu.
+#
+# `rows` here are the menu's rows IN ORDER. Row 1 is "all", so the first container is 2.
+choice_rows=(alpha bravo charlie delta echo)
+choose() { parse_member_choice "$1" "${choice_rows[@]}"; }
+# Returns are newline-separated; flatten to one line so a case reads as one value.
+# The function prints NOTHING on a refusal, so a captured empty string is the refusal
+# and no redirect is needed to keep the output clean.
+chose() { choose "$1" | tr '\n' ';'; }
+
+eq "row 2 is the FIRST container, not the second" "$(chose '2')"     "alpha;"
+eq "row 3 is the second"                          "$(chose '3')"     "bravo;"
+eq "the last row is the last container"           "$(chose '6')"     "echo;"
+eq "commas separate"                              "$(chose '2,4,5')" "alpha;charlie;delta;"
+eq "so do spaces"                                 "$(chose '2 4 5')" "alpha;charlie;delta;"
+eq "and a mix of both"                            "$(chose '2, 4')"  "alpha;charlie;"
+eq "order is the order typed, not sorted"         "$(chose '5,2')"   "delta;alpha;"
+
+# Every rejection. Each must leave the caller to re-prompt rather than resolving to
+# some container — picking the wrong container is silent and irreversible in a way
+# "that is not a valid choice" is not.
+for bad in "1" "0" "7" "99" "-1" "abc" "2abc" "" "   " "2,abc" "2,0" "2,99"; do
+    if choice_out="$(choose "$bad")"; then
+        fail "'$bad' is refused" "it resolved to: ${choice_out//$'\n'/;}"
+    else
+        pass "'$bad' is refused"
+    fi
+done
+# `1` deserves its own word: it is the ALL row, handled by the caller before this is
+# reached. If it ever resolved here it would silently mean "the first container".
+eq "and 1 in particular resolves to nothing" "$(chose '1')" ""
+
+# ONE bad token rejects the WHOLE reply. A partial answer would act on some of what
+# was typed and not the rest, with nothing said about which.
+eq "one bad token rejects the whole reply" "$(chose '2,99,4')" ""
+
+# Discrimination control: every rejection above would pass against a function that
+# refused unconditionally, so assert that a valid reply and an invalid one differ.
+if [ "$(chose '2')" = "$(chose 'abc')" ]; then
+    fail "a valid choice and a refusal are distinct" "both gave: $(chose '2')"
+else
+    pass "a valid choice and a refusal are distinct"
+fi
+
+# The rows are addressed positionally, so a SHORTER row list moves the bound with it —
+# this is what makes passing the displayed rows, rather than the caller's group,
+# load-bearing. With a member skipped from the menu, row 3 is the container printed at
+# row 3 and there is no row 4.
+choice_rows=(alpha charlie)
+eq "a skipped member does not shift the rows below it" "$(chose '3')" "charlie;"
+if choice_out="$(choose 4)"; then
+    fail "and the bound moves with the list" "row 4 resolved on a two-row menu: $choice_out"
+else
+    pass "and the bound moves with the list"
+fi
+choice_rows=(alpha bravo charlie delta echo)
+
+echo ""
 echo "=== interactive_loop: quit, re-prompt, and the status it carries out ==="
 # pick_target and drill_into_group both need a terminal, so they are stubbed here —
 # what is under test is the LOOP: which answers end the session, which return to the
@@ -747,6 +813,19 @@ fi
 run_loop gone quit > "$QUIET" 2>&1
 eq "a group that went away re-prompts rather than ending the session" \
     "$(menus_drawn)" "2"
+# ...but a hook that BROKE is not that, and must not be treated as it. This is the
+# discrimination control for the case above: both return non-zero, and before
+# FREEZE_SELECT_GONE existed both re-prompted, so a hook failing halfway through
+# redrew the menu with no explanation and no failure. The two cases sharing one
+# status is precisely what made that invisible.
+if loop_out="$(run_loop broke quit 2>&1)"; then
+    fail "a select hook that BROKE is fatal, not a re-prompt" \
+        "interactive_loop returned 0 and carried on"
+else
+    pass "a select hook that BROKE is fatal, not a re-prompt"
+fi
+contains "and the failure names the status and the key" "$loop_out" "status 1"
+contains "and does not claim the group went away" "$loop_out" "select hook failed"
 # An empty group is the same shape: say so, and ask again.
 loop_out="$(run_loop empty quit 2>&1)"
 contains "an empty group says so" "$loop_out" "Nothing in that group."

@@ -360,11 +360,26 @@ fi
 echo ""
 echo "=== the table hook: the BRIDGE column is this tool's ==="
 fixture
-eq "the header names it"      "$(freeze_hook_table_header)" "BRIDGE"
-eq "a row carries the bridge" "$(freeze_hook_table_row 0)"  "lxcbr0"
+# The column is PADDED, not bare: the drill-down menu prints the verb after it, so an
+# unpadded value there makes the verb column ragged. `trim` compares the content and
+# the width assertions below compare the shape, because asserting only the trimmed
+# value would pass against the unpadded version this replaced.
+trim() { local s="$1"; s="${s%"${s##*[![:space:]]}"}"; printf '%s' "$s"; }
+eq "the header names it"      "$(trim "$(freeze_hook_table_header)")" "BRIDGE"
+eq "a row carries the bridge" "$(trim "$(freeze_hook_table_row 0)")"  "lxcbr0"
 # The label for a container on no bridge is shown VERBATIM rather than blanked: a blank
 # cell reads as "unknown", and the whole point of the two labels is that they are not.
-eq "and the no-network label, verbatim" "$(freeze_hook_table_row 3)" "$BRIDGE_NONE"
+eq "and the no-network label, verbatim" "$(trim "$(freeze_hook_table_row 3)")" "$BRIDGE_NONE"
+# Header and row must be the SAME width or the header stops sitting over its column,
+# and both must be wide enough for the longest value the column can hold.
+eq "the header and a row are the same width" \
+    "$(freeze_hook_table_header | wc -c)" "$(freeze_hook_table_row 0 | wc -c)"
+if [ "$(freeze_hook_table_row 3 | wc -c)" -ge "${#BRIDGE_UNREADABLE}" ]; then
+    pass "the column is wide enough for the longest label it can hold"
+else
+    fail "the column is wide enough for the longest label it can hold" \
+        "width $(freeze_hook_table_row 3 | wc -c) < ${#BRIDGE_UNREADABLE}"
+fi
 # print_table is the library's, and this is the assembled result — the shared columns
 # plus this engine's, which is the seam most likely to be wired up wrong.
 fixture

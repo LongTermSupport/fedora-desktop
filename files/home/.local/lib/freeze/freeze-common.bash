@@ -53,8 +53,11 @@
 #   freeze_hook_preflight        engine present, privilege available.
 #   freeze_hook_refresh          (re-)read the inventory and any derived maps.
 #   freeze_hook_menu_rows        the group rows, via freeze_menu_row.
-#   freeze_hook_select KEY       resolve a menu key into SELECTED; non-zero is
-#                                RECOVERABLE and re-prompts.
+#   freeze_hook_select KEY       resolve a menu key into SELECTED. Return 0 on
+#                                success, FREEZE_SELECT_GONE when the group no
+#                                longer exists (the loop re-prompts). ANY OTHER
+#                                non-zero is the hook itself failing and is fatal —
+#                                see the note on FREEZE_SELECT_GONE below.
 #   freeze_hook_act VERB NAME    act on one container. Its output is captured.
 #   freeze_hook_table_header     the columns after NAME and STATE.
 #   freeze_hook_table_row INDEX  those columns for one inventory entry.
@@ -66,6 +69,17 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     echo "  no engine to talk to and nothing to report." >&2
     exit 1
 fi
+
+# The ONE recoverable status freeze_hook_select may return. It exists because a
+# status has to be captured to be acted on, and capturing one — `if ! hook`, or
+# `hook || rc=$?` — suspends errexit for the whole hook body either way. That is a
+# bash property, not something a caller can opt out of: with a bare "non-zero means
+# re-prompt" contract, a hook that breaks halfway through runs on to its own
+# `return 0`, or returns 1 from the broken command, and both are indistinguishable
+# from "that group went away". So the recoverable case gets its own number and
+# everything else is fatal. 2 rather than 1, because 1 is what a failing command
+# inside the hook returns by default.
+FREEZE_SELECT_GONE=2
 
 # Declared with empty defaults so this file reads as self-contained and so a
 # missing one is a NAMED failure below rather than an unbound-variable abort
@@ -501,10 +515,53 @@ pick_target() {
 #
 # Emits the chosen names on stdout, one per line. Returns non-zero for back or
 # cancel, which the caller treats as "return to the group menu".
+# parse_member_choice REPLY NAME... — resolve the numbered menu's answer.
+#
+# Split out of drill_into_group because everything else in that function needs a
+# terminal, and a predicate that only runs behind a `read` from /dev/tty is a
+# predicate no suite can execute. `identity_axis_discriminates` was extracted from
+# `pick_target` for the same reason, and its comment gives the argument: a predicate
+# inlined there is one the unit test can only re-implement, and a re-implementation
+# asserts nothing about the code that ships.
+#
+# The NAMEs are the menu's rows IN MENU ORDER, not the caller's group — row 1 is
+# "all" and the containers start at 2, so the caller must pass exactly what it
+# displayed or the numbers address the wrong thing.
+#
+# Echoes one chosen name per line. Returns 1 for any reply that is not a valid,
+# non-empty set of row numbers; the caller re-prompts.
+parse_member_choice() {
+    local reply="$1"
+    shift
+    local -a rows=("$@") tokens=() picked=()
+    local token total="$#"
+
+    read -r -a tokens <<< "${reply//,/ }"
+    for token in "${tokens[@]+${tokens[@]}}"; do
+        case "$token" in
+            "" | *[!0-9]*) return 1 ;;
+            *)
+                # Row 1 is "all"; containers start at 2, so shift by two to index
+                # the rows.
+                if [ "$token" -ge 2 ] && [ "$token" -le "$(( total + 1 ))" ]; then
+                    picked+=("${rows[$(( token - 2 ))]}")
+                else
+                    return 1
+                fi
+                ;;
+        esac
+    done
+
+    if [ "${#picked[@]}" -eq 0 ]; then
+        return 1
+    fi
+    printf '%s\n' "${picked[@]}"
+}
+
 drill_into_group() {
     local -a group=("$@")
-    local i total line selection reply attempt token ok name
-    local -a menu=() picked=() tokens=()
+    local i total line selection reply attempt name picked_out
+    local -a menu=() picked=() rows=()
 
     total="${#group[@]}"
     if [ "$total" -eq 0 ]; then
@@ -521,12 +578,20 @@ drill_into_group() {
     # would otherwise collide with the "act on everything" row.
     menu+=("$(printf '%-34s %s' "$ALL_ROW_KEY" \
         "$(target_effect "${group[@]}")")")
+    # `rows` is what was actually PRINTED, in order. A member that does not resolve
+    # is skipped when building the menu, and numbering the answer against `group`
+    # would then shift every row below it — typing 4 would act on the container
+    # shown at row 5. Unreachable today, because every selector filters through the
+    # inventory, but the skip is written as though it can happen and the failure it
+    # would produce is acting on a container nobody chose.
     for name in "${group[@]}"; do
         i="$(inventory_index_of "$name")" || continue
+        rows+=("$name")
         menu+=("$(printf '%-34s %-8s %s %s' \
             "$name" "${INV_STATE[$i]}" "$(freeze_hook_table_row "$i")" \
             "$(row_verb "$name")")")
     done
+    total="${#rows[@]}"
 
     if have fzf; then
         if ! selection="$(printf '%s\n' "${menu[@]}" |
@@ -578,26 +643,8 @@ drill_into_group() {
                 ;;
         esac
 
-        picked=()
-        ok=1
-        read -r -a tokens <<< "${reply//,/ }"
-        for token in "${tokens[@]+${tokens[@]}}"; do
-            case "$token" in
-                "" | *[!0-9]*) ok=0 ;;
-                *)
-                    # Row 1 is "all"; containers start at 2, so shift by two to
-                    # index the group.
-                    if [ "$token" -ge 2 ] && [ "$token" -le "$(( total + 1 ))" ]; then
-                        picked+=("${group[$(( token - 2 ))]}")
-                    else
-                        ok=0
-                    fi
-                    ;;
-            esac
-        done
-
-        if [ "$ok" -eq 1 ] && [ "${#picked[@]}" -gt 0 ]; then
-            printf '%s\n' "${picked[@]}"
+        if picked_out="$(parse_member_choice "$reply" "${rows[@]}")"; then
+            printf '%s\n' "$picked_out"
             return 0
         fi
 
@@ -694,7 +741,7 @@ do_action() {
 # re-read every pass so the counts describe the machine as it is now, not as it
 # was when the tool started. Leaves only when you quit.
 interactive_loop() {
-    local key picked status=0
+    local key picked status=0 select_rc
 
     while :; do
         freeze_hook_refresh
@@ -713,9 +760,19 @@ interactive_loop() {
         # chosen — a network removed, a bridge emptied. The hook has already
         # explained it; re-prompt rather than abort the session, which is what
         # the interactive rules ask for on recoverable input.
-        if ! freeze_hook_select "$key"; then
+        #
+        # Only FREEZE_SELECT_GONE re-prompts. Capturing the status at all suspends
+        # errexit inside the hook, so any other non-zero is a hook that broke on its
+        # way to an answer, and treating that as "the group went away" would redraw
+        # the menu with no explanation and no failure.
+        select_rc=0
+        freeze_hook_select "$key" || select_rc=$?
+        if [ "$select_rc" -eq "$FREEZE_SELECT_GONE" ]; then
             echo "" >&2
             continue
+        fi
+        if [ "$select_rc" -ne 0 ]; then
+            die "the select hook failed (status $select_rc) resolving '$key'"
         fi
 
         if [ "${#SELECTED[@]}" -eq 0 ]; then

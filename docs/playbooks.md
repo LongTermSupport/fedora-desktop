@@ -1025,9 +1025,10 @@ below:
 `podfreeze` — freeze (pause) and thaw (unpause) Podman containers. The LXC
 counterpart is `play-lxcfreeze.yml` above:
 
-- Deploys `~/.local/bin/podfreeze`, the `~/.local/lib/freeze/freeze-common.bash`
-  library it and `lxcfreeze` both source, plus `fzf` (the picker is optional — a
-  plain numbered menu is used without it)
+- Deploys `~/.local/bin/podfreeze` and the `~/.local/lib/freeze/freeze-common.bash`
+  library it and `lxcfreeze` both source. `fzf` comes with the library, so either
+  play alone gives both tools the same picker (it is optional — a plain numbered
+  menu is used without it)
 - Targets a container by name, a whole network (`--network NET`), every CCY
   (Claude YOLO) session (`--ccy`), or everything (`--all`)
 - **Targets by session identity too** — `--github ID`, `--token LABEL`,
