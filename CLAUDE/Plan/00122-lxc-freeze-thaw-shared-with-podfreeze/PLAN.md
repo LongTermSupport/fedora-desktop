@@ -164,6 +164,20 @@ divergent as it is now — which is the half that was actually complained about.
   unchanged: the suite sources only the definitions above the tool's argument loop, with
   the boundary derived from the file's own content. 15 mutants were each killed by a named
   case — see the journal
+- [x] ✅ **Task 4.1b**: Fix the two defects Task 4.1 found while pinning, BEFORE the
+  extraction moves the functions holding them. Separately from the extraction, so that
+  the extraction's guarantee can be "no behaviour change at all" rather than "no
+  behaviour change except these two". Both were pinned as-shipped first, then the pins
+  flipped to assert the fix, so each is a traceable before/after
+  - [x] ✅ `select_network` matched with `grep -qx` and no `-F`, making the
+    network-existence check a **regex** match — `podma.` passed because `podman`
+    exists, and the user then got "Nothing in that group" rather than the unknown-network
+    error listing the real ones. `select_identity` already did this correctly
+  - [x] ✅ `identity_matches` split its ssh-key haystack with an unquoted
+    `for word in $have` — word splitting **and** pathname expansion, so a label value
+    of `*` expanded against the working directory and every file there became a key
+    that session appeared to hold. A container label is not the tool's to trust that
+    far. Now `read -ra`, with cases proving multi-key matching still works
 - [ ] ⬜ **Task 4.2**: Extract the decisions **and** the menu layer into a library both
   tools source. Engine differences enter through named hooks — the inventory query, the
   act call, the availability guard, the two state words, the extra table columns — never
@@ -183,7 +197,13 @@ divergent as it is now — which is the half that was actually complained about.
 - [ ] `lxcfreeze` freezes a running LXC container and thaws it again, verified with
   `lxc-info -s` rather than by the tool's own report
 - [ ] Running `lxcfreeze` twice on the same target toggles it, as `podfreeze` does
-- [ ] `git diff` touches **no** line of `files/home/.local/bin/podfreeze`
+- [x] **Phases 2–3 only**: `git diff` touches **no** line of
+  `files/home/.local/bin/podfreeze`. Held through Task 4.1, which is why that
+  suite pins the tool as shipped rather than a version adjusted to be testable.
+  **Phase 4 supersedes it**: extracting a menu layer that both tools source
+  necessarily edits `podfreeze`, and Task 4.4 — "Task 4.1's suite must still pass
+  against `podfreeze`" — is the criterion that replaces it. The suite, not the
+  absence of a diff, is what now protects the tool.
 - [ ] A refused or absent `sudo` produces a named failure, never an empty selection
 - [ ] `lxc` not installed is reported as such, and is distinguishable from zero containers
 - [ ] Every decision the suite covers has a mutant that kills it

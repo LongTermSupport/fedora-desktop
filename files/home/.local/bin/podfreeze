@@ -410,7 +410,11 @@ select_network() {
     if ! known="$(podman network ls --format '{{.Name}}' 2>&1)"; then
         die "podman network ls failed: $known"
     fi
-    if ! printf '%s\n' "$known" | grep -qx -- "$net"; then
+    # -F, because a network NAME is a literal. Without it this is a regex match and
+    # `podma.` passes the check by matching `podman`, so a typo containing a
+    # metacharacter is reported as "Nothing in that group" instead of as the unknown
+    # network it is. select_identity below already gets this right.
+    if ! printf '%s\n' "$known" | grep -qxF -- "$net"; then
         echo "podfreeze: no such network: '$net'" >&2
         echo "  Known networks:" >&2
         while read -r name; do
@@ -483,11 +487,18 @@ identity_value_of() {
 # direction would silently widen a freeze, so the two cases are explicit.
 identity_matches() {
     local axis="$1" want="$2" have="$3" word
+    local -a words
     if [ "$axis" != "ssh-key" ]; then
         [ "$have" = "$want" ]
         return
     fi
-    for word in $have; do
+    # ssh-key is the one axis holding several values, so it is split. `read -ra`
+    # rather than an unquoted `for word in $have`: the latter is word splitting AND
+    # pathname expansion, so a label value of `*` expands against the working
+    # directory and every file in it becomes a key the session appears to hold.
+    # A container label is not this tool's to trust that far.
+    read -r -a words <<< "$have"
+    for word in "${words[@]}"; do
         if [ "$word" = "$want" ]; then
             return 0
         fi

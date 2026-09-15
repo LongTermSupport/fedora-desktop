@@ -595,11 +595,15 @@ ok "token: empty matches empty"  identity_matches token "" ""
 notok "ssh-key: empty does not match empty" identity_matches ssh-key "" ""
 
 echo ""
-echo "=== identity_matches: the ssh-key haystack is split UNQUOTED ==="
-# `for word in $have` is word splitting AND pathname expansion. A label value of `*`
-# therefore expands against the process's working directory, and any file there becomes a
-# key this session appears to hold. Pinned as a fact about the shipped tool, in a
-# controlled directory so the result does not depend on where the suite is run from.
+echo "=== identity_matches: the ssh-key haystack does NOT glob ==="
+# The ssh-key axis is the one holding several values, so it is split — and the split
+# must not be an unquoted `for word in $have`, which is word splitting AND pathname
+# expansion. A label value of `*` would then expand against the working directory and
+# every file there would become a key the session appears to hold. A container label is
+# not this tool's to trust that far.
+#
+# Driven in a controlled directory, so the result cannot depend on where the suite runs
+# from — with a file present that a glob WOULD have matched.
 glob_dir="$work/glob"
 mkdir -p "$glob_dir"
 : > "$glob_dir/zz-glob-victim"
@@ -608,9 +612,14 @@ glob_probe="$(cd "$glob_dir" && if identity_matches ssh-key zz-glob-victim '*'; 
 else
     printf 'no-match'
 fi)"
-eq "an ssh-key label of '*' is glob-expanded against the cwd" "$glob_probe" "matched"
-# The single-valued axes compare quoted, so the same label is inert there.
+eq "an ssh-key label of '*' does not glob-expand against the cwd" "$glob_probe" "no-match"
+# The single-valued axes compare quoted and were never affected.
 notok "github does not glob the same value" identity_matches github zz-glob-victim '*'
+# The splitting itself must still work, or the fix would have broken the feature it
+# was protecting — a session really can carry several keys.
+ok "a multi-key label still matches its first member" identity_matches ssh-key alpha 'alpha beta'
+ok "and its last" identity_matches ssh-key beta 'alpha beta'
+notok "and still refuses one it does not hold" identity_matches ssh-key gamma 'alpha beta'
 
 echo ""
 echo "=== identity_values: distinct, sorted, and built from what is running ==="
@@ -1019,22 +1028,28 @@ fi
 eq "and holds only the new members" "${SELECTED[*]}" "kilo"
 
 echo ""
-echo "=== select_network: the existence check is a REGEX match, not a literal one ==="
-# `grep -qx -- "$net"` treats the requested name as a basic regular expression, so a
-# metacharacter can match a network the user did not name — `podma.` passes the check
-# because `podman` exists. select_identity does the same job with `grep -qxF`.
-#
-# PINNED AS SHIPPED, NOT ENDORSED (reported by Plan 00122 Task 4.1): the practical effect
-# is that a typo'd network with a metacharacter in it reaches the filter query and comes
-# back empty, so the user gets "Nothing in that group" instead of the "no such network"
-# error with the list of real ones.
+echo "=== select_network: the existence check is a LITERAL match ==="
+# A network name is a literal, so the check greps with -F. Without it the name is a
+# basic regular expression and a metacharacter matches a network the user never named:
+# `podma.` would pass because `podman` exists, then the filter query returns nothing and
+# the user is told "Nothing in that group" rather than that the network does not exist.
+# select_identity does the same job the same way.
 fixture
 PODMAN_NETFILTER_OUT=""
 if select_network 'podma.'; then
-    pass "a regex metacharacter passes the existence check"
+    fail "a regex metacharacter does NOT pass the existence check" \
+        "'podma.' was accepted — the check has become a regex match again"
 else
-    fail "a regex metacharacter passes the existence check" \
-        "it was refused — the check may now be a literal match, which would be a change"
+    pass "a regex metacharacter does NOT pass the existence check"
+fi
+# The literal name it was standing in for must still be accepted, or the fix would have
+# broken the lookup rather than tightened it.
+fixture
+PODMAN_NETFILTER_OUT=""
+if select_network 'podman'; then
+    pass "the literal network name is still accepted"
+else
+    fail "the literal network name is still accepted" "'podman' was refused"
 fi
 
 echo ""
