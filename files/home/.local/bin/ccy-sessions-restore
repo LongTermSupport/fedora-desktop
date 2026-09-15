@@ -29,7 +29,8 @@
 # EXIT CODES
 #   0  every record resolved — restored, live, or deliberately retired
 #   1  at least one record could not be resolved (malformed, or a start that failed)
-#   2  the environment is wrong (no launcher, no tmux, no systemd-run)
+#   2  the environment or configuration is wrong, and nothing was read, started or retired
+#      (no launcher, no tmux, no systemd-run, or a retention setting that is not a number)
 #
 # Runs on the HOST. Inside a CCY container there is no tmux server and no sessions.
 #

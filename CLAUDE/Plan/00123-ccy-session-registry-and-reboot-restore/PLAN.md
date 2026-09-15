@@ -167,8 +167,9 @@ naming the upstream issue. No local substitute is invented.
 
 ### Phase 6: Review and hand-off
 
-- [x] ✅ **Task 6.1**: every QA stage green bar the one named above; all four `test-ccy-*`
-  suites for this plan pass (registry 100, restore 44, status 42)
+- [x] ✅ **Task 6.1**: every QA stage green bar the one named above, and this plan's three
+  `test-ccy-*` suites pass. Counts are deliberately not written here — `qa-all.bash` derives
+  them on every run, and a number in a plan is a number that goes stale silently
 - [x] ✅ **Task 6.2**: `qa-reviewer` agent over the full branch diff; every finding acted on.
   Reports under `subagent-reports/`, narrative in `JOURNAL/`
   - [x] ✅ Round 1 — 21 findings, all resolved (CCY 3.59.0)
@@ -176,6 +177,10 @@ naming the upstream issue. No local substitute is invented.
   - [x] ✅ Round 3 — 13 verified (3 partial); 4 new, all resolved (CCY 3.59.2). Two were tests
     of mine that passed without exercising anything, which is the defect class this plan
     keeps meeting; both suites now drive the branches they claimed
+  - [x] ✅ Round 4 — all 8 verified fixed; 6 new, all resolved (CCY 3.59.3). Sorting the records
+    in round 3 had made `find` stage one of a pipeline, so without `pipefail` a failing listing
+    was masked by a succeeding `sort`: the guarantee had become conditional on a shell option
+    the caller happens to set
 - [ ] ⬜ **Task 6.3**: Open the PR. **Do not merge** — the owner reviews and merges
 - [ ] ⬜ **Task 6.4**: (HOST, owner) deploy and verify — see the HOST tasks below
 

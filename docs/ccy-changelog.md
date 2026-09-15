@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.59.3
+
+**A failing registry listing can no longer be masked by the sort it feeds.** Sorting the records
+(3.59.2) made `find` stage one of a pipeline, so without `pipefail` a failing find was hidden by
+a succeeding sort and the listing returned success with no records — the exact "could not tell
+reported as nothing to do" collapse the function exists to prevent. `pipefail` is now set inside
+the subshell that runs it: the library sets no shell options by design, the launcher runs `set -e` alone, and a guarantee that depends on an option the caller happens to have set is not a
+guarantee.
+
+---
+
 ## 3.59.2
 
 **A mistyped retention setting fails before any record is touched.** `CCY_RESTORE_MAX_AGE_DAYS`

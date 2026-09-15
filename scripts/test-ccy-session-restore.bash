@@ -121,13 +121,28 @@ STATE="$WORK/state"
 # case that fails for an unexpected reason must be able to say so.
 RESTORE_OUT=""
 RESTORE_RC=0
+# RUN_MAX_AGE / RUN_EVIDENCE override the retention settings for a case. Left empty they are not
+# passed at all, so the script's own defaults apply.
+RUN_MAX_AGE=""
+RUN_EVIDENCE=""
 run_restore() {
+    # Through `env`, and built as an array. A `${VAR:+NAME=value}` written in an assignment
+    # PREFIX is not an assignment: bash decides what is a prefix before expanding, so the word
+    # became a command and every such case returned 127 instead of testing anything.
+    local -a extra_env=()
+    if [ -n "$RUN_MAX_AGE" ]; then
+        extra_env+=("CCY_RESTORE_MAX_AGE_DAYS=$RUN_MAX_AGE")
+    fi
+    if [ -n "$RUN_EVIDENCE" ]; then
+        extra_env+=("CCY_RESTORE_EVIDENCE_DAYS=$RUN_EVIDENCE")
+    fi
     RESTORE_OUT="$(
-        PATH="$STUB_BIN:$PATH" \
+        env PATH="$STUB_BIN:$PATH" \
             XDG_STATE_HOME="$STATE" \
             CCY_LIB="$LIB_DIR" \
             CCY_LAUNCHER="$WORK/fake-launcher" \
             HOME="$WORK" \
+            "${extra_env[@]}" \
             bash "$RESTORE" "$@" 2>&1
     )"
     RESTORE_RC=$?
@@ -421,6 +436,50 @@ check "a retired record is filed under retired/" "yes" \
 check "the filed record carries its reason" "not-a-git-checkout" \
     "$(ccy_registry_field_default "$STATE/ccy/restore/retired/ccy-filed.record" retired_reason missing)"
 check "a retirement alone does NOT fail the run" "0" "$RESTORE_RC"
+
+# ── the retention settings are validated BEFORE any record is touched ────────────────
+#
+# Both reach arithmetic deep inside the loop. A mistyped one — set in the unit, or exported for a
+# dry run — used to kill the service mid-record: no verdict for the record in hand, no summary,
+# no last-run note, and every remaining session left unrestored. A configuration mistake must
+# fail before the work starts, and it must be visible that nothing was touched.
+reset_registry
+make_repo "$WORK/guarded"
+record_for ccy-guarded "$WORK/guarded"
+RUN_MAX_AGE="notanumber"
+run_restore
+RUN_MAX_AGE=""
+check "a non-numeric max-age is refused at startup" "2" "$RESTORE_RC"
+check "and the refusal names the variable" "yes" \
+    "$(printf '%s' "$RESTORE_OUT" | grep -q 'CCY_RESTORE_MAX_AGE_DAYS' && echo yes || echo no)"
+check "and says nothing was touched" "yes" \
+    "$(printf '%s' "$RESTORE_OUT" | grep -qi 'nothing was read' && echo yes || echo no)"
+check "and the record is left exactly where it was" "yes" \
+    "$([ -f "$SESSIONS/ccy-guarded.record" ] && echo yes || echo no)"
+# It fails BEFORE the loop, so no record can have been processed on the way to the refusal.
+check "no record was processed before the refusal" "no" \
+    "$(printf '%s' "$RESTORE_OUT" | grep -q 'ccy-guarded.record' && echo yes || echo no)"
+
+RUN_EVIDENCE="7d"
+run_restore
+RUN_EVIDENCE=""
+check "a non-numeric evidence-age is refused too" "2" "$RESTORE_RC"
+check "and that refusal names its own variable" "yes" \
+    "$(printf '%s' "$RESTORE_OUT" | grep -q 'CCY_RESTORE_EVIDENCE_DAYS' && echo yes || echo no)"
+
+# A negative number is not a whole number of days either, and would sail through a bare
+# arithmetic check.
+RUN_MAX_AGE="-1"
+run_restore
+RUN_MAX_AGE=""
+check "a negative max-age is refused" "2" "$RESTORE_RC"
+
+# And the ordinary case still works, or every assertion above proves only that the guard fires.
+RUN_MAX_AGE="14"
+run_restore --dry-run
+RUN_MAX_AGE=""
+check "a valid max-age is accepted" "0" "$RESTORE_RC"
+check "and the record is still processed" "would-start" "$(verdict_for ccy-guarded)"
 
 # ── the environment refusals ─────────────────────────────────────────────────────────
 check "--help works and exits 0" "0" \

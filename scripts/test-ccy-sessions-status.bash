@@ -320,8 +320,12 @@ tmux_session ccy-proj-b "$WORK/proj-b"
 run_sessions reboot --dry-run
 check "every running session is listed" "yes" "$(said 'ccy-proj-a')"
 check "including the second" "yes" "$(said 'ccy-proj-b')"
+# Counted on the whole ROW, not the substring "ready": "NO DAEMON CLI" does not contain it today,
+# but a wording change that made it "not ready" would have this assertion pass while counting the
+# opposite of what it claims — which is the trap `enabled` vs `enabled-no-linger` set thirty
+# lines from here.
 check "each is marked ready when its project has the daemon CLI" "2" \
-    "$(printf '%s' "$OUT" | grep -c 'ready')"
+    "$(printf '%s' "$OUT" | grep -cE '^ +ccy-proj-[ab] +ready +')"
 check "an all-ready audit succeeds" "0" "$RC"
 
 # A project with no daemon CLI cannot be warned. The audit REFUSES rather than warning the

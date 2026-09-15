@@ -475,7 +475,11 @@ ccy_registry_validate() {
 # `$(…)` strips NUL bytes, silently gluing every record path into one.
 #
 # The caller names its own array rather than reading a shared global: one function, no global to
-# clobber between two consumers, and nothing kept alive merely to have something read it.
+# clobber between two consumers, and nothing kept alive merely to have something read it. Two
+# consequences of the nameref are worth knowing: it cannot write through `$( … )`, which is a
+# subshell, and the names `_ccy_collect_dir`, `_ccy_collect_out`, `_ccy_collect_tmp` and
+# `_ccy_collect_err` are RESERVED — passing one as the array name would have the function write
+# to its own local and return an empty array with no error.
 #
 # Globs `*.record` only, so an in-flight `.tmp.<pid>` write is never offered to a reader. A
 # directory that does not exist yields an empty array and SUCCEEDS — `ccy` has simply never
@@ -494,8 +498,17 @@ ccy_registry_collect() {
     # Sorted, so a report reads the same way twice and a diff of two runs means something;
     # readdir order is whatever the filesystem feels like. LC_ALL=C so the order does not move
     # between machines with different collations.
-    _ccy_collect_err=$( { find "$_ccy_collect_dir" -maxdepth 1 -name '*.record' -type f -print0 |
-        LC_ALL=C sort -z; } 2>&1 >"$_ccy_collect_tmp") || {
+    #
+    # `set -o pipefail` INSIDE the subshell, and it is load-bearing. The find is now stage one of
+    # a pipeline, so without it a failing find is masked by a succeeding sort and this returns 0
+    # with no records — the precise collapse this function's header forbids. It cannot be left to
+    # the caller: this library sets no shell options by design, the launcher runs `set -e` alone,
+    # and a guarantee that depends on an option the caller happens to have set is not a guarantee.
+    _ccy_collect_err=$(
+        set -o pipefail
+        { find "$_ccy_collect_dir" -maxdepth 1 -name '*.record' -type f -print0 |
+            LC_ALL=C sort -z; } 2>&1 >"$_ccy_collect_tmp"
+    ) || {
         print_error "could not list records in $_ccy_collect_dir: $_ccy_collect_err"
         rm -f "$_ccy_collect_tmp"
         return 1

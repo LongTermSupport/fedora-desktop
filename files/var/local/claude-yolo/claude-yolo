@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.59.2"  # The registry listing fills a caller-named array with no shared global, and a mistyped retention setting fails before any record is touched rather than mid-run. See docs/ccy-changelog.md.
+CCY_VERSION="3.59.3"  # A failing find in the registry listing can no longer be masked by the sort it feeds, whatever shell options the caller set. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
