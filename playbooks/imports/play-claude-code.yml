@@ -30,14 +30,34 @@
     # cc wrapper sources ccy's lib at runtime. play-claude-yolo MUST run
     # first (see playbook-main.yml import order). Fail at deploy time
     # rather than at first cc invocation if the lib is missing.
-    - name: Preflight — Assert ccy Lib Is Deployed
+    #
+    # The stat carries no failed_when and the assert below does the judging,
+    # because `failed_when` on a loop reports only "an expression evaluated to
+    # True" plus a raw stat dict (issue #46). That is a correct refusal telling
+    # the operator nothing about what to do — and this play failing on its own
+    # is the EXPECTED outcome of running it outside playbook-main.yml's order,
+    # which is precisely the case that needs the remedy spelled out.
+    - name: Preflight — Stat the ccy Lib Files
       ansible.builtin.stat:
         path: "{{ item }}"
       register: ccy_lib_files
-      failed_when: not ccy_lib_files.stat.exists
       loop:
         - /var/local/claude-yolo/lib/common-pure.bash
         - /var/local/claude-yolo/lib/token-management.bash
+
+    - name: Preflight — Assert ccy Lib Is Deployed
+      ansible.builtin.assert:
+        that:
+          - ccy_lib_files.results | rejectattr('stat.exists') | list | length == 0
+        fail_msg: >-
+          The ccy library is not deployed, so the `cc` wrapper this play installs would
+          fail at first invocation. Missing:
+          {{ ccy_lib_files.results | rejectattr('stat.exists') | map(attribute='item') | join(', ') }}.
+          playbooks/imports/play-claude-yolo.yml deploys it, and playbook-main.yml
+          imports that play BEFORE this one — so running this play on its own does not
+          satisfy the order. Run ./playbooks/imports/play-claude-yolo.yml first, then
+          this play again; or run ./run.bash, which does both in the right order.
+        success_msg: ccy library is deployed
 
     - name: Ensure jq is available
       ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ensure-jq.yml"

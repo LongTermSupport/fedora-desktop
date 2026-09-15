@@ -186,7 +186,16 @@ remains needs a secret no VM scenario carries — see the Status note above.
     the end-to-end observation in a guest, which `server-github-token` check 6 makes
   - [ ] 🔄 The transient `SSH_ASKPASS` helper removed afterwards
   - [ ] 🔄 `hl_cleanup` firing on EXIT, and the secret files unlinked after use
-    (`hl_cleanup:421` uses `rm -f` while the comment and help say "shred")
+    (the wording half of this is **settled**: `hl_cleanup` used `rm -f` while four
+    comments and three docs said "shred". Resolved in favour of the CODE, not the word —
+    coreutils' own caution is that "shred assumes the file system and hardware overwrite
+    data in place", and neither platform here does: these files come from `mktemp`, /tmp
+    on Fedora is tmpfs, and the default root filesystem is btrfs, which is copy-on-write.
+    `shred` would rewrite blocks that are not where the secret is and report success, so
+    calling it to make the word true while the effect stayed false would have been worse
+    than the mismatch. The protection is 0600 plus a short lifetime, and the docs now say
+    that. What still needs the guest is the OBSERVATION that the unlink actually happened
+    on every exit path)
   - Same route as 3.3: with `GITHUB_ACCOUNTS=none` no key is ever loaded, so the
     default scenarios never start the agent and the assertions would pass by
     absence — 00110 `DESIGN.md:1604-1607` says exactly this

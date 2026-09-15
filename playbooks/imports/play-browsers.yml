@@ -48,18 +48,127 @@
     # when a site fails in another browser, you can isolate whether the
     # site is broken or your browser is.
     #
-    # The .rpm's post-install scriptlet drops
-    # /etc/yum.repos.d/google-chrome.repo automatically, so future
-    # `dnf update` keeps it current. The signing key must be imported
-    # first — installing directly from a URL doesn't bring one with it.
+    # INSTALLED FROM GOOGLE'S REPO, NOT FROM THE DIRECT .rpm URL, and the
+    # difference is dnf5. Handing dnf a URL puts the package in the synthetic
+    # `@commandline` repo, and dnf5 validates a package against the OpenPGP keys
+    # configured ON ITS REPO — `@commandline` has none, so the install fails with
+    # "The repository does not have any OpenPGP keys configured" (issue #45) even
+    # though the key is in the RPM keyring. dnf4 consulted the keyring and this
+    # worked for years; importing the key first is no longer sufficient.
+    #
+    # Declaring the repo fixes it properly rather than by turning checking off:
+    # the key is configured where dnf5 looks for it, so signatures are still
+    # verified. It is also where the .rpm's post-install scriptlet was going to
+    # put the host anyway — it drops this same repo file so `dnf update` keeps
+    # Chrome current — so this reaches the same end state without the
+    # chicken-and-egg.
+    #
+    # AND THE KEY ITSELF HAS TO BE REFRESHED, not merely imported. Google's key is
+    # one primary carrying a growing set of signing SUBKEYS, and Chrome is now
+    # signed by one added long after the key was first published. rpm and dnf both
+    # decide a key is "present" by its PRIMARY id, so a host that imported it years
+    # ago — an F41 install upgraded to F44 is exactly that — never receives the new
+    # subkey, and dnf5 reports both halves of a contradiction at once:
+    #
+    #   Public key "…linux_signing_key.pub" is already present, not importing.
+    #   OpenPGP check … has failed: Public key is not installed.
+    #
+    # `rpm_key: state=present` cannot break that deadlock — it is the module whose
+    # "already present" check is the problem — so the stale key is removed first.
+    # Removing unconditionally would report `changed` on every run for ever, so the
+    # helper decides, and it identifies the key by ID rather than by description so
+    # the `rpm -e` below cannot reach a key it was never asked about.
+
+    # gnupg2 is a hard requirement of BOTH the key check below (which reads OpenPGP
+    # packets with gpg rather than reimplementing them) and `rpm_key` itself, whose
+    # module source calls get_bin_path('gpg2', required=True). Nothing in this repo
+    # installed it, so the pre-existing rpm_key task would already have failed on a
+    # gpg-less host — this is a gap the helper exposed, not one it introduced.
+    - name: Install gnupg2 for OpenPGP Key Handling
+      ansible.builtin.package:
+        name: gnupg2
+        state: present
+
+    - name: Fetch Google's Published Signing Key
+      ansible.builtin.get_url:
+        url: https://dl.google.com/linux/linux_signing_key.pub
+        dest: /etc/pki/rpm-gpg/RPM-GPG-KEY-google-chrome
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Decide Whether The Imported Google Key Is Stale
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -m
+          - helpers.rpm_keys.subkeys
+          - --published
+          - /etc/pki/rpm-gpg/RPM-GPG-KEY-google-chrome
+        chdir: "{{ root_dir }}" # repo root on sys.path so the helpers package imports
+      register: chrome_key_state
+      changed_when: false
+      # Read-only, so it is safe under --check — and running it there is the point:
+      # skipped, its stdout is empty, the loop below is empty, and a dry run would
+      # report "nothing to remove" on a host that needs a removal.
+      check_mode: false
+      failed_when: chrome_key_state.rc != 0 or 'RPM-KEY-ACTION' not in chrome_key_state.stdout
+
+    # No `when:` — the helper prints an envelope line only when one is to be removed,
+    # so the loop IS the gate. A second condition here could disagree with the
+    # verdict, and the disagreement would be a deleted key.
+    - name: Remove The Stale Google Signing Key
+      ansible.builtin.command:
+        argv:
+          - rpm
+          - --erase
+          - --allmatches
+          - "{{ item }}"
+      loop: "{{ chrome_key_state.stdout_lines | select('match', '^RPM-KEY-ENVELOPE ')
+                | map('regex_replace', '^RPM-KEY-ENVELOPE ', '') | list }}"
+      changed_when: true
+
     - name: Import Google Chrome Signing Key
       ansible.builtin.rpm_key:
-        key: https://dl.google.com/linux/linux_signing_key.pub
+        key: /etc/pki/rpm-gpg/RPM-GPG-KEY-google-chrome
         state: present
+
+    # The post-condition, and the play's only proof that any of the above worked.
+    # Without it a refresh that did not take is silent: the erase and the import both
+    # report success, the next run finds the same deficiency, and the play erases and
+    # re-imports for ever while reporting green. Asking the same question again and
+    # requiring `none` is what makes that loud on the first run instead of never.
+    - name: Verify The Imported Google Key Is Now Current
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -m
+          - helpers.rpm_keys.subkeys
+          - --published
+          - /etc/pki/rpm-gpg/RPM-GPG-KEY-google-chrome
+        chdir: "{{ root_dir }}" # repo root on sys.path so the helpers package imports
+      register: chrome_key_verify
+      changed_when: false
+      check_mode: false
+      failed_when: >-
+        chrome_key_verify.rc != 0
+        or 'RPM-KEY-ACTION none' not in chrome_key_verify.stdout_lines
+
+    - name: Add Google Chrome Repository
+      ansible.builtin.yum_repository:
+        name: google-chrome
+        description: google-chrome
+        baseurl: https://dl.google.com/linux/chrome/rpm/stable/x86_64
+        enabled: true
+        gpgcheck: true
+        # The local copy, not the URL: it is the exact bytes the task above checked
+        # the keyring against, so dnf cannot end up validating against a different
+        # fetch of the key than the one this play reasoned about.
+        gpgkey: file:///etc/pki/rpm-gpg/RPM-GPG-KEY-google-chrome
 
     - name: Install Google Chrome
       ansible.builtin.dnf:
-        name: https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm
+        name: google-chrome-stable
         state: present
         disable_gpg_check: false
 

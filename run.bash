@@ -217,8 +217,8 @@ check_legacy_grub_cgroup() {
 # a 0600 password file plus a 0700 SUDO_ASKPASS helper that reads it (D1). This is the
 # sudo twin of hl_ssh_agent_start: `sudo -A` consumes SUDO_ASKPASS exactly as ssh-add
 # consumes SSH_ASKPASS, so the mechanism is one this script already relies on. Both temp
-# files are registered in HL_SECRET_FILES and shredded by the existing hl_cleanup EXIT
-# trap — D4 needs no new cleanup.
+# files are registered in HL_SECRET_FILES and unlinked by the existing hl_cleanup EXIT
+# trap — D4 needs no new cleanup. (Unlinked, not shredded; hl_cleanup says why.)
 #
 # DELIBERATE DIFFERENCE from hl_ssh_agent_start: the helper is written with the file PATH
 # interpolated (printf %q) rather than reading an exported variable at askpass RUNTIME.
@@ -412,11 +412,23 @@ headless_preflight() {
   echo -e "${GREEN}${CHECK} Headless preflight OK${NC} — user=${HL_USER_LOGIN} (${HL_USER_NAME}) email=${HL_USER_EMAIL} github=${HL_GITHUB_ACCOUNTS} sudo=${_sudo_cred}" >&2
 }
 
-# hl_cleanup — EXIT-trap cleanup for a headless run: shred every 0600 secret file and,
+# hl_cleanup — EXIT-trap cleanup for a headless run: unlink every 0600 secret file and,
 # as a BACKSTOP, tear down the ssh-agent if it is still up (V3.11/V3.12). The agent is
 # normally killed right after the last git op (hl_ssh_agent_stop); this only catches an
 # abnormal exit. set -u-safe: every var is expanded with `:-` and the array with
 # "${arr[@]:-}", so it is a harmless no-op on an interactive run or an early abort.
+#
+# `rm -f`, NOT `shred -u`, and deliberately. coreutils' own caution: "shred assumes the
+# file system and hardware overwrite data in place. Although this is common, many
+# platforms operate otherwise." Neither platform here is one of the common ones — these
+# files come from `mktemp`, and on Fedora /tmp is tmpfs (pages returned to RAM, no
+# on-disk block to rewrite), while the default root filesystem is btrfs, which is
+# copy-on-write and so never overwrites in place either. `shred` would rewrite blocks
+# that are not where the secret is, then report success.
+#
+# So the protection these files actually have is 0600 plus a short lifetime, and that is
+# what the surrounding comments say. Calling `shred` to make the word true while the
+# effect stayed false would be worse than the mismatch it replaced.
 hl_cleanup() {
   rm -f /tmp/.github_ssh_pp "${HL_SECRET_FILES[@]:-}"
   if [[ -n "${HL_SSH_AGENT_PID:-}" ]]; then
@@ -432,7 +444,7 @@ hl_cleanup() {
 # NO file/stdin passphrase flag for ssh-add — SSH_ASKPASS (+SSH_ASKPASS_REQUIRE=force)
 # is the ONLY non-interactive path. The passphrase is written to a 0600 file the helper
 # reads at runtime (the helper carries only the non-secret PATH, never the passphrase),
-# and both temp files are shredded by hl_cleanup. Fails LOUD on any error.
+# and both temp files are unlinked by hl_cleanup. Fails LOUD on any error.
 hl_ssh_agent_start() {
   HL_SSH_PP_FILE="$(mktemp)" && chmod 600 "$HL_SSH_PP_FILE"
   printf '%s' "$HL_GITHUB_SSH_PASSPHRASE" > "$HL_SSH_PP_FILE"
@@ -822,7 +834,7 @@ main() {
   IFS=$'\n\t'
 
   # Safety net: always clean up sensitive temp files on exit.
-  # HL_SECRET_FILES holds any 0600 secret files a headless run must shred on ANY
+  # HL_SECRET_FILES holds any 0600 secret files a headless run must unlink on ANY
   # exit path (V3.4/V3.11). Initialised empty BEFORE the trap so the trap is
   # set -u-safe even when no headless secret files exist (empty-GitHub path / an
   # early abort before the files are learned) — a "${arr[@]:-}" expansion of an

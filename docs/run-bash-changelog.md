@@ -121,7 +121,7 @@ Plan 00084 ports the same design onto this line (lts-infra Plan 00045) so it com
 - Preflight **asserts** one of NOPASSWD:ALL or the password file and decides
   `HL_SUDO_OPTS` once (D1).
 - `hl_sudo_askpass_start` writes a `0600` password file plus a `0700` `SUDO_ASKPASS`
-  helper — the sudo twin of `hl_ssh_agent_start`, shredded by the same EXIT trap (D4).
+  helper — the sudo twin of `hl_ssh_agent_start`, unlinked by the same EXIT trap (D4).
 - `hl_sudo_probe_password` **proves** the password authenticates during preflight rather
   than mid-provision.
 - Every privileged call site goes through `_sudo` (D2), byte-identical to bare `sudo`
@@ -191,7 +191,7 @@ had survived because inline code inside `main()` could not be tested at all.
 
 - Preflight **asserts** one of the two and decides `HL_SUDO_OPTS` once (D1).
 - `hl_sudo_askpass_start` writes a `0600` password file plus a `0700` `SUDO_ASKPASS` helper —
-  the sudo twin of `hl_ssh_agent_start`, shredded by the same EXIT trap.
+  the sudo twin of `hl_ssh_agent_start`, unlinked by the same EXIT trap.
 - `hl_sudo_probe_password` **proves** the password authenticates during preflight rather than
   mid-provision.
 - Every privileged call site goes through `_sudo` (D2), byte-identical to bare `sudo`
@@ -227,7 +227,7 @@ config/vault blocks are wrapped under `if HEADLESS != true`.
 
 `hl_ssh_agent_start` (ssh-agent + a transient `0700` `SSH_ASKPASS` reading a `0600` passphrase
 file, V3.13), `hl_ssh_agent_stop` (killed after the last git op, V3.12), and the `hl_cleanup`
-EXIT trap (shred secret files + backstop agent kill, V3.11). Headless branches for keygen
+EXIT trap (unlink secret files + backstop agent kill, V3.11). Headless branches for keygen
 (`-P` from the resolved passphrase, then agent load), hostname (`RUN_BASH_HOSTNAME` or leave
 the default), and `gh` token auth (`gh auth login --with-token` from stdin, `git_protocol=ssh`).
 All fail loud via `hl_abort`.

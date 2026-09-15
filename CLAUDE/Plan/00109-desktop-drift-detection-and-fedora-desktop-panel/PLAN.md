@@ -102,9 +102,17 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 
 - [x] ✅ **Task 1.1**: Design the ledger record and its location
 - [ ] 🔄 **Task 1.2**: Write the ledger on every play run — `callback_plugins/play_ledger.py`
+  - [x] ✅ **It had never worked on ansible-core 2.19** (issue #46). 2.19 removed
+    `ansible_pos` and moved the play's source position into an `Origin` tag on the play
+    itself, so every play became a recorded hole and the ledger marked itself `BROKEN` on
+    every run. Both shapes are read now, new first, and the choice is tested
+  - [x] ✅ **`store.clear_broken` had no caller anywhere** — a sentinel, once written, left
+    the ledger permanently untrustworthy with no route back. `check_freshness --clear-broken` is that route, and it says the missing rows are not recovered
   - [ ] ⬜ **HOST or VM**: verify against a real run — genesis plus one row per play,
     `--check` adds nothing, a second run appends. No guest checker reads the ledger today;
-    that is the gap, not the machine ([DESIGN-host-health.md](DESIGN-host-health.md) §12)
+    that is the gap, not the machine ([DESIGN-host-health.md](DESIGN-host-health.md) §12).
+    **This item would have caught both defects above on its first execution**, which is
+    the argument for it rather than against it
 - [x] ✅ **Task 1.3**: Backfill — **none**, answered by a reporting rule instead: a play
   with no record has never been run here, and silence is correct for it
 

@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00124-chrome-install-gpg-failure-on-upgraded-host](00124-chrome-install-gpg-failure-on-upgraded-host/) - `run.bash` stops at Chrome on a host upgraded from F41, and there were two causes stacked: dnf5 validating against a repo's own keys (so a package URL lands in keyless `@commandline`), and beneath it an imported key that rpm will never refresh because presence is judged by primary id, leaving the newer signing subkey absent.
+
 - [00123-ccy-session-registry-and-reboot-restore](00123-ccy-session-registry-and-reboot-restore/) - A host reboot still takes every ccy session with it (Plan 00111 only insulated them from the terminal); adds a session registry `ccy` writes at launch and clears on exit, plus an opt-in `systemd --user` service that brings each survivor back with `--supervise --continue`. The reboot-warning half is blocked on an upstream daemon signal and ships as a dry-run audit that refuses to lie.
 
 - [00122-lxc-freeze-thaw-shared-with-podfreeze](00122-lxc-freeze-thaw-shared-with-podfreeze/) - `podfreeze` groups, previews and toggles Podman containers; LXC is a first-class engine here with no equivalent. Adds a sibling `lxcfreeze` — rootful, so a separate tool rather than a flag — on a shared library holding the menu, the derived verb and the dry run that are not engine-specific.

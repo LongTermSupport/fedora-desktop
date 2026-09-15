@@ -13,10 +13,11 @@
 # This gate closes that hole by comparing the two. It is the one QA check whose
 # subject is the host rather than the source tree.
 #
-# SCOPE: files/home/.local/bin/ — the user-facing tools — plus the VM acceptance
-# lab's deployed copies (guest scripts, kickstarts, user units, helper package;
-# see LAB_PAIRS below). A file is checked only when a deployed copy already
-# EXISTS, so a machine that never installed a feature is never nagged about it.
+# SCOPE: files/home/.local/bin/ — the user-facing tools — plus the other trees
+# whose deployed copies are authoritative (the VM acceptance lab, and the freeze
+# library the two freeze tools source; see EXTRA_PAIRS below). A file is checked
+# only when a deployed copy already EXISTS, so a machine that never installed a
+# feature is never nagged about it.
 #
 # stdout: terse — findings and a one-line summary.
 # Exit 0 = in sync (or nothing deployed to compare against); 1 = drift found.
@@ -192,24 +193,36 @@ for src in "$SRC_DIR"/*; do
     echo >&2
 done
 
-# ── The VM acceptance lab's other deployed copies (Plan 00110) ───────────────
+# ── The other trees whose deployed copies are authoritative ──────────────────
 #
-# The lab makes its DEPLOYED copies authoritative: `vmtest` hashes the deployed
-# guest-cleanup script, kickstart and session runner into every base's recipe
-# digest, and the bridge runs the deployed helper package. A repo edit to any of
-# them that is never deployed leaves every base certified against a recipe the
-# repo no longer has, with QA green — the same hole as above, one directory over.
-# Each pair is "repo glob -> deployed directory"; as above, a file is compared
-# only when its deployed copy exists.
-LAB_PAIRS=(
-    "files/home/.local/share/vmtest/*|$HOME/.local/share/vmtest"
-    "fedora-install/ks-vm-*.cfg|$HOME/.local/share/vmtest"
-    "files/home/.config/systemd/user/vmtest-*|$HOME/.config/systemd/user"
-    "helpers/vmtest/*.py|/usr/local/lib/ccy-helpers/helpers/vmtest"
+# THE VM ACCEPTANCE LAB (Plan 00110). The lab makes its DEPLOYED copies
+# authoritative: `vmtest` hashes the deployed guest-cleanup script, kickstart and
+# session runner into every base's recipe digest, and the bridge runs the deployed
+# helper package. A repo edit to any of them that is never deployed leaves every
+# base certified against a recipe the repo no longer has, with QA green — the same
+# hole as above, one directory over.
+#
+# THE FREEZE LIBRARY (Plan 00122). ~/.local/lib/freeze/freeze-common.bash is half
+# of both podfreeze and lxcfreeze — the menu, the derived verb, the act loop — and
+# it is SOURCED at startup rather than carried inside them. So a deployed tool whose
+# own bytes match the repo can still be running a stale menu, which is exactly the
+# invisible drift this gate exists for — and the loop above cannot see it, because
+# that loop only walks .local/bin.
+#
+# Each entry is "repo glob | deployed directory | the play that deploys it". As
+# above, a file is compared only when its deployed copy exists.
+EXTRA_PAIRS=(
+    "files/home/.local/share/vmtest/*|$HOME/.local/share/vmtest|playbooks/imports/optional/common/play-vm-test-lab.yml"
+    "fedora-install/ks-vm-*.cfg|$HOME/.local/share/vmtest|playbooks/imports/optional/common/play-vm-test-lab.yml"
+    "files/home/.config/systemd/user/vmtest-*|$HOME/.config/systemd/user|playbooks/imports/optional/common/play-vm-test-lab.yml"
+    "helpers/vmtest/*.py|/usr/local/lib/ccy-helpers/helpers/vmtest|playbooks/imports/optional/common/play-vm-test-lab.yml"
+    "files/home/.local/lib/freeze/*|$HOME/.local/lib/freeze|playbooks/imports/optional/common/play-podfreeze.yml"
 )
-for pair in "${LAB_PAIRS[@]}"; do
+for pair in "${EXTRA_PAIRS[@]}"; do
     glob="${pair%%|*}"
-    deployed_dir="${pair#*|}"
+    rest="${pair#*|}"
+    deployed_dir="${rest%%|*}"
+    deploy_play="${rest#*|}"
     for src in "$REPO_ROOT"/$glob; do
         [ -f "$src" ] || continue
         name="$(basename "$src")"
@@ -232,7 +245,7 @@ for pair in "${LAB_PAIRS[@]}"; do
         echo "  ${src#"$REPO_ROOT"/}" >&2
         echo "    deployed: $dep" >&2
         echo "    deploy it with:" >&2
-        echo "    ansible-playbook playbooks/imports/optional/common/play-vm-test-lab.yml" >&2
+        echo "    ansible-playbook $deploy_play" >&2
         echo >&2
     done
 done
