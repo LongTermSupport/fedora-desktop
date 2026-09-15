@@ -26,7 +26,7 @@ esac
 # once and plainly on stderr rather than swallowed: a report that has stopped working
 # must not be indistinguishable from a host with nothing to report.
 if [ ! -r "{{ root_dir }}/helpers/host_health/login_message.py" ]; then
-    echo "fedora-desktop: no health report — the checkout at {{ root_dir }} has gone; re-run play-host-health-server-report.yml" >&2
+    echo "fedora-desktop: no health report — the checkout at {{ root_dir }} has gone; re-run play-host-health-login-report.yml" >&2
     return 0
 fi
 

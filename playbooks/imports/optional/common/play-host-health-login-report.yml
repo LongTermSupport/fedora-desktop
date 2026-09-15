@@ -2,45 +2,63 @@
 ---
 # Login-time host health report (Plan 00109, Tasks 3.1 and 3.2) — reporting-only.
 #
-# Deploys the systemd --user unit that runs helpers.host_health.login_report at the
-# END of a graphical login. The report merges three checks into one notification:
-# post-boot health (DKMS against the running kernel, failed units), play freshness
-# against the ledger, and repo-pin versus installed. It is SILENT when clean.
+# The report merges three checks into one message: post-boot health (DKMS against the
+# running kernel, failed units), play freshness against the ledger, and repo-pin versus
+# installed. It is SILENT when clean.
 #
-# Why this exists: a reboot into a new kernel left both DisplayLink monitors dark
-# because a DKMS module could not build, and every automated check in this repo was
-# green throughout — none of them looks at the host.
+# Why this exists: a reboot into a new kernel left both DisplayLink monitors dark because
+# a DKMS module could not build, and every automated check in this repo was green
+# throughout — none of them looks at the host.
+#
+# ONE PLAY, TWO DELIVERIES, because only the delivery was ever profile-specific. The three
+# checks are profile-agnostic, and a second playbook for the second delivery meant four
+# byte-identical tasks and a pair that would drift the first time one of them was fixed.
+#
+#   desktop — `host-health.service`, a systemd --user unit at the END of a graphical
+#             login, delivering by notify-send. The end of login, not boot: the whole
+#             point is that somebody is present to read it.
+#   server  — `graphical-session.target` never activates and there is no session bus, so
+#             the same collection runs on `host-health-collect.timer` and a
+#             ~/.bashrc-includes snippet prints what it left at the next interactive
+#             shell. A git fetch at every SSH login would slow every login and can hang.
 #
 # Reporting-only, and that is a hard boundary: nothing here re-runs a play, installs
-# anything or moves the working tree. Re-running a play is always a human decision.
+# anything beyond the report's own runtime dependency, or moves the working tree.
+# Re-running a play is always a human decision.
 #
-# Needs `user_login`'s systemd manager reachable, because this play ENABLES rather
-# than merely deploying — an unenabled unit never fires. That does NOT require a
-# graphical session: `play-systemd-user-tweaks.yml` (import 8 of playbook-main,
-# `scope: general`) enables linger and then explicitly starts `user@UID.service`,
-# blocking until it signals READY=1. So on any host provisioned by playbook-main the
-# manager is there. Run this on a fresh host before that play and the enable fails,
-# loudly, which is the intended answer.
+# Needs `user_login`'s systemd manager reachable, because this play ENABLES rather than
+# merely deploying — an unenabled unit never fires. That does NOT require a graphical
+# session: `play-systemd-user-tweaks.yml` (import 8 of playbook-main, `scope: general`)
+# enables linger and then explicitly starts `user@UID.service`, blocking until it signals
+# READY=1. So on any host provisioned by playbook-main the manager is there. Run this on a
+# fresh host before that play and the enable fails, loudly, which is the intended answer.
 #
-# `scope: gnome`, so this ends the play on a server profile. The delivery is what is
-# desktop-bound — `notify-send` needs a session bus, and `graphical-session.target`
-# never activates on a server — but the three CHECKS behind it are not. A server
-# therefore gets no drift detection at all, which is a gap recorded in PLAN.md
-# Task 3.2 rather than papered over here.
-#
-# Standalone / opt-in play — deliberately NOT imported from playbook-main.yml. Run
-# it directly:
+# Standalone / opt-in play — deliberately NOT imported from playbook-main.yml. Run it
+# directly:
 #   ./playbooks/imports/optional/common/play-host-health-login-report.yml
 - hosts: desktop
   name: Login-Time Host Health Report
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
-    scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     unit_name: host-health.service
+    collect_service: host-health-collect.service
+    collect_timer: host-health-collect.timer
     user_units_dir: "/home/{{ user_login }}/.config/systemd/user"
+    bashrc_includes_dir: "/home/{{ user_login }}/.bashrc-includes"
+    # The marker play-basic-configs.yml writes when it adds the sourcing loop. Asserted
+    # rather than assumed: without that loop the snippet is deployed and never read, and
+    # a report nothing reads looks exactly like a host with nothing to report.
+    bashrc_includes_marker: "# BEGIN ANSIBLE MANAGED: Source bashrc includes"
+    is_server: "{{ provisioning_profile == 'server' }}"
   tasks:
-    - name: Scope guard — assert provisioning_profile is recognised
+    # NOT a scope guard — `scope: general` has work for both profiles, so there is no
+    # end_play here and qa-ansible.bash correctly rejects one. This is a recognition
+    # assert, and it is load-bearing for a different reason: both delivery blocks below
+    # branch on `provisioning_profile`, and an unrecognised value would quietly take the
+    # desktop branch on a server rather than failing.
+    - name: Assert The Provisioning Profile Is Recognised
       ansible.builtin.assert:
         that:
           - provisioning_profile in ['desktop', 'server']
@@ -51,11 +69,7 @@
           (see environment/localhost/group_vars/desktop.yml) or overridden
           via -e provisioning_profile=desktop|server.
 
-    - name: Scope guard — end play if provisioning_profile does not match declared scope
-      ansible.builtin.meta: end_play
-      when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
-
-    # PyYAML for the SYSTEM interpreter, which is what the unit runs
+    # PyYAML for the SYSTEM interpreter, which is what the units run
     # (`ExecStart=/usr/bin/python3`). The pin check converts `vars/version-pins.yml`
     # through it, and Ansible's own PyYAML may live in a pipx venv that
     # `/usr/bin/python3` cannot import — so assuming it was an assumption about a
@@ -76,17 +90,6 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: '0755'
-
-    # Templated, not copied: WorkingDirectory is this checkout's path, which is a
-    # property of the machine and is never written into the repo.
-    - name: Deploy The Login-Time Health Report Unit
-      ansible.builtin.template:
-        src: "{{ root_dir }}/files/home/.config/systemd/user/{{ unit_name }}.j2"
-        dest: "{{ user_units_dir }}/{{ unit_name }}"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: '0644'
-      register: hh_unit
 
     # Resolved, not assumed. A sibling play writes `/run/user/{{ uid | default(1000) }}`,
     # and a wrong default there does not fail — it silently points the probe at
@@ -118,7 +121,22 @@
           user's systemd manager. It would otherwise guess, and a guessed uid points
           at the wrong runtime directory without failing.
 
-    # Unconditional, and the enable is its own probe. Two reasons it is not guarded:
+    # ── Desktop delivery: notify-send at the end of a graphical login ────────────────
+    #
+    # Templated, not copied: WorkingDirectory is this checkout's path, which is a
+    # property of the machine and is never written into the repo.
+    - name: Deploy The Login-Time Health Report Unit
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/home/.config/systemd/user/{{ unit_name }}.j2"
+        dest: "{{ user_units_dir }}/{{ unit_name }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+      register: hh_unit
+      when: not is_server | bool
+
+    # Unconditional within the desktop branch, and the enable is its own probe. Two
+    # reasons it is not guarded further:
     #
     # A deployed-but-unenabled unit NEVER runs — `WantedBy=` in `[Install]` does
     # nothing until `enable` writes the `graphical-session.target.wants/` symlink.
@@ -140,3 +158,81 @@
         daemon_reload: "{{ hh_unit.changed }}"
       environment:
         XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+      when: not is_server | bool
+
+    # ── Server delivery: a timer to collect, a login shell to report ─────────────────
+    - name: Deploy The Host Health Collection Unit
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/home/.config/systemd/user/{{ collect_service }}.j2"
+        dest: "{{ user_units_dir }}/{{ collect_service }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+      register: hh_collect_service
+      when: is_server | bool
+
+    - name: Deploy The Host Health Collection Timer
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/home/.config/systemd/user/{{ collect_timer }}.j2"
+        dest: "{{ user_units_dir }}/{{ collect_timer }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+      register: hh_collect_timer
+      when: is_server | bool
+
+    # `.bashrc-includes` and the loop that sources it are play-basic-configs.yml's,
+    # which is in playbook-main's core path — this play reads that contract rather than
+    # re-declaring it, so there is one owner of the mechanism.
+    - name: Read The User's Bashrc To Confirm Includes Are Sourced
+      ansible.builtin.slurp:
+        src: "/home/{{ user_login }}/.bashrc"
+      register: hh_bashrc
+      when: is_server | bool
+
+    - name: Assert The Bashrc Includes Loop Is Present
+      ansible.builtin.assert:
+        that:
+          - bashrc_includes_marker in (hh_bashrc['content'] | b64decode)
+        fail_msg: >-
+          /home/{{ user_login }}/.bashrc does not source ~/.bashrc-includes, so the login
+          snippet this play deploys would never be read and this host would report as
+          healthy while nothing checked it. Run playbook-main.yml (or
+          playbooks/imports/play-basic-configs.yml) first, which owns that loop.
+      when: is_server | bool
+
+    - name: Ensure Bashrc Includes Directory Exists
+      ansible.builtin.file:
+        path: "{{ bashrc_includes_dir }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+      when: is_server | bool
+
+    # Templated for the same reason as the units: it names this checkout's path.
+    - name: Deploy The Login-Shell Health Report Snippet
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/home/bashrc-includes/host-health-report.bash.j2"
+        dest: "{{ bashrc_includes_dir }}/host-health-report.bash"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+      when: is_server | bool
+
+    # Enabled AND started: `enabled` alone writes the timers.target.wants symlink but
+    # leaves the timer unarmed until the next boot, and a report that begins a reboot
+    # later is one nobody connects to the play they just ran. The unit is a timer, so
+    # starting it arms the schedule — it does not run the collection now.
+    - name: Enable And Start The Host Health Collection Timer
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.systemd:
+        name: "{{ collect_timer }}"
+        scope: user
+        enabled: true
+        state: started
+        daemon_reload: "{{ hh_collect_service.changed or hh_collect_timer.changed }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+      when: is_server | bool

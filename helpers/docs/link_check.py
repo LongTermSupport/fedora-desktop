@@ -112,6 +112,57 @@ def missing_mentions(names, haystack):
     return [name for name in names if name not in haystack]
 
 
+#: A gate invoked as a script, e.g. `"$SCRIPT_DIR/test-secret-scan.bash"`.
+_QA_SCRIPT_GATE = re.compile(r"\$SCRIPT_DIR/(?P<name>[A-Za-z0-9._-]+\.bash)")
+#: A gate invoked as a module, e.g. `python3 -m helpers.gnome.check_panel_contract`.
+_QA_MODULE_GATE = re.compile(r"-m\s+helpers\.(?P<path>[A-Za-z0-9_.]+)")
+
+
+def qa_gates(content):
+    """Every gate `qa-all.bash` invokes, named as `CLAUDE/QA.md` would name it.
+
+    Script gates by filename; module gates by their last dotted component, because that
+    is what the table writes — requiring the dotted path would fail the document for
+    naming a gate the way a human does.
+    """
+    names = {match.group("name") for match in _QA_SCRIPT_GATE.finditer(content)}
+    for match in _QA_MODULE_GATE.finditer(content):
+        names.add(match.group("path").rsplit(".", 1)[-1])
+    return sorted(names)
+
+
+def check_qa_gate_inventory_in(*, qa_all, qa_doc):
+    """The pure half: every gate in `qa_all` has a row in `qa_doc`.
+
+    DERIVED, not re-enumerated. This table had drifted by roughly five entries while
+    stating two counts that were both wrong, and each previous repair swapped one stale
+    list for a fresher one — which is why it went stale again. `CLAUDE/AgentNotes.md`
+    names the rule: replacing a stale enumeration with a fresher enumeration is not the
+    fix; deriving the set is.
+    """
+    names = qa_gates(qa_all)
+    if not names:
+        return [{
+            "file": "scripts/qa-all.bash", "line": 0, "target": "-",
+            "problem": "parsed 0 gate invocations — discovery is broken, not the doc",
+        }]
+    return [
+        {
+            "file": "CLAUDE/QA.md", "line": 0, "target": name,
+            "problem": "gate is run by qa-all.bash but has no row in this document",
+        }
+        for name in missing_mentions(names, qa_doc)
+    ]
+
+
+def check_qa_gate_inventory(repo_root):
+    """Every gate `qa-all.bash` runs must have a row in `CLAUDE/QA.md`."""
+    return check_qa_gate_inventory_in(
+        qa_all=_read(os.path.join(repo_root, "scripts/qa-all.bash")),
+        qa_doc=_read(os.path.join(repo_root, "CLAUDE/QA.md")),
+    )
+
+
 _EXCLUDE_ANYWHERE = ("node_modules/",)
 _EXCLUDE_PREFIX = (
     "CLAUDE/Plan/",
@@ -281,6 +332,7 @@ def main(argv):
     findings = check_links(repo_root, scoped)
     findings += check_playbook_catalogue(repo_root)
     findings += check_topic_index(repo_root)
+    findings += check_qa_gate_inventory(repo_root)
 
     print(json.dumps({
         "type": "docs",

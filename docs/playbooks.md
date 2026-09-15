@@ -758,9 +758,7 @@ Container process watchdog — **reporting only, it never kills or throttles any
 Login-time host health report — **reporting only, it never re-runs a play or installs
 anything**:
 
-- Deploys a `systemd --user` unit that runs at the **end of a graphical login**, not at
-  boot, so somebody is present to read it
-- Merges three checks into **one** notification: DKMS modules missing a build for the
+- Merges three checks into **one** message: DKMS modules missing a build for the
   **running** kernel, failed system and user units, plays that have changed since they
   were last run here, and repo pins that differ from what is installed
 - **Silent when clean.** Nothing is shown on a healthy login — a check that speaks every
@@ -774,30 +772,31 @@ anything**:
   from one that ran and found something — and `systemctl --user is-failed` would stay silent
   about a health surface that had stopped working
 
-#### play-host-health-server-report.yml
+**One play, two deliveries.** Only the delivery was ever profile-specific; the three
+checks are not. `scope: general`, branching on `provisioning_profile`:
 
-The same report on a **server** profile, where `notify-send` has nothing to talk to —
-**reporting only**:
-
-- `scope: server`, and the counterpart to the play above rather than a replacement. Only
-  the *delivery* was desktop-bound; the three checks are profile-agnostic, and without
-  this a server got no drift detection at all
-- Splits the one route in two: a `systemd --user` **timer** runs the checks on a schedule
-  and leaves the status document behind, and a `~/.bashrc-includes` snippet prints what it
-  left. A `git fetch` at every SSH login would slow every login and can hang on an
-  unreachable remote
-- **Daily**, derived from the consumer's 14-day staleness bound rather than picked: one
-  failed run, one reboot or a day powered off must not read as a stale host, but a
-  collector that has stopped must be reported well inside the fortnight
+- **desktop** — a `systemd --user` unit at the **end of a graphical login**, not at boot,
+  so somebody is present to read the notification
+- **server** — `graphical-session.target` never activates and there is no session bus, so
+  a `--user` **timer** runs the same collection and a `~/.bashrc-includes` snippet prints
+  what it left at the next interactive shell. A `git fetch` at every SSH login would slow
+  every login and can hang on an unreachable remote
+- The timer is **daily**, derived from the consumer's 14-day staleness bound rather than
+  picked: one failed run, one reboot or a day powered off must not read as a stale host,
+  but a collector that has stopped must be reported well inside the fortnight
 - The snippet prints **only for an interactive shell**. bash reads `~/.bashrc` for a
   non-interactive shell too when sshd started it, so anything printed unconditionally
   breaks `scp`, `sftp` and `rsync` to the host with a protocol error
-- Fails loudly if `~/.bashrc` does not source `~/.bashrc-includes` — run
+- On a server it fails loudly if `~/.bashrc` does not source `~/.bashrc-includes` — run
   `playbook-main.yml` first. A snippet nothing reads looks exactly like a healthy host
+- **The server checkout needs a remote the timer can fetch without an agent.** A timer
+  has no `ssh-agent`, and the freshness check never prompts, so an SSH remote with a
+  passphrase-protected key reports "never reached the remote" on every login. Use an
+  HTTPS remote, or a key usable without an agent
 - **A document from before the last reboot is reported as not-checked**, however recent
-  it is. Only this route can outlive a reboot, and results collected under the previous
-  kernel say nothing about DKMS modules for the one now running — which is the exact
-  shape of the failure that started this work
+  it is. Only the timer route can outlive a reboot, and results collected under the
+  previous kernel say nothing about DKMS modules for the one now running — which is the
+  exact shape of the failure that started this work
 
 #### play-fedora-desktop-panel.yml
 

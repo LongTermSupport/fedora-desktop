@@ -9,6 +9,7 @@ whitespace, but GitHub replaces each space individually, so a heading containing
 rule below is pinned against an anchor observed working in a rendered document.
 """
 
+import os
 import unittest
 
 from helpers.docs import link_check
@@ -140,6 +141,52 @@ class TestCatalogChecks(unittest.TestCase):
         missing = link_check.missing_mentions(["play-a.yml"],
                                               "play-a.yml is here")
         self.assertEqual(missing, [])
+
+
+class TestQaGateInventory(unittest.TestCase):
+    """The gate inventory in CLAUDE/QA.md is DERIVED, not re-enumerated.
+
+    That table had drifted by roughly five entries and stated two counts that were both
+    wrong, and every previous fix replaced one stale enumeration with a fresher one — so
+    it went stale again. `CLAUDE/AgentNotes.md` names the answer: derive the set. The
+    names now come out of `qa-all.bash` itself, so a gate added without a row fails the
+    docs gate on the same commit.
+    """
+
+    QA_ALL = (
+        'QA_JSON_OUT="$TMP_BASH" "$SCRIPT_DIR/qa-bash.bash" || rc=$?\n'
+        'if ! out="$(bash "$SCRIPT_DIR/test-thing.bash" 2>&1)"; then\n'
+        'if ! c="$(cd "$SCRIPT_DIR/.." && python3 -m helpers.gnome.check_thing 2>&1)"; then\n'
+    )
+
+    def test_bash_gates_are_extracted(self):
+        self.assertIn("qa-bash.bash", link_check.qa_gates(self.QA_ALL))
+        self.assertIn("test-thing.bash", link_check.qa_gates(self.QA_ALL))
+
+    def test_python_module_gates_are_extracted_by_their_last_component(self):
+        """The table names `check_extension_compat`, not the dotted path, so that is
+        the token to require — requiring the dotted form would fail the document for
+        writing the gate's name the way a human would."""
+        self.assertIn("check_thing", link_check.qa_gates(self.QA_ALL))
+
+    def test_a_gate_with_no_row_is_reported(self):
+        missing = link_check.missing_mentions(
+            link_check.qa_gates(self.QA_ALL), "we document qa-bash.bash and check_thing")
+        self.assertEqual(missing, ["test-thing.bash"])
+
+    def test_finding_no_gates_is_itself_a_finding(self):
+        """A discovery that matches nothing would report a clean inventory over a
+        document listing none of them — the shape this repo keeps rediscovering."""
+        findings = link_check.check_qa_gate_inventory_in(
+            qa_all="nothing that looks like a gate here", qa_doc="")
+        self.assertEqual(len(findings), 1)
+        self.assertIn("discovery", findings[0]["problem"])
+
+    def test_the_shipped_inventory_is_complete(self):
+        """The control that makes the rest of this class worth having: run against the
+        real files, not a fixture."""
+        root = os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        self.assertEqual(link_check.check_qa_gate_inventory(root), [])
 
 
 class TestScope(unittest.TestCase):

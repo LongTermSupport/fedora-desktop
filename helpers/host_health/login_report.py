@@ -36,7 +36,7 @@ from collections.abc import Callable
 from typing import TextIO
 
 from helpers.host_health import handoff, probe, probe_results, status_document
-from helpers.play_ledger import check_freshness, ledger, ledger_presence, repo
+from helpers.play_ledger import check_freshness, ledger, ledger_presence, repo, store
 from helpers.version_pins import check_pins
 
 #: Clean: nothing the user must act on, and nothing shown.
@@ -200,6 +200,26 @@ def _notify_send(body: str) -> None:
     )
 
 
+def plays_run_here(base: str) -> set[str] | None:
+    """Which plays this host has a ledger record for, or None when it cannot be read.
+
+    **None is not the empty set.** An empty ledger means no play has been recorded here,
+    which is an answer — Task 1.3 settled that a play with no record has never been run
+    here, and silence is correct for it. A ledger that could not be read leaves the
+    question open, and `check_pins` treats None by keeping every pin applicable, because
+    an open question must not buy silence on a whole drift axis.
+
+    Guarded rather than raising: the ledger's own brokenness is `ledger_presence`'s
+    finding, reported once and in its own section, so letting it also take down the pin
+    check would be two voices on one fact — and this runs at login, where an exception
+    costs the user the report entirely.
+    """
+    try:
+        return set(ledger.fold_latest(store.read_lines(base)))
+    except (OSError, ValueError):
+        return None
+
+
 def _repo_root_default() -> str:
     """This file is `<repo>/helpers/host_health/login_report.py`."""
     return os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
@@ -333,6 +353,10 @@ def main(
             pins=check_pins.declared_pins(arguments.repo_root),
             playbook_text=lambda relative: _read(arguments.repo_root, relative),
             dkms_status=lambda: dkms_text(probe.run_probe),
+            # A pin belongs to a play, and a play this host has never run installs
+            # nothing here for the pin to be about. Without this, a server reports
+            # "evdi_version: pinned 1.15.0, nothing installed" at every single login.
+            ran_plays=plays_run_here(base),
         ),
     )
     findings = [finding for group in sections.values() for finding in group]

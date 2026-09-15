@@ -286,6 +286,93 @@ class TestZeroCoverageIsItsOwnFinding(unittest.TestCase):
         )
 
 
+class TestAPinIsOnlyAboutAHostThatRanItsPlay(unittest.TestCase):
+    """The rule Task 1.3 settled for freshness, applied to the axis that forgot it.
+
+    A pin describes software that one play installs. On a host that has never run that
+    play there is nothing for the pin to describe, and `compare.classify` answers a
+    resolver's `None` with `ABSENT` — *"pinned 1.15.0, nothing installed"* — a fault
+    nobody can act on. On a server, `evdi` is the DisplayLink module and the answer is
+    permanent.
+
+    So: applicability comes from the play ledger, exactly as freshness's does — a play
+    with no record has never been run here, and silence is correct for it.
+    """
+
+    DISPLAYLINK = "playbooks/imports/optional/hardware-specific/play-displaylink.yml"
+
+    def test_a_pin_whose_play_never_ran_here_is_silent(self) -> None:
+        findings = check_pins.check(
+            pins=[pin()],
+            playbook_text=lambda _: PLAYBOOK,
+            dkms_status=lambda: "",
+            ran_plays=set(),
+        )
+        self.assertEqual(findings, [])
+
+    def test_a_pin_whose_play_DID_run_here_is_still_checked(self) -> None:
+        """The rule must not silence the axis it was written to keep working: this is
+        the incident's own state, and it has to stay a finding."""
+        findings = check_pins.check(
+            pins=[pin()],
+            playbook_text=lambda _: PLAYBOOK,
+            dkms_status=lambda: DKMS_INCIDENT,
+            ran_plays={self.DISPLAYLINK},
+        )
+        self.assertEqual(len(findings), 1)
+        self.assertIn("1.14.16", findings[0].text)
+
+    def test_an_unreadable_ledger_keeps_every_pin_applicable(self) -> None:
+        """None is not the empty set. A ledger that could not be read leaves the
+        question open, and an open question must never buy silence on a whole drift
+        axis — the failure this plan exists for, one level up."""
+        findings = check_pins.check(
+            pins=[pin()],
+            playbook_text=lambda _: PLAYBOOK,
+            dkms_status=lambda: DKMS_INCIDENT,
+            ran_plays=None,
+        )
+        self.assertEqual(len(findings), 1)
+
+    def test_the_dkms_probe_is_not_run_for_a_pin_that_does_not_apply(self) -> None:
+        """`dkms_status` is the expensive, failing-on-a-server call. A pin filtered out
+        must not pay for it — and must not turn its failure into a finding."""
+        calls: list[int] = []
+
+        def dkms() -> str:
+            calls.append(1)
+            raise check_pins.ResolutionError("dkms: command not found")
+
+        self.assertEqual(
+            check_pins.check(
+                pins=[pin()], playbook_text=lambda _: PLAYBOOK,
+                dkms_status=dkms, ran_plays=set()),
+            [],
+        )
+        self.assertEqual(calls, [])
+
+    def test_zero_coverage_counts_only_applicable_pins(self) -> None:
+        """Otherwise the coverage finding replaces the noise it just removed: a server
+        would trade one permanent line for another."""
+        untracked = TestZeroCoverageIsItsOwnFinding._all_untracked(9)
+        self.assertEqual(
+            check_pins.check(
+                pins=untracked, playbook_text=lambda _: PLAYBOOK,
+                dkms_status=lambda: "", ran_plays=set()),
+            [],
+        )
+
+    def test_zero_coverage_still_fires_when_the_applicable_pins_are_untracked(self) -> None:
+        """The guard must survive the filter. A host that HAS run the play and tracks
+        none of its pins is the case it was written for."""
+        untracked = TestZeroCoverageIsItsOwnFinding._all_untracked(9)
+        findings = check_pins.check(
+            pins=untracked, playbook_text=lambda _: PLAYBOOK,
+            dkms_status=lambda: "", ran_plays={self.DISPLAYLINK})
+        self.assertEqual(len(findings), 1)
+        self.assertIn("0 of 9", findings[0].text)
+
+
 class TestTheRealResolvers(unittest.TestCase):
     """`_rpm_version` and `_command_version`, which had no tests — so the fallbacks the
     module falls back TO were asserted to work and never exercised.

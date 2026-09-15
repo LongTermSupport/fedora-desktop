@@ -45,6 +45,11 @@ class ProbeOutcome(NamedTuple):
     ok: bool
     text: str
     error: str
+    #: True only when the command itself is not installed, which is a different fact
+    #: from "the command ran and failed" and licenses a different verdict. Defaults
+    #: False, and that default is the conservative one: a caller that omits it gets the
+    #: "could not be checked" branch, so forgetting it can never buy silence.
+    missing: bool = False
 
 
 class Finding(NamedTuple):
@@ -162,6 +167,7 @@ def build_report(
     failed_system: ProbeOutcome,
     failed_user: ProbeOutcome,
     running_kernel: str,
+    dkms_registered: list[str] | None = None,
 ) -> Report:
     """Every host-health finding, from every probe, in one report.
 
@@ -176,7 +182,28 @@ def build_report(
     """
     findings: list[Finding] = []
 
-    if not dkms.ok:
+    if not dkms.ok and dkms.missing and dkms_registered == []:
+        # NO DKMS SUBSYSTEM AT ALL, which is an answer rather than a failure to get one.
+        # `dkms` is installed only by two optional desktop-hardware plays, so a stock
+        # server has neither the command nor a module tree — and a host with no DKMS
+        # modules cannot have one missing a build. Reporting it as unchecked made every
+        # interactive login on a clean server print "this machine needs attention" for
+        # ever, which is precisely the noise that gets a health surface muted.
+        #
+        # Note the shape: `dkms_registered == []` is a positive finding of nothing, and
+        # `None` — could not read the state directory — deliberately falls through to
+        # the unchecked branch below. "We could not tell" is not "it is fine".
+        pass
+    elif not dkms.ok and dkms.missing and dkms_registered:
+        # The command is gone but the modules are still registered, so nothing will
+        # rebuild them on the next kernel. That is a worse state than either half.
+        findings.append(unchecked(
+            f"dkms is not installed, but {len(dkms_registered)} DKMS module tree(s) are "
+            f"still registered on this host ({', '.join(dkms_registered)}), so whether "
+            "they are built for the running kernel cannot be established — and nothing "
+            "will rebuild them for the next one"
+        ))
+    elif not dkms.ok:
         findings.append(unchecked(f"the dkms probe could not run: {dkms.error}"))
     else:
         try:

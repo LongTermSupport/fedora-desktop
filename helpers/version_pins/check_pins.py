@@ -133,6 +133,7 @@ def check(
     dkms_status: Callable[[], str],
     rpm_version: Callable[[str], str | None] | None = None,
     command_version: Callable[[str], str | None] | None = None,
+    ran_plays: set[str] | None = None,
 ) -> list[probe_results.Finding]:
     """One finding per pin that is not a clean MATCH. The probes are seams.
 
@@ -146,15 +147,36 @@ def check(
     is indistinguishable from a host whose every version matches — a whole drift axis
     gone quiet, on the axis the incident happened on. Partial coverage is a decision;
     zero coverage is a check that cannot fail, and it says so with the number.
+
+    `ran_plays` narrows the population to the pins this host could possibly have — see
+    the comment on `applicable` below. It is counted into the zero-coverage number too:
+    counting the whole manifest there would replace the noise the filter just removed.
     """
     findings: list[probe_results.Finding] = []
     dkms_cache: list[str] = []
-    tracked = sum(1 for pin in pins if pin.is_tracked)
-    if pins and tracked == 0:
+
+    # APPLICABILITY, from the play ledger. A pin describes software that one play
+    # installs, so on a host that has never run that play there is nothing for the pin
+    # to describe — and `compare.classify` answers an unresolvable install with ABSENT,
+    # "pinned X, nothing installed", which on a server is a permanent fault nobody can
+    # act on. Task 1.3 settled the identical question for freshness: a play with no
+    # record has never been run here, and silence is correct for it.
+    #
+    # `ran_plays is None` means the ledger could not be read, and then every pin stays
+    # applicable. An open question must not buy silence on a whole drift axis; the
+    # ledger's own emptiness and brokenness are `ledger_presence`'s findings, not this
+    # check's, so there is no risk of an empty ledger going unreported.
+    applicable = [
+        pin for pin in pins if ran_plays is None or pin.playbook in ran_plays
+    ]
+
+    tracked = sum(1 for pin in applicable if pin.is_tracked)
+    if applicable and tracked == 0:
         findings.append(
             probe_results.unchecked(
-                f"the installed-vs-pinned check compared 0 of {len(pins)} declared pins, "
-                "so nothing on this host was held against the repo's versions"
+                f"the installed-vs-pinned check compared 0 of {len(applicable)} pins "
+                "applicable to this host, so nothing here was held against the repo's "
+                "versions"
             )
         )
 
@@ -163,7 +185,7 @@ def check(
             dkms_cache.append(dkms_status())
         return dkms_cache[0]
 
-    for pin in pins:
+    for pin in applicable:
         if not pin.is_tracked:
             continue
         try:

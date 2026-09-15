@@ -21,11 +21,12 @@ import contextlib
 import io
 import os
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from helpers.host_health import probe
+from helpers.host_health import probe, probe_results
 
 RUNNING_KERNEL = "7.2.4-200.fc44.x86_64"
 DKMS_HEALTHY = f"evdi/1.15.0, {RUNNING_KERNEL}, x86_64: installed"
@@ -155,6 +156,51 @@ class TestCollect(unittest.TestCase):
 
 
 class TestRunningKernel(unittest.TestCase):
+    def test_an_absent_dkms_state_directory_is_an_empty_list_not_none(self) -> None:
+        """The distinction the silence rests on. `[]` says this host has no DKMS
+        subsystem; `None` says the question could not be answered."""
+        with tempfile.TemporaryDirectory() as base:
+            self.assertEqual(
+                probe.dkms_registered_modules(os.path.join(base, "no-such-dir")), [])
+
+    def test_registered_modules_are_named(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            os.mkdir(os.path.join(base, "evdi"))
+            os.mkdir(os.path.join(base, "vboxhost"))
+            self.assertEqual(
+                probe.dkms_registered_modules(base), ["evdi", "vboxhost"])
+
+    def test_files_beside_the_module_trees_are_not_modules(self) -> None:
+        """DKMS keeps more than module directories in there; a stray file counted as a
+        module would report a host as having DKMS modules it does not have."""
+        with tempfile.TemporaryDirectory() as base:
+            os.mkdir(os.path.join(base, "evdi"))
+            with open(os.path.join(base, "dkms_dbversion"), "w", encoding="utf-8") as f:
+                f.write("3\n")
+            self.assertEqual(probe.dkms_registered_modules(base), ["evdi"])
+
+    def test_a_state_path_that_is_not_a_directory_answers_none(self) -> None:
+        """`listdir` on a regular file raises NotADirectoryError, an OSError that is not
+        FileNotFoundError — so it must read as "could not tell", not as absence."""
+        with tempfile.TemporaryDirectory() as base:
+            path = os.path.join(base, "not-a-dir")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("")
+            self.assertIsNone(probe.dkms_registered_modules(path))
+
+    def test_collect_passes_the_registered_modules_through(self) -> None:
+        """The seam exists so the silence rule is reachable from `collect`, not only
+        from the classifier it delegates to."""
+        report = probe.collect(
+            running_kernel=RUNNING_KERNEL,
+            runner=lambda argv: probe_results.ProbeOutcome(
+                ok=False, text="", error="dkms: command not found", missing=True)
+            if argv[0] == "dkms"
+            else probe_results.ProbeOutcome(ok=True, text="", error=""),
+            dkms_registered=[],
+        )
+        self.assertTrue(report.clean)
+
     def test_the_running_kernel_is_read_from_the_kernel_not_from_a_command(self) -> None:
         """`uname -r` would be a fourth probe that can fail; os.uname cannot."""
         self.assertEqual(probe.running_kernel(), os.uname().release)

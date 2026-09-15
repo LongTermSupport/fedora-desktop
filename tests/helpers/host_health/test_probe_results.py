@@ -194,6 +194,76 @@ class TestProbeFailuresAreFindings(unittest.TestCase):
         self.assertEqual(len(report.findings), 3)
 
 
+class TestAHostWithNoDkmsSubsystem(unittest.TestCase):
+    """A stock server has no `dkms`, and reporting that for ever is how this gets muted.
+
+    `dkms` is installed by exactly two plays, both optional and both desktop hardware
+    (`play-displaylink.yml`, `play-virtualbox-windows.yml`), so a server provisioned by
+    `playbook-main.yml` has neither the command nor a module tree. Before this rule, every
+    interactive login on such a host printed "this machine needs attention" plus a line
+    that could never become actionable.
+
+    The distinction that makes staying silent honest: no command AND no registered
+    modules is a positive finding of nothing. Either half alone is not.
+    """
+
+    MISSING = probe_results.ProbeOutcome(
+        ok=False, text="", error="dkms: command not found (dkms status)", missing=True)
+
+    def test_no_command_and_no_modules_is_silent(self) -> None:
+        report = probe_results.build_report(
+            dkms=self.MISSING, failed_system=NO_UNITS, failed_user=NO_UNITS,
+            running_kernel=RUNNING_KERNEL, dkms_registered=[])
+        self.assertTrue(report.clean)
+
+    def test_no_command_but_registered_modules_is_reported(self) -> None:
+        """The worse state than either half: nothing will rebuild them for the next
+        kernel, and whether they are built for this one cannot be established."""
+        report = probe_results.build_report(
+            dkms=self.MISSING, failed_system=NO_UNITS, failed_user=NO_UNITS,
+            running_kernel=RUNNING_KERNEL, dkms_registered=["evdi"])
+        self.assertFalse(report.clean)
+        self.assertTrue(any("evdi" in text for text in report.texts))
+
+    def test_an_unreadable_state_directory_is_not_read_as_absence(self) -> None:
+        """None means the question is open. Folding it in with `[]` would let a
+        permission problem on /var/lib/dkms buy permanent silence on the axis this
+        plan's incident happened on."""
+        report = probe_results.build_report(
+            dkms=self.MISSING, failed_system=NO_UNITS, failed_user=NO_UNITS,
+            running_kernel=RUNNING_KERNEL, dkms_registered=None)
+        self.assertFalse(report.clean)
+
+    def test_omitting_the_parameter_keeps_the_old_noisy_verdict(self) -> None:
+        """The default is the conservative one. A caller that forgets this argument gets
+        "could not be checked" — never silence — so the omission cannot hide anything."""
+        report = probe_results.build_report(
+            dkms=self.MISSING, failed_system=NO_UNITS, failed_user=NO_UNITS,
+            running_kernel=RUNNING_KERNEL)
+        self.assertFalse(report.clean)
+
+    def test_a_command_that_ran_and_failed_is_still_a_finding(self) -> None:
+        """`missing` is the whole discriminator. A dkms that exists and returned an
+        error says nothing about whether this host has a DKMS subsystem, so an empty
+        module list must not silence it."""
+        report = probe_results.build_report(
+            dkms=probe_results.ProbeOutcome(
+                ok=False, text="", error="dkms: permission denied", missing=False),
+            failed_system=NO_UNITS, failed_user=NO_UNITS,
+            running_kernel=RUNNING_KERNEL, dkms_registered=[])
+        self.assertFalse(report.clean)
+
+    def test_the_other_two_probes_are_still_judged(self) -> None:
+        """Silencing dkms must not silence the report."""
+        report = probe_results.build_report(
+            dkms=self.MISSING,
+            failed_system=probe_results.ProbeOutcome(
+                ok=True, text="sshd.service loaded failed failed", error=""),
+            failed_user=NO_UNITS, running_kernel=RUNNING_KERNEL, dkms_registered=[])
+        self.assertFalse(report.clean)
+        self.assertTrue(any("sshd.service" in text for text in report.texts))
+
+
 class TestFindingsSayWhetherTheCheckLooked(unittest.TestCase):
     """`Finding.checked` is the producer's own answer, carried in the data.
 

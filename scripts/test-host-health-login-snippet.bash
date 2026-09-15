@@ -93,32 +93,32 @@ make_state() {
         printf '%s' "$home"
         return 0
     fi
-    # The RUNNING kernel, not a placeholder. `login_message` reports a document collected
-    # under a different kernel as not-checked — a real rule, exercised by its own tests —
-    # so a fixture with an invented kernel makes every case here speak and the silent
-    # cases stop testing what they were written for.
-    python3 - "$home/fedora-desktop/host-status.json" "$kind" "$FINDING_TEXT" "$(uname -r)" <<'PYEOF'
-import datetime
-import json
+    # Built through the PRODUCER — `status_document.build` and `write_atomic` — rather
+    # than hand-written JSON, so the fixture tracks the schema instead of restating it. A
+    # hand-built document keeps parsing long after the producer has moved on, and the
+    # suite would then be testing a shape nothing writes.
+    #
+    # The kernel comes from `probe.running_kernel()`, not a placeholder. `login_message`
+    # reports a document collected under a different kernel as not-checked, so an
+    # invented kernel makes every case here speak and the silent cases stop testing what
+    # they were written for. That is not hypothetical: it happened, and took three
+    # assertions with it.
+    PYTHONPATH="$REPO_ROOT" python3 - "$home" "$kind" "$FINDING_TEXT" <<'PYEOF'
 import sys
 
-dest, kind, finding, kernel = sys.argv[1:5]
-now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-findings = [finding] if kind == "findings" else []
-document = {
-    "schema": 1,
-    "generated_at": now,
-    "kernel": kernel,
-    "sections": {
-        "health": {
-            "state": "findings" if findings else "ok",
-            "findings": findings,
-            "unchecked": [],
-        }
-    },
-}
-with open(dest, "w", encoding="utf-8") as handle:
-    json.dump(document, handle)
+from helpers.host_health import probe, probe_results, status_document
+from helpers.play_ledger import repo
+
+state_dir, kind, finding = sys.argv[1:4]
+findings = [probe_results.broken(finding)] if kind == "findings" else []
+status_document.write_atomic(
+    status_document.path(f"{state_dir}/fedora-desktop"),
+    status_document.build(
+        sections={"health": findings},
+        kernel=probe.running_kernel(),
+        at=repo.utc_now(),
+    ),
+)
 PYEOF
     printf '%s' "$home"
 }
@@ -191,42 +191,64 @@ esac
 check "a missing checkout is named on stderr" "the missing path" "$gone_said"
 
 # ── what it leaves behind in the caller's shell ──────────────────────────────────────
-# A `cd` into the repo root would make the helpers package import and would also drop
-# every SSH login into the checkout instead of the user's home.
+#
 # The `$` is assembled rather than written literally so that shellcheck does not read
 # these probe strings as expansions this script forgot to quote — they are the inner
 # shell's expansions, and must survive to it unexpanded.
 dollar='$'
-# A clean state home, so the only thing on stdout is the answer: the snippet still runs
-# python3 for a clean host, so the `cd` this rules out would happen either way.
-cwd_after="$(printf "cd /tmp && source %q && printf '%%s' \"${dollar}PWD\"\n" "$RENDERED" \
-    | XDG_STATE_HOME="$STATE_CLEAN" bash --norc --noprofile -i 2>/dev/null)"
-case "$cwd_after" in
-    */tmp) cwd_verdict="unchanged" ;;
-    *) cwd_verdict="moved to $cwd_after" ;;
-esac
-check "sourcing does not move the caller's working directory" "unchanged" "$cwd_verdict"
+
+# probe_after <state-home> <inner-script> — the value the inner script marks with
+# `PROBE:`, and nothing else.
+#
+# The snippet shares this stdout, so comparing the WHOLE capture against the expected
+# value only holds while the snippet happens to be silent. It stopped being silent the
+# moment login_message learned to report a kernel mismatch, and three assertions failed
+# reporting PYTHONPATH and exit status instead of the cause. The marker makes the probe's
+# own answer addressable regardless of what the snippet says around it.
+#
+# A missing marker is its own answer, never an empty string: `""` is a legitimate value
+# for some of these probes, so silently returning it would turn "the inner shell died" into
+# whichever assertion happened to expect empty.
+probe_after() {
+    local state_home="$1" script="$2" out answer
+    out="$(printf '%s\n' "$script" \
+        | XDG_STATE_HOME="$state_home" bash --norc --noprofile -i 2>/dev/null)"
+    if ! printf '%s\n' "$out" | grep -q '^PROBE:'; then
+        printf 'NO-PROBE-LINE'
+        return 0
+    fi
+    answer="$(printf '%s\n' "$out" | awk '/^PROBE:/ { sub(/^PROBE:/, ""); print }')"
+    printf '%s' "$answer"
+}
+
+# A `cd` into the repo root would make the helpers package import and would also drop
+# every SSH login into the checkout instead of the user's home. Probed with a FINDINGS
+# document deliberately: the snippet is at its noisiest there, which is exactly when the
+# whole-stdout comparison this replaced would have broken.
+cwd_after="$(probe_after "$STATE_FINDINGS" \
+    "$(printf "cd /tmp && source %q; printf 'PROBE:%%s\\\\n' \"${dollar}PWD\"" "$RENDERED")")"
+check "sourcing does not move the caller's working directory" "/tmp" "$cwd_after"
 
 # An exported PYTHONPATH follows every python3 the user runs for the rest of the
 # session, so this repo's helpers would shadow same-named modules in their own projects.
-pythonpath_after="$(printf "source %q; printf '[%%s]' \"${dollar}{PYTHONPATH-unset}\"\n" "$RENDERED" \
-    | XDG_STATE_HOME="$STATE_CLEAN" bash --norc --noprofile -i 2>/dev/null)"
-check "sourcing leaves PYTHONPATH unset in the caller" "[unset]" "$pythonpath_after"
+pythonpath_after="$(probe_after "$STATE_FINDINGS" \
+    "$(printf "source %q; printf 'PROBE:%%s\\\\n' \"${dollar}{PYTHONPATH-unset}\"" "$RENDERED")")"
+check "sourcing leaves PYTHONPATH unset in the caller" "unset" "$pythonpath_after"
 
 # The snippet is sourced from a loop in ~/.bashrc. A non-zero return is what a login
 # shell running under `set -e` dies on, and `login_message.main` documents the same
 # contract on the Python side for the same reason.
-status_clean="$(printf 'source %q; printf "%%s" "$?"\n' "$RENDERED" \
-    | XDG_STATE_HOME="$STATE_CLEAN" bash --norc --noprofile -i 2>/dev/null)"
-check "sourcing returns 0 on a clean host" "0" "$status_clean"
+status_findings="$(probe_after "$STATE_FINDINGS" \
+    "$(printf "source %q; printf 'PROBE:%%s\\\\n' \"${dollar}?\"" "$RENDERED")")"
+check "sourcing returns 0 when there are findings to print" "0" "$status_findings"
 
-status_gone="$(printf 'source %q; printf "%%s" "$?"\n' "$GONE" \
-    | XDG_STATE_HOME="$STATE_FINDINGS" bash --norc --noprofile -i 2>/dev/null)"
+status_gone="$(probe_after "$STATE_FINDINGS" \
+    "$(printf "source %q; printf 'PROBE:%%s\\\\n' \"${dollar}?\"" "$GONE")")"
 check "sourcing returns 0 when the checkout is missing" "0" "$status_gone"
 
 # ── the interpreter is the system one ────────────────────────────────────────────────
 # `python3` alone resolves through a pyenv shim on a host that has one, which is a
-# different interpreter from the one play-host-health-server-report.yml installs
+# different interpreter from the one play-host-health-login-report.yml installs
 # python3-pyyaml into. The unit template already spells out /usr/bin/python3.
 #
 # The COMMAND line, not the file: a plain grep over the whole snippet is satisfied by the

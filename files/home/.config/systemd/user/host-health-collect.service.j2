@@ -7,6 +7,8 @@ Documentation=https://github.com/LongTermSupport/fedora-desktop
 # has no session bus and graphical-session.target never activates there, so the checks
 # need their own trigger and the delivery moves to the login shell — see
 # ~/.bashrc-includes/host-health-report.bash, which only prints what this leaves behind.
+# Both deliveries come from play-host-health-login-report.yml, branching on the
+# provisioning profile: only the delivery ever differed, never the checks.
 
 [Service]
 Type=oneshot
@@ -17,6 +19,17 @@ Type=oneshot
 # package imports. No path is hardcoded anywhere in this repo.
 ExecStart=/usr/bin/python3 -m helpers.host_health.login_report --no-notify
 WorkingDirectory={{ root_dir }}
+# WHAT THIS UNIT NEEDS FROM THE CHECKOUT, stated because it is easy to get wrong and the
+# consequence is permanent rather than intermittent. The play-freshness check runs
+# `git fetch`, and helpers/play_ledger/git_history.py sets GIT_TERMINAL_PROMPT=0 and
+# GIT_ASKPASS="" so nothing can block on a prompt no login shell could answer. A timer
+# has no ssh-agent — the desktop route only ever worked because it runs inside a session
+# that has one — so a checkout with an SSH remote and a passphrase-protected key cannot
+# authenticate here, and every run reports "play-freshness has never successfully reached
+# the remote on this host". That is a true finding, not noise, and the remedy is the
+# operator's: give this checkout a remote it can fetch anonymously (HTTPS), or a key the
+# timer can use without an agent. No Environment=SSH_AUTH_SOCK here on purpose — pointing
+# at a socket that may not exist would trade a clear finding for a confusing one.
 # Exit 3 means "there are findings", which is a successful run of the check: a drifted
 # host must not also show up as a broken service, because two alarms for one fact is how
 # both come to be ignored. 1 and 2 are left as real failures — python exits 1 for any

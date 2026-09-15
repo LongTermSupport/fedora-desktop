@@ -150,25 +150,25 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 - [ ] 🔄 **Task 3.2**: Surface findings to the user — code done, HOST run pending
   - [x] ✅ `login_report.py` — one notification, silent when clean
   - [ ] ⬜ **HOST**: confirm a real notification arrives, and a clean login is silent
-  - [ ] 🔄 **A server profile gets no drift detection.** `scope: gnome` is right for the
-    *delivery* and wrong for the checks, which are profile-agnostic. Needs a second
-    route, not a scope change
+  - [ ] 🔄 **The server route.** Only the delivery was ever desktop-bound; the checks are
+    profile-agnostic. Reasoning, the cadence derivation, the mutants and the two review
+    findings are in [DESIGN-server-route.md](DESIGN-server-route.md)
     - [x] ✅ `status_document.py` (producer) and `login_message.py` (renderer)
-    - [x] ✅ The delivery: `host-health-collect.timer` runs the checks, the
-      `~/.bashrc-includes` snippet prints what they left, and
-      `play-host-health-server-report.yml` deploys both. **Daily** is derived, not
-      picked — the consumer calls the document stale at `STALE_AFTER_DAYS = 14`, so
-      fourteen misses are absorbed where weekly would leave a one-miss margin
-    - [x] ✅ The snippet prints **only for an interactive shell** — bash reads
-      `~/.bashrc` for sshd's non-interactive shells too, so an unconditional print breaks
-      `scp` to the host it reports on. 12 assertions, six mutants
-    - [x] ✅ **A fresh document can still be about the previous boot.** Only the timer
-      route can outlive a reboot, and a document collected under the old kernel stays
-      `ok` while every DKMS module is unbuilt for the one running — this plan's own
-      incident, which staleness does not catch. `render` now takes the running kernel and
-      reports a mismatch in its own right. Four mutants
+    - [x] ✅ The delivery — the collection timer and the `~/.bashrc-includes` snippet,
+      folded into `play-host-health-login-report.yml` (`scope: general`). Daily, derived
+      from `STALE_AFTER_DAYS` (§1–2)
+    - [x] ✅ The snippet prints **only for an interactive shell**, or it breaks `scp` to
+      the host it reports on. 12 assertions, six mutants (§3)
+    - [x] ✅ A fresh document can be about the **previous boot** — `render` reports a
+      kernel mismatch in its own right (§4)
+    - [x] ✅ **A healthy server was never going to be silent** (qa-reviewer, 26-09-15).
+      Two permanent findings, one root: no `dkms` on a server (§5)
     - [ ] ⬜ **HOST**: run the play on a server profile — the timer arms, a document
-      appears, an interactive login shows findings, and an `scp` still completes
+      appears, an interactive login shows findings, an `scp` still completes, and **a
+      clean server login is silent**, which is the claim that decides whether this
+      surface survives contact with a user
+    - [ ] ⬜ **HOST**: confirm this checkout has a remote the timer can fetch **without
+      an agent**, or the freshness axis reports "never reached the remote" for ever (§6)
 - [ ] 🔄 **Task 3.3**: Claude Code handoff — file and offer done
   - [x] ✅ `handoff.py`, mode `0600`; the wrong/not-looked-at split is carried in
     `Finding.checked`, not read from the prose
@@ -291,5 +291,6 @@ no record has never been run here, and silence is the correct output for it.
 ## Delivery & Milestones
 
 - Phase 0 Task 0.1 delivered: DisplayLink restored on kernel 7.2.4 (evdi 1.15.0)
-- Task 3.2's server route delivered: the collection timer, the interactive-only login
-  snippet and `play-host-health-server-report.yml`. The HOST run remains open.
+- Task 3.2's server route delivered: the collection timer and the interactive-only login
+  snippet, folded into `play-host-health-login-report.yml` as its second delivery. The
+  HOST run remains open, and the review found two ways it would never be silent there.

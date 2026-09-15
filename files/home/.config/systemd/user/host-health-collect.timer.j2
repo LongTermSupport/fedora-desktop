@@ -1,3 +1,4 @@
+{{ ansible_managed | comment }}
 [Unit]
 Description=Schedule for the fedora-desktop host health collection (server route)
 Documentation=https://github.com/LongTermSupport/fedora-desktop
@@ -12,11 +13,16 @@ Documentation=https://github.com/LongTermSupport/fedora-desktop
 # reported well inside the bound. Weekly would allow two attempts inside the same window:
 # the margin would be a single missed run. Change one and re-derive the other.
 OnCalendar=*-*-* 06:15:00
-# Also shortly after the user manager starts, which with linger enabled is boot. This
-# plan exists because a reboot into a new kernel left a DKMS module unbuilt and nothing
-# said so; waiting up to a day to notice that would reproduce the incident with a delay.
+# Also after the user manager starts, which with linger enabled is boot. This plan exists
+# because a reboot into a new kernel left a DKMS module unbuilt and nothing said so;
+# waiting up to a day to notice that would reproduce the incident with a delay.
 OnStartupSec=5min
-# A server is not the only consumer and hosts should not all fetch at the same second.
+# Spreads the daily fetch so hosts provisioned from this repo do not all reach the remote
+# at the same second. It applies to EVERY trigger, including OnStartupSec, so the
+# post-boot collection actually lands 5-35 minutes after the manager starts — not
+# "shortly", and worth stating rather than implying. That window is covered from the
+# other end: login_message reports a document collected under a different kernel, so
+# whatever is read during it is labelled as predating this boot rather than trusted.
 RandomizedDelaySec=30min
 # A host that was powered off through 06:15 catches up rather than skipping the day.
 Persistent=true

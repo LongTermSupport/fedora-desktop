@@ -61,7 +61,13 @@ def run_probe(argv: list[str]) -> probe_results.ProbeOutcome:
         )
     except FileNotFoundError:
         return probe_results.ProbeOutcome(
-            ok=False, text="", error=f"{argv[0]}: command not found ({' '.join(argv)})"
+            ok=False,
+            text="",
+            error=f"{argv[0]}: command not found ({' '.join(argv)})",
+            # The one failure that means "this host does not have this tool" rather than
+            # "this tool did not answer". `build_report` needs the two apart to decide
+            # whether an absent dkms is a gap or simply a host with no DKMS subsystem.
+            missing=True,
         )
     except subprocess.TimeoutExpired:
         return probe_results.ProbeOutcome(
@@ -80,6 +86,35 @@ def run_probe(argv: list[str]) -> probe_results.ProbeOutcome:
     return probe_results.ProbeOutcome(ok=True, text=completed.stdout, error="")
 
 
+#: Where DKMS records the modules registered on this host. Read rather than assumed,
+#: because "no dkms command" and "no DKMS modules" are different facts and only the pair
+#: of them licenses staying silent.
+DKMS_STATE_DIR = "/var/lib/dkms"
+
+
+def dkms_registered_modules(state_dir: str = DKMS_STATE_DIR) -> list[str] | None:
+    """Modules registered with DKMS here, or None when that could not be established.
+
+    **None is not the empty list.** An absent state directory means this host has no DKMS
+    subsystem, which is an answer; a directory that could not be read leaves the question
+    open, and by this plan's standing rule an open question is not a clean result. The
+    caller renders the two differently and must be able to tell them apart.
+
+    Deliberately reads the state directory rather than asking `dkms`: the case this exists
+    for is a host where the command is not installed, so anything that shells out to it
+    has already lost.
+    """
+    try:
+        entries = os.listdir(state_dir)
+    except FileNotFoundError:
+        return []
+    except OSError:
+        return None
+    return sorted(
+        name for name in entries if os.path.isdir(os.path.join(state_dir, name))
+    )
+
+
 def running_kernel() -> str:
     """The kernel that actually booted — the only one the DKMS check cares about.
 
@@ -93,20 +128,25 @@ def collect(
     *,
     running_kernel: str,
     runner: Runner | None = None,
+    dkms_registered: list[str] | None = None,
 ) -> probe_results.Report:
     """Run all three probes and classify what they returned.
 
-    `runner` is the seam the tests drive; unsupplied, the real one is used.
+    `runner` is the seam the tests drive; unsupplied, the real one is used. So is
+    `dkms_registered` — it is discovered here rather than in `build_report` because the
+    classifier is pure and this is the half that touches the machine.
 
     This reports on the HOST only. Phase 2's findings join in `login_report.collect`,
     which is where each check can be guarded on its own — see `build_report`.
     """
     run = runner or run_probe
+    registered = dkms_registered if dkms_registered is not None else dkms_registered_modules()
     return probe_results.build_report(
         dkms=run(["dkms", "status"]),
         failed_system=run(list(_FAILED_UNITS)),
         failed_user=run([_FAILED_UNITS[0], "--user", *_FAILED_UNITS[1:]]),
         running_kernel=running_kernel,
+        dkms_registered=registered,
     )
 
 
