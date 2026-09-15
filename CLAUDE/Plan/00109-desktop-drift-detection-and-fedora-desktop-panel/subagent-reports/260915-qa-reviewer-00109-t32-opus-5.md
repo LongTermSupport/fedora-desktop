@@ -1259,3 +1259,41 @@ reports today.
 
 Container-side work looks done from here. The HOST items are the gate, and the
 reboot-into-a-different-kernel one is the claim to run first.
+
+---
+
+# Round 12 — `216dd9c5`, confirmed. Review closed.
+
+```
+sections: {}   -> "the host status names no checks at all, so nothing has been
+                   established about this host"
+clean host     -> SILENT
+real finding   -> "evdi: no DKMS module"
+```
+
+All three arms hold: the zero-section case reports, a genuinely clean host is still
+silent, and a real finding still reads as a fault. `qa-all.bash`: **876 files, green**.
+
+**No open findings.** Everything raised across eleven rounds is fixed, verified against a
+measurement rather than an argument, or recorded as a decision with its cost named.
+
+## What remains, and it is not container-side
+
+The HOST items in `PLAN.md` Task 3.2. In the order I would run them:
+
+1. **Reboot into a different kernel and log in before the timer next fires.** The only
+   claim that exercises the route's whole reason for existing, and the one the other four
+   do not cover.
+2. Run the play on a server profile: the timer arms, a document appears, an interactive
+   login shows findings, and an `scp` to the host still completes.
+3. **Confirm a clean server login is silent** — the property every noise fix in rounds
+   5–12 was protecting, and the one only a real host can demonstrate.
+4. Confirm the checkout has a remote the timer can fetch without an agent, or
+   `play-freshness` reports "never reached the remote" from the first login onwards.
+
+## The one to keep
+
+Of the eight instances, the repointed test is the one worth a future reader's attention
+first: **a test named for one property while guarding another is the version of this
+defect that hides all the others.** Every other instance was found by measuring something;
+that one is found by reading a test's name beside its body and asking whether they agree.
