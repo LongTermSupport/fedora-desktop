@@ -7,28 +7,19 @@
 
 ## Overview
 
-On 2026-09-11 the laptop rebooted into kernel 7.2.4 and both DisplayLink monitors
-stayed dark. The cause was not subtle: `evdi` 1.14.16 cannot build against kernel
-7.2 (the DRM atomic helpers changed `drm_atomic_state` to `drm_atomic_commit`), so
-the DKMS autoinstall failed at boot and the module simply did not exist. The repo
-had already pinned the fix — `evdi` 1.15.0, whose release notes say "preliminary
-support for linux kernel 7.2" — in commit `588d1ae`, months earlier. The host had
-never been told.
-
-**Every automated check this repo owns was green throughout.**
-`check-pinned-versions.bash` compares the repo pin against *upstream latest* and
-correctly said "up to date". `qa-deployed-drift.bash` compares repo scripts against
-*deployed scripts* under `~/.local/bin` and correctly said "in sync". Neither
-compares the repo pin against **what is actually installed on this host**, which is
-the axis that failed. Nothing watches that axis today.
+On 2026-09-11 the laptop rebooted into a new kernel and both DisplayLink monitors
+stayed dark, because the repo had pinned the fix months earlier and the host had
+never been told. **Every automated check this repo owns was green throughout** — each
+was correct about the axis it watches, and none watches "repo pin vs what is
+installed here". Diagnosis, evidence and the blow-by-blow:
+[JOURNAL/00109-Journal-26-09-11.md](JOURNAL/00109-Journal-26-09-11.md).
 
 The exposure is structural, not specific to DisplayLink. `playbook-main.yml` imports
-the core plays, so those get re-run whenever main is run. The **plays under
-`playbooks/imports/optional/`** (46 today, one of them added by this plan) are run
-by hand, once, and then forgotten — there is
-no record that they were ever run, at what commit, or whether they have changed
-since. DisplayLink is simply the one that bit first, and it bit at the worst moment:
-after a reboot, with no visible explanation.
+the core plays, so those are re-run whenever main is run. The **plays under
+`playbooks/imports/optional/`** (46 today, one of them added by this plan) are run by
+hand, once, and then forgotten — nothing records that they were ever run, at what
+commit, or whether they have changed since. DisplayLink is simply the one that bit
+first, and it bit at the worst moment: after a reboot, with no visible explanation.
 
 This plan closes that gap and then makes the result *usable*: a host-side ledger of
 what has actually been run here, drift checks that compare against it, a login-time
@@ -84,11 +75,9 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 
 ### Phase 0: Close out the 2026-09-11 incident
 
-- [x] ✅ **Task 0.1**: Restore DisplayLink on kernel 7.2.4
-  - [x] ✅ Diagnose: `evdi` 1.14.16 DKMS build failure against 7.2 DRM API
-  - [x] ✅ Confirm repo pin (1.15.0) already carries the upstream fix
-  - [x] ✅ Run `play-displaylink.yml` on HOST; verify module built, signed, loaded
-  - [x] ✅ Verify both DisplayLink heads enumerate (`card2-DVI-I-1`, `card3-DVI-I-2`)
+- [x] ✅ **Task 0.1**: Restore DisplayLink on kernel 7.2.4 — diagnosed, `play-displaylink.yml`
+  run on HOST, module built and signed and loaded, both heads enumerating
+  ([JOURNAL/00109-Journal-26-09-11.md](JOURNAL/00109-Journal-26-09-11.md))
 - [ ] 🔄 **Task 0.2**: Remove orphaned DKMS source trees — probe written, answer pending
   - [x] ✅ The probe is in `triage.bash` — every `/usr/src/evdi-*` tree, `rpm -qf` on
     each, what DKMS still has registered, and the Phase 3 login report
@@ -113,9 +102,9 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 
 - [x] ✅ **Task 1.1**: Design the ledger record and its location
 - [ ] 🔄 **Task 1.2**: Write the ledger on every play run — `callback_plugins/play_ledger.py`
-  - [ ] ⬜ **HOST or VM**: verify against a real run — unprovable in the *container*, but
-    every guest that provisions IS a real run, and no guest checker reads the ledger
-    today. Genesis plus one row per play; `--check` adds nothing; a second run appends
+  - [ ] ⬜ **HOST or VM**: verify against a real run — genesis plus one row per play,
+    `--check` adds nothing, a second run appends. No guest checker reads the ledger today;
+    that is the gap, not the machine ([DESIGN-host-health.md](DESIGN-host-health.md) §12)
 - [x] ✅ **Task 1.3**: Backfill — **none**, answered by a reporting rule instead: a play
   with no record has never been run here, and silence is correct for it
 
@@ -128,15 +117,12 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 
 - [x] ✅ **Task 2.1**: Play-freshness — `freshness.py`, `git_history.py`,
   `check_freshness.py`. Clean-and-silent, findings, and **untrustworthy** are three
-  different answers. An offline login is silent; a long silence is a finding. Reversing
-  that ticked behaviour meant rewriting the test that asserted the opposite, not deleting it
+  different answers, and an offline login is silent while a long silence is a finding
 - [x] ✅ **Task 2.2**: Installed-vs-pinned — the axis that actually failed. Passes both
   directions against the states the journal records, resolution is declared rather than
   guessed, and coverage has a floor: partial is a decision, zero is a check that cannot fail
-- [x] ✅ **Task 2.3**: **Neither belongs in `qa-all.bash`.** Both ask "is this host what
-  the repo says", which in a container finds nothing and exits 0 — two gates that cannot
-  fail wherever CI runs them. Their tests are in `qa-all` via `qa-helper-tests.bash`,
-  which is the part that does belong there
+- [x] ✅ **Task 2.3**: **Neither belongs in `qa-all.bash`** — in a container both find
+  nothing and exit 0. Their tests do belong there, via `qa-helper-tests.bash`
 
 ### Phase 3: Login-time health surfacing and Claude Code handoff
 
@@ -146,11 +132,10 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   - [x] ✅ `probe_results.py` (verdicts) and `probe.py` (the half that touches the
     machine); `host-health.service`, deployed by `play-host-health-login-report.yml`
   - [ ] ⬜ **HOST or VM**: run the play, then assert the unit is actually *wanted* —
-    `systemctl --user list-dependencies graphical-session.target` must name it. "The
-    play succeeded" is a different claim. Tagged HOST because it needs a graphical
-    session; `desktop-fresh-install` provisions inside an autologin GNOME session and
-    has one, and the play's desktop branch enables into `graphical-session.target.wants/`
-    — so the lab can settle this, given the play in its `run_env`
+    `systemctl --user list-dependencies graphical-session.target` must name it. "The play
+    succeeded" is a different claim. `desktop-fresh-install` has a graphical session, so
+    the lab can settle this given the play in its `run_env`
+    ([DESIGN-host-health.md](DESIGN-host-health.md) §12)
 - [ ] 🔄 **Task 3.2**: Surface findings to the user — code done, HOST run pending
   - [x] ✅ `login_report.py` — one notification, silent when clean
   - [ ] ⬜ **HOST**: confirm a real notification arrives, and a clean login is silent
@@ -158,52 +143,31 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     profile-agnostic. Reasoning, the cadence derivation, the mutants and the two review
     findings are in [DESIGN-server-route.md](DESIGN-server-route.md)
     - [x] ✅ `status_document.py` (producer) and `login_message.py` (renderer)
-    - [x] ✅ The delivery — the collection timer and the `~/.bashrc-includes` snippet,
-      folded into `play-host-health-login-report.yml` (`scope: general`). Daily, derived
-      from `STALE_AFTER_DAYS` (§1–2)
+    - [x] ✅ The delivery — collection timer plus `~/.bashrc-includes` snippet, folded
+      into `play-host-health-login-report.yml` (`scope: general`); daily (§1–2), and each
+      branch removes the other's artefacts (§7)
     - [x] ✅ The snippet prints **only for an interactive shell**, or it breaks `scp` to
-      the host it reports on. 12 assertions, six mutants (§3)
-    - [x] ✅ A fresh document can be about the **previous boot** — `render` reports a
-      kernel mismatch in its own right, and demotes the one boot-scoped section rather
-      than repeating its findings as present-tense faults (§4, §4.1)
-    - [x] ✅ **A document the reader cannot interpret is reported, not read as clean.**
-      Five malformed shapes were silent, including one whose own `state` said `findings`
-      (§4.1a). The panel has the same gap from the other side — folded into the Task 4.2
-      item below
-    - [x] ✅ **A healthy server was never going to be silent** (qa-reviewer, 26-09-15).
-      Two permanent findings, one root: no `dkms` on a server (§5). The first answer to
-      the pin half silenced the founding incident on every desktop; the ledger now acts
-      on one verdict, not on the population (§5.1). "No DKMS modules" is not "no DKMS" —
-      the two are carried apart, or Task 0.2's own cleanup would go unreported (§5.2),
-      and removing software on purpose is drift until the pin says otherwise (§5.3)
-    - [x] ✅ Each branch of the merged play removes the other's artefacts, so correcting
-      a mis-set profile does not leave both deliveries installed (§7)
+      the host it reports on (§3)
+    - [x] ✅ A fresh document can be about the **previous boot**: the mismatch is reported
+      in its own right and the one boot-scoped section is demoted (§4, §4.1)
+    - [x] ✅ **A document the reader cannot interpret is reported, not read as clean**
+      (§4.1a). The panel had the same gap from the other side — Task 4.2 below
+    - [x] ✅ **A healthy server was never going to be silent** (qa-reviewer, 26-09-15) —
+      two permanent findings, one root: no `dkms` on a server (§5, §5.1–5.3)
     - [x] ✅ A scenario exists that **can** run this route end to end:
       `server-host-health-kernel-change` in `vars/vm-test-scenarios.yml`, with a fixture
-      and a fifteen-check checker (§8). A HOST run cannot make the kernel claim on demand
-      — it waits for a kernel update to arrive, where a guest can be given one. **It has
-      never been executed**, and until it has, nothing below it is established
-    - [x] ✅ **The kernel step had no executor** — no `dnf`, `rpm` or `grubby` in the QA
-      container, and the only other machine that reaches it is a guest twenty minutes
-      into a run. It is now a function driven against stubs, proving which version is
-      chosen, what is downloaded and that every way of ending up with one kernel refuses
-      (§8.2). Exercising it found a package-query failure being read as a version, and a
-      test asserting the kernel returned rather than the one downloaded — two decisions,
-      one assertion. This proves the **decisions**, not dnf's real output format
-    - [x] ✅ **Making it a function moved it out of `set -e`** (qa-reviewer, BLOCK). The
-      caller captures its answer, and bash disables errexit inside a command substitution
-      — so the package transaction's status was discarded, and on a guest already holding
-      two kernels the run would have *succeeded* naming a kernel nothing downloaded. The
-      tests missed it because **no case ever failed the install** — `STUB_INSTALL_RC` was
-      a knob nothing set (an initial diagnosis blaming the harness's subshell shape was
-      wrong, and is corrected in §8.2). Every guest-changing command now carries its own
-      refusal, and a case drives each one.
-      Also from that review: `--showduplicates` is required or a guest on the newest
-      kernel is offered only itself, and both sorts were unfalsifiable because every
-      stub list was already in order
-    - [x] ✅ `reboot_before_checks` is a scenario's answer, not a profile's; the CLI
-      supplies only the mechanics of getting a guest back, and a profile it has no
-      mechanics for is a refusal rather than a silent no-reboot (§8.1)
+      and a fifteen-check checker (§8). **It has never been executed**, and until it has,
+      nothing below it is established
+    - [x] ✅ **The kernel step had no executor** — now a function driven against stubs,
+      proving which version is chosen, what is downloaded, and that every way of ending up
+      with one kernel refuses. This proves the **decisions**, not dnf's real output
+      format (§8.2)
+    - [x] ✅ **Making it a function moved it out of `set -e`** (qa-reviewer, BLOCK): bash
+      disables errexit inside a command substitution, so the package transaction's status
+      was discarded. No case had ever failed the install. Every guest-changing command now
+      carries its own refusal (§8.2, which also corrects an initial wrong diagnosis)
+    - [x] ✅ `reboot_before_checks` is a scenario's answer, not a profile's, and a profile
+      the CLI has no mechanics for is a refusal rather than a silent no-reboot (§8.1)
     - [ ] ⬜ **HOST**: run `play-vm-test-lab.yml` once, so the new scenario reaches the
       deployed allowlist and the two new guest scripts reach `~/.local/share/vmtest`.
       The bridge refuses an id that is only in the manifest — deliberately, and this is
@@ -216,9 +180,8 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
       own `sshd` completes on both sides of the reboot
     - [ ] ⬜ **HOST**: confirm **this** checkout has a remote the timer can fetch
       **without an agent**, or the freshness axis reports "never reached the remote" for
-      ever (§6). The VM proves the mechanism — its checker fetches with `SSH_AUTH_SOCK`
-      unset — but a guest cloned over https says nothing about how this checkout's
-      `origin` is configured, so this one stays a host fact
+      ever. Stays HOST: a guest proves the mechanism, not this checkout's `origin` (§6,
+      [DESIGN-host-health.md](DESIGN-host-health.md) §12)
 - [ ] 🔄 **Task 3.3**: Claude Code handoff — file and offer done
   - [x] ✅ `handoff.py`, mode `0600`; the wrong/not-looked-at split is carried in
     `Finding.checked`, not read from the prose
@@ -227,7 +190,8 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 
 ### Phase 4: `fedora-desktop` GNOME panel extension
 
-> Design: [DESIGN-panel.md](DESIGN-panel.md) §§1–10.
+> Design: [DESIGN-panel.md](DESIGN-panel.md) §§1–11. A bare `§` below is a section of
+> that file; anything owned elsewhere names its document.
 
 - [x] ✅ **Task 4.1**: Scaffold `extensions/fedora-desktop@fedora-desktop` —
   `metadata.json`, `statusDocument.js`, `sections/health.js`, `extension.js`,
@@ -238,30 +202,20 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   - [x] ✅ Renders the document's self-section reason, so an unreadable document says why
     rather than showing three derived "no such section" lines
   - [x] ✅ **The ledger's emptiness is now its own check**, `play-ledger`, not a
-    reinterpretation of `play-freshness` — whose `EXIT_OK` on an empty ledger is correct
-    for the question it asks, tested twice with reasoning, and has other callers.
-    Emptiness is reported as a **fault**, not an unknown: `run.bash` ledgers every play
-    and a play deploys the unit that runs this, so by the time anything reads it a record
-    must exist. Silent while the `BROKEN` sentinel exists, which says the same absence
-    with more detail. `helpers/play_ledger/ledger_presence.py`, 9 tests
-  - [ ] ⬜ What a finding does when activated — a Task 3.3 decision
-    ([DESIGN-panel.md](DESIGN-panel.md) §9)
-  - [x] ✅ **The panel is boot-aware.** `statusDocument.isBootStale` is the same predicate
-    as `status_document.is_boot_stale`, and `resolvedSection` is the ONE place the
-    demotion happens — the menu and the icon read the same answer, or the icon would
-    report a fault the menu had already explained away
-  - [x] ✅ `state` is **derived** from the lists, as the producer derives it. A section
-    saying `state: "ok"` over a populated `findings` list rendered "nothing to report"
-    while the login report showed the fault (§4.3)
-  - [x] ✅ A **malformed** document is reported, not read as a clean host: a group that
-    is not a list, entries that are not strings, sections that cannot be read, and a
-    document naming no checks at all (§4.1a, mirroring `unreadable_reasons`)
+    reinterpretation of `play-freshness` — and emptiness is a **fault**, not an unknown.
+    `helpers/play_ledger/ledger_presence.py`, 9 tests
+    ([DESIGN-play-ledger.md](DESIGN-play-ledger.md) §8)
+  - [ ] ⬜ What a finding does when activated — a Task 3.3 decision (§9)
+  - [x] ✅ **The panel is boot-aware**, and `resolvedSection` is the ONE place the demotion
+    happens, so the menu and the icon read the same answer (§11)
+  - [x] ✅ `state` is **derived** from the lists, as the producer derives it (§11,
+    [DESIGN-server-route.md](DESIGN-server-route.md) §4.3)
+  - [x] ✅ A **malformed** document is reported, not read as a clean host (§11, mirroring
+    `unreadable_reasons` — [DESIGN-server-route.md](DESIGN-server-route.md) §4.1a)
   - [x] ✅ Proven by `tests/extensions/test-panel-sections.mjs` — 17 tests importing the
-    **shipped** `statusDocument.js` and `sections/health.js`, with a Node loader answering
-    the `gi://` imports. Falsified on six mutants. **Not** the contract gate: that is a
-    vocabulary check and `kernel` already satisfied it as an unused default
-    ([DESIGN-server-route.md](DESIGN-server-route.md) §4.2) — though
-    `BOOT_SCOPED_SECTION` is now in it too, since both readers must demote the same section
+    **shipped** files through a `gi://` loader, falsified on six mutants. **Not** the
+    contract gate, which is a vocabulary check (§11,
+    [DESIGN-server-route.md](DESIGN-server-route.md) §4.2)
   - [ ] ⬜ **HOST**: the rendering itself — whether St shows the demoted lines legibly and
     whether the icon is the right thing to look at. Only a Wayland session can say, and
     the harness deliberately does not claim to
@@ -285,10 +239,8 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 
 - [x] ✅ **Task 5.1**: Establish the real cost and the real bug — a **rendering**
   failure, not a texture failure, so image size is irrelevant. Converges on upstream
-  `mutter#4767`; neither candidate is fixable here. The black-versus-blue-grey question
-  that would have discriminated between the two candidates was **closed by the owner as
-  resolved without a recorded answer**, so the `mutter#4767` attribution stands on the
-  rendering evidence alone and was never confirmed on that axis
+  `mutter#4767`, though **not confirmed on the axis that would have settled it** and not
+  fixable here either way
 - [x] ❌ **Task 5.2**: ~~Scale the wallpaper~~ — cancelled, wrong problem
 - [x] ❌ **Task 5.3**: ~~Per-monitor pre-scaled caching~~ — cancelled; GNOME ships it
 - [x] ✅ **Task 5.4**: Recover the background after a monitor reconfiguration —
@@ -327,12 +279,12 @@ knowing *why*. Information is the deliverable.
 **Context**: every Phase 2 check compares against the ledger, so a silently wrong
 ledger makes every check downstream silently wrong.
 **Decision**: one record per **play**, append-only JSONL under
-`$XDG_STATE_HOME/fedora-desktop/play-ledger/`, written by a callback plugin. Since
-Ansible **swallows exceptions raised inside a callback**, a write failure cannot
-fail the run — it leaves a `BROKEN` sentinel and Phase 2 reports FAIL while it
-exists, turning an unfailable hook into a failable check. No backfill: a play with
-no record has never been run here, and silence is the correct output for it.
-**Reasoning, record shape, limits**: [DESIGN-play-ledger.md](DESIGN-play-ledger.md).
+`$XDG_STATE_HOME/fedora-desktop/play-ledger/`, written by a callback plugin. Ansible
+**swallows exceptions raised inside a callback**, so a write failure leaves a `BROKEN`
+sentinel and Phase 2 reports FAIL while it exists — an unfailable hook turned into a
+failable check. No backfill.
+**Record shape, hook limits, the no-backfill reasoning**:
+[DESIGN-play-ledger.md](DESIGN-play-ledger.md) §§1–4.
 **Date**: 2026-09-14
 
 ## Success Criteria

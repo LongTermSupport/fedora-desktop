@@ -129,6 +129,16 @@ Scaling cannot fix these, which is why Phase 5 is a **mitigation, not a fix**:
 **Distinguishing test:** the clip bug recovers on any repaint — open the Overview
 and the background returns. The sticky variant does not.
 
+**And the attribution was never confirmed on the axis that would have settled it.**
+`mutter#4767` paints the empty clip's colour and the sticky NULL-texture variant paints
+nothing, so *what colour a missed monitor shows* — flat blue-grey `primary-color` versus
+black — discriminates between the two candidates directly. That question was put upstream
+and **closed by the owner as resolved without a recorded answer**. So the `mutter#4767`
+attribution here rests on the rendering evidence alone: it is the better-supported of the
+two, not a confirmed one, and a future reader should not read it as settled. Neither
+candidate is fixable in this repo either way, which is why the phase ships a recovery
+action rather than waiting on the answer.
+
 ## Prior art: GNOME already ships per-monitor pre-scaling, unused
 
 No third-party tool does per-monitor correct scaling — variety, hydrapaper,

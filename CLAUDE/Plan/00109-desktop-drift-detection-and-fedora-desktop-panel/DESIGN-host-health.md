@@ -205,3 +205,34 @@ does not know exists.
 `probe_results.Finding` carries `checked`, the producing check's own answer, and the split reads
 that field. Re-measured after: **0 of 13**. The substring version, restored, fails the tests that
 pin it.
+
+## 12. Which machine can settle each remaining claim
+
+Two of this plan's open items were tagged HOST and did not need to be. The tag is worth
+deriving rather than assuming, because a claim parked behind "needs the user's laptop" waits
+for a human, and a claim the VM lab can settle is testable on demand.
+
+**The unit must be *wanted*, not merely installed (Task 3.1).** "The play succeeded" and
+"`host-health.service` will actually start at the next graphical login" are different claims,
+and only the second is the one the plan depends on. What separates them is
+`systemctl --user list-dependencies graphical-session.target` naming the unit — the play's
+desktop branch enables into `graphical-session.target.wants/`, and an enable that did not take
+leaves the unit file present and the symlink absent.
+
+That needs a graphical session, which is why it read as HOST. But the `desktop-fresh-install`
+scenario provisions **inside an autologin GNOME session**, so the lab has one — the assertion
+is available there given the play in the scenario's `run_env`. Retagged **HOST or VM**.
+
+**The ledger needs one real run (Task 1.2).** Unprovable in a container, which has no play run
+to record. But **every guest that provisions is a real run**, so the record shape — genesis plus
+one row per play, `--check` adding nothing, a second run appending rather than replacing — can
+be asserted by a guest checker. None reads the ledger today; that is the gap, not the machine.
+Retagged **HOST or VM**.
+
+**What stays HOST, and why it is not the same argument.** Wayland *rendering* (does St show a
+demoted line legibly, is the icon the right thing to look at) needs a person looking at a
+screen, not merely a session. And whether **this** checkout has a remote the timer can fetch
+without an agent (§6 of [DESIGN-server-route.md](DESIGN-server-route.md)) is a fact about one
+machine's `origin`: a guest cloned over https proves the mechanism and says nothing about this
+checkout's configuration. A guest can stand in for a session; it cannot stand in for a pair of
+eyes or for another host's git remote.

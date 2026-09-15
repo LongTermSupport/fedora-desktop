@@ -222,3 +222,41 @@ What does belong in `qa-all.bash` is the **tests**: `qa-helper-tests.bash` alrea
 every test in `helpers/play_ledger/` and `helpers/version_pins/`, so a regression in the
 logic fails QA on the machine that made it. The logic is repo state; the verdicts are host
 state; only the first is a pre-commit concern.
+
+## 8. An empty ledger is its own check (Task 4.2)
+
+`check_freshness` asks "has any recorded play drifted since it ran". On a host whose ledger
+is empty it answers "no" — there are no plays to have drifted — and publishes
+`play-freshness: ok`. That verdict is byte-identical to the one a fully provisioned, fully
+current host produces, and the two mean opposite things. **This plan exists because a green
+tick meant nothing was wrong on an axis nothing was watching**, so the same shape reappearing
+inside the mechanism built to prevent it is not a tolerable rough edge.
+
+Reinterpreting freshness is the wrong fix, for three separate reasons: its `EXIT_OK` on an
+empty ledger is correct for the question it asks, that behaviour is tested twice with its
+reasoning recorded, and it has other callers who would inherit a changed contract they never
+asked for. So `helpers/play_ledger/ledger_presence.py` is a check of its own, published as its
+own `play-ledger` section — a new question, not a new answer to an old one.
+
+**Emptiness is a fault, not an unknown.** `run.bash` ledgers every play, and a play is what
+deploys the unit that runs the login report, so by the time anything reads the ledger at least
+one record must exist. "Nothing recorded" is therefore a state that cannot be honestly arrived
+at: it means the ledger was lost or was never being written, and either way every drift check
+downstream is answering from an empty set while presenting as though it had looked.
+
+Three answers, because two would collapse a distinction again:
+
+1. **Populated** — silent.
+2. **Empty** — `broken`. The finding says what the emptiness costs, not merely that it is
+   empty.
+3. **Unreadable** — `unchecked`. A ledger that could not be read has not been *shown* to be
+   empty, and calling it empty would report a fault nobody established. That is the mirror of
+   the defect this module exists for, so the distinction is carried rather than folded.
+
+Emptiness is measured **line-wise**, not by file size: a ledger holding only newlines is as
+empty as a ledger holding nothing, and a size check would call it populated.
+
+The check is **silent while the `BROKEN` sentinel exists**. That marker already says the ledger
+has a hole and must not be trusted, and §6's `check_freshness` refuses to answer while it is
+there and prints the reason. Adding "and it is also empty" describes one absence twice, and two
+voices on one fact read to a user as two problems.
