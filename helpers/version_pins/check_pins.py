@@ -69,17 +69,26 @@ class ResolutionError(RuntimeError):
 
 
 class NotInstalled(ResolutionError):
-    """The command itself is absent, established by the OS rather than by reading text.
+    """The command could not be resolved on **this process's PATH**, per the OS.
 
-    A distinct type because "the binary is not there" and "the binary ran, failed, and
+    A distinct type because "the OS refused to exec it" and "the binary ran, failed, and
     its output happened to contain *command not found*" are different facts, and a
-    resolver matching on the message string cannot tell them apart. That matters here
-    more than it looks: an unresolvable install becomes `ABSENT`, which renders as
-    *"pinned 1.15.0, nothing installed"* — a confident claim about the host, made from a
-    probe that broke.
+    resolver matching on the message string cannot tell them apart. That matters more
+    than it looks: an unresolvable install becomes `ABSENT`, which renders as *"pinned
+    1.15.0, nothing installed"* — a confident claim about the host, made from a probe
+    that broke.
 
-    `probe.run_probe` answers the identical question structurally with
-    `ProbeOutcome.missing`; this is the same distinction, carried by type.
+    **The name is wider than the evidence, and the gap is real.** `FileNotFoundError`
+    from `exec` says the name did not resolve on the PATH this process happens to have;
+    it does not say the software is absent from the machine. The consumer here is a
+    systemd `--user` unit, whose PATH is narrower than the login shell an operator would
+    test in, so an installed tool can reach `ABSENT` by that route. `shutil.which` does
+    **not** close it — measured: it consults the same PATH and returns None for the same
+    input — and nothing cheap distinguishes the two, so the honest move is to claim only
+    what was established and leave the rest to the caller.
+
+    `probe.run_probe` answers the identical question with `ProbeOutcome.missing`, under
+    the same limit.
 
     A subclass, so every `except ResolutionError` still catches it — the type is there
     to let a caller be MORE specific, never to let one escape.

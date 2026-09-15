@@ -18,6 +18,7 @@ What is pinned here:
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import unittest
@@ -525,6 +526,20 @@ class TestTheRealResolvers(unittest.TestCase):
         with self._with_probe(broken_wrapper):
             with self.assertRaises(check_pins.ResolutionError):
                 check_pins._command_version("wrapper")
+
+    def test_an_installed_binary_off_this_PATH_reaches_the_same_verdict(self) -> None:
+        """The limit of what `exec` establishes, pinned so the claim cannot quietly
+        widen again. `/usr/bin/env` is on disk; under a narrow PATH the resolver still
+        answers "absent", which renders as "pinned X, nothing installed".
+
+        Not closable with `shutil.which` — measured: it consults the same PATH and
+        returns None for the same input. The consumer is a systemd --user unit, whose
+        PATH is narrower than the shell an operator tests in, so the docstrings say
+        "did not resolve on this process's PATH" rather than "is not installed"."""
+        self.assertTrue(os.path.exists("/usr/bin/env"), "fixture assumes a real binary")
+        with mock.patch.dict(os.environ, {"PATH": "/nonexistent"}, clear=False):
+            self.assertIsNone(check_pins._command_version("env"))
+            self.assertIsNone(shutil.which("env"))
 
     def test_NotInstalled_is_still_a_ResolutionError(self) -> None:
         """The type exists to let a caller be MORE specific, never to let one escape the

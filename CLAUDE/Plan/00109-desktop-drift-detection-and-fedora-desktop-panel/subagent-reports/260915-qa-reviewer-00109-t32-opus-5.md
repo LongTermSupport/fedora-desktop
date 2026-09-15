@@ -1091,3 +1091,103 @@ Nothing of mine blocks once the fifth's fix lands and goes green. The sixth is a
 message that claims more than its evidence, on a path no host here exercises today. The
 HOST items in `PLAN.md` are the real remaining gate, and the reboot-into-a-different-kernel
 one is the claim I would want run first.
+
+---
+
+# Round 10 — `20f89945`, and the two open questions
+
+**Fixed and verified.** `qa-all.bash` green, 876 files. All five shapes now report, each
+naming the section and the group it could not read:
+
+```
+sections is a string   -> the host status file's sections could not be read, so no
+                          check's result has been read from it
+a section is a string  -> the post-boot-health section could not be read, so nothing is
+                          known about that check
+findings is a string   -> the post-boot-health section's findings could not be read, so
+                          what it reported is not known
+findings holds dicts   -> ...holds entries this reader cannot show, so what they said is
+                          not known
+```
+
+Distinct wording per shape, so the message tells the reader *where* the document stopped
+being readable rather than only that it did. Putting it on the document rather than in
+`render` is right for the reason it was right for `is_boot_stale`.
+
+## Q1 — `sections: {}` is the same bug wearing "deliberate"
+
+Yes, change it. Measured:
+
+- `sections: {}` at HEAD → **SILENT**.
+- `collect_sections`, with **every** producer raising, still returns **4 keys**
+  (`installed-vs-pinned`, `play-freshness`, `play-ledger`, `post-boot-health`), because
+  `status_document.collect` guarantees a key per producer. So the producer cannot emit a
+  zero-section document under any failure. `_cannot_read` emits one section, not zero.
+
+A zero-section document therefore has no legitimate origin — it is version skew,
+truncation or a hand-edit, which is exactly the population `unreadable_reasons` was
+written for. Same argument as the five, same answer.
+
+The test costs nothing to change, and is itself an instance of the shape you just wrote
+down. `test_an_empty_document_is_still_silent_if_fresh` calls the helper with `{}`, so it
+pins *"a document with no sections is silent"* — but the property it exists to protect is
+*"a clean fresh document says nothing"*, and that is already pinned twice over by
+`test_a_clean_fresh_document_says_nothing_at_all` and `test_not_even_a_reassuring_line`.
+The name says "empty document" and what it guards is "clean document": **a name answering
+a question nobody then goes and checks**, which is what let the fifth hide.
+
+## Q2 — not reading `state` is the right call, and for a firmer reason
+
+Keep it out of `render`. Not because the case cannot occur, but because `state` is not
+independent data. Measured: `section()` derives it from the lists —
+
+```
+section([])          -> {'state': 'ok',       'findings': [], 'unchecked': []}
+section([broken(x)]) -> {'state': 'findings', 'findings': ['x'], 'unchecked': []}
+```
+
+A renderer that reads the lists has already read everything `state` encodes. Re-reading it
+in `render` would be a consistency check between a value and its own derivation — and a
+second mechanism for that, living in one of two consumers, is precisely how the boot
+predicate went wrong in round 4.
+
+**The residual is real and it is on the panel side.** `sections/health.js:51` branches on
+`section.state` while `render` does not, so a document whose `state` and lists disagree
+makes the two consumers answer differently — and that disagreement is invisible to
+`unreadable_reasons`, because such a document is structurally well formed. Put it in Task
+4.2's rendering-test population, alongside the boot-stale and malformed documents already
+going there. If a mechanism is ever wanted, `status_document.read` is the single place
+both consumers pass through, and the right home for it.
+
+So: no second mechanism in `render`; one more row in the Task 4.2 population.
+
+## The sixth — and a correction to my own suggestion
+
+The working tree has already narrowed `ProbeOutcome.missing`'s docstring to *"did not
+resolve on **this process's PATH**"* with the systemd `--user` note. That closes it the
+right way.
+
+And it corrects me: I offered `shutil.which` as one of two options, and **that option was
+wrong** — `which` consults the same `PATH`, so it answers the identical question and
+cannot tell an installed-but-unreachable binary from an absent one. Nothing cheap can.
+Wording the verdict for the evidence is the whole available fix, and the docstring now
+says so explicitly, which is better than a mechanism that would have looked like a
+distinction while making none.
+
+## Mechanical gates (round 10)
+
+`✓ QA passed: 876 files checked`; `helper-tests` 1333 tests; `panel-contract` 7 constants
+and 4 section ids agree; `version-pins: COVERAGE: 9 of 9`;
+`host-health-login-snippet: passed: 12`.
+
+## Closing
+
+Nothing of mine blocks. Q1 is a one-line addition to `unreadable_reasons` plus a repointed
+test; Q2 needs no code, only a row in a test population that does not exist yet. Both are
+smaller than anything that has come up in this review, and neither changes what a host
+reports today.
+
+The container-side work is done as far as I can see it. The HOST items in `PLAN.md` are
+the remaining gate, and the reboot-into-a-different-kernel one is the claim I would run
+first — it is the only one that exercises the route end to end on the scenario the plan
+was opened for.

@@ -45,10 +45,15 @@ class ProbeOutcome(NamedTuple):
     ok: bool
     text: str
     error: str
-    #: True only when the command itself is not installed, which is a different fact
-    #: from "the command ran and failed" and licenses a different verdict. Defaults
-    #: False, and that default is the conservative one: a caller that omits it gets the
-    #: "could not be checked" branch, so forgetting it can never buy silence.
+    #: True only when the command did not resolve on **this process's PATH**, which is a
+    #: different fact from "the command ran and failed" and licenses a different verdict.
+    #: Defaults False, and that default is the conservative one: a caller that omits it
+    #: gets the "could not be checked" branch, so forgetting it can never buy silence.
+    #:
+    #: Narrower than "not installed", and deliberately named for what `exec` established.
+    #: A systemd `--user` unit has a narrower PATH than the shell an operator tests in,
+    #: so an installed tool can set this. Nothing cheap tells the two apart — `which`
+    #: consults the same PATH — so the verdict is worded for the evidence.
     missing: bool = False
 
 
@@ -219,9 +224,14 @@ def build_report(
     elif not dkms.ok and dkms.missing and known.modules:
         # The command is gone but the modules are still registered, so nothing will
         # rebuild them on the next kernel. That is a worse state than either half.
+        # "could not be run" rather than "is not installed": `exec` established that the
+        # name did not resolve on this process's PATH, and a --user unit's PATH is
+        # narrower than the shell an operator checks in. The finding is the same either
+        # way — registered modules with no reachable dkms — but the wording claims only
+        # what was measured.
         findings.append(unchecked(
-            f"dkms is not installed, but {len(known.modules)} DKMS module tree(s) are "
-            f"still registered on this host ({', '.join(known.modules)}), so whether "
+            f"dkms could not be run here, but {len(known.modules)} DKMS module tree(s) "
+            f"are still registered on this host ({', '.join(known.modules)}), so whether "
             "they are built for the running kernel cannot be established — and nothing "
             "will rebuild them for the next one"
         ))

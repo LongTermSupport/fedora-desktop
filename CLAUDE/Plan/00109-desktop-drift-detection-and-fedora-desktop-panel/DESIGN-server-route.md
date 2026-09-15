@@ -260,6 +260,34 @@ socket that may not exist would trade a clear finding for a confusing one.
 days, so on a server whose fetch never works the line is permanent from the start. The
 HOST item therefore confirms the remote rather than assuming it.
 
+## 6a. One defect, found seven times
+
+The durable output of this plan's review is not any single fix. It is a shape, and it
+recurred in every module the review touched:
+
+> **A predicate whose answer depends on a distinction it does not make.**
+
+Recorded as a set rather than a numbered list, because the review and the author counted
+them differently and the ordinals are worth nothing — the membership is the point.
+
+| Where                                   | Two facts collapsed into one value                                                                 |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `probe.dkms_registry`                   | "no state directory" and "directory present, no modules" were both `[]`                            |
+| `check_pins.check`                      | a ledger filter over the whole population read "not installed here" and "never checked here" alike |
+| the two dkms consumers                  | one required `dkms.missing` in its condition, the other did not, from the same value               |
+| `check_panel_contract`                  | a **vocabulary** check that reads like a behaviour check, satisfied by an unused default           |
+| `check_pins._run`                       | one error string for "the OS could not exec it" and "the tool printed that phrase"                 |
+| `login_message._texts`                  | `[]` for "unreadable", "absent", and "nothing to say" — and on this surface nothing means healthy  |
+| `NotInstalled` / `ProbeOutcome.missing` | a name claiming "not installed" where `exec` established only "not on this process's PATH"         |
+
+Every fix took the same form: stop collapsing, and carry the distinction in the data, in
+the type, or in a named reason. None of them was fixed by adding a special case.
+
+The last one is worth keeping for a second reason: `shutil.which` looks like the closer
+and is not — measured, it consults the same PATH and returns the same answer. When no
+cheap probe can separate two facts, the honest move is to claim only what was established
+and say so where the next reader will look.
+
 ## 7. What each branch of the merged play removes
 
 A provisioning profile is not immutable — `-e provisioning_profile=…` is the documented
