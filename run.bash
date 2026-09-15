@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.20.2"
+RUN_BASH_VERSION="1.21.0"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -466,9 +466,27 @@ HL_ASKPASS_BODY
 # main playbook, optional playbooks, and reboot. hl_cleanup is only a backstop.
 hl_ssh_agent_stop() {
   [[ -n "${HL_SSH_AGENT_PID:-}" ]] || return 0
-  local _o
-  if ! _o="$(SSH_AGENT_PID="$HL_SSH_AGENT_PID" ssh-agent -k 2>&1)"; then
-    warning "ssh-agent teardown returned non-zero (agent may already be gone): ${_o}"
+  local _o _pid="$HL_SSH_AGENT_PID"
+  if ! _o="$(SSH_AGENT_PID="$_pid" ssh-agent -k 2>&1)"; then
+    # One non-zero exit, two states that are not alike: the agent was ALREADY GONE
+    # (harmless — this function is idempotent and hl_cleanup may have got there
+    # first), or the kill FAILED and it is still running with an unlocked key
+    # reachable through $SSH_AUTH_SOCK for every remaining step of this run —
+    # ansible-galaxy, the main playbook, each optional playbook, the reboot. That
+    # is the exact exposure this function exists to close, so it must not be
+    # reported as the harmless one and carried past.
+    #
+    # `/proc` is the discriminator rather than a second `kill`: it answers without
+    # signalling anything and without a redirect that would hide the answer.
+    #
+    # HL_SSH_AGENT_PID is deliberately NOT unset before failing — the hl_cleanup
+    # EXIT trap reads it, and it should get its attempt at the agent this one
+    # could not kill.
+    if [[ -d "/proc/${_pid}" ]]; then
+      headless_fail \
+        "ssh-agent ${_pid} survived teardown and still holds an unlocked key: ${_o}" \
+        "Kill it before re-running; continuing would leave that key reachable to every remaining step of the run."
+    fi
   fi
   unset SSH_AUTH_SOCK SSH_AGENT_PID HL_SSH_AGENT_PID
 }

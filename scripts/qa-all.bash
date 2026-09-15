@@ -289,6 +289,21 @@ localhost_yml_summary=$(printf '%s' "$localhost_yml_out" | grep -oE 'passed: [0-
     localhost_yml_summary="passed"
 printf '✓ run-bash-headless-localhost-yml: %s\n' "$localhost_yml_summary"
 
+# hl_ssh_agent_stop (Plan 00063 Task 3.4): the headless ssh-agent teardown, driven through a
+# clean kill, an already-gone agent and — the case that matters — an agent that SURVIVES the
+# kill. `ssh-agent -k` returns non-zero for both of the last two, and reporting the survivor
+# as the harmless one left an unlocked key reachable through $SSH_AUTH_SOCK for the rest of
+# the run while exiting 0.
+ssh_agent_out=""
+if ! ssh_agent_out="$(bash "$SCRIPT_DIR/test-run-bash-ssh-agent-teardown.bash" 2>&1)"; then
+    echo "$ssh_agent_out" >&2
+    echo "✗ QA FAILED: run.bash ssh-agent teardown unit tests" >&2
+    exit 1
+fi
+ssh_agent_summary=$(printf '%s' "$ssh_agent_out" | grep -oE 'passed: [0-9]+') ||
+    ssh_agent_summary="passed"
+printf '✓ run-bash-ssh-agent-teardown: %s\n' "$ssh_agent_summary"
+
 # The fail-fast directive pattern's own unit suite (Plan 00081 F10).
 #
 # qa-ansible.bash enforces this repo's #1 rule with one regex, and that regex was

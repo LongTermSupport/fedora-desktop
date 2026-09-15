@@ -15,6 +15,25 @@ the index, not the record.
 
 ---
 
+## 1.21.0 — an ssh-agent that survives teardown aborts the run instead of warning (Plan 00063)
+
+`ssh-agent -k` returns non-zero for two states that are not alike: the agent was already gone,
+or the kill **failed** and it is still running. `hl_ssh_agent_stop` reported both as
+"agent may already be gone", warned, and continued — so a surviving agent left an unlocked key
+reachable through `$SSH_AUTH_SOCK` for every remaining step of the run (ansible-galaxy, the
+main playbook, each optional playbook, the reboot) while the run exited 0. That is the exact
+exposure the function exists to close.
+
+The two states are now told apart by `/proc/<pid>`, which answers without signalling anything
+and without a redirect that would hide the answer. An already-gone agent stays silent and
+returns 0; a survivor aborts via `headless_fail`, naming the pid and what is exposed.
+`HL_SSH_AGENT_PID` is deliberately left set on that path so the `hl_cleanup` EXIT trap still
+gets its attempt at the agent this could not kill.
+
+Minor rather than patch: a run that previously succeeded with a warning now fails.
+`scripts/test-run-bash-ssh-agent-teardown.bash` covers all five cases and is wired into
+`qa-all.bash`; against the previous body it fails 5 of its 10 assertions.
+
 ## 1.20.2 — the localhost.yml reconcile compares without `diff` (Plan 00119)
 
 1.20.1's reconcile read the file's current GitHub half through `diff`, which exits 1 on any
