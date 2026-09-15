@@ -58,9 +58,17 @@ export default class FedoraDesktopExtension extends Extension {
         this._icon = null;
         this._pollSourceId = null;
         this._readCancellable = null;
+        this._runningKernel = '';
     }
 
     enable() {
+        // Read ONCE, here. The running kernel cannot change without a reboot, and a
+        // reboot ends this shell — so re-reading it per render would be repeated
+        // synchronous I/O in the compositor process for an answer that cannot have
+        // moved. Cached on the extension rather than in the module, so `disable()`
+        // drops it with everything else.
+        this._runningKernel = StatusDocument.runningKernel();
+
         this._indicator = new PanelMenu.Button(0.0, 'Fedora Desktop', false);
         this._icon = new St.Icon({
             icon_name: ICONS[StatusDocument.UNAVAILABLE],
@@ -100,6 +108,9 @@ export default class FedoraDesktopExtension extends Extension {
             this._indicator = null;
         }
         this._icon = null;
+        // Back to "could not tell" rather than a stale value: a re-enable reads it again,
+        // and an empty answer suppresses the boot claim instead of inventing one.
+        this._runningKernel = '';
     }
 
     _refresh() {
@@ -123,7 +134,7 @@ export default class FedoraDesktopExtension extends Extension {
         const ids = SECTIONS.flatMap(entry => entry.documentSections);
         const state = document === null
             ? StatusDocument.UNAVAILABLE
-            : StatusDocument.overallState(document, ids);
+            : StatusDocument.overallState(document, ids, this._runningKernel);
 
         this._icon.icon_name = ICONS[state] ?? ICONS[StatusDocument.UNAVAILABLE];
         // `unavailable` gets its own colour rather than sharing the attention amber. It
@@ -152,7 +163,7 @@ export default class FedoraDesktopExtension extends Extension {
             if (index > 0) {
                 menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
             }
-            entry.build(menu, document, Date.now());
+            entry.build(menu, document, Date.now(), this._runningKernel);
         });
     }
 }

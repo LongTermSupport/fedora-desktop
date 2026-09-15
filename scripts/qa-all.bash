@@ -320,6 +320,21 @@ reboot_dispatch_summary=$(printf '%s' "$reboot_dispatch_out" | grep -oE 'passed:
     reboot_dispatch_summary="passed"
 printf '✓ vmtest-reboot-dispatch: %s\n' "$reboot_dispatch_summary"
 
+# The panel's decisions (Plan 00109): the shipped statusDocument.js and sections/health.js
+# driven against boot-stale, malformed and state-disagreeing documents. The contract gate
+# beside this one proves the two languages share a vocabulary; it cannot tell a demoted
+# finding from a current one, and on the primary surface for these findings that is the
+# whole question.
+panel_sections_out=""
+if ! panel_sections_out="$(bash "$SCRIPT_DIR/test-panel-sections.bash" 2>&1)"; then
+    echo "$panel_sections_out" >&2
+    echo "✗ QA FAILED: panel section unit tests" >&2
+    exit 1
+fi
+panel_sections_summary=$(printf '%s' "$panel_sections_out" | grep -oE 'passed: [0-9]+') ||
+    panel_sections_summary="passed"
+printf '✓ panel-sections: %s\n' "$panel_sections_summary"
+
 # hl_write_localhost_yml (Plan 00119): the headless localhost.yml writer, driven through the
 # 443 flag on/off/unset, the empty-identity path and the keep-existing-file promise.
 localhost_yml_out=""

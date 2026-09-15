@@ -41,8 +41,10 @@ function findingItem(text, styleClass) {
     return item;
 }
 
-function appendCheck(menu, document, check) {
-    const section = StatusDocument.sectionOf(document, check.id);
+function appendCheck(menu, document, check, runningKernel) {
+    // `resolvedSection`, not `sectionOf`: the boot demotion has to be the same answer the
+    // icon gets, and a copy of it here would be a second mechanism for one fact.
+    const section = StatusDocument.resolvedSection(document, check.id, runningKernel);
 
     const header = new PopupMenu.PopupMenuItem(check.title, {reactive: false});
     header.label.style = 'font-weight: bold;';
@@ -135,14 +137,28 @@ export const section = {
      * disagree with it. */
     documentSections: CHECKS.map(check => check.id),
 
-    build(menu, document, nowMillis) {
+    build(menu, document, nowMillis, runningKernel) {
         appendCollectedAt(menu, document, nowMillis);
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         if (appendSelfReport(menu, document)) {
             return;
         }
+        // A shape this cannot read is REPORTED, before anything derived from it. Rendering
+        // the four checks against a document with no readable sections produces four
+        // "has no <id> section" lines and never says what actually happened.
+        const reasons = StatusDocument.documentReasons(document);
+        if (reasons.length > 0) {
+            const caveat = new PopupMenu.PopupMenuItem('', {reactive: false});
+            caveat.label.text = 'not checked — nothing is known about these:';
+            caveat.label.style_class = 'fedora-desktop-caveat';
+            menu.addMenuItem(caveat);
+            for (const text of reasons) {
+                menu.addMenuItem(findingItem(text, 'fedora-desktop-detail'));
+            }
+            return;
+        }
         for (const check of CHECKS) {
-            appendCheck(menu, document, check);
+            appendCheck(menu, document, check, runningKernel);
         }
     },
 };

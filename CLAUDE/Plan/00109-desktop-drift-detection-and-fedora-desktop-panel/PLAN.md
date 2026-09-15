@@ -223,15 +223,25 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     with more detail. `helpers/play_ledger/ledger_presence.py`, 9 tests
   - [ ] ⬜ What a finding does when activated — a Task 3.3 decision
     ([DESIGN-panel.md](DESIGN-panel.md) §9)
-  - [ ] ⬜ **The panel is not boot-aware** (qa-reviewer, 26-09-15) — it renders
-    `post-boot-health` findings as current faults whichever boot produced them. The
-    predicate is `status_document.is_boot_stale`; the panel has to ask it — and the same
-    rendering test must cover a **malformed** document and one whose `state` disagrees
-    with its own lists — `health.js` branches on `state` while the login route reads the
-    lists, and a document where they differ is structurally well formed, so
-    `unreadable_reasons` cannot see it (§4.1a, §4.3). **Not** via the contract gate: that
-    is a vocabulary check and `kernel` already satisfies it as an unused default
-    ([DESIGN-server-route.md](DESIGN-server-route.md) §4.2)
+  - [x] ✅ **The panel is boot-aware.** `statusDocument.isBootStale` is the same predicate
+    as `status_document.is_boot_stale`, and `resolvedSection` is the ONE place the
+    demotion happens — the menu and the icon read the same answer, or the icon would
+    report a fault the menu had already explained away
+  - [x] ✅ `state` is **derived** from the lists, as the producer derives it. A section
+    saying `state: "ok"` over a populated `findings` list rendered "nothing to report"
+    while the login report showed the fault (§4.3)
+  - [x] ✅ A **malformed** document is reported, not read as a clean host: a group that
+    is not a list, entries that are not strings, sections that cannot be read, and a
+    document naming no checks at all (§4.1a, mirroring `unreadable_reasons`)
+  - [x] ✅ Proven by `tests/extensions/test-panel-sections.mjs` — 17 tests importing the
+    **shipped** `statusDocument.js` and `sections/health.js`, with a Node loader answering
+    the `gi://` imports. Falsified on six mutants. **Not** the contract gate: that is a
+    vocabulary check and `kernel` already satisfied it as an unused default
+    ([DESIGN-server-route.md](DESIGN-server-route.md) §4.2) — though
+    `BOOT_SCOPED_SECTION` is now in it too, since both readers must demote the same section
+  - [ ] ⬜ **HOST**: the rendering itself — whether St shows the demoted lines legibly and
+    whether the icon is the right thing to look at. Only a Wayland session can say, and
+    the harness deliberately does not claim to
 - [ ] ⬜ **Task 4.3**: Play/task runner — plays with their ledger state, launched in a
   visible terminal, never in the background. Which plays it lists needs the ledger's real
   contents from Task 1.2's HOST run

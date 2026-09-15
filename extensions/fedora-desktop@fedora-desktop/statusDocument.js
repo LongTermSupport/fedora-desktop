@@ -37,6 +37,14 @@ export const SCHEMA_VERSION = 1;
 /** Must match `status_document.SELF_SECTION`. */
 export const SELF_SECTION = 'status';
 
+/** The one section whose findings are true only of the boot they were collected in: DKMS
+ * state against the kernel that was running, and units that failed during it. Matches
+ * `status_document.BOOT_SCOPED_SECTION`, and the contract gate checks that it does.
+ *
+ * The other three checks — the ledger, play freshness, installed-versus-pinned — survive
+ * a reboot unchanged, so demoting those too would be its own overclaim. */
+export const BOOT_SCOPED_SECTION = 'post-boot-health';
+
 /** Must match `status_document.FILE_NAME`. `helpers/gnome/check_panel_contract.py` is
  * the gate that compares the two: a mismatch makes the panel report unavailable for
  * ever, which is indistinguishable from a producer that never ran, so nothing at runtime
@@ -126,9 +134,45 @@ export function read(cancellable, callback) {
     });
 }
 
+/** A group's lines, and the reason it could not be read when that is what it is.
+ *
+ * A wrong type here must not degrade to "nothing in this group". Every defensive
+ * substitution of `[]` answers "unreadable", "absent" and "genuinely empty" identically —
+ * and on this surface empty means healthy, so a malformed document carrying a current
+ * timestamp and a known schema reads as a clean host. `helpers/host_health/
+ * status_document.unreadable_reasons` is the same rule on the producing side.
+ */
+function group(section, id, key) {
+    const value = section[key];
+    if (value === undefined || value === null) {
+        return {lines: [], reasons: []};
+    }
+    if (!Array.isArray(value)) {
+        return {
+            lines: [],
+            reasons: [`the ${id} section's ${key} could not be read, so what it ` +
+                'reported is not known'],
+        };
+    }
+    const lines = value.filter(line => typeof line === 'string');
+    const reasons = lines.length === value.length
+        ? []
+        : [`the ${id} section's ${key} holds entries this reader cannot show, so what ` +
+           'they said is not known'];
+    return {lines, reasons};
+}
+
 /** One section of a document, or an `unavailable` stating that the document has no such
  * section. A registered section that silently rendered nothing would be a check that
- * cannot fail wearing a different hat (DESIGN-panel.md §5). */
+ * cannot fail wearing a different hat (DESIGN-panel.md §5).
+ *
+ * `state` is DERIVED here rather than read off the document. The producer derives it from
+ * the lists too (`status_document.section`), so the lists are the fact and the stored
+ * `state` is a restatement of it. Reading the restatement made this panel a second
+ * mechanism for one fact, living in one of two consumers — which is exactly how the boot
+ * predicate went wrong — and a section saying `state: "ok"` over a populated `findings`
+ * list rendered "nothing to report" while the login report showed the fault.
+ */
 export function sectionOf(document, id) {
     const section = document?.sections?.[id];
     if (section === undefined || section === null || typeof section !== 'object') {
@@ -138,19 +182,85 @@ export function sectionOf(document, id) {
             unchecked: [`the host status document has no ${id} section`],
         };
     }
-    return {
-        state: section.state ?? UNAVAILABLE,
-        findings: Array.isArray(section.findings) ? section.findings : [],
-        unchecked: Array.isArray(section.unchecked) ? section.unchecked : [],
-    };
+    const findings = group(section, id, 'findings');
+    const unchecked = group(section, id, 'unchecked');
+    return derived(findings.lines,
+        [...unchecked.lines, ...findings.reasons, ...unchecked.reasons]);
 }
 
-/** The whole document's state: the worst of its sections. A panel showing a neutral icon
- * because two of three sections are fine would be hiding the third. */
-export function overallState(document, ids) {
-    let sawUnavailable = false;
+/** A section from its two lists, with the state that follows from them. Something
+ * known-wrong outranks something unknown, and the unchecked list is carried either way:
+ * dropping it beside a fault would show a partial picture as a complete one. */
+function derived(findings, unchecked) {
+    let state = OK;
+    if (findings.length > 0) {
+        state = FINDINGS;
+    } else if (unchecked.length > 0) {
+        state = UNAVAILABLE;
+    }
+    return {state, findings, unchecked};
+}
+
+/**
+ * The section as it should be READ on this boot — the one place the demotion happens.
+ *
+ * Both the menu and the icon need the same answer. Applying it in the menu alone would
+ * leave the icon reporting a fault the menu had already explained away, which is two
+ * mechanisms for one fact one more time.
+ */
+export function resolvedSection(document, id, running) {
+    const section = sectionOf(document, id);
+    if (id !== BOOT_SCOPED_SECTION || !isBootStale(document, running)) {
+        return section;
+    }
+    // DEMOTED, not repeated. These read as present tense — "no DKMS module installed for
+    // the running kernel 6.17.0" — but the text was written at collection time and that
+    // is not what is running now. Left among the faults they put two different values for
+    // "the running kernel" on consecutive lines of one report, one of them wrong, in
+    // exactly the scenario this rule exists for. Unchecked is what they now are.
+    //
+    // The explanation goes FIRST, because it explains the demoted lines that follow it.
+    const explanation =
+        `these results were collected under kernel ${collectedKernel(document)} and this ` +
+        `host is now running ${running}, so the post-boot checks describe a different ` +
+        'boot and nothing has looked at the kernel you are on';
+    return derived([], [explanation, ...section.findings, ...section.unchecked]);
+}
+
+/**
+ * Every way the DOCUMENT's own structure could not be read, each named.
+ *
+ * `read` already turns absent, unparseable and unknown-schema into a self-reporting
+ * document. This covers the gap immediately after it: one that parses, declares a schema
+ * this reader knows, and then carries no sections this reader can interpret.
+ */
+export function documentReasons(document) {
+    if (document === null || typeof document !== 'object') {
+        return ['the host status is not a document this reader can interpret, so nothing ' +
+                'in it has been read'];
+    }
+    const sections = document.sections;
+    if (sections === null || typeof sections !== 'object' || Array.isArray(sections)) {
+        return ["the host status file's sections could not be read, so no check's result " +
+                'has been read from it'];
+    }
+    if (Object.keys(sections).length === 0) {
+        // No legitimate origin: `collect` guarantees a key per producer — four even when
+        // every one of them raises — and the self report emits one. So a document with no
+        // sections is version skew, a truncation or a hand-edit.
+        return ['the host status names no checks at all, so nothing has been established ' +
+                'about this host'];
+    }
+    return [];
+}
+
+/** The whole document's state: the worst of its sections, read on this boot. A panel
+ * showing a neutral icon because two of three sections are fine would be hiding the
+ * third. */
+export function overallState(document, ids, running) {
+    let sawUnavailable = documentReasons(document).length > 0;
     for (const id of ids) {
-        const state = sectionOf(document, id).state;
+        const state = resolvedSection(document, id, running).state;
         if (state === FINDINGS) {
             return FINDINGS;
         }
@@ -159,6 +269,54 @@ export function overallState(document, ids) {
         }
     }
     return sawUnavailable ? UNAVAILABLE : OK;
+}
+
+/** The kernel this document was collected under, or `''` when it does not say. Read
+ * defensively once, here, so a consumer naming the kernel does not re-implement the
+ * guard: the document comes off disk and may be from another version or truncated. */
+export function collectedKernel(document) {
+    const kernel = document?.kernel;
+    return typeof kernel === 'string' ? kernel : '';
+}
+
+/**
+ * The kernel actually running, or `''` when that could not be established.
+ *
+ * `/proc/sys/kernel/osrelease` rather than spawning `uname`: the panel runs inside the
+ * compositor process, where a synchronous subprocess would block the shell, and this is
+ * the same value `os.uname().release` reads on the producing side.
+ */
+export function runningKernel() {
+    try {
+        const [, contents] = GLib.file_get_contents('/proc/sys/kernel/osrelease');
+        return new TextDecoder().decode(contents).trim();
+    } catch (e) {
+        // "Could not tell" — NOT "no mismatch". `isBootStale` requires both sides to be
+        // known for exactly this reason, so an empty answer here suppresses the claim
+        // rather than inventing one. Logged, because a panel that silently stopped
+        // asking would look like a host that never reboots.
+        log(`fedora-desktop: cannot read the running kernel: ${e.message}`);
+        return '';
+    }
+}
+
+/**
+ * Whether this document describes a boot other than the one now running.
+ *
+ * A property of the DOCUMENT, so it lives with the document rather than in whichever
+ * consumer noticed it first. There are two declared consumers — this panel and the
+ * server login report — and a predicate implemented in one of them is a question the
+ * other silently never asks.
+ *
+ * Both sides must be known. A self-reporting document carries `kernel: ''` and has
+ * already explained itself; an empty running kernel means "could not tell". Reporting a
+ * mismatch from either would be a finding manufactured out of ignorance, which is the
+ * inverse of this plan's rule and just as wrong.
+ */
+export function isBootStale(document, running) {
+    const collected = collectedKernel(document);
+    return collected !== '' && typeof running === 'string' && running !== '' &&
+        collected !== running;
 }
 
 /** Whole days since collection, or null when that cannot be known — which is NOT the

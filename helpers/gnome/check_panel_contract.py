@@ -66,6 +66,11 @@ def expected() -> dict[str, str]:
         "FILE_NAME": status_document.FILE_NAME,
         "SCHEMA_VERSION": str(status_document.SCHEMA_VERSION),
         "SELF_SECTION": status_document.SELF_SECTION,
+        # Both readers demote this section's findings after a reboot, and each has to
+        # demote the SAME one. A panel that disagreed with the login report about which
+        # section is boot-scoped would present the previous boot's faults as current on
+        # exactly the machine the other surface had already corrected.
+        "BOOT_SCOPED_SECTION": status_document.BOOT_SCOPED_SECTION,
         "OK": status_document.OK,
         "FINDINGS": status_document.FINDINGS,
         "UNAVAILABLE": status_document.UNAVAILABLE,

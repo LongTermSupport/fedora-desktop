@@ -201,3 +201,66 @@ The play ends by telling the operator to log out, on every run. On Wayland nothi
 loads new extension JavaScript — `Alt+F2 r` is X11-only and toggling the extension
 restarts code already in memory — so an operator who skips it is testing the previous
 version and will report its behaviour as this one's.
+
+## 11. The panel's decisions, and where they are now provable
+
+Three gates already touched this extension. `qa-js.bash` parses it, ESLint lints it, and
+`check_panel_contract.py` proves it uses the same words as the producer. None of them can
+tell a demoted finding from a current one — and on the primary surface for these findings,
+that is the whole question. Neither can a screenshot.
+
+The blocker recorded against Task 4.2 was "needs GJS". That is true of **rendering** and
+false of everything before it. `statusDocument.js` imports only `Gio` and `GLib`;
+`sections/health.js` adds `PopupMenu`. Every decision they make — is this finding current,
+is this document readable, what does the icon say — is a plain function over a plain
+object. Tying those to a Wayland session meant they were unprovable exactly where a wrong
+answer is silent.
+
+`tests/extensions/gjs-loader.mjs` resolves `gi://` and `resource:///org/gnome/shell/`
+imports to stubs, so the tests import the **shipped** files. Two properties of that
+harness are deliberate:
+
+- **Each stubbed specifier gets its own generated module.** The panel imports defaults
+  (`import GLib from 'gi://GLib'`), so one shared default would hand every import the same
+  object and a test passing against it would be reporting on the stub.
+- **An unknown GNOME specifier is a refusal, not an empty module.** A new import resolving
+  to nothing would land silently, and the first anyone would know is a panel that does
+  nothing in a live shell — the failure this harness exists to move earlier.
+
+### What the tests found
+
+**`state` was a second mechanism for a fact the lists already carried.** `sectionOf`
+passed `section.state` through and both the menu and the icon branched on it, while the
+producer DERIVES that field from the lists. A section saying `state: "ok"` over a populated
+`findings` list rendered "nothing to report" on the panel while the login report showed the
+fault. The fix is to derive it here too: the lists are the fact, and there is one reading
+of them.
+
+**A malformed document read as a clean host**, the same way `_texts` did on the Python side
+before `unreadable_reasons` — a group that is not a list, entries that are not strings, and
+a document naming no checks at all all degraded to "nothing in this group", which on this
+surface means healthy.
+
+**The demotion had to live in one place.** Applying it in the menu alone would leave the
+icon reporting a fault the menu had already explained away, so `resolvedSection` is where
+it happens and `overallState` reads the same function.
+
+**The running kernel is read once, in `enable()`.** It cannot change without a reboot, and
+a reboot ends the shell — so re-reading it per render would be repeated synchronous I/O in
+the compositor for an answer that cannot have moved. An unreadable `/proc` gives `''`,
+which suppresses the claim rather than inventing one, and is logged: a panel that silently
+stopped asking would look like a host that never reboots.
+
+### And one in the test helper
+
+`groupIn` was first written as a flat scan for the not-checked heading across the whole
+menu. The menu renders a heading **per check**, so one demoted section made every later
+section's findings read as demoted — and several assertions passed only because the
+ordering happened to suit them. A predicate whose answer depends on a distinction it does
+not make, in the helper written to catch exactly that. It is scoped per check now.
+
+### What this still does not claim
+
+Whether St renders the demoted lines legibly, whether the caveat heading reads as a caveat,
+and whether the icon colour is the right thing to look at. Those need a Wayland session and
+a person, and the gate says so rather than implying its green covers them.

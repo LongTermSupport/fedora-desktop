@@ -16,8 +16,8 @@
 
 ## What qa-all.bash Runs
 
-`qa-all.bash` runs **twenty-nine** gates. Seven merge their JSON into
-`/tmp/qa-results.json`; the other twenty-two run separately (see below). A missing
+`qa-all.bash` runs **thirty** gates. Seven merge their JSON into
+`/tmp/qa-results.json`; the other twenty-three run separately (see below). A missing
 **required** tool makes a stage (and the whole run) exit `2`; a real analyser crash (e.g.
 ruff/shellcheck exit ≥ 2) is a hard failure, never silently treated as "0 issues".
 
@@ -57,6 +57,7 @@ they are deliberately not jq-merged stages, so they cannot disturb the positiona
 | `test-ccy-host-hostname.bash`               | `ccy_host_hostname` — the RFC 1123 grammar guarding `CCY_HOST_HOSTNAME` (Plan 00121)                      |
 | `test-vmtest-host-only-gate.bash`           | `host_only_preflight`, the host-CLI gate on a credential-bearing VM scenario (Plan 00121)                 |
 | `test-vmtest-reboot-dispatch.bash`          | `reboot_guest`/`guest_prepare` — a run judged on the wrong boot has no other symptom (Plan 00109)         |
+| `test-panel-sections.bash`                  | the panel's own decisions on boot-stale, malformed and `state`-disagreeing documents (Plan 00109)         |
 | `test-run-bash-headless-localhost-yml.bash` | the headless `localhost.yml` writer (Plan 00119)                                                          |
 | `test-run-bash-ssh-agent-teardown.bash`     | `hl_ssh_agent_stop`, including an agent that SURVIVES the kill (Plan 00063 Task 3.4)                      |
 | `test-run-log-scrub.bash`                   | the run-log secret scrubber, driven by a deliberately incomplete redaction (Plan 00121)                   |
