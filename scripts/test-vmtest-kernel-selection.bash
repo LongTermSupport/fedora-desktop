@@ -180,21 +180,46 @@ run_case() {
     STDOUT="$(
         {
         export TRACE_DIR="$work/trace"
+        # NOTHING REAL IS REACHABLE BY ANY CASE. PATH holds the two coreutils the function
+        # needs and nothing else, for every case rather than only the no-grubby one.
+        #
+        # This gate runs on the user's own Fedora machine, where dnf and grubby are real
+        # binaries and sudo may be passwordless. The stubs are the only thing standing
+        # between this suite and `sudo -n dnf -y install kernel-<NEVRA>` against that
+        # machine — and they are installed by an `eval`, which discards its status inside
+        # a subshell with errexit off. A prelude left syntactically broken by a future
+        # edit therefore defines nothing, the error goes to a file nothing reads, and the
+        # names resolve to the real tools. Measured: eval exits 2 and execution continues.
+        #
+        # So hermeticity is enforced three ways, not assumed: the eval is judged, the
+        # collaborators are checked to be functions, and PATH could not reach a real one
+        # even if both of those were removed. Emptying PATH entirely is not the answer —
+        # that also takes away `sort`, and a case then dies of a missing coreutil while
+        # still reporting the refusal it was looking for.
+        export PATH="$work/nothing"
+        stub_expect_grubby=function
         if [ "${STUB_NO_GRUBBY:-0}" = 1 ]; then
-            # A guest with no grubby, and HERMETICALLY so. Renaming the stub is not
-            # enough: this gate runs on the user's own Fedora machine, where grubby is a
-            # real binary on a real PATH — `command -v` would find it, and the stubbed
-            # sudo would then hand the host's actual bootloader tool a --set-default.
-            #
-            # A PATH holding everything the function needs EXCEPT grubby, rather than an
-            # empty one. Emptying it also takes away `sort`, and the case then dies of a
-            # missing coreutil while still reporting the refusal it was looking for —
-            # true for the wrong reason, and worse, a build with the grubby check removed
-            # would never reach the install this case checks did not happen.
-            eval "${STUB_PRELUDE/grubby() \{/absent_grubby() \{}"
-            export PATH="$work/nothing"
+            # Renaming the stub is what makes grubby absent; PATH above is what keeps the
+            # host's real one out of reach of `command -v`.
+            eval "${STUB_PRELUDE/grubby() \{/absent_grubby() \{}" ||
+                { echo "HARNESS: the stub prelude did not parse" >&2; exit 97; }
+            stub_expect_grubby=absent
         else
-            eval "$STUB_PRELUDE"
+            eval "$STUB_PRELUDE" ||
+                { echo "HARNESS: the stub prelude did not parse" >&2; exit 97; }
+        fi
+        for stub_name in sudo dnf rpm; do
+            [ "$(type -t "$stub_name")" = function ] ||
+                { echo "HARNESS: the prelude did not define $stub_name" >&2; exit 97; }
+        done
+        if [ "$stub_expect_grubby" = absent ]; then
+            if command -v grubby >/dev/null; then
+                echo "HARNESS: grubby is reachable in the case that requires it absent" >&2
+                exit 97
+            fi
+        elif [ "$(type -t grubby)" != function ]; then
+            echo "HARNESS: the prelude did not define grubby" >&2
+            exit 97
         fi
         # Exported because the extracted function reads it from the shell it is sourced
         # into, exactly as it does in the fixture.
@@ -209,6 +234,14 @@ run_case() {
         } 2>"$work/err"
     )"
     local rc=$?
+    # 97 is the harness failing its own integrity check, not a refusal under test. It
+    # stops everything: per-case verdicts from a run whose stubs were not installed would
+    # be reporting on whatever the host happened to have.
+    if [ "$rc" -eq 97 ]; then
+        echo "FAIL: harness integrity check failed" >&2
+        [ -r "$work/err" ] && cat "$work/err" >&2
+        exit 1
+    fi
     TRACE=""
     [ -r "$work/trace/trace" ] && TRACE="$(cat "$work/trace/trace")"
     RECORD=""

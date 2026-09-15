@@ -115,6 +115,42 @@ only ever mutates the fixture.** The hole was in the test asserting against itse
 the fix by mutating the *test* instead — deleting the `STUB_OMIT_BOOT_DIR` branch now
 fails case 6c, where before it would have stayed green testing nothing.
 
+## Round 3 — `4dc9f8f7`, verdict FIX-BEFORE-MERGE
+
+Again a commit behind: everything it lists as "still open from round 2" (case 6c's
+assertion, `out_file`, `query_errors`) was already fixed in `9a061d58`. The errexit
+retraction was confirmed by its own measurement.
+
+**The new finding is the one that mattered, and it is about this gate touching the user's
+machine.** `eval "$STUB_PRELUDE"` discards its status, inside a subshell with errexit off.
+The stubs are the only thing between this suite and the host's real tools — and if a
+future edit leaves the prelude defining less than it should, the names fall through to
+PATH. On the user's Fedora host that is a real `dnf` and a real `grubby`, with sudo
+possibly passwordless.
+
+Reproduced before fixing, and the realistic rot turned out worse than a syntax error: an
+unterminated `rpm() {` **still parses**, because the following `grubby() {` is swallowed as
+a nested definition. The prelude then evaluates cleanly, `grubby` is simply never defined,
+and the run finds the host's instead.
+
+Hermeticity is now enforced three ways rather than assumed, each with its own evidence:
+
+| Layer                                  | Proved by                                                                 |
+| -------------------------------------- | ------------------------------------------------------------------------- |
+| the `eval`'s status is judged          | unparseable prelude → `HARNESS: the stub prelude did not parse`           |
+| collaborators asserted to be functions | a renamed stub → `HARNESS: the prelude did not define dnf`                |
+| PATH holds only `sort` and `cat`       | all three guards stripped, a fake host `grubby` on PATH: **restricted →** |
+|                                        | dies "no grubby in this guest"; **unrestricted → the fake was EXECUTED**, |
+|                                        | its own output appearing in the refusal                                   |
+
+The third layer is the one I nearly shipped as an unfalsifiable comfort. It took stripping
+the other two to show it does anything — and it does: without it, a missing stub means the
+suite runs the host's bootloader tool.
+
+`exit 97` from any of the three is a hard stop for the whole suite, not a case failure:
+per-case verdicts from a run whose stubs were not installed would be reporting on whatever
+the host happened to have.
+
 ### Correction to my own diagnosis
 
 I first recorded that twelve tests missed the blocking defect because **the harness ran
