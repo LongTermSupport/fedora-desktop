@@ -61,9 +61,10 @@ If the verification pass finds anything, the artefact is not published and the r
 
 ### Phase 1: The scrubber
 
-- [ ] ⬜ **Task 1.1**: Decide where it lives and what consumes it — a helper under `helpers/`
-  driven by the plan and vmtest scripts, versus a bash library beside `secret-scan.bash`. The
-  existing engine is bash and the consumers are bash. Record the decision before writing code
+- [x] ✅ **Task 1.1**: A bash library under `scripts/lib/`, sourcing the existing hook engine.
+  A Python helper — the repo's usual default — would mean porting the matcher and the allowlist,
+  giving two detectors that agree until the day they do not. `scripts/git-hooks/lib/` is the
+  wrong home because a run-log scrubber is not a git hook. Reasoning in the journal
 - [ ] ⬜ **Task 1.2**: Known-value redaction, test-first: given the secret files a run was
   handed, replace every occurrence in an artefact with a stable placeholder
 - [ ] ⬜ **Task 1.3**: The verification pass — re-scan the redacted artefact and refuse on any
