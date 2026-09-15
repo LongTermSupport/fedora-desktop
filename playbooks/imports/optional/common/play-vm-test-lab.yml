@@ -174,7 +174,35 @@
         - guest-cleanup.bash
         - guest-acceptance-server.bash
         - guest-acceptance-desktop.bash
+        - guest-acceptance-server-github-token.bash
         - vmtest-session-provision.bash
+
+    # The run-log scrubber, for the host-only scenario's artefacts. Two files, and the
+    # RELATIVE layout between them matters: run-log-scrub.bash sources the commit gate's
+    # detection engine at ../git-hooks/lib/secret-scan.bash, so there is one matcher and one
+    # allowlist rather than a second copy that drifts. Deploying either alone gives a
+    # scrubber that cannot load.
+    - name: Ensure the scrubber directories exist
+      ansible.builtin.file:
+        path: "{{ vm_test_lab_dir }}/{{ item }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      loop:
+        - lib
+        - git-hooks/lib
+
+    - name: Deploy the run-log scrubber and the detection engine it sources
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/scripts/{{ item }}"
+        dest: "{{ vm_test_lab_dir }}/{{ item }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+      loop:
+        - lib/run-log-scrub.bash
+        - git-hooks/lib/secret-scan.bash
 
     # The VM kickstarts for the full bases: the deployed copies are what the builder
     # renders, so the checkout cannot change how a base is installed underneath a run.

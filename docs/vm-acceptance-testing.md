@@ -188,6 +188,51 @@ The plan's `acceptance.bash` runs all six scenarios in turn (the four server
 fast legs, `server-full-provision` and `desktop-fresh-install`) and asserts
 each verdict.
 
+### `server-github-token` — the one scenario with a real credential
+
+Every other scenario runs `RUN_BASH_GITHUB_ACCOUNTS=none`, so no PAT and no SSH
+passphrase ever exists in the guest. That makes the "no secret bytes" and
+"nothing was left behind" criteria vacuous there: a green grep passes because
+the thing it searches for was never supplied. `server-github-token` supplies
+both, and then asserts they are gone.
+
+It is **`host_only`**, so it is absent from the bridge allowlist and a
+sandboxed agent cannot name it. Three independent gates enforce that: the
+watcher rejects an id that is not on the allowlist; `bridge_run` refuses a
+`host_only` scenario read from the manifest, before dispatch, failing closed if
+the manifest cannot be read; and the host CLI requires credential options the
+bridge's hardcoded argv cannot carry.
+
+```bash
+vmtest run server-github-token \
+  --github-account <throwaway-gh-user> \
+  --github-token-file /run/secrets/gh-token \
+  --github-ssh-passphrase-file /run/secrets/ssh-pass
+```
+
+Use a **dedicated throwaway GitHub account**, never a real one. The PAT needs
+the scopes in `vars/github-required-scopes.yml` plus `admin:public_key`,
+because the run uploads the login key it generates. Both files must be `0600`
+or `0400` and non-empty; the CLI refuses otherwise, since a secret that cannot
+be read cannot be redacted from the transcript afterwards either. Revoke the
+PAT when the run is done.
+
+Secrets travel by `scp` into guest `tmpfs` and are named to `run.bash` by
+**path**, never by value — so they are absent from the guest's argv and from
+cloud-init `user-data`, which the metadata service would serve forever.
+
+Its checker is `guest-acceptance-server-github-token.bash`, not the shared
+server one, whose `github_accounts: {}` assertion is definitionally false when
+an identity is configured. To check that no secret bytes survived, the checker
+has to know the bytes: the host hands them back in a `0600` needles file, the
+checker reads them and unlinks it before its first scan, and a needles file
+still present at the end fails the run.
+
+Artefacts stay **off the shared mount**, under
+`~/.local/share/vmtest/runs/<run-id>/`. Before the run is judged, the
+transcript and console log are redacted and then re-verified against the
+supplied secrets; a residual match aborts rather than publishing.
+
 ## Asking the lab from inside the sandbox
 
 A CCY container cannot reach the hypervisor, and must not be able to run

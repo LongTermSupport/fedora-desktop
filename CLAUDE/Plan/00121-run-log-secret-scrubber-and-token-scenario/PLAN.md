@@ -97,23 +97,33 @@ If the verification pass finds anything, the artefact is not published and the r
   `vmtest:860` enforces that same file, so excluding the scenario there would block the human's
   CLI too; and `bridge_run.py:220-228` would archive a PAT-bearing transcript onto the shared
   mount, with the allowlist as the only thing preventing it. Findings in the journal
-- [ ] 🔄 **Task 2.2**: The scenario entry and its secret-file plumbing into the guest.
-  *Done*: the manifest can declare `host_only`, splitting "the host may run it" from "the
-  sandbox may ask for it"; the two enumerations are derived from that one flag so they are
-  disjoint by construction; `bridge_run` refuses a host-only scenario **from the manifest, not
-  the allowlist**, before anything boots, failing closed on an unreadable or silent manifest.
-  Five mutants falsified, including the refusal placed after the run. *Remaining*: the
-  `server-github-token` entry itself and the secret-file delivery
-- [ ] ⬜ **Task 2.3**: Off-mount logging to the host-local run directory, with only a verdict
-  and a pointer returned
+- [x] ✅ **Task 2.2**: The scenario entry and its secret-file plumbing. The manifest can
+  declare `host_only`, splitting "the host may run it" from "the sandbox may ask for it", and
+  both enumerations derive from that one flag so they are disjoint by construction.
+  `server-github-token` is declared (`bridge=6 host_only=1`). Secrets travel by `scp` into
+  guest tmpfs and are named to `run.bash` by **path**, so they are absent from the guest's
+  argv and from cloud-init `user-data`. `qa-vmtest-manifest.bash` now ties the manifest's
+  `planned` to the checker's `PLANNED` — two declarations of one number, previously reconciled
+  only minutes into a VM run
+- [x] ✅ **Task 2.3**: Off-mount logging. Host-CLI runs already write to
+  `~/.local/share/vmtest/runs/<run-id>/`, the path `DESIGN.md:330` names, so the work was not a
+  new route but proving the archive step unreachable — `bridge_run` cannot dispatch the
+  scenario at all. Phase 1's scrubber then redacts and **re-verifies** the transcript and
+  console log before the run is judged; a residual match aborts rather than publishing
 - [x] ✅ **Task 2.4**: Opt-in gating that refuses to run from the bridge. **Three independent
   gates**, none load-bearing alone: the scenario is off the bridge allowlist so the watcher
   rejects it; `bridge_run` refuses it from the manifest before dispatch; and
   `host_only_preflight` requires credential options the bridge's hardcoded argv cannot carry.
   Ten mutants falsified across the two suites, including a refusal placed after the run and
   an absent host-only list read as permission
-- [ ] ⬜ **Task 2.5**: The in-guest assertions: agent gone, askpass helper gone, secret files
-  unlinked, no secret bytes in the environment or cloud-init `user-data`
+- [x] ✅ **Task 2.5**: The in-guest assertions —
+  `guest-acceptance-server-github-token.bash`, 12 checks. Its own script, because the shared
+  server checker asserts `github_accounts: {}`, definitionally false here. Half assert the
+  credential worked (SSH remote, `gh auth status`, a passphrase-protected key); half assert
+  nothing survived (no agent, no socket, no askpass helper, no `/tmp/.github_ssh_pp`, no bytes
+  in any process environment, in cloud-init `user-data`, or on disk). The host hands the
+  secrets back in a 0600 needles file the checker unlinks before its first scan — "no secret
+  bytes survived" cannot be checked by a script that does not know the bytes
 - [ ] 🚫 **Task 2.6**: **HUMAN, needs a real credential** — run it. An agent must not create or
   handle the PAT, and the artefacts are off-mount by design, so the verdict comes from the
   operator

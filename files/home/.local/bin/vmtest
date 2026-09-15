@@ -227,6 +227,79 @@ host_only_preflight() {
     done
 }
 
+# ── host-only scenarios: getting the secrets in, and making sure nothing carries them out ──
+#
+# GUEST_SECRET_DIR is tmpfs inside the guest, so nothing here touches the overlay that
+# outlives the run. The guest is destroyed either way; this bounds what a mid-run snapshot or
+# a crashed teardown could hold.
+readonly GUEST_SECRET_DIR="/dev/shm/vmtest-secrets"
+# The run-log scrubber, deployed with the lab. It sources the commit gate's detection engine
+# from a path relative to its own, so the two travel together and there is one matcher.
+readonly SCRUB_LIB="${VMTEST_HOME}/lib/run-log-scrub.bash"
+
+# push_guest_secrets <token-file> <passphrase-file> — deliver by scp, name by path.
+# scp never puts the CONTENT on a command line, so the bytes are absent from the guest's argv
+# and from anything `ps` can show.
+push_guest_secrets() {
+    local token_file="${1:?}" pp_file="${2:?}"
+    guest_ssh "umask 077 && mkdir -p ${GUEST_SECRET_DIR} && chmod 0700 ${GUEST_SECRET_DIR}"
+    guest_scp "${token_file}" "${CLOUD_USER}@127.0.0.1:${GUEST_SECRET_DIR}/gh-token"
+    guest_scp "${pp_file}" "${CLOUD_USER}@127.0.0.1:${GUEST_SECRET_DIR}/ssh-passphrase"
+    guest_ssh "chmod 0600 ${GUEST_SECRET_DIR}/gh-token ${GUEST_SECRET_DIR}/ssh-passphrase"
+}
+
+# drop_guest_secrets — remove what the harness delivered, before the checker looks.
+# run.bash unlinking its OWN transient files is what the scenario tests; these two are the
+# harness's, and leaving them would make the residue checks fail on the harness's own
+# fixture rather than on anything run.bash did.
+drop_guest_secrets() {
+    guest_ssh "rm -f ${GUEST_SECRET_DIR}/gh-token ${GUEST_SECRET_DIR}/ssh-passphrase"
+}
+
+# push_guest_needles <token-file> <passphrase-file> — the exact bytes the checker searches
+# for, one per line, 0600. Written with `cat` over ssh rather than as an argument, for the
+# same reason as above. The checker unlinks it before its first scan and fails if it survives.
+push_guest_needles() {
+    local token_file="${1:?}" pp_file="${2:?}"
+    guest_ssh "umask 077 && mkdir -p ${GUEST_SECRET_DIR} && chmod 0700 ${GUEST_SECRET_DIR}"
+    # The trailing newline belongs to the host's file, not to the secret; the checker matches
+    # literal bytes, so carrying it in would make every needle fail to match.
+    {
+        printf '%s\n' "$(cat -- "${token_file}")"
+        printf '%s\n' "$(cat -- "${pp_file}")"
+    } | guest_ssh "umask 077 && cat > ${GUEST_SECRET_DIR}/needles"
+}
+
+# scrub_run_artefacts <token-file> <passphrase-file> <artefact>... — redact the supplied
+# secrets from what this run wrote, then REFUSE if any survive (Plan 00121 Phase 1).
+#
+# The verify half is the point. A scrubber is fail-open by nature: it writes a file it
+# believes is clean, and a miss is silent. So a residual secret stops the run here rather than
+# leaving a transcript a human will later paste somewhere.
+#
+# The library is sourced HERE rather than at load: it is only needed by a host-only run, and
+# a CLI that refused to start because an optional deployed file was missing would break every
+# ordinary scenario too. Absent when it IS needed is a hard failure, never a skipped scrub.
+scrub_run_artefacts() {
+    local token_file="${1:?}" pp_file="${2:?}"
+    shift 2
+    local artefact
+    if ! declare -F scrub_verify >/dev/null; then
+        [[ -r "${SCRUB_LIB}" ]] ||
+            die "no ${SCRUB_LIB}: this run handled a real credential and its artefacts cannot be checked for residue; re-run play-vm-test-lab.yml on the host"
+        # shellcheck source=/dev/null
+        source "${SCRUB_LIB}"
+    fi
+    for artefact in "$@"; do
+        [[ -f "${artefact}" ]] || continue
+        scrub_redact "${artefact}" "${token_file}" "github-token"
+        scrub_redact "${artefact}" "${pp_file}" "ssh-passphrase"
+        if ! scrub_verify "${artefact}" "${token_file}" "${pp_file}"; then
+            die "a supplied secret survived redaction in ${artefact}; the run's artefacts are NOT safe to share (they remain under ${RUN_DIR})"
+        fi
+    done
+}
+
 # run_env_assignments — the scenario's RUN_BASH_* overrides as `KEY='value'` words for the
 # guest's `env`, from the validator's comma-separated marker field ("-" when none). The
 # validator has already confined keys to a closed allowlist and values to plain tokens.
@@ -974,8 +1047,17 @@ cmd_run() {
     base_json="${base_dir}/base.json"
     [[ -r "${base_disk}" && -r "${base_json}" ]] ||
         die "base ${BASE_NAME} is absent (stage: base); build it with: vmtest build-base ${SCENARIO_BASE_KEY}"
-    guest_script="${VMTEST_HOME}/guest-acceptance-${BASE_PROFILE}.bash"
-    [[ -r "${guest_script}" ]] || die "no ${guest_script}; deploy the lab first"
+    # Resolution order, not a fallback-on-error: a scenario whose assertions differ from its
+    # profile's ships its own checker, and everything else shares the profile's. Both paths
+    # are deterministic and the no-match case is a hard failure, never a silent default —
+    # `server-github-token` must never be judged by the server checker, whose
+    # `github_accounts: {}` assertion is definitionally false when an identity is configured.
+    guest_script="${VMTEST_HOME}/guest-acceptance-${scenario_id}.bash"
+    if [[ ! -r "${guest_script}" ]]; then
+        guest_script="${VMTEST_HOME}/guest-acceptance-${BASE_PROFILE}.bash"
+    fi
+    [[ -r "${guest_script}" ]] ||
+        die "no checker for ${scenario_id}: neither guest-acceptance-${scenario_id}.bash nor guest-acceptance-${BASE_PROFILE}.bash is readable under ${VMTEST_HOME}; deploy the lab first"
     commit="$(resolve_commit "${commit}")"
 
     # ── freshness gate (§4.4, T6.1) ────────────────────────────────────────────────────
@@ -1040,6 +1122,17 @@ cmd_run() {
     # (the negative scenarios set an unrecognised profile or a failing play).
     local run_env_words
     run_env_words="$(run_env_assignments)"
+    # A host-only scenario replaces the empty-identity defaults with a real one. The secrets
+    # travel by scp into guest tmpfs and are named to run.bash by PATH — never as values, so
+    # they are absent from the guest's argv and from cloud-init user-data, which the metadata
+    # service would serve forever (docs/headless-provisioning.md:128-131).
+    local github_env=" RUN_BASH_GITHUB_ACCOUNTS=none"
+    if [[ "${SCENARIO_HOST_ONLY}" == "true" ]]; then
+        push_guest_secrets "${github_token_file}" "${github_ssh_pp_file}"
+        github_env=" RUN_BASH_GITHUB_ACCOUNTS='${github_account}'"
+        github_env+=" RUN_BASH_GITHUB_TOKEN_FILE=${GUEST_SECRET_DIR}/gh-token"
+        github_env+=" RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE=${GUEST_SECRET_DIR}/ssh-passphrase"
+    fi
     log "provisioning (headless run.bash; this is the long part — up to ${PROVISION_TIMEOUT_SECONDS}s)${run_env_words:+; overrides:${run_env_words}}"
     if [[ "${BASE_PROFILE}" == "desktop" ]]; then
         session_provision "${commit}" "${run_env_words}" "${transcript}" || run_rc=$?
@@ -1047,7 +1140,7 @@ cmd_run() {
         timeout "${PROVISION_TIMEOUT_SECONDS}" ssh -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ServerAliveInterval=30 \
             -i "${SSH_KEY}" -p "${GUEST_PORT}" "${CLOUD_USER}@127.0.0.1" \
-            "env RUN_BASH_HEADLESS=1 RUN_BASH_USER_EMAIL='${GUEST_USER_EMAIL}' RUN_BASH_GITHUB_ACCOUNTS=none \
+            "env RUN_BASH_HEADLESS=1 RUN_BASH_USER_EMAIL='${GUEST_USER_EMAIL}'${github_env} \
                  RUN_BASH_VAULT_PASSWORD_FILE=\$HOME/.vmtest/throwaway-pw RUN_BASH_GIT_REF='${commit}' \
                  RUN_BASH_PROVISIONING_PROFILE='${BASE_PROFILE}'${run_env_words} TERM=dumb bash ~/run.bash" \
             2>&1 | tee -a "${transcript}" >&2 || run_rc="${PIPESTATUS[0]}"
@@ -1062,17 +1155,37 @@ cmd_run() {
     if [[ "${BASE_PROFILE}" == "desktop" ]]; then
         desktop_reboot_into_session "${base_dir}" "${transcript}"
     fi
-    local accept_rc=0 session_env=""
+    local accept_rc=0 session_env="" token_env=""
     guest_scp "${guest_script}" "${CLOUD_USER}@127.0.0.1:/tmp/guest-acceptance.bash"
     if [[ "${BASE_PROFILE}" == "desktop" ]]; then
         # The checks must reach the session's GNOME Shell: the bus of the autologin session.
         session_env="XDG_RUNTIME_DIR=/run/user/\$(id -u) DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$(id -u)/bus"
     fi
-    guest_ssh "env ${session_env} VMTEST_COMMIT='${commit}' VMTEST_USER_EMAIL='${GUEST_USER_EMAIL}' bash /tmp/guest-acceptance.bash" \
+    if [[ "${SCENARIO_HOST_ONLY}" == "true" ]]; then
+        # "No secret bytes survived" cannot be checked by a script that does not know the
+        # bytes, so the needles go back in — briefly. The checker's first act is to read them
+        # and unlink the file, and its last is to fail if that file still exists. The
+        # provisioning secrets are removed first: they are what the checker must not find.
+        drop_guest_secrets
+        push_guest_needles "${github_token_file}" "${github_ssh_pp_file}"
+        token_env="VMTEST_GITHUB_USER='${github_account}' VMTEST_NEEDLES_FILE=${GUEST_SECRET_DIR}/needles"
+    fi
+    guest_ssh "env ${session_env} ${token_env} VMTEST_COMMIT='${commit}' VMTEST_USER_EMAIL='${GUEST_USER_EMAIL}' bash /tmp/guest-acceptance.bash" \
         2>&1 | tee -a "${transcript}" >&2 || accept_rc="${PIPESTATUS[0]}"
     [[ "${accept_rc}" -eq 0 ]] || log "guest acceptance script exited ${accept_rc} (recorded; the transcript decides)"
     if [[ "${BASE_PROFILE}" == "desktop" ]]; then
         collect_desktop_evidence "${transcript}"
+    fi
+
+    # ── scrub, for a run that handled a real credential ────────────────────────────────
+    # BEFORE the run is judged or reported. run.bash echoes plenty and the serial console
+    # captures everything the guest printed, so a secret reaching either is a live
+    # possibility rather than a hypothetical. A residual match aborts: the artefacts stay
+    # under RUN_DIR for a human, and nothing downstream treats them as safe to pass on.
+    if [[ "${SCENARIO_HOST_ONLY}" == "true" ]]; then
+        log "scrubbing the run's artefacts and verifying no supplied secret survives"
+        scrub_run_artefacts "${github_token_file}" "${github_ssh_pp_file}" \
+            "${transcript}" "${RUN_DIR}/console.log"
     fi
 
     # ── destroy, judge, respond ────────────────────────────────────────────────────────

@@ -110,6 +110,17 @@ vm_test_scenarios:
     description: provision an Anaconda-installed Fedora Server guest with run.bash (the same guest checks as the fast path, on a materially different starting OS)
     planned: 13   # the shared guest-acceptance-server.bash
     max_skipped: 0
+  # The ONE scenario that puts a real credential in a guest. `host_only: true` keeps it off
+  # the bridge allowlist entirely: a sandboxed agent asking the host to put a PAT into a VM
+  # is the precise shape the bridge exists to prevent (00110 DESIGN.md:2084). It is run by a
+  # human at the host CLI, which requires --github-account, --github-token-file and
+  # --github-ssh-passphrase-file, and its artefacts stay off the shared mount.
+  server-github-token:
+    base: server-fast
+    description: provision with a REAL scoped PAT on a throwaway GitHub account, then prove the ssh-agent, the askpass helpers and every secret file are gone and no secret bytes survive
+    planned: 12   # = PLANNED in files/home/.local/share/vmtest/guest-acceptance-server-github-token.bash
+    max_skipped: 0
+    host_only: true
   desktop-fresh-install:
     base: desktop
     description: the repo's own installer shape (netinst + Workstation liveimg, btrfs under LUKS) plus desktop provisioning run inside the autologin GNOME session
