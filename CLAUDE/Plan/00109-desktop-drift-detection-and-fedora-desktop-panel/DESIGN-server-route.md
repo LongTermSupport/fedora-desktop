@@ -369,6 +369,15 @@ anything.
 fixture records what it saw and the checker — after the reboot — turns the record into
 checks. One place counts, one place judges.
 
+**And the fixture disables the collection timer before the reboot**, which is what makes
+the mismatch observable at all. On a real host the window is bounded and short: the timer's
+`OnStartupSec=5min` plus `RandomizedDelaySec=30min` means a re-collection lands 5–35
+minutes after the user manager starts, and any login in that window meets the stale
+document. A run that raced it would find the document already rewritten to name the new
+kernel, and every claim below the mismatch would pass against a document that never went
+stale. Disabling removes the race rather than betting on it, and the checker proves the
+document it reads is byte-identical to the one the fixture left.
+
 The checker's matchers were run against `login_message.render` itself before the scenario
 was written, rather than copied from the source by eye: a checker that agrees with a
 string neither side got from the code under test is a vocabulary check wearing a

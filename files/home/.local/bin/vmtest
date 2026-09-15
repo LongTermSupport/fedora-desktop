@@ -1014,8 +1014,8 @@ reboot_guest() {
     esac
 }
 
-# guest_prepare <scenario-id> <commit> <transcript> — the scenario's own fixture, run in
-# the guest between run.bash and the reboot.
+# guest_prepare <scenario-id> <transcript> — the scenario's own fixture, run in the guest
+# between run.bash and the reboot.
 #
 # Per-scenario only, with no profile fallback: a fixture is by definition particular to
 # one scenario, and a scenario with nothing to set up ships no script. Its absence is
@@ -1027,7 +1027,7 @@ reboot_guest() {
 # reboot. A non-zero exit aborts the run: a half-applied fixture leaves the checker
 # judging a guest nobody set up, and its failures would read as defects in the code.
 guest_prepare() {
-    local scenario_id="${1:?}" commit="${2:?}" transcript="${3:?}" script rc=0
+    local scenario_id="${1:?}" transcript="${2:?}" script rc=0
     script="${VMTEST_HOME}/guest-prepare-${scenario_id}.bash"
     if [[ ! -r "${script}" ]]; then
         # SAID OUT LOUD. Most scenarios have no fixture and that is not an error — but a
@@ -1044,10 +1044,16 @@ guest_prepare() {
         ssh -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ServerAliveInterval=30 \
         -i "${SSH_KEY}" -p "${GUEST_PORT}" "${CLOUD_USER}@127.0.0.1" \
-        "env VMTEST_COMMIT='${commit}' TERM=dumb bash /tmp/guest-prepare.bash" \
+        "env TERM=dumb bash /tmp/guest-prepare.bash" \
         2>&1 | tee -a "${transcript}" >&2 || rc="${PIPESTATUS[0]}"
     [[ "${rc}" -eq 0 ]] ||
         die "the ${scenario_id} fixture exited ${rc} (stage: prepare); nothing after it would be judging the scenario it names"
+    # Exit 0 is not the same as "ran to the end". A fixture that returned early — a guard
+    # that decided there was nothing to do, an edit that left a `return` above the last
+    # step — exits 0 having prepared part of the scenario, and the checker would then
+    # judge a guest that is half set up. The marker is printed by the fixture's final line.
+    grep -q '^VMTEST-GUEST-PREPARE-DONE$' "${transcript}" ||
+        die "the ${scenario_id} fixture exited 0 without printing VMTEST-GUEST-PREPARE-DONE (stage: prepare); it did not reach its last step"
 }
 
 # collect_desktop_evidence <transcript> — §5.4 evidence-only items: the session
@@ -1254,7 +1260,7 @@ cmd_run() {
     # has to pick up, so a reboot with nothing prepared and a fixture with no reboot are
     # each half a scenario.
     if [[ "${SCENARIO_REBOOT_BEFORE_CHECKS}" == "true" ]]; then
-        guest_prepare "${scenario_id}" "${commit}" "${transcript}"
+        guest_prepare "${scenario_id}" "${transcript}"
         reboot_guest "${base_dir}" "${transcript}"
     fi
     local accept_rc=0 session_env="" token_env=""

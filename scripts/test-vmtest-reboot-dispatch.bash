@@ -73,7 +73,17 @@ log() { :; }
 desktop_reboot_into_session() { printf 'desktop %s\n' "$*" >>"$TRACE_DIR/trace"; }
 server_reboot() { printf 'server %s\n' "$*" >>"$TRACE_DIR/trace"; }
 guest_scp() { printf 'scp %s\n' "$*" >>"$TRACE_DIR/trace"; }
-timeout() { printf 'ssh-prepare\n' >>"$TRACE_DIR/trace"; return "${STUB_PREPARE_RC:-0}"; }
+# Stands in for the ssh that runs the fixture. It prints the fixture's completion
+# marker on stdout, which the caller tees into the transcript — because that is where the
+# real one comes from, and the guard reads the transcript. STUB_PREPARE_MARKER=0 is how a
+# fixture that exits 0 without reaching its last step is simulated.
+timeout() {
+    printf 'ssh-prepare\n' >>"$TRACE_DIR/trace"
+    if [ "${STUB_PREPARE_MARKER:-1}" = 1 ]; then
+        printf 'VMTEST-GUEST-PREPARE-DONE\n'
+    fi
+    return "${STUB_PREPARE_RC:-0}"
+}
 VMTEST_HOME="$STUB_LAB_DIR"
 PREPARE_TIMEOUT_SECONDS=1
 SSH_KEY=/dev/null
@@ -84,13 +94,21 @@ STUB
 
 # run_case <profile> <command…> — the function under test, with its exit status, its
 # refusal message and what it called all recovered.
+mkdir -p "$work/lab"
+TRANSCRIPT="$work/transcript.log"
+: >"$TRANSCRIPT"
+
 TRACE=""
 DIE_MESSAGE=""
+CASE_OUTPUT=""
 run_case() {
     local profile="$1"
     shift
     rm -rf "$work/trace"
     mkdir -p "$work/trace"
+    # Fresh per case: the transcript is appended to, and the completion marker from an
+    # earlier case would satisfy a later case's guard without that case producing it.
+    : >"$TRANSCRIPT"
     (
         export TRACE_DIR="$work/trace"
         export STUB_LAB_DIR="$work/lab"
@@ -109,6 +127,12 @@ run_case() {
     if [ -r "$work/trace/trace" ]; then
         TRACE="$(cat "$work/trace/trace")"
     fi
+    # What the call printed, kept for a failure detail. Without it a failing case reports
+    # only "trace: none", which says the collaborator was not reached and not why.
+    CASE_OUTPUT=""
+    if [ -r "$work/out" ]; then
+        CASE_OUTPUT="$(tr '\n' ' ' < "$work/out")"
+    fi
     DIE_MESSAGE=""
     if [ -r "$work/trace/die" ]; then
         DIE_MESSAGE="$(cat "$work/trace/die")"
@@ -116,22 +140,19 @@ run_case() {
     return "$rc"
 }
 
-mkdir -p "$work/lab"
-TRANSCRIPT="$work/transcript.log"
-: >"$TRANSCRIPT"
 
 # ── 1. a server scenario reboots, by the server's mechanics ───────────────────────────
 if run_case server reboot_guest "$work/base" "$TRANSCRIPT" && [[ "$TRACE" == server* ]]; then
     report pass server-profile-uses-the-server-reboot
 else
-    report fail server-profile-uses-the-server-reboot "trace: ${TRACE:-none}"
+    report fail server-profile-uses-the-server-reboot "trace: ${TRACE:-none}; output: ${CASE_OUTPUT:-none}"
 fi
 
 # ── 2. a desktop scenario reboots into its session ────────────────────────────────────
 if run_case desktop reboot_guest "$work/base" "$TRANSCRIPT" && [[ "$TRACE" == desktop* ]]; then
     report pass desktop-profile-reboots-into-the-session
 else
-    report fail desktop-profile-reboots-into-the-session "trace: ${TRACE:-none}"
+    report fail desktop-profile-reboots-into-the-session "trace: ${TRACE:-none}; output: ${CASE_OUTPUT:-none}"
 fi
 
 # ── 3. a profile with no mechanics REFUSES ────────────────────────────────────────────
@@ -147,30 +168,43 @@ fi
 
 # ── 4. a scenario with no fixture proceeds ────────────────────────────────────────────
 # Absence is not an error: a fixture is particular to one scenario and most have none.
-if run_case server guest_prepare no-fixture-here abc123 "$TRANSCRIPT" && [ -z "$TRACE" ]; then
+if run_case server guest_prepare no-fixture-here "$TRANSCRIPT" && [ -z "$TRACE" ]; then
     report pass a-scenario-without-a-fixture-runs-nothing
 else
-    report fail a-scenario-without-a-fixture-runs-nothing "trace: ${TRACE:-none}"
+    report fail a-scenario-without-a-fixture-runs-nothing "trace: ${TRACE:-none}; output: ${CASE_OUTPUT:-none}"
 fi
 
 # ── 5. a scenario WITH a fixture runs it in the guest ─────────────────────────────────
 printf '#!/usr/bin/bash\n' >"$work/lab/guest-prepare-has-fixture.bash"
-if run_case server guest_prepare has-fixture abc123 "$TRANSCRIPT" &&
+if run_case server guest_prepare has-fixture "$TRANSCRIPT" &&
     [[ "$TRACE" == *scp* && "$TRACE" == *ssh-prepare* ]]; then
     report pass a-scenario-with-a-fixture-runs-it
 else
-    report fail a-scenario-with-a-fixture-runs-it "trace: ${TRACE:-none}"
+    report fail a-scenario-with-a-fixture-runs-it "trace: ${TRACE:-none}; output: ${CASE_OUTPUT:-none}"
 fi
 
 # ── 6. a fixture that fails ABORTS the run ────────────────────────────────────────────
 # A half-applied fixture leaves the checker judging a guest nobody set up, and its
 # failures would read as defects in the code under test rather than in the fixture.
-if STUB_PREPARE_RC=7 run_case server guest_prepare has-fixture abc123 "$TRANSCRIPT"; then
+if STUB_PREPARE_RC=7 run_case server guest_prepare has-fixture "$TRANSCRIPT"; then
     report fail a-failed-fixture-aborts "it returned success after the fixture failed"
 elif [[ "$DIE_MESSAGE" == *"has-fixture fixture exited 7"* ]]; then
     report pass a-failed-fixture-aborts
 else
     report fail a-failed-fixture-aborts "aborted without naming the exit status: ${DIE_MESSAGE:-none}"
+fi
+
+# ── 7. a fixture that exits 0 without finishing ABORTS the run ────────────────────────
+# Exit 0 is not "ran to the end". A guard that decided there was nothing to do, or an edit
+# that left a `return` above the last step, exits 0 having prepared part of the scenario —
+# and the checker then judges a guest that is half set up, which is indistinguishable from
+# a guest the code under test mishandled.
+if STUB_PREPARE_MARKER=0 run_case server guest_prepare has-fixture "$TRANSCRIPT"; then
+    report fail a-fixture-that-stops-early-aborts "it returned success without the completion marker"
+elif [[ "$DIE_MESSAGE" == *"without printing VMTEST-GUEST-PREPARE-DONE"* ]]; then
+    report pass a-fixture-that-stops-early-aborts
+else
+    report fail a-fixture-that-stops-early-aborts "aborted for another reason: ${DIE_MESSAGE:-none}"
 fi
 
 printf 'passed: %d\n' "$passed"

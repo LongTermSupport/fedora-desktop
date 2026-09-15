@@ -177,15 +177,50 @@ REQUIRED_KEYS=(
     FINDING_LOGIN_RC FINDING_LOGIN_B64 FINDING_LOGIN_STDERR_B64
 )
 readonly REQUIRED_KEYS
+
+# The keys that may legitimately be EMPTY, named individually. Everything else must carry
+# a value, and the default is the strict rule so a key added later is fail-closed.
+#
+# Set-ness alone is not enough, and the gap is not theoretical: with
+# `PREPARED_RUNNING_KERNEL` set but empty, check 9's pattern
+# `*"collected under kernel ${PREPARED_RUNNING_KERNEL}"*` degrades to
+# `*"collected under kernel "*` — which the real rendered line CONTAINS. The check would
+# pass having verified one of the two kernels it is named for. A silent login is the only
+# capture whose emptiness IS the finding, which is why it is listed rather than assumed.
+MAY_BE_EMPTY=(
+    CLEAN_LOGIN_B64            # a silent clean login is the claim, not a missing capture
+    FINDING_LOGIN_B64          # emptiness here fails check 5, which is where it belongs
+    CLEAN_LOGIN_STDERR_B64 FINDING_LOGIN_STDERR_B64  # a guest with a pty emits none
+    PREPARED_SCP_OUTPUT_B64    # a successful scp says nothing
+    PREPARED_TIMER_NEXT_B64 CLEAN_COLLECT_STATUS_B64 FINDING_COLLECT_STATUS_B64
+)
+readonly MAY_BE_EMPTY
+
+may_be_empty() {
+    local wanted="${1:?}" key
+    for key in "${MAY_BE_EMPTY[@]}"; do
+        [[ "${key}" == "${wanted}" ]] && return 0
+    done
+    return 1
+}
+
 missing_keys=""
+blank_keys=""
 for key in "${REQUIRED_KEYS[@]}"; do
     if [[ -z "${!key+is_set}" ]]; then
         missing_keys="${missing_keys} ${key}"
+    elif [[ -z "${!key}" ]] && ! may_be_empty "${key}"; then
+        blank_keys="${blank_keys} ${key}"
     fi
 done
 if [[ -n "${missing_keys}" ]]; then
     echo "ERROR: ${PREPARED} is missing:${missing_keys}" >&2
     echo "       the fixture did not finish, or a value broke the record part-way through" >&2
+    exit 70
+fi
+if [[ -n "${blank_keys}" ]]; then
+    echo "ERROR: ${PREPARED} carries empty values for:${blank_keys}" >&2
+    echo "       a check comparing against an empty value can degrade to a prefix match" >&2
     exit 70
 fi
 
@@ -404,6 +439,10 @@ evidence report_before_reboot "${finding_login}"
 # snippet did.
 evidence login_stderr_clean "$(unb64 "${CLEAN_LOGIN_STDERR_B64}")"
 evidence login_stderr_after_reboot "${LOGIN_STDERR}"
+# The document every claim above rests on. Recorded for a FAILING run: without it, a
+# reader has the verdict and the rendered report but not the input that produced them,
+# and the guest is destroyed by the time anyone looks.
+evidence collected_document "$(unb64 "${PREPARED_DOCUMENT_B64}")"
 evidence repo_commit "${VMTEST_COMMIT:-}"
 
 printf 'VMTEST-CHECKS-DONE total=%d passed=%d failed=%d skipped=%d\n' "${total}" "${passed}" "${failed}" "${skipped}"

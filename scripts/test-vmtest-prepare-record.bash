@@ -77,16 +77,33 @@ if [ "${#REQUIRED[@]}" -lt 20 ]; then
     exit 1
 fi
 
+# Which keys the checker allows to be blank, read from the checker itself. Derived rather
+# than judged here: a copy of that list would let this test write a record the real
+# checker rejects, or accept one it would not.
+mapfile -t OPTIONAL < <(awk '/^MAY_BE_EMPTY=\(/ {p=1; next} p && /^\)/ {exit} p {for (i = 1; i <= NF; i++) if ($i ~ /^[A-Z][A-Z0-9_]+$/) print $i}' "$CHECKER")
+
+may_be_blank() {
+    local wanted="$1" key
+    for key in "${OPTIONAL[@]}"; do
+        [ "$key" = "$wanted" ] && return 0
+    done
+    return 1
+}
+
 # One hostile value per shape a recorded value can actually take. The parenthesised one is
 # not hypothetical — it is the exact text `probe_results.failed_unit_findings` produces.
 hostile_for() {
+    if may_be_blank "$1"; then
+        printf ''
+        return
+    fi
     case "$1" in
         PREPARED_FIXTURE_FINDING) printf 'vmtest-health-fixture.service: failed (system scope)' ;;
         PREPARED_TIMER_ENABLED) printf 'enabled' ;;
         PREPARED_TIMER_AFTER) printf 'disabled' ;;
         *_RC | PREPARED_SCP_BYTES) printf '0' ;;
         *_SHA) printf 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef' ;;
-        *_B64) printf '' ;;
+        *_B64) printf 'e30=' ;;
         *KERNEL) printf '6.17.0-63.fc44.x86_64' ;;
         *) printf "a 'quoted' value with \$(echo substitution) and a (paren)" ;;
     esac
@@ -214,6 +231,79 @@ if [ "$CHECKER_RC" = 70 ] && printf '%s\n' "$CHECKER_OUT" | grep -q 'not readabl
 else
     report fail a-complete-but-unparseable-record-is-refused-as-unparseable \
         "rc=$CHECKER_RC: $CHECKER_OUT"
+fi
+
+# ── 5aa. a key that is set but BLANK is refused, unless it is allowed to be ───────────
+# The shape the completeness assertion could not see. `PREPARED_RUNNING_KERNEL=''`
+# satisfies set-ness, and then check 9's `*"collected under kernel ${…}"*` degrades to a
+# prefix the real rendered line contains — so the check passes having verified one of the
+# two kernels it is named for. Measured, not argued.
+write_record "$work/blank.env" real
+grep -v '^PREPARED_RUNNING_KERNEL=' "$work/blank.env" > "$work/blank2.env"
+printf "PREPARED_RUNNING_KERNEL=''\n" >> "$work/blank2.env"
+mv "$work/blank2.env" "$work/blank.env"
+run_checker "$work/blank.env"
+if [ "$CHECKER_RC" = 70 ] && printf '%s\n' "$CHECKER_OUT" | grep -q 'PREPARED_RUNNING_KERNEL'; then
+    report pass a-blank-value-is-refused-by-name
+else
+    report fail a-blank-value-is-refused-by-name "rc=$CHECKER_RC: $CHECKER_OUT"
+fi
+
+# ── 5ab. and a key that IS allowed to be blank still passes ───────────────────────────
+# The control for the case above. Without it, a rule that refused every empty value would
+# look identical — and it would refuse a silent clean login, which is the one capture
+# whose emptiness is the finding.
+if [ "${#OPTIONAL[@]}" -gt 0 ]; then
+    write_record "$work/blankok.env" real
+    run_checker "$work/blankok.env"
+    if printf '%s\n' "$CHECKER_OUT" | grep -q '^VMTEST-CHECKS-DONE '; then
+        report pass a-blank-value-that-is-allowed-still-runs "${OPTIONAL[0]} is blank"
+    else
+        report fail a-blank-value-that-is-allowed-still-runs "rc=$CHECKER_RC"
+    fi
+else
+    report fail a-blank-value-that-is-allowed-still-runs "MAY_BE_EMPTY is empty; the control proves nothing"
+fi
+
+# ── 5b. every record key the checker READS is one it declares REQUIRED ────────────────
+# The class, rather than this instance of it. Both blocking defects reduced to the same
+# thing: a value the checker read without having established it was there. The
+# completeness assertion only covers keys somebody remembered to list, so a key read but
+# not declared is the next one of these — and it is static, so it costs a grep.
+declared=" ${REQUIRED[*]} "
+undeclared=""
+while read -r key; do
+    [[ -n "$key" ]] || continue
+    case "$declared" in
+        *" $key "*) ;;
+        *) undeclared="$undeclared $key" ;;
+    esac
+done < <(grep -oE '\$\{(PREPARED|CLEAN|FINDING)_[A-Z0-9_]+' "$CHECKER" |
+    cut -c3- | sort -u)
+if [ -z "$undeclared" ]; then
+    report pass every-key-the-checker-reads-is-declared-required
+else
+    report fail every-key-the-checker-reads-is-declared-required \
+        "read but not in REQUIRED_KEYS:$undeclared"
+fi
+
+# ── 5c. a key that may be EMPTY has to say so ─────────────────────────────────────────
+# A blank value is not the same as a missing one, and for a check that compares by
+# substring it is worse: the pattern degrades to a prefix and passes. The checker's
+# MAY_BE_EMPTY list is the opt-in, so it must be a subset of what it requires — a name
+# there that nothing requires is a rule with no subject.
+orphans=""
+for key in "${OPTIONAL[@]}"; do
+    case "$declared" in
+        *" $key "*) ;;
+        *) orphans="$orphans $key" ;;
+    esac
+done
+if [ "${#OPTIONAL[@]}" -gt 0 ] && [ -z "$orphans" ]; then
+    report pass may-be-empty-names-only-required-keys "${#OPTIONAL[@]} key(s) may be blank"
+else
+    report fail may-be-empty-names-only-required-keys \
+        "${#OPTIONAL[@]} listed; not required:$orphans"
 fi
 
 # ── 6. an absent record is refused too ────────────────────────────────────────────────
