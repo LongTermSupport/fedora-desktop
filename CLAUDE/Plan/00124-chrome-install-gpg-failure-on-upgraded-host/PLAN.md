@@ -86,13 +86,15 @@ idempotent.
 
 ### Phase 4: Confirm on the affected host
 
-- [ ] ⬜ **Task 4.1**: Re-run on the F41-upgraded laptop; Chrome installs.
+- [x] ✅ **Task 4.1**: Re-run on the F41-upgraded laptop; Chrome installs. Confirmed
+  by the owner — the key check cleared and the run carried on past Chrome. This
+  is the first end-to-end proof of the rpm half, which no container can give.
 - [ ] ⬜ **Task 4.2**: A second run reports the key tasks as **ok**, not changed.
 - [ ] ⬜ **Task 4.3**: `qa-reviewer` agent, then close issue #45.
 
 ## Success Criteria
 
-- [ ] Chrome installs on the upgraded host with `gpgcheck` on.
+- [x] Chrome installs on the upgraded host with `gpgcheck` on.
 - [ ] A repeat run is green and reports no change for the key tasks.
 - [ ] `rpm -qa gpg-pubkey` afterwards holds a Google key carrying
   `FD533C07C264648F`.
