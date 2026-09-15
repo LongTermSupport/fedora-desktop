@@ -209,7 +209,10 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     ([DESIGN-panel.md](DESIGN-panel.md) §9)
   - [ ] ⬜ **The panel is not boot-aware** (qa-reviewer, 26-09-15) — it renders
     `post-boot-health` findings as current faults whichever boot produced them. The
-    predicate is `status_document.is_boot_stale`; the panel has to ask it
+    predicate is `status_document.is_boot_stale`; the panel has to ask it. **Not** by
+    adding a row to the contract gate — that is a vocabulary check and `kernel` already
+    satisfies it as an unused default. What proves this is a test rendering a boot-stale
+    document through the panel's own section code
     ([DESIGN-server-route.md](DESIGN-server-route.md) §4.2)
 - [ ] ⬜ **Task 4.3**: Play/task runner — plays with their ledger state, launched in a
   visible terminal, never in the background. Which plays it lists needs the ledger's real

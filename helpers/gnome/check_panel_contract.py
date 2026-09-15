@@ -17,6 +17,16 @@ one to compare six strings is not worth it. The risk a text matcher carries is t
 pattern silently stops matching and the gate then compares nothing — so a constant it
 cannot find in the JavaScript is a **finding**, never treated as agreement.
 
+**This is a VOCABULARY check, and it must not be read as a behaviour one.** It proves
+both sides use the same words. It cannot prove either side asks a question with them,
+and extending it to try would be a category error. The live example: `kernel` is one of
+the document keys demanded here and the gate passes, while the panel's only uses of it
+are a prose comment and a `kernel: ''` default that is compared to nothing — so the panel
+renders boot-scoped findings as current faults whichever boot produced them
+(`status_document.is_boot_stale` is the predicate it does not ask). What proves a
+behaviour is a test that renders a document through the panel's own section code; adding
+another required mention here would only make the gate's silence more convincing.
+
 Design: CLAUDE/Plan/00109-desktop-drift-detection-and-fedora-desktop-panel/DESIGN-panel.md
 """
 

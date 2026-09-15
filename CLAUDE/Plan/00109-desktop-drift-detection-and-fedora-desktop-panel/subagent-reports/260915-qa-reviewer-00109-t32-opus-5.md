@@ -808,3 +808,98 @@ the two predicates are not the same evidence. Full detail in **H4**.
   changed `build_report`'s signature from `dkms_registered=` to `registry=` and its
   callers and tests have not all caught up. Uncommitted and not reviewed; on a read it is
   the right shape for H4.
+
+---
+
+# Round 7 — verification of `8392c406` (H4, H5, H6)
+
+**All three fixed and measured.** `qa-all.bash` green, 876 files. `b0679155` was already
+verified in round 6 (1302 helper tests on a clean export).
+
+There is a fourth instance of the shape, it is in this commit, and the fix for it already
+exists in this codebase.
+
+## Verified
+
+**H4** — the counterfactual, `dkms status` empty, `play-displaylink.yml` in the ledger:
+
+```
+present=False (no directory)       -> SILENT
+present=True, modules=() EMPTY REG -> evdi_version (absent): pinned 1.15.0, nothing installed
+present=True, modules=('nvidia',)  -> evdi_version (absent): pinned 1.15.0, nothing installed
+present=None (could not tell)      -> evdi_version (absent): pinned 1.15.0, nothing installed
+```
+
+The decisive row is the second: the DisplayLink-host-with-an-emptied-registry state now
+reports, where it was silent in rounds 5 and 6. Only "no directory at all" buys silence.
+And `dkms_registry` reads the disk correctly: absent → `present=False`; a directory
+holding only `dkms_dbversion` → `present=True, modules=()`; one module tree →
+`present=True, modules=('evdi',)`.
+
+**H5** — `plays_run_here` on a temp base: no ledger → `set()`; sentinel present → `None`.
+
+**H6** — `_command_version("definitely-not-a-real-command-00109")` → `None`, so a missing
+binary becomes `ABSENT` and the ledger disambiguates it, instead of a permanent unchecked
+finding.
+
+`DkmsRegistry` as a single value read once is the right answer to the frame you named —
+two consumers can no longer hold inconsistent halves of it.
+
+## The fourth instance you asked for — and it is in H6's own fix
+
+**`check_pins._run` discriminates by string containment on an error message**, which
+conflates *"the binary is absent"* with *"the binary ran, failed, and its output happened
+to contain that phrase"*. Demonstrated with a script that exists, exits 127 and prints
+`inner-thing: command not found` on stderr:
+
+```
+a tool that RAN and failed, printing that phrase -> None
+a tool that is genuinely absent                  -> None
+```
+
+`None` means `ABSENT`, which renders as **"pinned X, nothing installed"** — a confident
+claim about this host, derived from a probe that ran and broke. That is
+`CLAUDE/AgentNotes.md`'s *"a fallback that answers the question it was asked"*, and the
+direction of harm is the bad one: a failure becomes data rather than a report.
+
+`_rpm_version` has had the identical shape all along (`if "is not installed" in
+str(error)`), so H6 propagated the pattern rather than introducing it.
+
+**The fix already exists eight files away.** `probe.run_probe` faced exactly this question
+and answered it structurally: `FileNotFoundError` sets `ProbeOutcome.missing=True`, and
+the caller branches on a field, never on the wording. `check_pins._run` knows the same
+thing at the same moment — it has the `FileNotFoundError` branch and the non-zero-exit
+branch in front of it — and throws the distinction away by flattening both into one
+`ResolutionError` message. Raise a distinct type from the absence branches (a
+`NotInstalledError(ResolutionError)`) and have both resolvers catch the type. That is the
+same generalisation this diff has now made twice: `DkmsRegistry` carried two facts apart,
+`ProbeOutcome.missing` carried two facts apart, and this is the third pair still riding in
+one string.
+
+## Two stale references
+
+- `DESIGN-server-route.md:126` — "driven by the same `dkms_registered_modules()` tri-state
+  as the probe, **so the two cannot disagree about whether this host has DKMS**". The
+  function no longer exists under that name, and that sentence is the exact claim H4
+  disproved, still stated as current in a design document. Whatever §5.x adds below it,
+  this bullet needs correcting rather than supplementing —
+  `CLAUDE/AgentNotes.md` → *"Completed narrative in a PLAN is where superseded reasoning
+  survives"*.
+- `helpers/version_pins/check_pins.py:152` — the `check()` docstring still says
+  "`ran_plays` and `dkms_registered` are the two things this host knows about itself".
+  The parameter is `registry`.
+
+(The two hits in `JOURNAL/` and in this report are correctly historical — append-only
+records of what was true at the time.)
+
+## Mechanical gates (round 7)
+
+`✓ QA passed: 876 files checked`. `panel-contract` 7 constants and 4 section ids agree,
+`version-pins: COVERAGE: 9 of 9`, `host-health-login-snippet: passed: 12`.
+
+## Where this leaves Task 3.2's container-side work
+
+Nothing blocking remains. The fourth conflation and the two stale references are the
+whole outstanding list, and none of them changes behaviour on a host today — the
+`command`-kind resolver has no tracked pin, and the doc lines are prose. Fix them and the
+container-side work is done; the HOST items in `PLAN.md` are the real remaining gate.

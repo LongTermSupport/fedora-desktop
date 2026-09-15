@@ -143,6 +143,14 @@ Lifting the predicate is the half that can be done in a container. The panel con
 is Phase 4 work: it needs the running kernel in GJS, a rendering decision for a stale
 section, and a Wayland log-out-and-in to verify. Recorded as a Task 4.2 item.
 
+**The contract gate must not be what enforces it.** `check_panel_contract` already demands
+the panel mention `kernel`, and it passes — because the panel's only uses are a prose
+comment and a `kernel: ''` default compared to nothing. It is a **vocabulary** check: it
+proves both sides use the same words, and it cannot prove either side asks a question with
+them. Adding another required mention would make its silence more convincing rather than
+less. What proves the behaviour is a test rendering a boot-stale document through the
+panel's own section code.
+
 ### 5.1 The first answer to the pin half silenced the founding incident
 
 Applicability was first taken from the play ledger for the whole population: a pin
