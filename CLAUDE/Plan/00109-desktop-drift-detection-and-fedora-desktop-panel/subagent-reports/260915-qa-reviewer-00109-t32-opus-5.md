@@ -903,3 +903,96 @@ Nothing blocking remains. The fourth conflation and the two stale references are
 whole outstanding list, and none of them changes behaviour on a host today — the
 `command`-kind resolver has no tracked pin, and the doc lines are prose. Fix them and the
 container-side work is done; the HOST items in `PLAN.md` are the real remaining gate.
+
+---
+
+# Round 8 — `f48a5bed`, and the fifth instance
+
+`8392c406` was verified in **round 7** above — H4, H5 and H6 each measured, plus the
+fourth instance of the shape. This round covers `f48a5bed` and answers the standing ask.
+`qa-all.bash` green, 876 files.
+
+**There is a fifth, it is measured, and it is the plan's own founding failure mode.**
+
+## `f48a5bed` — verified
+
+Docs-only and accurate. `check_panel_contract`'s docstring now states what the gate
+proves and what it cannot, names `kernel` as the live example, and says why extending it
+would be a category error. The Task 4.2 item says the proof is a test rendering a
+boot-stale document through the panel's own section code, **explicitly not** another
+required mention. That is the right disposition and there is nothing to add.
+
+## The fifth — a malformed document reads as a healthy host
+
+`login_message.render` reads `sections` defensively and `_texts` returns `[]` for *"not a
+dict"*, *"key missing"*, *"not a list"* and *"genuinely empty"* alike. On this surface an
+empty result is silence, and silence means healthy. Measured — five malformed shapes, all
+carrying a **current timestamp, the running kernel and `schema: 1`**, so nothing else
+flags them either:
+
+```
+sections is a string      -> SILENT (reads as healthy)
+sections is a list        -> SILENT
+a section is a string     -> SILENT
+findings is a string      -> SILENT     <- the document's own state field says "findings"
+findings holds dicts      -> SILENT
+(control) a real finding  -> "- evdi: no DKMS module"
+```
+
+The fourth row is the sharpest: the document **says** `state: "findings"` and the
+consumer prints nothing, because `render` never reads `state` — it reads `findings` and
+`unchecked` through `_texts`, which answers `[]` for a string. The document's own
+self-description and the rendered output contradict each other and nothing notices.
+
+**The asymmetry is inside one module.** `status_document.read` turns absent, unparseable
+and unknown-schema into `unavailable`, on the stated rule that *"an absent document is
+ignorance, not health"*. A document that parses, declares a schema this reader knows, and
+then carries unreadable sections becomes **silence** instead. `SCHEMA_VERSION` exists to
+catch a shape change and guards only the top-level integer.
+
+**Why it was invisible.** The trade was made deliberately and the instinct is right — a
+login shell must not lose its prompt to a traceback — but *never raise* and *never go
+silent* are not in conflict here. `status_document.collect` already shows the third
+option: a producer that raises becomes an `unchecked` finding **naming the section**.
+`_texts` can do the same instead of returning `[]`. And the test that covers this
+(`test_a_section_whose_findings_is_not_a_list_does_not_raise`) pins *does not raise* and
+says nothing about *is not silent* — the name answers the question nobody then goes and
+checks.
+
+**It crosses the consumers too.** `sections/health.js:51` branches on
+`section.state === StatusDocument.OK` and iterates `section.findings` at `:56`, so on the
+fourth row the panel takes a different path from the login message, which is silent. I
+have not run GJS and am not claiming what the panel renders — only that the two consumers
+do not agree, on a document whose own `state` field is the thing one of them reads and the
+other does not.
+
+**Fix**: have `_texts` report an unreadable group rather than return `[]`, naming the
+section, in the not-checked group. Then rename the test for the property it asserts, and
+add one that a section carrying a `findings` string is *not* silent.
+
+## Round 7's three items — all in the working tree, uncommitted
+
+Seen and not reviewed as committed, but on a read each is the right fix:
+
+- `DESIGN-server-route.md:125-127` no longer claims the two consumers "cannot disagree";
+  it now says they read one value and ask it different questions.
+- `check_pins.check`'s docstring names `registry`.
+- The fourth conflation is properly closed: `_command_version` catches a `NotInstalled`
+  **type**, and `_rpm_version` is narrowed to `error.returncode` plus
+  `f"package {package} is not installed" in error.stdout` — the stream rpm actually uses
+  and the package this call asked about. The residual (`rpm -q --quiet` would be fully
+  structural, at one more subprocess on the login path) is **recorded rather than taken**,
+  which is the right way to leave it.
+
+## Mechanical gates (round 8)
+
+`✓ QA passed: 876 files checked`. `panel-contract` 7 constants and 4 section ids agree,
+`version-pins: COVERAGE: 9 of 9`, `host-health-login-snippet: passed: 12`.
+
+## Closing
+
+The fifth is the only new finding, and it is the one I would not close the container-side
+work over: a status document that parses and is garbage renders as a clean host, which is
+the exact failure Plan 00109 was opened to prevent, one layer inside the mechanism built
+to prevent it. The fix is small and local. Everything else on my list is either fixed or
+sitting in the working tree already fixed.

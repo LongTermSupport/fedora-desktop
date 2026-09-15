@@ -493,6 +493,54 @@ class TestTheRealResolvers(unittest.TestCase):
             with self.assertRaises(check_pins.ResolutionError):
                 check_pins._rpm_version("evdi")
 
+    def test_the_absent_phrase_about_ANOTHER_package_does_not_count(self) -> None:
+        """Matched against the package this call asked about, on the stream rpm uses.
+        A phrase found anywhere in a merged blob would resolve someone else's absence
+        as this pin's — and ABSENT renders as "pinned X, nothing installed"."""
+        with self._with_probe(
+                self._completed(1, stdout="package other-thing is not installed\n")):
+            with self.assertRaises(check_pins.ResolutionError):
+                check_pins._rpm_version("evdi")
+
+    def test_the_absent_phrase_on_STDERR_does_not_count(self) -> None:
+        """rpm reports it on stdout. On stderr it came from something else."""
+        with self._with_probe(
+                self._completed(1, stderr="package evdi is not installed")):
+            with self.assertRaises(check_pins.ResolutionError):
+                check_pins._rpm_version("evdi")
+
+    def test_a_missing_command_is_NotInstalled_established_by_the_OS(self) -> None:
+        """The absence this can answer structurally: the exec itself failed."""
+        with mock.patch.object(
+                check_pins.subprocess, "run", side_effect=FileNotFoundError()):
+            self.assertIsNone(check_pins._command_version("there-is-no-such-cmd"))
+
+    def test_a_tool_that_RAN_and_printed_command_not_found_is_not_absent(self) -> None:
+        """THE conflation. A wrapper script that exists, exits non-zero and reports that
+        phrase about something INSIDE itself is a broken tool, not an absent one — and
+        reading it as absent renders "pinned X, nothing installed", a confident claim
+        about the host from a probe that failed. Discriminated by exception TYPE, which
+        is what `probe.run_probe` already does with `ProbeOutcome.missing`."""
+        broken_wrapper = self._completed(127, stderr="inner-thing: command not found")
+        with self._with_probe(broken_wrapper):
+            with self.assertRaises(check_pins.ResolutionError):
+                check_pins._command_version("wrapper")
+
+    def test_NotInstalled_is_still_a_ResolutionError(self) -> None:
+        """The type exists to let a caller be MORE specific, never to let one escape the
+        broad handler in `check` that keeps a login shell from seeing a traceback."""
+        self.assertTrue(issubclass(check_pins.NotInstalled, check_pins.ResolutionError))
+
+    def test_the_failure_carries_the_structure_a_caller_needs(self) -> None:
+        """Discriminating on a substring of a merged blob is what produced the two cases
+        above; the streams and the exit status are kept apart so a caller need not."""
+        with self._with_probe(self._completed(3, stdout="out", stderr="err")):
+            with self.assertRaises(check_pins.ResolutionError) as caught:
+                check_pins._command_version("thing")
+        self.assertEqual(caught.exception.returncode, 3)
+        self.assertEqual(caught.exception.stdout, "out")
+        self.assertEqual(caught.exception.stderr, "err")
+
     def test_the_probe_runs_in_a_predictable_locale(self) -> None:
         """The ABSENT check matches English text, so a translated message would make it
         miss — working on a developer's machine and failing on a user's."""

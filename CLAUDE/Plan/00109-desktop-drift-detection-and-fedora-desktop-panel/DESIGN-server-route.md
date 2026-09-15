@@ -122,9 +122,9 @@ tree.
   directory answers `None` and still reports: "we could not tell" is not "it is fine".
 - **The pin check.** On a server `dkms()` raises "command not found", so every
   DKMS-resolved pin became *"could not be checked"* for ever. A DKMS-kind pin on a host
-  with **no DKMS subsystem** is not answerable here, and that is an answer — driven by
-  the same `dkms_registered_modules()` tri-state as the probe, so the two cannot disagree
-  about whether this host has DKMS.
+  with **no DKMS subsystem** is not answerable here, and that is an answer. Both
+  consumers read one `probe.dkms_registry()` value, but they ask it different questions —
+  see §5.2, where assuming they wanted the same one was the defect.
 
 ### 4.2 The predicate belongs to the document, and the panel does not ask it
 
@@ -189,6 +189,27 @@ so the two consumers cannot hold inconsistent halves of it.
 A single unrelated module in the registry restored the correct finding, which is what
 made this worth a type rather than a second boolean: the bug was invisible on any host
 that happened to have one.
+
+### 5.2a The same conflation, one layer down, inside the fix for it
+
+`_command_version`'s new ABSENT branch matched `"command not found"` in the exception
+message — and `_run` raises that phrase for the OS refusing to exec the binary *and*
+builds its other error from the tool's own output. So a wrapper script that exists, exits
+non-zero and reports that phrase about something inside itself resolved to `None`, became
+`ABSENT`, and rendered as *"pinned X, nothing installed"*: a confident claim about the
+host, from a probe that broke. `_rpm_version` had carried the identical shape from the
+start, matching a phrase anywhere in a merged stdout+stderr blob.
+
+`probe.run_probe` had already answered this question structurally with
+`ProbeOutcome.missing`. So: `NotInstalled(ResolutionError)`, raised only from the
+`FileNotFoundError` branch where the OS is the one saying the binary is absent, and
+caught **by type**. `ResolutionError` now also carries `returncode`, `stdout` and
+`stderr`, so `_rpm_version` matches rpm's phrase on the stream rpm uses and against the
+package it asked about, rather than on a merged blob. Five mutants.
+
+A fully structural rpm answer exists — `rpm -q --quiet` exits 0/1 and prints nothing — at
+the cost of a second subprocess on the login path for a distinction no host in this repo
+currently exercises. Recorded rather than taken.
 
 ### 5.3 A decision, not a side effect
 

@@ -47,7 +47,43 @@ _TIMEOUT_SECONDS = 20
 
 
 class ResolutionError(RuntimeError):
-    """A value could not be read. Always becomes a finding, never a pass."""
+    """A value could not be read. Always becomes a finding, never a pass.
+
+    Carries the probe's exit status and both streams, so a caller deciding what the
+    failure MEANT discriminates on structure rather than on a substring of a merged
+    blob — see `NotInstalled` for what that conflation costs.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        returncode: int | None = None,
+        stdout: str = "",
+        stderr: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+class NotInstalled(ResolutionError):
+    """The command itself is absent, established by the OS rather than by reading text.
+
+    A distinct type because "the binary is not there" and "the binary ran, failed, and
+    its output happened to contain *command not found*" are different facts, and a
+    resolver matching on the message string cannot tell them apart. That matters here
+    more than it looks: an unresolvable install becomes `ABSENT`, which renders as
+    *"pinned 1.15.0, nothing installed"* — a confident claim about the host, made from a
+    probe that broke.
+
+    `probe.run_probe` answers the identical question structurally with
+    `ProbeOutcome.missing`; this is the same distinction, carried by type.
+
+    A subclass, so every `except ResolutionError` still catches it — the type is there
+    to let a caller be MORE specific, never to let one escape.
+    """
 
 
 def pinned_value(playbook_text: str, var: str) -> str:
@@ -109,7 +145,10 @@ def _run(argv: list[str]) -> str:
             env={**os.environ, "LC_ALL": "C"},
         )
     except FileNotFoundError as error:
-        raise ResolutionError(f"{argv[0]}: command not found") from error
+        # The OS said the binary is not there. That is the one absence this can
+        # establish structurally, so it gets its own type rather than a phrase a
+        # caller has to recognise.
+        raise NotInstalled(f"{argv[0]}: command not found") from error
     except subprocess.TimeoutExpired as error:
         raise ResolutionError(f"{argv[0]}: no answer after {_TIMEOUT_SECONDS}s") from error
     if completed.returncode != 0:
@@ -122,7 +161,12 @@ def _run(argv: list[str]) -> str:
             " ".join(f"{completed.stderr} {completed.stdout}".split())
             or f"exit status {completed.returncode}"
         )
-        raise ResolutionError(f"{argv[0]}: {detail}")
+        raise ResolutionError(
+            f"{argv[0]}: {detail}",
+            returncode=completed.returncode,
+            stdout=completed.stdout,
+            stderr=completed.stderr,
+        )
     return completed.stdout
 
 
@@ -149,7 +193,7 @@ def check(
     gone quiet, on the axis the incident happened on. Partial coverage is a decision;
     zero coverage is a check that cannot fail, and it says so with the number.
 
-    `ran_plays` and `dkms_registered` are the two things this host knows about itself.
+    `ran_plays` and `registry` are the two things this host knows about itself.
     Neither narrows the population — a pin the ledger has never seen is still compared,
     because "installed 1.14.16 against a pinned 1.15.0" is drift whatever the ledger
     says. They act on one verdict and one resolver respectively; see the comments below.
@@ -258,11 +302,25 @@ def declared_pins(root: str) -> list[manifest.Pin]:
 
 
 def _rpm_version(package: str) -> str | None:
-    """The installed rpm's version, or None if the package is not installed."""
+    """The installed rpm's version, or None if the package is not installed.
+
+    `rpm -q` exits non-zero and prints *"package X is not installed"* on **stdout** for
+    an absent package, so absence has to be recognised from output — there is no
+    FileNotFoundError to catch, since `rpm` itself is present.
+
+    Narrowed to the stream rpm actually uses and to the package this call asked about.
+    Matching a phrase anywhere in a merged stdout+stderr blob would let any tool that
+    failed for another reason and echoed those words resolve to `ABSENT`, which renders
+    as the confident claim *"pinned X, nothing installed"*.
+
+    A fully structural answer exists — `rpm -q --quiet` exits 0/1 and prints nothing —
+    at the cost of a second subprocess on the login path for a distinction no host in
+    this repo currently exercises. Recorded rather than taken.
+    """
     try:
         return _run(["rpm", "-q", "--queryformat", "%{VERSION}", package]).strip() or None
     except ResolutionError as error:
-        if "is not installed" in str(error):
+        if error.returncode and f"package {package} is not installed" in error.stdout:
             return None
         raise
 
@@ -275,13 +333,16 @@ def _command_version(command: str) -> str | None:
     the pin becomes a permanent *unchecked* finding on every host that never ran the
     play that installs it — the original noise, arriving through the one resolver the
     ABSENT scoping cannot reach, because it never gets as far as `classify`.
+
+    Caught **by type**. Matching "command not found" in the message would also swallow a
+    wrapper script that exists, ran, exited non-zero and printed that phrase about
+    something inside itself — reporting a broken tool as an absent one, and rendering it
+    as "pinned X, nothing installed".
     """
     try:
         return _run([command, "--version"]).strip() or None
-    except ResolutionError as error:
-        if "command not found" in str(error):
-            return None
-        raise
+    except NotInstalled:
+        return None
 
 
 def _repo_root_default() -> str:
