@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00122-lxc-freeze-thaw-shared-with-podfreeze](00122-lxc-freeze-thaw-shared-with-podfreeze/) - `podfreeze` groups, previews and toggles Podman containers; LXC is a first-class engine here with no equivalent. Adds a sibling `lxcfreeze` — rootful, so a separate tool rather than a flag — on a shared library holding the menu, the derived verb and the dry run that are not engine-specific.
+
 - [00121-run-log-secret-scrubber-and-token-scenario](00121-run-log-secret-scrubber-and-token-scenario/) - Secrets are scanned at the git boundary only, so runtime artefacts like VM transcripts go unchecked; builds a fail-closed scrubber and the opt-in `server-github-token` scenario that Plan 00063's Tasks 3.3 and 3.4 need.
 
 - [00119-headless-github-ssh-443-input](00119-headless-github-ssh-443-input/) - Headless provisioning had no input for the always-on `ssh.github.com:443` route, so a box whose egress blocks port 22 could upload its GitHub key and then hang on every SSH use of it; `RUN_BASH_GITHUB_SSH_443=1` writes `github_ssh_over_443: true` into the fresh localhost.yml.
