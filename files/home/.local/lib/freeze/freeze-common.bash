@@ -164,8 +164,14 @@ have() {
 # report an empty machine — a misleading empty result, which is worse than an
 # error. It also removes any chance of freezing the very session issuing the
 # command.
+# The two marker PATHS are overridable so the guard can be driven on any machine.
+# They are not configuration — no tool sets them, and the defaults are the real
+# files. A guard drivable only where it fires is testable only in a container, and
+# silently untested everywhere else the suite runs.
 assert_on_host() {
-    if [ -f /run/.containerenv ] || [ -f /.dockerenv ] || [ -n "${container:-}" ]; then
+    local containerenv="${FREEZE_CONTAINERENV_PATH:-/run/.containerenv}"
+    local dockerenv="${FREEZE_DOCKERENV_PATH:-/.dockerenv}"
+    if [ -f "$containerenv" ] || [ -f "$dockerenv" ] || [ -n "${container:-}" ]; then
         die "this is a container — run $FREEZE_TOOL on the HOST.
 $FREEZE_HOST_ONLY_NOTE"
     fi

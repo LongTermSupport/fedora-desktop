@@ -172,6 +172,19 @@ The two `host_health` failures were diagnosed and fixed under Task 1.3.
   single function in that module that reads `os.environ` and `os.getuid()` instead of
   taking them as arguments — had **no test of its own**, and the only thing exercising it
   was the applier test that was really asking a different question. It now has four.
+- [x] ✅ **Task 3.5**: A **sixth**, of the same species, and it only became visible because
+  Phase 3 removed the abort that was hiding it. `test-freezelib.bash`'s `assert_on_host`
+  case drove the guard by *the suite happening to run inside a container* — and its `else`
+  branch failed outright with *"this suite is not running in a container, so the guard
+  cannot be driven"*. Deliberate fail-fast, and it made the gate impossible to pass on a
+  runner. The guard ORs three signals and only one was injectable, so
+  `freeze-common.bash` now reads the two marker **paths** from overridable variables
+  (defaults unchanged, no tool sets them). All three signals are driven on any machine,
+  and the **allow** direction is asserted for the first time — it could never be, because
+  in a container the real marker files are there. Falsified both ways: a guard that never
+  refuses fails the three refuse cases; one that always refuses fails the allow case.
+  Needs a HOST deploy to reach the installed copy — `tasks/deploy-freeze-lib.yml`, via
+  either freeze play — though the behaviour is identical, so nothing is broken meanwhile
 
 ### Phase 4: Make the next regression visible
 

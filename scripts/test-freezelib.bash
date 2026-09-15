@@ -903,21 +903,52 @@ for hook in freeze_hook_preflight freeze_hook_refresh freeze_hook_menu_rows \
 done
 
 echo ""
-echo "=== assert_on_host: this container is not a host ==="
-# The suite runs inside a container, which is exactly the condition the guard
-# refuses on — so this drives the real predicate rather than a fabricated one.
-if [ -f /run/.containerenv ] || [ -f /.dockerenv ] || [ -n "${container:-}" ]; then
-    if host_out="$(assert_on_host 2>&1)"; then
-        fail "a container is refused" "assert_on_host allowed it"
-    else
-        pass "a container is refused"
-        contains "it names the tool" "$host_out" "testfreeze"
-        contains "and gives the engine's own reason" "$host_out" "not reachable from in here"
-    fi
+echo "=== assert_on_host: every signal, on any machine ==="
+# The predicate is the real one; only the two marker paths are supplied. Driving
+# it by the suite's own location instead would exercise whichever signal that
+# machine happens to show — one branch in a container, none on a CI runner, where
+# the case is undrivable and fails the whole gate. Supplying the paths exercises
+# all three signals wherever this runs, and asserts the allow direction too.
+marker_dir="$(mktemp -d)"
+present_marker="$marker_dir/present"
+absent_marker="$marker_dir/absent"
+touch "$present_marker"
+
+if host_out="$(container='' FREEZE_CONTAINERENV_PATH="$present_marker" \
+    FREEZE_DOCKERENV_PATH="$absent_marker" assert_on_host 2>&1)"; then
+    fail "a podman container marker is refused" "assert_on_host allowed it"
 else
-    fail "a container is refused" \
-        "this suite is not running in a container, so the guard cannot be driven"
+    pass "a podman container marker is refused"
+    contains "it names the tool" "$host_out" "testfreeze"
+    contains "and gives the engine's own reason" "$host_out" "not reachable from in here"
 fi
+
+if host_out="$(container='' FREEZE_CONTAINERENV_PATH="$absent_marker" \
+    FREEZE_DOCKERENV_PATH="$present_marker" assert_on_host 2>&1)"; then
+    fail "a docker container marker is refused" "assert_on_host allowed it"
+else
+    pass "a docker container marker is refused"
+fi
+
+if host_out="$(container='lxc' FREEZE_CONTAINERENV_PATH="$absent_marker" \
+    FREEZE_DOCKERENV_PATH="$absent_marker" assert_on_host 2>&1)"; then
+    fail "the container environment variable is refused" "assert_on_host allowed it"
+else
+    pass "the container environment variable is refused"
+fi
+
+# The direction the old shape could never assert: with no signal at all the guard
+# must get out of the way. Driven only by marker paths, so it holds in a container
+# too — where the real files exist and would otherwise refuse.
+if host_out="$(container='' FREEZE_CONTAINERENV_PATH="$absent_marker" \
+    FREEZE_DOCKERENV_PATH="$absent_marker" assert_on_host 2>&1)"; then
+    pass "with no container signal at all, a host is allowed"
+else
+    fail "with no container signal at all, a host is allowed" \
+        "assert_on_host refused a machine showing no marker: $host_out"
+fi
+
+rm -rf "$marker_dir"
 
 echo ""
 echo "=== the constants the menu depends on ==="
