@@ -88,14 +88,11 @@
     # explicitly first (the Ansible-native equivalent of NVIDIA's documented
     # `rpm --import` step). gpgcheck stays true: we still verify every signature,
     # we just make the legitimate key available to verify against. Idempotent.
-    # rpm_key hard-requires gpg — its module source calls
-    # get_bin_path('gpg2', required=True) — and nothing in this repo installed it.
-    # This play is independently runnable, so it cannot rely on another play having
-    # been reached first.
-    - name: Install gnupg2 for OpenPGP Key Handling
-      ansible.builtin.package:
-        name: gnupg2
-        state: present
+    # rpm_key hard-requires gpg; the reasoning is in the shared task file. This play
+    # is independently runnable, so it cannot rely on another play having been
+    # reached first — hence the include here rather than a dependency on ordering.
+    - name: Ensure gnupg2 Is Available
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ensure-gnupg2.yml"
       when: nvidia_install_cuda | default(true) | bool
 
     - name: Import the NVIDIA CUDA package-signing GPG key into the rpm keyring

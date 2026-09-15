@@ -1,0 +1,24 @@
+---
+# Reusable task file to ensure gnupg2 is installed.
+# Include this in playbooks that import an RPM signing key.
+#
+# Usage:
+#   - name: Ensure gnupg2 is available
+#     ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ensure-gnupg2.yml"
+#
+# WHY THIS IS A DEPENDENCY AND NOT AN ASSUMPTION. `ansible.builtin.rpm_key` calls
+# get_bin_path('gpg2', required=True) in its own module source, so it fails outright
+# on a host without it — and nothing in this repo installed gnupg2, so the pre-existing
+# rpm_key tasks would already have failed on a gpg-less host. Plan 00124's key check
+# needs it for the same reason: it reads OpenPGP packets with gpg rather than
+# reimplementing the format.
+#
+# Shared rather than declared inline per play, following tasks/ensure-jq.yml. The two
+# inline copies this replaced had already drifted apart — one used `package`, the other
+# `dnf`, and only one carried a `when:`.
+
+- name: Ensure gnupg2 is installed
+  ansible.builtin.dnf:
+    name: gnupg2
+    state: present
+  become: true
