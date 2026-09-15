@@ -356,10 +356,6 @@ class TestTheFreshnessSeamKeepsItsChannelsApart(unittest.TestCase):
         self.assertEqual([f.text for f in findings], ["aaa1111  an orphan"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestSectionsKeepTheirIdentity(unittest.TestCase):
     """The notification flattens three checks into one list; the status document must
     not, because the panel's registry matches a section by id and a section it cannot
@@ -535,3 +531,11 @@ class TestWhichPlaysHaveRunHere(unittest.TestCase):
             with open(ledger.runs_path(base), "w", encoding="utf-8") as handle:
                 handle.write("{not json\n")
             self.assertIsNone(login_report.plays_run_here(base))
+
+
+# Must stay LAST in the file — see the note in
+# tests/helpers/play_ledger/test_check_freshness.py. This was the worst of the three:
+# direct execution collected 31 of 44 tests, dropping three whole classes, and printed
+# OK.
+if __name__ == "__main__":
+    unittest.main()

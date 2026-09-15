@@ -224,8 +224,17 @@ def plays_run_here(base: str) -> set[str] | None:
     incomplete, a set read from it anyway would silently suppress every `ABSENT` verdict
     whose row is in the hole, with nothing saying so. The sentinel IS the declaration
     that the question is open, and an open question must not buy silence.
+
+    **So does the CLEARED marker**, and for the identical reason. `--clear-broken`
+    removes the sentinel, and once it did only that, this function went straight from
+    None to a PARTIAL set — turning the open question into a confident wrong answer and
+    skipping exactly the pins whose rows were in the hole. The missing rows cannot be
+    recovered, so the set stays a lower bound for good: `ledger.cleared_path` carries
+    the argument, and the cost only ever runs in the direction of reporting more.
     """
     if os.path.exists(ledger.sentinel_path(base)):
+        return None
+    if os.path.exists(ledger.cleared_path(base)):
         return None
     try:
         return set(ledger.fold_latest(store.read_lines(base)))

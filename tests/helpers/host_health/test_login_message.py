@@ -425,13 +425,26 @@ class TestTheEntryPointALoginShellCalls(unittest.TestCase):
     login itself — a health reporter that locks you out of the host it reports on.
     """
 
+    def _main(self, base: str, out: io.StringIO, **overrides: str) -> int:
+        """Every call here injects the clock and the kernel.
+
+        Without that, `main` read `repo.utc_now()` and `probe.running_kernel()` off the
+        machine while the fixture carried NOW and KERNEL — so these cases compared a
+        document stamped with one kernel against whatever kernel the test host was
+        running. Green on the machine the fixture was written on, red on a CI runner,
+        and the date half was due to go red everywhere once NOW aged past
+        STALE_AFTER_DAYS. The two cases below pin both halves deliberately.
+        """
+        arguments = {"now": NOW, "running_kernel": KERNEL, **overrides}
+        return login_message.main(["--state-dir", base], stdout=out, **arguments)
+
     def test_it_exits_zero_even_with_findings(self) -> None:
         with tempfile.TemporaryDirectory() as base:
             status_document.write_atomic(
                 status_document.path(base),
                 document({"health": [probe_results.broken("evdi: no DKMS module")]}))
             out = io.StringIO()
-            self.assertEqual(login_message.main(["--state-dir", base], stdout=out), 0)
+            self.assertEqual(self._main(base, out), 0)
             self.assertIn("evdi", out.getvalue())
 
     def test_it_exits_zero_and_prints_nothing_when_clean(self) -> None:
@@ -439,13 +452,38 @@ class TestTheEntryPointALoginShellCalls(unittest.TestCase):
             status_document.write_atomic(
                 status_document.path(base), document({"health": []}))
             out = io.StringIO()
-            self.assertEqual(login_message.main(["--state-dir", base], stdout=out), 0)
+            self.assertEqual(self._main(base, out), 0)
             self.assertEqual(out.getvalue(), "")
+
+    def test_a_document_from_a_different_boot_is_not_clean(self) -> None:
+        """The first half of what made this class machine-dependent, now asserted.
+
+        A kernel mismatch means the collected results describe a different boot, so
+        "nothing to say" would be a lie. This is the branch a CI runner took by
+        accident; here it is taken on purpose.
+        """
+        with tempfile.TemporaryDirectory() as base:
+            status_document.write_atomic(
+                status_document.path(base), document({"health": []}))
+            out = io.StringIO()
+            self.assertEqual(self._main(base, out, running_kernel="6.11.0-1018-azure"), 0)
+            self.assertIn("different boot", out.getvalue())
+
+    def test_a_document_older_than_the_staleness_window_is_not_clean(self) -> None:
+        """The second half, and the one that was a dated bomb rather than a machine
+        difference: with the clock read from the host, this class was going to fail on
+        every machine once the fixture's stamp aged past STALE_AFTER_DAYS."""
+        with tempfile.TemporaryDirectory() as base:
+            status_document.write_atomic(
+                status_document.path(base), document({"health": []}))
+            out = io.StringIO()
+            self.assertEqual(self._main(base, out, now="2026-10-30T18:00:00Z"), 0)
+            self.assertIn("days ago", out.getvalue())
 
     def test_it_exits_zero_when_there_is_no_document_at_all(self) -> None:
         with tempfile.TemporaryDirectory() as base:
             out = io.StringIO()
-            self.assertEqual(login_message.main(["--state-dir", base], stdout=out), 0)
+            self.assertEqual(self._main(base, out), 0)
             self.assertIn("no host status", out.getvalue())
 
 

@@ -163,21 +163,32 @@ class TestTheHandoffCanBeSuppressedForTriage(unittest.TestCase):
     asserted to exist.
     """
 
-    def _run(self, *flags: str) -> tuple[str, bool]:
-        from helpers.host_health import login_report
+    #: The one finding these cases need present. SUPPLIED, not borrowed from the
+    #: machine. This class used to rely on "this container always has findings — no
+    #: dkms, no systemd bus", which is true here and false on a GitHub runner: a
+    #: runner has systemd as PID 1 with no failed units and no /var/lib/dkms at all,
+    #: so both probes take their silent branches and the report came back without the
+    #: prose these cases matched on. Green here, red in CI, and for a reason that had
+    #: nothing to do with what `--no-handoff` does.
+    FIXTURE_FINDING = "the fixture's own unchecked finding"
 
+    def _run(self, *flags: str) -> tuple[str, bool]:
+        from helpers.host_health import login_report, probe, probe_results
+
+        report = probe_results.Report(
+            findings=(probe_results.unchecked(self.FIXTURE_FINDING),),
+        )
         with tempfile.TemporaryDirectory() as home:
             out = io.StringIO()
             environment = {"XDG_STATE_HOME": os.path.join(home, "state")}
-            with mock.patch.dict(os.environ, environment, clear=False):
+            with mock.patch.dict(os.environ, environment, clear=False), \
+                    mock.patch.object(probe, "collect", return_value=report):
                 login_report.main(
                     ["--no-notify", *flags], stdout=out, stderr=io.StringIO())
                 base = os.path.join(home, "state", "fedora-desktop", "play-ledger")
                 return out.getvalue(), os.path.exists(os.path.join(base, handoff.FILE_NAME))
 
     def test_by_default_the_handoff_file_is_written(self) -> None:
-        """This container always has findings — no dkms, no systemd bus — which is
-        what makes it a usable fixture for the write path."""
         printed, written = self._run()
         self.assertTrue(written)
         self.assertIn("To discuss this with Claude Code", printed)
@@ -189,9 +200,14 @@ class TestTheHandoffCanBeSuppressedForTriage(unittest.TestCase):
 
     def test_the_findings_are_still_reported_either_way(self) -> None:
         """Suppressing the file must not suppress the report — that would make a
-        triage run look like a clean host."""
+        triage run look like a clean host.
+
+        Asserts on the fixture's own finding rather than on prose the host happened to
+        produce, which is the same argument TestTheSplitDoesNotGuessFromWording below
+        makes about matching substrings.
+        """
         printed, _ = self._run("--no-handoff")
-        self.assertIn("could not run", printed)
+        self.assertIn(self.FIXTURE_FINDING, printed)
 
 
 class TestTheSplitDoesNotGuessFromWording(unittest.TestCase):

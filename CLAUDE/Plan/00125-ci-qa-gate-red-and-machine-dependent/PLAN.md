@@ -1,6 +1,6 @@
 # Plan 00125: The QA workflow has been red for three weeks, and qa-all.bash answers differently per machine
 
-**Status**: Not Started
+**Status**: In Progress
 **Created**: 2026-09-15
 **Owner**: joseph
 **Priority**: High
@@ -94,8 +94,22 @@ tests still passed. The cause is something else and Task 1.3 is to find it.
 - [ ] ⬜ **Task 1.2**: Identify the commit that first turned CI red. The last green is
   `1fc1c5fe` (2026-08-26) and the `.claude/rules` pointers landed 2026-08-31, so at least
   one further cause existed between those dates. Name it; do not assume it is still live.
-- [ ] ⬜ **Task 1.3**: Diagnose the two `host_health` failures. Record what was ruled out
-  as well as what was found — the ledger hypothesis is already ruled out above.
+- [x] ✅ **Task 1.3**: Diagnose the two `host_health` failures — **both determined,
+  reproduced byte-exactly, and fixed.** Neither was the ledger. Both were **defective
+  tests reading host state**, not production paths misbehaving; production was doing its
+  job in each case.
+  - `test_login_message` hardcoded `KERNEL` and `NOW` while `main` read
+    `os.uname().release` and the real clock — `main` was the one entry point that could
+    not be given the two facts every other function there takes as arguments. It now
+    takes both as injection seams. **This test also carried a dated bomb**: the fixture
+    stamp against the real clock meant it would have gone red on every machine on
+    **2026-09-28**, CI or not
+  - `test_handoff` relied on *"this container always has findings — no dkms, no systemd
+    bus"*, which is true here and false on a runner (systemd as PID 1, no `/var/lib/dkms`,
+    so both probes take their silent branches). It now supplies its own finding and
+    asserts on that rather than on prose the host happened to produce
+  - Both classes verified against an emulated runner — foreign kernel, future clock,
+    working systemd, absent dkms — and pass
 
 ### Phase 2: The docs gate — decision required
 
@@ -121,7 +135,8 @@ tests still passed. The cause is something else and Task 1.3 is to find it.
   The test must still fail on a machine that HAS a real EDID and reads zero.
 - [ ] ⬜ **Task 3.2**: The dbus fallback test — isolate `DBUS_SESSION_BUS_ADDRESS` so the
   asserted branch is the one actually exercised.
-- [ ] ⬜ **Task 3.3**: The two `host_health` tests, once Task 1.3 has explained them.
+- [x] ✅ **Task 3.3**: The two `host_health` tests — done with Task 1.3, since the
+  diagnosis and the fix were the same piece of work.
 - [ ] ⬜ **Task 3.4**: For each of the five, state which is a defective **test** and which
   exposes a production path that reads host state it should have been given. Fix the
   production side where that is the answer.

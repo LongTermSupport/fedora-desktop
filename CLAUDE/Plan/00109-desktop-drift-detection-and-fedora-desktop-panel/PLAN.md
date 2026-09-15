@@ -108,6 +108,19 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     every run. Both shapes are read now, new first, and the choice is tested
   - [x] ✅ **`store.clear_broken` had no caller anywhere** — a sentinel, once written, left
     the ledger permanently untrustworthy with no route back. `check_freshness --clear-broken` is that route, and it says the missing rows are not recovered
+  - [x] ✅ **`qa-reviewer` over the commit** — 7 should-fixes, all acted on. Report:
+    [subagent-reports/260915-qa-reviewer-00109-ledger-opus-5.md](subagent-reports/260915-qa-reviewer-00109-ledger-opus-5.md).
+    The one that mattered: clearing the sentinel flipped `plays_run_here` from `None` to
+    a **partial** set, silently suppressing every ABSENT pin verdict whose row was in the
+    hole — the precise suppression that function's own docstring calls unacceptable. A
+    `CLEARED` marker now outlives the sentinel, because the missing rows never come back
+  - [x] ✅ **A gate now catches the next Ansible rename** —
+    `tests/helpers/play_ledger/test_source_position_against_real_ansible.py` loads a real
+    playbook through the real `Play.load` under the interpreter `ansible-playbook` itself
+    runs, and asserts the production helper gets the file back for **both** the parsed
+    play and the `copy()` a callback is actually handed. A fake origin cannot catch a
+    rename in the thing it is faking, which is why the whole suite stayed green while the
+    ledger recorded nothing for its entire life. Falsified against the pre-fix behaviour
   - [ ] ⬜ **HOST or VM**: verify against a real run — genesis plus one row per play,
     `--check` adds nothing, a second run appends. No guest checker reads the ledger today;
     that is the gap, not the machine ([DESIGN-host-health.md](DESIGN-host-health.md) §12).

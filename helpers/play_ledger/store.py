@@ -93,11 +93,21 @@ def broken_reason(base: str) -> str | None:
         return fh.read().strip()
 
 
-def clear_broken(base: str) -> None:
-    """Forget a recorded hole. Deliberate and explicit — never automatic."""
+def clear_broken(base: str, *, at: str = "") -> None:
+    """Forget a recorded hole. Deliberate and explicit — never automatic.
+
+    Leaves a CLEARED marker behind, because the hole outlives the sentinel: the rows
+    that were never written are unrecoverable, so the record set is a lower bound from
+    here on. `ledger.cleared_path` carries the full argument. Written BEFORE the
+    sentinel is unlinked, so a failure between the two leaves the ledger
+    known-broken rather than silently claiming to be complete.
+    """
     sentinel = ledger.sentinel_path(base)
-    if os.path.exists(sentinel):
-        os.unlink(sentinel)
+    if not os.path.exists(sentinel):
+        return
+    with open(ledger.cleared_path(base), "a", encoding="utf-8") as fh:
+        fh.write(f"{at}\n" if at else "\n")
+    os.unlink(sentinel)
 
 
 def read_lines(base: str) -> list[str]:
