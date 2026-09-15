@@ -292,6 +292,24 @@ host_hostname_summary=$(printf '%s' "$host_hostname_out" | grep -oE 'passed: [0-
     host_hostname_summary="passed"
 printf '✓ ccy-host-hostname: %s\n' "$host_hostname_summary"
 
+# ccy session registry (Plan 00123): the records a systemd --user service acts on at boot,
+# unattended, to bring sessions back after a reboot. Three things it pins that nothing else
+# can: that a partial write is never mistaken for a record, that a restore reconstructs the
+# right token/key/network, and — the one that matters in a year — that every ccy flag is
+# classified durable or one-shot, DERIVED from the launcher's own parser so a new flag cannot
+# be silently dropped from restored sessions. It also drives the launcher's unattended `read`
+# guard, lifted from the launcher's source, since that is what stands between a restore and a
+# row of parked shells that look restored.
+session_registry_out=""
+if ! session_registry_out="$(bash "$SCRIPT_DIR/test-ccy-session-registry.bash" 2>&1)"; then
+    echo "$session_registry_out" >&2
+    echo "✗ QA FAILED: ccy session-registry unit tests" >&2
+    exit 1
+fi
+session_registry_summary=$(printf '%s' "$session_registry_out" | grep -oE 'passed: [0-9]+') ||
+    session_registry_summary="passed"
+printf '✓ ccy-session-registry: %s\n' "$session_registry_summary"
+
 # host_only_preflight (Plan 00121): the host-CLI gate on a scenario that puts a real GitHub
 # PAT into a guest. One of three independent gates — the other two are the bridge allowlist
 # and bridge_run's manifest refusal — and the one a human types past. Driven through the

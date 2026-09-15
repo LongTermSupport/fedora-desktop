@@ -17,6 +17,55 @@ Two version numbers move independently — see
 
 ---
 
+## 3.58.0
+
+**Sessions are registered, so a reboot no longer simply loses them.** CCY 3.52.0 made a
+session survive its terminal; a host reboot still took everything. Each session now writes a
+record under `~/.local/state/ccy/sessions/` at the moment its container is about to start,
+and the launcher's exit removes it. Anything still recorded at boot was running when the
+machine went down — exact, where a shutdown hook is racy and a timer has a window.
+
+The record is written at the **point of no return**: after every prompt, every validation and
+every resolution. A launcher killed mid-start therefore leaves nothing, which is the right
+answer — a session that never started is not a session to restore. Removal happens in the
+launcher's existing `cleanup` EXIT trap, so it covers a normal `/exit`, `claude` crashing,
+and a signal alike.
+
+Writing a record cannot leave a half-written one behind. The writer writes a dotted
+`.tmp.<pid>` file and renames it into place — same directory, so that is `rename(2)` and
+atomic — and every reader globs `*.record`, which the temp name cannot match. The last line
+is a literal `end=1` terminator the reader **requires**, so a write that never went through
+the rename at all is caught too. A record that fails validation is quarantined with its
+reason, never skipped and never deleted.
+
+What the record stores is the **resolved** configuration — token name, SSH keys, network,
+engine — not the arguments that were typed. Quick launch supplies all of that from
+`.claude/ccy/.last-launch.conf` with an empty argv, so a record built from argv would
+describe nothing about most real sessions. The argv is kept alongside as evidence only.
+
+**An unattended launch can no longer hang on a prompt.** This is the part that makes an
+automated restore safe. A detached tmux session still allocates a pty, so every terminal
+check in the launcher passes and all seventeen of its interactive prompts behave as though
+someone were watching — with nobody to answer, a restored session would sit on the first one
+for ever, appear in `ccy-sessions` as though it were running, and never start `claude`.
+
+With `CCY_UNATTENDED=1` the launcher shadows the `read` builtin: a `read` carrying `-p` — a
+question addressed to a person — is fatal and names the prompt it could not answer, while
+every other `read` (splitting a string, reading a pipe) passes straight through. Keying on
+what a prompt *is*, rather than on a list of the prompt sites, means a prompt added later is
+covered without anyone remembering to. Two decisions have an honest unattended default and
+say so out loud: the saved quick-launch configuration is accepted (it is the one the session
+was recorded with), and compose services are not started or stopped.
+
+New `--no-restore` marks a one-off. The session is still recorded, marked rather than
+omitted, so `ccy-sessions restore-status` can show it as a live session you chose not to
+restore — omitting it would make "not recorded" and "deliberately excluded" the same absence.
+
+Nothing restores anything yet on its own: the restore service is opt-in per machine. See
+[CCY: Surviving a Reboot](ccy.md#surviving-a-reboot).
+
+---
+
 ## 3.57.0
 
 **The container can tell which machine it is running on.** A container's `HOSTNAME` is the

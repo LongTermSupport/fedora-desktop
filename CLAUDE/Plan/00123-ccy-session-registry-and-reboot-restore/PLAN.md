@@ -89,31 +89,31 @@ naming the upstream issue. No local substitute is invented.
 
 ### Phase 2: The registry, and an unattended-safe launcher
 
-- [ ] ⬜ **Task 2.1**: New library `files/var/local/claude-yolo/lib/session-registry.bash`
-  - [ ] ⬜ Record write via temp-file + `rename`, terminator line required on read (D3)
-  - [ ] ⬜ Reader validates schema, required keys and terminator; a bad record is *quarantined*, never skipped
-  - [ ] ⬜ Record the **resolved** launch configuration by value, not argv (F4, D5)
-  - [ ] ⬜ `ccy_registry_restore_flags` reconstructs the launch flags from a record
-  - [ ] ⬜ `ccy_registry_fingerprint` — the project's root commit, for the reused-directory check (D7)
-- [ ] ⬜ **Task 2.2**: Unit-test the library — `scripts/test-ccy-session-registry.bash`
-  - [ ] ⬜ Round-trip, partial write, missing terminator, unknown schema, path with spaces
-  - [ ] ⬜ **The flag-classification guard**: derive every `ccy` flag from the launcher's own
+- [x] ✅ **Task 2.1**: New library `files/var/local/claude-yolo/lib/session-registry.bash`
+  - [x] ✅ Record write via temp-file + `rename`, terminator line required on read (D3)
+  - [x] ✅ Reader validates schema, required keys and terminator; a bad record is *quarantined*, never skipped
+  - [x] ✅ Record the **resolved** launch configuration by value, not argv (F4, D5)
+  - [x] ✅ `ccy_registry_restore_flags` reconstructs the launch flags from a record
+  - [x] ✅ `ccy_registry_fingerprint` — the project's root commit, for the reused-directory check (D7)
+- [x] ✅ **Task 2.2**: Unit-test the library — `scripts/test-ccy-session-registry.bash`
+  - [x] ✅ Round-trip, partial write, missing terminator, unknown schema, path with spaces
+  - [x] ✅ **The flag-classification guard**: derive every `ccy` flag from the launcher's own
     parser and fail when one is unclassified, so a future flag cannot be silently
     dropped from restored sessions (D5)
-  - [ ] ⬜ Wire into `scripts/qa-all.bash`
-- [ ] ⬜ **Task 2.3**: Wire the registry into `claude-yolo`
-  - [ ] ⬜ Write the record immediately before `container_cmd run`; remove it in the existing
+  - [x] ✅ Wire into `scripts/qa-all.bash`
+- [x] ✅ **Task 2.3**: Wire the registry into `claude-yolo`
+  - [x] ✅ Write the record immediately before `container_cmd run`; remove it in the existing
     `cleanup` EXIT trap (there is already one — extend it, do not add a second)
-  - [ ] ⬜ New `--no-restore` flag, and its entry in `--help` and the `ccy_flags` validator list
-- [ ] ⬜ **Task 2.4**: Make an unattended launch incapable of hanging (D6)
-  - [ ] ⬜ `CCY_UNATTENDED=1` + a `read()` shadow in the launcher: a `read` **with `-p`** (a
+  - [x] ✅ New `--no-restore` flag, and its entry in `--help` and the `ccy_flags` validator list
+- [x] ✅ **Task 2.4**: Make an unattended launch incapable of hanging (D6)
+  - [x] ✅ `CCY_UNATTENDED=1` + a `read()` shadow in the launcher: a `read` **with `-p`** (a
     human prompt) is fatal and names the prompt; every other `read` passes through to
     the builtin. One seam covers every prompt site, present and future.
-  - [ ] ⬜ Unattended defaults where a default is honest: accept the saved quick-launch
+  - [x] ✅ Unattended defaults where a default is honest: accept the saved quick-launch
     configuration (it *is* the recorded one), decline compose start/stop — both printed
-- [ ] ⬜ **Task 2.5**: Bump `CCY_VERSION` (minor — new feature, backward compatible) and add
+- [x] ✅ **Task 2.5**: Bump `CCY_VERSION` (minor — new feature, backward compatible) and add
   a `docs/ccy-changelog.md` entry
-- [ ] ⬜ **Task 2.6**: Run QA: `./scripts/qa-all.bash`
+- [x] ✅ **Task 2.6**: Run QA — see "QA in a worktree" below for the one stage that cannot run here
 
 ### Phase 3: The restore service
 
@@ -163,6 +163,22 @@ naming the upstream issue. No local substitute is invented.
   Rounds recorded under `subagent-reports/`
 - [ ] ⬜ **Task 6.3**: Open the PR. **Do not merge** — the owner reviews and merges
 - [ ] ⬜ **Task 6.4**: (HOST, owner) deploy and verify — see the HOST tasks below
+
+## QA in a worktree — one stage cannot run here
+
+`./scripts/qa-all.bash` runs green in this worktree **except** `qa-ansible-syntax.bash`, which
+is blocked by the environment rather than by this work: `ansible.cfg` names a vault password
+file that no clean checkout has, and a worktree is deliberately not seeded with it. CI solved
+the same problem with a placeholder step; worktrees have no equivalent, so the mandatory
+pre-commit gate cannot pass in any worktree of this repo.
+
+It is **not fixed here** — the file sits behind the daemon's `secret_file_guard`, which says
+only a human may lift it. This plan's playbook changes were verified with the form that guard
+explicitly permits (the password file in flag position, pointed at a throwaway). Full
+reasoning, the verification command, and the three options for the owner:
+[WORKTREE-QA-GAP.md](WORKTREE-QA-GAP.md). Two smaller worktree gaps of the same shape were
+within reach and were fixed, one of which was a real public-repo leak hazard in
+`.claude/.gitignore`.
 
 ## HOST tasks — for the owner, not for a container
 

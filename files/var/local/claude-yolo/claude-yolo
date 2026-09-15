@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.57.0"  # CCY_HOST_HOSTNAME carries the host machine's name into the container, which otherwise only sees its own container id. See docs/ccy-changelog.md.
+CCY_VERSION="3.58.0"  # Sessions are registered so a reboot no longer simply loses them, and an unattended launch can no longer hang on a prompt. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,7 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # from lib/ (see CCY_HASH), because a hand-written list of what the program
 # consists of is a list that goes stale — this one omitted common-pure.bash,
 # which common.bash sources, for two months.
-CCY_LIBS=(common token-management ssh-handling network-management dockerfile-custom docker-health tmux-session)
+CCY_LIBS=(common token-management ssh-handling network-management dockerfile-custom docker-health tmux-session session-registry)
 
 if [ -f "$SCRIPT_DIR/lib/common.bash" ]; then
     source "$SCRIPT_DIR/lib/common.bash"
@@ -62,6 +62,60 @@ source "$SCRIPT_DIR/lib/dockerfile-custom.bash"
 source "$SCRIPT_DIR/lib/docker-health.bash"
 # shellcheck source=lib/tmux-session.bash
 source "$SCRIPT_DIR/lib/tmux-session.bash"
+# shellcheck source=lib/session-registry.bash
+source "$SCRIPT_DIR/lib/session-registry.bash"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The unattended guard — a prompt must never be able to hang a restored session
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# `ccy-sessions-restore` starts a session DETACHED on the tmux server at boot. A detached
+# tmux session still allocates a pty, so `[ -t 0 ]` and `[ -t 1 ]` both pass and every
+# prompt in this launcher behaves as though a human were watching it. There is nobody to
+# answer: the session sits on the prompt for ever, shows up in `ccy-sessions` as though it
+# were running, and `claude` never starts. That is worse than no restore at all, because
+# the operator believes their work resumed.
+#
+# This shadows the `read` BUILTIN for the whole launcher. The test is `-p`, which is what
+# makes a `read` a question addressed to a person; a `read -ra` splitting a string, or a
+# `while read` over a pipe, has no `-p` and passes straight through. Guarding the
+# seventeen prompt sites individually was the alternative and was rejected: the eighteenth,
+# added later by someone who never read this, would be unguarded, and its symptom is a
+# silent hang. Keying on what a prompt IS cannot go stale.
+#
+# With CCY_UNATTENDED unset — every interactive run — this is a pass-through and changes
+# nothing.
+# _ccy_read_guard — dies when these `read` arguments carry a `-p` prompt. Kept a separate
+# function ON PURPOSE: `read` below must declare NO locals of its own, because `builtin read`
+# assigns to the variable the CALLER named, and a local in that scope with the same name would
+# swallow the value instead — a corruption that would only show up for whichever variable name
+# happened to collide.
+_ccy_read_guard() {
+    local flag idx=0 found=no
+    for flag in "$@"; do
+        idx=$((idx + 1))
+        # A flag cluster ending in `p`: bare `-p`, and the bundled spellings this codebase
+        # uses, `-rp` and `-rsp`. A regex, not a glob — in a glob `-[a-zA-Z]*p` requires at
+        # least one letter before the `p`, so a bare `-p` fell through it.
+        if [[ "$flag" =~ ^-[a-zA-Z]*p$ ]]; then
+            found=yes
+            break
+        fi
+    done
+    [[ "$found" == "yes" ]] || return 0
+    # The prompt text is the argument AFTER the flag — `${!idx}` reads positional parameter
+    # number $idx. An empty prompt still blocks for ever, so the guard fires on the flag being
+    # present, not on the text being non-empty.
+    idx=$((idx + 1))
+    ccy_unattended_fatal "${!idx:-an unnamed prompt}"
+}
+
+read() {
+    if [[ "${CCY_UNATTENDED:-}" == "1" ]]; then
+        _ccy_read_guard "$@" || return $?
+    fi
+    builtin read "$@"
+}
 
 # IMPORTANT: When modifying the Dockerfile, ALWAYS increment REQUIRED_CONTAINER_VERSION!
 # This ensures users automatically rebuild when critical container changes are made.
@@ -237,6 +291,11 @@ Options:
                          entrypoint.sh sources before claude runs.
   --no-supervise         Run claude unwrapped. Disables auto-compaction AND the
                          ctrl+z guard, so ctrl+z can freeze the session.
+  --no-restore           Do not register this session for restore after a reboot.
+                         For a one-off: ccy records every session it starts, and
+                         if session restore is enabled on this machine the ones
+                         still recorded at boot are brought back. Check with
+                         ccy-sessions restore-status.
   --top                  Container manager: list/stop all CCY containers
   --prevent              Disable CCY for this project folder (writes 'never' to .claude/ccy/allowed-hostnames)
   --help, -h             Show this help message
@@ -517,6 +576,14 @@ NO_NETWORK_MODE=false
 HEADLESS_MODE=false
 SUPERVISE_MODE=false
 NO_SUPERVISE_MODE=false
+NO_RESTORE_MODE=false
+
+# The launch as it was typed, captured BEFORE the parser consumes it. Recorded in the session
+# registry as evidence only — nothing reads it to rebuild a command line, because the
+# quick-launch path supplies the token, keys and network with an empty argv, so argv describes
+# nothing about most real sessions. The restore reconstructs from the RESOLVED values instead
+# (lib/session-registry.bash).
+CCY_ORIGINAL_ARGV=("$@")
 PROMPT_TEXT=""
 SAW_DOUBLE_DASH=false
 
@@ -595,6 +662,8 @@ for arg in "$@"; do
         SUPERVISE_MODE=true
     elif [ "$arg" = "--no-supervise" ]; then
         NO_SUPERVISE_MODE=true
+    elif [ "$arg" = "--no-restore" ]; then
+        NO_RESTORE_MODE=true
     elif [ "$arg" = "--prompt" ]; then
         NEXT_IS_PROMPT=true
     elif [ "$arg" = "--debug" ]; then
@@ -707,7 +776,7 @@ if [ ${#suspect_flags[@]} -gt 0 ]; then
         if [ ${#unknown[@]} -gt 0 ]; then
             ccy_flags=(
                 --rebuild --disable-custom-docker --no-ssh --github-443 --no-network
-                --headless --supervise --no-supervise --prompt --debug --engine --ssh-key --token --create-token
+                --headless --supervise --no-supervise --no-restore --prompt --debug --engine --ssh-key --token --create-token
                 --update-token --list-tokens --export-token --network --connect
                 --custom --custom-docker --top --prevent --help
             )
@@ -925,8 +994,22 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
         echo ""
 
         while true; do
-            read -rp "Use same configuration? [Y/n] " use_config
-            use_config=${use_config:-Y}
+            # Unattended, this one question has a correct answer rather than a guess: the
+            # saved configuration and the registry record are written by the same code path at
+            # the same moment, so the config on disk IS the one the restored session was
+            # running. Answering it is therefore not a default standing in for a human — it is
+            # replaying a recorded fact. Said out loud, so the journal shows it happened.
+            #
+            # Every OTHER prompt in this launcher stays fatal under CCY_UNATTENDED (the `read`
+            # shadow near the top): a token that needs renewing or an ambiguous network needs
+            # a person, and saying so in the journal is the right outcome.
+            if [ "${CCY_UNATTENDED:-}" = "1" ]; then
+                echo "Unattended: using the saved launch configuration, which is the one this session was recorded with."
+                use_config=Y
+            else
+                read -rp "Use same configuration? [Y/n] " use_config
+                use_config=${use_config:-Y}
+            fi
             echo ""
 
             case "$use_config" in
@@ -1927,6 +2010,16 @@ cleanup() {
         rm -rf "$CCY_KEY_STAGE_DIR"
     fi
 
+    # Drop this session's registry record. A record that outlives its launcher would be
+    # restored at the next boot as though the session had been killed by the reboot, so the
+    # removal has to happen on EVERY exit path — a normal /exit, claude crashing, a signal —
+    # which is why it lives in the trap that already covers all of them rather than after the
+    # container command. `ccy_registry_remove` is rm -f on a path, so it cannot fail and
+    # cannot disturb the exit status this trap is preserving.
+    if [ -n "${CCY_SESSION_RECORD_NAME:-}" ]; then
+        ccy_registry_remove "$CCY_SESSION_RECORD_DIR" "$CCY_SESSION_RECORD_NAME"
+    fi
+
     # Show debug log if CCY debugging is enabled
     if [ "$DEBUG_CCY" = true ] && [ -n "$DEBUG_LOG" ]; then
         echo ""
@@ -2344,8 +2437,19 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
 
                         if command -v podman-compose &>/dev/null; then
                             while true; do
-                                read -rp "Start services with podman-compose up -d? [Y/n]: " start_compose
-                                start_compose=${start_compose:-Y}
+                                # Unattended, compose is DECLINED. Bringing a project's whole
+                                # service stack up at boot is a side effect well outside
+                                # "resume my conversation", and it is the operator's call, not
+                                # a restore service's. Failing the restore instead would make
+                                # the feature useless for every project that has a compose
+                                # file, which is most of them. Said out loud either way.
+                                if [ "${CCY_UNATTENDED:-}" = "1" ]; then
+                                    echo "Unattended: not starting compose services. Start them yourself once you attach."
+                                    start_compose=N
+                                else
+                                    read -rp "Start services with podman-compose up -d? [Y/n]: " start_compose
+                                    start_compose=${start_compose:-Y}
+                                fi
                                 echo ""
 
                                 case "$start_compose" in
@@ -2678,8 +2782,16 @@ else
 
             if [ -n "$COMPOSE_CMD" ]; then
                 while true; do
-                    read -rp "Start compose services? ($COMPOSE_CMD up -d) [y/N] " start_compose
-                    start_compose=${start_compose:-N}
+                    # Unattended, compose is declined — same reasoning as the podman-compose
+                    # branch above: a service stack is the operator's call, not a boot-time
+                    # restore's.
+                    if [ "${CCY_UNATTENDED:-}" = "1" ]; then
+                        echo "Unattended: not starting compose services. Start them yourself once you attach."
+                        start_compose=N
+                    else
+                        read -rp "Start compose services? ($COMPOSE_CMD up -d) [y/N] " start_compose
+                        start_compose=${start_compose:-N}
+                    fi
                     echo ""
 
                     case "$start_compose" in
@@ -3118,6 +3230,71 @@ if ! CCY_HOST_HOSTNAME="$(ccy_host_hostname "$(uname -n)")"; then
     exit 1
 fi
 
+# --- register this session, so a reboot does not simply lose it ---------------
+#
+# HERE, and not earlier, is the point of no return: every prompt has been answered, every
+# validation has passed, and the configuration below is RESOLVED rather than requested. A
+# launcher killed before this line never had a session, so it correctly leaves no record —
+# the answer to "what writes the record if ccy is killed mid-start" is "nothing does".
+#
+# Only a session inside a CCY tmux session is registered. Outside one there is nothing a
+# restore could bring back: --headless is a one-shot `-p` run that exits, and a launcher with
+# no terminal has no session either. That is a case which does not apply, not a check being
+# skipped — and the interactive-but-unwrapped case says so on stderr, because it is the
+# surprising one.
+#
+# The record is removed by cleanup() on EXIT, however this launcher ends.
+CCY_SESSION_RECORD_NAME=""
+CCY_SESSION_RECORD_DIR="$(ccy_registry_sessions_dir)"
+if CCY_SESSION_RECORD_NAME="$(ccy_tmux_current_session)"; then
+    ccy_session_boot_id="$(ccy_registry_boot_id)"
+    ccy_session_root_commit="$(ccy_registry_fingerprint "$PWD")"
+    ccy_session_keys_b64=""
+    if [ "${#SSH_KEYS[@]}" -gt 0 ]; then
+        ccy_session_keys_b64="$(ccy_registry_encode_argv "${SSH_KEYS[@]}")"
+    fi
+    ccy_session_argv_b64=""
+    if [ "${#CCY_ORIGINAL_ARGV[@]}" -gt 0 ]; then
+        ccy_session_argv_b64="$(ccy_registry_encode_argv "${CCY_ORIGINAL_ARGV[@]}")"
+    fi
+    ccy_session_restore=yes
+    if [ "$NO_RESTORE_MODE" = true ]; then
+        ccy_session_restore=no
+    fi
+    # A no-restore session is still RECORDED, marked rather than omitted, so that
+    # `ccy-sessions restore-status` can show it as a live session the operator chose not to
+    # restore. Omitting it would make "not recorded" and "deliberately excluded" the same
+    # absence.
+    if ! ccy_registry_write "$CCY_SESSION_RECORD_DIR" "$CCY_SESSION_RECORD_NAME" \
+        "project_dir=$PWD" \
+        "project_name=$PROJECT_NAME" \
+        "root_commit=$ccy_session_root_commit" \
+        "boot_id=$ccy_session_boot_id" \
+        "restore=$ccy_session_restore" \
+        "ccy_version=$CCY_VERSION" \
+        "container_name=$CONTAINER_NAME" \
+        "token_name=${TOKEN_NAME_FOR_CONFIG:-}" \
+        "ssh_keys_b64=$ccy_session_keys_b64" \
+        "no_ssh=$([ "$NO_SSH_MODE" = true ] && echo yes || echo no)" \
+        "network=${AUTO_CONNECT_NETWORK:-}" \
+        "no_network=$([ "$NO_NETWORK_MODE" = true ] && echo yes || echo no)" \
+        "github_443=$([ "$GITHUB_SSH_443" = "1" ] && echo yes || echo no)" \
+        "engine=${CONTAINER_ENGINE:-}" \
+        "disable_custom_docker=$([ "$DISABLE_CUSTOM_DOCKER" = true ] && echo yes || echo no)" \
+        "argv_b64=$ccy_session_argv_b64"; then
+        print_error "could not record this session for reboot restore — see the reason above."
+        echo "Nothing has started yet. Fix that, or run with --no-restore to start without a record." >&2
+        exit 1
+    fi
+    # Nothing is cleaned up here. Whether a restore attempt SUCCEEDED is derivable rather than
+    # recorded: the attempted record carries the previous boot's id, this one carries the
+    # current boot's, so `ccy-sessions restore-status` can see that the same project has both
+    # and report the attempt as having come up. Housekeeping in a launcher's hot path would be
+    # a failure with nowhere useful to go.
+elif [ "$HEADLESS_MODE" != true ] && [ -t 1 ]; then
+    echo "Not inside a CCY tmux session, so this session is NOT registered for restore after a reboot." >&2
+fi
+
 container_cmd run $DOCKER_FLAGS --rm \
     --name "$CONTAINER_NAME" \
     --label ccy=true \
@@ -3177,8 +3354,18 @@ if [[ "${CCY_COMPOSE_WAS_STARTED:-}" = "true" ]]; then
     echo ""
 
     while true; do
-        read -rp "Stop compose services? [Y/n]: " _stop_choice
-        _stop_choice=${_stop_choice:-Y}
+        # Unattended, compose services are LEFT RUNNING. This runs after claude has exited, so
+        # there is no session left to protect and no human to ask; tearing a service stack down
+        # on the way out would be a side effect nobody asked for, and the alternative — hanging
+        # here for ever on a session that has already ended — is the failure this whole guard
+        # exists to prevent.
+        if [ "${CCY_UNATTENDED:-}" = "1" ]; then
+            echo "Unattended: leaving compose services running. Stop them with: $CCY_COMPOSE_CMD down"
+            _stop_choice=N
+        else
+            read -rp "Stop compose services? [Y/n]: " _stop_choice
+            _stop_choice=${_stop_choice:-Y}
+        fi
         echo ""
         case "$_stop_choice" in
             Y|y|Yes|yes)

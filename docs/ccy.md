@@ -202,6 +202,109 @@ detach and run it from the plain shell; a server outside any terminal's scope is
 
 ---
 
+## Surviving a Reboot
+
+Sessions survive the terminal. They do **not** survive a host reboot by default — and for
+most work that is right, because a session is transient dev state. For the machine where some
+sessions are meant to run permanently, CCY can bring them back.
+
+Two separate things, and only the first is always on.
+
+### The registry: what was running when the machine went down
+
+Every session `ccy` starts writes one record under `~/.local/state/ccy/sessions/`, and the
+launcher's exit removes it. Whatever is still recorded at boot was running when the machine
+went down. That is exact, where a shutdown hook is racy and a timer has a window.
+
+The record is written at the **point of no return** — after every prompt and every check, just
+before the container starts — so a `ccy` you interrupt half-way through leaves nothing behind.
+It holds the project directory, the project's root commit, the boot it was written under, and
+the *resolved* launch configuration: token name, SSH keys, network, engine. Never a token
+value.
+
+This happens whether or not restore is enabled, because a record is also the answer to "what
+is running right now". `--no-restore` marks a one-off: the session is still recorded, marked
+rather than omitted, so you can see it listed as a session you chose not to bring back.
+
+### The restore service: opt-in, per machine
+
+`ccy-sessions-restore.service` under `systemd --user` runs once at boot and starts each
+surviving session detached, in its own directory, with `--supervise --continue` — so the
+conversation resumes and the supervisor nudges it back to work. They then appear in
+`ccy-sessions` exactly like sessions a dead terminal left, and `ccy` in the project offers to
+attach.
+
+It is **off unless you ask for it**, because a laptop usually should not do this:
+
+```bash
+./playbooks/imports/play-claude-yolo.yml -e ccy_restore_sessions=true
+```
+
+Check where a machine stands — and these are deliberately different answers, not one shrug:
+
+```bash
+ccy-sessions restore-status
+```
+
+| It says                 | Meaning                                                                      |
+| ----------------------- | ---------------------------------------------------------------------------- |
+| `not-installed`         | restore was never set up here; run the play with the variable above          |
+| `installed-not-enabled` | the unit is present but disabled                                             |
+| `enabled-no-linger`     | enabled, but **it will not run at boot** — the user manager is not lingering |
+| `enabled`               | it will run                                                                  |
+
+The record count is reported **separately** from all of that, so "3 sessions are recorded but
+restore is not installed" is something the command can actually say.
+
+### What it refuses to restore, and why it tells you
+
+A restore is attempted **once**. The record is consumed before the session is started, so a
+session that crashes on startup cannot be restored over and over — and the consumed record is
+kept as evidence rather than deleted, with the reason inside it. Anything not restored is
+*retired with a named reason*:
+
+| Reason               | What happened                                                                                                                   |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `no-restore`         | started with `ccy --no-restore`                                                                                                 |
+| `directory-gone`     | the project directory no longer exists                                                                                          |
+| `not-a-git-checkout` | it exists but is not a git repository, so `ccy` would refuse to start                                                           |
+| `different-project`  | the directory was reused for another repository — its root commit differs, and `--continue` would resume the wrong conversation |
+| `stale`              | older than `CCY_RESTORE_MAX_AGE_DAYS` (default 7)                                                                               |
+| `malformed`          | the record failed validation and was quarantined rather than guessed at                                                         |
+
+A retired session is not lost work — the conversation is still in the project's
+`.claude/ccy/`. `cd` there and run `ccy --continue` yourself.
+
+### Restored sessions never wait on a question
+
+A detached tmux session still has a terminal attached to it, so `ccy`'s prompts would behave
+as though someone were watching — and with nobody to answer, a restored session would sit on
+the first one for ever while *appearing* in `ccy-sessions` as though it were running. That
+cannot happen: a restored launch runs with `CCY_UNATTENDED=1`, and any prompt reached under it
+is a hard failure naming the question it could not answer, visible in
+`journalctl --user -u ccy-sessions-restore`.
+
+Two decisions have an unattended answer and say so in the log rather than failing: the saved
+quick-launch configuration is accepted (it is the one the session was recorded with), and
+compose services are neither started nor stopped — bringing a project's service stack up at
+boot is your call, not the restore's.
+
+### Warning sessions before a reboot — not yet
+
+`ccy-sessions reboot --dry-run` works today and is useful on its own: it lists every running
+session, resolves each one's project, and reports whether each is ready to be warned —
+refusing outright if any project is missing its hooks-daemon CLI, rather than quietly leaving
+one session unwarned.
+
+Actually **raising** the warning does not work yet. It needs a `reboot-warning` signal kind
+and a CLI to raise it, both of which live in the hooks daemon
+([claude-code-hooks-daemon#39](https://github.com/Edmonds-Commerce-Limited/claude-code-hooks-daemon/issues/39))
+and do not exist. So `ccy-sessions reboot --in N` and `ccy-sessions notify` fail fast naming
+that issue: nothing is signalled and **nothing is rebooted**. A command that rebooted without
+warning anyone, while looking like it had warned them, would be worse than one that refuses.
+
+---
+
 ## The Security Model
 
 CCY disables Claude Code's permission prompts. That is a deliberate trade: instead of

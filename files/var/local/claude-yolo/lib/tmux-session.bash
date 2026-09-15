@@ -327,13 +327,24 @@ ccy_tmux_insulate() {
         attach-session -t "=$name"
 }
 
+# ccy_tmux_current_session — the name of the CCY session this process is running inside, on
+# stdout. Returns 1 when there is none: no tmux at all, or a tmux server that is not CCY's.
+# Both are ordinary states (a --headless run, a user's own tmux), so the refusal is silent and
+# the caller decides what it means.
+#
+# Any caller needing "which session am I" uses this rather than reading $TMUX again: the socket
+# comparison is the part that is easy to get subtly wrong, and it belongs in one place.
+ccy_tmux_current_session() {
+    [[ -n "${TMUX:-}" ]] || return 1
+    local socket="${TMUX%%,*}"
+    [[ "$(basename "$socket")" == "$CCY_TMUX_SOCKET" ]] || return 1
+    tmux display-message -p '#S'
+}
+
 # ccy_tmux_banner — inside a CCY session, one line on how to leave and come back. Silent in
 # a user's own tmux, whose sessions ccy does not manage.
 ccy_tmux_banner() {
-    [[ -n "${TMUX:-}" ]] || return 0
-    local socket="${TMUX%%,*}"
-    [[ "$(basename "$socket")" == "$CCY_TMUX_SOCKET" ]] || return 0
     local name
-    name=$(tmux display-message -p '#S') || return 1
+    name=$(ccy_tmux_current_session) || return 0
     echo "tmux session '$name': F12 then Detach leaves it running; ${CCY_TMUX_SESSION_PREFIX} here or ccy-sessions brings it back." >&2
 }

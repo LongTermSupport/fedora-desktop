@@ -1,6 +1,11 @@
 # Claude Code Hooks Daemon
-# Exclude the cloned daemon repository (users install it themselves)
-/hooks-daemon/
+# Exclude the cloned daemon repository (users install it themselves).
+#
+# No trailing slash, deliberately: a trailing slash matches a DIRECTORY only, and in a git
+# worktree the daemon tree is commonly a symlink to the install the main checkout holds —
+# which git does not treat as a directory, so it showed up as untracked and one `git add -A`
+# away from committing an absolute path outside the repository into this PUBLIC repo.
+/hooks-daemon
 
 # Backup directories created during installation
 hooks.bak/
