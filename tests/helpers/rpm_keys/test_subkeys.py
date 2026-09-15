@@ -51,12 +51,19 @@ GOOGLE_ENVELOPE = f"gpg-pubkey-{SHORT}-5713b0fd"
 ARMOUR = "-----BEGIN PGP PUBLIC KEY BLOCK-----\nmQENBFcA\n-----END PGP PUBLIC KEY BLOCK-----\n"
 
 
+def _sub(key_id: str, *, validity: str = "-", caps: str = "s") -> str:
+    """One `sub:` record. Field 2 is gpg's validity (`e` = expired, `r` = revoked)
+    and field 12 its capabilities (`s` = can sign) — both are read, because a subkey
+    that cannot sign today is not one whose absence explains an install failing."""
+    return f"sub:{validity}:4096:1:{key_id}:1460440275::::::{caps}::::::23:"
+
+
 def _colons(primary: str | None, subs: list[str]) -> str:
     """`gpg --show-keys --with-colons` output, reduced to the fields read."""
     if primary is None:
         return ""
     lines = [f"pub:-:4096:1:{primary}:1460440275:::-:::scSC::::::23::0:"]
-    lines += [f"sub:-:4096:1:{sub}:1460440275::::::s::::::23:" for sub in subs]
+    lines += [_sub(sub) for sub in subs]
     return "\n".join(lines) + "\n"
 
 
@@ -86,6 +93,12 @@ class FakeRunner:
 
     def __call__(self, argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
         self.calls.append(list(argv))
+        # The fail-fast rule requires an explicit `check=True` on every call here, and
+        # a fake that ignores it lets the helper silently drop it — every "a failing
+        # command raises" case below would keep passing while production swallowed the
+        # failure. So the fake enforces what it is standing in for.
+        if kwargs.get("check") is not True:
+            raise AssertionError(f"subprocess call without check=True: {argv}")
         if argv[0] in self.fail:
             raise subprocess.CalledProcessError(2, argv, output="", stderr="boom")
         if argv[0] == "gpg":
@@ -118,6 +131,8 @@ class StagedRunner(FakeRunner):
     def __call__(self, argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
         if argv[0] == "gpg":
             self.calls.append(list(argv))
+            if kwargs.get("check") is not True:
+                raise AssertionError(f"subprocess call without check=True: {argv}")
             if not self.answers:
                 raise AssertionError(f"gpg was called more times than staged: {argv}")
             return subprocess.CompletedProcess(argv, 0, self.answers.pop(0), "")
@@ -151,6 +166,31 @@ class TestKeyIds(unittest.TestCase):
         text = _colons(PRIMARY, [SIGNER]) + _colons("DEADBEEFDEADBEEF", ["AAAABBBBCCCCDDDD"])
         self.assertEqual(subkeys.key_ids(text)["primary"], PRIMARY)
 
+    def test_a_second_certificate_does_not_donate_its_subkeys_to_the_first(self) -> None:
+        """THE forever-refresh bug. Reading the primary from the first certificate but
+        accumulating `sub:` records from ALL of them attributes the second key's
+        subkeys to the first. The installed key can then never hold them, so every run
+        reports a refresh, erases and re-imports — the exact churn the gate exists to
+        prevent. A vendor rotating a primary ships precisely this two-cert bundle."""
+        text = _colons(PRIMARY, [SIGNER]) + _colons("DEADBEEFDEADBEEF", ["AAAABBBBCCCCDDDD"])
+        self.assertEqual(subkeys.key_ids(text)["subkeys"], {SIGNER})
+
+    def test_an_expired_subkey_is_not_counted(self) -> None:
+        """Five of Google's eight subkeys are expired. A host missing only those is not
+        a host that cannot verify what the repo ships, so refreshing for them would be
+        churn justified by a reason that is not true."""
+        text = f"pub:-:4096:1:{PRIMARY}:1:::-:::scSC::::::23::0:\n{_sub(SIGNER)}\n{_sub(OLD_SUBKEY, validity='e')}\n"
+        self.assertEqual(subkeys.key_ids(text)["subkeys"], {SIGNER})
+
+    def test_a_revoked_subkey_is_not_counted(self) -> None:
+        text = f"pub:-:4096:1:{PRIMARY}:1:::-:::scSC::::::23::0:\n{_sub(SIGNER)}\n{_sub(OLD_SUBKEY, validity='r')}\n"
+        self.assertEqual(subkeys.key_ids(text)["subkeys"], {SIGNER})
+
+    def test_a_subkey_that_cannot_sign_is_not_counted(self) -> None:
+        """An encryption subkey has no bearing on whether a package verifies."""
+        text = f"pub:-:4096:1:{PRIMARY}:1:::-:::scSC::::::23::0:\n{_sub(SIGNER)}\n{_sub(OLD_SUBKEY, caps='e')}\n"
+        self.assertEqual(subkeys.key_ids(text)["subkeys"], {SIGNER})
+
 
 class TestShortId(unittest.TestCase):
     """rpm names a `gpg-pubkey` package after the SHORT id — the last 8 hex digits of
@@ -170,48 +210,91 @@ class TestShortId(unittest.TestCase):
             subkeys.short_id("ABC")
 
 
+def _key(envelope: str, primary: str | None, subs: set[str]) -> subkeys.InstalledKey:
+    return subkeys.InstalledKey(envelope=envelope, primary=primary, subkeys=frozenset(subs))
+
+
 class TestNeedsRefresh(unittest.TestCase):
-    """The decision itself, over the states an installed key can be in."""
+    """The decision itself, over the states an installed key can be in.
+
+    It takes the FULL list of packages found at the published key's id, because the
+    erase set it returns is what `rpm --erase` is pointed at. Checking one and erasing
+    all would put an unexamined package under a destructive command."""
 
     def test_a_subkey_present_in_published_but_not_installed_needs_refresh(self) -> None:
         """THE case from issue #45: same primary, the signing subkey missing."""
         verdict = subkeys.needs_refresh(
-            installed={"primary": PRIMARY, "subkeys": {OLD_SUBKEY}},
+            installed=[_key(GOOGLE_ENVELOPE, PRIMARY, {OLD_SUBKEY})],
             published={"primary": PRIMARY, "subkeys": {OLD_SUBKEY, SIGNER}},
         )
         self.assertTrue(verdict.refresh)
         self.assertEqual(verdict.action, "refresh")
         self.assertIn(SIGNER, verdict.reason)
+        self.assertEqual(verdict.stale, (GOOGLE_ENVELOPE,))
 
     def test_an_identical_key_does_not_need_refresh(self) -> None:
-        both = {"primary": PRIMARY, "subkeys": {OLD_SUBKEY, SIGNER}}
-        verdict = subkeys.needs_refresh(installed=dict(both), published=dict(both))
+        verdict = subkeys.needs_refresh(
+            installed=[_key(GOOGLE_ENVELOPE, PRIMARY, {OLD_SUBKEY, SIGNER})],
+            published={"primary": PRIMARY, "subkeys": {OLD_SUBKEY, SIGNER}},
+        )
         self.assertFalse(verdict.refresh)
         self.assertFalse(verdict.import_missing)
         self.assertEqual(verdict.action, "none")
+        self.assertEqual(verdict.stale, ())
 
     def test_an_absent_installed_key_is_an_import_not_a_refresh(self) -> None:
         """Nothing installed is an import, not a refresh — and the play must not try to
         remove a key that is not there. Distinct answers, because the remedies differ."""
         verdict = subkeys.needs_refresh(
-            installed={"primary": None, "subkeys": set()},
-            published={"primary": PRIMARY, "subkeys": {SIGNER}},
+            installed=[], published={"primary": PRIMARY, "subkeys": {SIGNER}}
         )
         self.assertFalse(verdict.refresh)
         self.assertTrue(verdict.import_missing)
         self.assertEqual(verdict.action, "import")
+        self.assertEqual(verdict.stale, ())
 
     def test_a_key_at_this_id_that_is_not_ours_is_imported_not_removed(self) -> None:
         """Short ids are 8 hex digits and are not unique. A key sitting at the same id
         with a different primary is somebody else's, so our key is simply absent —
-        and `rpm -e` must not be pointed at a stranger's key to make room."""
+        and the erase must not be pointed at a stranger's key to make room."""
         verdict = subkeys.needs_refresh(
-            installed={"primary": "DEADBEEFD38B4796", "subkeys": {OLD_SUBKEY}},
+            installed=[_key("gpg-pubkey-d38b4796-aaaaaaaa", "DEADBEEFD38B4796", {OLD_SUBKEY})],
             published={"primary": PRIMARY, "subkeys": {SIGNER}},
         )
         self.assertFalse(verdict.refresh)
         self.assertTrue(verdict.import_missing)
         self.assertIn("DEADBEEFD38B4796", verdict.reason)
+        self.assertEqual(verdict.stale, ())
+
+    def test_a_stranger_beside_a_stale_key_of_ours_is_not_erased(self) -> None:
+        """The demonstrated break. Two packages sit at the same short id; ours is stale
+        so a refresh is right, but the erase set must name ONLY ours. Checking the
+        first and erasing both would destroy a key nobody examined."""
+        stranger = "gpg-pubkey-d38b4796-bbbbbbbb"
+        verdict = subkeys.needs_refresh(
+            installed=[
+                _key(stranger, "DEADBEEFD38B4796", {OLD_SUBKEY}),
+                _key(GOOGLE_ENVELOPE, PRIMARY, {OLD_SUBKEY}),
+            ],
+            published={"primary": PRIMARY, "subkeys": {OLD_SUBKEY, SIGNER}},
+        )
+        self.assertTrue(verdict.refresh)
+        self.assertEqual(verdict.stale, (GOOGLE_ENVELOPE,))
+        self.assertNotIn(stranger, verdict.stale)
+
+    def test_only_the_deficient_copy_of_our_key_is_erased(self) -> None:
+        """An upgraded host can hold two packages for the same key. The current one is
+        not a problem and erasing it would be churn with a destructive verb."""
+        current = "gpg-pubkey-d38b4796-cccccccc"
+        verdict = subkeys.needs_refresh(
+            installed=[
+                _key(current, PRIMARY, {OLD_SUBKEY, SIGNER}),
+                _key(GOOGLE_ENVELOPE, PRIMARY, {OLD_SUBKEY}),
+            ],
+            published={"primary": PRIMARY, "subkeys": {OLD_SUBKEY, SIGNER}},
+        )
+        self.assertTrue(verdict.refresh)
+        self.assertEqual(verdict.stale, (GOOGLE_ENVELOPE,))
 
     def test_an_unreadable_published_key_refuses_rather_than_deciding(self) -> None:
         """A published key that could not be read is not evidence the installed one is
@@ -219,7 +302,7 @@ class TestNeedsRefresh(unittest.TestCase):
         probe that failed — and would leave the host unable to install anything."""
         with self.assertRaises(ValueError):
             subkeys.needs_refresh(
-                installed={"primary": PRIMARY, "subkeys": {SIGNER}},
+                installed=[_key(GOOGLE_ENVELOPE, PRIMARY, {SIGNER})],
                 published={"primary": None, "subkeys": set()},
             )
 
@@ -227,7 +310,7 @@ class TestNeedsRefresh(unittest.TestCase):
         """A key holding MORE than the published file is old-but-sufficient, or a
         published file mid-rotation. Nothing needed for verification is missing."""
         verdict = subkeys.needs_refresh(
-            installed={"primary": PRIMARY, "subkeys": {OLD_SUBKEY, SIGNER, "AAAABBBBCCCCDDDD"}},
+            installed=[_key(GOOGLE_ENVELOPE, PRIMARY, {OLD_SUBKEY, SIGNER, "AAAABBBBCCCCDDDD"})],
             published={"primary": PRIMARY, "subkeys": {OLD_SUBKEY, SIGNER}},
         )
         self.assertFalse(verdict.refresh)
@@ -297,47 +380,50 @@ class TestReport(unittest.TestCase):
     """The marker lines the play parses. The play keys `changed_when` and an `rpm -e`
     loop off these, so their shape is a contract, not formatting."""
 
-    def _report(self, verdict: subkeys.Verdict, envelopes: list[str]) -> list[str]:
+    def _report(self, verdict: subkeys.Verdict) -> list[str]:
         out = io.StringIO()
-        subkeys.report(verdict=verdict, envelopes=envelopes, stdout=out)
+        subkeys.report(verdict=verdict, stdout=out)
         return out.getvalue().splitlines()
 
     def test_a_refresh_names_every_envelope_to_remove(self) -> None:
+        second = f"gpg-pubkey-{SHORT}-4615767f"
         lines = self._report(
-            subkeys.Verdict(refresh=True, import_missing=False, reason="stale"),
-            [GOOGLE_ENVELOPE, f"gpg-pubkey-{SHORT}-4615767f"],
+            subkeys.Verdict(
+                refresh=True,
+                import_missing=False,
+                reason="stale",
+                stale=(GOOGLE_ENVELOPE, second),
+            )
         )
         self.assertIn(f"{subkeys.ACTION_MARKER} refresh", lines)
         self.assertEqual(
             [line for line in lines if line.startswith(subkeys.ENVELOPE_MARKER)],
             [
                 f"{subkeys.ENVELOPE_MARKER} {GOOGLE_ENVELOPE}",
-                f"{subkeys.ENVELOPE_MARKER} gpg-pubkey-{SHORT}-4615767f",
+                f"{subkeys.ENVELOPE_MARKER} {second}",
             ],
         )
 
-    def test_an_action_of_import_names_no_envelope_even_when_one_is_installed(self) -> None:
+    def test_an_action_of_import_names_no_envelope(self) -> None:
         """`import` covers the stranger-at-the-same-id case, where a key IS installed
-        and must be left alone. Printing it would hand the play a removal target for
+        and must be left alone. Naming it would hand the play a removal target for
         somebody else's key."""
         lines = self._report(
-            subkeys.Verdict(refresh=False, import_missing=True, reason="not ours"),
-            [GOOGLE_ENVELOPE],
+            subkeys.Verdict(refresh=False, import_missing=True, reason="not ours")
         )
         self.assertIn(f"{subkeys.ACTION_MARKER} import", lines)
         self.assertFalse([line for line in lines if line.startswith(subkeys.ENVELOPE_MARKER)])
 
     def test_no_action_names_no_envelope(self) -> None:
         lines = self._report(
-            subkeys.Verdict(refresh=False, import_missing=False, reason="current"),
-            [GOOGLE_ENVELOPE],
+            subkeys.Verdict(refresh=False, import_missing=False, reason="current")
         )
         self.assertIn(f"{subkeys.ACTION_MARKER} none", lines)
         self.assertFalse([line for line in lines if line.startswith(subkeys.ENVELOPE_MARKER)])
 
     def test_the_reason_is_carried_on_its_own_line(self) -> None:
         lines = self._report(
-            subkeys.Verdict(refresh=False, import_missing=False, reason="the key is fine"), []
+            subkeys.Verdict(refresh=False, import_missing=False, reason="the key is fine")
         )
         self.assertIn(f"{subkeys.REASON_MARKER} the key is fine", lines)
 
@@ -385,6 +471,28 @@ class TestMain(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn(f"{subkeys.ACTION_MARKER} import", lines)
         self.assertFalse([line for line in lines if line.startswith(subkeys.ENVELOPE_MARKER)])
+
+    def test_a_stranger_beside_our_stale_key_is_read_and_spared(self) -> None:
+        """End to end over the second demonstrated break. Two packages at the same short
+        id: gpg must be asked about BOTH — one query per envelope plus the published
+        key — and only ours may reach the erase list."""
+        stranger = f"gpg-pubkey-{SHORT}-bbbbbbbb"
+        runner = StagedRunner(
+            listing=f"{stranger}\n{GOOGLE_ENVELOPE}\n",
+            armour=ARMOUR,
+            answers=[
+                _colons(PRIMARY, [OLD_SUBKEY, SIGNER]),   # the published key
+                _colons("DEADBEEFD38B4796", [OLD_SUBKEY]),  # the stranger
+                _colons(PRIMARY, [OLD_SUBKEY]),            # ours, stale
+            ],
+        )
+        code, lines = self._run(runner)
+        self.assertEqual(code, 0)
+        self.assertIn(f"{subkeys.ACTION_MARKER} refresh", lines)
+        self.assertIn(f"{subkeys.ENVELOPE_MARKER} {GOOGLE_ENVELOPE}", lines)
+        self.assertNotIn(f"{subkeys.ENVELOPE_MARKER} {stranger}", lines)
+        described = [c for c in runner.calls if "%{description}" in c]
+        self.assertEqual(len(described), 2, "both envelopes must be read, not just the first")
 
     def test_the_listing_is_matched_against_the_published_key_id(self) -> None:
         """Nothing in the invocation names Google. The id comes out of the published

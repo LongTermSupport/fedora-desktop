@@ -44,7 +44,7 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, TextIO
 
@@ -64,14 +64,25 @@ _LISTING_FORMAT = "%{name}-%{version}-%{release}\n"
 #: How many hex digits rpm uses to name a `gpg-pubkey` package.
 _SHORT_ID_LENGTH = 8
 
+#: gpg validity codes for a key that cannot sign anything now — expired, revoked,
+#: invalid, disabled. Its absence from an installed copy explains no install failure.
+_UNUSABLE_VALIDITY = frozenset({"e", "r", "i", "d"})
+
 
 @dataclass(frozen=True)
 class Verdict:
-    """What the play should do about this key."""
+    """What the play should do about this key.
+
+    `stale` is the erase list, and it is part of the verdict rather than something the
+    caller assembles alongside it. Those were separate once, and the erase list then
+    held every package found at the key's id while only the first had been identity-
+    checked — so a package nobody had examined reached a destructive command.
+    """
 
     refresh: bool
     import_missing: bool
     reason: str
+    stale: tuple[str, ...] = ()
 
     @property
     def action(self) -> str:
@@ -82,8 +93,32 @@ class Verdict:
         return "none"
 
 
+@dataclass(frozen=True)
+class InstalledKey:
+    """One `gpg-pubkey` package found at the published key's id, and what it holds."""
+
+    envelope: str
+    primary: str | None
+    subkeys: frozenset[str]
+
+
 def key_ids(colons: str) -> dict[str, Any]:
-    """The primary id and every subkey id, from `gpg --show-keys --with-colons`.
+    """The FIRST certificate's primary id and its usable signing subkeys.
+
+    From `gpg --show-keys --with-colons`, whose records are `type:validity:len:algo:
+    keyid:created:expires:…:capabilities:` — fields 1, 2, 5 and 12 are read.
+
+    **One certificate, not the whole file.** A key file can hold several, and a vendor
+    rotating a primary ships exactly that: a transitional bundle. Reading the primary
+    from the first certificate while accumulating subkeys from all of them attributes
+    the second key's subkeys to the first, which no installed copy can ever hold — so
+    every run reports a refresh, erases and re-imports, for ever. That is the precise
+    churn this module exists to prevent, so parsing stops at the second `pub`.
+
+    **Only subkeys that could sign this package.** Expired and revoked ones are
+    skipped, as are subkeys with no signing capability. Five of Google's eight are
+    expired; a host missing only those is not a host that cannot verify what the repo
+    ships, and refreshing for them would be churn justified by a reason that is false.
 
     An absent primary is reported as `None` rather than as an empty string: gpg
     printing nothing means the key could not be read, and a key that could not be
@@ -94,11 +129,15 @@ def key_ids(colons: str) -> dict[str, Any]:
     subs: set[str] = set()
     for line in colons.splitlines():
         fields = line.split(":")
-        if len(fields) < 5:
+        if len(fields) < 12:
             continue
-        if fields[0] == "pub" and primary is None:
+        if fields[0] == "pub":
+            if primary is not None:
+                break
             primary = fields[4]
-        elif fields[0] == "sub":
+        elif fields[0] == "sub" and primary is not None:
+            if fields[1] in _UNUSABLE_VALIDITY or "s" not in fields[11]:
+                continue
             subs.add(fields[4])
     return {"primary": primary, "subkeys": subs}
 
@@ -180,8 +219,15 @@ def key_armour(envelope: str, *, run: Runner = subprocess.run) -> str:
     return result.stdout
 
 
-def needs_refresh(*, installed: dict[str, Any], published: dict[str, Any]) -> Verdict:
-    """Compare an installed key against the published one.
+def needs_refresh(
+    *, installed: Sequence[InstalledKey], published: dict[str, Any]
+) -> Verdict:
+    """Decide what to do, given EVERY package found at the published key's id.
+
+    It takes the whole list rather than one key because the erase set is its output,
+    and identity-checking one package while erasing all of them puts an unexamined
+    package under a destructive command. Each is matched against the published primary
+    here, and only those that match can ever appear in `stale`.
 
     Raises when the PUBLISHED key could not be read. That is not a state to hold an
     opinion from: it is not evidence the installed key is fine, and answering
@@ -194,27 +240,36 @@ def needs_refresh(*, installed: dict[str, Any], published: dict[str, Any]) -> Ve
             "the published key could not be read, so whether the installed key is "
             "still sufficient cannot be determined; refusing to answer"
         )
-    if not installed["primary"]:
+
+    # Short ids are 8 hex digits and are not unique, so a package sitting at this id
+    # with a different primary belongs to somebody else. It is not ours to remove, and
+    # it is not evidence ours is present either.
+    ours = [key for key in installed if key.primary == published["primary"]]
+    strangers = [key for key in installed if key.primary != published["primary"]]
+
+    if not ours:
+        if strangers:
+            found = ", ".join(f"{k.envelope} ({k.primary})" for k in strangers)
+            return Verdict(
+                refresh=False,
+                import_missing=True,
+                reason=(
+                    f"no key with the published primary {published['primary']} is "
+                    f"installed; what sits at this id is {found}, which is not ours "
+                    "to remove"
+                ),
+            )
         return Verdict(
             refresh=False,
             import_missing=True,
             reason="no matching key is installed; it needs importing, not refreshing",
         )
-    if installed["primary"] != published["primary"]:
-        # Short ids are 8 hex digits and are not unique. A key at this id with a
-        # different primary belongs to somebody else, so OUR key is simply absent —
-        # and `rpm -e` must never be pointed at a stranger's key to make room.
-        return Verdict(
-            refresh=False,
-            import_missing=True,
-            reason=(
-                f"the key installed at this id is {installed['primary']}, not the "
-                f"published {published['primary']}; ours is not installed and the "
-                "one that is there is not ours to remove"
-            ),
-        )
-    missing = sorted(published["subkeys"] - installed["subkeys"])
-    if missing:
+
+    # Only the deficient copies. A current one alongside them is not a problem, and
+    # erasing it would be churn carried out with a destructive verb.
+    deficient = [key for key in ours if published["subkeys"] - key.subkeys]
+    if deficient:
+        missing = sorted({sub for key in deficient for sub in published["subkeys"] - key.subkeys})
         return Verdict(
             refresh=True,
             import_missing=False,
@@ -222,25 +277,26 @@ def needs_refresh(*, installed: dict[str, Any], published: dict[str, Any]) -> Ve
                 f"the installed key is missing signing subkey(s) {', '.join(missing)}, "
                 "so it cannot verify what the repo now ships"
             ),
+            stale=tuple(key.envelope for key in deficient),
         )
+
     # An installed key holding MORE than the published file is not a problem:
     # nothing needed for verification is absent. That happens mid-rotation, and
     # treating it as drift would remove a working key to install a smaller one.
     return Verdict(refresh=False, import_missing=False, reason="the installed key is current")
 
 
-def report(*, verdict: Verdict, envelopes: list[str], stdout: TextIO) -> None:
+def report(*, verdict: Verdict, stdout: TextIO) -> None:
     """Write the marker lines the play parses.
 
-    Envelopes are printed ONLY on a `refresh`. They are a removal list, and on every
-    other verdict the installed key must be left alone — `import` covers both a host
-    with nothing installed and a host whose key at this id is not ours, and the
-    second of those has an envelope that naming here would put under `rpm -e`.
+    The envelope lines come from the verdict's own erase set, which is empty on every
+    action but `refresh`. Nothing here re-derives which packages to name — that
+    decision belongs to `needs_refresh`, which is the only thing that checked their
+    identity.
     """
     stdout.write(f"{ACTION_MARKER} {verdict.action}\n")
-    if verdict.refresh:
-        for envelope in envelopes:
-            stdout.write(f"{ENVELOPE_MARKER} {envelope}\n")
+    for envelope in verdict.stale:
+        stdout.write(f"{ENVELOPE_MARKER} {envelope}\n")
     stdout.write(f"{REASON_MARKER} {verdict.reason}\n")
 
 
@@ -261,14 +317,23 @@ def main(
             "installed key is still sufficient cannot be determined"
         )
 
-    envelopes = installed_envelopes(short_id(published["primary"]), run=run)
-    if envelopes:
-        installed = read_armour(key_armour(envelopes[0], run=run), run=run)
-    else:
-        installed = {"primary": None, "subkeys": set()}
+    # EVERY envelope is read, not just the first. The verdict's erase set becomes an
+    # argument to `rpm --erase`, so a package that was never opened must not be able
+    # to reach it — and an upgraded host holding two packages at one id is the
+    # expected state, not an exotic one.
+    installed = []
+    for envelope in installed_envelopes(short_id(published["primary"]), run=run):
+        ids = read_armour(key_armour(envelope, run=run), run=run)
+        installed.append(
+            InstalledKey(
+                envelope=envelope,
+                primary=ids["primary"],
+                subkeys=frozenset(ids["subkeys"]),
+            )
+        )
 
     verdict = needs_refresh(installed=installed, published=published)
-    report(verdict=verdict, envelopes=envelopes, stdout=stdout or sys.stdout)
+    report(verdict=verdict, stdout=stdout or sys.stdout)
     return 0
 
 

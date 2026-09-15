@@ -82,7 +82,37 @@ idempotent.
   run the helper, remove what it names, re-import.
 - [x] ✅ **Task 3.2**: Point the repo's `gpgkey` at the local copy, so dnf validates
   against the same bytes the play reasoned about.
-- [ ] ⬜ **Task 3.3**: QA green, commit, push.
+- [x] ✅ **Task 3.3**: Declare `gnupg2`, which both the key check and `rpm_key` itself
+  hard-require and nothing in the repo installed — in this play and in
+  `play-nvidia.yml`, which has the same `rpm_key` call and runs independently.
+- [x] ✅ **Task 3.4**: A post-condition. The play re-asks the helper after the import
+  and requires `none`, so a refresh that did not take is loud on the first run
+  rather than an invisible erase-and-reimport loop reporting green.
+- [x] ✅ **Task 3.5**: QA green, commit, push.
+
+### Phase 3b: Review findings
+
+`qa-reviewer` returned FIX-BEFORE-MERGE on `8efed4dd`+`b6e6f395`; both safety claims
+this plan makes were demonstrably breakable. Report:
+`untracked/agent-reports/260915-review-00124-opus-5.md` (untracked — raw agent output).
+
+- [x] ✅ **Task 3b.1**: A two-certificate published key made the helper refresh, erase
+  and re-import **for ever** — the primary was read from the first certificate
+  while subkeys accumulated from all of them. Parsing now stops at the second
+  `pub`. This is the exact churn the gate exists to prevent, and a vendor rotating
+  a primary ships precisely that bundle.
+- [x] ✅ **Task 3b.2**: The erase set was identity-checked for its FIRST member only,
+  so a second package at the same short id was erased unexamined. `needs_refresh`
+  now takes every package found at the id and owns the erase set, so only keys
+  whose primary matches the published one can appear in it.
+- [x] ✅ **Task 3b.3**: Expired and non-signing subkeys were counted. Five of Google's
+  eight are expired; a host missing only those cannot fail for that reason, so
+  refreshing would be churn justified by a false reason. gpg's validity and
+  capability fields are now read.
+- [ ] ⬜ **Task 3b.4**: `triage.bash` — its three-outcome probe reports "ran cleanly
+  and found nothing" as `COMMAND FAILED` for every grep-terminated probe, and it
+  ignores `CLAUDE/PlanScriptStandards.md` R1/R2/R4/R7/R9/R10 with no exception
+  annotation. Being reworked to the library, and repointed at Task 4.2.
 
 ### Phase 4: Confirm on the affected host
 

@@ -323,7 +323,8 @@ gh-personal issue list
 **Purpose**: Additional browsers\
 **Actions**:
 
-- Installs Chromium and other browsers from DNF/Flatpak
+- Installs Google Chrome, Brave and Vivaldi from their vendor DNF repositories. Pure
+  Chromium is deliberately excluded — it has no Widevine, so DRM streaming stays broken
 
 ### play-toolbox-install.yml
 
