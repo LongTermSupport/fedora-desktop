@@ -128,6 +128,12 @@ this plan makes were demonstrably breakable. Report:
   by the owner — the key check cleared and the run carried on past Chrome. This
   is the first end-to-end proof of the rpm half, which no container can give.
 - [ ] ⬜ **Task 4.2**: A second run reports the key tasks as **ok**, not changed.
+  `triage.bash` section 2 answers this without needing the run watched: it reads the
+  installed `gpg-pubkey-d38b4796-*` envelopes, confirms each carries
+  `FD533C07C264648F`, and compares the deployed key file byte-for-byte against what
+  Google publishes now. A table in the report maps each fact to the play task it
+  predicts. Run it, then run the play — agreement is the evidence, rather than a
+  human watching two runs and remembering what the first said.
 - [ ] ⬜ **Task 4.3**: `qa-reviewer` agent, then close issue #45.
 
 ## Success Criteria
