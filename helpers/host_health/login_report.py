@@ -356,9 +356,11 @@ def main(
             pins=check_pins.declared_pins(arguments.repo_root),
             playbook_text=lambda relative: _read(arguments.repo_root, relative),
             dkms_status=lambda: dkms_text(probe.run_probe),
-            # A pin belongs to a play, and a play this host has never run installs
-            # nothing here for the pin to be about. Without this, a server reports
-            # "evdi_version: pinned 1.15.0, nothing installed" at every single login.
+            # The two things this host knows about itself. `dkms_registered` decides
+            # whether a DKMS-resolved pin is answerable here at all; `ran_plays`
+            # disambiguates one verdict, "nothing installed", which means something
+            # different on a host that ran the play and one that never did.
+            dkms_registered=probe.dkms_registered_modules(),
             ran_plays=plays_run_here(base),
         ),
     )

@@ -104,15 +104,30 @@ def dkms_registered_modules(state_dir: str = DKMS_STATE_DIR) -> list[str] | None
     for is a host where the command is not installed, so anything that shells out to it
     has already lost.
     """
+    names: list[str] = []
     try:
-        entries = os.listdir(state_dir)
+        with os.scandir(state_dir) as entries:
+            for entry in entries:
+                # `os.path.isdir` answers False for anything it cannot stat, so a
+                # partial read would render as `[]` — the one answer that buys silence,
+                # reached without anyone establishing absence. Per-entry failures are
+                # therefore "could not tell", exactly as the directory's own are.
+                try:
+                    if entry.is_dir():
+                        names.append(entry.name)
+                    elif entry.is_symlink():
+                        # `DirEntry.is_dir` swallows FileNotFoundError, so a symlink
+                        # that does not resolve has just read as "not a module". DKMS
+                        # keeps its module trees here, so something link-shaped among
+                        # them leaves the question open rather than answering "none".
+                        return None
+                except OSError:
+                    return None
     except FileNotFoundError:
         return []
     except OSError:
         return None
-    return sorted(
-        name for name in entries if os.path.isdir(os.path.join(state_dir, name))
-    )
+    return sorted(names)
 
 
 def running_kernel() -> str:

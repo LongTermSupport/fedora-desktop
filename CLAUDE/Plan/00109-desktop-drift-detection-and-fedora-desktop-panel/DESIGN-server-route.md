@@ -120,16 +120,32 @@ tree.
   The command absent *with* trees registered is reported, and is a worse state than
   either half, since nothing will rebuild them for the next kernel. An unreadable state
   directory answers `None` and still reports: "we could not tell" is not "it is fine".
-- **The pin check.** `evdi_version` is a DisplayLink pin, and `compare.classify` answers
-  an unresolvable install with `ABSENT` — *"pinned 1.15.0, nothing installed"* — a
-  permanent fault nobody can act on. Applicability now comes from the play ledger:
-  **a pin belongs to a play, and a play this host has never run installs nothing here for
-  the pin to be about.** That is Task 1.3's rule, applied to the axis that had missed it.
-  An unreadable ledger keeps every pin applicable, and the ledger's own emptiness is
-  `ledger_presence`'s finding, so nothing goes quiet unreported.
+- **The pin check.** On a server `dkms()` raises "command not found", so every
+  DKMS-resolved pin became *"could not be checked"* for ever. A DKMS-kind pin on a host
+  with **no DKMS subsystem** is not answerable here, and that is an answer — driven by
+  the same `dkms_registered_modules()` tri-state as the probe, so the two cannot disagree
+  about whether this host has DKMS.
 
-The zero-coverage guard counts **applicable** pins, otherwise it would replace the noise
-the filter just removed.
+### 5.1 The first answer to the pin half silenced the founding incident
+
+Applicability was first taken from the play ledger for the whole population: a pin
+belongs to a play, so a play this host has never run installs nothing for the pin to
+describe. Round 2 of the review drove it across five ledger states and found the cost.
+**Task 1.3 chose no backfill**, so no host has a `play-displaylink.yml` record until that
+play next runs — and on every such host `evdi_version (behind): pinned 1.15.0, installed 1.14.16`, the 2026-09-11 state exactly, stopped being reported. Worse, a ledger with rows
+but no pinned play left the population empty, which skipped the zero-coverage guard
+entirely and produced no output at all: indistinguishable from every pin matching.
+
+Task 1.3's rule was derived for the **freshness** axis, where "has this play been run
+here" is the whole question. On the install-state axis it is not: an installed version
+that disagrees with the pin is drift whatever the ledger has seen. Transplanting a rule
+is not the same as deriving one.
+
+So the ledger acts on **one verdict**, not on the population. `ABSENT` — *"pinned X,
+nothing installed"* — is a fault on a host that ran the play and expected on one that
+never did. `BEHIND`, `AHEAD` and `UNDETERMINED` all mean the software is present and was
+compared, so no ledger state can make them uninteresting, and the zero-coverage guard
+counts the whole manifest again, which is what it was always about.
 
 ## 6. What the server checkout must provide
 
@@ -144,3 +160,19 @@ That is a **true** finding with an operator-side remedy, not noise, so it is doc
 rather than silenced: give the checkout a remote it can fetch anonymously, or a key usable
 without an agent. Deliberately no `Environment=SSH_AUTH_SOCK` in the unit — pointing at a
 socket that may not exist would trade a clear finding for a confusing one.
+
+`fetch_clock.offline_finding(last=None)` fires on the **first** login, not after seven
+days, so on a server whose fetch never works the line is permanent from the start. The
+HOST item therefore confirms the remote rather than assuming it.
+
+## 7. What each branch of the merged play removes
+
+A provisioning profile is not immutable — `-e provisioning_profile=…` is the documented
+override and a typo is corrected on the next run. Neither branch removing the other's
+artefacts would leave both deliveries installed: two collections and two reports, or a
+`notify-send` unit sitting on a box with no session bus.
+
+So each branch removes the other's unit files **and their `.wants/` symlinks** — enabling
+a unit writes a symlink that outlives the unit file, so deleting the file alone does not
+undo the enable. `state: absent` is used rather than asking systemd, because it is
+idempotent and cannot fail on a host that never had them.

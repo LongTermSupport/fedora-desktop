@@ -487,3 +487,123 @@ place to close it, with `state: absent` / `enabled: false` on the other profile'
   `version-pins: COVERAGE: 9 of 9`.
 - The six snippet mutants are asserted by the commit message; I did not re-kill them, as
   that needs mutating tracked files.
+
+---
+
+# Round 4 — verification of `2790e163` (the demotion)
+
+**Verdict**: R2-1 is fixed properly. Demotion was the right choice over rewording.
+`qa-all.bash` green, 876 files.
+
+## The fix, demonstrated
+
+Same document, rendered both ways:
+
+```
+=== AFTER A REBOOT (kernel mismatch) ===
+fedora-desktop: this machine needs attention
+  - play-podman.yml has changed since it was run here
+  Not checked — these are NOT clean results, nothing is known about them:
+  - these results were collected under kernel 7.1.9-… and this host is now running
+    7.2.4-…, so the post-boot checks describe a different boot and nothing has looked
+    at the kernel you are on
+  - evdi: no DKMS module installed for the running kernel 7.1.9-…
+  - foo.service (system): failed
+  - some pin could not be checked
+
+=== SAME DOCUMENT, SAME BOOT ===
+fedora-desktop: this machine needs attention
+  - evdi: no DKMS module installed for the running kernel 7.1.9-…
+  - foo.service (system): failed
+  - play-podman.yml has changed since it was run here
+  Not checked — …
+  - some pin could not be checked
+```
+
+Everything claimed holds: only the boot-scoped section moves; `play-freshness` keeps its
+fault; the explanation is `insert(0)`-ed so it precedes what it explains; the no-mismatch
+path is byte-identical to before. The corrected
+`test_it_is_reported_alongside_real_findings_not_instead_of_them` now uses a *surviving*
+section's finding, which is the property that was actually meant.
+
+## `BOOT_SCOPED_SECTION`'s placement — confirmed sound
+
+Checked rather than accepted. `helpers/gnome/check_panel_contract.py:115-117` derives
+`section_ids()` from `inspect.signature(login_report.collect_sections)` and the dict it
+returns, and `login_report.HEALTH` now reads `status_document.BOOT_SCOPED_SECTION`. So
+renaming the constant propagates into the produced section key, and the panel gate then
+demands the panel mention the new id. Producer and consumer cannot drift apart silently,
+which is the reason the constant moved. No contract hole created.
+
+## Your question: fix the root cause at the producer?
+
+**No — and the reason is not the wording.** Leave `dkms_findings`' text alone. On the
+desktop route, and at collection time on both, "the running kernel 7.1.9" is exactly
+right and more informative than a version stripped of why it mattered. The demotion plus
+the explanation line covers the read-later case, and I confirmed the ordering makes the
+qualification unmissable.
+
+The root cause worth fixing is one level up: **"is this document about the boot I am in?"
+is a property of the document, and it is implemented in one of its two declared
+consumers.** `status_document.py`'s own docstring opens with "One producer, two consumers"
+— the login message and the GNOME panel. The panel has no kernel awareness at all
+(`statusDocument.js` carries `kernel: ''` in its fallback shape and compares it to
+nothing), so it renders `post-boot-health` findings as current faults regardless of which
+boot produced them.
+
+That is reachable, not theoretical. The argument that the desktop cannot go stale rests on
+`host-health.service` running at every graphical login — so it fails precisely when that
+unit fails, which is one of the things this plan exists to detect. A desktop whose
+collector is broken shows the panel the previous boot's DKMS faults, naming a kernel that
+is not running, with nothing saying so. Exactly the defect just fixed, one consumer over,
+in the surface a user looks at most.
+
+**Suggested**: lift the predicate into `status_document` (`is_boot_stale(document, *,
+running_kernel)` or similar), have `login_message` call it instead of computing `rebooted`
+inline, and put the panel side in Phase 4. `CLAUDE/AgentNotes.md` → *"Generalise a fix
+past the file you were reading"*.
+
+## Your question: the recognition assert
+
+**Agreed — no pushback. Your reading is the correct one.** `CLAUDE/AnsibleStyle.md:236-247`
+scopes "carries **no** guard" to the two-task `meta: end_play` block it then prints
+verbatim and calls byte-identical, and `qa-ansible.bash` enforces exactly that block.
+An `assert` validating an input is a different thing, and the play passes the gate.
+
+I also checked the load-bearing claim rather than taking it: `is_server` is
+`provisioning_profile == 'server'`, so any unrecognised value — only reachable through
+`-e`, which has highest precedence — evaluates False and takes the desktop branch. Without
+the assert a typo silently deploys a `notify-send` unit to a box with no session bus and
+no login report at all. The assert earns its place and the comment now says why.
+
+## Still standing from earlier rounds
+
+- **H1 — the desktop pin-applicability consequence.** Unaddressed here, and the most
+  significant open item: a host with no `play-displaylink.yml` ledger row no longer
+  reports the founding incident, and a ledger with no pinned play at all produces no
+  output whatsoever. (The working tree shows `check_pins.check` gaining a
+  `dkms_registered` parameter, so this may be in hand.)
+- **H3 — the derived gate inventory** is one-directional and keyed to one spelling of
+  `$SCRIPT_DIR/`.
+- **The convergence gap** in the merged play: neither branch removes the other profile's
+  artefacts.
+- **Fix 2's qualification**: `offline_finding(last=None)` fires from the first login, so
+  the HOST item must confirm the remote fetches without an agent rather than assume it.
+- **H2 appears fixed in the working tree** — `dkms_registered_modules` now uses
+  `os.scandir` with per-entry `except OSError: return None` and treats an unresolving
+  symlink as "could not tell". Uncommitted, so **not reviewed**; on a read it is the fix
+  I would have asked for.
+
+## Note on the record
+
+The `uname -r` fixture and `PROBE:` marker points were round-2 findings against
+`ae0a361c`; `7fa9edef` fixed them and round 3 recorded fix 6 as verified. Round 3 also
+recorded the general-scope guard error as resolved. There is no stale finding of mine to
+chase on any of the three.
+
+## Mechanical gates (round 4)
+
+`✓ QA passed: 876 files checked` — `panel-contract` 7 constants and 4 section ids agree,
+`version-pins: COVERAGE: 9 of 9`, `extension-compat` clean. The four demotion mutants are
+asserted by the commit message; I did not re-kill them, as that needs mutating tracked
+files.

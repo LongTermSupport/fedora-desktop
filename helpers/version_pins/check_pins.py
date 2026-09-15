@@ -134,6 +134,7 @@ def check(
     rpm_version: Callable[[str], str | None] | None = None,
     command_version: Callable[[str], str | None] | None = None,
     ran_plays: set[str] | None = None,
+    dkms_registered: list[str] | None = None,
 ) -> list[probe_results.Finding]:
     """One finding per pin that is not a clean MATCH. The probes are seams.
 
@@ -148,45 +149,50 @@ def check(
     gone quiet, on the axis the incident happened on. Partial coverage is a decision;
     zero coverage is a check that cannot fail, and it says so with the number.
 
-    `ran_plays` narrows the population to the pins this host could possibly have — see
-    the comment on `applicable` below. It is counted into the zero-coverage number too:
-    counting the whole manifest there would replace the noise the filter just removed.
+    `ran_plays` and `dkms_registered` are the two things this host knows about itself.
+    Neither narrows the population — a pin the ledger has never seen is still compared,
+    because "installed 1.14.16 against a pinned 1.15.0" is drift whatever the ledger
+    says. They act on one verdict and one resolver respectively; see the comments below.
     """
     findings: list[probe_results.Finding] = []
     dkms_cache: list[str] = []
 
-    # APPLICABILITY, from the play ledger. A pin describes software that one play
-    # installs, so on a host that has never run that play there is nothing for the pin
-    # to describe — and `compare.classify` answers an unresolvable install with ABSENT,
-    # "pinned X, nothing installed", which on a server is a permanent fault nobody can
-    # act on. Task 1.3 settled the identical question for freshness: a play with no
-    # record has never been run here, and silence is correct for it.
-    #
-    # `ran_plays is None` means the ledger could not be read, and then every pin stays
-    # applicable. An open question must not buy silence on a whole drift axis; the
-    # ledger's own emptiness and brokenness are `ledger_presence`'s findings, not this
-    # check's, so there is no risk of an empty ledger going unreported.
-    applicable = [
-        pin for pin in pins if ran_plays is None or pin.playbook in ran_plays
-    ]
-
-    tracked = sum(1 for pin in applicable if pin.is_tracked)
-    if applicable and tracked == 0:
+    tracked = sum(1 for pin in pins if pin.is_tracked)
+    if pins and tracked == 0:
         findings.append(
             probe_results.unchecked(
-                f"the installed-vs-pinned check compared 0 of {len(applicable)} pins "
-                "applicable to this host, so nothing here was held against the repo's "
-                "versions"
+                f"the installed-vs-pinned check compared 0 of {len(pins)} declared pins, "
+                "so nothing on this host was held against the repo's versions"
             )
         )
+
+    def ran_here(pin: manifest.Pin) -> bool:
+        """Has this host a ledger record for the play that installs this pin's software?
+
+        `None` — the ledger could not be read — answers True: an open question must not
+        buy silence, and the ledger's own brokenness is `ledger_presence`'s finding.
+        """
+        return ran_plays is None or pin.playbook in ran_plays
 
     def dkms() -> str:
         if not dkms_cache:
             dkms_cache.append(dkms_status())
         return dkms_cache[0]
 
-    for pin in applicable:
+    for pin in pins:
         if not pin.is_tracked:
+            continue
+        # NO DKMS SUBSYSTEM ON THIS HOST, so a DKMS-resolved pin is not answerable here
+        # and that is an answer, not a failure to get one. `dkms` is installed by two
+        # optional desktop-hardware plays, so on a stock server this is the whole reason
+        # the check spoke at every login: `dkms()` raises "command not found" and every
+        # DKMS pin became "could not be checked", for ever.
+        #
+        # `[]` is a positive finding of nothing — no state directory, so no DKMS module
+        # of any kind. `None` (could not read it) falls through and still reports, and
+        # the same evidence drives `probe_results.build_report`, so the two cannot
+        # disagree about whether this host has DKMS.
+        if pin.installed.kind == manifest.DKMS and dkms_registered == []:
             continue
         try:
             pinned = pinned_value(playbook_text(pin.playbook), pin.var)
@@ -211,6 +217,21 @@ def check(
             continue
 
         verdict = compare.classify(pinned=pinned, installed=installed)
+        # ABSENT — "pinned X, nothing installed" — is the ONE verdict the ledger
+        # disambiguates, and only it. On a host that ran the play, software that has
+        # since vanished is a fault. On a host that never ran it, absence is exactly
+        # what is expected, and reporting it is a permanent line nobody can act on.
+        #
+        # Scoped to ABSENT, never to the population. Filtering every pin by the ledger
+        # silences the drift this whole plan exists to catch: with no backfill
+        # (Task 1.3) a host has no `play-displaylink.yml` record until that play next
+        # runs, so `evdi_version (behind)` would go unreported on every desktop.
+        # BEHIND, AHEAD and UNDETERMINED all mean the software IS here and was
+        # compared, so no ledger state can make them uninteresting. Task 1.3's rule was
+        # derived for the freshness axis, where "never run here" is the whole question;
+        # on this axis it is not. See DESIGN-server-route.md §5.
+        if verdict.state == compare.ABSENT and not ran_here(pin):
+            continue
         if not verdict.is_clean:
             findings.append(probe_results.broken(f"{pin.var} ({verdict.state}): {verdict.detail}"))
     return findings

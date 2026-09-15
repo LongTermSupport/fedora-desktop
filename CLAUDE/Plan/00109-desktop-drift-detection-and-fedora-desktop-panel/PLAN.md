@@ -163,7 +163,11 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
       kernel mismatch in its own right, and demotes the one boot-scoped section rather
       than repeating its findings as present-tense faults (§4, §4.1)
     - [x] ✅ **A healthy server was never going to be silent** (qa-reviewer, 26-09-15).
-      Two permanent findings, one root: no `dkms` on a server (§5)
+      Two permanent findings, one root: no `dkms` on a server (§5). The first answer to
+      the pin half silenced the founding incident on every desktop; the ledger now acts
+      on one verdict, not on the population (§5.1)
+    - [x] ✅ Each branch of the merged play removes the other's artefacts, so correcting
+      a mis-set profile does not leave both deliveries installed (§7)
     - [ ] ⬜ **HOST**: run the play on a server profile — the timer arms, a document
       appears, an interactive login shows findings, an `scp` still completes, and **a
       clean server login is silent**, which is the claim that decides whether this

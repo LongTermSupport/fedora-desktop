@@ -153,6 +153,24 @@
     # 1 too. Guarding on it skipped the enable on precisely the host this plan
     # exists to detect. An unreachable user bus fails this task, loudly, which is
     # the answer that probe was reaching for.
+    # A profile is not immutable: a mis-set `-e provisioning_profile` corrected on the
+    # next run would otherwise leave BOTH deliveries installed, collecting twice and
+    # reporting twice. Removing the unit file alone is not a disable — `enable` writes a
+    # `.wants/` symlink that outlives it — so the symlink goes too. `state: absent` is
+    # idempotent and cannot fail on a host that never had them, which `systemctl
+    # disable` would.
+    - name: Remove The Server Delivery
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ user_units_dir }}/{{ collect_service }}"
+        - "{{ user_units_dir }}/{{ collect_timer }}"
+        - "{{ user_units_dir }}/timers.target.wants/{{ collect_timer }}"
+        - "{{ bashrc_includes_dir }}/host-health-report.bash"
+      register: hh_server_removed
+      when: not is_server | bool
+
     - name: Enable The Login-Time Health Report
       become: true
       become_user: "{{ user_login }}"
@@ -160,7 +178,7 @@
         name: "{{ unit_name }}"
         scope: user
         enabled: true
-        daemon_reload: "{{ hh_unit.changed }}"
+        daemon_reload: "{{ hh_unit.changed or hh_server_removed.changed }}"
       environment:
         XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
       when: not is_server | bool
@@ -229,6 +247,19 @@
     # leaves the timer unarmed until the next boot, and a report that begins a reboot
     # later is one nobody connects to the play they just ran. The unit is a timer, so
     # starting it arms the schedule — it does not run the collection now.
+    # The mirror of the desktop branch's cleanup, for the same reason: correcting a
+    # mis-set profile must not leave a notify-send unit installed on a box with no
+    # session bus, wanted by a target that never activates.
+    - name: Remove The Desktop Delivery
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ user_units_dir }}/{{ unit_name }}"
+        - "{{ user_units_dir }}/graphical-session.target.wants/{{ unit_name }}"
+      register: hh_desktop_removed
+      when: is_server | bool
+
     - name: Enable And Start The Host Health Collection Timer
       become: true
       become_user: "{{ user_login }}"
@@ -237,7 +268,9 @@
         scope: user
         enabled: true
         state: started
-        daemon_reload: "{{ hh_collect_service.changed or hh_collect_timer.changed }}"
+        daemon_reload: >-
+          {{ hh_collect_service.changed or hh_collect_timer.changed
+             or hh_desktop_removed.changed }}
       environment:
         XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
       when: is_server | bool

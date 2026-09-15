@@ -112,23 +112,42 @@ def missing_mentions(names, haystack):
     return [name for name in names if name not in haystack]
 
 
-#: A gate invoked as a script, e.g. `"$SCRIPT_DIR/test-secret-scan.bash"`.
-_QA_SCRIPT_GATE = re.compile(r"\$SCRIPT_DIR/(?P<name>[A-Za-z0-9._-]+\.bash)")
+#: A gate invoked as a script. Matched by its FILENAME after any variable- or
+#: path-shaped prefix — `$SCRIPT_DIR/x.bash`, `${SCRIPT_DIR}/x.bash` and
+#: `$REPO_ROOT/scripts/x.bash` are all the same gate, and keying on one spelling would
+#: exempt the other two from the inventory without saying so.
+_QA_SCRIPT_GATE = re.compile(
+    r"[$][{]?[A-Za-z_][A-Za-z0-9_]*[}]?(?:/[A-Za-z0-9._-]+)*/(?P<name>[A-Za-z0-9._-]+\.bash)"
+)
 #: A gate invoked as a module, e.g. `python3 -m helpers.gnome.check_panel_contract`.
-_QA_MODULE_GATE = re.compile(r"-m\s+helpers\.(?P<path>[A-Za-z0-9_.]+)")
+_QA_MODULE_GATE = re.compile(r"-m\s+(?P<name>helpers[A-Za-z0-9_.]+)")
 
 
 def qa_gates(content):
-    """Every gate `qa-all.bash` invokes, named as `CLAUDE/QA.md` would name it.
+    """Every gate `qa-all.bash` invokes, named as `CLAUDE/QA.md` names it in a row.
 
-    Script gates by filename; module gates by their last dotted component, because that
-    is what the table writes — requiring the dotted path would fail the document for
-    naming a gate the way a human does.
+    Script gates by filename, module gates by their full dotted path — which is what the
+    table's first cell already writes. Reducing a module gate to its last component
+    matched the document by substring in one direction and disagreed with it in the
+    other, so the reverse check could never have been clean.
     """
     names = {match.group("name") for match in _QA_SCRIPT_GATE.finditer(content)}
-    for match in _QA_MODULE_GATE.finditer(content):
-        names.add(match.group("path").rsplit(".", 1)[-1])
+    names |= {match.group("name") for match in _QA_MODULE_GATE.finditer(content)}
     return sorted(names)
+
+
+#: A gate's own row in one of the two tables: `| `name` | what it checks |`. Scoped to
+#: the leading cell so that prose naming a gate is not read as a row claiming it.
+_QA_DOC_ROW = re.compile(r"^\|\s*`(?P<name>[A-Za-z0-9._-]+)`\s*\|")
+
+
+def documented_gates(qa_doc):
+    """The gates `CLAUDE/QA.md` claims in its tables, by the name in the first cell."""
+    return sorted({
+        match.group("name")
+        for match in (_QA_DOC_ROW.match(line) for line in qa_doc.splitlines())
+        if match
+    })
 
 
 def check_qa_gate_inventory_in(*, qa_all, qa_doc):
@@ -146,13 +165,29 @@ def check_qa_gate_inventory_in(*, qa_all, qa_doc):
             "file": "scripts/qa-all.bash", "line": 0, "target": "-",
             "problem": "parsed 0 gate invocations — discovery is broken, not the doc",
         }]
-    return [
+    # Compared against the ROWS, not against the document's text. A substring search
+    # over the whole file is satisfied by prose that merely mentions a gate, which is
+    # not the same as the table claiming it — and it is the table this check is for.
+    documented = set(documented_gates(qa_doc))
+    findings = [
         {
             "file": "CLAUDE/QA.md", "line": 0, "target": name,
             "problem": "gate is run by qa-all.bash but has no row in this document",
         }
-        for name in missing_mentions(names, qa_doc)
+        for name in names if name not in documented
     ]
+    # BOTH DIRECTIONS. A one-way check leaves a row for a gate that no longer runs
+    # standing for ever — and a documented gate nobody executes is the exact failure
+    # this document narrates below its own table, where two gates were listed here and
+    # not run by `qa-all.bash` at all.
+    findings += [
+        {
+            "file": "CLAUDE/QA.md", "line": 0, "target": name,
+            "problem": "this document lists the gate but qa-all.bash does not run it",
+        }
+        for name in sorted(documented - set(names))
+    ]
+    return findings
 
 
 def check_qa_gate_inventory(repo_root):

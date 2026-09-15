@@ -163,16 +163,43 @@ class TestQaGateInventory(unittest.TestCase):
         self.assertIn("qa-bash.bash", link_check.qa_gates(self.QA_ALL))
         self.assertIn("test-thing.bash", link_check.qa_gates(self.QA_ALL))
 
-    def test_python_module_gates_are_extracted_by_their_last_component(self):
-        """The table names `check_extension_compat`, not the dotted path, so that is
-        the token to require — requiring the dotted form would fail the document for
-        writing the gate's name the way a human would."""
-        self.assertIn("check_thing", link_check.qa_gates(self.QA_ALL))
+    def test_python_module_gates_are_extracted_by_their_dotted_path(self):
+        """Which is what the table's first cell writes. Reducing them to a last
+        component matched the document by substring one way and disagreed with it the
+        other, so the reverse check below could never have been clean."""
+        self.assertIn("helpers.gnome.check_thing", link_check.qa_gates(self.QA_ALL))
+
+    def test_the_same_gate_written_three_ways_is_one_gate(self):
+        """`$SCRIPT_DIR/x`, `${SCRIPT_DIR}/x` and `$REPO_ROOT/scripts/x` name the same
+        gate. Keying on one spelling exempts the others from the inventory silently,
+        and the zero-discovery guard only fires if EVERY form fails."""
+        for form in ('"$SCRIPT_DIR/test-x.bash"', '"${SCRIPT_DIR}/test-x.bash"',
+                     '"$REPO_ROOT/scripts/test-x.bash"'):
+            with self.subTest(form=form):
+                self.assertEqual(link_check.qa_gates(f"bash {form}"), ["test-x.bash"])
 
     def test_a_gate_with_no_row_is_reported(self):
-        missing = link_check.missing_mentions(
-            link_check.qa_gates(self.QA_ALL), "we document qa-bash.bash and check_thing")
-        self.assertEqual(missing, ["test-thing.bash"])
+        findings = link_check.check_qa_gate_inventory_in(
+            qa_all=self.QA_ALL,
+            qa_doc="| `qa-bash.bash` | x |\n| `helpers.gnome.check_thing` | y |\n")
+        self.assertEqual([f["target"] for f in findings], ["test-thing.bash"])
+
+    def test_prose_naming_a_gate_is_not_a_row_claiming_it(self):
+        """A substring search over the whole document is satisfied by the paragraph
+        below the table that names two gates while discussing them."""
+        findings = link_check.check_qa_gate_inventory_in(
+            qa_all='bash "$SCRIPT_DIR/test-thing.bash"',
+            qa_doc="test-thing.bash was once documented and not run.")
+        self.assertEqual([f["target"] for f in findings], ["test-thing.bash"])
+
+    def test_a_documented_gate_that_is_not_run_is_reported(self):
+        """The reverse direction. One-way, the row for a retired gate stands for ever —
+        and a documented gate nobody executes is the failure this document narrates
+        below its own table."""
+        findings = link_check.check_qa_gate_inventory_in(
+            qa_all='bash "$SCRIPT_DIR/test-thing.bash"',
+            qa_doc="| `test-thing.bash` | x |\n| `test-retired.bash` | y |\n")
+        self.assertEqual([f["target"] for f in findings], ["test-retired.bash"])
 
     def test_finding_no_gates_is_itself_a_finding(self):
         """A discovery that matches nothing would report a clean inventory over a

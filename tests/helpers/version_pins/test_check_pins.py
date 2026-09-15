@@ -27,6 +27,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 from helpers.version_pins import check_pins, manifest
 
+REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..", "..")
+
 RUNNING_KERNEL = "7.2.4-200.fc44.x86_64"
 
 #: Exactly as recorded in the plan's journal for the incident.
@@ -286,57 +288,88 @@ class TestZeroCoverageIsItsOwnFinding(unittest.TestCase):
         )
 
 
-class TestAPinIsOnlyAboutAHostThatRanItsPlay(unittest.TestCase):
-    """The rule Task 1.3 settled for freshness, applied to the axis that forgot it.
+class TestWhatThisHostKnowsAboutItself(unittest.TestCase):
+    """Two host facts act on this check, and NEITHER narrows the population.
 
-    A pin describes software that one play installs. On a host that has never run that
-    play there is nothing for the pin to describe, and `compare.classify` answers a
-    resolver's `None` with `ABSENT` — *"pinned 1.15.0, nothing installed"* — a fault
-    nobody can act on. On a server, `evdi` is the DisplayLink module and the answer is
-    permanent.
+    A first attempt filtered every pin by the play ledger, on the theory that a pin
+    describes software one play installs. It silenced this plan's founding incident:
+    Task 1.3 chose no backfill, so no host has a `play-displaylink.yml` record until
+    that play next runs, and `evdi_version (behind): pinned 1.15.0, installed 1.14.16`
+    — the 2026-09-11 state exactly — stopped being reported on every desktop. Task 1.3's
+    rule was derived for the FRESHNESS axis, where "has this play been run here" is the
+    whole question. On the install-state axis it is not: an installed version that
+    disagrees with the pin is drift whatever the ledger has seen.
 
-    So: applicability comes from the play ledger, exactly as freshness's does — a play
-    with no record has never been run here, and silence is correct for it.
+    So the two facts are scoped to what each can actually answer:
+
+    * `dkms_registered == []` — no DKMS state directory, so no DKMS module of any kind
+      — makes a DKMS-resolved pin unanswerable here. That is an answer, and it is the
+      whole reason a stock server spoke at every login.
+    * `ran_plays` disambiguates the one ambiguous verdict, ABSENT. "Pinned 1.15.0,
+      nothing installed" is a fault on a host that ran the play and expected on one
+      that never did.
     """
 
     DISPLAYLINK = "playbooks/imports/optional/hardware-specific/play-displaylink.yml"
 
-    def test_a_pin_whose_play_never_ran_here_is_silent(self) -> None:
-        findings = check_pins.check(
-            pins=[pin()],
-            playbook_text=lambda _: PLAYBOOK,
-            dkms_status=lambda: "",
-            ran_plays=set(),
-        )
-        self.assertEqual(findings, [])
+    def test_the_incident_is_reported_whatever_the_ledger_has_seen(self) -> None:
+        """The regression test for the mistake above, driven across every ledger state.
+        `BEHIND` means the software is here and was compared; no ledger answer can make
+        that uninteresting."""
+        for ran in (None, set(), {"playbooks/imports/play-python.yml"},
+                    {self.DISPLAYLINK}):
+            with self.subTest(ran_plays=ran):
+                findings = check_pins.check(
+                    pins=[pin()], playbook_text=lambda _: PLAYBOOK,
+                    dkms_status=lambda: DKMS_INCIDENT, ran_plays=ran)
+                self.assertEqual(len(findings), 1)
+                self.assertIn("1.14.16", findings[0].text)
 
-    def test_a_pin_whose_play_DID_run_here_is_still_checked(self) -> None:
-        """The rule must not silence the axis it was written to keep working: this is
-        the incident's own state, and it has to stay a finding."""
-        findings = check_pins.check(
-            pins=[pin()],
-            playbook_text=lambda _: PLAYBOOK,
-            dkms_status=lambda: DKMS_INCIDENT,
-            ran_plays={self.DISPLAYLINK},
+    def test_the_pin_playbook_and_the_ledger_key_are_the_same_spelling(self) -> None:
+        """The filter is only wired if these two agree, and both are repo-relative
+        paths by construction — `collector._resolve` strips the repo root, and
+        `qa-version-pins.bash` requires each `playbook:` to resolve from it. Pinned
+        because a check driven only by the SILENT case would pass either way."""
+        real = check_pins.declared_pins(REPO_ROOT)
+        tracked = [p for p in real if p.is_tracked]
+        self.assertTrue(tracked, "the manifest tracks no pin, so this proves nothing")
+        for candidate in tracked:
+            with self.subTest(pin=candidate.var):
+                self.assertFalse(candidate.playbook.startswith("/"))
+                self.assertTrue(os.path.exists(
+                    os.path.join(REPO_ROOT, candidate.playbook)))
+
+    def test_absent_on_a_host_that_never_ran_the_play_is_silent(self) -> None:
+        """The one verdict the ledger disambiguates. `dkms status` succeeds and simply
+        does not list the module — a host with DKMS but no DisplayLink."""
+        self.assertEqual(
+            check_pins.check(
+                pins=[pin()], playbook_text=lambda _: PLAYBOOK,
+                dkms_status=lambda: f"vboxhost/7.0.14, {RUNNING_KERNEL}, x86_64: installed",
+                ran_plays=set()),
+            [],
         )
+
+    def test_absent_on_a_host_that_DID_run_the_play_is_a_fault(self) -> None:
+        """Software the play installed and that is now gone is exactly a finding."""
+        findings = check_pins.check(
+            pins=[pin()], playbook_text=lambda _: PLAYBOOK,
+            dkms_status=lambda: f"vboxhost/7.0.14, {RUNNING_KERNEL}, x86_64: installed",
+            ran_plays={self.DISPLAYLINK})
         self.assertEqual(len(findings), 1)
-        self.assertIn("1.14.16", findings[0].text)
+        self.assertIn("nothing installed", findings[0].text)
 
-    def test_an_unreadable_ledger_keeps_every_pin_applicable(self) -> None:
-        """None is not the empty set. A ledger that could not be read leaves the
-        question open, and an open question must never buy silence on a whole drift
-        axis — the failure this plan exists for, one level up."""
+    def test_an_unreadable_ledger_reports_absent_rather_than_assuming(self) -> None:
+        """None is not the empty set. An open question must not buy silence."""
         findings = check_pins.check(
-            pins=[pin()],
-            playbook_text=lambda _: PLAYBOOK,
-            dkms_status=lambda: DKMS_INCIDENT,
-            ran_plays=None,
-        )
+            pins=[pin()], playbook_text=lambda _: PLAYBOOK,
+            dkms_status=lambda: "", ran_plays=None)
         self.assertEqual(len(findings), 1)
 
-    def test_the_dkms_probe_is_not_run_for_a_pin_that_does_not_apply(self) -> None:
-        """`dkms_status` is the expensive, failing-on-a-server call. A pin filtered out
-        must not pay for it — and must not turn its failure into a finding."""
+    def test_a_host_with_no_dkms_subsystem_does_not_resolve_a_dkms_pin(self) -> None:
+        """The server case, and the probe must not even be called: it is the expensive
+        call, it raises "command not found" there, and that raise is what produced the
+        permanent "could not be checked" line at every login."""
         calls: list[int] = []
 
         def dkms() -> str:
@@ -346,29 +379,43 @@ class TestAPinIsOnlyAboutAHostThatRanItsPlay(unittest.TestCase):
         self.assertEqual(
             check_pins.check(
                 pins=[pin()], playbook_text=lambda _: PLAYBOOK,
-                dkms_status=dkms, ran_plays=set()),
+                dkms_status=dkms, dkms_registered=[]),
             [],
         )
         self.assertEqual(calls, [])
 
-    def test_zero_coverage_counts_only_applicable_pins(self) -> None:
-        """Otherwise the coverage finding replaces the noise it just removed: a server
-        would trade one permanent line for another."""
-        untracked = TestZeroCoverageIsItsOwnFinding._all_untracked(9)
-        self.assertEqual(
-            check_pins.check(
-                pins=untracked, playbook_text=lambda _: PLAYBOOK,
-                dkms_status=lambda: "", ran_plays=set()),
-            [],
-        )
+    def test_an_unreadable_dkms_state_directory_still_resolves_the_pin(self) -> None:
+        """`None` is "could not tell", and it must not be folded in with "there is no
+        DKMS here" — the same tri-state `probe_results.build_report` keeps."""
+        findings = check_pins.check(
+            pins=[pin()], playbook_text=lambda _: PLAYBOOK,
+            dkms_status=lambda: DKMS_INCIDENT, dkms_registered=None)
+        self.assertEqual(len(findings), 1)
 
-    def test_zero_coverage_still_fires_when_the_applicable_pins_are_untracked(self) -> None:
-        """The guard must survive the filter. A host that HAS run the play and tracks
-        none of its pins is the case it was written for."""
+    def test_a_host_WITH_dkms_modules_resolves_the_pin(self) -> None:
+        findings = check_pins.check(
+            pins=[pin()], playbook_text=lambda _: PLAYBOOK,
+            dkms_status=lambda: DKMS_INCIDENT, dkms_registered=["evdi"])
+        self.assertEqual(len(findings), 1)
+
+    def test_a_non_dkms_pin_is_untouched_by_the_dkms_answer(self) -> None:
+        """The rule is about one resolver, not about this host in general."""
+        rpm_pin = pin(installed={"kind": "rpm", "name": "displaylink"})
+        findings = check_pins.check(
+            pins=[rpm_pin], playbook_text=lambda _: PLAYBOOK,
+            dkms_status=lambda: "", dkms_registered=[],
+            rpm_version=lambda _: "1.14.16")
+        self.assertEqual(len(findings), 1)
+
+    def test_zero_coverage_counts_the_whole_manifest_again(self) -> None:
+        """Counting only a host-narrowed population left `applicable == []` skipping the
+        guard entirely, so a host with no applicable pins produced NO output at all —
+        indistinguishable from every pin matching. The guard is about the manifest,
+        which is identical on every host."""
         untracked = TestZeroCoverageIsItsOwnFinding._all_untracked(9)
         findings = check_pins.check(
             pins=untracked, playbook_text=lambda _: PLAYBOOK,
-            dkms_status=lambda: "", ran_plays={self.DISPLAYLINK})
+            dkms_status=lambda: "", ran_plays=set(), dkms_registered=[])
         self.assertEqual(len(findings), 1)
         self.assertIn("0 of 9", findings[0].text)
 

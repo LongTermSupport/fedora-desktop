@@ -179,6 +179,21 @@ class TestRunningKernel(unittest.TestCase):
                 f.write("3\n")
             self.assertEqual(probe.dkms_registered_modules(base), ["evdi"])
 
+    def test_a_dangling_symlink_answers_none_rather_than_dropping_out(self) -> None:
+        """`DirEntry.is_dir` swallows FileNotFoundError, so a link that does not resolve
+        reads as "not a module" and the entry vanishes from a list whose emptiness is
+        what licenses staying silent. A partial read must not answer "no DKMS here"."""
+        with tempfile.TemporaryDirectory() as base:
+            os.mkdir(os.path.join(base, "evdi"))
+            os.symlink(os.path.join(base, "gone"), os.path.join(base, "vboxhost"))
+            self.assertIsNone(probe.dkms_registered_modules(base))
+
+    def test_a_symlink_to_a_real_module_tree_still_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            os.mkdir(os.path.join(base, "real"))
+            os.symlink(os.path.join(base, "real"), os.path.join(base, "evdi"))
+            self.assertEqual(probe.dkms_registered_modules(base), ["evdi", "real"])
+
     def test_a_state_path_that_is_not_a_directory_answers_none(self) -> None:
         """`listdir` on a regular file raises NotADirectoryError, an OSError that is not
         FileNotFoundError — so it must read as "could not tell", not as absence."""
