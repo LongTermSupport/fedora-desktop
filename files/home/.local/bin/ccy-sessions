@@ -33,8 +33,14 @@
 # work over a non-interactive ssh. Runs on the HOST: inside a CCY container there is no server.
 set -euo pipefail
 
-CCY_LIB="/var/local/claude-yolo/lib"
-CCY_LAUNCHER="/var/local/claude-yolo/claude-yolo"
+# The deployed install locations. Overridable ONLY so the reporting subcommands can be
+# exercised — `restore-status` is the command that embodies this feature's "could not tell is
+# not nothing to do" rule, and a command verified by reading is a command whose rule is a
+# claim. scripts/test-ccy-sessions-status.bash drives the real file this way.
+#
+# Not a privilege boundary: anyone who can set these can already run any command as this user.
+CCY_LIB="${CCY_LIB:-/var/local/claude-yolo/lib}"
+CCY_LAUNCHER="${CCY_LAUNCHER:-/var/local/claude-yolo/claude-yolo}"
 CCY_RESTORE_UNIT="ccy-sessions-restore.service"
 MAX_TRIES=3
 
@@ -146,11 +152,18 @@ restore_installation_state() {
 # `ccy_registry_collect`, never `mapfile < <(ccy_registry_list …)`: a process substitution hides
 # the listing's exit status, so a directory this could not read printed as an empty section —
 # indistinguishable from one with nothing in it.
+#
+# A failure here sets CCY_STATUS_INCOMPLETE rather than returning non-zero. Returning non-zero
+# aborted the whole command under `set -e` at the first unreadable directory, so the other two
+# sections and the last-run note were never printed — a status command that says LESS the more
+# wrong the machine is. Every section is reported, and the command exits non-zero at the end.
+CCY_STATUS_INCOMPLETE=0
 list_with_reasons() {
     local dir="$1" label="$2" record reason project
     if ! ccy_registry_collect "$dir"; then
         printf '\n%s: COULD NOT BE READ — see the error above. This is not the same as empty.\n' "$label"
-        return 1
+        CCY_STATUS_INCOMPLETE=1
+        return 0
     fi
     local -a found=("${CCY_REGISTRY_RECORDS[@]}")
     [[ ${#found[@]} -gt 0 ]] || return 0
@@ -183,8 +196,9 @@ cmd_restore_status() {
         echo "  Re-run: ./playbooks/imports/play-claude-yolo.yml -e ccy_restore_sessions=true"
         ;;
     enabled-no-linger)
-        echo "  Enabled, but lingering is OFF for this user — the user manager does not start"
-        echo "  at boot, so the unit will not run. Re-run playbooks/imports/play-systemd-user-tweaks.yml"
+        echo "  Enabled, but it will not run at boot: lingering is OFF for this user, so the"
+        echo "  user manager is not started until a login. Re-run"
+        echo "  playbooks/imports/play-systemd-user-tweaks.yml"
         ;;
     enabled-linger-unknown)
         echo "  Enabled, but whether lingering is on could not be determined, so whether this"
@@ -204,14 +218,16 @@ cmd_restore_status() {
     # Reported separately, always, whatever the state above. ccy records sessions whether or
     # not anything will act on the records, so "3 recorded, restore not installed" is a
     # sentence this command can say — which is the entire point.
-    if ! ccy_registry_collect "$sessions_dir"; then
+    local -a records=()
+    local record project
+    if ccy_registry_collect "$sessions_dir"; then
+        records=("${CCY_REGISTRY_RECORDS[@]}")
+        printf '\nRecorded sessions: %s\n' "${#records[@]}"
+    else
         printf '\nRecorded sessions: COULD NOT BE READ — see the error above.\n'
         echo "  That is not the same as none: whether anything would be restored is UNKNOWN."
-        return 1
+        CCY_STATUS_INCOMPLETE=1
     fi
-    local -a records=("${CCY_REGISTRY_RECORDS[@]}")
-    local record project
-    printf '\nRecorded sessions: %s\n' "${#records[@]}"
     if [[ ${#records[@]} -gt 0 ]]; then
         for record in "${records[@]}"; do
             project="$(ccy_registry_field_default "$record" project_dir '?')"
@@ -235,6 +251,14 @@ cmd_restore_status() {
     elif [[ "$state" == "enabled" ]]; then
         # Distinguishable from "it ran and did nothing", which would have written the note.
         printf '\nLast restore run: never — no run has been recorded on this machine.\n'
+    fi
+
+    # Reported everywhere it happened, and only then does the command fail. An operator reading
+    # this needs the whole picture; the exit status is for whatever is reading it after them.
+    if [[ "$CCY_STATUS_INCOMPLETE" -eq 1 ]]; then
+        echo >&2
+        print_error "part of this report could not be read, so it is INCOMPLETE — see the lines marked COULD NOT BE READ."
+        return 1
     fi
 }
 

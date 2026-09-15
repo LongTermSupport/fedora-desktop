@@ -242,12 +242,22 @@ them into one verdict:
 
 *Is restore set up?* — derived, in this order, so each answer is its own:
 
-| Answer                  | Condition                                      | What it tells the operator                             |
-| ----------------------- | ---------------------------------------------- | ------------------------------------------------------ |
-| `not-installed`         | the unit file is absent                        | run the play with `-e ccy_restore_sessions=true`       |
-| `installed-not-enabled` | unit present, `systemctl --user is-enabled` no | the play did not finish, or it was disabled by hand    |
-| `enabled-no-linger`     | enabled, but `loginctl` Linger is no           | **it will not run at boot** — the silent-failure shape |
-| `enabled`               | enabled and lingering                          | it will run                                            |
+| Answer                    | Condition                                                      | What it tells the operator                                                                                                                                                                                                                                  |
+| ------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `not-installed`           | the unit file is absent                                        | run the play with `-e ccy_restore_sessions=true`                                                                                                                                                                                                            |
+| `installed-not-enabled`   | unit present, `is-enabled` says `disabled`/`static`/`indirect` | the play did not finish, or it was disabled by hand                                                                                                                                                                                                         |
+| `installed-state-unknown` | unit present, `is-enabled` failed for any other reason         | **could not tell** — a masked unit, an unreachable user bus, or the dangling `.wants` symlink a delete-without-disable leaves. None of those is fixed by re-running the play, which is why folding it into the row above sent an operator somewhere useless |
+| `enabled-no-linger`       | enabled, but `loginctl` Linger is `no`                         | **it will not run at boot** — the silent-failure shape                                                                                                                                                                                                      |
+| `enabled-linger-unknown`  | enabled, but the linger probe itself failed                    | **could not tell** whether it runs at boot                                                                                                                                                                                                                  |
+| `enabled`                 | enabled and lingering                                          | it will run                                                                                                                                                                                                                                                 |
+
+**Six answers, not four**, and two of them exist purely to keep "could not tell" out of the
+other four — which is this decision's whole point, applied to itself. The first draft had four,
+and the two missing were both the unknowns.
+
+Every one is driven by `scripts/test-ccy-sessions-status.bash` against a stub
+`systemctl`/`loginctl`: the broken states cannot be reached any other way, and a state that can
+only occur in production is a state verified by reading.
 
 *What is in the registry?* — the record count, and separately the contents of `attempted/`,
 `retired/` (with each reason) and `malformed/`, plus the last run's boot id and verdict.

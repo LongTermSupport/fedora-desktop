@@ -480,6 +480,13 @@
     # Resolved, never defaulted: `| default(1000)` would be a hardcoded 1000 on every run, and
     # on a host whose user is not uid 1000 it points systemctl at another user's runtime
     # directory without failing. Same reasoning as play-container-watch.yml.
+    #
+    # UNGATED, and that matters. Both branches below need this uid — enabling the unit AND
+    # disabling it — so gating it on `ccy_restore_sessions` left the OFF path templating a fact
+    # that had never been gathered. A full playbook-main.yml run hid it, because
+    # play-systemd-user-tweaks.yml gathers the same fact earlier; a standalone run of this play
+    # with restore off failed on an undefined variable, and `--syntax-check` cannot see it
+    # because it does not evaluate templates.
     - name: Resolve The Session User UID
       ansible.builtin.getent:
         database: passwd
@@ -488,7 +495,6 @@
         # the module's "key could not be found". It does NOT make the key absent: getent sets
         # it to `None` and exits successfully.
         fail_key: false
-      when: ccy_restore_sessions | bool
 
     - name: Assert The Session User Exists
       ansible.builtin.assert:
@@ -498,9 +504,8 @@
           - ansible_facts['getent_passwd'][user_login][1] | int > 0
         fail_msg: >-
           Could not resolve a uid for {{ user_login }}, so this play cannot reach that user's
-          systemd manager to enable session restore. It would otherwise guess, and a guessed
-          uid points at the wrong runtime directory without failing.
-      when: ccy_restore_sessions | bool
+          systemd manager to enable or disable session restore. It would otherwise guess, and a
+          guessed uid points at the wrong runtime directory without failing.
 
     # Needs the user's systemd manager reachable, which does NOT mean a graphical session:
     # play-systemd-user-tweaks.yml (scope: general) enables linger and then explicitly starts

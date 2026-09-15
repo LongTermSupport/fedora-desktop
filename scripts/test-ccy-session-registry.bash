@@ -690,6 +690,11 @@ check "attended: a caller reading into 'flag' is not swallowed" "flag=[v]" \
 # purpose is to wait for a person. Derived from the source rather than listed, so a new one
 # fails here instead of being discovered by a session that never came back.
 #
+# WHAT THIS DOES NOT CATCH, stated rather than implied: an echoed prompt followed by
+# `read -r some_var`. That shape is indistinguishable from reading a pipe, so no scan can judge
+# it — the `-p` form is the only one that is self-describing, which is the reason the guard keys
+# on it and the reason this check covers the bare form only. Use `read -rp` for a prompt.
+#
 # awk rather than grep: grep exits 1 when it selects nothing, which is the PASSING case here,
 # and suppressing that status would be the error-hiding this repo bans.
 mapfile -t bare_prompt_reads < <(

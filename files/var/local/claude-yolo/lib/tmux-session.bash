@@ -357,9 +357,14 @@ ccy_tmux_current_session() {
     [[ -n "${TMUX:-}" ]] || return 1
     local socket="${TMUX%%,*}"
     [[ "$(basename "$socket")" == "$CCY_TMUX_SOCKET" ]] || return 1
+    # stderr is NOT merged into the captured value. tmux's own message goes straight through to
+    # the caller's stderr — the terminal for a human, the journal for the restore service — so
+    # nothing is hidden, while the value stays exactly the session name. Merged with `2>&1`, a
+    # warning on an otherwise successful run would be glued onto that name, and the caller
+    # writes it straight into a record filename.
     local name
-    if ! name=$(tmux display-message -p '#S' 2>&1); then
-        print_error "inside a CCY tmux server, but tmux could not name this session: $name"
+    if ! name=$(tmux display-message -p '#S'); then
+        print_error "inside a CCY tmux server, but tmux could not name this session (its own error is above)."
         return 2
     fi
     printf '%s\n' "$name"

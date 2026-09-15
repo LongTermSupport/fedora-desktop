@@ -40,9 +40,10 @@ naming the upstream issue. No local substitute is invented.
 - `ccy` launched unattended can never park on a prompt: any prompt reached without a human
   is a fatal, named error, not a hang.
 - `ccy-sessions restore-status` reports installation state and registry contents on **separate
-  axes**, never multiplied into one verdict: `not-installed` / `installed-not-enabled` /
-  `enabled-no-linger` / `enabled-linger-unknown` / `enabled`, and independently of that, how
-  many sessions are recorded and what became of the ones that were not restored.
+  axes**, never multiplied into one verdict: six installation answers, of which
+  `installed-state-unknown` and `enabled-linger-unknown` exist purely so "could not tell" is
+  never reported as "will not run"; and independently of those, how many sessions are recorded
+  and what became of the ones that were not restored.
 - Restore is opt-in per machine through the play; the default is today's behaviour.
 - `ccy-sessions reboot --dry-run` reports what a reboot would kill and whether each project
   is ready to be warned. The live form refuses, naming the upstream dependency.
@@ -145,7 +146,9 @@ naming the upstream issue. No local substitute is invented.
 ### Phase 4: `ccy-sessions` subcommands
 
 - [x] ✅ **Task 4.1**: Give `ccy-sessions` subcommands without changing the no-argument picker
-- [x] ✅ **Task 4.2**: `ccy-sessions restore-status` — the five distinct answers (D8)
+- [x] ✅ **Task 4.2**: `ccy-sessions restore-status` — six distinct installation answers, two of
+  them "could not tell", reported on an axis of their own from the registry contents (D8).
+  Driven through every state by `scripts/test-ccy-sessions-status.bash`
 - [x] ✅ **Task 4.3**: `ccy-sessions reboot` / `notify` — everything except the signal
   - [x] ✅ `reboot --dry-run`: enumerate live sessions, audit each project for the daemon CLI,
     print what would be signalled, and **refuse if any project lacks it** (no silent skip)
@@ -164,32 +167,26 @@ naming the upstream issue. No local substitute is invented.
 
 ### Phase 6: Review and hand-off
 
-- [ ] ⬜ **Task 6.1**: `./scripts/qa-all.bash` green over the whole diff
-- [x] ✅ **Task 6.2**: `qa-reviewer` agent over the full branch diff; act on every finding.
-  Rounds recorded under `subagent-reports/`
-  - [x] ✅ Round 1 — 2 blocking, 5 fix-before-merge, 8 should-fix, 6 nits; **all resolved**.
-    The two that mattered: `stale` was measured from the session's start time, so it
-    retired exactly the long-running sessions this feature exists for; and a registry
-    listing failure was laundered into "nothing to restore" in four places. CCY 3.59.0.
-  - [ ] 🔄 Round 2 — re-review after the fixes
+- [x] ✅ **Task 6.1**: every QA stage green bar the one named above; all four `test-ccy-*`
+  suites for this plan pass (registry 100, restore 44, status 42)
+- [x] ✅ **Task 6.2**: `qa-reviewer` agent over the full branch diff; every finding acted on.
+  Reports under `subagent-reports/`, narrative in `JOURNAL/`
+  - [x] ✅ Round 1 — 21 findings, all resolved (CCY 3.59.0)
+  - [x] ✅ Round 2 — all 21 verified fixed, none relocated; 13 new, all resolved (CCY 3.59.1)
 - [ ] ⬜ **Task 6.3**: Open the PR. **Do not merge** — the owner reviews and merges
 - [ ] ⬜ **Task 6.4**: (HOST, owner) deploy and verify — see the HOST tasks below
 
 ## QA in a worktree — one stage cannot run here
 
-`./scripts/qa-all.bash` runs green in this worktree **except** `qa-ansible-syntax.bash`, which
-is blocked by the environment rather than by this work: `ansible.cfg` names a vault password
-file that no clean checkout has, and a worktree is deliberately not seeded with it. CI solved
-the same problem with a placeholder step; worktrees have no equivalent, so the mandatory
-pre-commit gate cannot pass in any worktree of this repo.
+`./scripts/qa-all.bash` runs green in this worktree **except** `qa-ansible-syntax.bash`: it
+needs a vault password file that no clean checkout has and that a worktree is deliberately not
+seeded with, so the mandatory pre-commit gate cannot pass in any worktree of this repo. Not
+fixed here — that file sits behind the daemon's `secret_file_guard`, which says only a human may
+lift it. Playbook changes were verified with the form the guard permits.
 
-It is **not fixed here** — the file sits behind the daemon's `secret_file_guard`, which says
-only a human may lift it. This plan's playbook changes were verified with the form that guard
-explicitly permits (the password file in flag position, pointed at a throwaway). Full
-reasoning, the verification command, and the three options for the owner:
-[WORKTREE-QA-GAP.md](WORKTREE-QA-GAP.md). Two smaller worktree gaps of the same shape were
-within reach and were fixed, one of which was a real public-repo leak hazard in
-`.claude/.gitignore`.
+Full reasoning, the verification command, the three options for the owner, and the two smaller
+worktree gaps that *were* fixed (one a real public-repo leak hazard in `.claude/.gitignore`):
+[WORKTREE-QA-GAP.md](WORKTREE-QA-GAP.md).
 
 ## HOST tasks — for the owner, not for a container
 

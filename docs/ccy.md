@@ -255,9 +255,10 @@ ccy-sessions restore-status
 | `enabled-linger-unknown`  | enabled, but whether lingering is on could not be determined                                            |
 | `enabled`                 | it will run                                                                                             |
 
-Three of those are "could not tell" rather than "will not run", and they are deliberately not
-folded together: not being able to establish whether restore will happen is a different fact
-from knowing it will not, and each needs a different fix.
+Two of those — `installed-state-unknown` and `enabled-linger-unknown` — say "could not tell"
+rather than "will not run", and they are deliberately not folded into the others. Not being able
+to establish whether restore will happen is a different fact from knowing it will not, and each
+needs a different fix.
 
 The record count is reported **separately** from all of that, so "3 sessions are recorded but
 restore is not installed" is something the command can actually say.
@@ -269,14 +270,14 @@ session that crashes on startup cannot be restored over and over — and the con
 kept as evidence rather than deleted, with the reason inside it. Anything not restored is
 *retired with a named reason*:
 
-| Reason               | What happened                                                                                                                   |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `no-restore`         | started with `ccy --no-restore`                                                                                                 |
-| `directory-gone`     | the project directory no longer exists                                                                                          |
-| `not-a-git-checkout` | it exists but is not a git repository, so `ccy` would refuse to start                                                           |
-| `different-project`  | the directory was reused for another repository — its root commit differs, and `--continue` would resume the wrong conversation |
-| `stale`              | older than `CCY_RESTORE_MAX_AGE_DAYS` (default 7)                                                                               |
-| `malformed`          | the record failed validation and was quarantined rather than guessed at                                                         |
+| Reason               | What happened                                                                                                                                                             |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `no-restore`         | started with `ccy --no-restore`                                                                                                                                           |
+| `directory-gone`     | the project directory no longer exists                                                                                                                                    |
+| `not-a-git-checkout` | it exists but is not a git repository, so `ccy` would refuse to start                                                                                                     |
+| `different-project`  | the directory was reused for another repository — its root commit differs, and `--continue` would resume the wrong conversation                                           |
+| `stale`              | its **boot** was more than `CCY_RESTORE_MAX_AGE_DAYS` (default 7) before this one — measured boot-to-boot, so a session that had been running for weeks is still restored |
+| `failed-validation`  | the record could not be understood, so it was quarantined under `restore/malformed/` rather than guessed at                                                               |
 
 A retired session is not lost work — the conversation is still in the project's
 `.claude/ccy/`. `cd` there and run `ccy --continue` yourself.

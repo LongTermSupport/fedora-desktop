@@ -327,6 +327,23 @@ session_restore_summary=$(printf '%s' "$session_restore_out" | grep -oE 'passed:
     session_restore_summary="passed"
 printf '✓ ccy-session-restore: %s\n' "$session_restore_summary"
 
+# ccy-sessions restore-status (Plan 00123): the command that embodies this feature's central
+# rule — "could not tell" and "nothing to do" must be different answers. Three separate
+# violations of it were found by review in that one file (a listing failure printed as an empty
+# section, an unreachable systemd reported as "not enabled", a count of 0 for a directory that
+# could not be read), and all three had been verified by reading. Every installation state,
+# including the ones that only exist when something is broken, is driven here through a stub
+# systemctl/loginctl against the real script.
+sessions_status_out=""
+if ! sessions_status_out="$(bash "$SCRIPT_DIR/test-ccy-sessions-status.bash" 2>&1)"; then
+    echo "$sessions_status_out" >&2
+    echo "✗ QA FAILED: ccy-sessions restore-status unit tests" >&2
+    exit 1
+fi
+sessions_status_summary=$(printf '%s' "$sessions_status_out" | grep -oE 'passed: [0-9]+') ||
+    sessions_status_summary="passed"
+printf '✓ ccy-sessions-status: %s\n' "$sessions_status_summary"
+
 # host_only_preflight (Plan 00121): the host-CLI gate on a scenario that puts a real GitHub
 # PAT into a guest. One of three independent gates — the other two are the bridge allowlist
 # and bridge_run's manifest refusal — and the one a human types past. Driven through the

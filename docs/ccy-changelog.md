@@ -17,6 +17,25 @@ Two version numbers move independently — see
 
 ---
 
+## 3.59.1
+
+**The registry listing is one primitive, not two that could disagree.** `ccy_registry_collect`
+now does the finding and `ccy_registry_list` prints from it, so the two can never differ about
+what a record is, and a failed listing is reported once rather than twice. The temp file it
+reads through is cleaned up on every path.
+
+**tmux failing to name a session no longer lands in the record's filename.** The error was
+merged into the captured value with `2>&1`, and that value becomes the file the session is
+recorded under. tmux's own message now goes straight to stderr — the terminal for a human, the
+journal for the restore — while the value stays exactly the session name.
+
+**A malformed `boot_time` no longer takes the boot service down mid-run.** A non-numeric value
+reached the arithmetic and aborted the loop with no summary and every remaining record
+unprocessed, which is the opposite of what that service promises. It is now treated like an
+absent one: the age is reported as unknown and the session is restored.
+
+---
+
 ## 3.59.0
 
 **A restored session keeps the supervisor setting it was started with.** `--supervise` is right
