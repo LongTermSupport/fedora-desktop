@@ -294,6 +294,7 @@ them differently and the ordinals are worth nothing — the membership is the po
 | `login_message._texts`                  | `[]` for "unreadable", "absent", and "nothing to say" — and on this surface nothing means healthy                                 |
 | `NotInstalled` / `ProbeOutcome.missing` | a name claiming "not installed" where `exec` established only "not on this process's PATH"                                        |
 | a test's own name                       | "an empty document is still silent if fresh" pinned *zero sections is silent* while claiming to guard *a clean host says nothing* |
+| the VM demotion check (§8)              | "the boot-scoped findings were demoted" and "there were no boot-scoped findings" would both have read as a pass                   |
 
 The last row is the one that let several of the others survive a suite that looked like
 it covered them: a test named for the property it protects, guarding a different one.
@@ -303,6 +304,15 @@ lost by repointing it — and a zero-section document has no legitimate origin, 
 
 Every fix took the same form: stop collapsing, and carry the distinction in the data, in
 the type, or in a named reason. None of them was fixed by adding a special case.
+
+**Not all of these were introduced here, and the difference matters.** Some were — each
+time, inside the fix for the one before it. But `check_pins._run`'s string discrimination
+and `login_message._texts`' silence predate this branch, in code that had already been
+read and shipped. So this is not a count of one author's mistakes during one review; it
+is a shape that survives ordinary review, which is the stronger and more useful claim.
+The row to put in front of a future reader first is the last one, because it is the only
+member found without measuring anything — you find it by reading a test's name beside its
+body and asking whether they agree, and that is exactly why it can hide the rest.
 
 The last one is worth keeping for a second reason: `shutil.which` looks like the closer
 and is not — measured, it consults the same PATH and returns the same answer. When no
@@ -344,7 +354,16 @@ that second document is the one that survives into the next boot.
 Without the deliberate failure the demotion check would pass **because the population it
 judges is empty**: no dkms on a server (§5.2), no failed units on a healthy guest, so the
 boot-scoped section has nothing in it and a reboot has nothing to demote. That is §6a's
-shape one more time, in the verification rather than the code.
+shape one more time, in the verification rather than the code, and it is the last row of
+that table.
+
+The silence check has the same hazard and is closed a different way. "A clean login is
+silent" is satisfied by a login that prints nothing **because the snippet does nothing** —
+an unread include, a broken interpreter, a `PYTHONPATH` that does not resolve all pass it.
+So the fixture aborts outright if the snippet is not on disk, and the check beside it
+requires a live fault to be *reported as a fault* through that same login. One check proves
+the machinery speaks; the other proves it stays quiet when it should. Neither alone means
+anything.
 
 **The fixture judges nothing.** A transcript declares its check count exactly once, so the
 fixture records what it saw and the checker — after the reboot — turns the record into

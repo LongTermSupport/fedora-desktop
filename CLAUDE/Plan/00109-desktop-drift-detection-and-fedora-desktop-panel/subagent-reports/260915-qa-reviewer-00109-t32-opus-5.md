@@ -1297,3 +1297,65 @@ Of the eight instances, the repointed test is the one worth a future reader's at
 first: **a test named for one property while guarding another is the version of this
 defect that hides all the others.** Every other instance was found by measuring something;
 that one is found by reading a test's name beside its body and asking whether they agree.
+
+---
+
+# Round 13 — correction: three of my four host items are no longer host items
+
+**Round 12's ordering is superseded.** I tagged four claims HOST without asking whether
+this repo's own VM lab could make them; the owner asked and the answer was yes. Confirmed
+at `5b91bc60`:
+
+```
+server-host-health-kernel-change:
+  base: server-fast
+  planned: 14
+  max_skipped: 0
+  reboot_before_checks: true
+  run_env: RUN_BASH_OPTIONAL_PLAYBOOKS: play-host-health-login-report.yml
+```
+
+| Round-12 item | Now |
+| ------------- | --- |
+| 1. reboot into a different kernel | checks 7–10 |
+| 2. run the play on a server profile | checks 1, 2, 5, 6, 11 |
+| 3. a clean server login is silent | check 4 |
+| 4. a remote the timer can fetch without an agent | **still HOST** — a guest cloned over https proves the mechanism, not how *this* checkout's `origin` is configured |
+
+The distinction on item 4 is the right one and the plan now states it rather than letting
+the VM imply coverage. A guest with `SSH_AUTH_SOCK` unset shows the code path works; it
+says nothing about a particular host's remote.
+
+Better than a host run for item 1, too: a host has to wait for Fedora to ship a kernel,
+while a guest can simply be given a second one.
+
+## `reboot_before_checks` — the same shape, correctly diagnosed
+
+Gating the mid-run reboot on `BASE_PROFILE == desktop` read a **scenario's** decision off
+a **profile**. A desktop rebooted because Wayland cannot reload the shell — a fact about
+what its checks look at, not a law of the profile — so a server scenario that needed a
+reboot could not have one. Declaring it per scenario, with the profile supplying only the
+mechanics, is the fix. `scripts/qa-vmtest-manifest.bash:162` then refuses a fixture beside
+a scenario that does not declare the flag, which closes the obvious way to reintroduce it:
+a fixture that exists and never runs.
+
+## The ninth member is real, and it generalises
+
+The demotion check would have passed **because the population it judges is empty** — no
+dkms on a server, no failed units on a healthy guest — so the fixture makes a unit fail on
+purpose and lets that second document survive the reboot. That is §6a in the verification
+layer rather than the code, and it is well found.
+
+**The same question is owed to the other thirteen checks in that checker**, and it is
+exactly the generalisation step this review kept finding missing. `max_skipped: 0` guards
+a check that *skips*; it does not guard a check that runs, judges an empty population and
+passes. For each of the fourteen: what set does it filter, and is that set non-empty on a
+clean `server-fast` guest? Any check whose answer is "empty" needs the same deliberate
+seeding the demotion check now has, or it is a green tick over nothing.
+
+That is for whoever audits `216dd9c5..5b91bc60`; I am not reviewing that diff.
+
+## Standing
+
+No open findings from this review. The gate is now the VM scenario plus the one remaining
+host fact about `origin`.
