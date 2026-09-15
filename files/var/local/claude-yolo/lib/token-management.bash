@@ -788,8 +788,12 @@ create_token() {
     echo "  3. Copy the token when it's displayed (starts with sk-ant-oat01-)"
     echo "  4. The process will save it automatically"
     echo ""
-    echo "Press Enter to continue..."
-    read -r
+    # The prompt is passed with -p rather than echoed above a bare `read`. It reads identically
+    # to a human, and it is the ONLY thing that makes this a prompt to the launcher's unattended
+    # guard: that guard keys on -p, which is what makes a `read` a question addressed to a
+    # person. Echoed-then-bare-read, this would have hung an unattended launch for ever with
+    # nothing on screen to say why.
+    read -rp "Press Enter to continue... "
     echo ""
 
     # Run setup-token via claude CLI entrypoint

@@ -1,0 +1,26 @@
+[Unit]
+Description=Restore the CCY sessions a reboot interrupted
+Documentation=https://github.com/LongTermSupport/fedora-desktop
+# No After=graphical-session.target, deliberately. Nothing here needs a display: the tmux
+# server runs under systemd --user, and rootless podman works under linger. Ordering after a
+# graphical session would stop this running at all on a headless host, which is exactly the
+# machine most likely to want sessions brought back.
+After=default.target
+
+[Service]
+Type=oneshot
+# No Restart=. A restore is attempted exactly ONCE per boot. The helper already consumes each
+# record before starting its session, so nothing remains to retry; a Restart= here would be a
+# second mechanism trying to undo that, and a session that crashes on startup would be
+# restarted for as long as systemd felt like it. This is the independent second brake.
+ExecStart=%h/.local/bin/ccy-sessions-restore
+
+# The tmux server each restored session lives on is started under its own transient
+# `systemd-run --user --scope`, precisely so it is NOT in this unit's cgroup — a Type=oneshot
+# service's leftover processes are killed when it completes, which would destroy every session
+# this just restored, seconds after restoring it. That is handled in the helper; it is written
+# down here too because a KillMode= added to this file in future would look harmless and would
+# not be.
+
+[Install]
+WantedBy=default.target

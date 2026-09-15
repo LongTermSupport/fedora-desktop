@@ -8,3 +8,22 @@
 # Valid values: podman, docker
 
 container_engine: podman
+
+# CCY Session Restore
+# Whether this machine brings back the CCY sessions that were running when it was rebooted.
+#
+# Off by default, because it is the right answer for most machines: a session is transient dev
+# state, and a laptop should not resurrect four agent sessions every time it boots. Turn it on
+# where some sessions are meant to run permanently.
+#
+# Override in host_vars/localhost.yml:
+#   ccy_restore_sessions: true
+#
+# When false the systemd --user unit is REMOVED, not merely left disabled, so that
+# `systemctl --user is-enabled ccy-sessions-restore.service` is the one source of truth about
+# what this machine will do. `ccy-sessions restore-status` reads it.
+#
+# ccy records sessions either way — a record is also the answer to "what is running right
+# now", and reporting "3 sessions recorded, restore not installed" needs both halves.
+
+ccy_restore_sessions: false
