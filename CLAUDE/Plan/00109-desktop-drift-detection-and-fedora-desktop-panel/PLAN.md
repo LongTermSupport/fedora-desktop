@@ -113,8 +113,9 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 
 - [x] ✅ **Task 1.1**: Design the ledger record and its location
 - [ ] 🔄 **Task 1.2**: Write the ledger on every play run — `callback_plugins/play_ledger.py`
-  - [ ] ⬜ **HOST**: verify against a real run — unprovable in the container. Genesis
-    plus one row per play; `--check` adds nothing; a second run appends
+  - [ ] ⬜ **HOST or VM**: verify against a real run — unprovable in the *container*, but
+    every guest that provisions IS a real run, and no guest checker reads the ledger
+    today. Genesis plus one row per play; `--check` adds nothing; a second run appends
 - [x] ✅ **Task 1.3**: Backfill — **none**, answered by a reporting rule instead: a play
   with no record has never been run here, and silence is correct for it
 
@@ -144,9 +145,12 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 - [ ] 🔄 **Task 3.1**: Post-boot health probe — code done, HOST wiring pending
   - [x] ✅ `probe_results.py` (verdicts) and `probe.py` (the half that touches the
     machine); `host-health.service`, deployed by `play-host-health-login-report.yml`
-  - [ ] ⬜ **HOST**: run the play, then assert the unit is actually *wanted* —
+  - [ ] ⬜ **HOST or VM**: run the play, then assert the unit is actually *wanted* —
     `systemctl --user list-dependencies graphical-session.target` must name it. "The
-    play succeeded" is a different claim
+    play succeeded" is a different claim. Tagged HOST because it needs a graphical
+    session; `desktop-fresh-install` provisions inside an autologin GNOME session and
+    has one, and the play's desktop branch enables into `graphical-session.target.wants/`
+    — so the lab can settle this, given the play in its `run_env`
 - [ ] 🔄 **Task 3.2**: Surface findings to the user — code done, HOST run pending
   - [x] ✅ `login_report.py` — one notification, silent when clean
   - [ ] ⬜ **HOST**: confirm a real notification arrives, and a clean login is silent
