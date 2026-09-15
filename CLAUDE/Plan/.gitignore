@@ -1,16 +1,24 @@
-# Plan-script run artefacts.
+# Plan-script run artefacts — LEGACY LOCATION.
 #
-# plan_start_log (CLAUDE/Plan/_planlib.inc.bash) writes each run's tee'd log — and any report
-# the run produces — to <script>-runs/<timestamp>/ inside the plan folder. Those are NEVER
-# committed, and that is a deliberate decision rather than an oversight: a plan run streams
-# live ansible output which can contain vault-decrypted values, and this repo has no run-log
-# secret scrubber. ballicom-infra commits its run logs precisely because it HAS one.
+# plan_start_log (CLAUDE/Plan/_planlib.inc.bash) now writes each run's tee'd log, and any
+# report the run produces, to untracked/plan-runs/<plan>/<script>/<timestamp>/ at the repo
+# root. It no longer writes anything beside the plan's tracked files.
 #
-# So the log stays local, the operator reads it in place (the CCY container bind-mounts this
-# repo, so the agent reads the same path), and _plan_finalize_log prints
-# "UNSCRUBBED, gitignored" on every single run. Do not force-add one. If run logs ever need to
-# be committed here, port a scrubber FIRST and delete this rule in the same change — never the
-# other way round.
+# This rule stays for the <script>-runs/ directories earlier runs already left on disk, so
+# they keep being ignored rather than appearing in git status. Safe to delete once those
+# are gone.
+#
+# WHY THE MOVE. These logs are NEVER committed, deliberately: a plan run streams live
+# ansible output that can carry vault-decrypted values. The rule now lives in the LOCATION
+# rather than in this glob — untracked/ is excluded wholesale and is self-excluding, so a
+# log there cannot reach an index by accident, whereas this pattern held only while the
+# directory kept a name that still matched it.
+#
+# And this file used to say the repo had no run-log secret scrubber. It has one —
+# scripts/lib/run-log-scrub.bash, built by Plan 00121 with its own QA gate — but that is
+# wired into the VM lab's run logs, NOT into these. The accurate statement is "plan run
+# logs are unscrubbed", not "this repo has no scrubber". If they ever need committing,
+# wire that scrubber in FIRST, in the same change — never the other way round.
 #
 # See CLAUDE/PlanScriptStandards.md R4 and R10.
 *-runs/

@@ -117,11 +117,18 @@ a run was dying) is on disk before anything reports on it. A `>(…)` process su
 cannot be waited on at all. The handler is armed for **EXIT and INT/TERM/HUP**, so a Ctrl-C'd
 run still leaves a complete log.
 
-**Run logs are UNSCRUBBED and gitignored** (`CLAUDE/Plan/.gitignore` excludes `*-runs/`), and
-the library says so on every run. ballicom-infra commits its run logs because it *has* a
-secret scrubber; this repo has none, and a play can stream vault-decrypted values. Do not
-force-add a run log. If committing them ever becomes worthwhile, port a scrubber **first**, in
-the same change that deletes the ignore rule.
+**Run logs are UNSCRUBBED and live under `untracked/plan-runs/<plan>/<script>/<timestamp>/`**,
+and the library says so on every run. A play can stream vault-decrypted values, so the
+*location* carries the rule: `untracked/` is excluded wholesale and is self-excluding, so a
+log cannot reach an index by accident. Logs used to sit beside the plan's tracked files behind
+a `*-runs/` glob, which held only while the directory kept a name that still matched.
+
+This repo **does** have a secret scrubber — `scripts/lib/run-log-scrub.bash`, built by Plan
+00121 with its own QA gate — but it is wired into the VM lab's run logs, **not** into these.
+So the accurate statement is "plan run logs are unscrubbed", not "this repo has no scrubber";
+the latter was true once, stopped being true, and would send a reader off to build a second
+one. If committing plan run logs ever becomes worthwhile, wire that scrubber in **first**, in
+the same change that moves them back under version control.
 
 ### R5 — Prompts: `plan_confirm` / `plan_gate_change` only
 
@@ -188,7 +195,7 @@ must still be non-zero rather than swallowed.
 
 ### R10 — Reports go in the run directory, and the script writes them
 
-`plan_start_log auto` creates `<script>-runs/<timestamp>/`, exports it as `PLAN_RUN_DIR`, and
+`plan_start_log auto` creates `untracked/plan-runs/<plan>/<script>/<timestamp>/`, exports it as `PLAN_RUN_DIR`, and
 `plan_finish` lists every `*report*` file in it. Write reports **there**:
 
 - it is inside the repo, so the agent reads it at the same path the operator sees (the CCY

@@ -26,7 +26,13 @@ tooling travel with it into `Completed/`.
 - `triage.bash` — confirms things are OK, at planning stage and/or after deploy
   (read-only, re-runnable).
 - testing / `acceptance.bash` (and any other plan-specific test/scratch script,
-  fixtures, captured logs) — all in the plan folder.
+  fixtures) — all in the plan folder.
+
+**Run logs are the exception, and deliberately.** `plan_start_log` writes them to
+`untracked/plan-runs/<plan>/<script>/<timestamp>/`, not beside the script. They are
+unscrubbed and can never be committed, so the rule that says so should be the
+*location* rather than a glob in a nested `.gitignore` — and a log that can never
+travel into `Completed/` has no reason to sit among the files that do.
 
 **Build these on [`_planlib.inc.bash`](_planlib.inc.bash)** — source it and use its primitives
 rather than hand-rolling the repo-root walk, the run log, the prompts, the change gate or the

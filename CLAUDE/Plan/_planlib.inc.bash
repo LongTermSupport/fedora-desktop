@@ -95,11 +95,23 @@
 # RUN LOGS ARE NOT COMMITTED
 #   ballicom-infra pipes its run log through a secret scrubber before committing
 #   it — committed run logs are valuable BECAUSE the scrubber makes them safe.
-#   This repo has no scrubber, and a plan run can stream vault-decrypted values.
-#   So logs land in `<script>-runs/<timestamp>/`, CLAUDE/Plan/.gitignore excludes
-#   `*-runs/`, and `_plan_finalize_log` says UNSCRUBBED on every run. Shipping the
-#   donor's shape with the scrub step silently omitted would be a control that
-#   degrades to a no-op — worse than an absent one, because people build on it.
+#   A plan run here can stream vault-decrypted values, so these logs land under
+#   `untracked/plan-runs/<plan>/<script>/<timestamp>/` and `_plan_finalize_log`
+#   says UNSCRUBBED on every run. Shipping the donor's shape with the scrub step
+#   silently omitted would be a control that degrades to a no-op — worse than an
+#   absent one, because people build on it.
+#
+#   This repo DOES now have a scrubber — `scripts/lib/run-log-scrub.bash`, built
+#   by Plan 00121 with its own QA gate — but it is wired into the VM lab's run
+#   logs, NOT into these. Until 00121 (dormant) connects it, the honest statement
+#   is "plan run logs are unscrubbed", not "this repo has no scrubber". The
+#   earlier wording here said the latter, which stopped being true and would send
+#   a reader off to build a second one.
+#
+#   The location carries the rule. `untracked/` is excluded wholesale and is
+#   self-excluding, so nothing under it can reach an index by accident; a
+#   `*-runs/` glob beside tracked files relied on the directory keeping a name
+#   that still matched.
 #
 # STDERR HYGIENE (CLAUDE/StderrHygiene.md)
 #   Every function that emits a CAPTURED VALUE keeps stdout pure and puts its
@@ -419,9 +431,10 @@ _plan_finalize_log() {
                 "${PLAN_RUN_LOG}" >&2
         fi
     fi
-    printf '\n==> run log (UNSCRUBBED, gitignored): %s\n' "${PLAN_RUN_LOG}" >&2
-    printf '==> this repo has no run-log secret scrubber, so plan run logs are NEVER committed.\n' >&2
-    printf '==> read it in place; do not force-add it to git.\n' >&2
+    printf '\n==> run log (UNSCRUBBED): %s\n' "${PLAN_RUN_LOG}" >&2
+    printf '==> under untracked/, because a plan run can stream vault-decrypted values.\n' >&2
+    printf '==> scripts/lib/run-log-scrub.bash exists but is NOT wired in here (Plan 00121\n' >&2
+    printf '==> is dormant), so this log is unscrubbed. Read it in place; never commit it.\n' >&2
     exec 9>&-
 }
 
@@ -449,7 +462,17 @@ plan_start_log() {
         base="$(basename "$0")"
         base="${base%.bash}"
         stamp="$(date '+%Y%m%d-%H%M%S')"
-        PLAN_RUN_DIR="${PLAN_SCRIPT_DIR}/${base}-runs/${stamp}"
+        # UNDER untracked/, not beside the script. These logs can never be committed —
+        # a plan run streams vault-decrypted values and this repo's scrubber is not
+        # wired in here — so the location should SAY so rather than leave them sitting
+        # among tracked files behind a `*-runs/` glob in a nested .gitignore. One
+        # mis-typed directory name, or a `git add -f`, and an unscrubbed log is in a
+        # public repository's history, removable only by a force-push.
+        #
+        # untracked/ is excluded wholesale and self-excluding, so nothing under it can
+        # reach an index by accident. It is also where the rest of this repo already
+        # puts things a human reads and git never sees.
+        PLAN_RUN_DIR="${PLAN_REPO_ROOT}/untracked/plan-runs/$(basename "${PLAN_SCRIPT_DIR}")/${base}/${stamp}"
         PLAN_RUN_LOG="${PLAN_RUN_DIR}/${base}.log"
     else
         PLAN_RUN_DIR="$(dirname "${where}")"

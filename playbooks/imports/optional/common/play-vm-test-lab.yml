@@ -280,6 +280,11 @@
           - origin
       register: vm_test_origin
       changed_when: false
+      # Runs under --check too. `command` is skipped in check mode by default, and the
+      # tasks below PARSE this output — a skipped probe leaves `.stdout` undefined and the
+      # dry run dies on its own skipping rather than on anything about the host. Safe to
+      # run because it only reads, which `changed_when: false` above already asserts.
+      check_mode: false
 
     - name: Read the checkout's branch, whose pushed tip the guests provision from
       become: false
@@ -293,6 +298,7 @@
           - HEAD
       register: vm_test_branch
       changed_when: false
+      check_mode: false
       failed_when: vm_test_branch.stdout | trim in ['', 'HEAD']
 
     # The guests clone over HTTPS with no identity (DESIGN.md §3.4), so an SSH
@@ -325,6 +331,7 @@
         stdin: "{{ vm_test_manifest | to_json }}"
       register: vm_test_manifest_check
       changed_when: false
+      check_mode: false
       failed_when: "'VMTEST-MANIFEST-OK' not in vm_test_manifest_check.stdout"
 
     - name: Render the manifest as JSON for the lab helpers
@@ -366,6 +373,7 @@
         stdin: "{{ vm_test_manifest | to_json }}"
       register: vm_test_allowlist
       changed_when: false
+      check_mode: false
       when: vm_test_bridge_count | int > 0
 
     - name: Deploy the scenario allowlist
@@ -402,6 +410,7 @@
         stdin: "{{ vm_test_manifest | to_json }}"
       register: vm_test_host_only
       changed_when: false
+      check_mode: false
       when: vm_test_host_only_count | int > 0
 
     - name: Deploy the host-only scenario list
@@ -433,6 +442,7 @@
           - "{{ root_dir }}"
       register: vm_test_bridge_slug
       changed_when: false
+      check_mode: false
 
     - name: Create the bridge spool directories in the checkout
       ansible.builtin.file:
@@ -563,6 +573,7 @@
           - uri
       register: vm_test_session_uri
       changed_when: false
+      check_mode: false
       failed_when: vm_test_session_uri.stdout.strip() != 'qemu:///session'
 
     - name: Display lab summary

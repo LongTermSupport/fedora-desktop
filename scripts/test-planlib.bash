@@ -560,13 +560,20 @@ chmod +x "${LOGTEST}"
 
 run_capture bash "${LOGTEST}"
 assert_eq "a script using plan_start_log exits 0" "0" "${RC}"
-assert_contains "the run log path is announced to the operator" "logtest-runs/" "${OUT}"
-
-LOGFILE="$(find "${TMPROOT}/f/repo/CLAUDE/Plan/00007-init/logtest-runs" -name 'logtest.log' -type f)"
+assert_contains "the run log path is announced to the operator" "untracked/plan-runs/" "${OUT}"
+# The location IS the control: untracked/ is excluded wholesale and self-excluding, so a
+# log that lands there cannot reach an index by accident. A log beside the plan's tracked
+# files relied on a `*-runs/` glob still matching the directory's name.
+assert_contains "the run log lands under untracked/, not beside the plan's tracked files" \
+    "/untracked/plan-runs/00007-init/logtest/" "${OUT}"
+assert_contains "the operator is told the log is unscrubbed" "UNSCRUBBED" "${OUT}"
+# Named for the plan and the script, so two plans' logs cannot collide under one tree.
+LOGFILE="$(find "${TMPROOT}/f/repo/untracked/plan-runs/00007-init/logtest" -name 'logtest.log' -type f)"
 if [[ -z "${LOGFILE}" ]]; then
-    fail "start_log writes a log file under <script>-runs/<timestamp>/" "a logtest.log" "none found"
+    fail "start_log writes a log file under untracked/plan-runs/<plan>/<script>/<timestamp>/" \
+        "a logtest.log" "none found"
 else
-    pass "start_log writes a log file under <script>-runs/<timestamp>/"
+    pass "start_log writes a log file under untracked/plan-runs/<plan>/<script>/<timestamp>/"
     LOGBODY="$(cat "${LOGFILE}")"
     assert_contains "the log captures the first line" "FIRST-LINE" "${LOGBODY}"
     assert_contains "the log captures the LAST line (deterministic tee drain)" \
@@ -607,7 +614,7 @@ if [[ "${RC}" -eq 0 ]]; then
 else
     pass "an interrupted run exits non-zero"
 fi
-INTLOG="$(find "${TMPROOT}/f/repo/CLAUDE/Plan/00007-init/inttest-runs" -name 'inttest.log' -type f)"
+INTLOG="$(find "${TMPROOT}/f/repo/untracked/plan-runs/00007-init/inttest" -name 'inttest.log' -type f)"
 if [[ -z "${INTLOG}" ]]; then
     fail "an interrupted run still leaves a log" "inttest.log" "none found"
 else
