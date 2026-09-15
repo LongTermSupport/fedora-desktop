@@ -312,9 +312,8 @@ ccy_tmux_insulate() {
 
     name=$(ccy_tmux_next_name "$project") || return 1
     echo "Starting session '$name' under tmux. If this terminal dies, run ${CCY_TMUX_SESSION_PREFIX} here again to re-attach." >&2
-    # The trampoline's dollars are escaped: they expand in the bash tmux starts, not here.
     local hold_on_failure
-    hold_on_failure="\"\$@\"; rc=\$?; if [ \"\$rc\" -ne 0 ]; then printf '\\n${CCY_TMUX_SESSION_PREFIX} exited with status %s. Press Enter to close this session.\\n' \"\$rc\"; read -r; fi; exit \"\$rc\""
+    hold_on_failure="$(ccy_tmux_hold_on_failure)"
     # The scope keeps the server out of the terminal's cgroup; --collect lets systemd forget
     # it once empty, whatever its exit status. The session is created detached, the
     # single-attach hook is installed, and only then is this client attached — one server
@@ -325,6 +324,19 @@ ccy_tmux_insulate() {
         new-session -d -s "$name" -- bash -c "$hold_on_failure" ccy-tmux "$@" \; \
         set-hook -g client-attached "$(ccy_tmux_single_attach_hook)" \; \
         attach-session -t "=$name"
+}
+
+# ccy_tmux_hold_on_failure — the `bash -c` script a tmux session runs its command through, on
+# stdout. It runs "$@", and on a non-zero status holds the window open on the error instead of
+# letting the session close and take the message with it.
+#
+# Shared rather than written out at each call site: the dollars are escaped so they expand in
+# the bash that tmux starts rather than here, and a second hand-escaped copy of that string is
+# a copy that drifts. ccy-sessions-restore needs the same behaviour for a different reason —
+# an unattended restore that fails must stay VISIBLE in the session list with its error, since
+# nobody is watching the terminal it would otherwise have printed to.
+ccy_tmux_hold_on_failure() {
+    printf '%s' "\"\$@\"; rc=\$?; if [ \"\$rc\" -ne 0 ]; then printf '\\n${CCY_TMUX_SESSION_PREFIX} exited with status %s. Press Enter to close this session.\\n' \"\$rc\"; read -r; fi; exit \"\$rc\""
 }
 
 # ccy_tmux_current_session — the name of the CCY session this process is running inside, on

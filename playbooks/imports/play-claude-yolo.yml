@@ -440,6 +440,95 @@
         group: "{{ user_login }}"
         mode: "0755"
 
+    # What the restore service runs at boot. Deployed UNCONDITIONALLY, even where restore is
+    # switched off: `ccy-sessions restore-status` reports on the registry whether or not
+    # anything will act on it, and `--dry-run` is how an operator decides whether to turn
+    # restore on in the first place. Only the unit below is conditional.
+    - name: Deploy the ccy-sessions-restore Helper
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/ccy-sessions-restore"
+        dest: "/home/{{ user_login }}/.local/bin/ccy-sessions-restore"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
+    # =========================================================================
+    # Session restore after a reboot — opt-in per machine (Plan 00123)
+    # =========================================================================
+    # `ccy_restore_sessions` defaults to false in vars/container-defaults.yml, so the default
+    # is today's behaviour: a reboot ends every session. Enable with
+    #   ./playbooks/imports/play-claude-yolo.yml -e ccy_restore_sessions=true
+    # or durably via host_vars/localhost.yml.
+    - name: Ensure the User Systemd Unit Directory Exists
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/systemd/user"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      when: ccy_restore_sessions | bool
+
+    - name: Deploy the ccy-sessions-restore User Service
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.config/systemd/user/ccy-sessions-restore.service"
+        dest: "/home/{{ user_login }}/.config/systemd/user/ccy-sessions-restore.service"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+      when: ccy_restore_sessions | bool
+
+    # Resolved, never defaulted: `| default(1000)` would be a hardcoded 1000 on every run, and
+    # on a host whose user is not uid 1000 it points systemctl at another user's runtime
+    # directory without failing. Same reasoning as play-container-watch.yml.
+    - name: Resolve The Session User UID
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ user_login }}"
+        # Hands the verdict to the assert below, so the operator gets its fail_msg rather than
+        # the module's "key could not be found". It does NOT make the key absent: getent sets
+        # it to `None` and exits successfully.
+        fail_key: false
+      when: ccy_restore_sessions | bool
+
+    - name: Assert The Session User Exists
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['getent_passwd'][user_login] is defined
+          - ansible_facts['getent_passwd'][user_login] is not none
+          - ansible_facts['getent_passwd'][user_login][1] | int > 0
+        fail_msg: >-
+          Could not resolve a uid for {{ user_login }}, so this play cannot reach that user's
+          systemd manager to enable session restore. It would otherwise guess, and a guessed
+          uid points at the wrong runtime directory without failing.
+      when: ccy_restore_sessions | bool
+
+    # Needs the user's systemd manager reachable, which does NOT mean a graphical session:
+    # play-systemd-user-tweaks.yml (scope: general) enables linger and then explicitly starts
+    # user@UID.service, blocking until it signals READY=1. An unreachable user bus fails this
+    # task loudly, which is the intended answer — a restore unit that was never enabled would
+    # otherwise look installed and simply never run at boot.
+    - name: Enable the ccy-sessions-restore User Service
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.systemd:
+        name: ccy-sessions-restore.service
+        scope: user
+        enabled: true
+        daemon_reload: true
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+      when: ccy_restore_sessions | bool
+
+    # Turning restore OFF removes the unit rather than disabling it. A disabled-but-present
+    # unit gives `ccy-sessions restore-status` two things to weigh and an operator two places
+    # to look; absence is unambiguous, and `systemctl --user is-enabled` stays the single
+    # source of truth about what this machine will do at boot.
+    - name: Remove the ccy-sessions-restore User Service When Restore Is Off
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/systemd/user/ccy-sessions-restore.service"
+        state: absent
+      when: not (ccy_restore_sessions | bool)
+
     - name: Create Claude YOLO Root Directory
       ansible.builtin.file:
         path: /home/{{ user_login }}/.claude-tokens/ccy

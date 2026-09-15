@@ -17,6 +17,20 @@ Two version numbers move independently — see
 
 ---
 
+## 3.58.1
+
+**The tmux hold-on-failure trampoline is shared.** A tmux session runs its command through a
+small `bash -c` script that, on a non-zero exit, holds the window open on the error instead of
+letting the session close and take the message with it. `ccy-sessions-restore` needs exactly
+that behaviour for a different reason — an unattended restore that fails must stay visible in
+the session list, because nobody is watching the terminal it would otherwise print to.
+
+The script's dollars are escaped so they expand in the bash that tmux starts rather than in
+the launcher, and a second hand-escaped copy of that string is a copy that drifts. It is now
+`ccy_tmux_hold_on_failure` in `lib/tmux-session.bash`, with one definition and two callers.
+
+---
+
 ## 3.58.0
 
 **Sessions are registered, so a reboot no longer simply loses them.** CCY 3.52.0 made a

@@ -13,34 +13,63 @@
 # race cannot mirror one claude into two terminals. It can still be ended from here.
 #
 # Usage:
-#   ccy-sessions            the picker
-#   ccy-sessions -h|--help  this text
+#   ccy-sessions                     the picker
+#   ccy-sessions restore-status      what this machine does with sessions after a reboot
+#   ccy-sessions reboot --dry-run    what a reboot would interrupt, and whether each
+#                                    session is ready to be warned about it
+#   ccy-sessions reboot --in N       warn every session, wait N minutes, then reboot
+#                                    — BLOCKED, see below
+#   ccy-sessions notify KIND         raise a signal in every session — BLOCKED, see below
+#   ccy-sessions -h|--help           this text
 #
-# Needs a terminal and fzf. Runs on the HOST: inside a CCY container there is no server.
+# BLOCKED: raising the reboot warning needs a `reboot-warning` signal kind and a CLI to
+# raise it, both of which live in the hooks daemon and do not exist yet
+# (Edmonds-Commerce-Limited/claude-code-hooks-daemon#39). `reboot --in N` and `notify`
+# therefore fail fast naming that issue: nothing is signalled and NOTHING IS REBOOTED. A
+# command that rebooted without warning anyone, while looking like it had, would be worse
+# than one that refuses. `reboot --dry-run` needs none of it and works today.
+#
+# Needs a terminal and fzf for the picker. The reporting subcommands need neither, so they
+# work over a non-interactive ssh. Runs on the HOST: inside a CCY container there is no server.
 set -euo pipefail
 
 CCY_LIB="/var/local/claude-yolo/lib"
 CCY_LAUNCHER="/var/local/claude-yolo/claude-yolo"
+CCY_RESTORE_UNIT="ccy-sessions-restore.service"
 MAX_TRIES=3
 
+# The header comment, minus the shebang and the leading "# ". The range is DERIVED — it runs
+# to the first line that is not a comment — rather than being a hardcoded line span that goes
+# stale the moment the header grows, which is how this text came to stop at line 20 while the
+# header ran past it.
 usage() {
-    sed -n '2,20p' "${BASH_SOURCE[0]}" | cut -c3-
+    awk 'NR == 1 { next } /^[^#]/ { exit } { sub(/^# ?/, ""); print }' "${BASH_SOURCE[0]}"
 }
 
+COMMAND="picker"
 case "${1:-}" in
 "") ;;
+restore-status | reboot | notify)
+    COMMAND="$1"
+    shift
+    ;;
 -h | --help)
     usage
     exit 0
     ;;
 *)
-    echo "ccy-sessions: unknown option '${1}'. See ccy-sessions --help." >&2
+    echo "ccy-sessions: unknown command '${1}'. See ccy-sessions --help." >&2
     exit 64
     ;;
 esac
 
-if [[ ! -t 0 || ! -t 1 ]]; then
+# Only the picker needs a terminal — it attaches sessions to the one you are in. The reporting
+# subcommands are useful precisely where there is no terminal: over a non-interactive ssh, or
+# piped into something. Requiring a tty for those would make the status of a headless box
+# unreadable from anywhere except that box.
+if [[ "$COMMAND" == "picker" && ( ! -t 0 || ! -t 1 ) ]]; then
     echo "ccy-sessions needs a terminal: it attaches sessions to the one you are in." >&2
+    echo "Without one, try: ccy-sessions restore-status" >&2
     exit 1
 fi
 if [[ ! -f "${CCY_LIB}/tmux-session.bash" ]]; then
@@ -56,6 +85,343 @@ fi
 source "${CCY_LIB}/common-pure.bash"
 # shellcheck source=../../../var/local/claude-yolo/lib/tmux-session.bash
 source "${CCY_LIB}/tmux-session.bash"
+# shellcheck source=../../../var/local/claude-yolo/lib/session-registry.bash
+source "${CCY_LIB}/session-registry.bash"
+
+# ── restore-status ────────────────────────────────────────────────────────────────────────
+#
+# Reports TWO things, and never multiplies them into one verdict: whether this machine will
+# restore sessions at all, and what is in the registry. Collapsing those is the defect this
+# repository keeps having to fix — on a machine that never opted in, "no sessions will come
+# back" must not be the same sentence as "there were no sessions to bring back".
+#
+# Its whole output is a report a human reads, so that report IS its stdout
+# (CLAUDE/StderrHygiene.md's carve-out for status commands).
+
+# restore_installation_state — one of not-installed | installed-not-enabled |
+# enabled-no-linger | enabled, on stdout. Four answers, because each needs a different fix.
+restore_installation_state() {
+    local unit="${HOME}/.config/systemd/user/${CCY_RESTORE_UNIT}" probe
+    if [[ ! -f "$unit" ]]; then
+        printf 'not-installed\n'
+        return 0
+    fi
+    if ! probe="$(systemctl --user is-enabled "$CCY_RESTORE_UNIT" 2>&1)" || [[ "$probe" != "enabled" ]]; then
+        printf 'installed-not-enabled\n'
+        return 0
+    fi
+    # The quiet one. Everything looks right, is-enabled says enabled, and the unit never runs
+    # because the user manager is not started at boot. Worth its own answer for exactly that
+    # reason: it is the state most likely to be mistaken for a working setup.
+    if ! probe="$(loginctl show-user "$(id -un)" --property=Linger --value 2>&1)"; then
+        printf 'enabled-linger-unknown\n'
+        return 0
+    fi
+    if [[ "$probe" != "yes" ]]; then
+        printf 'enabled-no-linger\n'
+        return 0
+    fi
+    printf 'enabled\n'
+}
+
+# count_records <dir> — how many records are in it. An absent directory is zero; a directory
+# that cannot be read is a failure, not a zero.
+count_records() {
+    local dir="$1"
+    local -a found=()
+    mapfile -t -d '' found < <(ccy_registry_list "$dir")
+    printf '%s\n' "${#found[@]}"
+}
+
+# list_with_reasons <dir> <label> — the retired/quarantined records and why, so a session that
+# did not come back is explained rather than merely absent.
+list_with_reasons() {
+    local dir="$1" label="$2" record reason project
+    local -a found=()
+    mapfile -t -d '' found < <(ccy_registry_list "$dir")
+    [[ ${#found[@]} -gt 0 ]] || return 0
+    printf '\n%s (%s):\n' "$label" "${#found[@]}"
+    for record in "${found[@]}"; do
+        reason="$(ccy_registry_field_default "$record" retired_reason unrecorded)"
+        project="$(ccy_registry_field_default "$record" project_dir '?')"
+        printf '  %-22s %-20s %s\n' "$(basename "${record%.record}")" "$reason" "${project/#${HOME}/\~}"
+    done
+}
+
+cmd_restore_status() {
+    if [[ $# -gt 0 ]]; then
+        echo "ccy-sessions restore-status takes no arguments (got '$1')." >&2
+        exit 64
+    fi
+    local sessions_dir restore_dir state live_count
+    sessions_dir="$(ccy_registry_sessions_dir)"
+    restore_dir="$(ccy_registry_restore_dir)"
+    state="$(restore_installation_state)"
+
+    echo "Session restore on this machine: ${state}"
+    case "$state" in
+    not-installed)
+        echo "  Nothing will be restored after a reboot — this is the default."
+        echo "  Turn it on: ./playbooks/imports/play-claude-yolo.yml -e ccy_restore_sessions=true"
+        ;;
+    installed-not-enabled)
+        echo "  The unit is present but not enabled, so it will not run at boot."
+        echo "  Re-run: ./playbooks/imports/play-claude-yolo.yml -e ccy_restore_sessions=true"
+        ;;
+    enabled-no-linger)
+        echo "  Enabled, but lingering is OFF for this user — the user manager does not start"
+        echo "  at boot, so the unit will not run. Re-run playbooks/imports/play-systemd-user-tweaks.yml"
+        ;;
+    enabled-linger-unknown)
+        echo "  Enabled, but whether lingering is on could not be determined, so whether this"
+        echo "  runs at boot is UNKNOWN. Check: loginctl show-user $(id -un) --property=Linger"
+        ;;
+    enabled)
+        echo "  Sessions still recorded at boot will be restored with --supervise --continue."
+        ;;
+    esac
+
+    # Reported separately, always, whatever the state above. ccy records sessions whether or
+    # not anything will act on the records, so "3 recorded, restore not installed" is a
+    # sentence this command can say — which is the entire point.
+    live_count="$(count_records "$sessions_dir")"
+    printf '\nRecorded sessions: %s\n' "$live_count"
+    if [[ "$live_count" -gt 0 ]]; then
+        local -a records=() record
+        mapfile -t -d '' records < <(ccy_registry_list "$sessions_dir")
+        for record in "${records[@]}"; do
+            printf '  %-22s %-9s %s\n' \
+                "$(basename "${record%.record}")" \
+                "$(ccy_registry_field_default "$record" restore '?')" \
+                "$(ccy_registry_field_default "$record" project_dir '?')"
+        done
+        if [[ "$state" != "enabled" ]]; then
+            echo "  None of these will be restored: see the state above."
+        fi
+    fi
+
+    list_with_reasons "${restore_dir}/attempted" "Restores attempted at an earlier boot"
+    list_with_reasons "${restore_dir}/retired" "Not restored, with the reason"
+    list_with_reasons "${restore_dir}/malformed" "Quarantined records"
+
+    if [[ -f "${restore_dir}/last-run" ]]; then
+        printf '\nLast restore run:\n'
+        awk '{ printf "  %s\n", $0 }' "${restore_dir}/last-run"
+    elif [[ "$state" == "enabled" ]]; then
+        # Distinguishable from "it ran and did nothing", which would have written the note.
+        printf '\nLast restore run: never — no run has been recorded on this machine.\n'
+    fi
+}
+
+# ── the reboot helper ─────────────────────────────────────────────────────────────────────
+
+# project_daemon_cli <dir> — the hooks-daemon CLI for a project, on stdout; non-zero when the
+# project has none. The two layouts a project can use, checked in the order the daemon's own
+# docs give them.
+project_daemon_cli() {
+    local dir="$1" candidate
+    for candidate in "${dir}/bin/hooks-daemon" "${dir}/.claude/hooks-daemon/bin/hooks-daemon"; do
+        if [[ -x "$candidate" ]]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# ccy_reboot_raise_signal <project-dir> <kind> <minutes> — THE BLOCKED SEAM.
+#
+# Everything else in the reboot helper works. This one call needs a `reboot-warning` signal
+# kind and a daemon CLI command to raise it, neither of which exists:
+# Edmonds-Commerce-Limited/claude-code-hooks-daemon#39. Verified against the installed daemon's
+# command list, which has no notify and no signal-raising command of any kind.
+#
+# It is NOT faked with `inject-goal`, the nearest existing mechanism. That takes free text,
+# while the whole security argument for this feature is that the signal carries a fixed kind
+# and an integer and is therefore not a prompt-injection channel. Routing a reboot warning
+# through a free-text command would throw that away to make a command look finished.
+#
+# When the upstream lands, this function is the only thing that changes.
+ccy_reboot_raise_signal() {
+    local dir="$1" kind="$2" minutes="$3" cli
+    cli="$(project_daemon_cli "$dir")" || {
+        print_error "no hooks-daemon CLI in ${dir}, so its session cannot be signalled."
+        return 1
+    }
+    print_error "cannot raise '${kind}' (${minutes} minutes) in ${dir} via ${cli}."
+    cat >&2 <<'BLOCKED'
+The reboot-warning signal kind and the CLI that raises it do not exist yet:
+  Edmonds-Commerce-Limited/claude-code-hooks-daemon#39
+
+Nothing was signalled and NOTHING WAS REBOOTED. Reboot by whatever means you normally
+would, accepting that running sessions get no warning — or wait for the daemon release
+that adds the signal, after which this command works with no change here.
+
+`ccy-sessions reboot --dry-run` works today and reports what a reboot would interrupt.
+BLOCKED
+    return 1
+}
+
+# live_sessions — "<name> <directory>" per line, for every session on the server.
+#
+# A listing FAILURE is propagated, never read as "no sessions". `ccy_tmux_list` already returns
+# 0 with no output when there is simply no server yet — the normal state — and non-zero only
+# when something is actually wrong, so the two are distinguishable here and must stay so.
+live_sessions() {
+    local listing name attached dir
+    listing="$(ccy_tmux_list)" || return 1
+    while read -r name attached dir; do
+        [[ -n "$name" ]] || continue
+        printf '%s %s\n' "$name" "$dir"
+    done <<<"$listing"
+}
+
+# audit_sessions — the table of what a reboot would interrupt, and whether each session's
+# project can be warned. Returns non-zero if ANY project cannot be, because a partial warning
+# is the failure mode worth refusing: the operator would believe every session had been told.
+#
+# The listing is CAPTURED, not consumed from a process substitution. `while read ... < <(cmd)`
+# discards cmd's exit status, so a failing `tmux list-sessions` produced an empty loop and this
+# printed "no sessions are running" — a confident wrong answer that would tell an operator a
+# reboot was safe while sessions were running. Caught by the smoke run on a box with no tmux.
+audit_sessions() {
+    local name dir cli missing=0 total=0 listing
+    if ! listing="$(live_sessions)"; then
+        print_error "could not list the running sessions, so what a reboot would interrupt is UNKNOWN."
+        echo "That is not the same as nothing running — fix the reason above before rebooting." >&2
+        return 1
+    fi
+    while read -r name dir; do
+        [[ -n "$name" ]] || continue
+        total=$((total + 1))
+        if cli="$(project_daemon_cli "$dir")"; then
+            printf '  %-28s %-14s %s\n' "$name" "ready" "${dir/#${HOME}/\~}"
+        else
+            printf '  %-28s %-14s %s\n' "$name" "NO DAEMON CLI" "${dir/#${HOME}/\~}"
+            missing=$((missing + 1))
+        fi
+    done <<<"$listing"
+
+    if [[ "$total" -eq 0 ]]; then
+        echo "  (no sessions are running)"
+        return 0
+    fi
+    if [[ "$missing" -gt 0 ]]; then
+        printf '\n' >&2
+        print_error "${missing} of ${total} session(s) could not be warned — their projects have no hooks-daemon CLI."
+        echo "Refusing rather than warning some and not others: you would believe every session had been told." >&2
+        return 1
+    fi
+}
+
+cmd_reboot() {
+    local dry_run=false minutes=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+        --dry-run) dry_run=true ;;
+        --in)
+            shift
+            minutes="${1:-}"
+            ;;
+        --in=*) minutes="${1#--in=}" ;;
+        *)
+            echo "ccy-sessions reboot: unknown option '$1'. See ccy-sessions --help." >&2
+            exit 64
+            ;;
+        esac
+        shift
+    done
+
+    if [[ "$dry_run" == false && -z "$minutes" ]]; then
+        echo "ccy-sessions reboot needs --in N (minutes) or --dry-run. See ccy-sessions --help." >&2
+        exit 64
+    fi
+    if [[ -n "$minutes" && ! "$minutes" =~ ^[1-9][0-9]*$ ]]; then
+        echo "ccy-sessions reboot: --in wants a whole number of minutes, got '${minutes}'." >&2
+        exit 64
+    fi
+
+    echo "Sessions a reboot would interrupt:"
+    audit_sessions || exit 1
+
+    if [[ "$dry_run" == true ]]; then
+        printf '\nDry run: nothing was signalled and nothing was rebooted.\n'
+        return 0
+    fi
+
+    # The audit passed, so every project could be warned — if there were anything to warn them
+    # with. The refusal happens here, AFTER the audit and BEFORE any reboot, so the operator
+    # still gets the useful half of the command.
+    local name dir listing
+    listing="$(live_sessions)" || exit 1
+    while read -r name dir; do
+        [[ -n "$name" ]] || continue
+        ccy_reboot_raise_signal "$dir" reboot-warning "$minutes" || exit 1
+    done <<<"$listing"
+}
+
+cmd_notify() {
+    local kind="${1:-}" minutes=0
+    # Guarded rather than `shift || true`: with no arguments `shift` fails, and swallowing that
+    # failure is the error-hiding pattern this repo bans. The empty case is handled below, where
+    # it gets a message naming the kinds this command knows.
+    if [[ $# -gt 0 ]]; then
+        shift
+    fi
+    case "$kind" in
+    reboot-warning | reboot-cancelled) ;;
+    "")
+        echo "ccy-sessions notify needs a signal kind: reboot-warning or reboot-cancelled." >&2
+        exit 64
+        ;;
+    *)
+        echo "ccy-sessions notify: unknown signal kind '${kind}'." >&2
+        echo "The helper never composes a message; it names a kind and a number. Known kinds: reboot-warning, reboot-cancelled." >&2
+        exit 64
+        ;;
+    esac
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+        --minutes)
+            shift
+            minutes="${1:-0}"
+            ;;
+        --minutes=*) minutes="${1#--minutes=}" ;;
+        *)
+            echo "ccy-sessions notify: unknown option '$1'." >&2
+            exit 64
+            ;;
+        esac
+        shift
+    done
+
+    echo "Sessions that would be signalled:"
+    audit_sessions || exit 1
+
+    local name dir listing
+    listing="$(live_sessions)" || exit 1
+    while read -r name dir; do
+        [[ -n "$name" ]] || continue
+        ccy_reboot_raise_signal "$dir" "$kind" "$minutes" || exit 1
+    done <<<"$listing"
+}
+
+case "$COMMAND" in
+restore-status)
+    cmd_restore_status "$@"
+    exit 0
+    ;;
+reboot)
+    cmd_reboot "$@"
+    exit 0
+    ;;
+notify)
+    cmd_notify "$@"
+    exit 0
+    ;;
+esac
+
+# ── the picker, reached only with no subcommand ───────────────────────────────────────────
 
 # rows — every session as a picker row, in the library's house format.
 rows() {

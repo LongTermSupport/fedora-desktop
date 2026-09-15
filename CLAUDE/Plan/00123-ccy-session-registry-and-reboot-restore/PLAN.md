@@ -39,9 +39,10 @@ naming the upstream issue. No local substitute is invented.
   reported — never silently dropped.
 - `ccy` launched unattended can never park on a prompt: any prompt reached without a human
   is a fatal, named error, not a hang.
-- `ccy-sessions restore-status` distinguishes *not installed* / *installed but not enabled* /
-  *enabled but linger off* / *enabled with no records* / *enabled with N records* as five
-  different answers.
+- `ccy-sessions restore-status` reports installation state and registry contents on **separate
+  axes**, never multiplied into one verdict: `not-installed` / `installed-not-enabled` /
+  `enabled-no-linger` / `enabled-linger-unknown` / `enabled`, and independently of that, how
+  many sessions are recorded and what became of the ones that were not restored.
 - Restore is opt-in per machine through the play; the default is today's behaviour.
 - `ccy-sessions reboot --dry-run` reports what a reboot would kill and whether each project
   is ready to be warned. The live form refuses, naming the upstream dependency.
@@ -117,44 +118,49 @@ naming the upstream issue. No local substitute is invented.
 
 ### Phase 3: The restore service
 
-- [ ] ⬜ **Task 3.1**: `files/home/.local/bin/ccy-sessions-restore` — non-interactive, fail-fast
-  - [ ] ⬜ Skip records from the **current** boot as live (D1) — the second brake beside D2
-  - [ ] ⬜ Consume the record into `attempted/` *before* starting, so no retry loop can exist (D2)
-  - [ ] ⬜ Retire with a named reason: `no-restore`, `directory-gone`, `not-a-git-checkout`,
+- [x] ✅ **Task 3.1**: `files/home/.local/bin/ccy-sessions-restore` — non-interactive, fail-fast
+  - [x] ✅ Skip records from the **current** boot as live (D1) — the second brake beside D2
+  - [x] ✅ Consume the record into `attempted/` *before* starting, so no retry loop can exist (D2)
+  - [x] ✅ Retire with a named reason: `no-restore`, `directory-gone`, `not-a-git-checkout`,
     `different-project`, `stale`, `malformed` (D4, D7, D8)
-  - [ ] ⬜ Start under `systemd-run --user --scope --collect`, or a oneshot's cgroup teardown
+  - [x] ✅ Start under `systemd-run --user --scope --collect`, or a oneshot's cgroup teardown
     kills the tmux server it just started (D9)
-  - [ ] ⬜ Gather semantics: process every record, report every failure, exit non-zero
+  - [x] ✅ Gather semantics: process every record, report every failure, exit non-zero
     (`CLAUDE/PlanScriptStandards.md` R7's read-only leg semantics, applied to a service)
-- [ ] ⬜ **Task 3.2**: `files/home/.config/systemd/user/ccy-sessions-restore.service`
-  - [ ] ⬜ `Type=oneshot`, `WantedBy=default.target`, no `Restart=`
-- [ ] ⬜ **Task 3.3**: Deploy it from `playbooks/imports/play-claude-yolo.yml`, opt-in
-  - [ ] ⬜ `ccy_restore_sessions` (default `false`) in `vars/container-defaults.yml`
-  - [ ] ⬜ When true: install + enable the unit, and depend on the linger that
+  - [x] ✅ Unit-test it — `scripts/test-ccy-session-restore.bash`, wired into `qa-all.bash`.
+    Drives the **real** script through every retirement reason against real git repositories,
+    asserting both the outcome and that the reason was recorded. Boot-time code nobody watches
+    cannot be verified by reading, so `CCY_LIB`/`CCY_LAUNCHER` are overridable for this and
+    stated to be so at the definition.
+- [x] ✅ **Task 3.2**: `files/home/.config/systemd/user/ccy-sessions-restore.service`
+  - [x] ✅ `Type=oneshot`, `WantedBy=default.target`, no `Restart=`
+- [x] ✅ **Task 3.3**: Deploy it from `playbooks/imports/play-claude-yolo.yml`, opt-in
+  - [x] ✅ `ccy_restore_sessions` (default `false`) in `vars/container-defaults.yml`
+  - [x] ✅ When true: install + enable the unit, and depend on the linger that
     `play-systemd-user-tweaks.yml` already establishes
-  - [ ] ⬜ When false: the unit is **absent**, so `systemctl --user is-enabled` is the honest
+  - [x] ✅ When false: the unit is **absent**, so `systemctl --user is-enabled` is the honest
     source of truth rather than a second one
-- [ ] ⬜ **Task 3.4**: Run QA: `./scripts/qa-all.bash`
+- [x] ✅ **Task 3.4**: Run QA: `./scripts/qa-all.bash`
 
 ### Phase 4: `ccy-sessions` subcommands
 
-- [ ] ⬜ **Task 4.1**: Give `ccy-sessions` subcommands without changing the no-argument picker
-- [ ] ⬜ **Task 4.2**: `ccy-sessions restore-status` — the five distinct answers (D8)
-- [ ] ⬜ **Task 4.3**: `ccy-sessions reboot` / `notify` — everything except the signal
-  - [ ] ⬜ `reboot --dry-run`: enumerate live sessions, audit each project for the daemon CLI,
+- [x] ✅ **Task 4.1**: Give `ccy-sessions` subcommands without changing the no-argument picker
+- [x] ✅ **Task 4.2**: `ccy-sessions restore-status` — the five distinct answers (D8)
+- [x] ✅ **Task 4.3**: `ccy-sessions reboot` / `notify` — everything except the signal
+  - [x] ✅ `reboot --dry-run`: enumerate live sessions, audit each project for the daemon CLI,
     print what would be signalled, and **refuse if any project lacks it** (no silent skip)
-  - [ ] 🚫 `reboot --in N` and `notify`: **BLOCKED** on
+  - [x] 🚫 `reboot --in N` and `notify`: **BLOCKED** on
     `Edmonds-Commerce-Limited/claude-code-hooks-daemon#39`. One function,
     `ccy_reboot_raise_signal`, fails fast naming the issue. Nothing is signalled and
     nothing is rebooted, so the command cannot claim to have warned anyone.
-- [ ] ⬜ **Task 4.4**: Run QA: `./scripts/qa-all.bash`
+- [x] ✅ **Task 4.4**: Run QA: `./scripts/qa-all.bash`
 
 ### Phase 5: Documentation
 
-- [ ] ⬜ **Task 5.1**: `docs/tmux-sessions.md` — a host-reboot row for restore enabled
-- [ ] ⬜ **Task 5.2**: `docs/ccy.md` — the registry, the restore service, the subcommands, and
+- [x] ✅ **Task 5.1**: `docs/tmux-sessions.md` — a host-reboot row for restore enabled
+- [x] ✅ **Task 5.2**: `docs/ccy.md` — the registry, the restore service, the subcommands, and
   what is blocked
-- [ ] ⬜ **Task 5.3**: `docs/ccy-changelog.md` entry (with Task 2.5)
+- [x] ✅ **Task 5.3**: `docs/ccy-changelog.md` entry (with Task 2.5)
 
 ### Phase 6: Review and hand-off
 

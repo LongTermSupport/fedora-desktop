@@ -310,6 +310,23 @@ session_registry_summary=$(printf '%s' "$session_registry_out" | grep -oE 'passe
     session_registry_summary="passed"
 printf '✓ ccy-session-registry: %s\n' "$session_registry_summary"
 
+# ccy session restore (Plan 00123): the boot-time service that decides which recorded sessions
+# come back. The least observable code in this repo — it runs once at boot, from a systemd
+# --user unit, with nobody watching, and it starts AI agent sessions. Both ways it can be wrong
+# are silent: restoring something it should not (a live session, a directory that now holds a
+# different repository, a one-off marked no-restore), or dropping something without saying why.
+# So the whole retirement tree is driven through the REAL script against real git repositories,
+# each case asserting both the outcome and that the reason was recorded.
+session_restore_out=""
+if ! session_restore_out="$(bash "$SCRIPT_DIR/test-ccy-session-restore.bash" 2>&1)"; then
+    echo "$session_restore_out" >&2
+    echo "✗ QA FAILED: ccy session-restore unit tests" >&2
+    exit 1
+fi
+session_restore_summary=$(printf '%s' "$session_restore_out" | grep -oE 'passed: [0-9]+') ||
+    session_restore_summary="passed"
+printf '✓ ccy-session-restore: %s\n' "$session_restore_summary"
+
 # host_only_preflight (Plan 00121): the host-CLI gate on a scenario that puts a real GitHub
 # PAT into a guest. One of three independent gates — the other two are the bridge allowlist
 # and bridge_run's manifest refusal — and the one a human types past. Driven through the

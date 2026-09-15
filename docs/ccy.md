@@ -604,9 +604,22 @@ are forwarded unchanged.
 | `--headless`      | Run non-interactively — requires `--prompt` (not the positional form) |
 | `--supervise`     | Wrap `claude` in the in-container supervisor                          |
 | `--top`           | Container manager: list and stop running CCY containers               |
+| `--no-restore`    | Do not register this session for restore after a reboot (a one-off)   |
 | `ccy-sessions`    | Separate command: list every CCY tmux session, attach or end one      |
 | `--debug`         | Interactive debug-layer selection (CCY, entrypoint, Claude Code)      |
 | `--`              | End of CCY options; everything after is forwarded raw to `claude`     |
+
+### Reboots
+
+See [Surviving a Reboot](#surviving-a-reboot). Restore is off unless enabled per machine.
+
+| Command                         | Effect                                                                  |
+| ------------------------------- | ----------------------------------------------------------------------- |
+| `ccy-sessions restore-status`   | Whether this machine restores sessions, and what is recorded            |
+| `ccy-sessions reboot --dry-run` | What a reboot would interrupt, and whether each session can be warned   |
+| `ccy-sessions reboot --in N`    | Warn, wait N minutes, reboot — **blocked**, refuses and reboots nothing |
+| `ccy-sessions notify KIND`      | Raise a signal in every session — **blocked**, same dependency          |
+| `ccy-sessions-restore`          | What the boot service runs; `--dry-run` reports without starting        |
 
 ### Image and updates
 
