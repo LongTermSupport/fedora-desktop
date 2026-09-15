@@ -13,6 +13,15 @@
 # this repo's existing pattern: see scripts/test-ccy-rootless-guard.bash, which says it as
 # "you cannot ask a real engine to be rootful just to prove the guard notices".
 #
+# WHAT MOVED, AND WHERE IT WENT (Plan 00122 Task 4.2). The tool's menu and its decisions
+# are now the shared library both freeze tools source, so the cases that drove
+# `lxcf_index_of`, `lxcf_count_in_state`, `lxcf_infer_action`, `lxcf_target_effect` and
+# `lxcf_partition` moved to scripts/test-freezelib.bash — unchanged in what they assert,
+# and now driven under BOTH engines' state vocabularies rather than only LXC's, which is
+# strictly more than they could say here. What is left in this file is what is genuinely
+# LXC's: the two parsers, the bridge label, the bridge group axis, and the hooks through
+# which the library reaches this engine.
+#
 # What that leaves uncovered, stated rather than glossed: whether `lxc-ls -1` and
 # `lxc-info -n NAME -s` actually emit what the parsers here are fed. Only a host with LXC
 # can say, and Plan 00122 Task 3.4 is where it gets said.
@@ -59,8 +68,16 @@ esac
 # The tool being sourceable is load-bearing for every case below, and a main dispatch that
 # leaked would show up as this suite hanging on a prompt or dying in the container guard
 # rather than as a clean failure. Assert the functions exist before relying on them.
-for fn in lxcf_index_of lxcf_count_in_state lxcf_infer_action lxcf_target_effect \
-    lxcf_partition lxcf_parse_state lxcf_parse_bridge lxcf_bridge_label; do
+#
+# The list spans both halves on purpose: the LXC-specific decisions this file drives, and
+# the shared ones the library must have brought in through the tool's `source`. A library
+# that failed to load would otherwise surface as a pile of confusing case failures.
+for fn in lxcf_parse_state lxcf_parse_bridge lxcf_bridge_label bridge_names \
+    select_bridge load_inventory do_list assert_lxc assert_sudo \
+    freeze_hook_preflight freeze_hook_refresh freeze_hook_menu_rows \
+    freeze_hook_select freeze_hook_act freeze_hook_table_header freeze_hook_table_row \
+    inventory_index_of count_in_state infer_action target_effect freeze_partition \
+    select_all select_names print_table interactive_loop; do
     if ! declare -F "$fn" > /dev/null; then
         echo "FAIL: $fn is not defined after sourcing $TOOL" >&2
         echo "      (the decision is absent, not merely wrong)" >&2
@@ -94,6 +111,41 @@ eq() {
     fi
 }
 
+# contains <description> <haystack> <needle>
+contains() {
+    case "$2" in
+        *"$3"*) pass "$1" ;;
+        *) fail "$1" "wanted a mention of: $3" "got: $2" ;;
+    esac
+}
+
+# lines_as_words <command...> — flatten a one-name-per-line emitter to one string, so a
+# case asserts ORDER and not merely membership. These emitters feed a menu whose row
+# numbers the user types, so the order is part of the answer.
+lines_as_words() {
+    local -a got=()
+    mapfile -t got < <("$@")
+    printf '%s' "${got[*]-}"
+}
+
+# count_with_prefix <prefix> <value>... — how many of the values start with it. A shell
+# loop rather than `grep -c`, because grep exits 1 when the count is zero and the
+# error-swallowing suffix that would paper over that is the shape this repo gates on.
+count_with_prefix() {
+    local prefix="$1"
+    shift
+    local value n=0
+    for value in "$@"; do
+        if [ "${value#"$prefix"}" != "$value" ]; then
+            n=$((n + 1))
+        fi
+    done
+    printf '%s' "$n"
+}
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
 # ---------------------------------------------------------------------------
 # The fixture inventory.
 #
@@ -106,6 +158,9 @@ eq() {
 # `alpha` sits AFTER two frozen entries on purpose: it is the only running
 # container in several selections below, so a predicate that inspects only the
 # first name it is handed gets the wrong answer.
+#
+# `kilo` carries BRIDGE_NONE, so every bridge-group case has a container that
+# belongs to no bridge row and must not be swept into one.
 # ---------------------------------------------------------------------------
 fixture() {
     INV_NAME=(zulu mike alpha kilo bravo)
@@ -116,136 +171,21 @@ fixture() {
 }
 
 echo ""
-echo "=== lxcf_index_of: a name is found, or it is not there ==="
-fixture
-eq "the first entry"              "$(lxcf_index_of zulu)"  "0"
-eq "an entry in the middle"       "$(lxcf_index_of alpha)" "2"
-eq "the last entry"               "$(lxcf_index_of bravo)" "4"
-if lxcf_index_of nosuch > /dev/null; then
-    fail "an absent name returns non-zero" "lxcf_index_of nosuch succeeded"
-else
-    pass "an absent name returns non-zero"
-fi
-# A name that is a prefix of a real one must not match it. Substring matching is the
-# quiet way a selection acts on a container nobody chose.
-if lxcf_index_of alph > /dev/null; then
-    fail "a prefix of a real name does not match" "lxcf_index_of alph matched alpha"
-else
-    pass "a prefix of a real name does not match"
-fi
-
-echo ""
-echo "=== lxcf_count_in_state: counts the NAMES GIVEN, not the inventory ==="
-fixture
-# The whole inventory holds 2 running and 3 frozen. Each case below asks about a
-# subset whose answer differs from both of those totals, so a mutant that ignores
-# its arguments and counts the inventory cannot pass.
-eq "two frozen out of three named"   "$(lxcf_count_in_state FROZEN zulu mike alpha)"  "2"
-eq "one running out of three named"  "$(lxcf_count_in_state RUNNING zulu mike alpha)" "1"
-eq "a single frozen name"            "$(lxcf_count_in_state FROZEN kilo)"             "1"
-eq "a single name in the other state" "$(lxcf_count_in_state RUNNING kilo)"           "0"
-eq "no names at all is zero"         "$(lxcf_count_in_state FROZEN)"                  "0"
-# An unknown name contributes nothing rather than erroring: the count is a count, and
-# the act/skip/vanished split below is what reports a name that is not there.
-eq "an unknown name does not count"  "$(lxcf_count_in_state RUNNING alpha nosuch)"    "1"
-eq "a state nothing is in"           "$(lxcf_count_in_state STOPPED zulu alpha)"      "0"
-
-echo ""
-echo "=== lxcf_infer_action: anything running gets frozen ==="
-fixture
-SELECTED=(alpha)
-eq "one running container"                "$(lxcf_infer_action)" "freeze"
-SELECTED=(zulu)
-eq "one frozen container"                 "$(lxcf_infer_action)" "thaw"
-SELECTED=(zulu mike kilo)
-eq "a wholly frozen set"                  "$(lxcf_infer_action)" "thaw"
-# THE case a first-element-only predicate fails: two frozen names before the running
-# one. Without this, a predicate that looked at SELECTED[0] alone would pass every
-# other case here.
-SELECTED=(zulu mike alpha)
-eq "a running container behind two frozen" "$(lxcf_infer_action)" "freeze"
-SELECTED=(alpha zulu)
-eq "running first, frozen second"          "$(lxcf_infer_action)" "freeze"
-# An empty selection has nothing running, so the rule gives `thaw`. Pinned because it
-# is the rule's consequence and not a special case — the action refuses an empty
-# selection separately, and this documents which of the two speaks first.
-SELECTED=()
-eq "an empty selection"                    "$(lxcf_infer_action)" "thaw"
-
-echo ""
-echo "=== lxcf_target_effect: the menu row can never disagree with the outcome ==="
-fixture
-eq "derived, running present"  "$(lxcf_target_effect zulu mike alpha)" "FREEZE 1"
-eq "derived, only frozen"      "$(lxcf_target_effect zulu mike)"       "THAW   2"
-eq "derived, neither"          "$(lxcf_target_effect nosuch)"          "nothing to do"
-# The count in the label is the count of things the verb will touch, not the size of
-# the selection. Three names, one of which will be frozen.
-eq "the label counts the acted-on, not the selected" \
-    "$(lxcf_target_effect zulu kilo alpha)" "FREEZE 1"
-
-# With an explicit verb the label must follow the VERB, not the state — a script that
-# said `freeze` is not handed a row that says THAW.
-ACTION="freeze"
-eq "explicit freeze, running present" "$(lxcf_target_effect zulu alpha)" "FREEZE 1"
-eq "explicit freeze, nothing running" "$(lxcf_target_effect zulu mike)"  "nothing to freeze"
-ACTION="thaw"
-eq "explicit thaw, frozen present"    "$(lxcf_target_effect zulu mike)"  "THAW   2"
-eq "explicit thaw, nothing frozen"    "$(lxcf_target_effect alpha bravo)" "nothing to thaw"
-# Distinct refusals. If both explicit verbs said "nothing to do", a user who asked to
-# thaw would be told about freezing, and the two cases above would pass with one
-# shared string. Assert they differ from each other AND from the derived refusal.
-ACTION="freeze"
-_eff_freeze="$(lxcf_target_effect zulu mike)"
-ACTION="thaw"
-_eff_thaw="$(lxcf_target_effect alpha bravo)"
-ACTION=""
-_eff_derived="$(lxcf_target_effect nosuch)"
-if [ "$_eff_freeze" = "$_eff_thaw" ] || [ "$_eff_freeze" = "$_eff_derived" ] ||
-    [ "$_eff_thaw" = "$_eff_derived" ]; then
-    fail "the three refusals are distinct" \
-        "freeze: $_eff_freeze" "thaw: $_eff_thaw" "derived: $_eff_derived"
-else
-    pass "the three refusals are distinct"
-fi
-
-echo ""
-echo "=== lxcf_partition: act, skip, and VANISHED are three answers ==="
-fixture
-# A selection holding all three kinds at once, so no case can pass by collapsing two
-# of the buckets into one.
-lxcf_partition freeze alpha zulu nosuch
-eq "freeze: the running one is a target"    "${LXCF_TARGETS[*]}"  "alpha"
-eq "freeze: the frozen one is skipped"      "${LXCF_SKIPPED[*]}"  "zulu"
-eq "freeze: the absent one has vanished"    "${LXCF_VANISHED[*]}" "nosuch"
-
-fixture
-lxcf_partition thaw alpha zulu nosuch
-eq "thaw: the frozen one is a target"       "${LXCF_TARGETS[*]}"  "zulu"
-eq "thaw: the running one is skipped"       "${LXCF_SKIPPED[*]}"  "alpha"
-eq "thaw: the absent one has vanished"      "${LXCF_VANISHED[*]}" "nosuch"
-
-# A name that is not in the inventory must be REPORTED, not dropped. Silently dropping
-# it means acting on fewer containers than were chosen and saying nothing about the
-# difference — an under-match nobody can see. This is the case that fails if `vanished`
-# is folded into `skipped`, which reads to a user as "already in that state".
-fixture
-lxcf_partition freeze nosuch
-eq "an all-absent selection has no targets" "${LXCF_TARGETS[*]-}"  ""
-eq "and is not reported as skipped"         "${LXCF_SKIPPED[*]-}"  ""
-eq "it is reported as vanished"             "${LXCF_VANISHED[*]}"  "nosuch"
-
-# Order is the order the user gave, not inventory order: `bravo` is index 4 and
-# `alpha` index 2, so a partition that walked the inventory would swap them.
-fixture
-lxcf_partition freeze bravo alpha
-eq "targets keep the order they were given" "${LXCF_TARGETS[*]}" "bravo alpha"
-
-# Partitioning twice must not accumulate. A stale bucket from a previous pass is how
-# the interactive loop would act on something the user chose a screen ago.
-fixture
-lxcf_partition freeze alpha
-lxcf_partition freeze bravo
-eq "a second partition replaces the first"  "${LXCF_TARGETS[*]}" "bravo"
+echo "=== the tool declared itself to the shared library ==="
+# The library refuses to load without these, so their mere presence proves little; what
+# matters is that they say what LXC says. A tool that declared podman's words would
+# inventory containers it then refused to act on, with no other symptom.
+eq "it names itself for every message"  "$FREEZE_TOOL"          "lxcfreeze"
+eq "the running state is LXC's word"    "$FREEZE_STATE_RUNNING" "RUNNING"
+eq "the frozen state is LXC's word"     "$FREEZE_STATE_FROZEN"  "FROZEN"
+# STATE_* is what the parser reads and FREEZE_STATE_* is what the library compares
+# against. If those two ever disagreed, a container would parse as RUNNING and then
+# match neither branch of the partition — inventoried, offered, and acted on never.
+eq "the parser's word and the library's are the same" "$STATE_RUNNING" "$FREEZE_STATE_RUNNING"
+eq "and so are the frozen pair"                       "$STATE_FROZEN"  "$FREEZE_STATE_FROZEN"
+# The unknown-name error gains LXC's extra sentence: a STOPPED container is not in
+# the inventory, and without saying so the message reads as "no such container".
+contains "the list note explains the STOPPED exclusion" "$FREEZE_LIST_NOTE" "STOPPED"
 
 echo ""
 echo "=== lxcf_parse_state: what lxc-info says, and what it does not say ==="
@@ -351,6 +291,177 @@ for _label in "$BRIDGE_NONE" "$BRIDGE_UNREADABLE"; do
             "it has no whitespace, so a bridge could legally be called this" ;;
     esac
 done
+
+echo ""
+echo "=== bridge_names: the bridges in use, and only those ==="
+fixture
+# Sorted and deduplicated: `lxcbr0` is held by two containers and `virbr1` by two more,
+# and the inventory presents them interleaved rather than grouped.
+eq "each bridge once, sorted" "$(lines_as_words bridge_names)" "lxcbr0 virbr1"
+# Neither non-bridge label is offered as a group. "no network" is not a bridge and a
+# row for it would read as one; "could not read" is not a set anyone can ask to freeze,
+# and a row for it would promise to act on containers nobody has placed.
+fixture
+INV_BRIDGE[4]="$BRIDGE_UNREADABLE"
+eq "the two non-bridge labels are not bridges" \
+    "$(lines_as_words bridge_names)" "lxcbr0 virbr1"
+fixture
+INV_BRIDGE=("$BRIDGE_NONE" "$BRIDGE_NONE" "$BRIDGE_UNREADABLE" "$BRIDGE_NONE" "$BRIDGE_NONE")
+eq "a machine with no bridges at all offers none" "$(lines_as_words bridge_names)" ""
+
+echo ""
+echo "=== select_bridge: a bridge in use, and one that is not ==="
+fixture
+select_bridge lxcbr0
+# zulu is index 0 and alpha index 2, with mike between them: inventory order, and not
+# adjacent, so a loop that stopped at the first match returns half the group.
+eq "its members, in inventory order" "${SELECTED[*]}" "zulu alpha"
+fixture
+select_bridge virbr1
+eq "the other bridge's members"      "${SELECTED[*]}" "mike bravo"
+# The selection is rebuilt, not appended to — the interactive loop calls this again on
+# every pass, and a stale member is how a row acts on a container that left the bridge
+# a screen ago.
+fixture
+SELECTED=(stale_name)
+select_bridge lxcbr0
+eq "a second selection replaces the first" "${SELECTED[*]}" "zulu alpha"
+
+# An unknown bridge RETURNS non-zero; it does not exit. The menu depends on that to
+# re-prompt when a bridge empties between being drawn and being chosen, and the CLI
+# path turns the same status into a hard failure of its own accord.
+fixture
+if select_bridge nosuchbr 2> "$work/bridge.err"; then
+    fail "an unknown bridge is refused" "select_bridge nosuchbr succeeded"
+else
+    pass "an unknown bridge is refused"
+fi
+bridge_err="$(cat "$work/bridge.err")"
+contains "it names the bridge"       "$bridge_err" "nosuchbr"
+contains "and lists the ones in use" "$bridge_err" "lxcbr0"
+# A machine where NOTHING is on a bridge gets a different message: there is no list to
+# offer, and "in use right now:" followed by nothing would leave the reader with no
+# next step.
+fixture
+INV_BRIDGE=("$BRIDGE_NONE" "$BRIDGE_NONE" "$BRIDGE_NONE" "$BRIDGE_NONE" "$BRIDGE_NONE")
+if select_bridge lxcbr0 2> "$work/nobridge.err"; then
+    fail "a machine with no bridges refuses too" "select_bridge succeeded"
+else
+    pass "a machine with no bridges refuses too"
+fi
+nobridge_err="$(cat "$work/nobridge.err")"
+contains "saying nothing is on any bridge" "$nobridge_err" "any bridge"
+if [ "$bridge_err" = "$nobridge_err" ]; then
+    fail "the two bridge refusals are distinct" "both say: $bridge_err"
+else
+    pass "the two bridge refusals are distinct"
+fi
+
+echo ""
+echo "=== the table hook: the BRIDGE column is this tool's ==="
+fixture
+eq "the header names it"      "$(freeze_hook_table_header)" "BRIDGE"
+eq "a row carries the bridge" "$(freeze_hook_table_row 0)"  "lxcbr0"
+# The label for a container on no bridge is shown VERBATIM rather than blanked: a blank
+# cell reads as "unknown", and the whole point of the two labels is that they are not.
+eq "and the no-network label, verbatim" "$(freeze_hook_table_row 3)" "$BRIDGE_NONE"
+# print_table is the library's, and this is the assembled result — the shared columns
+# plus this engine's, which is the seam most likely to be wired up wrong.
+fixture
+table="$(print_table alpha kilo)"
+contains "the assembled table has the shared columns" "$table" "NAME"
+contains "and this engine's column"                   "$table" "BRIDGE"
+contains "a row names its container"                  "$table" "alpha"
+contains "with its state"                             "$table" "RUNNING"
+contains "and its bridge"                             "$table" "lxcbr0"
+
+echo ""
+echo "=== the menu hook: groups, and no per-container rows ==="
+# What lxcfreeze GAINED by adopting the library: the top-level menu is groups only,
+# and the containers are reached by drilling into one — where they can be seen, chosen
+# several at a time, and backed out of. The flat list this tool shipped with could do
+# none of that, and was the UX divergence Phase 4 exists to close.
+fixture
+FREEZE_MENU_KEYS=()
+FREEZE_MENU_LABELS=()
+freeze_hook_menu_rows
+eq "everything first, then one row per bridge in use" \
+    "${FREEZE_MENU_KEYS[*]}" "all bridge:lxcbr0 bridge:virbr1"
+eq "and no row per container" \
+    "$(count_with_prefix 'name:' "${FREEZE_MENU_KEYS[@]}")" "0"
+contains "the first row says what acting on everything would do" \
+    "${FREEZE_MENU_LABELS[0]}" "FREEZE 2"
+# Each bridge row counts ITS OWN members, not the machine: lxcbr0 holds one running
+# container and virbr1 holds one. A row that counted the inventory would promise to
+# act on containers outside the group it names.
+contains "a bridge row names the bridge"   "${FREEZE_MENU_LABELS[1]}" "lxcbr0"
+contains "and counts only its own members" "${FREEZE_MENU_LABELS[1]}" "FREEZE 1"
+# A bridge holding nothing that can be frozen still gets a row, saying what it CAN do.
+# Hiding it would leave the user wondering where a bridge they can see went.
+fixture
+INV_STATE=(FROZEN FROZEN FROZEN FROZEN FROZEN)
+FREEZE_MENU_KEYS=()
+FREEZE_MENU_LABELS=()
+freeze_hook_menu_rows
+contains "a wholly frozen bridge offers to thaw it" "${FREEZE_MENU_LABELS[1]}" "THAW"
+
+echo ""
+echo "=== the select hook: keys in, a selection out ==="
+fixture
+freeze_hook_select all
+eq "the 'all' key selects everything" "${SELECTED[*]}" "zulu mike alpha kilo bravo"
+fixture
+freeze_hook_select "bridge:virbr1"
+eq "a bridge key selects its members" "${SELECTED[*]}" "mike bravo"
+# A bridge that emptied out between the menu being drawn and the row being chosen is a
+# RECOVERABLE condition: the hook returns non-zero and the library's loop re-prompts.
+# Exiting here would end a session the user was in the middle of.
+fixture
+if freeze_hook_select "bridge:nosuchbr" 2> "$work/hook.err"; then
+    fail "an unknown bridge key returns rather than selecting" "the hook succeeded"
+else
+    pass "an unknown bridge key returns rather than selecting"
+fi
+# A key the hook does not recognise is an internal error, not a re-prompt: the library
+# built that key from a row this hook supplied, so a mismatch is a bug rather than a
+# stale menu.
+if hook_out="$(freeze_hook_select "nonsense:key" 2>&1)"; then
+    fail "an unrecognised key is fatal" "the hook succeeded"
+else
+    pass "an unrecognised key is fatal"
+    contains "and names the key it did not understand" "$hook_out" "nonsense:key"
+fi
+
+echo ""
+echo "=== the act hook: the verb maps to LXC's two commands ==="
+# The hook is not RUN here — it shells out to sudo, and this container has no lxc. Its
+# TEXT is read instead, which is enough to catch the mapping being inverted: a freeze
+# that called lxc-unfreeze would thaw everything the user asked to freeze, and nothing
+# else that can run in here would see it.
+hook_body="$(declare -f freeze_hook_act)"
+contains "freeze reaches for lxc-freeze"              "$hook_body" "lxc-freeze -n"
+contains "thaw reaches for lxc-unfreeze"              "$hook_body" "lxc-unfreeze -n"
+contains "and both escalate, as rootful LXC requires" "$hook_body" "sudo"
+# Presence is not pairing: an inverted mapping contains both commands too. The freeze
+# command must be the branch taken when the action IS freeze.
+mapfile -t hook_lines <<< "$hook_body"
+freeze_branch=""
+for hook_i in "${!hook_lines[@]}"; do
+    case "${hook_lines[$hook_i]}" in
+        *'= "freeze"'*) freeze_branch="${hook_lines[$((hook_i + 1))]}" ;;
+    esac
+done
+contains "the freeze branch is the one that freezes" "$freeze_branch" "lxc-freeze -n"
+
+echo ""
+echo "=== the preflight hook: both guards, and neither one alone ==="
+# LXC absent and sudo refused are different failures with different remedies, and
+# neither may be skipped: one is a missing dependency with an IaC fix, the other is a
+# question that was never asked. A preflight that ran only one of them would let the
+# other produce an empty inventory that reads as "no containers".
+preflight_body="$(declare -f freeze_hook_preflight)"
+contains "it checks LXC is installed" "$preflight_body" "assert_lxc"
+contains "and that root is available" "$preflight_body" "assert_sudo"
 
 echo ""
 echo "──────────────────────────────────────────────────────────────"

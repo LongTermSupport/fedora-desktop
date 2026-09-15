@@ -78,10 +78,63 @@
 #   podfreeze freeze --ccy               # explicitly freeze them
 #   podfreeze freeze --network mynet -n  # preview only
 #   podfreeze thaw --all
+#
+# THE MENU IS NOT IN THIS FILE. The group menu, the drill-down, the derived
+# verb, the dry run, the bounded retry and the act loop live in
+# ~/.local/lib/freeze/freeze-common.bash, which `lxcfreeze` sources too — so the
+# two tools cannot teach different habits for the same job (Plan 00122 Phase 4).
+# What stays here is everything that IS podman: the inventory query, the CCY and
+# network group axes, the identity labels, and the two state words. The library
+# reaches podman only through the freeze_hook_* functions at the bottom of this
+# file; it contains no mention of an engine at all.
 set -euo pipefail
 
-DRY_RUN=0
-MAX_TRIES=3   # bounded retries on a recoverable menu-input mistake
+# What this tool is, in the library's terms. Set BEFORE the library is sourced —
+# it refuses to load without them, because a message that named no tool and a
+# state comparison against the empty string are both silent failures.
+FREEZE_TOOL="podfreeze"
+# podman's own two words for the states this tool acts on.
+FREEZE_STATE_RUNNING="running"
+FREEZE_STATE_FROZEN="paused"
+FREEZE_HOST_ONLY_NOTE="  The host's podman is not reachable from in here, so every container would
+  look absent. Freezing your own session would also be unrecoverable."
+FREEZE_TARGET_HINT="NAME..., --ccy,
+  --network NET, or --all"
+FREEZE_LIST_NOTE=""
+
+# Where the shared library is. ONE relative path finds it both from a repo
+# checkout and from ~/.local/bin once deployed, because files/ mirrors the target
+# filesystem. The second candidate is that checkout reached from the ENTRY POINT
+# rather than from this file, which is what scripts/test-podfreeze.bash needs: it
+# sources the definitions above the argument loop out of a temp file, so by then
+# this file's own location is a temp directory.
+freeze_lib_path() {
+    local src dir candidate
+    for src in "${BASH_SOURCE[0]}" "$0"; do
+        dir="$(cd -- "$(dirname -- "$src")" 2> /dev/null && pwd -P)" || continue
+        for candidate in "$dir/../lib/freeze/freeze-common.bash" \
+            "$dir/../files/home/.local/lib/freeze/freeze-common.bash"; do
+            if [ -r "$candidate" ]; then
+                printf '%s' "$candidate"
+                return 0
+            fi
+        done
+    done
+    return 1
+}
+
+if ! FREEZE_LIB="$(freeze_lib_path)"; then
+    echo "podfreeze: the shared freeze library is missing." >&2
+    echo "  Expected at ~/.local/lib/freeze/freeze-common.bash — half of this" >&2
+    echo "  tool lives there, so nothing here can run without it." >&2
+    echo "  Deploy it with:" >&2
+    echo "    ansible-playbook playbooks/imports/optional/common/play-podfreeze.yml" >&2
+    echo "  Do NOT install it by hand." >&2
+    exit 1
+fi
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../lib/freeze/freeze-common.bash
+source "$FREEZE_LIB"
 
 # Set at `podman run` time by CCY >= 3.40.0, so it cannot be inherited: a
 # container carrying it IS a live Claude session. This is the exact, positive
@@ -113,11 +166,6 @@ CCY_NAME_PATTERN='^.+_(yolo|browser)(_[0-9]+)?$'
 # problem the tab has. Mitigated by checking the field count rather than by
 # choosing a cleverer byte — a short record is detectable, a mis-split is not.
 FIELD_SEP='|'
-
-# First-column marker for the "act on the whole group" row in the drill-down.
-# Leading '*' cannot begin a container name (podman requires [a-zA-Z0-9] first),
-# so a real container can never be mistaken for this control row.
-ALL_ROW_KEY='*all*'
 
 usage() {
     echo "Usage: podfreeze [list|freeze|thaw] [target] [options]"
@@ -170,30 +218,11 @@ usage() {
     echo "  podfreeze thaw --all"
 }
 
-die() {
-    echo "podfreeze: $*" >&2
-    exit 1
-}
-
-have() {
-    command -v "$1" > /dev/null
-}
-
 # ---------------------------------------------------------------------------
-# Preflight
+# Preflight. `die`, `have` and `assert_on_host` come from the library — the
+# refusal to run inside a container is shared, and only its explanation is
+# podman's (FREEZE_HOST_ONLY_NOTE above).
 # ---------------------------------------------------------------------------
-
-# Inside a container the host's podman is not reachable, so every probe below
-# would report an empty machine — a misleading empty result, which is worse
-# than an error. It also removes any chance of freezing the very session
-# issuing the command.
-assert_on_host() {
-    if [ -f /run/.containerenv ] || [ -f /.dockerenv ] || [ -n "${container:-}" ]; then
-        die "this is a container — run podfreeze on the HOST.
-  The host's podman is not reachable from in here, so every container would
-  look absent. Freezing your own session would also be unrecoverable."
-    fi
-}
 
 assert_podman() {
     if ! have podman; then
@@ -207,7 +236,8 @@ assert_podman() {
 # ---------------------------------------------------------------------------
 # Inventory
 #
-# Three parallel arrays plus per-container lookups. Only running and paused
+# INV_NAME and INV_STATE are the library's; INV_NETS is this tool's third
+# parallel array, and the lookups below are keyed by name. Only running and paused
 # containers are inventoried — an exited container can be neither frozen nor
 # thawed, and offering one as a candidate would only invite a confusing no-op.
 #
@@ -217,8 +247,6 @@ assert_podman() {
 # alone, which is why INV_HAS_LABELS exists to carry that distinction
 # separately.
 # ---------------------------------------------------------------------------
-declare -a INV_NAME=()
-declare -a INV_STATE=()
 declare -a INV_NETS=()
 declare -A INV_IS_CCY=()
 # 1 for a session that came back from the `label=ccy=true` query — i.e. one
@@ -255,7 +283,7 @@ load_inventory() {
             continue
         fi
         case "$state" in
-            running | paused) ;;
+            "$FREEZE_STATE_RUNNING" | "$FREEZE_STATE_FROZEN") ;;
             *) continue ;;
         esac
         INV_NAME+=("$name")
@@ -308,17 +336,6 @@ load_inventory() {
     done <<< "$ccy_out"
 }
 
-inventory_index_of() {
-    local wanted="$1" i
-    for i in "${!INV_NAME[@]}"; do
-        if [ "${INV_NAME[$i]}" = "$wanted" ]; then
-            printf '%s' "$i"
-            return 0
-        fi
-    done
-    return 1
-}
-
 ccy_marker() {
     if [ "${INV_IS_CCY[$1]:-0}" = "1" ]; then
         printf 'CCY'
@@ -328,12 +345,13 @@ ccy_marker() {
 }
 
 # ---------------------------------------------------------------------------
-# Selection
-# ---------------------------------------------------------------------------
-declare -a SELECTED=()
-
+# Selection. `select_all` and `select_names` are the library's — they need
+# nothing but the inventory. What is here is the group axes podman has and LXC
+# does not: a CCY session, a network, an identity label.
+#
 # The *_names emitters print one name per line so the target menu can size a
 # candidate group without disturbing SELECTED.
+# ---------------------------------------------------------------------------
 
 ccy_names() {
     local name
@@ -342,10 +360,6 @@ ccy_names() {
             printf '%s\n' "$name"
         fi
     done
-}
-
-select_all() {
-    SELECTED=("${INV_NAME[@]}")
 }
 
 select_ccy() {
@@ -387,21 +401,6 @@ network_names() {
     fi
 }
 
-# How many of the named containers are in a state the verb can act on. This is
-# what makes the target menu worth reading: "0 frozen" says the choice is a
-# no-op before you make it.
-count_in_state() {
-    local want="$1"
-    shift
-    local name i n=0
-    for name in "$@"; do
-        if i="$(inventory_index_of "$name")" && [ "${INV_STATE[$i]}" = "$want" ]; then
-            n=$(( n + 1 ))
-        fi
-    done
-    printf '%s' "$n"
-}
-
 # A --filter network= naming a network that does not exist returns an empty set
 # and exit 0, which reads as "nothing is on it" — a confident answer to a
 # question that was never asked. So the network is verified to exist first.
@@ -440,24 +439,6 @@ select_network() {
             SELECTED+=("$name")
         fi
     done <<< "$matched"
-}
-
-select_names() {
-    local name
-    local -a unknown=()
-    SELECTED=()
-    for name in "$@"; do
-        if inventory_index_of "$name" > /dev/null; then
-            SELECTED+=("$name")
-        else
-            unknown+=("$name")
-        fi
-    done
-    if [ "${#unknown[@]}" -gt 0 ]; then
-        echo "podfreeze: not a running or frozen container: ${unknown[*]}" >&2
-        echo "  Run 'podfreeze list' to see what is available." >&2
-        exit 1
-    fi
 }
 
 # --- identity groups: GitHub account, Anthropic token, SSH key ---------------
@@ -632,32 +613,16 @@ warn_identity_blind_spot() {
 }
 
 # ---------------------------------------------------------------------------
-# Reporting
-#
-# `list` and `--dry-run` exist to print for a human, so their table IS the
-# payload and goes to stdout. Everywhere else the caller redirects it to
-# stderr, because there it is context around a prompt, not a return value
-# (CLAUDE/StderrHygiene.md).
+# Reporting. `print_table` is the library's; the two columns after NAME and
+# STATE are this tool's, and arrive through the table hooks at the bottom.
 # ---------------------------------------------------------------------------
-
-print_table() {
-    local name i
-    printf '  %-34s %-8s %-4s %s\n' "NAME" "STATE" "CCY" "NETWORKS"
-    for name in "$@"; do
-        if ! i="$(inventory_index_of "$name")"; then
-            continue
-        fi
-        printf '  %-34s %-8s %-4s %s\n' \
-            "$name" "${INV_STATE[$i]}" "$(ccy_marker "$name")" "${INV_NETS[$i]}"
-    done
-}
 
 do_list() {
     local -a running=() frozen=()
     local i
 
     for i in "${!INV_NAME[@]}"; do
-        if [ "${INV_STATE[$i]}" = "paused" ]; then
+        if [ "${INV_STATE[$i]}" = "$FREEZE_STATE_FROZEN" ]; then
             frozen+=("${INV_NAME[$i]}")
         else
             running+=("${INV_NAME[$i]}")
@@ -682,86 +647,64 @@ do_list() {
 }
 
 # ---------------------------------------------------------------------------
-# Interactive picker
+# The library's hooks — the only place podman appears below the inventory.
+#
+# Everything the user actually interacts with (the group menu, the drill-down,
+# the member selection, the derived verb, the dry run, the act loop) is in the
+# library. These are the named seams it reaches this engine through, and there
+# is deliberately no `if podman` inside shared code: the next difference would
+# be written beside it, and the shared layer would drift back into two
+# implementations sharing a file.
 # ---------------------------------------------------------------------------
 
-# Echoes a target key on stdout: "ccy", "all", "net:<name>", or "pick".
-#
-# Groups come FIRST and per-container picking is the last entry, because acting
-# on a whole group is the common case — the earlier version opened straight
-# into a TAB-to-multi-select container list, which made the group targets
-# reachable only by knowing the flag names.
-
-# What choosing a group would do, given what is in it right now. It applies the
-# same rule infer_action() does — or an explicit CLI verb when one was given —
-# so the label can never disagree with the outcome.
-target_effect() {
-    local running frozen
-    running="$(count_in_state running "$@")"
-    frozen="$(count_in_state paused "$@")"
-
-    case "$ACTION" in
-        freeze)
-            if [ "$running" -gt 0 ]; then
-                printf 'FREEZE %s' "$running"
-            else
-                printf 'nothing to freeze'
-            fi
-            return 0
-            ;;
-        thaw)
-            if [ "$frozen" -gt 0 ]; then
-                printf 'THAW   %s' "$frozen"
-            else
-                printf 'nothing to thaw'
-            fi
-            return 0
-            ;;
-    esac
-
-    if [ "$running" -gt 0 ]; then
-        printf 'FREEZE %s' "$running"
-    elif [ "$frozen" -gt 0 ]; then
-        printf 'THAW   %s' "$frozen"
-    else
-        printf 'nothing to do'
-    fi
+freeze_hook_preflight() {
+    assert_podman
 }
 
-pick_target() {
-    local net selection reply attempt total i axis value
-    local -a keys=() labels=() nets=() group=() values=()
+# The menu counts must describe the machine as it is NOW, so the network map is
+# rebuilt with the inventory on every pass rather than once at startup.
+freeze_hook_refresh() {
+    load_inventory
+    build_network_map
+}
 
-    if [ ! -t 2 ] || [ ! -r /dev/tty ]; then
-        die "no terminal to ask on — name a target explicitly: NAME..., --ccy,
-  --network NET, or --all. See 'podfreeze --help'."
-    fi
+# The two columns this tool shows after NAME and STATE. Header and row are
+# formatted with the same widths, so they cannot drift out of step — a header
+# that no longer sits over its own column is a table that misreads.
+freeze_hook_table_header() {
+    printf '%-4s %s' "CCY" "NETWORKS"
+}
+
+freeze_hook_table_row() {
+    local i="$1"
+    printf '%-4s %s' "$(ccy_marker "${INV_NAME[$i]}")" "${INV_NETS[$i]}"
+}
+
+# The group rows, in menu order: the CCY session group, everything, each network
+# in use, then each value of an identity axis that actually discriminates.
+#
+# An identity row is offered only when the axis tells two CCY sessions apart —
+# with a single GitHub account and every session labelled, "github: <id>" and
+# "all CCY containers" are the same button, and a menu that says the same thing
+# twice is harder to read, not more capable. The predicate is
+# identity_axis_discriminates, which the unit test calls directly.
+freeze_hook_menu_rows() {
+    local net axis value
+    local -a group=() nets=() values=()
 
     mapfile -t group < <(ccy_names)
-    keys+=("ccy")
-    labels+=("$(printf '%-38s %s' "all CCY (Claude) containers" \
-        "$(target_effect "${group[@]+${group[@]}}")")")
+    freeze_menu_row "ccy" "all CCY (Claude) containers" "${group[@]+${group[@]}}"
 
-    keys+=("all")
-    labels+=("$(printf '%-38s %s' "all containers" \
-        "$(target_effect "${INV_NAME[@]}")")")
+    freeze_menu_row "all" "all containers" "${INV_NAME[@]+${INV_NAME[@]}}"
 
     if [ "${#NET_MEMBERS[@]}" -gt 0 ]; then
         mapfile -t nets < <(printf '%s\n' "${!NET_MEMBERS[@]}" | sort)
         for net in "${nets[@]}"; do
             mapfile -t group < <(network_names "$net")
-            keys+=("net:$net")
-            labels+=("$(printf '%-38s %s' "network: $net" \
-                "$(target_effect "${group[@]+${group[@]}}")")")
+            freeze_menu_row "net:$net" "network: $net" "${group[@]+${group[@]}}"
         done
     fi
 
-    # Identity groups, one row per distinct value actually present. Offered only
-    # when the axis actually discriminates — with a single GitHub account and
-    # every session labelled, "github: <id>" and "all CCY containers" are the
-    # same button, and a menu that says the same thing twice is harder to read,
-    # not more capable. The predicate is identity_axis_discriminates, which the
-    # unit test calls directly; see the reasoning on that function.
     for axis in github token ssh-key; do
         if ! identity_axis_discriminates "$axis"; then
             continue
@@ -769,395 +712,57 @@ pick_target() {
         mapfile -t values < <(identity_values "$axis")
         for value in "${values[@]}"; do
             mapfile -t group < <(identity_names "$axis" "$value")
-            keys+=("id:$axis:$value")
-            labels+=("$(printf '%-38s %s' "$axis: $value" \
-                "$(target_effect "${group[@]+${group[@]}}")")")
+            freeze_menu_row "id:$axis:$value" "$axis: $value" "${group[@]+${group[@]}}"
         done
     done
 
-    # No "pick individual containers..." entry: choosing "all containers" and
-    # drilling into it IS that, so a separate row would be a second route to
+    # No "pick individual containers..." row: choosing "all containers" and
+    # drilling into it IS that, so a separate entry would be a second route to
     # one screen.
-
-    total="${#labels[@]}"
-
-    # Cancelling is a normal way to leave a menu that loops, not an error, so
-    # it comes back as a "quit" key rather than as a non-zero exit.
-    if have fzf; then
-        if ! selection="$(printf '%s\n' "${labels[@]}" |
-            fzf --height=50% --reverse \
-                --prompt="podfreeze: " \
-                --header="ENTER acts on the chosen group — ESC to quit")"; then
-            printf 'quit'
-            return 0
-        fi
-        for i in "${!labels[@]}"; do
-            if [ "${labels[$i]}" = "$selection" ]; then
-                printf '%s' "${keys[$i]}"
-                return 0
-            fi
-        done
-        die "internal error: chosen entry not found."
-    fi
-
-    echo "What to act on:" >&2
-    for i in "${!labels[@]}"; do
-        printf '  %2d) %s\n' "$(( i + 1 ))" "${labels[$i]}" >&2
-    done
-
-    attempt=1
-    while :; do
-        printf 'Choice [1-%d, q to quit]: ' "$total" >&2
-        if ! read -r reply < /dev/tty; then
-            echo >&2
-            printf 'quit'
-            return 0
-        fi
-        case "$reply" in
-            q | Q | quit)
-                printf 'quit'
-                return 0
-                ;;
-            "" | *[!0-9]*) ;;
-            *)
-                if [ "$reply" -ge 1 ] && [ "$reply" -le "$total" ]; then
-                    printf '%s' "${keys[$(( reply - 1 ))]}"
-                    return 0
-                fi
-                ;;
-        esac
-        echo "  Not one of the options — enter a number between 1 and $total, or q." >&2
-        attempt=$(( attempt + 1 ))
-        if [ "$attempt" -gt "$MAX_TRIES" ]; then
-            die "giving up after $MAX_TRIES attempts — nothing changed."
-        fi
-    done
 }
 
-# What this ONE container is about to have done to it. The group row says
-# "FREEZE 5"; a row inside the group says which of the five it is.
-row_verb() {
-    local name="$1" i state
-    if ! i="$(inventory_index_of "$name")"; then
-        printf '?'
-        return 0
-    fi
-    state="${INV_STATE[$i]}"
-    # Written out rather than as `test && printf || printf`: that shape silently
-    # runs the third branch when the second one fails, which is the discarded-
-    # failure-signal class this repo gates on (CLAUDE/AgentNotes.md).
-    case "$ACTION" in
-        freeze)
-            if [ "$state" = "running" ]; then printf 'FREEZE'; else printf '-'; fi
+# Resolve a chosen menu key into SELECTED. A non-zero return is RECOVERABLE and
+# the loop re-prompts; anything genuinely wrong exits from inside the selector.
+freeze_hook_select() {
+    local key="$1" rest
+    case "$key" in
+        ccy) select_ccy ;;
+        all) select_all ;;
+        net:*)
+            # A network can be removed between the menu being drawn and this row
+            # being chosen. select_network has already explained it, so this is
+            # a re-prompt rather than the end of the session.
+            if ! select_network "${key#net:}"; then
+                return 1
+            fi
             ;;
-        thaw)
-            if [ "$state" = "paused" ]; then printf 'THAW'; else printf '-'; fi
+        id:*)
+            # id:<axis>:<value> — the value may itself contain a colon, so only
+            # the axis is split off.
+            rest="${key#id:}"
+            select_identity "${rest%%:*}" "${rest#*:}"
             ;;
-        *)
-            if [ "$state" = "running" ]; then printf 'FREEZE'; else printf 'THAW'; fi
-            ;;
+        *) die "internal error: unknown target key '$key'." ;;
     esac
 }
 
-# The second screen: having chosen a group, see WHAT IS IN IT before acting.
-#
-# The first row is "all N", so the common case — act on the whole group — is
-# still one keypress, and the earlier feedback that per-container tabbing was
-# being forced on the user is not undone. What it adds is sight of the members:
-# a group row says "network: podman — FREEZE 5" and names nothing, which is
-# precisely where a live Claude session hides inside an app network (F15).
-#
-# Emits the chosen names on stdout, one per line. Returns non-zero for back or
-# cancel, which the caller treats as "return to the group menu".
-drill_into_group() {
-    local -a group=("$@")
-    local i total line selection reply attempt token ok name
-    local -a menu=() picked=() tokens=()
-
-    total="${#group[@]}"
-    if [ "$total" -eq 0 ]; then
-        return 1
-    fi
-
-    if [ ! -t 2 ] || [ ! -r /dev/tty ]; then
-        die "no terminal to ask on — name a target explicitly, or use --ccy /
-  --network NET / --all. See 'podfreeze --help'."
-    fi
-
-    # Sentinel-prefixed so a container can never be mistaken for a control row:
-    # the emitters below key on the first field, and a container named "all"
-    # would otherwise collide with the "act on everything" row.
-    menu+=("$(printf '%-34s %s' "$ALL_ROW_KEY" \
-        "$(target_effect "${group[@]}")")")
-    for name in "${group[@]}"; do
-        i="$(inventory_index_of "$name")" || continue
-        menu+=("$(printf '%-34s %-8s %-4s %-22s %s' \
-            "$name" "${INV_STATE[$i]}" "$(ccy_marker "$name")" \
-            "${INV_NETS[$i]}" "$(row_verb "$name")")")
-    done
-
-    if have fzf; then
-        if ! selection="$(printf '%s\n' "${menu[@]}" |
-            fzf --multi --height=60% --reverse \
-                --prompt="In this group: " \
-                --header="ENTER on the first row acts on all — TAB picks specific ones, ESC goes back")"; then
-            return 1
-        fi
-        if [ -z "$selection" ]; then
-            return 1
-        fi
-        picked=()
-        while read -r line; do
-            if [ -z "$line" ]; then
-                continue
-            fi
-            if [ "${line%% *}" = "$ALL_ROW_KEY" ]; then
-                printf '%s\n' "${group[@]}"
-                return 0
-            fi
-            picked+=("${line%% *}")
-        done <<< "$selection"
-        if [ "${#picked[@]}" -eq 0 ]; then
-            return 1
-        fi
-        printf '%s\n' "${picked[@]}"
-        return 0
-    fi
-
-    echo "In this group:" >&2
-    for i in "${!menu[@]}"; do
-        printf '  %2d) %s\n' "$(( i + 1 ))" "${menu[$i]}" >&2
-    done
-
-    attempt=1
-    while :; do
-        printf 'Choice [ENTER or 1 for all, numbers for specific, b to go back]: ' >&2
-        if ! read -r reply < /dev/tty; then
-            echo >&2
-            return 1
-        fi
-        case "$reply" in
-            b | B | back | q | Q | quit)
-                return 1
-                ;;
-            "" | 1 | a | A | all)
-                printf '%s\n' "${group[@]}"
-                return 0
-                ;;
-        esac
-
-        picked=()
-        ok=1
-        read -r -a tokens <<< "${reply//,/ }"
-        for token in "${tokens[@]+${tokens[@]}}"; do
-            case "$token" in
-                "" | *[!0-9]*) ok=0 ;;
-                *)
-                    # Row 1 is "all"; containers start at 2, so shift by two to
-                    # index the group.
-                    if [ "$token" -ge 2 ] && [ "$token" -le "$(( total + 1 ))" ]; then
-                        picked+=("${group[$(( token - 2 ))]}")
-                    else
-                        ok=0
-                    fi
-                    ;;
-            esac
-        done
-
-        if [ "$ok" -eq 1 ] && [ "${#picked[@]}" -gt 0 ]; then
-            printf '%s\n' "${picked[@]}"
-            return 0
-        fi
-
-        echo "  Not a valid choice — 1 (or ENTER) for all, 2-$(( total + 1 )) for" >&2
-        echo "  specific containers, or 'b' to go back." >&2
-        attempt=$(( attempt + 1 ))
-        if [ "$attempt" -gt "$MAX_TRIES" ]; then
-            die "giving up after $MAX_TRIES attempts — nothing changed."
-        fi
-    done
-}
-
-# ---------------------------------------------------------------------------
-# Action
-# ---------------------------------------------------------------------------
-
-# There is only ever one sensible verb for a given set, so it is derived rather
-# than asked: anything running gets frozen, and a set with nothing running gets
-# thawed. Running it twice on the same target therefore toggles it. An explicit
-# `freeze`/`thaw` on the command line still wins — scripts need to say what they
-# mean rather than depend on current state.
-infer_action() {
-    local name i
-    for name in "${SELECTED[@]+${SELECTED[@]}}"; do
-        if i="$(inventory_index_of "$name")" && [ "${INV_STATE[$i]}" = "running" ]; then
-            printf 'freeze'
-            return 0
-        fi
-    done
-    printf 'thaw'
-}
-
-do_action() {
-    local action="$1"
-    local name i want_state podman_verb past out
-    local failed=0
-    local -a targets=() skipped=() vanished=()
-
+# One container, one call, so a single failure is named rather than collapsing
+# the batch. The library captures both streams and reports what podman said.
+freeze_hook_act() {
+    local action="$1" name="$2"
     if [ "$action" = "freeze" ]; then
-        want_state="running"
-        podman_verb="pause"
-        past="FROZEN"
+        podman pause "$name"
     else
-        want_state="paused"
-        podman_verb="unpause"
-        past="THAWED"
+        podman unpause "$name"
     fi
-
-    if [ "${#SELECTED[@]}" -eq 0 ]; then
-        die "nothing matched — the selection is empty.
-  Run 'podfreeze list' to see what is running and what is frozen."
-    fi
-
-    for name in "${SELECTED[@]}"; do
-        # A selected name that is not in the inventory is REPORTED, not dropped.
-        # Unreachable today, since every selector filters through
-        # inventory_index_of, but a silent `continue` here is the shape that hides
-        # an under-match: the run would act on fewer containers than the user
-        # chose and say nothing about the difference.
-        if ! i="$(inventory_index_of "$name")"; then
-            vanished+=("$name")
-            continue
-        fi
-        if [ "${INV_STATE[$i]}" = "$want_state" ]; then
-            targets+=("$name")
-        else
-            skipped+=("$name")
-        fi
-    done
-
-    if [ "${#vanished[@]}" -gt 0 ]; then
-        echo "Skipped — no longer present (gone since the inventory was read): ${vanished[*]}" >&2
-    fi
-
-    if [ "${#skipped[@]}" -gt 0 ]; then
-        echo "Skipped — not currently $want_state: ${skipped[*]}" >&2
-    fi
-
-    if [ "${#targets[@]}" -eq 0 ]; then
-        echo "Nothing to do — every selected container is already in the requested state." >&2
-        return 0
-    fi
-
-    if [ "$DRY_RUN" -eq 1 ]; then
-        echo "DRY RUN — ${#targets[@]} container(s) would be $past:"
-        print_table "${targets[@]}"
-        return 0
-    fi
-
-    # Printed before acting, not to ask permission but to leave a record of
-    # exactly what was touched. There is deliberately no confirmation prompt:
-    # freezing is the cgroup freezer and is undone by running podfreeze again
-    # on the same target, so a prompt would be guarding a reversible act — and
-    # in the interactive path the menu row already named the verb and the count
-    # before it was chosen. The table's CCY column says which rows are Claude
-    # sessions; what freezing one implies is left to the reader.
-    echo "${#targets[@]} container(s) being $past:" >&2
-    print_table "${targets[@]}" >&2
-
-    # Each container is acted on individually so a single failure is NAMED
-    # rather than collapsing the batch into one opaque exit status, and so a
-    # failure part-way through does not silently abandon the rest. Every
-    # failure is printed and the command still exits non-zero.
-    for name in "${targets[@]}"; do
-        if out="$(podman "$podman_verb" "$name" 2>&1)"; then
-            echo "  ✓ $name" >&2
-        else
-            echo "  ✗ $name — $out" >&2
-            failed=$(( failed + 1 ))
-        fi
-    done
-
-    if [ "$action" = "freeze" ]; then
-        echo "" >&2
-        echo "  Thaw them with: podfreeze thaw ${targets[*]}" >&2
-    fi
-
-    # Returns rather than dies, so the interactive loop can report a failure
-    # and carry on. The one-shot path runs this as its last command, so the
-    # status still becomes the script's.
-    if [ "$failed" -gt 0 ]; then
-        echo "podfreeze: $failed of ${#targets[@]} container(s) failed — see above." >&2
-        return 1
-    fi
-    return 0
-}
-
-# The interactive session: menu, act, refresh, menu again — the inventory is
-# re-read every pass so the counts describe the machine as it is now, not as it
-# was when the tool started. Leaves only when you quit.
-interactive_loop() {
-    local key picked rest status=0
-
-    while :; do
-        load_inventory
-        build_network_map
-
-        if [ "${#INV_NAME[@]}" -eq 0 ]; then
-            echo "No running or frozen containers." >&2
-            return 0
-        fi
-
-        key="$(pick_target)"
-        case "$key" in
-            quit) return "$status" ;;
-            ccy) select_ccy ;;
-            all) select_all ;;
-            net:*)
-                # A network can be removed between the menu being drawn and
-                # this row being chosen. select_network has already explained
-                # it; re-prompt rather than abort the session.
-                if ! select_network "${key#net:}"; then
-                    echo "" >&2
-                    continue
-                fi
-                ;;
-            id:*)
-                # id:<axis>:<value> — the value may itself contain a colon, so
-                # only the axis is split off.
-                rest="${key#id:}"
-                select_identity "${rest%%:*}" "${rest#*:}"
-                ;;
-            *) die "internal error: unknown target key '$key'." ;;
-        esac
-
-        if [ "${#SELECTED[@]}" -eq 0 ]; then
-            echo "Nothing in that group." >&2
-            echo "" >&2
-            continue
-        fi
-
-        # Second screen: see the members, act on all of them or a subset.
-        # Backing out returns to the group menu rather than quitting — it is
-        # one level down, not a separate command.
-        if ! picked="$(drill_into_group "${SELECTED[@]}")"; then
-            echo "" >&2
-            continue
-        fi
-        mapfile -t SELECTED <<< "$picked"
-
-        if ! do_action "${ACTION:-$(infer_action)}"; then
-            status=1
-        fi
-        echo "" >&2
-    done
 }
 
 # ---------------------------------------------------------------------------
-# Argument parsing
+# Argument parsing. ACTION and DRY_RUN are the library's — every decision it
+# makes reads one or the other — so the loop below sets them rather than
+# declaring them.
 # ---------------------------------------------------------------------------
 
-ACTION=""
 TARGET_MODE=""
 TARGET_NETWORK=""
 TARGET_IDENTITY_AXIS=""
@@ -1233,8 +838,12 @@ fi
 # Main
 # ---------------------------------------------------------------------------
 
+# The hook check comes first: a missing hook is a wiring mistake in THIS file,
+# and without it the gap surfaces as `command not found` part-way through a menu
+# the user is already looking at.
+freeze_assert_contract
 assert_on_host
-assert_podman
+freeze_hook_preflight
 load_inventory
 
 if [ "$ACTION" = "list" ]; then

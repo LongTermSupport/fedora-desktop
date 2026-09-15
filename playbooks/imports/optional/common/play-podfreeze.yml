@@ -2,10 +2,16 @@
 ---
 # podfreeze — freeze/thaw Podman containers by name, network, or CCY group.
 #
-# Deploys ~/.local/bin/podfreeze. The tool shells out to the `podman` CLI
-# installed by playbooks/imports/play-podman.yml (a core play imported by
-# playbook-main.yml, so it is always present) and adds nothing to the host but
-# itself and an optional picker.
+# Deploys ~/.local/bin/podfreeze and the shared library it sources, and shells
+# out to the `podman` CLI installed by playbooks/imports/play-podman.yml (a core
+# play imported by playbook-main.yml, so it is always present). Nothing else is
+# added to the host but the optional picker.
+#
+# TWO ARTEFACTS, NOT ONE. The group menu, the drill-down, the derived verb, the
+# dry run and the act loop live in ~/.local/lib/freeze/freeze-common.bash, which
+# `lxcfreeze` sources too — so the two tools cannot drift into different habits
+# for the same job (Plan 00122 Phase 4). It is deployed by the shared task file
+# both plays include, and podfreeze does not start without it.
 #
 # WHY A WRAPPER AND NOT JUST `podman pause`:
 #   - `podman pause --filter network=X` already exists, but you act on a set you
@@ -62,6 +68,16 @@
       tags:
         - podfreeze
 
+    # Half of podfreeze lives in the library — the group menu, the drill-down,
+    # the derived verb, the dry run, the act loop — and it is sourced at
+    # startup, so the tool does not run without it. Shared with
+    # play-lxcfreeze.yml through one task file rather than copied into both:
+    # two copies of a deploy is the drift Plan 00122 Task 4.5 exists to remove.
+    - name: Deploy the Shared Freeze Library
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/deploy-freeze-lib.yml"
+      tags:
+        - podfreeze
+
     - name: Deploy the podfreeze Command
       ansible.builtin.copy:
         src: "{{ root_dir }}/files/home/.local/bin/podfreeze"
@@ -105,5 +121,9 @@
           - ""
           - "  Freezing is the cgroup freezer, not suspend-to-disk — frozen"
           - "  containers do NOT survive a reboot."
+          - ""
+          - "  The LXC counterpart is 'lxcfreeze' (play-lxcfreeze.yml). Both"
+          - "  source ~/.local/lib/freeze/freeze-common.bash, so both offer the"
+          - "  same menu, drill-down and keys."
       tags:
         - podfreeze

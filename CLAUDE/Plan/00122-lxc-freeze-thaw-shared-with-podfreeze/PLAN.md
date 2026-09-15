@@ -178,19 +178,35 @@ divergent as it is now — which is the half that was actually complained about.
     of `*` expanded against the working directory and every file there became a key
     that session appeared to hold. A container label is not the tool's to trust that
     far. Now `read -ra`, with cases proving multi-key matching still works
-- [ ] ⬜ **Task 4.2**: Extract the decisions **and** the menu layer into a library both
-  tools source. Engine differences enter through named hooks — the inventory query, the
-  act call, the availability guard, the two state words, the extra table columns — never
-  an `if` on the engine inside shared code
-- [ ] ⬜ **Task 4.3**: `lxcfreeze` adopts it, gaining `fzf`, the drill-down, the member
-  selection and the keys. `scripts/test-lxcfreeze.bash`'s 69 cases must still pass
-- [ ] ⬜ **Task 4.4**: Task 4.1's suite must still pass against `podfreeze`, unchanged —
-  that is the whole point of writing it first
-- [ ] ⬜ **Task 4.5**: Reconcile the two plays, which Task 3.1 deferred to exactly here.
-  With a shared library there is a third artefact to deploy, and two plays each copying
-  its deploy task is the drift shape that argument was about
+- [x] ✅ **Task 4.2**: `files/home/.local/lib/freeze/freeze-common.bash` — the decisions
+  **and** the menu layer, deployed to `~/.local/lib/freeze/` and sourced by both tools.
+  User-scope tools get a user-scope library, and because `files/` mirrors the target
+  filesystem one relative path (`../lib/freeze/…`) resolves from the checkout and from
+  `~/.local/bin` alike. Seven named hooks and five declared settings; **no `if` on an
+  engine name anywhere in the shared half**. Its own suite,
+  `scripts/test-freezelib.bash` (204 cases), drives every decision under BOTH engines'
+  state vocabularies — a hardcoded `running` passes one pass and fails the other — and
+  20 mutants were each killed by a named case
+- [x] ✅ **Task 4.3**: `lxcfreeze` adopted it and gained `fzf`, the two-level
+  drill-down, `TAB`/`2,4,5` member selection, and the `ENTER`/`1`/`b`/`q` keys. Its own
+  suite is 74 cases: the ~25 that drove the now-shared decisions MOVED to the library
+  suite with their assertions intact, and the cases that replaced them cover what is
+  genuinely LXC's — the bridge group axis, and the hooks
+- [x] ✅ **Task 4.4**: `scripts/test-podfreeze.bash` passes **187/187 with the file
+  byte-identical** — `git diff` touches not one line of it. That is the guarantee the
+  suite was written first to be able to give
+- [x] ✅ **Task 4.5**: Reconciled, and the answer was **not** to merge the plays. What
+  they genuinely share is one artefact, so `tasks/deploy-freeze-lib.yml` is included by
+  both — the pattern `tasks/ensure-jq.yml` already establishes here. A third play owning
+  the library would break `ansible-playbook play-podfreeze.yml` on a fresh host, since a
+  tool without its library does not start; copying the tasks into both plays is the
+  drift this task existed to remove. Each play keeps its own name, anchor and
+  dependencies (`fzf` is podfreeze's alone)
 - [ ] ⬜ **Task 4.6**: **HOST** — both tools still behave as before, and `podfreeze`'s
-  fzf path in particular, which no suite here can exercise
+  fzf path in particular, which no suite here can exercise. Neither tool can be run at
+  all from the container: it has no reachable podman and no `lxc`, and both refuse to
+  start inside a container by design. Run `play-podfreeze.yml` and `play-lxcfreeze.yml`
+  first — the library is a NEW file, and a deployed tool without it does not start
 
 ## Success Criteria
 
@@ -206,8 +222,9 @@ divergent as it is now — which is the half that was actually complained about.
   absence of a diff, is what now protects the tool.
 - [ ] A refused or absent `sudo` produces a named failure, never an empty selection
 - [ ] `lxc` not installed is reported as such, and is distinguishable from zero containers
-- [ ] Every decision the suite covers has a mutant that kills it
-- [ ] `./scripts/qa-all.bash` passes
+- [x] Every decision the suites cover has a mutant that kills it — 18 for `lxcfreeze`,
+  15 for `podfreeze`, 20 for the shared library, each killed by a NAMED case
+- [x] `./scripts/qa-all.bash` passes
 
 ## Dependencies
 

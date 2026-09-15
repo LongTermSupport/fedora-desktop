@@ -999,11 +999,13 @@ NordVPN OpenVPN manager:
 `lxcfreeze` — freeze and thaw LXC containers. The LXC counterpart to `podfreeze`
 below:
 
-- Deploys `~/.local/bin/lxcfreeze`. No packages: every `lxc-*` binary it calls comes
-  from `play-lxc-install-config.yml`, a core play
+- Deploys `~/.local/bin/lxcfreeze` **and `~/.local/lib/freeze/freeze-common.bash`**,
+  the library it and `podfreeze` both source. No packages: every `lxc-*` binary it
+  calls comes from `play-lxc-install-config.yml`, a core play
 - Targets a container by name, a whole bridge (`--bridge BR`), or everything
   (`--all`). No target opens a menu of groups, each row saying what choosing it does
-  right now (`FREEZE 3`, `THAW 1`)
+  right now (`FREEZE 3`, `THAW 1`), and choosing one opens it — same menu, same
+  drill-down, same keys as `podfreeze`, because it is the same code
 - **The verb is derived**, as in `podfreeze`: anything running is frozen, a set with
   nothing running is thawed, so the same choice twice toggles it. `-n` previews
 - **Rootful, unlike `podfreeze`** — `/var/lib/lxc` is root-only, so even the
@@ -1012,9 +1014,10 @@ below:
 - A `STOPPED` container is not listed: it can be neither frozen nor thawed
 - Freezing is the **cgroup freezer, not suspend-to-disk**: frozen containers do not
   survive a reboot
-- Separate from `play-podfreeze.yml` for now because this repo's LXC is rootful and
-  Podman is not; the shared machinery is deliberately duplicated rather than
-  extracted, which Plan 00122 Phase 4 records
+- Separate from `play-podfreeze.yml` because this repo's LXC is rootful and Podman is
+  not, so one tool would prompt for root on every menu open. What the two genuinely
+  share — the menu and the decisions — is one library, deployed by one task file both
+  plays include (Plan 00122 Phase 4)
 - Works on desktop and server (`scope: general`)
 
 #### play-podfreeze.yml
@@ -1022,7 +1025,8 @@ below:
 `podfreeze` — freeze (pause) and thaw (unpause) Podman containers. The LXC
 counterpart is `play-lxcfreeze.yml` above:
 
-- Deploys `~/.local/bin/podfreeze` plus `fzf` (the picker is optional — a
+- Deploys `~/.local/bin/podfreeze`, the `~/.local/lib/freeze/freeze-common.bash`
+  library it and `lxcfreeze` both source, plus `fzf` (the picker is optional — a
   plain numbered menu is used without it)
 - Targets a container by name, a whole network (`--network NET`), every CCY
   (Claude YOLO) session (`--ccy`), or everything (`--all`)
@@ -1058,6 +1062,9 @@ counterpart is `play-lxcfreeze.yml` above:
   container
 - Freezing is the **cgroup freezer, not suspend-to-disk**: frozen containers do
   not survive a reboot. The reboot-surviving equivalent (`podman container checkpoint`, CRIU) needs root and is unavailable on this rootless setup
+- The menu, the drill-down, the derived verb, the dry run and the act loop are the
+  shared library, so `lxcfreeze` behaves identically; only the inventory, the group
+  axes and the two state words are podman's (Plan 00122 Phase 4)
 - Works on desktop and server (`scope: general`)
 
 #### play-photography.yml

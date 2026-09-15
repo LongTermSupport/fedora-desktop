@@ -406,6 +406,24 @@ run_log_scrub_summary=$(printf '%s' "$run_log_scrub_out" | grep -oE 'passed: [0-
     run_log_scrub_summary="passed"
 printf '✓ run-log-scrub: %s\n' "$run_log_scrub_summary"
 
+# The shared freeze library (Plan 00122 Task 4.2), which podfreeze and lxcfreeze both
+# source: the group menu, the drill-down, the derived verb, the dry run and the act loop.
+# A defect in here is a defect in BOTH tools at once, which is why it has a gate of its
+# own rather than being covered incidentally by theirs. The cases neither tool's suite can
+# make: every decision driven under BOTH engines' state vocabularies (a hardcoded
+# `running` passes one pass and fails the other), `do_action`'s act/skip/vanished split,
+# and the interactive loop re-prompting on a group that went away instead of ending the
+# session.
+freezelib_out=""
+if ! freezelib_out="$(bash "$SCRIPT_DIR/test-freezelib.bash" 2>&1)"; then
+    echo "$freezelib_out" >&2
+    echo "✗ QA FAILED: shared freeze library unit tests" >&2
+    exit 1
+fi
+freezelib_summary=$(printf '%s' "$freezelib_out" | grep -oE 'passed: [0-9]+') ||
+    freezelib_summary="passed"
+printf '✓ freezelib: %s\n' "$freezelib_summary"
+
 # lxcfreeze's decisions (Plan 00122). The tool itself cannot run here — this container has
 # no lxc, and a freeze tool that would report an empty machine from inside a container
 # refuses to start by design. So its decisions are pure functions and this drives them

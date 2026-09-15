@@ -1,0 +1,35 @@
+---
+# Deploy the shared freeze library that podfreeze and lxcfreeze both source.
+#
+# Include this in any play that deploys one of the freeze tools:
+#   - name: Deploy the Shared Freeze Library
+#     ansible.builtin.include_tasks: "{{ root_dir }}/tasks/deploy-freeze-lib.yml"
+#
+# WHY A SHARED TASK FILE RATHER THAN A TASK IN EACH PLAY. Half of each tool lives in
+# this library — sourced at startup, so a tool deployed without it does not run at all.
+# That rules out a third play owning it: `ansible-playbook play-podfreeze.yml` on a
+# fresh host must produce a working podfreeze on its own. It also rules out copying the
+# tasks into both plays, which is the drift shape Plan 00122 Task 3.1 deferred to Task
+# 4.5 — two copies of a deploy, and a mode or a path fixed in only one of them.
+#
+# The two plays keep their own files because each still owns a tool with its own name,
+# its own docs anchor and its own dependencies (podfreeze installs fzf; lxcfreeze needs
+# nothing). Only the part they genuinely share is shared.
+
+- name: Ensure the User Library Directory Exists
+  ansible.builtin.file:
+    path: "/home/{{ user_login }}/.local/lib/freeze"
+    state: directory
+    owner: "{{ user_login }}"
+    group: "{{ user_login }}"
+    mode: '0755'
+
+# 0644, not 0755: this is sourced, never executed. The library refuses to run as a
+# program in any case, and a non-executable mode says the same thing before anyone tries.
+- name: Deploy the Shared Freeze Library
+  ansible.builtin.copy:
+    src: "{{ root_dir }}/files/home/.local/lib/freeze/freeze-common.bash"
+    dest: "/home/{{ user_login }}/.local/lib/freeze/freeze-common.bash"
+    owner: "{{ user_login }}"
+    group: "{{ user_login }}"
+    mode: '0644'
