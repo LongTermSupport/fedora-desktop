@@ -6,7 +6,8 @@ Phase 3 is partly discharged by Plan 00110's VM acceptance lab (end-to-end run a
 failure propagation, each tick carrying its run id). Tasks 3.3 and 3.4 stay open
 and are to be discharged properly rather than asserted: 00110's `DESIGN.md:1554-1555`
 names the opt-in, human-gated `server-github-token` scenario as the route for exactly
-those criteria, and it is designed but not built.
+those criteria. That scenario is now **built** (Plan 00121, `e40d5c60`); these tasks
+wait only on a human running it on the HOST with a scoped PAT on a throwaway account.
 **Created**: 2026-07-23
 **Owner**: joseph
 **Priority**: Medium
@@ -167,19 +168,22 @@ remains needs a secret no VM scenario carries — see the Status note above.
     device-code flow at `:305`
   - [x] ✅ The PAT reaches `gh` on **stdin, never argv** — `run.bash:2254`
   - [ ] 🔄 End-to-end with a real token. **Route: the opt-in `server-github-token`
-    scenario**, built by Plan 00118 and run by a human on the host. The default six
-    cannot reach it — all run `RUN_BASH_GITHUB_ACCOUNTS=none` (`vmtest:749`, `:942`),
-    the branch that skips this code — but that is a property of those scenarios, not
-    of the lab: 00110's `DESIGN.md:1554` already assigns this criterion to
-    `server-github-token`. No agent creates or handles the PAT
+    scenario**, now **built** by Plan 00121 (`e40d5c60`) and awaiting a human run on
+    the host. The default six cannot reach it — all run
+    `RUN_BASH_GITHUB_ACCOUNTS=none` (`vmtest:749`, `:942`), the branch that skips this
+    code — but that is a property of those scenarios, not of the lab: 00110's
+    `DESIGN.md:1554` already assigns this criterion to `server-github-token`. No agent
+    creates or handles the PAT
 - [ ] 🔄 **Task 3.4**: The SSH path (Tasks 2.2 and 2.4). Production use proves the
   clone works; it does **not** prove any of the obligations below, each of which is
   invisible from a successful run and needs its own assertion:
   - [ ] 🔄 A passphrase file accepted in preflight
   - [ ] 🔄 `hl_ssh_agent_start` / `hl_ssh_agent_stop` bracketing the run, with the
-    agent gone afterwards. **A known hole, not merely unverified**:
-    `run.bash:470-472` warns and continues when `ssh-agent -k` fails, so "already
-    gone" and "kill failed, agent still holding an unlocked key" both exit 0
+    agent gone afterwards. The **hole is closed** in run.bash 1.21.0 (`ee501aaf`):
+    `hl_ssh_agent_stop:485` now uses `/proc/<pid>` to tell "already gone" from "the
+    kill failed and it still holds an unlocked key", and aborts on the second.
+    Unit-tested by `scripts/test-run-bash-ssh-agent-teardown.bash`. What remains is
+    the end-to-end observation in a guest, which `server-github-token` check 6 makes
   - [ ] 🔄 The transient `SSH_ASKPASS` helper removed afterwards
   - [ ] 🔄 `hl_cleanup` firing on EXIT, and the secret files unlinked after use
     (`hl_cleanup:421` uses `rm -f` while the comment and help say "shred")
@@ -197,8 +201,12 @@ remains needs a secret no VM scenario carries — see the Status note above.
 > `RUN_BASH_GITHUB_ACCOUNTS=none` and the assertions would pass by absence (00110
 > `DESIGN.md:1590-1596`, `:1604-1607`). That is a property of those scenarios, not of
 > the lab: 00110 `DESIGN.md:1554-1555` already names the opt-in, human-gated
-> `server-github-token` scenario as the route for exactly these criteria. It is
-> designed and not built.
+> `server-github-token` scenario as the route for exactly these criteria. It is now
+> **built** — Plan 00121, `e40d5c60` — and what these tasks wait on is a human running
+> it on the host with a scoped PAT on a throwaway account. Its checker asserts each
+> obligation directly: the agent gone, the socket gone, the askpass helper gone, the
+> transient passphrase file gone, and no secret bytes in any process environment, in
+> cloud-init `user-data`, or on disk.
 >
 > There is no desktop-versus-server asymmetry: the desktop scenario sets `none` too
 > (`vmtest:749`), so it exercises the GitHub paths exactly as little as the server
