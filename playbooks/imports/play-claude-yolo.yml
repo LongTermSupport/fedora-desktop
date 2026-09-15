@@ -519,15 +519,41 @@
         XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
       when: ccy_restore_sessions | bool
 
-    # Turning restore OFF removes the unit rather than disabling it. A disabled-but-present
-    # unit gives `ccy-sessions restore-status` two things to weigh and an operator two places
-    # to look; absence is unambiguous, and `systemctl --user is-enabled` stays the single
+    # Turning restore OFF removes the unit rather than leaving it disabled. A disabled-but-
+    # present unit gives `ccy-sessions restore-status` two things to weigh and an operator two
+    # places to look; absence is unambiguous, and `systemctl --user is-enabled` stays the single
     # source of truth about what this machine will do at boot.
+    #
+    # DISABLE FIRST, THEN DELETE, and the order is the whole point. `enable` writes a .wants
+    # symlink into default.target.wants; deleting the unit file leaves that symlink pointing at
+    # nothing, and systemd then reports the unit as `bad` rather than absent — which
+    # restore-status reads as "could not tell", on a machine where the operator explicitly asked
+    # for restore to be off. Disabling while the file still exists is what removes the symlink.
+    - name: Check Whether the ccy-sessions-restore Unit Is Installed
+      ansible.builtin.stat:
+        path: "/home/{{ user_login }}/.config/systemd/user/ccy-sessions-restore.service"
+      register: ccy_restore_unit
+      when: not (ccy_restore_sessions | bool)
+
+    - name: Disable the ccy-sessions-restore User Service Before Removing It
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.systemd:
+        name: ccy-sessions-restore.service
+        scope: user
+        enabled: false
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+      when:
+        - not (ccy_restore_sessions | bool)
+        - ccy_restore_unit.stat.exists
+
     - name: Remove the ccy-sessions-restore User Service When Restore Is Off
       ansible.builtin.file:
         path: "/home/{{ user_login }}/.config/systemd/user/ccy-sessions-restore.service"
         state: absent
       when: not (ccy_restore_sessions | bool)
+      notify: Reload the user systemd manager after removing the restore unit
 
     - name: Create Claude YOLO Root Directory
       ansible.builtin.file:
@@ -732,3 +758,16 @@
           - "  ccy --help    # Show ccy options"
           - ""
           - "════════════════════════════════════════════════════════════════"
+
+  handlers:
+    # Without the reload, `systemctl --user is-enabled` keeps answering from the manager's
+    # in-memory view of a unit whose file is already gone, so `ccy-sessions restore-status`
+    # would report something that is no longer true until the next login.
+    - name: Reload the user systemd manager after removing the restore unit
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.systemd:
+        scope: user
+        daemon_reload: true
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"

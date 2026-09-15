@@ -199,13 +199,24 @@ start_session() {
     # CCY_UNATTENDED is what stops a restored session parking on a prompt for ever. A detached
     # tmux session still has a pty, so without it every question in the launcher would wait on
     # an answer nobody is there to give, and the session would LOOK restored.
+    #
+    # Delivered with `env` INSIDE the tmux command, not with systemd-run's --setenv. --setenv
+    # sets the environment of the process systemd-run starts — which is the tmux CLIENT. When a
+    # tmux server is already running (the second and every later session in a restore run) the
+    # client merely asks that server to create a session, and the new pane inherits the SERVER's
+    # environment, not the client's. The variable would arrive for the first session and quietly
+    # not for the rest, which is the worst of both.
+    #
+    # The scope unit is named after the tmux SESSION, which is unique on the server by
+    # construction. Naming it after the project directory collided whenever one project had two
+    # sessions: the second systemd-run failed, and its record had already been consumed, so that
+    # session was lost with only a line in the journal.
     local err
     if ! err=$(systemd-run --user --scope --quiet --collect \
-        --unit "ccy-tmux-restore-$(ccy_registry_slug "$dir")" \
-        --setenv=CCY_UNATTENDED=1 \
+        --unit "ccy-tmux-restore-${name}" \
         --description "CCY restored session $name" \
         -- tmux -L "$CCY_TMUX_SOCKET" new-session -d -s "$name" -c "$dir" \
-        -- bash -c "$(ccy_tmux_hold_on_failure)" ccy-restore "$CCY_LAUNCHER" "${flags[@]}" 2>&1); then
+        -- env CCY_UNATTENDED=1 bash -c "$(ccy_tmux_hold_on_failure)" ccy-restore "$CCY_LAUNCHER" "${flags[@]}" 2>&1); then
         report "ERROR" "$record" "tmux refused to start '${name}': ${err}"
         unresolved=$((unresolved + 1))
         return 0
@@ -226,12 +237,22 @@ prune_evidence() {
 }
 
 current_boot="$(ccy_registry_boot_id)"
-echo "ccy-sessions-restore: boot ${current_boot}${DRY_RUN:+}"
+current_boot_time="$(ccy_registry_boot_time)"
+echo "ccy-sessions-restore: boot ${current_boot}"
 if [[ "$DRY_RUN" == true ]]; then
     echo "DRY RUN — nothing will be started, consumed or retired."
 fi
 
-mapfile -t -d '' records < <(ccy_registry_list "$SESSIONS_DIR")
+# `ccy_registry_collect`, never `mapfile < <(ccy_registry_list …)`. A process substitution's
+# exit status is not observable, so a registry this service could not READ produced an empty
+# array and the "nothing to restore" exit below — a boot service reporting success over a
+# machine whose sessions it never saw.
+if ! ccy_registry_collect "$SESSIONS_DIR"; then
+    print_error "could not read the session registry at ${SESSIONS_DIR}, so whether anything needs restoring is UNKNOWN."
+    echo "That is not the same as there being nothing to restore. Fix the reason above." >&2
+    exit 1
+fi
+records=("${CCY_REGISTRY_RECORDS[@]}")
 
 if [[ ${#records[@]} -eq 0 ]]; then
     # Not the same sentence as "restore is not enabled here" — that is a different fact, and
@@ -276,8 +297,24 @@ for record in "${records[@]}"; do
         continue
     fi
 
-    if [[ -n "$(find "$record" -maxdepth 0 -mtime "+${CCY_RESTORE_MAX_AGE_DAYS}")" ]]; then
-        retire "$record" "stale" "older than ${CCY_RESTORE_MAX_AGE_DAYS} days"
+    # Staleness is measured BOOT-TO-BOOT, not from the record's own age.
+    #
+    # The record's mtime is when the SESSION STARTED, and measuring against that retired exactly
+    # the sessions this feature exists for: one running permanently for a fortnight was dropped
+    # as "stale" at the very reboot it was meant to survive, while one started an hour before a
+    # reboot six months ago was not. The question is how long ago the record's BOOT was, so the
+    # record carries its boot's start time and the comparison is against this boot's.
+    #
+    # A record with no boot_time was written by a ccy that predates this field. It is restored,
+    # with its age reported as unknown, rather than retired: silently dropping a session because
+    # its age cannot be established is the "could not tell" collapse, and the safe direction
+    # here is the one that does not lose work.
+    record_boot_time="$(ccy_registry_field_default "$record" boot_time "")"
+    if [[ -z "$record_boot_time" ]]; then
+        report "note" "$record" "no boot_time recorded, so its age is unknown — restoring anyway"
+    elif [[ $(((current_boot_time - record_boot_time) / 86400)) -gt "$CCY_RESTORE_MAX_AGE_DAYS" ]]; then
+        retire "$record" "stale" \
+            "its boot was $(((current_boot_time - record_boot_time) / 86400)) days before this one"
         continue
     fi
 

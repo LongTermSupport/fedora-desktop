@@ -72,14 +72,19 @@ if [[ "$COMMAND" == "picker" && ( ! -t 0 || ! -t 1 ) ]]; then
     echo "Without one, try: ccy-sessions restore-status" >&2
     exit 1
 fi
-if [[ ! -f "${CCY_LIB}/tmux-session.bash" ]]; then
-    if [[ -d /workspace ]]; then
-        echo "ccy-sessions runs on the host, not inside a CCY container." >&2
-    else
-        echo "CCY is not installed here (${CCY_LIB}/tmux-session.bash missing). Run playbooks/imports/play-claude-yolo.yml." >&2
+# Every library this script sources, checked together. Naming only one of them meant a missing
+# sibling produced a bare "No such file or directory" instead of the message written for exactly
+# this situation, one line away.
+for ccy_required_lib in tmux-session session-registry common-pure; do
+    if [[ ! -f "${CCY_LIB}/${ccy_required_lib}.bash" ]]; then
+        if [[ -d /workspace ]]; then
+            echo "ccy-sessions runs on the host, not inside a CCY container." >&2
+        else
+            echo "CCY is not installed here (${CCY_LIB}/${ccy_required_lib}.bash missing). Run playbooks/imports/play-claude-yolo.yml." >&2
+        fi
+        exit 1
     fi
-    exit 1
-fi
+done
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../var/local/claude-yolo/lib/common-pure.bash
 source "${CCY_LIB}/common-pure.bash"
@@ -106,7 +111,18 @@ restore_installation_state() {
         printf 'not-installed\n'
         return 0
     fi
-    if ! probe="$(systemctl --user is-enabled "$CCY_RESTORE_UNIT" 2>&1)" || [[ "$probe" != "enabled" ]]; then
+    # "Could not ask" gets its own answer, exactly as the linger probe below does. Folding it
+    # into `installed-not-enabled` sent an operator to "re-run the play" for an unreachable user
+    # bus, a masked unit or a dangling .wants symlink — none of which the play fixes, and all of
+    # which look identical from the advice they were given.
+    if ! probe="$(systemctl --user is-enabled "$CCY_RESTORE_UNIT" 2>&1)"; then
+        case "$probe" in
+        disabled | static | indirect) printf 'installed-not-enabled\n' ;;
+        *) printf 'installed-state-unknown:%s\n' "${probe//$'\n'/ }" ;;
+        esac
+        return 0
+    fi
+    if [[ "$probe" != "enabled" ]]; then
         printf 'installed-not-enabled\n'
         return 0
     fi
@@ -124,21 +140,19 @@ restore_installation_state() {
     printf 'enabled\n'
 }
 
-# count_records <dir> — how many records are in it. An absent directory is zero; a directory
-# that cannot be read is a failure, not a zero.
-count_records() {
-    local dir="$1"
-    local -a found=()
-    mapfile -t -d '' found < <(ccy_registry_list "$dir")
-    printf '%s\n' "${#found[@]}"
-}
-
 # list_with_reasons <dir> <label> — the retired/quarantined records and why, so a session that
 # did not come back is explained rather than merely absent.
+#
+# `ccy_registry_collect`, never `mapfile < <(ccy_registry_list …)`: a process substitution hides
+# the listing's exit status, so a directory this could not read printed as an empty section —
+# indistinguishable from one with nothing in it.
 list_with_reasons() {
     local dir="$1" label="$2" record reason project
-    local -a found=()
-    mapfile -t -d '' found < <(ccy_registry_list "$dir")
+    if ! ccy_registry_collect "$dir"; then
+        printf '\n%s: COULD NOT BE READ — see the error above. This is not the same as empty.\n' "$label"
+        return 1
+    fi
+    local -a found=("${CCY_REGISTRY_RECORDS[@]}")
     [[ ${#found[@]} -gt 0 ]] || return 0
     printf '\n%s (%s):\n' "$label" "${#found[@]}"
     for record in "${found[@]}"; do
@@ -153,13 +167,13 @@ cmd_restore_status() {
         echo "ccy-sessions restore-status takes no arguments (got '$1')." >&2
         exit 64
     fi
-    local sessions_dir restore_dir state live_count
+    local sessions_dir restore_dir state
     sessions_dir="$(ccy_registry_sessions_dir)"
     restore_dir="$(ccy_registry_restore_dir)"
     state="$(restore_installation_state)"
 
     echo "Session restore on this machine: ${state}"
-    case "$state" in
+    case "${state%%:*}" in
     not-installed)
         echo "  Nothing will be restored after a reboot — this is the default."
         echo "  Turn it on: ./playbooks/imports/play-claude-yolo.yml -e ccy_restore_sessions=true"
@@ -176,6 +190,12 @@ cmd_restore_status() {
         echo "  Enabled, but whether lingering is on could not be determined, so whether this"
         echo "  runs at boot is UNKNOWN. Check: loginctl show-user $(id -un) --property=Linger"
         ;;
+    installed-state-unknown)
+        echo "  The unit is present but systemctl could not say whether it is enabled:"
+        echo "    ${state#*:}"
+        echo "  So whether this runs at boot is UNKNOWN — which is not the same as 'it will not'."
+        echo "  A masked unit, an unreachable user bus and a dangling .wants symlink all land here."
+        ;;
     enabled)
         echo "  Sessions still recorded at boot will be restored with --supervise --continue."
         ;;
@@ -184,16 +204,21 @@ cmd_restore_status() {
     # Reported separately, always, whatever the state above. ccy records sessions whether or
     # not anything will act on the records, so "3 recorded, restore not installed" is a
     # sentence this command can say — which is the entire point.
-    live_count="$(count_records "$sessions_dir")"
-    printf '\nRecorded sessions: %s\n' "$live_count"
-    if [[ "$live_count" -gt 0 ]]; then
-        local -a records=() record
-        mapfile -t -d '' records < <(ccy_registry_list "$sessions_dir")
+    if ! ccy_registry_collect "$sessions_dir"; then
+        printf '\nRecorded sessions: COULD NOT BE READ — see the error above.\n'
+        echo "  That is not the same as none: whether anything would be restored is UNKNOWN."
+        return 1
+    fi
+    local -a records=("${CCY_REGISTRY_RECORDS[@]}")
+    local record project
+    printf '\nRecorded sessions: %s\n' "${#records[@]}"
+    if [[ ${#records[@]} -gt 0 ]]; then
         for record in "${records[@]}"; do
+            project="$(ccy_registry_field_default "$record" project_dir '?')"
             printf '  %-22s %-9s %s\n' \
                 "$(basename "${record%.record}")" \
                 "$(ccy_registry_field_default "$record" restore '?')" \
-                "$(ccy_registry_field_default "$record" project_dir '?')"
+                "${project/#${HOME}/\~}"
         done
         if [[ "$state" != "enabled" ]]; then
             echo "  None of these will be restored: see the state above."
@@ -229,10 +254,10 @@ project_daemon_cli() {
     return 1
 }
 
-# ccy_reboot_raise_signal <project-dir> <kind> <minutes> — THE BLOCKED SEAM.
+# ccy_reboot_signal_blocked <kind> — THE BLOCKED SEAM. Always refuses, today.
 #
-# Everything else in the reboot helper works. This one call needs a `reboot-warning` signal
-# kind and a daemon CLI command to raise it, neither of which exists:
+# Everything else in the reboot helper works. Raising the signal needs a `reboot-warning` kind
+# and a daemon CLI command to raise it, neither of which exists:
 # Edmonds-Commerce-Limited/claude-code-hooks-daemon#39. Verified against the installed daemon's
 # command list, which has no notify and no signal-raising command of any kind.
 #
@@ -241,23 +266,23 @@ project_daemon_cli() {
 # and an integer and is therefore not a prompt-injection channel. Routing a reboot warning
 # through a free-text command would throw that away to make a command look finished.
 #
-# When the upstream lands, this function is the only thing that changes.
-ccy_reboot_raise_signal() {
-    local dir="$1" kind="$2" minutes="$3" cli
-    cli="$(project_daemon_cli "$dir")" || {
-        print_error "no hooks-daemon CLI in ${dir}, so its session cannot be signalled."
-        return 1
-    }
-    print_error "cannot raise '${kind}' (${minutes} minutes) in ${dir} via ${cli}."
+# Called ONCE, before any per-session loop, and unconditionally. Called from inside such a loop
+# it would never run when no sessions were live — so `ccy-sessions reboot --in 5` on an idle
+# machine exited 0 having neither warned anyone nor rebooted, which is the one outcome a
+# deliberately-blocked command must never produce.
+ccy_reboot_signal_blocked() {
+    local kind="$1"
+    print_error "cannot raise '${kind}': this half of the feature is not built yet."
     cat >&2 <<'BLOCKED'
-The reboot-warning signal kind and the CLI that raises it do not exist yet:
+The reboot-warning signal kind and the CLI that raises it do not exist:
   Edmonds-Commerce-Limited/claude-code-hooks-daemon#39
 
 Nothing was signalled and NOTHING WAS REBOOTED. Reboot by whatever means you normally
 would, accepting that running sessions get no warning — or wait for the daemon release
-that adds the signal, after which this command works with no change here.
+that adds the signal.
 
-`ccy-sessions reboot --dry-run` works today and reports what a reboot would interrupt.
+`ccy-sessions reboot --dry-run` works today and reports what a reboot would interrupt,
+and whether each session's project is ready to be warned when this is unblocked.
 BLOCKED
     return 1
 }
@@ -285,7 +310,7 @@ live_sessions() {
 # printed "no sessions are running" — a confident wrong answer that would tell an operator a
 # reboot was safe while sessions were running. Caught by the smoke run on a box with no tmux.
 audit_sessions() {
-    local name dir cli missing=0 total=0 listing
+    local name dir missing=0 total=0 listing
     if ! listing="$(live_sessions)"; then
         print_error "could not list the running sessions, so what a reboot would interrupt is UNKNOWN."
         echo "That is not the same as nothing running — fix the reason above before rebooting." >&2
@@ -294,7 +319,9 @@ audit_sessions() {
     while read -r name dir; do
         [[ -n "$name" ]] || continue
         total=$((total + 1))
-        if cli="$(project_daemon_cli "$dir")"; then
+        # The CLI's path is not wanted here, only whether the project has one; stdout is
+        # discarded rather than captured into a variable nothing reads.
+        if project_daemon_cli "$dir" >/dev/null; then
             printf '  %-28s %-14s %s\n' "$name" "ready" "${dir/#${HOME}/\~}"
         else
             printf '  %-28s %-14s %s\n' "$name" "NO DAEMON CLI" "${dir/#${HOME}/\~}"
@@ -320,8 +347,15 @@ cmd_reboot() {
         case "$1" in
         --dry-run) dry_run=true ;;
         --in)
+            # Guarded: `--in` with nothing after it left $# at 0, and the `shift` at the foot of
+            # the loop then failed under `set -e` — aborting with no message at all, twelve
+            # lines above the friendly one written for this mistake.
+            if [[ $# -lt 2 ]]; then
+                echo "ccy-sessions reboot: --in needs a number of minutes, e.g. --in 5." >&2
+                exit 64
+            fi
             shift
-            minutes="${1:-}"
+            minutes="$1"
             ;;
         --in=*) minutes="${1#--in=}" ;;
         *)
@@ -350,14 +384,10 @@ cmd_reboot() {
     fi
 
     # The audit passed, so every project could be warned — if there were anything to warn them
-    # with. The refusal happens here, AFTER the audit and BEFORE any reboot, so the operator
-    # still gets the useful half of the command.
-    local name dir listing
-    listing="$(live_sessions)" || exit 1
-    while read -r name dir; do
-        [[ -n "$name" ]] || continue
-        ccy_reboot_raise_signal "$dir" reboot-warning "$minutes" || exit 1
-    done <<<"$listing"
+    # with. The refusal is unconditional and happens here: AFTER the audit, so the operator
+    # still gets the useful half of the command, and BEFORE anything is signalled or rebooted.
+    ccy_reboot_signal_blocked reboot-warning
+    return 1
 }
 
 cmd_notify() {
@@ -383,8 +413,14 @@ cmd_notify() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
         --minutes)
+            # Same guard as reboot's --in: a trailing `--minutes` would otherwise abort
+            # silently on the loop's own shift.
+            if [[ $# -lt 2 ]]; then
+                echo "ccy-sessions notify: --minutes needs a number, e.g. --minutes 5." >&2
+                exit 64
+            fi
             shift
-            minutes="${1:-0}"
+            minutes="$1"
             ;;
         --minutes=*) minutes="${1#--minutes=}" ;;
         *)
@@ -394,30 +430,35 @@ cmd_notify() {
         esac
         shift
     done
+    if [[ ! "$minutes" =~ ^[0-9]+$ ]]; then
+        echo "ccy-sessions notify: --minutes wants a whole number, got '${minutes}'." >&2
+        exit 64
+    fi
 
     echo "Sessions that would be signalled:"
     audit_sessions || exit 1
 
-    local name dir listing
-    listing="$(live_sessions)" || exit 1
-    while read -r name dir; do
-        [[ -n "$name" ]] || continue
-        ccy_reboot_raise_signal "$dir" "$kind" "$minutes" || exit 1
-    done <<<"$listing"
+    # Unconditional, for the same reason as cmd_reboot: inside a per-session loop this would
+    # silently exit 0 on a machine with no sessions, and a blocked command that sometimes
+    # succeeds is worse than one that always refuses.
+    ccy_reboot_signal_blocked "$kind"
+    return 1
 }
 
+# `exit $?`, not `exit 0`: these commands report a verdict, and a blocked seam or an unreadable
+# registry must reach the shell as a non-zero status rather than being flattened by the dispatch.
 case "$COMMAND" in
 restore-status)
     cmd_restore_status "$@"
-    exit 0
+    exit $?
     ;;
 reboot)
     cmd_reboot "$@"
-    exit 0
+    exit $?
     ;;
 notify)
     cmd_notify "$@"
-    exit 0
+    exit $?
     ;;
 esac
 

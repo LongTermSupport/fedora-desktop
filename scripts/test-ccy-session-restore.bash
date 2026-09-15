@@ -63,11 +63,54 @@ trap cleanup EXIT
 # installed here. Nothing invokes them: every case runs --dry-run, which decides and reports
 # but starts nothing.
 STUB_BIN="$WORK/bin"
+STUB_LOG="$WORK/invocations"
+STUB_TMUX_STATE="$WORK/tmux-sessions"
 mkdir -p "$STUB_BIN"
-for tool in tmux systemd-run; do
-    printf '#!/bin/sh\nexit 0\n' >"$STUB_BIN/$tool"
-    chmod +x "$STUB_BIN/$tool"
+
+# The stubs record their argv AND keep state, because two of the things this script has to get
+# right are invisible to a stub that merely exits 0:
+#
+#   - CCY_UNATTENDED must reach the SESSION, not the tmux client;
+#   - the transient scope must be named per session, which only matters once a project has two.
+#
+# The tmux stub therefore remembers the sessions it creates and lists them back, so
+# `ccy_tmux_next_name` has to actually avoid a collision rather than being handed an empty
+# server every time. The systemd-run stub execs the command after `--`, so the two chain the way
+# they do in production.
+cat >"$STUB_BIN/tmux" <<STUB
+#!/bin/sh
+printf '%s\n' "\$*" >>"$STUB_LOG"
+case " \$* " in
+*" list-sessions "*)
+    if [ -f "$STUB_TMUX_STATE" ]; then cat "$STUB_TMUX_STATE"; fi
+    exit 0
+    ;;
+esac
+name=""
+dir=""
+while [ \$# -gt 0 ]; do
+    case "\$1" in
+    -s) shift; name="\$1" ;;
+    -c) shift; dir="\$1" ;;
+    esac
+    shift
 done
+if [ -n "\$name" ]; then printf '%s 0 %s\n' "\$name" "\$dir" >>"$STUB_TMUX_STATE"; fi
+exit 0
+STUB
+
+cat >"$STUB_BIN/systemd-run" <<STUB
+#!/bin/sh
+printf '%s\n' "\$*" >>"$STUB_LOG"
+while [ \$# -gt 0 ]; do
+    if [ "\$1" = "--" ]; then shift; break; fi
+    shift
+done
+if [ \$# -gt 0 ]; then exec "\$@"; fi
+exit 0
+STUB
+
+chmod +x "$STUB_BIN/tmux" "$STUB_BIN/systemd-run"
 printf '#!/bin/sh\nexit 0\n' >"$WORK/fake-launcher"
 chmod +x "$WORK/fake-launcher"
 
@@ -95,6 +138,8 @@ SESSIONS="$STATE/ccy/sessions"
 reset_registry() {
     rm -rf "$STATE"
     mkdir -p "$SESSIONS"
+    : >"$STUB_LOG"
+    : >"$STUB_TMUX_STATE"
 }
 
 # make_repo <path> [commit-message] — a real git repository, because the fingerprint and the
@@ -124,6 +169,10 @@ record_for() {
         "project_name=$(basename "$dir")"
         "root_commit=$commit"
         "boot_id=a-previous-boot"
+        # A boot that started shortly before this one — i.e. the reboot that just happened.
+        # Staleness is measured boot-to-boot, so this is what makes the record a normal
+        # survivor rather than an ancient one.
+        "boot_time=$(($(ccy_registry_boot_time) - 60))"
         "restore=yes"
     )
     local given key i replaced
@@ -141,9 +190,12 @@ record_for() {
     ccy_registry_write "$SESSIONS" "$name" "${fields[@]}"
 }
 
-# verdict_for <record-name> — the verdict column the script printed for that record.
+# verdict_for <record-name> — the verdict the script settled on for that record.
+#
+# The LAST line for the record, not the first: a record can draw a `note` on the way to its
+# verdict (an unknown age, say), and taking the first line would report the note as the outcome.
 verdict_for() {
-    printf '%s' "$RESTORE_OUT" | awk -v want="$1.record" '$2 == want { print $1; exit }'
+    printf '%s' "$RESTORE_OUT" | awk -v want="$1.record" '$2 == want { last = $1 } END { print last }'
 }
 
 # ── the empty case, which must not be confused with anything else ────────────────────
@@ -247,16 +299,40 @@ git -C "$WORK/fresh" -c user.email=test@example.com -c user.name=test \
 run_restore --dry-run
 check "a project's first commit does not retire it" "would-start" "$(verdict_for ccy-fresh)"
 
-# stale: a record that survived from some boot long ago, most likely because restore was
-# enabled well after the session ran. Restoring a months-old session unasked is a surprise.
+# stale: a record whose BOOT was long ago — most likely because restore was enabled well after
+# the session ran. Restoring a months-old session unasked is a surprise.
 reset_registry
 make_repo "$WORK/ancient"
-record_for ccy-ancient "$WORK/ancient"
-touch -d '30 days ago' "$SESSIONS/ccy-ancient.record"
+record_for ccy-ancient "$WORK/ancient" \
+    "boot_time=$(($(ccy_registry_boot_time) - 30 * 86400))"
 run_restore --dry-run
-check "an old record is retired as stale" "would-retire" "$(verdict_for ccy-ancient)"
+check "a record from a long-ago boot is retired as stale" "would-retire" "$(verdict_for ccy-ancient)"
 check "the stale reason is named" "yes" \
     "$(printf '%s' "$RESTORE_OUT" | grep -q 'stale' && echo yes || echo no)"
+
+# THE CASE THIS FEATURE EXISTS FOR, and the one the first implementation got backwards.
+#
+# Age was measured from the record's mtime — which is when the SESSION STARTED. A session
+# running permanently for a fortnight was therefore retired as "stale" at the very reboot it was
+# meant to survive. Measured boot-to-boot, a long-running session whose boot ended moments ago
+# is an ordinary survivor, whatever its own age.
+reset_registry
+make_repo "$WORK/longrunner"
+record_for ccy-longrunner "$WORK/longrunner"
+touch -d '30 days ago' "$SESSIONS/ccy-longrunner.record"
+run_restore --dry-run
+check "a session running for weeks is still restored" "would-start" "$(verdict_for ccy-longrunner)"
+
+# A record with no boot_time cannot have its age established. It is RESTORED with the age
+# reported as unknown, not retired: silently dropping a session because its age is unknowable is
+# the "could not tell" collapse, and the safe direction here does not lose work.
+reset_registry
+make_repo "$WORK/noboottime"
+record_for ccy-noboottime "$WORK/noboottime" "boot_time="
+run_restore --dry-run
+check "a record with no boot_time is still restored" "would-start" "$(verdict_for ccy-noboottime)"
+check "and its unknown age is reported" "yes" \
+    "$(printf '%s' "$RESTORE_OUT" | grep -q 'age is unknown' && echo yes || echo no)"
 
 # ── D3: a malformed record is QUARANTINED and FAILS the run ──────────────────────────
 #
@@ -297,6 +373,43 @@ check "a second run has nothing left to restore" "yes" \
 # ran" — which are different answers about a machine.
 check "a real run records its outcome" "yes" \
     "$([ -f "$STATE/ccy/restore/last-run" ] && echo yes || echo no)"
+
+# ── what the START COMMAND actually contains ─────────────────────────────────────────
+#
+# Two properties live only in the constructed command, so they are asserted against what the
+# recording stub was handed. A stub that merely exited 0 vouched for neither.
+started_cmd="$(cat "$STUB_LOG")"
+
+# CCY_UNATTENDED must reach the SESSION. Handed to systemd-run with --setenv it reaches the tmux
+# CLIENT — and when a server is already running, the client only asks that server to create a
+# session and the new pane inherits the SERVER's environment. The variable would have arrived
+# for the first restored session and quietly not for any after it, which is the worst case:
+# those sessions park on a prompt while appearing restored.
+check "the environment is delivered inside the tmux command" "yes" \
+    "$(printf '%s' "$started_cmd" | grep -q 'env CCY_UNATTENDED=1' && echo yes || echo "no: $started_cmd")"
+check "it is NOT handed only to the tmux client via --setenv" "no" \
+    "$(printf '%s' "$started_cmd" | grep -q -- '--setenv' && echo yes || echo no)"
+
+# The transient scope is named per SESSION, not per project directory. Keyed on the directory,
+# two sessions in one project collided: the second systemd-run failed with a duplicate unit
+# name, and its record had already been consumed — so that session was lost.
+check "the scope unit is named after the session" "yes" \
+    "$(printf '%s' "$started_cmd" | grep -q 'ccy-tmux-restore-ccy-consumed' && echo yes || echo "no: $started_cmd")"
+
+# Driven for real: two survivors in ONE project must both get through, with distinct unit names.
+reset_registry
+make_repo "$WORK/twin"
+record_for ccy-twin "$WORK/twin"
+record_for ccy-twin-2 "$WORK/twin"
+run_restore
+# `^restored ` with the trailing space: the run's own summary line begins "restored:" and would
+# otherwise be counted as a third restored session.
+check "two sessions in one project are both restored" "2" \
+    "$(printf '%s' "$RESTORE_OUT" | grep -cE '^restored +ccy-')"
+check "and they get distinct scope unit names" "2" \
+    "$(grep -oE 'ccy-tmux-restore-[a-z0-9-]+' "$STUB_LOG" | sort -u | wc -l)"
+check "neither is left behind in the live set" "0" \
+    "$(find "$SESSIONS" -maxdepth 1 -name '*.record' | wc -l)"
 
 # A retirement, for real, is filed with its reason where restore-status will find it.
 reset_registry

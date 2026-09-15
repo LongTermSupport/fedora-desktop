@@ -246,12 +246,18 @@ Check where a machine stands — and these are deliberately different answers, n
 ccy-sessions restore-status
 ```
 
-| It says                 | Meaning                                                                      |
-| ----------------------- | ---------------------------------------------------------------------------- |
-| `not-installed`         | restore was never set up here; run the play with the variable above          |
-| `installed-not-enabled` | the unit is present but disabled                                             |
-| `enabled-no-linger`     | enabled, but **it will not run at boot** — the user manager is not lingering |
-| `enabled`               | it will run                                                                  |
+| It says                   | Meaning                                                                                                 |
+| ------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `not-installed`           | restore was never set up here; run the play with the variable above                                     |
+| `installed-not-enabled`   | the unit is present but disabled                                                                        |
+| `installed-state-unknown` | systemctl could not say — a masked unit, an unreachable user bus. **Not** the same as "it will not run" |
+| `enabled-no-linger`       | enabled, but **it will not run at boot** — the user manager is not lingering                            |
+| `enabled-linger-unknown`  | enabled, but whether lingering is on could not be determined                                            |
+| `enabled`                 | it will run                                                                                             |
+
+Three of those are "could not tell" rather than "will not run", and they are deliberately not
+folded together: not being able to establish whether restore will happen is a different fact
+from knowing it will not, and each needs a different fix.
 
 The record count is reported **separately** from all of that, so "3 sessions are recorded but
 restore is not installed" is something the command can actually say.
@@ -274,6 +280,21 @@ kept as evidence rather than deleted, with the reason inside it. Anything not re
 
 A retired session is not lost work — the conversation is still in the project's
 `.claude/ccy/`. `cd` there and run `ccy --continue` yourself.
+
+A restore that **starts** and then fails leaves its tmux window open on the error, rather than
+closing and taking the message with it. So a session in `ccy-sessions` that shows an error and
+`Press Enter to close this session` is a restore that did not come up: attach it to read why.
+It is not retried — the record was already consumed — so nothing is quietly looping behind it.
+
+### What a restored session gets
+
+The recorded configuration — token, SSH keys, network, engine — plus `--continue`.
+
+The supervisor is **armed** on a restored session, which is the point: unarmed it only guards
+ctrl+z, and an unattended session needs the nudge that gets it back to work. The one exception
+is a session started with `ccy --no-supervise`: that is an explicit opt-out of the supervisor
+entirely, so a restore honours it rather than quietly handing back auto-compaction and goal
+injection you turned off.
 
 ### Restored sessions never wait on a question
 

@@ -352,6 +352,13 @@ agent="$(ccy_registry_encode_argv "$CCY_REGISTRY_SSH_AGENT_SENTINEL")"
 check "the ssh-agent sentinel becomes --ssh-agent, not --ssh-key" \
     "--ssh-agent·--supervise·--continue" "$(flags_of "ssh_keys_b64=$agent")"
 
+# A corrupt key list must REFUSE, not restore the session with no keys. The "did it produce any
+# flags" guard one level up cannot catch that, because --supervise and --continue are appended
+# unconditionally — so a keyless restore would look like a successful one.
+bad_keys_out="$(flags_of 'ssh_keys_b64=not-valid-base64!!')"
+check "an undecodable ssh key list produces no restore command" "refused" \
+    "$([ -z "$bad_keys_out" ] && echo refused || echo "produced: $bad_keys_out")"
+
 check "a full configuration is reconstructed in order" \
     "--token·work·--ssh-key·/k/one·--network·devnet·--github-443·--engine·podman·--supervise·--continue" \
     "$(flags_of "token_name=work" "ssh_keys_b64=$(ccy_registry_encode_argv /k/one)" \
@@ -390,18 +397,31 @@ check "the repeated-key refusal names the key" "yes" \
 # to ccy without a decision about whether it survives a restore would otherwise be dropped
 # from every restored session silently — and the two incidents in ContainerRules.md say
 # that is exactly what happens to a hand-written list of a program's parts.
-# The pattern matches the launcher's own `elif [ "$arg" = "--flag" ]` / `[[ ... == ]]`
-# branches. It deliberately starts at `arg"` rather than at the variable's `$`: in an ERE a
-# dollar is the end-of-line anchor, so a pattern carrying one literally matches nothing and
-# the derivation would silently find zero flags — a staleness guard that had itself gone
-# inert. `"$arg"` is the only variable of this shape in the launcher, so dropping the sigil
-# costs no precision.
-mapfile -t parsed_flags < <(
-    grep -oE 'arg" ==? "--[a-z0-9-]+' "$LAUNCHER" |
-        grep -oE '\-\-[a-z0-9-]+' | sort -u
+# BOTH of the launcher's parse sites, not just the loop.
+#
+# The main one is the `elif [ "$arg" = "--flag" ]` / `[[ ... == ]]` chain. But `--help` and
+# `--version` are handled earlier against `"$1"`, before the loop is ever reached, and a guard
+# that saw only the loop reported full coverage of a population it had silently narrowed. Each
+# pattern deliberately starts after the variable's `$`: in an ERE a dollar is the end-of-line
+# anchor, so a pattern carrying one literally matches nothing — and the first version of this
+# guard did exactly that, finding zero flags and passing.
+mapfile -t arg_loop_flags < <(
+    grep -oE 'arg" ==? "--[a-z0-9-]+' "$LAUNCHER" | grep -oE '\-\-[a-z0-9-]+' | sort -u
 )
-check "the launcher's flags were found at all" "many" \
-    "$([ "${#parsed_flags[@]}" -ge 20 ] && echo many || echo "only ${#parsed_flags[@]}")"
+mapfile -t positional_flags < <(
+    grep -oE '1" ==? "--[a-z0-9-]+' "$LAUNCHER" | grep -oE '\-\-[a-z0-9-]+' | sort -u
+)
+mapfile -t parsed_flags < <(
+    printf '%s\n' "${arg_loop_flags[@]}" "${positional_flags[@]}" | sort -u
+)
+# Printed as a number with its buckets, on every passing run. A coverage LOSS can otherwise hide
+# inside a rising count: if one parse site stopped matching, the total would still look healthy.
+printf '  COVERAGE: %s flags from the argument loop, %s from the positional checks, %s total classified\n' \
+    "${#arg_loop_flags[@]}" "${#positional_flags[@]}" "${#parsed_flags[@]}"
+check "the launcher's argument-loop flags were found" "many" \
+    "$([ "${#arg_loop_flags[@]}" -ge 20 ] && echo many || echo "only ${#arg_loop_flags[@]}")"
+check "the launcher's positional flags were found" "some" \
+    "$([ "${#positional_flags[@]}" -ge 2 ] && echo some || echo "only ${#positional_flags[@]}")"
 
 classified_once=0
 unclassified=""
@@ -503,10 +523,32 @@ for flag in "${CCY_REGISTRY_DURABLE_FLAGS[@]}"; do
     *) unreachable+="$flag " ;;
     esac
 done
-# --ssh-agent and --ssh-key are alternatives within one field, so the agent case is
-# asserted on its own above and excluded from this sweep rather than fudged into it.
+# Three flags are alternatives within a single field rather than independent ones, so each is
+# asserted on its own above or below and excluded here rather than fudged into this sweep:
+# --ssh-agent shares the key list with --ssh-key, and --no-supervise is the opposite arm of the
+# same `supervise=` field as --supervise.
 unreachable="${unreachable/--ssh-agent /}"
+unreachable="${unreachable/--no-supervise /}"
 check "every durable flag is reachable from a record" "" "$unreachable"
+
+# ── the supervisor mode is HONOURED, not overridden ──────────────────────────────────
+#
+# Issue 44 asks for restore with --supervise, and for a session that expressed no preference
+# that is right: the default supervisor is UNARMED, and an unattended session needs the arming
+# to be nudged back to work. But `ccy --no-supervise` is an explicit opt-out of the supervisor
+# entirely, ctrl+z guard included. Restoring such a session armed would hand back auto-compaction
+# and goal injection the operator deliberately turned off — silently, since nothing in the
+# restore report would mention it.
+check "a session with no preference is restored ARMED" "--supervise·--continue" \
+    "$(flags_of)"
+check "an explicitly supervised session stays armed" "--supervise·--continue" \
+    "$(flags_of "supervise=armed")"
+check "a --no-supervise session is NOT armed on restore" "--no-supervise·--continue" \
+    "$(flags_of "supervise=off")"
+# An unrecognised value must not be read as "off": losing the ctrl+z guard on a session that
+# never asked to lose it is the worse of the two errors.
+check "an unrecognised supervise value falls back to armed" "--supervise·--continue" \
+    "$(flags_of "supervise=something-else")"
 
 # ── the unattended read guard (D6) ───────────────────────────────────────────────────
 #
@@ -636,6 +678,25 @@ check "unattended: a caller reading into 'idx' is not swallowed" "idx=[w]" \
     "$(run_guard 1 "$snippet_into_idx")"
 check "attended: a caller reading into 'flag' is not swallowed" "flag=[v]" \
     "$(run_guard "" "$snippet_into_flag")"
+
+# ── the guard's blind spot, closed by a derived scan ─────────────────────────────────
+#
+# The guard keys on `-p`, which is what makes a `read` a question to a human. A prompt ECHOED
+# above a bare `read` is therefore invisible to it and hangs an unattended launch for ever with
+# nothing on screen to say why — and one such site existed in lib/token-management.bash while
+# the changelog, the design note and the plan all claimed the seam covered every prompt.
+#
+# A bare `read` with no `-p` AND no variable to read into is always that pattern: its only
+# purpose is to wait for a person. Derived from the source rather than listed, so a new one
+# fails here instead of being discovered by a session that never came back.
+#
+# awk rather than grep: grep exits 1 when it selects nothing, which is the PASSING case here,
+# and suppressing that status would be the error-hiding this repo bans.
+mapfile -t bare_prompt_reads < <(
+    awk '/^[[:space:]]*read[[:space:]]*(-[a-zA-Z]+[[:space:]]*)?$/ { print FILENAME ":" FNR }' \
+        "$LAUNCHER" "$CCY_DIR"/lib/*.bash
+)
+check "no prompt is echoed above a bare read" "" "${bare_prompt_reads[*]-}"
 
 printf '\npassed: %s failed: %s\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]

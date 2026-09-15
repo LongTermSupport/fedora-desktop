@@ -15,8 +15,8 @@ keep those two apart.
 ```
 ${XDG_STATE_HOME:-$HOME/.local/state}/ccy/
   sessions/                      live records, one file per tmux session
-    ccy-<slug>.record
-    .ccy-<slug>.record.tmp.<pid>   in-flight write; never matches *.record
+    ccy-<project>.record           named after the TMUX SESSION, which is unique on the
+    .ccy-<project>.record.tmp.<pid>   server by construction; the temp form never matches *.record
   restore/
     attempted/<name>.record      consumed at boot, before the start (D2)
     retired/<name>.record        not restorable; reason inside (D4)
@@ -145,6 +145,21 @@ The original argv is recorded too, base64 of the NUL-joined vector, purely as ev
 reads it to build a command. Base64 because a launch argument can contain spaces, quotes and
 newlines, and a line-based record cannot carry those faithfully otherwise.
 
+**The supervisor mode is one of the recorded values, and is HONOURED.** Issue 44 asks for
+restore with `--supervise`, and for a session that expressed no preference that is right: the
+default supervisor is unarmed, and an unattended session needs the arming to be nudged back to
+work. But `ccy --no-supervise` is an explicit opt-out of the supervisor *entirely* — ctrl+z
+guard included — so restoring such a session armed would hand back auto-compaction and goal
+injection the operator deliberately turned off, silently. An unrecognised value falls back to
+armed rather than off: losing the ctrl+z guard on a session that never asked to lose it is the
+worse of the two errors.
+
+**A caveat that cost three defects.** Several of these values are NUL-delimited on the wire, and
+`$(…)` strips NUL bytes. Capturing such a payload into a variable silently glues the elements
+together — it did exactly that to the record list and to a multi-key SSH configuration. Where
+both the data and the exit status are needed, the read goes through a temp file or a second
+pass; never a command substitution.
+
 **The staleness guard, which is the real point of this decision.** A hand-written list of "the
 flags that matter" is a list that goes stale — `CLAUDE/ContainerRules.md` records two separate
 incidents in this very program where an enumeration of its own parts was a file short of the
@@ -252,6 +267,17 @@ status command is where that is caught.
 with an old surviving record would otherwise resurrect a session from an arbitrary past boot.
 `CCY_RESTORE_MAX_AGE_DAYS` (default 7) retires anything older as `stale`, reported like every
 other retirement.
+
+**And that age is measured BOOT-TO-BOOT, which the first implementation got backwards.** It
+used the record's own mtime — the moment the *session started* — so a session running
+permanently for a fortnight was retired as stale at the very reboot this feature exists to
+survive, while one started an hour before a reboot six months ago sailed through. The question
+being asked is *how long ago was the boot this record belonged to*, so each record carries its
+boot's start time (`/proc/stat`'s `btime`) and the comparison is against the current boot's. A
+record with no `boot_time` cannot have its age established at all: it is restored with the age
+reported as unknown rather than retired, because silently dropping a session whose age is
+unknowable is the same collapse pointing the other way, and the safe direction here is the one
+that does not lose work.
 
 ## D9 — The restore starts tmux under `systemd-run --user --scope`
 

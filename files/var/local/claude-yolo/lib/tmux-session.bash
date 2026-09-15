@@ -340,9 +340,16 @@ ccy_tmux_hold_on_failure() {
 }
 
 # ccy_tmux_current_session — the name of the CCY session this process is running inside, on
-# stdout. Returns 1 when there is none: no tmux at all, or a tmux server that is not CCY's.
-# Both are ordinary states (a --headless run, a user's own tmux), so the refusal is silent and
-# the caller decides what it means.
+# stdout.
+#
+# THREE outcomes, and the third is why they are not two:
+#   0  — the name is on stdout
+#   1  — there is no CCY session here: no tmux at all, or a tmux server that is not CCY's. Both
+#        are ordinary states (a --headless run, a user's own tmux), so the refusal is silent.
+#   2  — there IS one and tmux could not say which. Reported, because a caller that cannot tell
+#        this from case 1 states something false: the launcher's message for case 1 is "not
+#        inside a CCY tmux session, so this session is NOT registered for restore", and a
+#        session would go unregistered on the one path this whole feature depends on.
 #
 # Any caller needing "which session am I" uses this rather than reading $TMUX again: the socket
 # comparison is the part that is easy to get subtly wrong, and it belongs in one place.
@@ -350,13 +357,22 @@ ccy_tmux_current_session() {
     [[ -n "${TMUX:-}" ]] || return 1
     local socket="${TMUX%%,*}"
     [[ "$(basename "$socket")" == "$CCY_TMUX_SOCKET" ]] || return 1
-    tmux display-message -p '#S'
+    local name
+    if ! name=$(tmux display-message -p '#S' 2>&1); then
+        print_error "inside a CCY tmux server, but tmux could not name this session: $name"
+        return 2
+    fi
+    printf '%s\n' "$name"
 }
 
 # ccy_tmux_banner — inside a CCY session, one line on how to leave and come back. Silent in
 # a user's own tmux, whose sessions ccy does not manage.
 ccy_tmux_banner() {
-    local name
-    name=$(ccy_tmux_current_session) || return 0
+    local name rc=0
+    name=$(ccy_tmux_current_session) || rc=$?
+    # Not a CCY session (1) is the silent case — there is no banner to print. tmux failing to
+    # answer (2) is propagated, as it was before this shared helper existed: a server that
+    # cannot name its own session is a real fault, not an absence.
+    [[ "$rc" -eq 0 ]] || return $((rc == 1 ? 0 : 1))
     echo "tmux session '$name': F12 then Detach leaves it running; ${CCY_TMUX_SESSION_PREFIX} here or ccy-sessions brings it back." >&2
 }

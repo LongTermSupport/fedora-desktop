@@ -17,6 +17,35 @@ Two version numbers move independently — see
 
 ---
 
+## 3.59.0
+
+**A restored session keeps the supervisor setting it was started with.** `--supervise` is right
+for a session that expressed no preference — the default supervisor is unarmed, and an
+unattended session needs the arming to be nudged back to work. But `ccy --no-supervise` is an
+explicit opt-out of the supervisor entirely, ctrl+z guard included, and restoring such a session
+armed handed back auto-compaction and goal injection the operator had deliberately turned off.
+The mode is now recorded at launch and replayed on restore.
+
+**Session age is measured boot-to-boot.** A record was retired as "stale" on its own mtime,
+which is when the *session started* — so a session running permanently for a fortnight was
+dropped at the very reboot the feature exists to survive, while one started an hour before a
+reboot six months ago was not. Records now carry their boot's start time and the comparison is
+against this boot's, which is the question that was always meant: how long ago was the boot this
+session belonged to.
+
+**A prompt echoed above a bare `read` can no longer hang an unattended launch.** The 3.58.0
+guard keys on `-p`, which is what makes a `read` a question to a person — and one site printed
+its prompt with `echo` and then called a bare `read`, invisible to the guard. That site now uses
+`read -rp`, and a derived check over the launcher and every library fails if another appears.
+
+**Three smaller corrections in the same area**, each of which turned a failure into a confident
+wrong answer: a registry listing that could not be read reported as "no sessions"; a corrupt SSH
+key list restored a session with no keys and no complaint; and `ccy_tmux_current_session` could
+not distinguish "not a CCY session" from "tmux would not answer", so a session could go
+unregistered under a message saying it was not in tmux at all.
+
+---
+
 ## 3.58.1
 
 **The tmux hold-on-failure trampoline is shared.** A tmux session runs its command through a

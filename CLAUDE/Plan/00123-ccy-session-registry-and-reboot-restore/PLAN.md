@@ -165,8 +165,13 @@ naming the upstream issue. No local substitute is invented.
 ### Phase 6: Review and hand-off
 
 - [ ] ⬜ **Task 6.1**: `./scripts/qa-all.bash` green over the whole diff
-- [ ] ⬜ **Task 6.2**: `qa-reviewer` agent over the full branch diff; act on every finding.
+- [x] ✅ **Task 6.2**: `qa-reviewer` agent over the full branch diff; act on every finding.
   Rounds recorded under `subagent-reports/`
+  - [x] ✅ Round 1 — 2 blocking, 5 fix-before-merge, 8 should-fix, 6 nits; **all resolved**.
+    The two that mattered: `stale` was measured from the session's start time, so it
+    retired exactly the long-running sessions this feature exists for; and a registry
+    listing failure was laundered into "nothing to restore" in four places. CCY 3.59.0.
+  - [ ] 🔄 Round 2 — re-review after the fixes
 - [ ] ⬜ **Task 6.3**: Open the PR. **Do not merge** — the owner reviews and merges
 - [ ] ⬜ **Task 6.4**: (HOST, owner) deploy and verify — see the HOST tasks below
 

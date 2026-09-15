@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.58.1"  # The tmux hold-on-failure trampoline is shared, so ccy-sessions-restore reuses it rather than keeping a second hand-escaped copy. See docs/ccy-changelog.md.
+CCY_VERSION="3.59.0"  # A restore honours --no-supervise, session age is measured boot-to-boot, and a prompt echoed above a bare read can no longer hang an unattended launch. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -3246,8 +3246,19 @@ fi
 # The record is removed by cleanup() on EXIT, however this launcher ends.
 CCY_SESSION_RECORD_NAME=""
 CCY_SESSION_RECORD_DIR="$(ccy_registry_sessions_dir)"
-if CCY_SESSION_RECORD_NAME="$(ccy_tmux_current_session)"; then
+ccy_session_name_rc=0
+CCY_SESSION_RECORD_NAME="$(ccy_tmux_current_session)" || ccy_session_name_rc=$?
+# Status 2 means there IS a CCY session and tmux could not name it. Fatal, not a shrug: the
+# alternative is printing "not inside a CCY tmux session" — which would be false — and leaving
+# the session unregistered on the one path this feature depends on.
+if [ "$ccy_session_name_rc" -eq 2 ]; then
+    print_error "could not determine this CCY tmux session's name, so it cannot be registered for restore."
+    echo "Nothing has started yet. Fix the reason above, or run with --no-restore to start without a record." >&2
+    exit 1
+fi
+if [ "$ccy_session_name_rc" -eq 0 ]; then
     ccy_session_boot_id="$(ccy_registry_boot_id)"
+    ccy_session_boot_time="$(ccy_registry_boot_time)"
     ccy_session_root_commit="$(ccy_registry_fingerprint "$PWD")"
     ccy_session_keys_b64=""
     if [ "${#SSH_KEYS[@]}" -gt 0 ]; then
@@ -3261,6 +3272,17 @@ if CCY_SESSION_RECORD_NAME="$(ccy_tmux_current_session)"; then
     if [ "$NO_RESTORE_MODE" = true ]; then
         ccy_session_restore=no
     fi
+    # The supervisor mode is recorded so a restore can HONOUR it. `--no-supervise` is an
+    # explicit opt-out of the supervisor entirely, ctrl+z guard included; restoring such a
+    # session with `--supervise` would silently hand back auto-compaction and goal injection
+    # the operator turned off. A session that expressed no preference records `default`, and a
+    # restore arms it — which is what issue 44 asks for and why the feature is useful.
+    ccy_session_supervise=default
+    if [ "$NO_SUPERVISE_MODE" = true ]; then
+        ccy_session_supervise=off
+    elif [ "$SUPERVISE_MODE" = true ]; then
+        ccy_session_supervise=armed
+    fi
     # A no-restore session is still RECORDED, marked rather than omitted, so that
     # `ccy-sessions restore-status` can show it as a live session the operator chose not to
     # restore. Omitting it would make "not recorded" and "deliberately excluded" the same
@@ -3270,7 +3292,9 @@ if CCY_SESSION_RECORD_NAME="$(ccy_tmux_current_session)"; then
         "project_name=$PROJECT_NAME" \
         "root_commit=$ccy_session_root_commit" \
         "boot_id=$ccy_session_boot_id" \
+        "boot_time=$ccy_session_boot_time" \
         "restore=$ccy_session_restore" \
+        "supervise=$ccy_session_supervise" \
         "ccy_version=$CCY_VERSION" \
         "container_name=$CONTAINER_NAME" \
         "token_name=${TOKEN_NAME_FOR_CONFIG:-}" \

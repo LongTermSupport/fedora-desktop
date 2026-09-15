@@ -74,12 +74,13 @@ CCY_REGISTRY_RESERVED_KEYS=(schema end)
 CCY_REGISTRY_DURABLE_FLAGS=(
     --token --ssh-key --ssh-agent --no-ssh --network --no-network
     --github-443 --engine --disable-custom-docker
+    --supervise --no-supervise
 )
 CCY_REGISTRY_ONESHOT_FLAGS=(
     --rebuild --headless --prompt --debug --no-restore
     --create-token --update-token --list-tokens --export-token
     --connect --custom --custom-docker --top --prevent
-    --supervise --no-supervise
+    --help --version
 )
 
 # ccy_registry_flag_class <flag> — `durable`, `oneshot`, `both` or `unknown`, on stdout.
@@ -164,6 +165,26 @@ ccy_registry_boot_id() {
         return 1
     fi
     printf '%s\n' "$id"
+}
+
+# ccy_registry_boot_time — the epoch second the CURRENT boot started, from /proc/stat's btime.
+#
+# This is what "stale" has to be measured against, and getting it wrong was a real defect: age
+# was measured from the record's own mtime, which is when the SESSION STARTED. A session running
+# permanently for a fortnight — the exact case this whole feature exists for — was therefore
+# retired as stale at the reboot it was supposed to survive, while a session started an hour
+# before a reboot six months ago was not.
+#
+# The question "is this record left over from some long-ago boot" is about WHEN ITS BOOT WAS,
+# not how long its session had been running, so the record carries its boot's start time and the
+# comparison is boot-to-boot.
+ccy_registry_boot_time() {
+    local btime
+    if ! btime=$(awk '$1 == "btime" { print $2; found = 1; exit } END { exit found ? 0 : 1 }' /proc/stat); then
+        print_error "could not read btime from /proc/stat"
+        return 1
+    fi
+    printf '%s\n' "$btime"
 }
 
 # ccy_registry_slug <path> — a filesystem-safe, collision-free name for a project DIRECTORY.
@@ -322,7 +343,11 @@ ccy_registry_write() {
     # Dotted AND suffixed, so an abandoned in-flight write is invisible to `*.record` for two
     # independent reasons. $$ keeps two concurrent writers off each other's temp file.
     local tmp="${dir}/.${name}.record.tmp.$$" err
-    if ! err=$(printf 'schema=%s\n%send=1\n' "$CCY_REGISTRY_SCHEMA" "$body" >"$tmp" 2>&1); then
+    # `2>&1 >"$tmp"` in THIS order: stderr is redirected to the substitution's stdout (captured
+    # into err) and only then is stdout sent to the file. Written the other way round — as it
+    # was — the file receives both, so the diagnostic ends up INSIDE the record and `err` is
+    # always empty, leaving a write failure reported with no reason attached to it.
+    if ! err=$( { printf 'schema=%s\n%send=1\n' "$CCY_REGISTRY_SCHEMA" "$body"; } 2>&1 >"$tmp"); then
         print_error "could not write $tmp: $err"
         rm -f "$tmp"
         return 1
@@ -458,6 +483,48 @@ ccy_registry_list() {
     fi
 } 3>&1
 
+# ccy_registry_collect <dir> — fill CCY_REGISTRY_RECORDS with the directory's records; return
+# non-zero when the listing itself failed.
+#
+# EVERY caller must use this rather than `mapfile -t -d '' x < <(ccy_registry_list "$dir")`. A
+# process substitution's exit status is not observable, so a failing listing produced an empty
+# array and each caller read that as "there are no records" — which in the boot service meant
+# exiting 0 with "nothing to restore" on a machine whose registry it could not read at all.
+# That is the "could not tell" / "nothing to do" collapse, in the one place where nobody is
+# watching. `ccy_registry_list` already distinguishes the two; this is what lets a caller see it.
+# The array ccy_registry_collect fills. Declared here so its consumers — the boot service and
+# ccy-sessions — read one documented name rather than each inventing their own.
+CCY_REGISTRY_RECORDS=()
+
+ccy_registry_collect() {
+    local dir="${1:?ccy_registry_collect requires a directory}" tmp err
+    CCY_REGISTRY_RECORDS=()
+    # Via a temp FILE, not a command substitution. `$(…)` strips NUL bytes — the very delimiter
+    # this listing uses, chosen because a path may contain anything else — so capturing it that
+    # way silently glues every record path into one. A temp file keeps the delimiters AND lets
+    # the listing's exit status be observed, which is the whole point of this function.
+    if ! tmp=$(mktemp 2>&1); then
+        print_error "could not create a temporary file to list $dir: $tmp"
+        return 1
+    fi
+    if ! err=$( { ccy_registry_list "$dir"; } 2>&1 >"$tmp"); then
+        print_error "could not list records in $dir: $err"
+        rm -f "$tmp"
+        return 1
+    fi
+    if [[ -s "$tmp" ]]; then
+        mapfile -t -d '' CCY_REGISTRY_RECORDS <"$tmp"
+    fi
+    rm -f "$tmp"
+}
+
+# ccy_registry_count <dir> — how many records the directory holds, on stdout. Non-zero when the
+# listing failed, so a caller cannot print "0" for a directory it could not read.
+ccy_registry_count() {
+    ccy_registry_collect "${1:?ccy_registry_count requires a directory}" || return 1
+    printf '%s\n' "${#CCY_REGISTRY_RECORDS[@]}"
+}
+
 # ccy_registry_retire <file> <dest-dir> <reason> — move a record out of the live set, with the
 # reason recorded inside it.
 #
@@ -478,7 +545,18 @@ ccy_registry_retire() {
     local name tmp err
     name=$(basename "$file")
     tmp="${dest}/.${name}.tmp.$$"
-    if ! err=$( { grep -v '^end=1$' "$file"; printf 'retired_reason=%s\nend=1\n' "$reason"; } >"$tmp" 2>&1); then
+    # Two corrections in one line, both of which made this silently succeed on a failed read —
+    # inside the consume-before-start step the whole no-loop guarantee rests on.
+    #
+    # `awk`, not `grep -v`: grep exits 1 when it selects no lines, so an edge-case record would
+    # have been reported as a failure it was not.
+    #
+    # `2>&1 >"$tmp"` in THIS order: written `>"$tmp" 2>&1`, both streams went to the file, so a
+    # failing read had its error text written INTO the new record, `err` was empty, and the
+    # group's status was the trailing printf's — always 0. The result was a well-formed record
+    # containing a diagnostic, and a success return.
+    if ! err=$( { awk '$0 != "end=1"' "$file" &&
+        printf 'retired_reason=%s\nend=1\n' "$reason"; } 2>&1 >"$tmp"); then
         print_error "could not stage the retired record $tmp: $err"
         rm -f "$tmp"
         return 1
@@ -530,6 +608,21 @@ ccy_registry_restore_flags() {
     keys=$(ccy_registry_field_default "$file" ssh_keys_b64 "")
     if [[ -n "$keys" ]]; then
         local -a key_list=()
+        # Decoded TWICE, deliberately: once to check the status, once for the data.
+        #
+        # Read straight from a process substitution the decode status is invisible, so a corrupt
+        # ssh_keys_b64 yielded an EMPTY key list and a session restored with no SSH keys and no
+        # complaint — while the caller's "did this produce any flags at all" guard still passed,
+        # because --supervise and --continue are appended unconditionally.
+        #
+        # And it cannot be captured into a variable instead: the payload is NUL-delimited, and
+        # `$(…)` strips NUL bytes — which silently glued every key path into one. The check is a
+        # separate pass for that reason. `>/dev/null` here discards the DATA, which this pass
+        # does not want; stderr and the exit status both still flow.
+        if ! ccy_registry_decode_argv "$keys" >/dev/null; then
+            print_error "$file: ssh_keys_b64 could not be decoded, so this session's SSH keys are unknown"
+            return 1
+        fi
         mapfile -t -d '' key_list < <(ccy_registry_decode_argv "$keys")
         for key in "${key_list[@]}"; do
             [[ -n "$key" ]] || continue
@@ -562,7 +655,20 @@ ccy_registry_restore_flags() {
     no_custom=$(ccy_registry_field_default "$file" disable_custom_docker no)
     [[ "$no_custom" == "yes" ]] && flags+=(--disable-custom-docker)
 
-    flags+=(--supervise --continue)
+    # The supervisor mode is HONOURED, not overridden.
+    #
+    # Issue 44 asks for restore with `--supervise`, and that is right for the default case: an
+    # unattended session needs the armed supervisor's nudge to get back to work, and the
+    # default is unarmed. But `ccy --no-supervise` is an explicit opt-out of the supervisor
+    # ENTIRELY, ctrl+z guard included — silently arming it on a restored session would hand the
+    # operator auto-compaction and goal injection they deliberately turned off. So the mode is
+    # recorded at launch and replayed here; only a session that expressed no preference gets
+    # the arming this feature exists to provide.
+    case "$(ccy_registry_field_default "$file" supervise default)" in
+    off) flags+=(--no-supervise) ;;
+    *) flags+=(--supervise) ;;
+    esac
+    flags+=(--continue)
     printf '%s\0' "${flags[@]}"
 }
 
