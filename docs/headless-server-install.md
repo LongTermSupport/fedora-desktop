@@ -95,8 +95,9 @@ provisioning action — so a wrong password fails in seconds, not mid-install.
 anything running as this user can reach root either way. The gain is in the **steady
 state** (no permanent passwordless root once the run ends) and in the **failure mode**
 — a sudoers file that fails to be removed leaves passwordless root forever, whereas a
-password file on tmpfs that fails to be shredded dies at the next boot and never
-touched persistent storage.
+password file on tmpfs that fails to be removed dies at the next boot and never touched
+persistent storage. That is also why the cleanup unlinks rather than shreds: overwriting
+in place is what `shred` needs to mean anything, and tmpfs has no place to overwrite.
 
 ---
 
