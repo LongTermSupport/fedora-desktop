@@ -108,6 +108,88 @@ login_once() {
     log "${prefix}: a login shell printed ${#output} bytes on stdout, ${#errors} on stderr"
 }
 
+# select_second_kernel <running-kernel> — leave this guest holding a kernel it is not
+# running, with the next boot pointed at it.
+#
+# One path, always taken: ask every enabled repo what kernel versions exist, install the
+# newest that is NOT the one running, then confirm an installed kernel other than the
+# running one is now on disk. Not restricted to the release repo: a guest running the
+# release kernel needs a newer one and a guest running the newest needs an older one, and
+# "the newest available that is not this one" answers both without a branch per case.
+#
+# A guest that still has only one kernel afterwards is a hard failure. There is no
+# version of this scenario that proves anything without a second kernel, and a run that
+# quietly rebooted into the same one would pass check 7 nowhere and confuse every check
+# after it.
+#
+# BOTH QUERIES ARE JUDGED BEFORE THEY ARE READ AS VERSIONS. A query that fails still
+# prints — `rpm -q` puts `package kernel-core is not installed` on stdout and exits 1 —
+# and a `while read` fed straight from it takes that sentence as a candidate version.
+# Nothing catches the exit status there: a process substitution's is not part of the
+# pipeline, so `pipefail` never sees it. The sentence is then rejected for naming no
+# `/boot/vmlinuz-`, and the run dies about the bootloader for a fault that belongs to
+# rpm — the wrong file, by the same reasoning section 1 aborts rather than records.
+# The boot directory is a parameter with its real default, not a global read from the
+# environment: a test needs a directory it owns to stand in for /boot, and this gate runs
+# on the user's own machine where writing into the real one would be intolerable.
+select_second_kernel() {
+    local running_kernel="${1:?}" boot_dir="${2:-/boot}"
+    local query_errors available installed wanted candidate target_kernel default_kernel
+
+    command -v grubby >/dev/null || die "no grubby in this guest; the boot entry cannot be selected"
+    query_errors="${EVIDENCE_DIR}/repoquery.err"
+    available=""
+    if ! available="$(sudo -n dnf -q repoquery --queryformat '%{version}-%{release}.%{arch}\n' kernel-core 2>"${query_errors}")"; then
+        die "asking dnf which kernel-core versions exist failed: $(cat "${query_errors}")"
+    fi
+
+    wanted=""
+    while read -r candidate; do
+        [[ -n "${candidate}" ]] || continue
+        [[ "${candidate}" == "${running_kernel}" ]] && continue
+        wanted="${candidate}"
+        break
+    done < <(printf '%s\n' "${available}" | sort -Vr)
+    [[ -n "${wanted}" ]] ||
+        die "every kernel-core the repos offer is ${running_kernel}; this guest cannot be given a second kernel"
+    record PREPARED_WANTED_KERNEL "${wanted}"
+
+    log "installing kernel ${wanted} alongside the running ${running_kernel}"
+    sudo -n dnf -y install "kernel-${wanted}" >&2
+
+    # `rpm` in its own conventional case, `dnf repoquery` above in its: rpm tag names are
+    # case-insensitive, but dnf5's format tags are documented lowercase and the long
+    # `--queryformat` is spelled out on both, so neither depends on an abbreviation.
+    installed=""
+    if ! installed="$(rpm -q kernel-core --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' 2>&1)"; then
+        die "asking rpm which kernel-core packages are installed failed: ${installed}"
+    fi
+
+    target_kernel=""
+    while read -r candidate; do
+        [[ -n "${candidate}" ]] || continue
+        [[ "${candidate}" == "${running_kernel}" ]] && continue
+        [[ -r "${boot_dir}/vmlinuz-${candidate}" ]] || continue
+        target_kernel="${candidate}"
+        break
+    done < <(printf '%s\n' "${installed}" | sort -Vr)
+
+    [[ -n "${target_kernel}" ]] ||
+        die "dnf installed ${wanted} but no kernel other than ${running_kernel} has a ${boot_dir}/vmlinuz-*; the guest cannot reboot into a different one"
+    record PREPARED_TARGET_KERNEL "${target_kernel}"
+
+    log "selecting ${target_kernel} for the next boot"
+    sudo -n grubby --set-default "${boot_dir}/vmlinuz-${target_kernel}" >&2
+    default_kernel="$(sudo -n grubby --default-kernel)"
+    record PREPARED_DEFAULT_KERNEL "${default_kernel}"
+    [[ "${default_kernel}" == "${boot_dir}/vmlinuz-${target_kernel}" ]] ||
+        die "grubby reports ${default_kernel} as the default, not ${boot_dir}/vmlinuz-${target_kernel}"
+
+    # The one thing a caller would capture. Every other word this function produces —
+    # its own log lines, dnf's output, grubby's — is already on stderr.
+    printf '%s\n' "${target_kernel}"
+}
+
 # ── 1. the play's artefacts, or there is no scenario to prepare ───────────────────────
 # Aborts rather than records: an absent snippet is not a finding about the boot
 # predicate, it is a run.bash that did not deploy the play, and carrying it into
@@ -217,59 +299,18 @@ record PREPARED_TIMER_AFTER "${timer_after}"
 record PREPARED_TIMER_AFTER_RC "${timer_after_rc}"
 
 # ── 7. a second kernel, and the next boot pointed at it ───────────────────────────────
-# One path, always taken: ask every enabled repo what kernel versions exist, install the
-# newest that is NOT the one running, then confirm an installed kernel other than the
-# running one is now on disk. Not restricted to the release repo: a guest running the
-# release kernel needs a newer one and a guest running the newest needs an older one, and
-# "the newest available that is not this one" answers both without a branch per case.
+# A function rather than the straight line it was, because this is the one step of the
+# route no machine could reach: the container has no dnf, rpm or grubby, and a guest that
+# runs it has already spent twenty minutes getting here. As a function it can be lifted
+# out and driven against stubs — see scripts/test-vmtest-kernel-selection.bash, which is
+# where its refusals are proved.
 #
-# A guest that still has only one kernel afterwards is a hard failure. There is no
-# version of this scenario that proves anything without a second kernel, and a run that
-# quietly rebooted into the same one would pass check 7 nowhere and confuse every check
-# after it.
-command -v grubby >/dev/null || die "no grubby in this guest; the boot entry cannot be selected"
-query_errors="${EVIDENCE_DIR}/repoquery.err"
-available=""
-if ! available="$(sudo -n dnf -q repoquery --queryformat '%{version}-%{release}.%{arch}\n' kernel-core 2>"${query_errors}")"; then
-    die "asking dnf which kernel-core versions exist failed: $(cat "${query_errors}")"
-fi
-
-wanted=""
-while read -r candidate; do
-    [[ -n "${candidate}" ]] || continue
-    [[ "${candidate}" == "${running_kernel}" ]] && continue
-    wanted="${candidate}"
-    break
-done < <(printf '%s\n' "${available}" | sort -Vr)
-[[ -n "${wanted}" ]] ||
-    die "every kernel-core the repos offer is ${running_kernel}; this guest cannot be given a second kernel"
-record PREPARED_WANTED_KERNEL "${wanted}"
-
-log "installing kernel ${wanted} alongside the running ${running_kernel}"
-sudo -n dnf -y install "kernel-${wanted}" >&2
-
-target_kernel=""
-while read -r candidate; do
-    [[ -n "${candidate}" ]] || continue
-    [[ "${candidate}" == "${running_kernel}" ]] && continue
-    [[ -r "/boot/vmlinuz-${candidate}" ]] || continue
-    target_kernel="${candidate}"
-    break
-# `rpm` in its own conventional case, `dnf repoquery` above in its: rpm tag names are
-# case-insensitive, but dnf5's format tags are documented lowercase and the long
-# `--queryformat` is spelled out on both, so neither depends on an abbreviation.
-done < <(rpm -q kernel-core --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -Vr)
-
-[[ -n "${target_kernel}" ]] ||
-    die "dnf installed ${wanted} but no kernel other than ${running_kernel} has a /boot/vmlinuz-*; the guest cannot reboot into a different one"
-record PREPARED_TARGET_KERNEL "${target_kernel}"
-
-log "selecting ${target_kernel} for the next boot"
-sudo -n grubby --set-default "/boot/vmlinuz-${target_kernel}" >&2
-default_kernel="$(sudo -n grubby --default-kernel)"
-record PREPARED_DEFAULT_KERNEL "${default_kernel}"
-[[ "${default_kernel}" == "/boot/vmlinuz-${target_kernel}" ]] ||
-    die "grubby reports ${default_kernel} as the default, not /boot/vmlinuz-${target_kernel}"
+# Captured, not re-read from the evidence file: that file is the CHECKER's copy, and a
+# second reader of it here is two names for one fact. `die` inside the substitution exits
+# only the subshell, so the assignment carries the failure out and `set -e` stops the run
+# — proved in that test rather than assumed, because a swallowed refusal here would leave
+# the guest rebooting into the kernel it already runs.
+target_kernel="$(select_second_kernel "${running_kernel}")"
 
 chmod 0600 "${EVIDENCE}"
 log "prepared: collected under ${running_kernel}, next boot is ${target_kernel}"

@@ -383,6 +383,39 @@ was written, rather than copied from the source by eye: a checker that agrees wi
 string neither side got from the code under test is a vocabulary check wearing a
 behaviour check's name (§4.2).
 
+### 8.2 The step nothing could execute
+
+Giving the guest that second kernel is the one part of the route with no executor. The
+container QA runs in is Debian — no `dnf`, no `rpm`, no `grubby` — so not a line of it
+could run here, and the only other machine that reaches it is a guest already twenty
+minutes into a provisioning run. Everything above stands on it: a guest that reboots into
+the kernel it was already running makes the claim under test vacuously false, and the
+fourteen checks after the kernel check judge nothing at all.
+
+So the selection is a function, `select_second_kernel`, driven by
+`scripts/test-vmtest-kernel-selection.bash` against stubbed `dnf`, `rpm` and `grubby`.
+That proves the **decisions** — which version is chosen from what the repos offer, what
+is downloaded, what is handed to the bootloader, and that every way of ending up without
+a second kernel is a refusal rather than a quiet success. It does not prove dnf's real
+output format, and is not written as though it does; the first guest run is what confirms
+the NEVRA shape `%{version}-%{release}.%{arch}` against a real repository.
+
+Two things that exercise found, neither visible by reading:
+
+- **`rpm -q` prints its complaint on stdout and exits 1**, and a process substitution's
+  exit status is not part of the pipeline, so `pipefail` never sees it. Read straight into
+  the loop, `package kernel-core is not installed` became a candidate *version*, was
+  rejected for naming no `vmlinuz`, and the run died about the bootloader — pointing a
+  reader at `/boot` for a fault belonging to the package database. The same reasoning that
+  makes §1 of the fixture abort rather than record.
+- **Two loops, two decisions.** The repo list decides what to download; the installed list
+  decides what to boot. A test that asserts only the returned kernel passes whichever one
+  the first loop picked, because the second loop finds the newest kernel on disk either
+  way — so a selection that quietly downloaded the repo's oldest `kernel-core` survived
+  until the assertion moved onto the install itself. A guest handed a kernel several
+  releases back may not boot its image's drivers, and the lab would report that as this
+  plan's claim being false.
+
 Two things the lab still cannot settle. The `scp` claim is exercised through the guest's
 own `sshd` with a key the fixture generates, which is the real `SSH_SOURCE_BASHRC` path —
 but §6's question is about **this** checkout's `origin`, and a guest cloned over https

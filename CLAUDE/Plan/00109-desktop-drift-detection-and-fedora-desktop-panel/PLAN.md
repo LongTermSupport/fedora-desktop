@@ -179,6 +179,13 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
       and a fifteen-check checker (§8). A HOST run cannot make the kernel claim on demand
       — it waits for a kernel update to arrive, where a guest can be given one. **It has
       never been executed**, and until it has, nothing below it is established
+    - [x] ✅ **The kernel step had no executor** — no `dnf`, `rpm` or `grubby` in the QA
+      container, and the only other machine that reaches it is a guest twenty minutes
+      into a run. It is now a function driven against stubs, proving which version is
+      chosen, what is downloaded and that every way of ending up with one kernel refuses
+      (§8.2). Exercising it found a package-query failure being read as a version, and a
+      test asserting the kernel returned rather than the one downloaded — two decisions,
+      one assertion. This proves the **decisions**, not dnf's real output format
     - [x] ✅ `reboot_before_checks` is a scenario's answer, not a profile's; the CLI
       supplies only the mechanics of getting a guest back, and a profile it has no
       mechanics for is a refusal rather than a silent no-reboot (§8.1)

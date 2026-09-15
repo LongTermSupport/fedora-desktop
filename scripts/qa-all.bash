@@ -320,6 +320,21 @@ reboot_dispatch_summary=$(printf '%s' "$reboot_dispatch_out" | grep -oE 'passed:
     reboot_dispatch_summary="passed"
 printf '✓ vmtest-reboot-dispatch: %s\n' "$reboot_dispatch_summary"
 
+# The kernel selection inside that fixture (Plan 00109). The only step of the route no
+# machine here can reach: this container has no dnf, rpm or grubby, and the only other
+# executor is a guest twenty minutes into a provisioning run. Every check in the scenario
+# stands on it — a guest that reboots into the kernel it already ran makes the claim under
+# test vacuously false, and the fourteen checks after it judge nothing.
+kernel_selection_out=""
+if ! kernel_selection_out="$(bash "$SCRIPT_DIR/test-vmtest-kernel-selection.bash" 2>&1)"; then
+    echo "$kernel_selection_out" >&2
+    echo "✗ QA FAILED: vmtest kernel selection unit tests" >&2
+    exit 1
+fi
+kernel_selection_summary=$(printf '%s' "$kernel_selection_out" | grep -oE 'passed: [0-9]+') ||
+    kernel_selection_summary="passed"
+printf '✓ vmtest-kernel-selection: %s\n' "$kernel_selection_summary"
+
 # The fixture→checker record contract (Plan 00109). One scenario's fixture writes a file
 # the checker sources, and that seam is invisible to every other gate: a value carrying a
 # shell metacharacter aborts the source and unsets every key after it, while the file
