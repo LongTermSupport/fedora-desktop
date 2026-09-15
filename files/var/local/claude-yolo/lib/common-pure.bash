@@ -337,7 +337,40 @@ get_project_name() {
     fi
 }
 
+# The HOST machine's own name, for CCY_HOST_HOSTNAME.
+#
+# A container's HOSTNAME is its own — podman gives it the short container id — so nothing
+# inside can tell which MACHINE it is running on. No standard exists for exposing the host's
+# name to a container; the nearest convention is Kubernetes' NODE_NAME via the downward API,
+# which is likewise a bespoke variable the platform injects. CCY does the same, under a name
+# that cannot be mistaken for the container's own: HOSTNAME is deliberately NOT shadowed,
+# because a process that wants the container id must keep being able to read it.
+#
+# Pure: the raw nodename is an argument (the caller supplies `uname -n`), so every shape can
+# be driven from a test without depending on the machine the test runs on.
+#
+# stdout is the name; diagnostics go to stderr.
+ccy_host_hostname() {
+    local raw="${1-}"
+    # A FQDN's domain is not the machine. `uname -n` returns whichever form the host is
+    # configured with, so reducing to the first label keeps the value independent of the
+    # host's DNS setup rather than varying with it.
+    raw="${raw%%.*}"
+    if [ -z "$raw" ]; then
+        echo "could not determine the host hostname: the nodename is empty" >&2
+        return 1
+    fi
+    # It becomes a `podman run -e` value and is then read by shells inside the container.
+    # RFC 1123 label grammar is the guard: nothing else travels with it.
+    if [[ ! "$raw" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$ ]]; then
+        echo "host hostname '$raw' is not a valid RFC 1123 label; refusing to pass it to the container" >&2
+        return 1
+    fi
+    printf '%s\n' "$raw"
+}
+
 export -f print_error
 export -f is_token_valid
 export -f ccy_validate_mount_line
 export -f get_project_name
+export -f ccy_host_hostname

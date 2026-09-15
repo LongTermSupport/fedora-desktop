@@ -225,6 +225,7 @@ risks are bounded and named below, not eliminated.
 | Your Wayland or X11 display socket      | Mounted read-only and auto-detected, so the agent can open browser windows on your desktop |
 | The host GPU render device              | `--device /dev/dri` — always attached, for accelerated browser rendering                   |
 | The network                             | Normal outbound; optionally a named container network                                      |
+| The host machine's name                 | `CCY_HOST_HOSTNAME` — the container's own `HOSTNAME` is its container id, not the machine  |
 | Anything you add via `CCY_EXTRA_MOUNTS` | Explicit opt-in — see [debug mounts](ccy-debug-mounts.md)                                  |
 
 ### What it CANNOT reach

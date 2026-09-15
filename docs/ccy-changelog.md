@@ -17,6 +17,39 @@ Two version numbers move independently — see
 
 ---
 
+## 3.57.0
+
+**The container can tell which machine it is running on.** A container's `HOSTNAME` is the
+short container id podman assigns it, so nothing inside a CCY session could distinguish one
+host from another. `CCY_HOST_HOSTNAME` now carries the host's own name in.
+
+There is no standard for this. The nearest convention is Kubernetes' `NODE_NAME`, injected
+per-pod via the downward API — likewise a bespoke variable the platform chooses to provide.
+CCY does the same under a name that cannot be confused with the container's own: `HOSTNAME`
+is deliberately **not** shadowed, because a process that wants the container id must keep
+being able to read it.
+
+The value is `uname -n` reduced to its first label, so a host configured with a FQDN and one
+configured with a short name report the same machine — the value tracks the machine, not the
+host's DNS setup. It must be a valid RFC 1123 label: it becomes a `podman run -e` argument
+and is then read by shells in the container, so the grammar is what stops anything else
+travelling with it. An empty or malformed nodename **aborts the session** rather than
+starting without the variable, because an absent `CCY_HOST_HOSTNAME` is indistinguishable
+from "the launcher is too old to set it", and a consumer cannot tell those apart.
+
+Derivation lives in `ccy_host_hostname` (`lib/common-pure.bash`) and is unit-tested
+(`scripts/test-ccy-host-hostname.bash`): plain names, FQDNs, a trailing dot, and the
+refusals — empty, whitespace, spaces, a shell metacharacter, a dollar sign, an embedded
+newline, leading and trailing hyphens, and an underscore.
+
+> **Note for this repository.** The pre-commit secret scanner builds its denylist from
+> `environment/localhost/host_vars/localhost.yml`, where the hostname is **not** stored —
+> `RUN_BASH_HOSTNAME` is applied via `hostnamectl` and never written back. So the scanner
+> does not yet know the live hostname, and this variable makes it easier for that name to
+> reach a file. Teaching the denylist to learn it is tracked separately, because a hostname
+> that happens to be a common English word would otherwise block every commit containing
+> that word until it was added to `.claude/public-token-allowlist.yml`.
+
 ## 3.56.0
 
 **ccy starts on a host with no GPU.** `podman run` was handed `--device /dev/dri:/dev/dri`

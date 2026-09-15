@@ -277,6 +277,21 @@ gpu_device_summary=$(printf '%s' "$gpu_device_out" | grep -oE 'passed: [0-9]+') 
     gpu_device_summary="passed"
 printf '✓ ccy-gpu-device: %s\n' "$gpu_device_summary"
 
+# ccy_host_hostname (Plan 00121): CCY_HOST_HOSTNAME tells the container which MACHINE it is
+# on, since its own HOSTNAME is the container id. The value reaches a `podman run -e`
+# argument and is then read by shells in the container, so the grammar is the guard — driven
+# through plain names, FQDNs, and the refusals including shell metacharacters and an empty
+# nodename.
+host_hostname_out=""
+if ! host_hostname_out="$(bash "$SCRIPT_DIR/test-ccy-host-hostname.bash" 2>&1)"; then
+    echo "$host_hostname_out" >&2
+    echo "✗ QA FAILED: ccy host-hostname unit tests" >&2
+    exit 1
+fi
+host_hostname_summary=$(printf '%s' "$host_hostname_out" | grep -oE 'passed: [0-9]+') ||
+    host_hostname_summary="passed"
+printf '✓ ccy-host-hostname: %s\n' "$host_hostname_summary"
+
 # hl_write_localhost_yml (Plan 00119): the headless localhost.yml writer, driven through the
 # 443 flag on/off/unset, the empty-identity path and the keep-existing-file promise.
 localhost_yml_out=""

@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.56.0"  # /dev/dri is passed to the container only where the host has one, so a headless server no longer aborts with `stat /dev/dri`. See docs/ccy-changelog.md.
+CCY_VERSION="3.57.0"  # CCY_HOST_HOSTNAME carries the host machine's name into the container, which otherwise only sees its own container id. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -3102,6 +3102,22 @@ if [ "${#SSH_KEYS[@]}" -gt 0 ]; then
     CCY_LABEL_SSH_KEYS="${ccy_key_basenames[*]}"
 fi
 
+# --- which MACHINE this session is running on --------------------------------
+#
+# A container's own HOSTNAME is the short container id podman assigns it, so nothing inside
+# can tell one host from another. CCY_HOST_HOSTNAME carries the host's name in, under a
+# distinct name: HOSTNAME is deliberately NOT shadowed, because a process that wants the
+# container id must keep being able to read it.
+#
+# Derivation and grammar live in ccy_host_hostname (lib/common-pure.bash), where they are
+# unit-tested. A failure here aborts: an absent CCY_HOST_HOSTNAME is indistinguishable from
+# "the launcher is too old to set it", so a consumer could not tell a broken host from an
+# old one, and silently starting without it would make that ambiguity permanent.
+if ! CCY_HOST_HOSTNAME="$(ccy_host_hostname "$(uname -n)")"; then
+    print_error "Could not derive the host hostname from 'uname -n' — see the reason above."
+    exit 1
+fi
+
 container_cmd run $DOCKER_FLAGS --rm \
     --name "$CONTAINER_NAME" \
     --label ccy=true \
@@ -3125,6 +3141,7 @@ container_cmd run $DOCKER_FLAGS --rm \
     -e "SSH_CONFIG_EXTRA_B64=${SSH_CONFIG_EXTRA_B64:-}" \
     -e "SSH_KNOWN_HOSTS_PINS=${SSH_KNOWN_HOSTS_PINS:-}" \
     -e "GITHUB_SSH_443=$GITHUB_SSH_443" \
+    -e "CCY_HOST_HOSTNAME=$CCY_HOST_HOSTNAME" \
     -e "CCY_CLAUDE_WRAPPER=${CCY_CLAUDE_WRAPPER:-}" \
     -e "CCY_NO_SUPERVISOR=${CCY_NO_SUPERVISOR:-}" \
     -e "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-1}" \
