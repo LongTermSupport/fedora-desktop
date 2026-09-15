@@ -289,10 +289,19 @@
       ansible.builtin.set_fact:
         vm_test_runnable: "{{ vm_test_manifest_check.stdout | regex_search('runnable=([0-9]+)', '\\1') | first | int }}"
 
+    # The two enumerations, counted by the validator rather than subtracted here.
+    # `bridge` is what the sandbox may name; `host_only` is what only a human at
+    # the host CLI may. They are disjoint by construction in scenarios.py.
+    - name: Read how many scenarios each enumeration holds
+      ansible.builtin.set_fact:
+        vm_test_bridge_count: "{{ vm_test_manifest_check.stdout | regex_search('bridge=([0-9]+)', '\\1') | first | int }}"
+        vm_test_host_only_count: "{{ vm_test_manifest_check.stdout | regex_search('host_only=([0-9]+)', '\\1') | first | int }}"
+
     # The allowlist is the bridge's authority (DESIGN.md §2.3, §6.4 step 7). It
-    # exists exactly when at least one scenario is runnable; an empty file would
-    # read as "a lab with no scenarios", so none is written in that case and any
-    # stale one is removed. The validator refuses to emit an empty list anyway.
+    # exists exactly when at least one scenario is reachable from the bridge; an
+    # empty file would read as "a lab with no scenarios", so none is written in
+    # that case and any stale one is removed. The validator refuses to emit an
+    # empty list anyway.
     - name: Render the scenario allowlist from the manifest
       become: false
       ansible.builtin.command:
@@ -307,7 +316,7 @@
         stdin: "{{ vm_test_manifest | to_json }}"
       register: vm_test_allowlist
       changed_when: false
-      when: vm_test_runnable | int > 0
+      when: vm_test_bridge_count | int > 0
 
     - name: Deploy the scenario allowlist
       ansible.builtin.copy:
@@ -316,13 +325,49 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0644"
-      when: vm_test_runnable | int > 0
+      when: vm_test_bridge_count | int > 0
 
-    - name: Remove a stale allowlist when no scenario is runnable
+    - name: Remove a stale allowlist when no scenario is reachable from the bridge
       ansible.builtin.file:
         path: "{{ vm_test_lab_dir }}/scenarios.allowlist"
         state: absent
-      when: vm_test_runnable | int == 0
+      when: vm_test_bridge_count | int == 0
+
+    # The host-only list (Plan 00121): scenarios a human runs at the host CLI and
+    # the bridge is never offered, because they handle a real credential. Absent
+    # rather than empty when there are none, so `vmtest` cannot read a stale file
+    # as permission — and the bridge does not consult this list at all, it refuses
+    # from the manifest itself.
+    - name: Render the host-only scenario list from the manifest
+      become: false
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -m
+          - helpers.vmtest.validate_manifest
+          - --fedora-version
+          - "{{ fedora_version }}"
+          - --host-only
+        chdir: "{{ root_dir }}"
+        stdin: "{{ vm_test_manifest | to_json }}"
+      register: vm_test_host_only
+      changed_when: false
+      when: vm_test_host_only_count | int > 0
+
+    - name: Deploy the host-only scenario list
+      ansible.builtin.copy:
+        content: "{{ vm_test_host_only.stdout }}\n"
+        dest: "{{ vm_test_lab_dir }}/scenarios.host-only"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+      when: vm_test_host_only_count | int > 0
+
+    - name: Remove a stale host-only list when no scenario is host-only
+      ansible.builtin.file:
+        path: "{{ vm_test_lab_dir }}/scenarios.host-only"
+        state: absent
+      when: vm_test_host_only_count | int == 0
 
     # =========================================================================
     # The bridge (DESIGN.md §6): the spool is the only shared surface; policy,
@@ -476,7 +521,8 @@
           - "VM acceptance lab deployed for {{ user_login }} at {{ vm_test_lab_dir }}"
           - "Hypervisor: rootless ({{ vm_test_session_uri.stdout.strip() }})"
           - "Manifest: {{ vm_test_manifest_check.stdout | trim }}"
-          - "Allowlist: {{ 'deployed' if vm_test_runnable | int > 0 else 'none — no scenario has a declared check count yet' }}"
+          - "Allowlist: {{ 'deployed' if vm_test_bridge_count | int > 0 else 'none — no scenario is reachable from the bridge' }}"
+          - "Host-only: {{ vm_test_host_only_count }} scenario(s) the bridge is never offered"
           - "Bridge: vmtest-bridge@{{ vm_test_bridge_slug.stdout | trim }}.path watching {{ vm_test_spool_dir }}/requests"
           - ""
           - "Next: vmtest fetch server-fast; vmtest build-base server-fast"

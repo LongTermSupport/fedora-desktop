@@ -182,6 +182,97 @@ class TestAllowlist(unittest.TestCase):
             scenarios.allowlist_text(manifest)
 
 
+class TestHostOnlyScenario(unittest.TestCase):
+    """A scenario that handles a real credential is runnable but NOT enumerated to the sandbox.
+
+    Plan 00110 DESIGN.md:2084 — "It is not in the bridge's argument enumeration,
+    because a sandboxed agent asking the host to put a PAT into a VM is the precise
+    shape the bridge exists to prevent." Before this flag, `runnable` meant both
+    "the host may run it" and "the sandbox may ask for it", so declaring the check
+    count a scenario needs in order to run at all would have enumerated it.
+    """
+
+    @staticmethod
+    def _with_host_only(**overrides):
+        document = copy.deepcopy(MANIFEST)
+        entry = {
+            "base": "server-fast",
+            "description": "provision with a real scoped PAT and a passphrase-protected key",
+            "planned": 9,
+            "max_skipped": 0,
+            "host_only": True,
+        }
+        entry.update(overrides)
+        document["vm_test_scenarios"]["server-github-token"] = entry
+        return document
+
+    def test_host_only_defaults_to_false(self):
+        self.assertFalse(_parse().scenarios["server-fast-provision"].host_only)
+
+    def test_a_host_only_scenario_is_runnable(self):
+        # It must keep a declared check count, or rule 02 could not catch a
+        # harness that died early — which is exactly the run where a credential
+        # was in play and the evidence matters most.
+        scenario = scenarios.parse_manifest(self._with_host_only(), FEDORA_VERSION).scenarios["server-github-token"]
+        self.assertTrue(scenario.runnable)
+        self.assertTrue(scenario.host_only)
+
+    def test_a_host_only_scenario_is_absent_from_the_bridge_allowlist(self):
+        manifest = scenarios.parse_manifest(self._with_host_only(), FEDORA_VERSION)
+        self.assertNotIn("server-github-token", scenarios.allowlist(manifest))
+        self.assertNotIn("server-github-token", scenarios.allowlist_text(manifest))
+
+    def test_the_two_enumerations_are_disjoint(self):
+        # Derived from one flag rather than maintained as two lists, so a scenario
+        # cannot drift onto both. If it could, the bridge enumeration would be the
+        # thing keeping a PAT run off the shared mount while also permitting it.
+        manifest = scenarios.parse_manifest(self._with_host_only(), FEDORA_VERSION)
+        bridge = set(scenarios.allowlist(manifest))
+        host = set(scenarios.host_only_list(manifest))
+        self.assertEqual(bridge & host, set())
+        self.assertEqual(host, {"server-github-token"})
+
+    def test_host_only_list_holds_only_runnable_scenarios_sorted(self):
+        document = self._with_host_only()
+        document["vm_test_scenarios"]["server-github-token-unplanned"] = {
+            "base": "server-fast",
+            "description": "a host-only scenario whose guest script has not declared its count",
+            "planned": None,
+            "max_skipped": 0,
+            "host_only": True,
+        }
+        manifest = scenarios.parse_manifest(document, FEDORA_VERSION)
+        self.assertEqual(scenarios.host_only_list(manifest), ("server-github-token",))
+
+    def test_host_only_text_is_one_id_per_line_with_trailing_newline(self):
+        manifest = scenarios.parse_manifest(self._with_host_only(), FEDORA_VERSION)
+        self.assertEqual(scenarios.host_only_text(manifest), "server-github-token\n")
+
+    def test_no_host_only_scenario_yields_empty_text_not_an_error(self):
+        # Unlike the bridge allowlist, nothing is wrong with a lab that has no
+        # host-only scenario — that is the ordinary case and the safer one.
+        self.assertEqual(scenarios.host_only_text(_parse()), "")
+
+    def test_host_only_must_be_a_bool(self):
+        # A truthy string would read as "yes" here and as a parse error nowhere,
+        # so `host_only: "false"` would enumerate a PAT scenario to the sandbox.
+        for value in ("true", "false", 1, 0, None):
+            with self.subTest(value=value):
+                with self.assertRaises(scenarios.ManifestError) as caught:
+                    scenarios.parse_manifest(self._with_host_only(host_only=value), FEDORA_VERSION)
+                self.assertIn("host_only", str(caught.exception))
+
+    def test_a_manifest_of_only_host_only_scenarios_has_no_bridge_allowlist(self):
+        # Fails closed and says so, rather than deploying an empty file that
+        # looks like a lab with no scenarios at all.
+        document = copy.deepcopy(MANIFEST)
+        for scenario in document["vm_test_scenarios"].values():
+            scenario["host_only"] = True
+        manifest = scenarios.parse_manifest(document, FEDORA_VERSION)
+        with self.assertRaises(scenarios.ManifestError):
+            scenarios.allowlist_text(manifest)
+
+
 class TestManifestRejections(unittest.TestCase):
     """Every malformed manifest raises ManifestError naming the offending entry."""
 

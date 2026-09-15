@@ -65,6 +65,51 @@ class Refusal(RuntimeError):
     """The stub, the key or the spool cannot be trusted; nothing more is written into the spool."""
 
 
+def vmtest_home() -> pathlib.Path:
+    return pathlib.Path(
+        os.environ.get("VMTEST_HOME", str(pathlib.Path.home() / ".local" / "share" / "vmtest"))
+    )
+
+
+def host_only_refusal(home: pathlib.Path, scenario_id: str) -> str | None:
+    """Why `scenario_id` must not run from the bridge, or None if it may (Plan 00121).
+
+    Read from the deployed MANIFEST, deliberately not from `scenarios.allowlist`.
+    The allowlist is one generated file, and a control whose only input is a file
+    something else writes fails open the moment that file is wrong — which is the
+    whole defect class this check exists to close. A host-only scenario handles a
+    real credential, and `run_scenario` copies the transcript and console log onto
+    the shared mount, so a wrong answer here builds the credential channel the
+    bridge exists to prevent.
+
+    Fails closed on every uncertainty: an unreadable manifest, an absent entry,
+    and anything in `host_only` that is not literally `false` all refuse. "We
+    could not tell" is not "it is fine".
+    """
+    path = home / "scenarios.json"
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return (
+            f"cannot read the deployed manifest {path} to establish whether {scenario_id!r} "
+            f"is host_only ({exc}); refusing rather than assuming it is not"
+        )
+    entry = (document.get("vm_test_scenarios") or {}).get(scenario_id)
+    if not isinstance(entry, dict):
+        return (
+            f"the deployed manifest does not describe {scenario_id!r}, so it cannot be shown "
+            "to be safe to run from the bridge; re-run play-vm-test-lab.yml on the host"
+        )
+    if entry.get("host_only", False) is not False:
+        return (
+            f"{scenario_id!r} is host_only: it handles a real credential, so it is run by a "
+            "human at the host CLI and its artefacts stay off the shared mount. A sandboxed "
+            "agent asking the host to put a credential into a VM is the shape the bridge "
+            "exists to prevent (DESIGN.md:2084)."
+        )
+    return None
+
+
 class Clock:
     """Real time, or a fixed `--now` advanced by elapsed monotonic time so tests are deterministic."""
 
@@ -186,6 +231,12 @@ class Scope:
 
     def run_scenario(self, stub: dict) -> dict:
         run_id = stub["run_id"]
+        # Before anything boots. Refusing after the run would already have put a
+        # real credential in a guest and a transcript on disk.
+        refusal = host_only_refusal(vmtest_home(), self.args.argument)
+        if refusal is not None:
+            self.audit.record(self.clock.now(), "host-only-refused", self.args.request, refusal)
+            return verdict.errored(self.document, now=self.clock.now(), stage="allowlist", reason=refusal)
         log_dir = pathlib.Path(self.args.state_dir) / "runs"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / f"{run_id}.log"
@@ -264,8 +315,17 @@ class Scope:
         return verdict.finished(self.document, judged)
 
     def list_scenarios(self, stub: dict) -> dict:
-        home = pathlib.Path(os.environ.get("VMTEST_HOME", str(pathlib.Path.home() / ".local" / "share" / "vmtest")))
+        home = vmtest_home()
         manifest = json.loads((home / "scenarios.json").read_text(encoding="utf-8"))
+        # Host-only scenarios are omitted: this is the menu the bridge offers the
+        # sandbox, and listing an item it may not order would only hand it the
+        # exact name to aim a request at.
+        declared = manifest.get("vm_test_scenarios", {}) or {}
+        offered = {
+            scenario_id: entry
+            for scenario_id, entry in declared.items()
+            if not (isinstance(entry, dict) and entry.get("host_only", False) is not False)
+        }
         allowlist_path = home / "scenarios.allowlist"
         allowlist = [line.strip() for line in allowlist_path.read_text(encoding="utf-8").splitlines() if line.strip()] if allowlist_path.exists() else []
         now = self.clock.now()
@@ -278,7 +338,7 @@ class Scope:
             "finished_at": verdict._iso(now),
             "checks": {"planned": None, "total": None, "passed": None, "failed": None, "skipped": None},
             "failure": None,
-            "evidence": {"scenarios": manifest.get("vm_test_scenarios", {}), "allowlist": allowlist},
+            "evidence": {"scenarios": offered, "allowlist": allowlist},
         }
         return verdict.finished(self.document, judged)
 

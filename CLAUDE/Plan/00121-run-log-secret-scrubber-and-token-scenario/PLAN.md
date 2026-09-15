@@ -90,10 +90,20 @@ If the verification pass finds anything, the artefact is not published and the r
 
 ### Phase 2: `server-github-token`
 
-- [ ] ⬜ **Task 2.1**: Read 00110's contract before writing any of it — `DESIGN.md:329-337`
+- [x] ✅ **Task 2.1**: Read 00110's contract before writing any of it — `DESIGN.md:329-337`
   (off-mount artefacts, verdict-plus-pointer response) and `:1553-1555` (which criteria it
-  discharges)
-- [ ] ⬜ **Task 2.2**: The scenario entry and its secret-file plumbing into the guest
+  discharges). Three findings change the build: a `planned` count alone puts a scenario on the
+  **bridge** allowlist (`scenarios.py:339`), so `runnable` must split from bridge-reachable;
+  `vmtest:860` enforces that same file, so excluding the scenario there would block the human's
+  CLI too; and `bridge_run.py:220-228` would archive a PAT-bearing transcript onto the shared
+  mount, with the allowlist as the only thing preventing it. Findings in the journal
+- [ ] 🔄 **Task 2.2**: The scenario entry and its secret-file plumbing into the guest.
+  *Done*: the manifest can declare `host_only`, splitting "the host may run it" from "the
+  sandbox may ask for it"; the two enumerations are derived from that one flag so they are
+  disjoint by construction; `bridge_run` refuses a host-only scenario **from the manifest, not
+  the allowlist**, before anything boots, failing closed on an unreadable or silent manifest.
+  Five mutants falsified, including the refusal placed after the run. *Remaining*: the
+  `server-github-token` entry itself and the secret-file delivery
 - [ ] ⬜ **Task 2.3**: Off-mount logging to the host-local run directory, with only a verdict
   and a pointer returned
 - [ ] ⬜ **Task 2.4**: Opt-in gating that refuses to run from the bridge — and a test proving

@@ -133,13 +133,21 @@ scenario_facts() {
             planned=*) SCENARIO_PLANNED="${field#planned=}" ;;
             max_skipped=*) SCENARIO_MAX_SKIPPED="${field#max_skipped=}" ;;
             runnable=*) SCENARIO_RUNNABLE="${field#runnable=}" ;;
+            host_only=*) SCENARIO_HOST_ONLY="${field#host_only=}" ;;
             run_env=*) SCENARIO_RUN_ENV="${field#run_env=}" ;;
             id=*) ;;
             *) die "unknown field in validator marker: ${field}" ;;
         esac
     done
     : "${SCENARIO_BASE_KEY:?}" "${SCENARIO_BASE_NAME:?}" "${SCENARIO_PROFILE:?}" "${SCENARIO_PLANNED:?}" \
-        "${SCENARIO_MAX_SKIPPED:?}" "${SCENARIO_RUNNABLE:?}" "${SCENARIO_RUN_ENV:?}"
+        "${SCENARIO_MAX_SKIPPED:?}" "${SCENARIO_RUNNABLE:?}" "${SCENARIO_HOST_ONLY:?}" "${SCENARIO_RUN_ENV:?}"
+    # Neither "true" nor "false" means the validator and this CLI disagree about the
+    # marker. Defaulting either way would decide whether a credential-bearing run is
+    # treated as ordinary, so it is a refusal.
+    case "${SCENARIO_HOST_ONLY}" in
+        true | false) ;;
+        *) die "validator reported host_only='${SCENARIO_HOST_ONLY}', which is neither true nor false" ;;
+    esac
 }
 
 # run_env_assignments — the scenario's RUN_BASH_* overrides as `KEY='value'` words for the

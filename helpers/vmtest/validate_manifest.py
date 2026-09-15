@@ -10,15 +10,17 @@ goes to stderr.
     python3 -m helpers.vmtest.validate_manifest --fedora-version 44 --allowlist < manifest.json
 
 Markers:
-    VMTEST-MANIFEST-OK scenarios=N runnable=N bases=N
+    VMTEST-MANIFEST-OK scenarios=N runnable=N bridge=N host_only=N bases=N
     VMTEST-MANIFEST-INVALID
     VMTEST-BASE key=K name=N kind=K profile=P tree=T|- vcpus=N ram_mib=N   (with --base KEY)
-    VMTEST-SCENARIO id=I base=K base_name=N profile=P planned=N|- max_skipped=N runnable=true|false run_env=K=V,K=V|-
+    VMTEST-SCENARIO id=I base=K base_name=N profile=P planned=N|- max_skipped=N runnable=true|false host_only=true|false run_env=K=V,K=V|-
 With `--allowlist`, stdout is the allowlist itself (one id per line), which is
 the payload Ansible writes to the host's `scenarios.allowlist`. With
-`--base KEY` or `--scenario ID`, stdout is that entry's facts as one marker
-line, which is how the `vmtest` CLI reads the manifest without parsing JSON in
-bash.
+`--host-only`, it is the disjoint list Ansible writes to `scenarios.host-only`:
+the scenarios only a human at the host CLI may run, which the bridge is never
+offered. With `--base KEY` or `--scenario ID`, stdout is that entry's facts as
+one marker line, which is how the `vmtest` CLI reads the manifest without
+parsing JSON in bash.
 """
 
 from __future__ import annotations
@@ -40,7 +42,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--allowlist",
         action="store_true",
-        help="print the deployed allowlist (runnable scenario ids, one per line) instead of the OK marker",
+        help="print the deployed bridge allowlist (runnable, non-host-only ids, one per line) instead of the OK marker",
+    )
+    parser.add_argument(
+        "--host-only",
+        action="store_true",
+        help="print the deployed host-only list (runnable host_only ids, one per line); may be empty",
     )
     parser.add_argument(
         "--base",
@@ -67,11 +74,15 @@ def main(argv: list[str] | None = None) -> int:
                 f"VMTEST-SCENARIO id={scenario.id} base={scenario.base.key} base_name={scenario.base.name} "
                 f"profile={scenario.profile} planned={scenario.planned if scenario.planned is not None else '-'} "
                 f"max_skipped={scenario.max_skipped} runnable={'true' if scenario.runnable else 'false'} "
+                f"host_only={'true' if scenario.host_only else 'false'} "
                 f"run_env={run_env}"
             )
             return 0
         if args.allowlist:
             sys.stdout.write(scenarios.allowlist_text(manifest))
+            return 0
+        if args.host_only:
+            sys.stdout.write(scenarios.host_only_text(manifest))
             return 0
         if args.base is not None:
             base = manifest.bases.get(args.base)
@@ -90,9 +101,14 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     runnable = sum(1 for scenario in manifest.scenarios.values() if scenario.runnable)
+    # `bridge` and `host_only` are the two counts the playbook gates on, reported
+    # rather than left for it to subtract: deriving the number here keeps one
+    # definition of "reachable from the bridge", in the module that owns it.
+    bridge = len(scenarios.allowlist(manifest))
+    host_only = len(scenarios.host_only_list(manifest))
     print(
         f"VMTEST-MANIFEST-OK scenarios={len(manifest.scenarios)} "
-        f"runnable={runnable} bases={len(manifest.bases)}"
+        f"runnable={runnable} bridge={bridge} host_only={host_only} bases={len(manifest.bases)}"
     )
     return 0
 

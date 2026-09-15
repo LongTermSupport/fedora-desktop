@@ -24,6 +24,18 @@ sys.path.insert(0, str(REPO_ROOT))
 from tests.helpers.vmtest.test_scenarios import MANIFEST
 
 
+def _with_host_only() -> dict:
+    document = json.loads(json.dumps(MANIFEST))
+    document["vm_test_scenarios"]["server-github-token"] = {
+        "base": "server-fast",
+        "description": "provision with a real scoped PAT and a passphrase-protected key",
+        "planned": 9,
+        "max_skipped": 0,
+        "host_only": True,
+    }
+    return document
+
+
 def _run(stdin_text: str, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, "-m", "helpers.vmtest.validate_manifest", "--fedora-version", "44", *args],
@@ -39,7 +51,7 @@ class TestValidateManifest(unittest.TestCase):
     def test_valid_manifest_exits_zero_with_markers_on_stdout(self):
         result = _run(json.dumps(MANIFEST))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("VMTEST-MANIFEST-OK scenarios=3 runnable=2 bases=3", result.stdout)
+        self.assertIn("VMTEST-MANIFEST-OK scenarios=3 runnable=2 bridge=2 host_only=0 bases=3", result.stdout)
         self.assertEqual(result.stderr, "")
 
     def test_allowlist_flag_prints_the_allowlist_only(self):
@@ -63,10 +75,45 @@ class TestValidateManifest(unittest.TestCase):
         self.assertEqual(
             result.stdout,
             "VMTEST-SCENARIO id=server-fast-provision base=server-fast base_name=server-fast-44 "
-            "profile=server planned=12 max_skipped=0 runnable=true run_env=-\n",
+            "profile=server planned=12 max_skipped=0 runnable=true host_only=false run_env=-\n",
         )
         unplanned = _run(json.dumps(MANIFEST), "--scenario", "desktop-fresh-install")
-        self.assertIn("planned=- max_skipped=0 runnable=false run_env=-", unplanned.stdout)
+        self.assertIn("planned=- max_skipped=0 runnable=false host_only=false run_env=-", unplanned.stdout)
+
+    def test_scenario_flag_reports_host_only(self):
+        # The `vmtest` CLI reads this field to decide which enumeration a run must
+        # be in. It is printed for every scenario, not only the host-only ones, so
+        # a CLI that never sees `host_only=true` still fails on a marker it cannot
+        # parse rather than defaulting a credential-bearing run to "ordinary".
+        result = _run(json.dumps(_with_host_only()), "--scenario", "server-github-token")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("runnable=true host_only=true", result.stdout)
+
+    def test_allowlist_flag_omits_a_host_only_scenario(self):
+        result = _run(json.dumps(_with_host_only()), "--allowlist")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "server-fast-provision\nserver-full-provision\n")
+
+    def test_host_only_flag_prints_the_host_only_list_only(self):
+        result = _run(json.dumps(_with_host_only()), "--host-only")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "server-github-token\n")
+
+    def test_ok_marker_counts_bridge_and_host_only_separately(self):
+        # The playbook gates the two deployed lists on these numbers. Reporting
+        # only `runnable` would make it subtract, and a lab whose one runnable
+        # scenario is host-only would try to render an allowlist the validator
+        # refuses to produce.
+        result = _run(json.dumps(_with_host_only()))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("scenarios=4 runnable=3 bridge=2 host_only=1 bases=3", result.stdout)
+
+    def test_host_only_flag_prints_nothing_when_there_is_none(self):
+        # An empty host-only list is the ordinary case, so it exits 0 with no
+        # output — unlike an empty bridge allowlist, which is a manifest error.
+        result = _run(json.dumps(MANIFEST), "--host-only")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
 
     def test_scenario_flag_carries_run_env_as_comma_separated_pairs(self):
         document = json.loads(json.dumps(MANIFEST))

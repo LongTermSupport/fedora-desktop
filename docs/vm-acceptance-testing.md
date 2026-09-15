@@ -10,21 +10,21 @@ the operator's view.
 
 ## What is in place
 
-| Piece                                | Where                                                    | Job                                                                                                                                    |
-| ------------------------------------ | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Scenario manifest                    | `vars/vm-test-scenarios.yml`                             | The bases, the scenarios, which base each scenario needs, guest sizing, freshness backstops                                            |
-| Manifest parser and check accounting | `helpers/vmtest/scenarios.py`                            | Validates the manifest; derives the bridge allowlist; decides `pass`/`fail`/`error` from a run's check counters                        |
-| Upstream signal parsers              | `helpers/vmtest/upstream.py`                             | Parses `COMPOSE_ID`, `.treeinfo`, `releases.json`, Bodhi and `repomd.xml` into a media identity and a revision                         |
-| Freshness policy                     | `helpers/vmtest/freshness.py`                            | Decides `current`, `refresh`, `reinstall` or `unknown` for a base, failing closed per signal                                           |
-| Upstream probe                       | `helpers/vmtest/probe_upstream.py`                       | Reads the signals live and prints `VMTEST-FRESHNESS-*` marker lines                                                                    |
-| Manifest validator                   | `helpers/vmtest/validate_manifest.py`                    | Thin executor the playbook and the QA gate both call                                                                                   |
-| Lab playbook                         | `playbooks/imports/optional/common/play-vm-test-lab.yml` | Installs the rootless libvirt/QEMU stack, enables linger, creates the lab tree, renders the manifest and allowlist, deploys the bridge |
-| QA gate                              | `scripts/qa-vmtest-manifest.bash`                        | Rejects a malformed manifest on every `./scripts/qa-all.bash` run                                                                      |
-| Bridge spool I/O                     | `helpers/vmtest/spool.py`                                | Symlink-safe, read-once access to the shared spool; the request grammar and deny list                                                  |
-| Bridge watcher                       | `helpers/vmtest/bridge_watcher.py`                       | One activation: validates every pending request in order, answers each, dispatches accepted ones                                       |
-| Bridge run scope                     | `helpers/vmtest/bridge_run.py`                           | Runs the accepted verb, keeps the heartbeat fresh, archives the run, writes the signed finished response                               |
-| Response contract                    | `helpers/vmtest/verdict.py`                              | The response state machine, HMAC signing, the heartbeat document and its assessment                                                    |
-| Container-side requester             | `scripts/vmtest-request.bash`                            | Writes a request, waits, maps the answer to a distinct exit code; never claims to verify the signature                                 |
+| Piece                                | Where                                                    | Job                                                                                                                                             |
+| ------------------------------------ | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Scenario manifest                    | `vars/vm-test-scenarios.yml`                             | The bases, the scenarios, which base each scenario needs, guest sizing, freshness backstops                                                     |
+| Manifest parser and check accounting | `helpers/vmtest/scenarios.py`                            | Validates the manifest; derives the bridge allowlist and the disjoint host-only list; decides `pass`/`fail`/`error` from a run's check counters |
+| Upstream signal parsers              | `helpers/vmtest/upstream.py`                             | Parses `COMPOSE_ID`, `.treeinfo`, `releases.json`, Bodhi and `repomd.xml` into a media identity and a revision                                  |
+| Freshness policy                     | `helpers/vmtest/freshness.py`                            | Decides `current`, `refresh`, `reinstall` or `unknown` for a base, failing closed per signal                                                    |
+| Upstream probe                       | `helpers/vmtest/probe_upstream.py`                       | Reads the signals live and prints `VMTEST-FRESHNESS-*` marker lines                                                                             |
+| Manifest validator                   | `helpers/vmtest/validate_manifest.py`                    | Thin executor the playbook and the QA gate both call                                                                                            |
+| Lab playbook                         | `playbooks/imports/optional/common/play-vm-test-lab.yml` | Installs the rootless libvirt/QEMU stack, enables linger, creates the lab tree, renders the manifest and allowlist, deploys the bridge          |
+| QA gate                              | `scripts/qa-vmtest-manifest.bash`                        | Rejects a malformed manifest on every `./scripts/qa-all.bash` run                                                                               |
+| Bridge spool I/O                     | `helpers/vmtest/spool.py`                                | Symlink-safe, read-once access to the shared spool; the request grammar and deny list                                                           |
+| Bridge watcher                       | `helpers/vmtest/bridge_watcher.py`                       | One activation: validates every pending request in order, answers each, dispatches accepted ones                                                |
+| Bridge run scope                     | `helpers/vmtest/bridge_run.py`                           | Runs the accepted verb, keeps the heartbeat fresh, archives the run, writes the signed finished response                                        |
+| Response contract                    | `helpers/vmtest/verdict.py`                              | The response state machine, HMAC signing, the heartbeat document and its assessment                                                             |
+| Container-side requester             | `scripts/vmtest-request.bash`                            | Writes a request, waits, maps the answer to a distinct exit code; never claims to verify the signature                                          |
 
 The play deploys everything the lab runs from: the CLI, the guest scripts, the
 two VM kickstarts, the manifest and the bridge. The three bases (`server-fast`,
@@ -56,10 +56,15 @@ What lands:
   a logout;
 - `~/.local/share/vmtest/{images,bases,runs}`;
 - `~/.local/share/vmtest/scenarios.json`, the manifest as the helpers read it;
-- `~/.local/share/vmtest/scenarios.allowlist`, one runnable scenario id per
-  line. A scenario is runnable only once its guest script has declared a
+- `~/.local/share/vmtest/scenarios.allowlist`, one bridge-reachable scenario id
+  per line. A scenario is runnable only once its guest script has declared a
   `planned` check count in the manifest; until then the file is absent rather
   than empty;
+- `~/.local/share/vmtest/scenarios.host-only`, the disjoint list of scenarios a
+  human runs at the host CLI and the bridge is never offered — those that handle
+  a real credential. Absent rather than empty when there are none. The bridge
+  does not read this file: it refuses a `host_only` scenario from the manifest
+  itself, so the refusal does not depend on a generated list being correct;
 - the bridge: the spool under `untracked/vmtest-bridge/` in the checkout, the
   per-checkout policy and signing key under `~/.config/vmtest-bridge/<slug>/`,
   the audit log and lock under `~/.local/state/vmtest-bridge/<slug>/`, and the
@@ -106,7 +111,9 @@ recomputed from its own fields, so a copied or edited record is refused.
 
 `run` is fail-closed at every step:
 
-1. the scenario must be runnable and on the **deployed** allowlist;
+1. the scenario must be runnable and on a **deployed** enumeration — the
+   allowlist for an ordinary scenario, the host-only list for one that handles a
+   real credential;
 2. the base it names must exist, and its disk's size and mtime must match the
    record;
 3. the commit to provision is the branch tip **on the remote** (`git ls-remote`), never the checkout, unless `--commit` names a pushed one;

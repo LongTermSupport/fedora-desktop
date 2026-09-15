@@ -16,7 +16,11 @@ Three properties the data carries so prose does not have to:
   exec-shaped (§6.2);
 - a scenario with no declared `planned` check count is not runnable. The
   response contract's planned-vs-total rule cannot catch a harness that died
-  early if `planned` was a guess (§6.6 rule 02).
+  early if `planned` was a guess (§6.6 rule 02);
+- a `host_only` scenario is runnable from the host CLI and absent from the
+  bridge's enumeration (§10, Plan 00121). "The host may run it" and "the
+  sandbox may ask for it" are two properties, and a scenario that handles a
+  real credential has the first without the second.
 """
 
 from __future__ import annotations
@@ -62,7 +66,7 @@ _ARTEFACT_KEYS = frozenset({"variant", "subvariant", "prefix", "suffix"})
 # `Everything` — and nothing that could walk elsewhere.
 _TREE_RE = re.compile(r"^[A-Z][A-Za-z]+$")
 _SCENARIO_KEYS = frozenset({"base", "description", "planned", "max_skipped"})
-_SCENARIO_OPTIONAL_KEYS = frozenset({"run_env"})
+_SCENARIO_OPTIONAL_KEYS = frozenset({"run_env", "host_only"})
 
 # The RUN_BASH_* knobs a scenario may set. A closed list: the negative
 # scenarios steer the profile and the optional-play list, and nothing that
@@ -104,6 +108,7 @@ class Scenario:
     planned: int | None
     max_skipped: int
     run_env: Mapping[str, str]
+    host_only: bool = False
 
     @property
     def profile(self) -> str:
@@ -112,6 +117,17 @@ class Scenario:
     @property
     def runnable(self) -> bool:
         return self.planned is not None
+
+    @property
+    def bridge_reachable(self) -> bool:
+        """Whether the sandbox may name this scenario at all.
+
+        Not the same question as `runnable`. A scenario that handles a real
+        credential has to declare a check count — otherwise the run where a
+        secret was in play is the one run whose evidence cannot be judged — but
+        it must never appear in the enumeration the bridge offers the sandbox.
+        """
+        return self.runnable and not self.host_only
 
 
 @dataclass(frozen=True)
@@ -268,6 +284,17 @@ def _parse_scenario(scenario_id: str, raw: object, bases: Mapping[str, Base]) ->
             "at least one check has to pass"
         )
 
+    # Strictly a bool. A truthy string would read as "yes" here and as an error
+    # nowhere, so `host_only: "false"` would quietly enumerate a credential-bearing
+    # scenario to the sandbox — the one mistake this flag exists to prevent.
+    host_only = raw.get("host_only", False)
+    if not isinstance(host_only, bool):
+        raise ManifestError(
+            f"{where}: host_only must be true or false, got {host_only!r}; anything else "
+            "would decide whether a credential-bearing scenario is offered to the sandbox "
+            "by accident"
+        )
+
     return Scenario(
         id=scenario_id,
         base=base,
@@ -275,6 +302,7 @@ def _parse_scenario(scenario_id: str, raw: object, bases: Mapping[str, Base]) ->
         planned=planned,
         max_skipped=max_skipped,
         run_env=_parse_run_env(raw.get("run_env"), where),
+        host_only=host_only,
     )
 
 
@@ -335,8 +363,8 @@ def load_manifest(text: str, fedora_version: int) -> Manifest:
 
 
 def allowlist(manifest: Manifest) -> tuple[str, ...]:
-    """The scenario ids `run-scenario` may name: runnable ones only, sorted."""
-    return tuple(sorted(s.id for s in manifest.scenarios.values() if s.runnable))
+    """The scenario ids the BRIDGE may name: runnable and not host-only, sorted."""
+    return tuple(sorted(s.id for s in manifest.scenarios.values() if s.bridge_reachable))
 
 
 def allowlist_text(manifest: Manifest) -> str:
@@ -344,10 +372,31 @@ def allowlist_text(manifest: Manifest) -> str:
     ids = allowlist(manifest)
     if not ids:
         raise ManifestError(
-            "no scenario is runnable (none has a planned check count); refusing to "
-            "produce an empty allowlist that would look like a lab with no scenarios"
+            "no scenario is reachable from the bridge (none has a planned check count, or "
+            "every one is host_only); refusing to produce an empty allowlist that would "
+            "look like a lab with no scenarios"
         )
     return "".join(f"{scenario_id}\n" for scenario_id in ids)
+
+
+def host_only_list(manifest: Manifest) -> tuple[str, ...]:
+    """The scenario ids only the HOST CLI may name: runnable and host-only, sorted.
+
+    Derived from the same flag as `allowlist`, so the two are disjoint by
+    construction. Two hand-maintained lists would agree until the day one of
+    them was edited, and the day that mattered would be the one where a
+    credential-bearing scenario appeared on both.
+    """
+    return tuple(sorted(s.id for s in manifest.scenarios.values() if s.runnable and s.host_only))
+
+
+def host_only_text(manifest: Manifest) -> str:
+    """The deployed `scenarios.host-only`: one id per line, possibly empty.
+
+    Empty is NOT an error here, unlike the bridge allowlist: a lab with no
+    credential-bearing scenario is the ordinary case and the safer one.
+    """
+    return "".join(f"{scenario_id}\n" for scenario_id in host_only_list(manifest))
 
 
 def judge_checks(

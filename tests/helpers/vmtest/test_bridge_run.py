@@ -246,6 +246,93 @@ class TestRunScenario(BridgeRunCase):
         self.assertEqual(self.response()["state"], "accepted")
 
 
+class TestHostOnlyScenarioIsRefused(BridgeRunCase):
+    """A credential-bearing scenario is refused HERE, not only by the allowlist (Plan 00121).
+
+    `run_scenario` archives transcript.log and console.log into
+    `untracked/vmtest-bridge/archive/<run_id>/` — the shared mount. Before this
+    check, the one thing standing between a real PAT and that path was the
+    deployed allowlist file being correct: a single gate, in a generated
+    artefact, that only ever permits. So these tests deliberately plant an
+    allowlist that PERMITS the scenario. If the refusal depended on it, every
+    one of them would pass while proving nothing.
+    """
+
+    def make_host_only(self, *, allowlist_permits=True):
+        (self.vmtest_home / "scenarios.json").write_text(
+            json.dumps(
+                {
+                    "vm_test_scenarios": {
+                        SCENARIO: {"description": "d", "planned": 13, "base": "server-fast", "host_only": True}
+                    }
+                }
+            )
+        )
+        (self.vmtest_home / "scenarios.allowlist").write_text(f"{SCENARIO}\n" if allowlist_permits else "")
+
+    def test_refused_even_though_the_allowlist_permits_it(self):
+        self.make_host_only()
+        self.plant_accepted()
+        result = self.run_scope()
+        self.assertNotEqual(result.returncode, 0)
+        response = self.response()
+        self.assertEqual(response["state"], "finished")
+        self.assertEqual(response["verdict"], "error")
+        self.assertEqual(response["failure"]["stage"], "allowlist")
+        self.assertIn("host_only", response["failure"]["reason"])
+
+    def test_the_vm_never_boots(self):
+        # The refusal has to come BEFORE the CLI is launched. Refusing after the
+        # run would leave a real credential in a guest and a transcript on disk.
+        self.make_host_only()
+        self.plant_accepted()
+        self.run_scope()
+        self.assertFalse((self.vmtest_home / "runs" / RUN_ID).exists())
+
+    def test_nothing_is_written_to_the_shared_archive(self):
+        self.make_host_only()
+        self.plant_accepted()
+        self.run_scope()
+        self.assertEqual(sorted(p.name for p in (self.bridge / "archive").iterdir()), [])
+
+    def test_the_in_flight_lock_is_still_cleared(self):
+        # A refusal must not wedge the bridge: the next request has to be able
+        # to run, or one host-only request would take the lab down until a human
+        # noticed.
+        self.make_host_only()
+        self.plant_accepted()
+        self.run_scope()
+        self.assertFalse((self.state / "in-flight").exists())
+
+    def test_an_unreadable_manifest_refuses_rather_than_running(self):
+        # Fail closed. If the manifest cannot be read, whether this scenario is
+        # host-only is UNKNOWN — and treating unknown as "ordinary" would put the
+        # decision in the hands of whatever deleted the file.
+        (self.vmtest_home / "scenarios.json").unlink()
+        self.plant_accepted()
+        result = self.run_scope()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.response()["verdict"], "error")
+        self.assertFalse((self.vmtest_home / "runs" / RUN_ID).exists())
+
+    def test_a_scenario_absent_from_the_manifest_refuses(self):
+        # Same reasoning: an argument the manifest does not describe cannot be
+        # shown to be safe, and the allowlist alone saying yes is not evidence.
+        (self.vmtest_home / "scenarios.json").write_text(json.dumps({"vm_test_scenarios": {}}))
+        self.plant_accepted()
+        result = self.run_scope()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.response()["verdict"], "error")
+        self.assertFalse((self.vmtest_home / "runs" / RUN_ID).exists())
+
+    def test_an_ordinary_scenario_still_runs(self):
+        # The counterpart that stops this being a gate which refuses everything.
+        self.plant_accepted()
+        result = self.run_scope()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.response()["verdict"], "pass")
+
+
 class TestOtherVerbs(BridgeRunCase):
     def test_list_scenarios_finishes_with_the_deployed_manifest_as_evidence(self):
         name = self.plant_accepted(verb="list-scenarios", argument=None, run_id=f"{STAMP}-list-scenarios", planned=None)
