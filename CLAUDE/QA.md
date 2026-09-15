@@ -16,8 +16,8 @@
 
 ## What qa-all.bash Runs
 
-`qa-all.bash` runs **thirty-three** gates. Seven merge their JSON into
-`/tmp/qa-results.json`; the other twenty-six run separately (see below). A missing
+`qa-all.bash` runs **thirty-four** gates. Seven merge their JSON into
+`/tmp/qa-results.json`; the other twenty-seven run separately (see below). A missing
 **required** tool makes a stage (and the whole run) exit `2`; a real analyser crash (e.g.
 ruff/shellcheck exit ≥ 2) is a hard failure, never silently treated as "0 issues".
 
@@ -38,7 +38,7 @@ fresher hand-written list.
 | `qa-js.bash`             | `node --check` on repo JS + `eslint .` in `extensions/`                                                                                                                                                                                                                                                                                                                                                                                                                                 | Repo-owned `.js` (excludes vendor/node_modules) + `extensions/`                                                                                       |
 | `qa-docs.bash`           | Link targets exist; every `#anchor` matches a real heading; every play imported by `playbook-main.yml` is named in both `docs/playbooks.md` and `docs/architecture.md`; every `CLAUDE/*.md` has an index row (Plan 00070)                                                                                                                                                                                                                                                               | Core docs only — `docs/`, `CLAUDE/*.md`, `README.md`, `*/CLAUDE.md`, `.claude/rules/`. **Not** `CLAUDE/Plan/**`                                       |
 
-Twenty-six further gates run inside `qa-all.bash` as **hard, non-structural** checks —
+Twenty-seven further gates run inside `qa-all.bash` as **hard, non-structural** checks —
 they are deliberately not jq-merged stages, so they cannot disturb the positional
 `.[0]..[6]` JSON merge. Any one of them fails the whole run immediately:
 
@@ -64,6 +64,7 @@ they are deliberately not jq-merged stages, so they cannot disturb the positiona
 | `test-run-bash-ssh-agent-teardown.bash`     | `hl_ssh_agent_stop`, including an agent that SURVIVES the kill (Plan 00063 Task 3.4)                      |
 | `test-run-log-scrub.bash`                   | the run-log secret scrubber, driven by a deliberately incomplete redaction (Plan 00121)                   |
 | `test-lxcfreeze.bash`                       | `lxcfreeze`'s decisions — a state or a config it could not read must not resolve to a fact (Plan 00122)   |
+| `test-podfreeze.bash`                       | `podfreeze`'s decisions, pinned before Plan 00122 Task 4.2 extracts a library out of it                   |
 | `test-host-health-login-snippet.bash`       | the server login snippet's interactive guard — an unconditional print breaks `scp` (Plan 00109)           |
 | `test-qa-ansible-failfast.bash`             | the fail-fast directive regex in `qa-ansible.bash`, read from it rather than copied                       |
 | `helpers.gnome.check_extension_compat`      | every extension declares the GNOME Shell major this branch's Fedora ships                                 |

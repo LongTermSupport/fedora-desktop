@@ -156,10 +156,14 @@ where the UX lives. Extracting it makes the two behave identically as a conseque
 Extracting only the pure decisions would be tidier and would leave the UX exactly as
 divergent as it is now — which is the half that was actually complained about.
 
-- [ ] ⬜ **Task 4.1**: Pin `podfreeze`'s behaviour with a suite written against it **as it
+- [x] ✅ **Task 4.1**: Pin `podfreeze`'s behaviour with a suite written against it **as it
   is now**, before any extraction touches it. This is not optional and it is not
   ceremony: the tool is 1,261 lines, has no test anywhere in the repo, is used daily, and
-  a suite written after the move proves only that the refactor agrees with itself
+  a suite written after the move proves only that the refactor agrees with itself.
+  `scripts/test-podfreeze.bash`, 183 cases, wired into `qa-all.bash`. `podfreeze` itself is
+  unchanged: the suite sources only the definitions above the tool's argument loop, with
+  the boundary derived from the file's own content. 15 mutants were each killed by a named
+  case — see the journal
 - [ ] ⬜ **Task 4.2**: Extract the decisions **and** the menu layer into a library both
   tools source. Engine differences enter through named hooks — the inventory query, the
   act call, the availability guard, the two state words, the extra table columns — never

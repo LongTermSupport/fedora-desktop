@@ -423,6 +423,24 @@ lxcfreeze_summary=$(printf '%s' "$lxcfreeze_out" | grep -oE 'passed: [0-9]+') ||
     lxcfreeze_summary="passed"
 printf '✓ lxcfreeze: %s\n' "$lxcfreeze_summary"
 
+# podfreeze's decisions (Plan 00122 Task 4.1), pinned BEFORE the shared library is
+# extracted out of it — a suite written after that move would only prove the refactor
+# agrees with itself. The tool has no sourcing guard, so this sources the definitions above
+# its argument loop rather than the whole file, and the boundary is derived from the file's
+# own content. What it guards is the distinctions a refactor loses without a symptom: a CCY
+# session with no identity is not one that predates the labels, an identity label holding
+# the field separator is fatal rather than mis-grouped, and an unknown network RETURNS so
+# the menu can re-prompt instead of ending the session.
+podfreeze_out=""
+if ! podfreeze_out="$(bash "$SCRIPT_DIR/test-podfreeze.bash" 2>&1)"; then
+    echo "$podfreeze_out" >&2
+    echo "✗ QA FAILED: podfreeze decision unit tests" >&2
+    exit 1
+fi
+podfreeze_summary=$(printf '%s' "$podfreeze_out" | grep -oE 'passed: [0-9]+') ||
+    podfreeze_summary="passed"
+printf '✓ podfreeze: %s\n' "$podfreeze_summary"
+
 # The server login snippet (Plan 00109 Task 3.2). It is the first thing this repo puts in
 # ~/.bashrc-includes that PRINTS, and bash reads ~/.bashrc for a non-interactive shell too
 # when sshd started it — so a missing interactive guard breaks scp, sftp and rsync to the
