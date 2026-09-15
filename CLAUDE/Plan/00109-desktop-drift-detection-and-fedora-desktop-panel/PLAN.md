@@ -174,11 +174,11 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
       and removing software on purpose is drift until the pin says otherwise (§5.3)
     - [x] ✅ Each branch of the merged play removes the other's artefacts, so correcting
       a mis-set profile does not leave both deliveries installed (§7)
-    - [x] ✅ The VM lab runs this route end to end. `server-host-health-kernel-change`
-      in `vars/vm-test-scenarios.yml` provisions a server guest with the play, and its
-      fixture + checker make all fourteen claims below on a real boot (§8). A HOST run
-      cannot make the kernel one on demand — it has to wait for a kernel update to
-      arrive, where a guest can simply be given one
+    - [x] ✅ A scenario exists that **can** run this route end to end:
+      `server-host-health-kernel-change` in `vars/vm-test-scenarios.yml`, with a fixture
+      and a fifteen-check checker (§8). A HOST run cannot make the kernel claim on demand
+      — it waits for a kernel update to arrive, where a guest can be given one. **It has
+      never been executed**, and until it has, nothing below it is established
     - [x] ✅ `reboot_before_checks` is a scenario's answer, not a profile's; the CLI
       supplies only the mechanics of getting a guest back, and a profile it has no
       mechanics for is a refusal rather than a silent no-reboot (§8.1)
@@ -186,7 +186,8 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
       deployed allowlist and the two new guest scripts reach `~/.local/share/vmtest`.
       The bridge refuses an id that is only in the manifest — deliberately, and this is
       the only step an agent cannot do
-    - [ ] ⬜ **VM**: `./scripts/vmtest-request.bash run-scenario server-host-health-kernel-change` — the timer arms, a document appears, **a clean
+    - [ ] ⬜ **VM — nothing in this task is established until this passes**:
+      `./scripts/vmtest-request.bash run-scenario server-host-health-kernel-change`. The timer arms, a document appears, **a clean
       server login is silent**, a live fault is reported as a fault, the guest reboots
       into a different kernel, the report names the boot mismatch, the previous boot's
       fault is demoted rather than repeated as current, and an `scp` through the guest's

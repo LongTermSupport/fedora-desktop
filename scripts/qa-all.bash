@@ -320,6 +320,20 @@ reboot_dispatch_summary=$(printf '%s' "$reboot_dispatch_out" | grep -oE 'passed:
     reboot_dispatch_summary="passed"
 printf '✓ vmtest-reboot-dispatch: %s\n' "$reboot_dispatch_summary"
 
+# The fixture→checker record contract (Plan 00109). One scenario's fixture writes a file
+# the checker sources, and that seam is invisible to every other gate: a value carrying a
+# shell metacharacter aborts the source and unsets every key after it, while the file
+# still exists and the source still "happened".
+prepare_record_out=""
+if ! prepare_record_out="$(bash "$SCRIPT_DIR/test-vmtest-prepare-record.bash" 2>&1)"; then
+    echo "$prepare_record_out" >&2
+    echo "✗ QA FAILED: vmtest prepare-record contract tests" >&2
+    exit 1
+fi
+prepare_record_summary=$(printf '%s' "$prepare_record_out" | grep -oE 'passed: [0-9]+') ||
+    prepare_record_summary="passed"
+printf '✓ vmtest-prepare-record: %s\n' "$prepare_record_summary"
+
 # The panel's decisions (Plan 00109): the shipped statusDocument.js and sections/health.js
 # driven against boot-stale, malformed and state-disagreeing documents. The contract gate
 # beside this one proves the two languages share a vocabulary; it cannot tell a demoted

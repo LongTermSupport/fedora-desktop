@@ -19,12 +19,26 @@
 # `planned` in vars/vm-test-scenarios.yml. Every check runs even after a failure
 # — the transcript should show the whole picture, not the first crack.
 #
+# WHAT `max_skipped: 0` DOES NOT GUARD. It catches a check that SKIPS. It says nothing
+# about a check that runs, judges an empty population and passes — a green tick over
+# nothing. So every check here owes an answer to: what set does it filter, and can that
+# set be empty on a clean guest?
+#
+# Fourteen of the fifteen answer it by construction: each compares against a value the
+# record is asserted to carry, and an empty or absent value makes the comparison FAIL
+# rather than pass. Check 12 iterates a literal pair of unit names, and asserts that pair
+# is non-empty for the same reason. The exception is check 4 — "a clean login is silent" —
+# which passes on nothing BY DEFINITION, and is therefore not allowed to stand alone: the
+# fixture aborts outright if the snippet is missing, and check 5 requires a live fault to
+# be reported through that same login. One proves the machinery speaks, the other proves
+# it stays quiet.
+#
 # Inputs (environment, set by the host over SSH):
 #   VMTEST_COMMIT       the 40-hex commit the guest was told to provision from
 #   VMTEST_USER_EMAIL   the git identity run.bash was given
 set -uo pipefail
 
-PLANNED=14
+PLANNED=15
 readonly PLANNED
 REPO="${HOME}/Projects/fedora-desktop"
 STATE_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/fedora-desktop"
@@ -94,12 +108,18 @@ else:
 '
 }
 
-# a_login — what an interactive login shell prints, right now, on this boot.
+# a_login — what an interactive login shell prints, right now, on this boot. Streams kept
+# apart for the same reason the fixture keeps them apart: stdout carries the report, and
+# stderr carries the job-control noise any interactive shell without a controlling
+# terminal emits — which `ssh` without `-t` guarantees on every guest.
 a_login() {
-    local rc=0 output
-    output="$(bash -lic true </dev/null 2>&1)" || rc=$?
+    local rc=0 output errors_file
+    errors_file="$(mktemp)"
+    output="$(bash -lic true </dev/null 2>"${errors_file}")" || rc=$?
     LOGIN_RC="${rc}"
     LOGIN_OUTPUT="${output}"
+    LOGIN_STDERR="$(cat "${errors_file}")"
+    rm -f "${errors_file}"
 }
 
 # an_scp <destination> — a real transfer through this guest's own sshd, which is
@@ -120,19 +140,63 @@ an_scp() {
 
 printf 'VMTEST-CHECK-PLANNED %d\n' "${PLANNED}"
 
-# The prepare step's record. Without it there is nothing to compare this boot
-# against, so every check below would be judging one half of a two-boot claim.
-if [[ -r "${PREPARED}" ]]; then
-    # shellcheck source=/dev/null
-    source "${PREPARED}"
-else
+# The prepare step's record. Without it there is nothing to compare this boot against, so
+# every check below would be judging one half of a two-boot claim.
+#
+# THREE SEPARATE FAILURES, ALL FATAL HERE, none of them a check. Absent, unreadable as
+# shell, and readable but incomplete are distinct — and the third is the dangerous one: a
+# `source` that hits a syntax error part-way leaves the keys BEFORE it set and everything
+# after it unset, so the file exists, the source "happened", and half the record is gone.
+# Judged as a harness error (70) rather than as failed checks, because a checker that
+# turns a missing fixture into a page of red is pointing the reader at the wrong file.
+if [[ ! -r "${PREPARED}" ]]; then
     echo "ERROR: no prepare record at ${PREPARED}; the fixture did not run" >&2
+    exit 70
+fi
+# shellcheck source=/dev/null
+if ! source "${PREPARED}"; then
+    echo "ERROR: ${PREPARED} is not readable as shell; the record cannot be trusted" >&2
+    exit 70
+fi
+
+# Every key the checks below read. Listed and asserted, rather than each read carrying its
+# own `:-` default — because a default is an ANSWER, and for at least one check the
+# defaulted answer was the passing one. `clean-login-is-silent` read
+# `${CLEAN_LOGIN_B64:-}`, so a record that never arrived decoded to "" and the check
+# passed: it reported silence it had never observed.
+REQUIRED_KEYS=(
+    PREPARED_TIMER_ENABLED PREPARED_TIMER_NEXT_B64 PREPARED_RUNNING_KERNEL
+    PREPARED_FIXTURE_UNIT PREPARED_FIXTURE_FINDING
+    PREPARED_DOCUMENT_KERNEL PREPARED_DOCUMENT_B64
+    PREPARED_SCP_RC PREPARED_SCP_OUTPUT_B64 PREPARED_SCP_BYTES
+    PREPARED_TIMER_AFTER PREPARED_TIMER_AFTER_RC
+    PREPARED_WANTED_KERNEL PREPARED_TARGET_KERNEL PREPARED_DEFAULT_KERNEL
+    CLEAN_COLLECT_RC CLEAN_COLLECT_STATUS_B64 CLEAN_DOCUMENT_SHA
+    CLEAN_LOGIN_RC CLEAN_LOGIN_B64 CLEAN_LOGIN_STDERR_B64
+    FINDING_COLLECT_RC FINDING_COLLECT_STATUS_B64 FINDING_DOCUMENT_SHA
+    FINDING_LOGIN_RC FINDING_LOGIN_B64 FINDING_LOGIN_STDERR_B64
+)
+readonly REQUIRED_KEYS
+missing_keys=""
+for key in "${REQUIRED_KEYS[@]}"; do
+    if [[ -z "${!key+is_set}" ]]; then
+        missing_keys="${missing_keys} ${key}"
+    fi
+done
+if [[ -n "${missing_keys}" ]]; then
+    echo "ERROR: ${PREPARED} is missing:${missing_keys}" >&2
+    echo "       the fixture did not finish, or a value broke the record part-way through" >&2
     exit 70
 fi
 
 running_kernel="$(uname -r)"
-clean_login="$(unb64 "${CLEAN_LOGIN_B64:-}")"
-finding_login="$(unb64 "${FINDING_LOGIN_B64:-}")"
+# STDOUT only. The report travels on stdout and that is the stream an `scp` is corrupted
+# by; stderr carries `bash: no job control in this shell`, which every interactive shell
+# without a controlling terminal emits and `ssh` without `-t` guarantees. Judging the
+# combined stream would make "a clean login is silent" false on every guest, for a reason
+# that has nothing to do with this plan.
+clean_login="$(unb64 "${CLEAN_LOGIN_B64}")"
+finding_login="$(unb64 "${FINDING_LOGIN_B64}")"
 
 # ── 1. the play armed the collection timer ────────────────────────────────────────────
 if [[ "${PREPARED_TIMER_ENABLED:-}" == "enabled" ]]; then
@@ -141,11 +205,27 @@ else
     check fail collect-timer-was-armed "is-enabled said '${PREPARED_TIMER_ENABLED:-}', not 'enabled'"
 fi
 
-# ── 2. the collector ran to completion ────────────────────────────────────────────────
-if [[ "${CLEAN_COLLECT_RC:-1}" == "0" ]]; then
-    check pass collect-service-ran "$(unb64 "${CLEAN_COLLECT_STATUS_B64:-}")"
+# ── 2. the collector ran to completion, BOTH times ────────────────────────────────────
+# Both, because the second run is the one whose document survives into the next boot and
+# every claim after the reboot rests on it. Judging only the first left the run that
+# matters unexamined while the check's name said otherwise.
+if [[ "${CLEAN_COLLECT_RC}" == "0" && "${FINDING_COLLECT_RC}" == "0" ]]; then
+    check pass collect-service-ran "clean: $(unb64 "${CLEAN_COLLECT_STATUS_B64}"); with a fault: $(unb64 "${FINDING_COLLECT_STATUS_B64}")"
 else
-    check fail collect-service-ran "systemctl start exited ${CLEAN_COLLECT_RC:-} ($(unb64 "${CLEAN_COLLECT_STATUS_B64:-}"))"
+    check fail collect-service-ran \
+        "clean exited ${CLEAN_COLLECT_RC} ($(unb64 "${CLEAN_COLLECT_STATUS_B64}")); with a fault exited ${FINDING_COLLECT_RC} ($(unb64 "${FINDING_COLLECT_STATUS_B64}"))"
+fi
+
+# ── 2a. the second collection actually produced a new document ────────────────────────
+# `[[ -r ]]` on the document is satisfied by the one the FIRST collection left behind, so
+# on its own it cannot tell "collected again" from "did not run, and the old file is still
+# there". Without this, every post-reboot claim could be resting on the clean document.
+if [[ "${CLEAN_DOCUMENT_SHA}" != "${FINDING_DOCUMENT_SHA}" ]]; then
+    check pass the-second-collection-rewrote-the-document \
+        "${CLEAN_DOCUMENT_SHA:0:12} -> ${FINDING_DOCUMENT_SHA:0:12}"
+else
+    check fail the-second-collection-rewrote-the-document \
+        "both collections left ${CLEAN_DOCUMENT_SHA:0:12}; the failed unit never reached the document"
 fi
 
 # ── 3. the document names the kernel it was collected under ───────────────────────────
@@ -158,14 +238,20 @@ else
         "document says '${PREPARED_DOCUMENT_KERNEL:-}', the collecting boot was '${PREPARED_RUNNING_KERNEL:-}'"
 fi
 
-# ── 4. a clean server login says NOTHING ──────────────────────────────────────────────
-# The claim that decides whether this surface survives contact with a user. A
-# report that speaks on every login is one that gets muted, and a muted report
-# is this plan's incident with extra steps.
+# ── 4. a clean server login says NOTHING on stdout ────────────────────────────────────
+# The claim that decides whether this surface survives contact with a user. A report that
+# speaks on every login is one that gets muted, and a muted report is this plan's incident
+# with extra steps.
+#
+# Silence alone is a weak claim — a login prints nothing when the snippet does nothing
+# either, and an unread include, a broken interpreter or an unresolvable PYTHONPATH all
+# satisfy it. Check 5 is what makes this one mean something: it requires a live fault to
+# be reported THROUGH THE SAME LOGIN. One proves the machinery speaks, this proves it
+# stays quiet, and neither alone is worth having.
 if [[ -z "${clean_login}" ]]; then
-    check pass clean-login-is-silent
+    check pass clean-login-is-silent "stderr carried $(unb64 "${CLEAN_LOGIN_STDERR_B64}" | wc -c) bytes of job-control noise, which is not the report"
 else
-    check fail clean-login-is-silent "a clean host printed: ${clean_login}"
+    check fail clean-login-is-silent "a clean host printed on stdout: ${clean_login}"
 fi
 
 # ── 5. a fault present at collection is reported AS a fault ───────────────────────────
@@ -206,11 +292,11 @@ document_sha=""
 if [[ -r "${DOCUMENT}" ]]; then
     document_sha="$(sha256sum "${DOCUMENT}" | cut -d' ' -f1)"
 fi
-if [[ -n "${document_sha}" && "${document_sha}" == "${PREPARED_DOCUMENT_SHA:-}" ]]; then
+if [[ -n "${document_sha}" && "${document_sha}" == "${FINDING_DOCUMENT_SHA}" ]]; then
     check pass document-was-not-recollected "${document_sha:0:12}"
 else
     check fail document-was-not-recollected \
-        "document is ${document_sha:0:12}, the prepared one was ${PREPARED_DOCUMENT_SHA:0:12}"
+        "document is ${document_sha:0:12}, the second collection left ${FINDING_DOCUMENT_SHA:0:12}"
 fi
 
 # ── 9. the login names the boot mismatch ──────────────────────────────────────────────
@@ -251,28 +337,44 @@ fi
 # The fixture disables the timer, and disabling must leave the units in place: a
 # host missing them is not the host the play describes, and the checks above would
 # be judging something else.
+# The one check here whose population is a list rather than a comparison, so it is the one
+# that could pass by iterating nothing. Named and counted rather than inlined into the
+# loop, so an empty set fails instead of reading as "all present".
+EXPECTED_UNITS=(host-health-collect.service host-health-collect.timer)
 missing=""
-for unit in host-health-collect.service host-health-collect.timer; do
+for unit in "${EXPECTED_UNITS[@]}"; do
     if [[ ! -r "${UNITS_DIR}/${unit}" ]]; then
         missing="${missing} ${unit}"
     fi
 done
-if [[ -z "${missing}" ]]; then
-    check pass collect-units-are-installed "${UNITS_DIR}"
+if [[ "${#EXPECTED_UNITS[@]}" -eq 0 ]]; then
+    check fail collect-units-are-installed "this check names no units, so it proves nothing"
+elif [[ -z "${missing}" ]]; then
+    check pass collect-units-are-installed "${#EXPECTED_UNITS[@]} unit(s) under ${UNITS_DIR}"
 else
     check fail collect-units-are-installed "absent from ${UNITS_DIR}:${missing}"
 fi
 
-# ── 13. the remote fetches with no agent in the environment ───────────────────────────
-# What the collection timer has: a systemd --user unit with no ssh-agent. A remote
-# only reachable through an agent would leave the freshness axis reporting "never
-# reached the remote" for ever (§6).
+# ── 13. THIS GUEST's remote fetches with no agent in the environment ──────────────────
+# What the collection timer has: a systemd --user unit with no ssh-agent.
+#
+# NAMED FOR WHAT IT PROVES, WHICH IS LESS THAN IT LOOKS. The lab requires an https
+# `VMTEST_REPO_URL`, so a guest provisioned by it always has an anonymously fetchable
+# origin and this cannot fail for the reason §6 cares about. It still catches a fetch that
+# breaks with no agent present for some other reason, so it is worth running — but §6's
+# question is about a PARTICULAR machine's checkout, and the plan carries that as a host
+# fact rather than letting this imply coverage. The remote is printed so a reader can see
+# which one was exercised instead of assuming it was theirs.
+remote_url="unknown"
+if url="$(git -C "${REPO}" remote get-url origin 2>&1)"; then
+    remote_url="${url}"
+fi
 fetch_rc=0
 fetch_output="$(env -u SSH_AUTH_SOCK -u SSH_AGENT_PID git -C "${REPO}" fetch --dry-run origin 2>&1)" || fetch_rc=$?
 if [[ "${fetch_rc}" == "0" ]]; then
-    check pass remote-fetches-without-an-agent "${fetch_output:-no new refs}"
+    check pass this-guests-remote-fetches-without-an-agent "${remote_url} — ${fetch_output:-no new refs}"
 else
-    check fail remote-fetches-without-an-agent "git fetch exited ${fetch_rc}: ${fetch_output}"
+    check fail this-guests-remote-fetches-without-an-agent "${remote_url} — git fetch exited ${fetch_rc}: ${fetch_output}"
 fi
 
 # ── 14. reporting never costs the user their login ────────────────────────────────────
@@ -297,6 +399,11 @@ evidence default_kernel "${PREPARED_DEFAULT_KERNEL:-}"
 evidence timer_after_fixture "${PREPARED_TIMER_AFTER:-}"
 evidence report_after_reboot "${after_login}"
 evidence report_before_reboot "${finding_login}"
+# The stream that is NOT the report, kept where a reader can see it. Without this, the
+# job-control noise every pty-less interactive shell emits looks like something the
+# snippet did.
+evidence login_stderr_clean "$(unb64 "${CLEAN_LOGIN_STDERR_B64}")"
+evidence login_stderr_after_reboot "${LOGIN_STDERR}"
 evidence repo_commit "${VMTEST_COMMIT:-}"
 
 printf 'VMTEST-CHECKS-DONE total=%d passed=%d failed=%d skipped=%d\n' "${total}" "${passed}" "${failed}" "${skipped}"

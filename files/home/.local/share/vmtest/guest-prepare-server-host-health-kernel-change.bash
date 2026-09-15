@@ -28,7 +28,10 @@
 # selecting it, and breaking a unit on purpose are the fixture — not host
 # administration. Nothing here runs on, or is deployed to, a real machine.
 #
-# Writes: ~/.vmtest/host-health-prepared.env (KEY=value; free-form values base64).
+# Writes: ~/.vmtest/host-health-prepared.env — `KEY=<shell-quoted value>`, one per line,
+# which the checker sources. Multi-line captures are base64'd on top of that so the file
+# stays readable in a transcript; the quoting is what makes it PARSEABLE, and it is applied
+# in `record` so no future value can opt out of it.
 set -euo pipefail
 
 REPO="${HOME}/Projects/fedora-desktop"
@@ -56,7 +59,13 @@ b64() { printf '%s' "${1-}" | base64 -w0; }
 mkdir -p "${EVIDENCE_DIR}"
 chmod 0700 "${EVIDENCE_DIR}"
 : >"${EVIDENCE}"
-record() { printf '%s=%s\n' "${1:?}" "${2-}" >>"${EVIDENCE}"; }
+# SHELL-QUOTED, always. The checker `source`s this file, so a value carrying a shell
+# metacharacter is not a mangled string — it is a syntax error that aborts the source and
+# leaves EVERY key after it unset. One of the values recorded here is the text
+# `probe_results` produces for a failed unit, which ends in `(system scope)`, and `(`
+# alone was enough: `source` exited 2 and the checker then judged a record that was not
+# there. `%q` costs nothing and makes that class of value impossible to write.
+record() { printf '%s=%q\n' "${1:?}" "${2-}" >>"${EVIDENCE}"; }
 
 # collect_once <prefix> — run the collector synchronously and record how it went.
 # SuccessExitStatus=3 in the unit: the collector exits 3 when it has findings,
@@ -68,17 +77,35 @@ collect_once() {
     record "${prefix}_COLLECT_RC" "${rc}"
     record "${prefix}_COLLECT_STATUS_B64" "$(b64 "${status}")"
     [[ -r "${DOCUMENT}" ]] || die "no status document at ${DOCUMENT} after starting ${COLLECT_SERVICE} (${status})"
+    # The document's identity after THIS collection. The readability guard above is
+    # satisfied by the document the previous collection left behind, so on its own it
+    # cannot tell "collected again" from "did not run and the old file is still there".
+    # The checker compares the two and requires them to differ.
+    record "${prefix}_DOCUMENT_SHA" "$(sha256sum "${DOCUMENT}" | cut -d' ' -f1)"
 }
 
 # login_once <prefix> — what an interactive login shell prints, captured and never
 # judged here. A login shell rather than `bash -i`: it is the whole chain a user
 # meets, from ~/.bash_profile through ~/.bashrc to the include the play deployed.
+#
+# THE TWO STREAMS ARE KEPT APART, and only stdout carries the report.
+# `scripts/test-host-health-login-snippet.bash` settled this: stdout is the stream a
+# report travels on and the only one an `scp` is corrupted by. Combining them here would
+# fold in `bash: cannot set terminal process group / no job control in this shell` — the
+# 116 bytes an interactive shell with no controlling terminal always emits, and `ssh`
+# without `-t` never gives it one. "A clean login is silent" would then be false on every
+# guest for a reason that has nothing to do with this plan. stderr is recorded beside it,
+# so a reader sees that noise rather than wondering where it went.
 login_once() {
-    local prefix="${1:?}" rc=0 output
-    output="$(bash -lic true </dev/null 2>&1)" || rc=$?
+    local prefix="${1:?}" rc=0 output errors errors_file
+    errors_file="$(mktemp)"
+    output="$(bash -lic true </dev/null 2>"${errors_file}")" || rc=$?
+    errors="$(cat "${errors_file}")"
+    rm -f "${errors_file}"
     record "${prefix}_LOGIN_RC" "${rc}"
     record "${prefix}_LOGIN_B64" "$(b64 "${output}")"
-    log "${prefix}: a login shell printed ${#output} bytes"
+    record "${prefix}_LOGIN_STDERR_B64" "$(b64 "${errors}")"
+    log "${prefix}: a login shell printed ${#output} bytes on stdout, ${#errors} on stderr"
 }
 
 # ── 1. the play's artefacts, or there is no scenario to prepare ───────────────────────
@@ -141,8 +168,10 @@ login_once FINDING
 
 document_kernel="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("kernel",""))' "${DOCUMENT}")"
 record PREPARED_DOCUMENT_KERNEL "${document_kernel}"
-record PREPARED_DOCUMENT_SHA "$(sha256sum "${DOCUMENT}" | cut -d' ' -f1)"
 record PREPARED_DOCUMENT_B64 "$(base64 -w0 <"${DOCUMENT}")"
+# The document that must survive the reboot is the SECOND collection's, and
+# `FINDING_DOCUMENT_SHA` already names it. Not copied to a second key: two names for one
+# fact is how a consumer ends up comparing against whichever of them last got updated.
 log "document names kernel ${document_kernel}"
 
 # ── 5. a real scp through this host's own sshd ────────────────────────────────────────

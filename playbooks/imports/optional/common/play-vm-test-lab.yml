@@ -164,19 +164,40 @@
         mode: "0755"
 
     # Derived from the directory, not listed. `vmtest` resolves a scenario's checker and
-    # its fixture BY NAME — guest-acceptance-<id>.bash, guest-prepare-<id>.bash — so a
-    # new scenario's script is needed by the lab the moment it is written, and a list
-    # here is one more place to forget it. qa-deployed-drift.bash already treats this
-    # whole directory as the deployment set, so the two agree by construction.
+    # its fixture BY NAME — guest-acceptance-<id>.bash, guest-prepare-<id>.bash — so a new
+    # scenario's scripts are needed by the lab the moment they are written, and a list
+    # here is one more place to forget them.
+    #
+    # The `lookup` + `loop` idiom of the helpers above, NOT `with_fileglob`: that skips
+    # silently on an empty match, so a glob that stopped matching would deploy nothing and
+    # report a green play. Nothing else catches it either — qa-deployed-drift.bash globs
+    # this directory with `*` and only compares files whose deployed copy already exists,
+    # counting the rest as "not deployed" and passing. So the emptiness is asserted here.
+    - name: Find the in-guest scripts to deploy
+      ansible.builtin.set_fact:
+        vm_test_guest_scripts: >-
+          {{ lookup('ansible.builtin.fileglob',
+                    root_dir ~ '/files/home/.local/share/vmtest/*.bash', wantlist=true)
+             | map('basename') | sort }}
+
+    - name: Assert the in-guest scripts were found
+      ansible.builtin.assert:
+        that:
+          - vm_test_guest_scripts | length > 0
+        fail_msg: >-
+          No *.bash found under {{ root_dir }}/files/home/.local/share/vmtest, so the lab
+          would be deployed with no guest checker at all. `vmtest run` would then fail per
+          scenario with "no checker for <id>", pointing at the scenario rather than at
+          this play.
+
     - name: Deploy the in-guest scripts
       ansible.builtin.copy:
-        src: "{{ item }}"
-        dest: "{{ vm_test_lab_dir }}/{{ item | basename }}"
+        src: "{{ root_dir }}/files/home/.local/share/vmtest/{{ item }}"
+        dest: "{{ vm_test_lab_dir }}/{{ item }}"
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0755"
-      with_fileglob:
-        - "{{ root_dir }}/files/home/.local/share/vmtest/*.bash"
+      loop: "{{ vm_test_guest_scripts }}"
 
     # The run-log scrubber, for the host-only scenario's artefacts. Two files, and the
     # RELATIVE layout between them matters: run-log-scrub.bash sources the commit gate's

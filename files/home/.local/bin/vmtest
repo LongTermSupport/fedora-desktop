@@ -969,14 +969,32 @@ desktop_reboot_into_session() {
     sleep 15
 }
 
-# server_reboot <transcript> — the same trip through a reboot for a guest with no
-# session to come back to and no LUKS prompt to answer: reboot, wait for SSH.
+# server_reboot <transcript> — the same trip through a reboot for a guest with no session
+# to come back to and no LUKS prompt to answer: reboot, wait for SSH.
+#
+# The boot id is read before and after and REQUIRED to change. Waiting for SSH proves only
+# that SSH answers, which it also does when the reboot never happened — the request was
+# swallowed, the guest came back before the wait started, or `sleep 10` was not long enough
+# for it to go down. Every check after this one assumes a new boot, and a checker run on
+# the same boot fails in ways that read as defects in the code under test.
 server_reboot() {
-    local transcript="${1:?}"
+    local transcript="${1:?}" before after waited=0
+    before="$(guest_ssh cat /proc/sys/kernel/random/boot_id)"
     printf '# harness: rebooting the guest; the checks judge the boot AFTER this one\n' | tee -a "${transcript}" >&2
     guest_ssh sudo systemd-run --quiet --on-active=2 systemctl reboot
     sleep 10
     wait_for_ssh
+    # SSH can answer from the OLD boot if the guest was slow to go down, so the identity is
+    # polled rather than read once.
+    while true; do
+        after="$(guest_ssh cat /proc/sys/kernel/random/boot_id)"
+        [[ "${after}" == "${before}" ]] || break
+        sleep 5
+        waited=$((waited + 5))
+        [[ "${waited}" -lt 180 ]] ||
+            die "the guest still reports boot id ${before} 180s after the reboot request; it never rebooted (stage: boot)"
+    done
+    printf '# harness: boot id %s -> %s\n' "${before}" "${after}" | tee -a "${transcript}" >&2
 }
 
 # reboot_guest <base-dir> <transcript> — bring the guest through a reboot and back, by
@@ -1012,6 +1030,12 @@ guest_prepare() {
     local scenario_id="${1:?}" commit="${2:?}" transcript="${3:?}" script rc=0
     script="${VMTEST_HOME}/guest-prepare-${scenario_id}.bash"
     if [[ ! -r "${script}" ]]; then
+        # SAID OUT LOUD. Most scenarios have no fixture and that is not an error — but a
+        # fixture the lab failed to deploy looks identical from here, and silence would
+        # leave a reader of the transcript unable to tell "nothing to set up" from
+        # "the set-up never arrived".
+        printf '# harness: no guest-prepare-%s.bash under %s; this scenario prepares nothing\n' \
+            "${scenario_id}" "${VMTEST_HOME}" | tee -a "${transcript}" >&2
         return 0
     fi
     printf '# harness: running the %s fixture in the guest, before the reboot\n' "${scenario_id}" | tee -a "${transcript}" >&2
