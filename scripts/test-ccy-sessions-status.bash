@@ -12,7 +12,9 @@
 # violations got in.
 #
 # So the states are driven here against the REAL file: the installation states through a stub
-# `systemctl`/`loginctl`, and the registry contents through the real library.
+# `systemctl`/`loginctl`, the registry contents through the real library, and the reboot audit
+# through a stub `tmux` that can report sessions, report none, or fail — the last being the case
+# that must not read as "nothing is running", since an operator would reboot on it.
 #
 # `set -e` is deliberately NOT used: every case must run so the summary reports the full
 # picture, and each result is checked explicitly.
@@ -77,8 +79,24 @@ if [ -f "$WORK/linger-rc" ]; then rc=\$(cat "$WORK/linger-rc"); else rc=0; fi
 if [ -f "$WORK/linger-out" ]; then cat "$WORK/linger-out"; fi
 exit "\$rc"
 STUB
-# tmux is only reached by the reboot audit; absent output means "no server yet".
-printf '#!/bin/sh\nexit 0\n' >"$STUB_BIN/tmux"
+# tmux is reached by the reboot audit. It answers from files this test writes, so the audit can
+# actually be driven: with no sessions, with sessions whose projects are ready, with a project
+# that has no daemon CLI, and with a listing that FAILS. A stub that always exited 0 left every
+# reboot case running the zero-session path, so the audit's table, its refusal and its
+# listing-failure branch were untested while the suite's own header claimed otherwise.
+cat >"$STUB_BIN/tmux" <<STUB
+#!/bin/sh
+if [ -f "$WORK/tmux-rc" ]; then rc=\$(cat "$WORK/tmux-rc"); else rc=0; fi
+if [ "\$rc" -ne 0 ]; then
+    # Deliberately NOT "no server running": ccy_tmux_list treats that phrase as the benign
+    # first-run state and returns success with no sessions, which is correct. This stands for a
+    # REAL failure — the case that must not be reported as an idle machine.
+    echo "error connecting to the ccy socket (Permission denied)" >&2
+    exit "\$rc"
+fi
+if [ -f "$WORK/tmux-sessions" ]; then cat "$WORK/tmux-sessions"; fi
+exit 0
+STUB
 chmod +x "$STUB_BIN/systemctl" "$STUB_BIN/loginctl" "$STUB_BIN/tmux"
 
 STATE="$WORK/state"
@@ -123,6 +141,21 @@ reset_all() {
     mkdir -p "$SESSIONS"
     rm -f "$UNIT_DIR/ccy-sessions-restore.service"
     set_systemd enabled 0 yes 0
+    : >"$WORK/tmux-sessions"
+    printf '0' >"$WORK/tmux-rc"
+}
+
+# tmux_session <name> <dir> — one line in the format ccy_tmux_list parses.
+tmux_session() { printf '%s 0 %s\n' "$1" "$2" >>"$WORK/tmux-sessions"; }
+
+# A project directory with, or without, a hooks-daemon CLI — which is what the audit reports on.
+make_project() {
+    mkdir -p "$1"
+    if [ "${2:-with-cli}" = "with-cli" ]; then
+        mkdir -p "$1/bin"
+        printf '#!/bin/sh\nexit 0\n' >"$1/bin/hooks-daemon"
+        chmod +x "$1/bin/hooks-daemon"
+    fi
 }
 
 install_unit() { printf '[Unit]\n' >"$UNIT_DIR/ccy-sessions-restore.service"; }
@@ -178,7 +211,11 @@ check "an unanswerable linger probe reports enabled-linger-unknown" "yes" \
 reset_all
 install_unit
 run_sessions restore-status
-check "enabled and lingering reports enabled" "yes" "$(said 'Session restore on this machine: enabled')"
+# The whole LINE, not a substring: `enabled` is a prefix of `enabled-no-linger` and
+# `enabled-linger-unknown`, so a substring match here would have passed for two states that mean
+# the opposite of this one.
+check "enabled and lingering reports exactly 'enabled'" "yes" \
+    "$(printf '%s' "$OUT" | grep -qx 'Session restore on this machine: enabled' && echo yes || echo no)"
 
 # ── the registry axis, reported INDEPENDENTLY of the state above ─────────────────────
 #
@@ -206,10 +243,23 @@ check "an empty registry reports zero, not silence" "yes" "$(said 'Recorded sess
 reset_all
 install_unit
 write_record ccy-gamma /projects/gamma
+# The evidence directories must EXIST, or `list_with_reasons` short-circuits on "absent
+# directory, nothing to report" and never reaches the read that this case breaks — so the half
+# of the fix that covers those three sections would be asserted by nobody, inside the suite that
+# exists because reading was not enough.
+mkdir -p "$STATE/ccy/restore/attempted" "$STATE/ccy/restore/retired" "$STATE/ccy/restore/malformed"
 RUN_TMPDIR="$WORK/no-such-tmpdir"
 run_sessions restore-status
 RUN_TMPDIR=""
 check "an unreadable registry does not report a count of 0" "no" "$(said 'Recorded sessions: 0')"
+# Four sections: the live registry plus attempted/, retired/ and malformed/. Every one of them
+# has to say so — the bug this replaced aborted the report at the first, so the other three
+# vanished exactly when an operator most needed them.
+check "every section reports that it could not be read" "4" \
+    "$(printf '%s' "$OUT" | grep -c 'COULD NOT BE READ — see the error above')"
+# And the report closes by saying it is incomplete, so a reader who skimmed the middle still
+# knows not to trust it.
+check "the report declares itself INCOMPLETE at the end" "yes" "$(said 'INCOMPLETE')"
 check "it says it could not be read" "yes" "$(said 'COULD NOT BE READ')"
 check "it says that is not the same as none" "yes" "$(said 'not the same as none')"
 check "and the command exits non-zero" "1" "$RC"
@@ -254,8 +304,57 @@ check "and names the same issue" "yes" "$(said 'claude-code-hooks-daemon#39')"
 # The dry run is the half that works, and it must NOT refuse.
 reset_all
 run_sessions reboot --dry-run
-check "reboot --dry-run succeeds" "0" "$RC"
+check "reboot --dry-run succeeds with no sessions" "0" "$RC"
+check "and says so rather than printing an empty table" "yes" "$(said 'no sessions are running')"
 check "and says it signalled and rebooted nothing" "yes" "$(said 'nothing was rebooted')"
+
+# ── the audit, with sessions actually running ────────────────────────────────────────
+#
+# The part an operator uses before a reboot: what is running, and can each one be warned.
+
+reset_all
+make_project "$WORK/proj-a"
+make_project "$WORK/proj-b"
+tmux_session ccy-proj-a "$WORK/proj-a"
+tmux_session ccy-proj-b "$WORK/proj-b"
+run_sessions reboot --dry-run
+check "every running session is listed" "yes" "$(said 'ccy-proj-a')"
+check "including the second" "yes" "$(said 'ccy-proj-b')"
+check "each is marked ready when its project has the daemon CLI" "2" \
+    "$(printf '%s' "$OUT" | grep -c 'ready')"
+check "an all-ready audit succeeds" "0" "$RC"
+
+# A project with no daemon CLI cannot be warned. The audit REFUSES rather than warning the
+# others: a partial warning is worse than none, because the operator believes every session was
+# told and reboots on that belief.
+reset_all
+make_project "$WORK/proj-ready"
+make_project "$WORK/proj-nocli" without-cli
+tmux_session ccy-ready "$WORK/proj-ready"
+tmux_session ccy-nocli "$WORK/proj-nocli"
+run_sessions reboot --dry-run
+check "a project with no daemon CLI is named as such" "yes" "$(said 'NO DAEMON CLI')"
+check "and the audit refuses rather than warning only some" "1" "$RC"
+check "saying how many of how many could not be warned" "yes" "$(said '1 of 2')"
+
+# The failure that must never read as "nothing is running": tmux itself failing. Reported as
+# "no sessions", an operator would reboot believing the machine was idle.
+reset_all
+printf '1' >"$WORK/tmux-rc"
+run_sessions reboot --dry-run
+check "a tmux listing failure does not report an idle machine" "no" "$(said 'no sessions are running')"
+check "it says what a reboot would interrupt is UNKNOWN" "yes" "$(said 'UNKNOWN')"
+check "and says that is not the same as nothing running" "yes" "$(said 'not the same as nothing running')"
+check "and exits non-zero" "1" "$RC"
+
+# With sessions running, the live form must still refuse — and must not reboot.
+reset_all
+make_project "$WORK/proj-live"
+tmux_session ccy-live "$WORK/proj-live"
+run_sessions reboot --in 5
+check "reboot --in refuses with sessions running too" "1" "$RC"
+check "and says nothing was rebooted" "yes" "$(said 'NOTHING WAS REBOOTED')"
+check "after showing what it would have warned" "yes" "$(said 'ccy-live')"
 
 # ── argument validation, which must not abort silently ───────────────────────────────
 #

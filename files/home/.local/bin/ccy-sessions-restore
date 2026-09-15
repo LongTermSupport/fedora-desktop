@@ -134,6 +134,20 @@ if [[ ! -x "$CCY_LAUNCHER" ]]; then
     exit 2
 fi
 
+# Both day counts are validated HERE, before any record is touched.
+#
+# They reach `$(( ))` and `find -mtime` deep inside the loop, and a mistyped one — set in the
+# unit, or exported by hand for a dry run — killed the whole service mid-record: no verdict for
+# the record being processed, no summary, no last-run note, and every remaining session left
+# unrestored. A configuration mistake must fail before the work starts, not half way through it.
+for ccy_days_var in CCY_RESTORE_MAX_AGE_DAYS CCY_RESTORE_EVIDENCE_DAYS; do
+    if [[ ! "${!ccy_days_var}" =~ ^[0-9]+$ ]]; then
+        print_error "${ccy_days_var} must be a whole number of days, but is '${!ccy_days_var}'."
+        echo "Nothing was read, started or retired." >&2
+        exit 2
+    fi
+done
+
 SESSIONS_DIR="$(ccy_registry_sessions_dir)"
 RESTORE_DIR="$(ccy_registry_restore_dir)"
 ATTEMPTED_DIR="${RESTORE_DIR}/attempted"
@@ -250,16 +264,16 @@ if [[ "$DRY_RUN" == true ]]; then
     echo "DRY RUN — nothing will be started, consumed or retired."
 fi
 
-# `ccy_registry_collect`, never `mapfile < <(ccy_registry_list …)`. A process substitution's
-# exit status is not observable, so a registry this service could not READ produced an empty
-# array and the "nothing to restore" exit below — a boot service reporting success over a
-# machine whose sessions it never saw.
-if ! ccy_registry_collect "$SESSIONS_DIR"; then
+# `ccy_registry_collect`, never a `mapfile` over a process substitution: a process
+# substitution's exit status is not observable, so a registry this service could not READ would
+# produce an empty array and the "nothing to restore" exit below — a boot service reporting
+# success over a machine whose sessions it never saw.
+records=()
+if ! ccy_registry_collect "$SESSIONS_DIR" records; then
     print_error "could not read the session registry at ${SESSIONS_DIR}, so whether anything needs restoring is UNKNOWN."
     echo "That is not the same as there being nothing to restore. Fix the reason above." >&2
     exit 1
 fi
-records=("${CCY_REGISTRY_RECORDS[@]}")
 
 if [[ ${#records[@]} -eq 0 ]]; then
     # Not the same sentence as "restore is not enabled here" — that is a different fact, and

@@ -461,65 +461,56 @@ ccy_registry_validate() {
     done
 }
 
-# ccy_registry_list <dir> — every record in the directory, NUL-delimited on stdout, sorted.
+# ccy_registry_collect <dir> <array-name> — fill the named array with the directory's records,
+# sorted; return non-zero when the listing itself failed. The only listing API.
 #
-# Globs `*.record` only, so an in-flight `.tmp.<pid>` write is never offered to a reader. A
-# directory that does not exist prints nothing and succeeds — `ccy` has simply never recorded
-# a session here, which is a real answer and not a failure. A directory that exists but cannot
-# be read IS a failure: that one is "could not tell", and it must not look like "nothing to
-# do".
-# The array ccy_registry_collect fills. Declared here so its consumers — the boot service and
-# ccy-sessions — read one documented name rather than each inventing their own.
-CCY_REGISTRY_RECORDS=()
-
-# ccy_registry_collect <dir> — fill CCY_REGISTRY_RECORDS with the directory's records; return
-# non-zero when the listing itself failed. THE PRIMITIVE: every caller uses this.
-#
-# It is not built on a `mapfile < <(…)` over a streaming lister, and that is the whole point. A
-# process substitution's exit status is not observable, so a registry this could not READ
-# produced an empty array and each caller read that as "there are no records" — which in the
-# boot service meant exiting 0 with "nothing to restore" on a machine whose sessions it never
-# saw. That is the "could not tell" / "nothing to do" collapse, in the one place with nobody
-# watching.
+# It is NOT built on `mapfile < <(some_streaming_lister)`, and that is the whole point. A process
+# substitution's exit status is not observable, so a registry this could not READ produced an
+# empty array and each caller read that as "there are no records" — which in the boot service
+# meant exiting 0 with "nothing to restore" on a machine whose sessions it never saw. That is the
+# "could not tell" / "nothing to do" collapse, in the one place with nobody watching.
 #
 # The find writes to a temp FILE rather than a command substitution because the output is
-# NUL-delimited — the delimiter chosen precisely because a path may contain anything else — and
+# NUL-delimited — that delimiter chosen precisely because a path may contain anything else — and
 # `$(…)` strips NUL bytes, silently gluing every record path into one.
+#
+# The caller names its own array rather than reading a shared global: one function, no global to
+# clobber between two consumers, and nothing kept alive merely to have something read it.
+#
+# Globs `*.record` only, so an in-flight `.tmp.<pid>` write is never offered to a reader. A
+# directory that does not exist yields an empty array and SUCCEEDS — `ccy` has simply never
+# recorded a session here, which is a real answer. A directory that exists and cannot be read is
+# a FAILURE, and the two must never look alike.
 ccy_registry_collect() {
-    local dir="${1:?ccy_registry_collect requires a directory}" tmp err
-    CCY_REGISTRY_RECORDS=()
-    # An absent directory is a real answer — ccy has simply never recorded a session here — and
-    # is distinct from one that exists and cannot be read, which fails below.
-    [[ -d "$dir" ]] || return 0
-    if ! tmp=$(mktemp 2>&1); then
-        print_error "could not create a temporary file to list $dir: $tmp"
+    local _ccy_collect_dir="${1:?ccy_registry_collect requires a directory}"
+    local -n _ccy_collect_out="${2:?ccy_registry_collect requires an array name}"
+    local _ccy_collect_tmp _ccy_collect_err
+    _ccy_collect_out=()
+    [[ -d "$_ccy_collect_dir" ]] || return 0
+    if ! _ccy_collect_tmp=$(mktemp 2>&1); then
+        print_error "could not create a temporary file to list $_ccy_collect_dir: $_ccy_collect_tmp"
         return 1
     fi
-    err=$( { find "$dir" -maxdepth 1 -name '*.record' -type f -print0; } 2>&1 >"$tmp") || {
-        print_error "could not list records in $dir: $err"
-        rm -f "$tmp"
+    # Sorted, so a report reads the same way twice and a diff of two runs means something;
+    # readdir order is whatever the filesystem feels like. LC_ALL=C so the order does not move
+    # between machines with different collations.
+    _ccy_collect_err=$( { find "$_ccy_collect_dir" -maxdepth 1 -name '*.record' -type f -print0 |
+        LC_ALL=C sort -z; } 2>&1 >"$_ccy_collect_tmp") || {
+        print_error "could not list records in $_ccy_collect_dir: $_ccy_collect_err"
+        rm -f "$_ccy_collect_tmp"
         return 1
     }
     # find exits 0 having still reported a per-entry failure on stderr (an unreadable
     # subdirectory, a racing unlink), so a clean exit status alone is not a complete listing.
-    if [[ -n "$err" ]]; then
-        print_error "could not fully list records in $dir: $err"
-        rm -f "$tmp"
+    if [[ -n "$_ccy_collect_err" ]]; then
+        print_error "could not fully list records in $_ccy_collect_dir: $_ccy_collect_err"
+        rm -f "$_ccy_collect_tmp"
         return 1
     fi
-    if [[ -s "$tmp" ]]; then
-        mapfile -t -d '' CCY_REGISTRY_RECORDS <"$tmp"
+    if [[ -s "$_ccy_collect_tmp" ]]; then
+        mapfile -t -d '' _ccy_collect_out <"$_ccy_collect_tmp"
     fi
-    rm -f "$tmp"
-}
-
-# ccy_registry_list <dir> — the same records, NUL-delimited on stdout, for a caller that wants a
-# stream rather than the array. A thin wrapper over the primitive, so the two can never disagree
-# about what a record is, and so the diagnostic for a failed listing is printed exactly once.
-ccy_registry_list() {
-    ccy_registry_collect "${1:?ccy_registry_list requires a directory}" || return 1
-    [[ ${#CCY_REGISTRY_RECORDS[@]} -gt 0 ]] || return 0
-    printf '%s\0' "${CCY_REGISTRY_RECORDS[@]}"
+    rm -f "$_ccy_collect_tmp"
 }
 
 

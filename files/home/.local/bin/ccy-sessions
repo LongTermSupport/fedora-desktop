@@ -109,8 +109,15 @@ source "${CCY_LIB}/session-registry.bash"
 # Its whole output is a report a human reads, so that report IS its stdout
 # (CLAUDE/StderrHygiene.md's carve-out for status commands).
 
-# restore_installation_state — one of not-installed | installed-not-enabled |
-# enabled-no-linger | enabled, on stdout. Four answers, because each needs a different fix.
+# restore_installation_state — on stdout, one of:
+#
+#   not-installed            installed-not-enabled    installed-state-unknown:<why>
+#   enabled-no-linger        enabled-linger-unknown   enabled
+#
+# SIX answers, because each needs a different fix — and two of them exist purely so that "could
+# not tell" is never reported as "will not run". Folding those two into their neighbours sent an
+# operator to "re-run the play" for a masked unit or an unreachable user bus, neither of which
+# the play repairs. Every one is driven by scripts/test-ccy-sessions-status.bash.
 restore_installation_state() {
     local unit="${HOME}/.config/systemd/user/${CCY_RESTORE_UNIT}" probe
     if [[ ! -f "$unit" ]]; then
@@ -149,8 +156,8 @@ restore_installation_state() {
 # list_with_reasons <dir> <label> — the retired/quarantined records and why, so a session that
 # did not come back is explained rather than merely absent.
 #
-# `ccy_registry_collect`, never `mapfile < <(ccy_registry_list …)`: a process substitution hides
-# the listing's exit status, so a directory this could not read printed as an empty section —
+# `ccy_registry_collect`, never a `mapfile` over a process substitution: that hides the
+# listing's exit status, so a directory this could not read printed as an empty section —
 # indistinguishable from one with nothing in it.
 #
 # A failure here sets CCY_STATUS_INCOMPLETE rather than returning non-zero. Returning non-zero
@@ -160,12 +167,12 @@ restore_installation_state() {
 CCY_STATUS_INCOMPLETE=0
 list_with_reasons() {
     local dir="$1" label="$2" record reason project
-    if ! ccy_registry_collect "$dir"; then
+    local -a found=()
+    if ! ccy_registry_collect "$dir" found; then
         printf '\n%s: COULD NOT BE READ — see the error above. This is not the same as empty.\n' "$label"
         CCY_STATUS_INCOMPLETE=1
         return 0
     fi
-    local -a found=("${CCY_REGISTRY_RECORDS[@]}")
     [[ ${#found[@]} -gt 0 ]] || return 0
     printf '\n%s (%s):\n' "$label" "${#found[@]}"
     for record in "${found[@]}"; do
@@ -220,8 +227,7 @@ cmd_restore_status() {
     # sentence this command can say — which is the entire point.
     local -a records=()
     local record project
-    if ccy_registry_collect "$sessions_dir"; then
-        records=("${CCY_REGISTRY_RECORDS[@]}")
+    if ccy_registry_collect "$sessions_dir" records; then
         printf '\nRecorded sessions: %s\n' "${#records[@]}"
     else
         printf '\nRecorded sessions: COULD NOT BE READ — see the error above.\n'

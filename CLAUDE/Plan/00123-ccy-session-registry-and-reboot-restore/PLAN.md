@@ -173,6 +173,9 @@ naming the upstream issue. No local substitute is invented.
   Reports under `subagent-reports/`, narrative in `JOURNAL/`
   - [x] ✅ Round 1 — 21 findings, all resolved (CCY 3.59.0)
   - [x] ✅ Round 2 — all 21 verified fixed, none relocated; 13 new, all resolved (CCY 3.59.1)
+  - [x] ✅ Round 3 — 13 verified (3 partial); 4 new, all resolved (CCY 3.59.2). Two were tests
+    of mine that passed without exercising anything, which is the defect class this plan
+    keeps meeting; both suites now drive the branches they claimed
 - [ ] ⬜ **Task 6.3**: Open the PR. **Do not merge** — the owner reviews and merges
 - [ ] ⬜ **Task 6.4**: (HOST, owner) deploy and verify — see the HOST tasks below
 

@@ -17,12 +17,28 @@ Two version numbers move independently — see
 
 ---
 
+## 3.59.2
+
+**A mistyped retention setting fails before any record is touched.** `CCY_RESTORE_MAX_AGE_DAYS`
+and `CCY_RESTORE_EVIDENCE_DAYS` reach arithmetic deep inside the restore loop, so a non-numeric
+value — set in the unit, or exported for a dry run — killed the service mid-record: no verdict,
+no summary, and every remaining session left unrestored. Both are validated at startup now, which
+is where a configuration mistake belongs.
+
+**The registry listing no longer goes through a shared global.** `ccy_registry_collect` fills an
+array the caller names, so two consumers cannot clobber each other and nothing is kept alive
+merely to have something read it.
+
+---
+
 ## 3.59.1
 
-**The registry listing is one primitive, not two that could disagree.** `ccy_registry_collect`
-now does the finding and `ccy_registry_list` prints from it, so the two can never differ about
-what a record is, and a failed listing is reported once rather than twice. The temp file it
-reads through is cleaned up on every path.
+**The registry listing is one function, not two that could disagree.** `ccy_registry_collect`
+fills an array the caller names, and there is no second streaming form to drift from it. A
+failed listing is reported once rather than twice, and the records come back sorted so two runs
+of a report can be compared. The temp file it reads through is removed on every path the
+function itself takes; a signal delivered mid-call would leave one behind, which the system's
+own temp cleanup handles.
 
 **tmux failing to name a session no longer lands in the record's filename.** The error was
 merged into the captured value with `2>&1`, and that value becomes the file the session is

@@ -46,10 +46,10 @@ source "$PURE"
 # shellcheck source=../files/var/local/claude-yolo/lib/session-registry.bash
 source "$LIB"
 
-for fn in ccy_registry_write ccy_registry_field ccy_registry_validate ccy_registry_list \
+for fn in ccy_registry_write ccy_registry_field ccy_registry_validate ccy_registry_collect \
     ccy_registry_slug ccy_registry_fingerprint ccy_registry_encode_argv \
     ccy_registry_decode_argv ccy_registry_restore_flags ccy_registry_flag_class \
-    ccy_registry_retire ccy_registry_remove ccy_registry_boot_id; do
+    ccy_registry_retire ccy_registry_remove ccy_registry_boot_id ccy_registry_boot_time; do
     if ! declare -F "$fn" >/dev/null; then
         echo "FAIL: $fn is not defined after sourcing the library" >&2
         exit 1
@@ -183,7 +183,8 @@ check "a refused write leaves no temp file" "0" \
 #    temp file behind, and that file must be invisible to the listing.
 printf 'schema=%s\nproject_dir=/projects/half\n' "$CCY_REGISTRY_SCHEMA" \
     >"$SESSIONS/.ccy-half.record.tmp.999"
-mapfile -t -d '' listed < <(ccy_registry_list "$SESSIONS")
+listed=()
+ccy_registry_collect "$SESSIONS" listed
 listed_names=""
 for path in "${listed[@]}"; do
     listed_names+="$(basename "$path") "
@@ -507,8 +508,40 @@ check "the boot id is stable within one boot" "$boot_id" "$(ccy_registry_boot_id
 # D8's distinction one level down. "ccy has never recorded a session on this machine" is a
 # real answer and succeeds empty; a directory that exists and cannot be read is "could not
 # tell" and must fail rather than report zero records.
-mapfile -t -d '' absent_listing < <(ccy_registry_list "$WORK/never-created")
-check "listing an absent directory succeeds with nothing" "0" "${#absent_listing[@]}"
+# Called directly, never through `$( … )`: a command substitution is a subshell, and a function
+# that fills the CALLER's array cannot write through one. That is inherent to bash rather than
+# to this API, and it is the reason `yesno` is not used here.
+absent_listing=(sentinel)
+if ccy_registry_collect "$WORK/never-created" absent_listing; then
+    check "listing an absent directory succeeds" "yes" "yes"
+else
+    check "listing an absent directory succeeds" "yes" "no"
+fi
+check "and leaves the caller's array empty" "0" "${#absent_listing[@]}"
+
+# The other side of that: a directory that EXISTS and cannot be listed must FAIL, not report
+# zero. Driven by breaking mktemp, because this suite runs as root and a mode change would not
+# stop it reading the directory it was meant to be denied.
+unreadable_listing=(sentinel)
+if TMPDIR="$WORK/no-such-tmpdir" ccy_registry_collect "$SESSIONS" unreadable_listing \
+    2>"$WORK/collect.err"; then
+    check "an unlistable directory fails rather than reporting zero" "failed" "succeeded"
+else
+    check "an unlistable directory fails rather than reporting zero" "failed" "failed"
+fi
+check "and says why" "yes" \
+    "$(grep -qi 'temporary file' "$WORK/collect.err" && echo yes || echo "no: $(cat "$WORK/collect.err")")"
+# The caller's array is emptied even on failure, so a caller that ignores the status cannot then
+# read stale contents from a previous successful call and believe they are current.
+check "a failed collect leaves no stale contents behind" "0" "${#unreadable_listing[@]}"
+
+# The order is stable, so two runs of a report can be compared and a diff means something.
+ccy_registry_write "$SESSIONS" zzz-last "project_dir=/z" "boot_id=b" "restore=yes"
+ccy_registry_write "$SESSIONS" aaa-first "project_dir=/a" "boot_id=b" "restore=yes"
+sorted_listing=()
+ccy_registry_collect "$SESSIONS" sorted_listing
+check "records come back sorted" "aaa-first.record" "$(basename "${sorted_listing[0]}")"
+rm -f "$SESSIONS/zzz-last.record" "$SESSIONS/aaa-first.record"
 
 # Every durable flag must actually be reachable from a record field, or "durable" is a
 # label with no mechanism behind it. `--no-restore` is deliberately one-shot: it says
