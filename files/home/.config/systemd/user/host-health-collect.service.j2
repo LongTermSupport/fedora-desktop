@@ -1,0 +1,29 @@
+{{ ansible_managed | comment }}
+[Unit]
+Description=fedora-desktop host health collection (server route, reporting-only)
+Documentation=https://github.com/LongTermSupport/fedora-desktop
+# The PRODUCER half of the server route. host-health.service does the same collection on
+# a desktop, at the end of a graphical login, and delivers it with notify-send. A server
+# has no session bus and graphical-session.target never activates there, so the checks
+# need their own trigger and the delivery moves to the login shell — see
+# ~/.bashrc-includes/host-health-report.bash, which only prints what this leaves behind.
+
+[Service]
+Type=oneshot
+# --no-notify because there is no session bus to notify. The findings still go to stdout
+# and therefore into the journal; the report a human reads is the login snippet's.
+#
+# WorkingDirectory is the repo checkout, templated rather than assumed, so the helpers
+# package imports. No path is hardcoded anywhere in this repo.
+ExecStart=/usr/bin/python3 -m helpers.host_health.login_report --no-notify
+WorkingDirectory={{ root_dir }}
+# Exit 3 means "there are findings", which is a successful run of the check: a drifted
+# host must not also show up as a broken service, because two alarms for one fact is how
+# both come to be ignored. 1 and 2 are left as real failures — python exits 1 for any
+# uncaught exception, so accepting it here would declare a permanently dead collector a
+# success and leave `systemctl --user is-failed` silent about it.
+SuccessExitStatus=3
+# Stated, not inherited. systemd disables the start timeout for Type=oneshot by default,
+# so without this a hung `git fetch` against an unreachable remote would leave the unit
+# activating indefinitely and every later trigger would be skipped as already running.
+TimeoutStartSec=120

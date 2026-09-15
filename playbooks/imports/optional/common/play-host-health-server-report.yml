@@ -1,0 +1,181 @@
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
+---
+# Host health report for a SERVER profile (Plan 00109, Task 3.2) — reporting-only.
+#
+# play-host-health-login-report.yml is `scope: gnome` and ends the play on a server. Its
+# delivery is what is desktop-bound — `notify-send` needs a session bus, and
+# graphical-session.target never activates on a server — but the three CHECKS behind it
+# are profile-agnostic. Without this play a server got no drift detection at all, which is
+# the profile where unattended drift goes unnoticed longest: nobody logs in to see a
+# notification, and nothing else is watching.
+#
+# The one route split into two halves, because on a server nothing runs at login that
+# could afford to do the work:
+#
+#   * host-health-collect.timer runs the checks on a schedule and leaves the status
+#     document behind. Cadence is derived from the consumer's staleness bound — the timer
+#     unit carries the reasoning.
+#   * ~/.bashrc-includes/host-health-report.bash prints what the timer left, and only for
+#     an interactive shell. A `git fetch` at every SSH login would add latency to every
+#     login and can hang on an unreachable remote.
+#
+# Reporting-only, and that is a hard boundary: nothing here re-runs a play, installs
+# anything beyond the report's own runtime dependency, or moves the working tree.
+#
+# Needs `user_login`'s systemd manager reachable, because this play ENABLES rather than
+# merely deploying — an unenabled timer never fires. `play-systemd-user-tweaks.yml`
+# (import 8 of playbook-main, `scope: general`) enables linger and starts the manager, so
+# on any host provisioned by playbook-main it is there. Run this before that play and the
+# enable fails, loudly, which is the intended answer.
+#
+# Standalone / opt-in play — deliberately NOT imported from playbook-main.yml. Run it
+# directly:
+#   ./playbooks/imports/optional/common/play-host-health-server-report.yml
+- hosts: desktop
+  name: Host Health Report For A Server Profile
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: server   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    service_name: host-health-collect.service
+    timer_name: host-health-collect.timer
+    user_units_dir: "/home/{{ user_login }}/.config/systemd/user"
+    bashrc_includes_dir: "/home/{{ user_login }}/.bashrc-includes"
+    # The marker play-basic-configs.yml writes when it adds the sourcing loop. Asserted
+    # rather than assumed: without that loop the snippet is deployed and never read, and
+    # a report nothing reads looks exactly like a host with nothing to report.
+    bashrc_includes_marker: "# BEGIN ANSIBLE MANAGED: Source bashrc includes"
+  tasks:
+    - name: Scope guard — assert provisioning_profile is recognised
+      ansible.builtin.assert:
+        that:
+          - provisioning_profile in ['desktop', 'server']
+        fail_msg: |
+          provisioning_profile={{ provisioning_profile }} is not recognised.
+          Valid values: desktop, server.
+          Auto-detected from `systemctl get-default`
+          (see environment/localhost/group_vars/desktop.yml) or overridden
+          via -e provisioning_profile=desktop|server.
+
+    - name: Scope guard — end play if provisioning_profile does not match declared scope
+      ansible.builtin.meta: end_play
+      when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
+
+    # PyYAML for the SYSTEM interpreter, which is what the timer runs
+    # (`ExecStart=/usr/bin/python3`). The pin check converts `vars/version-pins.yml`
+    # through it, and Ansible's own PyYAML may live in a pipx venv that
+    # `/usr/bin/python3` cannot import — so assuming it was an assumption about a host,
+    # on the one drift axis this plan was written for. Declared, per CLAUDE.md's
+    # missing-dependency rule, rather than tolerated at runtime.
+    - name: Install The Report's Runtime Dependencies
+      ansible.builtin.dnf:
+        name: python3-pyyaml
+        state: present
+
+    - name: Ensure User Systemd Unit Directory Exists
+      ansible.builtin.file:
+        path: "{{ user_units_dir }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
+    # Templated, not copied: WorkingDirectory is this checkout's path, which is a
+    # property of the machine and is never written into the repo.
+    - name: Deploy The Host Health Collection Unit
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/home/.config/systemd/user/{{ service_name }}.j2"
+        dest: "{{ user_units_dir }}/{{ service_name }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+      register: hhs_service
+
+    - name: Deploy The Host Health Collection Timer
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.config/systemd/user/{{ timer_name }}"
+        dest: "{{ user_units_dir }}/{{ timer_name }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+      register: hhs_timer
+
+    # The delivery half. `.bashrc-includes` and the loop that sources it are
+    # play-basic-configs.yml's, which is in playbook-main's core path — this play reads
+    # that contract rather than re-declaring it, so there is one owner of the mechanism.
+    - name: Read The User's Bashrc To Confirm Includes Are Sourced
+      ansible.builtin.slurp:
+        src: "/home/{{ user_login }}/.bashrc"
+      register: hhs_bashrc
+
+    - name: Assert The Bashrc Includes Loop Is Present
+      ansible.builtin.assert:
+        that:
+          - bashrc_includes_marker in (hhs_bashrc['content'] | b64decode)
+        fail_msg: >-
+          /home/{{ user_login }}/.bashrc does not source ~/.bashrc-includes, so the login
+          snippet this play deploys would never be read and this host would report as
+          healthy while nothing checked it. Run playbook-main.yml (or
+          playbooks/imports/play-basic-configs.yml) first, which owns that loop.
+
+    - name: Ensure Bashrc Includes Directory Exists
+      ansible.builtin.file:
+        path: "{{ bashrc_includes_dir }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
+    # Templated for the same reason as the unit: it names this checkout's path.
+    - name: Deploy The Login-Shell Health Report Snippet
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/home/bashrc-includes/host-health-report.bash.j2"
+        dest: "{{ bashrc_includes_dir }}/host-health-report.bash"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+
+    # Resolved, not assumed. A sibling play writes `/run/user/{{ uid | default(1000) }}`,
+    # and a wrong default there does not fail — it silently points at another user's
+    # runtime directory, or at nothing, and the enable step then reports "no user
+    # manager" on a host that has one.
+    - name: Resolve The Session User UID
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ user_login }}"
+        # `fail_key: false` hands the verdict to the assert below, whose fail_msg is the
+        # report the operator actually gets; the module's own failure says only "one or
+        # more supplied key could not be found".
+        #
+        # It does NOT make the key absent. getent sets the key to `None` and exits
+        # successfully, so `is defined` is True even for a missing user. That is why the
+        # assert tests `is not none` BEFORE indexing: without it, `[1]` raises
+        # UndefinedError and the fail_msg written for this case is never reached.
+        fail_key: false
+
+    - name: Assert The Session User Exists
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['getent_passwd'][user_login] is defined
+          - ansible_facts['getent_passwd'][user_login] is not none
+          - ansible_facts['getent_passwd'][user_login][1] | int > 0
+        fail_msg: >-
+          Could not resolve a uid for {{ user_login }}, so this play cannot find that
+          user's systemd manager. It would otherwise guess, and a guessed uid points at
+          the wrong runtime directory without failing.
+
+    # Enabled AND started: `enabled` alone writes the timers.target.wants symlink but
+    # leaves the timer unarmed until the next boot, and a report that begins a reboot
+    # later is one nobody connects to the play they just ran. The unit is a timer, so
+    # starting it arms the schedule — it does not run the collection now.
+    - name: Enable And Start The Host Health Collection Timer
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.systemd:
+        name: "{{ timer_name }}"
+        scope: user
+        enabled: true
+        state: started
+        daemon_reload: "{{ hhs_service.changed or hhs_timer.changed }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"

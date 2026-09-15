@@ -154,9 +154,16 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     *delivery* and wrong for the checks, which are profile-agnostic. Needs a second
     route, not a scope change
     - [x] ✅ `status_document.py` (producer) and `login_message.py` (renderer)
-    - [ ] ⬜ The delivery: a `--user` timer, a profile snippet calling
-      `python3 -m helpers.host_health.login_message`, and a play for both. Cadence to be
-      decided against `STALE_AFTER_DAYS`
+    - [x] ✅ The delivery: `host-health-collect.timer` runs the checks, the
+      `~/.bashrc-includes` snippet prints what they left, and
+      `play-host-health-server-report.yml` deploys both. **Daily** is derived, not
+      picked — the consumer calls the document stale at `STALE_AFTER_DAYS = 14`, so
+      fourteen misses are absorbed where weekly would leave a one-miss margin
+    - [x] ✅ The snippet prints **only for an interactive shell** — bash reads
+      `~/.bashrc` for sshd's non-interactive shells too, so an unconditional print breaks
+      `scp` to the host it reports on. 12 assertions, six mutants
+    - [ ] ⬜ **HOST**: run the play on a server profile — the timer arms, a document
+      appears, an interactive login shows findings, and an `scp` still completes
 - [ ] 🔄 **Task 3.3**: Claude Code handoff — file and offer done
   - [x] ✅ `handoff.py`, mode `0600`; the wrong/not-looked-at split is carried in
     `Finding.checked`, not read from the prose
@@ -279,3 +286,5 @@ no record has never been run here, and silence is the correct output for it.
 ## Delivery & Milestones
 
 - Phase 0 Task 0.1 delivered: DisplayLink restored on kernel 7.2.4 (evdi 1.15.0)
+- Task 3.2's server route delivered: the collection timer, the interactive-only login
+  snippet and `play-host-health-server-report.yml`. The HOST run remains open.

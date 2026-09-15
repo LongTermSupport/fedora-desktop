@@ -1,0 +1,26 @@
+[Unit]
+Description=Schedule for the fedora-desktop host health collection (server route)
+Documentation=https://github.com/LongTermSupport/fedora-desktop
+
+[Timer]
+# DAILY, and the cadence is derived rather than picked. The consumer,
+# helpers/host_health/login_message.py, reports the document's own age as a finding once
+# it passes STALE_AFTER_DAYS = 14 — silence is a claim, and a clean document nobody has
+# refreshed for a fortnight describes the host as it was a fortnight ago. Daily gives
+# fourteen consecutive misses before that fires, so one failed run, one reboot or a day
+# powered off is not a false alarm, while a collector that has genuinely stopped is
+# reported well inside the bound. Weekly would allow two attempts inside the same window:
+# the margin would be a single missed run. Change one and re-derive the other.
+OnCalendar=*-*-* 06:15:00
+# Also shortly after the user manager starts, which with linger enabled is boot. This
+# plan exists because a reboot into a new kernel left a DKMS module unbuilt and nothing
+# said so; waiting up to a day to notice that would reproduce the incident with a delay.
+OnStartupSec=5min
+# A server is not the only consumer and hosts should not all fetch at the same second.
+RandomizedDelaySec=30min
+# A host that was powered off through 06:15 catches up rather than skipping the day.
+Persistent=true
+Unit=host-health-collect.service
+
+[Install]
+WantedBy=timers.target

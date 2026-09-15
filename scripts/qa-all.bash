@@ -348,6 +348,21 @@ run_log_scrub_summary=$(printf '%s' "$run_log_scrub_out" | grep -oE 'passed: [0-
     run_log_scrub_summary="passed"
 printf '✓ run-log-scrub: %s\n' "$run_log_scrub_summary"
 
+# The server login snippet (Plan 00109 Task 3.2). It is the first thing this repo puts in
+# ~/.bashrc-includes that PRINTS, and bash reads ~/.bashrc for a non-interactive shell too
+# when sshd started it — so a missing interactive guard breaks scp, sftp and rsync to the
+# host. The guard is driven against a findings document, because with a clean one the
+# snippet is silent for the wrong reason and the assertion passes with the guard deleted.
+login_snippet_out=""
+if ! login_snippet_out="$(bash "$SCRIPT_DIR/test-host-health-login-snippet.bash" 2>&1)"; then
+    echo "$login_snippet_out" >&2
+    echo "✗ QA FAILED: host-health login snippet unit tests" >&2
+    exit 1
+fi
+login_snippet_summary=$(printf '%s' "$login_snippet_out" | grep -oE 'passed: [0-9]+') ||
+    login_snippet_summary="passed"
+printf '✓ host-health-login-snippet: %s\n' "$login_snippet_summary"
+
 # The fail-fast directive pattern's own unit suite (Plan 00081 F10).
 #
 # qa-ansible.bash enforces this repo's #1 rule with one regex, and that regex was

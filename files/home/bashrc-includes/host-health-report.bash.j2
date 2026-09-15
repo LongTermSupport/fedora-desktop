@@ -1,0 +1,45 @@
+{{ ansible_managed | comment }}
+# The SERVER half of Plan 00109's login-time host health report.
+#
+# The desktop delivery is `notify-send` from a graphical-session.target unit. A server
+# has no session bus and that target never activates, so a server got no drift detection
+# at all — yet the three checks behind the report are profile-agnostic; only the delivery
+# was desktop-bound.
+#
+# The checks do NOT run here. `host-health-collect.timer` runs them on a schedule and
+# leaves the status document behind; this prints what it left. A `git fetch` at every SSH
+# login would add latency to every login and can hang on an unreachable remote.
+
+# INTERACTIVE ONLY, and this is the load-bearing line. bash reads ~/.bashrc for a
+# NON-interactive shell too when sshd is what started it, so anything printed here lands
+# in the byte stream scp, sftp and rsync-over-ssh are parsing, and the transfer dies with
+# "protocol error". A health report that breaks file copies to the host it reports on is
+# worse than no report. Exercised by scripts/test-host-health-login-snippet.bash against
+# a findings document, so deleting this line fails the gate rather than passing silently.
+case $- in
+    *i*) ;;
+    *) return 0 ;;
+esac
+
+# The path below is this host's checkout, written in by Ansible. If it has moved, every
+# login would otherwise get a multi-line ImportError traceback out of `python3 -m`. Said
+# once and plainly on stderr rather than swallowed: a report that has stopped working
+# must not be indistinguishable from a host with nothing to report.
+if [ ! -r "{{ root_dir }}/helpers/host_health/login_message.py" ]; then
+    echo "fedora-desktop: no health report — the checkout at {{ root_dir }} has gone; re-run play-host-health-server-report.yml" >&2
+    return 0
+fi
+
+# PYTHONPATH is prefixed to the command, never exported and never a `cd`: an export
+# follows every python3 the user runs for the rest of the session and would shadow
+# same-named modules in their own projects, and a `cd` would drop every SSH login into
+# the checkout instead of the user's home directory.
+#
+# /usr/bin/python3 by path, because a bare `python3` resolves through a pyenv shim on a
+# host that has one — a different interpreter from the one the play installs into.
+PYTHONPATH="{{ root_dir }}" /usr/bin/python3 -m helpers.host_health.login_message
+
+# Always 0. This is sourced from a loop in ~/.bashrc, and a health reporter that costs
+# the user the login to the host it reports on is worse than no reporter — the same
+# contract `login_message.main` states on the Python side, for the same reason.
+return 0
