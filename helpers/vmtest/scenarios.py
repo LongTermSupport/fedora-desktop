@@ -66,7 +66,13 @@ _ARTEFACT_KEYS = frozenset({"variant", "subvariant", "prefix", "suffix"})
 # `Everything` — and nothing that could walk elsewhere.
 _TREE_RE = re.compile(r"^[A-Z][A-Za-z]+$")
 _SCENARIO_KEYS = frozenset({"base", "description", "planned", "max_skipped"})
-_SCENARIO_OPTIONAL_KEYS = frozenset({"run_env", "host_only"})
+_SCENARIO_OPTIONAL_KEYS = frozenset({"run_env", "host_only", "reboot_before_checks"})
+
+#: The profiles for which `reboot_before_checks` may NOT be left to its default.
+#: A desktop's checks read a GNOME Shell that loads its extensions at session
+#: start, so whether the run is judged before or after a fresh session decides
+#: what the checks can see at all — too consequential to be inherited silently.
+_REBOOT_MUST_BE_DECLARED_PROFILES = frozenset({"desktop"})
 
 # The RUN_BASH_* knobs a scenario may set. A closed list: the negative
 # scenarios steer the profile and the optional-play list, and nothing that
@@ -109,6 +115,13 @@ class Scenario:
     max_skipped: int
     run_env: Mapping[str, str]
     host_only: bool = False
+    #: Reboot the guest after provisioning and before the checker runs. The
+    #: scenario's decision; the CLI supplies the profile's mechanics for bringing
+    #: the guest back (a desktop re-answers the LUKS prompt and waits for its
+    #: autologin session, a server only waits for SSH). A scenario that changed
+    #: something a boot has to pick up — an installed kernel, a session's
+    #: extensions — is judged after that boot or it is not judged at all.
+    reboot_before_checks: bool = False
 
     @property
     def profile(self) -> str:
@@ -295,6 +308,25 @@ def _parse_scenario(scenario_id: str, raw: object, bases: Mapping[str, Base]) ->
             "by accident"
         )
 
+    # Absent is a decision on most profiles and an omission on a desktop, so the
+    # two are separated before the value is judged: a missing key on a profile
+    # that must declare it is a different error from a malformed one, and saying
+    # "must be true or false, got None" for a key nobody wrote would send the
+    # author looking for a typo.
+    if "reboot_before_checks" not in raw and base.profile in _REBOOT_MUST_BE_DECLARED_PROFILES:
+        raise ManifestError(
+            f"{where}: a {base.profile} scenario must declare reboot_before_checks; "
+            "its checks read a shell that loads extensions at session start, so being "
+            "judged before or after a fresh boot decides what they can see"
+        )
+    reboot_before_checks = raw.get("reboot_before_checks", False)
+    if not isinstance(reboot_before_checks, bool):
+        raise ManifestError(
+            f"{where}: reboot_before_checks must be true or false, got "
+            f"{reboot_before_checks!r}; a truthy string would read as yes here and as "
+            "an error nowhere"
+        )
+
     return Scenario(
         id=scenario_id,
         base=base,
@@ -303,6 +335,7 @@ def _parse_scenario(scenario_id: str, raw: object, bases: Mapping[str, Base]) ->
         max_skipped=max_skipped,
         run_env=_parse_run_env(raw.get("run_env"), where),
         host_only=host_only,
+        reboot_before_checks=reboot_before_checks,
     )
 
 

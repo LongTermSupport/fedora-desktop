@@ -80,6 +80,7 @@ MANIFEST = {
             "description": "the repo's own installer shape plus desktop provisioning",
             "planned": None,
             "max_skipped": 0,
+            "reboot_before_checks": True,
         },
     },
 }
@@ -271,6 +272,65 @@ class TestHostOnlyScenario(unittest.TestCase):
         manifest = scenarios.parse_manifest(document, FEDORA_VERSION)
         with self.assertRaises(scenarios.ManifestError):
             scenarios.allowlist_text(manifest)
+
+
+class TestRebootBeforeChecks(unittest.TestCase):
+    """Whether a run reboots before it is judged is a property of the SCENARIO.
+
+    Two different questions live here: *does this scenario need a fresh boot*,
+    which only the scenario knows, and *how is a guest of this profile brought
+    back up*, which only the profile knows. The profile answers the second alone
+    — reading the first off it too would mean a server scenario could never ask
+    for a reboot, and Plan 00109's server route needs one, to meet a stale status
+    document with a different running kernel.
+
+    A desktop scenario must state it either way. The reason a desktop reboots is
+    a fact about what its checks look at — GNOME loads extensions at session
+    start — not a law of the profile, so leaving it implicit would let a new
+    desktop scenario be judged in the session that installed its extensions and
+    read as a pass.
+    """
+
+    @staticmethod
+    def _document(**overrides):
+        document = copy.deepcopy(MANIFEST)
+        document["vm_test_scenarios"]["server-fast-provision"].update(overrides)
+        return document
+
+    def test_it_defaults_to_false_on_a_server_scenario(self):
+        # A server guest has no session to reload, so silence means no reboot.
+        self.assertFalse(_parse(self._document()).scenarios["server-fast-provision"].reboot_before_checks)
+
+    def test_a_server_scenario_may_declare_it(self):
+        scenario = _parse(self._document(reboot_before_checks=True)).scenarios["server-fast-provision"]
+        self.assertTrue(scenario.reboot_before_checks)
+
+    def test_a_desktop_scenario_must_declare_it(self):
+        # Not defaulted: a desktop scenario that forgot the key would be judged in
+        # the session that installed the extensions, which is a pass for the wrong
+        # reason and looks exactly like a pass for the right one.
+        document = copy.deepcopy(MANIFEST)
+        del document["vm_test_scenarios"]["desktop-fresh-install"]["reboot_before_checks"]
+        with self.assertRaises(scenarios.ManifestError) as caught:
+            scenarios.parse_manifest(document, FEDORA_VERSION)
+        self.assertIn("reboot_before_checks", str(caught.exception))
+        self.assertIn("desktop-fresh-install", str(caught.exception))
+
+    def test_it_must_be_a_bool(self):
+        # Same reasoning as host_only: a truthy string reads as "yes" here and as
+        # an error nowhere, so `reboot_before_checks: "false"` would reboot.
+        for value in ("true", "false", 1, 0, None):
+            with self.subTest(value=value):
+                with self.assertRaises(scenarios.ManifestError) as caught:
+                    scenarios.parse_manifest(self._document(reboot_before_checks=value), FEDORA_VERSION)
+                self.assertIn("reboot_before_checks", str(caught.exception))
+
+    def test_it_does_not_affect_whether_a_scenario_is_offered_to_the_sandbox(self):
+        # Orthogonal to host_only. Rebooting is not a credential concern, and a
+        # flag that quietly narrowed the allowlist would remove this scenario from
+        # the bridge on the day it started rebooting.
+        manifest = scenarios.parse_manifest(self._document(reboot_before_checks=True), FEDORA_VERSION)
+        self.assertIn("server-fast-provision", scenarios.allowlist(manifest))
 
 
 class TestManifestRejections(unittest.TestCase):

@@ -75,10 +75,25 @@ class TestValidateManifest(unittest.TestCase):
         self.assertEqual(
             result.stdout,
             "VMTEST-SCENARIO id=server-fast-provision base=server-fast base_name=server-fast-44 "
-            "profile=server planned=12 max_skipped=0 runnable=true host_only=false run_env=-\n",
+            "profile=server planned=12 max_skipped=0 runnable=true host_only=false "
+            "reboot_before_checks=false run_env=-\n",
         )
         unplanned = _run(json.dumps(MANIFEST), "--scenario", "desktop-fresh-install")
-        self.assertIn("planned=- max_skipped=0 runnable=false host_only=false run_env=-", unplanned.stdout)
+        self.assertIn(
+            "planned=- max_skipped=0 runnable=false host_only=false reboot_before_checks=true run_env=-",
+            unplanned.stdout,
+        )
+
+    def test_scenario_flag_reports_reboot_before_checks(self):
+        # Printed for every scenario, like host_only and for the same reason: a CLI
+        # that only ever saw the field on scenarios that reboot would fall back to
+        # its own idea of when a reboot is needed, which is the profile-shaped
+        # guess this field replaces.
+        document = json.loads(json.dumps(MANIFEST))
+        document["vm_test_scenarios"]["server-fast-provision"]["reboot_before_checks"] = True
+        result = _run(json.dumps(document), "--scenario", "server-fast-provision")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("host_only=false reboot_before_checks=true", result.stdout)
 
     def test_scenario_flag_reports_host_only(self):
         # The `vmtest` CLI reads this field to decide which enumeration a run must

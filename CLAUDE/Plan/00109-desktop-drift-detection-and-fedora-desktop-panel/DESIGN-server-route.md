@@ -320,3 +320,73 @@ So each branch removes the other's unit files **and their `.wants/` symlinks** �
 a unit writes a symlink that outlives the unit file, so deleting the file alone does not
 undo the enable. `state: absent` is used rather than asking systemd, because it is
 idempotent and cannot fail on a host that never had them.
+
+## 8. Proving the route needs two boots, which is what the VM lab is for
+
+Every claim in §§1–7 except one can be checked on a running host. The exception is the
+one the route exists for: a document collected under one kernel, read by a login shell
+running another. A host cannot produce that on demand — it has to wait for Fedora to ship
+a kernel update, reboot into it, and log in before the timer next fires. That is not a
+test, it is a vigil.
+
+A guest can simply be **given** a second kernel. `server-host-health-kernel-change` in
+`vars/vm-test-scenarios.yml` provisions a server-profile guest with
+`RUN_BASH_OPTIONAL_PLAYBOOKS=play-host-health-login-report.yml`, and the lab reboots it
+between provisioning and judgement.
+
+**Two collections, because two of the claims contradict each other on one host.** A clean
+server login must be SILENT (§5) and a boot-scoped fault must be DEMOTED after a reboot
+(§4). The second needs a fault; the first needs none. So the fixture collects on a clean
+guest and captures what a login says, then makes a unit fail — post-boot health reports
+failed units as well as DKMS, and a stock server has no DKMS at all — collects again, and
+that second document is the one that survives into the next boot.
+
+Without the deliberate failure the demotion check would pass **because the population it
+judges is empty**: no dkms on a server (§5.2), no failed units on a healthy guest, so the
+boot-scoped section has nothing in it and a reboot has nothing to demote. That is §6a's
+shape one more time, in the verification rather than the code.
+
+**The fixture judges nothing.** A transcript declares its check count exactly once, so the
+fixture records what it saw and the checker — after the reboot — turns the record into
+checks. One place counts, one place judges.
+
+The checker's matchers were run against `login_message.render` itself before the scenario
+was written, rather than copied from the source by eye: a checker that agrees with a
+string neither side got from the code under test is a vocabulary check wearing a
+behaviour check's name (§4.2).
+
+Two things the lab still cannot settle. The `scp` claim is exercised through the guest's
+own `sshd` with a key the fixture generates, which is the real `SSH_SOURCE_BASHRC` path —
+but §6's question is about **this** checkout's `origin`, and a guest cloned over https
+says nothing about how a particular machine's remote is configured. That one stays a host
+fact.
+
+## 8.1 Whether to reboot belongs to the scenario, not the profile
+
+The lab could already reboot a guest, for a desktop, because Wayland cannot reload the
+shell and GNOME loads extensions at session start. That reason is about what a scenario's
+checks look at — not a law of the profile — and reading it off the profile meant a server
+scenario could not ask for a reboot at all.
+
+`reboot_before_checks` is the scenario's answer. The profile supplies only the mechanics
+of getting a guest back: a LUKS prompt and an autologin session for a desktop, plain SSH
+for a server. Three consequences follow, and each closes a way this could go wrong with no
+symptom:
+
+- **A desktop scenario must declare it either way.** Defaulting it would let a new desktop
+  scenario be judged in the session that installed its extensions, which is a pass for the
+  wrong reason and looks exactly like a pass for the right one.
+- **A profile with no mechanics is a refusal.** Silently not rebooting is invisible to
+  everything downstream — the checker runs, the transcript is green, and it judged the
+  boot that provisioned the guest.
+- **A fixture and a reboot are each half a scenario.** The harness runs a fixture inside
+  the reboot branch, so a `guest-prepare-*.bash` beside a scenario that does not reboot
+  would be deployed and never executed. `qa-vmtest-manifest.bash` refuses that pairing,
+  because nothing else notices: the manifest is valid, the checker's count is right, and
+  the file is there.
+
+The in-guest scripts are now deployed by deriving the set from the directory rather than
+listing it in the play. Both a checker and a fixture are resolved **by name** from the
+scenario id, so a new scenario's scripts are needed by the lab the moment they are
+written, and `qa-deployed-drift.bash` already treats that whole directory as the
+deployment set — the two agree by construction instead of by maintenance.

@@ -133,3 +133,59 @@ fi
 
 planned_out="$(yaml_to_json < "$MANIFEST" | planned_check)"
 echo "$MANIFEST: ${planned_out}"
+
+# ── a scenario's fixture and its reboot agree ─────────────────────────────────────────
+#
+# `vmtest` runs guest-prepare-<scenario-id>.bash inside the same branch as the reboot,
+# because what a fixture sets up is what the boot has to pick up. So a prepare script
+# beside a scenario that does not declare `reboot_before_checks: true` is deployed and
+# never executed — the run passes, having tested the scenario without its fixture, which
+# is a green transcript for something nobody arranged. Nothing else notices: the manifest
+# is valid, the checker's count is right, and the file exists.
+fixture_check() {
+    python3 /dev/fd/3 "$ROOT_DIR" 3<<'PYEOF'
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+scripts = root / "files/home/.local/share/vmtest"
+document = json.load(sys.stdin)
+problems = []
+checked = 0
+
+for scenario_id, entry in sorted((document.get("vm_test_scenarios") or {}).items()):
+    fixture = scripts / f"guest-prepare-{scenario_id}.bash"
+    if not fixture.exists():
+        continue
+    checked += 1
+    if entry.get("reboot_before_checks") is not True:
+        problems.append(
+            f"{scenario_id}: {fixture.name} exists but reboot_before_checks is "
+            f"{entry.get('reboot_before_checks')!r}, so the fixture would never run"
+        )
+
+if problems:
+    for problem in problems:
+        sys.stderr.write(f"ERROR: {problem}\n")
+    raise SystemExit(1)
+sys.stdout.write(f"{checked} scenario fixture(s) run before a declared reboot\n")
+PYEOF
+}
+
+# Control 3: a fixture whose scenario does not reboot must be rejected. Without it a
+# check that matched no scenario at all would report success just as loudly.
+control3_out=""
+if control3_out="$(yaml_to_json < "$MANIFEST" |
+    python3 -c 'import json,sys; d=json.load(sys.stdin); [v.update(reboot_before_checks=False) for v in d["vm_test_scenarios"].values()]; json.dump(d, sys.stdout)' |
+    fixture_check 2>&1)"; then
+    echo "ERROR: the fixture-vs-reboot check accepted a fixture that would never run; it is not judging" >&2
+    exit 1
+fi
+if [[ "$control3_out" != *"would never run"* ]]; then
+    echo "ERROR: the fixture-vs-reboot check rejected the control without saying why: $control3_out" >&2
+    exit 1
+fi
+
+fixture_out="$(yaml_to_json < "$MANIFEST" | fixture_check)"
+echo "$MANIFEST: ${fixture_out}"

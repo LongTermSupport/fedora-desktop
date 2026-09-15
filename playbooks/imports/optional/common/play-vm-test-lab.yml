@@ -163,19 +163,20 @@
         group: "{{ user_login }}"
         mode: "0755"
 
+    # Derived from the directory, not listed. `vmtest` resolves a scenario's checker and
+    # its fixture BY NAME — guest-acceptance-<id>.bash, guest-prepare-<id>.bash — so a
+    # new scenario's script is needed by the lab the moment it is written, and a list
+    # here is one more place to forget it. qa-deployed-drift.bash already treats this
+    # whole directory as the deployment set, so the two agree by construction.
     - name: Deploy the in-guest scripts
       ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.local/share/vmtest/{{ item }}"
-        dest: "{{ vm_test_lab_dir }}/{{ item }}"
+        src: "{{ item }}"
+        dest: "{{ vm_test_lab_dir }}/{{ item | basename }}"
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0755"
-      loop:
-        - guest-cleanup.bash
-        - guest-acceptance-server.bash
-        - guest-acceptance-desktop.bash
-        - guest-acceptance-server-github-token.bash
-        - vmtest-session-provision.bash
+      with_fileglob:
+        - "{{ root_dir }}/files/home/.local/share/vmtest/*.bash"
 
     # The run-log scrubber, for the host-only scenario's artefacts. Two files, and the
     # RELATIVE layout between them matters: run-log-scrub.bash sources the commit gate's

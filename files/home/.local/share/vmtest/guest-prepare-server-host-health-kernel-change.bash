@@ -1,0 +1,227 @@
+#!/usr/bin/bash
+# guest-prepare-server-host-health-kernel-change.bash — the fixture for the
+# server host-health kernel-change scenario, run INSIDE the guest after run.bash
+# and BEFORE the harness reboots it (Plan 00109 Task 3.2, DESIGN-server-route.md §4).
+#
+# The claim under test needs two boots: a status document collected under one
+# kernel, read by a login shell running a different one. Only the first boot can
+# set that up, so this script does the setting up and the checker after the
+# reboot does all the judging.
+#
+# It emits NO VMTEST-CHECK markers. The transcript declares its check count once,
+# and a second declaration — or checks counted before the reboot that the
+# accounting does not expect — is an error by §6.6 rule 02. Everything observed
+# here is written to an evidence file that the checker reads and turns into
+# checks, so there is one place that counts and one place that judges.
+#
+# Two collections, because two of the claims contradict each other on one host:
+# a clean server login must be SILENT, and a boot-scoped fault must be DEMOTED
+# after a reboot. The first is captured while the guest is clean; a unit is then
+# made to fail, so the boot-scoped section has something to say, and the second
+# collection is the document that survives into the next boot.
+#
+# Fail-fast throughout: a fixture that half-applied would leave the checker
+# judging a scenario nobody set up, and its failures would read as defects in the
+# code under test. Every step that cannot complete aborts the run.
+#
+# This is a throwaway guest, built and destroyed by the lab. Installing a kernel,
+# selecting it, and breaking a unit on purpose are the fixture — not host
+# administration. Nothing here runs on, or is deployed to, a real machine.
+#
+# Writes: ~/.vmtest/host-health-prepared.env (KEY=value; free-form values base64).
+set -euo pipefail
+
+REPO="${HOME}/Projects/fedora-desktop"
+STATE_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/fedora-desktop"
+DOCUMENT="${STATE_DIR}/host-status.json"
+SNIPPET="${HOME}/.bashrc-includes/host-health-report.bash"
+COLLECT_TIMER="host-health-collect.timer"
+COLLECT_SERVICE="host-health-collect.service"
+# The unit made to fail so post-boot health has a finding to demote. Named for the
+# lab so a reader of the transcript knows it is a fixture and not a real fault.
+FIXTURE_UNIT="vmtest-health-fixture.service"
+EVIDENCE_DIR="${HOME}/.vmtest"
+EVIDENCE="${EVIDENCE_DIR}/host-health-prepared.env"
+SELF_KEY="${EVIDENCE_DIR}/selfscp"
+readonly REPO STATE_DIR DOCUMENT SNIPPET COLLECT_TIMER COLLECT_SERVICE FIXTURE_UNIT
+readonly EVIDENCE_DIR EVIDENCE SELF_KEY
+
+log() { printf '==> prepare: %s\n' "$*" >&2; }
+die() {
+    printf 'ERROR: prepare: %s\n' "$*" >&2
+    exit 1
+}
+b64() { printf '%s' "${1-}" | base64 -w0; }
+
+mkdir -p "${EVIDENCE_DIR}"
+chmod 0700 "${EVIDENCE_DIR}"
+: >"${EVIDENCE}"
+record() { printf '%s=%s\n' "${1:?}" "${2-}" >>"${EVIDENCE}"; }
+
+# collect_once <prefix> — run the collector synchronously and record how it went.
+# SuccessExitStatus=3 in the unit: the collector exits 3 when it has findings,
+# which is a successful run that found something, not a failure to run.
+collect_once() {
+    local prefix="${1:?}" rc=0 status
+    systemctl --user start "${COLLECT_SERVICE}" || rc=$?
+    status="$(systemctl --user show -p Result -p ExecMainStatus --value "${COLLECT_SERVICE}" 2>&1 | tr '\n' ' ')"
+    record "${prefix}_COLLECT_RC" "${rc}"
+    record "${prefix}_COLLECT_STATUS_B64" "$(b64 "${status}")"
+    [[ -r "${DOCUMENT}" ]] || die "no status document at ${DOCUMENT} after starting ${COLLECT_SERVICE} (${status})"
+}
+
+# login_once <prefix> — what an interactive login shell prints, captured and never
+# judged here. A login shell rather than `bash -i`: it is the whole chain a user
+# meets, from ~/.bash_profile through ~/.bashrc to the include the play deployed.
+login_once() {
+    local prefix="${1:?}" rc=0 output
+    output="$(bash -lic true </dev/null 2>&1)" || rc=$?
+    record "${prefix}_LOGIN_RC" "${rc}"
+    record "${prefix}_LOGIN_B64" "$(b64 "${output}")"
+    log "${prefix}: a login shell printed ${#output} bytes"
+}
+
+# ── 1. the play's artefacts, or there is no scenario to prepare ───────────────────────
+# Aborts rather than records: an absent snippet is not a finding about the boot
+# predicate, it is a run.bash that did not deploy the play, and carrying it into
+# the checker as a failed kernel check would send a reader to the wrong file.
+log "confirming play-host-health-login-report.yml deployed its server delivery"
+[[ -r "${SNIPPET}" ]] || die "no login snippet at ${SNIPPET}; the optional play did not run, or ran the desktop branch"
+[[ -d "${REPO}" ]] || die "no checkout at ${REPO}; the snippet's PYTHONPATH would not resolve"
+sudo_probe=""
+if ! sudo_probe="$(sudo -n true 2>&1)"; then
+    die "no passwordless sudo in this guest (${sudo_probe}); the fixture cannot install a kernel"
+fi
+
+# ── 2. the timer as the play left it, recorded BEFORE it is taken out of the way ──────
+timer_enabled=""
+if ! timer_enabled="$(systemctl --user is-enabled "${COLLECT_TIMER}" 2>&1)"; then
+    die "${COLLECT_TIMER} is not enabled (${timer_enabled}); the play arms it, so this guest is not the one described"
+fi
+record PREPARED_TIMER_ENABLED "${timer_enabled}"
+timer_next="$(systemctl --user list-timers --all --no-pager "${COLLECT_TIMER}" 2>&1)"
+record PREPARED_TIMER_NEXT_B64 "$(b64 "${timer_next}")"
+log "timer is ${timer_enabled}"
+
+# ── 3. a clean host, collected and read ───────────────────────────────────────────────
+# "A clean server login is silent" is the claim that decides whether this surface
+# survives contact with a user, and it can only be asked while the guest is clean.
+running_kernel="$(uname -r)"
+record PREPARED_RUNNING_KERNEL "${running_kernel}"
+log "collecting the host status under kernel ${running_kernel}, while nothing is wrong"
+collect_once CLEAN
+login_once CLEAN
+
+# ── 4. something genuinely wrong, in the boot-scoped section ──────────────────────────
+# Without this the demotion claim is untestable here: a server has no dkms and a
+# healthy guest has no failed units, so post-boot health is empty and a reboot has
+# nothing to demote. A check that passes because the population it judges is empty
+# is the shape this plan exists to catch.
+log "making ${FIXTURE_UNIT} fail, so the boot-scoped section has a finding"
+printf '%s\n' \
+    '[Unit]' \
+    'Description=vmtest fixture: a unit that fails so post-boot health has a finding' \
+    '[Service]' \
+    'Type=oneshot' \
+    'ExecStart=/usr/bin/false' |
+    sudo -n tee "/etc/systemd/system/${FIXTURE_UNIT}" >/dev/null
+sudo -n systemctl daemon-reload
+fixture_rc=0
+sudo -n systemctl start "${FIXTURE_UNIT}" || fixture_rc=$?
+[[ "${fixture_rc}" -ne 0 ]] || die "${FIXTURE_UNIT} succeeded; the fixture must leave a failed unit behind"
+record PREPARED_FIXTURE_UNIT "${FIXTURE_UNIT}"
+# The exact line probe_results.failed_unit_findings produces for it. Written here
+# rather than re-derived in the checker so both sides cannot drift into agreeing
+# about a string neither of them got from the code under test.
+record PREPARED_FIXTURE_FINDING "${FIXTURE_UNIT}: failed (system scope)"
+
+log "collecting again, with the failed unit in place"
+collect_once FINDING
+login_once FINDING
+
+document_kernel="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("kernel",""))' "${DOCUMENT}")"
+record PREPARED_DOCUMENT_KERNEL "${document_kernel}"
+record PREPARED_DOCUMENT_SHA "$(sha256sum "${DOCUMENT}" | cut -d' ' -f1)"
+record PREPARED_DOCUMENT_B64 "$(base64 -w0 <"${DOCUMENT}")"
+log "document names kernel ${document_kernel}"
+
+# ── 5. a real scp through this host's own sshd ────────────────────────────────────────
+# Not a shell sourcing the snippet — the actual path an unconditional print breaks.
+# Fedora's bash reads ~/.bashrc for the non-interactive shell sshd starts here
+# (SSH_SOURCE_BASHRC), so anything on stdout corrupts the transfer. A key of the
+# guest's own is the only way to reach its sshd from inside it; the lab's private
+# key never enters a guest.
+log "proving an scp through this guest's sshd still completes"
+rm -f "${SELF_KEY}" "${SELF_KEY}.pub"
+ssh-keygen -q -t ed25519 -N '' -C 'vmtest-self-scp' -f "${SELF_KEY}"
+mkdir -p "${HOME}/.ssh"
+chmod 0700 "${HOME}/.ssh"
+cat "${SELF_KEY}.pub" >>"${HOME}/.ssh/authorized_keys"
+chmod 0600 "${HOME}/.ssh/authorized_keys"
+scp_rc=0
+scp_output="$(scp -q -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    -o LogLevel=ERROR -i "${SELF_KEY}" \
+    "${USER}@localhost:/etc/os-release" "${EVIDENCE_DIR}/scp-before.out" 2>&1)" || scp_rc=$?
+record PREPARED_SCP_RC "${scp_rc}"
+record PREPARED_SCP_OUTPUT_B64 "$(b64 "${scp_output}")"
+scp_bytes=0
+if [[ -r "${EVIDENCE_DIR}/scp-before.out" ]]; then
+    scp_bytes="$(stat -c %s "${EVIDENCE_DIR}/scp-before.out")"
+fi
+record PREPARED_SCP_BYTES "${scp_bytes}"
+log "scp exited ${scp_rc} having transferred ${scp_bytes} bytes"
+
+# ── 6. take the collector out of the way of the reboot ────────────────────────────────
+# The subject is a STALE document meeting a new kernel, so the collector must not
+# run in between — a re-collection after the reboot would name the new kernel and
+# the mismatch would never exist to be reported. Disabled rather than masked: the
+# unit files stay where the play put them, and the checker proves the document it
+# reads could not have been rewritten. Its armed state is already recorded above.
+log "stopping the collection timer so the document stays as collected"
+systemctl --user disable --now "${COLLECT_TIMER}"
+timer_after=""
+timer_after_rc=0
+# `is-enabled` exits non-zero for every disabled state, so the exit code and the
+# word it prints are both recorded and the checker decides what they mean.
+timer_after="$(systemctl --user is-enabled "${COLLECT_TIMER}" 2>&1)" || timer_after_rc=$?
+record PREPARED_TIMER_AFTER "${timer_after}"
+record PREPARED_TIMER_AFTER_RC "${timer_after_rc}"
+
+# ── 7. a second kernel, and the next boot pointed at it ───────────────────────────────
+# One path, always taken: ask for the release kernel by name (a no-op when it is
+# already installed), then choose an installed kernel that is not the running one.
+# A guest that still has only one kernel afterwards is a hard failure — there is
+# no version of this scenario that proves anything without a second kernel.
+command -v grubby >/dev/null || die "no grubby in this guest; the boot entry cannot be selected"
+release_query=""
+if ! release_query="$(sudo -n dnf -q repoquery --repo=fedora --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-core 2>&1)"; then
+    die "querying the fedora repo for kernel-core failed: ${release_query}"
+fi
+release_kernel="$(printf '%s\n' "${release_query}" | sort -V | tail -1)"
+[[ -n "${release_kernel}" ]] || die "the fedora repo offered no kernel-core; cannot guarantee a second kernel"
+log "ensuring the release kernel ${release_kernel} is installed alongside ${running_kernel}"
+sudo -n dnf -y install "kernel-${release_kernel}" >&2
+
+target_kernel=""
+while read -r candidate; do
+    [[ -n "${candidate}" ]] || continue
+    [[ "${candidate}" == "${running_kernel}" ]] && continue
+    [[ -r "/boot/vmlinuz-${candidate}" ]] || continue
+    target_kernel="${candidate}"
+    break
+done < <(rpm -q kernel-core --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -Vr)
+
+[[ -n "${target_kernel}" ]] ||
+    die "no installed kernel other than ${running_kernel} (release kernel ${release_kernel}); the guest cannot reboot into a different one"
+record PREPARED_TARGET_KERNEL "${target_kernel}"
+
+log "selecting ${target_kernel} for the next boot"
+sudo -n grubby --set-default "/boot/vmlinuz-${target_kernel}" >&2
+default_kernel="$(sudo -n grubby --default-kernel)"
+record PREPARED_DEFAULT_KERNEL "${default_kernel}"
+[[ "${default_kernel}" == "/boot/vmlinuz-${target_kernel}" ]] ||
+    die "grubby reports ${default_kernel} as the default, not /boot/vmlinuz-${target_kernel}"
+
+chmod 0600 "${EVIDENCE}"
+log "prepared: collected under ${running_kernel}, next boot is ${target_kernel}"
+printf 'VMTEST-GUEST-PREPARE-DONE\n'

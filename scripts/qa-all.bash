@@ -306,6 +306,20 @@ host_only_gate_summary=$(printf '%s' "$host_only_gate_out" | grep -oE 'passed: [
     host_only_gate_summary="passed"
 printf '✓ vmtest-host-only-gate: %s\n' "$host_only_gate_summary"
 
+# reboot_guest / guest_prepare (Plan 00109): whether a run is judged before or after a
+# fresh boot. A profile with no reboot mechanics, or a fixture that failed, would leave
+# the checker judging the boot that provisioned the guest — a green transcript for a
+# scenario that never happened, with no symptom anywhere else.
+reboot_dispatch_out=""
+if ! reboot_dispatch_out="$(bash "$SCRIPT_DIR/test-vmtest-reboot-dispatch.bash" 2>&1)"; then
+    echo "$reboot_dispatch_out" >&2
+    echo "✗ QA FAILED: vmtest reboot dispatch unit tests" >&2
+    exit 1
+fi
+reboot_dispatch_summary=$(printf '%s' "$reboot_dispatch_out" | grep -oE 'passed: [0-9]+') ||
+    reboot_dispatch_summary="passed"
+printf '✓ vmtest-reboot-dispatch: %s\n' "$reboot_dispatch_summary"
+
 # hl_write_localhost_yml (Plan 00119): the headless localhost.yml writer, driven through the
 # 443 flag on/off/unset, the empty-identity path and the keep-existing-file promise.
 localhost_yml_out=""

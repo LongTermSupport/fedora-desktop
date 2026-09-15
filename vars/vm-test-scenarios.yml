@@ -74,6 +74,17 @@ vm_test_bases:
 # knobs from a closed allowlist; it is how the negative scenarios differ from
 # the positive one.
 #
+# `reboot_before_checks` (optional, default false) reboots the guest between
+# run.bash and the checker. It is the SCENARIO's decision — a desktop needs one
+# because GNOME loads extensions at session start, a server scenario needs one
+# when it has changed something only a boot picks up — and the profile supplies
+# only the mechanics of getting the guest back. A desktop-profile scenario MUST
+# state it either way: being judged before or after a fresh session decides what
+# its checks can see at all, and both answers look like a run that worked.
+# A scenario that has to set something up first ships
+# guest-prepare-<scenario-id>.bash beside its checker; it runs before the reboot,
+# declares no checks, and records what it saw for the checker to judge.
+#
 # The three `*-fails`/`*-missing` scenarios are the falsifiability proof: each
 # MUST produce verdict fail at stage provision (never error, never pass), and
 # each proves a different thing — a failed main play propagating out of
@@ -126,3 +137,21 @@ vm_test_scenarios:
     description: the repo's own installer shape (netinst + Workstation liveimg, btrfs under LUKS) plus desktop provisioning run inside the autologin GNOME session
     planned: 16   # = PLANNED in files/home/.local/share/vmtest/guest-acceptance-desktop.bash
     max_skipped: 0
+    # Wayland cannot reload the shell, so the extensions this run installs are
+    # unknown to the live shell until a new session. Judged after the reboot
+    # run.bash itself asks for, or judged against a shell that never loaded them.
+    reboot_before_checks: true
+  # Plan 00109's server drift-reporting route, across the boot it was built for: a
+  # status document collected under one kernel, read by a login shell running
+  # another. The fixture collects, breaks a unit so the boot-scoped section has a
+  # finding, installs a second kernel and selects it; the checker judges the report
+  # on the far side. This is the claim a HOST run cannot make on demand — it needs a
+  # kernel update to arrive first, where a guest can simply be given one.
+  server-host-health-kernel-change:
+    base: server-fast
+    description: provision with play-host-health-login-report.yml, reboot into a different kernel, and judge what a login shell then reports about the previous boot
+    planned: 14   # = PLANNED in files/home/.local/share/vmtest/guest-acceptance-server-host-health-kernel-change.bash
+    max_skipped: 0
+    reboot_before_checks: true
+    run_env:
+      RUN_BASH_OPTIONAL_PLAYBOOKS: play-host-health-login-report.yml

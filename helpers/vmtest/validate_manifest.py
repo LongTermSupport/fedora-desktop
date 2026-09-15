@@ -13,7 +13,7 @@ Markers:
     VMTEST-MANIFEST-OK scenarios=N runnable=N bridge=N host_only=N bases=N
     VMTEST-MANIFEST-INVALID
     VMTEST-BASE key=K name=N kind=K profile=P tree=T|- vcpus=N ram_mib=N   (with --base KEY)
-    VMTEST-SCENARIO id=I base=K base_name=N profile=P planned=N|- max_skipped=N runnable=true|false host_only=true|false run_env=K=V,K=V|-
+    VMTEST-SCENARIO id=I base=K base_name=N profile=P planned=N|- max_skipped=N runnable=true|false host_only=true|false reboot_before_checks=true|false run_env=K=V,K=V|-
 With `--allowlist`, stdout is the allowlist itself (one id per line), which is
 the payload Ansible writes to the host's `scenarios.allowlist`. With
 `--host-only`, it is the disjoint list Ansible writes to `scenarios.host-only`:
@@ -75,6 +75,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"profile={scenario.profile} planned={scenario.planned if scenario.planned is not None else '-'} "
                 f"max_skipped={scenario.max_skipped} runnable={'true' if scenario.runnable else 'false'} "
                 f"host_only={'true' if scenario.host_only else 'false'} "
+                f"reboot_before_checks={'true' if scenario.reboot_before_checks else 'false'} "
                 f"run_env={run_env}"
             )
             return 0

@@ -184,6 +184,40 @@ to fail. Each must produce `verdict: fail` at stage `provision`:
 A scenario's `run_env` in the manifest is a closed allowlist of `run.bash`'s
 non-secret knobs; nothing secret-bearing can be set from a scenario.
 
+### Scenarios that need a second boot
+
+`reboot_before_checks: true` in the manifest reboots the guest between
+`run.bash` and the checker. It is the **scenario's** decision — the profile
+supplies only the mechanics of getting the guest back, a LUKS prompt and an
+autologin session for a desktop, plain SSH for a server. A desktop-profile
+scenario must state it either way: being judged before or after a fresh session
+decides what its checks can see at all, and both answers look like a run that
+worked.
+
+A scenario that has to set something up before that boot ships
+`guest-prepare-<scenario-id>.bash` beside its checker. The fixture runs in the
+guest, declares **no** checks — the transcript allows exactly one planned count
+— and records what it saw for the checker to judge afterwards. A non-zero exit
+aborts the run: a half-applied fixture leaves the checker judging a guest nobody
+set up. `qa-vmtest-manifest.bash` refuses a fixture whose scenario does not
+declare the reboot, since the harness would deploy it and never run it.
+
+| Scenario                           | Second boot for                                                                             |
+| ---------------------------------- | ------------------------------------------------------------------------------------------- |
+| `desktop-fresh-install`            | GNOME loads extensions at session start, so the shell that installed them never sees them   |
+| `server-host-health-kernel-change` | a status document collected under one kernel, read by a login shell running a different one |
+
+`server-host-health-kernel-change` is Plan 00109's server drift-reporting route
+end to end. Its fixture collects a status document on a clean guest, captures
+what a login shell says (nothing, if the route is right), makes a unit fail so
+the boot-scoped section has a finding, collects again, then installs a second
+kernel and points the next boot at it. On the far side the checker asserts the
+report names the boot mismatch, presents the previous boot's fault as *not
+checked* rather than as a current one, and that an `scp` through the guest's own
+`sshd` still completes now that the report has something to say. This is the one
+claim a host run cannot make on demand: it needs a kernel update to arrive
+first, where a guest can simply be given one.
+
 The plan's `acceptance.bash` runs all six scenarios in turn (the four server
 fast legs, `server-full-provision` and `desktop-fresh-install`) and asserts
 each verdict.
