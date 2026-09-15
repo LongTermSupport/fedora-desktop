@@ -181,7 +181,8 @@ naming the upstream issue. No local substitute is invented.
     in round 3 had made `find` stage one of a pipeline, so without `pipefail` a failing listing
     was masked by a succeeding `sort`: the guarantee had become conditional on a shell option
     the caller happens to set
-- [ ] ⬜ **Task 6.3**: Open the PR. **Do not merge** — the owner reviews and merges
+- [x] ✅ **Task 6.3**: PR opened — <https://github.com/LongTermSupport/fedora-desktop/pull/47>.
+  **Not merged**, and not to be squash-merged: that severs ancestry in this repo
 - [ ] ⬜ **Task 6.4**: (HOST, owner) deploy and verify — see the HOST tasks below
 
 ## QA in a worktree — one stage cannot run here
@@ -274,5 +275,11 @@ Full reasoning, alternatives and evidence for each is in
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00123-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- Facts established against the code; three of the issue's premises corrected
+- Facts established against the code; three of the issue's premises corrected — `bef440bb`
+- Registry, unattended `read` guard, `--no-restore` (CCY 3.58.0) — `cdcd3ed9`
+- Restore service, opt-in play wiring, `ccy-sessions` subcommands, docs (CCY 3.58.1) — `81cf049f`
+- Four `qa-reviewer` rounds, 48 findings resolved (CCY 3.59.0 → 3.59.3) —
+  `81cb8ba8`, `27ee70f0`, `44605ac2`, `593f0808`
+- PR <https://github.com/LongTermSupport/fedora-desktop/pull/47>, awaiting the owner's review,
+  HOST deploy and reboot test
   </content>
