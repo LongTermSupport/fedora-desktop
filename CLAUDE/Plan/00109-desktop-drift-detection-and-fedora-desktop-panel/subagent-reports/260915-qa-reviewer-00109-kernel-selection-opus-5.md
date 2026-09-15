@@ -77,6 +77,44 @@ pre-existing; `shellcheck -S style` clean on both files.
 | Nits                               | All fixed except the rpm/dnf stderr asymmetry, which was also fixed — rpm's stderr now |
 |                                    | goes to the same file dnf's does                                                       |
 
+## Round 2 — `5d5c8d36`, verdict FIX-BEFORE-MERGE
+
+**Blocking: none.** The four guards (`dnf install`, `grubby --set-default`,
+`grubby --default-kernel`, `record`) were each reverted via the mutation harness and each
+mutant dies. Gate `passed: 15` with `EXPECTED_CASES` enforced.
+
+Both of my questions answered:
+
+- **(a) is the harness faithful?** Yes, and nothing moved elsewhere. The only differences
+  from the fixture's call are stderr to a file, the function `source`d inside rather than
+  defined outside, and a parent with errexit never set rather than set-and-suppressed —
+  all three observationally identical for the function body.
+- **(b) is case 6c hermetic?** Yes as to effects. Every tool is a shell function, so no
+  real binary is reached; the sole host contact is a `stat` on an impossible path, and an
+  unreadable `/boot` gives the same verdict. Nothing is written.
+
+**And `shopt -s inherit_errexit` is confirmed NOT warranted**, with a better reason than
+mine: it is file-wide, and this fixture has nine other command substitutions. At `:79`,
+`status="$(systemctl … | tr '\n' ' ')"` would start aborting where `tr` currently masks a
+failing `systemctl`. Nine explicit refusals with real messages beat one option change with
+that blast radius.
+
+| Round 2 finding                          | Action                                                                   |
+| ---------------------------------------- | ------------------------------------------------------------------------ |
+| 1 — `run_case` comment states the        | **Already fixed** in `4dc9f8f7`; the review ran against `5d5c8d36`, one  |
+| disproved claim                          | commit behind. Notable that it reached the same conclusion independently |
+| 2 — case 6c passes without its mechanism | **Real, and fixed.** `*"/boot/vmlinuz-*"*` also matches the temp dir,    |
+|                                          | since `/tmp/…/boot/vmlinuz-*` CONTAINS it. Tightened to                  |
+|                                          | `*"has a /boot/vmlinuz-*"*`, verified to reject the temp form and accept |
+|                                          | the real one                                                             |
+| Nit — `out_file` write-only              | Removed                                                                  |
+| Nit — `query_errors` named `repoquery`   | Renamed `kernel-query.err`; both queries write there now                 |
+
+Finding 2 deserves its own note: **my mutation harness could not have found it, because it
+only ever mutates the fixture.** The hole was in the test asserting against itself. Proved
+the fix by mutating the *test* instead — deleting the `STUB_OMIT_BOOT_DIR` branch now
+fails case 6c, where before it would have stayed green testing nothing.
+
 ### Correction to my own diagnosis
 
 I first recorded that twelve tests missed the blocking defect because **the harness ran

@@ -177,7 +177,6 @@ run_case() {
     # substitution does, and reverting to it with case 6a present still catches the
     # mutant. The transaction went untested because nobody wrote the case, not because
     # the harness could not express it.
-    local out_file="$work/out"
     STDOUT="$(
         {
         export TRACE_DIR="$work/trace"
@@ -210,7 +209,6 @@ run_case() {
         } 2>"$work/err"
     )"
     local rc=$?
-    printf '%s' "$STDOUT" >"$out_file"
     TRACE=""
     [ -r "$work/trace/trace" ] && TRACE="$(cat "$work/trace/trace")"
     RECORD=""
@@ -415,7 +413,12 @@ if STUB_REPOQUERY="$K_OLD
 $K_NEW" STUB_RPM="0.0.0-0.fcnone.noarch" STUB_OMIT_BOOT_DIR=1 \
     run_case "$K_OLD" "$K_NEW" "$K_OLD"; then
     report fail the-boot-directory-defaults-to-boot "it succeeded, returning '$STDOUT'"
-elif [[ "$DIE_MESSAGE" == *"/boot/vmlinuz-*"* ]]; then
+# `has a ` is load-bearing, not decoration. Every other case runs with boot_dir set to
+# `$work/boot` — a path that ENDS in /boot — so a bare `*/boot/vmlinuz-**` is satisfied by
+# `/tmp/tmp.X/boot/vmlinuz-*` just as well as by the real thing. Delete the
+# STUB_OMIT_BOOT_DIR branch and this case would stay green while testing nothing, and the
+# mutation harness could not see it because it only ever mutates the fixture.
+elif [[ "$DIE_MESSAGE" == *"has a /boot/vmlinuz-*"* ]]; then
     report pass the-boot-directory-defaults-to-boot
 else
     report fail the-boot-directory-defaults-to-boot "did not name /boot: ${DIE_MESSAGE:-none}"

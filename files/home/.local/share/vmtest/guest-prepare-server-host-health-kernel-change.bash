@@ -149,7 +149,8 @@ select_second_kernel() {
     local query_errors available installed wanted candidate target_kernel default_kernel
 
     command -v grubby >/dev/null || die "no grubby in this guest; the boot entry cannot be selected"
-    query_errors="${EVIDENCE_DIR}/repoquery.err"
+    # Both queries write here — dnf's and rpm's — so it is not named for either.
+    query_errors="${EVIDENCE_DIR}/kernel-query.err"
     available=""
     # --showduplicates, or repoquery answers with the newest build per repo only. A guest
     # built from a current image IS running that build, so without this the one case the
