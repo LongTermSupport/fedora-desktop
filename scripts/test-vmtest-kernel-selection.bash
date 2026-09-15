@@ -83,7 +83,10 @@ log() { :; }
 record() { printf '%s=%s\n' "${1:?}" "${2-}" >>"$TRACE_DIR/record"; }
 sudo() { if [ "${1:-}" = "-n" ]; then shift; fi; "$@"; }
 dnf() {
-    local a
+    local a showduplicates=0 newest
+    for a in "$@"; do
+        if [ "$a" = "--showduplicates" ]; then showduplicates=1; fi
+    done
     for a in "$@"; do
         case "$a" in
             repoquery)
@@ -91,7 +94,20 @@ dnf() {
                     printf '%s\n' "${STUB_REPOQUERY_ERR:-repo metadata unreachable}" >&2
                     return "${STUB_REPOQUERY_RC}"
                 fi
-                printf '%s' "${STUB_REPOQUERY-}"
+                # The flag is MODELLED, not ignored. repoquery answers with the newest
+                # build per name.arch unless asked for duplicates, so a stub returning the
+                # whole list either way makes --showduplicates unfalsifiable — and the
+                # case that matters most in the lab, a guest already on the newest kernel,
+                # rests entirely on more than one version coming back.
+                if [ "$showduplicates" = 1 ]; then
+                    printf '%s' "${STUB_REPOQUERY-}"
+                else
+                    newest=""
+                    while read -r a; do
+                        if [ -n "$a" ]; then newest="$a"; break; fi
+                    done < <(printf '%s\n' "${STUB_REPOQUERY-}" | sort -Vr)
+                    printf '%s\n' "$newest"
+                fi
                 return 0
                 ;;
             install)
@@ -109,6 +125,10 @@ grubby() {
     case "${1:-}" in
         --set-default)
             printf 'grubby-set %s\n' "${2:-}" >>"$TRACE_DIR/trace"
+            if [ "${STUB_GRUBBY_SET_RC:-0}" != 0 ]; then
+                printf 'grubby: cannot update the boot entry\n' >&2
+                return "${STUB_GRUBBY_SET_RC}"
+            fi
             printf '%s' "${2:-}" >"$TRACE_DIR/default"
             ;;
         --default-kernel)
@@ -149,7 +169,16 @@ run_case() {
     for k in "$@"; do
         printf 'vmlinuz\n' >"$work/boot/vmlinuz-$k"
     done
-    (
+    # A COMMAND SUBSTITUTION, because that is how the fixture calls it — and bash switches
+    # errexit OFF inside one unless `inherit_errexit` is set. A `( … )` subshell here
+    # instead would run the function under errexit, which production never gives it: an
+    # unguarded failing command would abort in the test and be stepped over on the guest.
+    # That is not a pedantic difference. It is how a failing package transaction passed
+    # twelve cases, and it made STUB_INSTALL_RC unreachable — a knob advertising coverage
+    # the harness could not have.
+    local out_file="$work/out"
+    STDOUT="$(
+        {
         export TRACE_DIR="$work/trace"
         if [ "${STUB_NO_GRUBBY:-0}" = 1 ]; then
             # A guest with no grubby, and HERMETICALLY so. Renaming the stub is not
@@ -172,11 +201,15 @@ run_case() {
         export EVIDENCE_DIR="$work/evidence"
         # shellcheck source=/dev/null
         source "$FN"
-        select_second_kernel "$running" "$work/boot"
-    ) >"$work/out" 2>"$work/err"
+        if [ "${STUB_OMIT_BOOT_DIR:-0}" = 1 ]; then
+            select_second_kernel "$running"
+        else
+            select_second_kernel "$running" "$work/boot"
+        fi
+        } 2>"$work/err"
+    )"
     local rc=$?
-    STDOUT=""
-    [ -r "$work/out" ] && STDOUT="$(cat "$work/out")"
+    printf '%s' "$STDOUT" >"$out_file"
     TRACE=""
     [ -r "$work/trace/trace" ] && TRACE="$(cat "$work/trace/trace")"
     RECORD=""
@@ -235,11 +268,16 @@ fi
 # one in the middle is what tells those apart. It matters: a repo's oldest kernel-core can
 # be several releases back, and a guest handed one may not boot the drivers its image
 # expects — a reboot failure the lab would report as this plan's claim being false.
-if STUB_REPOQUERY="$K_NEW
+#
+# BOTH LISTS ARRIVE OLDEST-FIRST, which is what makes the two `sort -Vr` calls load
+# bearing. Every list in this file was written newest-first to begin with, so deleting
+# both sorts passed all twelve cases: the first line was already the answer and nothing
+# ever had to be ordered. Neither dnf nor rpm promises an order, so neither should a stub.
+if STUB_REPOQUERY="$K_OLDEST
 $K_OLD
-$K_OLDEST" STUB_RPM="$K_NEW
+$K_NEW" STUB_RPM="$K_OLDEST
 $K_OLD
-$K_OLDEST" run_case "$K_OLD" "$K_NEW" "$K_OLD" "$K_OLDEST"; then
+$K_NEW" run_case "$K_OLD" "$K_NEW" "$K_OLD" "$K_OLDEST"; then
     # Asserted on what was INSTALLED, not only on what came back. Those are two separate
     # decisions — the repo list picks what to download, the installed list picks what to
     # boot — and they can disagree. A selection that took the oldest on offer would still
@@ -283,14 +321,22 @@ else
     report fail only-the-running-kernel-on-offer-refuses "refused for another reason: ${DIE_MESSAGE:-none}"
 fi
 
-# ── 4. the repos offer NOTHING, and say so successfully → refuse ──────────────────────
+# ── 4. the repos offer NOTHING, and say so successfully → refuse, DIFFERENTLY ─────────
 # The empty population, which is the defect shape this plan exists to catch. A repoquery
 # that exits 0 having printed nothing is a misconfigured guest, not a guest with no newer
 # kernel, and a loop over an empty list reaches its end without selecting anything. The
 # refusal has to come from the emptiness being judged, never from the loop running out.
+#
+# And it must be its OWN refusal. Asserting case 3's message here would have been the
+# cheap way to make this pass, and it would have cemented a misdiagnosis of exactly the
+# class this commit fixed for rpm: "every kernel-core the repos offer is X" is FALSE when
+# the repos offered nothing at all, and sends a reader looking for a kernel when the fault
+# is the repository configuration.
 if STUB_REPOQUERY="" STUB_RPM="$K_OLD" run_case "$K_OLD" "$K_OLD"; then
     report fail an-empty-repoquery-refuses "it succeeded on an empty list, returning '$STDOUT'"
 elif [[ "$DIE_MESSAGE" == *"cannot be given a second kernel"* ]]; then
+    report fail an-empty-repoquery-refuses "blamed the kernel choice for an unusable repository: $DIE_MESSAGE"
+elif [[ "$DIE_MESSAGE" == *"listed no kernel-core at all"* ]]; then
     report pass an-empty-repoquery-refuses
 else
     report fail an-empty-repoquery-refuses "refused for another reason: ${DIE_MESSAGE:-none}"
@@ -322,6 +368,55 @@ elif [[ "$DIE_MESSAGE" == *vmlinuz* ]]; then
     report fail a-failed-rpm-refuses-naming-rpm "blamed the bootloader for an rpm failure: $DIE_MESSAGE"
 else
     report fail a-failed-rpm-refuses-naming-rpm "refused for another reason: ${DIE_MESSAGE:-none}"
+fi
+
+# ── 6a. the package transaction FAILS → refuse, naming the transaction ────────────────
+# The case the old harness could not express. It ran the function in a `( … )` subshell,
+# where errexit is live; the fixture calls it in a command substitution, where bash turns
+# errexit OFF. So an unguarded `dnf -y install` aborted under test and was stepped over on
+# a real guest — and STUB_INSTALL_RC sat in the stub file unreachable, advertising exactly
+# the coverage that was missing. On a guest that already carries two kernels the run would
+# then have SUCCEEDED, with PREPARED_WANTED_KERNEL naming a kernel nothing ever downloaded.
+if STUB_REPOQUERY="$K_OLD
+$K_NEW" STUB_RPM="$K_OLD
+$K_NEW" STUB_INSTALL_RC=1 run_case "$K_OLD" "$K_NEW" "$K_OLD"; then
+    report fail a-failed-install-refuses "it succeeded after the transaction failed, returning '$STDOUT'"
+elif [[ "$DIE_MESSAGE" == *"installing kernel-$K_NEW failed"* ]]; then
+    report pass a-failed-install-refuses
+elif [[ "$DIE_MESSAGE" == *vmlinuz* ]]; then
+    report fail a-failed-install-refuses "blamed the boot directory for a failed transaction: $DIE_MESSAGE"
+else
+    report fail a-failed-install-refuses "refused for another reason: ${DIE_MESSAGE:-none}"
+fi
+
+# ── 6b. the bootloader REFUSES the selection → refuse ─────────────────────────────────
+# Same shape as 6a one step later, and the same reason it was invisible: `grubby
+# --set-default` had its status discarded too. A guest whose boot entry was never changed
+# reboots into the kernel it was already running, which is the single failure that makes
+# every check after the reboot judge the wrong boot while still producing a transcript.
+if STUB_REPOQUERY="$K_OLD
+$K_NEW" STUB_RPM="$K_OLD
+$K_NEW" STUB_GRUBBY_SET_RC=1 run_case "$K_OLD" "$K_NEW" "$K_OLD"; then
+    report fail a-refusing-bootloader-refuses "it succeeded after grubby refused, returning '$STDOUT'"
+elif [[ "$DIE_MESSAGE" == *"grubby refused to make"* ]]; then
+    report pass a-refusing-bootloader-refuses
+else
+    report fail a-refusing-bootloader-refuses "refused for another reason: ${DIE_MESSAGE:-none}"
+fi
+
+# ── 6c. the boot directory DEFAULTS to /boot ──────────────────────────────────────────
+# The parameter exists for the test's benefit, so nothing otherwise pins its default:
+# `${2:-/bot}` would have passed every case in this file. Called with one argument and an
+# installed version that cannot exist on any machine, so the refusal has to name the real
+# path. Read-only — no case here ever writes into /boot.
+if STUB_REPOQUERY="$K_OLD
+$K_NEW" STUB_RPM="0.0.0-0.fcnone.noarch" STUB_OMIT_BOOT_DIR=1 \
+    run_case "$K_OLD" "$K_NEW" "$K_OLD"; then
+    report fail the-boot-directory-defaults-to-boot "it succeeded, returning '$STDOUT'"
+elif [[ "$DIE_MESSAGE" == *"/boot/vmlinuz-*"* ]]; then
+    report pass the-boot-directory-defaults-to-boot
+else
+    report fail the-boot-directory-defaults-to-boot "did not name /boot: ${DIE_MESSAGE:-none}"
 fi
 
 # ── 7. dnf reported success but no second kernel reached /boot → refuse ───────────────
@@ -374,7 +469,13 @@ fi
 # swallowed that, the fixture would carry on to its completion marker and the harness
 # would reboot a guest into the kernel it already ran — the one failure that produces a
 # green transcript for a scenario that never happened.
-mkdir -p "$work/trace10" "$work/evidence"
+rm -rf "${work:?}/trace10" "${work:?}/boot10"
+mkdir -p "$work/trace10" "$work/boot10" "$work/evidence"
+printf 'vmlinuz\n' >"$work/boot10/vmlinuz-$K_OLD"
+# Its OWN boot directory. Reusing $work/boot made this case depend on whatever the
+# previous one happened to leave there, so a reordering could have changed its meaning
+# silently.
+#
 # An UNQUOTED heredoc: the paths and the stubs have to be interpolated now, while the
 # `$` of the capture and of the variable it assigns must survive into the generated
 # script — hence the escaping on exactly those two.
@@ -386,12 +487,19 @@ STUB_REPOQUERY=$(printf '%q' "$K_OLD")
 STUB_RPM=$(printf '%q' "$K_OLD")
 $STUB_PRELUDE
 source $(printf '%q' "$FN")
-target_kernel="\$(select_second_kernel $(printf '%q' "$K_OLD") $(printf '%q' "$work/boot"))"
+target_kernel="\$(select_second_kernel $(printf '%q' "$K_OLD") $(printf '%q' "$work/boot10"))"
 printf 'CALLER-CONTINUED %s\\n' "\$target_kernel"
 CALLER
 caller_out="$(bash "$work/caller.bash" 2>&1)"
 caller_rc=$?
-if [ "$caller_rc" -eq 0 ]; then
+# The refusal the function actually reached, not merely "it exited non-zero". Without
+# this the case passes on a truncated heredoc, a renamed function or a `set -u` error —
+# every way of failing to run at all looks like the propagation it means to prove.
+caller_die=""
+[ -r "$work/trace10/die" ] && caller_die="$(cat "$work/trace10/die")"
+if [[ "$caller_die" != *"cannot be given a second kernel"* ]]; then
+    report fail a-refusal-stops-the-caller "the function never reached its refusal: ${caller_die:-none}; output: ${caller_out:-none}"
+elif [ "$caller_rc" -eq 0 ]; then
     report fail a-refusal-stops-the-caller "the caller exited 0 after the refusal"
 elif [[ "$caller_out" == *CALLER-CONTINUED* ]]; then
     report fail a-refusal-stops-the-caller "the caller ran on past the refusal: $caller_out"
@@ -399,9 +507,13 @@ else
     report pass a-refusal-stops-the-caller
 fi
 
-# A run that selected nothing must not be able to report success.
-if [ "$passed" -eq 0 ]; then
-    printf 'FAIL: no case ran\n' >&2
+# A run that selected nothing must not be able to report success — and neither may a run
+# that quietly lost a case. `passed: N` is only evidence if something knows what N is;
+# without this, deleting a case makes the suite greener rather than louder.
+EXPECTED_CASES=15
+if [ "$((passed + failed))" -ne "$EXPECTED_CASES" ]; then
+    printf 'FAIL: %d case(s) reported, expected %d — a case was added or lost without updating EXPECTED_CASES\n' \
+        "$((passed + failed))" "$EXPECTED_CASES" >&2
     exit 1
 fi
 

@@ -75,7 +75,7 @@ not run by `qa-all.bash`** until Plan 00081. Following this document's own "ALWA
 ONLY use `qa-all.bash`" rule, a `helpers/` change earned `✓ QA passed` with its unit
 suite never executed. The fix was to run them rather than to soften the rule.
 
-The five `test-*` suites are the same shape of hole, closed later: each guards a defect
+The `test-*` suites are the same shape of hole, closed later: each guards a defect
 class whose regression is **silent by construction**. A leak the secret scanner stopped
 catching produces no signal on any commit, and a `_planlib.inc.bash` regression surfaces
 only when someone next runs a plan's host script — which may be months, and on a plan

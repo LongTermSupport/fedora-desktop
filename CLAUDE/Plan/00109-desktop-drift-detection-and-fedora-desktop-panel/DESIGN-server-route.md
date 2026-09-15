@@ -396,11 +396,39 @@ So the selection is a function, `select_second_kernel`, driven by
 `scripts/test-vmtest-kernel-selection.bash` against stubbed `dnf`, `rpm` and `grubby`.
 That proves the **decisions** — which version is chosen from what the repos offer, what
 is downloaded, what is handed to the bootloader, and that every way of ending up without
-a second kernel is a refusal rather than a quiet success. It does not prove dnf's real
-output format, and is not written as though it does; the first guest run is what confirms
-the NEVRA shape `%{version}-%{release}.%{arch}` against a real repository.
+a second kernel is a refusal rather than a quiet success.
 
-Two things that exercise found, neither visible by reading:
+**What a stub cannot settle, stated exactly.** Two assumptions about dnf are load-bearing
+and neither is verifiable here:
+
+- the NEVRA shape `%{version}-%{release}.%{arch}` equals what `uname -r` reports;
+- `repoquery` offers **more than one build**, which is why `--showduplicates` is passed.
+  Without it repoquery answers with the newest build per `name.arch`, and a guest built
+  from a current image *is* that build — so the case the lab is likeliest to produce, a
+  guest already on the newest kernel, would find only itself on offer and refuse.
+
+The second is the one that was quietly assumed rather than declared. It is now modelled
+in the stub — which honours `--showduplicates` instead of ignoring it — so dropping the
+flag fails the suite rather than passing it. The first guest run confirms both against a
+real repository.
+
+Three things that exercise found, none visible by reading:
+
+- **Moving the step into a function moved it out of `set -e`.** The caller takes its
+  answer with `target_kernel="$(select_second_kernel …)"`, and bash switches errexit
+  **off** inside a command substitution unless `inherit_errexit` is set — measured on
+  5.2.15, where the substituted form runs past a failure and the caller still exits 0.
+  So the package transaction's status was discarded: a failed install would either die
+  blaming `/boot` for a transaction that never happened, or — on a guest that already
+  carried two kernels — succeed silently with `PREPARED_WANTED_KERNEL` naming a kernel
+  nothing downloaded. Every command that changes the guest now carries its own `|| die`,
+  and the function's header says why, because `set -e` protects nothing inside it.
+
+  The reason twelve tests missed it is worth more than the defect: **the harness ran the
+  function in a `( … )` subshell, where errexit is live.** It was testing semantics
+  production never has. It now calls the function in a command substitution, exactly as
+  the fixture does — which is also what made `STUB_INSTALL_RC` reachable, a knob that had
+  been sitting in the stub file advertising coverage the harness could not have.
 
 - **`rpm -q` prints its complaint on stdout and exits 1**, and a process substitution's
   exit status is not part of the pipeline, so `pipefail` never sees it. Read straight into
@@ -408,6 +436,7 @@ Two things that exercise found, neither visible by reading:
   rejected for naming no `vmlinuz`, and the run died about the bootloader — pointing a
   reader at `/boot` for a fault belonging to the package database. The same reasoning that
   makes §1 of the fixture abort rather than record.
+
 - **Two loops, two decisions.** The repo list decides what to download; the installed list
   decides what to boot. A test that asserts only the returned kernel passes whichever one
   the first loop picked, because the second loop finds the newest kernel on disk either
@@ -415,6 +444,17 @@ Two things that exercise found, neither visible by reading:
   until the assertion moved onto the install itself. A guest handed a kernel several
   releases back may not boot its image's drivers, and the lab would report that as this
   plan's claim being false.
+
+**And a test can agree with a wrong answer.** Every stubbed version list was written
+newest-first, so both `sort -Vr` calls could be deleted and all twelve cases still passed
+— the first line was already the answer and nothing ever had to be ordered. Neither dnf
+nor rpm promises an order. The lists now arrive oldest-first.
+
+The same shape reached the refusals: an empty `repoquery` and a `repoquery` offering only
+the running kernel both died saying *"every kernel-core the repos offer is X"*, which is
+false in the first case and sends a reader hunting for a kernel when the fault is the
+repository configuration. Two causes, two messages, and the test asserts the difference —
+otherwise it cements the misdiagnosis it was written to catch.
 
 Two things the lab still cannot settle. The `scp` claim is exercised through the guest's
 own `sshd` with a key the fixture generates, which is the real `SSH_SOURCE_BASHRC` path —

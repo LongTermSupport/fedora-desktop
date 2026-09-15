@@ -65,7 +65,10 @@ chmod 0700 "${EVIDENCE_DIR}"
 # `probe_results` produces for a failed unit, which ends in `(system scope)`, and `(`
 # alone was enough: `source` exited 2 and the checker then judged a record that was not
 # there. `%q` costs nothing and makes that class of value impossible to write.
-record() { printf '%s=%q\n' "${1:?}" "${2-}" >>"${EVIDENCE}"; }
+record() {
+    printf '%s=%q\n' "${1:?}" "${2-}" >>"${EVIDENCE}" ||
+        die "could not append ${1} to ${EVIDENCE}; the checker would judge a record with a hole in it"
+}
 
 # collect_once <prefix> — run the collector synchronously and record how it went.
 # SuccessExitStatus=3 in the unit: the collector exits 3 when it has findings,
@@ -132,6 +135,15 @@ login_once() {
 # The boot directory is a parameter with its real default, not a global read from the
 # environment: a test needs a directory it owns to stand in for /boot, and this gate runs
 # on the user's own machine where writing into the real one would be intolerable.
+#
+# EVERY COMMAND THAT CHANGES THE GUEST IS CHECKED HERE, not left to `set -e`. The caller
+# takes this function's answer with `target_kernel="$(select_second_kernel …)"`, and bash
+# switches errexit OFF inside a command substitution unless `inherit_errexit` is set —
+# measured on bash 5.2.15, where the substituted form runs past a failure and the caller
+# still exits 0. So `set -e` covers nothing in this function except `die` itself. Anything
+# added below needs its own `|| die`.
+#
+# select_second_kernel <running-kernel> [boot-dir]
 select_second_kernel() {
     local running_kernel="${1:?}" boot_dir="${2:-/boot}"
     local query_errors available installed wanted candidate target_kernel default_kernel
@@ -139,9 +151,19 @@ select_second_kernel() {
     command -v grubby >/dev/null || die "no grubby in this guest; the boot entry cannot be selected"
     query_errors="${EVIDENCE_DIR}/repoquery.err"
     available=""
-    if ! available="$(sudo -n dnf -q repoquery --queryformat '%{version}-%{release}.%{arch}\n' kernel-core 2>"${query_errors}")"; then
+    # --showduplicates, or repoquery answers with the newest build per repo only. A guest
+    # built from a current image IS running that build, so without this the one case the
+    # lab is most likely to produce — a guest already on the newest kernel — would find
+    # nothing but itself on offer and refuse.
+    if ! available="$(sudo -n dnf -q repoquery --showduplicates --queryformat '%{version}-%{release}.%{arch}\n' kernel-core 2>"${query_errors}")"; then
         die "asking dnf which kernel-core versions exist failed: $(cat "${query_errors}")"
     fi
+    # An empty answer is a guest whose repositories are unusable, NOT a guest with no
+    # other kernel. Told apart here because the two need different things done about
+    # them, and one message for both sends a reader looking for a kernel that was never
+    # the problem.
+    [[ -n "${available//[[:space:]]/}" ]] ||
+        die "dnf listed no kernel-core at all; this guest's repositories cannot answer for the kernel"
 
     wanted=""
     while read -r candidate; do
@@ -155,14 +177,19 @@ select_second_kernel() {
     record PREPARED_WANTED_KERNEL "${wanted}"
 
     log "installing kernel ${wanted} alongside the running ${running_kernel}"
-    sudo -n dnf -y install "kernel-${wanted}" >&2
+    sudo -n dnf -y install "kernel-${wanted}" >&2 ||
+        die "installing kernel-${wanted} failed; this guest has no second kernel to boot into"
 
     # `rpm` in its own conventional case, `dnf repoquery` above in its: rpm tag names are
     # case-insensitive, but dnf5's format tags are documented lowercase and the long
     # `--queryformat` is spelled out on both, so neither depends on an abbreviation.
+    # stderr to a file, as the dnf query above does, rather than folded in with 2>&1: rpm
+    # can warn on stderr and still exit 0, and a warning merged into this capture is read
+    # as a candidate version. Harmless today — it names no vmlinuz, so the loop steps over
+    # it — but only by luck, and the failure text belongs in the message either way.
     installed=""
-    if ! installed="$(rpm -q kernel-core --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' 2>&1)"; then
-        die "asking rpm which kernel-core packages are installed failed: ${installed}"
+    if ! installed="$(rpm -q kernel-core --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' 2>"${query_errors}")"; then
+        die "asking rpm which kernel-core packages are installed failed: ${installed} $(cat "${query_errors}")"
     fi
 
     target_kernel=""
@@ -179,8 +206,11 @@ select_second_kernel() {
     record PREPARED_TARGET_KERNEL "${target_kernel}"
 
     log "selecting ${target_kernel} for the next boot"
-    sudo -n grubby --set-default "${boot_dir}/vmlinuz-${target_kernel}" >&2
-    default_kernel="$(sudo -n grubby --default-kernel)"
+    sudo -n grubby --set-default "${boot_dir}/vmlinuz-${target_kernel}" >&2 ||
+        die "grubby refused to make ${boot_dir}/vmlinuz-${target_kernel} the default boot entry"
+    default_kernel=""
+    default_kernel="$(sudo -n grubby --default-kernel)" ||
+        die "grubby could not name the default boot entry after being given ${target_kernel}"
     record PREPARED_DEFAULT_KERNEL "${default_kernel}"
     [[ "${default_kernel}" == "${boot_dir}/vmlinuz-${target_kernel}" ]] ||
         die "grubby reports ${default_kernel} as the default, not ${boot_dir}/vmlinuz-${target_kernel}"
