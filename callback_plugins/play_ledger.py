@@ -59,13 +59,26 @@ DOCUMENTATION = """
 
 
 def _source_position(play):
-    """Ansible's `(file, line, column)` for a play, from its parsed data structure.
+    """Ansible's `(file, line, column)` for a play, from whichever shape it uses.
 
-    `_ds` is Ansible's own name for that structure and there is no public
-    accessor for it; `getattr` keeps a future rename from raising here, where the
-    exception would be swallowed, instead of surfacing as a recorded hole.
+    TWO shapes, because 2.19 changed it and this plugin only read the old one —
+    so every play became a recorded hole and the ledger marked itself BROKEN on
+    every run (issue #46). `ansible_pos` on the parsed mapping is pre-2.19;
+    `_origin` on the play itself (`path`, `line_num`, `col_num`) is what
+    `FieldAttributeBase.load_data` sets now.
+
+    Both are Ansible internals with no public accessor, so every read is a
+    `getattr`: a future rename must degrade to the other shape or to a recorded
+    hole, never raise here, where Ansible would swallow the exception.
+
+    The CHOICE between them is `plugin_support.source_position`, where it is
+    tested — `ansible` is not importable by the interpreter that runs the tests,
+    so logic left in this file is logic with no test.
     """
-    return getattr(getattr(play, "_ds", None), "ansible_pos", None)
+    return plugin_support.source_position(
+        getattr(play, "_origin", None),
+        getattr(getattr(play, "_ds", None), "ansible_pos", None),
+    )
 
 
 class CallbackModule(CallbackBase):

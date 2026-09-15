@@ -328,3 +328,68 @@ class TestDefaultWiring(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestClearBroken(unittest.TestCase):
+    """The operator's route out of a recorded hole (issue #46).
+
+    `store.clear_broken` existed from the start with NO caller — so a sentinel, once
+    written, left every check downstream refusing for ever with nothing to do about
+    it. A fail-safe with no reset is a fail-stop.
+    """
+
+    def test_clears_the_sentinel_so_recording_can_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            store.mark_broken(base, error="ValueError: boom", at=STAMP)
+            self.assertTrue(os.path.exists(ledger.sentinel_path(base)))
+            out = io.StringIO()
+            rc = check_freshness.clear_broken(base=base, stdout=out)
+            self.assertEqual(rc, check_freshness.EXIT_OK)
+            self.assertFalse(os.path.exists(ledger.sentinel_path(base)))
+
+    def test_quotes_the_recorded_reason_back(self) -> None:
+        """The reason is the only record of WHY, and clearing destroys it — so it is
+        printed on the way out rather than silently unlinked."""
+        with tempfile.TemporaryDirectory() as base:
+            store.mark_broken(base, error="ValueError: no source position", at=STAMP)
+            out = io.StringIO()
+            check_freshness.clear_broken(base=base, stdout=out)
+            self.assertIn("no source position", out.getvalue())
+
+    def test_says_the_missing_rows_are_not_recovered(self) -> None:
+        """THE case that matters. Clearing makes the ledger stop reporting broken; it
+        does not make it complete. An operator who reads this as 'fixed' would trust a
+        history with a hole in it — which is the failure Plan 00109 exists to prevent."""
+        with tempfile.TemporaryDirectory() as base:
+            store.mark_broken(base, error="ValueError: boom", at=STAMP)
+            out = io.StringIO()
+            check_freshness.clear_broken(base=base, stdout=out)
+            self.assertIn("NOT recovered", out.getvalue())
+
+    def test_no_sentinel_is_a_clean_no_op_not_an_error(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            out = io.StringIO()
+            rc = check_freshness.clear_broken(base=base, stdout=out)
+            self.assertEqual(rc, check_freshness.EXIT_OK)
+            self.assertIn("no recorded hole", out.getvalue())
+
+    def test_an_unreadable_reason_still_clears_the_sentinel(self) -> None:
+        """The operator asked for the hole to be cleared. Failing to quote the reason
+        back is no reason to leave the ledger refusing for ever."""
+        with tempfile.TemporaryDirectory() as base:
+            store.mark_broken(base, error="ValueError: boom", at=STAMP)
+            out = io.StringIO()
+            with mock.patch("builtins.open", side_effect=OSError("denied")):
+                rc = check_freshness.clear_broken(base=base, stdout=out)
+            self.assertEqual(rc, check_freshness.EXIT_OK)
+            self.assertFalse(os.path.exists(ledger.sentinel_path(base)))
+
+    def test_the_run_path_is_untouched_by_the_flag_being_available(self) -> None:
+        """Clearing is deliberate and explicit: a normal run must never do it, or the
+        sentinel would stop meaning anything."""
+        with tempfile.TemporaryDirectory() as base:
+            store.mark_broken(base, error="ValueError: boom", at=STAMP)
+            out, err = io.StringIO(), io.StringIO()
+            rc = check_freshness.run(base=base, repo_root=base, stdout=out, stderr=err)
+            self.assertEqual(rc, check_freshness.EXIT_UNTRUSTWORTHY)
+            self.assertTrue(os.path.exists(ledger.sentinel_path(base)))

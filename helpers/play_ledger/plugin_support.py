@@ -32,6 +32,31 @@ def should_record(cliargs: dict[str, Any]) -> bool:
     return not any(bool(cliargs.get(flag)) for flag in _NO_OP_FLAGS)
 
 
+def source_position(origin: Any, legacy: Any) -> Any:
+    """Normalise Ansible's two shapes for "where did this play come from".
+
+    ansible-core **2.19 removed `ansible_pos`** from the parsed mapping and put the
+    same fact in an `Origin` tag, which `FieldAttributeBase.load_data` stores on the
+    play object as `_origin` (`path`, `line_num`, `col_num`). Reading only the old
+    shape made `play_source` refuse on EVERY play, so the ledger recorded nothing and
+    marked itself `BROKEN` on every run — issue #46. It had never worked on 2.19.
+
+    Both attribute names are Ansible internals and neither is promised, so this
+    trusts neither: whichever is present wins, the new shape first because it is the
+    one this branch's Ansible actually sets. When neither is, the answer is `None`
+    and `play_source` refuses with its own message — a recorded hole, never a guess.
+
+    Kept here rather than in the callback because `ansible` is not importable by the
+    interpreter that runs these tests, so anything left in the plugin is untested by
+    construction. This function names no Ansible type: it reads duck-typed attributes
+    the caller has already pulled off the play.
+    """
+    path = getattr(origin, "path", None)
+    if isinstance(path, str) and path:
+        return (path, getattr(origin, "line_num", None), getattr(origin, "col_num", None))
+    return legacy or None
+
+
 def play_source(position: Any) -> str:
     """The play's source file, from Ansible's `(file, line, column)` position.
 
@@ -93,4 +118,11 @@ def record_failure(base: str, *, error: str, at: str) -> str:
             f"{FAILURE_MARKER}: {error} — and the BROKEN sentinel at {base} could not "
             f"be written either ({sentinel_error}), so nothing on disk records this"
         )
-    return f"{FAILURE_MARKER}: {error} — recorded in {store.ledger.sentinel_path(base)}"
+    # The remedy travels with the report. Without it the operator is told the ledger
+    # is broken, on every play of every run, and given nothing to do about it — which
+    # is how issue #46 read on two hosts.
+    return (
+        f"{FAILURE_MARKER}: {error} — recorded in {store.ledger.sentinel_path(base)}. "
+        f"Once the cause is fixed, clear it with: "
+        f"python3 -m helpers.play_ledger.check_freshness --clear-broken"
+    )

@@ -72,6 +72,82 @@ class TestShouldRecord(unittest.TestCase):
         self.assertIs(plugin_support.should_record({"diff": True, "forks": 5}), True)
 
 
+class _FakeOrigin:
+    """The shape ansible-core 2.19 puts on a play as `_origin`.
+
+    A fake rather than the real `Origin`: `ansible` is not importable by the
+    interpreter that runs these tests, which is the whole reason `source_position`
+    lives in the helper and reads duck-typed attributes.
+    """
+
+    def __init__(self, path: object, line_num: object = 3, col_num: object = 5) -> None:
+        self.path = path
+        self.line_num = line_num
+        self.col_num = col_num
+
+
+class TestSourcePosition(unittest.TestCase):
+    """Issue #46: ansible-core 2.19 dropped `ansible_pos` and the ledger recorded
+    NOTHING on every run, marking itself BROKEN each time. The regression was total
+    and silent-by-design — a callback may not raise — so these pin both shapes."""
+
+    def test_the_2_19_origin_shape_is_read(self) -> None:
+        self.assertEqual(
+            plugin_support.source_position(_FakeOrigin("/repo/p.yml"), None),
+            ("/repo/p.yml", 3, 5),
+        )
+
+    def test_the_legacy_ansible_pos_shape_is_read(self) -> None:
+        """Pre-2.19 Ansible sets no `_origin`; the parsed mapping carried the triple."""
+        self.assertEqual(
+            plugin_support.source_position(None, ("/repo/p.yml", 3, 5)),
+            ("/repo/p.yml", 3, 5),
+        )
+
+    def test_the_origin_wins_when_both_are_present(self) -> None:
+        """Not arbitrary: on 2.19 the origin is the one Ansible actually maintains, so
+        a stale legacy value must not shadow it."""
+        self.assertEqual(
+            plugin_support.source_position(_FakeOrigin("/new.yml"), ("/old.yml", 1, 1)),
+            ("/new.yml", 3, 5),
+        )
+
+    def test_neither_shape_present_is_none_so_play_source_can_refuse(self) -> None:
+        self.assertIsNone(plugin_support.source_position(None, None))
+
+    def test_an_origin_without_a_path_falls_back_rather_than_yielding_a_hole(self) -> None:
+        """A future rename of `path` must degrade to the other shape, not to nothing —
+        the whole point of reading two."""
+        self.assertEqual(
+            plugin_support.source_position(object(), ("/legacy.yml", 1, 1)),
+            ("/legacy.yml", 1, 1),
+        )
+
+    def test_a_blank_origin_path_is_not_a_path(self) -> None:
+        self.assertIsNone(plugin_support.source_position(_FakeOrigin(""), None))
+
+    def test_a_non_string_origin_path_is_not_a_path(self) -> None:
+        """`Origin.path` is typed as a str; anything else is a shape this does not
+        understand, and guessing from it would name the wrong file in a record."""
+        self.assertIsNone(plugin_support.source_position(_FakeOrigin(None), None))
+
+    def test_an_empty_legacy_tuple_is_none_rather_than_an_empty_sequence(self) -> None:
+        """play_source refuses on both, but returning None keeps one shape of 'no
+        answer' rather than two that happen to behave alike today."""
+        self.assertIsNone(plugin_support.source_position(None, ()))
+
+    def test_the_result_feeds_play_source_directly(self) -> None:
+        """The seam that actually broke: these two are used together, and a normaliser
+        whose output play_source cannot read would fail exactly as before."""
+        position = plugin_support.source_position(_FakeOrigin("/repo/p.yml"), None)
+        self.assertEqual(plugin_support.play_source(position), "/repo/p.yml")
+
+    def test_a_missing_position_still_refuses_through_play_source(self) -> None:
+        position = plugin_support.source_position(None, None)
+        with self.assertRaises(ValueError):
+            plugin_support.play_source(position)
+
+
 class TestPlaySource(unittest.TestCase):
     def test_extracts_the_file_from_an_ansible_position_triple(self) -> None:
         self.assertEqual(
@@ -224,3 +300,21 @@ class TestRecordFailure(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRecordFailureNamesTheRemedy(unittest.TestCase):
+    """Issue #46: the operator was told the ledger was broken on every play of every
+    run, and given nothing to do about it. The remedy travels with the report."""
+
+    def test_the_message_names_the_command_that_clears_the_hole(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            line = plugin_support.record_failure(base, error="ValueError: boom", at=STAMP)
+            self.assertIn("--clear-broken", line)
+
+    def test_the_message_still_carries_the_cause(self) -> None:
+        """The remedy must not crowd out WHY — a reader who cannot see the cause
+        cannot tell whether clearing is yet safe."""
+        with tempfile.TemporaryDirectory() as base:
+            line = plugin_support.record_failure(base, error="ValueError: boom", at=STAMP)
+            self.assertIn("ValueError: boom", line)
+            self.assertIn(plugin_support.FAILURE_MARKER, line)

@@ -160,6 +160,42 @@ def _emit(report: freshness.Report, stdout: TextIO, stderr: TextIO) -> int:
     return EXIT_FINDINGS
 
 
+def clear_broken(*, base: str, stdout: TextIO) -> int:
+    """Forget a recorded ledger hole, so recording can resume. The operator's route.
+
+    `store.clear_broken` existed from the start and had **no caller** — no CLI, no
+    script, nothing. So a sentinel, once written, made the ledger permanently
+    untrustworthy with no documented way out, and every check downstream refused for
+    ever. A fail-safe with no reset is a fail-stop; issue #46 put two hosts in exactly
+    that state.
+
+    What this does NOT do is recover the missing rows. The plays that ran while the
+    sentinel existed were never recorded and cannot be reconstructed, so the ledger
+    stays incomplete — it just stops being *known-broken*, which is a weaker and
+    honest claim. Reporting that difference is why this prints rather than being
+    silent, and why it is a deliberate flag rather than something `run` does for you.
+    """
+    sentinel = ledger.sentinel_path(base)
+    if not os.path.exists(sentinel):
+        stdout.write("play-ledger: no recorded hole to clear.\n")
+        return EXIT_OK
+    reason = ""
+    try:
+        with open(sentinel, encoding="utf-8") as handle:
+            reason = handle.read().strip()
+    except OSError as error:
+        # Reported, not fatal: the operator asked to clear the sentinel, and failing
+        # to quote it back is no reason to leave it in place.
+        reason = f"(the reason could not be read: {error})"
+    store.clear_broken(base)
+    stdout.write(f"play-ledger: cleared the recorded hole — {reason}\n")
+    stdout.write(
+        "The plays that ran while it existed were never recorded and are NOT recovered; "
+        "the ledger is incomplete, it is simply no longer known-broken.\n"
+    )
+    return EXIT_OK
+
+
 def _repo_root_default() -> str:
     """This file is `<repo>/helpers/play_ledger/check_freshness.py`."""
     return os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
@@ -168,8 +204,19 @@ def _repo_root_default() -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", default=_repo_root_default())
+    parser.add_argument(
+        "--clear-broken",
+        action="store_true",
+        help=(
+            "forget a recorded ledger hole and exit. The hole is REAL — plays that ran "
+            "while it existed were not recorded, and clearing does not recover them — so "
+            "this only says the CAUSE is fixed and recording may resume."
+        ),
+    )
     arguments = parser.parse_args(argv)
     base = ledger.ledger_dir(os.environ, os.path.expanduser("~"))
+    if arguments.clear_broken:
+        return clear_broken(base=base, stdout=sys.stdout)
     return run(base=base, repo_root=arguments.repo_root, stdout=sys.stdout, stderr=sys.stderr)
 
 
