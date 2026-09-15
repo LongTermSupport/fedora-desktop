@@ -58,30 +58,36 @@ five days *after* the last green run, so they are not the original breakage.
 
 **Cause B — five helper unit tests that pass locally and fail on a runner.**
 
-| Test                                                                                                                                      | Status            |
-| ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| `tests/helpers/displaylink_recovery/test_run_recovery.py::TestEdidByteCountAgainstRealSysfs::test_a_connected_display_reports_edid_bytes` | explained         |
-| `…::TestEdidByteCountAgainstRealSysfs::test_stat_disagrees_with_reading_which_is_the_whole_point`                                         | explained         |
-| `tests/helpers/gnome/test_apply_enabled_extensions.py::TestMain::test_falls_back_to_dbus_run_session_without_a_bus`                       | explained         |
-| `tests/helpers/host_health/test_handoff.py::TestTheHandoffCanBeSuppressedForTriage::test_the_findings_are_still_reported_either_way`      | **not explained** |
-| `tests/helpers/host_health/test_login_message.py::TestTheEntryPointALoginShellCalls::test_it_exits_zero_and_prints_nothing_when_clean`    | **not explained** |
+| Test                                                                                                                                      | Status       |
+| ----------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| `tests/helpers/displaylink_recovery/test_run_recovery.py::TestEdidByteCountAgainstRealSysfs::test_a_connected_display_reports_edid_bytes` | fixed (T3.1) |
+| `…::TestEdidByteCountAgainstRealSysfs::test_stat_disagrees_with_reading_which_is_the_whole_point`                                         | fixed (T3.1) |
+| `tests/helpers/gnome/test_apply_enabled_extensions.py::TestMain::test_falls_back_to_dbus_run_session_without_a_bus`                       | fixed (T3.2) |
+| `tests/helpers/host_health/test_handoff.py::TestTheHandoffCanBeSuppressedForTriage::test_the_findings_are_still_reported_either_way`      | fixed (T1.3) |
+| `tests/helpers/host_health/test_login_message.py::TestTheEntryPointALoginShellCalls::test_it_exits_zero_and_prints_nothing_when_clean`    | fixed (T1.3) |
+
+All five are **defective tests**, not production paths. Run `35034834651` (`cedc9426`)
+confirms the first two fixes on a real runner: `failures=5` became `failures=3`, with the
+two `host_health` entries gone and nothing else changed.
 
 The DisplayLink pair deliberately asserts against real sysfs — its own docstring says a
-tempfile cannot reproduce the defect and that it *"skips where there is none (the CCY
-container, CI)"*. The skip guard does not fire on a runner, which has a `card1-Virtual-1`
-connector reporting `connected` with modes and an `edid` file present that reads zero
-bytes. The intent is right; the guard does not recognise that shape.
+tempfile cannot reproduce the defect. It scans every `card*-*` connector and asserts
+"connected and advertising modes ⇒ has EDID bytes". That inference holds for a connector
+with a physical display link and is simply **false for a `Virtual` connector**, whose modes
+are invented by the driver and which has no monitor to read an EDID from. A runner is a VM
+whose one connected connector is `card1-Virtual-1`. Production never looks at these at all
+— `_drm_head_states()` globs `card*-DVI-I-*` — so the unsound inference is the test's own.
 
-The dbus test unlinks a socket in its own temp runtime dir and asserts the fallback to
-`dbus-run-session`. It does not isolate the inherited `DBUS_SESSION_BUS_ADDRESS`, and
-`session_bus.current()` reads `os.environ` directly (`helpers/gnome/session_bus.py:93`),
-returning `source="environment"` whenever that variable is set (`:62`). On a machine that
-has one, the code never reaches the branch the test names.
+The dbus test's first diagnosis was **wrong and is corrected here**: it *does* isolate
+`DBUS_SESSION_BUS_ADDRESS`, because `mock.patch.dict(..., clear=True)` unsets it (measured:
+`None` inside the patch). The real cause is one candidate further down. `runtime_dirs`
+always appends `/run/user/<uid>` and deliberately never drops it — it is the path derived
+from who the process actually is, so no environment change can remove it. On a runner
+(uid 1001, a live user session) that socket is reachable, `resolve_session_bus` returns
+`source="runtime-socket"`, and the fallback the test names is never reached. It passed in
+the container only because the container runs as a uid with no session.
 
-The two `host_health` failures are **not diagnosed**. The obvious hypothesis — a runner
-has no play ledger, so the empty-ledger finding fires and the host is not "clean" — was
-tested by pointing `HOME`, `XDG_DATA_HOME` and `XDG_STATE_HOME` at an empty sandbox. Both
-tests still passed. The cause is something else and Task 1.3 is to find it.
+The two `host_health` failures were diagnosed and fixed under Task 1.3.
 
 ## Tasks
 
@@ -130,16 +136,31 @@ tests still passed. The cause is something else and Task 1.3 is to find it.
 
 ### Phase 3: The five tests
 
-- [ ] ⬜ **Task 3.1**: The DisplayLink pair — widen the skip predicate so a connector that
-  advertises modes but yields no EDID bytes is recognised as absent rather than broken.
-  The test must still fail on a machine that HAS a real EDID and reads zero.
-- [ ] ⬜ **Task 3.2**: The dbus fallback test — isolate `DBUS_SESSION_BUS_ADDRESS` so the
-  asserted branch is the one actually exercised.
+- [x] ✅ **Task 3.1**: The DisplayLink pair — the scan now excludes DRM connector types
+  that carry **no physical display link** (`Virtual`, `Writeback`), for which the test's
+  inference was never sound. A denylist on purpose: an unrecognised type is asserted
+  against, not skipped, so a linkless type nobody has met yet surfaces as a failure rather
+  than as a test that quietly stopped checking. Falsified four ways — the pair still passes
+  against this container's real `eDP-1`; reintroducing `os.path.getsize()` fails it 2/2; a
+  `Virtual`-only tree skips and **names what it ignored**; and a `card1-DP-1` whose EDID
+  reads zero still **fails**, which is the requirement this task was written around
+- [x] ✅ **Task 3.2**: The dbus fallback test — the bus is now **injected** rather than
+  arranged on the host, because the host cannot be arranged: the uid-derived candidate is
+  by design not environment-controllable. Which branch `resolve_session_bus` picks is
+  `session_bus`'s own question and was already settled hermetically in its suite; what
+  belongs in the applier's suite is that `main` puts the resolved prefix in front of
+  `gsettings` and exports nothing for that route. Falsified by mutating `_gsettings` to
+  drop `bus.prefix` — the test fails, with the same assertion text CI produced
 - [x] ✅ **Task 3.3**: The two `host_health` tests — done with Task 1.3, since the
   diagnosis and the fix were the same piece of work.
-- [ ] ⬜ **Task 3.4**: For each of the five, state which is a defective **test** and which
-  exposes a production path that reads host state it should have been given. Fix the
-  production side where that is the answer.
+- [x] ✅ **Task 3.4**: **All five are defective tests.** Not one is a production path
+  misbehaving; `git diff` for this phase touches `tests/` only. Each asserted something
+  true of the machine it was written on rather than of the code: the container's absent
+  systemd, the author's kernel and calendar date, a VM's virtual connector, a uid with no
+  session. One real production **gap** was found and closed: `session_bus.current()` — the
+  single function in that module that reads `os.environ` and `os.getuid()` instead of
+  taking them as arguments — had **no test of its own**, and the only thing exercising it
+  was the applier test that was really asking a different question. It now has four.
 
 ### Phase 4: Make the next regression visible
 
@@ -160,7 +181,7 @@ tests still passed. The cause is something else and Task 1.3 is to find it.
 - [ ] The `QA` workflow's most recent run on `F44` is a success, with the run identified.
 - [ ] Local `qa-all.bash` and the CI run agree on every stage, or the disagreement is
   declared in `CLAUDE/QA.md` and fails closed when its reason stops applying.
-- [ ] Each of the five tests has been classified as a defective test or a production path
+- [x] Each of the five tests has been classified as a defective test or a production path
   reading unowned host state, and fixed accordingly.
 - [ ] The docs gate passes in a checkout with no hooks daemon installed.
 - [ ] A deliberately introduced failure is distinguishable from the standing state.

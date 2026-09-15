@@ -111,5 +111,73 @@ class TestEnvFor(unittest.TestCase):
         self.assertEqual(base, {"PATH": "/bin"})
 
 
+class TestCurrent(unittest.TestCase):
+    """The seam between the resolution above and the process this runs in.
+
+    Everything else in this module takes its inputs as arguments. `current()` is
+    the one function that reaches for `os.environ` and `os.getuid()`, and it had
+    no test of its own — the only thing exercising it was an applier test that
+    was really asking a different question, and that test read the host rather
+    than controlling it. A change to which process facts are read here would have
+    been caught nowhere.
+    """
+
+    def _refusing_access(self, tried: list[str]):
+        def record(path, mode):
+            tried.append(path)
+            return False
+
+        return record
+
+    def test_the_process_environment_address_is_used(self):
+        with mock.patch.dict(
+            sb.os.environ, {"DBUS_SESSION_BUS_ADDRESS": "unix:path=/x/bus"}, clear=True
+        ):
+            bus = sb.current()
+        self.assertEqual(bus.source, "environment")
+        self.assertEqual(bus.address, "unix:path=/x/bus")
+
+    def test_the_uid_derived_runtime_dir_is_consulted_with_a_bare_environment(self):
+        # This is the candidate no environment change can remove, which is why a
+        # test that wants the dbus-run-session branch cannot get there by
+        # arranging the environment alone.
+        tried: list[str] = []
+        with (
+            mock.patch.dict(sb.os.environ, {}, clear=True),
+            mock.patch.object(sb.os, "getuid", return_value=4242),
+            mock.patch.object(sb.os, "access", side_effect=self._refusing_access(tried)),
+        ):
+            bus = sb.current()
+
+        self.assertEqual(tried, ["/run/user/4242/bus"])
+        self.assertEqual(bus.source, "dbus-run-session")
+
+    def test_the_environment_runtime_dir_is_tried_before_the_uid_derived_one(self):
+        tried: list[str] = []
+        with (
+            mock.patch.dict(sb.os.environ, {"XDG_RUNTIME_DIR": "/run/user/7"}, clear=True),
+            mock.patch.object(sb.os, "getuid", return_value=4242),
+            mock.patch.object(sb.os, "access", side_effect=self._refusing_access(tried)),
+        ):
+            sb.current()
+
+        self.assertEqual(tried, ["/run/user/7/bus", "/run/user/4242/bus"])
+
+    def test_an_accessible_uid_derived_socket_wins_over_the_fallback(self):
+        # The exact shape of the CI failure this class was added for: the
+        # environment names no bus and carries no usable XDG_RUNTIME_DIR, and the
+        # uid-derived socket is reachable, so there is no fallback.
+        with (
+            mock.patch.dict(sb.os.environ, {}, clear=True),
+            mock.patch.object(sb.os, "getuid", return_value=1001),
+            mock.patch.object(sb.os, "access", return_value=True),
+        ):
+            bus = sb.current()
+
+        self.assertEqual(bus.source, "runtime-socket")
+        self.assertEqual(bus.address, "unix:path=/run/user/1001/bus")
+        self.assertEqual(bus.prefix, [])
+
+
 if __name__ == "__main__":
     unittest.main()

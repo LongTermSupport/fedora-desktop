@@ -254,20 +254,38 @@ class TestMain(unittest.TestCase):
         )
 
     def test_falls_back_to_dbus_run_session_without_a_bus(self):
+        # The bus is INJECTED here rather than arranged on the host. Unlinking the
+        # temp socket is not enough: `runtime_dirs` always appends
+        # `/run/user/<uid>` and deliberately never drops it, so on any machine
+        # whose uid has a live session that candidate resolves and this branch is
+        # never reached. The test passed in the container only because it runs as
+        # a uid with no session, and failed on a CI runner, which has one.
+        #
+        # WHICH branch `resolve_session_bus` picks is session_bus's own question
+        # and is settled hermetically in tests/helpers/gnome/test_session_bus.py,
+        # against injected candidate directories. What belongs HERE is that main
+        # puts the resolved prefix in front of gsettings and exports nothing for
+        # this route — dbus-run-session sets the address itself, and pre-setting
+        # it would point the child at a bus other than the one it just started.
         self._deploy(self.user_dir, BLUR)
-        (self.runtime_dir / "bus").unlink()
+        fallback = aee.session_bus.SessionBus(
+            prefix=["dbus-run-session", "--"], address=None, source="dbus-run-session"
+        )
         seen: dict[str, Any] = {}
 
         def fake_run(argv, **kwargs):
             seen.setdefault("argv", argv)
+            seen.setdefault("env", kwargs.get("env"))
             if "disable-user-extensions" in argv:
                 return _completed(stdout="false\n")
             return _completed(stdout=f"['{BLUR}']\n")
 
-        code, _out, _err = self._run(self._argv(BLUR), fake_run)
+        with mock.patch.object(aee.session_bus, "current", return_value=fallback):
+            code, _out, _err = self._run(self._argv(BLUR), fake_run)
 
         self.assertEqual(code, 0)
         self.assertEqual(seen["argv"][:2], ["dbus-run-session", "--"])
+        self.assertNotIn("DBUS_SESSION_BUS_ADDRESS", seen["env"])
 
     def test_schema_and_key_are_overridable(self):
         # Capturing only the FIRST gsettings call silently dropped the --key
