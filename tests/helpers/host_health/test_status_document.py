@@ -255,6 +255,11 @@ class TestAShapeItCannotReadIsNotAHealthyHost(unittest.TestCase):
             with self.subTest(sections=sections):
                 self.assertEqual(len(self.reasons(sections)), 1)
 
+    def test_a_document_naming_no_checks_at_all_is_reported(self) -> None:
+        """Zero sections has no legitimate origin: `collect` guarantees a key per
+        producer — four even when every one raises — and `_cannot_read` emits one."""
+        self.assertEqual(len(self.reasons({})), 1)
+
     def test_a_missing_sections_key_is_reported(self) -> None:
         self.assertEqual(
             len(status_document.unreadable_reasons({"schema": 1, "kernel": KERNEL})), 1)

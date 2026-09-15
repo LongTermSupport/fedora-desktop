@@ -214,10 +214,11 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   - [ ] ⬜ **The panel is not boot-aware** (qa-reviewer, 26-09-15) — it renders
     `post-boot-health` findings as current faults whichever boot produced them. The
     predicate is `status_document.is_boot_stale`; the panel has to ask it — and the same
-    rendering test must cover a **malformed** document, where `health.js` branches on
-    `section.state` while the login route reads the lists, so the two do not agree
-    (§4.1a). **Not** via the contract gate: that is a vocabulary check and `kernel`
-    already satisfies it as an unused default
+    rendering test must cover a **malformed** document and one whose `state` disagrees
+    with its own lists — `health.js` branches on `state` while the login route reads the
+    lists, and a document where they differ is structurally well formed, so
+    `unreadable_reasons` cannot see it (§4.1a, §4.3). **Not** via the contract gate: that
+    is a vocabulary check and `kernel` already satisfies it as an unused default
     ([DESIGN-server-route.md](DESIGN-server-route.md) §4.2)
 - [ ] ⬜ **Task 4.3**: Play/task runner — plays with their ledger state, launched in a
   visible terminal, never in the background. Which plays it lists needs the ledger's real

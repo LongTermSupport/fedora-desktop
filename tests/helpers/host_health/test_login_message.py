@@ -61,8 +61,14 @@ class TestSilentWhenCleanAndFresh(unittest.TestCase):
         every login, and trains the same blindness."""
         self.assertEqual(render({"health": [], "pins": []}), "")
 
-    def test_an_empty_document_is_still_silent_if_fresh(self) -> None:
-        self.assertEqual(render({}), "")
+    # A test named for one property while guarding another lived here: "an empty
+    # document is still silent if fresh" pinned *a document with no sections is
+    # silent*, while the property it existed to protect — a clean fresh document says
+    # nothing — is pinned twice over by the two cases above it. That gap is what let the
+    # malformed-document silence survive a suite that looked like it covered this. A
+    # zero-section document is now reported, and the case moved to
+    # `TestAMalformedDocumentIsNotAHealthyHost` under the name of what it actually
+    # tests.
 
 
 class TestStalenessIsReported(unittest.TestCase):
@@ -331,6 +337,13 @@ class TestAMalformedDocumentIsNotAHealthyHost(unittest.TestCase):
                 {"post-boot-health": {"state": "findings", "findings": [{"t": "x"}]}}),
             "",
         )
+
+    def test_a_document_naming_no_checks_at_all_is_reported(self) -> None:
+        """`collect` guarantees a key per producer — four even when every one of them
+        raises — and `_cannot_read` emits one, so zero sections has no legitimate
+        origin. It is version skew, a truncation or a hand-edit, and reading it as "no
+        findings" is the same trade as every other shape in this class."""
+        self.assertNotEqual(self.malformed({}), "")
 
     def test_a_genuinely_clean_document_is_still_silent(self) -> None:
         """The control. Without it this class would pass with `render` shouting at

@@ -147,6 +147,20 @@ from the other side: `health.js` branches on `section.state` and iterates
 `section.findings`, so on that fourth shape the two consumers do not agree about what the
 document says. Six mutants.
 
+### 4.3 Why `render` does not read `state`, and where the residual is
+
+`state` is not independent data: `section()` derives it from the lists — `section([])`
+gives `ok`, `section([broken(...)])` gives `findings`. A renderer that reads the lists has
+already read everything `state` encodes, so reading it too would be a consistency check
+between a value and its own derivation, and a second mechanism for one fact living in one
+of two consumers is exactly how the boot predicate went wrong (§4.2).
+
+The residual is on the **panel** side. `health.js` branches on `state` while `render`
+reads the lists, so a document where the two disagree makes the consumers answer
+differently — and `unreadable_reasons` cannot see it, because such a document is
+structurally well formed. That is a row in the Task 4.2 rendering-test population, not
+code in `render`.
+
 ### 4.2 The predicate belongs to the document, and the panel does not ask it
 
 `is_boot_stale(document, *, running_kernel)` and `collected_kernel(document)` live in
@@ -260,7 +274,7 @@ socket that may not exist would trade a clear finding for a confusing one.
 days, so on a server whose fetch never works the line is permanent from the start. The
 HOST item therefore confirms the remote rather than assuming it.
 
-## 6a. One defect, found seven times
+## 6a. One defect, found in every module the review touched
 
 The durable output of this plan's review is not any single fix. It is a shape, and it
 recurred in every module the review touched:
@@ -270,15 +284,22 @@ recurred in every module the review touched:
 Recorded as a set rather than a numbered list, because the review and the author counted
 them differently and the ordinals are worth nothing — the membership is the point.
 
-| Where                                   | Two facts collapsed into one value                                                                 |
-| --------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `probe.dkms_registry`                   | "no state directory" and "directory present, no modules" were both `[]`                            |
-| `check_pins.check`                      | a ledger filter over the whole population read "not installed here" and "never checked here" alike |
-| the two dkms consumers                  | one required `dkms.missing` in its condition, the other did not, from the same value               |
-| `check_panel_contract`                  | a **vocabulary** check that reads like a behaviour check, satisfied by an unused default           |
-| `check_pins._run`                       | one error string for "the OS could not exec it" and "the tool printed that phrase"                 |
-| `login_message._texts`                  | `[]` for "unreadable", "absent", and "nothing to say" — and on this surface nothing means healthy  |
-| `NotInstalled` / `ProbeOutcome.missing` | a name claiming "not installed" where `exec` established only "not on this process's PATH"         |
+| Where                                   | Two facts collapsed into one value                                                                                                |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `probe.dkms_registry`                   | "no state directory" and "directory present, no modules" were both `[]`                                                           |
+| `check_pins.check`                      | a ledger filter over the whole population read "not installed here" and "never checked here" alike                                |
+| the two dkms consumers                  | one required `dkms.missing` in its condition, the other did not, from the same value                                              |
+| `check_panel_contract`                  | a **vocabulary** check that reads like a behaviour check, satisfied by an unused default                                          |
+| `check_pins._run`                       | one error string for "the OS could not exec it" and "the tool printed that phrase"                                                |
+| `login_message._texts`                  | `[]` for "unreadable", "absent", and "nothing to say" — and on this surface nothing means healthy                                 |
+| `NotInstalled` / `ProbeOutcome.missing` | a name claiming "not installed" where `exec` established only "not on this process's PATH"                                        |
+| a test's own name                       | "an empty document is still silent if fresh" pinned *zero sections is silent* while claiming to guard *a clean host says nothing* |
+
+The last row is the one that let several of the others survive a suite that looked like
+it covered them: a test named for the property it protects, guarding a different one.
+The property it claimed was already pinned twice over by its neighbours, so nothing was
+lost by repointing it — and a zero-section document has no legitimate origin, since
+`collect` guarantees a key per producer even when every one of them raises.
 
 Every fix took the same form: stop collapsing, and carry the distinction in the data, in
 the type, or in a named reason. None of them was fixed by adding a special case.

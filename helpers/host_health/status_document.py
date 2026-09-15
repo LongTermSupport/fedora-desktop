@@ -139,6 +139,14 @@ def unreadable_reasons(document: object) -> list[str]:
     if not isinstance(sections, dict):
         return ["the host status file's sections could not be read, so no check's "
                 "result has been read from it"]
+    if not sections:
+        # NO LEGITIMATE ORIGIN. `collect` guarantees a key per producer — four even when
+        # every one of them raises — and `_cannot_read` emits one. So a document with no
+        # sections is version skew, a truncation or a hand-edit, which is the population
+        # this function exists for. Treating it as "no findings" is the same trade as
+        # every other shape here, and on this surface it reads as a healthy host.
+        return ["the host status names no checks at all, so nothing has been "
+                "established about this host"]
 
     reasons: list[str] = []
     for name, entry in sections.items():

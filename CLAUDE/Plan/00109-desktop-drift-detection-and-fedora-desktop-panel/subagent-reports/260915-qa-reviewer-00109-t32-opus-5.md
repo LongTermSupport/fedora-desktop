@@ -1191,3 +1191,71 @@ The container-side work is done as far as I can see it. The HOST items in `PLAN.
 the remaining gate, and the reboot-into-a-different-kernel one is the claim I would run
 first — it is the only one that exercises the route end to end on the scenario the plan
 was opened for.
+
+---
+
+# Round 11 — `ec5602da`, and both questions re-measured at this HEAD
+
+**Verified.** `qa-all.bash` green, 876 files.
+
+```
+build_report's user-facing line -> "dkms could not be run here, but 1 DKMS module
+                                    tree(s) are still registered on this host (evdi), …"
+   claims "is not installed":       False
+/usr/bin/env on disk: True | _command_version('env'): None | shutil.which('env'): None
+```
+
+The `which` half of my round-9 suggestion was wrong and the test now pins why, in the
+same case, so the next reader cannot re-propose it. Narrowing the claim in all three
+places — the type, `ProbeOutcome.missing`, and the line a human reads — is the whole
+available fix, and asserting `which`'s answer alongside it is better than a comment
+saying not to bother.
+
+## Both questions were answered in round 10; here they are re-measured at `ec5602da`
+
+**Q1 — `sections: {}` is the same bug, and I would change it.**
+
+```
+sections: {}                                   -> SILENT
+collect_sections, every producer raising       -> 4 keys
+```
+
+`status_document.collect` guarantees a key per producer, so no failure path emits a
+zero-section document, and `_cannot_read` emits one section rather than none. A
+zero-section document therefore has no legitimate origin — version skew, truncation or a
+hand-edit, the same population the other five came from.
+
+The pinned decision is worth overturning because the test pins the wrong property.
+`test_an_empty_document_is_still_silent_if_fresh` guards *"a document with no sections is
+silent"*, while the property it exists to protect — *"a clean fresh document says
+nothing"* — is already pinned by `test_a_clean_fresh_document_says_nothing_at_all` and
+`test_not_even_a_reassuring_line`. Changing it costs no coverage, and the mismatch between
+its name and what it checks is the same shape as the defect it now conceals.
+
+**Q2 — leaving `state` unread is right; no second mechanism.**
+
+```
+section([])                          -> {'state': 'ok', 'findings': [], 'unchecked': []}
+a hand-made state/list disagreement  -> SILENT
+```
+
+`state` is derived from the lists by `section()`, so a renderer that reads the lists has
+already read everything it encodes. Reading it in `render` would be a consistency check
+between a value and its own derivation, and putting that in one of two consumers is how
+the boot predicate went wrong in round 4.
+
+The residual is real and belongs to the panel: `health.js:51` branches on `state` while
+`render` does not, so a document where they disagree makes the two consumers answer
+differently — and `unreadable_reasons` cannot see it, because such a document is
+structurally well formed. One more row in Task 4.2's rendering-test population, next to
+the boot-stale and malformed documents already going there. If a mechanism is ever
+wanted, `status_document.read` is the single place both consumers pass through.
+
+## Closing
+
+Nothing of mine blocks. Q1 is one clause in `unreadable_reasons` plus a repointed test;
+Q2 is a row in a test population that does not exist yet. Neither changes what a host
+reports today.
+
+Container-side work looks done from here. The HOST items are the gate, and the
+reboot-into-a-different-kernel one is the claim to run first.
