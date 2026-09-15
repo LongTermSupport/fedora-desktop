@@ -131,25 +131,48 @@ to prove the guard notices."*
 - [x] ✅ **Task 3.3**: `docs/playbooks.md` gains a `play-lxcfreeze.yml` entry;
   `CLAUDE/ContainerEngines.md` gains the pair. The existing `#play-podfreezeyml` anchor
   is untouched, so `docs/ccy.md`'s link to it keeps resolving
-- [ ] ⬜ **Task 3.4**: **HOST** — run the play, then `lxcfreeze list`, freeze a container,
-  confirm `sudo lxc-info -n NAME -s` reports `FROZEN`, thaw it, and confirm it reports
-  `RUNNING` again. This is also where the real `lxc-ls -1` / `lxc-info -s` output shapes
-  are confirmed: the suite proves the decisions against fabricated output, so only a host
-  can say the parser was handed what it expected
+- [x] ✅ **Task 3.4**: **HOST** — the owner ran it: *"i ran it and it seems to work"*. So
+  `sudo lxc-ls -1` and `sudo lxc-info -n NAME -s` do emit what the parsers expect, which
+  is the one thing the suite structurally could not establish
 - [ ] ⬜ **Task 3.5**: `qa-reviewer` over the diff
 
-### Phase 4: The shared library (deferred)
+### Phase 4: The shared library — no longer deferred, and not for DRY
 
-Not part of this plan's delivery. Recorded because the duplication it removes is
-deliberate, and an undocumented duplication is indistinguishable from a mistake.
+**Reopened by the owner on first use**: *"totally different UX to the podfreeze system
+though, maybe we can extract some DRY helpers"*. They are right, and the cause is mine:
+Phase 2 **simplified** podfreeze's menu rather than reproducing it, so the two tools now
+teach different habits for the same job.
 
-- [ ] 💤 **Task 4.1**: With two callers in hand, extract what they actually share rather
-  than what one of them suggests. The seam looks like: the derived verb, the menu label,
-  the state counts, the act/skip/vanished partition, the menu loop and its bounded retry.
-  The engine-specific parts are the inventory query, the act call, the availability guard,
-  the two state words, and the extra table columns
-- [ ] 💤 **Task 4.2**: Whatever is extracted needs `podfreeze` behaviour pinned **first**,
-  by a suite written against the current tool — not after the move
+| Axis          | `podfreeze`                                 | `lxcfreeze` as shipped      |
+| ------------- | ------------------------------------------- | --------------------------- |
+| Picker        | `fzf` when present, numbered menu otherwise | numbered menu only, always  |
+| Structure     | **two-level** — group, then its members     | **flat** — both in one list |
+| Member select | `TAB` in fzf, or `2,4,5` in the menu        | not possible                |
+| Keys          | `ENTER`/`1` = all, `b` = back, `q` = quit   | `q` only                    |
+| Retry budget  | 3 wrong answers, dies on the 4th prompt     | 3 prompts total             |
+
+**So the shared thing is the menu LAYER, not a few helpers**, because that layer is
+where the UX lives. Extracting it makes the two behave identically as a consequence.
+Extracting only the pure decisions would be tidier and would leave the UX exactly as
+divergent as it is now — which is the half that was actually complained about.
+
+- [ ] ⬜ **Task 4.1**: Pin `podfreeze`'s behaviour with a suite written against it **as it
+  is now**, before any extraction touches it. This is not optional and it is not
+  ceremony: the tool is 1,261 lines, has no test anywhere in the repo, is used daily, and
+  a suite written after the move proves only that the refactor agrees with itself
+- [ ] ⬜ **Task 4.2**: Extract the decisions **and** the menu layer into a library both
+  tools source. Engine differences enter through named hooks — the inventory query, the
+  act call, the availability guard, the two state words, the extra table columns — never
+  an `if` on the engine inside shared code
+- [ ] ⬜ **Task 4.3**: `lxcfreeze` adopts it, gaining `fzf`, the drill-down, the member
+  selection and the keys. `scripts/test-lxcfreeze.bash`'s 69 cases must still pass
+- [ ] ⬜ **Task 4.4**: Task 4.1's suite must still pass against `podfreeze`, unchanged —
+  that is the whole point of writing it first
+- [ ] ⬜ **Task 4.5**: Reconcile the two plays, which Task 3.1 deferred to exactly here.
+  With a shared library there is a third artefact to deploy, and two plays each copying
+  its deploy task is the drift shape that argument was about
+- [ ] ⬜ **Task 4.6**: **HOST** — both tools still behave as before, and `podfreeze`'s
+  fzf path in particular, which no suite here can exercise
 
 ## Success Criteria
 
