@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00121-run-log-secret-scrubber-and-token-scenario](00121-run-log-secret-scrubber-and-token-scenario/) - Secrets are scanned at the git boundary only, so runtime artefacts like VM transcripts go unchecked; builds a fail-closed scrubber and the opt-in `server-github-token` scenario that Plan 00063's Tasks 3.3 and 3.4 need.
+
 - [00119-headless-github-ssh-443-input](00119-headless-github-ssh-443-input/) - Headless provisioning had no input for the always-on `ssh.github.com:443` route, so a box whose egress blocks port 22 could upload its GitHub key and then hang on every SSH use of it; `RUN_BASH_GITHUB_SSH_443=1` writes `github_ssh_over_443: true` into the fresh localhost.yml.
 
 - [00118-ccy-selinux-enforcing-host](00118-ccy-selinux-enforcing-host/) - On an SELinux-enforcing host a ccy container cannot read the project it was handed (container_t vs user_home_t; desktops only worked because they are not enforcing); relabel the workspace `:z` and stage key files into a `:Z` tmpfs dir, decided from getenforce and the engine report.

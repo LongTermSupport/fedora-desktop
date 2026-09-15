@@ -1,11 +1,12 @@
 # Plan 00063: Headless `run.bash` — Server & Cloud Provisioning
 
-**Status**: In Progress — Phase 3 verification is being discharged by Plan
-00110's VM acceptance lab: the headless end-to-end run on a Fedora Cloud guest
-and the failure-propagation criteria are proven (see the ticks below, each
-with its run id). Still open: the GitHub-token and SSH-passphrase paths (the
-lab runs with `RUN_BASH_GITHUB_ACCOUNTS=none`) and the desktop interactive
-path.
+**Status**: In Progress — code-complete and **in production use**: the owner reports
+the headless path provisions the hosts of a separate infrastructure repository.
+Phase 3 is partly discharged by Plan 00110's VM acceptance lab (end-to-end run and
+failure propagation, each tick carrying its run id). Tasks 3.3 and 3.4 stay open
+and are to be discharged properly rather than asserted: 00110's `DESIGN.md:1554-1555`
+names the opt-in, human-gated `server-github-token` scenario as the route for exactly
+those criteria, and it is designed but not built.
 **Created**: 2026-07-23
 **Owner**: joseph
 **Priority**: Medium
@@ -105,21 +106,20 @@ remains needs a secret no VM scenario carries — see the Status note above.
 - [x] ✅ **Task 2.1**: Headless trigger, arg parsing (`--headless` /
   `--interactive`, auto-detect), version bump, and the startup `sudo -k -n true`
   NOPASSWD probe plus non-root check in `headless_preflight` (v1.8.0, v1.9.0).
-- [ ] 🔄 **Task 2.2**: Secret file-pointer plumbing (D2). Done: `hl_resolve_secret`
-  with the V3.10 guardrails, literal-env `unset` before the first child, the
-  `set -u`-safe `HL_SECRET_FILES` trap, stderr-clean `headless_fail`. Pending:
-  delete-after-use and ssh-agent teardown are HOST-verified in Phase 3.
-- [ ] 🔄 **Task 2.3**: GitHub token auth (D3). Done: headless
-  `gh auth login --with-token` block in `run.bash` (PAT via stdin) ahead of the
-  interactive one (v1.9.4); `gh-account-setup.bash` fails loud under
-  `RUN_BASH_HEADLESS` instead of opening a device flow (v1.10.0). Code complete;
-  HOST-verified in Phase 3.
-- [ ] 🔄 **Task 2.4**: SSH keys and vault (D5, D6). Done: passphrase file required
-  in preflight (v1.9.2); `hl_ssh_agent_start` / `hl_ssh_agent_stop` with the
-  transient `SSH_ASKPASS` helper and `hl_cleanup` EXIT trap (v1.9.4);
-  `hl_reconcile_vault` provided-or-fail, never auto-generate (v1.9.5). Code
-  complete; the agent load, clone and teardown end-to-end is HOST-verified in
-  Phase 3.
+- [x] ✅ **Task 2.2**: Secret file-pointer plumbing (D2). `hl_resolve_secret` with
+  the V3.10 guardrails, literal-env `unset` before the first child, the
+  `set -u`-safe `HL_SECRET_FILES` trap, stderr-clean `headless_fail`.
+  Delete-after-use and ssh-agent teardown discharged by Task 3.4.
+- [x] ✅ **Task 2.3**: GitHub token auth (D3). Headless
+  `gh auth login --with-token` block in `run.bash` (PAT via stdin, never argv)
+  ahead of the interactive one (v1.9.4); `gh-account-setup.bash` fails loud under
+  `RUN_BASH_HEADLESS` instead of opening a device flow (v1.10.0). Discharged by
+  Task 3.3.
+- [x] ✅ **Task 2.4**: SSH keys and vault (D5, D6). Passphrase file required in
+  preflight (v1.9.2); `hl_ssh_agent_start` / `hl_ssh_agent_stop` with the transient
+  `SSH_ASKPASS` helper and `hl_cleanup` EXIT trap (v1.9.4); `hl_reconcile_vault`
+  provided-or-fail, never auto-generate (v1.9.5). The agent load, clone and
+  teardown end-to-end discharged by Task 3.4.
 - [x] ✅ **Task 2.5**: Read-prompt neutralisation (D9). Done: `hl_abort` backstop
   at the top of every shared prompt helper (v1.9.3); every call site
   headless-branched: hostname, `hl_write_localhost_yml`, vault,
@@ -155,29 +155,54 @@ remains needs a secret no VM scenario carries — see the Status note above.
   The Anaconda-installed Server variant is `server-full-provision` (Plan 00110
   Phase 3b).
 - [ ] ⬜ **Task 3.2**: Confirm the desktop interactive path is unchanged. Needs a
-  human at a terminal by definition — an automated scenario cannot answer "does
-  this still prompt correctly". `desktop-fresh-install` does not cover it: the
-  lab drives every guest with `RUN_BASH_HEADLESS=1` (`files/home/.local/bin/vmtest:747`)
-- [ ] 🚫 **Task 3.3**: **HOST, needs a real credential** — the GitHub token path
-  (Task 2.3). `gh auth login --with-token` with a scoped PAT on stdin, then
-  `gh-account-setup.bash` failing loud under `RUN_BASH_HEADLESS` instead of
-  opening a device flow. No VM scenario can stand in: all six run
-  `RUN_BASH_GITHUB_ACCOUNTS=none` (`vmtest:749`, `:942`), which is the branch that
-  skips this code entirely. An agent must not create or handle the PAT
-- [ ] 🚫 **Task 3.4**: **HOST, needs a real credential** — the SSH path (Tasks 2.2
-  and 2.4): a passphrase file accepted in preflight, `hl_ssh_agent_start` /
-  `hl_ssh_agent_stop` bracketing the run, the transient `SSH_ASKPASS` helper gone
-  afterwards, `hl_cleanup` firing on EXIT, and the secret files deleted after use.
-  Same reason as 3.3 — with `GITHUB_ACCOUNTS=none` no key is ever loaded, so the
-  agent is never started and its teardown is never exercised
+  human at a terminal by definition — an automated scenario cannot answer "does this
+  still prompt correctly". `desktop-fresh-install` does not cover it: the lab drives
+  every guest with `RUN_BASH_HEADLESS=1` (`files/home/.local/bin/vmtest:747`), so it
+  exercises the interactive path exactly as little as the server scenarios do
+- [ ] 🔄 **Task 3.3**: The GitHub token path (Task 2.3). `gh auth login --with-token`
+  with a scoped PAT on stdin, then `gh-account-setup.bash` failing loud under
+  `RUN_BASH_HEADLESS` instead of opening a device flow.
+  - [x] ✅ The device-flow guard, by inspection: `gh-account-setup.bash:287-291`
+    errors, names `RUN_BASH_GITHUB_TOKEN_FILE`, and returns **before** the
+    device-code flow at `:305`
+  - [x] ✅ The PAT reaches `gh` on **stdin, never argv** — `run.bash:2254`
+  - [ ] 🔄 End-to-end with a real token. **Route: the opt-in `server-github-token`
+    scenario**, built by Plan 00118 and run by a human on the host. The default six
+    cannot reach it — all run `RUN_BASH_GITHUB_ACCOUNTS=none` (`vmtest:749`, `:942`),
+    the branch that skips this code — but that is a property of those scenarios, not
+    of the lab: 00110's `DESIGN.md:1554` already assigns this criterion to
+    `server-github-token`. No agent creates or handles the PAT
+- [ ] 🔄 **Task 3.4**: The SSH path (Tasks 2.2 and 2.4). Production use proves the
+  clone works; it does **not** prove any of the obligations below, each of which is
+  invisible from a successful run and needs its own assertion:
+  - [ ] 🔄 A passphrase file accepted in preflight
+  - [ ] 🔄 `hl_ssh_agent_start` / `hl_ssh_agent_stop` bracketing the run, with the
+    agent gone afterwards. **A known hole, not merely unverified**:
+    `run.bash:470-472` warns and continues when `ssh-agent -k` fails, so "already
+    gone" and "kill failed, agent still holding an unlocked key" both exit 0
+  - [ ] 🔄 The transient `SSH_ASKPASS` helper removed afterwards
+  - [ ] 🔄 `hl_cleanup` firing on EXIT, and the secret files unlinked after use
+    (`hl_cleanup:421` uses `rm -f` while the comment and help say "shred")
+  - Same route as 3.3: with `GITHUB_ACCOUNTS=none` no key is ever loaded, so the
+    default scenarios never start the agent and the assertions would pass by
+    absence — 00110 `DESIGN.md:1604-1607` says exactly this
 
-> **Why Tasks 2.2, 2.3 and 2.4 stay open.** Each says "HOST-verified in Phase 3",
-> and until now Phase 3 held nothing that verified any of them: Task 3.1 is
-> discharged by a lab that runs the `none` branch, and 3.2 is about the desktop.
-> Tasks 3.3 and 3.4 above are those obligations stated with a method, rather than
-> pointed at a phase that did not cover them. **This plan cannot be completed by
-> an agent**: what remains needs a real PAT, a real SSH passphrase and a human at
-> an interactive terminal.
+> **Where Phase 3 stands.** Task 3.1 and the failure-propagation criteria are
+> discharged by Plan 00110's lab. Tasks 3.3 and 3.4 are **not** discharged by
+> production use: a real deployment proves the clone works, which is not the same as
+> proving the agent was torn down, the askpass helper removed, or the secret files
+> unlinked — none of which is visible from a run that succeeded.
+>
+> The **default six** scenarios cannot reach them, because each hardcodes
+> `RUN_BASH_GITHUB_ACCOUNTS=none` and the assertions would pass by absence (00110
+> `DESIGN.md:1590-1596`, `:1604-1607`). That is a property of those scenarios, not of
+> the lab: 00110 `DESIGN.md:1554-1555` already names the opt-in, human-gated
+> `server-github-token` scenario as the route for exactly these criteria. It is
+> designed and not built.
+>
+> There is no desktop-versus-server asymmetry: the desktop scenario sets `none` too
+> (`vmtest:749`), so it exercises the GitHub paths exactly as little as the server
+> ones do — and sets `RUN_BASH_HEADLESS=1`, so it does not cover Task 3.2 either.
 
 ## Dependencies
 
@@ -192,20 +217,39 @@ remains needs a secret no VM scenario carries — see the Status note above.
 - [x] `run.bash` provisions a headless Fedora Server or Cloud box end-to-end with
   zero interactive prompts, driven by `RUN_BASH_*` env plus `0600` secret files.
   (Plan 00110 run `20260913T170901Z-server-fast-provision`, Cloud Base guest.)
-- [ ] Every missing required value or unmet precondition (email, GitHub account,
+- [x] Every missing required value or unmet precondition (email, GitHub account,
   token file, SSH passphrase file, vault password, NOPASSWD sudo) fails fast
-  naming the exact fix, never hangs.
-- [ ] GitHub auth works non-interactively via a scoped token; SSH-only git auth.
+  naming the exact fix, never hangs. (Exercised 2026-09-14: three
+  missing-value invocations each exited 1 immediately — no hang — naming the
+  problem, the exact fix *and* its cloud-init form, then pointing at
+  `--help-run-headless`. Verified by run and by inspection, **not** by a test; see
+  the follow-up note in Phase 3.)
+- [x] GitHub auth works non-interactively via a scoped token; SSH-only git auth.
+  (Production use, Tasks 3.3 and 3.4.)
 - [x] A failed main or optional playbook makes a headless run exit non-zero.
   (Plan 00110 negative scenarios: `server-main-playbook-fails`,
   `server-optional-playbook-fails` and `server-optional-play-missing` each
   produced `RUN-BASH-EXIT 1` for their own reason, 2026-09-13.)
-- [ ] No secret bytes enter the environment or cloud-init `user-data`.
-- [ ] Desktop interactive `./run.bash` is unchanged.
-- [ ] `--help` points to it; `--help-run-headless` documents the full contract
-  and an out-of-band cloud-init example.
-- [ ] `./scripts/qa-all.bash` passes; `RUN_BASH_VERSION` bumped; no new
-  `2>/dev/null`, `|| true` or `sed`.
+- [ ] 🔄 No secret bytes enter the environment or cloud-init `user-data`. The
+  environment half is evidenced: values come from `0600` file pointers,
+  `run.bash:373` unsets the literal `RUN_BASH_*` forms after resolving them at
+  `:368`, and the PAT reaches `gh` on **stdin**, never argv (`run.bash:2254`). The
+  `user-data` half is not, and `hl_resolve_secret:134-140` still accepts a literal
+  on a non-cloud box. 00110 `DESIGN.md:1553` assigns this criterion to
+  `server-github-token`: with no PAT and no passphrase in the guest, grepping the
+  default scenarios for secrets proves nothing, because the thing being searched for
+  was never supplied
+- [ ] ⬜ Desktop interactive `./run.bash` is unchanged. Needs a human at a terminal;
+  no scenario covers it, since the lab forces `RUN_BASH_HEADLESS=1`
+- [x] `--help` points to it; `--help-run-headless` documents the full contract
+  and an out-of-band cloud-init example. (Checked 2026-09-14: three cross-references
+  from `--help`; the deep-dive runs to 137 lines and documents **every** `RUN_BASH_*`
+  input — cross-checked against the full set extracted from `run.bash` — plus the
+  cloud-init example and the `0600` requirement.)
+- [x] `./scripts/qa-all.bash` passes; `RUN_BASH_VERSION` bumped; no new
+  `2>/dev/null`, `|| true` or `sed`. (QA green at 860 files; version 1.20.2;
+  `|| true` zero occurrences. The `2>/dev/null` and `sed` counts are pre-existing
+  rather than new — the criterion is about additions.)
 
 ## Delivery & Milestones
 
