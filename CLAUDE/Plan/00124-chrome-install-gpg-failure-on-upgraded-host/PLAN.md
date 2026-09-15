@@ -109,10 +109,18 @@ this plan makes were demonstrably breakable. Report:
   eight are expired; a host missing only those cannot fail for that reason, so
   refreshing would be churn justified by a false reason. gpg's validity and
   capability fields are now read.
-- [ ] ⬜ **Task 3b.4**: `triage.bash` — its three-outcome probe reports "ran cleanly
+- [x] ✅ **Task 3b.4**: `triage.bash` — its three-outcome probe reported "ran cleanly
   and found nothing" as `COMMAND FAILED` for every grep-terminated probe, and it
-  ignores `CLAUDE/PlanScriptStandards.md` R1/R2/R4/R7/R9/R10 with no exception
-  annotation. Being reworked to the library, and repointed at Task 4.2.
+  ignored `CLAUDE/PlanScriptStandards.md` R1/R2/R4/R7/R9/R10 with no exception
+  annotation. Rebuilt on `_planlib.inc.bash`: `plan_init`, a real
+  `plan_require_host` guard (verified firing — it refuses in this container with a
+  reason), `plan_gather_leg` per section so an unanswered question fails the run
+  rather than passing quietly, and the probe bodies split into `probe-chrome.bash`
+  per `CLAUDE/PlanTriage.md`. The probe now takes the exit status that means "ran
+  fine, matched nothing" from its caller, so grep's exit 1 and `rpm -q`'s exit 1
+  read as findings while exit ≥ 2 stays a failure. Repointed at Task 4.2: it checks
+  the installed key carries `FD533C07C264648F` and that the deployed key file
+  matches the published one.
 
 ### Phase 4: Confirm on the affected host
 

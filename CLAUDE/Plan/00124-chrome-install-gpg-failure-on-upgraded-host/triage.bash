@@ -1,118 +1,130 @@
 #!/usr/bin/env bash
-# Triage: why does installing Google Chrome fail its OpenPGP check on this host?
+# Plan 00124 — triage.bash
 #
-# HOST-ONLY and READ-ONLY. It installs nothing, removes nothing and changes no
-# configuration — every probe below is a query. Run it, then paste the whole
-# output; it gathers in one pass what would otherwise be a dozen commands typed
-# on a machine that is not the one the agent is on (issue #45).
+# CONFIRM THE CHROME SIGNING-KEY FIX STILL HOLDS on this host, and keep the
+# diagnostic that found it in the first place.
 #
-# WHY EACH PROBE IS HERE. The failure is:
+# Issue #45 was two stacked causes: dnf5 validating a URL-installed package
+# against the synthetic @commandline repo, which has no keys configured, and a
+# Google primary key imported under F41 that never received the signing subkey the
+# current Chrome package is signed by. Both are fixed in
+# playbooks/imports/play-browsers.yml, driven by helpers/rpm_keys/subkeys.py, and
+# Chrome now installs on the affected host.
 #
-#   OpenPGP check for package "google-chrome-stable-…" from repo "@commandline"
-#   has failed: The repository does not have any OpenPGP keys configured
+# The live question is PLAN.md Task 4.2: does a SECOND run report the key tasks as
+# ok rather than changed? Section 2 gathers exactly the facts that decide it, by
+# running the same module the play runs.
+# Sections 1 and 3 are the original diagnostic, kept because they are what a
+# regression would need.
 #
-# `@commandline` is the synthetic repo dnf uses for a package handed to it as a
-# URL or a path. dnf5 validates a package against keys configured ON ITS REPO,
-# and `@commandline` has none — so the fix installs from Google's real repo,
-# where a key can be configured. That makes the FIRST question simply whether
-# this checkout has that change: the old task reproduces the old error exactly,
-# and no amount of host state explains that away.
+# FACT-FINDING ONLY. It renders no verdict (CLAUDE/PlanScriptStandards.md R9, and
+# CLAUDE/AgentNotes.md) — the pass/fail reading belongs in an acceptance gate, not
+# here. A non-zero exit from this script means a probe did not answer, NOT that the
+# host is broken.
 #
-# The rest establish what an F41 → F44 upgrade may have left behind. A
-# `dnf remove` of Chrome does NOT delete /etc/yum.repos.d/google-chrome.repo:
-# that file is written by the package's post-install scriptlet and is owned by
-# no package, so it survives the removal of the thing that created it.
+# WHERE TO RUN: on the HOST, in a terminal, from this checkout. Enforced by
+# plan_require_host (R2), not merely asked for in a comment: the CCY container has
+# no rpm keyring and no dnf, so every probe there would answer about the wrong
+# machine and answer confidently.
+#
+# WHAT IT CHANGES: nothing on this host. It installs nothing, removes nothing and
+# reconfigures nothing, and no probe needs root. The only writes are into the run
+# directory under untracked/plan-runs/ — the run log, the report, and copies of the
+# key files being compared. The only network access is a single HTTPS GET of the
+# published Google signing key, so the on-host copy can be compared against it.
+#
+# Usage: ./CLAUDE/Plan/00124-chrome-install-gpg-failure-on-upgraded-host/triage.bash [-h|--help]
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# The repo root by a script-relative, .git-bounded walk — never `git rev-parse`,
-# which answers about the CWD and so resolves to a different repository when this
-# script is run by path from elsewhere (CLAUDE/PlanScriptStandards.md R1).
-REPO_ROOT="${SCRIPT_DIR}"
-while [ "${REPO_ROOT}" != "/" ] && [ ! -d "${REPO_ROOT}/.git" ]; do
-    REPO_ROOT="$(dirname "${REPO_ROOT}")"
+# ── R1 bootstrap: script-relative, filesystem-only, bounded at the repo boundary ──────────
+scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+repoRoot="${scriptDir}"
+while [[ "${repoRoot}" != "/" ]] && [[ ! -e "${repoRoot}/ansible.cfg" ]]; do
+    if [[ -e "${repoRoot}/.git" ]]; then
+        printf '[FATAL] no ansible.cfg between %s and the repo root %s\n' "${scriptDir}" "${repoRoot}" >&2
+        exit 1
+    fi
+    repoRoot="$(dirname "${repoRoot}")"
 done
-if [ ! -d "${REPO_ROOT}/.git" ]; then
-    echo "TRIAGE-ABORT: no .git above ${SCRIPT_DIR}; run this from inside the checkout" >&2
+[[ -e "${repoRoot}/ansible.cfg" ]] || {
+    printf '[FATAL] no ansible.cfg above %s\n' "${scriptDir}" >&2
     exit 1
-fi
-
-PLAY="${REPO_ROOT}/playbooks/imports/play-browsers.yml"
-
-rule() { printf '\n== %s ==\n' "$1"; }
-
-# probe <label> <command>... — run a read-only query and report ALL THREE
-# outcomes distinctly. A command that FAILED, a command that succeeded and found
-# NOTHING, and a command that found something are three different facts, and a
-# triage script that collapses them reports a host it never actually asked
-# about. This is the same distinction the rest of this repo keeps having to
-# relearn, so it is made once, here, rather than at each call site.
-probe() {
-    local label="$1"
-    shift
-    local out rc=0
-    out="$("$@" 2>&1)" || rc=$?
-    if [ "${rc}" -ne 0 ]; then
-        printf -- '- %s: COMMAND FAILED (exit %d): %s\n' "${label}" "${rc}" "${out:-(no output)}"
-    elif [ -z "${out//[[:space:]]/}" ]; then
-        printf -- '- %s: ran cleanly and found nothing\n' "${label}"
-    else
-        printf -- '- %s:\n%s\n' "${label}" "${out}"
-    fi
 }
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../_planlib.inc.bash
+source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
+plan_init "${BASH_SOURCE[0]}"
 
-echo "TRIAGE — chrome install GPG failure (Plan 00124, issue #45)"
-probe "host kernel" uname -r
-probe "host release" grep -E '^(NAME|VERSION_ID)=' /etc/os-release
+PLAN_USAGE="usage: triage.bash [-h|--help]
 
-rule "1. does THIS checkout carry the fix?"
-# The decisive probe. `google-chrome-stable` = fixed (installs from the repo);
-# a `https://…rpm` URL = the old task, which reproduces the old error by design.
-printf -- '- checkout: %s\n' "${REPO_ROOT}"
-probe "commit" git -C "${REPO_ROOT}" log --oneline -1
-probe "branch and tracking" git -C "${REPO_ROOT}" status --short --branch
-if [ ! -r "${PLAY}" ]; then
-    echo "  VERDICT: play-browsers.yml is NOT READABLE at ${PLAY}"
-elif grep -qE '^[[:space:]]*name: google-chrome-stable[[:space:]]*$' "${PLAY}"; then
-    echo "  VERDICT: FIXED — this checkout installs from Google's repo."
-    echo "           If the error still names @commandline, something else ran this play."
-elif grep -qE 'name: https://dl\.google\.com/.*\.rpm' "${PLAY}"; then
-    echo "  VERDICT: STALE — this checkout still installs from the direct .rpm URL."
-    echo "           That is the old task and it reproduces the old error exactly."
-    echo "           Fix: git -C ${REPO_ROOT} pull"
-else
-    echo "  VERDICT: UNRECOGNISED — the Chrome task matches neither shape."
-    probe "the task as it stands" grep -n -A6 'name: Install Google Chrome' "${PLAY}"
+Gathers the facts that say whether Plan 00124's Chrome signing-key fix still
+holds on this host:
+
+  1. what this checkout carries — which shape the Chrome tasks in
+     play-browsers.yml have, and whether the key-refresh helper is wired in;
+  2. the Google signing key on this host — what the rpm keyring holds, whether
+     it carries the subkey the current package is signed by, whether the fetched
+     key file still matches what Google publishes, and what the play's own
+     staleness decision says. This is the section Task 4.2 turns on;
+  3. repo files, dnf and the installed package — the original diagnostic, kept
+     for a regression.
+
+Host-only and read-only; no probe needs root. Safe to re-run. Writes its report
+into untracked/plan-runs/ and names it on completion.
+
+EXIT STATUS
+  0  every probe answered
+  1  at least one probe could not answer; the failing leg names itself. The
+     FACT-FINDING is incomplete — it is not a statement about the host.
+ 64  usage error"
+
+plan_mode gather
+plan_parse_common_flags "$@"
+
+if [[ "${#PLAN_REMAINING_ARGS[@]}" -gt 0 ]]; then
+    printf '[FATAL] unknown argument(s): %s\n' "${PLAN_REMAINING_ARGS[*]}" >&2
+    printf '%s\n' "${PLAN_USAGE}" >&2
+    exit 64
 fi
 
-rule "2. leftover repo files (an upgrade or a dnf remove leaves these)"
-probe "chrome/google repo files" sh -c 'ls -la /etc/yum.repos.d/ | grep -iE "chrome|google"'
-for repo_file in /etc/yum.repos.d/google-chrome*.repo; do
-    if [ -r "${repo_file}" ]; then
-        printf -- '\n--- %s ---\n' "${repo_file}"
-        cat "${repo_file}"
-    fi
-done
+plan_require_host "every fact below comes from this host's rpm keyring, /etc/pki/rpm-gpg and dnf, none of which a container has"
 
-rule "3. Google keys in the RPM keyring"
-# The package in Google's repo is signed by subkey FD533C07C264648F of primary
-# 7721F63BD38B4796. Both are in dl.google.com/linux/linux_signing_key.pub —
-# checked against the repo's own package, so a MISSING key here is a real
-# finding and a present one exonerates the key as the cause.
-probe "google gpg-pubkey entries" sh -c \
-    "rpm -qa gpg-pubkey --qf '%{version}-%{release}  %{summary}\n' | grep -i google"
+plan_start_log auto
 
-rule "4. is Chrome installed right now?"
-probe "google-chrome-stable" rpm -q google-chrome-stable
+# The report lands in the per-run directory (R10): inside the repo, so the agent
+# reads it at the same path the operator sees; under untracked/, so raw host state
+# is never committed; and per-run, so a re-run never overwrites the evidence of the
+# run before it.
+REPORT="${PLAN_RUN_DIR}/plan-00124-chrome-key-report.md"
+readonly REPORT
 
-rule "5. what dnf itself says"
-probe "repos dnf knows about" sh -c 'dnf -q repolist --all | grep -iE "repo id|chrome"'
-probe "dnf's view of the package" sh -c 'dnf -q --refresh info google-chrome-stable 2>&1 | head -20'
+{
+    cat <<'HEADER'
+# Plan 00124 — does the Chrome signing-key fix still hold?
 
-rule "6. dnf version (the behaviour that changed is dnf5's)"
-probe "dnf --version" sh -c 'dnf --version | head -3'
-probe "dnf packages" sh -c 'rpm -q dnf dnf5 libdnf5 | grep -v "not installed"'
+Generated on the HOST by
+CLAUDE/Plan/00124-chrome-install-gpg-failure-on-upgraded-host/triage.bash.
 
-echo ""
-echo "TRIAGE COMPLETE — nothing was changed. Paste the whole output above."
+READ THIS FOR: Task 4.2 — whether a second run reports the key tasks as ok rather
+than changed. Section 2 holds those facts and says which task each one predicts.
+
+This is fact-finding. It renders no verdict: a section that could not answer says
+so by name, and the run then exits non-zero to mean the fact-finding was
+incomplete, not that the host is broken.
+
+HEADER
+    printf -- '- checkout: %s\n' "${PLAN_REPO_ROOT}"
+    printf -- '- run directory: %s\n' "${PLAN_RUN_DIR}"
+    printf -- '- generated: %s\n' "$(date --iso-8601=seconds)"
+} >"${REPORT}"
+
+plan_gather_leg "what this checkout carries" \
+    bash "${PLAN_SCRIPT_DIR}/probe-chrome.bash" "${REPORT}" checkout
+
+plan_gather_leg "the Google signing key on this host (Task 4.2)" \
+    bash "${PLAN_SCRIPT_DIR}/probe-chrome.bash" "${REPORT}" key
+
+plan_gather_leg "repo files, dnf and the installed package" \
+    bash "${PLAN_SCRIPT_DIR}/probe-chrome.bash" "${REPORT}" host
+
+plan_finish
