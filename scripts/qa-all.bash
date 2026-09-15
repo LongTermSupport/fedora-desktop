@@ -292,6 +292,20 @@ host_hostname_summary=$(printf '%s' "$host_hostname_out" | grep -oE 'passed: [0-
     host_hostname_summary="passed"
 printf '✓ ccy-host-hostname: %s\n' "$host_hostname_summary"
 
+# host_only_preflight (Plan 00121): the host-CLI gate on a scenario that puts a real GitHub
+# PAT into a guest. One of three independent gates — the other two are the bridge allowlist
+# and bridge_run's manifest refusal — and the one a human types past. Driven through the
+# bridge marker, both deployed enumerations, and every way a secret file can be wrong.
+host_only_gate_out=""
+if ! host_only_gate_out="$(bash "$SCRIPT_DIR/test-vmtest-host-only-gate.bash" 2>&1)"; then
+    echo "$host_only_gate_out" >&2
+    echo "✗ QA FAILED: vmtest host-only gate unit tests" >&2
+    exit 1
+fi
+host_only_gate_summary=$(printf '%s' "$host_only_gate_out" | grep -oE 'passed: [0-9]+') ||
+    host_only_gate_summary="passed"
+printf '✓ vmtest-host-only-gate: %s\n' "$host_only_gate_summary"
+
 # hl_write_localhost_yml (Plan 00119): the headless localhost.yml writer, driven through the
 # 443 flag on/off/unset, the empty-identity path and the keep-existing-file promise.
 localhost_yml_out=""

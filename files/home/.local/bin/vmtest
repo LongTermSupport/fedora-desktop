@@ -12,6 +12,12 @@
 #   vmtest build-base <base-key>             build a base from its artefact (fast kind: import, upgrade, clean, flatten)
 #   vmtest run <scenario-id> [--commit SHA]  the full lifecycle: freshness gate, overlay, boot, run.bash at the
 #                                            pinned commit, in-guest acceptance, transcript, verdict, destroy
+#     A host_only scenario additionally REQUIRES, and only accepts:
+#       --github-account <user>                a THROWAWAY GitHub account, never a real one
+#       --github-token-file <path>             0600 file holding that account's scoped PAT
+#       --github-ssh-passphrase-file <path>    0600 file holding the login key's passphrase
+#     Secrets are named by PATH, never by value: a value on argv is visible to every user
+#     on the host through `ps`. These options are refused on an ordinary scenario.
 #   vmtest verify <run-id>                   check a bridge response's signature under the host-only key
 #   vmtest refresh-base <base-key|profile|all>   bring a base up to date: a fast base is re-imported from the
 #                                            published image (minutes); a full base is reinstalled from its media
@@ -41,6 +47,10 @@ readonly MANIFEST="${VMTEST_HOME}/scenarios.json"
 readonly SSH_KEY="${VMTEST_HOME}/ssh/lab-key"
 readonly GUEST_CLEANUP="${VMTEST_HOME}/guest-cleanup.bash"
 readonly ALLOWLIST="${VMTEST_HOME}/scenarios.allowlist"
+# The scenarios only a human at this CLI may run, because they handle a real credential.
+# Disjoint from ALLOWLIST by construction (helpers/vmtest/scenarios.py), and absent rather
+# than empty when there are none, so a stale file cannot read as permission.
+readonly HOST_ONLY_LIST="${VMTEST_HOME}/scenarios.host-only"
 readonly RUNS_DIR="${VMTEST_HOME}/runs"
 readonly IMAGES_DIR="${VMTEST_HOME}/images"
 readonly BASES_DIR="${VMTEST_HOME}/bases"
@@ -148,6 +158,73 @@ scenario_facts() {
         true | false) ;;
         *) die "validator reported host_only='${SCENARIO_HOST_ONLY}', which is neither true nor false" ;;
     esac
+}
+
+# host_only_preflight <scenario-id> <github-account> <token-file> <ssh-passphrase-file>
+#
+# Every gate a credential-bearing run must pass before anything boots (Plan 00121). A
+# host-only scenario puts a REAL GitHub PAT and a real SSH passphrase into a guest, so this
+# is the last point at which the run can be stopped for free.
+#
+# It is one of THREE independent gates, and deliberately not the only one: the scenario is
+# absent from the bridge allowlist so the watcher rejects it, and `bridge_run` refuses it
+# from the manifest before dispatch. Any one of the three alone would be a single point of
+# failure, and a gate that only ever permits is this repo's cardinal defect.
+#
+# Inputs are parameters rather than globals so the whole gate can be driven from
+# scripts/test-vmtest-host-only-gate.bash without standing up a lab.
+host_only_preflight() {
+    local scenario_id="${1:?host_only_preflight requires a scenario id}"
+    local account="${2-}" token_file="${3-}" pp_file="${4-}" secret mode
+
+    # bridge_run declares itself when it launches this CLI. The bridge's own argv is
+    # hardcoded and cannot carry the options below, so this is belt to that braces.
+    if [[ "${VMTEST_FROM_BRIDGE:-}" == "1" ]]; then
+        die "${scenario_id} handles a real credential and was launched by the bridge; it is run by a human at the host CLI only"
+    fi
+
+    # Absent, not empty, is how the playbook leaves the file when nothing is host-only, so a
+    # missing list must not read as "no restriction".
+    if [[ ! -r "${HOST_ONLY_LIST}" ]] || ! grep -qx "${scenario_id}" "${HOST_ONLY_LIST}"; then
+        die "${scenario_id} is not in the deployed host-only list ${HOST_ONLY_LIST}; re-run play-vm-test-lab.yml on the host"
+    fi
+
+    # The two enumerations are disjoint by construction in scenarios.py. If they are not
+    # disjoint ON DISK, a deployed file has been hand-edited — and the file that would have
+    # been edited is the one keeping this run's PAT away from the bridge.
+    if [[ -r "${ALLOWLIST}" ]] && grep -qx "${scenario_id}" "${ALLOWLIST}"; then
+        die "${scenario_id} is on both the bridge allowlist and the host-only list; they are built disjoint, so one of them has been edited by hand"
+    fi
+
+    # A GitHub username, which is interpolated into an SSH command line. The grammar is the
+    # guard: GitHub's own rule is alphanumerics and single hyphens, never leading or trailing.
+    if [[ -z "${account}" ]]; then
+        die "${scenario_id} needs --github-account: the throwaway GitHub account this run authenticates as"
+    fi
+    if [[ ! "${account}" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$ ]]; then
+        die "--github-account '${account}' is not a GitHub username (alphanumerics and single hyphens)"
+    fi
+
+    if [[ -z "${token_file}" ]]; then
+        die "${scenario_id} needs --github-token-file: a 0600 file holding a scoped PAT for a THROWAWAY account (scopes: vars/github-required-scopes.yml plus admin:public_key)"
+    fi
+    if [[ -z "${pp_file}" ]]; then
+        die "${scenario_id} needs --github-ssh-passphrase-file: a 0600 file holding the passphrase run.bash will protect the generated login key with"
+    fi
+
+    # Paths, never values: a secret on argv is visible to every user on the box through `ps`.
+    for secret in "${token_file}" "${pp_file}"; do
+        if [[ ! -r "${secret}" ]]; then
+            die "secret file ${secret} is not readable"
+        fi
+        if [[ ! -s "${secret}" ]]; then
+            die "secret file ${secret} is empty; an empty secret cannot be redacted from the transcript afterwards, nor verified absent from it"
+        fi
+        mode="$(stat -c '%a' "${secret}")"
+        if [[ "${mode}" != "600" && "${mode}" != "400" ]]; then
+            die "secret file ${secret} is mode ${mode}; it must be 0600 or 0400, or every account on this host can read it before the run even starts"
+        fi
+    done
 }
 
 # run_env_assignments — the scenario's RUN_BASH_* overrides as `KEY='value'` words for the
@@ -850,11 +927,24 @@ teardown_run() {
 
 cmd_run() {
     local scenario_id="${1:?usage: vmtest run <scenario-id> [--commit SHA]}" commit=""
+    local github_account="" github_token_file="" github_ssh_pp_file=""
     shift
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --commit)
                 commit="${2:?--commit needs a value}"
+                shift 2
+                ;;
+            --github-account)
+                github_account="${2:?--github-account needs a value}"
+                shift 2
+                ;;
+            --github-token-file)
+                github_token_file="${2:?--github-token-file needs a path}"
+                shift 2
+                ;;
+            --github-ssh-passphrase-file)
+                github_ssh_pp_file="${2:?--github-ssh-passphrase-file needs a path}"
                 shift 2
                 ;;
             *) die "unknown option: $1" ;;
@@ -864,9 +954,19 @@ cmd_run() {
     scenario_facts "${scenario_id}"
     [[ "${SCENARIO_RUNNABLE}" == "true" ]] ||
         die "${scenario_id} is not runnable: its guest script has not declared a planned check count"
-    # The deployed allowlist is the authority (§2.3): the manifest alone does not admit a run.
-    if [[ ! -r "${ALLOWLIST}" ]] || ! grep -qx "${scenario_id}" "${ALLOWLIST}"; then
-        die "${scenario_id} is not in the deployed allowlist ${ALLOWLIST}; re-run play-vm-test-lab.yml on the host"
+    if [[ "${SCENARIO_HOST_ONLY}" == "true" ]]; then
+        host_only_preflight "${scenario_id}" "${github_account}" "${github_token_file}" "${github_ssh_pp_file}"
+    else
+        # A credential option on an ordinary scenario is REFUSED, not ignored. The caller
+        # believes they are delivering a secret; dropping it silently would leave them
+        # thinking the token path had been exercised when it never was.
+        if [[ -n "${github_account}${github_token_file}${github_ssh_pp_file}" ]]; then
+            die "the --github-* options apply only to a host_only scenario, and ${scenario_id} is not one"
+        fi
+        # The deployed allowlist is the authority (§2.3): the manifest alone does not admit a run.
+        if [[ ! -r "${ALLOWLIST}" ]] || ! grep -qx "${scenario_id}" "${ALLOWLIST}"; then
+            die "${scenario_id} is not in the deployed allowlist ${ALLOWLIST}; re-run play-vm-test-lab.yml on the host"
+        fi
     fi
     base_facts "${SCENARIO_BASE_KEY}"
     local base_dir="${BASES_DIR}/${BASE_NAME}" base_disk base_json guest_script

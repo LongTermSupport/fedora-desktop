@@ -106,8 +106,12 @@ If the verification pass finds anything, the artefact is not published and the r
   `server-github-token` entry itself and the secret-file delivery
 - [ ] ⬜ **Task 2.3**: Off-mount logging to the host-local run directory, with only a verdict
   and a pointer returned
-- [ ] ⬜ **Task 2.4**: Opt-in gating that refuses to run from the bridge — and a test proving
-  the refusal, since a gate that only ever permits is this repo's cardinal defect
+- [x] ✅ **Task 2.4**: Opt-in gating that refuses to run from the bridge. **Three independent
+  gates**, none load-bearing alone: the scenario is off the bridge allowlist so the watcher
+  rejects it; `bridge_run` refuses it from the manifest before dispatch; and
+  `host_only_preflight` requires credential options the bridge's hardcoded argv cannot carry.
+  Ten mutants falsified across the two suites, including a refusal placed after the run and
+  an absent host-only list read as permission
 - [ ] ⬜ **Task 2.5**: The in-guest assertions: agent gone, askpass helper gone, secret files
   unlinked, no secret bytes in the environment or cloud-init `user-data`
 - [ ] 🚫 **Task 2.6**: **HUMAN, needs a real credential** — run it. An agent must not create or
