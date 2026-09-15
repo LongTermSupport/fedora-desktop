@@ -78,6 +78,15 @@
     # Removing unconditionally would report `changed` on every run for ever, so the
     # helper decides, and it identifies the key by ID rather than by description so
     # the `rpm -e` below cannot reach a key it was never asked about.
+    # The key check reads OpenPGP packets with gpg rather than reimplementing them.
+    # Nothing else in this repo installs it, and a desktop having it is a habit of
+    # the package graph rather than a guarantee — so declare it here, where the
+    # need is, instead of finding out on the next fresh install.
+    - name: Install The OpenPGP Tool The Key Check Reads Keys With
+      ansible.builtin.package:
+        name: gnupg2
+        state: present
+
     - name: Fetch Google's Published Signing Key
       ansible.builtin.get_url:
         url: https://dl.google.com/linux/linux_signing_key.pub
