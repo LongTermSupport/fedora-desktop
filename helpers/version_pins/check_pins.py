@@ -134,7 +134,7 @@ def check(
     rpm_version: Callable[[str], str | None] | None = None,
     command_version: Callable[[str], str | None] | None = None,
     ran_plays: set[str] | None = None,
-    dkms_registered: list[str] | None = None,
+    registry: probe_results.DkmsRegistry | None = None,
 ) -> list[probe_results.Finding]:
     """One finding per pin that is not a clean MATCH. The probes are seams.
 
@@ -188,11 +188,13 @@ def check(
         # the check spoke at every login: `dkms()` raises "command not found" and every
         # DKMS pin became "could not be checked", for ever.
         #
-        # `[]` is a positive finding of nothing — no state directory, so no DKMS module
-        # of any kind. `None` (could not read it) falls through and still reports, and
-        # the same evidence drives `probe_results.build_report`, so the two cannot
-        # disagree about whether this host has DKMS.
-        if pin.installed.kind == manifest.DKMS and dkms_registered == []:
+        # `present is False` — no state directory at all — and NOT merely an empty
+        # module list. The `dkms` rpm owns that directory, so a DisplayLink host whose
+        # module has been removed has the directory and an empty registry, which is the
+        # very state this axis exists to report; skipping on "no modules" would silence
+        # it. `None` (could not read it) falls through and still reports.
+        if pin.installed.kind == manifest.DKMS and registry is not None \
+                and registry.present is False:
             continue
         try:
             pinned = pinned_value(playbook_text(pin.playbook), pin.var)
@@ -266,7 +268,20 @@ def _rpm_version(package: str) -> str | None:
 
 
 def _command_version(command: str) -> str | None:
-    return _run([command, "--version"]).strip() or None
+    """The command's reported version, or None when the command is not installed.
+
+    The `None` branch is the counterpart of `_rpm_version`'s, and it matters for the
+    same reason: without it a missing command raises, `check` catches it broadly, and
+    the pin becomes a permanent *unchecked* finding on every host that never ran the
+    play that installs it — the original noise, arriving through the one resolver the
+    ABSENT scoping cannot reach, because it never gets as far as `classify`.
+    """
+    try:
+        return _run([command, "--version"]).strip() or None
+    except ResolutionError as error:
+        if "command not found" in str(error):
+            return None
+        raise
 
 
 def _repo_root_default() -> str:

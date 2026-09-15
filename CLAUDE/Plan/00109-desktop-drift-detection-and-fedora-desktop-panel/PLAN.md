@@ -165,7 +165,9 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     - [x] ✅ **A healthy server was never going to be silent** (qa-reviewer, 26-09-15).
       Two permanent findings, one root: no `dkms` on a server (§5). The first answer to
       the pin half silenced the founding incident on every desktop; the ledger now acts
-      on one verdict, not on the population (§5.1)
+      on one verdict, not on the population (§5.1). "No DKMS modules" is not "no DKMS" —
+      the two are carried apart, or Task 0.2's own cleanup would go unreported (§5.2),
+      and removing software on purpose is drift until the pin says otherwise (§5.3)
     - [x] ✅ Each branch of the merged play removes the other's artefacts, so correcting
       a mis-set profile does not leave both deliveries installed (§7)
     - [ ] ⬜ **HOST**: run the play on a server profile — the timer arms, a document

@@ -216,7 +216,17 @@ def plays_run_here(base: str) -> set[str] | None:
     finding, reported once and in its own section, so letting it also take down the pin
     check would be two voices on one fact — and this runs at login, where an exception
     costs the user the report entirely.
+
+    **The BROKEN sentinel answers None too**, and that is the one case the "it is
+    reported elsewhere" argument does not cover: `ledger_presence.findings` returns
+    nothing while the sentinel exists, deliberately, because `check_freshness` already
+    prints the reason. So in the single state where this repo has declared the ledger
+    incomplete, a set read from it anyway would silently suppress every `ABSENT` verdict
+    whose row is in the hole, with nothing saying so. The sentinel IS the declaration
+    that the question is open, and an open question must not buy silence.
     """
+    if os.path.exists(ledger.sentinel_path(base)):
+        return None
     try:
         return set(ledger.fold_latest(store.read_lines(base)))
     except (OSError, ValueError):
@@ -356,11 +366,11 @@ def main(
             pins=check_pins.declared_pins(arguments.repo_root),
             playbook_text=lambda relative: _read(arguments.repo_root, relative),
             dkms_status=lambda: dkms_text(probe.run_probe),
-            # The two things this host knows about itself. `dkms_registered` decides
-            # whether a DKMS-resolved pin is answerable here at all; `ran_plays`
-            # disambiguates one verdict, "nothing installed", which means something
-            # different on a host that ran the play and one that never did.
-            dkms_registered=probe.dkms_registered_modules(),
+            # The two things this host knows about itself. `registry` decides whether a
+            # DKMS-resolved pin is answerable here at all; `ran_plays` disambiguates one
+            # verdict, "nothing installed", which means something different on a host
+            # that ran the play and one that never did.
+            registry=probe.dkms_registry(),
             ran_plays=plays_run_here(base),
         ),
     )

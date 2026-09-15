@@ -607,3 +607,204 @@ chase on any of the three.
 `version-pins: COVERAGE: 9 of 9`, `extension-compat` clean. The four demotion mutants are
 asserted by the commit message; I did not re-kill them, as that needs mutating tracked
 files.
+
+---
+
+# Round 5 — verification of `665e64de` (the re-derived pin rule)
+
+**Verdict**: the re-derivation is right and H1 is closed. Two holes remain in the new
+rule, one of them measured and reachable on a DisplayLink host. `qa-all.bash` green,
+876 files.
+
+## Verified
+
+Drove the incident state (`evdi 1.14.16` against a pinned `1.15.0`) across all four
+ledger states, plus a stock server:
+
+```
+ledger None              -> evdi_version (behind): pinned 1.15.0, installed 1.14.16
+ledger has displaylink   -> evdi_version (behind): pinned 1.15.0, installed 1.14.16
+ledger lacks displaylink -> evdi_version (behind): pinned 1.15.0, installed 1.14.16
+ledger empty             -> evdi_version (behind): pinned 1.15.0, installed 1.14.16
+stock server             -> SILENT
+```
+
+Scoping to `ABSENT` rather than to the population is the correct shape: `BEHIND`, `AHEAD`
+and `UNDETERMINED` all mean the software is present and was compared, so no ledger state
+can make them uninteresting. Zero-coverage counts the whole manifest again.
+
+Also verified: `qa_gates` matches all three invocation spellings and reports a
+documented-but-unrun gate (injected `qa-ghost.bash` → detected); 28 derived, 28
+documented, both directions clean; `dkms_registered_modules` now uses `os.scandir` with a
+per-entry `except OSError: return None` and treats an unresolving symlink as "could not
+tell"; the merged play removes the other profile's unit files **and** their `.wants/`
+symlinks in both directions (`:162-169`, `:253-259`).
+
+## H4 — `dkms_registered == []` IS reachable with DisplayLink installed
+
+Yes, and it is measured. `[]` means two different things and only one of them licenses
+the skip:
+
+- `/var/lib/dkms` **absent** — no DKMS subsystem. The server case, and a real answer.
+- `/var/lib/dkms` **present with no module subdirectories** — `dkms` is installed and its
+  registry is empty. Not the same fact at all.
+
+The second is reachable on a DisplayLink host: the `dkms` RPM owns `/var/lib/dkms`, and
+`play-displaylink.yml:61` installs `dkms`, so every host that ran that play has the
+directory. Real hosts carry `dkms_dbversion`, a file, which the `isdir` filter correctly
+drops — so an emptied registry yields exactly `[]`.
+
+Counterfactual with `dkms status` empty and `play-displaylink.yml` in the ledger:
+
+```
+registry []          -> SILENT
+registry ["nvidia"]  -> evdi_version (absent): pinned 1.15.0, nothing installed
+registry None        -> evdi_version (absent): pinned 1.15.0, nothing installed
+```
+
+One unrelated module restores the correct finding, so `[]` alone is what suppresses it.
+"The DisplayLink play ran here and the module is now gone" is precisely what this axis
+exists to say — and **Task 0.2 of this plan is about to go and create that state**, by
+removing orphaned DKMS source trees.
+
+**The two predicates are not the same evidence.** `probe_results.build_report` requires
+`dkms.missing AND dkms_registered == []`; `check_pins.check` requires
+`dkms_registered == []` alone. The probe cannot be fooled by an empty registry on a host
+that has `dkms`; the pin check can.
+
+**Fix**: either narrow the pin skip to the same conjunction (pass the probe's `missing`
+signal through), or give `dkms_registered_modules` a fourth state distinguishing "no state
+directory" from "directory present, no modules". Both preserve the server fix, because a
+server has no `/var/lib/dkms` at all.
+
+## H5 — the BROKEN sentinel is the one state where the ABSENT backstop is off
+
+The scoping leans on "an empty or unreadable ledger is `ledger_presence`'s finding, so
+suppression can never be silent". That holds — `ledger_presence.findings` returns a
+`broken` finding for an empty ledger and an `unchecked` one for an unreadable one — with
+one exception it does not cover.
+
+`ledger_presence.py:49-50` returns `[]` **deliberately** while `ledger.sentinel_path(base)`
+exists, because `check_freshness` already refuses to answer and prints the reason. But
+`login_report.plays_run_here:220-223` catches only `OSError`/`ValueError`; it never
+consults the sentinel. So in the one state where the repo has declared the ledger has a
+hole, the pin check reads it anyway, gets a possibly-incomplete set, and silently
+suppresses `ABSENT` for every play whose row is in the hole — with nothing reporting the
+ledger's condition, by design.
+
+**Fix**: `plays_run_here` returns `None` when the sentinel exists. That is the same rule
+already applied to `OSError` — an open question must not buy silence — and the sentinel is
+the repo's own declaration that the question is open.
+
+## H6 — `_command_version` has no ABSENT branch, so the noise returns by another door
+
+`_rpm_version` (`check_pins.py:262-265`) catches `"is not installed"` and returns `None`,
+which becomes `ABSENT` and is therefore covered by the ledger scoping. `_command_version`
+(`:268-269`) is a bare `_run([command, "--version"])`, and `_run` raises
+`ResolutionError(f"{argv[0]}: command not found")` on `FileNotFoundError`. That is caught
+by the broad `except Exception` at `:208` and becomes an **unchecked** finding, `"<var>:
+could not be checked — foo: command not found"`, reported unconditionally on every host
+that never ran the owning play.
+
+So the first tracked `command`-kind pin belonging to an optional play reintroduces the
+original permanent server noise, through the one resolver the `ABSENT` scoping cannot
+reach — because it never gets as far as `classify`. Not live today: the manifest has nine
+pins and the one tracked pin is DKMS-kind. Invisible when it stops being true.
+
+**Fix**: give `_command_version` the ABSENT branch `_rpm_version` already has — a command
+that is not installed resolves to `None`, not an exception.
+
+## Accepted consequence worth naming
+
+A host that ran the play and has since *deliberately* removed the software now reports
+`ABSENT` for ever. That is arguably correct — the repo declares the pin, so an
+uninstalled package is drift — but it is a permanent, unactionable line for anyone who
+runs an optional play once and then removes what it installed. Worth being a decision
+rather than a side effect.
+
+## Mechanical gates (round 5)
+
+`✓ QA passed: 876 files checked`. `version-pins: COVERAGE: 9 of 9`, `panel-contract` 7
+constants and 4 section ids agree, `host-health-login-snippet: passed: 12`.
+
+Two working-tree changes seen and **not reviewed** (uncommitted): `status_document` has
+gained `collected_kernel()` and `is_boot_stale()`, which is the round-4 recommendation.
+
+---
+
+# Round 6 — `b0679155`, and a re-check of round 5's three findings
+
+**Do not close yet.** `665e64de` was reviewed in **round 5** above, not skipped — it
+carries three open findings (H4, H5, H6), two of which are the direct answers to the
+first two questions asked here. All three still reproduce at `b0679155`.
+
+## `b0679155` — verified
+
+`login_message.render` now calls `status_document.is_boot_stale` and
+`collected_kernel` instead of computing the predicate inline; the panel gap is recorded
+as a Task 4.2 item naming the predicate. `is_boot_stale` behaves correctly on all three
+inputs I drove: differing kernels `True`, matching `False`, and an `unavailable` document
+(`kernel: ""`) `False`. Clean export of `b0679155`: **1302 helper tests, OK**.
+
+## Q3 — is `is_boot_stale` in the right place?
+
+**Yes, and it does create an obligation the panel gate cannot enforce — but that gate
+should not be the thing enforcing it.**
+
+Right place: it is a property of the document, both declared readers ask it of the same
+file, and the alternative is what round 4 flagged. Nothing to change.
+
+The obligation is real, and the existing gate already demonstrates why it will not catch
+it. `check_panel_contract` requires the panel to *mention* each of seven document keys,
+and `kernel` is one of them — the gate passes today. The panel's only two mentions of it
+are a prose comment (`statusDocument.js:20`) and `kernel: ''` in a fallback shape
+(`:64`), which compares nothing. So the panel already satisfies a `kernel` obligation
+while being entirely boot-unaware: **a vocabulary check being read as a behaviour check.**
+
+Do not try to extend the contract gate to cover this — it is a category error. A
+cross-language literal check can prove the two sides use the same words and can never
+prove one of them asks a question. The Task 4.2 item is the right mechanism. What should
+prove it when the panel side lands is a test that renders a **boot-stale document**
+through the panel's own section code and asserts the findings are not presented as
+current — not another mention.
+
+## Q1 and Q2 — answered in round 5, and re-verified at `b0679155`
+
+**Q2, `dkms_registered == []` with DisplayLink installed: yes.** Re-run at this HEAD, with
+`dkms status` empty and `play-displaylink.yml` in the ledger:
+
+```
+registry []          -> SILENT
+registry ['nvidia']  -> evdi_version (absent): pinned 1.15.0, nothing installed
+registry None        -> evdi_version (absent): pinned 1.15.0, nothing installed
+```
+
+Unchanged from round 5. `[]` conflates "no `/var/lib/dkms`" with "directory present, no
+module subdirectories"; the `dkms` rpm owns that directory and `play-displaylink.yml:61`
+installs it, so the second is the state of every DisplayLink host the moment its module
+is removed — which Task 0.2 sets out to do. `build_report` requires
+`dkms.missing AND registered == []`; `check_pins` requires `registered == []` alone, so
+the two predicates are not the same evidence. Full detail in **H4**.
+
+**Q1, the ABSENT scoping: two cases, both still live.**
+
+- **H5, the BROKEN sentinel.** `login_report.plays_run_here` does not mention the
+  sentinel — confirmed at this HEAD by reading the function's source. In the one state
+  where the repo has declared the ledger has a hole, `ledger_presence` is silent *by
+  design* (`ledger_presence.py:49-50`) and the pin check reads the runs file anyway,
+  suppressing `ABSENT` for every play in the hole with nothing reporting the condition.
+- **H6, `_command_version` has no ABSENT branch.** Confirmed unchanged:
+  `return _run([command, "--version"]).strip() or None`. A missing binary raises through
+  `_run`, is caught by the broad handler, and becomes an unconditional "could not be
+  checked" — the original permanent noise, through the one resolver ABSENT-scoping cannot
+  reach. Not live today; invisible when it stops being so.
+
+## Mechanical gates (round 6)
+
+- Clean export of `b0679155`: `qa-helper-tests.bash` **1302 tests, OK**.
+- `qa-all.bash` on the **working tree**: FAILS, 34 errors in the helper suite. **Not
+  either reviewed commit** — a concurrent, half-applied refactor introducing
+  `probe_results.DkmsRegistry` (a tri-state `present` field, which is H4's fix) has
+  changed `build_report`'s signature from `dkms_registered=` to `registry=` and its
+  callers and tests have not all caught up. Uncommitted and not reviewed; on a read it is
+  the right shape for H4.

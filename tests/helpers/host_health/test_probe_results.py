@@ -209,11 +209,23 @@ class TestAHostWithNoDkmsSubsystem(unittest.TestCase):
 
     MISSING = probe_results.ProbeOutcome(
         ok=False, text="", error="dkms: command not found (dkms status)", missing=True)
+    NO_SUBSYSTEM = probe_results.DkmsRegistry(present=False)
+    EMPTY_REGISTRY = probe_results.DkmsRegistry(present=True)
+    CANNOT_TELL = probe_results.DkmsRegistry(present=None)
 
     def test_no_command_and_no_modules_is_silent(self) -> None:
         report = probe_results.build_report(
             dkms=self.MISSING, failed_system=NO_UNITS, failed_user=NO_UNITS,
-            running_kernel=RUNNING_KERNEL, dkms_registered=[])
+            running_kernel=RUNNING_KERNEL, registry=self.NO_SUBSYSTEM)
+        self.assertTrue(report.clean)
+
+    def test_a_dkms_directory_with_no_modules_is_silent_too(self) -> None:
+        """For this probe the two are the same answer: no registered module can be
+        missing a build. They are NOT the same for the pin check, which is why the
+        registry carries them apart rather than collapsing them here."""
+        report = probe_results.build_report(
+            dkms=self.MISSING, failed_system=NO_UNITS, failed_user=NO_UNITS,
+            running_kernel=RUNNING_KERNEL, registry=self.EMPTY_REGISTRY)
         self.assertTrue(report.clean)
 
     def test_no_command_but_registered_modules_is_reported(self) -> None:
@@ -221,17 +233,18 @@ class TestAHostWithNoDkmsSubsystem(unittest.TestCase):
         kernel, and whether they are built for this one cannot be established."""
         report = probe_results.build_report(
             dkms=self.MISSING, failed_system=NO_UNITS, failed_user=NO_UNITS,
-            running_kernel=RUNNING_KERNEL, dkms_registered=["evdi"])
+            running_kernel=RUNNING_KERNEL,
+            registry=probe_results.DkmsRegistry(present=True, modules=("evdi",)))
         self.assertFalse(report.clean)
         self.assertTrue(any("evdi" in text for text in report.texts))
 
     def test_an_unreadable_state_directory_is_not_read_as_absence(self) -> None:
-        """None means the question is open. Folding it in with `[]` would let a
-        permission problem on /var/lib/dkms buy permanent silence on the axis this
-        plan's incident happened on."""
+        """`present is None` means the question is open. Folding it in with "no modules"
+        would let a permission problem on /var/lib/dkms buy permanent silence on the
+        axis this plan's incident happened on."""
         report = probe_results.build_report(
             dkms=self.MISSING, failed_system=NO_UNITS, failed_user=NO_UNITS,
-            running_kernel=RUNNING_KERNEL, dkms_registered=None)
+            running_kernel=RUNNING_KERNEL, registry=self.CANNOT_TELL)
         self.assertFalse(report.clean)
 
     def test_omitting_the_parameter_keeps_the_old_noisy_verdict(self) -> None:
@@ -245,12 +258,12 @@ class TestAHostWithNoDkmsSubsystem(unittest.TestCase):
     def test_a_command_that_ran_and_failed_is_still_a_finding(self) -> None:
         """`missing` is the whole discriminator. A dkms that exists and returned an
         error says nothing about whether this host has a DKMS subsystem, so an empty
-        module list must not silence it."""
+        registry must not silence it."""
         report = probe_results.build_report(
             dkms=probe_results.ProbeOutcome(
                 ok=False, text="", error="dkms: permission denied", missing=False),
             failed_system=NO_UNITS, failed_user=NO_UNITS,
-            running_kernel=RUNNING_KERNEL, dkms_registered=[])
+            running_kernel=RUNNING_KERNEL, registry=self.NO_SUBSYSTEM)
         self.assertFalse(report.clean)
 
     def test_the_other_two_probes_are_still_judged(self) -> None:
@@ -259,7 +272,8 @@ class TestAHostWithNoDkmsSubsystem(unittest.TestCase):
             dkms=self.MISSING,
             failed_system=probe_results.ProbeOutcome(
                 ok=True, text="sshd.service loaded failed failed", error=""),
-            failed_user=NO_UNITS, running_kernel=RUNNING_KERNEL, dkms_registered=[])
+            failed_user=NO_UNITS, running_kernel=RUNNING_KERNEL,
+            registry=self.NO_SUBSYSTEM)
         self.assertFalse(report.clean)
         self.assertTrue(any("sshd.service" in text for text in report.texts))
 

@@ -92,26 +92,27 @@ def run_probe(argv: list[str]) -> probe_results.ProbeOutcome:
 DKMS_STATE_DIR = "/var/lib/dkms"
 
 
-def dkms_registered_modules(state_dir: str = DKMS_STATE_DIR) -> list[str] | None:
-    """Modules registered with DKMS here, or None when that could not be established.
+def dkms_registry(state_dir: str = DKMS_STATE_DIR) -> probe_results.DkmsRegistry:
+    """Whether this host has a DKMS state directory, and which modules it registers.
 
-    **None is not the empty list.** An absent state directory means this host has no DKMS
-    subsystem, which is an answer; a directory that could not be read leaves the question
-    open, and by this plan's standing rule an open question is not a clean result. The
-    caller renders the two differently and must be able to tell them apart.
+    Two facts in one read, because a caller that needs both must not be able to hold
+    inconsistent halves of them — and because the two questions have different answers.
+    "No modules" is not "no DKMS": the `dkms` rpm owns this directory, so a host that
+    installed DisplayLink and later lost the module has the directory and an empty
+    registry. See `probe_results.DkmsRegistry`.
 
-    Deliberately reads the state directory rather than asking `dkms`: the case this exists
-    for is a host where the command is not installed, so anything that shells out to it
-    has already lost.
+    Deliberately reads the state directory rather than asking `dkms`: the case this
+    exists for is a host where the command is not installed, so anything that shells out
+    to it has already lost.
     """
     names: list[str] = []
     try:
         with os.scandir(state_dir) as entries:
             for entry in entries:
                 # `os.path.isdir` answers False for anything it cannot stat, so a
-                # partial read would render as `[]` — the one answer that buys silence,
-                # reached without anyone establishing absence. Per-entry failures are
-                # therefore "could not tell", exactly as the directory's own are.
+                # partial read would render as an empty registry — an answer that buys
+                # silence, reached without anyone establishing absence. Per-entry
+                # failures are therefore "could not tell", as the directory's own are.
                 try:
                     if entry.is_dir():
                         names.append(entry.name)
@@ -120,14 +121,14 @@ def dkms_registered_modules(state_dir: str = DKMS_STATE_DIR) -> list[str] | None
                         # that does not resolve has just read as "not a module". DKMS
                         # keeps its module trees here, so something link-shaped among
                         # them leaves the question open rather than answering "none".
-                        return None
+                        return probe_results.DkmsRegistry(present=None)
                 except OSError:
-                    return None
+                    return probe_results.DkmsRegistry(present=None)
     except FileNotFoundError:
-        return []
+        return probe_results.DkmsRegistry(present=False)
     except OSError:
-        return None
-    return sorted(names)
+        return probe_results.DkmsRegistry(present=None)
+    return probe_results.DkmsRegistry(present=True, modules=tuple(sorted(names)))
 
 
 def running_kernel() -> str:
@@ -143,25 +144,24 @@ def collect(
     *,
     running_kernel: str,
     runner: Runner | None = None,
-    dkms_registered: list[str] | None = None,
+    registry: probe_results.DkmsRegistry | None = None,
 ) -> probe_results.Report:
     """Run all three probes and classify what they returned.
 
     `runner` is the seam the tests drive; unsupplied, the real one is used. So is
-    `dkms_registered` — it is discovered here rather than in `build_report` because the
+    `registry` — it is discovered here rather than in `build_report` because the
     classifier is pure and this is the half that touches the machine.
 
     This reports on the HOST only. Phase 2's findings join in `login_report.collect`,
     which is where each check can be guarded on its own — see `build_report`.
     """
     run = runner or run_probe
-    registered = dkms_registered if dkms_registered is not None else dkms_registered_modules()
     return probe_results.build_report(
         dkms=run(["dkms", "status"]),
         failed_system=run(list(_FAILED_UNITS)),
         failed_user=run([_FAILED_UNITS[0], "--user", *_FAILED_UNITS[1:]]),
         running_kernel=running_kernel,
-        dkms_registered=registered,
+        registry=registry if registry is not None else dkms_registry(),
     )
 
 

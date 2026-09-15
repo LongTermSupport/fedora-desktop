@@ -25,6 +25,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
+from helpers.host_health import probe_results
 from helpers.version_pins import check_pins, manifest
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..", "..")
@@ -302,15 +303,20 @@ class TestWhatThisHostKnowsAboutItself(unittest.TestCase):
 
     So the two facts are scoped to what each can actually answer:
 
-    * `dkms_registered == []` — no DKMS state directory, so no DKMS module of any kind
-      — makes a DKMS-resolved pin unanswerable here. That is an answer, and it is the
-      whole reason a stock server spoke at every login.
+    * `registry.present is False` — no DKMS state directory at all — makes a
+      DKMS-resolved pin unanswerable here. That is an answer, and it is the whole reason
+      a stock server spoke at every login. **Not** merely an empty module list: the
+      `dkms` rpm owns that directory, so a DisplayLink host whose module was removed has
+      the directory and an empty registry, and that is precisely what this axis exists
+      to report.
     * `ran_plays` disambiguates the one ambiguous verdict, ABSENT. "Pinned 1.15.0,
       nothing installed" is a fault on a host that ran the play and expected on one
       that never did.
     """
 
     DISPLAYLINK = "playbooks/imports/optional/hardware-specific/play-displaylink.yml"
+    NO_SUBSYSTEM = probe_results.DkmsRegistry(present=False)
+    EMPTY_REGISTRY = probe_results.DkmsRegistry(present=True)
 
     def test_the_incident_is_reported_whatever_the_ledger_has_seen(self) -> None:
         """The regression test for the mistake above, driven across every ledger state.
@@ -379,23 +385,38 @@ class TestWhatThisHostKnowsAboutItself(unittest.TestCase):
         self.assertEqual(
             check_pins.check(
                 pins=[pin()], playbook_text=lambda _: PLAYBOOK,
-                dkms_status=dkms, dkms_registered=[]),
+                dkms_status=dkms, registry=self.NO_SUBSYSTEM),
             [],
         )
         self.assertEqual(calls, [])
 
-    def test_an_unreadable_dkms_state_directory_still_resolves_the_pin(self) -> None:
-        """`None` is "could not tell", and it must not be folded in with "there is no
-        DKMS here" — the same tri-state `probe_results.build_report` keeps."""
+    def test_a_dkms_directory_with_no_modules_STILL_reports_the_missing_module(self) -> None:
+        """H4. The `dkms` rpm owns `/var/lib/dkms`, so every host that ran
+        `play-displaylink.yml` has the directory — and an emptied registry there means
+        the module was removed, which is exactly what this axis exists to say. Task 0.2
+        of this plan sets out to create that state. Skipping on "no modules" instead of
+        "no directory" silences it, and one unrelated module would have masked the bug."""
         findings = check_pins.check(
             pins=[pin()], playbook_text=lambda _: PLAYBOOK,
-            dkms_status=lambda: DKMS_INCIDENT, dkms_registered=None)
+            dkms_status=lambda: "", registry=self.EMPTY_REGISTRY,
+            ran_plays={self.DISPLAYLINK})
+        self.assertEqual(len(findings), 1)
+        self.assertIn("nothing installed", findings[0].text)
+
+    def test_an_unreadable_dkms_state_directory_still_resolves_the_pin(self) -> None:
+        """`present is None` is "could not tell", and must not be folded in with "there
+        is no DKMS here" — the same tri-state `probe_results.build_report` keeps."""
+        findings = check_pins.check(
+            pins=[pin()], playbook_text=lambda _: PLAYBOOK,
+            dkms_status=lambda: DKMS_INCIDENT,
+            registry=probe_results.DkmsRegistry(present=None))
         self.assertEqual(len(findings), 1)
 
     def test_a_host_WITH_dkms_modules_resolves_the_pin(self) -> None:
         findings = check_pins.check(
             pins=[pin()], playbook_text=lambda _: PLAYBOOK,
-            dkms_status=lambda: DKMS_INCIDENT, dkms_registered=["evdi"])
+            dkms_status=lambda: DKMS_INCIDENT,
+            registry=probe_results.DkmsRegistry(present=True, modules=("evdi",)))
         self.assertEqual(len(findings), 1)
 
     def test_a_non_dkms_pin_is_untouched_by_the_dkms_answer(self) -> None:
@@ -403,19 +424,33 @@ class TestWhatThisHostKnowsAboutItself(unittest.TestCase):
         rpm_pin = pin(installed={"kind": "rpm", "name": "displaylink"})
         findings = check_pins.check(
             pins=[rpm_pin], playbook_text=lambda _: PLAYBOOK,
-            dkms_status=lambda: "", dkms_registered=[],
+            dkms_status=lambda: "", registry=self.NO_SUBSYSTEM,
             rpm_version=lambda _: "1.14.16")
         self.assertEqual(len(findings), 1)
 
+    def test_a_command_that_is_not_installed_resolves_to_absent_not_an_exception(self) -> None:
+        """H6. `_command_version` had no ABSENT branch, so a missing command raised, the
+        broad `except` turned it into an *unchecked* finding, and the original permanent
+        noise returned through the one resolver the ABSENT scoping cannot reach — it
+        never gets as far as `classify`. Not live today, and invisible when it stops
+        being true."""
+        command_pin = pin(installed={"kind": "command", "name": "there-is-no-such-cmd"})
+        self.assertEqual(
+            check_pins.check(
+                pins=[command_pin], playbook_text=lambda _: PLAYBOOK,
+                dkms_status=lambda: "", ran_plays=set()),
+            [],
+        )
+
     def test_zero_coverage_counts_the_whole_manifest_again(self) -> None:
-        """Counting only a host-narrowed population left `applicable == []` skipping the
-        guard entirely, so a host with no applicable pins produced NO output at all —
+        """Counting only a host-narrowed population left the population empty and
+        skipped the guard entirely, so such a host produced NO output at all —
         indistinguishable from every pin matching. The guard is about the manifest,
         which is identical on every host."""
         untracked = TestZeroCoverageIsItsOwnFinding._all_untracked(9)
         findings = check_pins.check(
             pins=untracked, playbook_text=lambda _: PLAYBOOK,
-            dkms_status=lambda: "", ran_plays=set(), dkms_registered=[])
+            dkms_status=lambda: "", ran_plays=set(), registry=self.NO_SUBSYSTEM)
         self.assertEqual(len(findings), 1)
         self.assertIn("0 of 9", findings[0].text)
 

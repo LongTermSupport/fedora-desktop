@@ -52,6 +52,27 @@ class ProbeOutcome(NamedTuple):
     missing: bool = False
 
 
+class DkmsRegistry(NamedTuple):
+    """What this host's DKMS state directory says — as two facts, never one.
+
+    `present` is a tri-state and the distinction is load-bearing:
+
+    * **False** — there is no state directory, so this host has no DKMS subsystem at all.
+    * **True** with empty `modules` — `dkms` IS installed and its registry happens to be
+      empty. A completely different fact, and the `dkms` rpm owns `/var/lib/dkms`, so
+      every host that has run `play-displaylink.yml` is in this state the moment its
+      module is removed. Task 0.2 of this plan sets out to create exactly that.
+    * **None** — it could not be established, which is never a licence to stay quiet.
+
+    Collapsing the first two into "no modules found" reads a DisplayLink host whose
+    module has gone as a host that never had DKMS, and silences the one axis that would
+    have said so.
+    """
+
+    present: bool | None
+    modules: tuple[str, ...] = ()
+
+
 class Finding(NamedTuple):
     """One thing to tell the user, and whether the check managed to look.
 
@@ -167,7 +188,7 @@ def build_report(
     failed_system: ProbeOutcome,
     failed_user: ProbeOutcome,
     running_kernel: str,
-    dkms_registered: list[str] | None = None,
+    registry: DkmsRegistry | None = None,
 ) -> Report:
     """Every host-health finding, from every probe, in one report.
 
@@ -182,24 +203,25 @@ def build_report(
     """
     findings: list[Finding] = []
 
-    if not dkms.ok and dkms.missing and dkms_registered == []:
-        # NO DKMS SUBSYSTEM AT ALL, which is an answer rather than a failure to get one.
-        # `dkms` is installed only by two optional desktop-hardware plays, so a stock
-        # server has neither the command nor a module tree — and a host with no DKMS
-        # modules cannot have one missing a build. Reporting it as unchecked made every
-        # interactive login on a clean server print "this machine needs attention" for
-        # ever, which is precisely the noise that gets a health surface muted.
+    known = registry if registry is not None else DkmsRegistry(present=None)
+
+    if not dkms.ok and dkms.missing and known.present is not None and not known.modules:
+        # NO DKMS MODULES AND NO COMMAND, which is an answer rather than a failure to get
+        # one. `dkms` is installed only by two optional desktop-hardware plays, so a
+        # stock server has neither — and a host with no DKMS modules cannot have one
+        # missing a build. Reporting it as unchecked made every interactive login on a
+        # clean server print "this machine needs attention" for ever, which is precisely
+        # the noise that gets a health surface muted.
         #
-        # Note the shape: `dkms_registered == []` is a positive finding of nothing, and
-        # `None` — could not read the state directory — deliberately falls through to
-        # the unchecked branch below. "We could not tell" is not "it is fine".
+        # `present is None` — the state directory could not be read — deliberately falls
+        # through to the unchecked branch below. "We could not tell" is not "it is fine".
         pass
-    elif not dkms.ok and dkms.missing and dkms_registered:
+    elif not dkms.ok and dkms.missing and known.modules:
         # The command is gone but the modules are still registered, so nothing will
         # rebuild them on the next kernel. That is a worse state than either half.
         findings.append(unchecked(
-            f"dkms is not installed, but {len(dkms_registered)} DKMS module tree(s) are "
-            f"still registered on this host ({', '.join(dkms_registered)}), so whether "
+            f"dkms is not installed, but {len(known.modules)} DKMS module tree(s) are "
+            f"still registered on this host ({', '.join(known.modules)}), so whether "
             "they are built for the running kernel cannot be established — and nothing "
             "will rebuild them for the next one"
         ))

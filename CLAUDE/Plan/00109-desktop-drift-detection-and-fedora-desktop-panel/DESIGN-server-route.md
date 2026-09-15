@@ -164,6 +164,34 @@ never did. `BEHIND`, `AHEAD` and `UNDETERMINED` all mean the software is present
 compared, so no ledger state can make them uninteresting, and the zero-coverage guard
 counts the whole manifest again, which is what it was always about.
 
+### 5.2 "No DKMS modules" is not "no DKMS"
+
+The first re-derivation skipped a DKMS pin whenever the module list came back empty. The
+`dkms` rpm **owns `/var/lib/dkms`**, and `play-displaylink.yml` installs `dkms`, so every
+host that has run that play has the directory — and an empty registry there means the
+module was *removed*, which is precisely what this axis exists to report. Task 0.2 of
+this plan sets out to create that state by deleting orphaned DKMS trees.
+
+`probe_results.DkmsRegistry` therefore carries the two facts apart: `present` is a
+tri-state (no directory / directory present / could not tell) and `modules` is what it
+holds. The pin check skips only on `present is False`; the health probe, which asks a
+different question, is satisfied by "no modules found either way". One read, one value,
+so the two consumers cannot hold inconsistent halves of it.
+
+A single unrelated module in the registry restored the correct finding, which is what
+made this worth a type rather than a second boolean: the bug was invisible on any host
+that happened to have one.
+
+### 5.3 A decision, not a side effect
+
+A host that ran a play and has since **deliberately** removed what it installed now
+reports `ABSENT` for ever. That is correct rather than merely tolerated: the repo
+declares the pin, so software the repo installs and the host no longer has is drift, and
+the manifest already carries the remedy — declare that pin `untracked` with a `why`,
+which is the recorded-decision mechanism `check_pins` is built around. Silently
+suppressing it instead would make "I removed this on purpose" and "this vanished" the
+same answer.
+
 ## 6. What the server checkout must provide
 
 The freshness check runs `git fetch`, and `git_history.fetch` sets `GIT_TERMINAL_PROMPT=0`

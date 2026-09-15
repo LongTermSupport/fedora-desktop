@@ -28,7 +28,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 from helpers.host_health import login_report, probe_results, status_document
-from helpers.play_ledger import check_freshness
+from helpers.play_ledger import check_freshness, ledger, store
 
 RUNNING_KERNEL = "7.2.4-200.fc44.x86_64"
 HEALTHY_DKMS = f"evdi/1.15.0, {RUNNING_KERNEL}, x86_64: installed"
@@ -482,3 +482,56 @@ class TestTheDocumentIsWrittenWhetherOrNotAnythingIsWrong(unittest.TestCase):
         with tempfile.TemporaryDirectory() as base:
             document = self._published(base)
         self.assertEqual(document["generated_at"], "2026-09-14T18:00:00Z")
+
+
+COMMIT = "0123456789abcdef0123456789abcdef01234567"
+
+
+class TestWhichPlaysHaveRunHere(unittest.TestCase):
+    """`check_pins` suppresses an ABSENT verdict on a play this host has never run, and
+    that suppression is only safe while "the ledger is empty or unreadable" is reported
+    by somebody. `ledger_presence` does report both — with one exception.
+
+    While the BROKEN sentinel exists it returns nothing, deliberately, because
+    `check_freshness` already prints the reason. So in the single state where this repo
+    has declared the ledger incomplete, reading a set out of it anyway would silently
+    suppress every ABSENT whose row is in the hole, with nothing saying so.
+    """
+
+    def test_an_absent_ledger_is_an_empty_set_not_none(self) -> None:
+        """Nothing has been run here, which is an answer — and `ledger_presence` reports
+        the emptiness in its own section."""
+        with tempfile.TemporaryDirectory() as base:
+            self.assertEqual(login_report.plays_run_here(base), set())
+
+    def test_a_recorded_play_is_named(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            store.ensure_ledger(base, commit=COMMIT, at="2026-09-14T18:00:00Z")
+            store.append_record(base, {
+                "schema": ledger.SCHEMA, "kind": "run",
+                "play": "playbooks/imports/play-python.yml",
+                "commit": "abc1234", "dirty": False,
+                "started": "2026-09-14T18:00:00Z", "finished": "2026-09-14T18:01:00Z",
+                "check_mode": False, "ok": 1, "changed": 0, "failed": 0,
+            })
+            self.assertEqual(
+                login_report.plays_run_here(base),
+                {"playbooks/imports/play-python.yml"},
+            )
+
+    def test_the_BROKEN_sentinel_answers_none(self) -> None:
+        """The one state `ledger_presence` is silent about by design, so a set read here
+        would suppress ABSENT verdicts with nothing reporting the ledger's condition.
+        The sentinel IS the declaration that the question is open."""
+        with tempfile.TemporaryDirectory() as base:
+            store.ensure_ledger(base, commit=COMMIT, at="2026-09-14T18:00:00Z")
+            store.mark_broken(base, error="disk full", at="2026-09-14T18:00:00Z")
+            self.assertIsNone(login_report.plays_run_here(base))
+
+    def test_a_corrupt_ledger_answers_none(self) -> None:
+        """`fold_latest` raises rather than folding a history it knows is incomplete."""
+        with tempfile.TemporaryDirectory() as base:
+            os.makedirs(base, exist_ok=True)
+            with open(ledger.runs_path(base), "w", encoding="utf-8") as handle:
+                handle.write("{not json\n")
+            self.assertIsNone(login_report.plays_run_here(base))

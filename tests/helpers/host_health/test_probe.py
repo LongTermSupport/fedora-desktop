@@ -156,54 +156,64 @@ class TestCollect(unittest.TestCase):
 
 
 class TestRunningKernel(unittest.TestCase):
-    def test_an_absent_dkms_state_directory_is_an_empty_list_not_none(self) -> None:
-        """The distinction the silence rests on. `[]` says this host has no DKMS
-        subsystem; `None` says the question could not be answered."""
+    def test_an_absent_state_directory_says_there_is_no_dkms_subsystem(self) -> None:
         with tempfile.TemporaryDirectory() as base:
-            self.assertEqual(
-                probe.dkms_registered_modules(os.path.join(base, "no-such-dir")), [])
+            registry = probe.dkms_registry(os.path.join(base, "no-such-dir"))
+            self.assertIs(registry.present, False)
+            self.assertEqual(registry.modules, ())
+
+    def test_an_empty_state_directory_is_NOT_the_same_as_an_absent_one(self) -> None:
+        """The distinction H4 turned on. The `dkms` rpm owns `/var/lib/dkms`, so a host
+        that ran play-displaylink.yml has the directory — and an empty registry there
+        means the module was REMOVED, which is exactly what the pin check exists to
+        report. Answering both cases "no modules found" silences it."""
+        with tempfile.TemporaryDirectory() as base:
+            registry = probe.dkms_registry(base)
+            self.assertIs(registry.present, True)
+            self.assertEqual(registry.modules, ())
 
     def test_registered_modules_are_named(self) -> None:
         with tempfile.TemporaryDirectory() as base:
             os.mkdir(os.path.join(base, "evdi"))
             os.mkdir(os.path.join(base, "vboxhost"))
             self.assertEqual(
-                probe.dkms_registered_modules(base), ["evdi", "vboxhost"])
+                probe.dkms_registry(base).modules, ("evdi", "vboxhost"))
 
     def test_files_beside_the_module_trees_are_not_modules(self) -> None:
         """DKMS keeps more than module directories in there; a stray file counted as a
-        module would report a host as having DKMS modules it does not have."""
+        module would report a host as having DKMS modules it does not have. `dkms` keeps
+        `dkms_dbversion` here, which is why a real emptied registry reads as empty."""
         with tempfile.TemporaryDirectory() as base:
             os.mkdir(os.path.join(base, "evdi"))
             with open(os.path.join(base, "dkms_dbversion"), "w", encoding="utf-8") as f:
                 f.write("3\n")
-            self.assertEqual(probe.dkms_registered_modules(base), ["evdi"])
+            self.assertEqual(probe.dkms_registry(base).modules, ("evdi",))
 
-    def test_a_dangling_symlink_answers_none_rather_than_dropping_out(self) -> None:
+    def test_a_dangling_symlink_answers_could_not_tell(self) -> None:
         """`DirEntry.is_dir` swallows FileNotFoundError, so a link that does not resolve
-        reads as "not a module" and the entry vanishes from a list whose emptiness is
-        what licenses staying silent. A partial read must not answer "no DKMS here"."""
+        reads as "not a module" and the entry vanishes from a registry whose emptiness
+        decides things. A partial read must not answer "no DKMS modules"."""
         with tempfile.TemporaryDirectory() as base:
             os.mkdir(os.path.join(base, "evdi"))
             os.symlink(os.path.join(base, "gone"), os.path.join(base, "vboxhost"))
-            self.assertIsNone(probe.dkms_registered_modules(base))
+            self.assertIsNone(probe.dkms_registry(base).present)
 
     def test_a_symlink_to_a_real_module_tree_still_counts(self) -> None:
         with tempfile.TemporaryDirectory() as base:
             os.mkdir(os.path.join(base, "real"))
             os.symlink(os.path.join(base, "real"), os.path.join(base, "evdi"))
-            self.assertEqual(probe.dkms_registered_modules(base), ["evdi", "real"])
+            self.assertEqual(probe.dkms_registry(base).modules, ("evdi", "real"))
 
-    def test_a_state_path_that_is_not_a_directory_answers_none(self) -> None:
-        """`listdir` on a regular file raises NotADirectoryError, an OSError that is not
+    def test_a_state_path_that_is_not_a_directory_answers_could_not_tell(self) -> None:
+        """`scandir` on a regular file raises NotADirectoryError, an OSError that is not
         FileNotFoundError — so it must read as "could not tell", not as absence."""
         with tempfile.TemporaryDirectory() as base:
             path = os.path.join(base, "not-a-dir")
             with open(path, "w", encoding="utf-8") as handle:
                 handle.write("")
-            self.assertIsNone(probe.dkms_registered_modules(path))
+            self.assertIsNone(probe.dkms_registry(path).present)
 
-    def test_collect_passes_the_registered_modules_through(self) -> None:
+    def test_collect_passes_the_registry_through(self) -> None:
         """The seam exists so the silence rule is reachable from `collect`, not only
         from the classifier it delegates to."""
         report = probe.collect(
@@ -212,7 +222,7 @@ class TestRunningKernel(unittest.TestCase):
                 ok=False, text="", error="dkms: command not found", missing=True)
             if argv[0] == "dkms"
             else probe_results.ProbeOutcome(ok=True, text="", error=""),
-            dkms_registered=[],
+            registry=probe_results.DkmsRegistry(present=False),
         )
         self.assertTrue(report.clean)
 
