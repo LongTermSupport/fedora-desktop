@@ -223,6 +223,85 @@ class TestWhereItLives(unittest.TestCase):
         self.assertTrue(status_document.FILE_NAME.endswith(".json"))
 
 
+class TestAShapeItCannotReadIsNotAHealthyHost(unittest.TestCase):
+    """`read` refuses to call an absent or unparseable file healthy. This is the same
+    rule one layer in: a document that PARSES, declares a schema this reader knows, and
+    then carries sections it cannot interpret.
+
+    Every defensive guard in a consumer answers "not a dict", "key missing", "not a
+    list" and "genuinely empty" identically — and on the login surface empty means
+    healthy, so each of these read as a clean host while carrying a current timestamp
+    and the running kernel. `SCHEMA_VERSION` guards only the top-level integer.
+
+    Never raising and never going silent are not in conflict: `collect` already shows
+    the third answer, and this is it for a reader.
+    """
+
+    def reasons(self, sections: object) -> list[str]:
+        return status_document.unreadable_reasons(
+            {"schema": 1, "generated_at": NOW, "kernel": KERNEL, "sections": sections})
+
+    def test_a_well_formed_document_has_nothing_to_report(self) -> None:
+        self.assertEqual(
+            self.reasons({"health": {"state": "ok", "findings": [], "unchecked": []}}),
+            [],
+        )
+
+    def test_a_document_that_is_not_a_dict(self) -> None:
+        self.assertEqual(len(status_document.unreadable_reasons("nonsense")), 1)
+
+    def test_sections_that_are_not_a_mapping(self) -> None:
+        for sections in ("post-boot-health", [{"state": "findings"}], 7):
+            with self.subTest(sections=sections):
+                self.assertEqual(len(self.reasons(sections)), 1)
+
+    def test_a_missing_sections_key_is_reported(self) -> None:
+        self.assertEqual(
+            len(status_document.unreadable_reasons({"schema": 1, "kernel": KERNEL})), 1)
+
+    def test_a_section_that_is_not_a_mapping_is_named(self) -> None:
+        reasons = self.reasons({"post-boot-health": "broken"})
+        self.assertEqual(len(reasons), 1)
+        self.assertIn("post-boot-health", reasons[0])
+
+    def test_a_findings_list_that_is_not_a_list(self) -> None:
+        """The sharpest shape: the section's own `state` says `findings` and a consumer
+        that reads only the list prints nothing. The document contradicts itself and
+        the reader agrees with the wrong half."""
+        reasons = self.reasons(
+            {"post-boot-health": {"state": "findings", "findings": "evdi is dead"}})
+        self.assertEqual(len(reasons), 1)
+        self.assertIn("findings", reasons[0])
+
+    def test_a_findings_list_holding_things_that_are_not_strings(self) -> None:
+        reasons = self.reasons(
+            {"post-boot-health": {"state": "findings", "findings": [{"text": "x"}]}})
+        self.assertEqual(len(reasons), 1)
+
+    def test_the_unchecked_group_is_held_to_the_same_standard(self) -> None:
+        reasons = self.reasons({"health": {"state": "ok", "unchecked": "dkms missing"}})
+        self.assertEqual(len(reasons), 1)
+        self.assertIn("unchecked", reasons[0])
+
+    def test_an_absent_group_is_not_a_malformed_one(self) -> None:
+        """`section()` omits neither, but a document from another version might, and a
+        missing group is an empty one — the one case where substituting nothing is
+        right."""
+        self.assertEqual(self.reasons({"health": {"state": "ok"}}), [])
+
+    def test_every_bad_section_is_named_not_just_the_first(self) -> None:
+        reasons = self.reasons({
+            "post-boot-health": "broken",
+            "play-freshness": {"state": "findings", "findings": 7},
+        })
+        self.assertEqual(len(reasons), 2)
+
+    def test_it_never_raises(self) -> None:
+        for odd in (None, 7, [], {"sections": {"x": {"findings": None}}}):
+            with self.subTest(document=odd):
+                self.assertIsInstance(status_document.unreadable_reasons(odd), list)
+
+
 class TestWhetherItDescribesThisBoot(unittest.TestCase):
     """"Is this document about the boot I am in?" is a property of the DOCUMENT.
 

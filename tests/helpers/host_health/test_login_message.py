@@ -293,17 +293,74 @@ class TestADocumentFromAnotherBootIsNotAboutThisOne(unittest.TestCase):
         self.assertEqual(render({"health": []}, running_kernel=""), "")
 
 
+class TestAMalformedDocumentIsNotAHealthyHost(unittest.TestCase):
+    """Not raising was pinned; not going silent was not, and the two are different.
+
+    Each shape below carries a current timestamp, the running kernel and a schema this
+    reader knows, so nothing else flags it — and every defensive guard in `render`
+    answers "unreadable" and "genuinely empty" the same way, which on this surface means
+    healthy. `status_document.read` refuses to make that trade for an absent file; this
+    is the same refusal one layer in.
+    """
+
+    def malformed(self, sections: object) -> str:
+        return login_message.render(
+            {"schema": 1, "generated_at": NOW, "kernel": KERNEL, "sections": sections},
+            now=NOW, running_kernel=KERNEL)
+
+    def test_sections_that_are_not_a_mapping_are_reported(self) -> None:
+        for sections in ("post-boot-health", [{"state": "findings"}]):
+            with self.subTest(sections=sections):
+                self.assertNotEqual(self.malformed(sections), "")
+
+    def test_a_section_that_is_not_a_mapping_is_reported(self) -> None:
+        self.assertNotEqual(self.malformed({"post-boot-health": "broken"}), "")
+
+    def test_a_document_that_says_findings_and_shows_none_is_reported(self) -> None:
+        """The shape worth naming: `state` says `findings`, the list is unreadable, and
+        a reader that only reads the list prints nothing — agreeing with the wrong half
+        of a document that contradicts itself."""
+        message = self.malformed(
+            {"post-boot-health": {"state": "findings", "findings": "evdi is dead"}})
+        self.assertNotEqual(message, "")
+        self.assertIn("not checked", message.lower())
+
+    def test_findings_holding_things_that_are_not_strings_are_reported(self) -> None:
+        self.assertNotEqual(
+            self.malformed(
+                {"post-boot-health": {"state": "findings", "findings": [{"t": "x"}]}}),
+            "",
+        )
+
+    def test_a_genuinely_clean_document_is_still_silent(self) -> None:
+        """The control. Without it this class would pass with `render` shouting at
+        every login, which is the failure it is guarding the other side of."""
+        self.assertEqual(
+            self.malformed({"health": {"state": "ok", "findings": [], "unchecked": []}}),
+            "",
+        )
+
+    def test_it_is_reported_as_not_checked_rather_than_as_a_fault(self) -> None:
+        """Nothing has been shown to be wrong with the host. What is wrong is that
+        nothing about it could be read."""
+        message = self.malformed({"post-boot-health": "broken"})
+        self.assertIn("not checked", message.lower())
+
+
 class TestItNeverRaises(unittest.TestCase):
     """This runs from a login shell. Losing the user's prompt to a traceback is worse
-    than any report it could have printed."""
+    than any report it could have printed — and is a different claim from not going
+    silent, which `TestAMalformedDocumentIsNotAHealthyHost` above pins."""
 
     def test_a_document_missing_its_sections_does_not_raise(self) -> None:
-        self.assertIsInstance(
-            login_message.render({"schema": 1}, now=NOW, running_kernel=KERNEL), str)
+        message = login_message.render({"schema": 1}, now=NOW, running_kernel=KERNEL)
+        self.assertIsInstance(message, str)
+        self.assertNotEqual(message, "", "a document with no sections is not a clean host")
 
     def test_a_document_that_is_not_a_dict_does_not_raise(self) -> None:
-        self.assertIsInstance(
-            login_message.render("nonsense", now=NOW, running_kernel=KERNEL), str)
+        message = login_message.render("nonsense", now=NOW, running_kernel=KERNEL)
+        self.assertIsInstance(message, str)
+        self.assertNotEqual(message, "")
 
     def test_a_document_whose_kernel_is_not_a_string_does_not_raise(self) -> None:
         """The kernel comparison reads a value off a file that may have been written by

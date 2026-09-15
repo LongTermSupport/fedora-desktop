@@ -114,6 +114,57 @@ def is_boot_stale(document: object, *, running_kernel: str) -> bool:
     return bool(collected and running_kernel and collected != running_kernel)
 
 
+def unreadable_reasons(document: object) -> list[str]:
+    """Every way this document's STRUCTURE could not be read, each named.
+
+    `read` already turns absent, unparseable and unknown-schema into `unavailable`, on
+    the rule that ignorance is not health. This covers the gap immediately after it: a
+    document that parses, declares a schema this reader knows, and then carries sections
+    it cannot interpret. A consumer that defensively substitutes "nothing" for each of
+    those reads a malformed document as a clean host — and `SCHEMA_VERSION` guards only
+    the top-level integer, so nothing else flags it.
+
+    The sharpest case is a section whose `state` says `findings` while its `findings` is
+    not a list: the document says something is wrong and the reader prints nothing.
+
+    **Never raising and never going silent are not in conflict.** `collect` already
+    shows the third option — a producer that raises becomes an `unchecked` finding
+    naming its section — and this is the same answer for a reader.
+    """
+    if not isinstance(document, dict):
+        return ["the host status is not a document this reader can interpret, so "
+                "nothing in it has been read"]
+
+    sections = document.get("sections")
+    if not isinstance(sections, dict):
+        return ["the host status file's sections could not be read, so no check's "
+                "result has been read from it"]
+
+    reasons: list[str] = []
+    for name, entry in sections.items():
+        if not isinstance(entry, dict):
+            reasons.append(
+                f"the {name} section could not be read, so nothing is known about "
+                "that check"
+            )
+            continue
+        for key in ("findings", "unchecked"):
+            value = entry.get(key)
+            if value is None:
+                continue
+            if not isinstance(value, list):
+                reasons.append(
+                    f"the {name} section's {key} could not be read, so what it "
+                    "reported is not known"
+                )
+            elif any(not isinstance(item, str) for item in value):
+                reasons.append(
+                    f"the {name} section's {key} holds entries this reader cannot "
+                    "show, so what they said is not known"
+                )
+    return reasons
+
+
 def section(findings: list[probe_results.Finding]) -> dict:
     """One section: its state, and both groups kept apart.
 

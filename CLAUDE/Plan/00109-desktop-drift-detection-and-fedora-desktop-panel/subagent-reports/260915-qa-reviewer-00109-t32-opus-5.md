@@ -996,3 +996,98 @@ work over: a status document that parses and is garbage renders as a clean host,
 the exact failure Plan 00109 was opened to prevent, one layer inside the mechanism built
 to prevent it. The fix is small and local. Everything else on my list is either fixed or
 sitting in the working tree already fixed.
+
+---
+
+# Round 9 — `5f14b20e`, and a sixth
+
+**`5f14b20e` is correct and verified.** It fixes the **fourth** instance. Clean export:
+**1316 helper tests, OK**.
+
+## Verified
+
+The two cases I named, plus the rpm narrowing:
+
+```
+a tool that RAN and printed the phrase -> raises ResolutionError   ✓
+a genuinely absent binary              -> None                     ✓
+an rpm-shaped failure naming ANOTHER package, asked about 'evdi'
+        returncode=1, narrowed match fires: False -> raises        ✓
+```
+
+`NotInstalled` as a `ResolutionError` subclass is the right call — a caller may be more
+specific, none can escape the broad handler that keeps a login shell from seeing a
+traceback. Recording the fully structural `rpm -q --quiet` answer rather than taking it,
+with the cost named, is the right way to leave a trade-off.
+
+Both stale references are fixed: `DESIGN-server-route.md:125-127` no longer claims the two
+consumers cannot disagree, and `check_pins.check`'s docstring names `registry`.
+
+## The fifth is a different finding, and it is landing separately
+
+`5f14b20e` touches `check_pins.py`, its tests and three docs — nothing else. Re-measured
+at that HEAD, all five shapes from round 8 are still silent:
+
+```
+sections is a string / sections is a list / a section is a string /
+findings is a string / findings holds dicts   -> SILENT (reads as healthy)
+(control) a real finding                      -> "- evdi: no DKMS module"
+```
+
+Worth keeping the ledger of the shape straight, since that ledger is the durable output:
+the thing that *was* inside the fix for the fourth is the string discrimination, and that
+is the **fourth** (round 7). Round 8's fifth is `login_message._texts` collapsing
+*malformed* into *empty* in a different module.
+
+**And it is being fixed as I write.** The working tree carries
+`status_document.unreadable_reasons()` with `TestAMalformedDocumentIsNotAHealthyHost` and
+`TestAShapeItCannotReadIsNotAHealthyHost`, and all four of `qa-all.bash`'s current
+failures are in exactly those two classes — the fix mid-flight, not a regression.
+Uncommitted and so not reviewed, but on a read it is the right shape: it names each
+unreadable section rather than returning a bare boolean, holds `unchecked` to the same
+standard as `findings`, and its docstring makes the never-raise-and-never-go-silent point
+directly.
+
+## The sixth — inside the type just introduced
+
+`NotInstalled` is raised from `_run`'s `FileNotFoundError` branch, and the docstring says
+*"The command itself is absent, established by the OS rather than by reading text."* What
+the OS established is narrower: **not resolvable on this process's PATH**. Demonstrated:
+
+```
+/usr/bin/env exists on disk: True
+with PATH=/nonexistent, _command_version('env') -> None   <- ABSENT: "nothing installed"
+```
+
+A binary that is installed resolves to `ABSENT`, which renders as the confident claim
+*"pinned X, nothing installed"* — the same harm just eliminated for the wrapper-script
+case, surviving for the PATH case. Same shape, one level down: a predicate whose answer
+depends on a distinction it does not make.
+
+It is not academic because of where this runs. The consumer is a **systemd `--user`
+unit**, whose PATH is narrower than the login shell an operator would test in.
+`probe_results.build_report` carries the parallel version: `ProbeOutcome.missing` comes
+from the same `FileNotFoundError`, and the message it feeds says *"dkms is not
+installed"*.
+
+**Not live today** — the manifest has no tracked `command`-kind pin, and `dkms` resolves
+under `/usr/bin` on F44 since the sbin merge. Two ways to close it, both cheap:
+
+- resolve with `shutil.which` before exec'ing, so "absent from PATH" is established
+  deliberately and can be said in those words; or
+- narrow the wording to *"not found on this service's PATH"* in both places, which costs
+  nothing and stops the claim exceeding its evidence.
+
+## Mechanical gates (round 9)
+
+- Clean export of `5f14b20e`: `qa-helper-tests.bash` **1316 tests, OK**.
+- `qa-all.bash` on the working tree: FAILS, 4 failures, **all four** in
+  `TestAMalformedDocumentIsNotAHealthyHost` / `TestAShapeItCannotReadIsNotAHealthyHost` —
+  the fifth's fix in progress.
+
+## Closing
+
+Nothing of mine blocks once the fifth's fix lands and goes green. The sixth is a nit: a
+message that claims more than its evidence, on a path no host here exercises today. The
+HOST items in `PLAN.md` are the real remaining gate, and the reboot-into-a-different-kernel
+one is the claim I would want run first.

@@ -131,7 +131,13 @@ def render(document: object, *, now: str, running_kernel: str) -> str:
     rebooted = status_document.is_boot_stale(document, running_kernel=running_kernel)
 
     broken: list[str] = []
-    unchecked: list[str] = []
+    # A SHAPE THIS CANNOT READ IS REPORTED, not quietly substituted with nothing. Every
+    # `_texts` guard below answers "not a dict", "key missing", "not a list" and
+    # "genuinely empty" identically — and on this surface empty means healthy, so a
+    # malformed document carrying a current timestamp and a known schema read as a clean
+    # host. `status_document.read` refuses to do that for an absent or unparseable file;
+    # this is the same rule one layer in.
+    unchecked: list[str] = list(status_document.unreadable_reasons(document))
     for name, section in sections.items():
         findings = _texts(section, "findings")
         if rebooted and name == status_document.BOOT_SCOPED_SECTION:

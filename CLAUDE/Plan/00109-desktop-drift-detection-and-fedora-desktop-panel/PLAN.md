@@ -162,6 +162,10 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     - [x] ✅ A fresh document can be about the **previous boot** — `render` reports a
       kernel mismatch in its own right, and demotes the one boot-scoped section rather
       than repeating its findings as present-tense faults (§4, §4.1)
+    - [x] ✅ **A document the reader cannot interpret is reported, not read as clean.**
+      Five malformed shapes were silent, including one whose own `state` said `findings`
+      (§4.1a). The panel has the same gap from the other side — folded into the Task 4.2
+      item below
     - [x] ✅ **A healthy server was never going to be silent** (qa-reviewer, 26-09-15).
       Two permanent findings, one root: no `dkms` on a server (§5). The first answer to
       the pin half silenced the founding incident on every desktop; the ledger now acts
@@ -209,10 +213,11 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     ([DESIGN-panel.md](DESIGN-panel.md) §9)
   - [ ] ⬜ **The panel is not boot-aware** (qa-reviewer, 26-09-15) — it renders
     `post-boot-health` findings as current faults whichever boot produced them. The
-    predicate is `status_document.is_boot_stale`; the panel has to ask it. **Not** by
-    adding a row to the contract gate — that is a vocabulary check and `kernel` already
-    satisfies it as an unused default. What proves this is a test rendering a boot-stale
-    document through the panel's own section code
+    predicate is `status_document.is_boot_stale`; the panel has to ask it — and the same
+    rendering test must cover a **malformed** document, where `health.js` branches on
+    `section.state` while the login route reads the lists, so the two do not agree
+    (§4.1a). **Not** via the contract gate: that is a vocabulary check and `kernel`
+    already satisfies it as an unused default
     ([DESIGN-server-route.md](DESIGN-server-route.md) §4.2)
 - [ ] ⬜ **Task 4.3**: Play/task runner — plays with their ledger state, launched in a
   visible terminal, never in the background. Which plays it lists needs the ledger's real

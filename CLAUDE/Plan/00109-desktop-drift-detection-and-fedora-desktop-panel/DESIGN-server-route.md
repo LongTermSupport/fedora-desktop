@@ -126,6 +126,27 @@ tree.
   consumers read one `probe.dkms_registry()` value, but they ask it different questions —
   see §5.2, where assuming they wanted the same one was the defect.
 
+### 4.1a A shape the reader cannot interpret is not a healthy host
+
+`read` refuses to call an absent or unparseable file healthy. One layer in, a document
+that **parses**, declares a schema this reader knows, and then carries sections it cannot
+interpret fell straight into silence — because every defensive guard answers "not a
+dict", "key missing", "not a list" and "genuinely empty" identically, and on this surface
+empty means healthy. Five shapes, each carrying a current timestamp and the running
+kernel so nothing else flagged them; `SCHEMA_VERSION` guards only the top-level integer.
+
+The sharpest: a section whose `state` says `findings` while its `findings` is not a list.
+The document contradicts itself and the reader agrees with the wrong half.
+
+It hid because the trade was made for a good reason — a login shell must not lose its
+prompt to a traceback — but **never raising and never going silent are not in conflict**,
+and `collect` already showed the third answer: an unreadable producer becomes an
+`unchecked` finding naming its section. `status_document.unreadable_reasons` is that
+answer for a reader, and it lives with the document because the panel has the same gap
+from the other side: `health.js` branches on `section.state` and iterates
+`section.findings`, so on that fourth shape the two consumers do not agree about what the
+document says. Six mutants.
+
 ### 4.2 The predicate belongs to the document, and the panel does not ask it
 
 `is_boot_stale(document, *, running_kernel)` and `collected_kernel(document)` live in
