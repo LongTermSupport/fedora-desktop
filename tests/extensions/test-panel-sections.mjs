@@ -22,12 +22,16 @@
 import assert from 'node:assert/strict';
 import {register} from 'node:module';
 import test from 'node:test';
-import {pathToFileURL} from 'node:url';
 
 register(new URL('./gjs-loader.mjs', import.meta.url).href);
 
-const EXTENSION = pathToFileURL(
-    '/workspace/extensions/fedora-desktop@fedora-desktop/').href;
+// Resolved relative to this file, like the loader above and `gjs-loader.mjs`'s own
+// stub import. It was an absolute `/workspace/...` — the CCY container's mount point —
+// so the suite could only ever run in a container, and `qa-all.bash` reached a different
+// verdict per machine. The repo already says so in as many words: "runs both inside the
+// CCY container and on the host, so never hardcode /workspace".
+const EXTENSION = new URL(
+    '../../extensions/fedora-desktop@fedora-desktop/', import.meta.url).href;
 
 // GJS puts `log` in the global scope; Node does not. Stubbed rather than stripped from
 // the extension, because a diagnostic that only exists when nobody is testing is a

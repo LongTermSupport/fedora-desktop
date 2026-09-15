@@ -92,6 +92,44 @@ first; CI runs `qa-all.bash`, so a separate CI step is a divergence, not a
 belt-and-braces.** `scripts/test-ccy-ssh-probe.bash` is deliberately not a gate:
 it needs a real host and a `gh` token, so it is a host diagnostic.
 
+### The same command does not reach the same verdict everywhere
+
+`qa-all.bash` is the authority, but some stages read what the *machine* supplies rather
+than what the repository ships. A local run and a CI run disagreeing is a fact about the
+stage, not a flaky gate — find which input differs before touching anything.
+
+| Gate                     | What it needs from the machine                                                                                                                 | Where that is missing                                                    |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `qa-docs.bash`           | `.claude/hooks-daemon/` on disk — tracked `.claude/rules/*.md` link into it, and the link-existence check does not consult the scan exclusions | every clean checkout: the tree is gitignored, so CI can never satisfy it |
+| `qa-ansible-syntax.bash` | a vault password file to **exist** (never read — `--syntax-check` does not decrypt)                                                            | a clean checkout, and a linked worktree                                  |
+| `qa-deployed-drift.bash` | deployed copies under `~/.local/bin` to compare the repo against                                                                               | the CCY container and a clean checkout — it self-skips **and names why** |
+| `qa-helper-tests.bash`   | one pair asserts against real `/sys/class/drm`; it skips where no connector with a physical display link is present, naming what it ignored    | a VM whose only connector is virtual                                     |
+
+`qa-deployed-drift.bash` is the shape to copy: it states the dependency, skips only for a
+reason it prints, and the reason is checkable.
+
+**A stage that cannot pass in an environment is not a strict gate there — it is an absent
+one.** Two consequences follow, and the second is the one that bites:
+
+- a permanently-red stage carries no information, because a red run looks exactly like the
+  previous red run;
+- `qa-all.bash` **exits at the first failing hard gate**, so a stage that cannot pass also
+  stops every gate declared after it from running at all. The suite does not merely stay
+  red — the number of checks actually executed *falls*, silently, and newly added gates can
+  go their whole life without running once in CI.
+
+So when a gate needs something an environment lacks, add the dependency (`CLAUDE.md` →
+"Missing Dependencies — Fail Fast, Fix in IaC") rather than teaching the gate to tolerate
+its absence. A gate taught to skip passes in precisely the environment that could not check
+it — and it is the "skip and warn" pattern, one level of indirection away.
+
+Two rules for anything a gate executes: resolve paths relative to the file (`REPO_ROOT`,
+`import.meta.url`, `__file__`), never to a fixed absolute root — the repo is checked out at
+a different path in the container, on a host and on a runner. And exclude the whole
+`.ansible/` tree from discovery, not just `.ansible/roles/`: `ansible-galaxy` populates
+`.ansible/collections/` with third-party files, so a stage that misses it counts a
+different number of files depending on whether galaxy content has landed.
+
 ### All three source gates assert their own coverage (Plans 00076, 00081)
 
 `qa-bash.bash`, `qa-patterns.bash` and `qa-python.bash` share one discovery

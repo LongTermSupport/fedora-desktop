@@ -53,8 +53,14 @@ gitignored (`.gitignore:53`, `.claude/.gitignore:3`), so in a clean checkout the
 cannot exist. `helpers/docs/link_check.py` already lists `.claude/hooks-daemon/` in
 `_EXCLUDE_PREFIX`, but that excludes files in that tree from being **scanned** — it does
 not exempt links **into** it from the existence check. The link is correct on an installed
-machine and impossible in CI. Those pointer files arrived in `0015c886` on 2026-08-31,
-five days *after* the last green run, so they are not the original breakage.
+machine and impossible in CI.
+
+Those pointer files arrived in `0015c886` on 2026-08-31, five days *after* the last green
+run — which was first read as meaning they cannot be the original breakage. **That
+inference was wrong** (Task 1.2): CI only observes commits that are pushed, and nothing was
+pushed to `F44` in those five days. `0015c886` is the *very next run* after `1fc1c5fe`, and
+it failed on **docs alone** — 7 findings, all `target does not exist`, with all 203 helper
+tests passing. Cause A is the original breakage and for eleven days it was the only one.
 
 **Cause B — five helper unit tests that pass locally and fail on a runner.**
 
@@ -97,9 +103,14 @@ The two `host_health` failures were diagnosed and fixed under Task 1.3.
   the current checkout: each `qa-all.bash` stage's verdict, and for every stage that
   differs from the last CI run, the specific input it read that CI does not have. The
   point is a per-stage machine-dependence answer, not a pass/fail.
-- [ ] ⬜ **Task 1.2**: Identify the commit that first turned CI red. The last green is
-  `1fc1c5fe` (2026-08-26) and the `.claude/rules` pointers landed 2026-08-31, so at least
-  one further cause existed between those dates. Name it; do not assume it is still live.
+- [x] ✅ **Task 1.2**: **`0015c886`, 2026-08-31** — and the task's own premise was wrong.
+  There was no further cause "between those dates" because there was nothing between them:
+  no commit was pushed to `F44` in those five days, so CI observed nothing. `0015c886` is
+  the next run after the last green, and it failed on **docs alone** (7 findings, every one
+  `target does not exist`, all 203 helper tests passing). Cause A is the original breakage
+  and was the only one for eleven days. Cause B arrived later and in two waves —
+  `9a79dd77` (2026-09-11) added the DisplayLink pair; `cb88ec4e`, `ff63ac5d` and `b3f6e909`
+  (all 2026-09-14) added the other three. Every one of them landed into an already-red run
 - [x] ✅ **Task 1.3**: Diagnose the two `host_health` failures — **both determined,
   reproduced byte-exactly, and fixed.** Neither was the ledger. Both were **defective
   tests reading host state**, not production paths misbehaving; production was doing its
@@ -164,11 +175,39 @@ The two `host_health` failures were diagnosed and fixed under Task 1.3.
 
 ### Phase 4: Make the next regression visible
 
-- [ ] ⬜ **Task 4.1**: Decide and record why three weeks of red went unremarked, and what
-  changes so it does not repeat. A red run that looks identical to the previous red run is
-  the mechanism; any fix has to break that.
-- [ ] ⬜ **Task 4.2**: `CLAUDE/QA.md` states which stages are environment-dependent and what
-  each needs. Today the page asserts CI is the authority without qualification.
+- [x] ✅ **Task 4.1**: The identical-looking red run is only half of it, and the other half
+  is worse. `qa-all.bash` **exits at the first failing hard gate** (`scripts/qa-all.bash`
+  line 152 for `helper-tests`), and **26 gates are declared after that point**. So from the
+  moment the DisplayLink pair began failing, CI stopped executing the last 26 gates
+  entirely. The suite did not merely stay red — *the number of checks actually running
+  fell*, and nothing said so. Three compounding causes:
+
+  1. the first red was a gate that **cannot pass in CI by construction** (a gitignored link
+     target), so it was never a regression anyone could fix by fixing code;
+  2. a permanently-red run carries no information, so each later regression joined it
+     invisibly — Cause B's four commits all landed into an already-red run;
+  3. local `qa-all.bash` was green throughout, and `CLAUDE.md` names it the pre-commit
+     requirement, so the contributor's own signal said green every time.
+
+  **Demonstrated live while closing Phase 3**: fixing the helper tests revealed
+  `panel-sections`, a gate added the *same day* this plan was filed, carrying a hardcoded
+  `/workspace` — the CCY container's mount point — that made it impossible to pass anywhere
+  else. It had never run in CI once, because the abort happened first. The remedy is
+  Task 4.3
+
+- [x] ✅ **Task 4.2**: `CLAUDE/QA.md` now carries *"The same command does not reach the same
+  verdict everywhere"* — a table of each environment-dependent stage and what it needs,
+  `deployed-drift` named as the shape to copy (it states its dependency and prints the
+  reason it skipped), the abort-hides-the-rest consequence spelled out, and the two rules
+  that would have prevented both defects found today: resolve paths relative to the file,
+  never to a fixed absolute root; and exclude the whole `.ansible/` tree from discovery
+
+- [ ] ⬜ **Task 4.3**: Make a gate's *absence* visible. `qa-all.bash` aborting at the first
+  failure means one unfixable gate silently disables every gate after it — the mechanism
+  behind Task 4.1, and not something documentation alone fixes. Options to weigh: run every
+  gate and report all verdicts before exiting non-zero; or keep the abort but have CI
+  compare the executed-gate list against the declared one and fail on a shrink. This is a
+  structural change to the suite and affects local runs too, so it is the owner's call
 
 ### Phase 5: Close
 
