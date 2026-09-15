@@ -48,18 +48,38 @@
     # when a site fails in another browser, you can isolate whether the
     # site is broken or your browser is.
     #
-    # The .rpm's post-install scriptlet drops
-    # /etc/yum.repos.d/google-chrome.repo automatically, so future
-    # `dnf update` keeps it current. The signing key must be imported
-    # first — installing directly from a URL doesn't bring one with it.
+    # INSTALLED FROM GOOGLE'S REPO, NOT FROM THE DIRECT .rpm URL, and the
+    # difference is dnf5. Handing dnf a URL puts the package in the synthetic
+    # `@commandline` repo, and dnf5 validates a package against the OpenPGP keys
+    # configured ON ITS REPO — `@commandline` has none, so the install fails with
+    # "The repository does not have any OpenPGP keys configured" (issue #45) even
+    # though the key is in the RPM keyring. dnf4 consulted the keyring and this
+    # worked for years; importing the key first is no longer sufficient.
+    #
+    # Declaring the repo fixes it properly rather than by turning checking off:
+    # the key is configured where dnf5 looks for it, so signatures are still
+    # verified. It is also where the .rpm's post-install scriptlet was going to
+    # put the host anyway — it drops this same repo file so `dnf update` keeps
+    # Chrome current — so this reaches the same end state without the
+    # chicken-and-egg. `rpm_key` stays: the repo's `gpgkey` covers dnf, and the
+    # keyring import covers a bare `rpm -K` and any later scriptlet check.
     - name: Import Google Chrome Signing Key
       ansible.builtin.rpm_key:
         key: https://dl.google.com/linux/linux_signing_key.pub
         state: present
 
+    - name: Add Google Chrome Repository
+      ansible.builtin.yum_repository:
+        name: google-chrome
+        description: google-chrome
+        baseurl: https://dl.google.com/linux/chrome/rpm/stable/x86_64
+        enabled: true
+        gpgcheck: true
+        gpgkey: https://dl.google.com/linux/linux_signing_key.pub
+
     - name: Install Google Chrome
       ansible.builtin.dnf:
-        name: https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm
+        name: google-chrome-stable
         state: present
         disable_gpg_check: false
 
