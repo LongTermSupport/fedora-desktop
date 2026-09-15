@@ -65,14 +65,22 @@ If the verification pass finds anything, the artefact is not published and the r
   A Python helper — the repo's usual default — would mean porting the matcher and the allowlist,
   giving two detectors that agree until the day they do not. `scripts/git-hooks/lib/` is the
   wrong home because a run-log scrubber is not a git hook. Reasoning in the journal
-- [ ] ⬜ **Task 1.2**: Known-value redaction, test-first: given the secret files a run was
-  handed, replace every occurrence in an artefact with a stable placeholder
-- [ ] ⬜ **Task 1.3**: The verification pass — re-scan the redacted artefact and refuse on any
-  residual match. **The task this plan turns on**, and it must be falsified against an artefact
-  carrying a secret the redactor deliberately missed
+- [x] ✅ **Task 1.2**: Known-value redaction — `scrub_redact` in
+  `scripts/lib/run-log-scrub.bash`. Literal **bytes**, not text and not a pattern: an artefact
+  may carry console control codes or invalid UTF-8, and a secret is an opaque byte string.
+  Every occurrence, the file's trailing newline treated as the file's and not the value's, an
+  empty secret file refused, and the write atomic so a crash cannot leave a part-redacted
+  artefact that looks finished. Secrets arrive as file paths, never in argv
+- [x] ✅ **Task 1.3**: `scrub_verify` re-reads the artefact and refuses if any supplied secret
+  survives, naming which secret file and never the value — the message is read by a human and
+  may be pasted into a ticket. An unreadable or empty secret file is also a refusal: a secret
+  that could not be checked has not been shown to be absent
 - [ ] ⬜ **Task 1.4**: Pattern backstop reusing `hook_scan_text_for_private`, so there is one
   matcher and one allowlist
-- [ ] ⬜ **Task 1.5**: Wire into `qa-all.bash` with its own falsification fixture
+- [x] ✅ **Task 1.5**: `scripts/test-run-log-scrub.bash`, 14 assertions, wired into
+  `qa-all.bash`. Falsified on four mutants — a `scrub_verify` that never refuses, regex instead
+  of literal matching, a tolerated empty secret, and first-occurrence-only replacement — each
+  caught by the assertion written for it, against a clean 14/14 baseline
 
 ### Phase 2: `server-github-token`
 

@@ -304,6 +304,21 @@ ssh_agent_summary=$(printf '%s' "$ssh_agent_out" | grep -oE 'passed: [0-9]+') ||
     ssh_agent_summary="passed"
 printf '✓ run-bash-ssh-agent-teardown: %s\n' "$ssh_agent_summary"
 
+# The run-log secret scrubber (Plan 00121). Redaction is the easy half; what this gate exists
+# for is `scrub_verify` REFUSING an artefact where redaction missed a secret. A scrubber is
+# fail-open by nature — it writes a file it believes is clean and a miss is silent — so the
+# assertion that matters is driven by a fixture where the redactor was deliberately not told
+# about one of the secrets.
+run_log_scrub_out=""
+if ! run_log_scrub_out="$(bash "$SCRIPT_DIR/test-run-log-scrub.bash" 2>&1)"; then
+    echo "$run_log_scrub_out" >&2
+    echo "✗ QA FAILED: run-log secret scrubber unit tests" >&2
+    exit 1
+fi
+run_log_scrub_summary=$(printf '%s' "$run_log_scrub_out" | grep -oE 'passed: [0-9]+') ||
+    run_log_scrub_summary="passed"
+printf '✓ run-log-scrub: %s\n' "$run_log_scrub_summary"
+
 # The fail-fast directive pattern's own unit suite (Plan 00081 F10).
 #
 # qa-ansible.bash enforces this repo's #1 rule with one regex, and that regex was
