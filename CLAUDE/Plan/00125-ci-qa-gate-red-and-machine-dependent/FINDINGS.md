@@ -120,3 +120,35 @@ running at all, and the number of checks actually executing falls with nothing r
 it. Three gates in this plan had never run once in CI before the abort was cleared.
 
 That is Task 4.1's answer and the argument for Task 4.3.
+
+### The suite already contains both designs, and that is why the two causes hid differently
+
+Counted mechanically, `qa-all.bash` runs its stages two ways:
+
+| Design                  | Count | Behaviour on failure                                                 |
+| ----------------------- | ----- | -------------------------------------------------------------------- |
+| jq-merged, accumulating | 7     | `\|\| rc=$?`, `FAILED++`, **run continues**; all reported at the end |
+| hard gate               | 28    | `exit 1` immediately; everything declared after it never runs        |
+| missing-tool abort      | 7     | `exit 2`; same effect, and prints no `QA FAILED` line                |
+
+The seven accumulating stages are `bash`, `python`, `patterns`, `ansible`,
+`ansible-syntax`, `js` and `docs`; they merge into one JSON document and are reported
+together by `qa-all.bash:595-602`.
+
+**This is the explanation the plan was missing.** The two causes were masked differently
+because they fell on opposite sides of that line:
+
+- **Cause A (`docs`) is an accumulating stage.** It has been red since 2026-08-31 and
+  masked nothing at all — every gate behind it kept running. That is why the current CI log
+  shows `✗ docs` followed by 25 passing gates and only then `✗ QA FAILED`.
+- **Cause B landed in hard gates.** `helper-tests` (`:153`) aborts, and enumerating the
+  `exit 1` lines after it gives 27 — less the final run summary (`:602`) and less
+  `helper-tests` itself — **25 gates that never ran in CI**. Clearing it unmasked
+  `panel-sections`, then `freezelib`, one at a time.
+
+It also narrows **Task 4.3**. Its option (1) — run every gate, report all verdicts, exit
+non-zero at the end — is not a new design to weigh: it is the design already in force for
+seven stages of this same script, and the one the final summary was written for. The
+question is whether to extend it to the other 28, not whether to invent it. The repo's own
+recurring lesson applies to the plan that is documenting it: the right answer already
+existed one directory over — in this case, sixty lines up.

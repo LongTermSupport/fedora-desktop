@@ -57,10 +57,11 @@ fix is Task 2.1's decision, not a repair.
 once the abort stopped hiding it. All six were defective **tests**, not production paths;
 all six are fixed.
 
-**The mechanism that hid it all.** `qa-all.bash` exits at the first failing hard gate and
-**25 gates are declared after that point**, so a gate that cannot pass in an environment
-stops every gate behind it from running — the executed-check count falls with nothing
-reporting it. That is Task 4.1's answer and the argument for Task 4.3.
+**The mechanism, and it hid Cause B rather than "all of it".** `qa-all.bash` runs 7 stages
+that accumulate and 28 hard gates that `exit 1`. Cause A sits in an accumulating stage, so
+it masked nothing — it went red and every gate behind it kept running. Cause B was in hard
+gates, and **25 gates are declared after the `helper-tests` abort**, so three of them had
+never run once in CI. That is Task 4.1's answer and the argument for Task 4.3.
 
 ## Tasks
 
@@ -72,15 +73,13 @@ reporting it. That is Task 4.1's answer and the argument for Task 4.3.
   and puts them side by side. Four states per stage, because two of them are the point:
   `differs`, and `only-here`/`only-there` — a stage **absent** from one side never ran
   there, which is what the abort does and what no pass/fail comparison can show. Parsing
-  and diffing live in `helpers/qa_environment/verdicts.py` (32 tests) rather than the
+  and diffing live in `helpers/qa_environment/verdicts.py` (35 tests) rather than the
   script, per `helpers/CLAUDE.md`. It renders no verdict (R9) and points at
-  `CLAUDE/QA.md`'s declared-dependency table. Deliberately declares **neither**
-  `plan_require_host` nor `plan_require_container`. R2 says *"pick exactly one of the
-  two"* and carves out only scripts whose findings do NOT depend on where they ran —
-  this is a deliberate third case, not that carve-out, and the header says so: the
-  finding *is* where it ran, so it is meant to be run in both places and compared. First run found
-  six differences: the two declared ones, and four that were only this checkout being
-  ahead of the compared commit — so it now says so rather than letting a reader chase them
+  `CLAUDE/QA.md`'s declared-dependency table. It declares **neither** `plan_require_host`
+  nor `plan_require_container`, deliberately; `triage.bash:18-23` owns that argument and
+  this page does not restate it. First run found six differences: the two declared ones,
+  and four that were only this checkout being ahead of the compared commit — so it now says
+  so rather than letting a reader chase them
 - [x] ✅ **Task 1.2**: **`0015c886`, 2026-08-31** — and the task's own premise was wrong.
   There was no further cause "between those dates" because there was nothing between them:
   no commit was pushed to `F44` in those five days, so CI observed nothing. `0015c886` is
@@ -193,7 +192,12 @@ reporting it. That is Task 4.1's answer and the argument for Task 4.3.
   behind Task 4.1, and not something documentation alone fixes. Options to weigh: run every
   gate and report all verdicts before exiting non-zero; or keep the abort but have CI
   compare the executed-gate list against the declared one and fail on a shrink. This is a
-  structural change to the suite and affects local runs too, so it is the owner's call
+  structural change to the suite and affects local runs too, so it is the owner's call.
+  **Narrowed:** the first option is not a new design — 7 of the 35 stages already work that
+  way (`|| rc=$?`, `FAILED++`, all reported by `qa-all.bash:595-602`) against 28 that
+  `exit 1`. The question is whether to extend the existing design to the other 28, not
+  whether to invent it. That split is also why the two causes hid differently — `docs`
+  accumulates and masked nothing; Cause B was in hard gates. See `FINDINGS.md`
 
 ### Phase 5: Close
 
