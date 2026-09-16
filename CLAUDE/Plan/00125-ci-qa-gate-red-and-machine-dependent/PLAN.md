@@ -199,11 +199,11 @@ reporting it. That is Task 4.1's answer and the argument for Task 4.3.
 
 ### Phase 5: Close
 
-- [x] ✅ **Task 5.1**: `./scripts/qa-all.bash` green locally — 911 files.
+- [x] ✅ **Task 5.1**: `./scripts/qa-all.bash` green locally — 914 files.
 - [ ] ⬜ **Task 5.2**: The `QA` workflow green on `F44` — the run link is the evidence.
-  **Blocked on Task 2.1 and nothing else.** Run `35038606426` (`5ac5f57f`) fails on
-  `✗ QA FAILED: 8 errors in 911 files`, and all 8 are the docs findings. Every hard gate
-  passes; the file count matches a local run exactly.
+  **Blocked on Task 2.1 and nothing else.** Run `35041998528` (`29ceee97`) fails on
+  `✗ QA FAILED: 8 errors in 914 files`, and all 8 are the docs findings. Every one of the
+  other 35 stages passes, and the file count matches a local run exactly.
 - [ ] ⬜ **Task 5.3**: `qa-reviewer` agent over the full diff.
 
 ## Success Criteria

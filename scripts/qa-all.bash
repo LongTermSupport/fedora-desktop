@@ -163,9 +163,14 @@ helper_summary=$(printf '%s' "$helper_out" | grep -oE 'Ran [0-9]+ tests?') || he
 # `unexpected successes=` after the skip count inside the same bracket, so
 # `OK (skipped=1, expected failures=1)` does not end at `skipped=1)`. Requiring the paren
 # reported 0 skipped there, silently restoring the very blindness this line removes.
+# Scoped to unittest's own RESULT line rather than searched across the whole capture:
+# `=~` takes the first match anywhere, so a warning or a skip reason containing the text
+# would win it. That line is the only place the count is authoritative.
 helper_skipped=0
-if [[ "$helper_out" =~ skipped=([0-9]+) ]]; then
-    helper_skipped="${BASH_REMATCH[1]}"
+if helper_result=$(printf '%s' "$helper_out" | grep -E '^(OK|FAILED)( \(|$)'); then
+    if [[ "$helper_result" =~ skipped=([0-9]+) ]]; then
+        helper_skipped="${BASH_REMATCH[1]}"
+    fi
 fi
 printf '✓ helper-tests: %s, %s skipped\n' "$helper_summary" "$helper_skipped"
 
