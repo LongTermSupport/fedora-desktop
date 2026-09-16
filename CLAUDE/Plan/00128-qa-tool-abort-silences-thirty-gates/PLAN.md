@@ -1,6 +1,6 @@
 # Plan 00128: a missing dev dependency silences thirty QA gates
 
-**Status**: Not Started
+**Status**: In Progress (Phase 1 measurement done — the cost is 31 gates; Phase 2 is the owner's decision gate)
 **Created**: 2026-09-16
 **Owner**: joseph
 **Priority**: Medium
@@ -34,6 +34,14 @@ the seven `exit 2` missing-tool aborts**. So this gap survives 00125 by design, 
 suite's exit path rather than inside a gate: a run that says nothing about thirty gates
 looks the same as a run that had nothing to say about them.
 
+**Phase 1 measured it at 31 gates, and found the sharpest version of the problem in the
+same run.** On a fresh clone `ansible-syntax` fails **83 times** — every failure printed,
+the gate named in the census, and the run carries on, which is Task 4.3 working. Then `js`
+cannot find a tool, prints two lines, and ends the run. So a comprehensively broken gate
+costs its own verdict and nothing else, while a gate whose optional dev tool is absent
+costs thirty-one other gates theirs. The suite punishes the milder condition far harder
+than the severe one. [FINDINGS.md §2](FINDINGS.md)
+
 ## Goals
 
 - **Decide, in writing, where extension dev tooling belongs** — the desktop provision, a
@@ -64,18 +72,24 @@ looks the same as a run that had nothing to say about them.
 
 ### Phase 1: Establish the cost, and who pays it
 
-- [ ] ⬜ **Task 1.1**: A plan-local `triage.bash` that measures, on this checkout, how
-  many gates `qa-all.bash` skips when `extensions/node_modules` is moved aside, and which
-  ones — the probe goes IN the script per `CLAUDE/PlanTriage.md`. 00125's FINDINGS gives
-  the shape of the answer but not the number; a count asserted from reading is the thing
-  this repo keeps getting wrong
-- [ ] ⬜ **Task 1.2**: Enumerate every `exit 2` tool-abort in `qa-all.bash` and what each
-  one guards, so the decision is taken against the whole population and not just the js
-  one. 00125's census put it at seven
+- [x] ✅ **Task 1.1**: Measured on a real `git clone` into `untracked/scratch/` rather
+  than by moving the directory aside — a clone IS the population, since
+  `extensions/node_modules` is gitignored, and it leaves the working tree untouched.
+  **7 gates report on a fresh clone against 38 here: 31 lose their verdict entirely.**
+  [FINDINGS.md §1](FINDINGS.md)
+- [x] ✅ **Task 1.2**: Seven `exit 2` aborts, all the same shape.
+  [FINDINGS.md §4](FINDINGS.md). Two things the census settles: `qa-docs`'s abort is NOT
+  a missing tool — it means the checker produced no usable result, a branch 00125 added
+  so a crash could not read as a clean run, and its meaning must survive Phase 3. And the
+  js gate is the **only** one whose missing input is dev-only; the other five name tools a
+  provisioned host has anyway, which is why the conflict lands here and nowhere else
 - [ ] ⬜ **Task 1.3**: Establish who actually hits this — a fresh clone, a linked
   worktree, CI (green only because `.github/workflows/qa.yml` runs `npm ci`), and the CCY
   container. 00125 found `CLAUDE/QA.md` and its own Non-Goal disagreeing about that
   population, so read the current text rather than either summary
+- [ ] ⬜ **Task 1.4**: A plan-local `triage.bash` wrapping Task 1.1's measurement, so the
+  7-versus-38 number is re-derivable after Phase 3 rather than being a figure in a
+  document. Built on `_planlib.inc.bash` per `CLAUDE/PlanScriptStandards.md`
 
 ### Phase 2: The decision gate
 
@@ -118,8 +132,9 @@ looks the same as a run that had nothing to say about them.
 ## Success Criteria
 
 - [ ] On a checkout with no `extensions/node_modules`, `./scripts/qa-all.bash` reports a
-  verdict — pass, fail, or not-run-and-why — for **every** gate, and the count of
-  gates it names matches the count on a checkout that has the deps
+  verdict — pass, fail, or not-run-and-why — for **every** gate. Measured against Phase
+  1's baseline: the fresh-clone count rises from **7** toward the **38** a complete
+  checkout names, with any remaining shortfall explained per gate rather than silent
 - [ ] The js gate's absent tooling is still reported loudly, and is still distinguishable
   from a passing ESLint run
 - [ ] Task 2.1's decision is recorded with its reasoning, and `CLAUDE.md`,
