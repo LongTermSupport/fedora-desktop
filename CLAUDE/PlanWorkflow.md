@@ -158,36 +158,48 @@ knowledge of its own, and an agent can regenerate it from this section in a minu
 
 ### All three write their own log — not just `triage.bash`
 
-**Every plan-local script tees its full output into its own plan's `logs/`
-directory.** This was written down for `triage.bash` and quietly skipped for the
-other two, which left a failed deploy existing only in the operator's terminal
-scrollback — so the only way it could reach an agent was by being copy-pasted
-back by hand, the precise workflow [PlanTriage.md](PlanTriage.md) exists to
-eliminate. A deploy that fails, and an acceptance gate that returns a verdict,
-are exactly the output worth keeping.
+**Every plan-local script records its full output, via `plan_start_log`.** A
+failed deploy that exists only in the operator's terminal scrollback can reach an
+agent only by being copy-pasted back by hand, which is the precise workflow
+[PlanTriage.md](PlanTriage.md) exists to eliminate. A deploy that fails, and an
+acceptance gate that returns a verdict, are exactly the output worth keeping.
 
 ```bash
 # After argument parsing (so `--help` never creates directories), before the work:
-PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-mkdir -p "$PLAN_DIR/logs"
-LOG="$PLAN_DIR/logs/deploy.log"        # or triage.log / acceptance.log
-exec > >(tee "$LOG") 2>&1
-echo "Logging this run to: $LOG" >&2
+plan_start_log auto
 ```
 
-- Resolve `PLAN_DIR` from **`BASH_SOURCE[0]`**, never from the repo root, so the
-  path keeps working after the plan is archived.
-- Use a **fixed filename** so the latest run is always at a predictable path.
-- `CLAUDE/Plan/**/logs/` is **gitignored** (`.gitignore`). That combination is
-  the whole point: the log sits inside the repo, so it is readable from a CCY
-  container at the same repo-relative path with no copy-paste — while never
-  reaching this public repo, which matters because deploy and triage output
-  names hosts, units, private addresses and home directories.
-- Put the block **after** option parsing and any `--list`/`--help` branch, and
-  verify that `--help` still works without creating a `logs/` directory.
+That is the whole of it. `plan_start_log auto` creates
+`untracked/plan-runs/<plan>/<script>/<timestamp>/`, exports it as `PLAN_RUN_DIR`,
+and announces the path itself; `plan_finish` prints it again at the end.
+[PlanScriptStandards.md](PlanScriptStandards.md) R4 is the reference.
+
+> **CORRECTION**: this section previously told you to `mkdir -p "$PLAN_DIR/logs"`
+> and `exec > >(tee "$LOG") 2>&1`. **Both halves are wrong and both caused real
+> damage.** A `>(…)` process substitution cannot be waited on, so the final
+> buffered chunk — the lines written as a run is dying, which is the only part a
+> failed deploy is read for — can be missing from the file. And a plan-local
+> `logs/` tree is gitignored, so it travels into `Completed/` as an untracked
+> orphan that `git mv` leaves behind at the old path. R4 forbids the hand-rolled
+> form for exactly these reasons.
+
+What the run log must still satisfy, all of which `plan_start_log` handles:
+
+- The path is derived from the **script**, not the caller's cwd, so it keeps
+  working when the plan is archived and when the script is run by path from
+  another repo.
+- The log sits **inside the repo** under `untracked/`, so it is readable from a
+  CCY container at the same repo-relative path with no copy-paste — while never
+  reaching this public repo, which matters because deploy and triage output names
+  hosts, units, private addresses and home directories.
+- It goes **under `untracked/`, never beside the plan's tracked files**, so there
+  is nothing to clean up when the plan closes.
+- Arm it **after** option parsing and any `--list`/`--help` branch, so `--help`
+  creates no directories.
 - The case to check is the **failing** one: a script that writes to both streams
   and then exits non-zero must keep its exit code, and its final `VERDICT:` line
-  must still reach the file.
+  must still reach the file. `plan_start_log` uses a named pipe whose writer it
+  can wait on, which is what makes that guarantee available at all.
 
 **The dividing line — transient vs. persistent:**
 
