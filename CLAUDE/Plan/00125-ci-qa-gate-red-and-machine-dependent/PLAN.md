@@ -78,9 +78,9 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
   there, which is what the abort does and what no pass/fail comparison can show. Parsing
   and diffing live in `helpers/qa_environment/verdicts.py` (40 tests) rather than the
   script, per `helpers/CLAUDE.md`. It renders no verdict (R9) and points at
-  `CLAUDE/QA.md`'s declared-dependency table. It declares **neither** `plan_require_host`
-  nor `plan_require_container`, deliberately; `triage.bash:18-23` owns that argument and
-  this page does not restate it. First run found six differences: the two declared ones,
+  `CLAUDE/QA.md`'s declared-dependency table. It declares neither `plan_require_host` nor
+  `plan_require_container`, deliberately — `triage.bash:18-23` owns that argument. First
+  run found six differences: the two declared ones,
   and four that were only this checkout being ahead of the compared commit — so it now says
   so rather than letting a reader chase them
 - [x] ✅ **Task 1.2**: **`0015c886`, 2026-08-31** — and the task's own premise was wrong:
@@ -214,22 +214,26 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
 ### Phase 5: Close
 
 - [x] ✅ **Task 5.1**: `./scripts/qa-all.bash` green locally — 920 files.
-- [ ] ⬜ **Task 5.2**: The `QA` workflow green on `F44` — the run link is the evidence.
-  **Blocked on Task 2.1 and nothing else**: every CI run so far fails only on the 8 docs
-  findings, with all other stages green and the file count matching a local run exactly.
+- [x] ✅ **Task 5.2**: **GREEN — run `35076071578`, commit `7e85ff49`**, the first success on
+  `F44` in three weeks. `✓ QA passed: 920 files checked`, no failing stage. The docs line
+  reads `VENDORED: 0 verified, 8 unverifiable (repo absent), 0 broken` — CI says it could not
+  check those 8 rather than skipping them quietly, which is the whole design. And
+  `helper-tests` reports `2 skipped` there against `1` locally on the same commit, with
+  `65 tracked` agreeing: the machine-dependence this plan exists to expose, visible in a
+  PASSING stage, where no pass/fail comparison could ever have found it
 - [ ] ⬜ **Task 5.3**: `qa-reviewer` agent over the full diff.
 
 ## Success Criteria
 
-- [ ] The `QA` workflow's most recent run on `F44` is a success, with the run identified.
+- [x] The `QA` workflow's most recent run on `F44` is a success: run **`35076071578`**,
+  commit `7e85ff49`, `✓ QA passed: 920 files checked`, no failing stage.
 
 - [x] Local `qa-all.bash` and the CI run agree on every stage, or the disagreement is
   declared in `CLAUDE/QA.md` and fails closed when its reason stops applying. Measured by
-  `triage.bash` at the **same commit on both machines** with a clean tree (`fa3cfe8e`, CI
-  run `35040903213`): **three** differences, every one declared — `docs` (Cause A, Task
-  2.1), `deployed-drift` (prints its own reason each side), and `helper-tests` at `1 skipped` here against `2` on a runner, which is **the point, not a residue**: the two
-  machines skip *different* tests, and until the skip count joined the line the two sides
-  were byte-identical and read as `agree`. Evidence table in `FINDINGS.md`.
+  `triage.bash` at the **same commit on both machines**: three differences, every one
+  declared, and `helper-tests` differing by skip count is **the point, not a residue** —
+  until that count joined the line the two sides were byte-identical and read as `agree`.
+  Commits, run IDs and the evidence table are in `FINDINGS.md`.
 
 - [x] Each of the tests has been classified as a defective test or a production path
   reading unowned host state, and fixed accordingly — all six were defective tests.
