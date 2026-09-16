@@ -89,7 +89,8 @@ NFINDINGS=$(jq -r '.findings | length' "$TMP_RAW")
 # the ✓ line would assert `0 broken`. A blind read byte-identical to a clean one, inside the
 # guard written to prevent exactly that. The two counters that cannot silence anything had
 # the guard; the one that can did not. A missing key is now a hard failure, not a count.
-if ! jq -e 'has("vendored") and (.vendored | has("ok") and has("unverifiable") and has("broken"))' \
+if ! jq -e 'has("vendored") and has("vendored_warning")
+            and (.vendored | has("ok") and has("unverifiable") and has("broken"))' \
     "$TMP_RAW" >/dev/null; then
     echo "✗ docs: link_check emitted no vendored counts — the boundary check did not run," >&2
     echo "  or stopped reporting. Refusing to print a stage line that would read as clean." >&2
@@ -124,16 +125,18 @@ jq '{
 # because the count alone would leave nobody able to act on it, and `qa-patterns.bash`
 # already establishes a ⚠-then-✓ pair as a shape `verdicts.py` parses.
 #
-# NOT the same thing as the multi-line stage line just removed from `vmtest-manifest`, and
-# the difference is worth stating because they look alike. There, ONE printf interpolated a
+# NO CONDITION HERE, deliberately. The state that produces a warning needs a vendored repo
+# present AND a stale pointer into it, so an `if [[ "$V_BROKEN" -gt 0 ]]` guarding the
+# formatting would be a branch whose first execution is the one nobody is watching. The list
+# is composed and tested in `vendored_warning_lines()` and is empty on a clean run, so this
+# jq runs every time and prints nothing — the same defect class this gate exists to remove.
+#
+# NOT the same thing as the multi-line stage line removed from `vmtest-manifest`, and the
+# difference is worth stating because they look alike. There, ONE printf interpolated a
 # capture containing newlines, so `verdicts.py` kept the first line and silently dropped the
-# rest. Here there are two SEPARATE echoes, each starting with its own stage symbol, and
-# both are kept — measured, not assumed: `verdicts.parse()` returns both under `docs`, and
-# the indented list between them is correctly not read as a stage at all.
-if [[ "$V_BROKEN" -gt 0 ]]; then
-    echo "⚠ docs: $V_BROKEN link(s) into a PRESENT vendored repo are broken — it has probably moved the file:"
-    jq -r '.vendored.broken[] | "    \(.file):\(.line)  \(.target)"' "$TMP_RAW"
-fi
+# rest. Here each line is emitted on its own, only the first carries a stage symbol, and the
+# indented detail lines that follow are correctly not read as stages — measured, not assumed.
+jq -r '.vendored_warning[]' "$TMP_RAW"
 
 VENDORED_SUMMARY="VENDORED: $V_OK verified, $V_UNVERIFIABLE unverifiable (repo absent), $V_BROKEN broken"
 

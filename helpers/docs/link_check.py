@@ -497,6 +497,31 @@ def check_links(repo_root, rel_paths):
     return findings, vendored
 
 
+def vendored_warning_lines(vendored):
+    """The ⚠ block for links into a vendored repository that IS present here.
+
+    A list rather than a conditional print, and that is the whole point. The
+    caller emits it unconditionally, so on the overwhelmingly common run it
+    emits nothing and the formatting code still executes. Put the same logic in
+    the caller's `if broken > 0` and it becomes a path whose first execution is
+    the one nobody is watching — the shape this repo keeps finding, a check
+    whose clean result is indistinguishable from a blind one.
+
+    The detail lines are indented and carry no stage symbol, because
+    `helpers/qa_environment/verdicts.py` anchors `STAGE` at column 0 and would
+    otherwise count each broken link as a gate of its own.
+    """
+    broken = vendored["broken"]
+    if not broken:
+        return []
+
+    lines = [f"⚠ docs: {len(broken)} link(s) into a PRESENT vendored repo are"
+             " broken — it has probably moved the file:"]
+    lines.extend(f"    {entry['file']}:{entry['line']}  {entry['target']}"
+                 for entry in broken)
+    return lines
+
+
 def check_playbook_catalogue(repo_root):
     """Every play imported by playbook-main.yml must appear in both docs."""
     main = _read(os.path.join(repo_root, "playbooks/playbook-main.yml"))
@@ -590,6 +615,9 @@ def main(argv):
         "status": "fail" if findings else "pass",
         "scanned": len(scoped),
         "vendored": vendored,
+        # Always present, empty on a clean run. `scripts/qa-docs.bash` prints it
+        # with no condition of its own, so the formatting runs every time.
+        "vendored_warning": vendored_warning_lines(vendored),
         "summary": {
             "files": len(scoped),
             "findings": len(findings),

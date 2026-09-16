@@ -148,6 +148,13 @@ a vendored repo are not followed even when it is present: their headings are the
 rename, and going red on another repo's churn would be a dependency on it for a defect we
 could not fix.
 
+That `⚠` line is composed by `vendored_warning_lines()` in the checker, not by
+`scripts/qa-docs.bash`, and it returns a list the script prints with **no condition of its
+own**. The state that fills that list needs a vendored repo present *and* a stale pointer
+into it, so a `if broken > 0` around the formatting would be a branch whose first execution
+is the one nobody is watching. Empty list, empty output, formatting code exercised on every
+run — the same reason a gate that only prints on failure gets a pass line.
+
 **The question asked is trackedness** — `git ls-files`, plus the directories it implies,
 since a link to `docs/` is a link to something this repo plainly owns. The index ships in
 every clean checkout, so CI asks the same question.

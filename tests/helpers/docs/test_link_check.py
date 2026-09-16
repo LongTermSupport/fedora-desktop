@@ -692,5 +692,71 @@ class TestTheUndeclaredRepositoryHint(_GitTree):
             link_check.nested_repository_for(self.root, "CLAUDE/QA.md"))
 
 
+class TestTheVendoredWarningBlock(unittest.TestCase):
+    """The ⚠ block, composed here so that composing it is not a rare event.
+
+    The obvious home for it is `scripts/qa-docs.bash`, behind `if [[ "$V_BROKEN"
+    -gt 0 ]]`. That branch is unreachable in practice: firing it needs a vendored
+    repository present AND a stale pointer into it, which no invocation of that
+    script has ever had. A formatter interpolating `.file`, `.line` and
+    `.target` from entries nothing ever feeds it would run for the first time on
+    the day it is most needed, watched by nobody.
+
+    A list the caller prints unconditionally has no branch: `jq -r
+    '.vendored_warning[]'` runs on every QA run and prints nothing when the list
+    is empty, so a shape error surfaces at once rather than eventually.
+    """
+
+    @staticmethod
+    def entry(file="CLAUDE/QA.md", line=12, target="../.claude/hooks-daemon/x.md"):
+        return {"file": file, "line": line, "target": target, "problem": "gone"}
+
+    def test_nothing_broken_produces_no_lines(self):
+        lines = link_check.vendored_warning_lines(
+            {"ok": 3, "unverifiable": 8, "broken": []})
+        self.assertEqual(lines, [])
+
+    def test_the_header_is_a_stage_line_the_verdict_parser_recognises(self):
+        lines = link_check.vendored_warning_lines(
+            {"ok": 0, "unverifiable": 0, "broken": [self.entry()]})
+        self.assertRegex(lines[0], r"^⚠ docs: ")
+
+    def test_the_header_counts_the_broken_links(self):
+        broken = [self.entry(line=n) for n in (3, 9, 40)]
+        lines = link_check.vendored_warning_lines(
+            {"ok": 0, "unverifiable": 0, "broken": broken})
+        self.assertIn("3 link(s)", lines[0])
+
+    def test_each_broken_link_gets_a_line_naming_file_line_and_target(self):
+        lines = link_check.vendored_warning_lines(
+            {"ok": 0, "unverifiable": 0,
+             "broken": [self.entry(file="docs/README.md", line=7,
+                                   target="../.claude/hooks-daemon/gone.md")]})
+        self.assertEqual(len(lines), 2)
+        self.assertIn("docs/README.md:7", lines[1])
+        self.assertIn("../.claude/hooks-daemon/gone.md", lines[1])
+
+    def test_the_detail_lines_are_indented_so_they_are_not_read_as_stages(self):
+        """`verdicts.STAGE` anchors its symbol at column 0.
+
+        A detail line starting with a stage symbol would be parsed as a gate of
+        its own and inflate the census — the failure mode already recorded
+        beside `qa-patterns.bash`'s per-file lines.
+        """
+        broken = [self.entry(line=n) for n in (1, 2)]
+        lines = link_check.vendored_warning_lines(
+            {"ok": 0, "unverifiable": 0, "broken": broken})
+        for detail in lines[1:]:
+            self.assertTrue(detail.startswith("    "), detail)
+            self.assertNotRegex(detail, r"^\s*[✓✗⚠] ")
+
+    def test_the_entries_keep_their_order(self):
+        broken = [self.entry(file=name) for name in ("a.md", "b.md", "c.md")]
+        lines = link_check.vendored_warning_lines(
+            {"ok": 0, "unverifiable": 0, "broken": broken})
+        self.assertEqual([line.split(":")[0].strip() for line in lines[1:]],
+                         ["a.md", "b.md", "c.md"])
+
+
 if __name__ == "__main__":
     unittest.main()
