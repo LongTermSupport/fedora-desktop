@@ -193,19 +193,28 @@ reporting it. That is Task 4.1's answer and the argument for Task 4.3.
 
 ### Phase 5: Close
 
-- [ ] ⬜ **Task 5.1**: `./scripts/qa-all.bash` green locally.
+- [x] ✅ **Task 5.1**: `./scripts/qa-all.bash` green locally — 911 files.
 - [ ] ⬜ **Task 5.2**: The `QA` workflow green on `F44` — the run link is the evidence.
+  **Blocked on Task 2.1 and nothing else.** Run `35038606426` (`5ac5f57f`) fails on
+  `✗ QA FAILED: 8 errors in 911 files`, and all 8 are the docs findings. Every hard gate
+  passes; the file count matches a local run exactly.
 - [ ] ⬜ **Task 5.3**: `qa-reviewer` agent over the full diff.
 
 ## Success Criteria
 
 - [ ] The `QA` workflow's most recent run on `F44` is a success, with the run identified.
-- [ ] Local `qa-all.bash` and the CI run agree on every stage, or the disagreement is
-  declared in `CLAUDE/QA.md` and fails closed when its reason stops applying.
-- [x] Each of the five tests has been classified as a defective test or a production path
-  reading unowned host state, and fixed accordingly.
+- [x] Local `qa-all.bash` and the CI run agree on every stage, or the disagreement is
+  declared in `CLAUDE/QA.md` and fails closed when its reason stops applying. Measured by
+  `triage.bash`, not asserted: the only stages that differ are `docs` (Cause A, declared)
+  and `deployed-drift` (declared, and it prints its own reason). `js`, `bash`, `patterns`,
+  `python` and `helper-tests` now agree exactly.
+- [x] Each of the tests has been classified as a defective test or a production path
+  reading unowned host state, and fixed accordingly — all six were defective tests.
 - [ ] The docs gate passes in a checkout with no hooks daemon installed.
 - [ ] A deliberately introduced failure is distinguishable from the standing state.
+  Partly met and worth stating precisely: it is distinguishable *now* in the sense that
+  a new failure changes the run's output, because only one cause remains. It is not yet
+  met in the sense Task 4.3 means — a gate that stops RUNNING is still invisible.
 
 ## Risks & Mitigations
 
