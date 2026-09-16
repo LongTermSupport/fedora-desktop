@@ -209,14 +209,29 @@ reporting it. That is Task 4.1's answer and the argument for Task 4.3.
 ## Success Criteria
 
 - [ ] The `QA` workflow's most recent run on `F44` is a success, with the run identified.
+
 - [x] Local `qa-all.bash` and the CI run agree on every stage, or the disagreement is
   declared in `CLAUDE/QA.md` and fails closed when its reason stops applying. Measured by
-  `triage.bash`, not asserted: the only stages that differ are `docs` (Cause A, declared)
-  and `deployed-drift` (declared, and it prints its own reason). `js`, `bash`, `patterns`,
-  `python` and `helper-tests` now agree exactly.
+  `triage.bash`, not asserted, and measured at the **same commit on both machines** with a
+  clean tree (`fa3cfe8e`, CI run `35040903213`): 36 stages each side, 37 of 38
+  symbol-prefixed lines accounted for, **three** differences, every one declared —
+
+  - `docs`: Cause A, the one open decision (Task 2.1);
+  - `deployed-drift`: declared, and it prints its own reason on each machine;
+  - `helper-tests`: `1 skipped` here against `2 skipped` on a runner. **This one is the
+    point, not a residue.** The two machines skip *different* tests — the container is root
+    with a real connector, a runner is non-root with only a virtual one — and until the
+    skip count joined the line the two sides were byte-identical and read as `agree`.
+    Declared in `CLAUDE/QA.md`'s table.
+
+  `js`, `bash`, `patterns` and `python` now agree exactly, which three of them did not
+  before this plan.
+
 - [x] Each of the tests has been classified as a defective test or a production path
   reading unowned host state, and fixed accordingly — all six were defective tests.
+
 - [ ] The docs gate passes in a checkout with no hooks daemon installed.
+
 - [ ] A deliberately introduced failure is distinguishable from the standing state.
   Partly met and worth stating precisely: it is distinguishable *now* in the sense that
   a new failure changes the run's output, because only one cause remains. It is not yet
