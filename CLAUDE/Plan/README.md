@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00127-docker-and-podman-inside-lxc](00127-docker-and-podman-inside-lxc/) - **Parked.** Docker inside this host's LXC system containers is not working and Podman inside LXC was never established. Triage against `play-docker-in-lxc-support.yml`, then fix in IaC. Distinct from issue #41, which is engine coexistence on the host.
+
 - [00125-ci-qa-gate-red-and-machine-dependent](00125-ci-qa-gate-red-and-machine-dependent/) - The `QA` workflow has not been green for three weeks, so the gate `CLAUDE/QA.md` calls the authority has been reporting nothing. Underneath it, `qa-all.bash` answers differently per machine — green in the container, red on a runner — from eight tracked links into the gitignored hooks-daemon tree and six tests that read host state.
 
 - [00124-chrome-install-gpg-failure-on-upgraded-host](00124-chrome-install-gpg-failure-on-upgraded-host/) - `run.bash` stops at Chrome on a host upgraded from F41, and there were two causes stacked: dnf5 validating against a repo's own keys (so a package URL lands in keyless `@commandline`), and beneath it an imported key that rpm will never refresh because presence is judged by primary id, leaving the newer signing subkey absent.

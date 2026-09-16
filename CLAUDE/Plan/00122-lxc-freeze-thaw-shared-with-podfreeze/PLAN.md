@@ -286,13 +286,18 @@ after ten seconds. Evidence in the 26-09-16 journal.
 The freezer holds processes in RAM and loses them on reboot. A longer hold (an
 end-of-week snapshot) wants the state on disk. Two candidates with different survivors:
 `lxc-checkpoint` (CRIU 4.2.1 and LXC 6.0.6 are on the host) restores sessions and all
-but is fragile for systemd containers, and at least one container here runs Docker
-inside it, CRIU's hardest case; graceful `lxc-stop` then `lxc-start` loses running
-processes, keeps every byte on disk, boots in seconds and cannot fail to restore.
+but is fragile for systemd containers, and an engine running inside a container is
+CRIU's hardest case — engines inside LXC are not working here today (Plan 00127,
+parked), so the spike cannot cover that case yet; graceful `lxc-stop` then `lxc-start`
+loses running processes, keeps every byte on disk, boots in seconds and cannot fail to
+restore. The owner designated one idle container for the spike.
 
-- [ ] ⬜ **Task 6.1**: Spike `lxc-checkpoint` on a container WITHOUT Docker, then one
-  WITH it: dump, host reboot, restore, ssh in. Journal what survived and how long each
-  step took
+- [ ] 🔄 **Task 6.1**: Spike `lxc-checkpoint` on the designated container: dump, host
+  reboot, restore, ssh in. **First step failed**: CRIU cannot dump the nested UTS
+  namespace that systemd-logind's `ProtectHostname=yes` creates, so no image was
+  written. Going further needs a systemd drop-in in every container, via IaC, before
+  the next blocker is even visible — evidence in the 26-09-16 journal. Re-run once
+  Plan 00127 has an engine working inside a container, if the gate says CRIU
 - [ ] ⬜ **Task 6.2**: **DECISION GATE** — owner's call from the spike: a verb built on
   CRIU, on stop/start, or neither. If stop/start, the verb is named for what it does
   (a shutdown, not a suspend) and the menu says which containers it would stop
