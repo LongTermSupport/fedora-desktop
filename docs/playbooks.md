@@ -1014,6 +1014,10 @@ below:
 - A `STOPPED` container is not listed: it can be neither frozen nor thawed
 - Freezing is the **cgroup freezer, not suspend-to-disk**: frozen containers do not
   survive a reboot
+- **Thaw renews the DHCP lease** inside each container it thaws, via `lxc-attach` and
+  NetworkManager. The freezer stops the DHCP client too, so a freeze longer than the
+  one-hour lease would otherwise leave the container unreachable until
+  NetworkManager's own retry, minutes later
 - Separate from `play-podfreeze.yml` because this repo's LXC is rootful and Podman is
   not, so one tool would prompt for root on every menu open. What the two genuinely
   share — the menu and the decisions — is one library, deployed by one task file both

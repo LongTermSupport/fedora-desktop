@@ -468,6 +468,28 @@ for hook_i in "${!hook_lines[@]}"; do
 done
 contains "the freeze branch is the one that freezes" "$freeze_branch" "lxc-freeze -n"
 
+# Thaw does one more thing than freeze undoes: it renews the container's DHCP
+# lease, because a freeze longer than the lease leaves the container thawed but
+# unreachable for minutes. The renewal must sit on the thaw branch only — a freeze
+# that reconnected the network would drop the address it is about to freeze.
+thaw_branch=""
+for hook_i in "${!hook_lines[@]}"; do
+    case "${hook_lines[$hook_i]}" in
+        *'lxc-unfreeze -n'*) thaw_branch="${hook_lines[$((hook_i + 1))]}" ;;
+    esac
+done
+contains "thaw renews the DHCP lease after unfreezing" "$thaw_branch" "renew_dhcp_lease"
+if [[ "$freeze_branch" == *renew_dhcp_lease* ]]; then
+    fail "and freeze does not touch the network" "the freeze branch renews the lease"
+else
+    pass "and freeze does not touch the network"
+fi
+renew_body="$(declare -f renew_dhcp_lease)"
+contains "the renewal runs inside the container"        "$renew_body" "lxc-attach -n"
+contains "through NetworkManager"                       "$renew_body" "nmcli device connect"
+contains "on the devices it reports, not an assumed one" "$renew_body" "nmcli -t -f DEVICE,TYPE device status"
+contains "and a failed renewal says the container IS thawed" "$renew_body" "thawed, but"
+
 echo ""
 echo "=== the preflight hook: both guards, and neither one alone ==="
 # LXC absent and sudo refused are different failures with different remedies, and

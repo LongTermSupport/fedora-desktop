@@ -249,6 +249,57 @@ divergent as it is now — which is the half that was actually complained about.
   start inside a container by design. Run `play-podfreeze.yml` and `play-lxcfreeze.yml`
   first — the library is a NEW file, and a deployed tool without it does not start
 
+### Phase 5: A thawed container must be reachable
+
+First overnight use found the gap the suites cannot: every container thawed cleanly and
+none answered ssh. The freezer stops the DHCP client with everything else, the one-hour
+lease from the host's dnsmasq expires mid-freeze, the kernel drops the address, and
+NetworkManager renews only on its own retry timer — two to eight minutes after the thaw.
+Nothing was broken; it was slow, and slow reads as broken when the ssh wrapper gives up
+after ten seconds. Evidence in the 26-09-16 journal.
+
+- [x] ✅ **Task 5.1**: `renew_dhcp_lease` in `lxcfreeze`, called from the thaw branch of
+  `freeze_hook_act` after `lxc-unfreeze`. Runs inside the container via `lxc-attach`,
+  reconnects every ethernet device NetworkManager reports rather than assuming `eth0`,
+  and a failed renewal is a named failure whose message says the container IS thawed.
+  The suite pins the renewal to the thaw branch and that freeze does not touch the
+  network; header comment, play ready message and `docs/playbooks.md` say what thaw
+  now does
+- [x] ✅ **Task 5.2**: **HOST** — both plays run, then the deployed tool froze and
+  thawed one container: the host's `journalctl -t dnsmasq-dhcp` shows `DHCPDISCOVER`
+  through `DHCPACK` in the same second as the thaw. The renewal is unconditional, so a
+  freeze longer than the lease takes the same path; the overnight case is confirmed
+  the next time it happens rather than staged for an hour
+- [ ] ⬜ **Task 5.3**: `lxcfreeze list` shows the IPv4 address next to each running
+  container (`lxc-info -n NAME -iH`), blank when it has none. A blank next to RUNNING
+  is exactly this phase's symptom, and the list is where someone looks first
+- [ ] ⬜ **Task 5.4**: The freeze-time hint says what a freeze longer than the lease
+  costs: thaw renews the lease, but every ssh session into a container — and the agent
+  socket forwarded over it — dies with the frozen TCP connection. Reconnecting is the
+  fix; the hint should say so before the user finds out from a failed `git push`
+- [ ] ⬜ **Task 5.5**: `lxc-attach` chowns the file its stderr points at (a triage probe
+  with stderr unredirected left a root-owned capture). Record the hazard in
+  `CLAUDE/AgentNotes.md`
+
+### Phase 6: Suspend to disk — research, then a decision gate
+
+The freezer holds processes in RAM and loses them on reboot. A longer hold (an
+end-of-week snapshot) wants the state on disk. Two candidates with different survivors:
+`lxc-checkpoint` (CRIU 4.2.1 and LXC 6.0.6 are on the host) restores sessions and all
+but is fragile for systemd containers, and at least one container here runs Docker
+inside it, CRIU's hardest case; graceful `lxc-stop` then `lxc-start` loses running
+processes, keeps every byte on disk, boots in seconds and cannot fail to restore.
+
+- [ ] ⬜ **Task 6.1**: Spike `lxc-checkpoint` on a container WITHOUT Docker, then one
+  WITH it: dump, host reboot, restore, ssh in. Journal what survived and how long each
+  step took
+- [ ] ⬜ **Task 6.2**: **DECISION GATE** — owner's call from the spike: a verb built on
+  CRIU, on stop/start, or neither. If stop/start, the verb is named for what it does
+  (a shutdown, not a suspend) and the menu says which containers it would stop
+- [ ] ⬜ **Task 6.3**: Implement the chosen verb, if any, on the library's act loop so
+  the dry run, the named per-container failure and the menu all apply to it
+- [ ] ⬜ **Task 6.4**: `qa-reviewer` over Phases 5–6 before the plan is marked Complete
+
 ## Success Criteria
 
 - [ ] `lxcfreeze` freezes a running LXC container and thaws it again, verified with
@@ -266,6 +317,9 @@ divergent as it is now — which is the half that was actually complained about.
 - [x] Every decision the suites cover has a mutant that kills it — 18 for `lxcfreeze`,
   15 for `podfreeze`, 20 for the shared library, each killed by a NAMED case
 - [x] `./scripts/qa-all.bash` passes
+- [ ] After `lxcfreeze thaw`, ssh into the container succeeds on the first attempt,
+  after a freeze longer than the one-hour lease
+- [ ] The suspend-to-disk decision is recorded with the spike's evidence
 
 ## Dependencies
 

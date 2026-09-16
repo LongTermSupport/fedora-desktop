@@ -35,6 +35,11 @@
 # reboot. The reboot-surviving equivalent is `lxc-checkpoint` (CRIU), which is a
 # different operation with different requirements and is not what this tool does.
 #
+# THAW RENEWS THE DHCP LEASE. The freezer stops the container's DHCP client too, so
+# a freeze longer than the lease leaves the container thawed with no address until
+# NetworkManager's own retry fires minutes later. Thaw reconnects the network
+# inside the container so it is reachable at once — see renew_dhcp_lease.
+#
 # STOPPED CONTAINERS ARE NOT INVENTORIED. A stopped container can be neither frozen
 # nor thawed, so offering one as a candidate would only invite a confusing no-op.
 #
@@ -658,6 +663,37 @@ freeze_hook_select() {
     esac
 }
 
+# A thawed container is not reachable until its DHCP lease is. The freezer stops
+# the container's DHCP client along with everything else, so a freeze longer than
+# the lease (one hour from the host's dnsmasq) leaves the lease expired at thaw and
+# the kernel drops the address. NetworkManager does renew on its own, but on a
+# retry timer that fires two to eight minutes after the thaw — every ssh to the
+# container times out until then. Reconnecting each ethernet device through
+# NetworkManager renews in well under a second, so thaw does that itself.
+#
+# Runs INSIDE the container via lxc-attach. The device list is read rather than
+# assumed to be eth0, and a container that cannot renew is a NAMED failure: it is
+# thawed, but not reachable, and the message says both.
+renew_dhcp_lease() {
+    local name="$1" dev devices
+    if ! devices="$(sudo lxc-attach -n "$name" -- \
+        nmcli -t -f DEVICE,TYPE device status 2>&1)"; then
+        echo "thawed, but the DHCP lease was not renewed — nmcli failed: $devices"
+        return 1
+    fi
+    devices="$(printf '%s\n' "$devices" | awk -F: '$2 == "ethernet" { print $1 }')"
+    if [ -z "$devices" ]; then
+        echo "thawed, but the DHCP lease was not renewed — NetworkManager manages no ethernet device"
+        return 1
+    fi
+    for dev in $devices; do
+        if ! sudo lxc-attach -n "$name" -- nmcli device connect "$dev" > /dev/null; then
+            echo "thawed, but the DHCP lease on $dev was not renewed — see nmcli output above"
+            return 1
+        fi
+    done
+}
+
 # One container, one call, so a single failure is named rather than collapsing
 # the batch. The library captures both streams and reports what LXC said.
 freeze_hook_act() {
@@ -666,6 +702,7 @@ freeze_hook_act() {
         sudo lxc-freeze -n "$name"
     else
         sudo lxc-unfreeze -n "$name"
+        renew_dhcp_lease "$name"
     fi
 }
 
