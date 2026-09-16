@@ -71,6 +71,7 @@ they are deliberately not jq-merged stages, so they cannot disturb the positiona
 | `test-host-health-login-snippet.bash`       | the server login snippet's interactive guard — an unconditional print breaks `scp` (Plan 00109)           |
 | `test-qa-ansible-failfast.bash`             | the fail-fast directive regex in `qa-ansible.bash`, read from it rather than copied                       |
 | `test-qa-helper-summary.bash`               | the three readers in `lib/qa-helper-summary.bash` that produce every stage line below                     |
+| `test-qa-docs-exit-codes.bash`              | `qa-docs.bash`'s three exit codes, driven against fixture trees — a crash must never read as clean        |
 | `helpers.gnome.check_extension_compat`      | every extension declares the GNOME Shell major this branch's Fedora ships                                 |
 | `helpers.gnome.check_panel_contract`        | the panel's constants, document keys and section ids agree with the producer (Plan 00109)                 |
 | `qa-vmtest-manifest.bash`                   | `vars/vm-test-scenarios.yml` parses and is coherent (Plan 00110); a broken control must be rejected first |

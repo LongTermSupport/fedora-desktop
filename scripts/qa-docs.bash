@@ -34,7 +34,12 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The root defaults to this script's own repository and is overridable by argument, so a test
+# can drive the REAL script against a fixture tree. Without it the exit codes documented above
+# were reachable only by reasoning: every one of them needs a tree this repository is not, and
+# nothing could produce one. `scripts/test-qa-docs-exit-codes.bash` is the caller, and the
+# zero-file guard below is what stops a mistyped root from ever reporting a pass.
+REPO_ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 JSON_OUT="${QA_JSON_OUT:-/tmp/qa-docs-results.json}"
 TMP_RAW=$(mktemp)
 trap 'rm -f "$TMP_RAW"' EXIT

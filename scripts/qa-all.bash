@@ -550,6 +550,23 @@ fi
 helper_summary_tests=$(qa_gate_case_count "$helper_summary_out")
 printf '✓ helper-counts-reader: %s\n' "$helper_summary_tests"
 
+# The docs gate's own exit codes, driven against fixture trees (Plan 00125).
+#
+# `qa-docs.bash` documents three exit codes and only one of them had ever been produced by
+# running it: the other two need a tree this repository is not. The one that matters is the
+# exit 2 that stops a CRASHED checker reading as a clean run — the interpreter exits 1, which
+# that gate treats as its ordinary findings status, and only the payload validation turns it
+# into a refusal. Two hops, neither asserted, either of which would make a traceback look
+# like "no findings".
+docs_exit_out=""
+if ! docs_exit_out="$(bash "$SCRIPT_DIR/test-qa-docs-exit-codes.bash" 2>&1)"; then
+    echo "$docs_exit_out" >&2
+    echo "✗ QA FAILED: docs gate exit-code contract" >&2
+    exit 1
+fi
+docs_exit_summary=$(qa_gate_case_count "$docs_exit_out")
+printf '✓ docs-exit-codes: %s\n' "$docs_exit_summary"
+
 compat_out=""
 if ! compat_out="$(cd "$SCRIPT_DIR/.." && python3 -m helpers.gnome.check_extension_compat 2>&1)"; then
     echo "$compat_out" >&2
