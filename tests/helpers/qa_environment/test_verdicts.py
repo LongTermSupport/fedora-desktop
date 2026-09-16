@@ -255,6 +255,37 @@ class TestMain(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertNotIn("QA-VERDICTS-FAIL", out)
 
+    def test_a_missing_tool_abort_is_a_terminal_state_not_a_truncated_capture(self):
+        # qa-all.bash exits 2 on a missing tool, printing `ERROR: Missing required tools`
+        # and NO `QA FAILED` line. A machine without semgrep or ansible-playbook is the
+        # divergence this tool exists to compare, so refusing it as "truncated" would
+        # refuse the headline case AND misdiagnose it as a broken download.
+        aborted = (
+            "✓ bash: 258 files OK\n"
+            "ERROR: Missing required tools (semgrep). Install with: pipx install semgrep\n"
+        )
+        code, out = self._run("✓ bash: 258 files OK\n" + self.END, aborted, terminate=False)
+        self.assertEqual(code, 0)
+        self.assertNotIn("QA-VERDICTS-FAIL", out)
+        self.assertIn("1 tool abort", out)
+
+    def test_a_gate_that_could_not_produce_a_result_is_also_terminal(self):
+        aborted = (
+            "✓ bash: 258 files OK\n"
+            "ERROR: docs gate could not produce a result (zero-file scan or checker crash).\n"
+        )
+        code, out = self._run("✓ bash: 258 files OK\n" + self.END, aborted, terminate=False)
+        self.assertEqual(code, 0)
+        self.assertNotIn("QA-VERDICTS-FAIL", out)
+
+    def test_an_unrelated_error_line_is_not_mistaken_for_a_terminal_state(self):
+        # The guard must stay narrow: prose beginning "ERROR:" from inside a gate is not
+        # the run ending, and treating it as one would put the truncation hole back.
+        noise = "✓ bash: 258 files OK\nERROR: the widget is misaligned\n"
+        code, out = self._run("✓ bash: 258 files OK\n" + self.END, noise, terminate=False)
+        self.assertNotEqual(code, 0)
+        self.assertIn("QA-VERDICTS-FAIL no-run-summary --there", out)
+
     def test_coverage_is_reported_for_each_side_before_the_table(self):
         _code, out = self._run("✓ js: 8 files OK\n", "✓ js: 8 files OK\n")
         self.assertIn("QA-VERDICTS-COVERAGE --here 1 of 2", out)

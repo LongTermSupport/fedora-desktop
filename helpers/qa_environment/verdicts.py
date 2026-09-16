@@ -46,9 +46,23 @@ STAGE = re.compile(r"^(?P<symbol>[✓✗⚠]) (?P<name>[a-z0-9][a-z0-9-]*): (?P<
 #: because a capture holding none of them never reached the end of a run.
 RUN_SUMMARY = re.compile(r"^[✓✗⚠] QA (?:passed|FAILED):")
 
-#: Any line whose payload opens with a status symbol: the denominator for coverage. One
-#: that is neither a stage nor a run summary is an under-match in this parser.
+#: The OTHER way a run ends: `qa-all.bash` exits 2 on a missing tool or a gate that could
+#: not produce a result, printing this to stderr and NO `QA FAILED` line. That is still a
+#: terminal state — and a machine missing semgrep or ansible-playbook is exactly the
+#: divergence this tool compares, so treating it as a truncated capture would refuse the
+#: plan's own headline case and misreport it as a broken download.
+TOOL_ABORT = re.compile(r"^ERROR: (?:Missing required tools|[a-z-]+ gate could not produce)")
+
+#: Any line whose payload opens with a status symbol. One that is neither a stage nor a
+#: run summary is an under-match in this parser.
 SYMBOL_LINE = re.compile(r"^[✓✗⚠] ")
+
+#: The coverage DENOMINATOR, and it is deliberately counted on the RAW line rather than
+#: the stripped one. Counted after stripping, a CI line whose harness prefix stopped
+#: matching would leave the numerator and the denominator together and coverage would read
+#: 100% with the line silently gone — a measure that cannot see its own blind spot.
+#: Measured as identical on a real capture today, which is exactly when to move it.
+SYMBOL_BEARING = re.compile(r"[✓✗⚠] ")
 
 #: A CI log line carries `<job>\t<step>\t<ISO timestamp> ` before the payload, and the
 #: first line of a step carries a BOM. The timestamp is REQUIRED rather than optional:
@@ -80,6 +94,12 @@ class Parsed:
     symbol_lines: int
     matched_lines: int
     summary_lines: int
+    abort_lines: int
+
+    @property
+    def terminal_lines(self) -> int:
+        """Lines proving the run ENDED, however it ended."""
+        return self.summary_lines + self.abort_lines
 
 
 @dataclasses.dataclass(frozen=True)
@@ -98,14 +118,26 @@ def parse(text: str) -> Parsed:
     Tolerates a CI log's per-line harness prefix and ANSI colour, so one function reads a
     local capture and a downloaded workflow log. A stage that emitted more than one line
     keeps all of them, in order.
+
+    Keeping every line replaced a "last wins" rule whose stated premise was that
+    `qa-all.bash` echoes some failures to both stdout and stderr and a CI log interleaves
+    the two. Under sequence comparison that premise would matter — a duplicate or a
+    reordering on one side alone would now read as a difference — so it was checked rather
+    than assumed: on a real CI log the only stage emitting more than one line is
+    `patterns`, with the same two lines in the same order on both machines.
     """
     stages: dict[str, list[Verdict]] = {}
-    symbol_lines = matched_lines = summary_lines = 0
+    symbol_lines = matched_lines = summary_lines = abort_lines = 0
     for raw in text.splitlines():
+        bears_symbol = SYMBOL_BEARING.search(raw) is not None
         line = ANSI.sub("", CI_LOG_PREFIX.sub("", raw)).rstrip()
+        if TOOL_ABORT.match(line):
+            abort_lines += 1
+            continue
+        if bears_symbol:
+            symbol_lines += 1
         if not SYMBOL_LINE.match(line):
             continue
-        symbol_lines += 1
         if RUN_SUMMARY.match(line):
             summary_lines += 1
             continue
@@ -121,6 +153,7 @@ def parse(text: str) -> Parsed:
         symbol_lines=symbol_lines,
         matched_lines=matched_lines,
         summary_lines=summary_lines,
+        abort_lines=abort_lines,
     )
 
 
@@ -177,7 +210,8 @@ def coverage_line(label: str, parsed: Parsed) -> str:
     return (
         f"QA-VERDICTS-COVERAGE {label} {parsed.matched_lines} of "
         f"{parsed.symbol_lines} symbol-prefixed line(s) "
-        f"({parsed.summary_lines} run summary, {unrecognised} unrecognised) "
+        f"({parsed.summary_lines} run summary, {parsed.abort_lines} tool abort, "
+        f"{unrecognised} unrecognised) "
         f"-> {len(parsed.stages)} stage(s)"
     )
 
@@ -191,7 +225,7 @@ def capture_problem(parsed: Parsed) -> str:
     """
     if not parsed.stages:
         return "no-stages-parsed"
-    if parsed.summary_lines == 0:
+    if parsed.terminal_lines == 0:
         return "no-run-summary"
     return ""
 
@@ -202,8 +236,9 @@ _PROBLEM_DETAIL = {
         "Check it holds a qa-all.bash run."
     ),
     "no-run-summary": (
-        "stages were parsed but there is no closing 'QA passed'/'QA FAILED' line, so the "
-        "run did not reach its end or the capture is truncated. Every 'did not run' row "
+        "stages were parsed but nothing marks the end of the run — no closing "
+        "'QA passed'/'QA FAILED' line and no 'ERROR: Missing required tools' abort — so "
+        "the run did not finish or the capture is truncated. Every 'did not run' row "
         "below it would be an artefact of the truncation, not a fact about that machine."
     ),
 }

@@ -159,9 +159,13 @@ helper_summary=$(printf '%s' "$helper_out" | grep -oE 'Ran [0-9]+ tests?') || he
 # this repo's own machine-dependence defect appearing inside the line used to detect it.
 # Measured: a container asserts the DisplayLink sysfs pair against a real connector while a
 # VM runner skips both, and before this the two lines agreed exactly.
+# Matched WITHOUT the closing paren: unittest appends `expected failures=` and
+# `unexpected successes=` after the skip count inside the same bracket, so
+# `OK (skipped=1, expected failures=1)` does not end at `skipped=1)`. Requiring the paren
+# reported 0 skipped there, silently restoring the very blindness this line removes.
 helper_skipped=0
-if helper_skips=$(printf '%s' "$helper_out" | grep -oE '\(skipped=[0-9]+\)'); then
-    helper_skipped="${helper_skips//[^0-9]/}"
+if [[ "$helper_out" =~ skipped=([0-9]+) ]]; then
+    helper_skipped="${BASH_REMATCH[1]}"
 fi
 printf '✓ helper-tests: %s, %s skipped\n' "$helper_summary" "$helper_skipped"
 

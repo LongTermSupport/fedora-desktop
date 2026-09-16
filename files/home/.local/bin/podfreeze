@@ -876,6 +876,11 @@ fi
 # and without it the gap surfaces as `command not found` part-way through a menu
 # the user is already looking at.
 freeze_assert_contract
+# Called BARE on purpose. shellcheck suggests `assert_on_host "$@"` (SC2119) because the
+# function reads $1/$2 — taking that would pass THIS TOOL's argv into the container-marker
+# slots, so `podfreeze somename` would test `-f somename`, leave only $container as a
+# signal, and quietly loosen a guard whose entire job is to refuse. Its two parameters are
+# a test seam with the real paths as defaults; no caller supplies them.
 assert_on_host
 freeze_hook_preflight
 load_inventory
