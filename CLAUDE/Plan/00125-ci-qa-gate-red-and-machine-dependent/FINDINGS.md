@@ -614,3 +614,54 @@ seven stages of this same script, and the one the final summary was written for.
 question is whether to extend it to the other 29, not whether to invent it. The repo's own
 recurring lesson applies to the plan that is documenting it: the right answer already
 existed one directory over — in this case, sixty lines up.
+
+### A failing hard gate erases ITSELF from the census, not just the gates behind it
+
+This was assumed to be a masking problem about *subsequent* gates. It is worse than that,
+and the difference decides Task 4.3.
+
+A hard gate that fails prints prose, not a stage line:
+
+```bash
+echo "✗ QA FAILED: helper unit tests" >&2
+exit 1
+```
+
+`verdicts.STAGE` is `^(?P<symbol>[✓✗⚠]) (?P<name>[a-z0-9][a-z0-9-]*): ` and `RUN_SUMMARY` is
+`^[✓✗⚠] QA (?:passed|FAILED):`. That line is a RUN SUMMARY. Measured rather than reasoned —
+`verdicts.parse()` over a three-line sample ending in that abort:
+
+```
+stages recorded: ['bash', 'nokill-containerwatch']
+is a stage recorded for the FAILING gate?  False
+```
+
+All **31** gate aborts in `qa-all.bash` have this shape (32 `exit 1` sites, less the final
+summary; `helper-tests` owns three of them, which is how 31 lines cover 29 gates). And the
+prose is not even the gate's name: `helper unit tests` against the stage `helper-tests`,
+`secret scanner unit tests` against `secret-scan-tests`, `plan-script library regression tests` against `planlib-tests`, `the panel and the status document producer disagree`
+against `panel-contract`. No reader could map one to the other.
+
+**This makes option (2) unworkable as written.** "Have CI compare the executed-gate list
+against the declared one and fail on a shrink" assumes a failed gate is distinguishable from
+an absent one. It is not: both produce no stage line. The shrink detector would report the
+gate that failed as a gate that never ran — a wrong sentence about the one event it exists
+to describe — and it would do so on every red run, which is every run it matters on.
+
+Making the failure lines stage-shaped is the prerequisite for option (2), and it is most of
+option (1)'s work: the 29 hard gates share one shape,
+
+```bash
+if ! foo_out="$(bash "$SCRIPT_DIR/gate.bash" 2>&1)"; then … exit 1; fi
+foo_summary=$(qa_gate_case_count "$foo_out")
+printf '✓ gate-name: %s\n' "$foo_summary"
+```
+
+so the edit is the same mechanical one at each: emit `✗ gate-name: <reason>`, increment
+`FAILED`, and put the `✓` line in an `else`. The seven `exit 2` missing-tool aborts stay
+aborts — a suite that cannot run its tools has nothing to accumulate.
+
+**Recommendation, and still the owner's call:** option (1). Option (2) costs the same edit
+and then adds a comparison on top of it, and what it would buy — "a gate vanished" — falls
+out of option (1) for free, because every gate then prints a line whether it passed or
+failed.

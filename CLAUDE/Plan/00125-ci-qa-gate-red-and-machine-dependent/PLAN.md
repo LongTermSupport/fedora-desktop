@@ -179,13 +179,12 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
 
 - [ ] ⬜ **Task 4.3**: Make a gate's *absence* visible. `qa-all.bash` aborting at the first
   failure means one unfixable gate silently disables every gate after it — the mechanism
-  behind Task 4.1, and not something documentation alone fixes. Options to weigh: run every
-  gate and report all verdicts before exiting non-zero; or keep the abort but have CI
-  compare the executed-gate list against the declared one and fail on a shrink. This is a
-  structural change to the suite and affects local runs too, so it is the owner's call.
-  **Narrowed:** the first option is not a new design — 7 of the 36 gates already work that
-  way against 29 that `exit 1`, so the question is whether to extend it, not invent it. That
-  split is also why the two causes hid differently. See `FINDINGS.md`
+  behind Task 4.1. **Owner's call:** (1) run every gate and report all verdicts before
+  exiting non-zero, or (2) keep the abort and have CI fail on a shrink in the executed-gate
+  list. Measured since: a failing hard gate prints `✗ QA FAILED: <prose>`, which
+  `verdicts.py` reads as a run summary, so it erases *itself* from the stage census — (2)
+  cannot tell a failed gate from an absent one, and fixing that is most of (1)'s work.
+  Recommendation: **(1)**. Costing in `FINDINGS.md`
 
 - [x] ✅ **Task 4.4**: The `helper-tests` line no longer scrapes the run's output. Four
   readers that did were each defeated by a test printing unittest-shaped text, the last by
