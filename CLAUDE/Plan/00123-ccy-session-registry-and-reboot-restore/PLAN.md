@@ -21,13 +21,19 @@ exact, where a shutdown hook is racy and a timer has a window. The second is a
 `--supervise --continue`, so the conversation resumes and the supervisor nudges it back to
 work.
 
-The issue's third piece — warn every running session N minutes before a reboot — depends on
-a signal kind and CLI that live in another repository
-(`Edmonds-Commerce-Limited/claude-code-hooks-daemon#39`) and **do not exist yet**; verified,
-see [FACTS-ccy-mechanics.md](FACTS-ccy-mechanics.md) F7. What does not need that signal is
-built (session enumeration, the per-project daemon-CLI audit, `--dry-run`, the countdown and
-reboot sequencing). The one call that raises the signal is a single function that fails fast
-naming the upstream issue. No local substitute is invented.
+The issue's third piece — warn every running session before a reboot — needed a signal kind
+and a CLI from another repository
+(`Edmonds-Commerce-Limited/claude-code-hooks-daemon#39`), which **hooks daemon v3.65.0
+ships**. `ccy-sessions notify KIND` raises it for real; no local substitute was ever
+invented, and the wait paid off in the shape that arrived — the payload carries a closed-set
+kind and a bare integer with no free-text field, so the sentence an agent sees is composed
+inside its own container. [FACTS-ccy-mechanics.md](FACTS-ccy-mechanics.md) F7 records the
+earlier reading and is marked superseded; `triage-signal.bash` re-derives the current one
+rather than leaving a release note to be trusted.
+
+What remains unbuilt is narrower than the original blocker: `reboot --in N` would also have
+to run the countdown and the reboot itself, which no task here specified. See Task 4.5 — it
+is an owner decision, not a dependency.
 
 ## Goals
 
@@ -46,14 +52,18 @@ naming the upstream issue. No local substitute is invented.
   and what became of the ones that were not restored.
 - Restore is opt-in per machine through the play; the default is today's behaviour.
 - `ccy-sessions reboot --dry-run` reports what a reboot would kill and whether each project
-  is ready to be warned. The live form refuses, naming the upstream dependency.
+  is ready to be warned.
+- `ccy-sessions notify KIND` warns every live session for real, or fails naming the projects
+  it could not reach.
 
 ## Non-Goals
 
-- **Raising the `reboot-warning` signal.** Blocked on
-  `Edmonds-Commerce-Limited/claude-code-hooks-daemon#39`. See Task 4.3.
-- **`ccy-sessions notify` as a working command.** Same dependency; it exists only to fail
-  fast with the dependency named rather than as "unknown option".
+- **Performing the reboot.** `reboot --in N` refuses; whether it should ever reboot the host
+  is Task 4.5, an owner decision. Warning and then not rebooting is explicitly rejected as a
+  partial implementation, because it leaves sessions winding down for nothing.
+- **Composing the words an agent sees.** The signal carries a kind and a number; the sentence
+  is the supervisor's, from fixed templates. That split is what keeps a channel reachable
+  from outside the container unable to carry text into an agent's context.
 - **Restoring `cc-*` sessions.** The host `cc` wrapper is not in this repository (F5), so
   nothing here can write its records. Only `ccy` sessions are registered.
 - **Validating Claude's conversation state.** `--continue` resumes whatever Claude Code
@@ -149,14 +159,27 @@ naming the upstream issue. No local substitute is invented.
 - [x] ✅ **Task 4.2**: `ccy-sessions restore-status` — six distinct installation answers, two of
   them "could not tell", reported on an axis of their own from the registry contents (D8).
   Driven through every state by `scripts/test-ccy-sessions-status.bash`
-- [x] ✅ **Task 4.3**: `ccy-sessions reboot` / `notify` — everything except the signal
+- [x] ✅ **Task 4.3**: `ccy-sessions reboot` / `notify`
   - [x] ✅ `reboot --dry-run`: enumerate live sessions, audit each project for the daemon CLI,
     print what would be signalled, and **refuse if any project lacks it** (no silent skip)
-  - [x] 🚫 `reboot --in N` and `notify`: **BLOCKED** on
-    `Edmonds-Commerce-Limited/claude-code-hooks-daemon#39`. One function,
-    `ccy_reboot_raise_signal`, fails fast naming the issue. Nothing is signalled and
-    nothing is rebooted, so the command cannot claim to have warned anyone.
+  - [x] ✅ `notify KIND`: raises a REAL signal through `hooks-daemon signal`, once per
+    **project** rather than per session (`--all-sessions` covers that project's own sessions,
+    and is the only form that reaches a session whose id this script never learns). Carries a
+    closed-set kind and a bare integer, nothing else. A project that could not be signalled
+    fails the whole command, on the same ground the audit already refuses a partial warning.
+    Unblocked by hooks daemon v3.65.0 — F7's reading is superseded and `triage-signal.bash`
+    re-derives it on demand
 - [x] ✅ **Task 4.4**: Run QA: `./scripts/qa-all.bash`
+- [ ] ⬜ **Task 4.5**: **OWNER DECISION** — should `reboot --in N` perform the reboot?
+  It still refuses, now for its own reason rather than a missing dependency: the countdown
+  and the reboot call were never designed, and no task here specified them. It refuses as a
+  whole rather than warning and then not rebooting, because a session told to wind up for a
+  reboot that never arrives is worse off than one never told. The options are (a) implement
+  it, for which `shutdown -r +N` is the obvious primitive — it owns the countdown, survives
+  the terminal, and is cancellable with `shutdown -c`, which pairs with
+  `notify reboot-cancelled`; or (b) drop the subcommand and leave `notify` plus the
+  operator's own reboot as the supported route. Not decided here because it adds a
+  destructive host operation that this plan never scoped
 
 ### Phase 5: Documentation
 
@@ -222,10 +245,12 @@ repository root on the host.
 - Depends on: Plan 00111 (Completed) — the tmux server, `lib/tmux-session.bash`, `ccy-sessions`.
 - Depends on: `play-systemd-user-tweaks.yml` for linger and a running user manager. Already
   in `playbook-main.yml`, `scope: general`, so it holds on a headless host too.
-- **Blocked on (Task 4.3 only)**: `Edmonds-Commerce-Limited/claude-code-hooks-daemon#39` —
-  the `reboot-warning` signal kind and the CLI that raises it. Verified absent from the
-  installed daemon's command list (F7). The registry and the restore service do not depend
-  on it and land first, exactly as the issue says.
+- **Was blocked on**: `Edmonds-Commerce-Limited/claude-code-hooks-daemon#39` — the
+  `reboot-warning` signal kind and the CLI that raises it. **Cleared by hooks daemon
+  v3.65.0**, which supplies both halves: the `signal` verb and the supervisor's reader.
+  Verified by `triage-signal.bash` rather than taken from the release notes, and the
+  distinction mattered — the writer arrived before this branch had the reader, a state in
+  which every signal call would have exited 0 and warned nobody.
 
 ## Technical Decisions
 
@@ -253,7 +278,11 @@ Full reasoning, alternatives and evidence for each is in
 - [ ] The `restore-status` answers are distinct strings, not one "nothing to do"
 - [ ] No prompt site in the launcher can hang an unattended launch — the `read()` shadow is
   keyed on `-p`, so it covers sites this plan never enumerated
-- [ ] `reboot --in N` refuses with the upstream issue named, and reboots nothing
+- [x] `notify KIND` invokes each project's own CLI once with the kind, the number and
+  `--all-sessions` — asserted against the stub's recorded argv, and both mutants (a dropped
+  `--minutes`, a signal raised on the refusing `reboot` path) are killed by it
+- [x] `reboot --in N` refuses AND signals nothing, so no session is warned about a reboot
+  that is not coming
 - [ ] `qa-reviewer` findings all resolved
 - [ ] (HOST, owner) a session recorded before a reboot is detached and attachable after it
 

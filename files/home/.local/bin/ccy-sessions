@@ -17,17 +17,25 @@
 #   ccy-sessions restore-status      what this machine does with sessions after a reboot
 #   ccy-sessions reboot --dry-run    what a reboot would interrupt, and whether each
 #                                    session is ready to be warned about it
-#   ccy-sessions reboot --in N       warn every session, wait N minutes, then reboot
-#                                    — BLOCKED, see below
-#   ccy-sessions notify KIND         raise a signal in every session — BLOCKED, see below
+#   ccy-sessions notify KIND         warn every live session — WORKS
+#                                    KIND is reboot-warning, shutdown-warning (both need
+#                                    --minutes N) or reboot-cancelled (which takes none)
+#   ccy-sessions reboot --in N       warn, wait N minutes, then reboot — NOT BUILT, see below
 #   ccy-sessions -h|--help           this text
 #
-# BLOCKED: raising the reboot warning needs a `reboot-warning` signal kind and a CLI to
-# raise it, both of which live in the hooks daemon and do not exist yet
-# (Edmonds-Commerce-Limited/claude-code-hooks-daemon#39). `reboot --in N` and `notify`
-# therefore fail fast naming that issue: nothing is signalled and NOTHING IS REBOOTED. A
-# command that rebooted without warning anyone, while looking like it had, would be worse
-# than one that refuses. `reboot --dry-run` needs none of it and works today.
+# `notify` raises a real signal. It names a KIND from a closed set and a number, and nothing
+# else: the sentence each agent sees is composed inside its own container by the supervisor
+# from fixed templates. That split is the point rather than an implementation detail — it is
+# what stops a channel reachable from outside the container carrying arbitrary text into an
+# agent's context. Signals go out once per PROJECT (the daemon enumerates that project's own
+# live sessions), and a project that could not be signalled fails the whole command rather
+# than leaving you believing everyone was told.
+#
+# NOT BUILT: `reboot --in N` additionally promises to wait and then reboot, and that half was
+# never designed — no task specified the countdown or the reboot call. It refuses as a whole
+# instead of warning and then not rebooting, because a session told to wind up for a reboot
+# that never arrives is worse off than one that was never told. Warn with `notify` and reboot
+# by your own means. `reboot --dry-run` reports what a reboot would interrupt.
 #
 # Needs a terminal and fzf for the picker. The reporting subcommands need neither, so they
 # work over a non-interactive ssh. Runs on the HOST: inside a CCY container there is no server.
@@ -284,36 +292,116 @@ project_daemon_cli() {
     return 1
 }
 
-# ccy_reboot_signal_blocked <kind> — THE BLOCKED SEAM. Always refuses, today.
+# ccy_reboot_raise_signal <kind> [minutes] — raise one operator signal per live session.
 #
-# Everything else in the reboot helper works. Raising the signal needs a `reboot-warning` kind
-# and a daemon CLI command to raise it, neither of which exists:
-# Edmonds-Commerce-Limited/claude-code-hooks-daemon#39. Verified against the installed daemon's
-# command list, which has no notify and no signal-raising command of any kind.
+# Signals are raised PER PROJECT, not per session. The daemon writes each signal into the
+# project's own context-sidecar directory, and its `--all-sessions` enumerates that project's
+# live sessions itself — so the live sessions are grouped by directory and each project's own
+# CLI is called once. That is also the only form that reaches a session whose id this script
+# never learns.
 #
-# It is NOT faked with `inject-goal`, the nearest existing mechanism. That takes free text,
-# while the whole security argument for this feature is that the signal carries a fixed kind
-# and an integer and is therefore not a prompt-injection channel. Routing a reboot warning
-# through a free-text command would throw that away to make a command look finished.
+# EVERY project must succeed, for the reason audit_sessions already gives: warning some
+# sessions and not others leaves the operator believing everyone was told. The daemon refuses
+# rather than succeeding vacuously when a project has no live session of its own, so that
+# case arrives here as a failure and is reported as one instead of passing silently.
 #
-# Called ONCE, before any per-session loop, and unconditionally. Called from inside such a loop
-# it would never run when no sessions were live — so `ccy-sessions reboot --in 5` on an idle
-# machine exited 0 having neither warned anyone nor rebooted, which is the one outcome a
-# deliberately-blocked command must never produce.
-ccy_reboot_signal_blocked() {
-    local kind="$1"
-    print_error "cannot raise '${kind}': this half of the feature is not built yet."
-    cat >&2 <<'BLOCKED'
-The reboot-warning signal kind and the CLI that raises it do not exist:
-  Edmonds-Commerce-Limited/claude-code-hooks-daemon#39
+# The kind and the number are all this passes on. It composes no message: the sentence an
+# agent eventually sees is built by the supervisor from fixed templates, and keeping the
+# composition there is what stops this channel carrying arbitrary text from outside the
+# container.
+ccy_reboot_raise_signal() {
+    local kind="$1" minutes="${2:-}"
+    local listing name dir cli out known seen
+    local -a dirs=()
+    local failed=0 signalled=0
 
-Nothing was signalled and NOTHING WAS REBOOTED. Reboot by whatever means you normally
-would, accepting that running sessions get no warning — or wait for the daemon release
-that adds the signal.
+    # A listing failure is NOT "no sessions". Propagated, for the same reason audit_sessions
+    # captures rather than reading from a process substitution.
+    if ! listing="$(live_sessions)"; then
+        print_error "could not list the running sessions, so NOTHING was signalled."
+        return 1
+    fi
 
-`ccy-sessions reboot --dry-run` works today and reports what a reboot would interrupt,
-and whether each session's project is ready to be warned when this is unblocked.
-BLOCKED
+    # Unique project directories, first-seen order. Fed by a here-string rather than a pipe so
+    # the array survives: a pipeline would build it in a subshell and the caller would read an
+    # empty one, which here would look exactly like "no sessions to signal".
+    while read -r name dir; do
+        [[ -n "$dir" ]] || continue
+        seen=0
+        for known in ${dirs[@]+"${dirs[@]}"}; do
+            if [[ "$known" == "$dir" ]]; then
+                seen=1
+                break
+            fi
+        done
+        if [[ "$seen" -eq 0 ]]; then
+            dirs+=("$dir")
+        fi
+    done <<<"$listing"
+
+    if [[ "${#dirs[@]}" -eq 0 ]]; then
+        echo "No sessions are running, so there is nobody to signal."
+        return 0
+    fi
+
+    for dir in "${dirs[@]}"; do
+        if ! cli="$(project_daemon_cli "$dir")"; then
+            print_error "no hooks-daemon CLI in ${dir/#${HOME}/\~} — its sessions were NOT signalled."
+            failed=$((failed + 1))
+            continue
+        fi
+        local -a args=("signal" "$kind")
+        if [[ -n "$minutes" ]]; then
+            args+=("--minutes" "$minutes")
+        fi
+        args+=("--all-sessions" "--project-root" "$dir")
+        if out="$("$cli" "${args[@]}" 2>&1)"; then
+            signalled=$((signalled + 1))
+            printf '  signalled  %s\n' "${dir/#${HOME}/\~}"
+        else
+            print_error "could not signal ${dir/#${HOME}/\~}:"
+            printf '%s\n' "$out" >&2
+            failed=$((failed + 1))
+        fi
+    done
+
+    if [[ "$failed" -gt 0 ]]; then
+        print_error "${failed} project(s) were NOT signalled (${signalled} were)."
+        echo "Treat that as nobody having been warned: a partial warning is worse than none," >&2
+        echo "because it reads as a complete one." >&2
+        return 1
+    fi
+    return 0
+}
+
+# ccy_reboot_sequencing_undesigned <minutes> — why `reboot --in N` still refuses.
+#
+# The signal it was blocked on now exists, and `notify` raises it for real. What this command
+# additionally promises — wait N minutes, then reboot — was never designed: no task specified
+# the countdown or the reboot call, and the plan's acceptance criteria for this path were
+# written for the blocked state.
+#
+# It refuses AS A WHOLE rather than doing the half it can. Warning every session and then not
+# rebooting is not a safe subset of the behaviour, it is a new wrong state: every agent winds
+# down for a reboot that never arrives, and nothing tells them otherwise. `notify` exists for
+# an operator who wants exactly the warning.
+ccy_reboot_sequencing_undesigned() {
+    local minutes="$1"
+    print_error "reboot --in ${minutes} is not built: the countdown and the reboot call are undesigned."
+    cat >&2 <<'UNDESIGNED'
+Nothing was signalled and NOTHING WAS REBOOTED.
+
+The warning itself works now. To warn every session and reboot by your own means:
+
+  ccy-sessions notify reboot-warning --minutes N     # warn every live session
+  <reboot however you normally would>
+  ccy-sessions notify reboot-cancelled               # if you change your mind
+
+This command refuses instead of warning and then not rebooting, because a session told to
+wind up for a reboot that never comes is worse off than one that was never told.
+
+`ccy-sessions reboot --dry-run` reports what a reboot would interrupt.
+UNDESIGNED
     return 1
 }
 
@@ -413,15 +501,16 @@ cmd_reboot() {
         return 0
     fi
 
-    # The audit passed, so every project could be warned — if there were anything to warn them
-    # with. The refusal is unconditional and happens here: AFTER the audit, so the operator
-    # still gets the useful half of the command, and BEFORE anything is signalled or rebooted.
-    ccy_reboot_signal_blocked reboot-warning
+    # The audit passed, so every project COULD be warned. The refusal is still unconditional
+    # and still happens here: AFTER the audit, so the operator keeps the useful half of the
+    # command, and BEFORE anything is signalled, so nothing is warned about a reboot this
+    # command is not going to perform.
+    ccy_reboot_sequencing_undesigned "$minutes"
     return 1
 }
 
 cmd_notify() {
-    local kind="${1:-}" minutes=0
+    local kind="${1:-}" minutes=""
     # Guarded rather than `shift || true`: with no arguments `shift` fails, and swallowing that
     # failure is the error-hiding pattern this repo bans. The empty case is handled below, where
     # it gets a message naming the kinds this command knows.
@@ -429,14 +518,15 @@ cmd_notify() {
         shift
     fi
     case "$kind" in
-    reboot-warning | reboot-cancelled) ;;
+    reboot-warning | shutdown-warning | reboot-cancelled) ;;
     "")
-        echo "ccy-sessions notify needs a signal kind: reboot-warning or reboot-cancelled." >&2
+        echo "ccy-sessions notify needs a signal kind: reboot-warning, shutdown-warning or reboot-cancelled." >&2
         exit 64
         ;;
     *)
         echo "ccy-sessions notify: unknown signal kind '${kind}'." >&2
-        echo "The helper never composes a message; it names a kind and a number. Known kinds: reboot-warning, reboot-cancelled." >&2
+        echo "The helper never composes a message; it names a kind and a number." >&2
+        echo "Known kinds: reboot-warning, shutdown-warning, reboot-cancelled." >&2
         exit 64
         ;;
     esac
@@ -460,19 +550,38 @@ cmd_notify() {
         esac
         shift
     done
-    if [[ ! "$minutes" =~ ^[0-9]+$ ]]; then
-        echo "ccy-sessions notify: --minutes wants a whole number, got '${minutes}'." >&2
-        exit 64
-    fi
+    # Which kinds take a number is the DAEMON's rule, and it enforces it independently at the
+    # point of writing. These checks exist for the MESSAGE — a human mistyping the command
+    # should read this script's sentence, not a Python traceback's — so they are deliberately a
+    # second copy. If the two ever disagree the daemon wins, because it is the one that writes
+    # the file, and the operator sees its refusal instead of this one.
+    case "$kind" in
+    reboot-warning | shutdown-warning)
+        if [[ -z "$minutes" ]]; then
+            echo "ccy-sessions notify ${kind} needs --minutes N — the signal carries how long is left." >&2
+            exit 64
+        fi
+        if [[ ! "$minutes" =~ ^[1-9][0-9]*$ ]]; then
+            echo "ccy-sessions notify: --minutes wants a whole number above zero, got '${minutes}'." >&2
+            exit 64
+        fi
+        ;;
+    reboot-cancelled)
+        if [[ -n "$minutes" ]]; then
+            echo "ccy-sessions notify reboot-cancelled takes no --minutes." >&2
+            echo "It retracts a warning rather than announcing one, so there is no deadline to carry." >&2
+            exit 64
+        fi
+        ;;
+    esac
 
     echo "Sessions that would be signalled:"
     audit_sessions || exit 1
+    echo
 
-    # Unconditional, for the same reason as cmd_reboot: inside a per-session loop this would
-    # silently exit 0 on a machine with no sessions, and a blocked command that sometimes
-    # succeeds is worse than one that always refuses.
-    ccy_reboot_signal_blocked "$kind"
-    return 1
+    # Raised ONCE for every project, not per session, and its status is this command's status:
+    # a project that could not be signalled must not reach the shell as success.
+    ccy_reboot_raise_signal "$kind" "$minutes"
 }
 
 # `exit $?`, not `exit 0`: these commands report a verdict, and a blocked seam or an unreadable

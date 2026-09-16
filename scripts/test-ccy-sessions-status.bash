@@ -149,13 +149,61 @@ reset_all() {
 tmux_session() { printf '%s 0 %s\n' "$1" "$2" >>"$WORK/tmux-sessions"; }
 
 # A project directory with, or without, a hooks-daemon CLI — which is what the audit reports on.
+#
+# The stub RECORDS ITS ARGV to `cli-args.log`, one line per call. It used to be
+# `#!/bin/sh\nexit 0\n`, which was enough while the signal seam only ever refused — but a stub
+# that exits 0 whatever it is handed cannot tell "invoked with the right kind and number" from
+# "invoked with neither", so every assertion about what `notify` passes would have been green
+# against a command that passed nothing at all. Recording the argv is what makes those
+# assertions able to fail.
+#
+# `failing-cli` exits non-zero. That is not a hypothetical branch: the daemon exits 1 when a
+# project has no live session of its own, so a real machine reaches it.
 make_project() {
     mkdir -p "$1"
-    if [ "${2:-with-cli}" = "with-cli" ]; then
+    case "${2:-with-cli}" in
+    with-cli)
         mkdir -p "$1/bin"
-        printf '#!/bin/sh\nexit 0\n' >"$1/bin/hooks-daemon"
+        printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"%s/cli-args.log"\nexit 0\n' "$1" >"$1/bin/hooks-daemon"
         chmod +x "$1/bin/hooks-daemon"
+        ;;
+    failing-cli)
+        mkdir -p "$1/bin"
+        printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"%s/cli-args.log"\necho "stub refusal" >&2\nexit 1\n' "$1" >"$1/bin/hooks-daemon"
+        chmod +x "$1/bin/hooks-daemon"
+        ;;
+    without-cli) ;;
+    *)
+        printf 'make_project: unknown mode %s\n' "$2" >&2
+        exit 1
+        ;;
+    esac
+}
+
+# What the project's CLI was actually invoked with. An ABSENT log means no call was made,
+# which is a different answer from a call that did not carry the text — so the missing-file
+# case returns `no` rather than letting grep fail the script under `set -e`.
+said_in_log() {
+    local log="$1/cli-args.log" needle="$2"
+    if [ ! -f "$log" ]; then
+        echo no
+        return 0
     fi
+    if grep -qF -- "$needle" "$log"; then
+        echo yes
+    else
+        echo no
+    fi
+}
+
+# How many times the project's CLI was invoked. Zero when it never was.
+cli_call_count() {
+    local log="$1/cli-args.log"
+    if [ ! -f "$log" ]; then
+        echo 0
+        return 0
+    fi
+    awk 'END { print NR }' "$log"
 }
 
 install_unit() { printf '[Unit]\n' >"$UNIT_DIR/ccy-sessions-restore.service"; }
@@ -285,21 +333,100 @@ install_unit
 run_sessions restore-status
 check "no last-run note reports 'never'" "yes" "$(said 'Last restore run: never')"
 
-# ── the blocked reboot seam must ALWAYS refuse ───────────────────────────────────────
+# ── notify raises a real signal: one call per PROJECT, a kind and a number ───────────
 #
-# With no sessions running, the refusal used to sit inside a per-session loop and never
-# executed: the command exited 0 having neither warned anyone nor rebooted. A blocked command
-# that sometimes succeeds is worse than one that always refuses.
+# Asserted against the stub's recorded argv, not just its exit status. The distinction that
+# matters: a command that invoked the CLI with no arguments at all would exit 0 here too.
+reset_all
+make_project "$WORK/proj-n1"
+tmux_session ccy-n1 "$WORK/proj-n1"
+run_sessions notify reboot-warning --minutes 5
+check "notify succeeds when every project can be signalled" "0" "$RC"
+check "and names the project it signalled" "yes" "$(said 'proj-n1')"
+check "invoking that project's own CLI with the signal verb and kind" "yes" \
+    "$(said_in_log "$WORK/proj-n1" 'signal reboot-warning')"
+check "passing the minutes through" "yes" "$(said_in_log "$WORK/proj-n1" '--minutes 5')"
+check "asking for every session of that project" "yes" \
+    "$(said_in_log "$WORK/proj-n1" '--all-sessions')"
+check "scoped to that project root" "yes" \
+    "$(said_in_log "$WORK/proj-n1" "--project-root $WORK/proj-n1")"
+
+# Two sessions in ONE project are one signal, because --all-sessions covers the project. A
+# per-session loop would call twice and warn the same sessions twice over.
+reset_all
+make_project "$WORK/proj-shared"
+tmux_session ccy-s1 "$WORK/proj-shared"
+tmux_session ccy-s2 "$WORK/proj-shared"
+run_sessions notify reboot-warning --minutes 3
+check "two sessions in one project take ONE call" "1" "$(cli_call_count "$WORK/proj-shared")"
+check "and the command succeeds" "0" "$RC"
+
+# reboot-cancelled carries NO number. The daemon refuses one; passing it anyway would turn a
+# retraction into a refusal the operator did not ask for.
+reset_all
+make_project "$WORK/proj-n2"
+tmux_session ccy-n2 "$WORK/proj-n2"
+run_sessions notify reboot-cancelled
+check "reboot-cancelled succeeds" "0" "$RC"
+check "and passes no --minutes at all" "no" "$(said_in_log "$WORK/proj-n2" '--minutes')"
+
+# A project whose signal FAILS fails the whole command. The daemon exits non-zero when a
+# project has no live session of its own, so this branch is reached on real machines.
+reset_all
+make_project "$WORK/proj-ok"
+make_project "$WORK/proj-fails" failing-cli
+tmux_session ccy-ok "$WORK/proj-ok"
+tmux_session ccy-fails "$WORK/proj-fails"
+run_sessions notify reboot-warning --minutes 5
+check "one failing project fails the whole command" "1" "$RC"
+check "naming the project that was NOT signalled" "yes" "$(said 'proj-fails')"
+check "and saying a partial warning reads as a complete one" "yes" "$(said 'partial warning')"
+check "while still reporting the one that did go out" "yes" "$(said '1 were')"
+
+# Nothing running is a SUCCESS with a sentence, not silence: there is genuinely nobody to warn.
+reset_all
+run_sessions notify reboot-warning --minutes 5
+check "notify with no sessions running succeeds" "0" "$RC"
+check "and says there is nobody to signal" "yes" "$(said 'nobody to signal')"
+
+# The minutes rules are enforced here for the MESSAGE, and by the daemon for real.
+reset_all
+run_sessions notify reboot-warning
+check "a warning with no --minutes is refused" "64" "$RC"
+check "explaining that the signal carries how long is left" "yes" "$(said 'how long is left')"
+
+reset_all
+run_sessions notify reboot-warning --minutes 0
+check "a warning of zero minutes is refused" "64" "$RC"
+
+reset_all
+run_sessions notify reboot-cancelled --minutes 5
+check "a cancel WITH --minutes is refused" "64" "$RC"
+check "saying there is no deadline to carry" "yes" "$(said 'no deadline to carry')"
+
+reset_all
+run_sessions notify shutdown-warning --minutes 2
+check "shutdown-warning is a kind this command knows" "0" "$RC"
+
+# ── reboot --in N still refuses, and must signal NOTHING while doing so ──────────────
+#
+# The refusal's reason changed but its shape must not: warning every session and then not
+# rebooting is a new wrong state, not a safe subset. So the interesting assertion is not the
+# exit code, it is that no signal went out.
 reset_all
 run_sessions reboot --in 5
 check "reboot --in refuses even with no sessions running" "1" "$RC"
-check "and names the upstream issue" "yes" "$(said 'claude-code-hooks-daemon#39')"
-check "and says nothing was rebooted" "yes" "$(said 'NOTHING WAS REBOOTED')"
+check "saying the countdown and reboot call are undesigned" "yes" "$(said 'undesigned')"
+check "and that nothing was rebooted" "yes" "$(said 'NOTHING WAS REBOOTED')"
+check "pointing at the notify that does work" "yes" "$(said 'notify reboot-warning')"
 
 reset_all
-run_sessions notify reboot-warning --minutes 5
-check "notify refuses too" "1" "$RC"
-check "and names the same issue" "yes" "$(said 'claude-code-hooks-daemon#39')"
+make_project "$WORK/proj-r"
+tmux_session ccy-r "$WORK/proj-r"
+run_sessions reboot --in 5
+check "reboot --in signals NOTHING before refusing" "0" "$(cli_call_count "$WORK/proj-r")"
+check "and still refuses with sessions running" "1" "$RC"
+check "after showing what it would have warned" "yes" "$(said 'ccy-r')"
 
 # The dry run is the half that works, and it must NOT refuse.
 reset_all
@@ -351,15 +478,6 @@ check "it says what a reboot would interrupt is UNKNOWN" "yes" "$(said 'UNKNOWN'
 check "and says that is not the same as nothing running" "yes" "$(said 'not the same as nothing running')"
 check "and exits non-zero" "1" "$RC"
 
-# With sessions running, the live form must still refuse — and must not reboot.
-reset_all
-make_project "$WORK/proj-live"
-tmux_session ccy-live "$WORK/proj-live"
-run_sessions reboot --in 5
-check "reboot --in refuses with sessions running too" "1" "$RC"
-check "and says nothing was rebooted" "yes" "$(said 'NOTHING WAS REBOOTED')"
-check "after showing what it would have warned" "yes" "$(said 'ccy-live')"
-
 # ── argument validation, which must not abort silently ───────────────────────────────
 #
 # `--in` with nothing after it consumed the value that was not there, then shifted past the end;
@@ -390,7 +508,11 @@ reset_all
 run_sessions --help
 check "--help works without a terminal" "0" "$RC"
 check "and documents restore-status" "yes" "$(said 'restore-status')"
-check "and marks the blocked subcommands as blocked" "yes" "$(said 'BLOCKED')"
+# The help must state which half works and which does not. Asserted on both, because a help
+# text that said neither would pass an assertion about only one of them.
+check "and marks notify as working" "yes" "$(said 'WORKS')"
+check "and marks reboot --in as not built" "yes" "$(said 'NOT BUILT')"
+check "and names the kinds notify accepts" "yes" "$(said 'shutdown-warning')"
 
 printf '\npassed: %s failed: %s\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]

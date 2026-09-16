@@ -311,19 +311,33 @@ quick-launch configuration is accepted (it is the one the session was recorded w
 compose services are neither started nor stopped — bringing a project's service stack up at
 boot is your call, not the restore's.
 
-### Warning sessions before a reboot — not yet
+### Warning sessions before a reboot
 
-`ccy-sessions reboot --dry-run` works today and is useful on its own: it lists every running
-session, resolves each one's project, and reports whether each is ready to be warned —
-refusing outright if any project is missing its hooks-daemon CLI, rather than quietly leaving
-one session unwarned.
+```bash
+ccy-sessions reboot --dry-run                     # what a reboot would interrupt
+ccy-sessions notify reboot-warning --minutes 10   # warn every live session
+ccy-sessions notify reboot-cancelled              # changed your mind
+```
 
-Actually **raising** the warning does not work yet. It needs a `reboot-warning` signal kind
-and a CLI to raise it, both of which live in the hooks daemon
-([claude-code-hooks-daemon#39](https://github.com/Edmonds-Commerce-Limited/claude-code-hooks-daemon/issues/39))
-and do not exist. So `ccy-sessions reboot --in N` and `ccy-sessions notify` fail fast naming
-that issue: nothing is signalled and **nothing is rebooted**. A command that rebooted without
-warning anyone, while looking like it had warned them, would be worse than one that refuses.
+`--dry-run` lists every running session, resolves each one's project, and reports whether
+each can be warned — refusing outright if any project is missing its hooks-daemon CLI rather
+than quietly leaving one session unwarned.
+
+`notify` raises the warning for real. It goes out once per **project**, not per session, and
+if any project cannot be reached the whole command fails: a partial warning is worse than
+none, because you would reboot believing everyone had been told. `shutdown-warning` is
+accepted too; both warnings need `--minutes N`, and `reboot-cancelled` takes none because it
+retracts a warning rather than announcing one.
+
+**What your agents actually see is not written by this command.** It sends a fixed kind and a
+number — never a sentence. The wording is composed inside each container by the supervisor
+from its own templates, which is what stops a channel reachable from outside the container
+putting arbitrary text into an agent's context.
+
+`ccy-sessions reboot --in N` still refuses. It would also have to run the countdown and the
+reboot, which was never designed — and warning every session and then *not* rebooting is
+worse than refusing, since every agent winds down for a reboot that never arrives. Warn with
+`notify`, then reboot however you normally would.
 
 ---
 
