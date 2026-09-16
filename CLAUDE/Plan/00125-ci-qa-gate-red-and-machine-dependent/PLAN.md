@@ -60,7 +60,7 @@ once the abort stopped hiding it. All six were defective **tests**, not producti
 all six are fixed.
 
 **The mechanism, and it hid Cause B rather than "all of it".** `qa-all.bash` runs 7 stages
-that accumulate and 29 hard gates that `exit 1`. Cause A sits in an accumulating stage, so
+that accumulate and 30 hard gates that `exit 1`. Cause A sits in an accumulating stage, so
 it masked nothing — it went red and every gate behind it kept running. Cause B was in hard
 gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** while it was red, so
 20 of them had never run once in CI. That is Task 4.1's answer and the argument for Task 4.3.
@@ -103,15 +103,15 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
 
 - [x] ✅ **Task 2.2**: `link_check.py` classifies a target three ways — tracked (checked),
   inside a declared vendored repo (warned on, never failed), neither (**a finding**). The
-  third is what makes the second safe: exempting everything unowned would have covered a
-  link into `untracked/` too, trading a false failure for a silent skip. A vendored target
+  third is what makes the second safe: exempting everything unowned would cover a link into
+  `untracked/` too, trading a false failure for a silent skip. A vendored target
   is still looked at: `verified` / `unverifiable` (repo absent) / `broken` (repo present,
   target gone — its own `⚠` line). The **exit code** is what must not depend on what is
   installed; the detail may, and should. The question asked is trackedness (`git ls-files`),
-  which is what the finding has always claimed and is in every clean checkout. Roots are
-  DECLARED, as parents, so vendoring under an existing root needs no code change.
-  **Proved against a daemon-less tree**: 0 findings, 8 unverifiable; remove the declaration
-  and the same 8 return as findings naming the nested repo. 26 cases
+  in every clean checkout. Roots are DECLARED, as parents, so vendoring under an existing
+  root needs no code change. **Proved against a daemon-less tree**: 0 findings, 8
+  unverifiable; remove the declaration and the same 8 return as findings naming the nested
+  repo. The gate's own exit codes are now asserted too — `test-qa-docs-exit-codes.bash`
 
 ### Phase 3: The tests that read the machine they were written on
 
@@ -180,10 +180,9 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
   failure means one unfixable gate silently disables every gate after it — the mechanism
   behind Task 4.1. **Owner's call:** (1) run every gate and report all verdicts before
   exiting non-zero, or (2) keep the abort and have CI fail on a shrink in the executed-gate
-  list. Measured since: a failing hard gate prints `✗ QA FAILED: <prose>`, which
-  `verdicts.py` reads as a run summary, so it erases *itself* from the stage census — (2)
-  cannot tell a failed gate from an absent one, and fixing that is most of (1)'s work.
-  Recommendation: **(1)**. Costing in `FINDINGS.md`
+  list. **(2) is ruled out by measurement** — a failing gate erases its own stage line, so
+  no shrink detector can tell it from one that never ran. Recommendation **(1)** — a
+  mechanical edit at 30 call sites; costing in `FINDINGS.md`
 
 - [x] ✅ **Task 4.4**: The `helper-tests` line no longer scrapes the run's output. Four
   readers that did were each defeated by a test printing unittest-shaped text, the last by
@@ -204,11 +203,11 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
   for the pattern text (missed 2 with a different regex, one of them `nokill`, which had
   matched NOTHING since it landed), then for the `||` fallback (missed 2 that interpolated
   the whole capture — `vmtest-manifest` emitted a THREE-line stage line every run, losing two
-  measurements to `verdicts.py`). All 29 hard gates are enumerated now. **Not a pure
+  measurements to `verdicts.py`). All 30 hard gates are enumerated now. **Not a pure
   refactor**, and that claim is retracted: 21 of 21 case-count lines are byte-identical, and
-  3 changed — two of them broken, one losing a stray full stop. 26 cases, 8 read out of
-  `qa-all.bash` and run against the real gate with a `COVERAGE: n of m`, so a pattern cannot
-  drift from its gate again (see `FINDINGS.md`)
+  3 changed — two of them broken, one losing a stray full stop. The call sites are PARSED
+  (`helpers/qa_environment/gate_call_sites.py`) and each pattern is run against its real
+  gate, both directions, so neither a pattern nor a registration can drift alone
 
 ### Phase 5: Close
 
@@ -220,7 +219,8 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
   `helper-tests` reports `2 skipped` there against `1` locally on the same commit, with
   `65 tracked` agreeing: the machine-dependence this plan exists to expose, visible in a
   PASSING stage, where no pass/fail comparison could ever have found it
-- [ ] ⬜ **Task 5.3**: `qa-reviewer` agent over the full diff.
+- [x] ✅ **Task 5.3**: `qa-reviewer` — **PASS** at `2b84ff8f`, eleven rounds. Gate inventory
+  derived both ways: 37 run, 37 documented.
 
 ## Success Criteria
 

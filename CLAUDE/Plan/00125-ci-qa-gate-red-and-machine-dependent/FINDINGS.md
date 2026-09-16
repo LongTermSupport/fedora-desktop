@@ -580,11 +580,13 @@ Counted mechanically, `qa-all.bash` runs its stages two ways:
 | Design                  | Count | Behaviour on failure                                                 |
 | ----------------------- | ----- | -------------------------------------------------------------------- |
 | jq-merged, accumulating | 7     | `\|\| rc=$?`, `FAILED++`, **run continues**; all reported at the end |
-| hard gate               | 29    | `exit 1` immediately; everything declared after it never runs        |
+| hard gate               | 30    | `exit 1` immediately; everything declared after it never runs        |
 | missing-tool abort      | 7     | `exit 2`; same effect, and prints no `QA FAILED` line                |
 
-7 + 29 = 36 gates, which print **37** stage names: `qa-bash.bash` emits both `bash` and
-`shellcheck`, so the seven accumulating gates account for eight named lines.
+7 + 30 = 37 gates, which print **38** stage names: `qa-bash.bash` emits both `bash` and
+`shellcheck`, so the seven accumulating gates account for eight named lines. (These counts
+move whenever a gate is added, which is why the block below derives them from a run rather
+than restating them — this plan added `docs-exit-codes` and every one of them shifted by one.)
 
 **Counted from the RUN, not from the source.** Counting `exit 1` occurrences is a proxy for
 counting gates and it is not a sound one — a single gate may own more than one abort, and
@@ -594,8 +596,8 @@ prints are the ground truth, and `helpers/qa_environment/verdicts.py` already pa
 
 ```python
 acc = {"bash","shellcheck","python","patterns","ansible","ansible-syntax","js","docs"}
-hard = [n for n in stage_order if n not in acc]     # -> 29
-hard[hard.index("helper-tests")+1:]                 # -> 26 behind it
+hard = [n for n in stage_order if n not in acc]     # -> 30
+hard[hard.index("helper-tests")+1:]                 # -> 27 behind it
 ```
 
 **These counts are as of this plan's HEAD, and this plan moved them.** Numbers describing
@@ -642,7 +644,7 @@ because they fell on opposite sides of that line:
 It also narrows **Task 4.3**. Its option (1) — run every gate, report all verdicts, exit
 non-zero at the end — is not a new design to weigh: it is the design already in force for
 seven stages of this same script, and the one the final summary was written for. The
-question is whether to extend it to the other 29, not whether to invent it. The repo's own
+question is whether to extend it to the other 30, not whether to invent it. The repo's own
 recurring lesson applies to the plan that is documenting it: the right answer already
 existed one directory over — in this case, sixty lines up.
 
@@ -708,7 +710,7 @@ gate that failed as a gate that never ran — a wrong sentence about the one eve
 to describe — and it would do so on every red run, which is every run it matters on.
 
 Making the failure lines stage-shaped is the prerequisite for option (2), and it is most of
-option (1)'s work: the 29 hard gates share one shape,
+option (1)'s work: the 30 hard gates share one shape,
 
 ```bash
 if ! foo_out="$(bash "$SCRIPT_DIR/gate.bash" 2>&1)"; then … exit 1; fi

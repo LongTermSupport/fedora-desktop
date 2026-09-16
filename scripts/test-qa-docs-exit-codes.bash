@@ -81,7 +81,13 @@ mkdir -p "$no_git/docs"
 ln -s "$REPO_ROOT/helpers" "$no_git/helpers"
 printf '# Doc\n\n[x](./missing.md)\n' > "$no_git/docs/README.md"
 run_gate "$no_git"
-check_exit "a tree git cannot answer for" 2 "$GATE_RC" "link_check"
+# The needle must be unique to the branch under test, not merely present in it. `link_check`
+# appears in THREE of this gate's exit-2 messages, including `helpers/docs/link_check.py is
+# missing — broken checkout` — so a fixture with a dangling `helpers` symlink would exit 2,
+# match, and report this case as passing without the raise-and-refuse chain running at all.
+# A check whose clean result is indistinguishable from a blind one, in the one place
+# `check_exit` exists to prevent it.
+check_exit "a tree git cannot answer for" 2 "$GATE_RC" "did not emit the expected JSON"
 
 # --- exit 2: zero in-scope documents -------------------------------------------------------
 #

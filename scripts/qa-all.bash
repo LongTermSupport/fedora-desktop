@@ -15,8 +15,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# The three stage-line readers. Between them they produce EVERY `printf '✓ …'` below — 28 of
-# them, counted: `qa_gate_case_count` 21, `qa_gate_detail` 6, `helper_counts_summary` 1. Only
+# The three stage-line readers. Between them they produce EVERY `printf '✓ …'` below — 29 of
+# them, counted: `qa_gate_case_count` 22, `qa_gate_detail` 6, `helper_counts_summary` 1. Only
 # `deployed-drift` still composes its own line, and it never had the defect. Sourced rather
 # than inlined so a committed test can drive the real functions — see the library header.
 # shellcheck source-path=SCRIPTDIR

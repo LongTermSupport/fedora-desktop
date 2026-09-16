@@ -240,13 +240,13 @@ prose — the stage line prints the live one on every run.)
 ### The stage-line readers are shared, and tested against the gates they read
 
 `scripts/lib/qa-helper-summary.bash` holds all three, and between them they produce **every**
-stage line `qa-all.bash` composes — 28 of them. Only `deployed-drift` still builds its own,
+stage line `qa-all.bash` composes — 29 of them. Only `deployed-drift` still builds its own,
 and it never had the defect below.
 
 | Function                  | Used by                              | Degrades to                       |
 | ------------------------- | ------------------------------------ | --------------------------------- |
 | `helper_counts_summary()` | `helper-tests`                       | **nothing — it fails the gate**   |
-| `qa_gate_case_count()`    | 21 gates that print `passed: <n>`    | the word `passed`, never a number |
+| `qa_gate_case_count()`    | 22 gates that print `passed: <n>`    | the word `passed`, never a number |
 | `qa_gate_detail()`        | 6 gates whose summary is not a count | the literal `summary unreadable`  |
 
 (The `()` is load-bearing, not decoration: `check_qa_gate_inventory` reads any row whose
