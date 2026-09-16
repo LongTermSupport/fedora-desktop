@@ -416,6 +416,55 @@ fi
 host_hostname_summary=$(qa_gate_case_count "$host_hostname_out")
 qa_pass_line ccy-host-hostname "$host_hostname_summary"
 
+# ccy session registry (Plan 00123): the records a systemd --user service acts on at boot,
+# unattended, to bring sessions back after a reboot. Three things it pins that nothing else
+# can: that a partial write is never mistaken for a record, that a restore reconstructs the
+# right token/key/network, and — the one that matters in a year — that every ccy flag is
+# classified durable or one-shot, DERIVED from the launcher's own parser so a new flag cannot
+# be silently dropped from restored sessions. It also drives the launcher's unattended `read`
+# guard, lifted from the launcher's source, since that is what stands between a restore and a
+# row of parked shells that look restored.
+session_registry_out=""
+if ! session_registry_out="$(bash "$SCRIPT_DIR/test-ccy-session-registry.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-session-registry \
+        "ccy session-registry unit tests failed" \
+        "$session_registry_out"
+fi
+session_registry_summary=$(qa_gate_case_count "$session_registry_out")
+qa_pass_line ccy-session-registry "$session_registry_summary"
+
+# ccy session restore (Plan 00123): the boot-time service that decides which recorded sessions
+# come back. The least observable code in this repo — it runs once at boot, from a systemd
+# --user unit, with nobody watching, and it starts AI agent sessions. Both ways it can be wrong
+# are silent: restoring something it should not (a live session, a directory that now holds a
+# different repository, a one-off marked no-restore), or dropping something without saying why.
+# So the whole retirement tree is driven through the REAL script against real git repositories,
+# each case asserting both the outcome and that the reason was recorded.
+session_restore_out=""
+if ! session_restore_out="$(bash "$SCRIPT_DIR/test-ccy-session-restore.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-session-restore \
+        "ccy session-restore unit tests failed" \
+        "$session_restore_out"
+fi
+session_restore_summary=$(qa_gate_case_count "$session_restore_out")
+qa_pass_line ccy-session-restore "$session_restore_summary"
+
+# ccy-sessions restore-status (Plan 00123): the command that embodies this feature's central
+# rule — "could not tell" and "nothing to do" must be different answers. Three separate
+# violations of it were found by review in that one file (a listing failure printed as an empty
+# section, an unreachable systemd reported as "not enabled", a count of 0 for a directory that
+# could not be read), and all three had been verified by reading. Every installation state,
+# including the ones that only exist when something is broken, is driven here through a stub
+# systemctl/loginctl against the real script.
+sessions_status_out=""
+if ! sessions_status_out="$(bash "$SCRIPT_DIR/test-ccy-sessions-status.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-sessions-status \
+        "ccy-sessions restore-status unit tests failed" \
+        "$sessions_status_out"
+fi
+sessions_status_summary=$(qa_gate_case_count "$sessions_status_out")
+qa_pass_line ccy-sessions-status "$sessions_status_summary"
+
 # host_only_preflight (Plan 00121): the host-CLI gate on a scenario that puts a real GitHub
 # PAT into a guest. One of three independent gates — the other two are the bridge allowlist
 # and bridge_run's manifest refusal — and the one a human types past. Driven through the

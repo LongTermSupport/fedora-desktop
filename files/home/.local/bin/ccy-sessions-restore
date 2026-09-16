@@ -1,0 +1,413 @@
+#!/usr/bin/env bash
+# ccy-sessions-restore — bring back the CCY sessions that were running when the machine went
+# down. Run once at boot by ccy-sessions-restore.service (systemd --user).
+#
+# NOT an interactive script. It runs with nobody watching, so it asks nothing, and every
+# decision it takes is printed with its reason — the journal is the only place an operator
+# will read it. See CLAUDE/InteractiveScripts.md: Ansible-invoked and service helpers are
+# explicitly out of scope for the prompting rules and stay fully non-interactive.
+#
+# WHAT IT ACTS ON. `ccy` writes one record per session under the registry at the point its
+# container starts, and removes it on exit, so whatever is still recorded at boot was running
+# when the machine went down (lib/session-registry.bash). This starts each survivor detached on
+# CCY's tmux server, in its own directory, with the session's recorded configuration plus
+# `--supervise --continue` — so the conversation resumes and the supervisor nudges it back to
+# work.
+#
+# WHY IT CANNOT LOOP. A record is CONSUMED — moved into restore/attempted/ — before its session
+# is started. After that move there is nothing left to retry, so a session that crashes on
+# startup cannot be restored over and over. A restore is attempted exactly once, and the
+# consumed record is kept as evidence with its reason rather than deleted. Two further brakes,
+# each sufficient alone: records written under the CURRENT boot are live sessions and are never
+# touched, and the unit is Type=oneshot with no Restart=.
+#
+# WHY NOTHING IS EVER SILENTLY DROPPED. A record this will not act on is RETIRED with a named
+# reason and reported. "Could not tell" and "nothing to do" are different answers throughout:
+# a malformed record is quarantined and fails the run, while a deliberate retirement is a
+# resolved outcome and does not.
+#
+# EXIT CODES
+#   0  every record resolved — restored, live, or deliberately retired
+#   1  at least one record could not be resolved (malformed, or a start that failed)
+#   2  the environment or configuration is wrong, and nothing was read, started or retired
+#      (no launcher, no tmux, no systemd-run, or a retention setting that is not a number)
+#
+# Runs on the HOST. Inside a CCY container there is no tmux server and no sessions.
+#
+# Design and the failure mode each rule prevents:
+# CLAUDE/Plan/00123-ccy-session-registry-and-reboot-restore/DESIGN-failure-modes.md
+set -euo pipefail
+
+# The deployed install locations. Overridable ONLY so that this script can be exercised — it
+# is the least testable and highest-consequence code in the feature (it runs at boot, with
+# nobody watching, and starts AI agent sessions), and code that cannot be run in a test is
+# code whose retirement decisions are verified by reading. scripts/test-ccy-session-restore.bash
+# drives the real file through every one of those decisions this way.
+#
+# This is not a privilege boundary: anyone who can set these variables can already run any
+# command as this user, and under systemd the unit owns the environment.
+CCY_LIB="${CCY_LIB:-/var/local/claude-yolo/lib}"
+CCY_LAUNCHER="${CCY_LAUNCHER:-/var/local/claude-yolo/claude-yolo}"
+
+# How far back a record's BOOT may be and still be restored. A record whose boot was longer ago
+# than this did not come from the reboot that just happened — it survived from some earlier one,
+# most likely because restore was enabled long after the session ran, and bringing a months-old
+# session back unasked would be a surprise. It retires as `stale`.
+#
+# Measured boot-to-boot, NOT from the record's own age: the record's mtime is when the SESSION
+# STARTED, and measuring against that retired exactly the long-running sessions this feature
+# exists to preserve.
+CCY_RESTORE_MAX_AGE_DAYS="${CCY_RESTORE_MAX_AGE_DAYS:-7}"
+
+# How long consumed and retired records are kept. They exist so an operator can find out why a
+# session did not come back; after this they are noise, and an unbounded evidence directory is
+# its own problem.
+CCY_RESTORE_EVIDENCE_DAYS="${CCY_RESTORE_EVIDENCE_DAYS:-30}"
+
+DRY_RUN=false
+
+usage() {
+    cat <<'USAGE'
+ccy-sessions-restore — restart the CCY sessions that a reboot interrupted.
+
+Usage:
+  ccy-sessions-restore            restore the recorded sessions (what the boot service runs)
+  ccy-sessions-restore --dry-run  report what it would do, and start nothing
+  ccy-sessions-restore -h|--help  this text
+
+Run by ccy-sessions-restore.service at boot when session restore is enabled on this machine.
+`ccy-sessions restore-status` shows whether that is the case, and what is recorded.
+
+Sessions are restored with their recorded configuration plus --supervise --continue. A record
+is consumed before its session is started, so a restore is attempted exactly once; anything
+not restored is retired with a named reason you can read here or with restore-status.
+
+Environment:
+  CCY_RESTORE_MAX_AGE_DAYS    retire a record as 'stale' when its BOOT was more than this many
+                              days before the current one (default 7). Measured boot-to-boot,
+                              so a session that had been running for weeks is still restored.
+  CCY_RESTORE_EVIDENCE_DAYS   keep consumed/retired records this long (default 30)
+USAGE
+}
+
+case "${1:-}" in
+"") ;;
+--dry-run) DRY_RUN=true ;;
+-h | --help)
+    usage
+    exit 0
+    ;;
+*)
+    echo "ccy-sessions-restore: unknown option '${1}'. See ccy-sessions-restore --help." >&2
+    exit 64
+    ;;
+esac
+
+if [[ ! -f "${CCY_LIB}/session-registry.bash" ]]; then
+    if [[ -d /workspace ]]; then
+        echo "ccy-sessions-restore runs on the host, not inside a CCY container." >&2
+    else
+        echo "CCY is not installed here (${CCY_LIB}/session-registry.bash missing). Run playbooks/imports/play-claude-yolo.yml." >&2
+    fi
+    exit 2
+fi
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../../../var/local/claude-yolo/lib/common-pure.bash
+source "${CCY_LIB}/common-pure.bash"
+# shellcheck source=../../../var/local/claude-yolo/lib/tmux-session.bash
+source "${CCY_LIB}/tmux-session.bash"
+# shellcheck source=../../../var/local/claude-yolo/lib/session-registry.bash
+source "${CCY_LIB}/session-registry.bash"
+
+# Required tools, checked up front. A missing one is an IaC gap, not something to work around
+# at runtime (CLAUDE.md, Missing Dependencies) — and `systemd-run` in particular is not
+# optional: see start_session below for what happens without it.
+for tool in tmux systemd-run git; do
+    if [[ -z "$(command -v "$tool")" ]]; then
+        print_error "$tool is not installed, so recorded sessions cannot be restored."
+        echo "Deploy it with playbooks/imports/play-claude-yolo.yml." >&2
+        exit 2
+    fi
+done
+if [[ ! -x "$CCY_LAUNCHER" ]]; then
+    print_error "the ccy launcher is not executable at $CCY_LAUNCHER."
+    echo "Deploy it with playbooks/imports/play-claude-yolo.yml." >&2
+    exit 2
+fi
+
+# Both day counts are validated HERE, before any record is touched.
+#
+# They reach `$(( ))` and `find -mtime` deep inside the loop, and a mistyped one — set in the
+# unit, or exported by hand for a dry run — killed the whole service mid-record: no verdict for
+# the record being processed, no summary, no last-run note, and every remaining session left
+# unrestored. A configuration mistake must fail before the work starts, not half way through it.
+for ccy_days_var in CCY_RESTORE_MAX_AGE_DAYS CCY_RESTORE_EVIDENCE_DAYS; do
+    if [[ ! "${!ccy_days_var}" =~ ^[0-9]+$ ]]; then
+        print_error "${ccy_days_var} must be a whole number of days, but is '${!ccy_days_var}'."
+        echo "Nothing was read, started or retired." >&2
+        exit 2
+    fi
+done
+
+SESSIONS_DIR="$(ccy_registry_sessions_dir)"
+RESTORE_DIR="$(ccy_registry_restore_dir)"
+ATTEMPTED_DIR="${RESTORE_DIR}/attempted"
+RETIRED_DIR="${RESTORE_DIR}/retired"
+MALFORMED_DIR="${RESTORE_DIR}/malformed"
+
+restored=0
+live=0
+retired=0
+unresolved=0
+
+# report <verdict> <record> [detail] — one line per record, which is the whole audit. Printed
+# on stdout: this command's entire job is to produce a report a human reads in the journal, so
+# that report IS its payload (CLAUDE/StderrHygiene.md's explicit carve-out).
+report() {
+    printf '%-10s %-30s %s\n' "$1" "$(basename "$2")" "${3:-}"
+}
+
+# retire <record> <reason> [detail] — move it out of the live set with the reason inside, and
+# count it. A resolved outcome: the operator is told, and the run does not fail for it.
+retire() {
+    local record="$1" reason="$2" detail="${3:-}"
+    if [[ "$DRY_RUN" == true ]]; then
+        report "would-retire" "$record" "${reason}${detail:+ — $detail}"
+        retired=$((retired + 1))
+        return 0
+    fi
+    if ! ccy_registry_retire "$record" "$RETIRED_DIR" "$reason"; then
+        report "ERROR" "$record" "could not retire as '${reason}' — see the reason above"
+        unresolved=$((unresolved + 1))
+        return 0
+    fi
+    report "retired" "$record" "${reason}${detail:+ — $detail}"
+    retired=$((retired + 1))
+}
+
+# start_session <record> <name> <dir> — create the detached tmux session.
+#
+# `systemd-run --user --scope` is not decoration. This runs from a Type=oneshot service, and
+# systemd kills whatever is left in a service's cgroup when the service completes — so a tmux
+# server forked directly from here would be killed seconds after being started, and the restore
+# would destroy exactly what it restored, silently. The scope puts the server in a cgroup of its
+# own, which is the same mechanism and the same reason as ccy_tmux_insulate's.
+start_session() {
+    local record="$1" name="$2" dir="$3"
+    local -a flags=()
+    mapfile -t -d '' flags < <(ccy_registry_restore_flags "$record")
+    if [[ ${#flags[@]} -eq 0 ]]; then
+        report "ERROR" "$record" "produced no restore command line"
+        unresolved=$((unresolved + 1))
+        return 0
+    fi
+
+    if [[ "$DRY_RUN" == true ]]; then
+        report "would-start" "$record" "${name} in ${dir}: ccy ${flags[*]}"
+        restored=$((restored + 1))
+        return 0
+    fi
+
+    # Consumed BEFORE the start, so nothing remains to retry if the session dies immediately.
+    # If this move fails the session is NOT started: a record left in the live set beside a
+    # running session would be restored again at the next boot, which is the duplicate this
+    # whole ordering exists to prevent.
+    if ! ccy_registry_retire "$record" "$ATTEMPTED_DIR" "restore-attempted"; then
+        report "ERROR" "$record" "could not be consumed, so it was not started — see the reason above"
+        unresolved=$((unresolved + 1))
+        return 0
+    fi
+
+    # CCY_UNATTENDED is what stops a restored session parking on a prompt for ever. A detached
+    # tmux session still has a pty, so without it every question in the launcher would wait on
+    # an answer nobody is there to give, and the session would LOOK restored.
+    #
+    # Delivered with `env` INSIDE the tmux command, not with systemd-run's --setenv. --setenv
+    # sets the environment of the process systemd-run starts — which is the tmux CLIENT. When a
+    # tmux server is already running (the second and every later session in a restore run) the
+    # client merely asks that server to create a session, and the new pane inherits the SERVER's
+    # environment, not the client's. The variable would arrive for the first session and quietly
+    # not for the rest, which is the worst of both.
+    #
+    # The scope unit is named after the tmux SESSION, which is unique on the server by
+    # construction. Naming it after the project directory collided whenever one project had two
+    # sessions: the second systemd-run failed, and its record had already been consumed, so that
+    # session was lost with only a line in the journal.
+    local err
+    if ! err=$(systemd-run --user --scope --quiet --collect \
+        --unit "ccy-tmux-restore-${name}" \
+        --description "CCY restored session $name" \
+        -- tmux -L "$CCY_TMUX_SOCKET" new-session -d -s "$name" -c "$dir" \
+        -- env CCY_UNATTENDED=1 bash -c "$(ccy_tmux_hold_on_failure)" ccy-restore "$CCY_LAUNCHER" "${flags[@]}" 2>&1); then
+        report "ERROR" "$record" "tmux refused to start '${name}': ${err}"
+        unresolved=$((unresolved + 1))
+        return 0
+    fi
+    report "restored" "$record" "${name} in ${dir}"
+    restored=$((restored + 1))
+}
+
+# prune_evidence <dir> — drop consumed/retired records past the retention window.
+prune_evidence() {
+    local dir="$1" err
+    [[ -d "$dir" ]] || return 0
+    if ! err=$(find "$dir" -maxdepth 1 -name '*.record' -type f \
+        -mtime "+${CCY_RESTORE_EVIDENCE_DAYS}" -delete 2>&1); then
+        print_error "could not prune old records in $dir: $err"
+        return 1
+    fi
+}
+
+current_boot="$(ccy_registry_boot_id)"
+current_boot_time="$(ccy_registry_boot_time)"
+echo "ccy-sessions-restore: boot ${current_boot}"
+if [[ "$DRY_RUN" == true ]]; then
+    echo "DRY RUN — nothing will be started, consumed or retired."
+fi
+
+# `ccy_registry_collect`, never a `mapfile` over a process substitution: a process
+# substitution's exit status is not observable, so a registry this service could not READ would
+# produce an empty array and the "nothing to restore" exit below — a boot service reporting
+# success over a machine whose sessions it never saw.
+records=()
+if ! ccy_registry_collect "$SESSIONS_DIR" records; then
+    print_error "could not read the session registry at ${SESSIONS_DIR}, so whether anything needs restoring is UNKNOWN."
+    echo "That is not the same as there being nothing to restore. Fix the reason above." >&2
+    exit 1
+fi
+
+if [[ ${#records[@]} -eq 0 ]]; then
+    # Not the same sentence as "restore is not enabled here" — that is a different fact, and
+    # `ccy-sessions restore-status` reports it separately. This one means the registry is
+    # genuinely empty.
+    echo "No sessions were recorded, so there is nothing to restore."
+    exit 0
+fi
+
+for record in "${records[@]}"; do
+    # Validation first: everything below reads fields, and a record that cannot be trusted to
+    # mean what it says must not be read at all. Quarantined rather than skipped or deleted —
+    # skipping would hide it, deleting would destroy the only evidence of what went wrong.
+    if ! validation_error=$(ccy_registry_validate "$record" 2>&1); then
+        if [[ "$DRY_RUN" == true ]]; then
+            report "would-quarantine" "$record" "$validation_error"
+        elif ccy_registry_retire "$record" "$MALFORMED_DIR" "failed-validation"; then
+            report "MALFORMED" "$record" "$validation_error"
+        else
+            report "MALFORMED" "$record" "$validation_error (and could not be quarantined)"
+        fi
+        unresolved=$((unresolved + 1))
+        continue
+    fi
+
+    record_boot="$(ccy_registry_field_default "$record" boot_id "")"
+    project_dir="$(ccy_registry_field_default "$record" project_dir "")"
+    project_name="$(ccy_registry_field_default "$record" project_name "")"
+
+    # A record written under THIS boot belongs to a session that is running right now. Starting
+    # it again would put a second claude on one conversation — the thing the one-terminal-per-
+    # session rule exists to make impossible. Not an error: it is the normal answer when this is
+    # run by hand on a live machine.
+    if [[ "$record_boot" == "$current_boot" ]]; then
+        report "live" "$record" "started under the current boot; left alone"
+        live=$((live + 1))
+        continue
+    fi
+
+    if [[ "$(ccy_registry_field_default "$record" restore no)" != "yes" ]]; then
+        retire "$record" "no-restore" "started with --no-restore"
+        continue
+    fi
+
+    # Staleness is measured BOOT-TO-BOOT, not from the record's own age.
+    #
+    # The record's mtime is when the SESSION STARTED, and measuring against that retired exactly
+    # the sessions this feature exists for: one running permanently for a fortnight was dropped
+    # as "stale" at the very reboot it was meant to survive, while one started an hour before a
+    # reboot six months ago was not. The question is how long ago the record's BOOT was, so the
+    # record carries its boot's start time and the comparison is against this boot's.
+    #
+    # A record with no boot_time was written by a ccy that predates this field. It is restored,
+    # with its age reported as unknown, rather than retired: silently dropping a session because
+    # its age cannot be established is the "could not tell" collapse, and the safe direction
+    # here is the one that does not lose work.
+    # The numeric guard is not decoration: a record whose boot_time is not a number would reach
+    # `$(( ))` and abort the whole run mid-loop with `not: unbound variable`, no summary, and
+    # every remaining record unprocessed — the opposite of this script's gather contract, caused
+    # by one malformed field. A non-numeric value is treated exactly like an absent one.
+    record_boot_time="$(ccy_registry_field_default "$record" boot_time "")"
+    if [[ ! "$record_boot_time" =~ ^[0-9]+$ ]]; then
+        report "note" "$record" "boot_time is missing or not a number, so its age is unknown — restoring anyway"
+    else
+        record_age_days=$(((current_boot_time - record_boot_time) / 86400))
+        if [[ "$record_age_days" -gt "$CCY_RESTORE_MAX_AGE_DAYS" ]]; then
+            retire "$record" "stale" "its boot was ${record_age_days} days before this one"
+            continue
+        fi
+    fi
+
+    if [[ ! -d "$project_dir" ]]; then
+        retire "$record" "directory-gone" "$project_dir"
+        continue
+    fi
+
+    # ccy refuses to run outside a git repository root, so a record pointing at a directory that
+    # is no longer one describes a session that could not start. Caught here, with the reason,
+    # rather than as a session that dies a second after boot for no stated cause.
+    if ! git_probe=$(git -C "$project_dir" rev-parse --is-inside-work-tree 2>&1) ||
+        [[ "$git_probe" != "true" ]]; then
+        retire "$record" "not-a-git-checkout" "$project_dir"
+        continue
+    fi
+
+    # The reused-directory check. Claude's conversation state lives in the project's own
+    # .claude/ccy, so a directory deleted and re-used for another repository would have
+    # --continue resume the previous project's conversation there. The root commit is what tells
+    # them apart. Compared only when BOTH sides have one: a record from a repository that had no
+    # commits yet is accepted, because a project making its first commit is not a different
+    # project.
+    recorded_commit="$(ccy_registry_field_default "$record" root_commit no-commits)"
+    if [[ "$recorded_commit" != "no-commits" ]]; then
+        if ! current_commit=$(ccy_registry_fingerprint "$project_dir" 2>&1); then
+            retire "$record" "not-a-git-checkout" "$project_dir: $current_commit"
+            continue
+        fi
+        if [[ "$current_commit" != "no-commits" && "$current_commit" != "$recorded_commit" ]]; then
+            retire "$record" "different-project" \
+                "$project_dir now holds a different repository"
+            continue
+        fi
+    fi
+
+    # The recorded name may be taken — by a session started since, or by an earlier record for
+    # the same project in this very run. ccy's own naming function picks the next free one, so a
+    # restore never collides with something live.
+    if ! session_name=$(ccy_tmux_next_name "${project_name:-$(basename "$project_dir")}"); then
+        report "ERROR" "$record" "could not choose a free tmux session name"
+        unresolved=$((unresolved + 1))
+        continue
+    fi
+
+    start_session "$record" "$session_name" "$project_dir"
+done
+
+if [[ "$DRY_RUN" != true ]]; then
+    prune_evidence "$ATTEMPTED_DIR" || unresolved=$((unresolved + 1))
+    prune_evidence "$RETIRED_DIR" || unresolved=$((unresolved + 1))
+    prune_evidence "$MALFORMED_DIR" || unresolved=$((unresolved + 1))
+    ccy_registry_mkdir "$RESTORE_DIR"
+    printf 'boot_id=%s\nrestored=%s\nlive=%s\nretired=%s\nunresolved=%s\n' \
+        "$current_boot" "$restored" "$live" "$retired" "$unresolved" >"${RESTORE_DIR}/last-run"
+fi
+
+printf '\nrestored: %s  live: %s  retired: %s  unresolved: %s\n' \
+    "$restored" "$live" "$retired" "$unresolved"
+
+# Gather semantics, not fail-fast-on-first (CLAUDE/PlanScriptStandards.md R7). Aborting on the
+# first bad record would leave every healthy session unrestored, which is the wrong trade at
+# boot — but exiting zero with an unresolved record would be the silent skip this repo bans.
+# So: process everything, name every failure, and still fail.
+if [[ "$unresolved" -gt 0 ]]; then
+    print_error "${unresolved} record(s) could not be resolved — see the lines marked ERROR or MALFORMED above."
+    exit 1
+fi

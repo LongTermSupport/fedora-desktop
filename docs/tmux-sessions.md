@@ -26,14 +26,23 @@ attach to an LXC container, run a long job. Mouse scrolling scrolls the session.
 
 ## What survives what
 
-| Event                          | Session       |
-| ------------------------------ | ------------- |
-| SSH connection drops or closes | keeps running |
-| Laptop sleeps, network changes | keeps running |
-| You detach (F12, Detach)       | keeps running |
-| Host reboots                   | gone          |
+| Event                                      | Session                                       |
+| ------------------------------------------ | --------------------------------------------- |
+| SSH connection drops or closes             | keeps running                                 |
+| Laptop sleeps, network changes             | keeps running                                 |
+| You detach (F12, Detach)                   | keeps running                                 |
+| Host reboots                               | gone                                          |
+| Host reboots, CCY session, restore enabled | restarted detached, resuming its conversation |
 
-Sessions are transient dev state by design. Nothing restarts them after a reboot.
+Sessions are transient dev state by design, and nothing restarts a plain `tmux new -s NAME`
+session after a reboot.
+
+**CCY sessions are the exception, and only if you ask for it.** `ccy` records every session it
+starts, and an opt-in `systemd --user` service brings the recorded ones back after a reboot
+with `--supervise --continue`, so each resumes its own conversation. It is off by default.
+`ccy-sessions restore-status` says where a machine stands, and
+[CCY: Surviving a Reboot](ccy.md#surviving-a-reboot) covers how to turn it on and what it
+refuses to restore.
 
 ## CCY sessions have their own server
 

@@ -17,6 +17,144 @@ Two version numbers move independently — see
 
 ---
 
+## 3.59.3
+
+**A failing registry listing can no longer be masked by the sort it feeds.** Sorting the records
+(3.59.2) made `find` stage one of a pipeline, so without `pipefail` a failing find was hidden by
+a succeeding sort and the listing returned success with no records — the exact "could not tell
+reported as nothing to do" collapse the function exists to prevent. `pipefail` is now set inside
+the subshell that runs it: the library sets no shell options by design, the launcher runs `set -e` alone, and a guarantee that depends on an option the caller happens to have set is not a
+guarantee.
+
+---
+
+## 3.59.2
+
+**A mistyped retention setting fails before any record is touched.** `CCY_RESTORE_MAX_AGE_DAYS`
+and `CCY_RESTORE_EVIDENCE_DAYS` reach arithmetic deep inside the restore loop, so a non-numeric
+value — set in the unit, or exported for a dry run — killed the service mid-record: no verdict,
+no summary, and every remaining session left unrestored. Both are validated at startup now, which
+is where a configuration mistake belongs.
+
+**The registry listing no longer goes through a shared global.** `ccy_registry_collect` fills an
+array the caller names, so two consumers cannot clobber each other and nothing is kept alive
+merely to have something read it.
+
+---
+
+## 3.59.1
+
+**The registry listing is one function, not two that could disagree.** `ccy_registry_collect`
+fills an array the caller names, and there is no second streaming form to drift from it. A
+failed listing is reported once rather than twice, and the records come back sorted so two runs
+of a report can be compared. The temp file it reads through is removed on every path the
+function itself takes; a signal delivered mid-call would leave one behind, which the system's
+own temp cleanup handles.
+
+**tmux failing to name a session no longer lands in the record's filename.** The error was
+merged into the captured value with `2>&1`, and that value becomes the file the session is
+recorded under. tmux's own message now goes straight to stderr — the terminal for a human, the
+journal for the restore — while the value stays exactly the session name.
+
+**A malformed `boot_time` no longer takes the boot service down mid-run.** A non-numeric value
+reached the arithmetic and aborted the loop with no summary and every remaining record
+unprocessed, which is the opposite of what that service promises. It is now treated like an
+absent one: the age is reported as unknown and the session is restored.
+
+---
+
+## 3.59.0
+
+**A restored session keeps the supervisor setting it was started with.** `--supervise` is right
+for a session that expressed no preference — the default supervisor is unarmed, and an
+unattended session needs the arming to be nudged back to work. But `ccy --no-supervise` is an
+explicit opt-out of the supervisor entirely, ctrl+z guard included, and restoring such a session
+armed handed back auto-compaction and goal injection the operator had deliberately turned off.
+The mode is now recorded at launch and replayed on restore.
+
+**Session age is measured boot-to-boot.** A record was retired as "stale" on its own mtime,
+which is when the *session started* — so a session running permanently for a fortnight was
+dropped at the very reboot the feature exists to survive, while one started an hour before a
+reboot six months ago was not. Records now carry their boot's start time and the comparison is
+against this boot's, which is the question that was always meant: how long ago was the boot this
+session belonged to.
+
+**A prompt echoed above a bare `read` can no longer hang an unattended launch.** The 3.58.0
+guard keys on `-p`, which is what makes a `read` a question to a person — and one site printed
+its prompt with `echo` and then called a bare `read`, invisible to the guard. That site now uses
+`read -rp`, and a derived check over the launcher and every library fails if another appears.
+
+**Three smaller corrections in the same area**, each of which turned a failure into a confident
+wrong answer: a registry listing that could not be read reported as "no sessions"; a corrupt SSH
+key list restored a session with no keys and no complaint; and `ccy_tmux_current_session` could
+not distinguish "not a CCY session" from "tmux would not answer", so a session could go
+unregistered under a message saying it was not in tmux at all.
+
+---
+
+## 3.58.1
+
+**The tmux hold-on-failure trampoline is shared.** A tmux session runs its command through a
+small `bash -c` script that, on a non-zero exit, holds the window open on the error instead of
+letting the session close and take the message with it. `ccy-sessions-restore` needs exactly
+that behaviour for a different reason — an unattended restore that fails must stay visible in
+the session list, because nobody is watching the terminal it would otherwise print to.
+
+The script's dollars are escaped so they expand in the bash that tmux starts rather than in
+the launcher, and a second hand-escaped copy of that string is a copy that drifts. It is now
+`ccy_tmux_hold_on_failure` in `lib/tmux-session.bash`, with one definition and two callers.
+
+---
+
+## 3.58.0
+
+**Sessions are registered, so a reboot no longer simply loses them.** CCY 3.52.0 made a
+session survive its terminal; a host reboot still took everything. Each session now writes a
+record under `~/.local/state/ccy/sessions/` at the moment its container is about to start,
+and the launcher's exit removes it. Anything still recorded at boot was running when the
+machine went down — exact, where a shutdown hook is racy and a timer has a window.
+
+The record is written at the **point of no return**: after every prompt, every validation and
+every resolution. A launcher killed mid-start therefore leaves nothing, which is the right
+answer — a session that never started is not a session to restore. Removal happens in the
+launcher's existing `cleanup` EXIT trap, so it covers a normal `/exit`, `claude` crashing,
+and a signal alike.
+
+Writing a record cannot leave a half-written one behind. The writer writes a dotted
+`.tmp.<pid>` file and renames it into place — same directory, so that is `rename(2)` and
+atomic — and every reader globs `*.record`, which the temp name cannot match. The last line
+is a literal `end=1` terminator the reader **requires**, so a write that never went through
+the rename at all is caught too. A record that fails validation is quarantined with its
+reason, never skipped and never deleted.
+
+What the record stores is the **resolved** configuration — token name, SSH keys, network,
+engine — not the arguments that were typed. Quick launch supplies all of that from
+`.claude/ccy/.last-launch.conf` with an empty argv, so a record built from argv would
+describe nothing about most real sessions. The argv is kept alongside as evidence only.
+
+**An unattended launch can no longer hang on a prompt.** This is the part that makes an
+automated restore safe. A detached tmux session still allocates a pty, so every terminal
+check in the launcher passes and all seventeen of its interactive prompts behave as though
+someone were watching — with nobody to answer, a restored session would sit on the first one
+for ever, appear in `ccy-sessions` as though it were running, and never start `claude`.
+
+With `CCY_UNATTENDED=1` the launcher shadows the `read` builtin: a `read` carrying `-p` — a
+question addressed to a person — is fatal and names the prompt it could not answer, while
+every other `read` (splitting a string, reading a pipe) passes straight through. Keying on
+what a prompt *is*, rather than on a list of the prompt sites, means a prompt added later is
+covered without anyone remembering to. Two decisions have an honest unattended default and
+say so out loud: the saved quick-launch configuration is accepted (it is the one the session
+was recorded with), and compose services are not started or stopped.
+
+New `--no-restore` marks a one-off. The session is still recorded, marked rather than
+omitted, so `ccy-sessions restore-status` can show it as a live session you chose not to
+restore — omitting it would make "not recorded" and "deliberately excluded" the same absence.
+
+Nothing restores anything yet on its own: the restore service is opt-in per machine. See
+[CCY: Surviving a Reboot](ccy.md#surviving-a-reboot).
+
+---
+
 ## 3.57.0
 
 **The container can tell which machine it is running on.** A container's `HOSTNAME` is the
