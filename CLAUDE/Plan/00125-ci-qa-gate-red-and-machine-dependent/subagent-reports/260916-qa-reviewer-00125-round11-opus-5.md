@@ -856,3 +856,31 @@ it did not check. The docs gate reaches the same exit code with and without the 
 says which; its three documented exit codes are now produced by running it; the call-site
 population is parsed rather than counted twice; every number in its stage line is checked
 before it is printed. The plan's two causes are fixed and demonstrated on both machines.
+
+---
+
+# Confirmation — addendum 2's list at `089a7127`
+
+Confirmation pass, not a review: each claimed fix driven at `089a7127` in a temp clean
+checkout, nothing else looked for. The pinned worktree did not move.
+
+| Item | Claim | Measured | Verdict |
+| ---- | ----- | -------- | ------- |
+| **A** | one `declare -A GATE_COMMAND`, iterated for the reverse pass | one list only — `gate_command_for` reads `${GATE_COMMAND[$1]+set}`, the reverse loop iterates `"${!GATE_COMMAND[@]}"` sorted; no second array anywhere. My exact mutation (`[orphan_out]="true"`, read by no call site) now gives `FAIL gate_command_for registers $orphan_out, but no qa_gate_detail call site in qa-all.bash reads it`, `passed: 66 failed: 1`, exit 1 | **PASS** |
+| **B** | `sites_json` type-checked before either length is read | module moved aside → `FAIL the call-site parser produced no usable output — nothing below checked anything`, `passed: 51 failed: 8`, exit 1, and **zero** `PASS COVERAGE` lines. The branch answers for itself; the reverse check is no longer the rescue | **PASS** |
+| **C** | `.tracked` in the typed guard | present as the first clause. `"tracked"` removed from the payload → `✗ docs: link_check did not emit usable vendored counts … jq said: false`, **exit 2**, where it was `(null tracked)` at exit 0 | **PASS** |
+| **D** | escaped quote refused, not truncated | `"say \"hi\" now"` → 0 sites, 1 unparsed; `'it\'s here'` → 0 sites, 1 unparsed. Three controls unaffected, including `"[0-9]+\s+clean"` — a backslash not before a quote still parses, so the refusal is not over-broad | **PASS** |
+| **E** | limit stated in the module header | header says it tracks quoting well enough to tell a comment from a `#` in a string but does **not** track string or heredoc context, so an occurrence inside one is reported as unparsed | **PASS** |
+| **Nit 1** | direct indent assertion restored, docstring corrected | `assertTrue(detail.startswith("    "))` back alongside the `verdicts.parse` assertion, and the docstring records that stripping the indent leaves the parse unchanged while a detail line that BEGINS with a symbol gives `['⚠','⚠','⚠','✓']` — which is what I measured | **PASS** |
+| **Nit 2** | "Remaining:" names only 4.3 and 5.3 | `Remaining: Task 4.3 (owner's decision) and Task 5.3 (qa-reviewer).` | **PASS** |
+
+**Addendum 2's list is closed.** Health at this commit, for the record: coupling suite
+`passed: 66 failed: 0` with `COVERAGE: 8 … parsed, 0 unparsed`; `link_check` 90 tests OK;
+`gate_call_sites` 25 tests OK (23 + D's two); `docs-exit-codes` 4/4;
+`✓ docs: 71 files (71 tracked) OK … 0 verified, 8 unverifiable, 0 broken`; ruff and
+shellcheck clean. CI: `2b84ff8f` has since gone green; `089a7127` was in progress.
+
+One status note on an item already reported rather than a new finding: addendum 3's needle
+(`check_exit "a tree git cannot answer for" … "link_check"`) is unchanged at `089a7127` and
+is already corrected to `did not emit the expected JSON` in the working tree, so it lands
+with the next commit.
