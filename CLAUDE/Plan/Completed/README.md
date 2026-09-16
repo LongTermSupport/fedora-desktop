@@ -7,6 +7,13 @@ it was moved from. Links are relative to this directory.
 
 Newest first, continuing from [../README.md](../README.md#completed-plans).
 
+## Completed Plans
+
+<!-- This heading is load-bearing, not decoration: the plan-QA row/folder bijection check
+     classifies a row by the section it sits under, and without it all sixteen rows below
+     were read as an unrecognised section while their folders were plainly completed —
+     sixteen advisories saying so. -->
+
 - [00057-lxc-net-networkmanager-bridge-race](00057-lxc-net-networkmanager-bridge-race/) - `lxc-net` failed at boot because an NM autoconnect profile claimed `lxcbr0` first, so dnsmasq never launched and containers never leased — while the play's own bridge check false-passed. Verified on the host: triage 9 failures → 0.
 
 - [00096-docs-drift-repo-wide-fix](00096-docs-drift-repo-wide-fix/) - Audited every doc under `docs/` plus the root README against the real playbooks: 36 factual defects fixed, dominated by core plays documented as optional, and including two features documented that no task implements.
