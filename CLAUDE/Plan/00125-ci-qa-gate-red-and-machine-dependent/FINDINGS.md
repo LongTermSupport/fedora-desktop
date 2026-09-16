@@ -187,8 +187,9 @@ plan's own instruction, which said "either freeze play".
 ## The mechanism that kept all of it invisible
 
 `qa-all.bash` exits at the first failing hard gate. **5 hard gates stood behind the
-`helper-tests` abort when it first went red (`9a79dd77`), and 11 by `b3f6e909`** — 26 behind
-it today, though today it passes. A gate that cannot pass in
+`helper-tests` abort when it first went red (`9a79dd77`), 11 by `b3f6e909`, and 25 by
+`497370ba`** — the last red commit before the first fix. 26 behind it today, though today it
+passes. A gate that cannot pass in
 an environment therefore does not merely stay red — it stops every gate behind it from
 running at all, and the number of checks actually executing falls with nothing reporting
 it. Three gates in this plan had never run once in CI before the abort was cleared.
@@ -251,15 +252,21 @@ because they fell on opposite sides of that line:
   to a commit that had stopped exhibiting it. Behind `helper-tests` at the commits that were
   actually red:
 
-  | Commit     | Date       | Hard gates masked |
-  | ---------- | ---------- | ----------------- |
-  | `9a79dd77` | 2026-09-11 | **5**             |
-  | `b3f6e909` | 2026-09-14 | **11**            |
+  | Commit     | Date       | Hard gates masked | |
+  | ---------- | ---------- | ----------------- | --- |
+  | `9a79dd77` | 2026-09-11 | **5**             | helper-tests first goes red |
+  | `b3f6e909` | 2026-09-14 | **11**            | |
+  | `497370ba` | 2026-09-15 | **25**            | last red commit before the first fix |
 
-  So the masked set **grew as gates were added behind a gate that could not pass** — which
-  is a worse property than a fixed 25, and the one worth stating: every gate added after a
-  standing abort is born unexecuted. Clearing it unmasked `panel-sections`, then
-  `freezelib`, one at a time.
+  The masked set **grew fivefold in four days**, because 21 commits touched `qa-all.bash` in
+  that window and every gate they added landed behind an abort that already could not be
+  reached. That is the property worth stating, and it is measured rather than asserted:
+  **every gate added after a standing abort is born unexecuted.** 20 of the 25 had never run
+  in CI even once by the time the first fix landed.
+
+  25 was therefore the right number and the wrong commit — it is `497370ba`'s figure, not
+  `29ceee97`'s. Clearing the abort unmasked `panel-sections`, then `freezelib`, one at a
+  time.
 
 It also narrows **Task 4.3**. Its option (1) — run every gate, report all verdicts, exit
 non-zero at the end — is not a new design to weigh: it is the design already in force for

@@ -60,8 +60,8 @@ all six are fixed.
 **The mechanism, and it hid Cause B rather than "all of it".** `qa-all.bash` runs 7 stages
 that accumulate and 29 hard gates that `exit 1`. Cause A sits in an accumulating stage, so
 it masked nothing — it went red and every gate behind it kept running. Cause B was in hard
-gates, and **5 to 11 gates stood behind the `helper-tests` abort** while it was red, so
-three of them had never run once in CI. That is Task 4.1's answer and the argument for Task 4.3.
+gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** while it was red, so
+20 of them had never run once in CI. That is Task 4.1's answer and the argument for Task 4.3.
 
 ## Tasks
 
@@ -170,8 +170,8 @@ three of them had never run once in CI. That is Task 4.1's answer and the argume
 - [x] ✅ **Task 4.1**: The identical-looking red run is only half of it, and the other half
   is worse. `qa-all.bash` **exits at the first failing hard gate**, so from the moment the
   DisplayLink pair began failing CI stopped executing every gate behind `helper-tests`:
-  **5 at `9a79dd77`, growing to 11 by `b3f6e909`** as new gates were added behind a gate
-  that could not pass. The suite did not merely stay red — *the number of checks actually
+  **5 at `9a79dd77`, 11 by `b3f6e909`, 25 by `497370ba`** — a fivefold growth in four days,
+  because every gate added in that window landed behind an abort already out of reach. The suite did not merely stay red — *the number of checks actually
   running fell*, and nothing said so. Three compounding causes, written up in `FINDINGS.md`.
   **Demonstrated live three times while closing Phase 3** — each fix revealed the next gate
   that had never run once (journal, 23:38 and 23:52). The remedy is Task 4.3
