@@ -164,13 +164,17 @@ have() {
 # report an empty machine — a misleading empty result, which is worse than an
 # error. It also removes any chance of freezing the very session issuing the
 # command.
-# The two marker PATHS are overridable so the guard can be driven on any machine.
-# They are not configuration — no tool sets them, and the defaults are the real
-# files. A guard drivable only where it fires is testable only in a container, and
+# The two marker paths are ARGUMENTS with the real files as defaults, so the guard can be
+# driven on any machine — one drivable only where it fires is testable in a container and
 # silently untested everywhere else the suite runs.
+#
+# Arguments rather than environment variables, and the difference is load-bearing on a
+# guard whose entire job is to REFUSE: an argument cannot arrive from a parent shell, while
+# an exported override could quietly loosen it. Both tools call this bare. Same shape as
+# `_plan_in_container` in CLAUDE/Plan/_planlib.inc.bash, for the same reason.
 assert_on_host() {
-    local containerenv="${FREEZE_CONTAINERENV_PATH:-/run/.containerenv}"
-    local dockerenv="${FREEZE_DOCKERENV_PATH:-/.dockerenv}"
+    local containerenv="${1:-/run/.containerenv}"
+    local dockerenv="${2:-/.dockerenv}"
     if [ -f "$containerenv" ] || [ -f "$dockerenv" ] || [ -n "${container:-}" ]; then
         die "this is a container — run $FREEZE_TOOL on the HOST.
 $FREEZE_HOST_ONLY_NOTE"

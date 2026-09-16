@@ -7,8 +7,10 @@ counted ten files in a container and eight on a runner, and a gate that could no
 CI stopped every gate declared after it from running at all, so a stage can be *absent*
 from one side rather than merely failing there.
 
-So this compares the whole verdict LINE, not a pass/fail, and it treats a stage present on
-one side only as a difference rather than as agreement.
+So this compares the whole verdict LINE, not a pass/fail; it keeps EVERY line a stage
+emitted rather than only the last, because an advisory dropped in favour of the pass line
+below it is the same divergence hiding again; and it treats a stage present on one side
+only as a difference rather than as agreement.
 
     python3 -m helpers.qa_environment.verdicts \\
         --here  untracked/plan-runs/.../qa-all-local.txt \\
@@ -16,8 +18,9 @@ one side only as a difference rather than as agreement.
 
 Marker lines on stdout (the payload a caller keys on):
 
+    QA-VERDICTS-COVERAGE <side> <matched> of <symbol-lines> ...
     QA-VERDICTS-DIFFERENCES <count>
-    QA-VERDICTS-FAIL <reason>
+    QA-VERDICTS-FAIL <reason> <side>
 
 It renders no verdict on the differences themselves: triage establishes facts, acceptance
 decides (CLAUDE/PlanTriage.md). A divergence is the finding, so it exits zero.
@@ -39,10 +42,19 @@ from typing import TextIO
 #: that is not a gate.
 STAGE = re.compile(r"^(?P<symbol>[✓✗⚠]) (?P<name>[a-z0-9][a-z0-9-]*): (?P<detail>.*)$")
 
+#: The run's own closing verdict. Excluded from the stage set by design — and COUNTED,
+#: because a capture holding none of them never reached the end of a run.
+RUN_SUMMARY = re.compile(r"^[✓✗⚠] QA (?:passed|FAILED):")
+
+#: Any line whose payload opens with a status symbol: the denominator for coverage. One
+#: that is neither a stage nor a run summary is an under-match in this parser.
+SYMBOL_LINE = re.compile(r"^[✓✗⚠] ")
+
 #: A CI log line carries `<job>\t<step>\t<ISO timestamp> ` before the payload, and the
-#: first line of a step carries a BOM. The timestamp is separated from the payload by a
-#: SPACE rather than a tab, so consuming tab-delimited fields alone leaves it behind.
-CI_LOG_PREFIX = re.compile(r"^﻿?(?:[^\t]*\t)+(?:\d{4}-\d{2}-\d{2}T[\d:.]+Z )?")
+#: first line of a step carries a BOM. The timestamp is REQUIRED rather than optional:
+#: without it the tab-delimited part alone also matches a tab inside a stage's own detail
+#: text, and silently deletes the line (`scenarios=8\trunnable=8` parsed as nothing).
+CI_LOG_PREFIX = re.compile(r"^﻿?(?:[^\t]*\t)+\d{4}-\d{2}-\d{2}T[\d:.]+Z ")
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -54,48 +66,72 @@ ONLY_THERE = "only-there"
 
 @dataclasses.dataclass(frozen=True)
 class Verdict:
-    """One stage's reported outcome: the status symbol and the text after the colon."""
+    """One line a stage emitted: the status symbol and the text after the colon."""
 
     symbol: str
     detail: str
 
 
 @dataclasses.dataclass(frozen=True)
+class Parsed:
+    """One side's stages, with enough counted to tell a thin capture from a quiet run."""
+
+    stages: dict[str, list[Verdict]]
+    symbol_lines: int
+    matched_lines: int
+    summary_lines: int
+
+
+@dataclasses.dataclass(frozen=True)
 class Row:
-    """One stage, as each side reported it. `here`/`there` are None where it did not run."""
+    """One stage, as each side reported it. An empty list means it did not run there."""
 
     name: str
     state: str
-    here: Verdict | None
-    there: Verdict | None
+    here: list[Verdict]
+    there: list[Verdict]
 
 
-def parse(text: str) -> dict[str, Verdict]:
+def parse(text: str) -> Parsed:
     """Every stage verdict in a captured `qa-all.bash` run, keyed by stage name.
 
-    Tolerates a CI log's per-line harness prefix and ANSI colour so the same function
-    reads a local capture and a downloaded workflow log.
+    Tolerates a CI log's per-line harness prefix and ANSI colour, so one function reads a
+    local capture and a downloaded workflow log. A stage that emitted more than one line
+    keeps all of them, in order.
     """
-    found: dict[str, Verdict] = {}
+    stages: dict[str, list[Verdict]] = {}
+    symbol_lines = matched_lines = summary_lines = 0
     for raw in text.splitlines():
         line = ANSI.sub("", CI_LOG_PREFIX.sub("", raw)).rstrip()
+        if not SYMBOL_LINE.match(line):
+            continue
+        symbol_lines += 1
+        if RUN_SUMMARY.match(line):
+            summary_lines += 1
+            continue
         match = STAGE.match(line)
         if match is None:
             continue
-        # Last wins: qa-all.bash echoes some failures to both stdout and stderr, and a
-        # CI log interleaves the two into one stream.
-        found[match["name"]] = Verdict(match["symbol"], match["detail"].strip())
-    return found
+        matched_lines += 1
+        stages.setdefault(match["name"], []).append(
+            Verdict(match["symbol"], match["detail"].strip())
+        )
+    return Parsed(
+        stages=stages,
+        symbol_lines=symbol_lines,
+        matched_lines=matched_lines,
+        summary_lines=summary_lines,
+    )
 
 
-def compare(here: dict[str, Verdict], there: dict[str, Verdict]) -> list[Row]:
+def compare(here: dict[str, list[Verdict]], there: dict[str, list[Verdict]]) -> list[Row]:
     """Every stage either side ran, sorted by name so two reports can be diffed."""
     rows: list[Row] = []
     for name in sorted(set(here) | set(there)):
-        mine, theirs = here.get(name), there.get(name)
-        if mine is None:
+        mine, theirs = here.get(name, []), there.get(name, [])
+        if not mine:
             state = ONLY_THERE
-        elif theirs is None:
+        elif not theirs:
             state = ONLY_HERE
         elif mine == theirs:
             state = AGREE
@@ -110,8 +146,10 @@ def differences(rows: list[Row]) -> list[Row]:
     return [row for row in rows if row.state != AGREE]
 
 
-def _render(row: Verdict | None) -> str:
-    return "(did not run)" if row is None else f"{row.symbol} {row.detail}"
+def _render(verdicts: list[Verdict]) -> list[str]:
+    if not verdicts:
+        return ["(did not run)"]
+    return [f"{verdict.symbol} {verdict.detail}" for verdict in verdicts]
 
 
 def _report(rows: list[Row], here_label: str, there_label: str) -> list[str]:
@@ -121,10 +159,54 @@ def _report(rows: list[Row], here_label: str, there_label: str) -> list[str]:
         "-" * 100,
     ]
     for row in rows:
-        lines.append(f"{row.name:<32} {row.state:<11} {_render(row.here)}")
+        for rendered in _render(row.here):
+            lines.append(f"{row.name:<32} {row.state:<11} {rendered}")
         if row.state != AGREE:
-            lines.append(f"{'':<32} {'':<11} {_render(row.there)}")
+            for rendered in _render(row.there):
+                lines.append(f"{'':<32} {'':<11} {rendered}")
     return lines
+
+
+def coverage_line(label: str, parsed: Parsed) -> str:
+    """How much of a capture this parser accounted for, named per side.
+
+    Printed BEFORE the table so a thin capture is visible rather than inferred from a
+    wall of "did not run" rows.
+    """
+    unrecognised = parsed.symbol_lines - parsed.matched_lines - parsed.summary_lines
+    return (
+        f"QA-VERDICTS-COVERAGE {label} {parsed.matched_lines} of "
+        f"{parsed.symbol_lines} symbol-prefixed line(s) "
+        f"({parsed.summary_lines} run summary, {unrecognised} unrecognised) "
+        f"-> {len(parsed.stages)} stage(s)"
+    )
+
+
+def capture_problem(parsed: Parsed) -> str:
+    """Why this capture cannot support a comparison, or "" when it can.
+
+    An empty or truncated capture otherwise reads as agreement, or as a confident set of
+    "that machine never ran this stage" rows — the misleading empty result
+    CLAUDE/PlanTriage.md names, and the exact finding class this tool exists to produce.
+    """
+    if not parsed.stages:
+        return "no-stages-parsed"
+    if parsed.summary_lines == 0:
+        return "no-run-summary"
+    return ""
+
+
+_PROBLEM_DETAIL = {
+    "no-stages-parsed": (
+        "parsed 0 stage verdicts — the capture is broken, not the machines agreeing. "
+        "Check it holds a qa-all.bash run."
+    ),
+    "no-run-summary": (
+        "stages were parsed but there is no closing 'QA passed'/'QA FAILED' line, so the "
+        "run did not reach its end or the capture is truncated. Every 'did not run' row "
+        "below it would be an artefact of the truncation, not a fact about that machine."
+    ),
+}
 
 
 def main(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
@@ -141,19 +223,18 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
         with open(path, encoding="utf-8", errors="replace") as handle:
             sides[label] = parse(handle.read())
 
-    # An empty capture reads as "no divergence", which is the misleading-empty-result
-    # trap CLAUDE/PlanTriage.md names: it would report agreement having compared nothing.
-    for label, stages in sides.items():
-        if not stages:
-            print(f"QA-VERDICTS-FAIL no-stages-parsed {label}", file=out)
-            print(
-                f"parsed 0 stage verdicts from {label} — the capture is broken, not the "
-                "machines agreeing. Check it holds a qa-all.bash run.",
-                file=sys.stderr,
-            )
+    for label, parsed in sides.items():
+        print(coverage_line(label, parsed), file=out)
+
+    for label, parsed in sides.items():
+        problem = capture_problem(parsed)
+        if problem:
+            print(f"QA-VERDICTS-FAIL {problem} {label}", file=out)
+            print(f"{label}: {_PROBLEM_DETAIL[problem]}", file=sys.stderr)
             return 1
 
-    rows = compare(sides["--here"], sides["--there"])
+    rows = compare(sides["--here"].stages, sides["--there"].stages)
+    print("", file=out)
     for line in _report(rows, args.here_label, args.there_label):
         print(line, file=out)
 

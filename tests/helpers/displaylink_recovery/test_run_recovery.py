@@ -220,7 +220,15 @@ class TestEdidByteCountAgainstRealSysfs(unittest.TestCase):
         return linked, linkless
 
     def _no_linked_connector(self, linkless: list[str]) -> str:
-        """The skip reason, naming what was excluded so the skip is never silent."""
+        """The skip reason, naming what was excluded rather than skipping anonymously.
+
+        `unittest` prints a skip reason only at verbosity 2, and `qa-helper-tests.bash`
+        runs at the default — so this text is reached with
+        `python3 -m unittest -v tests.helpers.displaylink_recovery.test_run_recovery`.
+        What the suite surfaces by default is the skip COUNT, which `qa-all.bash` carries
+        in the stage line precisely so a machine that skipped this pair is not mistaken
+        for one that asserted it.
+        """
         reason = f"no connected DRM connector with a display link under {SYSFS_DRM}"
         if linkless:
             reason += f"; ignored linkless connector(s): {', '.join(linkless)}"

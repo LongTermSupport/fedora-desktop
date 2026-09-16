@@ -103,10 +103,17 @@ stage, not a flaky gate — find which input differs before touching anything.
 | `qa-docs.bash`           | `.claude/hooks-daemon/` on disk — tracked `.claude/rules/*.md` link into it, and the link-existence check does not consult the scan exclusions | every clean checkout: the tree is gitignored, so CI can never satisfy it |
 | `qa-ansible-syntax.bash` | a vault password file to **exist** (never read — `--syntax-check` does not decrypt)                                                            | a clean checkout, and a linked worktree                                  |
 | `qa-deployed-drift.bash` | deployed copies under `~/.local/bin` to compare the repo against                                                                               | the CCY container and a clean checkout — it self-skips **and names why** |
-| `qa-helper-tests.bash`   | one pair asserts against real `/sys/class/drm`; it skips where no connector with a physical display link is present, naming what it ignored    | a VM whose only connector is virtual                                     |
+| `qa-helper-tests.bash`   | one pair asserts against real `/sys/class/drm` and skips where no connector with a physical display link is present                            | a VM whose only connector is virtual                                     |
 
 `qa-deployed-drift.bash` is the shape to copy: it states the dependency, skips only for a
 reason it prints, and the reason is checkable.
+
+**A skip is not a pass, so the `helper-tests` line carries the skip count.** `unittest`
+counts a skipped test inside `testsRun`, so `Ran N tests` is byte-identical whether a test
+asserted or skipped itself — two machines then report the same verdict over different
+executed populations, which is this page's own subject appearing in the line used to detect
+it. The count differing is the signal; the skip *reason* names what was ignored and is
+printed by `python3 -m unittest -v <module>`, not by the suite at its default verbosity.
 
 **A stage that cannot pass in an environment is not a strict gate there — it is an absent
 one.** Two consequences follow, and the second is the one that bites:

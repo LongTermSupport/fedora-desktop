@@ -153,7 +153,17 @@ if ! helper_out="$(bash "$SCRIPT_DIR/qa-helper-tests.bash" 2>&1)"; then
     exit 1
 fi
 helper_summary=$(printf '%s' "$helper_out" | grep -oE 'Ran [0-9]+ tests?') || helper_summary="passed"
-printf '✓ helper-tests: %s\n' "$helper_summary"
+# The skip count travels with the line because `unittest` counts a SKIPPED test inside
+# testsRun: "Ran 1446 tests" is byte-identical whether a test asserted or skipped itself.
+# Two machines then report the same verdict over different executed populations — which is
+# this repo's own machine-dependence defect appearing inside the line used to detect it.
+# Measured: a container asserts the DisplayLink sysfs pair against a real connector while a
+# VM runner skips both, and before this the two lines agreed exactly.
+helper_skipped=0
+if helper_skips=$(printf '%s' "$helper_out" | grep -oE '\(skipped=[0-9]+\)'); then
+    helper_skipped="${helper_skips//[^0-9]/}"
+fi
+printf '✓ helper-tests: %s, %s skipped\n' "$helper_summary" "$helper_skipped"
 
 # The pre-commit secret scanner's own unit suite (scripts/test-secret-scan.bash).
 #

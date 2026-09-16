@@ -34,7 +34,7 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00125-ci-qa-gate-red-and-machine-dependent](00125-ci-qa-gate-red-and-machine-dependent/) - The `QA` workflow has not been green for three weeks, so the gate `CLAUDE/QA.md` calls the authority has been reporting nothing. Underneath it, `qa-all.bash` answers differently per machine — green in the container, red on a runner — from eight tracked links into the gitignored hooks-daemon tree and five helper tests that read host state.
+- [00125-ci-qa-gate-red-and-machine-dependent](00125-ci-qa-gate-red-and-machine-dependent/) - The `QA` workflow has not been green for three weeks, so the gate `CLAUDE/QA.md` calls the authority has been reporting nothing. Underneath it, `qa-all.bash` answers differently per machine — green in the container, red on a runner — from eight tracked links into the gitignored hooks-daemon tree and six tests that read host state.
 
 - [00124-chrome-install-gpg-failure-on-upgraded-host](00124-chrome-install-gpg-failure-on-upgraded-host/) - `run.bash` stops at Chrome on a host upgraded from F41, and there were two causes stacked: dnf5 validating against a repo's own keys (so a package URL lands in keyless `@commandline`), and beneath it an imported key that rpm will never refresh because presence is judged by primary id, leaving the newer signing subkey absent.
 

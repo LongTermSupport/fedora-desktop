@@ -79,7 +79,7 @@ satisfy on a runner. Only `$container` was injectable; the two marker paths now 
 ## The mechanism that kept all of it invisible
 
 `qa-all.bash` exits at the first failing hard gate (`scripts/qa-all.bash:152` for
-`helper-tests`), and **26 gates are declared after that point**. A gate that cannot pass in
+`helper-tests`), and **25 gates are declared after that point**. A gate that cannot pass in
 an environment therefore does not merely stay red — it stops every gate behind it from
 running at all, and the number of checks actually executing falls with nothing reporting
 it. Three gates in this plan had never run once in CI before the abort was cleared.

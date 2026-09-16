@@ -56,9 +56,13 @@ fi
 # galaxy content had landed on that machine — 10 files here against 8 on a
 # runner, both reported as a pass over "repo-owned" JavaScript.
 JS_FILES=()
+#
+# `.mjs` as well as `.js`: the extension-test harness under tests/extensions/ is ESM, it
+# is executed by the panel-sections gate, and it sits outside the extensions/ ESLint
+# project — so without this the "repo-owned JavaScript" claim was narrower than it read.
 while IFS= read -r -d '' file; do
     JS_FILES+=("$file")
-done < <(find "$REPO_ROOT" -type f -name "*.js" \
+done < <(find "$REPO_ROOT" -type f \( -name "*.js" -o -name "*.mjs" \) \
     ! -path "$REPO_ROOT/.git/*" \
     ! -path "*/node_modules/*" \
     ! -path "$REPO_ROOT/.ansible/*" \

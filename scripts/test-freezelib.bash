@@ -914,8 +914,7 @@ present_marker="$marker_dir/present"
 absent_marker="$marker_dir/absent"
 touch "$present_marker"
 
-if host_out="$(container='' FREEZE_CONTAINERENV_PATH="$present_marker" \
-    FREEZE_DOCKERENV_PATH="$absent_marker" assert_on_host 2>&1)"; then
+if host_out="$(container='' assert_on_host "$present_marker" "$absent_marker" 2>&1)"; then
     fail "a podman container marker is refused" "assert_on_host allowed it"
 else
     pass "a podman container marker is refused"
@@ -923,15 +922,13 @@ else
     contains "and gives the engine's own reason" "$host_out" "not reachable from in here"
 fi
 
-if host_out="$(container='' FREEZE_CONTAINERENV_PATH="$absent_marker" \
-    FREEZE_DOCKERENV_PATH="$present_marker" assert_on_host 2>&1)"; then
+if host_out="$(container='' assert_on_host "$absent_marker" "$present_marker" 2>&1)"; then
     fail "a docker container marker is refused" "assert_on_host allowed it"
 else
     pass "a docker container marker is refused"
 fi
 
-if host_out="$(container='lxc' FREEZE_CONTAINERENV_PATH="$absent_marker" \
-    FREEZE_DOCKERENV_PATH="$absent_marker" assert_on_host 2>&1)"; then
+if host_out="$(container='lxc' assert_on_host "$absent_marker" "$absent_marker" 2>&1)"; then
     fail "the container environment variable is refused" "assert_on_host allowed it"
 else
     pass "the container environment variable is refused"
@@ -940,13 +937,21 @@ fi
 # The direction the old shape could never assert: with no signal at all the guard
 # must get out of the way. Driven only by marker paths, so it holds in a container
 # too — where the real files exist and would otherwise refuse.
-if host_out="$(container='' FREEZE_CONTAINERENV_PATH="$absent_marker" \
-    FREEZE_DOCKERENV_PATH="$absent_marker" assert_on_host 2>&1)"; then
+if host_out="$(container='' assert_on_host "$absent_marker" "$absent_marker" 2>&1)"; then
     pass "with no container signal at all, a host is allowed"
 else
     fail "with no container signal at all, a host is allowed" \
         "assert_on_host refused a machine showing no marker: $host_out"
 fi
+
+# Every case above SUPPLIES both paths, so none of them evaluates the defaults — and a
+# typo in either default would ship green while the guard silently stopped refusing.
+# Pinned by reading the function back, which is machine-independent: asserting the real
+# defaults by BEHAVIOUR would need a machine with the real marker files, which is the
+# dependence this whole section exists to remove.
+freeze_defaults="$(declare -f assert_on_host)"
+contains "the podman marker default is the real path" "$freeze_defaults" "/run/.containerenv"
+contains "the docker marker default is the real path" "$freeze_defaults" "/.dockerenv"
 
 rm -rf "$marker_dir"
 

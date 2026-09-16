@@ -58,7 +58,7 @@ once the abort stopped hiding it. All six were defective **tests**, not producti
 all six are fixed.
 
 **The mechanism that hid it all.** `qa-all.bash` exits at the first failing hard gate and
-**26 gates are declared after that point**, so a gate that cannot pass in an environment
+**25 gates are declared after that point**, so a gate that cannot pass in an environment
 stops every gate behind it from running — the executed-check count falls with nothing
 reporting it. That is Task 4.1's answer and the argument for Task 4.3.
 
@@ -72,12 +72,13 @@ reporting it. That is Task 4.1's answer and the argument for Task 4.3.
   and puts them side by side. Four states per stage, because two of them are the point:
   `differs`, and `only-here`/`only-there` — a stage **absent** from one side never ran
   there, which is what the abort does and what no pass/fail comparison can show. Parsing
-  and diffing live in `helpers/qa_environment/verdicts.py` (25 tests) rather than the
+  and diffing live in `helpers/qa_environment/verdicts.py` (32 tests) rather than the
   script, per `helpers/CLAUDE.md`. It renders no verdict (R9) and points at
   `CLAUDE/QA.md`'s declared-dependency table. Deliberately declares **neither**
-  `plan_require_host` nor `plan_require_container`, which R2 calls rare and asks to be
-  re-examined — examined and stated in the header: the finding *is* where it ran, so it
-  is meant to be run in both places and the reports read side by side. First run found
+  `plan_require_host` nor `plan_require_container`. R2 says *"pick exactly one of the
+  two"* and carves out only scripts whose findings do NOT depend on where they ran —
+  this is a deliberate third case, not that carve-out, and the header says so: the
+  finding *is* where it ran, so it is meant to be run in both places and compared. First run found
   six differences: the two declared ones, and four that were only this checkout being
   ahead of the compared commit — so it now says so rather than letting a reader chase them
 - [x] ✅ **Task 1.2**: **`0015c886`, 2026-08-31** — and the task's own premise was wrong.
@@ -158,15 +159,20 @@ reporting it. That is Task 4.1's answer and the argument for Task 4.3.
   (defaults unchanged, no tool sets them). All three signals are driven on any machine,
   and the **allow** direction is asserted for the first time — it could never be, because
   in a container the real marker files are there. Falsified both ways (journal, 23:52).
-  Needs a HOST deploy to reach the installed copy — `tasks/deploy-freeze-lib.yml`, via
-  either freeze play — though the behaviour is identical, so nothing is broken meanwhile
+  **HOST, and more urgent than "the behaviour is identical" suggested.**
+  `qa-deployed-drift.bash:219` covers `files/home/.local/lib/freeze/*`, and its abort is
+  `qa-all.bash:129` — *before* `helper-tests`. So until `tasks/deploy-freeze-lib.yml` runs
+  (via either freeze play), a host's `qa-all.bash` is red **and stops 26 gates short**,
+  which is this plan's own Task 4.1 mechanism pointed at the owner's workstation.
+  `CLAUDE.md` names local `qa-all.bash` the pre-commit requirement, so this is not
+  cosmetic. The deployed tool's *runtime* behaviour is unchanged
 
 ### Phase 4: Make the next regression visible
 
 - [x] ✅ **Task 4.1**: The identical-looking red run is only half of it, and the other half
   is worse. `qa-all.bash` **exits at the first failing hard gate** (`scripts/qa-all.bash`
-  line 152 for `helper-tests`), and **26 gates are declared after that point**. So from the
-  moment the DisplayLink pair began failing, CI stopped executing the last 26 gates
+  line 152 for `helper-tests`), and **25 gates are declared after that point**. So from the
+  moment the DisplayLink pair began failing, CI stopped executing the last 25 gates
   entirely. The suite did not merely stay red — *the number of checks actually running
   fell*, and nothing said so. Three compounding causes: the first red was a gate that
   **cannot pass in CI by construction** (a gitignored link target), so it was never a
