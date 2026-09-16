@@ -154,6 +154,13 @@ into Plan 00094's own notes.
     worked because the operator happened to be standing at the root. Both
     `deploy.bash` and `triage.bash` are now on `_planlib.inc.bash`;
     `acceptance.bash` deliberately is not, and says why on the line
+- [ ] ⬜ **Task 5.9 — RE-DEPLOY, because Task 5.8's fixes changed deployed files.**
+  `ftp-camera` and `rclone-rc-auth.bash` both changed after the host run below, so
+  the host is now running the build with the hardcoded RC port. That is the drift
+  this plan's own gate exists to catch, and leaving 5.7 ticked without saying so
+  would be the Plan 00094 failure repeated by this plan. Run `deploy.bash` then
+  `acceptance.bash` again — or `untracked/meta-deploy.bash`, which runs this
+  alongside every other waiting plan
 - [x] ✅ **Task 5.7**: Deployed on the HOST — `play-rclone.yml` and
   `play-ftp-camera.yml`, via `deploy.bash`, then `acceptance.bash`. Checks 0–6b all
   PASS against a live mount: no deployed client calls `rclone rc` directly, and the
