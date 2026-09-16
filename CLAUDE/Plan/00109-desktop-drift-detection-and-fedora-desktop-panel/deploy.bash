@@ -67,6 +67,13 @@ Runs Plan 00109's four plays on the HOST, fail-fast, in this order:
 
 --check is REFUSED — see the refusal message for the reason.
 
+FAIL-FAST, AND THAT HAS A CONSEQUENCE WORTH KNOWING: the run stops at the first
+failing play, so the ones after it never run. play-vm-test-lab.yml is third and
+needs /dev/kvm; on a host without it, play-displaylink.yml is NOT deployed — and
+acceptance.bash will then fail its DisplayLink check for a reason that has nothing
+to do with DisplayLink. Deploy that play on its own if you hit this:
+  ansible-playbook playbooks/imports/optional/hardware-specific/play-displaylink.yml
+
 AFTERWARDS, in this order:
   1. log out and log back in. On Wayland that is the only way GNOME Shell loads
      the panel's new code, and it is also what fires the login-time health unit.

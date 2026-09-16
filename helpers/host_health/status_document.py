@@ -50,6 +50,11 @@ FINDINGS = "findings"
 #: NOT checked. Never a quiet state: a consumer must not show a neutral icon for it.
 UNAVAILABLE = "unavailable"
 
+#: A section's own statement of the population it examined, carried even when the
+#: section is clean. Named here rather than spelled at each site: the acceptance gate
+#: keys on it, and a key spelled twice is a key that can disagree with itself.
+COVERAGE_KEY = "coverage"
+
 #: The section id used to report on the document itself when it cannot be read. Named
 #: rather than empty, so the consumer renders a reason instead of an absence.
 SELF_SECTION = "status"
@@ -173,13 +178,30 @@ def unreadable_reasons(document: object) -> list[str]:
     return reasons
 
 
-def section(findings: list[probe_results.Finding]) -> dict:
-    """One section: its state, and both groups kept apart.
+def section(findings: list[probe_results.Finding], *, coverage: str = "") -> dict:
+    """One section: its state, both groups kept apart, and what it drew them from.
 
     When a section has faults *and* things nobody could check, the state is `findings`
     — something known-wrong outranks something unknown — but the unchecked list is
     still carried. Dropping it there would show a partial picture as a complete one,
     which is the failure this plan exists for.
+
+    `coverage` is the population the section actually examined, stated in its own
+    numbers and carried even when the section is clean. Without it a consumer can only
+    infer coverage from the ABSENCE of a complaint, and a section that examined nothing
+    is then indistinguishable from one that examined everything and found it well — the
+    defect this plan is named for, one level up. The key is omitted entirely when a
+    section does not state one, so "this section reports no coverage" stays a different
+    fact from "this section compared nothing".
+
+    **The panel deliberately does not read this key, and `check_panel_contract` does not
+    demand that it does.** The key exists for a machine consumer that must assert on a
+    number — the acceptance gate does exactly that. A human reading the panel already
+    gets the signal a different way: incomplete coverage produces an `unchecked` finding,
+    which the panel renders and which moves the section to `unavailable`. Adding a
+    second rendering of the same fact would put a sentence under every healthy section
+    at every login. Written down because a document key nothing reads is normally a
+    defect here, and this one is a decision.
     """
     broken = [finding.text for finding in findings if finding.checked]
     unchecked = [finding.text for finding in findings if not finding.checked]
@@ -189,7 +211,10 @@ def section(findings: list[probe_results.Finding]) -> dict:
         state = UNAVAILABLE
     else:
         state = OK
-    return {"state": state, "findings": broken, "unchecked": unchecked}
+    entry = {"state": state, "findings": broken, "unchecked": unchecked}
+    if coverage:
+        entry[COVERAGE_KEY] = coverage
+    return entry
 
 
 def build(
@@ -198,8 +223,14 @@ def build(
     kernel: str,
     at: str,
     handoff: str = "",
+    coverage: dict[str, str] | None = None,
 ) -> dict:
     """The whole document. Plain JSON types throughout — JavaScript reads this.
+
+    `coverage` maps a section id to that section's own statement of what it examined.
+    Sections that state one carry it whether or not they found anything; a section
+    absent from the map simply carries no such key, which is deliberately a different
+    observation from stating that it compared nothing.
 
     `handoff` is where the Claude Code handoff file was written, or `""` when there is
     none. Carried HERE because this document is the panel's only data source: the
@@ -212,12 +243,16 @@ def build(
     observation to a reader, and this plan exists because two different things looked
     alike.
     """
+    stated = coverage or {}
     return {
         "schema": SCHEMA_VERSION,
         "generated_at": at,
         "kernel": kernel,
         "handoff": handoff,
-        "sections": {name: section(findings) for name, findings in sections.items()},
+        "sections": {
+            name: section(findings, coverage=stated.get(name, ""))
+            for name, findings in sections.items()
+        },
     }
 
 

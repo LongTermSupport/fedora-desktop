@@ -774,8 +774,7 @@ anything**:
   from one that ran and found something — and `systemctl --user is-failed` would stay silent
   about a health surface that had stopped working
 
-**One play, two deliveries.** Only the delivery was ever profile-specific; the three
-checks are not. `scope: general`, branching on `provisioning_profile`:
+**One play, two deliveries.** Only the delivery is profile-specific; the checks are not. `scope: general`, branching on `provisioning_profile`:
 
 - **desktop** — a `systemd --user` unit at the **end of a graphical login**, not at boot,
   so somebody is present to read the notification

@@ -45,6 +45,31 @@ for test_file in "${TEST_FILES[@]}"; do
     fi
 done
 
+# The list above is what RUNS; this is what EXISTS. Naming the files explicitly is right
+# (see the comment at the runner call), but a hand-maintained list nothing compares with
+# the directory is the discovery defect `qa-bash.bash` had and `qa-python.bash` still had
+# a fortnight later: a third suite is added, never runs, and the gate keeps printing a
+# pass with no indication that a file was skipped. Deriving the COUNT from the suites, as
+# below, does not help — an unlisted file contributes to neither side.
+for found in tests/extensions/test-*.mjs; do
+    if [[ ! -e "$found" ]]; then
+        echo "✗ panel-sections: tests/extensions/ holds no test-*.mjs at all" >&2
+        exit 2
+    fi
+    listed=0
+    for test_file in "${TEST_FILES[@]}"; do
+        if [[ "$test_file" == "$found" ]]; then
+            listed=1
+            break
+        fi
+    done
+    if [[ "$listed" -eq 0 ]]; then
+        echo "✗ panel-sections: $found exists but is not in TEST_FILES, so it never runs" >&2
+        echo "  Add it to the list in $0 — this gate judges only what it names." >&2
+        exit 2
+    fi
+done
+
 # Named explicitly rather than by directory. Node's test runner treats a directory
 # argument as a module to load, and a glob would sweep in the loader and the stubs — which
 # declare no tests, so a run that quietly found none would still exit 0.

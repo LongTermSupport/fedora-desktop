@@ -16,10 +16,14 @@
 
 ## What qa-all.bash Runs
 
-`qa-all.bash` runs **thirty-six** gates. Seven merge their JSON into
-`/tmp/qa-results.json`; the other twenty-nine run separately (see below). Those seven emit
-**eight** named verdict lines — `qa-bash.bash` prints `bash` and `shellcheck` — so a run
-shows 37 stage names for 36 gates. A missing **required** tool makes a stage (and the whole
+`qa-all.bash` runs **thirty-seven** gates. Seven merge their JSON into
+`/tmp/qa-results.json` through a positional `.[0]..[6]` merge; the other thirty run
+separately (see below). Those seven emit **eight** named verdict lines — `qa-bash.bash`
+prints `bash` and `shellcheck` — so a run shows 38 stage names for 37 gates.
+
+Counted from a run's own verdict lines rather than kept by hand, because a number in a
+document is the first thing to go stale: `./scripts/qa-all.bash` and count the distinct
+`name:` prefixes on the `✓`/`✗`/`⚠` lines. A missing **required** tool makes a stage (and the whole
 run) exit `2`; a real analyser crash (e.g. ruff/shellcheck exit ≥ 2) is a hard failure,
 never silently treated as "0 issues".
 

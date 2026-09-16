@@ -632,6 +632,100 @@ class TestTheRealResolvers(unittest.TestCase):
             self.assertIsNone(check_pins._command_version("evdi"))
 
 
+class TestCoverageIsStatedNotInferred(unittest.TestCase):
+    """The numbers, always — not a sentence that appears only when something is wrong.
+
+    The acceptance gate for this plan asked the document "does it contain the phrase
+    `compared 0 of `?" and called the absence of that phrase a real population. Two
+    reachable states have no such phrase and no comparisons: a pin whose probe raised
+    (an error finding suppresses the coverage guard), and PARTIAL coverage (whose
+    wording is `compared 1 of 2`). A grep for a sentence is not an assertion about a
+    population, and this is the axis the 2026-09-11 incident happened on.
+    """
+
+    EMPTY_REGISTRY = probe_results.DkmsRegistry(present=False)
+
+    def test_a_clean_host_still_states_what_it_compared(self) -> None:
+        """The case that had NOTHING to assert on. A host that compares everything
+        returns no findings at all, so a consumer could only infer coverage from
+        silence — which is indistinguishable from an axis that never ran."""
+        result = check_pins.check_with_coverage(
+            pins=[pin()], playbook_text=lambda _: PLAYBOOK,
+            dkms_status=lambda: DKMS_FIXED,
+            registry=probe_results.DkmsRegistry(present=True, modules=("evdi",)))
+        self.assertEqual(result.findings, [])
+        self.assertEqual(result.coverage.compared, 1)
+        self.assertEqual(result.coverage.tracked, 1)
+        self.assertTrue(result.coverage.is_complete)
+
+    def test_a_pin_whose_probe_RAISED_reports_zero_compared(self) -> None:
+        """State (a). `dkms status` raising produces an error finding, which suppresses
+        the coverage guard — so the document carried an error and no coverage sentence,
+        and the gate read that as a real population."""
+
+        def explode() -> str:
+            raise check_pins.ResolutionError("dkms: cannot open /var/lib/dkms")
+
+        result = check_pins.check_with_coverage(
+            pins=[pin()], playbook_text=lambda _: PLAYBOOK,
+            dkms_status=explode,
+            registry=probe_results.DkmsRegistry(present=True, modules=("evdi",)))
+        self.assertEqual(len(result.findings), 1)
+        self.assertEqual(result.coverage.compared, 0)
+        self.assertFalse(result.coverage.is_complete)
+
+    def test_PARTIAL_coverage_is_incomplete_even_with_a_finding_present(self) -> None:
+        """State (b). One tracked pin compared and drifted, one skipped: the findings
+        list is non-empty, so the guard stays quiet, and `compared 0 of ` never appears
+        even though half the axis is dark."""
+        result = check_pins.check_with_coverage(
+            pins=[
+                pin(),
+                pin(var="displaylink_version",
+                    installed={"kind": manifest.RPM, "name": "displaylink"}),
+            ],
+            playbook_text=lambda _: PLAYBOOK,
+            dkms_status=lambda: DKMS_FIXED,
+            rpm_version=lambda _: "0.0.1-wrong",
+            registry=self.EMPTY_REGISTRY)
+        self.assertEqual(result.coverage.tracked, 2)
+        self.assertEqual(result.coverage.compared, 1)
+        self.assertFalse(result.coverage.is_complete)
+
+    def test_a_manifest_tracking_nothing_is_not_complete_coverage(self) -> None:
+        """`0 of 0` is vacuous, not clean. Without this, a manifest that tracks nothing
+        satisfies `compared == tracked` and the gate passes a host holding nothing at
+        all against the repo — the zero-population pass this plan exists to remove."""
+        result = check_pins.check_with_coverage(
+            pins=[pin(installed={"kind": manifest.UNTRACKED,
+                                 "why": "nothing host-side to compare"})],
+            playbook_text=lambda _: PLAYBOOK,
+            dkms_status=lambda: DKMS_FIXED, registry=self.EMPTY_REGISTRY)
+        self.assertEqual(result.coverage.tracked, 0)
+        self.assertFalse(result.coverage.is_complete)
+
+    def test_check_returns_exactly_what_check_with_coverage_reports(self) -> None:
+        """The two entry points must not drift: `check` is the old signature kept for
+        its callers, and a second implementation of the loop is how this repo's
+        duplicate-walk defects start."""
+        self.assertEqual(
+            check_pins.check(
+                pins=[pin()], playbook_text=lambda _: PLAYBOOK,
+                dkms_status=lambda: DKMS_INCIDENT, registry=self.EMPTY_REGISTRY),
+            check_pins.check_with_coverage(
+                pins=[pin()], playbook_text=lambda _: PLAYBOOK,
+                dkms_status=lambda: DKMS_INCIDENT,
+                registry=self.EMPTY_REGISTRY).findings,
+        )
+
+    def test_the_sentence_carries_both_numbers(self) -> None:
+        """The consumer parses these. A wording change that drops a number breaks the
+        gate silently, so the format is asserted here rather than only in prose."""
+        sentence = check_pins.Coverage(
+            declared=9, tracked=2, compared=1, unanswerable_dkms=1).sentence()
+        self.assertIn("1 of 2", sentence)
+
+
 class TestExitStatus(unittest.TestCase):
     def test_clean_is_zero_and_findings_are_not(self) -> None:
         self.assertEqual(check_pins.EXIT_OK, 0)

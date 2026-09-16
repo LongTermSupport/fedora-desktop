@@ -284,6 +284,11 @@ for name in sorted(sections):
         print("STATE " + name + " unreadable")
         continue
     print("STATE " + name + " " + str(entry.get("state")))
+    # The key name comes from the producer, not a literal spelled here: a gate with its
+    # own copy of an interface string keeps passing after the producer renames it.
+    stated = entry.get(status_document.COVERAGE_KEY)
+    if stated:
+        print("COVERAGE " + name + " " + " ".join(str(stated).split()))
     reported = list(entry.get("findings") or []) + list(entry.get("unchecked") or [])
     for text in reported:
         print("TEXT " + name + " " + " ".join(str(text).split()))
@@ -427,26 +432,53 @@ else
 fi
 printf '\n'
 
-# --- 4. installed-vs-pinned compared something -------------------------------------------
+# --- 4. installed-vs-pinned compared every tracked pin -----------------------------------
 #
 # THE AXIS THE 2026-09-11 INCIDENT HAPPENED ON, and the one whose silence looks exactly
-# like health. `check_pins` emits a "compared 0 of N" unchecked finding when its population
-# is empty, precisely so that zero coverage cannot render as `ok`. This asserts the
-# OUTCOME on this host: something really was compared. A drifted pin is a finding about
-# the host and is noted, not rejected — that is the check working.
-check 4 "installed-vs-pinned compared something on this host"
+# like health. The section STATES the population it compared, on every run including a
+# clean one, and this asserts the numbers.
+#
+# It used to grep for the literal phrase `compared 0 of ` and treat its absence as a real
+# population. Two reachable states have no such phrase and no comparisons: a pin whose
+# probe RAISED (the error finding suppresses the coverage sentence entirely), and PARTIAL
+# coverage, whose wording is `compared 1 of 2`. Both printed PASS. That is coverage
+# inferred from the absence of a complaint, under a file header promising the opposite,
+# in the gate that vouches for the fix for exactly this defect.
+#
+# A drifted pin is a finding ABOUT the host and is noted, not rejected — that is the check
+# working. Nothing compared is a finding about the CHECK, and rejects.
+check 4 "installed-vs-pinned compared every tracked pin on this host"
 pins_line=""
 pins_state=""
-zero_line=""
+pins_cov=""
 if ! pins_line="$(grep -m1 -e '^STATE installed-vs-pinned ' "${STATUS_PROBE}")"; then
     bad "the document carries no installed-vs-pinned state" \
         "check [3] names what it does carry; without this section the axis is not merely quiet, it is absent"
-elif zero_line="$(grep -m1 -e '^TEXT installed-vs-pinned .*compared 0 of ' "${STATUS_PROBE}")"; then
-    bad "the pin check compared nothing — this drift axis is quiet" \
-        "${zero_line#TEXT installed-vs-pinned }"
+elif ! pins_cov="$(grep -m1 -e '^COVERAGE installed-vs-pinned compared ' "${STATUS_PROBE}")"; then
+    bad "the pin section states no coverage, so there is no population to assert on" \
+        "check_pins states 'compared N of M tracked pins' on every run; its absence means the producer changed and this gate stopped measuring"
 else
+    # "compared N of M tracked pins" — both numbers, always, so neither the zero case nor
+    # the partial one can hide in a sentence that reads fine.
+    pins_stated="${pins_cov#COVERAGE installed-vs-pinned compared }"
+    pins_compared="${pins_stated%% *}"
+    pins_rest="${pins_stated#* of }"
+    pins_tracked="${pins_rest%% *}"
     pins_state="${pins_line#STATE installed-vs-pinned }"
-    ok "the pin check has a real compared population (section state: ${pins_state})"
+    if ! [[ "${pins_compared}" =~ ^[0-9]+$ ]] || ! [[ "${pins_tracked}" =~ ^[0-9]+$ ]]; then
+        bad "the pin section's coverage does not carry two numbers" \
+            "read: ${pins_cov}. A reworded sentence breaks this gate silently, which is why the wording is asserted in the helper's own suite too"
+    elif [[ "${pins_tracked}" -eq 0 ]]; then
+        # `0 of 0` satisfies compared == tracked while describing a host that held
+        # nothing against the repo. Vacuous, not clean.
+        bad "the repo tracks no pin's install state, so this axis cannot fail" \
+            "every pin in vars/version-pins.yml is declared untracked; nothing on this host was compared against the repo's versions"
+    elif [[ "${pins_compared}" -ne "${pins_tracked}" ]]; then
+        bad "the pin check compared ${pins_compared} of ${pins_tracked} tracked pins — the rest of this axis is dark" \
+            "a host that compares some of its pins renders identically to one that compared them all; see the section's own findings below"
+    else
+        ok "compared ${pins_compared} of ${pins_tracked} tracked pins (section state: ${pins_state})"
+    fi
     if [[ "${pins_state}" != "ok" ]]; then
         while IFS= read -r finding_line; do
             note "installed-vs-pinned: ${finding_line#TEXT installed-vs-pinned }"

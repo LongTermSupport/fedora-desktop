@@ -137,8 +137,13 @@ def publish(
     # `handoff_path`, not `handoff`: this module imports the `handoff` module, and a
     # parameter of that name shadows it inside the function body.
     handoff_path: str = "",
+    coverage: dict[str, str] | None = None,
 ) -> str:
     """Write the machine-readable document, and return where it went.
+
+    `coverage` carries each section's statement of the population it examined, so a
+    consumer asserts on a number instead of inferring one from the absence of a
+    complaint.
 
     Written on **every** run, clean or not. A document that only appears when
     something is wrong makes a healthy host look exactly like a host nothing has ever
@@ -159,7 +164,8 @@ def publish(
     status_document.write_atomic(
         path,
         status_document.build(
-            sections=sections, kernel=kernel, at=at, handoff=handoff_path
+            sections=sections, kernel=kernel, at=at, handoff=handoff_path,
+            coverage=coverage,
         ),
     )
     return path
@@ -175,6 +181,7 @@ def record_host_state(
     at: str,
     out: Callable[[str], object],
     diagnostics: Callable[[str], object],
+    coverage: dict[str, str] | None = None,
 ) -> str:
     """Write the handoff and the status document, in that order, and return the path.
 
@@ -215,6 +222,7 @@ def record_host_state(
             kernel=kernel,
             at=at,
             handoff_path=handoff_path,
+            coverage=coverage,
         )
     except Exception as error:
         diagnostics(f"the host status document could not be written: {error}\n")
@@ -440,11 +448,15 @@ def main(
     # the identical XDG rule, which is how the panel finds the same file.
     state_base = ledger.state_dir(os.environ, home)
 
-    sections = collect_sections(
-        health=lambda: probe.collect(running_kernel=probe.running_kernel()),
-        ledger_present=lambda: ledger_presence.findings(base),
-        freshness=lambda: freshness_findings(base, arguments.repo_root, stderr=diagnostics),
-        pins=lambda: check_pins.check(
+    # The pin axis states the population it compared, and the document carries it even
+    # when the axis is clean. Captured here because the producer runs inside
+    # `status_document.collect`'s per-section guard and returns only findings — and a
+    # producer that raised has no coverage to state, which is why the map stays empty
+    # rather than gaining a zero.
+    stated_coverage: dict[str, str] = {}
+
+    def pins_findings() -> list[probe_results.Finding]:
+        result = check_pins.check_with_coverage(
             pins=check_pins.declared_pins(arguments.repo_root),
             playbook_text=lambda relative: _read(arguments.repo_root, relative),
             dkms_status=lambda: dkms_text(probe.run_probe),
@@ -454,7 +466,15 @@ def main(
             # that ran the play and one that never did.
             registry=probe.dkms_registry(),
             ran_plays=plays_run_here(base),
-        ),
+        )
+        stated_coverage[PINS] = result.coverage.sentence()
+        return result.findings
+
+    sections = collect_sections(
+        health=lambda: probe.collect(running_kernel=probe.running_kernel()),
+        ledger_present=lambda: ledger_presence.findings(base),
+        freshness=lambda: freshness_findings(base, arguments.repo_root, stderr=diagnostics),
+        pins=pins_findings,
     )
     findings = [finding for group in sections.values() for finding in group]
     notifier: Callable[[str], None] = (lambda _: None) if arguments.no_notify else _notify_send
@@ -470,6 +490,7 @@ def main(
             at=repo.utc_now(),
             out=out.write,
             diagnostics=diagnostics.write,
+            coverage=stated_coverage,
         )
     return status
 

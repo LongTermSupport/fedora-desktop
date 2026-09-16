@@ -33,7 +33,7 @@ import re
 import subprocess
 import sys
 from collections.abc import Callable
-from typing import TextIO
+from typing import NamedTuple, TextIO
 
 from helpers.host_health import probe_results
 from helpers.version_pins import compare, manifest
@@ -179,6 +179,55 @@ def _run(argv: list[str]) -> str:
     return completed.stdout
 
 
+class Coverage(NamedTuple):
+    """What this host actually compared, in this host's numbers.
+
+    Carried ALWAYS, including on a clean run. The coverage *finding* below fires only
+    when something is wrong, which left a consumer with nothing to assert on when
+    everything was right — so this plan's own acceptance gate asked the rendered
+    document whether it contained the phrase `compared 0 of ` and called the absence of
+    that phrase a real population. Two reachable states have no such phrase and no
+    comparisons: a pin whose probe RAISED (the error finding suppresses the guard) and
+    PARTIAL coverage (whose wording is `compared 1 of 2`). A grep for a sentence is not
+    an assertion about a population, and this is the axis the incident happened on.
+    """
+
+    #: Every pin in the manifest, tracked or not.
+    declared: int
+    #: Pins whose install state this repo says to compare.
+    tracked: int
+    #: Pins this host actually compared. The number that can differ per host.
+    compared: int
+    #: How many of the uncompared ones were DKMS pins this host cannot resolve.
+    unanswerable_dkms: int
+
+    @property
+    def is_complete(self) -> bool:
+        """Whether this host held everything the repo tracks against the repo.
+
+        `tracked == 0` is NOT complete. `0 of 0` satisfies `compared == tracked` while
+        describing a host that compared nothing at all — a vacuous pass, which is the
+        shape this whole plan exists to remove.
+        """
+        return self.tracked > 0 and self.compared == self.tracked
+
+    def sentence(self) -> str:
+        """The numbers, in a form a consumer parses and a human reads.
+
+        Both numbers are always present. A consumer keys on them, so a reworded
+        sentence that drops one breaks the gate — the test asserts this format for
+        exactly that reason.
+        """
+        return f"compared {self.compared} of {self.tracked} tracked pins"
+
+
+class PinCheck(NamedTuple):
+    """The findings and what they were drawn from — never one without the other."""
+
+    findings: list[probe_results.Finding]
+    coverage: Coverage
+
+
 def check(
     *,
     pins: list[manifest.Pin],
@@ -189,7 +238,30 @@ def check(
     ran_plays: set[str] | None = None,
     registry: probe_results.DkmsRegistry | None = None,
 ) -> list[probe_results.Finding]:
-    """One finding per pin that is not a clean MATCH. The probes are seams.
+    """The findings alone, for callers that do not state coverage.
+
+    A thin wrapper over `check_with_coverage` rather than a second walk of the pins:
+    two implementations of this loop is how the duplicate-walk defects in this repo
+    start, and a test pins the two entry points to the same answer.
+    """
+    return check_with_coverage(
+        pins=pins, playbook_text=playbook_text, dkms_status=dkms_status,
+        rpm_version=rpm_version, command_version=command_version,
+        ran_plays=ran_plays, registry=registry,
+    ).findings
+
+
+def check_with_coverage(
+    *,
+    pins: list[manifest.Pin],
+    playbook_text: Callable[[str], str],
+    dkms_status: Callable[[], str],
+    rpm_version: Callable[[str], str | None] | None = None,
+    command_version: Callable[[str], str | None] | None = None,
+    ran_plays: set[str] | None = None,
+    registry: probe_results.DkmsRegistry | None = None,
+) -> PinCheck:
+    """One finding per pin that is not a clean MATCH, plus what was compared.
 
     `dkms_status` is called lazily and at most once, so a host with no DKMS modules
     and no tracked DKMS pin never pays for it — and, more to the point, never gets a
@@ -310,11 +382,13 @@ def check(
     # Today's manifest cannot reach that state (its only tracked pin is DKMS-resolved),
     # and adding a non-DKMS tracked pin FAILS the suite loudly rather than arriving here
     # silently; this is the guard for after someone does.
-    if pins and not findings and (tracked == 0 or compared < tracked):
+    coverage = Coverage(declared=len(pins), tracked=tracked, compared=compared,
+                        unanswerable_dkms=unanswerable_dkms)
+    if pins and not findings and not coverage.is_complete:
         findings.append(probe_results.unchecked(_coverage(
             declared=len(pins), tracked=tracked, compared=compared,
             unanswerable_dkms=unanswerable_dkms)))
-    return findings
+    return PinCheck(findings=findings, coverage=coverage)
 
 
 def _coverage(*, declared: int, tracked: int, compared: int,
