@@ -98,9 +98,16 @@ than the severe one. [FINDINGS.md §2](FINDINGS.md)
     counting ✓ stages counts a gate that ran nothing as one that passed. Task 3.1's `⚠` is
     deliberately a third symbol rather than a tick with prose after it
     ([FINDINGS.md §7](FINDINGS.md))
-- [ ] ⬜ **Task 1.4**: A plan-local `triage.bash` wrapping Task 1.1's measurement, so the
-  7-versus-38 number is re-derivable after Phase 3 rather than being a figure in a
-  document. Built on `_planlib.inc.bash` per `CLAUDE/PlanScriptStandards.md`
+- [x] ✅ **Task 1.4**: `triage.bash` + `probe-gate-census.bash`, on `_planlib.inc.bash`.
+  Run, and it re-derives 7-versus-38 independently — the report **names** all 31 lost
+  gates rather than only counting them, because a bare number cannot show which coverage
+  went missing. `plan_require_container`, and the reason is the measurement not
+  convenience: the finding is a same-machine differential, so the tool inventory cancels
+  out, but `qa-deployed-drift` does real work on a host and self-skips identically in both
+  container legs — the container is the more STABLE comparison
+  - [x] ✅ The probe refuses to report a comparison that established nothing. Falsified by
+    a mutant pointing both legs at the same checkout: `38 gates … 38 gates` → `[FATAL] both checkouts reported the same 38 gates, so this probe measured nothing`, exit 1. Without
+    it a broken probe would print "0 gates lost", which reads as the problem being fixed
 
 ### Phase 2: The decision gate
 
