@@ -768,3 +768,91 @@ ruled out.
 nits are real and measured, but none of them breaks a user, and every one is latent today. A is
 a hand-written enumeration standing in for a derived one inside the check written to catch a
 stale registration, and it costs one `declare -A` to remove.
+
+---
+
+# Addendum 3 — final, `2b84ff8f`, scoped to blocking correctness only
+
+Scope as instructed: only a finding that makes a gate return a wrong verdict, hide a failure,
+or claim something false about what it checked. `2b84ff8f` materialised into a temp clean
+checkout; the pinned worktree did not move. CI run `35085997269` on this commit was still in
+progress while I worked; `f500f2d2` before it is green.
+
+**One finding meets that bar.** It is one word, in the new gate, and I would not hold the plan
+for it.
+
+## The finding
+
+### Case 1 of `test-qa-docs-exit-codes.bash` can pass for the wrong reason
+
+`scripts/test-qa-docs-exit-codes.bash`, anchor
+`check_exit "a tree git cannot answer for" 2 "$GATE_RC" "link_check"`.
+
+`check_exit`'s own comment states the property: *"Two different faults share exit 2, and a gate
+that returned the right number for the wrong reason would pass a check that only read it."*
+The needle for case 1 is the bare string `link_check`, and **three** of `qa-docs.bash`'s exit-2
+branches contain it — the crash branch, the payload-validation branch, and
+`✗ docs: helpers/docs/link_check.py is missing — broken checkout`.
+
+Measured: case 1's fixture built exactly as the script builds it, but with the `helpers`
+symlink pointing at a path that does not exist —
+
+    exit=2
+    output: ✗ docs: helpers/docs/link_check.py is missing — broken checkout
+    >>> case 1's needle 'link_check' MATCHES -> the case would PASS
+
+So the case can report `PASS  a tree git cannot answer for -> exit 2` while the raise-and-refuse
+chain — the two hops the whole file says are the reason it exists — was never reached. That is
+the case claiming something false about what it exercised, which is the one thing the needle
+mechanism was added to prevent.
+
+**Fix, one word**: use a needle unique to the branch under test —
+`did not emit the expected JSON`. Nothing else prints it.
+
+## Why I am confident about the rest of the new gate
+
+- **It discriminates against the mutation it exists for.** I deleted `qa-docs.bash`'s
+  `has("findings") and has("scanned")` validation and re-ran: `FAIL a tree git cannot answer
+  for — expected exit 2, got 4`. The two-hop chain is now genuinely asserted rather than
+  reasoned about, which closes finding 9.
+- **It discriminates against a gate that returns 2 for everything.** With `exit 2` inserted at
+  the top of `qa-docs.bash`: `passed: 0 failed: 4` — all four cases fail, including the two
+  that *expect* 2, because the needles find no message. The needle mechanism does real work;
+  case 1's needle is simply the wrong string.
+- The fixtures are outside the repository (`mktemp -d`) with a cleanup trap, symlink the real
+  `helpers/` rather than copying it, and `os.walk` does not follow that symlink, so the real
+  `helpers/CLAUDE.md` is not dragged into a fixture's scan. `run_gate` uses globals with the
+  subshell hazard called out. Mode `100755`, shellcheck clean.
+- Gate inventory, derived and checked both ways at this commit: **37 run, 37 documented, 0
+  run-not-documented, 0 documented-not-run.** The new row is real.
+- Suites at this commit: `link_check` 90 tests OK, `gate_call_sites` 23 tests OK, coupling
+  suite `passed: 66 failed: 0`, `test-qa-docs-exit-codes.bash` 4/4,
+  `✓ docs: 71 files (71 tracked) OK … 0 verified, 8 unverifiable, 0 broken` in a synthesised
+  clean checkout.
+
+## Everything else I have open is outside the cap, and I am not re-raising it
+
+Stated once so the record is complete, not as findings:
+
+- The `GATE_COMMAND_VARS` array (addendum 2, finding A) is unchanged at `2b84ff8f`. It is a
+  latent gap: all six registrations are listed today, so no verdict is wrong and no output
+  claims otherwise. Outside the cap.
+- The COVERAGE branch printing `PASS` with an empty count when the parser cannot run
+  (addendum 2, finding B) — the run still fails, loudly, by the reverse check. Outside the cap.
+- `.tracked` being untyped (C) and the escaped-quote truncation (D) are **already fixed in the
+  working tree** — I can see `(.tracked | type == "number")` in `qa-docs.bash`'s guard and
+  `(?<!\\)(?P=quote)` in `gate_call_sites.py`, with a test asserting the escaped quote is
+  reported rather than truncated. Neither is in `2b84ff8f`; both will land with the next commit.
+- Prose, comment wording and counts: I checked `CLAUDE/QA.md`'s "thirty-six gates" /
+  "twenty-nine" / "37 stage names" prose against the 37 gates now in the inventory and it has
+  not moved. Excluded by the cap, recorded here in one line so that the check I ran is visible.
+
+## Verdict
+
+**PASS**, with the one-word correction above recorded rather than held for.
+
+Nothing in the production path returns a wrong verdict, hides a failure, or claims something
+it did not check. The docs gate reaches the same exit code with and without the daemon and
+says which; its three documented exit codes are now produced by running it; the call-site
+population is parsed rather than counted twice; every number in its stage line is checked
+before it is printed. The plan's two causes are fixed and demonstrated on both machines.
