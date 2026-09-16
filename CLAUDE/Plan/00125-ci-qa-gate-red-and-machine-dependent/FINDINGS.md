@@ -72,11 +72,11 @@ exactly the 8 offenders; the 7 rule files this repo authored stay checked.
 The objection I would have raised is that this is (b) wearing a hat. It is not, and the
 distinction is the one `CLAUDE.md`'s rule actually turns on:
 
-| | (b) conditional on the tree being present | (d) exclude daemon-generated files |
-| --- | --- | --- |
-| Depends on the environment | **yes** — checks here, skips in CI | no — same everywhere |
-| Can pass a broken link | yes, exactly where it cannot tell | yes — but only in files we neither author nor can fix |
-| Needs a network | no | no |
+|                            | (b) conditional on the tree being present | (d) exclude daemon-generated files                    |
+| -------------------------- | ----------------------------------------- | ----------------------------------------------------- |
+| Depends on the environment | **yes** — checks here, skips in CI        | no — same everywhere                                  |
+| Can pass a broken link     | yes, exactly where it cannot tell         | yes — but only in files we neither author nor can fix |
+| Needs a network            | no                                        | no                                                    |
 
 (b) is "check when convenient". (d) is a **scope** decision: this repository does not author
 these files, cannot fix their links, and would have its edits re-rendered by
@@ -117,6 +117,71 @@ Worth stating plainly for the decision: CI needs **one 12KB file** — `Director
 and option (a) as originally phrased fetches a whole repository to get it. `--depth 1` is
 the sane form. The dependency on an external repo's availability is real either way, and
 that, not the byte count, is what the owner is actually weighing.
+
+## The counts are not in the text
+
+The `helper-tests` stage line has to tell a clean machine from a blind one, because
+`unittest` counts a SKIPPED test inside `testsRun` and `Ran 1464 tests` is byte-identical
+either way. Four readers were written to scrape that count out of the run's captured
+output. Every one of them was verified by hand, landed, and was then defeated:
+
+| Reader                                 | Defeated by                                                                                      | Wrong answer         |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------ | -------------------- |
+| `\(skipped=[0-9]+\)`                   | `OK (skipped=1, expected failures=1)` — unittest appends more inside the same bracket            | `0` for a real skip  |
+| unscoped match over the whole capture  | bash `=~` takes the FIRST hit anywhere; this repo's own fixtures contain `skipped=41`            | the fixture's number |
+| last match wins, merged `2>&1` capture | Python block-buffers stdout to a pipe at 8KB: a padded decoy flushes EARLY, an unpadded one LATE | `99` where truth `0` |
+| last match wins, stderr alone          | an `atexit` handler printing to stderr runs AFTER unittest's summary                             | `99` where truth `0` |
+
+The third and fourth are the instructive pair. Having measured that a small decoy lands
+after the summary, "last match wins" looked forced; the padding case shows the ordering is
+a function of how much the test printed, so **no first-or-last rule over a merged stream
+can be correct**. Separating the streams then looked like a structural fix rather than a
+fifth guess — but it rests on "unittest's summary is always last on stderr", and that is
+simply false. Reproduced on the first attempt:
+
+```
+Ran 1 test in 0.000s      <- unittest's real summary
+OK
+Ran 3 tests in 9.999s     <- the atexit handler, after it
+OK (skipped=99)
+```
+
+A test can write anything, to either stream, in any order. The text is therefore not a
+source of truth for this, and no amount of match-rule cleverness changes that. The numbers
+exist exactly once, in unittest's `TestResult` object, and that is what
+`helpers/qa_environment/unittest_counts.py` reads — writing them to a file whose path the
+caller supplies, so the payload never shares a channel with anything a test can reach.
+
+Two secondary properties came free. The previous pair of readers had drifted into opposite
+match rules and disagreed with each other about the same run; there is now one reader, so
+they cannot. And a malformed counts file **fails** rather than reporting zero, because
+"the reader went blind" and "the machine skipped nothing" must never print the same line —
+which is the defect the whole exercise exists to remove, and the one every revision found
+a new way to reintroduce.
+
+**Task 4.5 is the same shape, unfixed.** 21 other hard gates in `qa-all.bash` read their
+case count with `grep -oE 'passed: [0-9]+'`, unscoped: `-o` prints every match, so a
+second occurrence makes the stage line two lines and `verdicts.py` reads the first as the
+stage and loses the rest. It is not fixed in passing because those gates do not agree on a
+format — `passed: N` alone, one/two/three spaces before `failed:`, and two prefixed with
+the gate's own name — so a shared reader is a design task, not an extraction.
+
+## The two machines disagree on three stages, and each is declared
+
+Measured by `triage.bash` at the same commit on both machines with a clean tree
+(`fa3cfe8e`, CI run `35040903213`): 36 stages each side, 37 of 38 symbol-prefixed lines
+accounted for.
+
+| Stage            | Local         | CI              | Declared where                              |
+| ---------------- | ------------- | --------------- | ------------------------------------------- |
+| `docs`           | 71 files OK   | 8 findings      | Cause A above — the one open decision (2.1) |
+| `deployed-drift` | skipped (CCY) | skipped (clean) | prints its own reason on each machine       |
+| `helper-tests`   | 1 skipped     | 2 skipped       | `CLAUDE/QA.md`, machine-dependence table    |
+
+`js`, `bash`, `patterns` and `python` now agree exactly, which three of them did not
+before this plan. The `helper-tests` row is the deliverable rather than a residue: the two
+machines skip *different* tests, and until the skip count joined the line the two sides
+were byte-identical and read as `agree`.
 
 ## Cause B — tests that read the machine they were written on
 
@@ -170,7 +235,7 @@ satisfy on a runner. Only `$container` was injectable; the two marker paths now 
 
 **The host consequence, and why "the behaviour is identical" understated it.**
 `qa-deployed-drift.bash:219` covers `files/home/.local/lib/freeze/*` and compares with
-`cmp -s`, so a comment-only change drifts. Its abort is `qa-all.bash:137`, which sits
+`cmp -s`, so a comment-only change drifts. Its abort is `qa-all.bash:138`, which sits
 *before* `helper-tests` — so an undeployed host has a red `qa-all.bash` that **stops 27
 hard gates short** (derived from the stage names a real run prints, not from `exit 1`
 lines). That is this plan's own Task 4.1 mechanism aimed at the owner's workstation, and
@@ -195,6 +260,13 @@ running at all, and the number of checks actually executing falls with nothing r
 it. **20 of the 25 gates behind the abort had never run once in CI** by the time the first
 fix landed, and clearing it surfaced real failures in two of them — `panel-sections`, then
 `freezelib` — one at a time, as each fix let the run reach one gate further.
+
+**Two, not three.** A third case was recorded alongside them at the time and repeated into
+`PLAN.md`: `js` reporting 10 files locally against 8 in CI. That is a real divergence and it
+is fixed, but `js` is one of the seven *accumulating* stages, so it ran on every CI run and
+was never masked by the abort. Counting it made the unmasking look more frequent than it
+was — the opposite direction from the undercount this plan is about, and worth naming for
+that reason.
 
 That is Task 4.1's answer and the argument for Task 4.3.
 
@@ -237,7 +309,7 @@ what CI *was* masking are the counts at the masked commit and are labelled as su
 
 The seven accumulating stages are `bash`, `python`, `patterns`, `ansible`,
 `ansible-syntax`, `js` and `docs`; they merge into one JSON document and are reported
-together by `qa-all.bash:613-620`.
+together by `qa-all.bash:610-627`.
 
 **This is the explanation the plan was missing.** The two causes were masked differently
 because they fell on opposite sides of that line:
@@ -246,6 +318,7 @@ because they fell on opposite sides of that line:
   masked nothing at all — every gate behind it kept running. That is why the current CI log
   shows `✗ docs` followed by 28 passing stages and only then `✗ QA FAILED` (run
   `35041998528`, counted from that run's own output).
+
 - **Cause B landed in hard gates**, and the number that matters is the one at the commits
   where masking actually happened — **not** `29ceee97`, which is this plan's own round-2
   commit, by which point the test fixes had landed, `helper-tests` passed
@@ -254,10 +327,10 @@ because they fell on opposite sides of that line:
   to a commit that had stopped exhibiting it. Behind `helper-tests` at the commits that were
   actually red:
 
-  | Commit     | Date       | Hard gates masked | |
-  | ---------- | ---------- | ----------------- | --- |
-  | `9a79dd77` | 2026-09-11 | **5**             | helper-tests first goes red |
-  | `b3f6e909` | 2026-09-14 | **11**            | |
+  | Commit     | Date       | Hard gates masked |                                                                              |
+  | ---------- | ---------- | ----------------- | ---------------------------------------------------------------------------- |
+  | `9a79dd77` | 2026-09-11 | **5**             | helper-tests first goes red                                                  |
+  | `b3f6e909` | 2026-09-14 | **11**            |                                                                              |
   | `497370ba` | 2026-09-15 | **25**            | `cedc9426~1` — the high-water mark, immediately before this plan's first fix |
 
   The masked set **grew fivefold in four days**, because 21 commits touched `qa-all.bash` in

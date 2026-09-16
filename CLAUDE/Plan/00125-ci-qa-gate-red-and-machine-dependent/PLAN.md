@@ -161,7 +161,7 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
   in a container the real marker files are there. Falsified both ways (journal, 23:52).
   **HOST, and more urgent than "the behaviour is identical" suggested.**
   An undeployed host's `qa-all.bash` is red **and stops 27 hard gates short**, because the
-  drift gate aborts at `qa-all.bash:137` — before `helper-tests`. **Run BOTH
+  drift gate aborts at `qa-all.bash:138` — before `helper-tests`. **Run BOTH
   `play-podfreeze.yml` and `play-lxcfreeze.yml`**, not either: each deploys its own binary
   and all three files changed. Runtime behaviour is unchanged. Detail in `FINDINGS.md`
 
@@ -170,11 +170,13 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
 - [x] ✅ **Task 4.1**: The identical-looking red run is only half of it, and the other half
   is worse. `qa-all.bash` **exits at the first failing hard gate**, so from the moment the
   DisplayLink pair began failing CI stopped executing every gate behind `helper-tests`:
-  **5 at `9a79dd77`, 11 by `b3f6e909`, 25 by `497370ba`** (`cedc9426~1`) — fivefold in four days,
-  because every gate added in that window landed behind an abort already out of reach. The suite did not merely stay red — *the number of checks actually
-  running fell*, and nothing said so. Three compounding causes, written up in `FINDINGS.md`.
-  **Demonstrated live three times while closing Phase 3** — each fix revealed the next gate
-  that had never run once (journal, 23:38 and 23:52). The remedy is Task 4.3
+  **5 at `9a79dd77`, 11 by `b3f6e909`, 25 by `497370ba`** (`cedc9426~1`) — fivefold in four
+  days, because every gate added in that window landed behind an abort already out of reach.
+  The suite did not merely stay red — *the number of checks actually running fell*, and
+  nothing said so. Three compounding causes, written up in `FINDINGS.md`. **Demonstrated
+  live twice while closing Phase 3**: clearing the abort revealed a real failure in
+  `panel-sections`, then in `freezelib`, each a gate that had never run once (journal, 23:38
+  and 23:52). The remedy is Task 4.3
 
 - [x] ✅ **Task 4.2**: `CLAUDE/QA.md` now carries *"The same command does not reach the same
   verdict everywhere"* — a table of each environment-dependent stage and what it needs,
@@ -195,24 +197,30 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
   whether to invent it. That split is also why the two causes hid differently — `docs`
   accumulates and masked nothing; Cause B was in hard gates. See `FINDINGS.md`
 
-- [x] ✅ **Task 4.4**: The `helper-tests` line now has a test, because it had been wrong
-  twice in three revisions and every hand-check died with the session that ran it. Both
-  readers moved to `scripts/lib/qa-helper-summary.bash`, sourced by `qa-all.bash`, driven by
-  `scripts/test-qa-helper-summary.bash` (23 cases) which runs as its own gate — so the test
-  exercises the shipped functions rather than a copy of the expression. Falsified against
-  all three historical defects: the whole-capture match fails 6 cases, the closing-paren
-  match 2, answering `0` for an unreadable capture 3. An unreadable capture now **fails**
-  rather than reporting `0 skipped`, which was the same defect waiting to happen a fourth
-  time. `helpers/docs/link_check.py` learned that a `source`d library is not a gate —
-  otherwise the inventory would have demanded a row claiming a library checks something
+- [x] ✅ **Task 4.4**: The `helper-tests` line no longer scrapes the run's output. Four
+  readers that did were each defeated by a test printing unittest-shaped text, the last by
+  an `atexit` handler writing after unittest's summary — see `FINDINGS.md`, "The counts are
+  not in the text". `helpers/qa_environment/unittest_counts.py` (18 tests) takes both
+  numbers from unittest's `TestResult` object and writes them to the path
+  `qa-helper-tests.bash --counts-file` is given; the single reader in
+  `scripts/lib/qa-helper-summary.bash` reads that file and **fails** rather than reporting
+  zero when it cannot, driven by `scripts/test-qa-helper-summary.bash` (29 cases) as its own
+  gate. Mutation-tested: 6 mutations of the runner, 8 of the reader, all caught. The last
+  case runs the real runner end to end, so a format change on one side alone turns it red
+
+- [ ] ⬜ **Task 4.5**: 21 other hard gates read their case count with the same unscoped
+  `grep -oE 'passed: [0-9]+'` that Task 4.4 removed here — `-o` prints **every** match, so a
+  second occurrence makes the stage line two lines and `verdicts.py` reads the first as the
+  stage and loses the rest. Not fixed in passing because the gates do not agree on a format
+  (`passed: N`, one/two/three spaces before `failed:`, two of them prefixed with the gate's
+  own name), so a shared reader needs designing rather than extracting
 
 ### Phase 5: Close
 
-- [x] ✅ **Task 5.1**: `./scripts/qa-all.bash` green locally — 918 files.
+- [x] ✅ **Task 5.1**: `./scripts/qa-all.bash` green locally — 920 files.
 - [ ] ⬜ **Task 5.2**: The `QA` workflow green on `F44` — the run link is the evidence.
-  **Blocked on Task 2.1 and nothing else.** Run `35041998528` (`29ceee97`) fails on
-  `✗ QA FAILED: 8 errors in 918 files`, and all 8 are the docs findings. Every one of the
-  other 35 stages passes, and the file count matches a local run exactly.
+  **Blocked on Task 2.1 and nothing else**: every CI run so far fails only on the 8 docs
+  findings, with all other stages green and the file count matching a local run exactly.
 - [ ] ⬜ **Task 5.3**: `qa-reviewer` agent over the full diff.
 
 ## Success Criteria
@@ -221,18 +229,11 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
 
 - [x] Local `qa-all.bash` and the CI run agree on every stage, or the disagreement is
   declared in `CLAUDE/QA.md` and fails closed when its reason stops applying. Measured by
-  `triage.bash`, not asserted, and measured at the **same commit on both machines** with a
-  clean tree (`fa3cfe8e`, CI run `35040903213`): 36 stages each side, 37 of 38
-  symbol-prefixed lines accounted for, **three** differences, every one declared —
-
-  - `docs`: Cause A, the one open decision (Task 2.1);
-  - `deployed-drift`: declared, and it prints its own reason on each machine;
-  - `helper-tests`: `1 skipped` here against `2 skipped` on a runner — **the point, not a
-    residue.** The two machines skip *different* tests, and until the skip count joined the
-    line the two sides were byte-identical and read as `agree`. Declared in `CLAUDE/QA.md`.
-
-  `js`, `bash`, `patterns` and `python` now agree exactly, which three of them did not
-  before this plan.
+  `triage.bash` at the **same commit on both machines** with a clean tree (`fa3cfe8e`, CI
+  run `35040903213`): **three** differences, every one declared — `docs` (Cause A, Task
+  2.1), `deployed-drift` (prints its own reason each side), and `helper-tests` at `1 skipped` here against `2` on a runner, which is **the point, not a residue**: the two
+  machines skip *different* tests, and until the skip count joined the line the two sides
+  were byte-identical and read as `agree`. Evidence table in `FINDINGS.md`.
 
 - [x] Each of the tests has been classified as a defective test or a production path
   reading unowned host state, and fixed accordingly — all six were defective tests.

@@ -19,9 +19,9 @@
 `qa-all.bash` runs **thirty-six** gates. Seven merge their JSON into
 `/tmp/qa-results.json`; the other twenty-nine run separately (see below). Those seven emit
 **eight** named verdict lines — `qa-bash.bash` prints `bash` and `shellcheck` — so a run
-shows 37 stage names for 36 gates. A missing
-**required** tool makes a stage (and the whole run) exit `2`; a real analyser crash (e.g.
-ruff/shellcheck exit ≥ 2) is a hard failure, never silently treated as "0 issues".
+shows 37 stage names for 36 gates. A missing **required** tool makes a stage (and the whole
+run) exit `2`; a real analyser crash (e.g. ruff/shellcheck exit ≥ 2) is a hard failure,
+never silently treated as "0 issues".
 
 **This inventory is derived, not maintained.** `helpers/docs/link_check.py` parses the
 gate invocations out of `qa-all.bash` and fails the docs gate for any that has no row
@@ -48,7 +48,7 @@ they are deliberately not jq-merged stages, so they cannot disturb the positiona
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | `qa-nokill-containerwatch.bash`             | the container-watch watchdog has gained no process-termination call site                                  |
 | `qa-deployed-drift.bash`                    | every repo-owned `files/home/.local/bin/` script matches its deployed `~/.local/bin/` copy                |
-| `qa-helper-tests.bash`                      | the `helpers/` unit suite (Plan 00081 F11); the run prints the case count                                 |
+| `qa-helper-tests.bash`                      | the `helpers/` unit suite (Plan 00081 F11); `--counts-file` reports its size and skip count as data       |
 | `test-secret-scan.bash`                     | the pre-commit secret scanner's own unit suite (Plan 00092)                                               |
 | `test-planlib.bash`                         | the `_planlib.inc.bash` regression suite behind every plan script (Plan 00092)                            |
 | `test-ccy-rootless-guard.bash`              | ccy's rootless-engine verdict (Plan 00072); pure function, no podman needed                               |
@@ -70,7 +70,7 @@ they are deliberately not jq-merged stages, so they cannot disturb the positiona
 | `test-podfreeze.bash`                       | `podfreeze`'s decisions, pinned before Plan 00122 Task 4.2 extracted a library out of it                  |
 | `test-host-health-login-snippet.bash`       | the server login snippet's interactive guard — an unconditional print breaks `scp` (Plan 00109)           |
 | `test-qa-ansible-failfast.bash`             | the fail-fast directive regex in `qa-ansible.bash`, read from it rather than copied                       |
-| `test-qa-helper-summary.bash`               | the readers behind this suite's own `helper-tests` line, which twice stopped telling clean from blind     |
+| `test-qa-helper-summary.bash`               | the reader behind this suite's own `helper-tests` line, which four times stopped telling clean from blind |
 | `helpers.gnome.check_extension_compat`      | every extension declares the GNOME Shell major this branch's Fedora ships                                 |
 | `helpers.gnome.check_panel_contract`        | the panel's constants, document keys and section ids agree with the producer (Plan 00109)                 |
 | `qa-vmtest-manifest.bash`                   | `vars/vm-test-scenarios.yml` parses and is coherent (Plan 00110); a broken control must be rejected first |
@@ -118,11 +118,46 @@ executed populations, which is this page's own subject appearing in the line use
 it. The count differing is the signal; the skip *reason* names what was ignored and is
 printed by `python3 -m unittest -v <module>`, not by the suite at its default verbosity.
 
+**That count is read from a file, never scraped from the run's output.**
+`qa-helper-tests.bash --counts-file PATH` has
+`helpers/qa_environment/unittest_counts.py` take the numbers from unittest's
+`TestResult` object and write them there; `helper_counts_summary` in
+`scripts/lib/qa-helper-summary.bash` reads the file and **fails** rather than reporting
+zero if it cannot. Four readers that parsed the text instead were each defeated by a test
+printing unittest-shaped output — a decoy crosses the summary in either direction
+depending only on Python's 8KB stdout buffering, and an `atexit` handler writes to stderr
+after it. A test can put anything on either stream in any order, so the streams are not a
+source of truth for this; the result object is. Both halves are covered by
+`test-qa-helper-summary.bash`, whose last case runs the real runner end to end so a format
+change on one side alone turns it red.
+
+The file is **harder to reach by accident, not unreachable**: its path travels in `argv`, so
+a test that reads `sys.argv` could overwrite it — and this module's own tests are collected
+by the runner they test. `--counts-token` is the detector: `qa-all.bash` passes a value only
+that run knows and the reader requires it back, so a clobbered file fails the gate instead of
+reporting a number nobody checked. An **empty** file fails the same way, which matters because
+a test calling `os._exit(0)` skips the write while the process still exits 0 — leaving exactly
+the zero-byte file `mktemp` created. Existence is not generation.
+
 A count is a **proxy, not a proof**: two machines could skip the same NUMBER of different
 tests. With the three conditional skips the suite has today the four machine shapes give
 four distinct counts (0, 1, 2, 3), so it is currently exact — but that is a property of
 those three sites, not of the mechanism. Adding a fourth conditional skip means checking
 that property still holds, or surfacing the skipped tests by name instead.
+
+That argument also assumes the skip count is bounded by the test count, and **it is not**.
+`testsRun` counts test *methods*; `skipped` counts skip *events*, and one method registering
+several `subTest` skips reports more skips than tests — `Ran 1 test … 3 skipped` is a
+faithful line, not a broken one. There are no `subTest` skips in `tests/helpers` today, so
+the enumeration above holds; adding one means re-deriving it.
+
+The line also carries the **module count**, because a machine that COLLECTED a different set
+of test modules is the same defect one level up and the test count alone cannot show it.
+`qa-helper-tests.bash` separately cross-checks its discovery against `git ls-files` and
+fails if any tracked helper test was not found — `mapfile -t < <(find …)` reports
+`mapfile`'s status, not `find`'s, so a partly-failed walk would otherwise shrink the run
+silently. Same guard as `qa-bash.bash` and `qa-python.bash`, which each grew it after the
+same defect.
 
 **A stage that cannot pass in an environment is not a strict gate there — it is an absent
 one.** Two consequences follow, and the second is the one that bites:

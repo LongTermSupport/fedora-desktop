@@ -1,78 +1,140 @@
 #!/usr/bin/env bash
-# Read the `helper-tests` stage line out of a captured `python3 -m unittest` run.
-# Plan 00125, Task 4.2. Driven by scripts/test-qa-helper-summary.bash.
+# Read the `helper-tests` stage line out of the counts file written by
+# `helpers/qa_environment/unittest_counts.py`. Plan 00125, Task 4.2.
+# Driven by scripts/test-qa-helper-summary.bash.
 #
-# Sourced, never executed — it defines functions and runs nothing.
+# Sourced, never executed — it defines one function and runs nothing.
 #
-# This is two lines of text handling that lives in its own file because it has been wrong
-# repeatedly: `unittest` counts a SKIPPED test inside testsRun, so `Ran 1456 tests` is
-# byte-identical whether a test asserted or skipped itself, and two machines running
-# different subsets of the same suite printed the same sentence for weeks. The skip count
-# is what distinguishes them, which makes every way of reading it wrongly a way of putting
-# the blindness back. The test file records each one.
+# THIS FILE PARSES NO OUTPUT STREAM, and that is the point of it.
 #
-# BOTH FUNCTIONS TAKE UNITTEST'S STDERR, NOT A MERGED CAPTURE. That is a precondition, not a
-# detail, and it is what makes "last match wins" sound in both.
+# `unittest` counts a SKIPPED test inside testsRun, so `Ran 1464 tests` is byte-identical
+# whether a test asserted or skipped itself: two machines running different subsets of the
+# same suite print the same sentence. The skip count is what separates them, which makes
+# every wrong way of reading it a way of putting the blindness back.
 #
-# Three revisions were spent looking for a match rule that survives a merged stream, and no
-# such rule exists. A test's `print` goes to STDOUT, which Python BLOCK-BUFFERS to a pipe: a
-# small decoy flushes at process exit and lands AFTER unittest's summary, while a decoy
-# followed by more than the 8KB buffer flushes EARLY and lands BEFORE it. Both are
-# reachable, both were measured, so first-wins and last-wins each fail one of them — and the
-# two readers disagreed with each other on the same capture.
+# Scraping that count out of the captured TEXT is unsound, and it takes four defeated
+# readers to see the whole shape of why:
 #
-# Separating the channels deletes the whole class instead of out-guessing it. unittest writes
-# its summary to stderr; `qa-helper-tests.bash` writes its own progress line to stdout. On
-# stderr alone, unittest's summary is ALWAYS last: a test writes during the run, and the
-# summary is printed after every test has finished.
+#   1. `\(skipped=[0-9]+\)` missed `OK (skipped=1, expected failures=1)` — reported 0.
+#   2. The match ran over the whole capture, and bash `=~` takes the FIRST hit anywhere,
+#      so an earlier `skipped=<digits>` won. This repo's own fixtures contain that text.
+#   3. "Last match wins" over a merged `2>&1` capture. Python BLOCK-BUFFERS stdout to a
+#      pipe, so a small decoy flushes at exit and lands AFTER unittest's summary while a
+#      decoy padded past 8KB flushes early and lands BEFORE it — both reachable, both
+#      measured, so no first-or-last rule over a merged stream can be right.
+#   4. "Last match wins over STDERR alone", on the claim that unittest's summary is always
+#      last there. A test that registers an `atexit` handler printing to stderr disproves
+#      it; the readers then answered `Ran 3 tests` / `99` where the truth was
+#      `Ran 1 test` / `0`.
+#
+# There is no fifth match rule here. A test can write anything to either stream in any
+# order, so the text is not the source of truth — the `TestResult` object is, and the
+# runner writes those two numbers to a file whose path the caller chooses. Nothing a test
+# prints shares a channel with the payload.
+#
+# It is also ONE function rather than two. The previous pair drifted into using opposite
+# match rules and disagreed with each other about the same run; a single reader cannot.
 
-# helper_test_summary <capture> — `Ran N tests`, or the word `passed` if unittest's count
-# line is absent. Degrading to a WORD rather than a number is deliberate: a wrong count
-# reads as a measurement, and "passed" cannot be mistaken for one.
+# helper_counts_summary <counts-file> <expected-token> — prints
+# `Ran 1464 tests in 64 modules, 1 skipped`.
 #
-# Scoped to a LINE unittest itself wrote, for the same reason `helper_skip_count` is, and it
-# had the same bug: an unscoped `grep -oE` returns EVERY match, so a capture holding a
-# second `Ran N tests` emitted BOTH and the stage line became two lines — the first read as
-# the stage and the second lost. Worse than a wrong number, because a wrong number is at
-# least still a verdict line.
+# Fails, loudly and on stderr, if the file is missing, is short a key, carries a key twice,
+# holds anything but digits, or comes back with a token that is not the one the caller
+# asked for. Every one of those is a bug rather than a state a run can legitimately reach,
+# and answering `0 skipped` for any of them would make an unreadable file look exactly like
+# a clean machine — the defect this whole line exists to remove, restored by the back door.
 #
-# LAST match wins — sound only because the input is unittest's STDERR (see the header).
-helper_test_summary() {
-    local capture="$1" line=""
-    line=$(printf '%s' "$capture" |
-        awk '/^Ran [0-9]+ tests? in /{answer=$0} END{print answer}')
-    if [[ "$line" =~ ^(Ran[[:space:]][0-9]+[[:space:]]tests?) ]]; then
-        printf '%s' "${BASH_REMATCH[1]}"
-    else
-        printf 'passed'
-    fi
-}
+# THE TOKEN IS A CLOBBER DETECTOR, NOT A LOCK. The counts path travels in `argv`, so a test
+# can read it; the token means the caller notices, because a file written by anything other
+# than the run it asked for carries the wrong value or none. It stops an accident, not an
+# attempt — which is the honest claim, and the previous four revisions each failed by
+# stating a narrower guarantee than they had.
+#
+# An EMPTY file is refused by the same path, and that case is reachable: a test calling
+# `os._exit(0)` skips the write entirely while the runner still exits 0, leaving the
+# zero-byte file `mktemp` created. Existence is not generation.
+helper_counts_summary() {
+    local path="$1" expected_token="$2"
+    local tests="" skipped="" modules="" token="" key="" value="" noun=""
 
-# helper_skip_count <capture> — the number of skipped tests, from unittest's own result
-# line. Fails (returning non-zero, writing to stderr) when that line cannot be found.
-#
-# Scoped to the LAST `^(OK|FAILED)` line, symmetrically with `helper_test_summary`. Bash
-# `=~` takes the first match anywhere in the subject, so run over the whole capture any
-# earlier `skipped=<digits>` wins.
-#
-# The count is then matched WITHOUT a closing paren, because unittest appends
-# `expected failures=` and `unexpected successes=` after it inside the same bracket:
-# `OK (skipped=1, expected failures=1)` does not end at `skipped=1)`.
-#
-# A missing result line is a FAILURE rather than a zero. Answering 0 would make an
-# unreadable capture indistinguishable from a clean run, which is the exact defect this
-# whole line exists to remove.
-helper_skip_count() {
-    local capture="$1" result=""
-    if ! result=$(printf '%s' "$capture" |
-        awk '/^(OK|FAILED)( \(|$)/{answer=$0} END{if (answer != "") print answer}' |
-        grep -E '^(OK|FAILED)( \(|$)'); then
-        printf 'helper_skip_count: no unittest result line (^OK / ^FAILED) in the capture\n' >&2
+    if [[ ! -f "$path" ]]; then
+        printf 'helper_counts_summary: no counts file at %s\n' "$path" >&2
         return 1
     fi
-    if [[ "$result" =~ skipped=([0-9]+) ]]; then
-        printf '%s' "${BASH_REMATCH[1]}"
-    else
-        printf '0'
+
+    # `|| [[ -n "$key" ]]` keeps the last line when the file does not end in a newline:
+    # `read` returns non-zero there but has already assigned. Without it the final key is
+    # silently dropped, and a reader that ignores part of its input is the shape this
+    # whole library exists to avoid.
+    while IFS='=' read -r key value || [[ -n "$key" ]]; do
+        case "$key" in
+            tests)
+                if [[ -n "$tests" ]]; then
+                    printf 'helper_counts_summary: duplicate tests= in %s\n' "$path" >&2
+                    return 1
+                fi
+                tests="$value"
+                ;;
+            skipped)
+                if [[ -n "$skipped" ]]; then
+                    printf 'helper_counts_summary: duplicate skipped= in %s\n' "$path" >&2
+                    return 1
+                fi
+                skipped="$value"
+                ;;
+            modules)
+                if [[ -n "$modules" ]]; then
+                    printf 'helper_counts_summary: duplicate modules= in %s\n' "$path" >&2
+                    return 1
+                fi
+                modules="$value"
+                ;;
+            token)
+                if [[ -n "$token" ]]; then
+                    printf 'helper_counts_summary: duplicate token= in %s\n' "$path" >&2
+                    return 1
+                fi
+                token="$value"
+                ;;
+            '')
+                continue
+                ;;
+            *)
+                printf 'helper_counts_summary: unexpected key %q in %s\n' "$key" "$path" >&2
+                return 1
+                ;;
+        esac
+    done <"$path"
+
+    # Checked FIRST: if the file is not the one this caller's run produced, its numbers
+    # describe something else and validating them would only lend them credibility.
+    if [[ "$token" != "$expected_token" ]]; then
+        printf 'helper_counts_summary: %s carries token %q, expected %q — the file was\n' \
+            "$path" "$token" "$expected_token" >&2
+        printf '  written by something other than the run that asked for it\n' >&2
+        return 1
     fi
+
+    # An absent key and a zero must not look alike: one is a clean run, the other is a
+    # reader gone blind. `^[0-9]+$` also rejects an empty value, so both are covered here.
+    if [[ ! "$tests" =~ ^[0-9]+$ ]]; then
+        printf 'helper_counts_summary: tests= is missing or not a number in %s\n' "$path" >&2
+        return 1
+    fi
+    if [[ ! "$skipped" =~ ^[0-9]+$ ]]; then
+        printf 'helper_counts_summary: skipped= is missing or not a number in %s\n' "$path" >&2
+        return 1
+    fi
+    if [[ ! "$modules" =~ ^[0-9]+$ ]]; then
+        printf 'helper_counts_summary: modules= is missing or not a number in %s\n' "$path" >&2
+        return 1
+    fi
+
+    # The module count rides along because two machines COLLECTING different sets is the
+    # same defect one level up, and the test count on its own cannot show it.
+    noun="tests"
+    if [[ "$tests" -eq 1 ]]; then
+        noun="test"
+    fi
+    printf 'Ran %s %s in %s modules, %s skipped' "$tests" "$noun" "$modules" "$skipped"
 }

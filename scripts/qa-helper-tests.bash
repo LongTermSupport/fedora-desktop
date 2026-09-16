@@ -14,6 +14,17 @@
 #
 # Runnable locally and in CI:
 #   ./scripts/qa-helper-tests.bash
+#   ./scripts/qa-helper-tests.bash --counts-file PATH
+#
+# --counts-file asks for the run's size and skip count as DATA. `unittest` counts a
+# SKIPPED test inside testsRun, so `Ran 1464 tests` is identical whether a test asserted
+# or skipped, and `qa-all.bash` needs the skip count to tell two machines apart. Four
+# attempts to scrape it back out of this script's output were each defeated by a test
+# printing unittest-shaped text — see helpers/qa_environment/unittest_counts.py, which
+# takes both numbers from the TestResult object instead and writes them to that path.
+#
+# Everything a human reads — progress, tracebacks, unittest's own summary — goes to
+# STDERR, deliberately on one stream so its ordering is the true ordering.
 
 set -euo pipefail
 
@@ -21,10 +32,79 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT_DIR"
 
+counts_file=""
+counts_token=""
+while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+        --counts-file)
+            if [[ "$#" -lt 2 ]]; then
+                echo "ERROR: --counts-file needs a path" >&2
+                exit 2
+            fi
+            counts_file="$2"
+            shift 2
+            ;;
+        --counts-token)
+            if [[ "$#" -lt 2 ]]; then
+                echo "ERROR: --counts-token needs a value" >&2
+                exit 2
+            fi
+            counts_token="$2"
+            shift 2
+            ;;
+        *)
+            echo "ERROR: unknown argument '$1' (expected --counts-file PATH" \
+                "[--counts-token VALUE])" >&2
+            exit 2
+            ;;
+    esac
+done
+
+# No caller asked for the counts, so they go to a scratch file that is cleaned up. The
+# runner always writes them; there is no path where the numbers are simply not produced.
+if [[ -z "$counts_file" ]]; then
+    counts_file="$(mktemp)"
+    trap 'rm -f "$counts_file"' EXIT
+fi
+
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=qa-discovery.bash
+source "$ROOT_DIR/scripts/qa-discovery.bash"
+
 mapfile -t test_files < <(find tests/helpers -type f -name 'test_*.py' | sort)
 
 if [[ "${#test_files[@]}" -eq 0 ]]; then
     echo "ERROR: no helper tests found — expected tests/helpers/**/test_*.py" >&2
+    exit 1
+fi
+
+# Zero discovery is guarded above. This guards PARTIAL discovery, the case a guard
+# on emptiness cannot see: `mapfile -t < <(find ...)` reports mapfile's status, not
+# find's, and `pipefail` does not reach inside a process substitution. A walk that
+# half-failed yields a shorter list, the suite runs it, and the smaller `Ran N tests`
+# reads exactly like the whole population. An under-match never announces itself, so
+# the yardstick comes from git rather than from the walk being checked.
+#
+# The same defect was found and fixed in qa-bash.bash (Plan 00076) and qa-python.bash
+# (Plan 00081); this was the third discovery site in this directory and the one that
+# never got the generalisation.
+qa_tracked_helper_tests "$ROOT_DIR"
+
+declare -A discovered=()
+for file in "${test_files[@]}"; do
+    discovered["$file"]=1
+done
+
+missed=()
+for rel in "${QA_TRACKED_HELPER_TESTS[@]}"; do
+    [[ -n "${discovered[$rel]:-}" ]] || missed+=("$rel")
+done
+
+if [[ "${#missed[@]}" -gt 0 ]]; then
+    echo "ERROR: discovery missed ${#missed[@]} tracked helper test file(s):" >&2
+    printf '    %s\n' "${missed[@]}" >&2
+    echo "  These are tests this gate would have reported a pass over without" >&2
+    echo "  running. Fix the discovery — do not untrack the files to silence it." >&2
     exit 1
 fi
 
@@ -35,6 +115,15 @@ for file in "${test_files[@]}"; do
     modules+=("$module")
 done
 
-echo "Running ${#modules[@]} helper test module(s)..."
-# unittest exits non-zero on any failure; set -e propagates it (fail-fast).
-python3 -m unittest "${modules[@]}"
+echo "Running ${#modules[@]} helper test module(s)..." >&2
+
+# The token is forwarded only when a caller supplied one, so a standalone run needs no
+# ceremony and `qa-all.bash` still gets a counts file it can prove came from its own run.
+token_args=()
+if [[ -n "$counts_token" ]]; then
+    token_args=(--counts-token "$counts_token")
+fi
+
+# The runner exits non-zero on any failure; set -e propagates it (fail-fast).
+python3 -m helpers.qa_environment.unittest_counts \
+    --counts-file "$counts_file" "${token_args[@]}" "${modules[@]}"

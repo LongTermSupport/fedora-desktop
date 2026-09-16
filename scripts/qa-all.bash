@@ -15,8 +15,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Readers for the helper-tests stage line. Sourced rather than inlined so a committed test
-# can drive the real functions — see the library header for why that line earns a file.
+# The reader for the helper-tests stage line. Sourced rather than inlined so a committed
+# test can drive the real function — see the library header for why that line earns a file.
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/qa-helper-summary.bash
 source "$SCRIPT_DIR/lib/qa-helper-summary.bash"
@@ -32,7 +32,8 @@ TMP_DOCS=$(mktemp)
 # Every temp file this script owns is cleaned by ONE trap. A second `trap ... EXIT` would
 # silently REPLACE this one rather than add to it, leaking the seven above on every run.
 TMP_HELPER_ERR=$(mktemp)
-trap 'rm -f "$TMP_BASH" "$TMP_PYTHON" "$TMP_PATTERNS" "$TMP_ANSIBLE" "$TMP_ANSIBLE_SYNTAX" "$TMP_JS" "$TMP_DOCS" "$TMP_HELPER_ERR"' EXIT
+TMP_HELPER_COUNTS=$(mktemp)
+trap 'rm -f "$TMP_BASH" "$TMP_PYTHON" "$TMP_PATTERNS" "$TMP_ANSIBLE" "$TMP_ANSIBLE_SYNTAX" "$TMP_JS" "$TMP_DOCS" "$TMP_HELPER_ERR" "$TMP_HELPER_COUNTS"' EXIT
 FAILED=0
 
 # Run sub-checks (each writes JSON to temp file, outputs terse to stdout)
@@ -156,19 +157,26 @@ echo "$drift_out"
 # Hard, non-structural gates like the two above — deliberately NOT jq-merged
 # stages, so they cannot disturb the positional .[0]..[6] merge below. Both are
 # fast (the suite is ~0.06s; the compat check is static).
-# The two streams are kept APART here, and that is load-bearing rather than tidy.
-# unittest's summary goes to stderr; a test's own `print` goes to stdout, block-buffered to
-# a pipe, so in a `2>&1` capture a decoy can land either side of the result line depending
-# on how much it printed. Parsing stderr alone removes that entire class — see the header of
-# scripts/lib/qa-helper-summary.bash. On failure both streams are shown, in stream order.
-helper_out=""
-if ! helper_out="$(bash "$SCRIPT_DIR/qa-helper-tests.bash" 2>"$TMP_HELPER_ERR")"; then
-    echo "$helper_out" >&2
+# THE COUNTS ARRIVE IN A FILE, NOT IN THE OUTPUT, and that is load-bearing rather than
+# tidy. `--counts-file` makes the runner write the two numbers straight from unittest's
+# TestResult object, so nothing a test prints shares a channel with them. Four readers that
+# scraped this run's text were each defeated by a test printing unittest-shaped output —
+# the header of scripts/lib/qa-helper-summary.bash records all four.
+#
+# The run's human-readable output all goes to stderr, deliberately on one stream so its
+# ordering is the true ordering, and is shown in full when the suite fails.
+#
+# The token is a clobber detector. `mktemp` pre-creates the counts file and its path goes
+# to the runner in argv, so a test could read `sys.argv` and overwrite it — and this
+# suite's own tests exercise that runner. Requiring a value back that only this run knows
+# turns such a file into a hard failure instead of a number nobody could question.
+TMP_HELPER_TOKEN="qa-all-$$-$(date +%s%N)"
+if ! bash "$SCRIPT_DIR/qa-helper-tests.bash" --counts-file "$TMP_HELPER_COUNTS" \
+    --counts-token "$TMP_HELPER_TOKEN" 2>"$TMP_HELPER_ERR"; then
     cat "$TMP_HELPER_ERR" >&2
     echo "✗ QA FAILED: helper unit tests" >&2
     exit 1
 fi
-helper_err="$(cat "$TMP_HELPER_ERR")"
 # The skip count travels with the line because `unittest` counts a SKIPPED test inside
 # testsRun: "Ran 1456 tests" is byte-identical whether a test asserted or skipped itself.
 # Two machines then report the same verdict over different executed populations — which is
@@ -176,15 +184,14 @@ helper_err="$(cat "$TMP_HELPER_ERR")"
 # Measured: a container asserts the DisplayLink sysfs pair against a real connector while a
 # VM runner skips both, and before this the two lines agreed exactly.
 #
-# Both readers live in scripts/lib/ rather than here because this line has been wrong twice
-# in three revisions and each hand-check was thrown away with the session that made it.
-# scripts/test-qa-helper-summary.bash drives them, and its own gate runs below.
-helper_summary="$(helper_test_summary "$helper_err")"
-if ! helper_skipped="$(helper_skip_count "$helper_err")"; then
-    echo "✗ QA FAILED: helper-tests ran but its result line could not be read" >&2
+# The reader lives in scripts/lib/ rather than here because this line has been wrong four
+# times and each hand-check was thrown away with the session that made it.
+# scripts/test-qa-helper-summary.bash drives it, and its own gate runs below.
+if ! helper_summary="$(helper_counts_summary "$TMP_HELPER_COUNTS" "$TMP_HELPER_TOKEN")"; then
+    echo "✗ QA FAILED: helper-tests ran but its counts could not be read" >&2
     exit 1
 fi
-printf '✓ helper-tests: %s, %s skipped\n' "$helper_summary" "$helper_skipped"
+printf '✓ helper-tests: %s\n' "$helper_summary"
 
 # The pre-commit secret scanner's own unit suite (scripts/test-secret-scan.bash).
 #
@@ -521,21 +528,22 @@ failfast_summary=$(printf '%s' "$failfast_out" | grep -oE 'passed: [0-9]+') ||
     failfast_summary="passed"
 printf '✓ failfast-pattern-tests: %s\n' "$failfast_summary"
 
-# The readers behind THIS script's own helper-tests line (Plan 00125).
+# The reader behind THIS script's own helper-tests line (Plan 00125).
 #
-# Same argument as the gate above, one level closer to home: that line has been wrong
-# twice in three revisions, each time by becoming unable to tell a clean result from a
-# blind one, and each hand-check died with the session that ran it. The suite drives the
-# sourced functions, so a change to them is what turns it red.
+# Same argument as the gate above, one level closer to home: that line has been wrong four
+# times, each time by becoming unable to tell a clean result from a blind one, and each
+# hand-check died with the session that ran it. The suite drives the sourced function, and
+# its last case runs the real runner end to end, so a format change on either side is what
+# turns it red.
 helper_summary_out=""
 if ! helper_summary_out="$(bash "$SCRIPT_DIR/test-qa-helper-summary.bash" 2>&1)"; then
     echo "$helper_summary_out" >&2
-    echo "✗ QA FAILED: helper-tests summary reader unit tests" >&2
+    echo "✗ QA FAILED: helper-tests counts reader unit tests" >&2
     exit 1
 fi
 helper_summary_tests=$(printf '%s' "$helper_summary_out" | grep -oE 'passed: [0-9]+') ||
     helper_summary_tests="passed"
-printf '✓ helper-summary-readers: %s\n' "$helper_summary_tests"
+printf '✓ helper-counts-reader: %s\n' "$helper_summary_tests"
 
 compat_out=""
 if ! compat_out="$(cd "$SCRIPT_DIR/.." && python3 -m helpers.gnome.check_extension_compat 2>&1)"; then
