@@ -110,6 +110,13 @@ jq '{
 # — but not ours to fix, so it must not fail this repo's CI. It gets its own `⚠` stage line
 # because the count alone would leave nobody able to act on it, and `qa-patterns.bash`
 # already establishes a ⚠-then-✓ pair as a shape `verdicts.py` parses.
+#
+# NOT the same thing as the multi-line stage line just removed from `vmtest-manifest`, and
+# the difference is worth stating because they look alike. There, ONE printf interpolated a
+# capture containing newlines, so `verdicts.py` kept the first line and silently dropped the
+# rest. Here there are two SEPARATE echoes, each starting with its own stage symbol, and
+# both are kept — measured, not assumed: `verdicts.parse()` returns both under `docs`, and
+# the indented list between them is correctly not read as a stage at all.
 if [[ "$V_BROKEN" -gt 0 ]]; then
     echo "⚠ docs: $V_BROKEN link(s) into a PRESENT vendored repo are broken — it has probably moved the file:"
     jq -r '.vendored.broken[] | "    \(.file):\(.line)  \(.target)"' "$TMP_RAW"
