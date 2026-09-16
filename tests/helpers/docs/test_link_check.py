@@ -15,6 +15,7 @@ import tempfile
 import unittest
 
 from helpers.docs import link_check
+from helpers.qa_environment import verdicts
 
 
 class TestSlug(unittest.TestCase):
@@ -613,21 +614,60 @@ class TestVendoredLinkTargets(_GitTree):
         findings, vendored = self.check("CLAUDE/QA.md")
         self.assertEqual(self.vendored_total(vendored), 0)
         self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["problem"], "target does not exist")
+
+    def test_an_escaping_target_that_EXISTS_is_still_a_finding(self):
+        """The case the test above cannot reach, and the branch it distinguishes.
+
+        Above, the escaping target is absent, so the existence branch answers
+        first and `repo_relative`'s `None` is never consulted. A target that
+        escapes the repository and IS on the disk takes the other branch — it
+        exists, and `ls-files` can say nothing about a path outside the
+        repository, so the honest verdict is untracked rather than a pass.
+        Under `check-ignore` this link passed.
+        """
+        outer = tempfile.TemporaryDirectory()
+        self.addCleanup(outer.cleanup)
+        repo = os.path.join(outer.name, "repo")
+        os.makedirs(os.path.join(outer.name, "elsewhere"))
+        with open(os.path.join(outer.name, "elsewhere", "README.md"), "w",
+                  encoding="utf-8") as handle:
+            handle.write("# Outside\n")
+        os.makedirs(os.path.join(repo, "CLAUDE"))
+        subprocess.run(["git", "init", "-q", repo], check=True)
+        with open(os.path.join(repo, "CLAUDE", "QA.md"), "w",
+                  encoding="utf-8") as handle:
+            handle.write("[out](../../elsewhere/README.md)\n")
+
+        findings, vendored = link_check.check_links(repo, ["CLAUDE/QA.md"])
+        self.assertEqual(self.vendored_total(vendored), 0)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["problem"],
+                         "target is not tracked by this repository")
 
     def test_a_tree_git_cannot_answer_for_fails_loudly(self):
-        """No git checkout means the ignore question has no answer.
+        """No git checkout means the TRACKEDNESS question has no answer.
 
-        Returning "nothing is ignored" would hand back a confident verdict
-        derived from a check that did not run — the exact shape this gate
-        exists to remove. It raises instead, and the gate reports exit 2.
+        Returning an empty tracked set would say "this repository tracks
+        nothing", turning every link into a finding — a confident verdict
+        derived from a check that did not run, which is the shape this gate
+        exists to remove. It raises instead.
+
+        This asserts the RAISE only. What turns the raise into the gate's exit 2
+        is two hops in `scripts/qa-docs.bash` — the interpreter exits 1, which
+        that script treats as its findings status, and the payload validation
+        then refuses a traceback and exits 2. Neither hop is covered here, and
+        saying so is better than a docstring that claims the whole chain. Giving
+        `qa-docs.bash` a root argument would let a test drive it end to end.
         """
         plain = tempfile.TemporaryDirectory()
         self.addCleanup(plain.cleanup)
         with open(os.path.join(plain.name, "README.md"), "w",
                   encoding="utf-8") as handle:
             handle.write("[x](./NoSuchFile.md)\n")
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(RuntimeError) as raised:
             link_check.check_links(plain.name, ["README.md"])
+        self.assertIn("ls-files", str(raised.exception))
 
 
 class TestTheUndeclaredRepositoryHint(_GitTree):
@@ -692,6 +732,40 @@ class TestTheUndeclaredRepositoryHint(_GitTree):
             link_check.nested_repository_for(self.root, "CLAUDE/QA.md"))
 
 
+class TestTheScanPopulationIsCounted(_GitTree):
+    """The TARGETS ask trackedness; the DOCUMENTS are whatever `os.walk` finds.
+
+    So an in-scope markdown file nobody committed is scanned here and absent in
+    CI, and a broken link in it fails here and passes there — Cause A's
+    direction reversed. It is latent (every in-scope document in this checkout
+    is tracked) and it is not worth excluding untracked documents: a broken link
+    in a file you have not committed yet is a true finding, and catching it
+    before the commit is the point.
+
+    What was missing is the denominator. `qa-helper-tests.bash` prints `65
+    modules (65 tracked)` for exactly this reason and the lesson was not carried
+    to the gate two rows below it.
+    """
+
+    def test_every_tracked_document_counts(self):
+        self.write("docs/a.md", "# A\n")
+        self.write("docs/b.md", "# B\n")
+        subprocess.run(["git", "-C", self.root, "add", "docs"], check=True)
+        self.assertEqual(
+            link_check.tracked_scope_count(self.root, ["docs/a.md", "docs/b.md"]), 2)
+
+    def test_an_uncommitted_document_is_scanned_but_not_counted_as_tracked(self):
+        self.write("docs/a.md", "# A\n")
+        subprocess.run(["git", "-C", self.root, "add", "docs/a.md"], check=True)
+        self.write("docs/b.md", "# B\n")
+        self.assertEqual(
+            link_check.tracked_scope_count(self.root, ["docs/a.md", "docs/b.md"]), 1)
+
+    def test_no_tracked_documents_counts_zero_rather_than_failing(self):
+        self.write("docs/a.md", "# A\n")
+        self.assertEqual(link_check.tracked_scope_count(self.root, ["docs/a.md"]), 0)
+
+
 class TestTheVendoredWarningBlock(unittest.TestCase):
     """The ⚠ block, composed here so that composing it is not a rare event.
 
@@ -736,19 +810,30 @@ class TestTheVendoredWarningBlock(unittest.TestCase):
         self.assertIn("docs/README.md:7", lines[1])
         self.assertIn("../.claude/hooks-daemon/gone.md", lines[1])
 
-    def test_the_detail_lines_are_indented_so_they_are_not_read_as_stages(self):
-        """`verdicts.STAGE` anchors its symbol at column 0.
+    def test_the_block_is_one_stage_to_the_real_verdict_parser(self):
+        """Parsed by `verdicts.parse` itself, not by a copy of its regex.
 
-        A detail line starting with a stage symbol would be parsed as a gate of
-        its own and inflate the census — the failure mode already recorded
-        beside `qa-patterns.bash`'s per-file lines.
+        The first version of this test cited `verdicts.STAGE` in its docstring
+        and then asserted a hand-written `r"^\\s*[✓✗⚠] "`. A pattern and the
+        thing it describes that nothing compares will drift — which is the
+        `nokill-containerwatch` argument, inside the test written to prevent it.
+        Importing the parser also covers `SYMBOL_BEARING`, which the copy did
+        not describe at all.
+
+        The property: the whole block is ONE stage named `docs`, however many
+        broken links it lists. A detail line read as a stage would invent a gate
+        per broken link and inflate the census.
         """
-        broken = [self.entry(line=n) for n in (1, 2)]
+        broken = [self.entry(file=name, line=n)
+                  for name, n in (("docs/a.md", 1), ("CLAUDE/b.md", 2))]
         lines = link_check.vendored_warning_lines(
             {"ok": 0, "unverifiable": 0, "broken": broken})
-        for detail in lines[1:]:
-            self.assertTrue(detail.startswith("    "), detail)
-            self.assertNotRegex(detail, r"^\s*[✓✗⚠] ")
+        text = "\n".join(lines + ["✓ docs: 71 files OK — VENDORED: 0, 0, 2"]) + "\n"
+
+        parsed = verdicts.parse(text)
+        self.assertEqual(sorted(parsed.stages), ["docs"])
+        self.assertEqual([entry.symbol for entry in parsed.stages["docs"]],
+                         ["⚠", "✓"])
 
     def test_the_entries_keep_their_order(self):
         broken = [self.entry(file=name) for name in ("a.md", "b.md", "c.md")]

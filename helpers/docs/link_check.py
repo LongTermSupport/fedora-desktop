@@ -277,11 +277,19 @@ def _read(path):
 # `test_every_vendored_root_is_also_excluded_from_the_scan`.
 #
 # Parents, not leaves. `roles/vendor/` covers a role vendored tomorrow without a code change.
+#
+# A GIT SUBMODULE IS NOT THE SAME CASE, and declaring one here would be the wrong remedy.
+# `ls-files` lists the gitlink path but not the files inside it, so a link into a submodule is
+# reported as untracked with the nested-repository hint attached — which reads as an
+# invitation to add it below. Resist that: CI checks a submodule OUT, so it can verify those
+# links, and exempting them would throw away a check that works on both machines. The reason
+# a vendored clone is exempt is that CI has no copy of it at all. This repository has no
+# submodules today (`.gitmodules` absent, no mode-160000 index entries), so this is a note
+# about the next person's decision rather than a live case.
 _VENDORED_ROOTS = (
     ".claude/hooks-daemon/",
     "roles/vendor/",
 )
-
 
 
 def repo_relative(repo_root, resolved):
@@ -418,9 +426,14 @@ def check_links(repo_root, rel_paths):
     headings are theirs to rename, and a gate that went red on another repo's churn would be
     a dependency on it for a defect we could not fix.
 
-    A target this repo ignores but nobody vendored is a FINDING, not an exemption. It is
-    a link to something no clean checkout has and no other repository owns, and folding
-    it in with the vendored case would trade a false failure for a silent skip.
+    A target this repo does not TRACK and nobody vendored is a FINDING, not an exemption. It
+    is a link to something no clean checkout has and no other repository owns, and folding it
+    in with the vendored case would trade a false failure for a silent skip.
+
+    Trackedness, not ignoredness, and the two name different populations: a tracked file
+    matching an ignore rule is ours, while a present, unignored, never-committed file is the
+    one that passes here and fails in CI. `git ls-files` is the question every checkout
+    answers the same way.
     """
     findings = []
     vendored = {"ok": 0, "unverifiable": 0, "broken": []}
@@ -495,6 +508,28 @@ def check_links(repo_root, rel_paths):
                 })
 
     return findings, vendored
+
+
+def tracked_scope_count(repo_root, rel_paths):
+    """How many of the scanned documents this repository actually tracks.
+
+    `collect_scope` walks the filesystem, so the population it returns is what is ON THIS
+    DISK — an in-scope markdown file nobody committed is scanned here and simply absent in
+    CI. Excluding untracked documents would be the wrong fix: a broken link in a file you
+    have not committed yet is a true finding, and catching it before the commit is the whole
+    point of a local gate.
+
+    What the stage line owes the reader is the DENOMINATOR, the same way
+    `qa-helper-tests.bash` prints `65 modules (65 tracked)`. `71 files (71 tracked)` says the
+    two machines are looking at the same set; `72 files (71 tracked)` says they are not, and
+    names by how much.
+
+    A second `git ls-files` rather than threading the sets out of `check_links`, whose
+    signature is pinned by the suite. The call is a few milliseconds and the alternative is a
+    parameter that exists only to save it.
+    """
+    tracked_files, _ = tracked_paths(repo_root)
+    return sum(1 for rel in rel_paths if rel in tracked_files)
 
 
 def vendored_warning_lines(vendored):
@@ -614,6 +649,7 @@ def main(argv):
         "type": "docs",
         "status": "fail" if findings else "pass",
         "scanned": len(scoped),
+        "tracked": tracked_scope_count(repo_root, scoped),
         "vendored": vendored,
         # Always present, empty on a clean run. `scripts/qa-docs.bash` prints it
         # with no condition of its own, so the formatting runs every time.

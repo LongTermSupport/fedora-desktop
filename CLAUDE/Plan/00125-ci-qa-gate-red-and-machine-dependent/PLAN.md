@@ -38,11 +38,10 @@ genuinely done and CI *was* green at its Batch 9. This is a regression that land
 
 - Rewriting any gate's *substance*. This plan restores the signal; it does not re-open
   what the gates check.
-- The linked-worktree gaps — the vault password file, and `qa-js.bash` exiting 2 on an
-  absent `extensions/node_modules`. A worktree is a third environment with its own missing
-  inputs and its own decision; both are now named in `CLAUDE/QA.md`'s table. (This bullet
-  cited a document on an unmerged branch, which `qa-docs.bash` cannot see because it
-  excludes `CLAUDE/Plan/**`.)
+- The missing-input gaps — the vault password file, and `qa-js.bash` exiting 2 on an absent
+  `extensions/node_modules`. **Not a worktree-only population**: `CLAUDE/QA.md` names it as
+  a worktree *and any checkout where `npm install` has not been run*, which includes a fresh
+  clone. An IaC gap wanting its own plan; the cost, and why it bites here, in `FINDINGS.md`
 - Running ccy itself in CI — Plan 00113 owns that.
 
 ## Context & Background
@@ -193,8 +192,8 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
   numbers from unittest's `TestResult` object and writes them to the path
   `qa-helper-tests.bash --counts-file` is given; the single reader in
   `scripts/lib/qa-helper-summary.bash` reads that file and **fails** rather than reporting
-  zero when it cannot, driven by `scripts/test-qa-helper-summary.bash` (51 cases) as its own
-  gate. Mutation-tested: 6 of the runner, 13 of the reader, all caught; the last case runs
+  zero when it cannot, driven by `scripts/test-qa-helper-summary.bash` as its own gate — case
+  count in its stage line, not frozen here. Mutation-tested: 6 of the runner, 13 of the reader, all caught; the last case runs
   the real runner end to end. `qa-all.bash` captures that run's stdout and requires it
   EMPTY, since a `print()` in any test could otherwise forge a stage line
 
@@ -225,8 +224,8 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
 
 ## Success Criteria
 
-- [x] The `QA` workflow's most recent run on `F44` is a success: run **`35076071578`**,
-  commit `7e85ff49`, `✓ QA passed: 920 files checked`, no failing stage.
+- [x] The `QA` workflow's most recent run on `F44` is a success — a condition, not a frozen
+  run. First green after three weeks: `35076071578` (`7e85ff49`); every run since passed too.
 
 - [x] Local `qa-all.bash` and the CI run agree on every stage, or the disagreement is
   declared in `CLAUDE/QA.md` and fails closed when its reason stops applying. Measured by

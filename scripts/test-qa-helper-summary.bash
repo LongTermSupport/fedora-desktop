@@ -517,10 +517,21 @@ echo "=== every qa_gate_detail pattern is read from qa-all.bash and run against 
 # a new qa_gate_detail call site whose capture variable is not registered below FAILS here,
 # so the next pattern cannot be added without being coupled to its gate.
 
-QA_ALL="$REPO_ROOT/scripts/qa-all.bash"
-
 # capture-variable -> the command that produces it, run from the repo root. These are the
 # gates' own invocations, copied from qa-all.bash's call sites, not re-derived.
+#
+# The names are listed separately as well because the coupling has to hold in BOTH
+# directions. A call site with no registered command fails in the loop below; a registered
+# command no call site reads would otherwise be dead weight that says nothing, and its
+# silence is indistinguishable from a gate whose pattern is being checked.
+GATE_COMMAND_VARS=(
+    nokill_out
+    planlib_out
+    compat_out
+    panel_contract_out
+    manifest_out
+    pins_out
+)
 gate_command_for() {
     case "$1" in
         nokill_out) echo "bash scripts/qa-nokill-containerwatch.bash" ;;
@@ -546,57 +557,54 @@ capture_for() {
     printf '%s' "${gate_capture[$var]}"
 }
 
-# THE EXTRACTION MUST ACCEPT EVERY SPELLING, or a call site is silently not checked and the
-# coupling this whole section exists for does not apply to it. The first version keyed on
-# `"$lower_snake"` with a single-quoted pattern, and four spellings went unmatched: `${braces}`,
-# any uppercase or digit in the name, and a double-quoted pattern. `link_check.py`'s
-# `_QA_SCRIPT_GATE` had already been widened for exactly this reason, 250 lines away in the
-# same commit — "keying on one spelling would exempt the other two without saying so".
+# FINDING THE CALL SITES IS THE LOAD-BEARING STEP, so it is parsed rather than grepped.
 #
-# `grep -o` prints every match, which is wanted here: one line per call site.
-detail_re='qa_gate_detail "\$\{?[A-Za-z_][A-Za-z0-9_]*\}?" ('\''[^'\'']+'\''|"[^"]+")'
-mapfile -t detail_sites < <(grep -oE "$detail_re" "$QA_ALL")
+# This was three greps that had to agree: a strict extraction, a looser denominator, and a
+# set of parameter expansions that re-split each match. Every defect found in it was one of
+# the three drifting from the other two — a spelling the extraction accepted and the splitter
+# mis-read (`${braces}` reached the gate lookup carrying its braces; a double-quoted pattern
+# handed over the whole call-site text), a spelling both greps missed in lockstep and so
+# agreed on (a tab between the name and its first argument), a prose mention only one of them
+# counted. Two numbers that must agree can agree while both are wrong, which is this tree's
+# whole subject.
+#
+# `helpers/qa_environment/gate_call_sites.py` reports what it COULD NOT parse instead of
+# reporting a second count. A silently dropped call site is not a state it can reach: it
+# either parses an occurrence of the name or lists it in `unparsed` with its line and text.
+# One case per accepted spelling lives in its unit tests, which is where the widening the
+# regex version never verified is now verified.
+sites_json="$(cd "$REPO_ROOT" && python3 -m helpers.qa_environment.gate_call_sites \
+    scripts/qa-all.bash)"
+site_count="$(printf '%s' "$sites_json" | jq '.sites | length')"
+unparsed_count="$(printf '%s' "$sites_json" | jq '.unparsed | length')"
 
-# GUARDING ZERO IS NOT ENOUGH — the partial case is the one that reads as clean. An
-# under-matching regex extracts SOME call sites, checks those, and reports a pass; nothing
-# distinguishes that from having checked them all. So the denominator is counted
-# independently, from a deliberately loose pattern that cannot miss what the strict one
-# catches, and the two must agree.
-#
-# The denominator has to be loose enough that nothing the strict one catches can escape it,
-# and the first attempt was not: `[^_]qa_gate_detail ` requires a character BEFORE the name,
-# so a call at column 1 was missed by the denominator AND by the extraction — the two would
-# have agreed while both under-counting, which is the failure this check exists to prevent,
-# wearing the check's own uniform. `(^|[^_[:alnum:]])` covers the line start; the class keeps
-# `_qa_gate_detail` and similar from counting. Comment lines are dropped so a prose mention
-# of the function cannot over-count and fail the suite for the wrong reason.
-#
-# `grep -c` exits 1 when it counts zero. That is a RESULT here, not an error — the branch
-# below reports it — so the status is consumed explicitly rather than discarded.
-detail_calls=0
-if ! detail_calls=$(grep -vE '^[[:space:]]*#' "$QA_ALL" |
-    grep -cE '(^|[^_[:alnum:]])qa_gate_detail[[:space:]]'); then
-    detail_calls=0
-fi
-if [ "${#detail_sites[@]}" -ne "$detail_calls" ]; then
+if [ "$unparsed_count" -ne 0 ]; then
     failed=$((failed + 1))
-    printf '  FAIL  %s\n        %s\n' \
-        "extracted ${#detail_sites[@]} qa_gate_detail call site(s) from qa-all.bash but it has $detail_calls" \
-        "the extraction regex does not cover every spelling — the difference is unchecked, not absent" >&2
-elif [ "$detail_calls" -eq 0 ]; then
+    printf '  FAIL  %s\n' \
+        "$unparsed_count qa_gate_detail call site(s) in qa-all.bash did not parse — unchecked, not absent" >&2
+    printf '%s' "$sites_json" | jq -r '.unparsed[] | "        line \(.line): \(.text)"' >&2
+elif [ "$site_count" -eq 0 ]; then
     failed=$((failed + 1))
-    printf '  FAIL  %s\n' "no qa_gate_detail call sites found in qa-all.bash — the extraction broke, not the gates" >&2
+    printf '  FAIL  %s\n' \
+        "no qa_gate_detail call sites found in qa-all.bash — the parser broke, not the gates" >&2
 else
     passed=$((passed + 1))
-    printf '  PASS  COVERAGE: %s of %s qa_gate_detail call site(s) extracted\n' \
-        "${#detail_sites[@]}" "$detail_calls"
+    printf '  PASS  COVERAGE: %s qa_gate_detail call site(s) parsed, 0 unparsed\n' "$site_count"
 fi
 
-for site in "${detail_sites[@]}"; do
-    site_var="${site#qa_gate_detail \"\$}"
-    site_var="${site_var%%\"*}"
-    site_pattern="${site#*\'}"
-    site_pattern="${site_pattern%\'}"
+# THAT COVERAGE LINE DOES NOT REACH THE STAGE LINE, and it cannot: routing this gate through
+# `qa_gate_detail` would register its own capture variable in `gate_command_for`, and the
+# command there is this suite — so checking the pattern would re-run the suite inside itself.
+# A number in a captured stream is one step short of delivered, so the property it stands for
+# is carried by an EXIT CODE instead, in the reverse-direction check after the loop: a
+# registered gate whose call site disappears fails the suite. That is what actually guards
+# the population; the line above is for the person reading a local run.
+declare -A site_vars_seen=()
+
+while IFS= read -r site_line; do
+    site_var="${site_line%%$'\t'*}"
+    site_pattern="${site_line#*$'\t'}"
+    site_vars_seen["$site_var"]=1
 
     if ! site_capture="$(capture_for "$site_var")"; then
         failed=$((failed + 1))
@@ -615,6 +623,22 @@ for site in "${detail_sites[@]}"; do
     else
         passed=$((passed + 1))
         printf '  PASS  %s -> %s\n' "\$$site_var" "$site_answer"
+    fi
+done < <(printf '%s' "$sites_json" | jq -r '.sites[] | "\(.var)\t\(.pattern)"')
+
+# THE REVERSE DIRECTION. Every registered gate command must be reached by a call site. A
+# registration nobody reads is dead weight whose silence is indistinguishable from a pattern
+# being checked — and it is what a vanished call site leaves behind, which is the one way the
+# parsed population can shrink without the parser being at fault.
+for registered_var in "${GATE_COMMAND_VARS[@]}"; do
+    if [ -n "${site_vars_seen[$registered_var]+set}" ]; then
+        passed=$((passed + 1))
+        printf '  PASS  %s is registered and read\n' "\$$registered_var"
+    else
+        failed=$((failed + 1))
+        printf '  FAIL  %s\n        %s\n' \
+            "gate_command_for registers \$$registered_var, but no qa_gate_detail call site in qa-all.bash reads it" \
+            "either the call site was removed and the registration is stale, or the parser stopped finding it" >&2
     fi
 done
 

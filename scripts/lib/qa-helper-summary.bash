@@ -259,11 +259,10 @@ qa_gate_case_count() {
 # `vmtest-manifest` reports three separate measurements and joining them beats choosing one.
 # Same scoping as `qa_gate_case_count`, for the same reason, and it exists because the
 # alternative was measured and had failed silently for the whole life of one of them:
-# `nokill-containerwatch` read `[0-9]+ call site[s]? checked` from a gate that has only ever
-# printed
-# `N container-watch file(s) clean`, so the pattern matched ZERO times, the `||` fallback
-# substituted the prose `no forbidden kill call sites` on every run, and the coverage number
-# never reached the stage line. A blind reader whose blind output is indistinguishable from a
+# `nokill-containerwatch` read `[0-9]+ call site[s]? checked` from a gate whose only output
+# has ever been `N container-watch file(s) clean`. The pattern matched ZERO times, the `||`
+# fallback substituted the prose `no forbidden kill call sites` on every run, and the
+# coverage number never reached the stage line. A blind reader whose blind output is indistinguishable from a
 # real answer — this plan's subject, inside `qa-all.bash`, six lines under a comment about
 # failing to generalise a fix.
 #

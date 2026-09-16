@@ -133,11 +133,16 @@ nothing can drift into it by having something written into it.
 
 **Three outcomes, not two, and the third is what makes the second safe.**
 
-| The target is…                  | Verdict                                                 |
-| ------------------------------- | ------------------------------------------------------- |
-| tracked by this repository      | checked as before; missing is a **failure**             |
-| inside a declared vendored repo | **warned on, never failed** — three outcomes below      |
-| ignored, but vendored by nobody | **failure** — a link to something no clean checkout has |
+| The target is…                    | Verdict                                                 |
+| --------------------------------- | ------------------------------------------------------- |
+| tracked by this repository        | checked as before; missing is a **failure**             |
+| inside a declared vendored repo   | **warned on, never failed** — three outcomes below      |
+| untracked, and vendored by nobody | **failure** — a link to something no clean checkout has |
+
+The third row asks **trackedness, not ignoredness**, and the swap moved files in both
+directions: a tracked file matching an ignore rule left that row, and a present, unignored,
+never-committed file entered it. That second one is the finding — green here, red in a clean
+checkout — and the earlier wording of this table described the question the swap replaced.
 
 And a vendored target is still LOOKED AT, in the one case where looking means something —
 the owner's refinement, which recovers exactly what a flat exemption was throwing away.
@@ -393,8 +398,14 @@ puts a forged stage line into the machine-read verdict stream of the suite whose
 verdict lines that cannot be trusted.
 
 It is now captured and **required to be empty**, which is the difference between a
-precondition and a gate. The suite has 1,482 tests; "no test prints to stdout" held today by
-accident and one `print()` would have ended it silently.
+precondition and a gate. Across a suite of that size "no test prints to stdout" held by
+accident, and one `print()` would have ended it silently.
+
+The count that used to sit in this sentence is gone, and deliberately. It had rotted by the
+time round 11 read it — this was the surviving copy of the very sentence `CLAUDE/QA.md`
+deleted for rotting twice, which makes it the third rot of one claim. The live number is in
+the `helper-tests` stage line on every run, which is the only place a number that must be
+re-measured to stay true belongs.
 
 ### No line-number citation into a file this plan edits
 
@@ -634,6 +645,34 @@ seven stages of this same script, and the one the final summary was written for.
 question is whether to extend it to the other 29, not whether to invent it. The repo's own
 recurring lesson applies to the plan that is documenting it: the right answer already
 existed one directory over — in this case, sixty lines up.
+
+### The `qa-js.bash` gap is not worktree-only, and it sits in front of this plan's deliverable
+
+`PLAN.md`'s Non-Goal described this as a linked-worktree gap. The document it cites says
+otherwise two sentences away: `CLAUDE/QA.md`'s machine-dependence table names the missing
+input as absent in *"a linked worktree, **and any checkout where `npm install` has not been
+run**"* — which includes a fresh clone. Two statements of one population, disagreeing.
+
+Measured rather than assumed:
+
+- No playbook installs the deps. `grep -rniE 'extensions.*(npm|node_modules)|npm.*extensions'`
+  over `playbooks/ tasks/ roles/ files/` returns nothing.
+- The CCY Dockerfile **cannot** supply them: it carries no node stage, and
+  `extensions/node_modules` is under the bind-mounted project directory, so anything a `RUN`
+  created there would be covered by the mount at start-up.
+- CI is green only because `.github/workflows/qa.yml` runs `npm ci` in `extensions/`.
+- `extensions/node_modules` is gitignored, so it survives in a working checkout once someone
+  has run `npm ci` and is absent in every fresh one.
+
+Why it matters here rather than in the abstract: where the deps are missing, `qa-js.bash`
+exits 2 and `qa-all.bash` aborts **before `qa-docs.bash` is invoked at all**. The gate this
+plan exists to fix is then never executed by the mandated command — Task 4.1's mechanism,
+live, in front of this plan's own deliverable.
+
+By `CLAUDE.md`'s missing-dependency rule this is an IaC gap to close, not a runtime
+condition to document. It is not closed here because the remedy is a real decision — whether
+extension dev tooling belongs in the desktop provision at all, or in a separate bootstrap —
+and that is the owner's, not this plan's. Flagged, costed, and left for its own plan.
 
 ### A failing hard gate erases ITSELF from the census, not just the gates behind it
 

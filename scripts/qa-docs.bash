@@ -78,22 +78,35 @@ if ! jq_check="$(jq -e 'has("findings") and has("scanned")' "$TMP_RAW" 2>&1)"; t
 fi
 
 SCANNED=$(jq -r '.scanned' "$TMP_RAW")
+# The scan population is filesystem-derived — `collect_scope` walks the tree — so an in-scope
+# document nobody committed is scanned here and simply absent in CI. The denominator says so
+# out loud, the way `qa-helper-tests.bash` prints `65 modules (65 tracked)`. Equal numbers
+# mean the two machines are reading the same set.
+TRACKED=$(jq -r '.tracked' "$TMP_RAW")
 NFINDINGS=$(jq -r '.findings | length' "$TMP_RAW")
 # Links into a vendored repository, by outcome. Reported rather than silently dropped: an
 # exemption nobody counts reads exactly like a check that ran and found nothing, which is the
-# defect class this repo keeps finding. `// "?"` rather than `// 0` — a missing key means the
-# checker stopped emitting it, and that must not read as a clean zero.
-# `broken` is the one that MUST NOT default, and it was the one that did. `jq` answers 0 for
-# `.absent | length`, so a checker that stopped emitting the key would have read as zero, the
-# `-gt 0` branch would never fire, the whole ⚠ line and its list of links would vanish, and
-# the ✓ line would assert `0 broken`. A blind read byte-identical to a clean one, inside the
-# guard written to prevent exactly that. The two counters that cannot silence anything had
-# the guard; the one that can did not. A missing key is now a hard failure, not a count.
-if ! jq -e 'has("vendored") and has("vendored_warning")
-            and (.vendored | has("ok") and has("unverifiable") and has("broken"))' \
-    "$TMP_RAW" >/dev/null; then
-    echo "✗ docs: link_check emitted no vendored counts — the boundary check did not run," >&2
-    echo "  or stopped reporting. Refusing to print a stage line that would read as clean." >&2
+# defect class this repo keeps finding.
+#
+# TYPES, NOT JUST PRESENCE, and the difference is the whole guard. `has("broken")` answers
+# yes for `{"broken": null}`, and `null | length` is 0 in jq — so a checker that emitted the
+# key with nothing in it would read as a clean zero, the ⚠ block would be empty, and the ✓
+# line would assert `0 broken`. `{"broken": {}}` is worse still: silent rather than visibly
+# null. That is a blind read byte-identical to a clean one, inside the guard written to
+# prevent exactly that. So the two counters must be numbers and the two lists must be
+# arrays, or this gate refuses to print a stage line at all.
+#
+# jq's own complaint is captured and shown, the way the payload validation above does it.
+# Two adjacent guards with two conventions is how one of them ends up the weaker one.
+vendored_check=""
+if ! vendored_check="$(jq -e '
+        (.vendored.ok | type == "number")
+        and (.vendored.unverifiable | type == "number")
+        and (.vendored.broken | type == "array")
+        and (.vendored_warning | type == "array")' "$TMP_RAW" 2>&1)"; then
+    echo "✗ docs: link_check did not emit usable vendored counts — the boundary check did" >&2
+    echo "  not run, or stopped reporting. Refusing to print a stage line that would read" >&2
+    echo "  as clean. jq said: $vendored_check" >&2
     exit 2
 fi
 V_OK=$(jq -r '.vendored.ok' "$TMP_RAW")
@@ -141,12 +154,12 @@ jq -r '.vendored_warning[]' "$TMP_RAW"
 VENDORED_SUMMARY="VENDORED: $V_OK verified, $V_UNVERIFIABLE unverifiable (repo absent), $V_BROKEN broken"
 
 if [[ "$NFINDINGS" -eq 0 ]]; then
-    echo "✓ docs: $SCANNED files OK (links, anchors, playbook catalogue, topic index)" \
-        "— $VENDORED_SUMMARY"
+    echo "✓ docs: $SCANNED files ($TRACKED tracked) OK (links, anchors, playbook catalogue," \
+        "topic index) — $VENDORED_SUMMARY"
     exit 0
 fi
 
-echo "✗ docs: $NFINDINGS finding(s) across $SCANNED files — $VENDORED_SUMMARY"
+echo "✗ docs: $NFINDINGS finding(s) across $SCANNED files ($TRACKED tracked) — $VENDORED_SUMMARY"
 jq -r '.findings[] | "  \(.file):\(.line)  \(.target)  — \(.problem)"' "$TMP_RAW"
 echo "  Details: jq '.failures[]' $JSON_OUT"
 exit 1
