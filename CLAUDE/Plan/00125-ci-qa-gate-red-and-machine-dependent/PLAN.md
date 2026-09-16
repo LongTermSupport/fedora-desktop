@@ -109,18 +109,16 @@ reporting it. That is Task 4.1's answer and the argument for Task 4.3.
 ### Phase 2: The docs gate — decision required
 
 - [ ] ⬜ **Task 2.1**: **DECISION GATE** — how a tracked file may reference an installed,
-  gitignored tree. Three options, with the argument for each recorded below:
-  - **(a) Install the hooks daemon in CI before QA.** Most consistent with this repo's
-    "Missing Dependencies — Fail Fast, Fix in IaC" rule: the daemon is a real dependency
-    of the docs graph, so add the dependency rather than teach the check to tolerate its
-    absence. Costs a CI step and makes CI depend on the daemon's installer.
-  - **(b) Make the existence check conditional on the tree being present** — a link into a
-    known installed tree is checked when the tree is there and not when it is not. Smaller,
-    but it is the "skip and warn" shape `CLAUDE.md` prohibits, and it would pass on a
-    genuinely broken link in exactly the environment that cannot check it.
-  - **(c) Stop tracked files linking into the untracked tree** — the pointers name the
-    topic file rather than deep-linking. Changes daemon-deployed content, which is
-    replaced wholesale on upgrade, so it would regress at the next one.
+  gitignored tree. Recorded as three options; **checking them narrowed it to one.** All 8
+  findings are daemon-generated: the 8 rule files carrying `hooks-daemon-rule-version` are
+  exactly the 8 reported, rendered by the daemon's own installer. **(b)** is the
+  skip-if-absent shape `CLAUDE.md` prohibits by name; **(c)** is re-rendered by
+  `sync_directory_role_rules()` at the next upgrade and breaks a contract the daemon's own
+  `docs_qa` enforces. The link is not wrong — its premise, *the daemon is installed*, is
+  false in CI. That leaves **(a) install the daemon in CI before QA**, a real dependency no
+  `.github/workflows/` file mentions today. Reasoning and citations: `FINDINGS.md`.
+  **Still the owner's call** — it makes every QA run depend on an external repository's
+  installer, a cost the rules do not decide. Implementable immediately on the word.
 - [ ] ⬜ **Task 2.2**: Implement the chosen option; the docs gate passes in a clean checkout.
 
 ### Phase 3: The tests that read the machine they were written on

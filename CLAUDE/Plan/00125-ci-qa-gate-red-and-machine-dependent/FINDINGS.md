@@ -26,6 +26,41 @@ tests passing. Cause A is the original breakage and for eleven days it was the o
 
 This is the one cause still open, because fixing it is Task 2.1's decision, not a repair.
 
+### Two of Task 2.1's three options are not actually available
+
+The three options were recorded as a genuine three-way choice. Checked rather than left
+that way, and the choice is narrower than it looked:
+
+**The eight findings are all daemon-generated content, and the correspondence is exact.**
+Eight of the fifteen tracked `.claude/rules/*.md` files carry
+`<!-- hooks-daemon-rule-version: 1.0.0 -->`, and they are the same eight the gate reports.
+Their source is the daemon's own installer,
+`.claude/hooks-daemon/src/claude_code_hooks_daemon/install/directory_role_rules.py`, which
+renders the link from config via `directory_roles_link()` and re-deploys the files through
+`sync_directory_role_rules()`. Nothing this repository hand-wrote contributes a single
+finding.
+
+- **(c) is not durable, for a stronger reason than "it would regress".** The installer
+  re-renders the link on every sync, so an edit is reverted at the next upgrade — and the
+  daemon's `docs_qa` `rules-file-shape` check *enforces* the pointer-only contract, so the
+  edit would also be fighting a check while it lasted. The daemon's module docstring
+  records the design decision deliberately: `DirectoryRoles.md` is not seeded into the
+  client tree because a normal client install "clones the WHOLE daemon repository into
+  `.claude/hooks-daemon/`", so the target exists "at a fixed, predictable path the moment
+  the daemon itself is installed". The link is not wrong. Its premise — *the daemon is
+  installed* — is simply false in CI.
+
+- **(b) is the shape `CLAUDE.md` prohibits, and it is prohibited by name.** "Missing
+  Dependencies — Fail Fast, Fix in IaC" rules out exactly "make the script tolerate the
+  missing tool (skip-if-absent, `|| true`, advisory-only mode)", and a link check that
+  stops checking when the tree is absent is that, one level of indirection away. It would
+  also pass on a genuinely broken link in the only environment that cannot tell.
+
+That leaves **(a)**: the daemon is a real dependency of the docs graph and CI does not have
+it. `.github/workflows/` contains no reference to the daemon at all today, so this is an
+addition rather than a repair. It is still the owner's call, because it makes every QA run
+depend on an external repository's installer — a cost the rules do not decide.
+
 ## Cause B — tests that read the machine they were written on
 
 Five at first; a sixth surfaced once the abort stopped hiding it.
