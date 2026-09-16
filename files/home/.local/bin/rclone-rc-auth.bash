@@ -144,9 +144,26 @@ rclone_rc_addr_for_mount() {
     # i.e. the root, so an offset path matches nothing and the caller is told no
     # mount serves a directory that is plainly inside one. Doing it here means one
     # correct answer for every caller instead of each one remembering.
-    local mount_root=""
-    if ! mount_root=$(findmnt -n -o TARGET --target "$mountpoint"); then
+    local findmnt_out=""
+    if ! findmnt_out=$(findmnt -n -o TARGET --target "$mountpoint"); then
         echo "rclone_rc_addr_for_mount: $mountpoint is not inside any mount" >&2
+        return 1
+    fi
+
+    # FIRST row only, and taken by parameter expansion rather than `| head -n1`.
+    # `findmnt --target` emits one row per stacked mount on an over-mounted target — a
+    # restarted rclone unit mounted over its own mountpoint gives exactly that shape — and
+    # a two-line value can never match the cmdline below, so the caller is told no mount
+    # serves a directory that plainly is one.
+    #
+    # The pipeline spelling is wrong HERE specifically: `ftp-camera` runs `set -e` WITHOUT
+    # `pipefail`, so a failing `findmnt` piped into `head` yields exit 0 and an EMPTY
+    # mount_root — and an empty mountpoint degenerates the matcher below to `*"  "*`, which
+    # matches almost any argv. An expansion cannot fail silently, and the emptiness is then
+    # asserted rather than assumed.
+    local mount_root="${findmnt_out%%$'\n'*}"
+    if [ -z "$mount_root" ]; then
+        echo "rclone_rc_addr_for_mount: findmnt named no mount for $mountpoint" >&2
         return 1
     fi
     mountpoint="$mount_root"
@@ -179,11 +196,17 @@ rclone_rc_addr_for_mount() {
                     echo "rclone_rc_addr_for_mount: the mount serving $mountpoint was started without --rc-addr" >&2
                     return 1
                 fi
-                # More than one --rc-addr is refused rather than resolved. The three
-                # sibling walks take the first with `head -n1`, but rclone's own flag
-                # parsing takes the LAST — so picking either silently hands back an
-                # address the mount may not be listening on. The unit template emits one
-                # flag; two means a hand-edited unit, which the operator should see.
+                # More than one --rc-addr is refused rather than resolved. The unit
+                # template emits exactly one, so no deployed mount can reach this; a
+                # second flag means a hand-edited unit, which the operator should see.
+                #
+                # Refused rather than "take the first" because which one rclone actually
+                # listens on is NOT established here: it depends on whether the flag is
+                # scalar (last wins) or a repeatable list (all bind), and nothing in this
+                # repo or this plan measured it. Guessing would hand back an address the
+                # mount may not answer on, and report it as discovered fact. If a
+                # multi-listener unit ever turns out to be legitimate, establish the
+                # semantics first and then relax this.
                 if [ "$(printf '%s\n' "$matches" | wc -l)" -gt 1 ]; then
                     echo "rclone_rc_addr_for_mount: the mount serving $mountpoint has more than one --rc-addr: $(printf '%s' "$matches" | tr '\n' ' ')" >&2
                     echo "  rclone uses the last; the sibling helpers use the first. Fix the unit rather than guess." >&2

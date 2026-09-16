@@ -342,29 +342,45 @@ else
     # the RC is down, the credential is wrong, or the helper is absent.
     probe_err=$(mktemp)
     TEMP_FILES+=("$probe_err")
-    # Resolve the address the way the CLIENT does, from a path INSIDE the mount. That is
-    # the shape ftp-camera hands the library: find_mount_path returns the mount target
-    # plus the remote's own path offset. Probing check [0]'s RC_ADDR instead ran the right
-    # function against an address the client never computes — so this gate stayed green
-    # through a build where `ftp-camera --copy` aborted on every single run.
+    # Resolve the address the way the CLIENT does, from a REAL subdirectory of the mount.
+    # ftp-camera hands the library `find_mount_path`'s output: the mount target plus the
+    # remote's own path offset, genuinely below the root. Probing check [0]'s RC_ADDR
+    # instead ran the right function against an address the client never computes — so
+    # this gate stayed green through a build where `ftp-camera --copy` aborted every run.
     #
-    # find_mount_path is not callable from here: it lives inside a 2,475-line executable
-    # that runs its main on source, and it needs RCLONE_REMOTE. `$rc_mount/.` carries the
-    # one property that matters — a path inside the mount, textually different from the
-    # mount root — and a library that fails to normalise it fails to match the mount's
-    # cmdline, exactly as it failed to match the client's offset path.
-    client_input="$rc_mount/."
-    if ! client_addr=$(rclone_rc_addr_for_mount "$client_input" 2> "$probe_err"); then
-        bad "the client's own address resolution failed — ftp-camera --copy aborts here" \
-            "$(cat "$probe_err")"
-    elif [ "$client_addr" != "$RC_ADDR" ]; then
-        bad "the client resolves a different RC address than this gate probes" \
-            "client: $client_addr   gate: $RC_ADDR — one of them is talking to the wrong mount"
-    elif rclone_rc_available "http://${client_addr}" 2> "$probe_err"; then
-        ok "preflight probe (core/stats, authenticated) succeeded at the client-resolved $client_addr"
+    # A GENUINE subdirectory, not `$rc_mount/.`. That earlier stand-in was the mount root
+    # spelled with a trailing dot, which any trivial canonicalisation removes: `${p%/.}`
+    # and `realpath -m` both satisfy it while leaving the client broken exactly as before.
+    # `realpath` is precisely what a later author "simplifying" `findmnt --target` would
+    # reach for, and the gate would wave it through. Only a path with a real component
+    # below the root can distinguish a resolution from a tidy-up.
+    #
+    # find_mount_path itself is not callable here: it lives inside a 2,475-line executable
+    # that runs its main on source, and it needs RCLONE_REMOTE.
+    client_input=""
+    if ! mount_children=$(find "$rc_mount" -mindepth 1 -maxdepth 1 -type d -print -quit); then
+        bad "could not list $rc_mount to build a client-shaped input" \
+            "find failed on the mount root; check [6] establishes nothing without it"
+    elif [ -z "$mount_children" ]; then
+        # NOT a pass, and NOT a silent fall back to the mount root. A gate that cannot
+        # build the client's input shape has not tested the client's input shape, and
+        # saying so is the whole point of this plan.
+        bad "the mount at $rc_mount has no subdirectory, so the client's input could not be built" \
+            "ftp-camera passes a path BELOW the mount root; with nothing below it, this check cannot exercise that and must not claim to"
     else
-        bad "preflight probe failed — ftp-camera --copy would refuse to run" \
-            "$(cat "$probe_err")"
+        client_input="$mount_children"
+        if ! client_addr=$(rclone_rc_addr_for_mount "$client_input" 2> "$probe_err"); then
+            bad "the client's own address resolution failed — ftp-camera --copy aborts here" \
+                "asked for $client_input: $(cat "$probe_err")"
+        elif [ "$client_addr" != "$RC_ADDR" ]; then
+            bad "the client resolves a different RC address than this gate probes" \
+                "client: $client_addr   gate: $RC_ADDR — one of them is talking to the wrong mount"
+        elif rclone_rc_available "http://${client_addr}" 2> "$probe_err"; then
+            ok "preflight probe (core/stats, authenticated) succeeded at $client_addr, resolved from $client_input"
+        else
+            bad "preflight probe failed — ftp-camera --copy would refuse to run" \
+                "$(cat "$probe_err")"
+        fi
     fi
     rm -f "$probe_err"
 fi
@@ -449,6 +465,21 @@ for ran in "${RAN_CHECKS[@]+"${RAN_CHECKS[@]}"}"; do
     esac
 done
 
+# And the third cause, which the two lists above cannot see between them: the SAME check
+# id emitted twice. Both `missing` and `undeclared` come back empty, and `COVERAGE: 10 of
+# 9` prints and ACCEPTS — the identical self-contradicting line, from a different cause.
+# Closing one route and declaring the class fixed is how this gate's own defect survived
+# a round, so the count is now made incapable of contradicting itself rather than having
+# its two known causes enumerated.
+duplicates=()
+seen_checks=""
+for ran in "${RAN_CHECKS[@]+"${RAN_CHECKS[@]}"}"; do
+    case " ${seen_checks} " in
+        *" $ran "*) duplicates+=("$ran") ;;
+        *) seen_checks="${seen_checks}${seen_checks:+ }$ran" ;;
+    esac
+done
+
 echo "=============================================================="
 echo "COVERAGE: ${#RAN_CHECKS[@]} of ${#EXPECTED_CHECKS[@]} checks executed" \
     "(${PASS} assertion(s) passed, ${FAIL} failed)"
@@ -457,16 +488,24 @@ if [ "${#missing[@]}" -ne 0 ]; then
 fi
 if [ "${#undeclared[@]}" -ne 0 ]; then
     echo "  RAN BUT NOT DECLARED: ${undeclared[*]}" >&2
-    echo "  Add them to EXPECTED_CHECKS and to --help, or this gate is measuring" >&2
-    echo "  itself against a list that no longer describes it." >&2
+    echo "  Add them to CHECK_CATALOGUE, or this gate is measuring itself against" >&2
+    echo "  a list that no longer describes it." >&2
+fi
+if [ "${#duplicates[@]}" -ne 0 ]; then
+    echo "  RAN MORE THAN ONCE: ${duplicates[*]}" >&2
+    echo "  A repeated check id inflates the executed count above the declared one," >&2
+    echo "  so the COVERAGE line contradicts itself." >&2
 fi
 
-if [ "$FAIL" -eq 0 ] && [ "${#missing[@]}" -eq 0 ] && [ "${#undeclared[@]}" -eq 0 ]; then
-    echo "ACCEPTED — every declared check ran and every assertion passed."
+if [ "$FAIL" -eq 0 ] && [ "${#missing[@]}" -eq 0 ] && [ "${#undeclared[@]}" -eq 0 ] \
+    && [ "${#duplicates[@]}" -eq 0 ]; then
+    echo "ACCEPTED — every declared check ran exactly once and every assertion passed."
     echo "=============================================================="
     exit 0
 fi
-if [ "$FAIL" -eq 0 ] && [ "${#undeclared[@]}" -ne 0 ]; then
+if [ "$FAIL" -eq 0 ] && [ "${#duplicates[@]}" -ne 0 ]; then
+    echo "REJECTED — ${#duplicates[@]} check id(s) ran more than once." >&2
+elif [ "$FAIL" -eq 0 ] && [ "${#undeclared[@]}" -ne 0 ]; then
     echo "REJECTED — ${#undeclared[@]} check(s) ran that this gate does not declare." >&2
 elif [ "$FAIL" -eq 0 ]; then
     echo "REJECTED — no assertion failed, but ${#missing[@]} declared check(s) never ran." >&2

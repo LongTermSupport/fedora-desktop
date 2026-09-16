@@ -173,8 +173,9 @@ into Plan 00094's own notes.
   build alone). The blocking pair were both this plan's own defect class recurring
   inside its own fixes: `ftp-camera --copy` broken by Task 5.8's address discovery,
   and a gate that could not see it because it probed its own address rather than the
-  client's. Findings, fixes and the falsification evidence: `JOURNAL/2026-09-16.md`;
-  the review itself is in `subagent-reports/`
+  client's. Findings, fixes and the falsification evidence:
+  [JOURNAL/00099-Journal-26-09-16.md](JOURNAL/00099-Journal-26-09-16.md); the review
+  itself is in `subagent-reports/`
 
 ## Dependencies
 
@@ -273,3 +274,9 @@ Found while working, deliberately not addressed here:
   reader does not repeat the search.
 - `scripts/qa-deployed-drift.bash` has since been edited by Plans 00081, 00110 and 00122 —
   this plan owns its introduction, not its current state
+- **The delivery is not one commit, and treating it as one is what made the host go
+  stale.** Three later commits changed files that deploy to the host: `17819cda` (the
+  closing review's S1–S5, including `ftp-camera`'s address discovery), `510dbbf4` (round
+  2 — the library's mount-root normalisation and the gate that can see it) and this
+  round's follow-up. Task 5.7's host run predates all of them, which is why Task 5.9
+  exists and why success criteria 1, 3 and 5 are unticked again
