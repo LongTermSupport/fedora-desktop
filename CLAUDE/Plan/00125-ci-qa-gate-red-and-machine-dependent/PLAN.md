@@ -44,56 +44,23 @@ genuinely done and CI *was* green at its Batch 9. This is a regression that land
 
 ## Context & Background
 
-Two causes are established. Both were observed on run `35027739399` (`b81832cb`) and
-reproduced on `34995414256` (`9b6c8d55`), so neither is new today.
+Two causes, both established with evidence before any code changed, and both written up in
+full in **[FINDINGS.md](FINDINGS.md)** — the per-cause reasoning, the table of affected
+tests, and the one diagnosis that turned out to be wrong and how it was corrected.
 
-**Cause A — the docs gate, 8 findings, all one shape.** Eight tracked `.claude/rules/*.md`
-files link to `../hooks-daemon/CLAUDE/DirectoryRoles.md`. `.claude/hooks-daemon/` is
-gitignored (`.gitignore:53`, `.claude/.gitignore:3`), so in a clean checkout the target
-cannot exist. `helpers/docs/link_check.py` already lists `.claude/hooks-daemon/` in
-`_EXCLUDE_PREFIX`, but that excludes files in that tree from being **scanned** — it does
-not exempt links **into** it from the existence check. The link is correct on an installed
-machine and impossible in CI.
+**Cause A — the docs gate.** Eight tracked `.claude/rules/*.md` files link into the
+gitignored `.claude/hooks-daemon/` tree, so in a clean checkout the target cannot exist.
+It is the original breakage (`0015c886`, 2026-08-31) and the only cause still open: the
+fix is Task 2.1's decision, not a repair.
 
-Those pointer files arrived in `0015c886` on 2026-08-31, five days *after* the last green
-run — which was first read as meaning they cannot be the original breakage. **That
-inference was wrong** (Task 1.2): CI only observes commits that are pushed, and nothing was
-pushed to `F44` in those five days. `0015c886` is the *very next run* after `1fc1c5fe`, and
-it failed on **docs alone** — 7 findings, all `target does not exist`, with all 203 helper
-tests passing. Cause A is the original breakage and for eleven days it was the only one.
+**Cause B — tests that read the machine they were written on.** Five at first, and a sixth
+once the abort stopped hiding it. All six were defective **tests**, not production paths;
+all six are fixed.
 
-**Cause B — five helper unit tests that pass locally and fail on a runner.**
-
-| Test                                                                                                                                      | Status       |
-| ----------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
-| `tests/helpers/displaylink_recovery/test_run_recovery.py::TestEdidByteCountAgainstRealSysfs::test_a_connected_display_reports_edid_bytes` | fixed (T3.1) |
-| `…::TestEdidByteCountAgainstRealSysfs::test_stat_disagrees_with_reading_which_is_the_whole_point`                                         | fixed (T3.1) |
-| `tests/helpers/gnome/test_apply_enabled_extensions.py::TestMain::test_falls_back_to_dbus_run_session_without_a_bus`                       | fixed (T3.2) |
-| `tests/helpers/host_health/test_handoff.py::TestTheHandoffCanBeSuppressedForTriage::test_the_findings_are_still_reported_either_way`      | fixed (T1.3) |
-| `tests/helpers/host_health/test_login_message.py::TestTheEntryPointALoginShellCalls::test_it_exits_zero_and_prints_nothing_when_clean`    | fixed (T1.3) |
-
-All five are **defective tests**, not production paths. Run `35034834651` (`cedc9426`)
-confirms the first two fixes on a real runner: `failures=5` became `failures=3`, with the
-two `host_health` entries gone and nothing else changed.
-
-The DisplayLink pair deliberately asserts against real sysfs — its own docstring says a
-tempfile cannot reproduce the defect. It scans every `card*-*` connector and asserts
-"connected and advertising modes ⇒ has EDID bytes". That inference holds for a connector
-with a physical display link and is simply **false for a `Virtual` connector**, whose modes
-are invented by the driver and which has no monitor to read an EDID from. A runner is a VM
-whose one connected connector is `card1-Virtual-1`. Production never looks at these at all
-— `_drm_head_states()` globs `card*-DVI-I-*` — so the unsound inference is the test's own.
-
-The dbus test's first diagnosis was **wrong and is corrected here**: it *does* isolate
-`DBUS_SESSION_BUS_ADDRESS`, because `mock.patch.dict(..., clear=True)` unsets it (measured:
-`None` inside the patch). The real cause is one candidate further down. `runtime_dirs`
-always appends `/run/user/<uid>` and deliberately never drops it — it is the path derived
-from who the process actually is, so no environment change can remove it. On a runner
-(uid 1001, a live user session) that socket is reachable, `resolve_session_bus` returns
-`source="runtime-socket"`, and the fallback the test names is never reached. It passed in
-the container only because the container runs as a uid with no session.
-
-The two `host_health` failures were diagnosed and fixed under Task 1.3.
+**The mechanism that hid it all.** `qa-all.bash` exits at the first failing hard gate and
+**26 gates are declared after that point**, so a gate that cannot pass in an environment
+stops every gate behind it from running — the executed-check count falls with nothing
+reporting it. That is Task 4.1's answer and the argument for Task 4.3.
 
 ## Tasks
 
@@ -141,7 +108,7 @@ The two `host_health` failures were diagnosed and fixed under Task 1.3.
 ### Phase 2: The docs gate — decision required
 
 - [ ] ⬜ **Task 2.1**: **DECISION GATE** — how a tracked file may reference an installed,
-  gitignored tree. Options, with the argument for each recorded in `DECISIONS.md`:
+  gitignored tree. Three options, with the argument for each recorded below:
   - **(a) Install the hooks daemon in CI before QA.** Most consistent with this repo's
     "Missing Dependencies — Fail Fast, Fix in IaC" rule: the daemon is a real dependency
     of the docs graph, so add the dependency rather than teach the check to tolerate its
@@ -155,7 +122,7 @@ The two `host_health` failures were diagnosed and fixed under Task 1.3.
     replaced wholesale on upgrade, so it would regress at the next one.
 - [ ] ⬜ **Task 2.2**: Implement the chosen option; the docs gate passes in a clean checkout.
 
-### Phase 3: The five tests
+### Phase 3: The tests that read the machine they were written on
 
 - [x] ✅ **Task 3.1**: The DisplayLink pair — the scan now excludes DRM connector types
   that carry **no physical display link** (`Virtual`, `Writeback`), for which the test's
@@ -258,4 +225,16 @@ The two `host_health` failures were diagnosed and fixed under Task 1.3.
 
 ## Delivery & Milestones
 
-- <!-- milestone or delivery commit hash -->
+- `cedc9426` — Task 1.3: both `host_health` tests, and the 2026-09-28 calendar bomb one of
+  them carried. Confirmed on a runner: `failures=5` became `failures=3`
+- `390a9290` — Tasks 3.1, 3.2, 3.4: the DisplayLink pair and the dbus fallback, plus the
+  first tests for `session_bus.current()`. Helper suite green in CI
+- `05cf9b53` — Tasks 1.2, 4.1, 4.2: the hardcoded `/workspace` in `panel-sections`, the
+  `.ansible/` exclusion in `qa-js.bash`, and `CLAUDE/QA.md`'s environment-dependence section
+- `40e3a26d` — Task 3.5: `assert_on_host` drivable on any machine. **Every hard gate then
+  passed in CI for the first time since 2026-09-11** (run `35037675348`)
+- `5ac5f57f` — Task 1.1: `triage.bash`, `probe-qa-verdicts.bash` and
+  `helpers/qa_environment/verdicts.py`
+
+Remaining: Task 2.1 (decision), 2.2 (its implementation), 4.3 (decision), 5.2 (follows 2.2),
+5.3 (`qa-reviewer`).
