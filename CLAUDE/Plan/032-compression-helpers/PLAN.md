@@ -76,7 +76,10 @@ release static binary (idempotent `get_url` + `creates:` in Ansible).
     `/opt/ouch-<version>/` with `creates:` for idempotency, then symlink to
     `/usr/local/bin/ouch`
   - [x] ✅ File modes `0755`, owner/group `root`
-  - [x] ✅ Version pinned via `ouchVersion: "0.6.1"` variable
+  - [x] ✅ Version pinned via an `ouchVersion` variable. **Now `0.8.1`**, not the `0.6.1`
+    this plan was written against — the play has been bumped since. `acceptance.bash`
+    check 0 READS the pin out of the play rather than repeating it, so a future bump
+    cannot leave the gate asserting a version nothing installs
   - [x] ✅ Verify step runs `ouch --version` + asserts the output matches the pin
   - [x] ✅ Preflight asserts `ncompress` package not installed (prevents
     `/usr/bin/{compress,uncompress}` PATH conflict)
@@ -97,17 +100,37 @@ release static binary (idempotent `get_url` + `creates:` in Ansible).
 - [x] ✅ Add wrapper install tasks to `play-compression-helpers.yml`
   (copy both scripts to `/usr/local/bin/`, mode `0755`, owner/group `root`)
 - [x] ✅ Run `./scripts/qa-all.bash` — passed (238 files checked, 0 failures)
-- [ ] ⬜ Commit with plan reference (awaiting user go-ahead)
+- [x] ✅ Commit with plan reference — `12deefe2` "Plan 032: add compress/uncompress CLI
+  helpers" added the play and both wrappers. The box was left unticked after the commit
+  landed, which is how the plan came to read as less finished than it was
 
-### Phase 4: User Testing (on HOST, not in container)
+### Phase 4: Verification (on HOST, not in container)
 
-- [ ] ⬜ Deploy: `ansible-playbook playbooks/imports/optional/common/play-compression-helpers.yml`
-- [ ] ⬜ Test compress folder → xz
-- [ ] ⬜ Test compress folder → zip
-- [ ] ⬜ Test compress single file
-- [ ] ⬜ Test uncompress .tar.xz (must land in its own folder)
-- [ ] ⬜ Test uncompress .zip (must land in its own folder — the tarbomb-protection case)
-- [ ] ⬜ Test overwrite refusal (existing output + existing target folder)
+This phase was six things for a human to try by hand, which is why the plan sat
+"awaiting host deployment" from the day it was filed. **None of the six needs human
+judgement** — each is a filesystem assertion — so they are now assertions, and the
+plan closes on a run rather than on somebody being at a keyboard.
+
+- [x] ✅ **Task 4.0**: `deploy.bash` — runs the play, HOST-gated (R2), one change gate,
+  and `-y` so `untracked/meta-deploy.bash` can answer it as part of the batch.
+- [x] ✅ **Task 4.1**: `acceptance.bash` — nine checks against the **deployed**
+  `/usr/local/bin` wrappers, with a stated COVERAGE line. Checks 2-7 are the six items
+  below, one each; checks 0, 1 and 8 are the preconditions that stop a green run meaning
+  nothing (ouch's version matches the play's pin, the wrappers are byte-identical to the
+  repo copies, and `PATH` still resolves them to `/usr/local/bin`). Two details it had
+  to get right: check 6's flat-zip fixture is **asserted flat before it is used**, or
+  tarbomb protection is never exercised and the check passes vacuously; and check 7
+  compares the archive's checksum across the refusal, since a wrapper that deleted the
+  file and *then* refused would satisfy an exit-status-only assertion.
+- [ ] ⬜ **HOST RUN**: `./CLAUDE/Plan/032-compression-helpers/deploy.bash` then
+  `acceptance.bash` — or one `./untracked/meta-deploy.bash`, which now picks this plan
+  up with the rest of the batch. The six items are its checks 2-7:
+  - [ ] ⬜ compress folder → xz *(check 2)*
+  - [ ] ⬜ compress folder → zip *(check 3)*
+  - [ ] ⬜ compress single file *(check 4)*
+  - [ ] ⬜ uncompress .tar.xz lands in its own folder *(check 5)*
+  - [ ] ⬜ uncompress .zip lands in its own folder — tarbomb protection *(check 6)*
+  - [ ] ⬜ overwrite refusal, both wrappers, destroying nothing *(check 7)*
 
 ## Technical Decisions
 
