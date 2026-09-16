@@ -265,6 +265,17 @@ after ten seconds. Evidence in the 26-09-16 journal.
   The suite pins the renewal to the thaw branch and that freeze does not touch the
   network; header comment, play ready message and `docs/playbooks.md` say what thaw
   now does
+  - [x] ✅ **The thaw's status gates the renewal** (`|| return $?`), found by Task 6.4's
+    review. Appending the renewal had silently transferred the hook's exit status from
+    the unfreeze to it, and the library calls the hook inside `if out="$( … )"` where
+    bash suspends errexit — so a failed `lxc-unfreeze` followed by a reconnect that
+    happened to succeed printed `✓ name` and exited 0 for a container still frozen. The
+    suite now RUNS the hook against a stubbed `sudo` rather than reading its text: line
+    adjacency was what the old assertions checked, and they were green for both the
+    broken and the fixed form
+  - [x] ✅ Thaw now requires NetworkManager in every container it thaws — a container on
+    `dhclient`, `systemd-networkd` or a static address fails the renewal. Loud rather
+    than silent, and `docs/playbooks.md` says so
 - [x] ✅ **Task 5.2**: **HOST** — both plays run, then the deployed tool froze and
   thawed one container: the host's `journalctl -t dnsmasq-dhcp` shows `DHCPDISCOVER`
   through `DHCPACK` in the same second as the thaw. The renewal is unconditional, so a
@@ -274,10 +285,12 @@ after ten seconds. Evidence in the 26-09-16 journal.
   via `lxcf_parse_ipv4`, blank when there is no address. The address is matched by
   SHAPE, not by line position, so a dual-stack container cannot put an IPv6 address
   under a column headed IPV4, and a failure message from `lxc-info` cannot be printed
-  where an address goes. A failed read blanks the cell and keeps the container in the
-  list — state is what gates the verbs, and an absent address is the symptom, not a
-  reason to hide the row. The suite reads the column by POSITION, since trimming a
-  two-column row cannot tell a blank address from a short row
+  where an address goes. A failed read keeps the container in the list — state is what
+  gates the verbs — and prints `IPV4_UNREADABLE`, not a blank: the blank cell is the
+  load-bearing signal, so a probe that could not answer must not produce it, or an
+  `lxc-info` without `-i` makes every running container look like it lost its lease. The
+  suite reads the column by POSITION, since trimming a two-column row cannot tell a
+  blank address from a short row
 - [x] ✅ **Task 5.4**: `FREEZE_FREEZE_NOTE` — a library slot, printed beside the "Thaw
   them with:" line at freeze time, where the cost is still avoidable. `lxcfreeze` fills
   it: thaw renews the lease so the address returns, but every ssh session into the
@@ -292,16 +305,11 @@ after ten seconds. Evidence in the 26-09-16 journal.
 
 ### Phase 6: Suspend to disk — closed: not realistic for a systemd container
 
-**Decision (owner, from the spike): no suspend-to-disk verb.** CRIU cannot dump the
-nested UTS namespace systemd-logind creates, and behind that sit mount propagation,
-cgroup v2 ownership and TCP state — each a per-container concession before the next
-blocker shows. Proxmox reaches the same conclusion by avoiding it: its container
-"suspend" is the cgroup freezer, hibernate to disk exists only for VMs, container
-migration is stop-copy-start, and container backups are filesystem snapshots. The two
-real options are the ones already here: freeze for a short RAM-resident hold, graceful
-`lxc-stop` and `lxc-start` for anything that must survive a reboot, with `lxc-snapshot`
-on the btrfs rootfs as the rollback point. A workload that needs its running state kept
-across reboots wants a VM. Evidence and reasoning in the 26-09-16 journal.
+**Decision (owner, from the spike): no suspend-to-disk verb, and no stop/start verb.**
+CRIU refuses before writing an image, and Proxmox avoids container hibernation entirely.
+Reasoning, the comparison table and the alternatives:
+[DECISION-no-suspend-to-disk.md](DECISION-no-suspend-to-disk.md). Evidence in the
+26-09-16 journal.
 
 - [x] ✅ **Task 6.1**: Spike on the designated container — conclusive at the first
   step: CRIU refused before writing an image (nested UTS namespace from logind's
@@ -310,8 +318,15 @@ across reboots wants a VM. Evidence and reasoning in the 26-09-16 journal.
 - [x] ✅ **Task 6.2**: **DECISION**: neither verb. Stop/start is what `lxc-stop` and
   `lxc-start` already are, and wrapping them in `lxcfreeze` would put a shutdown behind
   a tool whose name says otherwise
-- [x] 🚫 **Task 6.3**: Cancelled by Task 6.2 — nothing to implement
-- [ ] ⬜ **Task 6.4**: `qa-reviewer` over Phases 5–6 before the plan is marked Complete
+- [ ] ❌ **Task 6.3**: Cancelled by Task 6.2 — nothing to implement
+- [x] ✅ **Task 6.4**: `qa-reviewer` over Phases 5–6 — verdict **BLOCK**, 2 blocking, 4
+  should-fix, 8 nits, all acted on. Report:
+  [subagent-reports/260916-qa-reviewer-phase56-opus-5.md](subagent-reports/260916-qa-reviewer-phase56-opus-5.md).
+  The one that mattered: a failed `lxc-unfreeze` reported success (Task 5.1 above), and
+  the suite could not tell the broken form from the fix because it read source text
+  rather than running the hook. Nit 14 (two `sudo lxc-info` calls per container, which
+  `lxc-info -si` would merge) is knowingly **not** taken: it is a cost worth knowing on
+  a host with many containers and not worth a larger parse on a small one
 
 ## Success Criteria
 
@@ -332,7 +347,8 @@ across reboots wants a VM. Evidence and reasoning in the 26-09-16 journal.
 - [x] `./scripts/qa-all.bash` passes
 - [ ] After `lxcfreeze thaw`, ssh into the container succeeds on the first attempt,
   after a freeze longer than the one-hour lease
-- [ ] The suspend-to-disk decision is recorded with the spike's evidence
+- [x] The suspend-to-disk decision is recorded with the spike's evidence — the decision
+  in Phase 6's heading, the evidence in the 26-09-16 journal (10:00, 10:02, 10:10)
 
 ## Dependencies
 

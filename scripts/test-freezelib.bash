@@ -639,6 +639,54 @@ contains "and the undo command is offered"  "$act_out" "testfreeze thaw charlie"
 lacks "naming only what was acted on"       "$act_out" "thaw charlie alpha"
 
 echo ""
+echo "=== do_action: the freeze-time note, an OPTIONAL slot with no default ==="
+# Plan 00122 Task 5.4. The library carries the slot and neither the text nor the
+# assumption that there is one — LXC's note is about DHCP leases and severed ssh
+# sessions, which says nothing about a Podman container.
+#
+# Run, not read. Asserting on the constant proves a string exists; it says nothing about
+# anything ever printing it, and the whole print block could be deleted with every suite
+# still green.
+fixture podman
+SELECTED=(charlie)
+FREEZE_FREEZE_NOTE="  While frozen it answers nothing. Reconnect after thawing."
+act_out="$(do_action freeze 2>&1)"
+contains "a declared note is printed at freeze time" "$act_out" "Reconnect after thawing"
+# Beside the thaw instruction, which is the moment the cost is still avoidable: a freeze
+# already taken is a session already gone.
+contains "and it comes with the thaw instruction"    "$act_out" "Thaw them with:"
+
+# Thaw is not where the warning belongs — the cost has already been paid by then.
+fixture podman
+SELECTED=(alpha)
+FREEZE_FREEZE_NOTE="  While frozen it answers nothing. Reconnect after thawing."
+act_out="$(do_action thaw 2>&1)"
+lacks "a thaw does not warn about freezing" "$act_out" "Reconnect after thawing"
+
+# An empty note prints NOTHING, not a blank line. The claim is made in the library's own
+# comment, in PLAN.md and in the commit message; this is the only place it is checked.
+#
+# Captured to FILES, not with `$( )`. The note is the last thing printed, and command
+# substitution strips trailing newlines — so an unconditional `echo ""` for an empty note
+# is invisible to a captured string, and an assertion built on one passes against exactly
+# the mutant it was written to catch. Measured: the file form kills that mutant and the
+# `$( )` form does not.
+fixture podman
+SELECTED=(charlie)
+FREEZE_FREEZE_NOTE=""
+do_action freeze > "$QUIET" 2> "$work/note-empty.err"
+fixture podman
+SELECTED=(charlie)
+FREEZE_FREEZE_NOTE="  A note."
+do_action freeze > "$QUIET" 2> "$work/note-set.err"
+# Two extra lines with a note, none without: the blank separator and the note itself. A
+# line COUNT is what distinguishes "printed nothing" from "printed an empty line", which
+# a `contains` check cannot see at all.
+eq "an empty note adds exactly nothing" \
+    "$(( $(wc -l < "$work/note-set.err") - $(wc -l < "$work/note-empty.err") ))" "2"
+FREEZE_FREEZE_NOTE=""
+
+echo ""
 echo "=== do_action: thaw is the mirror image ==="
 fixture podman
 SELECTED=(charlie alpha)

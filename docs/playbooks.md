@@ -1023,9 +1023,16 @@ below:
   NetworkManager. The freezer stops the DHCP client too, so a freeze longer than the
   one-hour lease would otherwise leave the container unreachable until
   NetworkManager's own retry, minutes later
+- **Thaw therefore needs NetworkManager inside every container it thaws.** One using
+  `dhclient`, `systemd-networkd` or a static address has no `nmcli`, so the renewal
+  fails and `lxcfreeze thaw` exits non-zero — naming the container, and saying it IS
+  thawed. Loud rather than silent, but it is a new way for a successful thaw to report
+  failure
 - **The list carries an `IPV4` column** (`lxc-info -iH`), blank when the container has
   no address. A blank beside `RUNNING` is exactly that expired-lease symptom, so the
-  cell is left empty rather than filled with a placeholder word
+  cell is left empty rather than filled with a placeholder word — and a probe that
+  FAILED prints `(unknown)` instead, so a column that could not answer never looks like
+  a machine that lost every address
 - **Freezing says what it costs** before the freeze: ssh sessions into the container,
   and any agent socket forwarded over one, die with the frozen TCP connection. The
   address comes back on thaw; the connections do not, so reconnect
