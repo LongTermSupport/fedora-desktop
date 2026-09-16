@@ -111,6 +111,15 @@ bad() {
     fi
     FAIL=$((FAIL + 1))
 }
+# Context the operator needs that is neither a pass nor a failure, and so counts as
+# neither. Defined here rather than assumed: it was CALLED before it existed, and under
+# `set -euo pipefail` an undefined command is exit 127 — the gate died mid-check with no
+# verdict at all, on the branch check [0]'s own comment calls the normal case. Nothing
+# caught it: shellcheck does not resolve command names, and no harness executes this file
+# past check [0], which aborts in a container.
+note() {
+    echo "  NOTE  $1"
+}
 
 # Temp files are removed on the way out, not only at the end of the block that made them.
 # Both `rm -f` calls below sit after an `if` that can die under `set -e`, so any failure in
@@ -525,14 +534,24 @@ if [ "$FAIL" -eq 0 ] && [ "${#missing[@]}" -eq 0 ] && [ "${#undeclared[@]}" -eq 
     echo "=============================================================="
     exit 0
 fi
-if [ "$FAIL" -eq 0 ] && [ "$count_disagrees" -ne 0 ]; then
-    echo "REJECTED — the executed and declared check counts disagree." >&2
-elif [ "$FAIL" -eq 0 ] && [ "${#duplicates[@]}" -ne 0 ]; then
+# The NAMED causes first, the unnamed fallback LAST — which is what its own comment above
+# says it is for. Checked first, the generic "the counts disagree" preempted every specific
+# verdict, because each named cause also makes the counts differ by one: three carefully
+# worded headlines became reachable only when two faults happened to cancel out. The
+# detail lines still printed, so nothing was lost from the full output, but the line the
+# operator actually reads had regressed from specific to generic in exactly the cases the
+# specific wording was written for.
+if [ "$FAIL" -eq 0 ] && [ "${#duplicates[@]}" -ne 0 ]; then
     echo "REJECTED — ${#duplicates[@]} check id(s) ran more than once." >&2
+elif [ "$FAIL" -eq 0 ] && [ "${#catalogue_duplicates[@]}" -ne 0 ]; then
+    echo "REJECTED — ${#catalogue_duplicates[@]} check id(s) are declared more than once." >&2
 elif [ "$FAIL" -eq 0 ] && [ "${#undeclared[@]}" -ne 0 ]; then
     echo "REJECTED — ${#undeclared[@]} check(s) ran that this gate does not declare." >&2
-elif [ "$FAIL" -eq 0 ]; then
+elif [ "$FAIL" -eq 0 ] && [ "${#missing[@]}" -ne 0 ]; then
     echo "REJECTED — no assertion failed, but ${#missing[@]} declared check(s) never ran." >&2
+elif [ "$FAIL" -eq 0 ] && [ "$count_disagrees" -ne 0 ]; then
+    echo "REJECTED — the executed and declared check counts disagree, for a reason this" >&2
+    echo "  gate has no name for. Read the COVERAGE line above." >&2
 else
     echo "REJECTED — $FAIL assertion(s) failed, $PASS passed." >&2
 fi

@@ -120,12 +120,11 @@ into Plan 00094's own notes.
 - [x] ✅ **Task 5.6**: Run the `qa-reviewer` agent over the full diff — FIX-BEFORE-MERGE
   (0 blocking, 3 should-fix, 8 minor, 3 nits); report in
   `subagent-reports/260916-qa-reviewer-opus-5.md`. Every finding actioned except
-  `m6`, which is outstanding by decision rather than oversight — see the 14:28
-  handoff entry in `JOURNAL/00099-Journal-26-09-16.md`. Converting the three plan
-  scripts onto `_planlib.inc.bash` requires `plan_require_host` on
-  `acceptance.bash`, which would make the harness that falsifies the new COVERAGE
-  mechanism impossible to run, since the container is the only place it can run.
-  That trade is the owner's to settle.
+  `m6`, which is outstanding by decision rather than oversight: converting the plan
+  scripts onto `_planlib.inc.bash` requires `plan_require_host` on `acceptance.bash`,
+  which would make the COVERAGE falsification harness impossible to run. That trade is
+  the owner's to settle — see the 14:28 handoff entry in
+  `JOURNAL/00099-Journal-26-09-16.md`.
 - [x] ✅ **Task 5.8**: Closing `qa-reviewer` round — FIX-BEFORE-MERGE (0 blocking,
   5 should-fix); report in `subagent-reports/260916-qa-reviewer-close-opus-5.md`.
   All five actioned, and three were this plan's own defect class recurring one
@@ -167,14 +166,17 @@ into Plan 00094's own notes.
   would be the Plan 00094 failure repeated by this plan. Run `deploy.bash` then
   `acceptance.bash` again — or `untracked/meta-deploy.bash`, which runs this
   alongside every other waiting plan
-- [x] ✅ **Task 5.10**: Closing `qa-reviewer` rounds 2, 3 and 4 — BLOCK, then
-  FIX-BEFORE-MERGE twice. Every finding actioned and each fix mutation-tested, with a
+- [x] ✅ **Task 5.10**: Closing `qa-reviewer` rounds 2, 3, 4 and 5 — BLOCK, then
+  FIX-BEFORE-MERGE three times. Every finding actioned and each fix mutation-tested, with a
   control proving the assertion does not fail on a correct build. One thread runs through
-  all three: the gate kept vouching for `ftp-camera --copy` by approximating the client's
-  input, and each approximation was defeated by a different normalisation that still broke
-  the client. Ended in round 4 by deleting the stand-in — `ftp-camera` grew
-  `--copy-preflight`, the read-only half of `--copy`, and check [6] invokes the client.
-  Round by round, with the falsification evidence:
+  rounds 2–4: the gate kept vouching for `ftp-camera --copy` by approximating the client's
+  input, and each approximation was defeated by a different normalisation. Ended in round 4
+  by deleting the stand-in — `ftp-camera` grew `--copy-preflight`, the read-only half of
+  `--copy`, and check [6] invokes the client.
+  Round 5's blocking finding is the same defect one level out: check [6] called an
+  undefined `note`, so that branch exited 127 with no verdict — and the harness vouching
+  for check [6] had *grepped* the gate rather than running it. It now executes it. Round by
+  round, with the falsification evidence:
   [JOURNAL/00099-Journal-26-09-16.md](JOURNAL/00099-Journal-26-09-16.md); the reviews are
   in `subagent-reports/`
 
@@ -278,6 +280,5 @@ Found while working, deliberately not addressed here:
 - **The delivery is not one commit, and treating it as one is what made the host go
   stale.** Three later commits changed files that deploy to the host: `17819cda` (the
   closing review's S1–S5, including `ftp-camera`'s address discovery), `510dbbf4` (round
-  2 — the library's mount-root normalisation and the gate that can see it) and this
-  round's follow-up. Task 5.7's host run predates all of them, which is why Task 5.9
+  2 — the library's mount-root normalisation) and `113fe2e1` (round 4 — `ftp-camera --copy-preflight`). Task 5.7's host run predates all of them, which is why Task 5.9
   exists and why success criteria 1, 3 and 5 are unticked again

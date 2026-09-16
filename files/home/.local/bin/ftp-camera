@@ -413,21 +413,21 @@ done
 # old parser only looked at $1; the new while loop accepts arbitrary
 # combinations so we validate explicitly.
 mode_count=0
-for _mode in SORT_ONLY PASS_ONLY PUSH_ONLY COPY_ONLY PRUNE_ONLY ASYNC_MODE; do
+for _mode in SORT_ONLY PASS_ONLY PUSH_ONLY COPY_ONLY PRUNE_ONLY PREFLIGHT_ONLY ASYNC_MODE; do
     if [ "${!_mode}" = true ]; then
         mode_count=$((mode_count + 1))
     fi
 done
 if [ "$mode_count" -gt 1 ]; then
     echo "ERROR: only one primary mode at a time" >&2
-    echo "  Pick one of: --sort --pass --push --copy --prune --async --async-copy" >&2
+    echo "  Pick one of: --sort --pass --push --copy --copy-preflight --prune --async --async-copy" >&2
     exit 2
 fi
 
 # Reject viewer with non-server modes — those exit immediately and have
 # nothing to view.
 if [ "$VIEWER_MODE" = true ]; then
-    for _mode in SORT_ONLY PASS_ONLY PUSH_ONLY COPY_ONLY PRUNE_ONLY; do
+    for _mode in SORT_ONLY PASS_ONLY PUSH_ONLY COPY_ONLY PRUNE_ONLY PREFLIGHT_ONLY; do
         if [ "${!_mode}" = true ]; then
             echo "ERROR: --view / --view-jpg requires an FTP-server mode" >&2
             echo "  (default, --async, or --async-copy). The mode you picked" >&2
@@ -441,7 +441,7 @@ fi
 # server is up to receive uploads. Tear-down modes (sort/push/copy/...)
 # would just bring the hotspot up and immediately back down.
 if [ "$HOTSPOT_FLAG" = true ]; then
-    for _mode in SORT_ONLY PASS_ONLY PUSH_ONLY COPY_ONLY PRUNE_ONLY; do
+    for _mode in SORT_ONLY PASS_ONLY PUSH_ONLY COPY_ONLY PRUNE_ONLY PREFLIGHT_ONLY; do
         if [ "${!_mode}" = true ]; then
             echo "ERROR: --hotspot requires an FTP-server mode" >&2
             echo "  (default, --async, or --async-copy). The mode you picked" >&2
@@ -454,7 +454,7 @@ fi
 # And for --debug-ftp: it configures the vsftpd runtime config, so it only
 # means anything in a mode that actually starts vsftpd.
 if [ "$DEBUG_FTP" = true ]; then
-    for _mode in SORT_ONLY PASS_ONLY PUSH_ONLY COPY_ONLY PRUNE_ONLY; do
+    for _mode in SORT_ONLY PASS_ONLY PUSH_ONLY COPY_ONLY PRUNE_ONLY PREFLIGHT_ONLY; do
         if [ "${!_mode}" = true ]; then
             echo "ERROR: --debug-ftp requires an FTP-server mode" >&2
             echo "  (default, --async, or --async-copy). The mode you picked" >&2
@@ -490,7 +490,8 @@ fi
 # that exits in seconds) skip the wrap. The guard env var prevents an exec
 # loop on re-entry.
 _skip_inhibit=false
-if [ "$PASS_ONLY" = true ] || [ "$SORT_ONLY" = true ] || [ "$PRUNE_ONLY" = true ]; then
+if [ "$PASS_ONLY" = true ] || [ "$SORT_ONLY" = true ] || [ "$PRUNE_ONLY" = true ] \
+    || [ "$PREFLIGHT_ONLY" = true ]; then
     _skip_inhibit=true
 fi
 if [ "$_skip_inhibit" = false ] \
@@ -1095,7 +1096,18 @@ copy_preflight() {
         return 1
     fi
 
-    DEST_PATH=$(find_mount_path)
+    if [ ! -d "$UPLOAD_DIR" ]; then
+        echo "ERROR: Upload directory not found: $UPLOAD_DIR" >&2
+        return 1
+    fi
+
+    # `|| return 1`, not a bare assignment. `copy_to_mount` calls this function inside a
+    # `||` list, which suspends `set -e` for the whole call — so an unguarded failure here
+    # was swallowed on that path and the run continued to report a second, misleading
+    # "Mount destination not found:" with an empty path after the colon. The same function
+    # then behaved differently in its two callers, which is precisely the drift the
+    # extraction was supposed to make impossible.
+    DEST_PATH=$(find_mount_path) || return 1
 
     if [ ! -d "$DEST_PATH" ]; then
         echo "ERROR: Mount destination not found: $DEST_PATH" >&2
@@ -1147,11 +1159,6 @@ copy_to_mount() {
 
     local dest_path="$DEST_PATH"
     local rc_addr="$RC_ADDR"
-
-    if [ ! -d "$UPLOAD_DIR" ]; then
-        echo "ERROR: Upload directory not found: $UPLOAD_DIR" >&2
-        return 1
-    fi
 
     local file_count
     file_count=$(find "$UPLOAD_DIR" -type f | wc -l)
