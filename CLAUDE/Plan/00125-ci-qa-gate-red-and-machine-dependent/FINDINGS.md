@@ -170,8 +170,11 @@ the gate's own name — so a shared reader is a design task, not an extraction.
 
 Removing the scrape closed the stream, and the first draft then over-claimed about the file
 that replaced it. The claim was *"a value only this run knows"*, in four places. It is
-false: the token travels in the same `argv` as the path, so anything that can find the file
-already has the token. Stated correctly, three separate things are going on.
+false: the token travels in the same `argv` as the path, so anything that finds the file **by
+reading argv** already has the token. Note the qualifier — without it the sentence says the
+token buys nothing, and contradicts the row below it: a hardcoded path finds the file and does
+not have the token, which is exactly the case the token catches. Stated correctly, three
+separate things are going on.
 
 | Threat                                                | What stops it                            | Detected?         |
 | ----------------------------------------------------- | ---------------------------------------- | ----------------- |

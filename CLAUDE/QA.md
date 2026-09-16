@@ -160,13 +160,23 @@ faithful line, not a broken one. No skip is raised *inside* a `subTest` block in
 enumeration above holds; putting a skip inside a `subTest` means re-deriving it. Note that
 `subTest` itself appears in ~70 places, so grepping for it will not answer this question.
 
-The line also carries the **module count**, because a machine that COLLECTED a different set
-of test modules is the same defect one level up and the test count alone cannot show it.
-`qa-helper-tests.bash` separately cross-checks its discovery against `git ls-files` and
-fails if any tracked helper test was not found — `mapfile -t < <(find …)` reports
-`mapfile`'s status, not `find`'s, so a partly-failed walk would otherwise shrink the run
-silently. Same guard as `qa-bash.bash` and `qa-python.bash`, which each grew it after the
-same defect.
+The line also carries **`N modules (M tracked)`**, because a machine that COLLECTED a
+different set of test modules is the same defect one level up and the test count alone
+cannot show it. The two numbers cover the two directions, and both are needed:
+
+- **tracked but not discovered** — `qa-helper-tests.bash` cross-checks its walk against
+  `git ls-files` and **exits 2** if any tracked helper test was not found. `mapfile -t < <(find …)` reports `mapfile`'s status, not `find`'s, and `pipefail` does not reach inside
+  a process substitution, so a partly-failed walk would otherwise shrink the run silently.
+  Same guard as `qa-bash.bash` and `qa-python.bash`, which each grew it after the same
+  defect; this was the third site and got it last.
+- **discovered but not tracked** — `find` sees uncommitted files too, so a test nobody
+  committed runs here and nowhere else and the counts stop being comparable. That is *not*
+  a failure (it is the normal state mid-TDD), so it is reported rather than fatal: `modules`
+  above `tracked` in the stage line, and the file names on stderr.
+
+The second number goes in the **stage line** specifically. `qa-all.bash` discards the
+child's stderr on a successful run, so a coverage figure reported only there is produced and
+never delivered — which is one step short of the class this page is about.
 
 **A stage that cannot pass in an environment is not a strict gate there — it is an absent
 one.** Two consequences follow, and the second is the one that bites:

@@ -125,6 +125,11 @@ for file in "${test_files[@]}"; do
     [[ -n "${tracked[$file]:-}" ]] || untracked_tests+=("$file")
 done
 
+#
+# The COUNT reaches the caller through the counts file (`--tracked-modules` below), because
+# `qa-all.bash` discards this stream on a successful run — a coverage number reported only
+# here would be produced and never delivered, which is one step short of the class this plan
+# exists to remove. What stays here is the part a stage line cannot carry: the file NAMES.
 printf 'COVERAGE: %s of %s tracked helper test modules\n' \
     "$((${#test_files[@]} - ${#untracked_tests[@]}))" "${#QA_TRACKED_HELPER_TESTS[@]}" >&2
 if [[ "${#untracked_tests[@]}" -gt 0 ]]; then
@@ -152,4 +157,6 @@ fi
 
 # The runner exits non-zero on any failure; set -e propagates it (fail-fast).
 python3 -m helpers.qa_environment.unittest_counts \
-    --counts-file "$counts_file" "${token_args[@]}" "${modules[@]}"
+    --counts-file "$counts_file" \
+    --tracked-modules "${#QA_TRACKED_HELPER_TESTS[@]}" \
+    "${token_args[@]}" "${modules[@]}"

@@ -195,16 +195,11 @@ qa_discover_shell_files() {
     return 0
 }
 
-# Populate QA_TRACKED_SHELL_FILES with every TRACKED shell script, repo-relative.
-#
-# This is the yardstick the gates measure their own coverage against. `find`
-# stays the discovery source above so a brand-new, not-yet-`git add`ed script is
-# still gated; git is the independent second opinion.
 # qa_require_git_checkout <repo_root> — the yardstick's own precondition.
 #
 # Every qa_tracked_* function below measures a gate's discovery against git, so git being
 # absent or the tree not being a checkout means coverage CANNOT be verified — which is an
-# exit 2 ("cannot verify"), never a pass. Extracted when the third caller arrived: three
+# exit 2 ("cannot verify"), never a pass. Extracted when the FOURTH caller arrived: four
 # verbatim copies of a precondition is how one of them comes to say something different.
 qa_require_git_checkout() {
     local repo_root="$1" git_probe
@@ -220,6 +215,11 @@ qa_require_git_checkout() {
     fi
 }
 
+# Populate QA_TRACKED_SHELL_FILES with every TRACKED shell script, repo-relative.
+#
+# This is the yardstick the gates measure their own coverage against. `find`
+# stays the discovery source above so a brand-new, not-yet-`git add`ed script is
+# still gated; git is the independent second opinion.
 qa_tracked_shell_scripts() {
     local repo_root="$1" rel
     qa_require_git_checkout "$repo_root"

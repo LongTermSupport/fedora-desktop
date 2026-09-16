@@ -200,11 +200,11 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
 - [x] ✅ **Task 4.4**: The `helper-tests` line no longer scrapes the run's output. Four
   readers that did were each defeated by a test printing unittest-shaped text, the last by
   an `atexit` handler writing after unittest's summary — see `FINDINGS.md`, "The counts are
-  not in the text". `helpers/qa_environment/unittest_counts.py` (18 tests) takes both
+  not in the text". `helpers/qa_environment/unittest_counts.py` (19 tests) takes both
   numbers from unittest's `TestResult` object and writes them to the path
   `qa-helper-tests.bash --counts-file` is given; the single reader in
   `scripts/lib/qa-helper-summary.bash` reads that file and **fails** rather than reporting
-  zero when it cannot, driven by `scripts/test-qa-helper-summary.bash` (32 cases) as its own
+  zero when it cannot, driven by `scripts/test-qa-helper-summary.bash` (34 cases) as its own
   gate. Mutation-tested: 6 mutations of the runner, 13 of the reader, all caught. The last
   case runs the real runner end to end, so a format change on one side alone turns it red.
   `qa-all.bash` captures the run's stdout and requires it EMPTY — that stream is the one

@@ -62,29 +62,39 @@ class FakeResult:
 class TestCountsText(unittest.TestCase):
     def test_the_counts_are_rendered_as_key_value_lines(self):
         self.assertEqual(
-            unittest_counts.counts_text(FakeResult(1464, [("t", "why")]), 64, "n0nce"),
-            "token=n0nce\ntests=1464\nskipped=1\nmodules=64\n",
+            unittest_counts.counts_text(FakeResult(1464, [("t", "why")]), 64, 64, "n0nce"),
+            "token=n0nce\ntests=1464\nskipped=1\nmodules=64\ntracked=64\n",
         )
 
     def test_a_run_with_no_skips_says_zero_rather_than_omitting_the_key(self):
         # An absent key and a zero must not look alike to the reader: one is a clean run,
         # the other is a reader that has gone blind. The bash side refuses a missing key.
         self.assertEqual(
-            unittest_counts.counts_text(FakeResult(3, []), 2, "t"),
-            "token=t\ntests=3\nskipped=0\nmodules=2\n",
+            unittest_counts.counts_text(FakeResult(3, []), 2, 2, "t"),
+            "token=t\ntests=3\nskipped=0\nmodules=2\ntracked=2\n",
         )
 
     def test_the_skip_count_is_the_length_of_the_skipped_list(self):
         # Not scraped from anywhere, and not derived from testsRun.
         result = FakeResult(10, [("a", "r"), ("b", "r"), ("c", "r")])
         self.assertEqual(
-            unittest_counts.counts_text(result, 1, "t"), "token=t\ntests=10\nskipped=3\nmodules=1\n"
+            unittest_counts.counts_text(result, 1, 1, "t"), "token=t\ntests=10\nskipped=3\nmodules=1\ntracked=1\n"
         )
 
     def test_the_token_line_is_omitted_when_no_token_was_asked_for(self):
         # A standalone run has no caller to prove the file's provenance to.
         self.assertEqual(
-            unittest_counts.counts_text(FakeResult(3, []), 1, None), "tests=3\nskipped=0\nmodules=1\n"
+            unittest_counts.counts_text(FakeResult(3, []), 1, 1, None), "tests=3\nskipped=0\nmodules=1\ntracked=1\n"
+        )
+
+    def test_the_tracked_total_is_recorded_separately_from_what_ran(self):
+        # They differ exactly when an UNTRACKED test file was discovered and run. That run's
+        # counts are then incomparable with any other machine's, and the difference has to
+        # reach the stage line to be seen — reporting it to a stream the caller discards on
+        # success is producing the number without delivering it.
+        self.assertEqual(
+            unittest_counts.counts_text(FakeResult(1483, []), 66, 65, "t"),
+            "token=t\ntests=1483\nskipped=0\nmodules=66\ntracked=65\n",
         )
 
     def test_a_skip_count_above_the_test_count_is_rendered_faithfully(self):
@@ -93,8 +103,8 @@ class TestCountsText(unittest.TestCase):
         # subTest. unittest's own summary says the same thing, so clamping here would make
         # the counts file disagree with the run it describes.
         self.assertEqual(
-            unittest_counts.counts_text(FakeResult(1, [("a", "r"), ("b", "r"), ("c", "r")]), 1, "t"),
-            "token=t\ntests=1\nskipped=3\nmodules=1\n",
+            unittest_counts.counts_text(FakeResult(1, [("a", "r"), ("b", "r"), ("c", "r")]), 1, 1, "t"),
+            "token=t\ntests=1\nskipped=3\nmodules=1\ntracked=1\n",
         )
 
 
@@ -138,7 +148,7 @@ class TestRunEndToEnd(unittest.TestCase):
         )
         code, counts_file = self.run_main(module)
         self.assertEqual(code, 0)
-        self.assertEqual(counts_file.read_text(encoding="utf-8"), "tests=2\nskipped=0\nmodules=1\n")
+        self.assertEqual(counts_file.read_text(encoding="utf-8"), "tests=2\nskipped=0\nmodules=1\ntracked=1\n")
 
     def test_a_skip_is_counted_where_the_text_summary_would_hide_it(self):
         # The defect this plan exists to remove, stated as a test: `Ran 2 tests` is what
@@ -159,7 +169,7 @@ class TestRunEndToEnd(unittest.TestCase):
         )
         code, counts_file = self.run_main(module)
         self.assertEqual(code, 0)
-        self.assertEqual(counts_file.read_text(encoding="utf-8"), "tests=2\nskipped=1\nmodules=1\n")
+        self.assertEqual(counts_file.read_text(encoding="utf-8"), "tests=2\nskipped=1\nmodules=1\ntracked=1\n")
 
     def test_a_runtime_skip_counts_the_same_as_a_decorated_one(self):
         module = self.write_module(
@@ -173,7 +183,7 @@ class TestRunEndToEnd(unittest.TestCase):
             """,
         )
         _, counts_file = self.run_main(module)
-        self.assertEqual(counts_file.read_text(encoding="utf-8"), "tests=1\nskipped=1\nmodules=1\n")
+        self.assertEqual(counts_file.read_text(encoding="utf-8"), "tests=1\nskipped=1\nmodules=1\ntracked=1\n")
 
     def test_a_failing_suite_exits_non_zero_and_still_reports_its_counts(self):
         module = self.write_module(
@@ -192,7 +202,7 @@ class TestRunEndToEnd(unittest.TestCase):
         )
         code, counts_file = self.run_main(module)
         self.assertEqual(code, 1)
-        self.assertEqual(counts_file.read_text(encoding="utf-8"), "tests=2\nskipped=1\nmodules=1\n")
+        self.assertEqual(counts_file.read_text(encoding="utf-8"), "tests=2\nskipped=1\nmodules=1\ntracked=1\n")
 
     def test_an_unexpected_success_fails_the_run_as_unittest_itself_would(self):
         module = self.write_module(
@@ -230,7 +240,7 @@ class TestRunEndToEnd(unittest.TestCase):
         # than raising, so the guard is that the run is NOT reported as a clean zero.
         code, counts_file = self.run_main("t_does_not_exist")
         self.assertEqual(code, 1)
-        self.assertNotEqual(counts_file.read_text(encoding="utf-8"), "tests=0\nskipped=0\nmodules=1\n")
+        self.assertNotEqual(counts_file.read_text(encoding="utf-8"), "tests=0\nskipped=0\nmodules=1\ntracked=1\n")
 
 
 class TestAgainstARealSubprocess(unittest.TestCase):
@@ -300,7 +310,7 @@ class TestAgainstARealSubprocess(unittest.TestCase):
             """,
         )
         self.assertEqual(completed.returncode, 0)
-        self.assertEqual(counts_file.read_text(encoding="utf-8"), "tests=1\nskipped=0\nmodules=1\n")
+        self.assertEqual(counts_file.read_text(encoding="utf-8"), "tests=1\nskipped=0\nmodules=1\ntracked=1\n")
 
     def test_the_forged_lines_really_do_reach_the_streams(self):
         # Without this the test above could pass because the decoy never ran. It asserts
@@ -345,7 +355,7 @@ class TestAgainstARealSubprocess(unittest.TestCase):
         self.assertEqual(completed.returncode, 0)
         self.assertEqual(
             counts_file.read_text(encoding="utf-8"),
-            "token=abc123\ntests=1\nskipped=0\nmodules=1\n",
+            "token=abc123\ntests=1\nskipped=0\nmodules=1\ntracked=1\n",
         )
 
     def test_the_real_entry_point_exits_non_zero_on_a_failing_suite(self):
@@ -360,7 +370,7 @@ class TestAgainstARealSubprocess(unittest.TestCase):
             """,
         )
         self.assertEqual(completed.returncode, 1)
-        self.assertEqual(counts_file.read_text(encoding="utf-8"), "tests=1\nskipped=0\nmodules=1\n")
+        self.assertEqual(counts_file.read_text(encoding="utf-8"), "tests=1\nskipped=0\nmodules=1\ntracked=1\n")
 
 
 class TestArgumentHandling(unittest.TestCase):

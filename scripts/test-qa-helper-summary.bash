@@ -89,8 +89,8 @@ summary() { helper_counts_summary "$1" "$TOKEN"; }
 # where the case is about reading a VALID file; the malformed cases build theirs literally
 # with counts_file so the defect under test is visible at the call site.
 good_counts() {
-    counts_file "$(printf 'token=%s\ntests=%s\nskipped=%s\nmodules=%s\n' \
-        "$TOKEN" "$1" "$2" "$3")"
+    counts_file "$(printf 'token=%s\ntests=%s\nskipped=%s\nmodules=%s\ntracked=%s\n' \
+        "$TOKEN" "$1" "$2" "$3" "${4:-$3}")"
 }
 
 # refuses <label> <path> — the function must FAIL on this file rather than answer it, AND
@@ -118,51 +118,63 @@ refuses() {
 echo "=== a well-formed counts file is read exactly ==="
 
 check "every count is reported" \
-    "Ran 1464 tests in 64 modules, 1 skipped" \
+    "Ran 1464 tests in 64 modules (64 tracked), 1 skipped" \
     "$(summary "$(good_counts 1464 1 64)")"
 
 check "a clean run reports zero skips rather than omitting them" \
-    "Ran 1464 tests in 64 modules, 0 skipped" \
+    "Ran 1464 tests in 64 modules (64 tracked), 0 skipped" \
     "$(summary "$(good_counts 1464 0 64)")"
 
 check "a single test is not pluralised into a mismatch" \
-    "Ran 1 test in 1 module, 0 skipped" \
+    "Ran 1 test in 1 module (1 tracked), 0 skipped" \
     "$(summary "$(good_counts 1 0 1)")"
 
 check "a large skip count is not truncated" \
-    "Ran 1464 tests in 64 modules, 137 skipped" \
+    "Ran 1464 tests in 64 modules (64 tracked), 137 skipped" \
     "$(summary "$(good_counts 1464 137 64)")"
 
 # NOT commensurable: `testsRun` counts test methods, `skipped` counts skip events, and one
 # method can register several via subTest. The reader must not "correct" a file that is
 # faithful to the run it describes.
 check "more skips than tests is reported rather than clamped" \
-    "Ran 1 test in 1 module, 3 skipped" \
+    "Ran 1 test in 1 module (1 tracked), 3 skipped" \
     "$(summary "$(good_counts 1 3 1)")"
 
 check "the keys are read by name, not by position" \
-    "Ran 9 tests in 2 modules, 2 skipped" \
+    "Ran 9 tests in 2 modules (2 tracked), 2 skipped" \
     "$(summary "$(counts_file "token=$TOKEN
 modules=2
+tracked=2
 skipped=2
 tests=9
 ")")"
 
+# THE CASE THE TRACKED COUNT EXISTS FOR. `find` discovers untracked files too, so a test
+# nobody committed is run and counted while no tracked file is missing — the gate passes and
+# the number moves. That number is what two machines are diffed on, so the divergence has to
+# be in the stage line itself; reporting it only to the stderr `qa-all.bash` discards on
+# success would be producing it without delivering it.
+check "an untracked module shows as modules above tracked" \
+    "Ran 1483 tests in 66 modules (65 tracked), 1 skipped" \
+    "$(summary "$(good_counts 1483 1 66 65)")"
+
 check "a trailing blank line is not an error" \
-    "Ran 3 tests in 1 module, 0 skipped" \
+    "Ran 3 tests in 1 module (1 tracked), 0 skipped" \
     "$(summary "$(counts_file "token=$TOKEN
 tests=3
 skipped=0
 modules=1
+tracked=1
 
 ")")"
 
 check "a file with no trailing newline is still read" \
-    "Ran 3 tests in 1 module, 1 skipped" \
+    "Ran 3 tests in 1 module (1 tracked), 1 skipped" \
     "$(summary "$(counts_file "token=$TOKEN
 tests=3
 skipped=1
-modules=1")")"
+modules=1
+tracked=1")")"
 
 check "the summary is exactly one line" \
     "1" \
@@ -183,39 +195,52 @@ refuses "an empty file is refused" "$(counts_file '')"
 refuses "a file with no tests= is refused" "$(counts_file "token=$TOKEN
 skipped=0
 modules=1
+tracked=1
 ")"
 refuses "a file with no skipped= is refused" "$(counts_file "token=$TOKEN
 tests=3
 modules=1
+tracked=1
 ")"
 refuses "a file with no modules= is refused" "$(counts_file "token=$TOKEN
 tests=3
 skipped=0
+tracked=1
+")"
+refuses "a file with no tracked= is refused" "$(counts_file "token=$TOKEN
+tests=3
+skipped=0
+modules=1
 ")"
 refuses "an empty tests value is refused" "$(counts_file "token=$TOKEN
 tests=
 skipped=0
 modules=1
+tracked=1
 ")"
 refuses "an empty skipped value is refused" "$(counts_file "token=$TOKEN
 tests=3
 skipped=
 modules=1
+tracked=1
 ")"
 refuses "a non-numeric skip count is refused" "$(counts_file "token=$TOKEN
 tests=3
 skipped=none
 modules=1
+tracked=1
 ")"
 refuses "a negative count is refused" "$(counts_file "token=$TOKEN
 tests=3
 skipped=-1
 modules=1
+tracked=1
 ")"
 refuses "a count with trailing text is refused" "$(counts_file "token=$TOKEN
 tests=3
 skipped=1 skipped
 modules=1
+tracked=1
 ")"
 refuses "an unknown key is refused" "$(counts_file "token=$TOKEN
 tests=3
@@ -228,6 +253,7 @@ tests=3
 tests=4
 skipped=1
 modules=1
+tracked=1
 ")"
 
 # Both occurrences non-empty is the easy half. A duplicate whose FIRST value is empty
@@ -238,12 +264,14 @@ tests=
 tests=5
 skipped=0
 modules=1
+tracked=1
 ")"
 refuses "a duplicate token whose first value is empty is refused" "$(counts_file "token=
 token=$TOKEN
 tests=5
 skipped=0
 modules=1
+tracked=1
 ")"
 
 # THE CLOBBER CASE. The counts path travels in argv, so a test can find and overwrite the
@@ -254,6 +282,7 @@ refuses "a well-formed file carrying the wrong token is refused" \
 tests=3
 skipped=0
 modules=1
+tracked=1
 ")"
 refuses "a well-formed file carrying no token at all is refused" \
     "$(counts_file 'tests=3
@@ -301,6 +330,7 @@ diag_rc=0
 diag_stderr="$(summary "$(counts_file "token=$TOKEN
 tests=3
 modules=1
+tracked=1
 ")" 2>&1 1>/dev/null)" || diag_rc=$?
 if [ "$diag_rc" -ne 0 ] && [[ "$diag_stderr" == *"skipped="* ]]; then
     passed=$((passed + 1))
@@ -333,6 +363,7 @@ diag_stderr="$(summary "$(counts_file "token=not-ours
 tests=3
 skipped=0
 modules=1
+tracked=1
 ")" 2>&1 1>/dev/null)" || diag_rc=$?
 if [ "$diag_rc" -ne 0 ] && [[ "$diag_stderr" == *"token"* ]]; then
     passed=$((passed + 1))
@@ -378,7 +409,7 @@ if [ "$e2e_rc" -ne 0 ]; then
     cat "$e2e_log" >&2
 else
     check "the real runner writes a file this reader understands" \
-        "Ran 2 tests in 1 module, 1 skipped" "$(summary "$e2e_counts")"
+        "Ran 2 tests in 1 module (1 tracked), 1 skipped" "$(summary "$e2e_counts")"
 fi
 
 echo

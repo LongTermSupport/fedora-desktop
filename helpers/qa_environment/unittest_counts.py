@@ -28,6 +28,7 @@ The counts file, whose whole format this is:
     tests=1464
     skipped=1
     modules=64
+    tracked=64
 
 Every key is always present: an absent key and a zero must not look alike, because one
 means a clean run and the other means the reader has gone blind. The human-readable run
@@ -45,8 +46,9 @@ and nothing detects it.
 
 `--counts-token` covers a different case, and only that one: a counts file written by
 something that never read this run's `argv`, such as a stale file or a concurrent run. It
-is not a lock. The token is in the same `argv` as the path, so anything that can find the
-file already has the token.
+is not a lock against a test: the token is in the same `argv` as the path, so anything that
+finds the file BY READING ARGV already has the token. Something that reaches it another way —
+a hardcoded path, a stale file from a previous run — does not, which is what this check buys.
 
 Read by `helper_counts_summary` in `scripts/lib/qa-helper-summary.bash`, which refuses
 a file that is missing, short a key, or not all digits.
@@ -60,7 +62,7 @@ import sys
 import unittest
 
 
-def counts_text(result, module_count, token):
+def counts_text(result, module_count, tracked_count, token):
     """Render a `TestResult`'s authoritative numbers as the counts file's content.
 
     `testsRun` INCLUDES skipped tests — that is the whole reason the skip count has to
@@ -72,7 +74,11 @@ def counts_text(result, module_count, token):
     the same, so adjusting either here would make this file disagree with the run.
 
     `modules` is carried because a machine that COLLECTED a different set is the same
-    defect one level up, and the test count alone cannot show it.
+    defect one level up, and the test count alone cannot show it. `tracked` is how many
+    the caller expected to collect: the two differ exactly when an untracked test file was
+    discovered and run, which makes that run's counts incomparable with any other
+    machine's. Both go in the stage line, because a coverage number reported only to a
+    stream the caller discards on success is produced rather than delivered.
 
     `token` is whatever the caller asked to have echoed back, or None.
     """
@@ -82,6 +88,7 @@ def counts_text(result, module_count, token):
     lines.append(f"tests={result.testsRun}")
     lines.append(f"skipped={len(result.skipped)}")
     lines.append(f"modules={module_count}")
+    lines.append(f"tracked={tracked_count}")
     return "".join(f"{line}\n" for line in lines)
 
 
@@ -103,6 +110,14 @@ def main(argv=None, stream=None):
         "counts file from one a test overwrote",
     )
     parser.add_argument(
+        "--tracked-modules",
+        type=int,
+        default=None,
+        help="how many modules the caller expected to collect. Recorded as `tracked=` so "
+        "the stage line can show an untracked test file being run; defaults to the number "
+        "of modules given",
+    )
+    parser.add_argument(
         "modules",
         nargs="+",
         help="dotted module names, e.g. tests.helpers.pyenv.test_resolver",
@@ -119,8 +134,9 @@ def main(argv=None, stream=None):
     # Written AFTER the suite, which is what makes a mid-run forgery harmless: whatever a
     # test put here is overwritten by this line. See the module docstring for what that
     # does and does not cover.
+    tracked = args.tracked_modules if args.tracked_modules is not None else len(args.modules)
     pathlib.Path(args.counts_file).write_text(
-        counts_text(result, len(args.modules), args.counts_token), encoding="utf-8"
+        counts_text(result, len(args.modules), tracked, args.counts_token), encoding="utf-8"
     )
 
     # `wasSuccessful()` rather than `failures or errors`: an unexpected success alone leaves

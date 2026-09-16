@@ -36,7 +36,7 @@
 # match rules and disagreed with each other about the same run; a single reader cannot.
 
 # helper_counts_summary <counts-file> <expected-token> — prints
-# `Ran 1464 tests in 64 modules, 1 skipped`.
+# `Ran 1464 tests in 64 modules (64 tracked), 1 skipped`.
 #
 # Fails, loudly and on stderr, if the file is missing or empty, is short a key, repeats a
 # key, holds anything but digits, or comes back with a token that is not the one the caller
@@ -46,8 +46,10 @@
 #
 # WHAT THE TOKEN DETECTS, stated no wider than it is true: a counts file written by
 # something that never read this run's `argv` — a stale file, a concurrent run, a hardcoded
-# path. It is NOT a lock. The token travels in the same `argv` as the path, so anything able
-# to find the file already has the token.
+# path. It is NOT a lock against a test: the token travels in the same `argv` as the path,
+# so anything that finds the file BY READING ARGV already has the token. Something that
+# reaches the file another way — a hardcoded path, a stale file from a previous run — does
+# not, and that is the whole of what this check buys.
 #
 # What defeats a clobber from inside the suite is WRITE ORDERING, not this check: the runner
 # writes after every test has finished, so a forgery landing mid-run is overwritten. And
@@ -63,8 +65,8 @@
 # `mktemp` created. Existence is not generation.
 helper_counts_summary() {
     local path="$1" expected_token="$2"
-    local tests="" skipped="" modules="" token="" key="" value=""
-    local seen_tests="" seen_skipped="" seen_modules="" seen_token=""
+    local tests="" skipped="" modules="" tracked="" token="" key="" value=""
+    local seen_tests="" seen_skipped="" seen_modules="" seen_tracked="" seen_token=""
     local test_noun="" module_noun=""
 
     if [[ ! -f "$path" ]]; then
@@ -115,6 +117,14 @@ helper_counts_summary() {
                 seen_modules=1
                 modules="$value"
                 ;;
+            tracked)
+                if [[ -n "$seen_tracked" ]]; then
+                    printf 'helper_counts_summary: duplicate tracked= in %s\n' "$path" >&2
+                    return 1
+                fi
+                seen_tracked=1
+                tracked="$value"
+                ;;
             token)
                 if [[ -n "$seen_token" ]]; then
                     printf 'helper_counts_summary: duplicate token= in %s\n' "$path" >&2
@@ -156,9 +166,17 @@ helper_counts_summary() {
         printf 'helper_counts_summary: modules= is missing or not a number in %s\n' "$path" >&2
         return 1
     fi
+    if [[ ! "$tracked" =~ ^[0-9]+$ ]]; then
+        printf 'helper_counts_summary: tracked= is missing or not a number in %s\n' "$path" >&2
+        return 1
+    fi
 
     # The module count rides along because two machines COLLECTING different sets is the
-    # same defect one level up, and the test count on its own cannot show it.
+    # same defect one level up, and the test count on its own cannot show it. The TRACKED
+    # total rides along for the other half: `find` discovers untracked files too, so a test
+    # nobody committed runs here and nowhere else, and the run's counts stop being
+    # comparable. `modules` above `tracked` is exactly that case, visible in the stage line
+    # — which is where it has to be, because this line is what two machines are diffed on.
     test_noun="tests"
     if [[ "$tests" -eq 1 ]]; then
         test_noun="test"
@@ -167,6 +185,6 @@ helper_counts_summary() {
     if [[ "$modules" -eq 1 ]]; then
         module_noun="module"
     fi
-    printf 'Ran %s %s in %s %s, %s skipped' \
-        "$tests" "$test_noun" "$modules" "$module_noun" "$skipped"
+    printf 'Ran %s %s in %s %s (%s tracked), %s skipped' \
+        "$tests" "$test_noun" "$modules" "$module_noun" "$tracked" "$skipped"
 }

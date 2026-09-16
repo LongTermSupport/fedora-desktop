@@ -168,8 +168,10 @@ echo "$drift_out"
 # ordering is the true ordering, and is shown in full when the suite fails.
 #
 # The token detects a counts file written by something that did NOT read this run's argv —
-# a stale file, a concurrent run, a hardcoded path. It is not a lock: the token travels in
-# the same argv as the path, so anything that can find the file has the token too. What
+# a stale file, a concurrent run, a hardcoded path. It is not a lock against a test: the
+# token travels in the same argv as the path, so anything that finds the file BY READING
+# ARGV has the token too. (The qualifier is load-bearing. Without it the sentence says the
+# token buys nothing, which contradicts the hardcoded-path case one line above.) What
 # actually defeats a clobber from inside the suite is WRITE ORDERING — the runner writes
 # after every test has finished, so a forgery landing mid-run is simply overwritten. A
 # write that lands AFTER the runner's, from `atexit` or a thread, defeats both; nothing
@@ -189,7 +191,9 @@ fi
 # is exactly the shape this plan exists to remove, so it is a gate rather than a comment.
 if [[ -s "$TMP_HELPER_OUT" ]]; then
     echo "✗ QA FAILED: helper-tests wrote to stdout, which is this suite's verdict stream" >&2
-    echo "  A test printing here can forge or split a stage line. Send it to stderr." >&2
+    echo "  A test printing here can forge or split a stage line. If it is a test's own" >&2
+    echo "  print, wrap it in contextlib.redirect_stdout; if it is a subprocess a test" >&2
+    echo "  spawned, capture that subprocess rather than letting it inherit." >&2
     cat "$TMP_HELPER_OUT" >&2
     exit 1
 fi
