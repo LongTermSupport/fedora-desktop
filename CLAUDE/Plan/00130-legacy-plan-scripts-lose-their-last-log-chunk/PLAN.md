@@ -32,6 +32,12 @@ tooling makes its recorded history disagree with what it ran.
 - A gate fails on a re-introduction, so this cannot be a one-off tidy that decays —
   the pattern came back once already, from a document that has since been fixed.
 - No plan-local `logs/` directory remains in the active plan tree.
+- `untracked/meta-deploy.bash` takes **one** consent for the whole batch. Today it
+  cannot: a pre-library `deploy.bash` prompts the operator itself, and the runner has to
+  flag it as an exception the batch consent does not answer. Plan 00075's is the current
+  case, and it is the same file this plan is already converting — `PLAN_ASSUME_YES` is
+  part of the library these scripts do not use. The user asked for a one-shot run; a
+  script that stops the batch to ask its own question is what stands in the way.
 
 ## Non-Goals
 
@@ -65,6 +71,10 @@ tooling makes its recorded history disagree with what it ran.
 - [ ] ⬜ **Task 2.2**: Run each converted script far enough to prove it reaches its
   own last line. Linting is exactly what missed this class before.
 - [ ] ⬜ **Task 2.3**: Remove the orphaned plan-local `logs/` directories.
+- [ ] ⬜ **Task 2.4**: Where a converted script also prompts for its own consent, adopt
+  the library's `PLAN_ASSUME_YES` / `plan_gate_change` vocabulary so the batch runner's
+  single consent covers it. Verify with `./untracked/meta-deploy.bash --list`, which
+  names each pre-library script it cannot answer for — that list should empty out.
 
 ### Phase 3: Make it stick
 
@@ -80,6 +90,8 @@ tooling makes its recorded history disagree with what it ran.
 - [ ] No script under `CLAUDE/Plan/NNNNN-*/` contains `exec > >(tee`
 - [ ] No `logs/` directory remains under `CLAUDE/Plan/NNNNN-*/`
 - [ ] Each converted script has been RUN and reaches its last line
+- [ ] `./untracked/meta-deploy.bash --list` names no pre-library script — the batch is
+  one consent, as the operator asked for
 - [ ] The new gate fails on a re-introduced occurrence and passes on the clean tree
 - [ ] QA passes (`./scripts/qa-all.bash`)
 - [ ] `qa-reviewer` returns PASS
