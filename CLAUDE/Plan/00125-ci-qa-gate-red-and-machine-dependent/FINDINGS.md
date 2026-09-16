@@ -111,15 +111,41 @@ no session.
 than skipping. A deliberate fail-fast choice, and also what made the gate impossible to
 satisfy on a runner. Only `$container` was injectable; the two marker paths now are too.
 
+**The host consequence, and why "the behaviour is identical" understated it.**
+`qa-deployed-drift.bash:219` covers `files/home/.local/lib/freeze/*` and compares with
+`cmp -s`, so a comment-only change drifts. Its abort is `qa-all.bash:137`, which sits
+*before* `helper-tests` — so an undeployed host has a red `qa-all.bash` that **stops 28
+hard gates short** (enumerated: 29 `exit 1` lines after `:137`, less the final run summary
+at `:620`). That is this plan's own Task 4.1 mechanism aimed at the owner's workstation, and
+`CLAUDE.md` makes a local `qa-all.bash` the pre-commit requirement, so it is not cosmetic.
+
+**Both freeze plays are required, not either.** `tasks/deploy-freeze-lib.yml` deploys only
+`freeze-common.bash`. The two binaries are deployed by their own plays —
+`play-podfreeze.yml:75` and `play-lxcfreeze.yml:91` — and each play merely *includes* the
+shared-library task. All three files changed in this plan, so running one play leaves the
+other binary drifted and the gate still red. `qa-deployed-drift.bash:194` prints the owning
+play per drifted file, so the gate names the right play itself; what was stale was this
+plan's own instruction, which said "either freeze play".
+
 ## The mechanism that kept all of it invisible
 
-`qa-all.bash` exits at the first failing hard gate (`scripts/qa-all.bash:152` for
-`helper-tests`), and **25 gates are declared after that point**. A gate that cannot pass in
+`qa-all.bash` exits at the first failing hard gate, and **at the masked commit `29ceee97`,
+25 gates were declared after the `helper-tests` abort** (`qa-all.bash:152` there; `:160`
+today, with 27 behind it, because this plan added two aborts). A gate that cannot pass in
 an environment therefore does not merely stay red — it stops every gate behind it from
 running at all, and the number of checks actually executing falls with nothing reporting
 it. Three gates in this plan had never run once in CI before the abort was cleared.
 
 That is Task 4.1's answer and the argument for Task 4.3.
+
+Three causes compounded to keep it that way:
+
+1. **The first red was a gate that cannot pass in CI by construction** — a link into a
+   gitignored tree. It was never a regression anyone could fix by fixing code, so nobody did.
+2. **A permanently-red run carries no information**, so each later regression joined it
+   invisibly. Red → red is not an event.
+3. **Local `qa-all.bash` was green throughout**, and `CLAUDE.md` names it the pre-commit
+   requirement — so the contributor's own signal said green every single time.
 
 ### The suite already contains both designs, and that is why the two causes hid differently
 
@@ -128,12 +154,17 @@ Counted mechanically, `qa-all.bash` runs its stages two ways:
 | Design                  | Count | Behaviour on failure                                                 |
 | ----------------------- | ----- | -------------------------------------------------------------------- |
 | jq-merged, accumulating | 7     | `\|\| rc=$?`, `FAILED++`, **run continues**; all reported at the end |
-| hard gate               | 28    | `exit 1` immediately; everything declared after it never runs        |
+| hard gate               | 30    | `exit 1` immediately; everything declared after it never runs        |
 | missing-tool abort      | 7     | `exit 2`; same effect, and prints no `QA FAILED` line                |
+
+**These counts are as of this plan's HEAD, and this plan moved them** — Task 4.4 added two
+aborts of its own. Numbers describing what CI *was* masking are the counts at the masked
+commit and are labelled as such below. Mixing the two is how a citation quietly stops being
+true, which this plan has already had to correct once.
 
 The seven accumulating stages are `bash`, `python`, `patterns`, `ansible`,
 `ansible-syntax`, `js` and `docs`; they merge into one JSON document and are reported
-together by `qa-all.bash:595-602`.
+together by `qa-all.bash:613-620`.
 
 **This is the explanation the plan was missing.** The two causes were masked differently
 because they fell on opposite sides of that line:
@@ -141,9 +172,9 @@ because they fell on opposite sides of that line:
 - **Cause A (`docs`) is an accumulating stage.** It has been red since 2026-08-31 and
   masked nothing at all — every gate behind it kept running. That is why the current CI log
   shows `✗ docs` followed by 25 passing gates and only then `✗ QA FAILED`.
-- **Cause B landed in hard gates.** `helper-tests` (`:153`) aborts, and enumerating the
-  `exit 1` lines after it gives 27 — less the final run summary (`:602`) and less
-  `helper-tests` itself — **25 gates that never ran in CI**. Clearing it unmasked
+- **Cause B landed in hard gates.** At `29ceee97`, `helper-tests` aborted at `:153` and
+  enumerating the `exit 1` lines after it gave 27 — less the final run summary (`:602`) and
+  less `helper-tests` itself — **25 gates that never ran in CI**. Clearing it unmasked
   `panel-sections`, then `freezelib`, one at a time.
 
 It also narrows **Task 4.3**. Its option (1) — run every gate, report all verdicts, exit

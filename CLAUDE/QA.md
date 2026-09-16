@@ -68,6 +68,7 @@ they are deliberately not jq-merged stages, so they cannot disturb the positiona
 | `test-podfreeze.bash`                       | `podfreeze`'s decisions, pinned before Plan 00122 Task 4.2 extracted a library out of it                  |
 | `test-host-health-login-snippet.bash`       | the server login snippet's interactive guard — an unconditional print breaks `scp` (Plan 00109)           |
 | `test-qa-ansible-failfast.bash`             | the fail-fast directive regex in `qa-ansible.bash`, read from it rather than copied                       |
+| `test-qa-helper-summary.bash`               | the readers behind this suite's own `helper-tests` line, which twice stopped telling clean from blind     |
 | `helpers.gnome.check_extension_compat`      | every extension declares the GNOME Shell major this branch's Fedora ships                                 |
 | `helpers.gnome.check_panel_contract`        | the panel's constants, document keys and section ids agree with the producer (Plan 00109)                 |
 | `qa-vmtest-manifest.bash`                   | `vars/vm-test-scenarios.yml` parses and is coherent (Plan 00110); a broken control must be rejected first |

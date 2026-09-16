@@ -58,10 +58,10 @@ once the abort stopped hiding it. All six were defective **tests**, not producti
 all six are fixed.
 
 **The mechanism, and it hid Cause B rather than "all of it".** `qa-all.bash` runs 7 stages
-that accumulate and 28 hard gates that `exit 1`. Cause A sits in an accumulating stage, so
+that accumulate and 30 hard gates that `exit 1`. Cause A sits in an accumulating stage, so
 it masked nothing — it went red and every gate behind it kept running. Cause B was in hard
-gates, and **25 gates are declared after the `helper-tests` abort**, so three of them had
-never run once in CI. That is Task 4.1's answer and the argument for Task 4.3.
+gates, and at the masked commit **25 gates stood behind the `helper-tests` abort**, so three
+of them had never run once in CI. That is Task 4.1's answer and the argument for Task 4.3.
 
 ## Tasks
 
@@ -157,28 +157,21 @@ never run once in CI. That is Task 4.1's answer and the argument for Task 4.3.
   and the **allow** direction is asserted for the first time — it could never be, because
   in a container the real marker files are there. Falsified both ways (journal, 23:52).
   **HOST, and more urgent than "the behaviour is identical" suggested.**
-  `qa-deployed-drift.bash:219` covers `files/home/.local/lib/freeze/*`, and its abort is
-  `qa-all.bash:129` — *before* `helper-tests`. So until `tasks/deploy-freeze-lib.yml` runs
-  (via either freeze play), a host's `qa-all.bash` is red **and stops 26 gates short**,
-  which is this plan's own Task 4.1 mechanism pointed at the owner's workstation.
-  `CLAUDE.md` names local `qa-all.bash` the pre-commit requirement, so this is not
-  cosmetic. The deployed tool's *runtime* behaviour is unchanged
+  An undeployed host's `qa-all.bash` is red **and stops 28 hard gates short**, because the
+  drift gate aborts at `qa-all.bash:137` — before `helper-tests`. **Run BOTH
+  `play-podfreeze.yml` and `play-lxcfreeze.yml`**, not either: each deploys its own binary
+  and all three files changed. Runtime behaviour is unchanged. Detail in `FINDINGS.md`
 
 ### Phase 4: Make the next regression visible
 
 - [x] ✅ **Task 4.1**: The identical-looking red run is only half of it, and the other half
-  is worse. `qa-all.bash` **exits at the first failing hard gate** (`scripts/qa-all.bash`
-  line 152 for `helper-tests`), and **25 gates are declared after that point**. So from the
+  is worse. `qa-all.bash` **exits at the first failing hard gate**, and at the masked commit
+  `29ceee97` (`qa-all.bash:152` for `helper-tests`) **25 gates stood behind it**. So from the
   moment the DisplayLink pair began failing, CI stopped executing the last 25 gates
   entirely. The suite did not merely stay red — *the number of checks actually running
-  fell*, and nothing said so. Three compounding causes: the first red was a gate that
-  **cannot pass in CI by construction** (a gitignored link target), so it was never a
-  regression anyone could fix by fixing code; a permanently-red run carries no
-  information, so each later regression joined it invisibly; and local `qa-all.bash` was
-  green throughout while `CLAUDE.md` names it the pre-commit requirement, so the
-  contributor's own signal said green every time. **Demonstrated live three times while
-  closing Phase 3** — each fix revealed the next gate that had never run once (journal,
-  23:38 and 23:52). The remedy is Task 4.3
+  fell*, and nothing said so. Three compounding causes, written up in `FINDINGS.md`.
+  **Demonstrated live three times while closing Phase 3** — each fix revealed the next gate
+  that had never run once (journal, 23:38 and 23:52). The remedy is Task 4.3
 
 - [x] ✅ **Task 4.2**: `CLAUDE/QA.md` now carries *"The same command does not reach the same
   verdict everywhere"* — a table of each environment-dependent stage and what it needs,
@@ -193,11 +186,22 @@ never run once in CI. That is Task 4.1's answer and the argument for Task 4.3.
   gate and report all verdicts before exiting non-zero; or keep the abort but have CI
   compare the executed-gate list against the declared one and fail on a shrink. This is a
   structural change to the suite and affects local runs too, so it is the owner's call.
-  **Narrowed:** the first option is not a new design — 7 of the 35 stages already work that
-  way (`|| rc=$?`, `FAILED++`, all reported by `qa-all.bash:595-602`) against 28 that
-  `exit 1`. The question is whether to extend the existing design to the other 28, not
+  **Narrowed:** the first option is not a new design — 7 of the 37 stages already work that
+  way (`|| rc=$?`, `FAILED++`, all reported by `qa-all.bash:613-620`) against 30 that
+  `exit 1`. The question is whether to extend the existing design to those 30, not
   whether to invent it. That split is also why the two causes hid differently — `docs`
   accumulates and masked nothing; Cause B was in hard gates. See `FINDINGS.md`
+
+- [x] ✅ **Task 4.4**: The `helper-tests` line now has a test, because it had been wrong
+  twice in three revisions and every hand-check died with the session that ran it. Both
+  readers moved to `scripts/lib/qa-helper-summary.bash`, sourced by `qa-all.bash`, driven by
+  `scripts/test-qa-helper-summary.bash` (16 cases) which runs as its own gate — so the test
+  exercises the shipped functions rather than a copy of the expression. Falsified against
+  all three historical defects: the whole-capture match fails 6 cases, the closing-paren
+  match 2, answering `0` for an unreadable capture 3. An unreadable capture now **fails**
+  rather than reporting `0 skipped`, which was the same defect waiting to happen a fourth
+  time. `helpers/docs/link_check.py` learned that a `source`d library is not a gate —
+  otherwise the inventory would have demanded a row claiming a library checks something
 
 ### Phase 5: Close
 
@@ -220,11 +224,9 @@ never run once in CI. That is Task 4.1's answer and the argument for Task 4.3.
 
   - `docs`: Cause A, the one open decision (Task 2.1);
   - `deployed-drift`: declared, and it prints its own reason on each machine;
-  - `helper-tests`: `1 skipped` here against `2 skipped` on a runner. **This one is the
-    point, not a residue.** The two machines skip *different* tests — the container is root
-    with a real connector, a runner is non-root with only a virtual one — and until the
-    skip count joined the line the two sides were byte-identical and read as `agree`.
-    Declared in `CLAUDE/QA.md`'s table.
+  - `helper-tests`: `1 skipped` here against `2 skipped` on a runner — **the point, not a
+    residue.** The two machines skip *different* tests, and until the skip count joined the
+    line the two sides were byte-identical and read as `agree`. Declared in `CLAUDE/QA.md`.
 
   `js`, `bash`, `patterns` and `python` now agree exactly, which three of them did not
   before this plan.

@@ -110,6 +110,46 @@ class TestParse(unittest.TestCase):
         self.assertEqual(parsed.matched_lines, 2)
         self.assertEqual(parsed.summary_lines, 1)
 
+    def test_a_gates_own_indented_bullets_are_not_counted_in_the_denominator(self):
+        # `qa-patterns.bash:362` prints `  ✗ <file>` per failure. Counted, each one is a
+        # phantom `unrecognised` — and `unrecognised` means "the parser lost a stage line",
+        # so a failing gate would manufacture evidence of this parser being broken.
+        parsed = verdicts.parse(
+            "✗ patterns: 2/260 files failed → /tmp/x.json\n"
+            "  ✗ scripts/a.bash\n"
+            "    used a banned construct\n"
+            "  ✗ scripts/b.bash\n"
+            "    used a banned construct\n"
+        )
+        self.assertEqual(parsed.symbol_lines, 1)
+        self.assertEqual(parsed.matched_lines, 1)
+
+    def test_prose_mentioning_a_tick_is_not_counted_in_the_denominator_either(self):
+        # The sibling of `test_prose_mentioning_a_tick_is_not_a_stage`, which asserts on
+        # `.stages` only and so passed throughout while the count was wrong.
+        parsed = verdicts.parse("the gate prints ✓ when it is happy\n")
+        self.assertEqual(parsed.symbol_lines, 0)
+
+    def test_a_ci_line_whose_timestamp_stopped_matching_still_reaches_the_denominator(self):
+        # The whole point of counting on the raw line: if the harness prefix changes shape,
+        # the line leaves the numerator, and it must NOT leave the denominator with it or
+        # coverage reads 100% with the line silently gone.
+        parsed = verdicts.parse("qa-all.bash\tRun full QA suite\tNOT-A-TIMESTAMP ✓ js: 11 files OK\n")
+        self.assertEqual(parsed.symbol_lines, 1)
+        self.assertEqual(parsed.matched_lines, 0)
+
+    def test_colour_between_the_symbol_and_the_name_cannot_make_the_count_negative(self):
+        # Numerator and denominator must be computed over text that agrees about ANSI,
+        # or `matched + summary <= symbol_lines` stops holding and `unrecognised` goes
+        # negative. No gate colours its symbols today; the invariant should not depend on
+        # that staying true.
+        parsed = verdicts.parse("✓\x1b[0m js: 8 files OK\n")
+        self.assertEqual(parsed.symbol_lines, 1)
+        self.assertEqual(parsed.matched_lines, 1)
+        self.assertGreaterEqual(
+            parsed.symbol_lines - parsed.matched_lines - parsed.summary_lines, 0
+        )
+
     def test_trailing_whitespace_and_carriage_returns_do_not_change_the_detail(self):
         parsed = verdicts.parse("✓ js: 8 files OK  \r\n")
         self.assertEqual(parsed.stages["js"][0].detail, "8 files OK")
@@ -243,7 +283,9 @@ class TestMain(unittest.TestCase):
         full = "✓ bash: 258 files OK\n✓ python: 146 files OK\n✓ docs: 71 files OK\n" + self.END
         code, out = self._run(full, truncated, terminate=False)
         self.assertNotEqual(code, 0)
-        self.assertIn("QA-VERDICTS-FAIL no-run-summary --there", out)
+        # The marker names what is missing: any TERMINAL line, of which a run summary is
+        # only one kind — an `exit 2` tool abort is the other, and is equally sufficient.
+        self.assertIn("QA-VERDICTS-FAIL no-terminal-line --there", out)
         self.assertNotIn("only-here", out)
 
     def test_an_aborted_run_is_comparable_because_it_still_names_its_own_failure(self):
@@ -269,6 +311,18 @@ class TestMain(unittest.TestCase):
         self.assertNotIn("QA-VERDICTS-FAIL", out)
         self.assertIn("1 tool abort", out)
 
+    def test_the_abort_names_the_missing_tool_rather_than_only_counting_it(self):
+        # For an instrument whose whole subject is machine dependence, "semgrep" IS the
+        # finding. A bare count leaves the reader a table of `only-there` rows and no
+        # reason for any of them.
+        aborted = (
+            "✓ bash: 258 files OK\n"
+            "ERROR: Missing required tools (semgrep). Install with: pipx install semgrep\n"
+        )
+        _code, out = self._run("✓ bash: 258 files OK\n" + self.END, aborted, terminate=False)
+        self.assertIn("QA-VERDICTS-ABORT --there", out)
+        self.assertIn("Missing required tools (semgrep)", out)
+
     def test_a_gate_that_could_not_produce_a_result_is_also_terminal(self):
         aborted = (
             "✓ bash: 258 files OK\n"
@@ -284,7 +338,7 @@ class TestMain(unittest.TestCase):
         noise = "✓ bash: 258 files OK\nERROR: the widget is misaligned\n"
         code, out = self._run("✓ bash: 258 files OK\n" + self.END, noise, terminate=False)
         self.assertNotEqual(code, 0)
-        self.assertIn("QA-VERDICTS-FAIL no-run-summary --there", out)
+        self.assertIn("QA-VERDICTS-FAIL no-terminal-line --there", out)
 
     def test_coverage_is_reported_for_each_side_before_the_table(self):
         _code, out = self._run("✓ js: 8 files OK\n", "✓ js: 8 files OK\n")

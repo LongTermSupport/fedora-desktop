@@ -53,16 +53,26 @@ RUN_SUMMARY = re.compile(r"^[✓✗⚠] QA (?:passed|FAILED):")
 #: plan's own headline case and misreport it as a broken download.
 TOOL_ABORT = re.compile(r"^ERROR: (?:Missing required tools|[a-z-]+ gate could not produce)")
 
-#: Any line whose payload opens with a status symbol. One that is neither a stage nor a
-#: run summary is an under-match in this parser.
+#: Any line whose payload opens with a status symbol.
 SYMBOL_LINE = re.compile(r"^[✓✗⚠] ")
 
-#: The coverage DENOMINATOR, and it is deliberately counted on the RAW line rather than
-#: the stripped one. Counted after stripping, a CI line whose harness prefix stopped
-#: matching would leave the numerator and the denominator together and coverage would read
-#: 100% with the line silently gone — a measure that cannot see its own blind spot.
-#: Measured as identical on a real capture today, which is exactly when to move it.
-SYMBOL_BEARING = re.compile(r"[✓✗⚠] ")
+#: The coverage DENOMINATOR. Counted with the harness prefix still ATTACHED, because a CI
+#: line whose prefix stopped matching must leave the numerator without leaving the
+#: denominator — otherwise coverage reads 100% with the line silently gone, a measure that
+#: cannot see its own blind spot.
+#:
+#: Anchored, though, and that is the other half. A free `search` counts a symbol ANYWHERE,
+#: which is not "this line is a verdict" but "this line mentions one": `qa-patterns.bash`
+#: prints `  ✗ <file>` per failure, so a failing gate would add a phantom `unrecognised`
+#: per failure — and `unrecognised` is supposed to mean the parser LOST a stage line.
+#: Trading a false 100% for a false alarm is not a fix.
+#:
+#: So: optional BOM, any number of tab-terminated harness fields, an optional single
+#: token-and-space (the timestamp, whatever shape it has taken), then the symbol. A
+#: malformed timestamp still lands here; indentation and prose do not. ANSI is stripped
+#: before this runs rather than tolerated inside it — numerator and denominator must agree
+#: about colour or `matched + summary <= symbol_lines` stops holding.
+SYMBOL_BEARING = re.compile(r"^﻿?(?:[^\t]*\t)*(?:\S+ )?[✓✗⚠] ")
 
 #: A CI log line carries `<job>\t<step>\t<ISO timestamp> ` before the payload, and the
 #: first line of a step carries a BOM. The timestamp is REQUIRED rather than optional:
@@ -94,7 +104,14 @@ class Parsed:
     symbol_lines: int
     matched_lines: int
     summary_lines: int
-    abort_lines: int
+    #: The abort MESSAGES, not a tally of them. For an instrument whose subject is machine
+    #: dependence, which tool was missing is the finding — a count leaves a reader a table
+    #: of `only-there` rows with no reason for any of them.
+    aborts: tuple[str, ...]
+
+    @property
+    def abort_lines(self) -> int:
+        return len(self.aborts)
 
     @property
     def terminal_lines(self) -> int:
@@ -127,12 +144,14 @@ def parse(text: str) -> Parsed:
     `patterns`, with the same two lines in the same order on both machines.
     """
     stages: dict[str, list[Verdict]] = {}
-    symbol_lines = matched_lines = summary_lines = abort_lines = 0
+    aborts: list[str] = []
+    symbol_lines = matched_lines = summary_lines = 0
     for raw in text.splitlines():
-        bears_symbol = SYMBOL_BEARING.search(raw) is not None
-        line = ANSI.sub("", CI_LOG_PREFIX.sub("", raw)).rstrip()
+        uncoloured = ANSI.sub("", raw)
+        bears_symbol = SYMBOL_BEARING.match(uncoloured) is not None
+        line = CI_LOG_PREFIX.sub("", uncoloured).rstrip()
         if TOOL_ABORT.match(line):
-            abort_lines += 1
+            aborts.append(line)
             continue
         if bears_symbol:
             symbol_lines += 1
@@ -153,7 +172,7 @@ def parse(text: str) -> Parsed:
         symbol_lines=symbol_lines,
         matched_lines=matched_lines,
         summary_lines=summary_lines,
-        abort_lines=abort_lines,
+        aborts=tuple(aborts),
     )
 
 
@@ -226,7 +245,7 @@ def capture_problem(parsed: Parsed) -> str:
     if not parsed.stages:
         return "no-stages-parsed"
     if parsed.terminal_lines == 0:
-        return "no-run-summary"
+        return "no-terminal-line"
     return ""
 
 
@@ -235,7 +254,7 @@ _PROBLEM_DETAIL = {
         "parsed 0 stage verdicts — the capture is broken, not the machines agreeing. "
         "Check it holds a qa-all.bash run."
     ),
-    "no-run-summary": (
+    "no-terminal-line": (
         "stages were parsed but nothing marks the end of the run — no closing "
         "'QA passed'/'QA FAILED' line and no 'ERROR: Missing required tools' abort — so "
         "the run did not finish or the capture is truncated. Every 'did not run' row "
@@ -260,6 +279,10 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
 
     for label, parsed in sides.items():
         print(coverage_line(label, parsed), file=out)
+        # Named, not tallied. A side that aborted shows every later stage as absent, and
+        # without this the reader has a column of `only-there` rows and no cause for them.
+        for abort in parsed.aborts:
+            print(f"QA-VERDICTS-ABORT {label} {abort}", file=out)
 
     for label, parsed in sides.items():
         problem = capture_problem(parsed)

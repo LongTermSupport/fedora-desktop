@@ -14,6 +14,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Readers for the helper-tests stage line. Sourced rather than inlined so a committed test
+# can drive the real functions — see the library header for why that line earns a file.
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/qa-helper-summary.bash
+source "$SCRIPT_DIR/lib/qa-helper-summary.bash"
+
 JSON_OUT="/tmp/qa-results.json"
 TMP_BASH=$(mktemp)
 TMP_PYTHON=$(mktemp)
@@ -152,25 +159,20 @@ if ! helper_out="$(bash "$SCRIPT_DIR/qa-helper-tests.bash" 2>&1)"; then
     echo "✗ QA FAILED: helper unit tests" >&2
     exit 1
 fi
-helper_summary=$(printf '%s' "$helper_out" | grep -oE 'Ran [0-9]+ tests?') || helper_summary="passed"
 # The skip count travels with the line because `unittest` counts a SKIPPED test inside
-# testsRun: "Ran 1446 tests" is byte-identical whether a test asserted or skipped itself.
+# testsRun: "Ran 1456 tests" is byte-identical whether a test asserted or skipped itself.
 # Two machines then report the same verdict over different executed populations — which is
 # this repo's own machine-dependence defect appearing inside the line used to detect it.
 # Measured: a container asserts the DisplayLink sysfs pair against a real connector while a
 # VM runner skips both, and before this the two lines agreed exactly.
-# Matched WITHOUT the closing paren: unittest appends `expected failures=` and
-# `unexpected successes=` after the skip count inside the same bracket, so
-# `OK (skipped=1, expected failures=1)` does not end at `skipped=1)`. Requiring the paren
-# reported 0 skipped there, silently restoring the very blindness this line removes.
-# Scoped to unittest's own RESULT line rather than searched across the whole capture:
-# `=~` takes the first match anywhere, so a warning or a skip reason containing the text
-# would win it. That line is the only place the count is authoritative.
-helper_skipped=0
-if helper_result=$(printf '%s' "$helper_out" | grep -E '^(OK|FAILED)( \(|$)'); then
-    if [[ "$helper_result" =~ skipped=([0-9]+) ]]; then
-        helper_skipped="${BASH_REMATCH[1]}"
-    fi
+#
+# Both readers live in scripts/lib/ rather than here because this line has been wrong twice
+# in three revisions and each hand-check was thrown away with the session that made it.
+# scripts/test-qa-helper-summary.bash drives them, and its own gate runs below.
+helper_summary="$(helper_test_summary "$helper_out")"
+if ! helper_skipped="$(helper_skip_count "$helper_out")"; then
+    echo "✗ QA FAILED: helper-tests ran but its result line could not be read" >&2
+    exit 1
 fi
 printf '✓ helper-tests: %s, %s skipped\n' "$helper_summary" "$helper_skipped"
 
@@ -508,6 +510,22 @@ fi
 failfast_summary=$(printf '%s' "$failfast_out" | grep -oE 'passed: [0-9]+') ||
     failfast_summary="passed"
 printf '✓ failfast-pattern-tests: %s\n' "$failfast_summary"
+
+# The readers behind THIS script's own helper-tests line (Plan 00125).
+#
+# Same argument as the gate above, one level closer to home: that line has been wrong
+# twice in three revisions, each time by becoming unable to tell a clean result from a
+# blind one, and each hand-check died with the session that ran it. The suite drives the
+# sourced functions, so a change to them is what turns it red.
+helper_summary_out=""
+if ! helper_summary_out="$(bash "$SCRIPT_DIR/test-qa-helper-summary.bash" 2>&1)"; then
+    echo "$helper_summary_out" >&2
+    echo "✗ QA FAILED: helper-tests summary reader unit tests" >&2
+    exit 1
+fi
+helper_summary_tests=$(printf '%s' "$helper_summary_out" | grep -oE 'passed: [0-9]+') ||
+    helper_summary_tests="passed"
+printf '✓ helper-summary-readers: %s\n' "$helper_summary_tests"
 
 compat_out=""
 if ! compat_out="$(cd "$SCRIPT_DIR/.." && python3 -m helpers.gnome.check_extension_compat 2>&1)"; then

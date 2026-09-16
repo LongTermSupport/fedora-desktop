@@ -877,10 +877,14 @@ fi
 # the user is already looking at.
 freeze_assert_contract
 # Called BARE on purpose. shellcheck suggests `assert_on_host "$@"` (SC2119) because the
-# function reads $1/$2 — taking that would pass THIS TOOL's argv into the container-marker
-# slots, so `podfreeze somename` would test `-f somename`, leave only $container as a
-# signal, and quietly loosen a guard whose entire job is to refuse. Its two parameters are
-# a test seam with the real paths as defaults; no caller supplies them.
+# function reads $1/$2. Here that remedy is merely meaningless — the arg loop above shifts
+# every branch, so `$#` is 0 by this line and `"$@"` would expand to nothing. It turns
+# DANGEROUS the moment this call moves inside a function or a branch stops shifting: the
+# two parameters are container-marker paths, so a surviving `podfreeze somename` would test
+# `-f somename`, leave only $container as a signal, and loosen a guard whose whole job is
+# to refuse. That is live in lxcfreeze, which calls it inside `main`. Bare in both, for one
+# reason stated per shape. The parameters are a test seam with the real paths as defaults —
+# `scripts/test-freezelib.bash` drives both directions through them.
 assert_on_host
 freeze_hook_preflight
 load_inventory

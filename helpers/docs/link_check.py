@@ -123,6 +123,11 @@ _QA_SCRIPT_GATE = re.compile(
 _QA_MODULE_GATE = re.compile(r"-m\s+(?P<name>helpers[A-Za-z0-9_.]+)")
 
 
+#: A line that loads a library into the current shell instead of running a gate.
+#: `source x` and `. x` are the two spellings.
+_SOURCE_LINE = re.compile(r"^\s*(?:source|\.)\s")
+
+
 def qa_gates(content):
     """Every gate `qa-all.bash` invokes, named as `CLAUDE/QA.md` names it in a row.
 
@@ -130,9 +135,16 @@ def qa_gates(content):
     table's first cell already writes. Reducing a module gate to its last component
     matched the document by substring in one direction and disagreed with it in the
     other, so the reverse check could never have been clean.
+
+    A `source`d library is not a gate and is skipped. It runs nothing and emits no verdict
+    line, so the table has no true row to give it — and the alternative, adding one to
+    satisfy this check, is how an inventory stops describing what it inventories.
     """
-    names = {match.group("name") for match in _QA_SCRIPT_GATE.finditer(content)}
-    names |= {match.group("name") for match in _QA_MODULE_GATE.finditer(content)}
+    invocations = "\n".join(
+        line for line in content.splitlines() if not _SOURCE_LINE.match(line)
+    )
+    names = {match.group("name") for match in _QA_SCRIPT_GATE.finditer(invocations)}
+    names |= {match.group("name") for match in _QA_MODULE_GATE.finditer(invocations)}
     return sorted(names)
 
 

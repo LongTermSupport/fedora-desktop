@@ -178,6 +178,25 @@ class TestQaGateInventory(unittest.TestCase):
             with self.subTest(form=form):
                 self.assertEqual(link_check.qa_gates(f"bash {form}"), ["test-x.bash"])
 
+    def test_a_sourced_library_is_not_a_gate(self):
+        """`source`ing a library is not invoking a gate. A library emits no verdict line,
+        so a row for it in the gate table would claim something the table cannot mean —
+        and the alternative, documenting it to satisfy the checker, is how an inventory
+        stops describing reality."""
+        sourced = 'source "$SCRIPT_DIR/lib/qa-helper-summary.bash"\n'
+        self.assertEqual(link_check.qa_gates(sourced), [])
+
+    def test_the_dot_form_of_source_is_also_not_a_gate(self):
+        self.assertEqual(link_check.qa_gates('. "$SCRIPT_DIR/lib/thing.bash"\n'), [])
+
+    def test_a_gate_on_a_line_after_a_sourced_library_is_still_found(self):
+        """The exclusion is per LINE, not a mode the file enters."""
+        content = (
+            'source "$SCRIPT_DIR/lib/qa-helper-summary.bash"\n'
+            'if ! out="$(bash "$SCRIPT_DIR/test-thing.bash" 2>&1)"; then\n'
+        )
+        self.assertEqual(link_check.qa_gates(content), ["test-thing.bash"])
+
     def test_a_gate_with_no_row_is_reported(self):
         findings = link_check.check_qa_gate_inventory_in(
             qa_all=self.QA_ALL,
