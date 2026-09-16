@@ -26,10 +26,12 @@ tests passing. Cause A is the original breakage and for eleven days it was the o
 
 This is the one cause still open, because fixing it is Task 2.1's decision, not a repair.
 
-### Two of Task 2.1's three options are not actually available
+### Task 2.1: two of the three recorded options are dead, and a fourth is alive
 
-The three options were recorded as a genuine three-way choice. Checked rather than left
-that way, and the choice is narrower than it looked:
+The three options were recorded as a genuine three-way choice. Checking them killed two —
+and a round-4 review then found a fourth I had not considered, after I had already told the
+owner only one remained. Both halves are below, because narrowing a decision too far is the
+same error as leaving it too wide.
 
 **The eight findings are all daemon-generated content, and the correspondence is exact.**
 Eight of the fifteen tracked `.claude/rules/*.md` files carry
@@ -56,10 +58,39 @@ finding.
   stops checking when the tree is absent is that, one level of indirection away. It would
   also pass on a genuinely broken link in the only environment that cannot tell.
 
-That leaves **(a)**: the daemon is a real dependency of the docs graph and CI does not have
-it. `.github/workflows/` contains no reference to the daemon at all today, so this is an
-addition rather than a repair. It is still the owner's call, because it makes every QA run
-depend on an external repository's installer — a cost the rules do not decide.
+**(a)** is therefore live: the daemon is a real dependency of the docs graph and CI does not
+have it. `.github/workflows/` contains no reference to the daemon today, so this is an
+addition rather than a repair. It is the owner's call, because it makes every QA run depend
+on an external repository's installer — a cost the rules do not decide.
+
+### (d) — and why "only (a) remains" was wrong
+
+I told the owner (a) was the sole admissible option. It is not. **Exclude daemon-GENERATED
+files from the link check**, keyed on the `hooks-daemon-rule-version` marker that identifies
+exactly the 8 offenders; the 7 rule files this repo authored stay checked.
+
+The objection I would have raised is that this is (b) wearing a hat. It is not, and the
+distinction is the one `CLAUDE.md`'s rule actually turns on:
+
+| | (b) conditional on the tree being present | (d) exclude daemon-generated files |
+| --- | --- | --- |
+| Depends on the environment | **yes** — checks here, skips in CI | no — same everywhere |
+| Can pass a broken link | yes, exactly where it cannot tell | no — these links were never ours to audit |
+| Needs a network | no | no |
+
+(b) is "check when convenient". (d) is a **scope** decision: this repository does not author
+these files, cannot fix their links, and would have its edits re-rendered by
+`sync_directory_role_rules()` if it tried. And it is not a new kind of judgement —
+`link_check.py:214-223` already excludes `.claude/hooks-daemon/`, `.claude/ccy/`,
+`.claude/skills/` and `.claude/agents/` on precisely that reasoning. The 8 rule files are
+daemon-owned content that happens to be deployed outside the daemon's own directory; the
+exclusion follows ownership rather than path.
+
+So the real question for the owner is not which option is admissible but **which
+relationship is true**: is the daemon a dependency this repo's CI should install (a), or is
+its generated output simply not ours to audit (d)? Both are defensible. (a) costs a network
+fetch per run; (d) means a genuinely broken daemon-authored link would go unreported here —
+though the daemon's own `docs_qa` already checks those files.
 
 **That cost, measured rather than asserted.** Two things were claimed to the owner without
 checking, so both were checked:
@@ -132,23 +163,23 @@ satisfy on a runner. Only `$container` was injectable; the two marker paths now 
 `qa-deployed-drift.bash:219` covers `files/home/.local/lib/freeze/*` and compares with
 `cmp -s`, so a comment-only change drifts. Its abort is `qa-all.bash:137`, which sits
 *before* `helper-tests` — so an undeployed host has a red `qa-all.bash` that **stops 28
-hard gates short** (enumerated: 29 `exit 1` lines after `:137`, less the final run summary
-at `:620`). That is this plan's own Task 4.1 mechanism aimed at the owner's workstation, and
+hard gates short** (derived from the stage names a real run prints, not from `exit 1`
+lines). That is this plan's own Task 4.1 mechanism aimed at the owner's workstation, and
 `CLAUDE.md` makes a local `qa-all.bash` the pre-commit requirement, so it is not cosmetic.
 
 **Both freeze plays are required, not either.** `tasks/deploy-freeze-lib.yml` deploys only
 `freeze-common.bash`. The two binaries are deployed by their own plays —
 `play-podfreeze.yml:75` and `play-lxcfreeze.yml:91` — and each play merely *includes* the
 shared-library task. All three files changed in this plan, so running one play leaves the
-other binary drifted and the gate still red. `qa-deployed-drift.bash:194` prints the owning
+other binary drifted and the gate still red. `qa-deployed-drift.bash:192` prints the owning
 play per drifted file, so the gate names the right play itself; what was stale was this
 plan's own instruction, which said "either freeze play".
 
 ## The mechanism that kept all of it invisible
 
 `qa-all.bash` exits at the first failing hard gate, and **at the masked commit `29ceee97`,
-25 gates were declared after the `helper-tests` abort** (`qa-all.bash:152` there; `:160`
-today, with 27 behind it, because this plan added two aborts). A gate that cannot pass in
+25 gates were declared after the `helper-tests` abort** (26 today, because Task 4.4 added
+a gate). A gate that cannot pass in
 an environment therefore does not merely stay red — it stops every gate behind it from
 running at all, and the number of checks actually executing falls with nothing reporting
 it. Three gates in this plan had never run once in CI before the abort was cleared.
@@ -171,13 +202,26 @@ Counted mechanically, `qa-all.bash` runs its stages two ways:
 | Design                  | Count | Behaviour on failure                                                 |
 | ----------------------- | ----- | -------------------------------------------------------------------- |
 | jq-merged, accumulating | 7     | `\|\| rc=$?`, `FAILED++`, **run continues**; all reported at the end |
-| hard gate               | 30    | `exit 1` immediately; everything declared after it never runs        |
+| hard gate               | 29    | `exit 1` immediately; everything declared after it never runs        |
 | missing-tool abort      | 7     | `exit 2`; same effect, and prints no `QA FAILED` line                |
 
-**These counts are as of this plan's HEAD, and this plan moved them** — Task 4.4 added two
-aborts of its own. Numbers describing what CI *was* masking are the counts at the masked
-commit and are labelled as such below. Mixing the two is how a citation quietly stops being
-true, which this plan has already had to correct once.
+7 + 29 = 36 gates, which print **37** stage names: `qa-bash.bash` emits both `bash` and
+`shellcheck`, so the seven accumulating gates account for eight named lines.
+
+**Counted from the RUN, not from the source.** Counting `exit 1` occurrences is a proxy for
+counting gates and it is not a sound one — a single gate may own more than one abort, and
+`helper-tests` now owns two (its own failure, and the unreadable-capture failure Task 4.4
+added). That proxy produced a wrong number here three times. The stage names a real run
+prints are the ground truth, and `helpers/qa_environment/verdicts.py` already parses them:
+
+```python
+acc = {"bash","shellcheck","python","patterns","ansible","ansible-syntax","js","docs"}
+hard = [n for n in stage_order if n not in acc]     # -> 29
+hard[hard.index("helper-tests")+1:]                 # -> 26 behind it
+```
+
+**These counts are as of this plan's HEAD, and this plan moved them.** Numbers describing
+what CI *was* masking are the counts at the masked commit and are labelled as such below.
 
 The seven accumulating stages are `bash`, `python`, `patterns`, `ansible`,
 `ansible-syntax`, `js` and `docs`; they merge into one JSON document and are reported
@@ -190,8 +234,8 @@ because they fell on opposite sides of that line:
   masked nothing at all — every gate behind it kept running. That is why the current CI log
   shows `✗ docs` followed by 25 passing gates and only then `✗ QA FAILED`.
 - **Cause B landed in hard gates.** At `29ceee97`, `helper-tests` aborted at `:153` and
-  enumerating the `exit 1` lines after it gave 27 — less the final run summary (`:602`) and
-  less `helper-tests` itself — **25 gates that never ran in CI**. Clearing it unmasked
+  **25 hard gates stood behind it and never ran in CI** — derived from that run's own
+  stage-name order, which is why this figure survived the recount that moved the others. Clearing it unmasked
   `panel-sections`, then `freezelib`, one at a time.
 
 It also narrows **Task 4.3**. Its option (1) — run every gate, report all verdicts, exit

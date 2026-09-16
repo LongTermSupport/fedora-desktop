@@ -16,8 +16,10 @@
 
 ## What qa-all.bash Runs
 
-`qa-all.bash` runs **thirty-five** gates. Seven merge their JSON into
-`/tmp/qa-results.json`; the other twenty-eight run separately (see below). A missing
+`qa-all.bash` runs **thirty-six** gates. Seven merge their JSON into
+`/tmp/qa-results.json`; the other twenty-nine run separately (see below). Those seven emit
+**eight** named verdict lines — `qa-bash.bash` prints `bash` and `shellcheck` — so a run
+shows 37 stage names for 36 gates. A missing
 **required** tool makes a stage (and the whole run) exit `2`; a real analyser crash (e.g.
 ruff/shellcheck exit ≥ 2) is a hard failure, never silently treated as "0 issues".
 
@@ -38,7 +40,7 @@ fresher hand-written list.
 | `qa-js.bash`             | `node --check` on repo JS + `eslint .` in `extensions/`                                                                                                                                                                                                                                                                                                                                                                                                                                 | Repo-owned `.js` (excludes vendor/node_modules) + `extensions/`                                                                                       |
 | `qa-docs.bash`           | Link targets exist; every `#anchor` matches a real heading; every play imported by `playbook-main.yml` is named in both `docs/playbooks.md` and `docs/architecture.md`; every `CLAUDE/*.md` has an index row (Plan 00070)                                                                                                                                                                                                                                                               | Core docs only — `docs/`, `CLAUDE/*.md`, `README.md`, `*/CLAUDE.md`, `.claude/rules/`. **Not** `CLAUDE/Plan/**`                                       |
 
-Twenty-eight further gates run inside `qa-all.bash` as **hard, non-structural** checks —
+Twenty-nine further gates run inside `qa-all.bash` as **hard, non-structural** checks —
 they are deliberately not jq-merged stages, so they cannot disturb the positional
 `.[0]..[6]` JSON merge. Any one of them fails the whole run immediately:
 

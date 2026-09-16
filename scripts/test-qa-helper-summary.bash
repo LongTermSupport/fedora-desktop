@@ -57,9 +57,11 @@ check() {
     fi
 }
 
-# refuses <label> <capture> — the function must FAIL on this input rather than answer it.
-# Its diagnostic is captured rather than discarded, so the test can also state that the
-# diagnostic goes to stderr and not into the caller's payload.
+# refuses <label> <capture> — the function must FAIL on this input rather than answer it,
+# AND write nothing to stdout while doing so. stderr is sent to /dev/null on purpose: the
+# assertion is about the payload channel, and a diagnostic printed to the test's own stderr
+# would be indistinguishable from a failure report. Which channel it lands on is asserted
+# separately below, where it is the subject rather than the noise.
 refuses() {
     local label="$1" input="$2" out="" rc=0
     out="$(helper_skip_count "$input" 2>/dev/null)" || rc=$?
@@ -140,6 +142,24 @@ refuses "a capture with no result line is refused" "Ran 5 tests in 0.006s"
 refuses "an empty capture is refused" ""
 refuses "prose merely containing the word OK is refused" "everything looks OK to me"
 
+# The channel, asserted rather than assumed: a diagnostic on stdout would be captured by
+# `$(...)` at the call site and printed as if it were the count. The non-zero exit is
+# expected here and is what the `refuses` cases above already assert, so it is consumed
+# explicitly rather than hidden.
+diag_rc=0
+diag_stderr="$(helper_skip_count "no result line here" 2>&1 1>/dev/null)" || diag_rc=$?
+if [ "$diag_rc" -eq 0 ]; then
+    failed=$((failed + 1))
+    echo "  FAIL  the refusal diagnostic goes to stderr (it did not refuse at all)" >&2
+elif [[ "$diag_stderr" == *"no unittest result line"* ]]; then
+    passed=$((passed + 1))
+    echo "  PASS  the refusal diagnostic goes to stderr"
+else
+    failed=$((failed + 1))
+    printf '  FAIL  the refusal diagnostic goes to stderr\n        got: %s\n' \
+        "$diag_stderr" >&2
+fi
+
 echo "=== helper_test_summary ==="
 
 check "the test count is taken from unittest's own line" \
@@ -150,6 +170,21 @@ check "a single test is not pluralised into a mismatch" \
 
 check "a capture with no Ran line degrades to a word rather than a wrong number" \
     "passed" "$(helper_test_summary 'OK')"
+
+# Round 4 found this one function away from the scoping fix above, with the same cause:
+# `grep -o` returns EVERY match, so an unscoped search over the whole capture emitted both.
+# The consequence is worse than a wrong number — the stage line became TWO lines, and the
+# verdict parser reads the first as the stage and loses the second.
+check "a decoy Ran line mid-capture does not join the summary" \
+    "Ran 1464 tests" "$(helper_test_summary "$(printf 'VMTEST-CHECKS-DONE Ran 3 tests in a scenario\nRan 1464 tests in 0.42s\n\nOK (skipped=1)\n')")"
+
+check "the summary is exactly one line" \
+    "1" "$(helper_test_summary "$(printf 'Ran 3 tests in a scenario\nRan 1464 tests in 0.42s\n\nOK\n')" | grep -c '')"
+
+# unittest's count line sits immediately above its result line, so where a decoy starts at
+# column 0 the LAST match is the authoritative one — taking the first would prefer the decoy.
+check "a decoy anchored at column 0 does not win over unittest's own line" \
+    "Ran 1464 tests" "$(helper_test_summary "$(printf 'Ran 3 tests in a scenario\nRan 1464 tests in 0.42s\n\nOK\n')")"
 
 echo
 echo "passed: $passed failed: $failed"

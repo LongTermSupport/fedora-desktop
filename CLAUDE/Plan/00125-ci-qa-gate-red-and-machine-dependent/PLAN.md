@@ -58,7 +58,7 @@ once the abort stopped hiding it. All six were defective **tests**, not producti
 all six are fixed.
 
 **The mechanism, and it hid Cause B rather than "all of it".** `qa-all.bash` runs 7 stages
-that accumulate and 30 hard gates that `exit 1`. Cause A sits in an accumulating stage, so
+that accumulate and 29 hard gates that `exit 1`. Cause A sits in an accumulating stage, so
 it masked nothing — it went red and every gate behind it kept running. Cause B was in hard
 gates, and at the masked commit **25 gates stood behind the `helper-tests` abort**, so three
 of them had never run once in CI. That is Task 4.1's answer and the argument for Task 4.3.
@@ -108,16 +108,18 @@ of them had never run once in CI. That is Task 4.1's answer and the argument for
 ### Phase 2: The docs gate — decision required
 
 - [ ] ⬜ **Task 2.1**: **DECISION GATE** — how a tracked file may reference an installed,
-  gitignored tree. Recorded as three options; **checking them narrowed it to one.** All 8
-  findings are daemon-generated: the 8 rule files carrying `hooks-daemon-rule-version` are
-  exactly the 8 reported, rendered by the daemon's own installer. **(b)** is the
-  skip-if-absent shape `CLAUDE.md` prohibits by name; **(c)** is re-rendered by
-  `sync_directory_role_rules()` at the next upgrade and breaks a contract the daemon's own
-  `docs_qa` enforces. The link is not wrong — its premise, *the daemon is installed*, is
-  false in CI. That leaves **(a) install the daemon in CI before QA**, a real dependency no
-  `.github/workflows/` file mentions today. Reasoning and citations: `FINDINGS.md`.
-  **Still the owner's call** — it makes every QA run depend on an external repository's
-  installer, a cost the rules do not decide. Implementable immediately on the word.
+  gitignored tree. All 8 findings are daemon-generated: the 8 rule files carrying
+  `hooks-daemon-rule-version` are exactly the 8 reported, rendered by the daemon's own
+  installer. **(b)** is the skip-if-absent shape `CLAUDE.md` prohibits by name; **(c)** is
+  re-rendered by `sync_directory_role_rules()` at the next upgrade. The link is not wrong —
+  its premise, *the daemon is installed*, is false in CI. **Two live options** — my earlier
+  claim that only (a) remained was wrong: **(a)** install the daemon in CI (a network fetch
+  per run), or **(d)** exclude daemon-GENERATED files from the link check by their version
+  marker — unconditional, no network, and the same ownership judgement
+  `link_check.py:214-223` already makes for four other trees. The 7 repo-authored rule files
+  stay checked either way. Full argument in `FINDINGS.md`. **The owner's call**: (a) treats
+  the daemon as a dependency, (d) treats its output as not ours to audit
+
 - [ ] ⬜ **Task 2.2**: Implement the chosen option; the docs gate passes in a clean checkout.
 
 ### Phase 3: The tests that read the machine they were written on
@@ -157,7 +159,7 @@ of them had never run once in CI. That is Task 4.1's answer and the argument for
   and the **allow** direction is asserted for the first time — it could never be, because
   in a container the real marker files are there. Falsified both ways (journal, 23:52).
   **HOST, and more urgent than "the behaviour is identical" suggested.**
-  An undeployed host's `qa-all.bash` is red **and stops 28 hard gates short**, because the
+  An undeployed host's `qa-all.bash` is red **and stops 27 hard gates short**, because the
   drift gate aborts at `qa-all.bash:137` — before `helper-tests`. **Run BOTH
   `play-podfreeze.yml` and `play-lxcfreeze.yml`**, not either: each deploys its own binary
   and all three files changed. Runtime behaviour is unchanged. Detail in `FINDINGS.md`
@@ -186,9 +188,9 @@ of them had never run once in CI. That is Task 4.1's answer and the argument for
   gate and report all verdicts before exiting non-zero; or keep the abort but have CI
   compare the executed-gate list against the declared one and fail on a shrink. This is a
   structural change to the suite and affects local runs too, so it is the owner's call.
-  **Narrowed:** the first option is not a new design — 7 of the 37 stages already work that
-  way (`|| rc=$?`, `FAILED++`, all reported by `qa-all.bash:613-620`) against 30 that
-  `exit 1`. The question is whether to extend the existing design to those 30, not
+  **Narrowed:** the first option is not a new design — 7 of the 36 gates already work that
+  way (`|| rc=$?`, `FAILED++`, reported together at the end) against 29 that `exit 1`.
+  The question is whether to extend the existing design to those 29, not
   whether to invent it. That split is also why the two causes hid differently — `docs`
   accumulates and masked nothing; Cause B was in hard gates. See `FINDINGS.md`
 
@@ -205,10 +207,10 @@ of them had never run once in CI. That is Task 4.1's answer and the argument for
 
 ### Phase 5: Close
 
-- [x] ✅ **Task 5.1**: `./scripts/qa-all.bash` green locally — 914 files.
+- [x] ✅ **Task 5.1**: `./scripts/qa-all.bash` green locally — 918 files.
 - [ ] ⬜ **Task 5.2**: The `QA` workflow green on `F44` — the run link is the evidence.
   **Blocked on Task 2.1 and nothing else.** Run `35041998528` (`29ceee97`) fails on
-  `✗ QA FAILED: 8 errors in 914 files`, and all 8 are the docs findings. Every one of the
+  `✗ QA FAILED: 8 errors in 918 files`, and all 8 are the docs findings. Every one of the
   other 35 stages passes, and the file count matches a local run exactly.
 - [ ] ⬜ **Task 5.3**: `qa-reviewer` agent over the full diff.
 
@@ -246,8 +248,9 @@ of them had never run once in CI. That is Task 4.1's answer and the argument for
 - **Fixing the tests by weakening them.** The DisplayLink pair exists precisely because a
   tempfile-only suite passed while the defect was live; a skip that widens too far restores
   that hole. Mitigation: Task 3.1 requires the test to still fail on a real zero-read.
-- **Option (b) in Task 2.1 passing on a genuinely broken link.** Mitigation: it is recorded
-  as the weaker option, not the default.
+- **Option (d) leaving a genuinely broken daemon link unreported here.** Mitigation: those
+  files are checked by the daemon's own `docs_qa`, and (d) is scoped by ownership marker so
+  the 7 repo-authored rule files stay covered.
 - **Phase 3 turning into a rewrite of the helper suites.** Mitigation: Non-Goals — this
   plan restores the signal, it does not re-open what the gates check.
 
@@ -259,16 +262,9 @@ of them had never run once in CI. That is Task 4.1's answer and the argument for
 
 ## Delivery & Milestones
 
-- `cedc9426` — Task 1.3: both `host_health` tests, and the 2026-09-28 calendar bomb one of
-  them carried. Confirmed on a runner: `failures=5` became `failures=3`
-- `390a9290` — Tasks 3.1, 3.2, 3.4: the DisplayLink pair and the dbus fallback, plus the
-  first tests for `session_bus.current()`. Helper suite green in CI
-- `05cf9b53` — Tasks 1.2, 4.1, 4.2: the hardcoded `/workspace` in `panel-sections`, the
-  `.ansible/` exclusion in `qa-js.bash`, and `CLAUDE/QA.md`'s environment-dependence section
-- `40e3a26d` — Task 3.5: `assert_on_host` drivable on any machine. **Every hard gate then
-  passed in CI for the first time since 2026-09-11** (run `35037675348`)
-- `5ac5f57f` — Task 1.1: `triage.bash`, `probe-qa-verdicts.bash` and
-  `helpers/qa_environment/verdicts.py`
+Every commit is `Plan 00125: …` on `F44`; `git log --oneline --grep 'Plan 00125'` is the
+list, and `JOURNAL/` carries what each one found. Repeating it here only creates a second
+copy to keep in step.
 
 Remaining: Task 2.1 (decision), 2.2 (its implementation), 4.3 (decision), 5.2 (follows 2.2),
 5.3 (`qa-reviewer`).

@@ -14,10 +14,25 @@
 # helper_test_summary <capture> — `Ran N tests`, or the word `passed` if unittest's count
 # line is absent. Degrading to a WORD rather than a number is deliberate: a wrong count
 # reads as a measurement, and "passed" cannot be mistaken for one.
+#
+# Scoped to a LINE unittest itself wrote, for the same reason `helper_skip_count` is, and it
+# had the same bug: an unscoped `grep -oE` returns EVERY match, so a capture holding a
+# second `Ran N tests` emitted BOTH and the stage line became two lines — the first read as
+# the stage and the second lost. Worse than a wrong number, because a wrong number is at
+# least still a verdict line.
+#
+# The LAST match wins, not the first. unittest's count line sits immediately above its
+# result line, so where a test has printed its own `Ran ...` at column 0 the authoritative
+# one is the final one.
 helper_test_summary() {
-    local capture="$1" summary=""
-    summary=$(printf '%s' "$capture" | grep -oE 'Ran [0-9]+ tests?') || summary="passed"
-    printf '%s' "$summary"
+    local capture="$1" line=""
+    line=$(printf '%s' "$capture" |
+        awk '/^Ran [0-9]+ tests? in /{last=$0} END{print last}')
+    if [[ "$line" =~ ^(Ran[[:space:]][0-9]+[[:space:]]tests?) ]]; then
+        printf '%s' "${BASH_REMATCH[1]}"
+    else
+        printf 'passed'
+    fi
 }
 
 # helper_skip_count <capture> — the number of skipped tests, from unittest's own result

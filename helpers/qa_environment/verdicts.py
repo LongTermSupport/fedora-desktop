@@ -68,8 +68,11 @@ SYMBOL_LINE = re.compile(r"^[✓✗⚠] ")
 #: Trading a false 100% for a false alarm is not a fix.
 #:
 #: So: optional BOM, any number of tab-terminated harness fields, an optional single
-#: token-and-space (the timestamp, whatever shape it has taken), then the symbol. A
-#: malformed timestamp still lands here; indentation and prose do not. ANSI is stripped
+#: token-and-space (the timestamp), then the symbol. A timestamp whose FORMAT changed still
+#: lands here; indentation and prose do not. The limit, stated rather than left to be
+#: discovered: a timestamp that became TWO space-separated tokens would drop out of the
+#: denominator — and out of the numerator with it, so coverage would read 100% rather than
+#: wrong. No harness emits that shape today. ANSI is stripped
 #: before this runs rather than tolerated inside it — numerator and denominator must agree
 #: about colour or `matched + summary <= symbol_lines` stops holding.
 SYMBOL_BEARING = re.compile(r"^﻿?(?:[^\t]*\t)*(?:\S+ )?[✓✗⚠] ")
