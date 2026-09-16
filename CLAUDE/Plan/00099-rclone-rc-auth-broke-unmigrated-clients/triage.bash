@@ -128,8 +128,12 @@ rc_authed() {
         echo "(no credential file — cannot probe authenticated)"
         return 1
     fi
-    u=$(awk -F= '$1 == "RCLONE_RC_USER" { print $2 }' "$RC_AUTH_FILE")
-    p=$(awk -F= '$1 == "RCLONE_RC_PASS" { print $2 }' "$RC_AUTH_FILE")
+    # Everything after the FIRST `=` is the value; `print $2` would truncate at
+    # the second. A truncated password fails as a 401, which this very triage
+    # script would then report as an auth-enforcement finding rather than a
+    # parsing bug.
+    u=$(awk -F= '$1 == "RCLONE_RC_USER" { print substr($0, index($0, "=") + 1) }' "$RC_AUTH_FILE")
+    p=$(awk -F= '$1 == "RCLONE_RC_PASS" { print substr($0, index($0, "=") + 1) }' "$RC_AUTH_FILE")
     if [ -z "$u" ] || [ -z "$p" ]; then
         echo "(credential file missing RCLONE_RC_USER or RCLONE_RC_PASS)"
         return 1

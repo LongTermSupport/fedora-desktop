@@ -65,8 +65,15 @@ done
 # The CCY container mounts the repo at /workspace and deliberately has no
 # deployed system state — comparing there would compare the repo to nothing.
 # Same for a clean CI checkout. Neither is drift; both are "not the host".
+# A SKIP IS MARKED `⚠`, NOT `✓`. The three exits below did not compare anything,
+# and a tick among thirty others is visually indistinguishable from a gate that
+# did its work — which is this gate's own defect class one level up. `⚠` is this
+# repo's established "ran but incomplete" stage symbol (qa-bash, qa-patterns,
+# qa-docs) and `verdicts.py` parses it, so the shape is unchanged; only the
+# reader's ability to tell a skip from a pass improves. The exit status stays 0:
+# not being on the host is not drift.
 if [ "$REPO_ROOT" = "/workspace" ]; then
-    echo "✓ deployed-drift: skipped (CCY container — no deployed copies to compare);" \
+    echo "⚠ deployed-drift: skipped (CCY container — no deployed copies to compare);" \
         "${#TEMPLATES[@]} template(s) verified to map to a playbook dest:"
     exit 0
 fi
@@ -82,14 +89,14 @@ git_common=""
 if git_dir=$(git -C "$REPO_ROOT" rev-parse --absolute-git-dir 2> /dev/null) \
     && git_common=$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir 2> /dev/null); then
     if [ "$git_dir" != "$git_common" ]; then
-        echo "✓ deployed-drift: skipped (linked git worktree — not the deployed checkout);" \
+        echo "⚠ deployed-drift: skipped (linked git worktree — not the deployed checkout);" \
             "${#TEMPLATES[@]} template(s) verified to map to a playbook dest:"
         exit 0
     fi
 fi
 
 if [ ! -d "$DEPLOYED_DIR" ]; then
-    echo "✓ deployed-drift: skipped ($DEPLOYED_DIR does not exist);" \
+    echo "⚠ deployed-drift: skipped ($DEPLOYED_DIR does not exist);" \
         "${#TEMPLATES[@]} template(s) verified to map to a playbook dest:"
     exit 0
 fi

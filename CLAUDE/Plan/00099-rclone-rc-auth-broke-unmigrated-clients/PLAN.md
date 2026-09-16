@@ -111,9 +111,26 @@ into Plan 00094's own notes.
   the single pass was "RC rejects unauthenticated calls", i.e. exactly the
   broken state the host was in
 - [x] ✅ **Task 5.3**: Run `deploy.bash` on the host (both plays, clean)
-- [x] ✅ **Task 5.4**: Confirm `acceptance.bash` passes after deploy — ACCEPTED 8/8
+- [x] ✅ **Task 5.4**: Confirm `acceptance.bash` passes after deploy — ACCEPTED 10/10.
+  The gate grew checks `[0]` and `[6b]` between the pre-deploy run above and this
+  one, which is why the two totals do not reconcile against each other; the
+  COVERAGE line the gate now prints exists so a reader never has to work that
+  out from a bare pass count again
 - [x] ✅ **Task 5.5**: Run `./scripts/qa-all.bash` — passed, 441 files
-- [ ] 🔄 **Task 5.6**: Run the `qa-reviewer` agent over the full diff
+- [x] ✅ **Task 5.6**: Run the `qa-reviewer` agent over the full diff — FIX-BEFORE-MERGE
+  (0 blocking, 3 should-fix, 8 minor, 3 nits); report in
+  `subagent-reports/260916-qa-reviewer-opus-5.md`. Every finding actioned except
+  `m6`, which is outstanding by decision rather than oversight — see the 14:28
+  handoff entry in `JOURNAL/00099-Journal-26-09-16.md`. Converting the three plan
+  scripts onto `_planlib.inc.bash` requires `plan_require_host` on
+  `acceptance.bash`, which would make the harness that falsifies the new COVERAGE
+  mechanism impossible to run, since the container is the only place it can run.
+  That trade is the owner's to settle.
+- [ ] 🚫 **Task 5.7**: Deploy the four client edits on the HOST —
+  `play-rclone.yml` and `play-ftp-camera.yml`. **Blocked: HOST ACTION**, cannot run
+  in the container. Until it runs, `qa-deployed-drift.bash` will fail on the host
+  for these four files, which is the gate working as designed rather than a
+  regression
 
 ## Dependencies
 

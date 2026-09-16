@@ -565,8 +565,27 @@ It compares each repo-owned script against its deployed copy and, on a mismatch,
 names the play to run — derived by searching the playbooks for the file's `src:`
 path, not from a hand-maintained table. A file is checked **only when a deployed
 copy already exists**, so a machine that never installed a feature is never
-nagged. It self-skips in the CCY container and in a clean CI checkout, where
-there is no deployed state to compare against.
+nagged.
+
+**Scope is wider than `files/home/.local/bin/`.** Beyond the user scripts it also
+compares the pairs listed in the script's own `EXTRA_PAIRS` — currently the VM
+acceptance lab and the freeze library (Plans 00110, 00122). The script's header
+comment is the authority on the current set.
+
+**It self-skips in three situations, and says so with `⚠`, not `✓`:**
+
+| Skipped when                                  | Why it is not drift                                                                                                                                                               |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The repo root is `/workspace` (CCY container) | There is no deployed state in the container to compare against                                                                                                                    |
+| The checkout is a **linked git worktree**     | A review branch in a worktree would be compared against whatever the MAIN checkout deployed, an unclearable hard failure — you cannot deploy a review branch just to run QA on it |
+| The deployed directory does not exist         | The machine has never installed these scripts                                                                                                                                     |
+
+A skip exits `0`, so `qa-all.bash` still passes. It is marked `⚠` — this repo's
+"ran but incomplete" stage symbol, also used by `qa-bash.bash` and
+`qa-patterns.bash` — because a `✓` among thirty others is indistinguishable from
+a gate that actually compared something, which is the very confusion this gate
+exists to remove. **This list is the only way to know when the gate is inert, so
+a new skip condition must be added here in the same commit that adds it.**
 
 **The deployed name is not always the repo name** (Plan 00081 F4).
 `git-account-helper.j2` deploys as `git-account-helper`, so a basename comparison

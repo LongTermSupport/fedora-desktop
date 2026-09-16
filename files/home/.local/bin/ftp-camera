@@ -1093,7 +1093,7 @@ copy_to_mount() {
 
     # Verify the RC endpoint answers an AUTHENTICATED call before starting the
     # copy. rclone gates every rc endpoint once --rc-user/--rc-pass are set
-    # (Plan 00067), so the credential is not optional — rclone_rc supplies it
+    # (Plan 00094), so the credential is not optional — rclone_rc supplies it
     # and fails with the play to run when it is missing.
     #
     # Probe core/stats: the very endpoint the progress loop below polls. An

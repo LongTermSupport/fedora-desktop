@@ -9,7 +9,7 @@
 #
 # WHY THIS EXISTS
 # ---------------
-# Plan 00067 gave the mount units --rc-user/--rc-pass (supplied as
+# Plan 00094 gave the mount units --rc-user/--rc-pass (supplied as
 # RCLONE_RC_USER/RCLONE_RC_PASS through a systemd EnvironmentFile). It did so
 # believing that core/stats and vfs/stats "answer unauthenticated" and that
 # only the vfs/refresh caller needed migrating. That premise is FALSE: once a
@@ -65,8 +65,14 @@ rclone_rc_load_credentials() {
         return 1
     fi
 
-    _RCLONE_RC_USER=$(awk -F= '$1 == "RCLONE_RC_USER" { print $2 }' "$RCLONE_RC_AUTH_FILE")
-    _RCLONE_RC_PASS=$(awk -F= '$1 == "RCLONE_RC_PASS" { print $2 }' "$RCLONE_RC_AUTH_FILE")
+    # Everything after the FIRST `=` is the value. `print $2` would truncate at
+    # the second one, and the truncated password surfaces as a 401 — which in
+    # this codebase reads as a credential mismatch and sends the reader looking
+    # in the wrong place. Today's generated password is alphanumeric, but
+    # nothing links this parser to that constraint and the comment above
+    # explicitly invites overriding RCLONE_RC_AUTH_FILE.
+    _RCLONE_RC_USER=$(awk -F= '$1 == "RCLONE_RC_USER" { print substr($0, index($0, "=") + 1) }' "$RCLONE_RC_AUTH_FILE")
+    _RCLONE_RC_PASS=$(awk -F= '$1 == "RCLONE_RC_PASS" { print substr($0, index($0, "=") + 1) }' "$RCLONE_RC_AUTH_FILE")
 
     if [ -z "$_RCLONE_RC_USER" ] || [ -z "$_RCLONE_RC_PASS" ]; then
         echo "ERROR: $RCLONE_RC_AUTH_FILE has no RCLONE_RC_USER/RCLONE_RC_PASS value." >&2

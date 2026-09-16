@@ -188,7 +188,7 @@ query_cache() {
     local rc_addr="$1"
     local vfs_json reason err_file parsed
     # Keep the reason instead of discarding it. Reporting a 401 as "rc
-    # unreachable" is what made the Plan 00067 auth change look like a dead
+    # unreachable" is what made the Plan 00094 auth change look like a dead
     # mount for weeks; the caller now sees which of the two it actually is.
     # stderr goes to a file rather than being folded into stdout, so a warning
     # on a SUCCESSFUL call cannot corrupt the JSON payload.
@@ -196,7 +196,14 @@ query_cache() {
     if ! vfs_json=$(rclone_rc --url="http://${rc_addr}" vfs/stats 2> "$err_file"); then
         reason=$(cat "$err_file")
         rm -f "$err_file"
+        # The library-absent arm comes FIRST and is not optional. Without it the
+        # stub's "run play-rclone.yml" message — which contains neither `401` nor
+        # `credential` — falls to `*)` and is reported as `rc unreachable`, on
+        # exactly the host where the play has never run. That is this plan's own
+        # incident: an undeployed helper reading as a dead mount, with the accurate
+        # remedy discarded on the floor.
         case "$reason" in
+            *"helper library not found"*) echo "ERR|rc helper library missing — run play-rclone.yml" ;;
             *401* | *Unauthorized*) echo "ERR|rc rejected credentials (401)" ;;
             *credential*) echo "ERR|rc credential missing" ;;
             *) echo "ERR|rc unreachable" ;;

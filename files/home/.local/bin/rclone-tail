@@ -135,13 +135,24 @@ query_stats() {
     local vfs_json core_json reason err_file parsed
     # stderr is captured to a file rather than folded into stdout, so a warning
     # on a SUCCESSFUL call cannot corrupt the JSON payload. The reason is kept
-    # because a 401 from the authenticated RC (Plan 00067) is a completely
+    # because a 401 from the authenticated RC (Plan 00094) is a completely
     # different problem from a mount that is not listening.
+    #
+    # The library-absent arm comes FIRST and is not optional. Without it the stub's
+    # "run play-rclone.yml" message — which contains neither `401` nor `credential`
+    # — falls to `*)` and is reported as `rc unreachable`, on exactly the host
+    # where the play has never run. That is this plan's own incident: an undeployed
+    # helper reading as a dead mount, with the accurate remedy discarded.
+    #
+    # BOTH case blocks below carry the same four arms. They classify the same
+    # stderr from the same helper, so a reason named in one and not the other is a
+    # diagnosis that depends on which endpoint happened to fail first.
     err_file=$(mktemp)
     if ! vfs_json=$(rclone_rc --url="http://${rc_addr}" vfs/stats 2> "$err_file"); then
         reason=$(cat "$err_file")
         rm -f "$err_file"
         case "$reason" in
+            *"helper library not found"*) echo "ERR|rc helper library missing — run play-rclone.yml" ;;
             *401* | *Unauthorized*) echo "ERR|rc rejected credentials (401)" ;;
             *credential*) echo "ERR|rc credential missing" ;;
             *) echo "ERR|rc unreachable" ;;
@@ -152,7 +163,9 @@ query_stats() {
         reason=$(cat "$err_file")
         rm -f "$err_file"
         case "$reason" in
+            *"helper library not found"*) echo "ERR|rc helper library missing — run play-rclone.yml" ;;
             *401* | *Unauthorized*) echo "ERR|rc rejected credentials (401)" ;;
+            *credential*) echo "ERR|rc credential missing" ;;
             *) echo "ERR|rc unreachable" ;;
         esac
         return
