@@ -165,13 +165,14 @@ to prove the guard notices."*
   went away" and "the hook broke" stop sharing a status; `parse_member_choice` split
   out of `drill_into_group` so the menu grammar is testable at all; the table hooks pad
   their own columns; `fzf` moved into the shared task file. Suites 231 / 76 / 187
-- [ ] 🚫 **Task 3.7**: **BLOCKED, owner's call.** The review found
-  `.semgrep/bash-conventions.yml`'s `|| true` rule is line-anchored and cannot see the
-  enclosed form (`$( cmd || true )`) at all — which is how the two above shipped.
-  Widening it locally found **18 further live sites across 8 files**, two of them the
-  git hooks that gate secret scanning for this public repo. The widening was reverted
-  so this plan could land; the exact sites are in the journal. Needs its own plan
-  because the git-hook half carries real risk, not because the work is large
+- [x] ✅ **Task 3.7**: **Carried to Plan 00131.** `.semgrep/bash-conventions.yml`'s
+  `|| true` rule is line-anchored and cannot see the enclosed form (`$( cmd || true )`),
+  which is how the two above shipped. Widening it found 18 further live sites in 8
+  files, four of them the git hooks that gate secret scanning for this public repo —
+  real risk, so its own plan rather than the tail of this one. The widening was reverted
+  here; the sites and the reasoning are in this plan's journal and in Plan 00131. Closed
+  rather than held open: a box that will never be ticked here makes a finished plan read
+  as incomplete
 
 ### Phase 4: The shared library — no longer deferred, and not for DRY
 
