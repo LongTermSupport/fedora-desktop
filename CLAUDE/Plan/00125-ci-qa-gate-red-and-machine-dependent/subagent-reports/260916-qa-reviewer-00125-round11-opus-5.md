@@ -431,3 +431,106 @@ above was measured against the same bytes it names.
   payloads — was built in a `tempfile` temp directory and removed. Nothing was written inside
   the repository except this report.
 - Container: CCY — no Ansible run, no deploy.
+
+---
+
+# Addendum — re-checked against `f3a4f301`, `5d38cc83` and `01850f04`
+
+Three commits landed after the snapshot above. I materialised `01850f04` into a temp
+directory (`git archive` + `git init` + `git add -A` + commit, so every file is tracked —
+the clean-checkout condition) and re-ran every probe there. **Nothing below moved the pinned
+worktree**; the snapshot this report reviews is still `e6ec507a`.
+
+At the tip: `python3 -m unittest tests.helpers.docs.test_link_check` → `Ran 86 tests … OK`,
+and `scripts/qa-docs.bash` in the synthesised clean checkout → `✓ docs: 71 files OK … —
+VENDORED: 0 verified, 8 unverifiable (repo absent), 0 broken`, exit 0.
+
+## Closed by the later commits — withdraw these from the list above
+
+- **Finding 1 (the COVERAGE guard reports PASS when blind)** — closed by `f3a4f301`.
+  Re-run against the tip's own guard block with a non-existent `qa-all.bash`:
+  `FAIL  no qa_gate_detail call sites found …`, `RESULT passed=0 failed=1 calls=[0]`. The
+  `detail_calls=0` seed plus the explicit `if !` fallback makes the denominator an integer on
+  every path, so the fall-through is gone.
+- **Finding 3 (the denominator is not loose enough, and one spelling is silent)** — closed by
+  `f3a4f301`. Measured at the tip: a **column-1** call site now gives `PASS COVERAGE: 1 of 1`
+  (was `numerator=1 denominator=0`), and the **tab** spelling now gives
+  `FAIL extracted 0 … but it has 1` (was `0 and 0`, agreeing silently). `[[:space:]]` in place
+  of the literal space is what closes the tab case, and `(^|[^_[:alnum:]])` the column-1 case.
+- **Finding 10, first half (a link to the repository root)** — closed by `5d38cc83`.
+  Measured at the tip: `[the repo](../)` → `findings == []`. `directories = {"."}` is the
+  right seed, and the RED-first test is real.
+- **Round 10's open nit, the unreachable `V_BROKEN -gt 0` branch** — closed by `01850f04`.
+
+## On removing the `V_BROKEN` branch — the right call, and for a better reason than "it never ran"
+
+Two things make it right rather than merely tidier. The composition now executes on **every**
+run against an empty list, so a shape error — a renamed key, a changed entry field — surfaces
+on the next QA run instead of on the day a vendored pointer goes stale, which is the one day
+nobody wants to meet a formatter for the first time. And the precondition was extended to
+`has("vendored_warning")`, so a checker that stopped emitting the key is a hard failure rather
+than a quiet skip; measured, a payload without the key is REFUSED, and even if it slipped past,
+`jq -r '.vendored_warning[]'` exits 5 under `set -e` rather than printing nothing.
+
+I drove the real `vendored_warning_lines()` output through the gate's real
+`jq -r '.vendored_warning[]'` and the real `verdicts.parse`:
+
+    ⚠ docs: 2 link(s) into a PRESENT vendored repo are broken — it has probably moved the file:
+        .claude/rules/agent-docs.md:1  ../hooks-daemon/CLAUDE/DirectoryRoles.md
+        .claude/rules/plan-dir.md:4  ../hooks-daemon/CLAUDE/PlanDir.md
+    ✓ docs: 71 files OK … — VENDORED: 0 verified, 0 unverifiable (repo absent), 2 broken
+
+    stages: {'docs': [Verdict(symbol='⚠', …), Verdict(symbol='✓', …)]}
+
+Both stages survive and the indented detail lines are correctly not read as stages.
+
+**One thing to fix in it**, and it is this plan's own class: the test that guards that
+invariant cites the authority and then copies it. `TestTheVendoredWarningBlock`'s docstring
+for `test_the_detail_lines_are_indented_so_they_are_not_read_as_stages` says *"`verdicts.STAGE`
+anchors its symbol at column 0"*, but the assertion is a hand-written `r"^\s*[✓✗⚠] "` and the
+test module imports only `link_check` — it never imports `verdicts`. A pattern and the thing
+it describes that nothing compares will drift, which is exactly the `nokill` argument. Parsing
+the composed block with the real `verdicts.parse` and asserting it yields **one** stage closes
+it in one line, and would also cover `SYMBOL_BEARING` — the census denominator, which the copy
+does not describe at all.
+
+## Still open at `01850f04`
+
+Re-measured at the tip, not carried forward on trust:
+
+- **Finding 2 (the extraction was widened, the parser was not)** — open, and now slightly
+  worse. Both newly-accepted spellings raise the numerator and reach the loop:
+  `"${nokill_out}"` → `PASS COVERAGE: 1 of 1`, then `site_var=[{nokill_out}]` and a FAIL saying
+  *no gate command is registered for it*; `"$nokill_out" "pattern"` → `PASS COVERAGE: 1 of 1`,
+  then the whole call-site text is used as the pattern and it FAILs as a drifted pattern. So
+  **`COVERAGE: n of n` now counts call sites as extracted that the checker cannot use** — it
+  measures extraction, not checking, and the header's claim is about checking.
+- **Finding 4** — `COVERAGE: n of m` still goes only to the suite's captured stdout.
+- **Finding 5** — `FINDINGS.md`'s *"The suite has 1,482 tests"* and `PLAN.md` Task 4.4's
+  *"(51 cases)"* both still present. The first has moved further: this addendum's tip adds 7
+  more `link_check` tests (79 → 86) on top of the 1,511 I measured.
+- **Finding 6** — all three statements of the removed ignore question still present: the table
+  rows in `CLAUDE/QA.md` and `FINDINGS.md`, and `check_links`'s own docstring anchor *"A target
+  this repo ignores but nobody vendored is a FINDING"*.
+- **Finding 7** — `qa-docs.bash`'s *"`// \"?\"` rather than `// 0`"* comment still annotates
+  code that no longer uses it, now above a precondition that has grown a fourth key.
+- **Finding 8** — `collect_scope` still walks the filesystem; the docs stage line still has no
+  tracked denominator.
+- **Finding 9** — the raise test's docstring still opens *"No git checkout means the ignore
+  question has no answer"*, and the exit-2 chain is still unasserted.
+- **Finding 10, second half** — a link into a git submodule is still a finding at the tip
+  (measured with a real submodule). Latent: no submodules in this repo.
+- **Finding 11** and the nits are unchanged.
+
+## Two residues in the repaired denominator (new, minor, both loud)
+
+- A **trailing** comment mentioning the function on a code line still over-counts: measured,
+  `extracted 1 … but it has 2`. `grep -vE '^[[:space:]]*#'` drops only whole-line comments.
+- **Two calls on one line** still disagree: `extracted 2 … but it has 1`, because `grep -c`
+  counts lines and `grep -o` counts matches.
+
+Neither is silent, so neither is the class this plan is about — but both FAIL with the message
+*"the extraction regex does not cover every spelling"*, which in these two cases is false. A
+reader would go and widen a regex that is already correct.
+
+**Verdict unchanged: FIX-BEFORE-MERGE**, on a shorter list. Findings 2 and 5–9 are what remain.
