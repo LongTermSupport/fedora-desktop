@@ -167,14 +167,48 @@ is explicit that the alternatives do not work.
 
 ## 9. Left open, deliberately, for the tasks that must decide them
 
-- **Task 4.2**: whether the health section's per-finding entries do anything when activated. The
-  handoff file is the obvious target (`handoff.offer()` already returns the command as a string),
-  but "one-click" is the part Task 3.3 could not finish, and what a click should *do* — copy the
-  command, as `container-watch` does with its inspect hint, or open a terminal running it — is a
-  3.3 decision, not a 4.2 one.
 - **Task 4.3**: which plays the runner lists. Every play is a long list with no ordering; the
   ledger knows which have ever run here, which is a different and probably better answer. Needs
   the ledger's real contents from a HOST run (Task 1.2) before it can be settled on evidence.
+
+### 9a. Decided: the handoff offer copies, and it is not per-finding
+
+The question was whether the health section's per-finding entries do anything when activated, and
+what a click should do. Both halves are answered, and the first answer is **no**.
+
+**The offer is section-level.** There is ONE handoff file and it describes EVERY finding —
+`handoff.write` takes the whole flattened list. A clickable row per finding would hand out the
+same command N times while implying each row had its own, which is a claim about granularity the
+data does not support. The per-finding rows stay `reactive: false`, and that is now a decision
+rather than an absence of one. One row sits at the bottom of the section, after everything it
+refers to.
+
+**It copies the command; it does not launch it.** Three reasons, and the first would break a
+launch outright:
+
+1. **`claude` reads the repository it starts in**, and this diagnosis is about playbooks. The
+   panel does not know where the checkout is, and the status document does not carry it — a
+   deliberate omission, since a host state file naming a checkout path is a host state file that
+   goes stale on a re-clone. Launching from here would start Claude Code in the compositor's
+   working directory, where it cannot see the thing it is being asked about.
+2. **`container-watch` already copies its inspect hint and notifies**, on this same surface. A
+   second idiom for "here is a command, you run it" would be one to learn for no gain.
+3. **§8: the panel offers, a human decides** — and a clickable surface is precisely where that
+   erodes. §6's terminal-launching mechanism belongs to Task 4.3, which has to choose it on
+   ledger evidence this task does not have; building it here would front-run that.
+
+**The path reaches the panel through the document, and only after the file exists.** The panel's
+sole data source is `host-status.json`, so `status_document.build` carries a `handoff` key —
+always present, `""` when there is none. `login_report.record_host_state` writes the handoff
+FIRST and records the result, because a path written before the file is a button that fails in
+the user's hands. `""` is a complete answer with three origins that agree on what they license:
+a clean host, a failed write, and an unreadable document. None of them gets a button; all of them
+still get their findings rendered, so a host with faults never goes quiet — it just has no
+button.
+
+`handoffPath()` refuses anything that is not an absolute string, because the value is
+interpolated into a command a human runs and a relative path would resolve against whatever
+directory their terminal opened in.
 
 ## 10. As built — the deployment, and the one assertion it deliberately does not make
 
@@ -264,3 +298,43 @@ not make, in the helper written to catch exactly that. It is scoped per check no
 Whether St renders the demoted lines legibly, whether the caveat heading reads as a caveat,
 and whether the icon colour is the right thing to look at. Those need a Wayland session and
 a person, and the gate says so rather than implying its green covers them.
+
+## 12. Open for the owner: who reacts to unlock (Task 5.4a)
+
+Task 5.4's recovery action `REFRESH_BACKGROUND` fires from the dock udev rule and from the
+suspend service. The suspend path is **effectively inert**: the screen is already locked when
+that service runs, so the run correctly refuses. Something in the *user* session has to react
+to **unlock**, and nothing in this repo watches lock state today.
+
+This is not code that is merely unwritten. The two candidates trade off against each other and
+neither is determined by a fact, which is why it is here rather than done.
+
+**A. The panel.** GNOME Shell already dispatches lock state to extensions (`Main.screenShield`,
+or `org.gnome.ScreenSaver`'s `ActiveChanged`), so the panel gets the signal for **no extra
+process at all** — and Task 4.1's harness stubs GNOME imports, so the wiring would be
+unit-testable to the same standard as everything else in Phase 4.
+
+The cost is the contract. `extension.js` opens with *"A read-only surface over the host status
+document. It renders what the checks said; it runs no check of its own, applies no fix, and
+launches no play."* §8 restates it, and Technical Decision 1 in `PLAN.md` — *detection and
+handoff, never unattended repair* — is the plan's own framing. Spawning a recovery helper on
+unlock ends that, and "it is only a display refresh, not a play" is exactly the kind of
+narrowing that erodes a boundary one reasonable exception at a time.
+
+**B. A user systemd unit.** `files/home/.config/systemd/user/` already holds seven units, so the
+deployment path exists and the panel's contract stays intact. The cost is that **systemd has no
+unlock trigger**: the unit would be a long-running D-Bus monitor whose entire job is to watch one
+signal, which is a permanently resident process bought to avoid an architectural concession.
+
+**C. A separate small extension.** Keeps both — the panel's contract and no extra daemon — at the
+cost of a third custom extension with its own play, its own ESLint surface and its own Wayland
+logout to load. `play-container-watch.yml` is the precedent for an extension that owns one
+backend.
+
+**Recommendation: C, then A.** C is the honest answer to "the panel is the natural owner" — the
+*session* is the natural owner, and the panel is merely the session component that already
+exists. B buys a resident daemon for a purity the other two get for free.
+
+**Whichever is chosen, the HOST item under Task 5.4 still gates it.** The unlock signal only
+exists in a live Wayland session, and whether the refresh actually clears a black background has
+only ever been exercised on a healthy desktop.

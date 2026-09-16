@@ -34,6 +34,10 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00128-qa-tool-abort-silences-thirty-gates](00128-qa-tool-abort-silences-thirty-gates/) - `qa-all.bash` exits 2 on a fresh clone before roughly thirty gates have run, and reports nothing about any of them, because one gate's dev-only ESLint dependency is absent. Two written-down positions conflict — `CLAUDE.md`'s missing-dependency rule against `qa-js.bash`'s deliberate dev-only comment — so the remedy is an owner decision. Measured and deferred by Plan 00125.
+
+- [00127-docker-and-podman-inside-lxc](00127-docker-and-podman-inside-lxc/) - **Parked.** Docker inside this host's LXC system containers is not working and Podman inside LXC was never established. Triage against `play-docker-in-lxc-support.yml`, then fix in IaC. Distinct from issue #41, which is engine coexistence on the host.
+
 - [00124-chrome-install-gpg-failure-on-upgraded-host](00124-chrome-install-gpg-failure-on-upgraded-host/) - `run.bash` stops at Chrome on a host upgraded from F41, and there were two causes stacked: dnf5 validating against a repo's own keys (so a package URL lands in keyless `@commandline`), and beneath it an imported key that rpm will never refresh because presence is judged by primary id, leaving the newer signing subkey absent.
 
 - [00123-ccy-session-registry-and-reboot-restore](00123-ccy-session-registry-and-reboot-restore/) - A host reboot still takes every ccy session with it (Plan 00111 only insulated them from the terminal); adds a session registry `ccy` writes at launch and clears on exit, plus an opt-in `systemd --user` service that brings each survivor back with `--supervise --continue`. The reboot-warning half is blocked on an upstream daemon signal and ships as a dry-run audit that refuses to lie.
@@ -173,6 +177,8 @@ Use these Unicode icons in plan documents:
 - [00074-grub-cgroup-check-reports-absence-it-cannot-prove](00074-grub-cgroup-check-reports-absence-it-cannot-prove/) - `run.bash`'s legacy-grub cgroup step now distinguishes a failing `grubby` from a genuine negative and aborts on a proven failure instead of continuing
 
 ## Completed Plans
+
+- [00125-ci-qa-gate-red-and-machine-dependent](Completed/00125-ci-qa-gate-red-and-machine-dependent/) - The `QA` workflow had been red for three weeks and `qa-all.bash` answered differently per machine; the docs gate now asks trackedness rather than existence, and a failing gate no longer aborts the suite.
 
 - [00120-ccy-gpu-device-optional-on-headless-hosts](Completed/00120-ccy-gpu-device-optional-on-headless-hosts/) - ccy handed every container `--device /dev/dri` unconditionally, and on a host with no GPU (a headless server, a serial-console VM) podman aborted the session with `stat /dev/dri: no such file or directory`, exit 125; the flags are now a pure function of whether the node exists (ccy 3.56.0, PR #43).
 

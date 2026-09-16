@@ -134,7 +134,18 @@ this plan makes were demonstrably breakable. Report:
   Google publishes now. A table in the report maps each fact to the play task it
   predicts. Run it, then run the play — agreement is the evidence, rather than a
   human watching two runs and remembering what the first said.
-- [ ] ⬜ **Task 4.3**: `qa-reviewer` agent, then close issue #45.
+- [x] ✅ **Task 4.3a**: `qa-reviewer` agent — FIX-BEFORE-MERGE, 8 findings, all acted
+  on. Report:
+  [subagent-reports/260915-qa-reviewer-opus-5.md](subagent-reports/260915-qa-reviewer-opus-5.md).
+  The destructive path came back clean and both previously-broken safety claims were
+  re-verified **by mutation** rather than by reading. What it found instead was that
+  **Chrome's own `%post` re-adds the repository**: it writes
+  `/etc/default/google-chrome` with `repo_add_once="true"` when absent, then rewrites
+  `/etc/yum.repos.d/google-chrome.repo` with a NETWORK `gpgkey`. So on any host where
+  Chrome had never been installed, Task 4.2 would have found `Add Google Chrome Repository` reporting **changed** on every run — and the play's comment claiming dnf
+  could not validate against a different fetch of the key was false in exactly that
+  state. The play now writes that file first and owns the repo outright
+- [ ] ⬜ **Task 4.3b**: Close issue #45 — after Task 4.2 confirms on the host.
 
 ## Success Criteria
 

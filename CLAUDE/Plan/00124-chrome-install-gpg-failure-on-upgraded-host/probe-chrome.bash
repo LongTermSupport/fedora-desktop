@@ -314,12 +314,20 @@ section_key() {
 Task 4.2 asks whether a SECOND run reports the key tasks as ok rather than
 changed. Each fact below predicts one of the play's tasks:
 
-| fact                                     | the task it predicts                 |
-| ---------------------------------------- | ------------------------------------ |
-| gnupg2 is installed                      | Install The OpenPGP Tool …           |
-| the key file is present, 0644 root:root  | Fetch Google's Published Signing Key |
-| the RPM-KEY-ACTION line                  | Remove The Stale Google Signing Key  |
-| the keyring holds the published primary  | Import Google Chrome Signing Key     |
+| fact                                      | the task it predicts                      |
+| ----------------------------------------- | ----------------------------------------- |
+| gnupg2 is installed                       | Ensure gnupg2 Is Available                |
+| the key file is present, 0644 root:root   | Fetch Google's Published Signing Key      |
+| the key file matches what Google publishes | Fetch Google's Published Signing Key      |
+| the RPM-KEY-ACTION line                   | Remove The Stale Google Signing Key       |
+| the keyring holds the published primary   | Import Google Chrome Signing Key          |
+| repo_add_once is "false"                  | Stop Chrome's Scriptlet Re-Adding …       |
+| the repo file's gpgkey is the file:// one | Add Google Chrome Repository              |
+
+The last two are one fact in two places. Chrome's %post rewrites the repo file
+with a network gpgkey whenever /etc/default/google-chrome is absent or reads
+"true", so a host in that state reports `changed` for Add Google Chrome
+Repository on EVERY run and after every Chrome upgrade. Section 2.4 reads both.
 
 RPM-KEY-ACTION none means the removal loop receives no envelopes, so that task
 has nothing to do and rpm_key finds the key already present. refresh means the
@@ -378,7 +386,11 @@ NOTE
     fi
 
     printf '\n### 2.2 The key file the play fetched, and what Google publishes now\n\n'
-    probe 'permissions and ownership of the fetched key file' \
+    # probe_match, not probe: stat exits 1 for "no such file", and in this script's
+    # taxonomy an absent key file is a FINDING — the play has not fetched it yet —
+    # not a broken command. Reporting it as COMMAND FAILED is the thing this script
+    # exists not to do.
+    probe_match 'permissions and ownership of the fetched key file' 1 \
         stat -c '%n  mode %a  owner %U:%G  size %s' "${localKey}"
     probe 'identity of the key file on this host' key_facts "${localKey}"
     if [[ "${PROBE_RC}" -ne 0 ]]; then
@@ -412,9 +424,12 @@ NOTE
             printf -- '- the key file on this host DIFFERS from what Google publishes now:\n'
             printf '    on host:   %s\n' "${localSum%% *}"
             printf '    published: %s\n' "${publishedSum%% *}"
-            printf '  The fetch task re-downloads only when the file is absent, so this does not by\n'
-            printf '  itself mean that task reports changed. It means the bytes the key decision\n'
-            printf '  reasons about are not the bytes Google serves.\n'
+            printf '  EXPECT THE FETCH TASK TO REPORT changed ON THE NEXT RUN, and that is the\n'
+            printf '  mechanism working rather than a regression. get_url only takes its\n'
+            printf '  already-present early exit when a checksum: is set, and this task sets\n'
+            printf '  none — so it issues a conditional GET with If-Modified-Since derived from\n'
+            printf '  the file mtime. A 200 replaces the file and reports changed; a 304 reports\n'
+            printf '  ok. Google has added subkeys before and will again.\n'
         fi
     fi
 
@@ -439,6 +454,26 @@ NOTE
             note_unanswered "the key-staleness decision the play will make"
         fi
     fi
+
+    printf '\n### 2.4 Who owns the repo file — the play, or Chrome'"'"'s scriptlet\n\n'
+    cat <<'NOTE'
+Chrome's %post creates /etc/default/google-chrome with repo_add_once="true" when
+it is ABSENT, and re-writes /etc/yum.repos.d/google-chrome.repo with a NETWORK
+gpgkey whenever it reads true. A host in that state reports `changed` for "Add
+Google Chrome Repository" on every run, which is the Task 4.2 answer.
+
+NOTE
+    probe_match 'the repo_add_once setting Chrome'"'"'s scriptlet reads' 1 \
+        grep -H 'repo_add_once' /etc/default/google-chrome
+    if [[ "${PROBE_RC}" -eq 1 ]]; then
+        printf -- '- /etc/default/google-chrome has no repo_add_once line (or does not exist).\n'
+        printf '  The play now writes it as "false" BEFORE installing Chrome, so the first\n'
+        printf '  run after this change reports that task changed and subsequent runs ok.\n'
+    fi
+    probe_match 'the gpgkey the repo file actually carries' 1 \
+        grep -H 'gpgkey' /etc/yum.repos.d/google-chrome.repo
+    printf -- '- A gpgkey of file:///etc/pki/rpm-gpg/... is the play'"'"'s. An https:// one is the\n'
+    printf '  scriptlet'"'"'s, and means the repo task will report changed putting it back.\n'
 
     if [[ -n "${unanswered}" ]]; then
         printf '\n- FACT-FINDING INCOMPLETE. Not established by this run: %s\n' "${unanswered}"

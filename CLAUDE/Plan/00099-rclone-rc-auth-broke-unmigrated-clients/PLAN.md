@@ -183,3 +183,13 @@ Found while working, deliberately not addressed here:
 <!-- Curated milestones + delivery commit hashes only. Blow-by-blow lives in JOURNAL/. -->
 
 - Plan opened; root cause confirmed by triage (F1–F6)
+- **Delivery: `942fb724`** — the library, all four migrated clients, both plays, the drift
+  gate and its `qa-all.bash` wiring, in one commit.
+  **Its message says "Plan 00072", and that is not a mislabel of another plan**: this plan
+  was created as 00072, collided with the real Plan 00072
+  (`ccy-assert-rootless-engine`), and was renumbered afterwards — the folder it created
+  carried a `00072-Journal-…` file. `git log --grep=00099` therefore finds nothing, which
+  is exactly how Task 5.6 nearly failed to locate its own diff. Recorded here so the next
+  reader does not repeat the search.
+- `scripts/qa-deployed-drift.bash` has since been edited by Plans 00081, 00110 and 00122 —
+  this plan owns its introduction, not its current state

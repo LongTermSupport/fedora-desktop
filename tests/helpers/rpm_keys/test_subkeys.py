@@ -513,5 +513,37 @@ class TestMain(unittest.TestCase):
             self._run(runner)
 
 
+class TestTheMarkersArePlayBrowsersOwnLiterals(unittest.TestCase):
+    """The markers are a CONTRACT with the playbook, and the playbook greps for them
+    as literal strings.
+
+    Every other test here reads `subkeys.ACTION_MARKER` rather than the text, so
+    renaming the constant left all forty of them green while breaking the play — a
+    qa-reviewer mutation proved exactly that. Reading the play's own text is what
+    makes the two sides fail together, which is the only version of this test worth
+    having: asserting the constant equals a string copied into this file would just
+    be a second place to rename.
+    """
+
+    def setUp(self) -> None:
+        root = os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        path = os.path.join(root, "playbooks", "imports", "play-browsers.yml")
+        with open(path, encoding="utf-8") as handle:
+            self.play = handle.read()
+
+    def test_the_action_marker_is_the_one_the_play_checks_for(self) -> None:
+        self.assertIn(f"'{subkeys.ACTION_MARKER}' not in chrome_key_state.stdout", self.play)
+
+    def test_the_verify_task_requires_this_exact_action_line(self) -> None:
+        self.assertIn(f"'{subkeys.ACTION_MARKER} none' not in", self.play)
+
+    def test_the_envelope_marker_is_the_one_the_erase_loop_selects_on(self) -> None:
+        # Both halves: the `select` that finds the lines and the `regex_replace` that
+        # strips the prefix. A rename that updated only one would erase nothing while
+        # still looking wired up.
+        self.assertIn(f"select('match', '^{subkeys.ENVELOPE_MARKER} ')", self.play)
+        self.assertIn(f"'^{subkeys.ENVELOPE_MARKER} '", self.play)
+
+
 if __name__ == "__main__":
     unittest.main()

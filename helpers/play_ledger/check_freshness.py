@@ -25,7 +25,15 @@ import sys
 from collections.abc import Callable
 from typing import TextIO
 
-from helpers.play_ledger import fetch_clock, freshness, git_history, ledger, repo, store
+from helpers.play_ledger import (
+    fetch_clock,
+    freshness,
+    git_history,
+    ledger,
+    plugin_support,
+    repo,
+    store,
+)
 
 #: Clean: nothing the user must act on.
 EXIT_OK = 0
@@ -143,10 +151,16 @@ def run(
 
 def _emit(report: freshness.Report, stdout: TextIO, stderr: TextIO) -> int:
     if report.broken_reason is not None:
+        # The remedy belongs HERE as much as in record_failure's line. That one is
+        # printed during an ansible-playbook run and stops the moment the cause is
+        # fixed; this is the surface an operator meets at every login until the hole
+        # is cleared, and it used to say the sentinel "never clears itself" without
+        # ever naming what does.
         stderr.write(
             "play-freshness: the ledger is marked BROKEN and cannot be trusted, so no "
             f"play was judged.\n  reason: {report.broken_reason}\n"
-            "  clear it deliberately once the cause is fixed; it never clears itself.\n"
+            "  clear it deliberately once the cause is fixed; it never clears itself:\n"
+            f"    {plugin_support.CLEAR_COMMAND}\n"
         )
         return EXIT_UNTRUSTWORTHY
 

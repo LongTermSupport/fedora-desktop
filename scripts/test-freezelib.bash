@@ -263,10 +263,14 @@ freeze_hook_menu_rows() {
 
 # `gone` stands in for a group that stopped existing between the menu being drawn
 # and the row being chosen, which is the recoverable case the loop must re-prompt on.
+# `broke` is the OTHER non-zero: a hook that failed on its way to an answer. The two
+# must not be one status — capturing a status suspends errexit through the hook body,
+# so a hook that breaks halfway returns 1 exactly like a bare "recoverable" would.
 freeze_hook_select() {
     case "$1" in
         all) select_all ;;
-        gone) return 1 ;;
+        gone) return "$FREEZE_SELECT_GONE" ;;
+        broke) return 1 ;;
         empty) SELECTED=() ;;
         *) die "internal error: unknown target key '$1'." ;;
     esac
@@ -635,6 +639,54 @@ contains "and the undo command is offered"  "$act_out" "testfreeze thaw charlie"
 lacks "naming only what was acted on"       "$act_out" "thaw charlie alpha"
 
 echo ""
+echo "=== do_action: the freeze-time note, an OPTIONAL slot with no default ==="
+# Plan 00122 Task 5.4. The library carries the slot and neither the text nor the
+# assumption that there is one — LXC's note is about DHCP leases and severed ssh
+# sessions, which says nothing about a Podman container.
+#
+# Run, not read. Asserting on the constant proves a string exists; it says nothing about
+# anything ever printing it, and the whole print block could be deleted with every suite
+# still green.
+fixture podman
+SELECTED=(charlie)
+FREEZE_FREEZE_NOTE="  While frozen it answers nothing. Reconnect after thawing."
+act_out="$(do_action freeze 2>&1)"
+contains "a declared note is printed at freeze time" "$act_out" "Reconnect after thawing"
+# Beside the thaw instruction, which is the moment the cost is still avoidable: a freeze
+# already taken is a session already gone.
+contains "and it comes with the thaw instruction"    "$act_out" "Thaw them with:"
+
+# Thaw is not where the warning belongs — the cost has already been paid by then.
+fixture podman
+SELECTED=(alpha)
+FREEZE_FREEZE_NOTE="  While frozen it answers nothing. Reconnect after thawing."
+act_out="$(do_action thaw 2>&1)"
+lacks "a thaw does not warn about freezing" "$act_out" "Reconnect after thawing"
+
+# An empty note prints NOTHING, not a blank line. The claim is made in the library's own
+# comment, in PLAN.md and in the commit message; this is the only place it is checked.
+#
+# Captured to FILES, not with `$( )`. The note is the last thing printed, and command
+# substitution strips trailing newlines — so an unconditional `echo ""` for an empty note
+# is invisible to a captured string, and an assertion built on one passes against exactly
+# the mutant it was written to catch. Measured: the file form kills that mutant and the
+# `$( )` form does not.
+fixture podman
+SELECTED=(charlie)
+FREEZE_FREEZE_NOTE=""
+do_action freeze > "$QUIET" 2> "$work/note-empty.err"
+fixture podman
+SELECTED=(charlie)
+FREEZE_FREEZE_NOTE="  A note."
+do_action freeze > "$QUIET" 2> "$work/note-set.err"
+# Two extra lines with a note, none without: the blank separator and the note itself. A
+# line COUNT is what distinguishes "printed nothing" from "printed an empty line", which
+# a `contains` check cannot see at all.
+eq "an empty note adds exactly nothing" \
+    "$(( $(wc -l < "$work/note-set.err") - $(wc -l < "$work/note-empty.err") ))" "2"
+FREEZE_FREEZE_NOTE=""
+
+echo ""
 echo "=== do_action: thaw is the mirror image ==="
 fixture podman
 SELECTED=(charlie alpha)
@@ -688,6 +740,68 @@ eq "and the batch is not abandoned after the first failure" \
     "$(acts)" "freeze charlie;freeze echo;"
 contains "the count of failures is reported"  "$act_out" "2 of 2"
 reset_engine
+
+echo ""
+echo "=== parse_member_choice: the drill-down's answer, resolved ==="
+# The rest of drill_into_group needs a terminal, so before this function was split out
+# the entire member-choice grammar — the `2,4,5` parse, the row/index shift, every
+# rejection — shipped on one host run and nothing else. These are the cases that used
+# to be reachable only by typing into the menu.
+#
+# `rows` here are the menu's rows IN ORDER. Row 1 is "all", so the first container is 2.
+choice_rows=(alpha bravo charlie delta echo)
+choose() { parse_member_choice "$1" "${choice_rows[@]}"; }
+# Returns are newline-separated; flatten to one line so a case reads as one value.
+# The function prints NOTHING on a refusal, so a captured empty string is the refusal
+# and no redirect is needed to keep the output clean.
+chose() { choose "$1" | tr '\n' ';'; }
+
+eq "row 2 is the FIRST container, not the second" "$(chose '2')"     "alpha;"
+eq "row 3 is the second"                          "$(chose '3')"     "bravo;"
+eq "the last row is the last container"           "$(chose '6')"     "echo;"
+eq "commas separate"                              "$(chose '2,4,5')" "alpha;charlie;delta;"
+eq "so do spaces"                                 "$(chose '2 4 5')" "alpha;charlie;delta;"
+eq "and a mix of both"                            "$(chose '2, 4')"  "alpha;charlie;"
+eq "order is the order typed, not sorted"         "$(chose '5,2')"   "delta;alpha;"
+
+# Every rejection. Each must leave the caller to re-prompt rather than resolving to
+# some container — picking the wrong container is silent and irreversible in a way
+# "that is not a valid choice" is not.
+for bad in "1" "0" "7" "99" "-1" "abc" "2abc" "" "   " "2,abc" "2,0" "2,99"; do
+    if choice_out="$(choose "$bad")"; then
+        fail "'$bad' is refused" "it resolved to: ${choice_out//$'\n'/;}"
+    else
+        pass "'$bad' is refused"
+    fi
+done
+# `1` deserves its own word: it is the ALL row, handled by the caller before this is
+# reached. If it ever resolved here it would silently mean "the first container".
+eq "and 1 in particular resolves to nothing" "$(chose '1')" ""
+
+# ONE bad token rejects the WHOLE reply. A partial answer would act on some of what
+# was typed and not the rest, with nothing said about which.
+eq "one bad token rejects the whole reply" "$(chose '2,99,4')" ""
+
+# Discrimination control: every rejection above would pass against a function that
+# refused unconditionally, so assert that a valid reply and an invalid one differ.
+if [ "$(chose '2')" = "$(chose 'abc')" ]; then
+    fail "a valid choice and a refusal are distinct" "both gave: $(chose '2')"
+else
+    pass "a valid choice and a refusal are distinct"
+fi
+
+# The rows are addressed positionally, so a SHORTER row list moves the bound with it —
+# this is what makes passing the displayed rows, rather than the caller's group,
+# load-bearing. With a member skipped from the menu, row 3 is the container printed at
+# row 3 and there is no row 4.
+choice_rows=(alpha charlie)
+eq "a skipped member does not shift the rows below it" "$(chose '3')" "charlie;"
+if choice_out="$(choose 4)"; then
+    fail "and the bound moves with the list" "row 4 resolved on a two-row menu: $choice_out"
+else
+    pass "and the bound moves with the list"
+fi
+choice_rows=(alpha bravo charlie delta echo)
 
 echo ""
 echo "=== interactive_loop: quit, re-prompt, and the status it carries out ==="
@@ -747,6 +861,19 @@ fi
 run_loop gone quit > "$QUIET" 2>&1
 eq "a group that went away re-prompts rather than ending the session" \
     "$(menus_drawn)" "2"
+# ...but a hook that BROKE is not that, and must not be treated as it. This is the
+# discrimination control for the case above: both return non-zero, and before
+# FREEZE_SELECT_GONE existed both re-prompted, so a hook failing halfway through
+# redrew the menu with no explanation and no failure. The two cases sharing one
+# status is precisely what made that invisible.
+if loop_out="$(run_loop broke quit 2>&1)"; then
+    fail "a select hook that BROKE is fatal, not a re-prompt" \
+        "interactive_loop returned 0 and carried on"
+else
+    pass "a select hook that BROKE is fatal, not a re-prompt"
+fi
+contains "and the failure names the status and the key" "$loop_out" "status 1"
+contains "and does not claim the group went away" "$loop_out" "select hook failed"
 # An empty group is the same shape: say so, and ask again.
 loop_out="$(run_loop empty quit 2>&1)"
 contains "an empty group says so" "$loop_out" "Nothing in that group."
@@ -824,21 +951,57 @@ for hook in freeze_hook_preflight freeze_hook_refresh freeze_hook_menu_rows \
 done
 
 echo ""
-echo "=== assert_on_host: this container is not a host ==="
-# The suite runs inside a container, which is exactly the condition the guard
-# refuses on — so this drives the real predicate rather than a fabricated one.
-if [ -f /run/.containerenv ] || [ -f /.dockerenv ] || [ -n "${container:-}" ]; then
-    if host_out="$(assert_on_host 2>&1)"; then
-        fail "a container is refused" "assert_on_host allowed it"
-    else
-        pass "a container is refused"
-        contains "it names the tool" "$host_out" "testfreeze"
-        contains "and gives the engine's own reason" "$host_out" "not reachable from in here"
-    fi
+echo "=== assert_on_host: every signal, on any machine ==="
+# The predicate is the real one; only the two marker paths are supplied. Driving
+# it by the suite's own location instead would exercise whichever signal that
+# machine happens to show — one branch in a container, none on a CI runner, where
+# the case is undrivable and fails the whole gate. Supplying the paths exercises
+# all three signals wherever this runs, and asserts the allow direction too.
+marker_dir="$(mktemp -d)"
+present_marker="$marker_dir/present"
+absent_marker="$marker_dir/absent"
+touch "$present_marker"
+
+if host_out="$(container='' assert_on_host "$present_marker" "$absent_marker" 2>&1)"; then
+    fail "a podman container marker is refused" "assert_on_host allowed it"
 else
-    fail "a container is refused" \
-        "this suite is not running in a container, so the guard cannot be driven"
+    pass "a podman container marker is refused"
+    contains "it names the tool" "$host_out" "testfreeze"
+    contains "and gives the engine's own reason" "$host_out" "not reachable from in here"
 fi
+
+if host_out="$(container='' assert_on_host "$absent_marker" "$present_marker" 2>&1)"; then
+    fail "a docker container marker is refused" "assert_on_host allowed it"
+else
+    pass "a docker container marker is refused"
+fi
+
+if host_out="$(container='lxc' assert_on_host "$absent_marker" "$absent_marker" 2>&1)"; then
+    fail "the container environment variable is refused" "assert_on_host allowed it"
+else
+    pass "the container environment variable is refused"
+fi
+
+# The direction the old shape could never assert: with no signal at all the guard
+# must get out of the way. Driven only by marker paths, so it holds in a container
+# too — where the real files exist and would otherwise refuse.
+if host_out="$(container='' assert_on_host "$absent_marker" "$absent_marker" 2>&1)"; then
+    pass "with no container signal at all, a host is allowed"
+else
+    fail "with no container signal at all, a host is allowed" \
+        "assert_on_host refused a machine showing no marker: $host_out"
+fi
+
+# Every case above SUPPLIES both paths, so none of them evaluates the defaults — and a
+# typo in either default would ship green while the guard silently stopped refusing.
+# Pinned by reading the function back, which is machine-independent: asserting the real
+# defaults by BEHAVIOUR would need a machine with the real marker files, which is the
+# dependence this whole section exists to remove.
+freeze_defaults="$(declare -f assert_on_host)"
+contains "the podman marker default is the real path" "$freeze_defaults" "/run/.containerenv"
+contains "the docker marker default is the real path" "$freeze_defaults" "/.dockerenv"
+
+rm -rf "$marker_dir"
 
 echo ""
 echo "=== the constants the menu depends on ==="

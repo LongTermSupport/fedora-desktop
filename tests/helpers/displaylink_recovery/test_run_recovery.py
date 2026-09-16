@@ -27,6 +27,26 @@ from helpers.displaylink_recovery.run_recovery import (
 
 SYSFS_DRM = "/sys/class/drm"
 
+# DRM connector types that carry no physical display link. A connector's type is
+# the middle field of its sysfs directory name — `card1-DP-2` is DP,
+# `card1-HDMI-A-1` is HDMI-A, `card1-Virtual-1` is Virtual. Neither of these has a
+# monitor on the other end: Virtual is a framebuffer the driver invents (every
+# VM GPU presents one) and Writeback renders into memory. Their modes come from
+# the driver rather than from a monitor across a link, so "connected and
+# advertising modes" does not imply an EDID for them the way it does for DP,
+# HDMI, eDP or DVI.
+#
+# A DENYLIST on purpose. An unrecognised connector type is asserted against, not
+# skipped, so a linkless type nobody has met yet surfaces here as a failure to
+# look at rather than as a test that quietly stopped checking anything.
+LINKLESS_CONNECTOR_TYPES = frozenset({"Virtual", "Writeback"})
+
+
+def connector_type(connector_dir: str) -> str:
+    """The DRM connector type from a sysfs connector directory name."""
+    after_the_card = os.path.basename(connector_dir).partition("-")[2]
+    return after_the_card.rsplit("-", 1)[0]
+
 
 class TestNudgedSignalValue(unittest.TestCase):
     """Choosing a throwaway value that is guaranteed to differ from the current one.
@@ -119,6 +139,45 @@ class TestEdidByteCount(unittest.TestCase):
             self.assertEqual(edid_byte_count(path), -1)
 
 
+class TestConnectorType(unittest.TestCase):
+    """The filter below is only as good as this parse, so it gets its own cases.
+
+    Getting it wrong in the permissive direction excludes a real connector and
+    the sysfs assertion stops running; getting it wrong in the other direction
+    reddens CI again.
+    """
+
+    def test_a_single_segment_type(self):
+        self.assertEqual(connector_type("/sys/class/drm/card1-DP-2"), "DP")
+
+    def test_a_hyphenated_type_keeps_both_segments(self):
+        self.assertEqual(connector_type("/sys/class/drm/card0-HDMI-A-1"), "HDMI-A")
+        self.assertEqual(connector_type("/sys/class/drm/card2-DVI-I-1"), "DVI-I")
+
+    def test_a_lowercase_type_is_preserved_exactly(self):
+        # eDP, not EDP — the denylist is compared literally against this.
+        self.assertEqual(connector_type("/sys/class/drm/card1-eDP-1"), "eDP")
+
+    def test_the_linkless_types_are_recognised(self):
+        for name in ("card1-Virtual-1", "card0-Writeback-1"):
+            with self.subTest(name=name):
+                self.assertIn(
+                    connector_type(f"/sys/class/drm/{name}"), LINKLESS_CONNECTOR_TYPES
+                )
+
+    def test_a_double_digit_card_number_is_not_mistaken_for_the_type(self):
+        self.assertEqual(connector_type("/sys/class/drm/card10-DP-1"), "DP")
+
+    def test_the_connectors_this_repo_recovers_are_not_excluded(self):
+        # evdi presents DisplayLink heads as DVI-I. If these ever landed in the
+        # denylist the recovery ladder's own connectors would stop being checked.
+        for name in ("card2-DVI-I-1", "card5-DVI-I-4"):
+            with self.subTest(name=name):
+                self.assertNotIn(
+                    connector_type(f"/sys/class/drm/{name}"), LINKLESS_CONNECTOR_TYPES
+                )
+
+
 class TestEdidByteCountAgainstRealSysfs(unittest.TestCase):
     """The only test that could have caught the defect this function exists to fix.
 
@@ -126,11 +185,21 @@ class TestEdidByteCountAgainstRealSysfs(unittest.TestCase):
     as happily with `os.path.getsize()` — which is exactly how the bug survived.
     Sysfs binary attributes report **st_size 0 with content present**, and that
     behaviour reproduces nowhere else. So this asserts against the real thing and
-    skips where there is none (the CCY container, CI).
+    skips where there is none.
+
+    Only connectors with a physical display link are asserted against. A GitHub
+    runner is a VM whose one connected connector is `card1-Virtual-1`: connected,
+    advertising modes, with an `edid` file that reads zero bytes. It met every
+    condition here and failed, because a driver-invented framebuffer has no
+    monitor to read an EDID from. Excluding it does not excuse a zero read — a
+    connector with a real link that reads zero still fails, which is the defect
+    this test exists to catch.
     """
 
-    def _connected_connectors_with_modes(self) -> list[str]:
-        found = []
+    def _connected_connectors_with_modes(self) -> tuple[list[str], list[str]]:
+        """(linked, linkless) among connectors that are connected and have modes."""
+        linked: list[str] = []
+        linkless: list[str] = []
         for status_path in sorted(glob.glob(f"{SYSFS_DRM}/card*-*/status")):
             connector = os.path.dirname(status_path)
             try:
@@ -142,14 +211,33 @@ class TestEdidByteCountAgainstRealSysfs(unittest.TestCase):
                         continue
             except OSError:
                 continue
-            if os.path.exists(os.path.join(connector, "edid")):
-                found.append(connector)
-        return found
+            if not os.path.exists(os.path.join(connector, "edid")):
+                continue
+            if connector_type(connector) in LINKLESS_CONNECTOR_TYPES:
+                linkless.append(connector)
+            else:
+                linked.append(connector)
+        return linked, linkless
+
+    def _no_linked_connector(self, linkless: list[str]) -> str:
+        """The skip reason, naming what was excluded rather than skipping anonymously.
+
+        `unittest` prints a skip reason only at verbosity 2, and `qa-helper-tests.bash`
+        runs at the default — so this text is reached with
+        `python3 -m unittest -v tests.helpers.displaylink_recovery.test_run_recovery`.
+        What the suite surfaces by default is the skip COUNT, which `qa-all.bash` carries
+        in the stage line precisely so a machine that skipped this pair is not mistaken
+        for one that asserted it.
+        """
+        reason = f"no connected DRM connector with a display link under {SYSFS_DRM}"
+        if linkless:
+            reason += f"; ignored linkless connector(s): {', '.join(linkless)}"
+        return reason
 
     def test_a_connected_display_reports_edid_bytes(self):
-        connectors = self._connected_connectors_with_modes()
+        connectors, linkless = self._connected_connectors_with_modes()
         if not connectors:
-            self.skipTest(f"no connected DRM connector with modes under {SYSFS_DRM}")
+            self.skipTest(self._no_linked_connector(linkless))
         for connector in connectors:
             edid_path = os.path.join(connector, "edid")
             self.assertGreater(
@@ -161,9 +249,9 @@ class TestEdidByteCountAgainstRealSysfs(unittest.TestCase):
             )
 
     def test_stat_disagrees_with_reading_which_is_the_whole_point(self):
-        connectors = self._connected_connectors_with_modes()
+        connectors, linkless = self._connected_connectors_with_modes()
         if not connectors:
-            self.skipTest(f"no connected DRM connector with modes under {SYSFS_DRM}")
+            self.skipTest(self._no_linked_connector(linkless))
         edid_path = os.path.join(connectors[0], "edid")
         self.assertEqual(
             os.path.getsize(edid_path),

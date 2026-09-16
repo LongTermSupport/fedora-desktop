@@ -11,6 +11,12 @@
 hooks.bak/
 hooks.bak.*/
 
+# Upgrade preserves the previous copy of any daemon-deployed tree it is about to
+# replace (e.g. the skills directory) here. The tracked originals are already in
+# git history, so the backup is redundant to version control and would otherwise
+# sit in `git status` as untracked noise after every upgrade.
+hooks-daemon-backups/
+
 # Environment files (may contain local paths)
 hooks-daemon.env
 

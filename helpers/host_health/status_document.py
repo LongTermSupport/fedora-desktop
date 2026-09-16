@@ -193,13 +193,30 @@ def section(findings: list[probe_results.Finding]) -> dict:
 
 
 def build(
-    *, sections: dict[str, list[probe_results.Finding]], kernel: str, at: str
+    *,
+    sections: dict[str, list[probe_results.Finding]],
+    kernel: str,
+    at: str,
+    handoff: str = "",
 ) -> dict:
-    """The whole document. Plain JSON types throughout — JavaScript reads this."""
+    """The whole document. Plain JSON types throughout — JavaScript reads this.
+
+    `handoff` is where the Claude Code handoff file was written, or `""` when there is
+    none. Carried HERE because this document is the panel's only data source: the
+    handoff path is otherwise known solely to the login report, which a desktop user
+    never sees, so an offer the panel cannot make is an offer that does not exist for
+    them (Task 3.3).
+
+    Always present, never conditional. A key that appears only when a handoff was
+    written makes "no handoff" and "a document from before handoffs existed" the same
+    observation to a reader, and this plan exists because two different things looked
+    alike.
+    """
     return {
         "schema": SCHEMA_VERSION,
         "generated_at": at,
         "kernel": kernel,
+        "handoff": handoff,
         "sections": {name: section(findings) for name, findings in sections.items()},
     }
 
@@ -261,6 +278,10 @@ def _cannot_read(reason: str) -> dict:
         "schema": SCHEMA_VERSION,
         "generated_at": "",
         "kernel": "",
+        # Empty, and it has to be: a document that could not be read cannot name a
+        # handoff file, and inventing a path here would offer a command for a file this
+        # branch has just finished saying nothing is known about.
+        "handoff": "",
         "sections": {SELF_SECTION: section([probe_results.unchecked(reason)])},
     }
 

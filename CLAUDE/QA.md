@@ -16,10 +16,12 @@
 
 ## What qa-all.bash Runs
 
-`qa-all.bash` runs **thirty-eight** gates. Seven merge their JSON into
-`/tmp/qa-results.json`; the other thirty-one run separately (see below). A missing
-**required** tool makes a stage (and the whole run) exit `2`; a real analyser crash (e.g.
-ruff/shellcheck exit ≥ 2) is a hard failure, never silently treated as "0 issues".
+`qa-all.bash` runs **forty** gates. Seven merge their JSON into
+`/tmp/qa-results.json`; the other thirty-three run separately (see below). Those seven emit
+**eight** named verdict lines — `qa-bash.bash` prints `bash` and `shellcheck` — so a run
+shows 41 stage names for 40 gates. A missing **required** tool makes a stage (and the whole
+run) exit `2`; a real analyser crash (e.g. ruff/shellcheck exit ≥ 2) is a hard failure,
+never silently treated as "0 issues".
 
 **This inventory is derived, not maintained.** `helpers/docs/link_check.py` parses the
 gate invocations out of `qa-all.bash` and fails the docs gate for any that has no row
@@ -38,43 +40,45 @@ fresher hand-written list.
 | `qa-js.bash`             | `node --check` on repo JS + `eslint .` in `extensions/`                                                                                                                                                                                                                                                                                                                                                                                                                                 | Repo-owned `.js` (excludes vendor/node_modules) + `extensions/`                                                                                       |
 | `qa-docs.bash`           | Link targets exist; every `#anchor` matches a real heading; every play imported by `playbook-main.yml` is named in both `docs/playbooks.md` and `docs/architecture.md`; every `CLAUDE/*.md` has an index row (Plan 00070)                                                                                                                                                                                                                                                               | Core docs only — `docs/`, `CLAUDE/*.md`, `README.md`, `*/CLAUDE.md`, `.claude/rules/`. **Not** `CLAUDE/Plan/**`                                       |
 
-Thirty-one further gates run inside `qa-all.bash` as **hard, non-structural** checks —
+Thirty-three further gates run inside `qa-all.bash` as **hard, non-structural** checks —
 they are deliberately not jq-merged stages, so they cannot disturb the positional
 `.[0]..[6]` JSON merge. Any one of them fails the whole run immediately:
 
-| Gate                                        | Checks                                                                                                                                                                                                                                                                                                                                                             |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `qa-nokill-containerwatch.bash`             | the container-watch watchdog has gained no process-termination call site                                                                                                                                                                                                                                                                                           |
-| `qa-deployed-drift.bash`                    | every repo-owned `files/home/.local/bin/` script matches its deployed `~/.local/bin/` copy                                                                                                                                                                                                                                                                         |
-| `qa-helper-tests.bash`                      | the `helpers/` unit suite (Plan 00081 F11); the run prints the case count                                                                                                                                                                                                                                                                                          |
-| `test-secret-scan.bash`                     | the pre-commit secret scanner's own unit suite (Plan 00092)                                                                                                                                                                                                                                                                                                        |
-| `test-planlib.bash`                         | the `_planlib.inc.bash` regression suite behind every plan script (Plan 00092)                                                                                                                                                                                                                                                                                     |
-| `test-ccy-rootless-guard.bash`              | ccy's rootless-engine verdict (Plan 00072); pure function, no podman needed                                                                                                                                                                                                                                                                                        |
-| `test-ccy-token-mode.bash`                  | `select_token`'s per-mode answer to an unusable token pool (Plan 00048, CCY 3.50.0)                                                                                                                                                                                                                                                                                |
-| `test-ccy-ssh-handling.bash`                | ccy's SSH key and agent handling into the container                                                                                                                                                                                                                                                                                                                |
-| `test-ccy-selinux-verdict.bash`             | ccy's SELinux verdict, including the states that must refuse                                                                                                                                                                                                                                                                                                       |
-| `test-ccy-gpu-device.bash`                  | ccy's GPU device passthrough decision                                                                                                                                                                                                                                                                                                                              |
-| `test-ccy-host-hostname.bash`               | `ccy_host_hostname` — the RFC 1123 grammar guarding `CCY_HOST_HOSTNAME` (Plan 00121)                                                                                                                                                                                                                                                                               |
-| `test-ccy-session-registry.bash`            | The session registry a boot-time restore acts on unattended: partial-write refusals, restore-flag reconstruction, the flag classification derived from the launcher's own parser, and the launcher's unattended `read` guard (Plan 00123)                                                                                                                          |
-| `test-ccy-session-restore.bash`             | `ccy-sessions-restore`, the boot-time service that decides which recorded sessions come back: every retirement reason, the live-boot guard, and that a record is consumed before its session starts (Plan 00123)                                                                                                                                                   |
-| `test-ccy-sessions-status.bash`             | `ccy-sessions restore-status`, the pre-reboot audit, and the blocked signal seam: every installation state including the two "could not tell" ones, and the audit's ready/no-CLI table, its partial-warning refusal and its listing-failure branch — driven through stub systemctl/loginctl/tmux, because the broken states are unreachable otherwise (Plan 00123) |
-| `test-vmtest-host-only-gate.bash`           | `host_only_preflight`, the host-CLI gate on a credential-bearing VM scenario (Plan 00121)                                                                                                                                                                                                                                                                          |
-| `test-vmtest-reboot-dispatch.bash`          | `reboot_guest`/`guest_prepare` — a run judged on the wrong boot has no other symptom (Plan 00109)                                                                                                                                                                                                                                                                  |
-| `test-panel-sections.bash`                  | the panel's own decisions on boot-stale, malformed and `state`-disagreeing documents (Plan 00109)                                                                                                                                                                                                                                                                  |
-| `test-vmtest-prepare-record.bash`           | the fixture→checker record seam — one metacharacter unset every key after it (Plan 00109)                                                                                                                                                                                                                                                                          |
-| `test-vmtest-kernel-selection.bash`         | `select_second_kernel` — the one step of that route no machine here can execute (Plan 00109)                                                                                                                                                                                                                                                                       |
-| `test-run-bash-headless-localhost-yml.bash` | the headless `localhost.yml` writer (Plan 00119)                                                                                                                                                                                                                                                                                                                   |
-| `test-run-bash-ssh-agent-teardown.bash`     | `hl_ssh_agent_stop`, including an agent that SURVIVES the kill (Plan 00063 Task 3.4)                                                                                                                                                                                                                                                                               |
-| `test-run-log-scrub.bash`                   | the run-log secret scrubber, driven by a deliberately incomplete redaction (Plan 00121)                                                                                                                                                                                                                                                                            |
-| `test-freezelib.bash`                       | the freeze library both freeze tools source — every decision under BOTH state vocabularies (Plan 00122)                                                                                                                                                                                                                                                            |
-| `test-lxcfreeze.bash`                       | `lxcfreeze`'s decisions — a state or a config it could not read must not resolve to a fact (Plan 00122)                                                                                                                                                                                                                                                            |
-| `test-podfreeze.bash`                       | `podfreeze`'s decisions, pinned before Plan 00122 Task 4.2 extracted a library out of it                                                                                                                                                                                                                                                                           |
-| `test-host-health-login-snippet.bash`       | the server login snippet's interactive guard — an unconditional print breaks `scp` (Plan 00109)                                                                                                                                                                                                                                                                    |
-| `test-qa-ansible-failfast.bash`             | the fail-fast directive regex in `qa-ansible.bash`, read from it rather than copied                                                                                                                                                                                                                                                                                |
-| `helpers.gnome.check_extension_compat`      | every extension declares the GNOME Shell major this branch's Fedora ships                                                                                                                                                                                                                                                                                          |
-| `helpers.gnome.check_panel_contract`        | the panel's constants, document keys and section ids agree with the producer (Plan 00109)                                                                                                                                                                                                                                                                          |
-| `qa-vmtest-manifest.bash`                   | `vars/vm-test-scenarios.yml` parses and is coherent (Plan 00110); a broken control must be rejected first                                                                                                                                                                                                                                                          |
-| `qa-version-pins.bash`                      | `vars/version-pins.yml` parses, and every row still names a playbook that declares that var (Plan 00109)                                                                                                                                                                                                                                                           |
+| Gate                                        | Checks                                                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `qa-nokill-containerwatch.bash`             | the container-watch watchdog has gained no process-termination call site                                                                                                                                                                                                                                                         |
+| `qa-deployed-drift.bash`                    | every repo-owned `files/home/.local/bin/` script matches its deployed `~/.local/bin/` copy                                                                                                                                                                                                                                       |
+| `qa-helper-tests.bash`                      | the `helpers/` unit suite (Plan 00081 F11); `--counts-file` reports its size and skip count as data                                                                                                                                                                                                                              |
+| `test-secret-scan.bash`                     | the pre-commit secret scanner's own unit suite (Plan 00092)                                                                                                                                                                                                                                                                      |
+| `test-planlib.bash`                         | the `_planlib.inc.bash` regression suite behind every plan script (Plan 00092)                                                                                                                                                                                                                                                   |
+| `test-ccy-rootless-guard.bash`              | ccy's rootless-engine verdict (Plan 00072); pure function, no podman needed                                                                                                                                                                                                                                                      |
+| `test-ccy-token-mode.bash`                  | `select_token`'s per-mode answer to an unusable token pool (Plan 00048, CCY 3.50.0)                                                                                                                                                                                                                                              |
+| `test-ccy-ssh-handling.bash`                | ccy's SSH key and agent handling into the container                                                                                                                                                                                                                                                                              |
+| `test-ccy-selinux-verdict.bash`             | ccy's SELinux verdict, including the states that must refuse                                                                                                                                                                                                                                                                     |
+| `test-ccy-gpu-device.bash`                  | ccy's GPU device passthrough decision                                                                                                                                                                                                                                                                                            |
+| `test-ccy-host-hostname.bash`               | `ccy_host_hostname` — the RFC 1123 grammar guarding `CCY_HOST_HOSTNAME` (Plan 00121)                                                                                                                                                                                                                                             |
+| `test-ccy-session-registry.bash`            | the session registry a boot-time restore acts on unattended: partial-write refusals, restore-flag reconstruction, the flag classification derived from the launcher's own parser, and the launcher's unattended `read` guard (Plan 00123)                                                                                        |
+| `test-ccy-session-restore.bash`             | `ccy-sessions-restore`, the boot-time service deciding which recorded sessions come back: every retirement reason, the live-boot guard, and that a record is consumed before its session starts (Plan 00123)                                                                                                                     |
+| `test-ccy-sessions-status.bash`             | `ccy-sessions restore-status` and the pre-reboot audit: every installation state including the two "could not tell" ones, and the audit's ready/no-CLI table, partial-warning refusal and listing-failure branch — driven through stub systemctl/loginctl/tmux, because the broken states are unreachable otherwise (Plan 00123) |
+| `test-vmtest-host-only-gate.bash`           | `host_only_preflight`, the host-CLI gate on a credential-bearing VM scenario (Plan 00121)                                                                                                                                                                                                                                        |
+| `test-vmtest-reboot-dispatch.bash`          | `reboot_guest`/`guest_prepare` — a run judged on the wrong boot has no other symptom (Plan 00109)                                                                                                                                                                                                                                |
+| `test-panel-sections.bash`                  | the panel's own decisions on boot-stale, malformed and `state`-disagreeing documents (Plan 00109)                                                                                                                                                                                                                                |
+| `test-vmtest-prepare-record.bash`           | the fixture→checker record seam — one metacharacter unset every key after it (Plan 00109)                                                                                                                                                                                                                                        |
+| `test-vmtest-kernel-selection.bash`         | `select_second_kernel` — the one step of that route no machine here can execute (Plan 00109)                                                                                                                                                                                                                                     |
+| `test-run-bash-headless-localhost-yml.bash` | the headless `localhost.yml` writer (Plan 00119)                                                                                                                                                                                                                                                                                 |
+| `test-run-bash-ssh-agent-teardown.bash`     | `hl_ssh_agent_stop`, including an agent that SURVIVES the kill (Plan 00063 Task 3.4)                                                                                                                                                                                                                                             |
+| `test-run-log-scrub.bash`                   | the run-log secret scrubber, driven by a deliberately incomplete redaction (Plan 00121)                                                                                                                                                                                                                                          |
+| `test-freezelib.bash`                       | the freeze library both freeze tools source — every decision under BOTH state vocabularies (Plan 00122)                                                                                                                                                                                                                          |
+| `test-lxcfreeze.bash`                       | `lxcfreeze`'s decisions — a state or a config it could not read must not resolve to a fact (Plan 00122)                                                                                                                                                                                                                          |
+| `test-podfreeze.bash`                       | `podfreeze`'s decisions, pinned before Plan 00122 Task 4.2 extracted a library out of it                                                                                                                                                                                                                                         |
+| `test-host-health-login-snippet.bash`       | the server login snippet's interactive guard — an unconditional print breaks `scp` (Plan 00109)                                                                                                                                                                                                                                  |
+| `test-qa-ansible-failfast.bash`             | the fail-fast directive regex in `qa-ansible.bash`, read from it rather than copied                                                                                                                                                                                                                                              |
+| `test-qa-helper-summary.bash`               | the three readers in `lib/qa-helper-summary.bash` that produce every stage line below                                                                                                                                                                                                                                            |
+| `test-qa-docs-exit-codes.bash`              | `qa-docs.bash`'s three exit codes, driven against fixture trees — a crash must never read as clean                                                                                                                                                                                                                               |
+| `helpers.gnome.check_extension_compat`      | every extension declares the GNOME Shell major this branch's Fedora ships                                                                                                                                                                                                                                                        |
+| `helpers.gnome.check_panel_contract`        | the panel's constants, document keys and section ids agree with the producer (Plan 00109)                                                                                                                                                                                                                                        |
+| `qa-vmtest-manifest.bash`                   | `vars/vm-test-scenarios.yml` parses and is coherent (Plan 00110); a broken control must be rejected first                                                                                                                                                                                                                        |
+| `qa-version-pins.bash`                      | `vars/version-pins.yml` parses, and every row still names a playbook that declares that var (Plan 00109)                                                                                                                                                                                                                         |
 
 `qa-helper-tests.bash` and `check_extension_compat` were **documented here as gates and
 not run by `qa-all.bash`** until Plan 00081. Following this document's own "ALWAYS and
@@ -94,6 +98,276 @@ guard — green here, red in CI. **When adding a suite, add it to `qa-all.bash`
 first; CI runs `qa-all.bash`, so a separate CI step is a divergence, not a
 belt-and-braces.** `scripts/test-ccy-ssh-probe.bash` is deliberately not a gate:
 it needs a real host and a `gh` token, so it is a host diagnostic.
+
+### The same command does not reach the same verdict everywhere
+
+`qa-all.bash` is the authority, but some stages read what the *machine* supplies rather
+than what the repository ships. A local run and a CI run disagreeing is a fact about the
+stage, not a flaky gate — find which input differs before touching anything.
+
+| Gate                     | What it needs from the machine                                                                                      | Where that is missing                                                    |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `qa-ansible-syntax.bash` | a vault password file to **exist** (never read — `--syntax-check` does not decrypt)                                 | a clean checkout, and a linked worktree                                  |
+| `qa-js.bash`             | `extensions/node_modules` — its own message says no playbook installs it. Exits **2**, which still aborts the run   | a linked worktree, and any checkout where `npm install` has not been run |
+| `qa-deployed-drift.bash` | deployed copies under `~/.local/bin` to compare the repo against                                                    | the CCY container and a clean checkout — it self-skips **and names why** |
+| `qa-helper-tests.bash`   | one pair asserts against real `/sys/class/drm` and skips where no connector with a physical display link is present | a VM whose only connector is virtual                                     |
+
+`qa-deployed-drift.bash` is the shape to copy: it states the dependency, skips only for a
+reason it prints, and the reason is checkable.
+
+`qa-js.bash` is the shape NOT to copy, and it is in this table because a reviewer hit it,
+not because anyone predicted it: exiting 2 makes it a gate whose absence removes every gate
+behind it, which is the mechanism this page's own subject was hiding inside for three weeks.
+A *failing* gate no longer does that; a gate that cannot RUN still does, which is why this
+row matters more than it did. On a fresh clone `qa-all.bash` reaches `qa-js.bash` and stops
+there — including before `qa-docs.bash`, the gate Plan 00125 repaired.
+
+**`qa-docs.bash` used to head this table and no longer belongs in it.** It needed
+`.claude/hooks-daemon/` on disk, because eight tracked `.claude/rules/*.md` files are
+GENERATED by that repository's installer and link into it — so the same commit was green
+here and red in CI for three weeks. It now classifies a link target three ways instead of
+two, and the verdict no longer depends on what is installed:
+
+| The target is…                    | Verdict                                                 |
+| --------------------------------- | ------------------------------------------------------- |
+| tracked by this repo              | checked as before; missing is a **failure**             |
+| inside a declared vendored repo   | **warned on, never failed** — three outcomes below      |
+| untracked, and vendored by nobody | **failure** — a link to something no clean checkout has |
+
+The third row is what makes the second safe. "Ignored, so skip it" would have quietly
+exempted a link into `untracked/` as well, trading a false failure for a silent skip — this
+repository's recurring defect, in the fix for an instance of it.
+
+**The third row says *untracked*, not *ignored*, and the two are different populations.** A
+tracked file that happens to match an ignore rule moved **out** of that row; a file that is
+present, unignored and simply never committed moved **in**, and that one is the finding —
+green here, red in a clean checkout. `git check-ignore` answers "does `.gitignore` name this
+path"; `git ls-files` answers "does this repository carry it". Only the second is a question
+every checkout answers the same way.
+
+**A vendored target is still looked at**, in the one case where looking means something:
+
+| The vendored repo is… | The target is… | Outcome                                        |
+| --------------------- | -------------- | ---------------------------------------------- |
+| present               | there          | `verified` — silent                            |
+| **absent** (CI)       | unknowable     | `unverifiable` — soft; nothing here could say  |
+| present               | **missing**    | `broken` — its own `⚠` line, listing the links |
+
+`broken` means the link is demonstrably wrong, which usually means that repository moved the
+file and our generated pointers are stale — worth saying loudly, and still not ours to fix.
+So it warns and does not fail: **the gate's exit code must never depend on what is
+installed**, which is the whole point. What the gate SAYS may, and should — a machine that
+can see the repo can say more about it, and saying more never flips a verdict. Anchors into
+a vendored repo are not followed even when it is present: their headings are theirs to
+rename, and going red on another repo's churn would be a dependency on it for a defect we
+could not fix.
+
+That `⚠` line is composed by `vendored_warning_lines()` in the checker, not by
+`scripts/qa-docs.bash`, and it returns a list the script prints with **no condition of its
+own**. The state that fills that list needs a vendored repo present *and* a stale pointer
+into it, so a `if broken > 0` around the formatting would be a branch whose first execution
+is the one nobody is watching. Empty list, empty output, formatting code exercised on every
+run — the same reason a gate that only prints on failure gets a pass line.
+
+**The question asked is trackedness** — `git ls-files`, plus the directories it implies,
+since a link to `docs/` is a link to something this repo plainly owns. The index ships in
+every clean checkout, so CI asks the same question.
+
+Existence is checked **first** and trackedness second, deliberately. A typo'd link is both
+absent and untracked, and `target does not exist` is the message that helps. Both are
+findings either way, so a present-but-untracked target fails here and fails in CI for the
+other reason: same exit code, different sentence.
+
+That ordering is also the fix for the first version, which asked `git check-ignore`. That
+question is machine-independent but narrower than the finding it raised: a file sitting on
+one disk, never `git add`ed and matching no ignore rule, is not ignored — so it passed there
+and failed in CI. Cause A's own shape, inside the classification built to remove it.
+
+**The TARGETS ask trackedness; the DOCUMENTS are whatever the tree walk finds**, so the scan
+population is still what is on this disk. An in-scope markdown file nobody committed is
+scanned here and simply absent in CI. Excluding it would be the wrong fix — a broken link in
+a file you have not committed yet is a true finding, and catching it before the commit is
+what a local gate is for — so the stage line carries the denominator instead:
+`71 files (71 tracked)`, the same shape as `helper-tests`' `65 modules (65 tracked)`. Equal
+numbers mean the two machines are reading the same set; unequal numbers name the gap.
+
+The vendored roots are DECLARED in `_VENDORED_ROOTS` (`helpers/docs/link_check.py`) rather
+than detected, because in CI there is nothing on disk to detect — probing for a `.git` would
+answer one way here and another there. They are declared as parents (`roles/vendor/`, not
+each role), so vendoring under an existing root needs no code change; a new root is a
+one-line edit, and the finding that prompts it names the nested repository when the machine
+can see it. **Nothing checks that a declared root really is a vendored repository** — adding
+one exempts every link under it, and only review stops that. The stage line carries all
+three counts for the same reason `version-pins` prints `COVERAGE: 9 of 9` — an exemption
+nobody counts reads exactly like a check that ran and found nothing.
+
+A tree git cannot answer for — no checkout at all — makes the gate exit 2 rather than assume
+nothing is tracked. Assuming would be a confident verdict derived from a check that did not
+run, and it would condemn every link in the repository.
+
+**A skip is not a pass, so the `helper-tests` line carries the skip count.** `unittest`
+counts a skipped test inside `testsRun`, so `Ran N tests` is byte-identical whether a test
+asserted or skipped itself — two machines then report the same verdict over different
+executed populations, which is this page's own subject appearing in the line used to detect
+it. The count differing is the signal; the skip *reason* names what was ignored and is
+printed by `python3 -m unittest -v <module>`, not by the suite at its default verbosity.
+
+**That count is read from a file, never scraped from the run's output.**
+`qa-helper-tests.bash --counts-file PATH` has
+`helpers/qa_environment/unittest_counts.py` take the numbers from unittest's
+`TestResult` object and write them there; `helper_counts_summary` in
+`scripts/lib/qa-helper-summary.bash` reads the file and **fails** rather than reporting
+zero if it cannot. Four readers that parsed the text instead were each defeated by a test
+printing unittest-shaped output — a decoy crosses the summary in either direction
+depending only on Python's 8KB stdout buffering, and an `atexit` handler writes to stderr
+after it. A test can put anything on either stream in any order, so the streams are not a
+source of truth for this; the result object is. Both halves are covered by
+`test-qa-helper-summary.bash`, whose last case runs the real runner end to end so a format
+change on one side alone turns it red.
+
+The file is **harder to reach than a stream, not unreachable**: its path travels in `argv`, so
+a test that reads `sys.argv` could overwrite it — and this module's own tests are collected by
+the runner they test. What protects it there is **write ordering**: the runner writes after
+every test has finished, so a mid-run forgery is overwritten. A write landing *after* the
+runner's — `atexit`, or a surviving thread — beats that, and nothing detects it.
+`--counts-token` covers a different case only: a file written by something that never read
+this run's `argv`, such as a stale file or a concurrent run. It is not a lock, because the
+token rides in the same `argv` as the path. An **empty** file is refused with its own message,
+which matters because a test calling `os._exit(0)` skips the write while the process still
+exits 0 — leaving exactly the zero-byte file `mktemp` created. Existence is not generation.
+
+`qa-all.bash` also **captures** the run's stdout and requires it to be empty. That stream is
+the one `verdicts.py` parses for stage lines, so a single `print()` anywhere in the suite
+could forge or split this suite's own verdict; a precondition that broad is a gate rather
+than a comment. (This sentence carried the test count until it had rotted twice and the two
+copies of it disagreed. A number that must be re-measured to stay true does not belong in
+prose — the stage line prints the live one on every run.)
+
+### The stage-line readers are shared, and tested against the gates they read
+
+`scripts/lib/qa-helper-summary.bash` holds all three, and between them they produce the
+summary in **every** stage line `qa-all.bash` composes — 29 of them. `qa_pass_line` prints
+it, and prints nothing when that gate has already failed, so a gate cannot report both
+outcomes. Only `deployed-drift` builds its own line, because there the line IS the gate's
+output rather than a summary of it.
+
+| Function                  | Used by                              | Degrades to                       |
+| ------------------------- | ------------------------------------ | --------------------------------- |
+| `helper_counts_summary()` | `helper-tests`                       | **nothing — it fails the gate**   |
+| `qa_gate_case_count()`    | 22 gates that print `passed: <n>`    | the word `passed`, never a number |
+| `qa_gate_detail()`        | 6 gates whose summary is not a count | the literal `summary unreadable`  |
+
+(The `()` is load-bearing, not decoration: `check_qa_gate_inventory` reads any row whose
+first cell is a backticked bare name as a **gate this document claims**, so writing them
+plain made the table assert three gates that do not exist — caught by that check's own test.)
+
+Only the first hard-fails, and the asymmetry is deliberate: its number distinguishes two
+machines, so a blind read there is the defect this page exists to remove. The other two read
+a gate that has *already* reported pass or fail through its exit status, so the stage line is
+detail rather than verdict — but it must still never be a **wrong** number, which is why
+neither ever substitutes a plausible-looking one.
+
+Each gate used to inline its own reader. `grep -oE 'passed: [0-9]+'` prints EVERY match, so
+an earlier `passed: <digits>` in the capture made the stage line two lines, and `verdicts.py`
+reads the first as the stage and loses the rest — one defect, found once, then found again in
+21 untested copies, and again in 2 more that had a different regex. `vmtest-manifest`
+interpolated its whole capture and emitted a **three-line** stage line on every run, dropping
+two coverage measurements into nothing.
+
+**Adding a gate: do not write a reader.** Call one of the three. If your gate's summary is not
+a case count, use `qa_gate_detail` with a pattern matching what it actually prints — and note
+that `test-qa-helper-summary.bash` reads every `qa_gate_detail` pattern out of `qa-all.bash`
+and runs it against the real gate, so a call site whose capture variable is not registered
+there FAILS — **and so does a registration no call site reads**, which is what a removed call
+site leaves behind. That is deliberate: `nokill-containerwatch` read `[0-9]+ call site[s]? checked` from a gate that has only ever printed `N container-watch file(s) clean` — zero
+matches for its entire life, behind a `||` fallback that asserted `no forbidden kill call sites` on every run. A pattern and a gate that nothing compares will drift, and the drift is
+silent.
+
+**Finding the call sites is parsed, not grepped** —
+`helpers/qa_environment/gate_call_sites.py`, with its own unit tests. Three greps that had to
+agree lived here first (a strict extraction, a looser denominator, and parameter expansions
+that re-split each match), and every defect found in them was one drifting from the other
+two: a spelling the extraction took and the splitter mis-read, a spelling both greps missed
+in lockstep and therefore agreed on, a prose mention only one counted. **Two counts that must
+agree can agree while both are wrong.** The parser has no second count — anything that looks
+like a call and does not parse comes back in `unparsed` with its line and text, and the gate
+fails on it. A silently dropped call site is not a state it can reach.
+
+A count is a **proxy, not a proof**: two machines could skip the same NUMBER of different
+tests. With the three conditional skips the suite has today the four machine shapes give
+four distinct counts (0, 1, 2, 3), so it is currently exact — but that is a property of
+those three sites, not of the mechanism. Adding a fourth conditional skip means checking
+that property still holds, or surfacing the skipped tests by name instead.
+
+That argument also assumes the skip count is bounded by the test count, and **it is not**.
+`testsRun` counts test *methods*; `skipped` counts skip *events*, and one method registering
+several `subTest` skips reports more skips than tests — `Ran 1 test … 3 skipped` is a
+faithful line, not a broken one. No skip is raised *inside* a `subTest` block in
+`tests/helpers` today — the three conditional skip sites are all outside one — so the
+enumeration above holds; putting a skip inside a `subTest` means re-deriving it. Note that
+`subTest` itself appears in ~70 places, so grepping for it will not answer this question.
+
+The line also carries **`N modules (M tracked)`**, because a machine that COLLECTED a
+different set of test modules is the same defect one level up and the test count alone
+cannot show it. The two numbers cover the two directions, and both are needed:
+
+- **tracked but not discovered** — `qa-helper-tests.bash` cross-checks its walk against
+  `git ls-files` and **exits 2** if any tracked helper test was not found. `mapfile -t < <(find …)` reports `mapfile`'s status, not `find`'s, and `pipefail` does not reach inside
+  a process substitution, so a partly-failed walk would otherwise shrink the run silently.
+  Same guard as `qa-bash.bash` and `qa-python.bash`, which each grew it after the same
+  defect; this was the third site and got it last.
+- **discovered but not tracked** — `find` sees uncommitted files too, so a test nobody
+  committed runs here and nowhere else and the counts stop being comparable. That is *not*
+  a failure (it is the normal state mid-TDD), so it is reported rather than fatal: `modules`
+  above `tracked` in the stage line, and the file names on stderr.
+
+The second number goes in the **stage line** specifically. `qa-all.bash` discards the
+child's stderr on a successful run, so a coverage figure reported only there is produced and
+never delivered — which is one step short of the class this page is about.
+
+**A stage that cannot pass in an environment is not a strict gate there — it is an absent
+one.** Two consequences follow, and the second is the one that bites:
+
+- a permanently-red stage carries no information, because a red run looks exactly like the
+  previous red run;
+- a failing gate used to **abort the suite**, so a stage that could not pass stopped every
+  gate declared after it from running at all. The suite did not merely stay red — the
+  number of checks actually executed *fell*, silently, and newly added gates could go their
+  whole life without running once in CI. Measured while `helper-tests` was red: the masked
+  set grew **5 → 11 → 25**, and 20 of those had never executed in CI.
+
+**Every gate runs now, and the run reports all of them** (Plan 00125). A failing hard gate
+records itself with `qa_hard_gate_failed` and the suite carries on; the final line names
+every gate that failed rather than the first one that did. Only the seven `exit 2`
+missing-tool aborts still stop the run, because a suite that cannot run its tools has
+nothing to accumulate.
+
+Two things this buys, and the second is easy to miss:
+
+- **the count of executed checks cannot fall silently** — a gate that fails still prints a
+  stage line, so a run's census is complete whatever its verdict;
+- **the failing gate appears in that census at all.** `verdicts.py` matches
+  `^[✓✗⚠] QA (?:passed\|FAILED):` as a RUN SUMMARY *before* it tries the stage pattern, so
+  the old `✗ QA FAILED: <prose>` gave the failing gate no stage line — it erased itself as
+  well as everything behind it. Measured under one mutated gate: **11 of 38** stages parsed
+  before, **38 of 38** after, and the failing gate present only in the second.
+
+`scripts/test-qa-helper-summary.bash` holds the guard: exactly one `exit 1` may remain in
+`qa-all.bash`, the final summary's. Proving the behaviour itself means running the whole
+suite against a mutated gate, which is too slow for every commit; noticing the shape coming
+back is one grep.
+
+So when a gate needs something an environment lacks, add the dependency (`CLAUDE.md` →
+"Missing Dependencies — Fail Fast, Fix in IaC") rather than teaching the gate to tolerate
+its absence. A gate taught to skip passes in precisely the environment that could not check
+it — and it is the "skip and warn" pattern, one level of indirection away.
+
+Two rules for anything a gate executes: resolve paths relative to the file (`REPO_ROOT`,
+`import.meta.url`, `__file__`), never to a fixed absolute root — the repo is checked out at
+a different path in the container, on a host and on a runner. And exclude the whole
+`.ansible/` tree from discovery, not just `.ansible/roles/`: `ansible-galaxy` populates
+`.ansible/collections/` with third-party files, so a stage that misses it counts a
+different number of files depending on whether galaxy content has landed.
 
 ### All three source gates assert their own coverage (Plans 00076, 00081)
 

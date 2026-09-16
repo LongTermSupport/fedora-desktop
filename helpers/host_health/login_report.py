@@ -134,6 +134,9 @@ def publish(
     sections: dict[str, list[probe_results.Finding]],
     kernel: str,
     at: str,
+    # `handoff_path`, not `handoff`: this module imports the `handoff` module, and a
+    # parameter of that name shadows it inside the function body.
+    handoff_path: str = "",
 ) -> str:
     """Write the machine-readable document, and return where it went.
 
@@ -144,14 +147,84 @@ def publish(
     (The handoff file is the opposite case and correctly conditional: it exists to be
     handed to Claude Code, and a healthy host has nothing to diagnose.)
 
+    `handoff` is the path of that file when one was written, `""` otherwise. It is
+    passed in rather than derived here, because only the caller knows whether the write
+    actually succeeded — and a path this function computed would name a file that may
+    not exist.
+
     A named function because this is the seam between two separately tested modules,
     which is where this repo's defects live. Inline in `main` it would have no tests.
     """
     path = status_document.path(base)
     status_document.write_atomic(
-        path, status_document.build(sections=sections, kernel=kernel, at=at)
+        path,
+        status_document.build(
+            sections=sections, kernel=kernel, at=at, handoff=handoff_path
+        ),
     )
     return path
+
+
+def record_host_state(
+    *,
+    ledger_base: str,
+    state_base: str,
+    sections: dict[str, list[probe_results.Finding]],
+    findings: list[probe_results.Finding],
+    kernel: str,
+    at: str,
+    out: Callable[[str], object],
+    diagnostics: Callable[[str], object],
+) -> str:
+    """Write the handoff and the status document, in that order, and return the path.
+
+    **The order is the point, which is why this is a function.** The document NAMES the
+    handoff file, and the panel turns that name into a button (Task 3.3). A path
+    recorded before the write is a path that may have no file behind it — a button that
+    fails in the user's hands, on a surface whose entire job is to be trustworthy about
+    what is and is not known. Writing first and recording the RESULT makes that
+    unrepresentable rather than merely discouraged.
+
+    Inline in `main` this ordering would have no test, and `main` runs four real probes.
+    `publish` is a named function for exactly the same reason.
+
+    Both writes are guarded, and both guards are deliberate: the findings have already
+    been reported by the time this runs, so losing either file is a degradation worth
+    naming and not a reason to fail a login. They are named on different streams because
+    they are different kinds of thing — the handoff is part of the report the user is
+    reading, and the document is machinery.
+
+    Returns the handoff path, or `""` when there are no findings or the write failed.
+    """
+    handoff_path = ""
+    if findings:
+        # Written, named, and NOT launched — the handoff is offered, always. Only when
+        # there is something to diagnose: a healthy host has nothing to hand over.
+        try:
+            handoff_path = handoff.write(
+                ledger_base, findings=findings, kernel=kernel, at=at
+            )
+        except Exception as error:
+            out(f"the handoff file could not be written: {error}\n")
+
+    # Unconditional: a clean host must be distinguishable from one nothing has checked.
+    try:
+        publish(
+            state_base,
+            sections=sections,
+            kernel=kernel,
+            at=at,
+            handoff_path=handoff_path,
+        )
+    except Exception as error:
+        diagnostics(f"the host status document could not be written: {error}\n")
+
+    # LAST, so the offer stays the final line of the report whichever way the two writes
+    # above went — and only when the file exists, because `offer` names a path and
+    # naming one that was never written sends the reader to a file that is not there.
+    if handoff_path:
+        out(f"{handoff.offer(handoff_path)}\n")
+    return handoff_path
 
 
 def emit(
@@ -224,8 +297,17 @@ def plays_run_here(base: str) -> set[str] | None:
     incomplete, a set read from it anyway would silently suppress every `ABSENT` verdict
     whose row is in the hole, with nothing saying so. The sentinel IS the declaration
     that the question is open, and an open question must not buy silence.
+
+    **So does the CLEARED marker**, and for the identical reason. `--clear-broken`
+    removes the sentinel, and once it did only that, this function went straight from
+    None to a PARTIAL set — turning the open question into a confident wrong answer and
+    skipping exactly the pins whose rows were in the hole. The missing rows cannot be
+    recovered, so the set stays a lower bound for good: `ledger.cleared_path` carries
+    the argument, and the cost only ever runs in the direction of reporting more.
     """
     if os.path.exists(ledger.sentinel_path(base)):
+        return None
+    if os.path.exists(ledger.cleared_path(base)):
         return None
     try:
         return set(ledger.fold_latest(store.read_lines(base)))
@@ -378,35 +460,17 @@ def main(
     notifier: Callable[[str], None] = (lambda _: None) if arguments.no_notify else _notify_send
     status = emit(findings, notify=notifier, write=out.write)
 
-    # Unconditional: a clean host must be distinguishable from one nothing has checked.
-    # Guarded because the report above has already been delivered — losing the panel's
-    # copy is a degradation, and one worth naming, but not a reason to fail the login.
     if not arguments.no_handoff:
-        try:
-            publish(
-                state_base,
-                sections=sections,
-                kernel=probe.running_kernel(),
-                at=repo.utc_now(),
-            )
-        except Exception as error:
-            diagnostics.write(f"the host status document could not be written: {error}\n")
-
-    if findings and not arguments.no_handoff:
-        # Task 3.3: the handoff file, so diagnosing a break is not archaeology from
-        # scratch. Written, named, and NOT launched — the handoff is offered, always.
-        # Guarded because a failure to write it must not lose the findings above,
-        # which have already been reported by this point.
-        try:
-            path = handoff.write(
-                base,
-                findings=findings,
-                kernel=probe.running_kernel(),
-                at=repo.utc_now(),
-            )
-            out.write(f"{handoff.offer(path)}\n")
-        except Exception as error:
-            out.write(f"the handoff file could not be written: {error}\n")
+        record_host_state(
+            ledger_base=base,
+            state_base=state_base,
+            sections=sections,
+            findings=findings,
+            kernel=probe.running_kernel(),
+            at=repo.utc_now(),
+            out=out.write,
+            diagnostics=diagnostics.write,
+        )
     return status
 
 

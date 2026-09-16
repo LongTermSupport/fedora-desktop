@@ -553,6 +553,21 @@ non-deterministic gate — the same edit passing or failing on different runs.
 So each instrument does only what it can do reliably: the checker is exact
 and narrow, the agent is broad and advisory.
 
+### R14 — Deployed guidance names its enforcement
+
+A daemon-owned core document (`<agent tree>/core/*.core.md`) is the
+daemon's statement of its intended workflow, deployed verbatim into every
+project. When it tells an agent that a human must approve a step, the daemon
+must be the thing that enforces that gate, and the paragraph must name the
+config key that switches it, in backticks (for example
+`plan_workflow.close_requires_human_approval`). A human gate that exists
+only as prose is drift: an agent either stalls finished work on a human who
+never asked for the gate, or learns to ignore the document. The fix is a
+real gate behind a named key, or no instruction. A negated mention ("no
+approval needed") and a review verdict ("report approved") are not gates.
+
+Enforced by `unenforced-approval-gate`.
+
 ---
 
 ## Applying the rules
@@ -665,6 +680,7 @@ from rule to instrument:
 | `generated-doc-hand-edit`    | R10     | edit, sweep         | Yes at edit — the path matches a manifest glob        |
 | `plan-promotion-disposition` | R8      | staged              | **Never** — weak keyword approximation                |
 | `source-tree-markdown`       | R2, R7d | sweep               | **Never** — always advisory                           |
+| `unenforced-approval-gate`   | R14     | edit, staged, sweep | Yes — every instance, pre-existing or new             |
 
 Two properties of that table are worth internalising:
 

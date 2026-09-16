@@ -79,15 +79,10 @@
     # helper decides, and it identifies the key by ID rather than by description so
     # the `rpm -e` below cannot reach a key it was never asked about.
 
-    # gnupg2 is a hard requirement of BOTH the key check below (which reads OpenPGP
-    # packets with gpg rather than reimplementing them) and `rpm_key` itself, whose
-    # module source calls get_bin_path('gpg2', required=True). Nothing in this repo
-    # installed it, so the pre-existing rpm_key task would already have failed on a
-    # gpg-less host — this is a gap the helper exposed, not one it introduced.
-    - name: Install gnupg2 for OpenPGP Key Handling
-      ansible.builtin.package:
-        name: gnupg2
-        state: present
+    # Needed by the key check below AND by rpm_key itself — the reasoning is in the
+    # task file, shared with play-nvidia.yml so the two cannot drift apart.
+    - name: Ensure gnupg2 Is Available
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ensure-gnupg2.yml"
 
     - name: Fetch Google's Published Signing Key
       ansible.builtin.get_url:
@@ -150,9 +145,38 @@
       register: chrome_key_verify
       changed_when: false
       check_mode: false
+      # Under --check the erase is skipped (it is a `command`) and rpm_key imports
+      # nothing, so on a host that NEEDS the refresh this would still read `refresh`
+      # and fail a run whose entire job is to report what would happen. run.bash
+      # passes extra flags through to ansible-playbook, so --check is a real path.
+      when: not ansible_check_mode
       failed_when: >-
         chrome_key_verify.rc != 0
         or 'RPM-KEY-ACTION none' not in chrome_key_verify.stdout_lines
+
+    # Chrome's own %post scriptlet adds the repository back, and it does so with
+    # `gpgkey=https://dl.google.com/linux/linux_signing_key.pub` — a network fetch,
+    # which is precisely what the repo task below exists to avoid. The scriptlet
+    # creates this file with repo_add_once="true" when it is ABSENT, sources it, and
+    # re-writes /etc/yum.repos.d/google-chrome.repo whenever it reads true. Nothing
+    # in the rpm path ever sets it back to false.
+    #
+    # So on any host where Chrome has never been installed — a fresh install — run 1
+    # would leave a repo file this play did not write, run 2 would report `changed`
+    # putting it back, and so would every run after a Chrome upgrade. Writing it
+    # first is what makes the play the owner of that file rather than a participant
+    # in a fight with the package.
+    - name: Stop Chrome's Scriptlet Re-Adding Its Own Repository
+      ansible.builtin.copy:
+        content: |
+          # Managed by fedora-desktop (play-browsers.yml).
+          # Chrome's %post re-writes /etc/yum.repos.d/google-chrome.repo while this
+          # reads "true", pointing gpgkey at a network URL. This play owns that file.
+          repo_add_once="false"
+        dest: /etc/default/google-chrome
+        owner: root
+        group: root
+        mode: "0644"
 
     - name: Add Google Chrome Repository
       ansible.builtin.yum_repository:
@@ -163,7 +187,8 @@
         gpgcheck: true
         # The local copy, not the URL: it is the exact bytes the task above checked
         # the keyring against, so dnf cannot end up validating against a different
-        # fetch of the key than the one this play reasoned about.
+        # fetch of the key than the one this play reasoned about. Only true because
+        # the task above stops the package rewriting this file behind us.
         gpgkey: file:///etc/pki/rpm-gpg/RPM-GPG-KEY-google-chrome
 
     - name: Install Google Chrome

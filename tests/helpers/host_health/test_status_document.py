@@ -91,6 +91,29 @@ class TestTheDocument(unittest.TestCase):
         self.assertEqual(list(document["sections"]), ["health"])
         self.assertEqual(document["sections"]["health"]["state"], status_document.FINDINGS)
 
+    def test_it_carries_the_handoff_path_when_one_was_written(self) -> None:
+        """Task 3.3's one-click offer: the panel's only data source is this document,
+        so a handoff file it is never told about cannot be offered from the panel."""
+        document = status_document.build(
+            sections={}, kernel=KERNEL, at=NOW, handoff="/state/play-ledger/handoff.md")
+        self.assertEqual(document["handoff"], "/state/play-ledger/handoff.md")
+
+    def test_no_handoff_is_the_EMPTY_STRING_not_a_missing_key(self) -> None:
+        """A missing key and an empty one read the same to a defensive consumer, and
+        that is the point: the panel must be able to tell "there is no handoff" from
+        "this document predates handoffs". The key is always present, so the only
+        absence a reader ever sees is a document from a schema it already refuses."""
+        document = status_document.build(sections={}, kernel=KERNEL, at=NOW)
+        self.assertIn("handoff", document)
+        self.assertEqual(document["handoff"], "")
+
+    def test_a_document_that_cannot_be_read_still_carries_the_key(self) -> None:
+        """`_cannot_read` must produce the SAME shape as a real document, or every
+        consumer needs a second defensive path for the one case it reaches most."""
+        with tempfile.TemporaryDirectory() as base:
+            document = status_document.read(os.path.join(base, "absent.json"))
+        self.assertEqual(document["handoff"], "")
+
     def test_it_round_trips_through_json(self) -> None:
         """It is read by JavaScript across a file, so it has to be plain JSON — a
         NamedTuple that serialises today and stops when a field is added would be a

@@ -21,6 +21,17 @@ from helpers.play_ledger import store
 #: the only two ways the failure ever surfaces.
 FAILURE_MARKER = "LEDGER-WRITE-FAILED"
 
+#: The exact command an operator should be able to paste. `cd` included, and not as
+#: decoration: `python3 -m helpers.…` resolves the package off the CURRENT directory,
+#: so the bare form is a ModuleNotFoundError from anywhere but the repo root. It was
+#: printed bare on every play of every failing run, and quoted bare into a public
+#: issue. One constant, so the two places that tell an operator about the hole cannot
+#: give different instructions.
+CLEAR_COMMAND = (
+    "cd <your fedora-desktop checkout> && "
+    "python3 -m helpers.play_ledger.check_freshness --clear-broken"
+)
+
 #: CLI flags that mean the run applied nothing. Recording one of these would tell
 #: Phase 2 the play is fresh on a host that never received it — which is the
 #: precise failure this whole plan was written to catch.
@@ -123,6 +134,5 @@ def record_failure(base: str, *, error: str, at: str) -> str:
     # is how issue #46 read on two hosts.
     return (
         f"{FAILURE_MARKER}: {error} — recorded in {store.ledger.sentinel_path(base)}. "
-        f"Once the cause is fixed, clear it with: "
-        f"python3 -m helpers.play_ledger.check_freshness --clear-broken"
+        f"Once the cause is fixed, clear it with: {CLEAR_COMMAND}"
     )

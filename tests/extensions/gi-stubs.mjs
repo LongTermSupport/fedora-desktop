@@ -43,8 +43,33 @@ export class RecordingMenu {
 }
 
 class StubMenuItem {
-    constructor(text) {
+    constructor(text, options) {
         this.label = {text: text ?? '', style_class: undefined, style: undefined};
+        // `reactive` defaults to true in PopupMenuItem, and the default is what the
+        // handoff row relies on — so the stub has to carry it rather than leave it
+        // undefined, or a test asserting a row IS clickable would pass on a row that
+        // was explicitly made inert.
+        this.reactive = options?.reactive ?? true;
+        this.children = [];
+        this.handlers = new Map();
+    }
+
+    add_child(child) {
+        this.children.push(child);
+    }
+
+    connect(signal, handler) {
+        this.handlers.set(signal, handler);
+    }
+
+    /** Fire a signal the way the shell would. Absent means the row was never wired,
+     * which a test must be able to tell from a row that was. */
+    emit(signal) {
+        const handler = this.handlers.get(signal);
+        if (handler === undefined) {
+            throw new Error(`stub menu item: nothing connected to '${signal}'`);
+        }
+        handler();
     }
 }
 
@@ -52,6 +77,18 @@ class StubSeparator {}
 
 export const PopupMenuItem = StubMenuItem;
 export const PopupSeparatorMenuItem = StubSeparator;
+
+/** What `Main.notify` was asked to show, in order. A test sets it empty and reads it
+ * back; the panel notifies to confirm an action a user cannot otherwise see happened. */
+export const NOTIFICATIONS = [];
+
+export function notify(title, body) {
+    NOTIFICATIONS.push({title, body});
+}
+
+/** What the clipboard was last set to, and by which type. `null` until something sets
+ * it — distinct from the empty string, which is a thing the panel could wrongly copy. */
+export const CLIPBOARD = {type: null, text: null};
 
 /**
  * `GLib`, with only what the panel actually calls.
@@ -81,7 +118,32 @@ export const Gio = {
     },
 };
 
-export const St = {};
+/**
+ * `St`, with only what the panel actually calls.
+ *
+ * `Label` records its construction properties and nothing else — a stub that laid out
+ * text would be a second implementation of St, and a test passing against it would say
+ * nothing about the shell. `Clipboard` records the last write, because "the command was
+ * copied" is otherwise invisible to a test and is the whole outcome of the handoff row.
+ */
+export const St = {
+    Label: class StubLabel {
+        constructor(properties) {
+            this.text = properties?.text ?? '';
+            this.style_class = properties?.style_class;
+            this.style = properties?.style;
+        }
+    },
+    ClipboardType: {CLIPBOARD: 'clipboard', PRIMARY: 'primary'},
+    Clipboard: {
+        get_default: () => ({
+            set_text(type, text) {
+                CLIPBOARD.type = type;
+                CLIPBOARD.text = text;
+            },
+        }),
+    },
+};
 
 // No default export here on purpose. The panel writes `import GLib from 'gi://GLib'`, so
 // each stubbed specifier needs its OWN default, and one shared default would silently

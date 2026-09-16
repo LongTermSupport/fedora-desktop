@@ -35,6 +35,49 @@ agents working in a project with plan tracking enabled should follow it.
 6. **Test First (TDD)** - Write failing tests before implementation, where this project practises TDD
 7. **Debug First** - Ground handler design in real hook event data before writing a handler
 8. **Orchestrate Intelligently** - Use sub-agents and teams for parallel execution when possible
+9. **Record Every Defect** - A defect you noticed is recorded in a plan, never only in chat (see "The niggles ledger")
+
+---
+
+## The niggles ledger
+
+**A defect found in passing is RECORDED, in the same turn it is found. Reporting
+it only in conversation is not recording it.**
+
+A defect mentioned in chat and nowhere else is gone the moment the context
+window rolls. It feels like diligence — "one thing worth flagging…" — while
+producing the same outcome as silence: nobody can act on it, nobody can find it
+later, and the next agent rediscovers it from scratch, if at all.
+
+A **niggle** is a defect too small to justify its own plan: a missing check, an
+invariant nothing enforces, a message that misleads, a tool with a blind spot.
+Small is not the same as unimportant, and it is never the same as *not a
+defect*.
+
+### The rule
+
+- **Exactly ONE niggles ledger plan is open at any time.** It is an ordinary
+  plan, indexed and archived like any other; its tasks are the open niggles.
+- **Found a niggle → append it to the open ledger before you report it.** The
+  chat message then points at the entry rather than being the only record of
+  it.
+- **When every entry is resolved, close and archive the ledger.** Do not keep a
+  ledger open as a permanent fixture.
+- **The next niggle found opens a NEW ledger.** Never reopen a closed one — a
+  reopened terminal plan breaks the archive's atomicity guarantees.
+
+### What belongs in it
+
+An entry states what is wrong and the evidence, not just a feeling. The useful
+shape is: the invariant that is broken, the measurement that proves it, and
+where it was found. "Check X does not fire for input Y; measured: Y passed with
+0 findings" is actionable. "Check X seems weak" is not.
+
+### What does NOT belong in it
+
+- Work that deserves its own plan. A niggle that turns out to be systemic
+  **graduates**: file the plan, strike the entry, leave a pointer.
+- Ideas, preferences and wish-list items. This is a defect ledger.
 
 ---
 
@@ -488,7 +531,8 @@ When new work is identified:
 1. Review plan completeness
 2. Verify tasks are well-defined
 3. Check for missing dependencies
-4. Get stakeholder approval (if needed)
+4. Confirm the scope with the human who owns it: a plan's scope is theirs
+   to set, and a change of scope is recorded in the plan before execution
 
 ### Step 5: Execute
 
@@ -1029,7 +1073,12 @@ When Claude Code (or other AI agents) work on a project with plan tracking enabl
 06. **Update task status in real-time** as you work
 07. **Run QA before commits** - this project's full QA suite must pass
 08. **Document blockers immediately** if you get stuck
-09. **Ask user for approval** before marking plan complete
+09. **Close a plan when it is fully complete** - every task ticked and every
+    success criterion met - in the same commit that archives it. A project
+    that wants a human to close plans sets
+    `plan_workflow.close_requires_human_approval: true`; the daemon then
+    denies the status flip until a human records approval, and the agent
+    reports the plan as ready to close and moves on
 10. **Reference plans in all commits** for traceability
 
 ### Agent Workflow Example
@@ -1043,7 +1092,7 @@ Agent:
 3. Inspects recent event flow to see what hook_input looks like for the scenario
 4. Analyses events to determine handler design
 5. Breaks down into TDD tasks
-6. Shows plan to user for approval
+6. Shows the plan to the user, whose call the scope is
 7. Begins execution:
    - Write failing test
    - Implement handler

@@ -14,6 +14,17 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# The three stage-line readers. Between them they produce the SUMMARY in every stage line
+# below — 29 of them, counted: `qa_gate_case_count` 22, `qa_gate_detail` 6,
+# `helper_counts_summary` 1. `qa_pass_line` prints it; only `deployed-drift` composes its own
+# line, because there the line IS the gate's output rather than a summary of it. Sourced
+# rather than inlined so a committed test can drive the real functions — see the library
+# header.
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/qa-helper-summary.bash
+source "$SCRIPT_DIR/lib/qa-helper-summary.bash"
+
 JSON_OUT="/tmp/qa-results.json"
 TMP_BASH=$(mktemp)
 TMP_PYTHON=$(mktemp)
@@ -22,8 +33,60 @@ TMP_ANSIBLE=$(mktemp)
 TMP_ANSIBLE_SYNTAX=$(mktemp)
 TMP_JS=$(mktemp)
 TMP_DOCS=$(mktemp)
-trap 'rm -f "$TMP_BASH" "$TMP_PYTHON" "$TMP_PATTERNS" "$TMP_ANSIBLE" "$TMP_ANSIBLE_SYNTAX" "$TMP_JS" "$TMP_DOCS"' EXIT
+# Every temp file this script owns is cleaned by ONE trap. A second `trap ... EXIT` would
+# silently REPLACE this one rather than add to it, leaking the seven above on every run.
+TMP_HELPER_ERR=$(mktemp)
+TMP_HELPER_OUT=$(mktemp)
+TMP_HELPER_COUNTS=$(mktemp)
+trap 'rm -f "$TMP_BASH" "$TMP_PYTHON" "$TMP_PATTERNS" "$TMP_ANSIBLE" "$TMP_ANSIBLE_SYNTAX" "$TMP_JS" "$TMP_DOCS" "$TMP_HELPER_ERR" "$TMP_HELPER_OUT" "$TMP_HELPER_COUNTS"' EXIT
 FAILED=0
+
+# EVERY GATE RUNS, EVEN AFTER ONE FAILS (Plan 00125, Task 4.3).
+#
+# A hard gate used to `exit 1` on failure, which disabled every gate declared after it. That
+# is not a theoretical cost: while `helper-tests` was red the masked set grew 5 -> 11 -> 25,
+# and 20 of those gates had never executed in CI even once. The run's output said "one thing
+# is broken" when it meant "one thing is broken and 25 things are unknown", and nothing
+# distinguished the two.
+#
+# Seven jq-merged stages already worked this way and accumulate into FAILED; this extends the
+# same design to the hard gates rather than inventing one. The `exit 2` missing-tool aborts
+# below STAY aborts — a suite that cannot run its tools has nothing to accumulate.
+HARD_FAILED=()
+
+# qa_hard_gate_failed <stage-name> <reason> <capture>
+#
+# The ✗ line is a STAGE LINE and goes to stdout beside the ✓ lines, which is the half that
+# is easy to miss. `verdicts.py` matches `^[✓✗⚠] QA (?:passed|FAILED):` as a RUN SUMMARY
+# before it tries the stage pattern, so the old `✗ QA FAILED: <prose>` gave the failing gate
+# no stage line at all — it erased ITSELF from the census as well as the gates behind it.
+# Measured: a three-line sample ending in that abort parses to the two passing stages only.
+# The gate's own output is the diagnostic and goes to stderr.
+qa_hard_gate_failed() {
+    local name="$1" reason="$2" capture="$3"
+    # An empty capture is legitimate: `helper_counts_summary` reports on stderr itself and
+    # has nothing to hand on. Printing it anyway would put a blank line in the diagnostics.
+    if [[ -n "$capture" ]]; then
+        printf '%s\n' "$capture" >&2
+    fi
+    printf '✗ %s: %s\n' "$name" "$reason"
+    HARD_FAILED+=("$name")
+}
+
+# qa_pass_line <stage-name> <summary> — the ✓ line, unless this gate already failed.
+#
+# One function owns the ✓ line now, so a gate cannot report both outcomes: without the
+# guard, a failed gate would still reach its summary line and print a ✓ built from its own
+# failure output. The three readers still produce every SUMMARY; this prints it.
+qa_pass_line() {
+    local name="$1" summary="$2" failed=""
+    for failed in ${HARD_FAILED[@]+"${HARD_FAILED[@]}"}; do
+        if [[ "$failed" == "$name" ]]; then
+            return 0
+        fi
+    done
+    printf '✓ %s: %s\n' "$name" "$summary"
+}
 
 # Run sub-checks (each writes JSON to temp file, outputs terse to stdout)
 # Exit code 2 = missing required tool — refuse to run entirely
@@ -106,17 +169,19 @@ fi
 # run immediately if a forbidden kill call site is introduced.
 nokill_out=""
 if ! nokill_out="$(bash "$SCRIPT_DIR/qa-nokill-containerwatch.bash" 2>&1)"; then
-    echo "$nokill_out" >&2
-    echo "✗ QA FAILED: no-kill safety gate (container-watch) rejected a process-termination call site" >&2
-    exit 1
+    qa_hard_gate_failed nokill-containerwatch \
+        "rejected a process-termination call site in the container-watch watchdog" \
+        "$nokill_out"
 fi
 # Pass line, for the same reason the drift gate below prints one: a gate whose
 # only visible output is a failure is indistinguishable from a gate that is not
 # running. That rule was written down beside the drift gate and never applied to
 # this one, six lines above it.
-nokill_summary=$(printf '%s' "$nokill_out" | grep -oE '[0-9]+ call site[s]? checked') ||
-    nokill_summary="no forbidden kill call sites"
-printf '✓ nokill-containerwatch: %s\n' "$nokill_summary"
+# The pattern is what the gate ACTUALLY prints, checked against a real run rather than
+# assumed: the previous one (`[0-9]+ call site[s]? checked`) never matched in its whole life,
+# and the `||` fallback asserted `no forbidden kill call sites` on every run instead.
+nokill_summary=$(qa_gate_detail "$nokill_out" '[0-9]+ container-watch file[(]s[)] clean')
+qa_pass_line nokill-containerwatch "$nokill_summary"
 
 # Deployed-drift gate (Plan 00099): a repo-owned user script that was changed
 # but never deployed means the host is running different code from the one QA
@@ -124,15 +189,19 @@ printf '✓ nokill-containerwatch: %s\n' "$nokill_summary"
 # — it inspects the HOST, not the source tree, and self-skips where there is no
 # host to inspect (CCY container, clean CI checkout).
 drift_out=""
-if ! drift_out="$(bash "$SCRIPT_DIR/qa-deployed-drift.bash" 2>&1)"; then
-    echo "$drift_out" >&2
-    echo "✗ QA FAILED: repo-owned scripts differ from their deployed copies" >&2
-    exit 1
+if drift_out="$(bash "$SCRIPT_DIR/qa-deployed-drift.bash" 2>&1)"; then
+    # Print the pass line too. A gate whose only visible output is a failure is
+    # indistinguishable from a gate that is not running — and "a check that silently
+    # does nothing" is precisely the defect Plan 00099 exists to fix.
+    #
+    # This one composes its own stage line rather than going through `qa_pass_line`,
+    # because the line it prints is the gate's whole output, not a summary of it.
+    echo "$drift_out"
+else
+    qa_hard_gate_failed deployed-drift \
+        "repo-owned scripts differ from their deployed copies" \
+        "$drift_out"
 fi
-# Print the pass line too. A gate whose only visible output is a failure is
-# indistinguishable from a gate that is not running — and "a check that silently
-# does nothing" is precisely the defect Plan 00099 exists to fix.
-echo "$drift_out"
 
 # Helper unit tests + extension GNOME-version compatibility (Plan 00081 F11).
 #
@@ -146,14 +215,76 @@ echo "$drift_out"
 # Hard, non-structural gates like the two above — deliberately NOT jq-merged
 # stages, so they cannot disturb the positional .[0]..[6] merge below. Both are
 # fast (the suite is ~0.06s; the compat check is static).
-helper_out=""
-if ! helper_out="$(bash "$SCRIPT_DIR/qa-helper-tests.bash" 2>&1)"; then
-    echo "$helper_out" >&2
-    echo "✗ QA FAILED: helper unit tests" >&2
-    exit 1
+# THE COUNTS ARRIVE IN A FILE, NOT IN THE OUTPUT, and that is load-bearing rather than
+# tidy. `--counts-file` makes the runner write the two numbers straight from unittest's
+# TestResult object, so nothing a test prints shares a channel with them. Four readers that
+# scraped this run's text were each defeated by a test printing unittest-shaped output —
+# the header of scripts/lib/qa-helper-summary.bash records all four.
+#
+# The run's human-readable output all goes to stderr, deliberately on one stream so its
+# ordering is the true ordering, and is shown in full when the suite fails.
+#
+# The token detects a counts file written by something that did NOT read this run's argv —
+# a stale file, a concurrent run, a hardcoded path. It is not a lock against a test: the
+# token travels in the same argv as the path, so anything that finds the file BY READING
+# ARGV has the token too. (The qualifier is load-bearing. Without it the sentence says the
+# token buys nothing, which contradicts the hardcoded-path case one line above.) What
+# actually defeats a clobber from inside the suite is WRITE ORDERING — the runner writes
+# after every test has finished, so a forgery landing mid-run is simply overwritten. A
+# write that lands AFTER the runner's, from `atexit` or a thread, defeats both; nothing
+# here detects that, and saying so is the point of this paragraph.
+#
+# THREE WAYS TO FAIL, ONE GATE. This is the only gate with more than one failure point, and
+# they are sequential rather than independent: if the suite did not run, its stdout and its
+# counts file say nothing. So a flag carries the first failure forward and the later checks
+# stand down, which keeps `helper-tests` in the failed list exactly once. Recording it three
+# times would inflate the census the ✗ stage lines exist to make accurate.
+TMP_HELPER_TOKEN="qa-all-$$-$(date +%s%N)"
+helper_tests_ok=1
+if ! bash "$SCRIPT_DIR/qa-helper-tests.bash" --counts-file "$TMP_HELPER_COUNTS" \
+    --counts-token "$TMP_HELPER_TOKEN" >"$TMP_HELPER_OUT" 2>"$TMP_HELPER_ERR"; then
+    qa_hard_gate_failed helper-tests \
+        "the helper unit suite failed" \
+        "$(cat "$TMP_HELPER_OUT" "$TMP_HELPER_ERR")"
+    helper_tests_ok=0
 fi
-helper_summary=$(printf '%s' "$helper_out" | grep -oE 'Ran [0-9]+ tests?') || helper_summary="passed"
-printf '✓ helper-tests: %s\n' "$helper_summary"
+
+# The child's stdout is CAPTURED, like every other hard gate's, and then required to be
+# empty. Leaving it inherited put it in this script's own stdout — the stream `verdicts.py`
+# parses for `^[✓✗⚠] name: ` stage lines — so a single `print()` anywhere in the suite could
+# forge a stage line or split this one. An unenforced precondition that broad is exactly the
+# shape this plan exists to remove, so it is a gate rather than a comment. (The test count
+# was written here and in CLAUDE/QA.md until both had rotted and disagreed; the stage line
+# prints the live number every run, which is where a count belongs.)
+if [[ $helper_tests_ok -eq 1 && -s "$TMP_HELPER_OUT" ]]; then
+    qa_hard_gate_failed helper-tests \
+        "wrote to stdout, which is this suite's verdict stream" \
+        "$(printf '%s\n' \
+            "  A test printing here can forge or split a stage line. If it is a test's own" \
+            "  print, wrap it in contextlib.redirect_stdout; if it is a subprocess a test" \
+            "  spawned, capture that subprocess rather than letting it inherit." \
+            "$(cat "$TMP_HELPER_OUT")")"
+    helper_tests_ok=0
+fi
+# The skip count travels with the line because `unittest` counts a SKIPPED test inside
+# testsRun: "Ran 1456 tests" is byte-identical whether a test asserted or skipped itself.
+# Two machines then report the same verdict over different executed populations — which is
+# this repo's own machine-dependence defect appearing inside the line used to detect it.
+# Measured: a container asserts the DisplayLink sysfs pair against a real connector while a
+# VM runner skips both, and before this the two lines agreed exactly.
+#
+# The reader lives in scripts/lib/ rather than here because this line has been wrong four
+# times and each hand-check was thrown away with the session that made it.
+# scripts/test-qa-helper-summary.bash drives it, and its own gate runs below.
+if [[ $helper_tests_ok -eq 1 ]]; then
+    if helper_summary="$(helper_counts_summary "$TMP_HELPER_COUNTS" "$TMP_HELPER_TOKEN")"; then
+        qa_pass_line helper-tests "$helper_summary"
+    else
+        qa_hard_gate_failed helper-tests \
+            "ran, but its counts could not be read" \
+            ""
+    fi
+fi
 
 # The pre-commit secret scanner's own unit suite (scripts/test-secret-scan.bash).
 #
@@ -164,12 +295,12 @@ printf '✓ helper-tests: %s\n' "$helper_summary"
 # the whole suite is sub-second. Same shape as the helper-tests gate above.
 scan_out=""
 if ! scan_out="$(bash "$SCRIPT_DIR/test-secret-scan.bash" 2>&1)"; then
-    echo "$scan_out" >&2
-    echo "✗ QA FAILED: secret scanner unit tests" >&2
-    exit 1
+    qa_hard_gate_failed secret-scan-tests \
+        "secret scanner unit tests failed" \
+        "$scan_out"
 fi
-scan_summary=$(printf '%s' "$scan_out" | grep -oE 'passed: [0-9]+') || scan_summary="passed"
-printf '✓ secret-scan-tests: %s\n' "$scan_summary"
+scan_summary=$(qa_gate_case_count "$scan_out")
+qa_pass_line secret-scan-tests "$scan_summary"
 
 # The plan-script library's own regression suite (scripts/test-planlib.bash).
 #
@@ -181,13 +312,12 @@ printf '✓ secret-scan-tests: %s\n' "$scan_summary"
 # of someone remembering. Sub-second, same shape as the two gates above.
 planlib_out=""
 if ! planlib_out="$(bash "$SCRIPT_DIR/test-planlib.bash" 2>&1)"; then
-    echo "$planlib_out" >&2
-    echo "✗ QA FAILED: plan-script library regression tests" >&2
-    exit 1
+    qa_hard_gate_failed planlib-tests \
+        "plan-script library regression tests failed" \
+        "$planlib_out"
 fi
-planlib_summary=$(printf '%s' "$planlib_out" | grep -oE 'PASSED \(library version [0-9.]+\)') ||
-    planlib_summary="passed"
-printf '✓ planlib-tests: %s\n' "$planlib_summary"
+planlib_summary=$(qa_gate_detail "$planlib_out" 'PASSED [(]library version [0-9.]+[)]')
+qa_pass_line planlib-tests "$planlib_summary"
 
 # ccy's rootless-engine guard (Plan 00072), wired in by Plan 00081.
 #
@@ -199,13 +329,12 @@ printf '✓ planlib-tests: %s\n' "$planlib_summary"
 # engine's report, so it needs no podman and no daemon. 15 cases, ~0.03s.
 rootless_out=""
 if ! rootless_out="$(bash "$SCRIPT_DIR/test-ccy-rootless-guard.bash" 2>&1)"; then
-    echo "$rootless_out" >&2
-    echo "✗ QA FAILED: ccy rootless-engine guard unit tests" >&2
-    exit 1
+    qa_hard_gate_failed ccy-rootless-guard \
+        "ccy rootless-engine guard unit tests failed" \
+        "$rootless_out"
 fi
-rootless_summary=$(printf '%s' "$rootless_out" | grep -oE 'passed: [0-9]+') ||
-    rootless_summary="passed"
-printf '✓ ccy-rootless-guard: %s\n' "$rootless_summary"
+rootless_summary=$(qa_gate_case_count "$rootless_out")
+qa_pass_line ccy-rootless-guard "$rootless_summary"
 
 # select_token's per-mode answer to an unusable token pool (Plan 00048, CCY 3.50.0).
 #
@@ -222,13 +351,12 @@ printf '✓ ccy-rootless-guard: %s\n' "$rootless_summary"
 # the fix itself, because the edit is in a function ccy also calls.
 token_mode_out=""
 if ! token_mode_out="$(bash "$SCRIPT_DIR/test-ccy-token-mode.bash" 2>&1)"; then
-    echo "$token_mode_out" >&2
-    echo "✗ QA FAILED: ccy token-mode unit tests" >&2
-    exit 1
+    qa_hard_gate_failed ccy-token-mode \
+        "ccy token-mode unit tests failed" \
+        "$token_mode_out"
 fi
-token_mode_summary=$(printf '%s' "$token_mode_out" | grep -oE 'passed: [0-9]+') ||
-    token_mode_summary="passed"
-printf '✓ ccy-token-mode: %s\n' "$token_mode_summary"
+token_mode_summary=$(qa_gate_case_count "$token_mode_out")
+qa_pass_line ccy-token-mode "$token_mode_summary"
 
 # ccy's SSH identity resolution (Plan 00116, CCY 3.54.0).
 #
@@ -240,13 +368,12 @@ printf '✓ ccy-token-mode: %s\n' "$token_mode_summary"
 # against a stub ssh/ssh-add on PATH: no network, no agent, no real key.
 ssh_handling_out=""
 if ! ssh_handling_out="$(bash "$SCRIPT_DIR/test-ccy-ssh-handling.bash" 2>&1)"; then
-    echo "$ssh_handling_out" >&2
-    echo "✗ QA FAILED: ccy ssh-handling unit tests" >&2
-    exit 1
+    qa_hard_gate_failed ccy-ssh-handling \
+        "ccy ssh-handling unit tests failed" \
+        "$ssh_handling_out"
 fi
-ssh_handling_summary=$(printf '%s' "$ssh_handling_out" | grep -oE 'passed: [0-9]+') ||
-    ssh_handling_summary="passed"
-printf '✓ ccy-ssh-handling: %s\n' "$ssh_handling_summary"
+ssh_handling_summary=$(qa_gate_case_count "$ssh_handling_out")
+qa_pass_line ccy-ssh-handling "$ssh_handling_summary"
 
 # ccy's SELinux relabel decision (Plan 00118, CCY 3.55.0).
 #
@@ -256,26 +383,24 @@ printf '✓ ccy-ssh-handling: %s\n' "$ssh_handling_summary"
 # engine's own report, driven here across every pair a real host could produce.
 selinux_verdict_out=""
 if ! selinux_verdict_out="$(bash "$SCRIPT_DIR/test-ccy-selinux-verdict.bash" 2>&1)"; then
-    echo "$selinux_verdict_out" >&2
-    echo "✗ QA FAILED: ccy selinux-verdict unit tests" >&2
-    exit 1
+    qa_hard_gate_failed ccy-selinux-verdict \
+        "ccy selinux-verdict unit tests failed" \
+        "$selinux_verdict_out"
 fi
-selinux_verdict_summary=$(printf '%s' "$selinux_verdict_out" | grep -oE 'passed: [0-9]+') ||
-    selinux_verdict_summary="passed"
-printf '✓ ccy-selinux-verdict: %s\n' "$selinux_verdict_summary"
+selinux_verdict_summary=$(qa_gate_case_count "$selinux_verdict_out")
+qa_pass_line ccy-selinux-verdict "$selinux_verdict_summary"
 
 # gpu_device_flags (Plan 00120): the GPU device is handed to the container only where the host
 # has /dev/dri; a headless server used to abort the run. Driven with a present directory, an
 # absent path and a plain file, plus a check that the launcher consumes the array.
 gpu_device_out=""
 if ! gpu_device_out="$(bash "$SCRIPT_DIR/test-ccy-gpu-device.bash" 2>&1)"; then
-    echo "$gpu_device_out" >&2
-    echo "✗ QA FAILED: ccy gpu-device unit tests" >&2
-    exit 1
+    qa_hard_gate_failed ccy-gpu-device \
+        "ccy gpu-device unit tests failed" \
+        "$gpu_device_out"
 fi
-gpu_device_summary=$(printf '%s' "$gpu_device_out" | grep -oE 'passed: [0-9]+') ||
-    gpu_device_summary="passed"
-printf '✓ ccy-gpu-device: %s\n' "$gpu_device_summary"
+gpu_device_summary=$(qa_gate_case_count "$gpu_device_out")
+qa_pass_line ccy-gpu-device "$gpu_device_summary"
 
 # ccy_host_hostname (Plan 00121): CCY_HOST_HOSTNAME tells the container which MACHINE it is
 # on, since its own HOSTNAME is the container id. The value reaches a `podman run -e`
@@ -284,13 +409,12 @@ printf '✓ ccy-gpu-device: %s\n' "$gpu_device_summary"
 # nodename.
 host_hostname_out=""
 if ! host_hostname_out="$(bash "$SCRIPT_DIR/test-ccy-host-hostname.bash" 2>&1)"; then
-    echo "$host_hostname_out" >&2
-    echo "✗ QA FAILED: ccy host-hostname unit tests" >&2
-    exit 1
+    qa_hard_gate_failed ccy-host-hostname \
+        "ccy host-hostname unit tests failed" \
+        "$host_hostname_out"
 fi
-host_hostname_summary=$(printf '%s' "$host_hostname_out" | grep -oE 'passed: [0-9]+') ||
-    host_hostname_summary="passed"
-printf '✓ ccy-host-hostname: %s\n' "$host_hostname_summary"
+host_hostname_summary=$(qa_gate_case_count "$host_hostname_out")
+qa_pass_line ccy-host-hostname "$host_hostname_summary"
 
 # ccy session registry (Plan 00123): the records a systemd --user service acts on at boot,
 # unattended, to bring sessions back after a reboot. Three things it pins that nothing else
@@ -302,13 +426,12 @@ printf '✓ ccy-host-hostname: %s\n' "$host_hostname_summary"
 # row of parked shells that look restored.
 session_registry_out=""
 if ! session_registry_out="$(bash "$SCRIPT_DIR/test-ccy-session-registry.bash" 2>&1)"; then
-    echo "$session_registry_out" >&2
-    echo "✗ QA FAILED: ccy session-registry unit tests" >&2
-    exit 1
+    qa_hard_gate_failed ccy-session-registry \
+        "ccy session-registry unit tests failed" \
+        "$session_registry_out"
 fi
-session_registry_summary=$(printf '%s' "$session_registry_out" | grep -oE 'passed: [0-9]+') ||
-    session_registry_summary="passed"
-printf '✓ ccy-session-registry: %s\n' "$session_registry_summary"
+session_registry_summary=$(qa_gate_case_count "$session_registry_out")
+qa_pass_line ccy-session-registry "$session_registry_summary"
 
 # ccy session restore (Plan 00123): the boot-time service that decides which recorded sessions
 # come back. The least observable code in this repo — it runs once at boot, from a systemd
@@ -319,13 +442,12 @@ printf '✓ ccy-session-registry: %s\n' "$session_registry_summary"
 # each case asserting both the outcome and that the reason was recorded.
 session_restore_out=""
 if ! session_restore_out="$(bash "$SCRIPT_DIR/test-ccy-session-restore.bash" 2>&1)"; then
-    echo "$session_restore_out" >&2
-    echo "✗ QA FAILED: ccy session-restore unit tests" >&2
-    exit 1
+    qa_hard_gate_failed ccy-session-restore \
+        "ccy session-restore unit tests failed" \
+        "$session_restore_out"
 fi
-session_restore_summary=$(printf '%s' "$session_restore_out" | grep -oE 'passed: [0-9]+') ||
-    session_restore_summary="passed"
-printf '✓ ccy-session-restore: %s\n' "$session_restore_summary"
+session_restore_summary=$(qa_gate_case_count "$session_restore_out")
+qa_pass_line ccy-session-restore "$session_restore_summary"
 
 # ccy-sessions restore-status (Plan 00123): the command that embodies this feature's central
 # rule — "could not tell" and "nothing to do" must be different answers. Three separate
@@ -336,13 +458,12 @@ printf '✓ ccy-session-restore: %s\n' "$session_restore_summary"
 # systemctl/loginctl against the real script.
 sessions_status_out=""
 if ! sessions_status_out="$(bash "$SCRIPT_DIR/test-ccy-sessions-status.bash" 2>&1)"; then
-    echo "$sessions_status_out" >&2
-    echo "✗ QA FAILED: ccy-sessions restore-status unit tests" >&2
-    exit 1
+    qa_hard_gate_failed ccy-sessions-status \
+        "ccy-sessions restore-status unit tests failed" \
+        "$sessions_status_out"
 fi
-sessions_status_summary=$(printf '%s' "$sessions_status_out" | grep -oE 'passed: [0-9]+') ||
-    sessions_status_summary="passed"
-printf '✓ ccy-sessions-status: %s\n' "$sessions_status_summary"
+sessions_status_summary=$(qa_gate_case_count "$sessions_status_out")
+qa_pass_line ccy-sessions-status "$sessions_status_summary"
 
 # host_only_preflight (Plan 00121): the host-CLI gate on a scenario that puts a real GitHub
 # PAT into a guest. One of three independent gates — the other two are the bridge allowlist
@@ -350,13 +471,12 @@ printf '✓ ccy-sessions-status: %s\n' "$sessions_status_summary"
 # bridge marker, both deployed enumerations, and every way a secret file can be wrong.
 host_only_gate_out=""
 if ! host_only_gate_out="$(bash "$SCRIPT_DIR/test-vmtest-host-only-gate.bash" 2>&1)"; then
-    echo "$host_only_gate_out" >&2
-    echo "✗ QA FAILED: vmtest host-only gate unit tests" >&2
-    exit 1
+    qa_hard_gate_failed vmtest-host-only-gate \
+        "vmtest host-only gate unit tests failed" \
+        "$host_only_gate_out"
 fi
-host_only_gate_summary=$(printf '%s' "$host_only_gate_out" | grep -oE 'passed: [0-9]+') ||
-    host_only_gate_summary="passed"
-printf '✓ vmtest-host-only-gate: %s\n' "$host_only_gate_summary"
+host_only_gate_summary=$(qa_gate_case_count "$host_only_gate_out")
+qa_pass_line vmtest-host-only-gate "$host_only_gate_summary"
 
 # reboot_guest / guest_prepare (Plan 00109): whether a run is judged before or after a
 # fresh boot. A profile with no reboot mechanics, or a fixture that failed, would leave
@@ -364,13 +484,12 @@ printf '✓ vmtest-host-only-gate: %s\n' "$host_only_gate_summary"
 # scenario that never happened, with no symptom anywhere else.
 reboot_dispatch_out=""
 if ! reboot_dispatch_out="$(bash "$SCRIPT_DIR/test-vmtest-reboot-dispatch.bash" 2>&1)"; then
-    echo "$reboot_dispatch_out" >&2
-    echo "✗ QA FAILED: vmtest reboot dispatch unit tests" >&2
-    exit 1
+    qa_hard_gate_failed vmtest-reboot-dispatch \
+        "vmtest reboot dispatch unit tests failed" \
+        "$reboot_dispatch_out"
 fi
-reboot_dispatch_summary=$(printf '%s' "$reboot_dispatch_out" | grep -oE 'passed: [0-9]+') ||
-    reboot_dispatch_summary="passed"
-printf '✓ vmtest-reboot-dispatch: %s\n' "$reboot_dispatch_summary"
+reboot_dispatch_summary=$(qa_gate_case_count "$reboot_dispatch_out")
+qa_pass_line vmtest-reboot-dispatch "$reboot_dispatch_summary"
 
 # The kernel selection inside that fixture (Plan 00109). The only step of the route no
 # machine here can reach: this container has no dnf, rpm or grubby, and the only other
@@ -379,13 +498,12 @@ printf '✓ vmtest-reboot-dispatch: %s\n' "$reboot_dispatch_summary"
 # test vacuously false, and the fourteen checks after it judge nothing.
 kernel_selection_out=""
 if ! kernel_selection_out="$(bash "$SCRIPT_DIR/test-vmtest-kernel-selection.bash" 2>&1)"; then
-    echo "$kernel_selection_out" >&2
-    echo "✗ QA FAILED: vmtest kernel selection unit tests" >&2
-    exit 1
+    qa_hard_gate_failed vmtest-kernel-selection \
+        "vmtest kernel selection unit tests failed" \
+        "$kernel_selection_out"
 fi
-kernel_selection_summary=$(printf '%s' "$kernel_selection_out" | grep -oE 'passed: [0-9]+') ||
-    kernel_selection_summary="passed"
-printf '✓ vmtest-kernel-selection: %s\n' "$kernel_selection_summary"
+kernel_selection_summary=$(qa_gate_case_count "$kernel_selection_out")
+qa_pass_line vmtest-kernel-selection "$kernel_selection_summary"
 
 # The fixture→checker record contract (Plan 00109). One scenario's fixture writes a file
 # the checker sources, and that seam is invisible to every other gate: a value carrying a
@@ -393,13 +511,12 @@ printf '✓ vmtest-kernel-selection: %s\n' "$kernel_selection_summary"
 # still exists and the source still "happened".
 prepare_record_out=""
 if ! prepare_record_out="$(bash "$SCRIPT_DIR/test-vmtest-prepare-record.bash" 2>&1)"; then
-    echo "$prepare_record_out" >&2
-    echo "✗ QA FAILED: vmtest prepare-record contract tests" >&2
-    exit 1
+    qa_hard_gate_failed vmtest-prepare-record \
+        "vmtest prepare-record contract tests failed" \
+        "$prepare_record_out"
 fi
-prepare_record_summary=$(printf '%s' "$prepare_record_out" | grep -oE 'passed: [0-9]+') ||
-    prepare_record_summary="passed"
-printf '✓ vmtest-prepare-record: %s\n' "$prepare_record_summary"
+prepare_record_summary=$(qa_gate_case_count "$prepare_record_out")
+qa_pass_line vmtest-prepare-record "$prepare_record_summary"
 
 # The panel's decisions (Plan 00109): the shipped statusDocument.js and sections/health.js
 # driven against boot-stale, malformed and state-disagreeing documents. The contract gate
@@ -408,25 +525,23 @@ printf '✓ vmtest-prepare-record: %s\n' "$prepare_record_summary"
 # whole question.
 panel_sections_out=""
 if ! panel_sections_out="$(bash "$SCRIPT_DIR/test-panel-sections.bash" 2>&1)"; then
-    echo "$panel_sections_out" >&2
-    echo "✗ QA FAILED: panel section unit tests" >&2
-    exit 1
+    qa_hard_gate_failed panel-sections \
+        "panel section unit tests failed" \
+        "$panel_sections_out"
 fi
-panel_sections_summary=$(printf '%s' "$panel_sections_out" | grep -oE 'passed: [0-9]+') ||
-    panel_sections_summary="passed"
-printf '✓ panel-sections: %s\n' "$panel_sections_summary"
+panel_sections_summary=$(qa_gate_case_count "$panel_sections_out")
+qa_pass_line panel-sections "$panel_sections_summary"
 
 # hl_write_localhost_yml (Plan 00119): the headless localhost.yml writer, driven through the
 # 443 flag on/off/unset, the empty-identity path and the keep-existing-file promise.
 localhost_yml_out=""
 if ! localhost_yml_out="$(bash "$SCRIPT_DIR/test-run-bash-headless-localhost-yml.bash" 2>&1)"; then
-    echo "$localhost_yml_out" >&2
-    echo "✗ QA FAILED: run.bash headless localhost.yml unit tests" >&2
-    exit 1
+    qa_hard_gate_failed run-bash-headless-localhost-yml \
+        "run.bash headless localhost.yml unit tests failed" \
+        "$localhost_yml_out"
 fi
-localhost_yml_summary=$(printf '%s' "$localhost_yml_out" | grep -oE 'passed: [0-9]+') ||
-    localhost_yml_summary="passed"
-printf '✓ run-bash-headless-localhost-yml: %s\n' "$localhost_yml_summary"
+localhost_yml_summary=$(qa_gate_case_count "$localhost_yml_out")
+qa_pass_line run-bash-headless-localhost-yml "$localhost_yml_summary"
 
 # hl_ssh_agent_stop (Plan 00063 Task 3.4): the headless ssh-agent teardown, driven through a
 # clean kill, an already-gone agent and — the case that matters — an agent that SURVIVES the
@@ -435,13 +550,12 @@ printf '✓ run-bash-headless-localhost-yml: %s\n' "$localhost_yml_summary"
 # the run while exiting 0.
 ssh_agent_out=""
 if ! ssh_agent_out="$(bash "$SCRIPT_DIR/test-run-bash-ssh-agent-teardown.bash" 2>&1)"; then
-    echo "$ssh_agent_out" >&2
-    echo "✗ QA FAILED: run.bash ssh-agent teardown unit tests" >&2
-    exit 1
+    qa_hard_gate_failed run-bash-ssh-agent-teardown \
+        "run.bash ssh-agent teardown unit tests failed" \
+        "$ssh_agent_out"
 fi
-ssh_agent_summary=$(printf '%s' "$ssh_agent_out" | grep -oE 'passed: [0-9]+') ||
-    ssh_agent_summary="passed"
-printf '✓ run-bash-ssh-agent-teardown: %s\n' "$ssh_agent_summary"
+ssh_agent_summary=$(qa_gate_case_count "$ssh_agent_out")
+qa_pass_line run-bash-ssh-agent-teardown "$ssh_agent_summary"
 
 # The run-log secret scrubber (Plan 00121). Redaction is the easy half; what this gate exists
 # for is `scrub_verify` REFUSING an artefact where redaction missed a secret. A scrubber is
@@ -450,13 +564,12 @@ printf '✓ run-bash-ssh-agent-teardown: %s\n' "$ssh_agent_summary"
 # about one of the secrets.
 run_log_scrub_out=""
 if ! run_log_scrub_out="$(bash "$SCRIPT_DIR/test-run-log-scrub.bash" 2>&1)"; then
-    echo "$run_log_scrub_out" >&2
-    echo "✗ QA FAILED: run-log secret scrubber unit tests" >&2
-    exit 1
+    qa_hard_gate_failed run-log-scrub \
+        "run-log secret scrubber unit tests failed" \
+        "$run_log_scrub_out"
 fi
-run_log_scrub_summary=$(printf '%s' "$run_log_scrub_out" | grep -oE 'passed: [0-9]+') ||
-    run_log_scrub_summary="passed"
-printf '✓ run-log-scrub: %s\n' "$run_log_scrub_summary"
+run_log_scrub_summary=$(qa_gate_case_count "$run_log_scrub_out")
+qa_pass_line run-log-scrub "$run_log_scrub_summary"
 
 # The shared freeze library (Plan 00122 Task 4.2), which podfreeze and lxcfreeze both
 # source: the group menu, the drill-down, the derived verb, the dry run and the act loop.
@@ -468,13 +581,12 @@ printf '✓ run-log-scrub: %s\n' "$run_log_scrub_summary"
 # session.
 freezelib_out=""
 if ! freezelib_out="$(bash "$SCRIPT_DIR/test-freezelib.bash" 2>&1)"; then
-    echo "$freezelib_out" >&2
-    echo "✗ QA FAILED: shared freeze library unit tests" >&2
-    exit 1
+    qa_hard_gate_failed freezelib \
+        "shared freeze library unit tests failed" \
+        "$freezelib_out"
 fi
-freezelib_summary=$(printf '%s' "$freezelib_out" | grep -oE 'passed: [0-9]+') ||
-    freezelib_summary="passed"
-printf '✓ freezelib: %s\n' "$freezelib_summary"
+freezelib_summary=$(qa_gate_case_count "$freezelib_out")
+qa_pass_line freezelib "$freezelib_summary"
 
 # lxcfreeze's decisions (Plan 00122). The tool itself cannot run here — this container has
 # no lxc, and a freeze tool that would report an empty machine from inside a container
@@ -485,13 +597,12 @@ printf '✓ freezelib: %s\n' "$freezelib_summary"
 # having no network — both would be a confident claim about a host from a probe that failed.
 lxcfreeze_out=""
 if ! lxcfreeze_out="$(bash "$SCRIPT_DIR/test-lxcfreeze.bash" 2>&1)"; then
-    echo "$lxcfreeze_out" >&2
-    echo "✗ QA FAILED: lxcfreeze decision unit tests" >&2
-    exit 1
+    qa_hard_gate_failed lxcfreeze \
+        "lxcfreeze decision unit tests failed" \
+        "$lxcfreeze_out"
 fi
-lxcfreeze_summary=$(printf '%s' "$lxcfreeze_out" | grep -oE 'passed: [0-9]+') ||
-    lxcfreeze_summary="passed"
-printf '✓ lxcfreeze: %s\n' "$lxcfreeze_summary"
+lxcfreeze_summary=$(qa_gate_case_count "$lxcfreeze_out")
+qa_pass_line lxcfreeze "$lxcfreeze_summary"
 
 # podfreeze's decisions (Plan 00122 Task 4.1), pinned BEFORE the shared library is
 # extracted out of it — a suite written after that move would only prove the refactor
@@ -503,13 +614,12 @@ printf '✓ lxcfreeze: %s\n' "$lxcfreeze_summary"
 # the menu can re-prompt instead of ending the session.
 podfreeze_out=""
 if ! podfreeze_out="$(bash "$SCRIPT_DIR/test-podfreeze.bash" 2>&1)"; then
-    echo "$podfreeze_out" >&2
-    echo "✗ QA FAILED: podfreeze decision unit tests" >&2
-    exit 1
+    qa_hard_gate_failed podfreeze \
+        "podfreeze decision unit tests failed" \
+        "$podfreeze_out"
 fi
-podfreeze_summary=$(printf '%s' "$podfreeze_out" | grep -oE 'passed: [0-9]+') ||
-    podfreeze_summary="passed"
-printf '✓ podfreeze: %s\n' "$podfreeze_summary"
+podfreeze_summary=$(qa_gate_case_count "$podfreeze_out")
+qa_pass_line podfreeze "$podfreeze_summary"
 
 # The server login snippet (Plan 00109 Task 3.2). It is the first thing this repo puts in
 # ~/.bashrc-includes that PRINTS, and bash reads ~/.bashrc for a non-interactive shell too
@@ -518,13 +628,12 @@ printf '✓ podfreeze: %s\n' "$podfreeze_summary"
 # snippet is silent for the wrong reason and the assertion passes with the guard deleted.
 login_snippet_out=""
 if ! login_snippet_out="$(bash "$SCRIPT_DIR/test-host-health-login-snippet.bash" 2>&1)"; then
-    echo "$login_snippet_out" >&2
-    echo "✗ QA FAILED: host-health login snippet unit tests" >&2
-    exit 1
+    qa_hard_gate_failed host-health-login-snippet \
+        "host-health login snippet unit tests failed" \
+        "$login_snippet_out"
 fi
-login_snippet_summary=$(printf '%s' "$login_snippet_out" | grep -oE 'passed: [0-9]+') ||
-    login_snippet_summary="passed"
-printf '✓ host-health-login-snippet: %s\n' "$login_snippet_summary"
+login_snippet_summary=$(qa_gate_case_count "$login_snippet_out")
+qa_pass_line host-health-login-snippet "$login_snippet_summary"
 
 # The fail-fast directive pattern's own unit suite (Plan 00081 F10).
 #
@@ -534,25 +643,57 @@ printf '✓ host-health-login-snippet: %s\n' "$login_snippet_summary"
 # definitions, read out of qa-ansible.bash rather than copied.
 failfast_out=""
 if ! failfast_out="$(bash "$SCRIPT_DIR/test-qa-ansible-failfast.bash" 2>&1)"; then
-    echo "$failfast_out" >&2
-    echo "✗ QA FAILED: fail-fast directive pattern unit tests" >&2
-    exit 1
+    qa_hard_gate_failed failfast-pattern-tests \
+        "fail-fast directive pattern unit tests failed" \
+        "$failfast_out"
 fi
-failfast_summary=$(printf '%s' "$failfast_out" | grep -oE 'passed: [0-9]+') ||
-    failfast_summary="passed"
-printf '✓ failfast-pattern-tests: %s\n' "$failfast_summary"
+failfast_summary=$(qa_gate_case_count "$failfast_out")
+qa_pass_line failfast-pattern-tests "$failfast_summary"
+
+# The reader behind THIS script's own helper-tests line (Plan 00125).
+#
+# Same argument as the gate above, one level closer to home: that line has been wrong four
+# times, each time by becoming unable to tell a clean result from a blind one, and each
+# hand-check died with the session that ran it. The suite drives the sourced function, and
+# its last case runs the real runner end to end, so a format change on either side is what
+# turns it red.
+helper_summary_out=""
+if ! helper_summary_out="$(bash "$SCRIPT_DIR/test-qa-helper-summary.bash" 2>&1)"; then
+    qa_hard_gate_failed helper-counts-reader \
+        "helper-tests counts reader unit tests failed" \
+        "$helper_summary_out"
+fi
+helper_summary_tests=$(qa_gate_case_count "$helper_summary_out")
+qa_pass_line helper-counts-reader "$helper_summary_tests"
+
+# The docs gate's own exit codes, driven against fixture trees (Plan 00125).
+#
+# `qa-docs.bash` documents three exit codes and only one of them had ever been produced by
+# running it: the other two need a tree this repository is not. The one that matters is the
+# exit 2 that stops a CRASHED checker reading as a clean run — the interpreter exits 1, which
+# that gate treats as its ordinary findings status, and only the payload validation turns it
+# into a refusal. Two hops, neither asserted, either of which would make a traceback look
+# like "no findings".
+docs_exit_out=""
+if ! docs_exit_out="$(bash "$SCRIPT_DIR/test-qa-docs-exit-codes.bash" 2>&1)"; then
+    qa_hard_gate_failed docs-exit-codes \
+        "docs gate exit-code contract failed" \
+        "$docs_exit_out"
+fi
+docs_exit_summary=$(qa_gate_case_count "$docs_exit_out")
+qa_pass_line docs-exit-codes "$docs_exit_summary"
 
 compat_out=""
 if ! compat_out="$(cd "$SCRIPT_DIR/.." && python3 -m helpers.gnome.check_extension_compat 2>&1)"; then
-    echo "$compat_out" >&2
-    echo "✗ QA FAILED: an extension does not declare the GNOME Shell this Fedora ships" >&2
-    exit 1
+    qa_hard_gate_failed extension-compat \
+        "an extension does not declare the GNOME Shell this Fedora ships" \
+        "$compat_out"
 fi
 # Print the pass line, for the same reason the drift gate does: a gate whose only
 # visible output is a failure is indistinguishable from a gate that is not
 # running — which is exactly how these two spent months documented but unrun.
-compat_summary=$(printf '%s' "$compat_out" | grep -E '^All [0-9]+ extension') || compat_summary="OK"
-printf '✓ extension-compat: %s\n' "$compat_summary"
+compat_summary=$(qa_gate_detail "$compat_out" 'All [0-9]+ extension[(]s[)] cover the GNOME Shell that Fedora [0-9]+ ships')
+qa_pass_line extension-compat "$compat_summary"
 
 # The host status document is written by Python and read by the panel's JavaScript, so
 # its file name, schema number and three state strings are each declared twice. A
@@ -562,13 +703,12 @@ printf '✓ extension-compat: %s\n' "$compat_summary"
 # cannot find. Nothing at runtime can catch that, which is what makes it a gate.
 panel_contract_out=""
 if ! panel_contract_out="$(cd "$SCRIPT_DIR/.." && python3 -m helpers.gnome.check_panel_contract . 2>&1)"; then
-    echo "$panel_contract_out" >&2
-    echo "✗ QA FAILED: the panel and the status document producer disagree" >&2
-    exit 1
+    qa_hard_gate_failed panel-contract \
+        "the panel and the status document producer disagree" \
+        "$panel_contract_out"
 fi
-panel_contract_summary=$(printf '%s' "$panel_contract_out" | grep -E '^PANEL-CONTRACT-OK') ||
-    panel_contract_summary="OK"
-printf '✓ panel-contract: %s\n' "${panel_contract_summary#PANEL-CONTRACT-OK }"
+panel_contract_summary=$(qa_gate_detail "$panel_contract_out" '[0-9]+ constant[(]s[)] agree between .+')
+qa_pass_line panel-contract "$panel_contract_summary"
 
 # The VM-test scenario manifest (Plan 00110). vars/vm-test-scenarios.yml is the
 # source of the bridge's scenario allowlist, and the stdlib-only helper that
@@ -578,11 +718,19 @@ printf '✓ panel-contract: %s\n' "${panel_contract_summary#PANEL-CONTRACT-OK }"
 # file, so a validator that stopped judging fails the gate rather than passing it.
 manifest_out=""
 if ! manifest_out="$(bash "$SCRIPT_DIR/qa-vmtest-manifest.bash" 2>&1)"; then
-    echo "$manifest_out" >&2
-    echo "✗ QA FAILED: the VM-test scenario manifest is not valid" >&2
-    exit 1
+    qa_hard_gate_failed vmtest-manifest \
+        "the VM-test scenario manifest is not valid" \
+        "$manifest_out"
 fi
-printf '✓ vmtest-manifest: %s\n' "$manifest_out"
+# THIS GATE PRINTS THREE LINES, and interpolating the capture made the stage line three
+# lines long — `verdicts.py` keeps the first and drops the other two, both of which are
+# coverage measurements. Three scoped reads joined into one line rather than one chosen
+# line, because each is a different measurement and picking one would discard two on
+# purpose where the old code discarded them by accident.
+manifest_counts=$(qa_gate_detail "$manifest_out" 'vars/[a-z-]+[.]yml: scenarios=[0-9]+ runnable=[0-9]+ bridge=[0-9]+ host_only=[0-9]+ bases=[0-9]+')
+manifest_checkers=$(qa_gate_detail "$manifest_out" '[0-9]+ scenario[(]s[)] agree with their guest checker')
+manifest_reboot=$(qa_gate_detail "$manifest_out" '[0-9]+ scenario fixture[(]s[)] run before a declared reboot')
+qa_pass_line vmtest-manifest "$manifest_counts; $manifest_checkers; $manifest_reboot"
 
 # The upstream version-pin manifest (Plan 00109). vars/version-pins.yml says where
 # every pinned version lives, and neither of its two consumers runs here — the
@@ -592,15 +740,23 @@ printf '✓ vmtest-manifest: %s\n' "$manifest_out"
 # renamed var reports the old value for ever. Same hard, non-merged shape as above.
 pins_out=""
 if ! pins_out="$(bash "$SCRIPT_DIR/qa-version-pins.bash" 2>&1)"; then
-    echo "$pins_out" >&2
-    echo "✗ QA FAILED: the upstream version-pin manifest is not valid" >&2
-    exit 1
+    qa_hard_gate_failed version-pins \
+        "the upstream version-pin manifest is not valid" \
+        "$pins_out"
 fi
-printf '✓ version-pins: %s\n' "$pins_out"
+pins_summary=$(qa_gate_detail "$pins_out" 'vars/[a-z-]+[.]yml: VERSION-PINS-OK .+')
+qa_pass_line version-pins "$pins_summary"
 
-# Merge JSON from all checks
+# Merge JSON from all checks.
+#
+# HARD GATES ARE NOT IN THIS JSON and cannot be: the merge below is positional over the seven
+# temp files, and each of those gates writes its own document. A hard gate's verdict lives in
+# its stage line and in HARD_FAILED, which is why the final summary reads both rather than
+# taking `.summary.failed` as the whole story.
 STATUS="pass"
-[[ $FAILED -gt 0 ]] && STATUS="fail"
+if [[ $FAILED -gt 0 || ${#HARD_FAILED[@]} -gt 0 ]]; then
+    STATUS="fail"
+fi
 
 jq -s \
     --arg status "$STATUS" \
@@ -623,14 +779,24 @@ jq -s \
         }
     }' "$TMP_BASH" "$TMP_PYTHON" "$TMP_PATTERNS" "$TMP_ANSIBLE" "$TMP_ANSIBLE_SYNTAX" "$TMP_JS" "$TMP_DOCS" > "$JSON_OUT"
 
-# Final terse summary
+# Final terse summary.
+#
+# It names the failing HARD GATES rather than only counting file errors, because those two
+# numbers answer different questions and the old line answered only one of them. `.summary`
+# covers the seven merged stages; a hard gate contributes no files, so a run whose only
+# failures were hard gates used to abort long before this line and never reach it at all.
 TOTAL=$(jq '.summary.total' "$JSON_OUT")
-if [[ $FAILED -eq 0 ]]; then
+if [[ $FAILED -eq 0 && ${#HARD_FAILED[@]} -eq 0 ]]; then
     echo "✓ QA passed: $TOTAL files checked"
     exit 0
-else
-    NERRORS=$(jq '.summary.failed' "$JSON_OUT")
-    echo "✗ QA FAILED: $NERRORS errors in $TOTAL files"
-    echo "  Details: jq '.failures[]' $JSON_OUT"
-    exit 1
 fi
+
+NERRORS=$(jq '.summary.failed' "$JSON_OUT")
+echo "✗ QA FAILED: $NERRORS errors in $TOTAL files"
+if [[ ${#HARD_FAILED[@]} -gt 0 ]]; then
+    # Every gate ran, so this list is the whole of what is broken — not the first thing that
+    # happened to break. That is the difference this task exists for.
+    echo "  ${#HARD_FAILED[@]} gate(s) failed: ${HARD_FAILED[*]}"
+fi
+echo "  Details: jq '.failures[]' $JSON_OUT"
+exit 1

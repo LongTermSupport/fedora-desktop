@@ -807,6 +807,11 @@ The `fedora-desktop` GNOME Shell panel — **a read-only surface**:
   status document
 - It renders; it runs no check, applies no fix and launches no play. Re-running a play is
   a human decision, and a clickable surface is where that boundary erodes
+- **When there are findings it offers the Claude Code handoff command**, one row at the
+  bottom of the health section. Activating it **copies** the command — `claude` reads the
+  repository it starts in, and the panel does not know where the checkout is, so a launch
+  would open it somewhere it cannot see the playbooks. No row at all when there is no
+  handoff file; the findings are still listed either way
 - **An absent document reads as `unavailable`, never as healthy.** "Nothing is known
   about this host" is a third state, distinct from "nothing is wrong" — conflating them is
   the failure this plan exists for
@@ -1014,6 +1019,23 @@ below:
 - A `STOPPED` container is not listed: it can be neither frozen nor thawed
 - Freezing is the **cgroup freezer, not suspend-to-disk**: frozen containers do not
   survive a reboot
+- **Thaw renews the DHCP lease** inside each container it thaws, via `lxc-attach` and
+  NetworkManager. The freezer stops the DHCP client too, so a freeze longer than the
+  one-hour lease would otherwise leave the container unreachable until
+  NetworkManager's own retry, minutes later
+- **Thaw therefore needs NetworkManager inside every container it thaws.** One using
+  `dhclient`, `systemd-networkd` or a static address has no `nmcli`, so the renewal
+  fails and `lxcfreeze thaw` exits non-zero — naming the container, and saying it IS
+  thawed. Loud rather than silent, but it is a new way for a successful thaw to report
+  failure
+- **The list carries an `IPV4` column** (`lxc-info -iH`), blank when the container has
+  no address. A blank beside `RUNNING` is exactly that expired-lease symptom, so the
+  cell is left empty rather than filled with a placeholder word — and a probe that
+  FAILED prints `(unknown)` instead, so a column that could not answer never looks like
+  a machine that lost every address
+- **Freezing says what it costs** before the freeze: ssh sessions into the container,
+  and any agent socket forwarded over one, die with the frozen TCP connection. The
+  address comes back on thaw; the connections do not, so reconnect
 - Separate from `play-podfreeze.yml` because this repo's LXC is rootful and Podman is
   not, so one tool would prompt for root on every menu open. What the two genuinely
   share — the menu and the decisions — is one library, deployed by one task file both
@@ -1025,9 +1047,10 @@ below:
 `podfreeze` — freeze (pause) and thaw (unpause) Podman containers. The LXC
 counterpart is `play-lxcfreeze.yml` above:
 
-- Deploys `~/.local/bin/podfreeze`, the `~/.local/lib/freeze/freeze-common.bash`
-  library it and `lxcfreeze` both source, plus `fzf` (the picker is optional — a
-  plain numbered menu is used without it)
+- Deploys `~/.local/bin/podfreeze` and the `~/.local/lib/freeze/freeze-common.bash`
+  library it and `lxcfreeze` both source. `fzf` comes with the library, so either
+  play alone gives both tools the same picker (it is optional — a plain numbered
+  menu is used without it)
 - Targets a container by name, a whole network (`--network NET`), every CCY
   (Claude YOLO) session (`--ccy`), or everything (`--all`)
 - **Targets by session identity too** — `--github ID`, `--token LABEL`,

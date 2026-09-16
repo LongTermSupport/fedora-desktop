@@ -73,6 +73,7 @@ esac
 # the shared ones the library must have brought in through the tool's `source`. A library
 # that failed to load would otherwise surface as a pile of confusing case failures.
 for fn in lxcf_parse_state lxcf_parse_bridge lxcf_bridge_label bridge_names \
+    lxcf_parse_ipv4 lxcf_ipv4_label renew_dhcp_lease \
     select_bridge load_inventory do_list assert_lxc assert_sudo \
     freeze_hook_preflight freeze_hook_refresh freeze_hook_menu_rows \
     freeze_hook_select freeze_hook_act freeze_hook_table_header freeze_hook_table_row \
@@ -166,6 +167,13 @@ fixture() {
     INV_NAME=(zulu mike alpha kilo bravo)
     INV_STATE=(FROZEN FROZEN RUNNING FROZEN RUNNING)
     INV_BRIDGE=(lxcbr0 virbr1 lxcbr0 "$BRIDGE_NONE" virbr1)
+    # RFC 5737 documentation addresses, per CLAUDE/ExampleValues.md — a real 10/8 or
+    # 192.168/16 address here would be a private IP committed to a public repository.
+    #
+    # `mike` has no address while FROZEN and `kilo` has none because it is on no bridge:
+    # two different reasons for the same blank cell, and neither may be mistaken for a
+    # running container that lost its lease — which is the symptom this column exists for.
+    INV_IPV4=(192.0.2.11 "" 192.0.2.12 "" 198.51.100.5)
     ACTION=""
     SELECTED=()
 }
@@ -360,11 +368,48 @@ fi
 echo ""
 echo "=== the table hook: the BRIDGE column is this tool's ==="
 fixture
-eq "the header names it"      "$(freeze_hook_table_header)" "BRIDGE"
-eq "a row carries the bridge" "$(freeze_hook_table_row 0)"  "lxcbr0"
+# The column is PADDED, not bare: the drill-down menu prints the verb after it, so an
+# unpadded value there makes the verb column ragged. `trim` compares the content and
+# the width assertions below compare the shape, because asserting only the trimmed
+# value would pass against the unpadded version this replaced.
+trim() { local s="$1"; s="${s%"${s##*[![:space:]]}"}"; printf '%s' "$s"; }
+# The row is two fixed-width columns now, so trimming the whole thing tests neither of
+# them: it returns the LAST non-blank cell, which passes for the wrong reason whenever the
+# one being asserted happens to be last. Each column is cut by position instead.
+#
+# The width comes from the TOOL's own constant, not a 16 repeated here. Three copies of a
+# number — header, row, and this cutter — is the "two things that must agree" shape, and
+# the cutter's copy is the one that would silently start reading the wrong bytes.
+col() {
+    local row="$1" n="$2"
+    trim "${row:$(( (n - 1) * TABLE_COL_WIDTH )):TABLE_COL_WIDTH}"
+}
+eq "the header names both columns" "$(freeze_hook_table_header)" \
+    "$(printf "%-${TABLE_COL_WIDTH}s%-${TABLE_COL_WIDTH}s" BRIDGE IPV4)"
+eq "a row carries the bridge" "$(col "$(freeze_hook_table_row 0)" 1)"  "lxcbr0"
 # The label for a container on no bridge is shown VERBATIM rather than blanked: a blank
 # cell reads as "unknown", and the whole point of the two labels is that they are not.
-eq "and the no-network label, verbatim" "$(freeze_hook_table_row 3)" "$BRIDGE_NONE"
+eq "and the no-network label, verbatim" "$(col "$(freeze_hook_table_row 3)" 1)" "$BRIDGE_NONE"
+# Header and row must be the SAME width or the header stops sitting over its column,
+# and both must be wide enough for the longest value the column can hold.
+eq "the header and a row are the same width" \
+    "$(freeze_hook_table_header | wc -c)" "$(freeze_hook_table_row 0 | wc -c)"
+# The BRIDGE COLUMN, not the whole row. Measuring the row against one column's longest
+# label was loose with one column and is vacuous with two: a second 16-wide column pads
+# the total, so narrowing BRIDGE to `%-8s` would ragged the table and still pass. The
+# cut is taken before trimming, so what is measured is the field rather than its content.
+fixture
+INV_BRIDGE[0]="$BRIDGE_UNREADABLE"
+widest_row="$(freeze_hook_table_row 0)"
+bridge_field="${widest_row:0:TABLE_COL_WIDTH}"
+if [ "${#bridge_field}" -gt "${#BRIDGE_UNREADABLE}" ]; then
+    pass "the bridge column is wider than the longest label it can hold"
+else
+    fail "the bridge column is wider than the longest label it can hold" \
+        "field ${#bridge_field} <= label ${#BRIDGE_UNREADABLE}, so they would touch"
+fi
+eq "and the longest label survives the column intact" \
+    "$(col "$(freeze_hook_table_row 0)" 1)" "$BRIDGE_UNREADABLE"
 # print_table is the library's, and this is the assembled result — the shared columns
 # plus this engine's, which is the seam most likely to be wired up wrong.
 fixture
@@ -374,6 +419,105 @@ contains "and this engine's column"                   "$table" "BRIDGE"
 contains "a row names its container"                  "$table" "alpha"
 contains "with its state"                             "$table" "RUNNING"
 contains "and its bridge"                             "$table" "lxcbr0"
+contains "and its address"                            "$table" "192.0.2.12"
+
+echo ""
+echo "=== the IPV4 column: a blank next to RUNNING is the symptom, so it must be visible ==="
+# The inventory arrays are index-parallel and nothing enforces that, so a fixture one
+# entry short would silently give every row past it the wrong address.
+fixture
+eq "the fixture's addresses are index-parallel with its names" \
+    "${#INV_IPV4[@]}" "${#INV_NAME[@]}"
+# Task 5.3. A thawed container whose DHCP lease expired is RUNNING with no address, and
+# the list is where someone looks first — but only if the list carries the address at all.
+fixture
+eq "a row carries the address"        "$(col "$(freeze_hook_table_row 2)" 2)" "192.0.2.12"
+# BLANK, not a placeholder. `lxc-info -iH` prints nothing for a container with no
+# address, and inventing a word for it would make "no address" and "this tool did not
+# ask" look alike — the distinction BRIDGE_NONE/BRIDGE_UNREADABLE exists to preserve.
+eq "no address prints as blank"       "$(col "$(freeze_hook_table_row 1)" 2)" ""
+# …and the row still carries its bridge, so the blank is the ADDRESS being absent rather
+# than the row being short. A single-column assertion cannot tell those apart.
+eq "the blank row still has its bridge" "$(col "$(freeze_hook_table_row 1)" 1)" "virbr1"
+eq "the header and a row stay the same width" \
+    "$(freeze_hook_table_header | wc -c)" "$(freeze_hook_table_row 1 | wc -c)"
+
+# The parser, against what `lxc-info -n NAME -iH` really prints.
+eq "one IPv4 line"          "$(lxcf_parse_ipv4 '192.0.2.11')"            "192.0.2.11"
+eq "surrounding whitespace is trimmed" "$(lxcf_parse_ipv4 '  192.0.2.11  ')" "192.0.2.11"
+eq "no address at all"      "$(lxcf_parse_ipv4 '')"                      ""
+# `-i` prints every address, and on a dual-stack container the IPv6 one can come first.
+# Taking "the first line" would put an IPv6 address in a column headed IPV4.
+eq "IPv6 first is skipped"  "$(lxcf_parse_ipv4 "$(printf '2001:db8::1\n192.0.2.11\n')")" "192.0.2.11"
+eq "IPv6 only is no IPv4"   "$(lxcf_parse_ipv4 '2001:db8::1')"           ""
+# Two IPv4 addresses is a real shape (two interfaces). One column shows the first, which
+# is a choice rather than an accident — the drill-down is where the rest belong.
+eq "the first IPv4 of several" \
+    "$(lxcf_parse_ipv4 "$(printf '192.0.2.11\n198.51.100.5\n')")" "192.0.2.11"
+# lxc-info's failure text must never be shown as if it were an address.
+eq "an error message is not an address" \
+    "$(lxcf_parse_ipv4 'lxc-info: container not running')" ""
+
+# A grep that FAILED is not a container with no address. grep exits 1 for "no match",
+# which is an answer; anything above that is grep itself breaking, and returning "" for
+# it would report "no address" from a probe that never ran. The tool dies instead — and
+# without this case, replacing the `die` with an empty printf leaves the suite green.
+grep() { return 2; }
+if ipv4_out="$(lxcf_parse_ipv4 '192.0.2.11' 2>&1)"; then
+    fail "a broken grep is fatal, not an empty address" "it returned '$ipv4_out'"
+else
+    pass "a broken grep is fatal, not an empty address"
+    contains "and says grep is what failed" "$ipv4_out" "grep failed (status 2)"
+fi
+unset -f grep
+
+echo ""
+echo "=== the IPV4 label: 'no address' and 'could not ask' are not one answer ==="
+# The distinction lxcf_bridge_label already draws, and it matters MORE here. A blank
+# IPV4 cell is load-bearing — it IS the expired-lease symptom — so a failed probe that
+# printed blank would make a column that cannot answer look like a machine that has lost
+# every address. An `lxc-info` whose `-i` is unavailable would do exactly that to every
+# row at once, and nothing would say the column was blind.
+eq "an address is the address"    "$(lxcf_ipv4_label 0 '192.0.2.11')"  "192.0.2.11"
+eq "a readable probe with no address is BLANK" "$(lxcf_ipv4_label 0 '')" ""
+eq "a failed probe is not blank"  "$(lxcf_ipv4_label 1 'lxc-info: unrecognised option')" \
+    "$IPV4_UNREADABLE"
+eq "a non-1 failure is also unreadable" "$(lxcf_ipv4_label 126 '')" "$IPV4_UNREADABLE"
+# The two must stay distinguishable, which a shared empty value would end.
+if [ -z "$IPV4_UNREADABLE" ]; then
+    fail "the unreadable label is not itself blank" "IPV4_UNREADABLE is empty"
+else
+    pass "the unreadable label is not itself blank"
+fi
+# A label that filled the column would run into the next one, which is exactly what
+# `(could not read)` did before the width was widened past it.
+if [ "${#IPV4_UNREADABLE}" -lt "$TABLE_COL_WIDTH" ]; then
+    pass "and it fits the column with a gap after it"
+else
+    fail "and it fits the column with a gap after it" \
+        "${#IPV4_UNREADABLE} characters in a 16-wide column"
+fi
+# It reaches the table, not just the label function.
+fixture
+INV_IPV4[1]="$IPV4_UNREADABLE"
+eq "an unreadable address reaches the row" \
+    "$(col "$(freeze_hook_table_row 1)" 2)" "$IPV4_UNREADABLE"
+
+echo ""
+echo "=== the freeze-time note: what a long freeze costs, said before it costs it ==="
+# Task 5.4. Thaw renews the lease, so the container comes back reachable — but every ssh
+# session into it, and any agent socket forwarded over one, died with the frozen TCP
+# connection. The user otherwise learns this from a `git push` that hangs.
+if [ -n "${FREEZE_FREEZE_NOTE:-}" ]; then
+    pass "the tool declares a freeze-time note"
+else
+    fail "the tool declares a freeze-time note" "FREEZE_FREEZE_NOTE is empty or unset"
+fi
+contains "it names the connection loss"  "$FREEZE_FREEZE_NOTE" "ssh"
+contains "and says reconnecting is the fix" "$FREEZE_FREEZE_NOTE" "Reconnect"
+# The lease renewal is the half that DOES survive, and saying only the bad half would
+# send someone hunting a network fault that thaw already handled.
+contains "and that the lease itself is renewed" "$FREEZE_FREEZE_NOTE" "lease"
 
 echo ""
 echo "=== the menu hook: groups, and no per-container rows ==="
@@ -452,6 +596,119 @@ for hook_i in "${!hook_lines[@]}"; do
     esac
 done
 contains "the freeze branch is the one that freezes" "$freeze_branch" "lxc-freeze -n"
+
+# Thaw does one more thing than freeze undoes: it renews the container's DHCP
+# lease, because a freeze longer than the lease leaves the container thawed but
+# unreachable for minutes. The renewal must sit on the thaw branch only — a freeze
+# that reconnected the network would drop the address it is about to freeze.
+if [[ "$freeze_branch" == *renew_dhcp_lease* ]]; then
+    fail "and freeze does not touch the network" "the freeze branch renews the lease"
+else
+    pass "and freeze does not touch the network"
+fi
+renew_body="$(declare -f renew_dhcp_lease)"
+contains "the renewal runs inside the container"        "$renew_body" "lxc-attach -n"
+contains "through NetworkManager"                       "$renew_body" "nmcli device connect"
+contains "on the devices it reports, not an assumed one" "$renew_body" "nmcli -t -f DEVICE,TYPE device status"
+contains "and a failed renewal says the container IS thawed" "$renew_body" "thawed, but"
+
+echo ""
+echo "=== the act hook, RUN: the thaw's status is the hook's status ==="
+# The hook IS run here. The earlier claim that it could not be — "it shells out to sudo,
+# and this container has no lxc" — was wrong, and the wrongness mattered: reading the
+# source for `renew_dhcp_lease` on the line AFTER `lxc-unfreeze` asserts that two lines
+# are adjacent, which is not the property. What matters is whether the FIRST one's exit
+# status survives, and a text scan cannot tell the broken form from the fixed one. It
+# takes a `sudo` shell function to find out.
+#
+# Why this is a defect that reaches a user: the library calls the hook as
+# `if out="$(freeze_hook_act …)"`, and bash SUSPENDS errexit inside a command
+# substitution whose value is being tested. So the hook returns whatever its last command
+# returned — and with an unguarded renewal after a failed unfreeze, a reconnect that
+# happens to succeed makes `lxcfreeze thaw` print `✓ name` and exit 0 for a container
+# that is still frozen.
+#
+# `sudo` is defined as a function rather than a script on PATH so the stub is visible to
+# the hook without touching the filesystem, and `unset` at the end so nothing after this
+# block inherits it. Output goes to a file rather than /dev/null: the assertions below
+# read what the hook said, and a discarded stream cannot be asserted on.
+# The log is a FILE, not a variable. `renew_dhcp_lease` captures each `lxc-attach` with
+# `$( … )`, which is a subshell — a variable appended to in there never reaches the
+# caller, so a variable-based log would show the reconnect never happening and an
+# assertion on it would pass for the wrong reason.
+act_log="$work/act-sudo.log"
+sudo() {
+    printf '%s\n' "$*" >> "$act_log"
+    case "$*" in
+        *"lxc-unfreeze"*) return "$STUB_UNFREEZE_RC" ;;
+        *"nmcli -t -f DEVICE,TYPE device status"*) printf 'eth0:ethernet\n'; return 0 ;;
+        *"nmcli device connect"*) return "$STUB_CONNECT_RC" ;;
+        *"lxc-freeze"*) return "$STUB_FREEZE_RC" ;;
+        *) return 0 ;;
+    esac
+}
+STUB_UNFREEZE_RC=0
+STUB_CONNECT_RC=0
+STUB_FREEZE_RC=0
+
+# The control. Both halves succeed, so the hook succeeds — without this, every assertion
+# below could be passing because the hook fails unconditionally.
+: > "$act_log"
+if freeze_hook_act thaw demo > "$work/act.out" 2>&1; then
+    pass "a thaw whose unfreeze and renewal both succeed succeeds"
+else
+    fail "a thaw whose unfreeze and renewal both succeed succeeds" "$(cat "$work/act.out")"
+fi
+contains "and it did reach the renewal" "$(cat "$act_log")" "nmcli device connect"
+
+# THE ONE THAT WAS BROKEN. The unfreeze fails and the reconnect succeeds — which is not
+# contrived: a container that never thawed may well still answer at its old address.
+STUB_UNFREEZE_RC=1
+STUB_CONNECT_RC=0
+: > "$act_log"
+if freeze_hook_act thaw demo > "$work/act.out" 2>&1; then
+    fail "a failed unfreeze fails the hook even when the renewal would succeed" \
+        "the hook reported success for a container that is still frozen"
+else
+    pass "a failed unfreeze fails the hook even when the renewal would succeed"
+fi
+# Not merely "the hook failed" — the renewal must not have RUN. Its own failure message
+# says "thawed, but the lease was not renewed", which is a lie about a container that was
+# never thawed, and running it at all is the decoupling the fail-fast rule forbids.
+if grep -q nmcli "$act_log"; then
+    fail "and the renewal does not run after a failed unfreeze" \
+        "the renewal ran: $(cat "$act_log")"
+else
+    pass "and the renewal does not run after a failed unfreeze"
+fi
+
+# The renewal's own failure still fails the hook, so the two guards are independent
+# rather than one masking the other.
+STUB_UNFREEZE_RC=0
+STUB_CONNECT_RC=1
+if hook_out="$(freeze_hook_act thaw demo 2>&1)"; then
+    fail "a failed renewal after a good unfreeze still fails the hook" "the hook succeeded"
+else
+    pass "a failed renewal after a good unfreeze still fails the hook"
+    contains "and says the container IS thawed" "$hook_out" "thawed, but"
+fi
+
+# Freeze is unaffected by all of this: its status is its own, and it never renews.
+STUB_UNFREEZE_RC=0
+STUB_CONNECT_RC=0
+STUB_FREEZE_RC=1
+: > "$act_log"
+if freeze_hook_act freeze demo > "$work/act.out" 2>&1; then
+    fail "a failed freeze fails the hook" "the hook succeeded"
+else
+    pass "a failed freeze fails the hook"
+fi
+if grep -q nmcli "$act_log"; then
+    fail "and freeze never touches the network" "the freeze branch ran nmcli"
+else
+    pass "and freeze never touches the network"
+fi
+unset -f sudo
 
 echo ""
 echo "=== the preflight hook: both guards, and neither one alone ==="

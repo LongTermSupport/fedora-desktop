@@ -16,7 +16,7 @@ The interactive wrapper that used to sit behind the subcommand is still
 bundled for a human who prefers prompts:
 
 ```bash
-bash .claude/skills/hooks-daemon/scripts/init-handlers.sh "$@"   # pass through any arguments you were given
+bash .claude/skills/hooks-daemon/scripts/init-handlers.sh <the arguments you were given>
 ```
 
 Either route will:

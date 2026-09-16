@@ -1,6 +1,14 @@
 # Bug Report Generator
 
-Generate a comprehensive bug report with full system diagnostics for triage.
+Generate a comprehensive local diagnostic bundle: version, status, config,
+handlers, recent logs and a health checklist.
+
+> **This output is for the person who ran it. It is not a filing artefact.**
+> It reproduces this project's configuration on purpose, because you are the
+> reader — which is exactly why it must never be pasted into a public issue.
+> To file a defect upstream, use this skill's `issue-report` args, whose generator
+> collects a controlled field set and never gathers a config dump or logs at
+> all.
 
 ## Usage
 
@@ -31,7 +39,12 @@ The bug report collects:
 
 ## When to Use
 
-- Reporting bugs to maintainers
-- Troubleshooting daemon issues
-- Capturing diagnostic state before attempting fixes
-- Providing context for GitHub issues
+- Troubleshooting a daemon issue yourself
+- Capturing diagnostic state before attempting a fix, so you can compare after
+- Working out WHETHER what you are seeing is a daemon defect at all
+
+## When not to use
+
+- **Filing upstream.** Use this skill's `issue-report` args instead. It drives the
+  checks that establish there is a defect, then builds a body that carries none
+  of the material this bundle deliberately includes.

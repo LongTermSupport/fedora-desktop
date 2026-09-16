@@ -14,6 +14,8 @@
  * reads like a complete picture of a machine, which is how the incident happened.
  */
 
+import St from 'gi://St';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import * as StatusDocument from '../statusDocument.js';
@@ -31,14 +33,59 @@ const CHECKS = [
     {id: 'installed-vs-pinned', title: 'Installed versus pinned'},
 ];
 
-/** One line per finding. `reactive: false` because activating it does nothing yet — what
- * a click should do is a Task 3.3 decision (copy the handoff command, or open a terminal
- * running it), and a row that looks clickable and is not would be its own small lie. */
+/** One line per finding. `reactive: false`, and that is Task 3.3's answer rather than an
+ * absence of one: there is ONE handoff file and it describes EVERY finding, so a
+ * clickable row per finding would offer the same command N times while implying each row
+ * had its own. The offer is section-level, below. A row that looks clickable and is not
+ * would be its own small lie. */
 function findingItem(text, styleClass) {
     const item = new PopupMenu.PopupMenuItem('', {reactive: false});
     item.label.text = text;
     item.label.style_class = styleClass;
     return item;
+}
+
+/**
+ * The handoff offer — Task 3.3's one-click half, and the decision DESIGN-panel.md §9
+ * left to this task.
+ *
+ * **It copies the command; it does not run it.** Three reasons, and the first is the one
+ * that would break a launch:
+ *
+ * 1. `claude` reads the repository it is started in, and this diagnosis is about
+ *    playbooks. The panel does not know where the checkout is and the status document
+ *    does not carry it, so a launch would start Claude Code in the compositor's working
+ *    directory — where it cannot see the thing it is being asked about.
+ * 2. `container-watch` already copies its inspect hint and notifies, on this same
+ *    surface. A second idiom for "here is a command, you run it" would be one to learn
+ *    for no gain.
+ * 3. DESIGN-panel.md §8: the panel offers, a human decides — and a clickable surface is
+ *    precisely where that erodes. §6's terminal-launching mechanism belongs to Task 4.3,
+ *    which must choose it on evidence this task does not have.
+ *
+ * Absent when there is no handoff, which is the honest rendering of all three ways that
+ * happens: a clean host has nothing to diagnose, and a failed write or an unreadable
+ * document licenses no offer either. The findings themselves are rendered regardless, so
+ * a host with faults never goes quiet — it just has no button.
+ */
+function appendHandoffOffer(menu, document) {
+    const path = StatusDocument.handoffPath(document);
+    if (path === '') {
+        return;
+    }
+    const command = `${StatusDocument.HANDOFF_COMMAND} '${path}'`;
+    menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+    const item = new PopupMenu.PopupMenuItem('Discuss these findings with Claude Code');
+    const detail = new St.Label({
+        text: command,
+        style_class: 'fedora-desktop-detail',
+    });
+    item.add_child(detail);
+    item.connect('activate', () => {
+        St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, command);
+        Main.notify('Fedora Desktop', 'Copied the handoff command');
+    });
+    menu.addMenuItem(item);
 }
 
 function appendCheck(menu, document, check, runningKernel) {
@@ -160,5 +207,8 @@ export const section = {
         for (const check of CHECKS) {
             appendCheck(menu, document, check, runningKernel);
         }
+        // LAST, after everything it refers to. The offer is about the findings above it,
+        // and a button before them would ask the user to act before reading.
+        appendHandoffOffer(menu, document);
     },
 };

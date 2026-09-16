@@ -22,6 +22,7 @@
 #   qa_tracked_shell_scripts <repo_root>  -> QA_TRACKED_SHELL_FILES (repo-relative)
 #   qa_discover_python_files <repo_root>  -> QA_PYTHON_FILES        (absolute)
 #   qa_tracked_python_files <repo_root>   -> QA_TRACKED_PYTHON_FILES (repo-relative)
+#   qa_tracked_helper_tests <repo_root>   -> QA_TRACKED_HELPER_TESTS (repo-relative)
 #   qa_is_excluded <repo_relative_path>        (shell exclusion list)
 #   qa_py_is_excluded <repo_relative_path>     (python exclusion list)
 #   qa_has_shell_shebang <path>
@@ -51,6 +52,13 @@ QA_EXCLUDE_DIRS=(
     # A gate that fails on its own side effects gets ignored, or bypassed.
     ".ansible"
     ".claude/hooks-daemon"
+    # The upgrade preserves the previous copy of any daemon-deployed tree it is
+    # about to replace here. It is a byte copy of `.claude/skills` two lines
+    # below, which is already excluded — so scanning the backup gates upstream
+    # code this repo cannot fix, under a path the original is exempt from. It is
+    # recreated by every upgrade whose deployed tree differs, so deleting the
+    # directory defers this failure rather than fixing it.
+    ".claude/hooks-daemon-backups"
     ".claude/ccy"
     ".claude/skills"
     ".claude/worktrees"
@@ -194,13 +202,14 @@ qa_discover_shell_files() {
     return 0
 }
 
-# Populate QA_TRACKED_SHELL_FILES with every TRACKED shell script, repo-relative.
+# qa_require_git_checkout <repo_root> — the yardstick's own precondition.
 #
-# This is the yardstick the gates measure their own coverage against. `find`
-# stays the discovery source above so a brand-new, not-yet-`git add`ed script is
-# still gated; git is the independent second opinion.
-qa_tracked_shell_scripts() {
-    local repo_root="$1" rel git_probe
+# Every qa_tracked_* function below measures a gate's discovery against git, so git being
+# absent or the tree not being a checkout means coverage CANNOT be verified — which is an
+# exit 2 ("cannot verify"), never a pass. Extracted when the FOURTH caller arrived: four
+# verbatim copies of a precondition is how one of them comes to say something different.
+qa_require_git_checkout() {
+    local repo_root="$1" git_probe
     if ! command -v git > /dev/null; then
         echo "ERROR: git not found — QA coverage cannot be verified." >&2
         echo "  These gates will not report a pass they cannot show they earned." >&2
@@ -211,6 +220,16 @@ qa_tracked_shell_scripts() {
         echo "  git said: $git_probe" >&2
         exit 2
     fi
+}
+
+# Populate QA_TRACKED_SHELL_FILES with every TRACKED shell script, repo-relative.
+#
+# This is the yardstick the gates measure their own coverage against. `find`
+# stays the discovery source above so a brand-new, not-yet-`git add`ed script is
+# still gated; git is the independent second opinion.
+qa_tracked_shell_scripts() {
+    local repo_root="$1" rel
+    qa_require_git_checkout "$repo_root"
 
     QA_TRACKED_SHELL_FILES=()
     while IFS= read -r -d '' rel; do
@@ -268,17 +287,8 @@ qa_discover_python_templates() {
 # non-playbook added there (a task file, a vars file) will fail this gate and
 # should be given an explicit exemption here, deliberately and with a reason.
 qa_tracked_playbook_candidates() {
-    local repo_root="$1" rel git_probe
-    if ! command -v git > /dev/null; then
-        echo "ERROR: git not found — QA coverage cannot be verified." >&2
-        echo "  These gates will not report a pass they cannot show they earned." >&2
-        exit 2
-    fi
-    if ! git_probe=$(git -C "$repo_root" rev-parse --git-dir 2>&1); then
-        echo "ERROR: $repo_root is not a git checkout, so coverage cannot be verified." >&2
-        echo "  git said: $git_probe" >&2
-        exit 2
-    fi
+    local repo_root="$1" rel
+    qa_require_git_checkout "$repo_root"
 
     QA_TRACKED_PLAYBOOK_CANDIDATES=()
     while IFS= read -r -d '' rel; do
@@ -334,17 +344,8 @@ qa_discover_python_files() {
 # The yardstick the python gate measures its own coverage against, exactly as
 # qa_tracked_shell_scripts is for the bash gates.
 qa_tracked_python_files() {
-    local repo_root="$1" rel git_probe
-    if ! command -v git > /dev/null; then
-        echo "ERROR: git not found — QA coverage cannot be verified." >&2
-        echo "  These gates will not report a pass they cannot show they earned." >&2
-        exit 2
-    fi
-    if ! git_probe=$(git -C "$repo_root" rev-parse --git-dir 2>&1); then
-        echo "ERROR: $repo_root is not a git checkout, so coverage cannot be verified." >&2
-        echo "  git said: $git_probe" >&2
-        exit 2
-    fi
+    local repo_root="$1" rel
+    qa_require_git_checkout "$repo_root"
 
     QA_TRACKED_PYTHON_FILES=()
     while IFS= read -r -d '' rel; do
@@ -357,6 +358,33 @@ qa_tracked_python_files() {
         fi
         QA_TRACKED_PYTHON_FILES+=("$rel")
     done < <(git -C "$repo_root" ls-files -z)
+
+    # Total contract — see qa_discover_shell_files.
+    return 0
+}
+
+# Populate QA_TRACKED_HELPER_TESTS with every TRACKED tests/helpers/**/test_*.py,
+# repo-relative. The yardstick qa-helper-tests.bash measures its own discovery
+# against, exactly as the two functions above serve the bash and python gates.
+#
+# It is the third site of the defect Plan 00076 and Plan 00081 each fixed once and
+# did not generalise: that runner discovers with `mapfile -t < <(find ...)`, where
+# find's exit status is discarded and `pipefail` does not reach inside a process
+# substitution. A partly-failed walk yields a shorter module list, unittest runs
+# it, the script exits 0, and the stage line reports a smaller `Ran N tests` with
+# no signal anywhere. An under-match cannot announce itself, which is why the
+# yardstick has to come from somewhere other than the walk being checked.
+qa_tracked_helper_tests() {
+    local repo_root="$1" rel base
+    qa_require_git_checkout "$repo_root"
+
+    QA_TRACKED_HELPER_TESTS=()
+    while IFS= read -r -d '' rel; do
+        [[ -f "$repo_root/$rel" ]] || continue
+        base="${rel##*/}"
+        [[ "$base" == test_*.py ]] || continue
+        QA_TRACKED_HELPER_TESTS+=("$rel")
+    done < <(git -C "$repo_root" ls-files -z -- tests/helpers)
 
     # Total contract — see qa_discover_shell_files.
     return 0

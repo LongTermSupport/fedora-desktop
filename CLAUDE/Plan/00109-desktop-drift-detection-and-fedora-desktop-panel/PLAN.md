@@ -108,6 +108,19 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     every run. Both shapes are read now, new first, and the choice is tested
   - [x] ✅ **`store.clear_broken` had no caller anywhere** — a sentinel, once written, left
     the ledger permanently untrustworthy with no route back. `check_freshness --clear-broken` is that route, and it says the missing rows are not recovered
+  - [x] ✅ **`qa-reviewer` over the commit** — 7 should-fixes, all acted on. Report:
+    [subagent-reports/260915-qa-reviewer-00109-ledger-opus-5.md](subagent-reports/260915-qa-reviewer-00109-ledger-opus-5.md).
+    The one that mattered: clearing the sentinel flipped `plays_run_here` from `None` to
+    a **partial** set, silently suppressing every ABSENT pin verdict whose row was in the
+    hole — the precise suppression that function's own docstring calls unacceptable. A
+    `CLEARED` marker now outlives the sentinel, because the missing rows never come back
+  - [x] ✅ **A gate now catches the next Ansible rename** —
+    `tests/helpers/play_ledger/test_source_position_against_real_ansible.py` loads a real
+    playbook through the real `Play.load` under the interpreter `ansible-playbook` itself
+    runs, and asserts the production helper gets the file back for **both** the parsed
+    play and the `copy()` a callback is actually handed. A fake origin cannot catch a
+    rename in the thing it is faking, which is why the whole suite stayed green while the
+    ledger recorded nothing for its entire life. Falsified against the pre-fix behaviour
   - [ ] ⬜ **HOST or VM**: verify against a real run — genesis plus one row per play,
     `--check` adds nothing, a second run appends. No guest checker reads the ledger today;
     that is the gap, not the machine ([DESIGN-host-health.md](DESIGN-host-health.md) §12).
@@ -190,11 +203,18 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
       **without an agent**, or the freshness axis reports "never reached the remote" for
       ever. Stays HOST: a guest proves the mechanism, not this checkout's `origin` (§6,
       [DESIGN-host-health.md](DESIGN-host-health.md) §12)
-- [ ] 🔄 **Task 3.3**: Claude Code handoff — file and offer done
+- [x] ✅ **Task 3.3**: Claude Code handoff — file and offer done
   - [x] ✅ `handoff.py`, mode `0600`; the wrong/not-looked-at split is carried in
     `Finding.checked`, not read from the prose
-  - [ ] ⬜ The **one-click** offer — needs a surface that can receive a click, which is
-    Phase 4's panel
+  - [x] ✅ The **one-click** offer, in the panel's health section. It **copies** the
+    command rather than launching it: `claude` reads the repository it starts in, and
+    the panel knows no checkout path, so a launch would start it in the compositor's
+    working directory where it cannot see the playbooks the diagnosis is about. Copying
+    is also what `container-watch` does on this surface (§9a)
+  - [x] ✅ The path reaches the panel through the status document, and `record_host_state`
+    writes the handoff **before** the document that names it — a path recorded first is
+    a button that fails in the user's hands. Falsified: computing the path instead of
+    taking the write's result turns the ordering test red
 
 ### Phase 4: `fedora-desktop` GNOME panel extension
 
@@ -213,7 +233,10 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     reinterpretation of `play-freshness` — and emptiness is a **fault**, not an unknown.
     `helpers/play_ledger/ledger_presence.py`, 9 tests
     ([DESIGN-play-ledger.md](DESIGN-play-ledger.md) §8)
-  - [ ] ⬜ What a finding does when activated — a Task 3.3 decision (§9)
+  - [x] ✅ What a finding does when activated: **nothing, and that is the answer**. One
+    handoff file describes every finding, so a clickable row per finding would offer the
+    same command N times while implying each had its own. The offer is section-level
+    (§9a, Task 3.3)
   - [x] ✅ **The panel is boot-aware**, and `resolvedSection` is the ONE place the demotion
     happens, so the menu and the icon read the same answer (§11)
   - [x] ✅ `state` is **derived** from the lists, as the producer derives it (§11,
@@ -256,8 +279,15 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   rule and the suspend service, after the wedge ladder and never while locked
   - ⚠️ **Known limitation — the resume path is effectively inert**: the screen is already
     locked when the suspend service runs, so the run correctly refuses. Dock/udev works
-  - [ ] ⬜ **T5.4a**: Cover the unlock case. Needs something in the *user* session that
-    reacts to unlock, not a root oneshot — Phase 4's panel is the natural owner
+  - [ ] 🚫 **T5.4a**: Cover the unlock case — **OWNER'S CALL, not code that is merely
+    unwritten.** Nothing in the repo watches lock state today, and the two viable owners
+    trade off against each other rather than one being determined:
+    the panel gets `ActiveChanged` for free but its own header says it *"runs no check of
+    its own, applies no fix, and launches no play"*, which this would end; a user
+    systemd unit keeps that contract intact but costs a long-running daemon whose only
+    job is to watch one signal the shell already dispatches. Reasoning and the third
+    option in [DESIGN-panel.md §12](DESIGN-panel.md). Implementable and unit-testable
+    here once chosen; the HOST item below gates shipping it either way
   - [ ] ⬜ **HOST**: deploy it, and separately confirm the refresh actually clears a
     black background when the symptom is present — exercised on a healthy desktop only
 

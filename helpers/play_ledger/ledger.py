@@ -98,6 +98,26 @@ def sentinel_path(base: str) -> str:
     return os.path.join(base, "BROKEN")
 
 
+def cleared_path(base: str) -> str:
+    """The marker that says a hole was CLEARED, and so the record set is a lower bound.
+
+    Clearing the sentinel above stops the ledger being *known-broken*. It does not
+    recover the rows that were never written, and nothing can — so from that moment
+    "this play has no record" stops meaning "this play has never run here" and starts
+    meaning "no record, and some records are missing".
+
+    Without this, clearing silently turned an OPEN question into a confident wrong
+    answer: `plays_run_here` went from None to a partial set, and every pin whose play
+    was in the hole was then skipped rather than reported. The sentinel was the
+    declaration that the question was open, and deleting a declaration is not the same
+    as answering it.
+
+    This is deliberately permanent and the cost is bounded in the safe direction: it
+    only ever means MORE pins are reported, never fewer.
+    """
+    return os.path.join(base, "CLEARED")
+
+
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise ValueError(message)

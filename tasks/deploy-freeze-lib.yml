@@ -13,8 +13,27 @@
 # 4.5 — two copies of a deploy, and a mode or a path fixed in only one of them.
 #
 # The two plays keep their own files because each still owns a tool with its own name,
-# its own docs anchor and its own dependencies (podfreeze installs fzf; lxcfreeze needs
-# nothing). Only the part they genuinely share is shared.
+# its own docs anchor and its own scope guard. Only the part they genuinely share is
+# shared — and fzf is part of that, because the library is what branches on it.
+
+# fzf is the good multi-select picker. It is OPTIONAL to both tools — without it the
+# library falls back to a plain numbered menu — but it is installed with the LIBRARY
+# rather than by either play, because the library is what chooses between the two
+# interfaces and both plays promise "the same menu, drill-down and keys".
+#
+# It sat in play-podfreeze.yml alone until Plan 00122 Task 3.5, on reasoning that was
+# right and applied to only one of the two: "so the play is self-contained rather than
+# depending on play-open-command.yml having been run". A fresh host running just
+# play-lxcfreeze.yml therefore got the numbered menu while a podfreeze host got fzf —
+# the same two-tools-two-habits complaint that reopened Phase 4, reintroduced through
+# the dependency instead of through the code.
+- name: Install the Interactive Picker the Freeze Menu Uses
+  ansible.builtin.dnf:
+    name:
+      - fzf
+    state: present
+  tags:
+    - packages
 
 - name: Ensure the User Library Directory Exists
   ansible.builtin.file:

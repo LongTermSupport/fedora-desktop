@@ -199,12 +199,23 @@ After writing the report, tell the user:
 ```
 Report saved to: ./untracked/hooks-daemon-{slug}.md
 
-To share this report with the hooks daemon maintainers:
+**This report is written for YOU, and is not safe to publish as-is.** It is
+assembled from your project's own config, logs and session transcripts, none of
+which is redacted — see the transcript warning above. The upstream repository is
+PUBLIC, and a public issue cannot be retracted by any later edit or deletion.
 
-1. Open a GitHub issue at: https://github.com/anthropics/claude-code-hooks-daemon/issues
-2. Title: "Bug Report: {problem summary}"
-3. Paste the contents of the report file, or attach it
-4. Add any additional context from your own observations
+To share it with the hooks daemon maintainers:
+
+1. Read the report and remove anything belonging to your project — absolute
+   paths carrying a username, your git remote, branch names, internal service
+   or client names, anything from an `.env`.
+2. Reduce the reproduction to the smallest SYNTHETIC case that still shows the
+   behaviour: invented paths under `untracked/scratch/`, never a capture from
+   your own tree. If it cannot be reproduced that way, say so in the issue
+   rather than pasting the original.
+3. Open an issue at: https://github.com/Edmonds-Commerce-Limited/claude-code-hooks-daemon/issues
+4. Title: "Bug Report: {problem summary}"
+5. Paste only the redacted, minimised report — never the raw file.
 
 Alternatively, share the file directly with whoever maintains the hooks daemon in your organisation.
 ```

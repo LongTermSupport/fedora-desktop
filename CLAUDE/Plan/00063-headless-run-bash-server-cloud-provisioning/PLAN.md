@@ -158,7 +158,7 @@ remains needs a secret no VM scenario carries — see the Status note above.
 - [ ] ⬜ **Task 3.2**: Confirm the desktop interactive path is unchanged. Needs a
   human at a terminal by definition — an automated scenario cannot answer "does this
   still prompt correctly". `desktop-fresh-install` does not cover it: the lab drives
-  every guest with `RUN_BASH_HEADLESS=1` (`files/home/.local/bin/vmtest:747`), so it
+  every guest with `RUN_BASH_HEADLESS=1` (`files/home/.local/bin/vmtest:918`), so it
   exercises the interactive path exactly as little as the server scenarios do
 - [ ] 🔄 **Task 3.3**: The GitHub token path (Task 2.3). `gh auth login --with-token`
   with a scoped PAT on stdin, then `gh-account-setup.bash` failing loud under
@@ -166,12 +166,13 @@ remains needs a secret no VM scenario carries — see the Status note above.
   - [x] ✅ The device-flow guard, by inspection: `gh-account-setup.bash:287-291`
     errors, names `RUN_BASH_GITHUB_TOKEN_FILE`, and returns **before** the
     device-code flow at `:305`
-  - [x] ✅ The PAT reaches `gh` on **stdin, never argv** — `run.bash:2254`
+  - [x] ✅ The PAT reaches `gh` on **stdin, never argv** — `run.bash:2284`
   - [ ] 🔄 End-to-end with a real token. **Route: the opt-in `server-github-token`
     scenario**, now **built** by Plan 00121 (`e40d5c60`) and awaiting a human run on
     the host. The default six cannot reach it — all run
-    `RUN_BASH_GITHUB_ACCOUNTS=none` (`vmtest:749`, `:942`), the branch that skips this
-    code — but that is a property of those scenarios, not of the lab: 00110's
+    `RUN_BASH_GITHUB_ACCOUNTS=none` (`vmtest:920`, `:1229`), the branch that skips this
+    code, while the opt-in route supplies the account, token and passphrase files at
+    `:1230-1234` — but that is a property of those scenarios, not of the lab: 00110's
     `DESIGN.md:1554` already assigns this criterion to `server-github-token`. No agent
     creates or handles the PAT
 - [ ] 🔄 **Task 3.4**: The SSH path (Tasks 2.2 and 2.4). Production use proves the
@@ -250,7 +251,7 @@ remains needs a secret no VM scenario carries — see the Status note above.
 - [ ] 🔄 No secret bytes enter the environment or cloud-init `user-data`. The
   environment half is evidenced: values come from `0600` file pointers,
   `run.bash:373` unsets the literal `RUN_BASH_*` forms after resolving them at
-  `:368`, and the PAT reaches `gh` on **stdin**, never argv (`run.bash:2254`). The
+  `:368`, and the PAT reaches `gh` on **stdin**, never argv (`run.bash:2284`). The
   `user-data` half is not, and `hl_resolve_secret:134-140` still accepts a literal
   on a non-cloud box. 00110 `DESIGN.md:1553` assigns this criterion to
   `server-github-token`: with no PAT and no passphrase in the guest, grepping the

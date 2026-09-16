@@ -35,6 +35,11 @@
 # reboot. The reboot-surviving equivalent is `lxc-checkpoint` (CRIU), which is a
 # different operation with different requirements and is not what this tool does.
 #
+# THAW RENEWS THE DHCP LEASE. The freezer stops the container's DHCP client too, so
+# a freeze longer than the lease leaves the container thawed with no address until
+# NetworkManager's own retry fires minutes later. Thaw reconnects the network
+# inside the container so it is reachable at once — see renew_dhcp_lease.
+#
 # STOPPED CONTAINERS ARE NOT INVENTORIED. A stopped container can be neither frozen
 # nor thawed, so offering one as a candidate would only invite a confusing no-op.
 #
@@ -95,19 +100,50 @@ FREEZE_TARGET_HINT="NAME..., --bridge BR,
   or --all"
 FREEZE_LIST_NOTE="  A STOPPED container is not listed: it can be neither frozen nor thawed."
 
+# What a freeze costs while it lasts. The DHCP half is handled — thaw renews the lease, so
+# the container comes back reachable at its old address — but nothing can rescue the TCP
+# connections, and that is the half a user meets later and misreads. An ssh session into a
+# frozen container is not paused, it is dead, and so is any agent socket forwarded over it;
+# the first symptom is usually a `git push` inside the container that hangs and then fails
+# with a stale agent. Said before the freeze, where it is still actionable.
+FREEZE_FREEZE_NOTE="  While frozen, the container answers nothing: every ssh session into it
+  dies with the frozen TCP connection, and so does any agent socket forwarded
+  over one. Thaw renews the DHCP lease, so the address comes back even after a
+  freeze longer than the lease — the connections do not. Reconnect after thawing
+  rather than trusting an old session."
+
 # Where the shared library is. ONE relative path finds it both from a repo checkout
 # and from ~/.local/bin once deployed, because files/ mirrors the target filesystem.
 # The second candidate is that checkout reached from the ENTRY POINT rather than from
 # this file, which is what a harness sourcing only part of a tool needs — see the
 # same block in podfreeze.
+#
+# A candidate whose directory will not resolve is reported, not discarded. "The
+# library is missing" and "a parent directory is unreadable, or the cwd was deleted
+# under us" send the reader to different places, and naming an expected path while
+# the real problem is one directory up is worse than saying nothing.
+# Both answers are GLOBALS rather than stdout, because a `$(freeze_lib_path)` capture
+# runs the function in a subshell and the reasons collected in there would be
+# discarded at exactly the moment they are needed.
+FREEZE_LIB=""
+FREEZE_LIB_WHY=""
 freeze_lib_path() {
     local src dir candidate
+    FREEZE_LIB=""
+    FREEZE_LIB_WHY=""
     for src in "${BASH_SOURCE[0]}" "$0"; do
-        dir="$(cd -- "$(dirname -- "$src")" 2> /dev/null && pwd -P)" || continue
+        # cd's stderr is merged into the capture, so a failure leaves its reason in
+        # `dir` rather than in /dev/null. On success cd says nothing and `pwd -P`
+        # supplies the value.
+        if ! dir="$(cd -- "$(dirname -- "$src")" 2>&1 && pwd -P)"; then
+            FREEZE_LIB_WHY="${FREEZE_LIB_WHY}${FREEZE_LIB_WHY:+
+}  could not resolve '${src}': ${dir}"
+            continue
+        fi
         for candidate in "$dir/../lib/freeze/freeze-common.bash" \
             "$dir/../files/home/.local/lib/freeze/freeze-common.bash"; do
             if [ -r "$candidate" ]; then
-                printf '%s' "$candidate"
+                FREEZE_LIB="$candidate"
                 return 0
             fi
         done
@@ -115,8 +151,15 @@ freeze_lib_path() {
     return 1
 }
 
-if ! FREEZE_LIB="$(freeze_lib_path)"; then
+# `if !` suspends errexit through the call, which is safe here only because this
+# function has exactly one non-zero meaning — nothing found — and no internal step
+# that could fail on the way to an answer.
+if ! freeze_lib_path; then
     echo "lxcfreeze: the shared freeze library is missing." >&2
+    if [ -n "$FREEZE_LIB_WHY" ]; then
+        echo "  Some locations could not even be checked:" >&2
+        echo "$FREEZE_LIB_WHY" >&2
+    fi
     echo "  Expected at ~/.local/lib/freeze/freeze-common.bash — half of this" >&2
     echo "  tool lives there, so nothing here can run without it." >&2
     echo "  Deploy it with:" >&2
@@ -141,14 +184,48 @@ LXC_CONFIG_DIR="/var/lib/lxc"
 BRIDGE_NONE="(no network)"
 BRIDGE_UNREADABLE="(could not read)"
 
+# The same distinction for the address column, and it matters MORE here than for the
+# bridge: a blank IPV4 cell beside RUNNING is what Phase 5 exists to show — a lease that
+# expired while the container was frozen. A probe that failed must not print that cell,
+# or an `lxc-info` whose `-i` is unavailable makes every running container look like it
+# lost its address overnight, which is the alarm this column was built to raise, produced
+# by a probe that never worked.
+#
+IPV4_UNREADABLE="(unknown)"
+
+# The width of each column this tool adds to the library's table. ONE constant, read by
+# the header and by the row, because a header and a row that disagree put the heading
+# over the wrong column and nothing at runtime says so.
+#
+# 18, not 16: `BRIDGE_UNREADABLE` is exactly 16 characters, and `%-16s` given a 16-char
+# value pads it with nothing at all — so an unreadable config printed
+# `(could not read)192.0.2.11` with the two columns run together. The width has to exceed
+# the longest label the column can hold, and the suite asserts that rather than the
+# number.
+TABLE_COL_WIDTH=18
+
 TARGET_MODE=""
 TARGET_BRIDGE=""
 declare -a TARGET_NAMES=()
 
-# INV_NAME and INV_STATE are the library's; INV_BRIDGE is this tool's third parallel
-# array, indexed the same way. Populated by load_inventory, read by the hooks and by
-# the bridge selectors below. ACTION, DRY_RUN and SELECTED are the library's too.
+# INV_NAME and INV_STATE are the library's; INV_BRIDGE and INV_IPV4 are this tool's
+# third and fourth parallel arrays, indexed the same way. Populated by load_inventory,
+# read by the hooks and by the bridge selectors below. ACTION, DRY_RUN and SELECTED are
+# the library's too.
+#
+# Declared at file scope, not only inside load_inventory. The tool runs under `set -u`,
+# so a reader that reached the table before the inventory was populated would abort on
+# an unbound variable rather than print an empty cell. Today's call graph always loads
+# first; the declaration is the defence for the day it does not.
 declare -a INV_BRIDGE=()
+declare -a INV_IPV4=()
+
+# Containers `lxc-ls` listed that could NOT be inventoried — lxc-info failed, or
+# answered with a state word this tool does not know. Not a parallel array: these
+# have no index, precisely because nothing about them was established. Disclosed by
+# warn_unreadable so that "no containers" is never printed when the truth is "I
+# could not ask about some of them".
+declare -a INV_UNREADABLE=()
 
 # ---------------------------------------------------------------------------
 # Output conventions: stdout is the payload, everything else is stderr.
@@ -226,11 +303,18 @@ usage() {
 # (ABORTING, STARTING, STOPPING) that are neither freezable nor thawable, and
 # guessing which side of the line a new one falls on is how a wrong verb gets sent.
 lxcf_parse_state() {
-    local raw="${1-}" value
+    local raw="${1-}" value grep_rc=0
     # The value after the first `State:` key, whitespace-trimmed. `-m1` because
     # lxc-info prints one State line and a second would mean output we do not
     # understand.
-    value="$(printf '%s\n' "$raw" | grep -m1 -E '^[[:space:]]*State:' || true)"
+    value="$(printf '%s\n' "$raw" | grep -m1 -E '^[[:space:]]*State:')" || grep_rc=$?
+    # grep exits 1 for "no State line", which is an answer about this output. Anything
+    # above 1 is grep itself failing, and there is no honest value to return for it:
+    # every caller reads "" as "this container has no state I recognise", a fact about
+    # the container. So it dies rather than answering.
+    if [ "$grep_rc" -gt 1 ]; then
+        die "grep failed (status $grep_rc) reading the state from lxc-info output"
+    fi
     value="${value#*:}"
     value="${value#"${value%%[![:space:]]*}"}"
     value="${value%"${value##*[![:space:]]}"}"
@@ -256,15 +340,50 @@ lxcf_parse_bridge() {
     line="$(printf '%s\n' "$raw" | grep -m1 -E '^[[:space:]]*lxc\.net\.0\.link[[:space:]]*=')" || grep_rc=$?
     # grep exits 1 for "no such line", which here means "this container declares no
     # first interface" — an answer, not a failure. Anything above 1 is grep itself
-    # failing and is not something to paper over.
+    # failing, and returning "" for it would report BRIDGE_NONE: a claim that the
+    # container has no network, made from a probe that did not run.
     if [ "$grep_rc" -gt 1 ]; then
-        printf ''
-        return 0
+        die "grep failed (status $grep_rc) reading lxc.net.0.link from the container config"
     fi
     value="${line#*=}"
     value="${value#"${value%%[![:space:]]*}"}"
     value="${value%"${value##*[![:space:]]}"}"
     printf '%s' "$value"
+}
+
+# lxcf_parse_ipv4 <lxc-info -iH output> — the container's first IPv4 address, or nothing.
+#
+# `lxc-info -n NAME -iH` prints one address per line and nothing at all for a container
+# that has none. Three things this does NOT do:
+#   - take the first LINE. `-i` prints every address, and on a dual-stack container the
+#     IPv6 one can come first — which would put an IPv6 address under a column headed
+#     IPV4. The shape is matched, not the position.
+#   - invent a placeholder for "no address". A blank cell beside RUNNING is the symptom
+#     this column exists to show, and a word in its place would hide it.
+#   - trust lxc-info's stderr. A failure message is not a dotted quad and must never be
+#     printed where an address goes, so the shape check is the guard for that too.
+#
+# One address is shown because there is one column. A two-interface container has more,
+# and the drill-down is where those belong.
+lxcf_parse_ipv4() {
+    local raw="${1-}" line grep_rc=0
+    # A here-string, NOT a pipe. `grep -m1` exits at the first match, and under
+    # `set -o pipefail` the `printf` feeding it can then die of SIGPIPE (141) — which
+    # becomes the pipeline's status and trips the `> 1` guard below, turning a successful
+    # match into "grep failed". Measured: it needs the input to exceed the 64 KB pipe
+    # buffer, so real lxc-info output never reaches it, but the guard would then be
+    # misreporting rather than reporting. Removing the pipeline removes the trap.
+    line="$(grep -m1 -oE \
+        '(^|[[:space:]])([0-9]{1,3}\.){3}[0-9]{1,3}([[:space:]]|$)' <<< "$raw")" || grep_rc=$?
+    # grep exits 1 for "no IPv4 here", which is an ANSWER — a frozen container, or one on
+    # no bridge, legitimately has none. Above 1 is grep itself failing, and returning ""
+    # for that would report "no address" from a probe that did not run.
+    if [ "$grep_rc" -gt 1 ]; then
+        die "grep failed (status $grep_rc) reading the IPv4 address from lxc-info output"
+    fi
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    printf '%s' "$line"
 }
 
 # lxcf_bridge_label <config-read-rc> <config-text> — the table/group value for one
@@ -292,6 +411,26 @@ lxcf_bridge_label() {
         return 0
     fi
     printf '%s' "$bridge"
+}
+
+# lxcf_ipv4_label <lxc-info-rc> <lxc-info -iH output> — the table value for one
+# container's address: an address, blank, or IPV4_UNREADABLE.
+#
+# The same shape as lxcf_bridge_label, and for a sharper reason. A BLANK cell here is a
+# load-bearing signal — a RUNNING container with no address is a lease that expired while
+# it was frozen, which is the entire subject of Phase 5. So "the probe failed" must not
+# print a blank: that would make a column that cannot answer look like a machine that has
+# lost every address, and nothing would say which it was.
+#
+# Blank is reserved for the one case that genuinely means it: lxc-info ran, and said the
+# container has no IPv4.
+lxcf_ipv4_label() {
+    local rc="${1:?}" raw="${2-}"
+    if [ "$rc" -ne 0 ]; then
+        printf '%s' "$IPV4_UNREADABLE"
+        return 0
+    fi
+    printf '%s' "$(lxcf_parse_ipv4 "$raw")"
 }
 
 # ---------------------------------------------------------------------------
@@ -365,7 +504,7 @@ assert_sudo() {
 # widths are presentation, and a parser keyed on them breaks on a version that adds a
 # column. `-1` and `lxc-info -s` are both single-purpose and stable.
 load_inventory() {
-    local names name state bridge config config_rc
+    local names name state bridge config config_rc info info_rc addr addr_raw addr_rc
 
     if ! names="$(sudo lxc-ls -1 2>&1)"; then
         die "lxc-ls failed, so the container list is unknown: ${names}"
@@ -374,19 +513,36 @@ load_inventory() {
     INV_NAME=()
     INV_STATE=()
     INV_BRIDGE=()
+    INV_IPV4=()
+    INV_UNREADABLE=()
 
     while read -r name; do
         [ -n "$name" ] || continue
         # lxc-info exits non-zero for a container that went away between the list and
-        # this call — a real race, since nothing holds a lock across the two. The
-        # parser answers NOTHING for that output, which is why its status is captured
-        # rather than judged: a vanished container is skipped here, and a container
-        # whose state simply cannot be read is skipped for the same reason. Neither is
-        # inventoried, because a container of unknown state must not be offered a verb.
-        state="$(lxcf_parse_state "$(sudo lxc-info -n "$name" -s 2>&1 || true)")"
+        # this call — a real race, since nothing holds a lock across the two — and for
+        # one whose state simply cannot be read. Both are skipped, because a container
+        # of unknown state must not be offered a verb. Neither is skipped SILENTLY:
+        # dropping a name that `lxc-ls` just listed is the difference between "this
+        # host has no running containers" and "I could not ask", and do_list would
+        # otherwise print the first while meaning the second.
+        info_rc=0
+        info="$(sudo lxc-info -n "$name" -s 2>&1)" || info_rc=$?
+        if [ "$info_rc" -ne 0 ]; then
+            INV_UNREADABLE+=("$name")
+            continue
+        fi
+        state="$(lxcf_parse_state "$info")"
         case "$state" in
             "$STATE_RUNNING" | "$STATE_FROZEN") ;;
-            *) continue ;;
+            # A STOPPED container is excluded by design and FREEZE_LIST_NOTE says so,
+            # so it is not a blind spot. Anything else is lxc-info answering with a
+            # word this tool does not know — a transient state, or output we cannot
+            # read — and that is not a fact about the container.
+            STOPPED) continue ;;
+            *)
+                INV_UNREADABLE+=("$name")
+                continue
+                ;;
         esac
         # The config is root-only, so this is `sudo cat` rather than a readability
         # test — and its status is captured because a config that cannot be read is a
@@ -395,10 +551,30 @@ load_inventory() {
         config_rc=0
         config="$(sudo cat "${LXC_CONFIG_DIR}/${name}/config" 2>&1)" || config_rc=$?
         bridge="$(lxcf_bridge_label "$config_rc" "$config")"
+        # The address is read separately from the state, and its failure is NOT a reason
+        # to drop the container: state is what decides whether a verb may be offered, and
+        # `lxc-info -i` legitimately answers nothing for a frozen container or one on no
+        # bridge. A container present in every other column but missing from this one is
+        # the honest result, and it is also the symptom — a RUNNING container with no
+        # address is a lease that expired while it was frozen.
+        #
+        # Its status is CARRIED, like the config read above: "no address" and "could not
+        # ask" are different facts, and the blank cell is the one that means something.
+        addr_rc=0
+        addr_raw="$(sudo lxc-info -n "$name" -iH 2>&1)" || addr_rc=$?
+        addr="$(lxcf_ipv4_label "$addr_rc" "$addr_raw")"
         INV_NAME+=("$name")
         INV_STATE+=("$state")
         INV_BRIDGE+=("$bridge")
+        INV_IPV4+=("$addr")
     done <<< "$names"
+
+    # Disclosed here rather than by each caller, so no path can load an inventory and
+    # then act on it without the gap being stated. `--all`, the bridge groups and the
+    # interactive menu are all "everything I could see"; the refresh hook calls this
+    # again each time round the loop, so a container that becomes unreadable mid-session
+    # is named then too.
+    warn_unreadable
 }
 
 # ---------------------------------------------------------------------------
@@ -453,6 +629,22 @@ select_bridge() {
 # STATE is this tool's, and arrives through the table hooks below.
 # ---------------------------------------------------------------------------
 
+# Disclose, do not block — the same call podfreeze's warn_identity_blind_spot makes
+# for CCY sessions with no identity labels. A container lxc-ls listed but lxc-info
+# could not answer for is absent from every selection and every count on screen, so
+# the one thing that must not happen is it going unmentioned.
+warn_unreadable() {
+    if [ "${#INV_UNREADABLE[@]}" -eq 0 ]; then
+        return 0
+    fi
+    echo "lxcfreeze: NOTE — ${#INV_UNREADABLE[@]} container(s) could not be read," >&2
+    echo "  so they are in NO group, NO count above and NO selection:" >&2
+    printf '    %s\n' "${INV_UNREADABLE[@]}" >&2
+    echo "  Either they went away between 'lxc-ls' and 'lxc-info' — a real race, and" >&2
+    echo "  harmless — or 'sudo lxc-info -n NAME -s' fails for them. Run that to see" >&2
+    echo "  which. A container of unknown state is never sent a verb." >&2
+}
+
 do_list() {
     local -a running=() frozen=()
     local i
@@ -482,9 +674,12 @@ do_list() {
     fi
     # An empty inventory on a host that HAS lxc is a real, boring answer, and it is
     # said out loud so it cannot be confused with the failures that also produce no
-    # rows. assert_lxc and assert_sudo have already ruled out the other two reasons
-    # this could be empty.
-    if [ "${#INV_NAME[@]}" -eq 0 ]; then
+    # rows. assert_lxc and assert_sudo rule out two of those failures BEFORE the
+    # probes run; the third is a probe that ran and failed, which is why this is
+    # gated on INV_UNREADABLE being empty rather than on those two guards. Claiming
+    # "no containers" while some could not be read is the wrong answer, not a
+    # differently-worded one.
+    if [ "${#INV_NAME[@]}" -eq 0 ] && [ "${#INV_UNREADABLE[@]}" -eq 0 ]; then
         echo ""
         echo "  LXC is installed and has no running or frozen containers."
         echo "  (A STOPPED container is not counted — see 'sudo lxc-ls -f'.)"
@@ -519,14 +714,22 @@ freeze_hook_refresh() {
     load_inventory
 }
 
-# The one column this tool shows after NAME and STATE.
+# The two columns this tool shows after NAME and STATE.
+# Padded for the same reason podfreeze's columns are: they are the last fields in
+# print_table but not in the drill-down menu, which prints the verb after them.
+# BRIDGE_UNREADABLE and BRIDGE_NONE are the longest values BRIDGE can hold, so the
+# width comes from them rather than from a guess about bridge names.
 freeze_hook_table_header() {
-    printf '%s' "BRIDGE"
+    printf "%-${TABLE_COL_WIDTH}s%-${TABLE_COL_WIDTH}s" "BRIDGE" "IPV4"
 }
 
+# IPV4 is BLANK when the container has none, and that is the whole point of the column:
+# a blank beside RUNNING is a lease that expired while the container was frozen, and it
+# is what someone is looking for when they run `lxcfreeze list` after a thaw. A
+# placeholder word there would make "no address" and "not asked" look alike.
 freeze_hook_table_row() {
     local i="$1"
-    printf '%s' "${INV_BRIDGE[$i]}"
+    printf "%-${TABLE_COL_WIDTH}s%-${TABLE_COL_WIDTH}s" "${INV_BRIDGE[$i]}" "${INV_IPV4[$i]}"
 }
 
 # The group rows, in menu order: everything, then each bridge in use.
@@ -562,23 +765,79 @@ freeze_hook_select() {
         bridge:*)
             # A bridge can empty out between the menu being drawn and this row
             # being chosen. select_bridge has already explained it, so this is a
-            # re-prompt rather than the end of the session.
+            # re-prompt rather than the end of the session — and it says so with
+            # FREEZE_SELECT_GONE, the one status the loop treats that way.
             if ! select_bridge "${key#bridge:}"; then
-                return 1
+                return "$FREEZE_SELECT_GONE"
             fi
             ;;
         *) die "internal error: unknown target key '$key'." ;;
     esac
 }
 
+# A thawed container is not reachable until its DHCP lease is. The freezer stops
+# the container's DHCP client along with everything else, so a freeze longer than
+# the lease (one hour from the host's dnsmasq) leaves the lease expired at thaw and
+# the kernel drops the address. NetworkManager does renew on its own, but on a
+# retry timer that fires two to eight minutes after the thaw — every ssh to the
+# container times out until then. Reconnecting each ethernet device through
+# NetworkManager renews in well under a second, so thaw does that itself.
+#
+# Runs INSIDE the container via lxc-attach. The device list is read rather than
+# assumed to be eth0, and a container that cannot renew is a NAMED failure: it is
+# thawed, but not reachable, and the message says both.
+renew_dhcp_lease() {
+    local name="$1" dev devices connect_out
+    local -a devs=()
+    if ! devices="$(sudo lxc-attach -n "$name" -- \
+        nmcli -t -f DEVICE,TYPE device status 2>&1)"; then
+        echo "thawed, but the DHCP lease was not renewed — nmcli failed: $devices"
+        return 1
+    fi
+    # `mapfile` rather than `for dev in $devices`. The unquoted form word-splits AND
+    # glob-expands, which is verbatim the defect Task 4.1b fixed in `identity_matches`
+    # one phase earlier — a value of `*` expanded against the working directory. No
+    # realistic nmcli DEVICE name triggers it and `shellcheck -S style` does not flag
+    # the shape, which is exactly why the lesson has to be carried rather than relearned.
+    mapfile -t devs < <(printf '%s\n' "$devices" | awk -F: '$2 == "ethernet" { print $1 }')
+    if [ "${#devs[@]}" -eq 0 ]; then
+        echo "thawed, but the DHCP lease was not renewed — NetworkManager manages no ethernet device"
+        return 1
+    fi
+    for dev in "${devs[@]}"; do
+        # Captured with `2>&1`, like the probe above and for the same two reasons. The
+        # rule in CLAUDE/AgentNotes.md is that EVERY lxc-attach has both streams on a
+        # pipe, because lxc-attach chowns the file its stderr points at; leaving stderr
+        # on the caller's fd 2 is safe only because today's one caller happens to supply
+        # a pipe, which is a property of a function in another file. And the message
+        # said "see nmcli output above" while stdout went nowhere — so it named output
+        # that was never printed. It carries what nmcli said instead.
+        if ! connect_out="$(sudo lxc-attach -n "$name" -- \
+            nmcli device connect "$dev" 2>&1)"; then
+            echo "thawed, but the DHCP lease on $dev was not renewed — nmcli failed: $connect_out"
+            return 1
+        fi
+    done
+}
+
 # One container, one call, so a single failure is named rather than collapsing
 # the batch. The library captures both streams and reports what LXC said.
+#
+# `|| return $?` on the unfreeze, and it is LOAD-BEARING. The library calls this hook as
+# `if out="$(freeze_hook_act …)"`, and bash suspends errexit inside a command substitution
+# whose value is being tested — so the hook's status is whatever its LAST command returned.
+# With the renewal appended unguarded, a failed `lxc-unfreeze` followed by a reconnect that
+# happens to succeed made the hook return 0, and the library printed `✓ name` for a
+# container that is still frozen. The renewal also DEPENDS on the thaw: its own failure
+# message says "thawed, but the lease was not renewed", which is a lie about a container
+# that was never thawed.
 freeze_hook_act() {
     local action="$1" name="$2"
     if [ "$action" = "freeze" ]; then
         sudo lxc-freeze -n "$name"
     else
-        sudo lxc-unfreeze -n "$name"
+        sudo lxc-unfreeze -n "$name" || return $?
+        renew_dhcp_lease "$name"
     fi
 }
 
@@ -645,6 +904,11 @@ main() {
     # file, and without it the gap surfaces as `command not found` part-way
     # through a menu the user is already looking at.
     freeze_assert_contract
+    # Called BARE on purpose. shellcheck suggests `assert_on_host "$@"` (SC2119) because
+    # the function reads $1/$2 — taking that would pass THIS TOOL's argv into the
+    # container-marker slots, so `lxcfreeze somename` would test `-f somename`, leave only
+    # $container as a signal, and quietly loosen a guard whose entire job is to refuse.
+    # Its two parameters are a test seam with the real paths as defaults.
     assert_on_host
     freeze_hook_preflight
     load_inventory

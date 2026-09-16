@@ -161,6 +161,37 @@ that state — and so were `rclone-tail` and `rclone-cache-status`, which the
   number is worth less than a measured one in a plan about false coverage
   claims
 
+  **A is now VERIFIED FEASIBLE, and the objection that was supposed to separate
+  A from B turns out not to.** Measured against semgrep 1.177.0
+  ([JOURNAL/00076-Journal-26-09-16.md](JOURNAL/00076-Journal-26-09-16.md)):
+
+  - **A measures, and the mechanism works.** A single-rule scan's
+    `paths.scanned` DOES discriminate — 150 / 150 / 56 / 56 / 150 over a corpus
+    spanning the include sets. Cost re-measured at **4.9×** the scan
+    (+7.3s over 150 files), consistent with the +14s already recorded.
+  - **`--include-rule-id` does not exist**, so A must split the ruleset into
+    temporary single-rule configs — which means **A needs PyYAML too**. The
+    "needs a YAML parser" objection therefore does not distinguish the options:
+    it applies to both, and it is void for both. The only alternative — five
+    hand-maintained config files beside one ruleset — is the two-things-that-
+    must-agree hazard this repo keeps being bitten by, so it is not an option
+  - **`--time` and `--x-ls` are both confirmed dead ends.** Every target carries
+    a `match_times` entry for every rule whether or not that rule targeted it,
+    so neither the value nor the entry's presence discriminates — the recorded
+    rejection was right. `--x-ls` lists targets *before* rule-specific filtering
+    (the union again) and is an `[INTERNAL]` flag documented as liable to
+    "change or disappear without notice"
+  - **A falsification trap for whoever implements it**, found by falling into it
+    twice: a test corpus of `files/` or `scripts/` CANNOT discriminate, because
+    both are in every rule's include set, and `helpers/` cannot either because it
+    is Python and contributes no bash. Only `CLAUDE/Plan/**` or `extensions/**`
+    span the difference. A test built on the wrong corpus passes while reporting
+    uniform coverage — the exact defect this task exists to remove
+
+  **Still the owner's call**, because what is left is the price: ~4.9× on this
+  gate's scan time, every QA run, for coverage numbers that are true instead of
+  uniform.
+
 - [x] ✅ **Task 4.3b**: `rclone-tail` and `rclone-cache-status` — cause **found**,
   and it cost 4 hidden findings. The earlier attempts failed because the harness
   was unreliable: they bisected while running rules whose regexes matched

@@ -47,13 +47,25 @@ fi
 # Plan 00082). None of the other names here nest below REPO_ROOT at more than
 # one location, so all of them are anchored too rather than leaving the same
 # latent defect in entries nobody happened to hit yet.
+#
+# The WHOLE .ansible tree, not just roles/ — the same answer qa-discovery.bash
+# reached for the shell and Python stages, and for the same reason: it is
+# gitignored Galaxy output, and `ansible-galaxy collection install` populates
+# .ansible/collections/ with third-party files. This stage kept its own find and
+# so kept the narrower exclusion, which made its file count depend on whether
+# galaxy content had landed on that machine — 10 files here against 8 on a
+# runner, both reported as a pass over "repo-owned" JavaScript.
 JS_FILES=()
+#
+# `.mjs` as well as `.js`: the extension-test harness under tests/extensions/ is ESM, it
+# is executed by the panel-sections gate, and it sits outside the extensions/ ESLint
+# project — so without this the "repo-owned JavaScript" claim was narrower than it read.
 while IFS= read -r -d '' file; do
     JS_FILES+=("$file")
-done < <(find "$REPO_ROOT" -type f -name "*.js" \
+done < <(find "$REPO_ROOT" -type f \( -name "*.js" -o -name "*.mjs" \) \
     ! -path "$REPO_ROOT/.git/*" \
     ! -path "*/node_modules/*" \
-    ! -path "$REPO_ROOT/.ansible/roles/*" \
+    ! -path "$REPO_ROOT/.ansible/*" \
     ! -path "$REPO_ROOT/roles/vendor/*" \
     ! -path "$REPO_ROOT/.claude/hooks-daemon/*" \
     ! -path "$REPO_ROOT/.claude/ccy/*" \

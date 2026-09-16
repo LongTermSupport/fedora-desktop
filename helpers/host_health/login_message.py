@@ -230,7 +230,13 @@ def read_and_render(path: str, *, now: str, running_kernel: str) -> str:
     return render(status_document.read(path), now=now, running_kernel=running_kernel)
 
 
-def main(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
+def main(
+    argv: list[str] | None = None,
+    *,
+    stdout: TextIO | None = None,
+    now: str | None = None,
+    running_kernel: str | None = None,
+) -> int:
     """What the login shell runs. **Always exits 0.**
 
     That is not laziness about error reporting — it is the contract. A non-zero status
@@ -240,6 +246,15 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
 
     The whole text is the payload here, which is the documented exception to
     CLAUDE/StderrHygiene.md: nothing captures this in a `$(...)`, a human reads it.
+
+    `now` and `running_kernel` are injection seams, defaulting to the real clock and the
+    real kernel. They exist because without them this was the ONE entry point that could
+    not be given the two host facts every other function here takes as arguments — so
+    the tests that drive it compared a fixture stamped with one kernel against whatever
+    kernel the machine happened to be running, and a fixture stamped with a fixed date
+    against the real clock. That passed on the machine the fixture was written on and
+    failed on a CI runner, and the date half would have failed EVERYWHERE once the
+    fixture aged past STALE_AFTER_DAYS.
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -255,10 +270,12 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
     )
     message = read_and_render(
         status_document.path(state_dir),
-        now=repo.utc_now(),
+        now=now if now is not None else repo.utc_now(),
         # One definition of "the running kernel", shared with the producer, rather than a
         # second `os.uname()` here that could drift from it.
-        running_kernel=probe.running_kernel(),
+        running_kernel=(
+            running_kernel if running_kernel is not None else probe.running_kernel()
+        ),
     )
     if message:
         out.write(f"{message}\n")

@@ -143,6 +143,27 @@ added later, unguarded; keying on `-p` cannot go stale.
 
 ## F7 — the `reboot-warning` signal and its CLI DO NOT EXIST — the dependency is real
 
+> **SUPERSEDED as of hooks daemon v3.65.0 — do not act on the reading below.**
+> The finding was correct when taken and is kept verbatim, because the command list it
+> quotes is the evidence for why no local substitute was invented. It is no longer true.
+>
+> `hooks-daemon signal {reboot-warning,shutdown-warning,reboot-cancelled}` now exists, and
+> the supervisor carries the reader half that renders it. Re-measure rather than trusting
+> either this block or that sentence: **`./triage-signal.bash`** takes the readings, and
+> `JOURNAL/00123-Journal-26-09-16.md` records what they were. The shape the issue's security
+> note asked for is what shipped — the payload's whole key set is
+> `kind, minutes, session_id, source, ts`, with no free-text field, and the wording an agent
+> sees is composed on the reader side from fixed templates.
+>
+> Two readings change decisions rather than merely unblocking them, so they are named here
+> where a reader arrives looking for the dependency:
+>
+> - `--all-sessions` **exits 1** when no session is live, rather than succeeding vacuously.
+>   So `reboot --in N` on an idle machine now gets a failure from the signal step and must
+>   decide deliberately whether that refuses the reboot or proceeds with it.
+> - An unrecognised kind exits **2** (the argument parser refuses it) while a well-formed but
+>   invalid request exits **1**. A caller treating "non-zero" uniformly discards that.
+
 The installed hooks daemon's full command list (`hooks-daemon --help`) is:
 
 ```

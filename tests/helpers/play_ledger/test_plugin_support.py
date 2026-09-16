@@ -128,8 +128,16 @@ class TestSourcePosition(unittest.TestCase):
 
     def test_a_non_string_origin_path_is_not_a_path(self) -> None:
         """`Origin.path` is typed as a str; anything else is a shape this does not
-        understand, and guessing from it would name the wrong file in a record."""
-        self.assertIsNone(plugin_support.source_position(_FakeOrigin(None), None))
+        understand, and guessing from it would name the wrong file in a record.
+
+        `None` is only half of "non-string", and it is the half a plain `is not None`
+        check also rejects — so on its own this case was passing without exercising
+        the `isinstance` it is named for. The other values are what discriminate.
+        """
+        for path in (None, 0, 3, b"/etc/x.yml", ["/etc/x.yml"], {"path": "/etc/x.yml"}):
+            with self.subTest(path=path):
+                self.assertIsNone(
+                    plugin_support.source_position(_FakeOrigin(path), None))
 
     def test_an_empty_legacy_tuple_is_none_rather_than_an_empty_sequence(self) -> None:
         """play_source refuses on both, but returning None keeps one shape of 'no
@@ -298,10 +306,6 @@ class TestRecordFailure(unittest.TestCase):
             self.assertIn("original cause", line)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestRecordFailureNamesTheRemedy(unittest.TestCase):
     """Issue #46: the operator was told the ledger was broken on every play of every
     run, and given nothing to do about it. The remedy travels with the report."""
@@ -318,3 +322,9 @@ class TestRecordFailureNamesTheRemedy(unittest.TestCase):
             line = plugin_support.record_failure(base, error="ValueError: boom", at=STAMP)
             self.assertIn("ValueError: boom", line)
             self.assertIn(plugin_support.FAILURE_MARKER, line)
+
+
+# Must stay LAST in the file — see the note in test_check_freshness.py. Direct
+# execution here reported 40 tests where the module path reported 42.
+if __name__ == "__main__":
+    unittest.main()

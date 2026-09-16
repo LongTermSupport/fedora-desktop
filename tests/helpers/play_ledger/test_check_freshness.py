@@ -7,12 +7,14 @@ status that distinguishes "nothing to say" from "I could not tell you".
 
 from __future__ import annotations
 
+import contextlib
 import io
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from typing import Any
 from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
@@ -326,10 +328,6 @@ class TestDefaultWiring(unittest.TestCase):
             fetch.assert_called_once_with("/repo")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestClearBroken(unittest.TestCase):
     """The operator's route out of a recorded hole (issue #46).
 
@@ -346,6 +344,61 @@ class TestClearBroken(unittest.TestCase):
             rc = check_freshness.clear_broken(base=base, stdout=out)
             self.assertEqual(rc, check_freshness.EXIT_OK)
             self.assertFalse(os.path.exists(ledger.sentinel_path(base)))
+
+    def test_it_clears_ONLY_the_sentinel_and_leaves_the_records_alone(self) -> None:
+        """The one operation in this plan that deletes host state on an operator's
+        instruction, so what it must NOT touch is worth pinning.
+
+        A mutation that also unlinked runs.jsonl passed the whole suite — the records
+        are the thing clearing is supposed to preserve, and nothing noticed.
+        """
+        with tempfile.TemporaryDirectory() as base:
+            os.makedirs(base, exist_ok=True)
+            with open(ledger.runs_path(base), "w", encoding="utf-8") as handle:
+                handle.write('{"schema": 1, "kind": "genesis"}\n{"schema": 1}\n')
+            store.mark_broken(base, error="ValueError: boom", at=STAMP)
+            check_freshness.clear_broken(base=base, stdout=io.StringIO())
+            with open(ledger.runs_path(base), encoding="utf-8") as handle:
+                self.assertEqual(len(handle.read().splitlines()), 2)
+
+    def test_the_cleared_hole_outlives_the_sentinel(self) -> None:
+        """Clearing stops the ledger being KNOWN-broken; it does not make it complete.
+
+        Without the CLEARED marker, `login_report.plays_run_here` went from None
+        straight to a PARTIAL set the moment the sentinel was removed — so every pin
+        whose row was in the hole stopped being reported, which is the precise
+        suppression that function's own docstring calls unacceptable.
+        """
+        from helpers.host_health import login_report
+
+        with tempfile.TemporaryDirectory() as base:
+            os.makedirs(base, exist_ok=True)
+            with open(ledger.runs_path(base), "w", encoding="utf-8") as handle:
+                handle.write(
+                    '{"schema": 1, "play": "playbooks/imports/play-x.yml",'
+                    ' "outcome": "ok", "at": "2026-09-15T00:00:00Z"}\n')
+            store.mark_broken(base, error="ValueError: boom", at=STAMP)
+            self.assertIsNone(login_report.plays_run_here(base))
+            check_freshness.clear_broken(base=base, stdout=io.StringIO())
+            self.assertTrue(os.path.exists(ledger.cleared_path(base)))
+            self.assertIsNone(
+                login_report.plays_run_here(base),
+                "a cleared hole still leaves the record set a lower bound")
+
+    def test_a_ledger_that_never_had_a_hole_still_gives_a_real_answer(self) -> None:
+        """The discrimination control for the case above. If `plays_run_here` answered
+        None unconditionally it would pass that test while making the ledger useless,
+        so prove an untroubled ledger is still read."""
+        from helpers.host_health import login_report
+
+        with tempfile.TemporaryDirectory() as base:
+            os.makedirs(base, exist_ok=True)
+            with open(ledger.runs_path(base), "w", encoding="utf-8") as handle:
+                handle.write(
+                    '{"schema": 1, "play": "playbooks/imports/play-x.yml",'
+                    ' "outcome": "ok", "at": "2026-09-15T00:00:00Z"}\n')
+            self.assertEqual(
+                login_report.plays_run_here(base), {"playbooks/imports/play-x.yml"})
 
     def test_quotes_the_recorded_reason_back(self) -> None:
         """The reason is the only record of WHY, and clearing destroys it — so it is
@@ -375,14 +428,64 @@ class TestClearBroken(unittest.TestCase):
 
     def test_an_unreadable_reason_still_clears_the_sentinel(self) -> None:
         """The operator asked for the hole to be cleared. Failing to quote the reason
-        back is no reason to leave the ledger refusing for ever."""
+        back is no reason to leave the ledger refusing for ever.
+
+        The mock fails ONLY the sentinel read. It used to replace `builtins.open`
+        wholesale, which also broke the CLEARED marker write — and that write must NOT
+        be swallowed: if the clearing cannot be recorded, the sentinel has to stay. An
+        over-broad mock was asserting the opposite of the intended contract.
+        """
+        real_open = open
+        sentinel_name = os.path.basename(ledger.sentinel_path(""))
+
+        def only_the_sentinel_fails(path: Any, *args: Any, **kwargs: Any) -> Any:
+            if str(path).endswith(sentinel_name):
+                raise OSError("denied")
+            return real_open(path, *args, **kwargs)
+
         with tempfile.TemporaryDirectory() as base:
             store.mark_broken(base, error="ValueError: boom", at=STAMP)
             out = io.StringIO()
-            with mock.patch("builtins.open", side_effect=OSError("denied")):
+            with mock.patch("builtins.open", side_effect=only_the_sentinel_fails):
                 rc = check_freshness.clear_broken(base=base, stdout=out)
             self.assertEqual(rc, check_freshness.EXIT_OK)
             self.assertFalse(os.path.exists(ledger.sentinel_path(base)))
+            self.assertIn("could not be read", out.getvalue())
+
+    def test_main_actually_wires_the_flag_to_the_clearing(self) -> None:
+        """Drives `main`, not `clear_broken`.
+
+        Every other case here calls `clear_broken` directly, so a flag-name typo, an
+        inverted branch or a dropped `if` in `main` left them all green — which is the
+        same tested-function-with-an-untested-caller shape as the defect this whole
+        class exists for: `store.clear_broken` was tested and had no caller at all.
+        """
+        with tempfile.TemporaryDirectory() as home:
+            environment = {"XDG_STATE_HOME": os.path.join(home, "state")}
+            with mock.patch.dict(os.environ, environment, clear=False):
+                base = ledger.ledger_dir(os.environ, home)
+                os.makedirs(base, exist_ok=True)
+                store.mark_broken(base, error="ValueError: boom", at=STAMP)
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    rc = check_freshness.main(["--clear-broken"])
+            self.assertEqual(rc, check_freshness.EXIT_OK)
+            self.assertFalse(os.path.exists(ledger.sentinel_path(base)))
+            self.assertIn("cleared the recorded hole", out.getvalue())
+
+    def test_main_without_the_flag_does_not_clear(self) -> None:
+        """The discrimination control: proves the case above passes because the FLAG
+        was honoured, not because `main` clears unconditionally."""
+        with tempfile.TemporaryDirectory() as home:
+            environment = {"XDG_STATE_HOME": os.path.join(home, "state")}
+            with mock.patch.dict(os.environ, environment, clear=False):
+                base = ledger.ledger_dir(os.environ, home)
+                os.makedirs(base, exist_ok=True)
+                store.mark_broken(base, error="ValueError: boom", at=STAMP)
+                with contextlib.redirect_stdout(io.StringIO()), \
+                        contextlib.redirect_stderr(io.StringIO()):
+                    check_freshness.main(["--repo-root", base])
+            self.assertTrue(os.path.exists(ledger.sentinel_path(base)))
 
     def test_the_run_path_is_untouched_by_the_flag_being_available(self) -> None:
         """Clearing is deliberate and explicit: a normal run must never do it, or the
@@ -393,3 +496,12 @@ class TestClearBroken(unittest.TestCase):
             rc = check_freshness.run(base=base, repo_root=base, stdout=out, stderr=err)
             self.assertEqual(rc, check_freshness.EXIT_UNTRUSTWORTHY)
             self.assertTrue(os.path.exists(ledger.sentinel_path(base)))
+
+
+# Must stay LAST in the file. `unittest.main()` here collects only what is defined
+# ABOVE it, so a class appended after this block is silently dropped on direct
+# execution — `python3 tests/.../test_check_freshness.py` reported 17 tests and `OK`
+# while the module path reported 23. A test suite that under-collects and says OK is
+# the exact failure shape this plan keeps finding elsewhere.
+if __name__ == "__main__":
+    unittest.main()
