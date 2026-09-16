@@ -117,6 +117,20 @@ a run was dying) is on disk before anything reports on it. A `>(…)` process su
 cannot be waited on at all. The handler is armed for **EXIT and INT/TERM/HUP**, so a Ctrl-C'd
 run still leaves a complete log.
 
+**Teardown registers, it does not trap.** A script that creates something it must remove —
+a throwaway container, a signal raised to a live session, a temp tree — calls
+`plan_on_cleanup <function>` (library 1.3.0+) instead of installing its own
+`trap … EXIT`. A hand-written EXIT trap *replaces* the library's handler and the log loses
+its final buffered chunk, which is the lines written as the run was dying; chaining the
+library's private `_plan_finalize_log` into a trap string avoids that and couples the
+script to an internal name, so a rename stops teardown in a script nobody would re-test
+and the only symptom is the resource left behind. Registered functions run on EXIT and on
+INT/TERM/HUP alike, **before** the log drains so their output is in it, in registration
+order, and a failing one does not stop the others — teardown is the one place where
+continuing is right, because the alternative is leaking everything after the first
+failure. Each failure is named. Registering a name that is not a function fails at
+registration, where the script can still be fixed.
+
 **Run logs are UNSCRUBBED and live under `untracked/plan-runs/<plan>/<script>/<timestamp>/`**,
 and the library says so on every run. A play can stream vault-decrypted values, so the
 *location* carries the rule: `untracked/` is excluded wholesale and is self-excluding, so a

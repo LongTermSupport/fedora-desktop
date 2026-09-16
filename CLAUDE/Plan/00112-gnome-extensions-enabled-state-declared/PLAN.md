@@ -203,6 +203,14 @@ is the single source instead, and disk only confirms it.
 
 ## Success Criteria
 
+**The host-side criteria below are a script, not an instruction.** Run `triage.bash`,
+`deploy.bash`, `deploy.bash` again, `triage.bash`, then `acceptance.bash` — or
+`untracked/meta-deploy.bash` to run this plan alongside the others waiting.
+`acceptance.bash` carries ten COVERAGE-registered checks, proves "nothing was removed" by
+diffing the before/after triage pair rather than asserting it, and separates
+could-not-establish (exit 2) from failed (exit 1) so a missing GNOME session never reads
+as a pass. The VM-lab claims are printed as NOT ESTABLISHABLE HERE and never counted.
+
 - [ ] `vmtest run desktop-fresh-install` verdict `pass`, 16/16, in the session
   after the reboot.
 - [ ] Re-running the play on a host with extra user-enabled extensions removes

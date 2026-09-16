@@ -145,7 +145,7 @@ if [[ -n "${PLANLIB_SOURCED:-}" ]]; then
     return 0
 fi
 
-PLANLIB_VERSION="1.2.0"
+PLANLIB_VERSION="1.3.0"
 PLANLIB_SOURCED=1
 export PLANLIB_VERSION
 
@@ -168,6 +168,8 @@ PLAN_TTY_PROBE_ERR=""
 # finalize handler cannot run twice (EXIT after a signal).
 PLAN_TEE_PID=""
 PLAN_TRAP_DONE=0
+# Functions registered by `plan_on_cleanup`, run on the way out before the log drains.
+PLAN_CLEANUP_FUNCS=()
 # Space-separated names of gather legs that failed; drives the final exit code.
 PLAN_FAILED_LEGS=""
 # Extra args threaded into every ansible invocation (currently just --check).
@@ -421,6 +423,7 @@ _plan_finalize_log() {
         return 0
     fi
     PLAN_TRAP_DONE=1
+    _plan_run_cleanups
     if [[ "${PLAN_LOG_STARTED}" -ne 1 ]]; then
         return 0
     fi
@@ -436,6 +439,42 @@ _plan_finalize_log() {
     printf '==> scripts/lib/run-log-scrub.bash exists but is NOT wired in here (Plan 00121\n' >&2
     printf '==> is dormant), so this log is unscrubbed. Read it in place; never commit it.\n' >&2
     exec 9>&-
+}
+
+# plan_on_cleanup <function> — run <function> on the way out, however the run ends.
+#
+# WHY THE LIBRARY OWNS THIS. A script needing teardown — a throwaway container, a signal
+# raised to a live session, a mount left behind — used to install its own `trap … EXIT`,
+# which REPLACES the library's handler and silently loses the run log's final buffered
+# chunk: the lines written as the run was dying, which are the ones that matter. The
+# alternative a script reached for instead was chaining the private `_plan_finalize_log`
+# and `_plan_on_signal` into its own trap string, which works and couples the script to
+# internals — so a rename here would break teardown in a script nobody would re-test, and
+# the failure is a container left running rather than an error anybody sees.
+#
+# Registered functions run BEFORE the log is drained, so their output is IN the log. They
+# run in registration order, and a failing one does not stop the others: teardown is the
+# one place where continuing is right, because the alternative is leaking every resource
+# after the first failure. Each failure is named on stderr.
+plan_on_cleanup() {
+    local fn="${1:-}"
+    if [[ -z "${fn}" ]]; then
+        _plan_err "plan_on_cleanup needs a function name" || return 1
+    fi
+    if ! declare -F "${fn}" > /dev/null; then
+        _plan_err "plan_on_cleanup: no such function '${fn}' — register it after defining it" || return 1
+    fi
+    PLAN_CLEANUP_FUNCS+=("${fn}")
+}
+
+# _plan_run_cleanups — every registered teardown, in order, each reported if it fails.
+_plan_run_cleanups() {
+    local fn
+    for fn in "${PLAN_CLEANUP_FUNCS[@]+"${PLAN_CLEANUP_FUNCS[@]}"}"; do
+        if ! "${fn}"; then
+            printf '[WARN] cleanup %s exited non-zero; later cleanups still ran\n' "${fn}" >&2
+        fi
+    done
 }
 
 # _plan_on_signal <SIG> — drain and report, then re-raise the signal's default disposition

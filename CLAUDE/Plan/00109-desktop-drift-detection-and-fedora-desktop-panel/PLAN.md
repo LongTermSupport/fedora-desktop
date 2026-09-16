@@ -318,6 +318,15 @@ session and was approaching the size at which edits are blocked:
 
 ## Success Criteria
 
+**The eighteen HOST items in the task tree are now two scripts, not eighteen
+instructions.** Run `deploy.bash` then `acceptance.bash` in this folder — or
+`untracked/meta-deploy.bash` to run this plan alongside the others waiting.
+`deploy.bash` runs four plays in a deliberate order, with `play-displaylink.yml` last
+because it is the only one that can demand a MOK enrolment and a reboot; its change gate
+says so before anything runs. `acceptance.bash` carries nineteen COVERAGE-registered
+checks and prints what needs a Wayland session or your own eyes under FOR THE HUMAN,
+never counting those as passed.
+
 - [ ] The installed-vs-pinned check **fails** when pointed at the 2026-09-11 state
   and passes now — demonstrated, not asserted
 - [ ] The freshness check reports a play edited after its ledgered run, and stays

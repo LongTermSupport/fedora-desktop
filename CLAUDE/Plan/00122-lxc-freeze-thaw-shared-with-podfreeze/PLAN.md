@@ -330,6 +330,12 @@ Reasoning, the comparison table and the alternatives:
 
 ## Success Criteria
 
+**Every criterion below that needs a host is now a script, not an instruction.** Run
+`deploy.bash` then `acceptance.bash` in this folder — or `untracked/meta-deploy.bash` to
+run this plan alongside the others waiting. `acceptance.bash` carries twelve
+COVERAGE-registered checks, creates and destroys its own throwaway container, and prints
+the two claims no gate can settle rather than letting a green verdict imply them.
+
 - [ ] `lxcfreeze` freezes a running LXC container and thaws it again, verified with
   `lxc-info -s` rather than by the tool's own report
 - [ ] Running `lxcfreeze` twice on the same target toggles it, as `podfreeze` does

@@ -149,6 +149,14 @@ this plan makes were demonstrably breakable. Report:
 
 ## Success Criteria
 
+**The host criteria below are a script, not an instruction.** Run `deploy.bash` then
+`acceptance.bash` in this folder — or `untracked/meta-deploy.bash` to run this plan
+alongside the others waiting. `deploy.bash` runs the play twice, because idempotency is a
+property of the second run and no `--check` pass can stand in for it; `acceptance.bash`
+carries eight COVERAGE-registered checks and proves the key works by making `rpm` verify
+a real package rather than by observing that the key is present. Closing the issue stays
+yours: the ACCEPTED message says so rather than implying the gate covered it.
+
 - [x] Chrome installs on the upgraded host with `gpgcheck` on.
 - [ ] A repeat run is green and reports no change for the key tasks.
 - [ ] `rpm -qa gpg-pubkey` afterwards holds a Google key carrying

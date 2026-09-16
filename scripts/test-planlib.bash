@@ -624,6 +624,81 @@ else
         "AFTER-SIGNAL-SHOULD-NOT-APPEAR" "${INTBODY}"
 fi
 
+# ── plan_on_cleanup ──────────────────────────────────────────────────────────────────────
+#
+# A script needing teardown — a throwaway container, a signal raised to a live session —
+# used to install its own `trap … EXIT`, which REPLACES the library's handler and loses the
+# log's final chunk. The alternative reached for instead was chaining `_plan_finalize_log`
+# into a hand-written trap string, which couples the script to a private name: rename it and
+# teardown stops running in a script nobody would re-test, leaving the resource behind.
+
+CLEANTEST="${TMPROOT}/f/repo/CLAUDE/Plan/00007-init/cleantest.bash"
+cat > "${CLEANTEST}" << CLEANTEST_EOF
+#!/usr/bin/env bash
+set -euo pipefail
+source '${LIB}'
+plan_init "\${BASH_SOURCE[0]}"
+plan_mode gather
+teardown_one() { printf 'TEARDOWN-ONE\n'; }
+teardown_two() { printf 'TEARDOWN-TWO\n'; return 3; }
+teardown_three() { printf 'TEARDOWN-THREE\n'; }
+plan_on_cleanup teardown_one
+plan_on_cleanup teardown_two
+plan_on_cleanup teardown_three
+plan_start_log auto
+printf 'BODY-RAN\n'
+CLEANTEST_EOF
+chmod +x "${CLEANTEST}"
+
+run_capture bash "${CLEANTEST}"
+assert_eq "a script registering cleanups still exits 0" "0" "${RC}"
+CLEANLOG="$(find "${TMPROOT}/f/repo/untracked/plan-runs/00007-init/cleantest" -name 'cleantest.log' -type f)"
+if [[ -z "${CLEANLOG}" ]]; then
+    fail "a script using plan_on_cleanup still writes its run log" "cleantest.log" "none found"
+else
+    CLEANBODY="$(cat "${CLEANLOG}")"
+    # IN the log, not after it: teardown output is part of the run's record, and a
+    # cleanup that ran after the drain would leave no trace of what it did.
+    assert_contains "a registered cleanup runs, and its output is IN the run log" \
+        "TEARDOWN-ONE" "${CLEANBODY}"
+    # The one place continuing past a failure is right: stopping would leak every
+    # resource after the first one that could not be released.
+    assert_contains "a cleanup after a FAILING cleanup still runs" \
+        "TEARDOWN-THREE" "${CLEANBODY}"
+    assert_contains "the run log is still complete alongside the cleanups" \
+        "BODY-RAN" "${CLEANBODY}"
+    # Asserted against the LOG, not the terminal: cleanups run while stderr still points
+    # at the log fifo, which is where every other line of the run goes. A teardown that
+    # could not release its resource is a fact about the run, and the run's record is the
+    # log — whose path plan_finish prints.
+    assert_contains "a failing cleanup is NAMED rather than swallowed" \
+        "cleanup teardown_two exited non-zero" "${CLEANBODY}"
+fi
+
+# Registering a name that is not a function is caught AT REGISTRATION, where the script
+# can still be fixed — not at teardown, where the only symptom is a resource left behind.
+BADCLEAN="${TMPROOT}/f/repo/CLAUDE/Plan/00007-init/badclean.bash"
+cat > "${BADCLEAN}" << BADCLEAN_EOF
+#!/usr/bin/env bash
+set -euo pipefail
+source '${LIB}'
+plan_init "\${BASH_SOURCE[0]}"
+plan_mode gather
+plan_on_cleanup no_such_teardown_function
+printf 'SHOULD-NOT-REACH-HERE\n'
+BADCLEAN_EOF
+chmod +x "${BADCLEAN}"
+
+run_capture bash "${BADCLEAN}"
+if [[ "${RC}" -eq 0 ]]; then
+    fail "registering a non-existent cleanup fails the run" "non-zero" "${RC}"
+else
+    pass "registering a non-existent cleanup fails the run"
+fi
+assert_contains "the refusal names the missing function" "no_such_teardown_function" "${OUT}"
+assert_not_contains "the script does not continue past the refusal" \
+    "SHOULD-NOT-REACH-HERE" "${OUT}"
+
 # ── structural invariants over the library's own source ──────────────────────────────────
 #
 # Checked against the source with whole-line comments removed: the header DOCUMENTS the banned
