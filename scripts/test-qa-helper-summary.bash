@@ -126,7 +126,7 @@ check "a clean run reports zero skips rather than omitting them" \
     "$(summary "$(good_counts 1464 0 64)")"
 
 check "a single test is not pluralised into a mismatch" \
-    "Ran 1 test in 1 modules, 0 skipped" \
+    "Ran 1 test in 1 module, 0 skipped" \
     "$(summary "$(good_counts 1 0 1)")"
 
 check "a large skip count is not truncated" \
@@ -137,7 +137,7 @@ check "a large skip count is not truncated" \
 # method can register several via subTest. The reader must not "correct" a file that is
 # faithful to the run it describes.
 check "more skips than tests is reported rather than clamped" \
-    "Ran 1 test in 1 modules, 3 skipped" \
+    "Ran 1 test in 1 module, 3 skipped" \
     "$(summary "$(good_counts 1 3 1)")"
 
 check "the keys are read by name, not by position" \
@@ -149,7 +149,7 @@ tests=9
 ")")"
 
 check "a trailing blank line is not an error" \
-    "Ran 3 tests in 1 modules, 0 skipped" \
+    "Ran 3 tests in 1 module, 0 skipped" \
     "$(summary "$(counts_file "token=$TOKEN
 tests=3
 skipped=0
@@ -158,7 +158,7 @@ modules=1
 ")")"
 
 check "a file with no trailing newline is still read" \
-    "Ran 3 tests in 1 modules, 1 skipped" \
+    "Ran 3 tests in 1 module, 1 skipped" \
     "$(summary "$(counts_file "token=$TOKEN
 tests=3
 skipped=1
@@ -230,6 +230,22 @@ skipped=1
 modules=1
 ")"
 
+# Both occurrences non-empty is the easy half. A duplicate whose FIRST value is empty
+# defeats any check written as "have I got a value yet?" rather than "have I seen this key
+# yet?" — the header promises the latter, so the code must do the latter.
+refuses "a duplicate whose first value is empty is refused" "$(counts_file "token=$TOKEN
+tests=
+tests=5
+skipped=0
+modules=1
+")"
+refuses "a duplicate token whose first value is empty is refused" "$(counts_file "token=
+token=$TOKEN
+tests=5
+skipped=0
+modules=1
+")"
+
 # THE CLOBBER CASE. The counts path travels in argv, so a test can find and overwrite the
 # file — and this suite's own tests drive the runner. A file that is perfectly well formed
 # but was not written by the run that asked for it must FAIL, not be believed.
@@ -295,6 +311,20 @@ else
         "$diag_stderr" >&2
 fi
 
+# An EMPTY file must say "nothing wrote this", not "something else wrote this". It is the
+# one malformed case the header calls reachable (`os._exit(0)`), and reporting it as a
+# token mismatch sends the next reader hunting a culprit that does not exist.
+diag_rc=0
+diag_stderr="$(summary "$(counts_file '')" 2>&1 1>/dev/null)" || diag_rc=$?
+if [ "$diag_rc" -ne 0 ] && [[ "$diag_stderr" == *"is empty"* ]]; then
+    passed=$((passed + 1))
+    echo "  PASS  an empty file is diagnosed as unwritten, not as a foreign file"
+else
+    failed=$((failed + 1))
+    printf '  FAIL  an empty file is diagnosed as unwritten, not as a foreign file\n        got: %s\n' \
+        "$diag_stderr" >&2
+fi
+
 # A wrong token must say so in those words, rather than reporting a missing key. The two
 # have different remedies: one means the runner is broken, the other that something else
 # wrote the file.
@@ -348,7 +378,7 @@ if [ "$e2e_rc" -ne 0 ]; then
     cat "$e2e_log" >&2
 else
     check "the real runner writes a file this reader understands" \
-        "Ran 2 tests in 1 modules, 1 skipped" "$(summary "$e2e_counts")"
+        "Ran 2 tests in 1 module, 1 skipped" "$(summary "$e2e_counts")"
 fi
 
 echo

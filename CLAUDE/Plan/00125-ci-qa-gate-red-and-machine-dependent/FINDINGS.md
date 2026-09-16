@@ -166,6 +166,48 @@ stage and loses the rest. It is not fixed in passing because those gates do not 
 format — `passed: N` alone, one/two/three spaces before `failed:`, and two prefixed with
 the gate's own name — so a shared reader is a design task, not an extraction.
 
+### What the token does and does not do
+
+Removing the scrape closed the stream, and the first draft then over-claimed about the file
+that replaced it. The claim was *"a value only this run knows"*, in four places. It is
+false: the token travels in the same `argv` as the path, so anything that can find the file
+already has the token. Stated correctly, three separate things are going on.
+
+| Threat                                                | What stops it                            | Detected?         |
+| ----------------------------------------------------- | ---------------------------------------- | ----------------- |
+| A test writes the counts file DURING the run          | the runner's write lands after the suite | n/a — overwritten |
+| A stale file, a concurrent run, a hardcoded path      | the token                                | yes               |
+| A write landing AFTER the runner's (`atexit`, thread) | nothing                                  | **no**            |
+
+So what actually defeats the accident the comments cited as motivation — this module's own
+tests being collected by the runner they test — is **write ordering**, which no comment
+mentioned. The token covers a real but different case. The third row is the honest gap.
+
+This is the fifth time in this plan a measurement has been written down as a law: *"a pipe
+cannot produce that ordering"*, *"can never precede"*, *"always last"*, *"no stream a test
+can write to is parsed"*, and now *"only this run knows"*. Four were caught by review. The
+pattern is not carelessness about the measurement — every one of those was measured
+correctly — it is generalising from the case measured to the population, in a sentence
+written immediately after the measurement, when the difference is least visible.
+
+### The stage line and the verdict stream are the same channel
+
+Removing the scrape also removed the capture around `qa-helper-tests.bash`, leaving its
+stdout inherited — so it flowed into `qa-all.bash`'s own stdout, which is the stream
+`verdicts.py` parses for `^[✓✗⚠] name: ` stage lines. Of the 29 hard-gate invocations, 28
+capture their child's output and that one did not. Measured as reachable: a test doing
+
+```python
+print("✓ helper-tests: Ran 1 test in 1 module, 0 skipped")
+```
+
+puts a forged stage line into the machine-read verdict stream of the suite whose subject is
+verdict lines that cannot be trusted.
+
+It is now captured and **required to be empty**, which is the difference between a
+precondition and a gate. The suite has 1,482 tests; "no test prints to stdout" held today by
+accident and one `print()` would have ended it silently.
+
 ## The two machines disagree on three stages, and each is declared
 
 Measured by `triage.bash` at the same commit on both machines with a clean tree

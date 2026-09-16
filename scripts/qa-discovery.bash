@@ -200,8 +200,14 @@ qa_discover_shell_files() {
 # This is the yardstick the gates measure their own coverage against. `find`
 # stays the discovery source above so a brand-new, not-yet-`git add`ed script is
 # still gated; git is the independent second opinion.
-qa_tracked_shell_scripts() {
-    local repo_root="$1" rel git_probe
+# qa_require_git_checkout <repo_root> — the yardstick's own precondition.
+#
+# Every qa_tracked_* function below measures a gate's discovery against git, so git being
+# absent or the tree not being a checkout means coverage CANNOT be verified — which is an
+# exit 2 ("cannot verify"), never a pass. Extracted when the third caller arrived: three
+# verbatim copies of a precondition is how one of them comes to say something different.
+qa_require_git_checkout() {
+    local repo_root="$1" git_probe
     if ! command -v git > /dev/null; then
         echo "ERROR: git not found — QA coverage cannot be verified." >&2
         echo "  These gates will not report a pass they cannot show they earned." >&2
@@ -212,6 +218,11 @@ qa_tracked_shell_scripts() {
         echo "  git said: $git_probe" >&2
         exit 2
     fi
+}
+
+qa_tracked_shell_scripts() {
+    local repo_root="$1" rel
+    qa_require_git_checkout "$repo_root"
 
     QA_TRACKED_SHELL_FILES=()
     while IFS= read -r -d '' rel; do
@@ -269,17 +280,8 @@ qa_discover_python_templates() {
 # non-playbook added there (a task file, a vars file) will fail this gate and
 # should be given an explicit exemption here, deliberately and with a reason.
 qa_tracked_playbook_candidates() {
-    local repo_root="$1" rel git_probe
-    if ! command -v git > /dev/null; then
-        echo "ERROR: git not found — QA coverage cannot be verified." >&2
-        echo "  These gates will not report a pass they cannot show they earned." >&2
-        exit 2
-    fi
-    if ! git_probe=$(git -C "$repo_root" rev-parse --git-dir 2>&1); then
-        echo "ERROR: $repo_root is not a git checkout, so coverage cannot be verified." >&2
-        echo "  git said: $git_probe" >&2
-        exit 2
-    fi
+    local repo_root="$1" rel
+    qa_require_git_checkout "$repo_root"
 
     QA_TRACKED_PLAYBOOK_CANDIDATES=()
     while IFS= read -r -d '' rel; do
@@ -335,17 +337,8 @@ qa_discover_python_files() {
 # The yardstick the python gate measures its own coverage against, exactly as
 # qa_tracked_shell_scripts is for the bash gates.
 qa_tracked_python_files() {
-    local repo_root="$1" rel git_probe
-    if ! command -v git > /dev/null; then
-        echo "ERROR: git not found — QA coverage cannot be verified." >&2
-        echo "  These gates will not report a pass they cannot show they earned." >&2
-        exit 2
-    fi
-    if ! git_probe=$(git -C "$repo_root" rev-parse --git-dir 2>&1); then
-        echo "ERROR: $repo_root is not a git checkout, so coverage cannot be verified." >&2
-        echo "  git said: $git_probe" >&2
-        exit 2
-    fi
+    local repo_root="$1" rel
+    qa_require_git_checkout "$repo_root"
 
     QA_TRACKED_PYTHON_FILES=()
     while IFS= read -r -d '' rel; do
@@ -375,17 +368,8 @@ qa_tracked_python_files() {
 # no signal anywhere. An under-match cannot announce itself, which is why the
 # yardstick has to come from somewhere other than the walk being checked.
 qa_tracked_helper_tests() {
-    local repo_root="$1" rel base git_probe
-    if ! command -v git > /dev/null; then
-        echo "ERROR: git not found — QA coverage cannot be verified." >&2
-        echo "  These gates will not report a pass they cannot show they earned." >&2
-        exit 2
-    fi
-    if ! git_probe=$(git -C "$repo_root" rev-parse --git-dir 2>&1); then
-        echo "ERROR: $repo_root is not a git checkout, so coverage cannot be verified." >&2
-        echo "  git said: $git_probe" >&2
-        exit 2
-    fi
+    local repo_root="$1" rel base
+    qa_require_git_checkout "$repo_root"
 
     QA_TRACKED_HELPER_TESTS=()
     while IFS= read -r -d '' rel; do

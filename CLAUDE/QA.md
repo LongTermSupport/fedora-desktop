@@ -131,13 +131,20 @@ source of truth for this; the result object is. Both halves are covered by
 `test-qa-helper-summary.bash`, whose last case runs the real runner end to end so a format
 change on one side alone turns it red.
 
-The file is **harder to reach by accident, not unreachable**: its path travels in `argv`, so
-a test that reads `sys.argv` could overwrite it — and this module's own tests are collected
-by the runner they test. `--counts-token` is the detector: `qa-all.bash` passes a value only
-that run knows and the reader requires it back, so a clobbered file fails the gate instead of
-reporting a number nobody checked. An **empty** file fails the same way, which matters because
-a test calling `os._exit(0)` skips the write while the process still exits 0 — leaving exactly
-the zero-byte file `mktemp` created. Existence is not generation.
+The file is **harder to reach than a stream, not unreachable**: its path travels in `argv`, so
+a test that reads `sys.argv` could overwrite it — and this module's own tests are collected by
+the runner they test. What protects it there is **write ordering**: the runner writes after
+every test has finished, so a mid-run forgery is overwritten. A write landing *after* the
+runner's — `atexit`, or a surviving thread — beats that, and nothing detects it.
+`--counts-token` covers a different case only: a file written by something that never read
+this run's `argv`, such as a stale file or a concurrent run. It is not a lock, because the
+token rides in the same `argv` as the path. An **empty** file is refused with its own message,
+which matters because a test calling `os._exit(0)` skips the write while the process still
+exits 0 — leaving exactly the zero-byte file `mktemp` created. Existence is not generation.
+
+`qa-all.bash` also **captures** the run's stdout and requires it to be empty. That stream is
+the one `verdicts.py` parses for stage lines, so one `print()` among 1,482 tests could forge
+or split this suite's own verdict; a precondition that large is a gate rather than a comment.
 
 A count is a **proxy, not a proof**: two machines could skip the same NUMBER of different
 tests. With the three conditional skips the suite has today the four machine shapes give
@@ -148,8 +155,10 @@ that property still holds, or surfacing the skipped tests by name instead.
 That argument also assumes the skip count is bounded by the test count, and **it is not**.
 `testsRun` counts test *methods*; `skipped` counts skip *events*, and one method registering
 several `subTest` skips reports more skips than tests — `Ran 1 test … 3 skipped` is a
-faithful line, not a broken one. There are no `subTest` skips in `tests/helpers` today, so
-the enumeration above holds; adding one means re-deriving it.
+faithful line, not a broken one. No skip is raised *inside* a `subTest` block in
+`tests/helpers` today — the three conditional skip sites are all outside one — so the
+enumeration above holds; putting a skip inside a `subTest` means re-deriving it. Note that
+`subTest` itself appears in ~70 places, so grepping for it will not answer this question.
 
 The line also carries the **module count**, because a machine that COLLECTED a different set
 of test modules is the same defect one level up and the test count alone cannot show it.

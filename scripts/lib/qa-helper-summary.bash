@@ -38,27 +38,46 @@
 # helper_counts_summary <counts-file> <expected-token> — prints
 # `Ran 1464 tests in 64 modules, 1 skipped`.
 #
-# Fails, loudly and on stderr, if the file is missing, is short a key, carries a key twice,
-# holds anything but digits, or comes back with a token that is not the one the caller
+# Fails, loudly and on stderr, if the file is missing or empty, is short a key, repeats a
+# key, holds anything but digits, or comes back with a token that is not the one the caller
 # asked for. Every one of those is a bug rather than a state a run can legitimately reach,
 # and answering `0 skipped` for any of them would make an unreadable file look exactly like
 # a clean machine — the defect this whole line exists to remove, restored by the back door.
 #
-# THE TOKEN IS A CLOBBER DETECTOR, NOT A LOCK. The counts path travels in `argv`, so a test
-# can read it; the token means the caller notices, because a file written by anything other
-# than the run it asked for carries the wrong value or none. It stops an accident, not an
-# attempt — which is the honest claim, and the previous four revisions each failed by
-# stating a narrower guarantee than they had.
+# WHAT THE TOKEN DETECTS, stated no wider than it is true: a counts file written by
+# something that never read this run's `argv` — a stale file, a concurrent run, a hardcoded
+# path. It is NOT a lock. The token travels in the same `argv` as the path, so anything able
+# to find the file already has the token.
 #
-# An EMPTY file is refused by the same path, and that case is reachable: a test calling
-# `os._exit(0)` skips the write entirely while the runner still exits 0, leaving the
-# zero-byte file `mktemp` created. Existence is not generation.
+# What defeats a clobber from inside the suite is WRITE ORDERING, not this check: the runner
+# writes after every test has finished, so a forgery landing mid-run is overwritten. And
+# what nothing here detects is a write landing AFTER the runner's — from `atexit`, or a
+# thread outliving the run — which reproduces a valid token and a wrong number.
+#
+# That last paragraph is the one worth keeping. Four revisions of this file failed by
+# claiming a guarantee BROADER than they had; a narrower claim than the truth costs nothing.
+#
+# An EMPTY file is refused with its own message rather than as a token mismatch, because the
+# two have different remedies and the empty case is reachable: a test calling `os._exit(0)`
+# skips the write entirely while the runner still exits 0, leaving the zero-byte file
+# `mktemp` created. Existence is not generation.
 helper_counts_summary() {
     local path="$1" expected_token="$2"
-    local tests="" skipped="" modules="" token="" key="" value="" noun=""
+    local tests="" skipped="" modules="" token="" key="" value=""
+    local seen_tests="" seen_skipped="" seen_modules="" seen_token=""
+    local test_noun="" module_noun=""
 
     if [[ ! -f "$path" ]]; then
         printf 'helper_counts_summary: no counts file at %s\n' "$path" >&2
+        return 1
+    fi
+
+    # Before the token check, because "nothing wrote this" and "something else wrote this"
+    # have different remedies, and reporting the first as the second sends the next reader
+    # looking for a culprit that does not exist.
+    if [[ ! -s "$path" ]]; then
+        printf 'helper_counts_summary: %s is empty — the runner did not write it\n' \
+            "$path" >&2
         return 1
     fi
 
@@ -66,34 +85,42 @@ helper_counts_summary() {
     # `read` returns non-zero there but has already assigned. Without it the final key is
     # silently dropped, and a reader that ignores part of its input is the shape this
     # whole library exists to avoid.
+    #
+    # Duplicates are tracked with SEEN flags rather than by testing the value for
+    # emptiness: `tests=` followed by `tests=5` is a repeated key, and a non-empty test
+    # would have accepted it because the first occurrence left the variable empty.
     while IFS='=' read -r key value || [[ -n "$key" ]]; do
         case "$key" in
             tests)
-                if [[ -n "$tests" ]]; then
+                if [[ -n "$seen_tests" ]]; then
                     printf 'helper_counts_summary: duplicate tests= in %s\n' "$path" >&2
                     return 1
                 fi
+                seen_tests=1
                 tests="$value"
                 ;;
             skipped)
-                if [[ -n "$skipped" ]]; then
+                if [[ -n "$seen_skipped" ]]; then
                     printf 'helper_counts_summary: duplicate skipped= in %s\n' "$path" >&2
                     return 1
                 fi
+                seen_skipped=1
                 skipped="$value"
                 ;;
             modules)
-                if [[ -n "$modules" ]]; then
+                if [[ -n "$seen_modules" ]]; then
                     printf 'helper_counts_summary: duplicate modules= in %s\n' "$path" >&2
                     return 1
                 fi
+                seen_modules=1
                 modules="$value"
                 ;;
             token)
-                if [[ -n "$token" ]]; then
+                if [[ -n "$seen_token" ]]; then
                     printf 'helper_counts_summary: duplicate token= in %s\n' "$path" >&2
                     return 1
                 fi
+                seen_token=1
                 token="$value"
                 ;;
             '')
@@ -106,8 +133,8 @@ helper_counts_summary() {
         esac
     done <"$path"
 
-    # Checked FIRST: if the file is not the one this caller's run produced, its numbers
-    # describe something else and validating them would only lend them credibility.
+    # Checked before the digits: if the file is not the one this caller's run produced, its
+    # numbers describe something else and validating them would only lend them credibility.
     if [[ "$token" != "$expected_token" ]]; then
         printf 'helper_counts_summary: %s carries token %q, expected %q — the file was\n' \
             "$path" "$token" "$expected_token" >&2
@@ -132,9 +159,14 @@ helper_counts_summary() {
 
     # The module count rides along because two machines COLLECTING different sets is the
     # same defect one level up, and the test count on its own cannot show it.
-    noun="tests"
+    test_noun="tests"
     if [[ "$tests" -eq 1 ]]; then
-        noun="test"
+        test_noun="test"
     fi
-    printf 'Ran %s %s in %s modules, %s skipped' "$tests" "$noun" "$modules" "$skipped"
+    module_noun="modules"
+    if [[ "$modules" -eq 1 ]]; then
+        module_noun="module"
+    fi
+    printf 'Ran %s %s in %s %s, %s skipped' \
+        "$tests" "$test_noun" "$modules" "$module_noun" "$skipped"
 }

@@ -105,7 +105,33 @@ if [[ "${#missed[@]}" -gt 0 ]]; then
     printf '    %s\n' "${missed[@]}" >&2
     echo "  These are tests this gate would have reported a pass over without" >&2
     echo "  running. Fix the discovery — do not untrack the files to silence it." >&2
-    exit 1
+    # Exit 2, agreeing with qa-bash.bash and qa-python.bash: CLAUDE/QA.md reserves 2 for
+    # "coverage cannot be verified", which is what this is rather than a test failure.
+    exit 2
+fi
+
+# The OTHER direction, and the half of the coverage story the cross-check above cannot
+# tell. `find` discovers untracked files too, so a file nobody committed is run and
+# counted while no tracked file is missing — the gate passes and the number silently
+# moves. It moved 1464 → 1465 → 1479 under a reviewer for exactly this reason, and the
+# number it moves is the one two machines are compared on. So the coverage is REPORTED
+# rather than implied by the list's length, the way version-pins reports `COVERAGE: 9 of 9`.
+untracked_tests=()
+declare -A tracked=()
+for rel in "${QA_TRACKED_HELPER_TESTS[@]}"; do
+    tracked["$rel"]=1
+done
+for file in "${test_files[@]}"; do
+    [[ -n "${tracked[$file]:-}" ]] || untracked_tests+=("$file")
+done
+
+printf 'COVERAGE: %s of %s tracked helper test modules\n' \
+    "$((${#test_files[@]} - ${#untracked_tests[@]}))" "${#QA_TRACKED_HELPER_TESTS[@]}" >&2
+if [[ "${#untracked_tests[@]}" -gt 0 ]]; then
+    echo "  plus ${#untracked_tests[@]} UNTRACKED file(s), which run here and nowhere else:" >&2
+    printf '    %s\n' "${untracked_tests[@]}" >&2
+    echo "  Commit them or remove them — an uncommitted test makes this run's counts" >&2
+    echo "  incomparable with any other machine's." >&2
 fi
 
 modules=()

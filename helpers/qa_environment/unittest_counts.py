@@ -34,13 +34,19 @@ means a clean run and the other means the reader has gone blind. The human-reada
 goes to stderr exactly as `python3 -m unittest` writes it, so an operator reading a
 failure sees the same tracebacks as before.
 
-THE FILE IS NOT UNREACHABLE, only much harder to reach by accident. Its path travels in
+THE FILE IS NOT UNREACHABLE, only much harder to reach than a stream. Its path travels in
 `argv`, so a test that reads `sys.argv` can find and overwrite it — and this module's own
-tests are themselves collected by the runner they test. `--counts-token` is why the reader
-can tell: the caller passes a value only it knows, requires it back, and a clobbered file
-then FAILS the gate instead of reporting a number nobody checked. That is a guard against
-accident, not against a test that is actively trying; the streams, by contrast, could be
-hit with an ordinary `print`.
+tests are themselves collected by the runner they test.
+
+What protects the numbers there is WRITE ORDERING: the write below happens after
+`runner.run(suite)` has returned, so anything a test wrote during the run is overwritten.
+A write landing after this one — from `atexit`, or a thread outliving the run — beats that,
+and nothing detects it.
+
+`--counts-token` covers a different case, and only that one: a counts file written by
+something that never read this run's `argv`, such as a stale file or a concurrent run. It
+is not a lock. The token is in the same `argv` as the path, so anything that can find the
+file already has the token.
 
 Read by `helper_counts_summary` in `scripts/lib/qa-helper-summary.bash`, which refuses
 a file that is missing, short a key, or not all digits.
@@ -110,13 +116,16 @@ def main(argv=None, stream=None):
     runner = unittest.TextTestRunner(stream=stream if stream is not None else sys.stderr)
     result = runner.run(suite)
 
-    # `wasSuccessful()` rather than `failures or errors`: an unexpected success alone
-    # leaves both empty while unittest itself reports FAILED, so checking the lists
-    # directly would turn a red suite green.
+    # Written AFTER the suite, which is what makes a mid-run forgery harmless: whatever a
+    # test put here is overwritten by this line. See the module docstring for what that
+    # does and does not cover.
     pathlib.Path(args.counts_file).write_text(
         counts_text(result, len(args.modules), args.counts_token), encoding="utf-8"
     )
 
+    # `wasSuccessful()` rather than `failures or errors`: an unexpected success alone leaves
+    # both lists empty while unittest itself reports FAILED, so checking them directly would
+    # turn a red suite green.
     return 0 if result.wasSuccessful() else 1
 
 

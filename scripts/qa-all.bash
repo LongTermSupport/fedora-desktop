@@ -32,8 +32,9 @@ TMP_DOCS=$(mktemp)
 # Every temp file this script owns is cleaned by ONE trap. A second `trap ... EXIT` would
 # silently REPLACE this one rather than add to it, leaking the seven above on every run.
 TMP_HELPER_ERR=$(mktemp)
+TMP_HELPER_OUT=$(mktemp)
 TMP_HELPER_COUNTS=$(mktemp)
-trap 'rm -f "$TMP_BASH" "$TMP_PYTHON" "$TMP_PATTERNS" "$TMP_ANSIBLE" "$TMP_ANSIBLE_SYNTAX" "$TMP_JS" "$TMP_DOCS" "$TMP_HELPER_ERR" "$TMP_HELPER_COUNTS"' EXIT
+trap 'rm -f "$TMP_BASH" "$TMP_PYTHON" "$TMP_PATTERNS" "$TMP_ANSIBLE" "$TMP_ANSIBLE_SYNTAX" "$TMP_JS" "$TMP_DOCS" "$TMP_HELPER_ERR" "$TMP_HELPER_OUT" "$TMP_HELPER_COUNTS"' EXIT
 FAILED=0
 
 # Run sub-checks (each writes JSON to temp file, outputs terse to stdout)
@@ -166,15 +167,30 @@ echo "$drift_out"
 # The run's human-readable output all goes to stderr, deliberately on one stream so its
 # ordering is the true ordering, and is shown in full when the suite fails.
 #
-# The token is a clobber detector. `mktemp` pre-creates the counts file and its path goes
-# to the runner in argv, so a test could read `sys.argv` and overwrite it — and this
-# suite's own tests exercise that runner. Requiring a value back that only this run knows
-# turns such a file into a hard failure instead of a number nobody could question.
+# The token detects a counts file written by something that did NOT read this run's argv —
+# a stale file, a concurrent run, a hardcoded path. It is not a lock: the token travels in
+# the same argv as the path, so anything that can find the file has the token too. What
+# actually defeats a clobber from inside the suite is WRITE ORDERING — the runner writes
+# after every test has finished, so a forgery landing mid-run is simply overwritten. A
+# write that lands AFTER the runner's, from `atexit` or a thread, defeats both; nothing
+# here detects that, and saying so is the point of this paragraph.
 TMP_HELPER_TOKEN="qa-all-$$-$(date +%s%N)"
 if ! bash "$SCRIPT_DIR/qa-helper-tests.bash" --counts-file "$TMP_HELPER_COUNTS" \
-    --counts-token "$TMP_HELPER_TOKEN" 2>"$TMP_HELPER_ERR"; then
-    cat "$TMP_HELPER_ERR" >&2
+    --counts-token "$TMP_HELPER_TOKEN" >"$TMP_HELPER_OUT" 2>"$TMP_HELPER_ERR"; then
+    cat "$TMP_HELPER_OUT" "$TMP_HELPER_ERR" >&2
     echo "✗ QA FAILED: helper unit tests" >&2
+    exit 1
+fi
+
+# The child's stdout is CAPTURED, like every other hard gate's, and then required to be
+# empty. Leaving it inherited put it in this script's own stdout — the stream `verdicts.py`
+# parses for `^[✓✗⚠] name: ` stage lines — so one `print()` in any of 1,482 tests could
+# forge a stage line or split this one. An unenforced precondition over a suite that large
+# is exactly the shape this plan exists to remove, so it is a gate rather than a comment.
+if [[ -s "$TMP_HELPER_OUT" ]]; then
+    echo "✗ QA FAILED: helper-tests wrote to stdout, which is this suite's verdict stream" >&2
+    echo "  A test printing here can forge or split a stage line. Send it to stderr." >&2
+    cat "$TMP_HELPER_OUT" >&2
     exit 1
 fi
 # The skip count travels with the line because `unittest` counts a SKIPPED test inside

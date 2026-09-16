@@ -204,16 +204,16 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
   numbers from unittest's `TestResult` object and writes them to the path
   `qa-helper-tests.bash --counts-file` is given; the single reader in
   `scripts/lib/qa-helper-summary.bash` reads that file and **fails** rather than reporting
-  zero when it cannot, driven by `scripts/test-qa-helper-summary.bash` (29 cases) as its own
-  gate. Mutation-tested: 6 mutations of the runner, 8 of the reader, all caught. The last
-  case runs the real runner end to end, so a format change on one side alone turns it red
+  zero when it cannot, driven by `scripts/test-qa-helper-summary.bash` (32 cases) as its own
+  gate. Mutation-tested: 6 mutations of the runner, 13 of the reader, all caught. The last
+  case runs the real runner end to end, so a format change on one side alone turns it red.
+  `qa-all.bash` captures the run's stdout and requires it EMPTY — that stream is the one
+  `verdicts.py` parses, so a `print()` in any test could otherwise forge a stage line
 
-- [ ] ⬜ **Task 4.5**: 21 other hard gates read their case count with the same unscoped
-  `grep -oE 'passed: [0-9]+'` that Task 4.4 removed here — `-o` prints **every** match, so a
-  second occurrence makes the stage line two lines and `verdicts.py` reads the first as the
-  stage and loses the rest. Not fixed in passing because the gates do not agree on a format
-  (`passed: N`, one/two/three spaces before `failed:`, two of them prefixed with the gate's
-  own name), so a shared reader needs designing rather than extracting
+- [ ] ⬜ **Task 4.5**: 21 other hard gates read their case count with an unscoped
+  `grep -oE 'passed: [0-9]+'`, which can make a stage line two lines. **Not blocked on
+  anyone** — deferred because the 21 disagree on a format, so a shared reader is a design
+  task rather than an extraction. Survey in `FINDINGS.md`
 
 ### Phase 5: Close
 
