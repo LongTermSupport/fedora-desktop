@@ -154,24 +154,27 @@ into Plan 00094's own notes.
     worked because the operator happened to be standing at the root. Both
     `deploy.bash` and `triage.bash` are now on `_planlib.inc.bash`;
     `acceptance.bash` deliberately is not, and says why on the line
-- [ ] ⬜ **Task 5.9 — RE-DEPLOY, because Task 5.8's fixes changed deployed files.**
-  `ftp-camera` and `rclone-rc-auth.bash` both changed after the host run below, so
-  the host is now running the build with the hardcoded RC port. That is the drift
-  this plan's own gate exists to catch, and leaving 5.7 ticked without saying so
-  would be the Plan 00094 failure repeated by this plan. Run `deploy.bash` then
-  `acceptance.bash` again — or `untracked/meta-deploy.bash`, which runs this
-  alongside every other waiting plan
 - [x] ✅ **Task 5.7**: Deployed on the HOST — `play-rclone.yml` and
   `play-ftp-camera.yml`, via `deploy.bash`, then `acceptance.bash`. Checks 0–6b all
   PASS against a live mount: no deployed client calls `rclone rc` directly, and the
   authenticated `core/stats` and `vfs/refresh` calls both succeed. `COVERAGE: 9 of 9`,
-  so the run is a complete one and the PASSes mean what they say
-  - [ ] ⬜ **HOST, not this plan's defect**: the same run's check [7] rejected on
-    `2 of 74` deployed scripts differing — `lxcfreeze` and `files/home/.local/lib/ freeze/freeze-common.bash`, owned by `play-lxcfreeze.yml` and `play-podfreeze.yml`.
-    Neither is one of this plan's four files. The gate is whole-host by design, so it
-    rejects for any repo/host disagreement; clearing it means running those two plays,
-    which is outside this plan's scope and is recorded here only so the red verdict is
-    not mistaken for this plan's work being incomplete
+  so the run is a complete one and the PASSes mean what they say. Superseded as
+  evidence by Task 5.9 — the deployed files have changed since
+- [ ] ⬜ **Task 5.9 — RE-DEPLOY, because Tasks 5.8 and 5.10's fixes changed deployed
+  files.** `ftp-camera` and `rclone-rc-auth.bash` both changed after Task 5.7's host
+  run, so the host is running a build this repo no longer contains. That is the drift
+  this plan's own gate exists to catch, and leaving 5.7 ticked without saying so
+  would be the Plan 00094 failure repeated by this plan. Run `deploy.bash` then
+  `acceptance.bash` again — or `untracked/meta-deploy.bash`, which runs this
+  alongside every other waiting plan
+- [x] ✅ **Task 5.10**: Closing `qa-reviewer` round 2 — **BLOCK**: 2 blocking, 4
+  should-fix, and all 7 of round 1's minors still open. All actioned, each one
+  mutation-tested (the assertion shown to kill a mutant *and* to leave a correct
+  build alone). The blocking pair were both this plan's own defect class recurring
+  inside its own fixes: `ftp-camera --copy` broken by Task 5.8's address discovery,
+  and a gate that could not see it because it probed its own address rather than the
+  client's. Findings, fixes and the falsification evidence: `JOURNAL/2026-09-16.md`;
+  the review itself is in `subagent-reports/`
 
 ## Dependencies
 
@@ -204,20 +207,24 @@ an IaC gap, so it fails fast and names the play.
 
 ## Success Criteria
 
-- [x] `ftp-camera`'s copy preflight authenticates against the mount (the step
+- [ ] `ftp-camera`'s copy preflight authenticates against the mount (the step
   that was refusing to run). A full `--copy` is deliberately not run by this
-  plan — it `cp -r`s the whole 780-file tree, so re-shipping is the user's call
+  plan — it `cp -r`s the whole 780-file tree, so re-shipping is the user's call.
+  **Unticked again by Task 5.9**: the round-2 review found this build resolved the
+  RC address from a path the match could never find, so `--copy` aborted on every
+  run. Fixed, but only the host re-run can tick this
 - [x] `rclone-cache-status` and `rclone-tail` both report live figures
-- [x] No helper **this plan owns** differs from its deployed copy — verified on the
-  host, where the new gate reported `2 of 74` differing and neither was one of this
-  plan's four files. The criterion as first written said "no repo-owned helper", which
-  is a whole-host claim this plan cannot make true: the two that differ belong to
-  `play-lxcfreeze.yml` and `play-podfreeze.yml`, which is the gate doing its job on
-  work outside this plan
+- [ ] No helper **this plan owns** differs from its deployed copy. The criterion as
+  first written said "no repo-owned helper", which is a whole-host claim this plan
+  cannot make true: the two that differ belong to `play-lxcfreeze.yml` and
+  `play-podfreeze.yml`, which is the gate doing its job on work outside this plan.
+  **Unticked again by Task 5.9** — this plan's own files changed after the host run
 - [x] No comment or doc claims the stats endpoints are unauthenticated
-- [x] `acceptance.bash` fails pre-deploy, and post-deploy every check in this plan's
-  scope passes — 0–6b, `COVERAGE: 9 of 9`. Its overall verdict is still REJECTED,
-  solely on check [7]'s two out-of-scope files above
+- [ ] `acceptance.bash` fails pre-deploy, and post-deploy every check in this plan's
+  scope passes — 0–6b, `COVERAGE: 9 of 9`. The last host run met this, with its
+  overall verdict REJECTED solely on check [7]'s two out-of-scope files above.
+  **Unticked again by Task 5.9**: the gate itself changed — check [6] now resolves
+  the address the client resolves — so the previous run no longer vouches for it
 - [x] QA passes (`./scripts/qa-all.bash`)
 - [ ] `qa-reviewer` returns PASS
 
@@ -234,6 +241,14 @@ Found while working, deliberately not addressed here:
   guard**, which false-positives on any process merely mentioning the name. Not
   edited — that plan is closed and its script will not run again. This plan's
   copy anchors the pattern.
+- **Two deployed scripts this plan does not own are drifted on the host.** The
+  host acceptance run's check [7] rejected on `2 of 74`: `lxcfreeze` and
+  `files/home/.local/lib/freeze/freeze-common.bash`, owned by `play-lxcfreeze.yml`
+  and `play-podfreeze.yml`. Neither is one of this plan's five files. The gate is
+  whole-host by design, so it rejects for any repo/host disagreement; clearing it
+  means running those two plays. Recorded here rather than as a task because it is
+  a box that is never to be ticked by this plan — it is another plan's work, and a
+  permanently unticked task reads as this plan being incomplete.
 
 ## Risks & Mitigations
 

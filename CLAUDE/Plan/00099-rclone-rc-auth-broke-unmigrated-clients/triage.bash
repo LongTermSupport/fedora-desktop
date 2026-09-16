@@ -70,6 +70,12 @@ done
 source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
 plan_mode gather
+# R2. Every probe below reads host state — fuse mounts, `systemctl --user`, the deployed
+# ~/.local/bin tree, /etc/ftp-camera. Run inside the CCY container this script does not
+# fail: it completes and reports "rclone: command not found", "credential file NOT
+# READABLE" and "ftp-camera ABSENT" as facts, with nothing in the output saying they are
+# facts about the wrong machine. A confident wrong picture is worse than no picture.
+plan_require_host "every probe reads host state — rclone mounts, user units, and the deployed ~/.local/bin tree"
 plan_start_log auto
 
 REPO_ROOT="$PLAN_REPO_ROOT"
@@ -82,22 +88,40 @@ RC_AUTH_FILE="$HOME/.config/rclone/rc-auth.env"
 # fact about a mount it never addressed. Empty when no mount is running, which every probe
 # below reports rather than papering over.
 RC_ADDR=""
-if rc_source_mount="$(findmnt -n -o TARGET -t fuse.rclone | awk 'NR==1')" \
-    && [[ -n "${rc_source_mount}" ]]; then
+RC_SOURCE_MOUNT=""
+if RC_SOURCE_MOUNT="$(findmnt -n -o TARGET -t fuse.rclone | awk 'NR==1')" \
+    && [[ -n "${RC_SOURCE_MOUNT}" ]]; then
     # shellcheck source-path=SCRIPTDIR
     # shellcheck source=../../../files/home/.local/bin/rclone-rc-auth.bash
     source "$PLAN_REPO_ROOT/files/home/.local/bin/rclone-rc-auth.bash"
-    if ! RC_ADDR="$(rclone_rc_addr_for_mount "${rc_source_mount}")"; then
+    if ! RC_ADDR="$(rclone_rc_addr_for_mount "${RC_SOURCE_MOUNT}")"; then
         RC_ADDR=""
     fi
 fi
 
 # A non-zero exit is DATA, not a failure. Capture it and carry on.
+#
+# This is why the probes are NOT plan_gather_legs: "core/stats WITHOUT credentials returned
+# 401" is the plan's central finding and exits 1, so a leg would record the run's own
+# discovery as a failed leg and exit non-zero on a perfect run. A leg means the gathering
+# broke; a non-zero probe means the host answered.
+#
+# `"$@"` here is an EXTERNAL command at every call site, never a shell function. A function
+# invoked this way is an indirection shellcheck cannot follow, and in a script that ends in
+# plan_finish — so never falls off the end — every such body is then reported unreachable:
+# 114 SC2317s, measured, and suppressions are banned (R11). The function-backed probes below
+# therefore call their function directly and hand the result to emit_probe.
 probe() {
     local label="$1"
     shift
     local out rc
     if out="$("$@" 2>&1)"; then rc=0; else rc=$?; fi
+    emit_probe "$label" "$rc" "$out"
+}
+
+# emit_probe <label> <rc> <output> — render one stanza from an already-captured result.
+emit_probe() {
+    local label="$1" rc="$2" out="$3"
     printf '### %s  (rc=%d)\n%s\n\n' "$label" "$rc" "${out:-(no output)}"
     return 0
 }
@@ -135,6 +159,26 @@ echo "Plan 00099 triage — rclone RC clients"
 echo "=============================================================="
 echo
 
+# The address is STATED, not merely used. Undiscovered, it leaves every RC probe below
+# calling `--url="http://"`, and the connection error that produces reads — to someone
+# chasing "does unauthenticated core/stats return 401?" — as evidence about the RC. It is
+# not: it is evidence that this script never addressed an RC at all.
+if [ -n "$RC_ADDR" ]; then
+    printf 'RC address: %s  (discovered from the mount at %s)\n' "$RC_ADDR" "$RC_SOURCE_MOUNT"
+else
+    echo "RC address: NOT DISCOVERED — no rclone mount on this host publishes one."
+    echo "  Every RC probe below is VOID: it addresses no RC, and its error says"
+    echo "  nothing about authentication."
+fi
+
+# Recorded as a leg, not a probe, because its failure does not describe the host — it means
+# the fact-finding never happened. plan_gather_leg names it in plan_finish's summary and
+# drives a non-zero exit, so an incomplete run cannot be read as a complete one. The leg is
+# `test`, an external command: a shell function passed here is an indirection shellcheck
+# cannot follow, and would be reported unreachable (see probe() below).
+plan_gather_leg "RC address discovery" test -n "$RC_ADDR"
+echo
+
 # --- the RC credential, by shape only ----------------------------------------
 show_rc_credential_shape() {
     if [ ! -r "$RC_AUTH_FILE" ]; then
@@ -143,9 +187,14 @@ show_rc_credential_shape() {
     fi
     ls -l "$RC_AUTH_FILE"
     echo "-- keys and value LENGTHS (values deliberately never printed) --"
-    awk -F= '{ printf "%s=<%d chars>\n", $1, length($2) }' "$RC_AUTH_FILE"
+    # Everything after the FIRST `=` is the value, exactly as rc_authed below parses it.
+    # `length($2)` truncated at the second `=`, so a password containing one was reported
+    # SHORTER than it is — and a length is the only evidence this report carries about the
+    # credential, so the one figure it prints has to be the real one.
+    awk -F= '{ printf "%s=<%d chars>\n", $1, length(substr($0, index($0, "=") + 1)) }' "$RC_AUTH_FILE"
 }
-probe "RC credential file shape" show_rc_credential_shape
+if probe_out="$(show_rc_credential_shape 2>&1)"; then probe_rc=0; else probe_rc=$?; fi
+emit_probe "RC credential file shape" "$probe_rc" "$probe_out"
 
 # --- does the RC demand authentication? --------------------------------------
 # The decisive pair. READ THIS FOR: whether the endpoints the helper scripts
@@ -180,8 +229,10 @@ rc_authed() {
     # its client --user/--pass flags to RCLONE_USER/RCLONE_PASS.
     RCLONE_USER="$u" RCLONE_PASS="$p" rclone rc --url="http://${RC_ADDR}" "$endpoint"
 }
-probe "core/stats WITH credentials" rc_authed core/stats
-probe "vfs/stats WITH credentials" rc_authed vfs/stats
+if probe_out="$(rc_authed core/stats 2>&1)"; then probe_rc=0; else probe_rc=$?; fi
+emit_probe "core/stats WITH credentials" "$probe_rc" "$probe_out"
+if probe_out="$(rc_authed vfs/stats 2>&1)"; then probe_rc=0; else probe_rc=$?; fi
+emit_probe "vfs/stats WITH credentials" "$probe_rc" "$probe_out"
 
 # --- which helpers authenticate, and which are drifted? ----------------------
 # READ THIS FOR: a helper with RC-CALLS > 0 and AUTH-REFS = 0 cannot talk to an
@@ -204,7 +255,8 @@ show_helper_matrix() {
         printf '%-24s %-12s %-10s %-10s\n' "$f" "$state" "$calls" "$auth"
     done < <(helper_sources)
 }
-probe "helper matrix (deployment drift + RC auth awareness)" show_helper_matrix
+if probe_out="$(show_helper_matrix 2>&1)"; then probe_rc=0; else probe_rc=$?; fi
+emit_probe "helper matrix (deployment drift + RC auth awareness)" "$probe_rc" "$probe_out"
 
 show_drift_detail() {
     local src f dep
@@ -227,7 +279,8 @@ show_drift_detail() {
         echo
     done < <(helper_sources)
 }
-probe "drift detail" show_drift_detail
+if probe_out="$(show_drift_detail 2>&1)"; then probe_rc=0; else probe_rc=$?; fi
+emit_probe "drift detail" "$probe_rc" "$probe_out"
 
 probe "every 'rclone rc' call site in the repo" \
     grep -rn 'rclone rc ' "$BIN_SRC" "$REPO_ROOT/scripts" "$REPO_ROOT/playbooks"
@@ -240,7 +293,8 @@ run_deployed_cache_status() {
     fi
     timeout 60 "$BIN_DEPLOYED/rclone-cache-status"
 }
-probe "rclone-cache-status (deployed) live run" run_deployed_cache_status
+if probe_out="$(run_deployed_cache_status 2>&1)"; then probe_rc=0; else probe_rc=$?; fi
+emit_probe "rclone-cache-status (deployed) live run" "$probe_rc" "$probe_out"
 
 # --- mount health ------------------------------------------------------------
 probe "rclone mounts (findmnt)" findmnt -n -o TARGET,SOURCE,FSTYPE -t fuse.rclone
@@ -262,7 +316,8 @@ show_mount_units() {
         echo
     done < <(list_rclone_units)
 }
-probe "rclone mount units" show_mount_units
+if probe_out="$(show_mount_units 2>&1)"; then probe_rc=0; else probe_rc=$?; fi
+emit_probe "rclone mount units" "$probe_rc" "$probe_out"
 
 probe "ftp-camera config" cat /etc/ftp-camera/config
 probe "upload dir" ls -la /srv/ftp-camera
@@ -274,6 +329,13 @@ echo "  1. 'core/stats WITHOUT credentials' — a 401 there means every"
 echo "     un-migrated helper is dead, whatever else looks healthy."
 echo "  2. 'helper matrix' — RC-CALLS > 0 with AUTH-REFS = 0 is a broken"
 echo "     helper; DEPLOYED=DRIFTED is a repo fix that never shipped."
-echo
-echo "Full report: $LOG"
+echo "  3. If 'RC address' at the top says NOT DISCOVERED, items 1 and 2's RC"
+echo "     lines are void — read the mount section instead."
 echo "=============================================================="
+
+# plan_finish prints the run log path and the failed-leg summary, and exits with a status
+# that agrees with that text. It must be last: it terminates the run, so anything below it
+# would be dead code. This replaced `echo "Full report: $LOG"`, whose variable the _planlib
+# conversion had removed — under `set -u` the script died on its own last line, every run,
+# and neither shellcheck nor qa-all.bash could see it because no gate executes this script.
+plan_finish

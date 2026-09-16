@@ -15,6 +15,33 @@
 
 set -euo pipefail
 
+# ONE list of this gate's checks. --help and the COVERAGE arithmetic both read it, so a
+# check cannot be described in the help text and absent from the coverage arithmetic, or
+# the reverse. Two hand-maintained copies of the same list agree until the day they do not,
+# and the only symptom is a verdict that is quietly measuring the wrong thing.
+#
+# COVERAGE exists because the PASS count cannot carry it: check [2] emits two passes or one
+# fail, check [3] emits one pass or N fails, and [2]'s second half, [6] and [6b] are each
+# conditional on $RC_LIB. So "ACCEPTED — 10 check(s) passed" reads identically whether 10 of
+# 10 ran or 10 of 12. Coverage implied by a count rather than stated is this repo's named
+# recurring defect class.
+CHECK_CATALOGUE=(
+    "0|precondition: an rclone mount is present and publishes an RC address"
+    "1|the mount's RC rejects an unauthenticated call (auth is actually on)"
+    "2|the credential helper library is deployed and has a non-empty credential"
+    "3|no deployed script calls \`rclone rc\` without going through the helper"
+    "4|rclone-cache-status reports live figures, not an rc error"
+    "5|rclone-tail --once reports live figures, not an rc error"
+    "6|ftp-camera's copy preflight authenticates at the address the CLIENT resolves"
+    "6b|vfs/refresh (rclone-cache-warm --fast's endpoint) authenticates"
+    "7|no repo-owned script has drifted from its deployed copy"
+)
+
+EXPECTED_CHECKS=()
+for entry in "${CHECK_CATALOGUE[@]}"; do
+    EXPECTED_CHECKS+=("${entry%%|*}")
+done
+
 for arg in "$@"; do
     case "$arg" in
         -h | --help)
@@ -24,19 +51,16 @@ Plan 00099 — acceptance gate
 Usage: acceptance.bash [--help]
 
 Checks, against the DEPLOYED artifacts:
-  0.  precondition: an rclone mount is present and publishes an RC address
-  1.  the mount's RC rejects an unauthenticated call (auth is actually on)
-  2.  the credential helper library is deployed and has a non-empty credential
-  3.  no deployed script calls `rclone rc` without going through the helper
-  4.  rclone-cache-status reports live figures, not an rc error
-  5.  rclone-tail --once reports live figures, not an rc error
-  6.  ftp-camera's copy preflight authenticates successfully
-  6b. vfs/refresh (rclone-cache-warm --fast's endpoint) authenticates
-  7.  no repo-owned script has drifted from its deployed copy
+EOF
+            for entry in "${CHECK_CATALOGUE[@]}"; do
+                printf '  %-4s%s\n' "${entry%%|*}." "${entry#*|}"
+            done
+            cat << 'EOF'
 
 The verdict carries a COVERAGE line counting these against what actually ran,
 so a check that stops executing is visible rather than absorbed into a lower
-pass count. An incomplete run is REJECTED even with no failures.
+pass count. An incomplete run is REJECTED even with no failures, and so is a
+run that executes a check this list does not name.
 
 Exit 0 = ACCEPTED, 1 = REJECTED.
 EOF
@@ -65,13 +89,6 @@ RC_LIB="$BIN/rclone-rc-auth.bash"
 RC_ADDR=""
 REFRESH_FS=""
 
-# The checks this gate is expected to run. The verdict prints COVERAGE against
-# this list because the PASS count cannot carry it: check [2] emits two passes
-# or one fail, check [3] emits one pass or N fails, and [2]'s second half, [6]
-# and [6b] are each conditional on $RC_LIB. So "ACCEPTED — 10 check(s) passed"
-# reads identically whether 10 of 10 ran or 10 of 12. Coverage implied by a
-# count rather than stated is this repo's named recurring defect class.
-EXPECTED_CHECKS=(0 1 2 3 4 5 6 6b 7)
 RAN_CHECKS=()
 
 PASS=0
@@ -122,14 +139,21 @@ echo
 # exit 0, so checks 4 and 5 would PASS having exercised no RC call at all.
 # Refuse to render a verdict rather than issue a false ACCEPTED.
 check 0 "precondition: an rclone mount is present and publishes an RC address"
-if ! findmnt -n -t fuse.rclone > /dev/null; then
+# Count, then assert the count. `findmnt -n -t fuse.rclone` exits 0 with ZERO rows, so the
+# exit status alone said nothing and this ABORT could not fire — the check printed
+# "PASS 0 rclone mount(s) present", which is the blind-result-reads-like-a-clean-result
+# class this gate exists to stop, sitting in the check whose whole job is to stop it. With
+# rc_mount then empty, the cmdline matcher below degenerated to *"  "* and matched any
+# process argv containing two consecutive spaces.
+mount_count=$(findmnt -n -t fuse.rclone | wc -l)
+if [ "$mount_count" -eq 0 ]; then
     echo "  ABORT  no fuse.rclone mount found on this host." >&2
     echo "         This gate proves nothing without one — checks 4 and 5 would" >&2
     echo "         pass on empty output. Start the mount and re-run:" >&2
     echo "           systemctl --user start rclone-<name>" >&2
     exit 1
 fi
-ok "$(findmnt -n -t fuse.rclone | wc -l) rclone mount(s) present"
+ok "$mount_count rclone mount(s) present"
 
 # Read the RC address off the mount's own rclone process, the way every client
 # this plan fixed now does. Taking the first mount is deliberate and stated:
@@ -138,7 +162,12 @@ ok "$(findmnt -n -t fuse.rclone | wc -l) rclone mount(s) present"
 REFRESH_FS=$(findmnt -n -o SOURCE -t fuse.rclone | head -n1)
 rc_mount=$(findmnt -n -o TARGET -t fuse.rclone | head -n1)
 for rc_pid in $(pgrep -f 'rclone [m]ount'); do
-    rc_cmdline=$(tr '\0' ' ' < "/proc/$rc_pid/cmdline")
+    # Guarded, because the process can exit between pgrep and this read — which is not
+    # this mount's problem and must not abort a gate under `set -e`. The shared library
+    # grew exactly this guard in the same change that left this copy without it.
+    if ! rc_cmdline=$(tr '\0' ' ' < "/proc/$rc_pid/cmdline"); then
+        continue
+    fi
     case "$rc_cmdline" in
         *" $rc_mount "* | *" $rc_mount")
             RC_ADDR=$(grep -oE -- '--rc-addr=[^ ]+' <<< "$rc_cmdline" | head -n1 | cut -d= -f2)
@@ -252,7 +281,11 @@ else
         # It exits 0 on this path, so "no error in the output" is NOT evidence
         # that an RC call succeeded. Demand positive proof instead.
         bad "rclone-cache-status found no mounts — nothing was queried" "$cs_out"
-    elif printf '%s' "$cs_out" | grep -q 'rc unreachable\|rejected credentials\|credential missing'; then
+    # 'rc helper library missing' is the client's OWN name for the failure this plan is
+    # about — the library not deployed — and it was absent from this list, so that exact
+    # regression degraded to the vaguer "printed no cache figures" below and pointed the
+    # reader at the wrong thing.
+    elif printf '%s' "$cs_out" | grep -q 'rc unreachable\|rejected credentials\|credential missing\|rc helper library missing'; then
         bad "rclone-cache-status could not reach the RC" "$cs_out"
     elif ! printf '%s' "$cs_out" | grep -q 'cache:'; then
         bad "rclone-cache-status printed no cache figures" "$cs_out"
@@ -273,7 +306,7 @@ else
     elif printf '%s' "$rt_out" | grep -q 'No rclone mounts found'; then
         # Same trap as check 4: this path exits 0 having queried nothing.
         bad "rclone-tail found no mounts — nothing was queried" "$rt_out"
-    elif printf '%s' "$rt_out" | grep -q 'rc unreachable\|rejected credentials\|credential missing'; then
+    elif printf '%s' "$rt_out" | grep -q 'rc unreachable\|rejected credentials\|credential missing\|rc helper library missing'; then
         bad "rclone-tail could not reach the RC" "$rt_out"
     elif ! printf '%s' "$rt_out" | grep -qE 'idle|queued|active|uploading'; then
         bad "rclone-tail printed no per-mount state" "$rt_out"
@@ -309,8 +342,26 @@ else
     # the RC is down, the credential is wrong, or the helper is absent.
     probe_err=$(mktemp)
     TEMP_FILES+=("$probe_err")
-    if rclone_rc_available "http://${RC_ADDR}" 2> "$probe_err"; then
-        ok "preflight probe (core/stats, authenticated) succeeded"
+    # Resolve the address the way the CLIENT does, from a path INSIDE the mount. That is
+    # the shape ftp-camera hands the library: find_mount_path returns the mount target
+    # plus the remote's own path offset. Probing check [0]'s RC_ADDR instead ran the right
+    # function against an address the client never computes — so this gate stayed green
+    # through a build where `ftp-camera --copy` aborted on every single run.
+    #
+    # find_mount_path is not callable from here: it lives inside a 2,475-line executable
+    # that runs its main on source, and it needs RCLONE_REMOTE. `$rc_mount/.` carries the
+    # one property that matters — a path inside the mount, textually different from the
+    # mount root — and a library that fails to normalise it fails to match the mount's
+    # cmdline, exactly as it failed to match the client's offset path.
+    client_input="$rc_mount/."
+    if ! client_addr=$(rclone_rc_addr_for_mount "$client_input" 2> "$probe_err"); then
+        bad "the client's own address resolution failed — ftp-camera --copy aborts here" \
+            "$(cat "$probe_err")"
+    elif [ "$client_addr" != "$RC_ADDR" ]; then
+        bad "the client resolves a different RC address than this gate probes" \
+            "client: $client_addr   gate: $RC_ADDR — one of them is talking to the wrong mount"
+    elif rclone_rc_available "http://${client_addr}" 2> "$probe_err"; then
+        ok "preflight probe (core/stats, authenticated) succeeded at the client-resolved $client_addr"
     else
         bad "preflight probe failed — ftp-camera --copy would refuse to run" \
             "$(cat "$probe_err")"
@@ -385,19 +436,39 @@ for expected in "${EXPECTED_CHECKS[@]}"; do
     esac
 done
 
+# And the other direction, which was missing: a check that RAN without being declared.
+# Coverage was compared one way only, so adding a check and forgetting the declaration
+# printed "COVERAGE: 10 of 9" and still ACCEPTED — the count contradicted itself in the
+# verdict line and nothing acted on it. An undeclared check is not a bonus; it means the
+# list this gate measures itself against is no longer the gate.
+undeclared=()
+for ran in "${RAN_CHECKS[@]+"${RAN_CHECKS[@]}"}"; do
+    case " ${EXPECTED_CHECKS[*]} " in
+        *" $ran "*) ;;
+        *) undeclared+=("$ran") ;;
+    esac
+done
+
 echo "=============================================================="
 echo "COVERAGE: ${#RAN_CHECKS[@]} of ${#EXPECTED_CHECKS[@]} checks executed" \
     "(${PASS} assertion(s) passed, ${FAIL} failed)"
 if [ "${#missing[@]}" -ne 0 ]; then
     echo "  NOT RUN: ${missing[*]}" >&2
 fi
+if [ "${#undeclared[@]}" -ne 0 ]; then
+    echo "  RAN BUT NOT DECLARED: ${undeclared[*]}" >&2
+    echo "  Add them to EXPECTED_CHECKS and to --help, or this gate is measuring" >&2
+    echo "  itself against a list that no longer describes it." >&2
+fi
 
-if [ "$FAIL" -eq 0 ] && [ "${#missing[@]}" -eq 0 ]; then
+if [ "$FAIL" -eq 0 ] && [ "${#missing[@]}" -eq 0 ] && [ "${#undeclared[@]}" -eq 0 ]; then
     echo "ACCEPTED — every declared check ran and every assertion passed."
     echo "=============================================================="
     exit 0
 fi
-if [ "$FAIL" -eq 0 ]; then
+if [ "$FAIL" -eq 0 ] && [ "${#undeclared[@]}" -ne 0 ]; then
+    echo "REJECTED — ${#undeclared[@]} check(s) ran that this gate does not declare." >&2
+elif [ "$FAIL" -eq 0 ]; then
     echo "REJECTED — no assertion failed, but ${#missing[@]} declared check(s) never ran." >&2
 else
     echo "REJECTED — $FAIL assertion(s) failed, $PASS passed." >&2

@@ -261,7 +261,15 @@ if [ "$DRIFTED" -gt 0 ]; then
     echo "  The repo and the host disagree. Deploy, test, THEN commit —" >&2
     echo "  see CLAUDE/InfrastructureAsCode.md (edit -> playbook -> deploy -> test)." >&2
     echo >&2
-    echo "✗ deployed-drift: $DRIFTED of $CHECKED deployed script(s) differ from the repo" >&2
+    # The failing line states the same three categories the passing line does. A summary
+    # that names only what it compared reads as a statement about everything, and on the
+    # failing path that is worse than on the passing one: the reader is about to go and
+    # fix the drift, and needs to know which scripts were never compared at all before
+    # concluding the fix was complete.
+    failure="✗ deployed-drift: $DRIFTED of $CHECKED deployed script(s) differ from the repo"
+    failure="$failure; $NOT_DEPLOYED not installed on this host"
+    failure="$failure; ${#TEMPLATES[@]} template(s) not byte-comparable"
+    echo "$failure" >&2
     exit 1
 fi
 

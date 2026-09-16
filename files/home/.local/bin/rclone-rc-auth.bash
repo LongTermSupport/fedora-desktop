@@ -137,11 +137,29 @@ rclone_rc_addr_for_mount() {
         return 1
     fi
 
+    # NORMALISE TO THE MOUNT ROOT FIRST, because callers legitimately hold a path
+    # INSIDE the mount rather than the mount itself — ftp-camera's find_mount_path
+    # returns the target plus the remote's own path offset, which is the configured
+    # case. The cmdline walk below matches the mountpoint as rclone was given it,
+    # i.e. the root, so an offset path matches nothing and the caller is told no
+    # mount serves a directory that is plainly inside one. Doing it here means one
+    # correct answer for every caller instead of each one remembering.
+    local mount_root=""
+    if ! mount_root=$(findmnt -n -o TARGET --target "$mountpoint"); then
+        echo "rclone_rc_addr_for_mount: $mountpoint is not inside any mount" >&2
+        return 1
+    fi
+    mountpoint="$mount_root"
+
     # `pgrep` exits 1 when nothing matches, which is a RESULT here (no mounts at
     # all) and not an error, so the loop is fed from a checked capture rather
     # than a bare substitution that would abort the caller under `set -e`.
+    # Bracketed first character: an unbracketed 'rclone mount' matches this very command's
+    # own argv when the caller is itself an rclone wrapper, so the walk would inspect the
+    # caller and answer about the wrong process. It is the repo's rule for `pgrep -f`, and
+    # the sibling walk in acceptance.bash already used it.
     local pids=""
-    if ! pids=$(pgrep -f 'rclone mount'); then
+    if ! pids=$(pgrep -f 'rclone [m]ount'); then
         echo "rclone_rc_addr_for_mount: no rclone mount process is running" >&2
         return 1
     fi
@@ -155,11 +173,23 @@ rclone_rc_addr_for_mount() {
         fi
         case "$cmdline" in
             *" $mountpoint "* | *" $mountpoint")
-                addr=$(grep -oE -- '--rc-addr=[^ ]+' <<< "$cmdline" | cut -d= -f2)
-                if [ -z "$addr" ]; then
+                local matches
+                matches=$(grep -oE -- '--rc-addr=[^ ]+' <<< "$cmdline" | cut -d= -f2)
+                if [ -z "$matches" ]; then
                     echo "rclone_rc_addr_for_mount: the mount serving $mountpoint was started without --rc-addr" >&2
                     return 1
                 fi
+                # More than one --rc-addr is refused rather than resolved. The three
+                # sibling walks take the first with `head -n1`, but rclone's own flag
+                # parsing takes the LAST — so picking either silently hands back an
+                # address the mount may not be listening on. The unit template emits one
+                # flag; two means a hand-edited unit, which the operator should see.
+                if [ "$(printf '%s\n' "$matches" | wc -l)" -gt 1 ]; then
+                    echo "rclone_rc_addr_for_mount: the mount serving $mountpoint has more than one --rc-addr: $(printf '%s' "$matches" | tr '\n' ' ')" >&2
+                    echo "  rclone uses the last; the sibling helpers use the first. Fix the unit rather than guess." >&2
+                    return 1
+                fi
+                addr="$matches"
                 printf '%s\n' "$addr"
                 return 0
                 ;;
