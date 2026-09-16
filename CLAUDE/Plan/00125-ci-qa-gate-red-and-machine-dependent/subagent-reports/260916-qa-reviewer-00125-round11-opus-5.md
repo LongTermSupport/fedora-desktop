@@ -534,3 +534,237 @@ Neither is silent, so neither is the class this plan is about — but both FAIL 
 reader would go and widen a regex that is already correct.
 
 **Verdict unchanged: FIX-BEFORE-MERGE**, on a shorter list. Findings 2 and 5–9 are what remain.
+
+---
+
+# Addendum 2 — re-checked against `f500f2d2`
+
+Same method as addendum 1: `f500f2d2` materialised into a temp directory (`git archive` +
+`git init` + `git add -A` + commit, so every file is tracked — the clean-checkout condition),
+every probe re-run there, mutations applied to the extraction and never to the repository.
+**The pinned worktree did not move.**
+
+`f500f2d2` is green in CI — run `35084809430`, and its lines confirm every number quoted to
+me: `✓ docs: 71 files (71 tracked) OK … — VENDORED: 0 verified, 8 unverifiable (repo absent),
+0 broken`; `✓ helper-tests: Ran 1545 tests in 66 modules (66 tracked), 2 skipped`;
+`✓ helper-counts-reader: passed: 66`; `✓ QA passed: 922 files checked`.
+
+## The parser is the right answer, and I could not break the part that matters
+
+`helpers/qa_environment/gate_call_sites.py` replaces two counts that had to agree with one
+that reports what it could not read. I ran fifteen shapes through the real `call_sites()`:
+
+    plain / braces / tab / column-0 / double-quoted pattern   all 1 site, correct var AND pattern
+    two calls on one line                                     2 sites, 0 unparsed
+    trailing comment mention / whole-line comment mention     0 sites, 0 unparsed
+    bare-word arg / line continuation                         0 sites, 1 unparsed, line named
+    `_qa_gate_detail` / `qa_gate_detail_v2`                    0 sites, 0 unparsed (correct)
+    `#` inside the pattern                                    1 site, pattern intact
+
+Findings 2 and 3 and both denominator residues from addendum 1 are genuinely closed, and the
+widening is verified per spelling for the first time — the thing the regex version never did.
+Parsing rather than counting is the structural fix, not a fourth grep.
+
+## Fix before merge
+
+### A. The reverse-direction check enumerates a hand-written array beside the thing it checks
+
+`scripts/test-qa-helper-summary.bash`, anchors `GATE_COMMAND_VARS=(` and `gate_command_for()`.
+
+The forward direction is derived: the parser finds the call sites. The reverse direction is
+**a second, hand-maintained copy** of `gate_command_for`'s case arms, and it can only report
+what somebody remembered to write twice. Measured — one case arm added to the extracted copy,
+the array untouched:
+
+    added an unreferenced case arm 'orphan_out'
+    suite exit=0
+    passed: 66 failed: 0
+
+An orphaned registration is exactly the state the reverse check was added to catch — *"a
+registration no call site reads"* — and it is invisible. This is the pattern this plan has
+removed four times already, and `CLAUDE/AgentNotes.md` states the rule: replacing a stale
+enumeration with a fresher enumeration is not the fix; deriving the set is.
+
+**Fix**: one source of truth. `declare -A GATE_COMMAND=([nokill_out]="bash scripts/…" …)`,
+look up with `${GATE_COMMAND[$var]+set}`, and iterate `"${!GATE_COMMAND[@]}"` for the reverse
+pass. The `case` and the array then cannot disagree because there is only one of them.
+
+## Should fix
+
+### B. The COVERAGE branch still falls through to PASS when the counts are not numbers
+
+Same file, anchor `site_count="$(printf '%s' "$sites_json" | jq '.sites | length')"`.
+
+If the parser cannot run, `sites_json` is empty, both `jq` calls produce nothing, and both
+`[` tests abort on a non-integer — the same fall-through addendum 1 found in the grep
+version. Measured by making the module unavailable:
+
+    /usr/bin/python3: No module named helpers.qa_environment.gate_call_sites
+      PASS  COVERAGE:  qa_gate_detail call site(s) parsed, 0 unparsed
+      FAIL  gate_command_for registers $nokill_out, but no qa_gate_detail call site … reads it
+      … (six of these)
+    passed: 52 failed: 6   suite exit=1
+
+So the **run** fails, which is the important part — but it fails by the reverse check, and
+this branch prints a PASS with an empty number. The rescue is incidental: it depends on
+`GATE_COMMAND_VARS` being non-empty, and finding A shows that array is hand-maintained.
+`jq -e '(.sites | type == "array") and (.unparsed | type == "array")'` on `sites_json` before
+reading the two lengths would make this branch answer for itself.
+
+### C. `.tracked` is the one number in the docs stage line with no guard
+
+`scripts/qa-docs.bash`, anchor `TRACKED=$(jq -r '.tracked' "$TMP_RAW")`.
+
+The payload validation checks `has("findings") and has("scanned")`; the new typed guard checks
+`.vendored.ok`, `.vendored.unverifiable`, `.vendored.broken` and `.vendored_warning`. Neither
+covers `.tracked`. Measured — `"tracked"` removed from `link_check`'s payload:
+
+    ✓ docs: 71 files (null tracked) OK (links, anchors, playbook catalogue, topic index) — …
+    qa-docs exit=0
+
+It degrades visibly rather than silently, so it is not the blind class — but it is the number
+added *because* an unstated denominator reads as clean, and it is now the only field in that
+line nothing checks. The guard immediately above it says so itself: *"Two adjacent guards with
+two conventions is how one of them ends up the weaker one."* One clause:
+`and (.tracked | type == "number")`.
+
+### D. A wrongly-parsed call site is a third state the parser's docstring says cannot exist
+
+`helpers/qa_environment/gate_call_sites.py`, anchor `_ARGS = re.compile(`.
+
+The pattern group is `(?P<pattern>.*?)(?P=quote)`, non-greedy, with no escape handling.
+Measured:
+
+    qa_gate_detail "$a_out" "say \"hi\" now"   ->  sites=1  unparsed=0  pattern='say \'
+
+The module header states the invariant as *"A silently dropped call site is not a state this
+function can reach: it either parses an occurrence or reports it."* This is a third state —
+parsed, wrongly, reported as clean. Downstream it becomes *"the pattern qa-all.bash applies to
+`$a_out` no longer matches that gate's output"*, a true failure with a false diagnosis, which
+is one of the four defects the commit message lists as its reason for existing. And if a
+truncated pattern happened to still match, the site would PASS while the pattern checked is
+not the pattern `qa-all.bash` applies.
+
+Latent — none of the six live patterns contains a quote. **Fix**: handle `\"` inside a
+double-quoted pattern, or refuse a pattern whose closing quote is preceded by a backslash and
+return it as `unparsed`, which is the honest answer for something the parser cannot read.
+
+### E. The name inside a string or a heredoc is reported as an unparsed call site
+
+Same file, anchor `def strip_comment`.
+
+`strip_comment` is quote-aware, which is right and closes the comment case in both directions.
+But a string is not a comment, and the occurrence scan runs on what survives. Measured:
+
+    echo "use qa_gate_detail here"                 -> sites=0 unparsed=1
+    a two-line string mentioning it on line 2      -> sites=0 unparsed=1 (line 2)
+    a heredoc body mentioning it                   -> sites=0 unparsed=1
+
+Each fails the suite with *"N qa_gate_detail call site(s) in qa-all.bash did not parse —
+unchecked, not absent"*. `qa-all.bash` has none today (0 unparsed, measured), so this is
+latent; it is worth naming because it is the same misdiagnosis class the comment stripping was
+added to remove, one construct over. The cheap mitigation is a sentence in the header saying
+the parser reads comments but not string context, so the next reader meeting the message knows
+where to look.
+
+## Nits
+
+- **The control cited for the ⚠-block assertion is not the mutation that breaks it.** Measured
+  against `test_the_block_is_one_stage_to_the_real_verdict_parser`:
+
+      as composed                  stages=['docs'] symbols=['⚠','✓']          ASSERTION PASSES
+      MUTATION: indent stripped    stages=['docs'] symbols=['⚠','✓']          ASSERTION PASSES
+      MUTATION: detail leads ⚠     stages=['docs'] symbols=['⚠','⚠','⚠','✓']  ASSERTION FAILS
+
+  The assertion is sound and does discriminate — against a detail line that *begins with a
+  stage symbol*, which is the real hazard. Removing the indent does not break it, because a
+  detail line has no symbol either way. Two consequences worth a line each: the reported
+  control demonstrates something else, and the previous version's direct
+  `assertTrue(detail.startswith("    "))` was dropped, so the indentation the docstring names
+  is now asserted by nothing. It is still load-bearing — `SYMBOL_BEARING` requires the symbol
+  at line start — so a one-line `startswith` alongside the parser assertion covers both.
+- **`PLAN.md`'s "Delivery & Milestones" is a frozen list.** Anchor *"Remaining: Task 2.1
+  (decision), 2.2 (its implementation), 4.3 (decision), 5.2 (follows 2.2), 5.3"*. Tasks 2.1,
+  2.2 and 5.2 are all `[x] ✅` thirty lines above it. 4.3 and 5.3 are correctly still open.
+
+## The two questions you asked me
+
+**Finding 4 — is the reasoning right?** The recursion is real: registering this suite's own
+capture variable in `gate_command_for` would make `capture_for` run
+`test-qa-helper-summary.bash` from inside itself, so routing it through `qa_gate_detail` is
+genuinely impossible. Carrying the property on an exit code instead is the right substitute in
+principle, and the reverse direction is the right shape for it.
+
+Two corrections. First, *"cannot ride in the stage line"* is stronger than what was shown:
+what cannot be done is routing it through `qa_gate_detail`. `qa-all.bash` already captures this
+suite's whole output, so it could read a second marker line out of that capture and append it
+to the stage line with no registration and no recursion. I am not asking for that — the exit
+code is the better mechanism and the marker would be one more thing to keep in step — but the
+sentence should say "not through `qa_gate_detail`" rather than "cannot". Second, as built the
+exit-code substitute is weaker than the argument needs: findings A and B are both in it. Fix
+those two and the reasoning holds.
+
+**Finding 9 — does the exit-2 chain need the seam?** Yes, and I see you have already started:
+the working tree's `scripts/qa-docs.bash` has grown `REPO_ROOT="${1:-…}"` and names
+`scripts/test-qa-docs-exit-codes.bash`, neither of which is in `f500f2d2`. The reason is not
+tidiness. That script documents three exit codes; two of them are reachable today only by
+argument, because each needs a tree this repository is not, and the `2` in particular arrives
+through two hops — Python exits 1, then the `jq -e` validation refuses the traceback — that no
+committed test touches. I measured the chain end to end twice and it works; measuring it in a
+review is not the same as a gate that would notice it stopping. The same seam is what makes
+the zero-file guard and the crash path testable, and those are the three branches whose whole
+job is to refuse a pass.
+
+## Closed since addendum 1 — re-verified, not taken on trust
+
+- **2, 3 and both denominator residues** — the fifteen-shape table above.
+- **5** — `1,482 tests` and `(51 cases)` both gone from `FINDINGS.md` and `PLAN.md`.
+- **6** — both headline tables now read `| untracked, and vendored by nobody |`, and
+  `check_links`' docstring no longer asks the ignore question.
+- **7** — the `// "?"` paragraph is gone; the block now argues for the typed guard it sits on.
+- **8** — control reproduced: an uncommitted in-scope document gives
+  `✓ docs: 72 files (71 tracked) OK`, against `71 files (71 tracked)` clean. Not excluding
+  untracked documents is the right call — a broken link in an uncommitted file is a true
+  finding, and the denominator is what makes the two machines comparable.
+- **9, docstring half** — the raise test no longer describes `check-ignore`.
+- **10, second half** — the submodule distinction is written down where the hint would send
+  someone wrong, with the measurement (`.gitmodules` absent, no mode-160000 entries) beside it.
+- **11** — the Non-Goal now names the same population as `CLAUDE/QA.md`: a worktree *and any
+  checkout where `npm install` has not been run*.
+- **My finding inside `01850f04`** — the test imports `verdicts` and parses with
+  `verdicts.parse`; see the nit above for what its control actually proves.
+- **The nits** — three decoy payloads (`null`, `{}`, missing key) all REFUSED and the real one
+  accepted; jq's complaint captured and printed; blank lines back to two; the mid-clause
+  comment break closed; `test_an_escaping_target_that_EXISTS_is_still_a_finding` added beside
+  the absent case; criterion 1 restated as a condition; criterion 4 ticked against CI run
+  `35081847136`, which I confirmed is real, green and on `338fa35b`.
+
+## Task 4.3's finding — checked independently, and it holds
+
+`qa-all.bash` contains **32** `✗ QA FAILED:` lines; excluding the final run summary
+(`✗ QA FAILED: $NERRORS errors in $TOTAL files`) leaves **31** gate aborts. I parsed all 32
+with the real `verdicts.parse`: **32 of 32 produce no stage at all**, because `RUN_SUMMARY`
+matches `^[✓✗⚠] QA (?:passed|FAILED):` before `STAGE` can. So a failing gate contributes no
+stage line and is indistinguishable from one that never ran. `FINDINGS.md` states the
+reconciliation itself — *"32 `exit 1` sites, less the final summary; `helper-tests` owns three
+of them, which is how 31 lines cover 29 gates"* — and it is exact. Option (2) is correctly
+ruled out.
+
+## Mechanical gates at `f500f2d2`
+
+| Gate | Result |
+| ---- | ------ |
+| CI | **run `35084809430`, `headSha f500f2d2`, success** — the four stage lines quoted above |
+| `python3 -m unittest tests.helpers.docs.test_link_check` | exit 0, `Ran 90 tests … OK` |
+| `python3 -m unittest tests.helpers.qa_environment.test_gate_call_sites` | exit 0, `Ran 23 tests … OK` |
+| `scripts/qa-docs.bash` in a synthesised clean checkout | exit 0, `✓ docs: 71 files (71 tracked) OK … 0 verified, 8 unverifiable, 0 broken` |
+| `scripts/test-qa-helper-summary.bash` | exit 0, `passed: 66 failed: 0`, `PASS COVERAGE: 8 qa_gate_detail call site(s) parsed, 0 unparsed` |
+| `ruff check` (pin `0.16.4`) | clean on all four Python files |
+| `shellcheck -x` | clean on both changed bash files |
+| git modes | `gate_call_sites.py` and its test 100644; `qa-docs.bash` and `test-qa-helper-summary.bash` 100755 — correct |
+| public-repo scan | **0 hits** across all 727 added lines, on eleven patterns |
+
+**Verdict: FIX-BEFORE-MERGE, and A is the only one I would hold for.** B through E and the two
+nits are real and measured, but none of them breaks a user, and every one is latent today. A is
+a hand-written enumeration standing in for a derived one inside the check written to catch a
+stale registration, and it costs one `declare -A` to remove.
