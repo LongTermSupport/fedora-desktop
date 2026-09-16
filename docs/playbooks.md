@@ -1018,6 +1018,12 @@ below:
   NetworkManager. The freezer stops the DHCP client too, so a freeze longer than the
   one-hour lease would otherwise leave the container unreachable until
   NetworkManager's own retry, minutes later
+- **The list carries an `IPV4` column** (`lxc-info -iH`), blank when the container has
+  no address. A blank beside `RUNNING` is exactly that expired-lease symptom, so the
+  cell is left empty rather than filled with a placeholder word
+- **Freezing says what it costs** before the freeze: ssh sessions into the container,
+  and any agent socket forwarded over one, die with the frozen TCP connection. The
+  address comes back on thaw; the connections do not, so reconnect
 - Separate from `play-podfreeze.yml` because this repo's LXC is rootful and Podman is
   not, so one tool would prompt for root on every menu open. What the two genuinely
   share — the menu and the decisions — is one library, deployed by one task file both

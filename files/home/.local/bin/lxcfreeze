@@ -100,6 +100,18 @@ FREEZE_TARGET_HINT="NAME..., --bridge BR,
   or --all"
 FREEZE_LIST_NOTE="  A STOPPED container is not listed: it can be neither frozen nor thawed."
 
+# What a freeze costs while it lasts. The DHCP half is handled — thaw renews the lease, so
+# the container comes back reachable at its old address — but nothing can rescue the TCP
+# connections, and that is the half a user meets later and misreads. An ssh session into a
+# frozen container is not paused, it is dead, and so is any agent socket forwarded over it;
+# the first symptom is usually a `git push` inside the container that hangs and then fails
+# with a stale agent. Said before the freeze, where it is still actionable.
+FREEZE_FREEZE_NOTE="  While frozen, the container answers nothing: every ssh session into it
+  dies with the frozen TCP connection, and so does any agent socket forwarded
+  over one. Thaw renews the DHCP lease, so the address comes back even after a
+  freeze longer than the lease — the connections do not. Reconnect after thawing
+  rather than trusting an old session."
+
 # Where the shared library is. ONE relative path finds it both from a repo checkout
 # and from ~/.local/bin once deployed, because files/ mirrors the target filesystem.
 # The second candidate is that checkout reached from the ENTRY POINT rather than from
@@ -312,6 +324,35 @@ lxcf_parse_bridge() {
     printf '%s' "$value"
 }
 
+# lxcf_parse_ipv4 <lxc-info -iH output> — the container's first IPv4 address, or nothing.
+#
+# `lxc-info -n NAME -iH` prints one address per line and nothing at all for a container
+# that has none. Three things this does NOT do:
+#   - take the first LINE. `-i` prints every address, and on a dual-stack container the
+#     IPv6 one can come first — which would put an IPv6 address under a column headed
+#     IPV4. The shape is matched, not the position.
+#   - invent a placeholder for "no address". A blank cell beside RUNNING is the symptom
+#     this column exists to show, and a word in its place would hide it.
+#   - trust lxc-info's stderr. A failure message is not a dotted quad and must never be
+#     printed where an address goes, so the shape check is the guard for that too.
+#
+# One address is shown because there is one column. A two-interface container has more,
+# and the drill-down is where those belong.
+lxcf_parse_ipv4() {
+    local raw="${1-}" line grep_rc=0
+    line="$(printf '%s\n' "$raw" |
+        grep -m1 -oE '(^|[[:space:]])([0-9]{1,3}\.){3}[0-9]{1,3}([[:space:]]|$)')" || grep_rc=$?
+    # grep exits 1 for "no IPv4 here", which is an ANSWER — a frozen container, or one on
+    # no bridge, legitimately has none. Above 1 is grep itself failing, and returning ""
+    # for that would report "no address" from a probe that did not run.
+    if [ "$grep_rc" -gt 1 ]; then
+        die "grep failed (status $grep_rc) reading the IPv4 address from lxc-info output"
+    fi
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    printf '%s' "$line"
+}
+
 # lxcf_bridge_label <config-read-rc> <config-text> — the table/group value for one
 # container's bridge: a bridge name, BRIDGE_NONE, or BRIDGE_UNREADABLE.
 #
@@ -410,7 +451,7 @@ assert_sudo() {
 # widths are presentation, and a parser keyed on them breaks on a version that adds a
 # column. `-1` and `lxc-info -s` are both single-purpose and stable.
 load_inventory() {
-    local names name state bridge config config_rc info info_rc
+    local names name state bridge config config_rc info info_rc addr addr_raw addr_rc
 
     if ! names="$(sudo lxc-ls -1 2>&1)"; then
         die "lxc-ls failed, so the container list is unknown: ${names}"
@@ -419,6 +460,7 @@ load_inventory() {
     INV_NAME=()
     INV_STATE=()
     INV_BRIDGE=()
+    INV_IPV4=()
     INV_UNREADABLE=()
 
     while read -r name; do
@@ -456,9 +498,23 @@ load_inventory() {
         config_rc=0
         config="$(sudo cat "${LXC_CONFIG_DIR}/${name}/config" 2>&1)" || config_rc=$?
         bridge="$(lxcf_bridge_label "$config_rc" "$config")"
+        # The address is read separately from the state, and its failure is NOT a reason
+        # to drop the container: state is what decides whether a verb may be offered, and
+        # `lxc-info -i` legitimately answers nothing for a frozen container or one on no
+        # bridge. A container present in every other column but missing from this one is
+        # the honest result, and it is also the symptom — a RUNNING container with no
+        # address is a lease that expired while it was frozen.
+        addr_rc=0
+        addr_raw="$(sudo lxc-info -n "$name" -iH 2>&1)" || addr_rc=$?
+        if [ "$addr_rc" -ne 0 ]; then
+            addr=""
+        else
+            addr="$(lxcf_parse_ipv4 "$addr_raw")"
+        fi
         INV_NAME+=("$name")
         INV_STATE+=("$state")
         INV_BRIDGE+=("$bridge")
+        INV_IPV4+=("$addr")
     done <<< "$names"
 
     # Disclosed here rather than by each caller, so no path can load an inventory and
@@ -612,12 +668,16 @@ freeze_hook_refresh() {
 # BRIDGE_UNREADABLE and BRIDGE_NONE are the longest values this can hold, so the
 # width is taken from them rather than from a guess about bridge names.
 freeze_hook_table_header() {
-    printf '%-16s' "BRIDGE"
+    printf '%-16s%-16s' "BRIDGE" "IPV4"
 }
 
+# IPV4 is BLANK when the container has none, and that is the whole point of the column:
+# a blank beside RUNNING is a lease that expired while the container was frozen, and it
+# is what someone is looking for when they run `lxcfreeze list` after a thaw. A
+# placeholder word there would make "no address" and "not asked" look alike.
 freeze_hook_table_row() {
     local i="$1"
-    printf '%-16s' "${INV_BRIDGE[$i]}"
+    printf '%-16s%-16s' "${INV_BRIDGE[$i]}" "${INV_IPV4[$i]}"
 }
 
 # The group rows, in menu order: everything, then each bridge in use.

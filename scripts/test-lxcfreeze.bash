@@ -166,6 +166,13 @@ fixture() {
     INV_NAME=(zulu mike alpha kilo bravo)
     INV_STATE=(FROZEN FROZEN RUNNING FROZEN RUNNING)
     INV_BRIDGE=(lxcbr0 virbr1 lxcbr0 "$BRIDGE_NONE" virbr1)
+    # RFC 5737 documentation addresses, per CLAUDE/ExampleValues.md — a real 10/8 or
+    # 192.168/16 address here would be a private IP committed to a public repository.
+    #
+    # `mike` has no address while FROZEN and `kilo` has none because it is on no bridge:
+    # two different reasons for the same blank cell, and neither may be mistaken for a
+    # running container that lost its lease — which is the symptom this column exists for.
+    INV_IPV4=(192.0.2.11 "" 192.0.2.12 "" 198.51.100.5)
     ACTION=""
     SELECTED=()
 }
@@ -365,8 +372,12 @@ fixture
 # the width assertions below compare the shape, because asserting only the trimmed
 # value would pass against the unpadded version this replaced.
 trim() { local s="$1"; s="${s%"${s##*[![:space:]]}"}"; printf '%s' "$s"; }
-eq "the header names it"      "$(trim "$(freeze_hook_table_header)")" "BRIDGE"
-eq "a row carries the bridge" "$(trim "$(freeze_hook_table_row 0)")"  "lxcbr0"
+# The row is two fixed-width columns now, so trimming the whole thing tests neither of
+# them: it returns the LAST non-blank cell, which passes for the wrong reason whenever the
+# one being asserted happens to be last. Each column is cut by position instead.
+col() { local row="$1" n="$2"; trim "${row:$(( (n - 1) * 16 )):16}"; }
+eq "the header names both columns" "$(freeze_hook_table_header)" "$(printf '%-16s%-16s' BRIDGE IPV4)"
+eq "a row carries the bridge" "$(col "$(freeze_hook_table_row 0)" 1)"  "lxcbr0"
 # The label for a container on no bridge is shown VERBATIM rather than blanked: a blank
 # cell reads as "unknown", and the whole point of the two labels is that they are not.
 eq "and the no-network label, verbatim" "$(trim "$(freeze_hook_table_row 3)")" "$BRIDGE_NONE"
@@ -389,6 +400,60 @@ contains "and this engine's column"                   "$table" "BRIDGE"
 contains "a row names its container"                  "$table" "alpha"
 contains "with its state"                             "$table" "RUNNING"
 contains "and its bridge"                             "$table" "lxcbr0"
+contains "and its address"                            "$table" "192.0.2.12"
+
+echo ""
+echo "=== the IPV4 column: a blank next to RUNNING is the symptom, so it must be visible ==="
+# The inventory arrays are index-parallel and nothing enforces that, so a fixture one
+# entry short would silently give every row past it the wrong address.
+fixture
+eq "the fixture's addresses are index-parallel with its names" \
+    "${#INV_IPV4[@]}" "${#INV_NAME[@]}"
+# Task 5.3. A thawed container whose DHCP lease expired is RUNNING with no address, and
+# the list is where someone looks first — but only if the list carries the address at all.
+fixture
+eq "a row carries the address"        "$(col "$(freeze_hook_table_row 2)" 2)" "192.0.2.12"
+# BLANK, not a placeholder. `lxc-info -iH` prints nothing for a container with no
+# address, and inventing a word for it would make "no address" and "this tool did not
+# ask" look alike — the distinction BRIDGE_NONE/BRIDGE_UNREADABLE exists to preserve.
+eq "no address prints as blank"       "$(col "$(freeze_hook_table_row 1)" 2)" ""
+# …and the row still carries its bridge, so the blank is the ADDRESS being absent rather
+# than the row being short. A single-column assertion cannot tell those apart.
+eq "the blank row still has its bridge" "$(col "$(freeze_hook_table_row 1)" 1)" "virbr1"
+eq "the header and a row stay the same width" \
+    "$(freeze_hook_table_header | wc -c)" "$(freeze_hook_table_row 1 | wc -c)"
+
+# The parser, against what `lxc-info -n NAME -iH` really prints.
+eq "one IPv4 line"          "$(lxcf_parse_ipv4 '192.0.2.11')"            "192.0.2.11"
+eq "surrounding whitespace is trimmed" "$(lxcf_parse_ipv4 '  192.0.2.11  ')" "192.0.2.11"
+eq "no address at all"      "$(lxcf_parse_ipv4 '')"                      ""
+# `-i` prints every address, and on a dual-stack container the IPv6 one can come first.
+# Taking "the first line" would put an IPv6 address in a column headed IPV4.
+eq "IPv6 first is skipped"  "$(lxcf_parse_ipv4 "$(printf '2001:db8::1\n192.0.2.11\n')")" "192.0.2.11"
+eq "IPv6 only is no IPv4"   "$(lxcf_parse_ipv4 '2001:db8::1')"           ""
+# Two IPv4 addresses is a real shape (two interfaces). One column shows the first, which
+# is a choice rather than an accident — the drill-down is where the rest belong.
+eq "the first IPv4 of several" \
+    "$(lxcf_parse_ipv4 "$(printf '192.0.2.11\n198.51.100.5\n')")" "192.0.2.11"
+# lxc-info's failure text must never be shown as if it were an address.
+eq "an error message is not an address" \
+    "$(lxcf_parse_ipv4 'lxc-info: container not running')" ""
+
+echo ""
+echo "=== the freeze-time note: what a long freeze costs, said before it costs it ==="
+# Task 5.4. Thaw renews the lease, so the container comes back reachable — but every ssh
+# session into it, and any agent socket forwarded over one, died with the frozen TCP
+# connection. The user otherwise learns this from a `git push` that hangs.
+if [ -n "${FREEZE_FREEZE_NOTE:-}" ]; then
+    pass "the tool declares a freeze-time note"
+else
+    fail "the tool declares a freeze-time note" "FREEZE_FREEZE_NOTE is empty or unset"
+fi
+contains "it names the connection loss"  "$FREEZE_FREEZE_NOTE" "ssh"
+contains "and says reconnecting is the fix" "$FREEZE_FREEZE_NOTE" "Reconnect"
+# The lease renewal is the half that DOES survive, and saying only the bad half would
+# send someone hunting a network fault that thaw already handled.
+contains "and that the lease itself is renewed" "$FREEZE_FREEZE_NOTE" "lease"
 
 echo ""
 echo "=== the menu hook: groups, and no per-container rows ==="

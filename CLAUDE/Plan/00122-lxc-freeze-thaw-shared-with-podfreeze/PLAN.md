@@ -270,13 +270,22 @@ after ten seconds. Evidence in the 26-09-16 journal.
   through `DHCPACK` in the same second as the thaw. The renewal is unconditional, so a
   freeze longer than the lease takes the same path; the overnight case is confirmed
   the next time it happens rather than staged for an hour
-- [ ] ⬜ **Task 5.3**: `lxcfreeze list` shows the IPv4 address next to each running
-  container (`lxc-info -n NAME -iH`), blank when it has none. A blank next to RUNNING
-  is exactly this phase's symptom, and the list is where someone looks first
-- [ ] ⬜ **Task 5.4**: The freeze-time hint says what a freeze longer than the lease
-  costs: thaw renews the lease, but every ssh session into a container — and the agent
-  socket forwarded over it — dies with the frozen TCP connection. Reconnecting is the
-  fix; the hint should say so before the user finds out from a failed `git push`
+- [x] ✅ **Task 5.3**: `IPV4` column in `lxcfreeze`'s table, from `lxc-info -n NAME -iH`
+  via `lxcf_parse_ipv4`, blank when there is no address. The address is matched by
+  SHAPE, not by line position, so a dual-stack container cannot put an IPv6 address
+  under a column headed IPV4, and a failure message from `lxc-info` cannot be printed
+  where an address goes. A failed read blanks the cell and keeps the container in the
+  list — state is what gates the verbs, and an absent address is the symptom, not a
+  reason to hide the row. The suite reads the column by POSITION, since trimming a
+  two-column row cannot tell a blank address from a short row
+- [x] ✅ **Task 5.4**: `FREEZE_FREEZE_NOTE` — a library slot, printed beside the "Thaw
+  them with:" line at freeze time, where the cost is still avoidable. `lxcfreeze` fills
+  it: thaw renews the lease so the address returns, but every ssh session into the
+  container, and any agent socket forwarded over one, dies with the frozen TCP
+  connection — reconnect rather than trust an old session. The library carries neither
+  the text nor the assumption that there is one, because DHCP leases and severed ssh
+  sessions say nothing about a Podman container; an empty note prints nothing at all,
+  not a blank line
 - [x] ✅ **Task 5.5**: `lxc-attach` chowns the file its stderr points at (a triage probe
   with stderr unredirected left a root-owned capture). Recorded in
   `CLAUDE/AgentNotes.md` under Project Gotchas

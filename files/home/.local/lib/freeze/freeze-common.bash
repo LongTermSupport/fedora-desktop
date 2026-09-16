@@ -49,6 +49,12 @@
 #   FREEZE_HOST_ONLY_NOTE   why running inside a container is refused.
 #   FREEZE_TARGET_HINT      the targets its CLI accepts, for the no-TTY error.
 #   FREEZE_LIST_NOTE        optional extra line on the unknown-name error.
+#   FREEZE_FREEZE_NOTE      optional: what a freeze costs while it lasts, printed with
+#                           the thaw instruction. Engine-specific by nature — LXC's is
+#                           about DHCP leases and severed ssh sessions, which says
+#                           nothing about a Podman container — so the library carries
+#                           the slot and neither the text nor the assumption that there
+#                           is one.
 #
 #   freeze_hook_preflight        engine present, privilege available.
 #   freeze_hook_refresh          (re-)read the inventory and any derived maps.
@@ -90,6 +96,7 @@ FREEZE_STATE_FROZEN="${FREEZE_STATE_FROZEN:-}"
 FREEZE_HOST_ONLY_NOTE="${FREEZE_HOST_ONLY_NOTE:-}"
 FREEZE_TARGET_HINT="${FREEZE_TARGET_HINT:-}"
 FREEZE_LIST_NOTE="${FREEZE_LIST_NOTE:-}"
+FREEZE_FREEZE_NOTE="${FREEZE_FREEZE_NOTE:-}"
 
 for _freeze_setting in FREEZE_TOOL FREEZE_STATE_RUNNING FREEZE_STATE_FROZEN \
     FREEZE_HOST_ONLY_NOTE FREEZE_TARGET_HINT; do
@@ -735,6 +742,14 @@ do_action() {
     if [ "$action" = "freeze" ]; then
         echo "" >&2
         echo "  Thaw them with: $FREEZE_TOOL thaw ${FREEZE_ACT_ON[*]}" >&2
+        # Printed HERE, beside the thaw instruction, because that is the moment the cost
+        # is still avoidable — a freeze already taken is a session already gone. Empty for
+        # an engine with nothing to add, and an empty note prints nothing rather than a
+        # blank line.
+        if [ -n "$FREEZE_FREEZE_NOTE" ]; then
+            echo "" >&2
+            echo "$FREEZE_FREEZE_NOTE" >&2
+        fi
     fi
 
     # Returns rather than dies, so the interactive loop can report a failure and
