@@ -201,7 +201,10 @@ def clear_broken(*, base: str, stdout: TextIO) -> int:
         # Reported, not fatal: the operator asked to clear the sentinel, and failing
         # to quote it back is no reason to leave it in place.
         reason = f"(the reason could not be read: {error})"
-    store.clear_broken(base)
+    # Dated, because the CLEARED marker's whole job is to say the record set is a lower
+    # bound FROM SOME POINT ON. An undated marker says a hole was cleared and not when,
+    # which is the half of the fact a reader would act on.
+    store.clear_broken(base, at=repo.utc_now())
     stdout.write(f"play-ledger: cleared the recorded hole — {reason}\n")
     stdout.write(
         "The plays that ran while it existed were never recorded and are NOT recovered; "

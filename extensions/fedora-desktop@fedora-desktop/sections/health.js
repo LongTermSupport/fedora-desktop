@@ -4,8 +4,9 @@
  * The scaffold's first real consumer, which is what keeps the registry honest: a
  * registry with nothing registered cannot be exercised (DESIGN-panel.md §5).
  *
- * It renders the three checks Phase 3 built — post-boot health, play freshness, and
- * installed-versus-pinned — and it renders them, never re-implements them. A check
+ * It renders the four checks Phase 3 built — post-boot health, ledger presence, play
+ * freshness, and installed-versus-pinned — and it renders them, never re-implements
+ * them. A check
  * reimplemented in JavaScript would be a second check that drifts from the one under
  * test.
  *
@@ -20,9 +21,9 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import * as StatusDocument from '../statusDocument.js';
 
-/** Section ids, matching `login_report.HEALTH` / `FRESHNESS` / `PINS`. These are the
- * document's keys, so they are interface: rename one here and the section silently
- * reports unavailable for ever. */
+/** Section ids, matching `login_report.HEALTH` / `LEDGER` / `FRESHNESS` / `PINS` — all
+ * four, in the document's own order. These are the document's keys, so they are
+ * interface: rename one here and the section silently reports unavailable for ever. */
 const CHECKS = [
     {id: 'post-boot-health', title: 'This machine now'},
     // Second, in the document's own order: an empty ledger is a fault here and now, and
@@ -130,13 +131,13 @@ function appendCheck(menu, document, check, runningKernel) {
  * for a missing section by deriving an `unavailable` one, so it says the same thing about
  * a healthy document as about an unreadable one.
  *
- * Rendering the three checks against such a document produces three derived "has no
+ * Rendering the four checks against such a document produces four derived "has no
  * <id> section" lines and drops the reason entirely, which makes "this host has never
  * recorded a status" and "the file is corrupt" look identical. The server-side login
  * report prints that reason; this is the primary surface and cannot say less.
  *
  * Returns true when it rendered, so the caller skips the checks: there is no data behind
- * them, and three `unavailable` blocks restate one absence three times.
+ * them, and four `unavailable` blocks restate one absence four times.
  */
 function appendSelfReport(menu, document) {
     const self = document?.sections?.[StatusDocument.SELF_SECTION];

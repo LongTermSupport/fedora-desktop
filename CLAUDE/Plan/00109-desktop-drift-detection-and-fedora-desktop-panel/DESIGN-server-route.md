@@ -6,7 +6,7 @@ The desktop delivery is `notify-send` from a unit bound to `graphical-session.ta
 A server has no session bus and that target never activates, so the profile where
 unattended drift goes unnoticed longest — nobody logs in to see a notification — was the
 one profile with no detection at all. Only the *delivery* was ever desktop-bound; the
-three checks behind it are profile-agnostic.
+checks behind it are profile-agnostic.
 
 ## 1. One play, two deliveries
 

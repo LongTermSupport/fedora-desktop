@@ -27,6 +27,14 @@ export class RecordingMenu {
         this.items.push(item);
     }
 
+    /** What the shell's menu does, and the panel calls it before every render: the menu
+     * is rebuilt, not appended to. A stub without it would leave each render's lines
+     * stacked on the last one's, so a test reading the menu after two renders would see
+     * a menu no user could ever have. */
+    removeAll() {
+        this.items = [];
+    }
+
     /** Every rendered line as `{text, styleClass}`, separators included as nulls so a
      * test can see the structure without depending on widget internals. */
     get lines() {
@@ -91,6 +99,54 @@ export function notify(title, body) {
 export const CLIPBOARD = {type: null, text: null};
 
 /**
+ * The shell's `Extension` base class. It keeps its metadata and does nothing else.
+ *
+ * `gjs-loader.mjs` claimed to answer this import from the first commit and this file had
+ * no such export, so any test importing `extension.js` failed on the import — which is
+ * why none did, and why the icon-per-state decision the extension's own header calls
+ * "the whole reason this extension is shaped like this" had no test at all. A loader
+ * entry that cannot be used reads as coverage of the file it names.
+ */
+export class Extension {
+    constructor(metadata) {
+        this.metadata = metadata;
+    }
+}
+
+/** `PanelMenu.Button`, carrying the one thing the panel reads back off it: `menu`. */
+export class Button {
+    constructor(alignment, nameText, dontCreateMenu) {
+        this.alignment = alignment;
+        this.nameText = nameText;
+        this.dontCreateMenu = dontCreateMenu;
+        this.menu = new RecordingMenu();
+        this.children = [];
+        //: `disable()` must destroy the indicator; a test cannot see that it did unless
+        //: the stub remembers, and an undestroyed indicator is a duplicate icon on the
+        //: next enable rather than an error anybody would notice.
+        this.destroyed = false;
+    }
+
+    add_child(child) {
+        this.children.push(child);
+    }
+
+    destroy() {
+        this.destroyed = true;
+    }
+}
+
+/** What was added to the status area, by role. The shell's own panel, as far as this
+ * extension is concerned. */
+export const STATUS_AREA = new Map();
+
+export const panel = {
+    addToStatusArea(role, indicator) {
+        STATUS_AREA.set(role, indicator);
+    },
+};
+
+/**
  * `GLib`, with only what the panel actually calls.
  *
  * `file_get_contents` answers from `GLIB_FILES`, which a test sets. Absent means absent —
@@ -110,11 +166,74 @@ export const GLib = {
         }
         return [true, new TextEncoder().encode(GLIB_FILES.get(path))];
     },
+    PRIORITY_DEFAULT: 0,
+    SOURCE_CONTINUE: true,
+    /** Records the timer; it never fires on its own. A stub clock that fired would make
+     * every test's outcome depend on how long it took to run. `TIMERS` is how a test
+     * drives the poll deliberately, and how `disable()` removing it becomes visible. */
+    timeout_add_seconds(priority, seconds, handler) {
+        TIMERS.set(NEXT_SOURCE_ID.value, {priority, seconds, handler});
+        return NEXT_SOURCE_ID.value++;
+    },
+    source_remove(id) {
+        TIMERS.delete(id);
+    },
 };
 
+/** Live timers by source id. */
+export const TIMERS = new Map();
+
+const NEXT_SOURCE_ID = {value: 1};
+
+/** The error domain the panel matches on. Identity is all that matters: the panel asks
+ * `e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND)`, so the stub's errors have to
+ * answer for this exact object. */
+const IO_ERROR_ENUM = {CANCELLED: 'cancelled', NOT_FOUND: 'not-found'};
+
+function ioError(code, message) {
+    const error = new Error(message);
+    error.matches = (domain, candidate) => domain === IO_ERROR_ENUM && candidate === code;
+    return error;
+}
+
 export const Gio = {
+    IOErrorEnum: IO_ERROR_ENUM,
+    Cancellable: class StubCancellable {
+        constructor() {
+            this.cancelled = false;
+        }
+
+        cancel() {
+            this.cancelled = true;
+        }
+    },
     File: {
-        new_for_path: path => ({path}),
+        /**
+         * Answers from `GLIB_FILES`, like `GLib.file_get_contents` — one place a test
+         * puts a document and both readers find it.
+         *
+         * The callback fires SYNCHRONOUSLY, which the real one does not, and that is the
+         * one place this stub is not merely dumb: a test that had to await a shell's
+         * main loop could not assert what the icon was *before* the first read landed,
+         * and "starts as unavailable" is a decision the extension states in as many
+         * words. Nothing in the panel depends on the callback being deferred.
+         */
+        new_for_path: path => ({
+            path,
+            load_contents_async(cancellable, callback) {
+                callback(this, {path: this.path, cancellable});
+            },
+            load_contents_finish(result) {
+                if (result.cancellable?.cancelled) {
+                    throw ioError(IO_ERROR_ENUM.CANCELLED, 'stub Gio: read cancelled');
+                }
+                if (!GLIB_FILES.has(result.path)) {
+                    throw ioError(
+                        IO_ERROR_ENUM.NOT_FOUND, `stub Gio: no such file ${result.path}`);
+                }
+                return [true, new TextEncoder().encode(GLIB_FILES.get(result.path))];
+            },
+        }),
     },
 };
 
@@ -127,6 +246,31 @@ export const Gio = {
  * copied" is otherwise invisible to a test and is the whole outcome of the handoff row.
  */
 export const St = {
+    Icon: class StubIcon {
+        constructor(properties) {
+            /** Every value the icon has been given, in order. The icon is assigned on
+             * each render, so the FINAL value is all a plain property could report —
+             * and "starts as unavailable until the first read lands" is a decision the
+             * extension states in as many words, which lives entirely in the values
+             * that came before the last one. Recording, never behaving. */
+            this.iconNames = [];
+            this.icon_name = properties?.icon_name ?? '';
+            this.style_class = properties?.style_class;
+            //: The empty string, not undefined: the panel CLEARS the style for `ok` by
+            //: assigning `''`, so a stub starting at undefined would make "cleared" and
+            //: "never set" the same reading — which is the distinction under test.
+            this.style = properties?.style ?? '';
+        }
+
+        get icon_name() {
+            return this._iconName;
+        }
+
+        set icon_name(value) {
+            this._iconName = value;
+            this.iconNames.push(value);
+        }
+    },
     Label: class StubLabel {
         constructor(properties) {
             this.text = properties?.text ?? '';

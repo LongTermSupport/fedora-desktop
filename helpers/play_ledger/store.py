@@ -24,10 +24,15 @@ FILE_MODE = 0o600
 def ensure_ledger(base: str, *, commit: str, at: str) -> None:
     """Create the ledger if absent, writing the genesis record exactly once.
 
-    The genesis record is what lets a reader tell "no record because this play was
-    never run here" from "no record because the ledger is younger than the run".
-    Writing a second one would reset the ledger's recorded age and make every
-    silence ambiguous again, so an existing runs file is left alone.
+    The genesis record's PRESENCE is what `ledger_presence` reads: a ledger holding
+    nothing else means nothing has been recorded here, which is a fault rather than an
+    unknown. Writing a second one would reset the ledger's recorded age, so an existing
+    runs file is left alone.
+
+    Its `at` is recorded and **no consumer reads it yet**. It is the raw material for
+    telling "no record because this play was never run here" from "no record because the
+    ledger is younger than the run" — a distinction `freshness` currently does not draw,
+    and stating otherwise here would describe a guarantee no reader delivers.
     """
     os.makedirs(base, mode=DIR_MODE, exist_ok=True)
     runs = ledger.runs_path(base)

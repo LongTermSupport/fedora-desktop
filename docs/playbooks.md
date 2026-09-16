@@ -759,9 +759,10 @@ Container process watchdog — **reporting only, it never kills or throttles any
 Login-time host health report — **reporting only, it never re-runs a play or installs
 anything**:
 
-- Merges three checks into **one** message: DKMS modules missing a build for the
-  **running** kernel, failed system and user units, plays that have changed since they
-  were last run here, and repo pins that differ from what is installed
+- Merges four checks into **one** message: DKMS modules missing a build for the
+  **running** kernel and failed system and user units, whether the play ledger is there
+  to read at all, plays that have changed since they were last run here, and repo pins
+  that differ from what is installed
 - **Silent when clean.** Nothing is shown on a healthy login — a check that speaks every
   time gets muted
 - A check that *could not run* is reported as a finding, never as a pass. That is the

@@ -16,7 +16,8 @@ installed here". Diagnosis, evidence and the blow-by-blow:
 
 The exposure is structural, not specific to DisplayLink. `playbook-main.yml` imports
 the core plays, so those are re-run whenever main is run. The **plays under
-`playbooks/imports/optional/`** (46 today, one of them added by this plan) are run by
+`playbooks/imports/optional/`** (46 today outside `archived/`, two of them added by this
+plan) are run by
 hand, once, and then forgotten — nothing records that they were ever run, at what
 commit, or whether they have changed since. DisplayLink is simply the one that bit
 first, and it bit at the worst moment: after a reboot, with no visible explanation.
@@ -225,10 +226,16 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   `metadata.json`, `statusDocument.js`, `sections/health.js`, `extension.js`,
   `stylesheet.css`, plus the producer `helpers/host_health/status_document.py` and the
   cross-language contract gate `helpers/gnome/check_panel_contract.py` in `qa-all.bash`
-- [ ] 🔄 **Task 4.2**: Health section — renders Phase 3's three checks
-  - [x] ✅ Registered and rendering; `unavailable` has its own icon, never the neutral one
+- [ ] 🔄 **Task 4.2**: Health section — renders Phase 3's four checks
+  - [x] ✅ Registered and rendering; `unavailable` has its own icon, never the neutral
+    one — and this is now **tested**, in `tests/extensions/test-panel-indicator.mjs`,
+    driving `enable()` on the shipped `extension.js`. It was asserted here and untested:
+    the loader mapped the shell's `extension.js` import from the first commit while
+    `gi-stubs.mjs` exported no `Extension`, so any test importing it failed on the
+    import. Falsified on three mutants — sharing the neutral icon, dropping the
+    `unavailable` colour, and starting neutral before the first read lands
   - [x] ✅ Renders the document's self-section reason, so an unreadable document says why
-    rather than showing three derived "no such section" lines
+    rather than showing four derived "no such section" lines
   - [x] ✅ **The ledger's emptiness is now its own check**, `play-ledger`, not a
     reinterpretation of `play-freshness` — and emptiness is a **fault**, not an unknown.
     `helpers/play_ledger/ledger_presence.py`, 9 tests
@@ -243,7 +250,7 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     [DESIGN-server-route.md](DESIGN-server-route.md) §4.3)
   - [x] ✅ A **malformed** document is reported, not read as a clean host (§11, mirroring
     `unreadable_reasons` — [DESIGN-server-route.md](DESIGN-server-route.md) §4.1a)
-  - [x] ✅ Proven by `tests/extensions/test-panel-sections.mjs` — 17 tests importing the
+  - [x] ✅ Proven by `tests/extensions/test-panel-sections.mjs` — 27 tests importing the
     **shipped** files through a `gi://` loader, falsified on six mutants. **Not** the
     contract gate, which is a vocabulary check (§11,
     [DESIGN-server-route.md](DESIGN-server-route.md) §4.2)
@@ -256,11 +263,11 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 - [x] ✅ **Task 4.4**: Sections registered, not hardcoded — one array entry per section
 - [ ] 🔄 **Task 4.5**: ESLint clean, deployed by its own play, Wayland-correct
   - [x] ✅ ESLint and compat gate green; `play-fedora-desktop-panel.yml` deploys it
-  - [x] ✅ The contract gate compares a **derived** set — 7 constants, plus every key of
+  - [x] ✅ The contract gate compares a **derived** set — 9 constants, plus every key of
     a built document and every section id from the real seam — so a name added on the
     producer side cannot be one the gate forgot. Falsified on five mutants
-  - [ ] ⬜ **HOST**: run the play, log out and back in, confirm the panel appears and
-    renders the three sections
+  - [ ] ⬜ **HOST**: run the play, log out and back in, confirm the panel appears and its
+    health section renders all four checks
 
 ### Phase 5: Recover the desktop background after a monitor change
 
@@ -300,30 +307,14 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 
 ## Technical Decisions
 
-### Decision 1: Detection and handoff, never unattended repair
+Three, and the third is still open — full context, options and reasoning in
+[DECISIONS.md](DECISIONS.md), extracted there because PLAN.md is read in full every
+session and was approaching the size at which edits are blocked:
 
-**Context**: The failure mode is a host silently diverging from the repo. The
-tempting fix is to auto-run stale plays.
-**Options considered**: (A) auto-run stale plays on detection — self-healing, but a
-play that prompts, reboots, or enrols a MOK key cannot run unattended, and an
-unattended Ansible run on a desktop at login is a way to lose a working machine.
-(B) detect, report, offer a one-click assisted fix.
-**Decision**: B. The whole incident was survivable; what made it expensive was not
-knowing *why*. Information is the deliverable.
-**Date**: 2026-09-11
-
-### Decision 2: The ledger is per-play host state, and its failures are recorded not raised
-
-**Context**: every Phase 2 check compares against the ledger, so a silently wrong
-ledger makes every check downstream silently wrong.
-**Decision**: one record per **play**, append-only JSONL under
-`$XDG_STATE_HOME/fedora-desktop/play-ledger/`, written by a callback plugin. Ansible
-**swallows exceptions raised inside a callback**, so a write failure leaves a `BROKEN`
-sentinel and Phase 2 reports FAIL while it exists — an unfailable hook turned into a
-failable check. No backfill.
-**Record shape, hook limits, the no-backfill reasoning**:
-[DESIGN-play-ledger.md](DESIGN-play-ledger.md) §§1–4.
-**Date**: 2026-09-14
+1. **Detection and handoff, never unattended repair.** Information is the deliverable.
+2. **The ledger is per-play host state, and its failures are recorded not raised.**
+3. **OPEN, owner's:** nothing detects that this plan's own opt-in plays were never run
+   on a host, so a host that never enabled detection looks exactly like a clean one.
 
 ## Success Criteria
 
@@ -333,9 +324,19 @@ failable check. No backfill.
   silent about every play never run here
 - [ ] A clean system produces **no notification at all** at login
 - [ ] The panel opens from one icon and shows health plus play state
-- [ ] `./scripts/qa-all.bash` passes; ESLint passes for the extension
-- [ ] Host-only checks skip cleanly in the CCY container and in CI
-- [ ] `qa-reviewer` agent run over the full plan diff, findings resolved
+- [x] `./scripts/qa-all.bash` passes (929 files, every gate green); ESLint clean from
+  `extensions/`, which is where its config lives — `eslint .` at the repo root finds no
+  config at all and fails for that reason, which is not a finding about the code
+- [ ] Host-only checks skip cleanly in the CCY container **and in CI** — the container
+  half is done: `deployed-drift` reports `⚠ skipped (CCY container — no deployed copies to compare)`, an advisory rather than a pass, so a skipped check cannot be read as a
+  passed one. The CI half is unverified from here and needs a green run on a pushed
+  branch to claim
+- [ ] `qa-reviewer` agent run over the full plan diff, findings resolved — **run**
+  (`subagent-reports/260916-qa-reviewer-full-plan-diff-opus-5.md`, verdict BLOCK: 1
+  blocking, 3 should-fix, 6 minor, 2 nits). Every finding actionable from a container is
+  resolved, including the blocking one. Left open: the CI half above, and Decision 3,
+  which is the owner's. Unticked until a re-run confirms it, since a review whose
+  findings were actioned by the same agent that wrote them is not a second opinion
 
 ## Risks & Mitigations
 

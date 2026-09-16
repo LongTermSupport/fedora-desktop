@@ -84,9 +84,26 @@ cd "$repo_root"
 # stdlib-only, so the YAML conversion happens here with the PyYAML that Ansible
 # already depends on. An invalid manifest is a hard error, never a short list:
 # silently dropping a row would hide a pin rather than report it.
-manifest_out=""
-if ! manifest_out="$(python3 -c \
+#
+# Converted in its own step rather than piped straight into the validator, for the
+# reason qa-version-pins.bash records: in one pipeline a YAML failure goes to the
+# terminal while the validator, handed empty stdin, reports a JSON decode error — so
+# the gate's first line names a problem the manifest does not have. It fails either
+# way; a wrong diagnosis is what costs the reader the time.
+conversion_error="$(mktemp)"
+trap 'rm -f "$conversion_error"' EXIT
+manifest_json=""
+if ! manifest_json="$(python3 -c \
     'import json, sys, yaml; json.dump(yaml.safe_load(open("vars/version-pins.yml")), sys.stdout)' \
+    2>"$conversion_error")"; then
+    echo "ERROR: vars/version-pins.yml is not valid YAML:" >&2
+    cat "$conversion_error" >&2
+    echo "Run ./scripts/qa-version-pins.bash for the full diagnosis." >&2
+    exit 2
+fi
+
+manifest_out=""
+if ! manifest_out="$(printf '%s' "$manifest_json" \
     | python3 -m helpers.version_pins.manifest 2>&1)"; then
     echo "ERROR: vars/version-pins.yml could not be read:" >&2
     echo "$manifest_out" >&2

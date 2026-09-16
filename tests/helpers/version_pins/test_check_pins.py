@@ -376,20 +376,64 @@ class TestWhatThisHostKnowsAboutItself(unittest.TestCase):
     def test_a_host_with_no_dkms_subsystem_does_not_resolve_a_dkms_pin(self) -> None:
         """The server case, and the probe must not even be called: it is the expensive
         call, it raises "command not found" there, and that raise is what produced the
-        permanent "could not be checked" line at every login."""
+        permanent "could not be checked" line at every login.
+
+        Not resolving the pin is right; staying silent about it is not. The skip empties
+        the compared population, so this host must say so rather than return the empty
+        list a fully matching host returns.
+        """
         calls: list[int] = []
 
         def dkms() -> str:
             calls.append(1)
             raise check_pins.ResolutionError("dkms: command not found")
 
+        findings = check_pins.check(
+            pins=[pin()], playbook_text=lambda _: PLAYBOOK,
+            dkms_status=dkms, registry=self.NO_SUBSYSTEM)
+        self.assertEqual(len(findings), 1)
+        self.assertFalse(findings[0].checked)
+        self.assertIn("0 of 1", findings[0].text)
+        self.assertIn("no DKMS subsystem", findings[0].text)
+        self.assertEqual(calls, [])
+
+    def test_the_real_manifest_on_a_server_reports_its_zero_coverage(self) -> None:
+        """The host this plan's own Task 3.2 route built. Driven by the REAL manifest,
+        because the defect was a property of what it happens to track: its single
+        tracked pin is DKMS-resolved, so `tracked` counted 1, the loop compared 0, and
+        the guard — which ran before the loop — never fired. `0 of 9` and `0 of 1`
+        are different claims and only the second is true of this host."""
+        pins = check_pins.declared_pins(REPO_ROOT)
+        tracked = [candidate for candidate in pins if candidate.is_tracked]
+        self.assertTrue(tracked, "the manifest tracks no pin, so this proves nothing")
+        self.assertTrue(
+            all(candidate.installed is not None
+                and candidate.installed.kind == manifest.DKMS
+                for candidate in tracked),
+            "a non-DKMS tracked pin would be compared here, so this host is no longer "
+            "zero-coverage and this test asserts the wrong thing",
+        )
+
+        def never_called() -> str:
+            raise AssertionError("the DKMS probe was called on a host with no subsystem")
+
+        findings = check_pins.check(
+            pins=pins, playbook_text=lambda _: PLAYBOOK,
+            dkms_status=never_called, registry=self.NO_SUBSYSTEM)
+        self.assertEqual(len(findings), 1)
+        self.assertFalse(findings[0].checked)
+        self.assertIn(f"0 of {len(tracked)}", findings[0].text)
+
+    def test_a_host_that_DOES_compare_its_pins_gets_no_coverage_finding(self) -> None:
+        """The control. A guard that fires whatever the coverage was would pass every
+        assertion above while reporting zero coverage on a host that compared
+        everything — so the clean host is asserted to stay clean."""
         self.assertEqual(
             check_pins.check(
                 pins=[pin()], playbook_text=lambda _: PLAYBOOK,
-                dkms_status=dkms, registry=self.NO_SUBSYSTEM),
+                dkms_status=lambda: DKMS_FIXED, registry=self.EMPTY_REGISTRY),
             [],
         )
-        self.assertEqual(calls, [])
 
     def test_a_dkms_directory_with_no_modules_STILL_reports_the_missing_module(self) -> None:
         """H4. The `dkms` rpm owns `/var/lib/dkms`, so every host that ran

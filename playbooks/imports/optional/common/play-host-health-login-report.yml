@@ -2,15 +2,15 @@
 ---
 # Login-time host health report (Plan 00109, Tasks 3.1 and 3.2) — reporting-only.
 #
-# The report merges three checks into one message: post-boot health (DKMS against the
-# running kernel, failed units), play freshness against the ledger, and repo-pin versus
-# installed. It is SILENT when clean.
+# The report merges four checks into one message: post-boot health (DKMS against the
+# running kernel, failed units), whether the ledger is there to read at all, play
+# freshness against the ledger, and repo-pin versus installed. It is SILENT when clean.
 #
 # Why this exists: a reboot into a new kernel left both DisplayLink monitors dark because
 # a DKMS module could not build, and every automated check in this repo was green
 # throughout — none of them looks at the host.
 #
-# ONE PLAY, TWO DELIVERIES, because only the delivery was ever profile-specific. The three
+# ONE PLAY, TWO DELIVERIES, because only the delivery was ever profile-specific. The
 # checks are profile-agnostic, and a second playbook for the second delivery meant four
 # byte-identical tasks and a pair that would drift the first time one of them was fixed.
 #

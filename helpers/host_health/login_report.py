@@ -1,8 +1,8 @@
 """The login-time health surface (Plan 00109, Tasks 3.1 and 3.2).
 
-Runs the three checks this plan built — post-boot health, play freshness,
-installed-vs-pinned — merges their findings into **one** report, and notifies only
-if there is something to say.
+Runs the four checks this plan built — post-boot health, ledger presence, play
+freshness, installed-vs-pinned — merges their findings into **one** report, and
+notifies only if there is something to say.
 
 It runs at the **end of a login** rather than at boot, because the point is that
 somebody is present to read it. The unit is `After=graphical-session.target`.

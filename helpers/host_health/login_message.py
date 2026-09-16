@@ -1,10 +1,14 @@
 """The status document rendered for a login shell (Plan 00109, Task 3.2 server route).
 
 The second consumer of `status_document`, and the one a **server** gets. The desktop
-delivery is `notify-send` from a `graphical-session.target` unit: there is no session bus
-to reach on a server and that target never activates, so `play-host-health-login-report.yml`
-is `scope: gnome` and ends its play there. Without this, a server — where unattended drift
-goes unnoticed longest, because nobody logs in to see a notification — got nothing.
+delivery is `notify-send` from a `graphical-session.target` unit, and it ends at that
+notification: there is no session bus to reach on a server and that target never
+activates. This is the server delivery of the *same* play —
+`play-host-health-login-report.yml` is `scope: general` and carries both, for the reason
+its own header sets out: only the delivery was ever profile-specific, so a second
+playbook would have been four byte-identical tasks and a pair that drifts. Without this
+delivery, a server — where unattended drift goes unnoticed longest, because nobody logs
+in to see a notification — got nothing.
 
 What makes this affordable is that the checks no longer run here. They run on their own
 schedule and leave the document behind; this prints what they left. A `git fetch` at every

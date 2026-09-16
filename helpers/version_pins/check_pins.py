@@ -195,12 +195,16 @@ def check(
     and no tracked DKMS pin never pays for it — and, more to the point, never gets a
     finding about a probe it had no reason to run.
 
-    **Zero coverage is itself a finding.** A pin declared `untracked` with a reason is a
-    decision somebody wrote down, so it stays silent and the QA gate prints the split.
-    But if *nothing* is tracked, this check compares no pins, returns no findings, and
-    is indistinguishable from a host whose every version matches — a whole drift axis
-    gone quiet, on the axis the incident happened on. Partial coverage is a decision;
-    zero coverage is a check that cannot fail, and it says so with the number.
+    **Zero coverage is itself a finding, and it is counted on this host.** A pin declared
+    `untracked` with a reason is a decision somebody wrote down, so it stays silent and
+    the QA gate prints the split. But if *nothing was compared*, this check returns no
+    findings and is indistinguishable from a host whose every version matches — a whole
+    drift axis gone quiet, on the axis the incident happened on. Partial coverage is a
+    decision; zero coverage is a check that cannot fail, and it says so with the number.
+
+    The count is taken after the loop rather than from the manifest, because those are
+    two different numbers: the manifest's tracked count is the repo's intent, and a host
+    can skip every one of them. See the comment at the guard.
 
     `ran_plays` and `registry` are the two things this host knows about itself.
     Neither narrows the population — a pin the ledger has never seen is still compared,
@@ -211,13 +215,8 @@ def check(
     dkms_cache: list[str] = []
 
     tracked = sum(1 for pin in pins if pin.is_tracked)
-    if pins and tracked == 0:
-        findings.append(
-            probe_results.unchecked(
-                f"the installed-vs-pinned check compared 0 of {len(pins)} declared pins, "
-                "so nothing on this host was held against the repo's versions"
-            )
-        )
+    compared = 0
+    unanswerable_dkms = 0
 
     def ran_here(pin: manifest.Pin) -> bool:
         """Has this host a ledger record for the play that installs this pin's software?
@@ -248,6 +247,7 @@ def check(
         # it. `None` (could not read it) falls through and still reports.
         if pin.installed.kind == manifest.DKMS and registry is not None \
                 and registry.present is False:
+            unanswerable_dkms += 1
             continue
         try:
             pinned = pinned_value(playbook_text(pin.playbook), pin.var)
@@ -272,6 +272,7 @@ def check(
             continue
 
         verdict = compare.classify(pinned=pinned, installed=installed)
+        compared += 1
         # ABSENT — "pinned X, nothing installed" — is the ONE verdict the ledger
         # disambiguates, and only it. On a host that ran the play, software that has
         # since vanished is a fault. On a host that never ran it, absence is exactly
@@ -289,7 +290,47 @@ def check(
             continue
         if not verdict.is_clean:
             findings.append(probe_results.broken(f"{pin.var} ({verdict.state}): {verdict.detail}"))
+
+    # ZERO COVERAGE, COUNTED AFTER THE LOOP — because the manifest's number and this
+    # host's number are different facts. Counting only `tracked` up front read the
+    # repo's intent: the manifest tracks exactly one pin and it is DKMS-resolved, so on
+    # every host with no DKMS subsystem — every server, including the route this plan's
+    # own server work built — the skip above emptied the compared population while the
+    # guard, already past, had seen `tracked == 1` and stayed quiet. The check then
+    # returned no findings at all, which both consumers render as `ok`: a drift axis
+    # reporting a clean host having compared nothing, which is the exact defect this
+    # plan exists to remove.
+    # `not findings` is the defect's own condition, not a convenience: a pin whose probe
+    # raised already carries a line naming the error, so the axis is visibly unavailable
+    # and a second sentence about coverage would only repeat it at every login. This
+    # guard is for the case where the check returned NOTHING.
+    if pins and compared == 0 and not findings:
+        findings.append(probe_results.unchecked(_zero_coverage(
+            declared=len(pins), tracked=tracked, unanswerable_dkms=unanswerable_dkms)))
     return findings
+
+
+def _zero_coverage(*, declared: int, tracked: int, unanswerable_dkms: int) -> str:
+    """Why nothing was compared, in the numbers of the host that compared nothing.
+
+    "The repo tracks nothing" and "this host could answer none of what the repo tracks"
+    are different facts and call for different actions — one is a decision to revisit in
+    `vars/version-pins.yml`, the other is a property of the machine, and only the second
+    varies between hosts sharing this manifest.
+
+    The DKMS clause is appended only when the skip count accounts for every tracked pin,
+    so a skip added later cannot inherit a reason that was never established: the
+    sentence is true without it.
+    """
+    if tracked == 0:
+        return (f"the installed-vs-pinned check compared 0 of {declared} declared pins, "
+                "so nothing on this host was held against the repo's versions")
+    reason = ""
+    if unanswerable_dkms == tracked:
+        reason = (" — every tracked pin is DKMS-resolved and this host has no DKMS "
+                  "subsystem")
+    return (f"the installed-vs-pinned check compared 0 of {tracked} tracked pins on this "
+            f"host{reason}")
 
 
 def declared_pins(root: str) -> list[manifest.Pin]:

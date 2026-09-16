@@ -8,9 +8,10 @@
 # `check_panel_contract.py` proves it shares a vocabulary with the producer. None of the
 # three can tell a demoted finding from a current one, and neither can a screenshot.
 #
-# The tests import `statusDocument.js` and `sections/health.js` themselves, with
-# `tests/extensions/gjs-loader.mjs` answering the `gi://` and `resource:///` imports a
-# GNOME Shell process would provide. What runs is the shipped file.
+# The tests import `statusDocument.js`, `sections/health.js` and `extension.js`
+# themselves, with `tests/extensions/gjs-loader.mjs` answering the `gi://` and
+# `resource:///` imports a GNOME Shell process would provide. What runs is the shipped
+# file.
 #
 # This does NOT replace a Wayland session. Whether St renders the lines legibly, and
 # whether the icon is the right one to look at, are still things only a human in a live
@@ -24,23 +25,31 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT_DIR"
 
-TEST_FILE="tests/extensions/test-panel-sections.mjs"
+# Every suite is named, and each is checked for readability below rather than trusted to
+# the runner: `node --test` exits 0 when a named file declares no tests, so a suite that
+# stopped being found would be a gate reporting a pass for a run that judged less.
+TEST_FILES=(
+    tests/extensions/test-panel-sections.mjs
+    tests/extensions/test-panel-indicator.mjs
+)
 
 if ! command -v node >/dev/null; then
     echo "✗ panel-sections: node not installed (install via play-nvm-install.yml)" >&2
     exit 2
 fi
 
-if [[ ! -r "$TEST_FILE" ]]; then
-    echo "✗ panel-sections: $TEST_FILE is missing; nothing would be judged" >&2
-    exit 2
-fi
+for test_file in "${TEST_FILES[@]}"; do
+    if [[ ! -r "$test_file" ]]; then
+        echo "✗ panel-sections: $test_file is missing; nothing would be judged" >&2
+        exit 2
+    fi
+done
 
 # Named explicitly rather than by directory. Node's test runner treats a directory
 # argument as a module to load, and a glob would sweep in the loader and the stubs — which
 # declare no tests, so a run that quietly found none would still exit 0.
 output=""
-if ! output="$(node --test "$TEST_FILE" 2>&1)"; then
+if ! output="$(node --test "${TEST_FILES[@]}" 2>&1)"; then
     printf '%s\n' "$output" >&2
     echo "✗ QA FAILED: panel section unit tests" >&2
     exit 1

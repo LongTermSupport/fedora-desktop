@@ -384,6 +384,15 @@ class TestClearBroken(unittest.TestCase):
             self.assertIsNone(
                 login_report.plays_run_here(base),
                 "a cleared hole still leaves the record set a lower bound")
+            # DATED. `store.clear_broken` takes `at` and this caller passed nothing, so
+            # the marker was a bare newline: it said a hole had been cleared and not
+            # when, and "the records are a lower bound from some unknown point" is not
+            # a fact anyone can act on. `at` having no production caller is the same
+            # shape as `clear_broken` itself having had none.
+            with open(ledger.cleared_path(base), encoding="utf-8") as handle:
+                marker = handle.read().strip()
+            self.assertTrue(marker, "the CLEARED marker carries no timestamp")
+            self.assertRegex(marker, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
 
     def test_a_ledger_that_never_had_a_hole_still_gives_a_real_answer(self) -> None:
         """The discrimination control for the case above. If `plays_run_here` answered

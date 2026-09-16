@@ -3,7 +3,7 @@
 #
 # The desktop delivery is `notify-send` from a graphical-session.target unit. A server
 # has no session bus and that target never activates, so a server got no drift detection
-# at all — yet the three checks behind the report are profile-agnostic; only the delivery
+# at all — yet the checks behind the report are profile-agnostic; only the delivery
 # was desktop-bound.
 #
 # The checks do NOT run here. `host-health-collect.timer` runs them on a schedule and
