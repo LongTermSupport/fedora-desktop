@@ -19,7 +19,7 @@ it. This writes those numbers to a path the CALLER names, so the payload never s
 a channel with anything a test can reach.
 
     python3 -m helpers.qa_environment.unittest_counts \\
-        --counts-file /tmp/counts --counts-token <nonce> \\
+        --counts-file /tmp/counts --counts-token <nonce> --tracked-modules 64 \\
         tests.helpers.pyenv.test_resolver ...
 
 The counts file, whose whole format this is:
@@ -112,10 +112,9 @@ def main(argv=None, stream=None):
     parser.add_argument(
         "--tracked-modules",
         type=int,
-        default=None,
+        required=True,
         help="how many modules the caller expected to collect. Recorded as `tracked=` so "
-        "the stage line can show an untracked test file being run; defaults to the number "
-        "of modules given",
+        "the stage line can show an untracked test file being run",
     )
     parser.add_argument(
         "modules",
@@ -134,9 +133,9 @@ def main(argv=None, stream=None):
     # Written AFTER the suite, which is what makes a mid-run forgery harmless: whatever a
     # test put here is overwritten by this line. See the module docstring for what that
     # does and does not cover.
-    tracked = args.tracked_modules if args.tracked_modules is not None else len(args.modules)
     pathlib.Path(args.counts_file).write_text(
-        counts_text(result, len(args.modules), tracked, args.counts_token), encoding="utf-8"
+        counts_text(result, len(args.modules), args.tracked_modules, args.counts_token),
+        encoding="utf-8",
     )
 
     # `wasSuccessful()` rather than `failures or errors`: an unexpected success alone leaves

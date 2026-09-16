@@ -48,7 +48,7 @@ fi
 # shellcheck source=lib/qa-helper-summary.bash
 source "$LIB"
 
-for fn in helper_counts_summary qa_gate_case_count; do
+for fn in helper_counts_summary qa_gate_case_count qa_gate_detail; do
     if ! declare -F "$fn" >/dev/null; then
         echo "FAIL: ${fn} is not defined after sourcing the library" >&2
         exit 1
@@ -402,7 +402,7 @@ e2e_rc=0
 (
     cd "$REPO_ROOT" &&
         PYTHONPATH="$REPO_ROOT:$e2e_dir" python3 -m helpers.qa_environment.unittest_counts \
-            --counts-file "$e2e_counts" --counts-token "$TOKEN" t_e2e
+            --counts-file "$e2e_counts" --counts-token "$TOKEN" --tracked-modules 1 t_e2e
 ) >"$e2e_log" 2>&1 || e2e_rc=$?
 if [ "$e2e_rc" -ne 0 ]; then
     failed=$((failed + 1))
@@ -451,6 +451,53 @@ check "a capture with no count degrades to a word" \
     "passed" "$(qa_gate_case_count 'PASSED (library version 1.2.0)')"
 check "an empty capture degrades to a word" \
     "passed" "$(qa_gate_case_count '')"
+
+# 8 of the 21 print something AFTER their summary (`OK`, `VERDICT: PASS`, an explanatory
+# echo), so "the summary is the last line" is false. What holds is that no gate emits a
+# second count — the rule has to survive trailing noise, not depend on its absence.
+check "a count line followed by other output is still found" \
+    "passed: 18" "$(qa_gate_case_count "$(printf 'passed: 18 failed: 0\nOK\nVERDICT: PASS\n')")"
+
+# Within a line the rule is LAST too, so both halves agree. Taking the first would answer
+# `passed: 3` here — a wrong NUMBER, which is the one output this function must never emit.
+check "an earlier count on the same line does not win" \
+    "passed: 29" "$(qa_gate_case_count 'suite passed: 3 of them; passed: 29 failed: 0')"
+
+# The two patterns used to disagree on whitespace: awk required exactly one space, the bash
+# match allowed several, so `passed:  29` silently degraded to a word.
+check "extra whitespace after the colon is read, not degraded" \
+    "passed: 29" "$(qa_gate_case_count 'passed:  29 failed: 0')"
+
+echo "=== qa_gate_detail: the two gates whose stage line is not a case count ==="
+
+# `nokill-containerwatch` read `[0-9]+ call site[s]? checked` from a gate that has only ever
+# printed `N container-watch file(s) clean`. Zero matches for its entire life, hidden by a
+# `||` fallback that asserted `no forbidden kill call sites` — a claim nothing verified,
+# printed as though it had been measured.
+check "the nokill gate's real wording is read" \
+    "3 container-watch file(s) clean" \
+    "$(qa_gate_detail '✓ no-kill gate: 3 container-watch file(s) clean — reporting-only confirmed' \
+        '[0-9]+ container-watch file[(]s[)] clean')"
+
+check "the planlib gate's real wording is read" \
+    "PASSED (library version 1.2.0)" \
+    "$(qa_gate_detail "$(printf 'PASS: a case\ntest-planlib: PASSED (library version 1.2.0)\n')" \
+        'PASSED [(]library version [0-9.]+[)]')"
+
+# THE POINT OF THE FALLBACK'S WORDING. A pattern that stops matching must produce something
+# that cannot be mistaken for an answer — the previous fallback was a sentence asserting a
+# fact, which is why nobody noticed the reader was blind.
+check "a pattern that does not match says so instead of asserting something" \
+    "summary unreadable" \
+    "$(qa_gate_detail '✓ no-kill gate: 3 container-watch file(s) clean' \
+        '[0-9]+ call site[s]? checked')"
+
+check "an empty capture says so too" \
+    "summary unreadable" "$(qa_gate_detail '' 'anything')"
+
+check "the last matching line wins here as well" \
+    "2 files clean" \
+    "$(qa_gate_detail "$(printf '1 files clean\n2 files clean\n')" '[0-9]+ files clean')"
 
 echo
 echo "passed: $passed failed: $failed"

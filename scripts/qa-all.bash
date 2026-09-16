@@ -126,8 +126,10 @@ fi
 # only visible output is a failure is indistinguishable from a gate that is not
 # running. That rule was written down beside the drift gate and never applied to
 # this one, six lines above it.
-nokill_summary=$(printf '%s' "$nokill_out" | grep -oE '[0-9]+ call site[s]? checked') ||
-    nokill_summary="no forbidden kill call sites"
+# The pattern is what the gate ACTUALLY prints, checked against a real run rather than
+# assumed: the previous one (`[0-9]+ call site[s]? checked`) never matched in its whole life,
+# and the `||` fallback asserted `no forbidden kill call sites` on every run instead.
+nokill_summary=$(qa_gate_detail "$nokill_out" '[0-9]+ container-watch file[(]s[)] clean')
 printf '✓ nokill-containerwatch: %s\n' "$nokill_summary"
 
 # Deployed-drift gate (Plan 00099): a repo-owned user script that was changed
@@ -186,7 +188,7 @@ fi
 
 # The child's stdout is CAPTURED, like every other hard gate's, and then required to be
 # empty. Leaving it inherited put it in this script's own stdout — the stream `verdicts.py`
-# parses for `^[✓✗⚠] name: ` stage lines — so one `print()` in any of 1,482 tests could
+# parses for `^[✓✗⚠] name: ` stage lines — so one `print()` in any of 1,483 tests could
 # forge a stage line or split this one. An unenforced precondition over a suite that large
 # is exactly the shape this plan exists to remove, so it is a gate rather than a comment.
 if [[ -s "$TMP_HELPER_OUT" ]]; then
@@ -243,8 +245,7 @@ if ! planlib_out="$(bash "$SCRIPT_DIR/test-planlib.bash" 2>&1)"; then
     echo "✗ QA FAILED: plan-script library regression tests" >&2
     exit 1
 fi
-planlib_summary=$(printf '%s' "$planlib_out" | grep -oE 'PASSED \(library version [0-9.]+\)') ||
-    planlib_summary="passed"
+planlib_summary=$(qa_gate_detail "$planlib_out" 'PASSED [(]library version [0-9.]+[)]')
 printf '✓ planlib-tests: %s\n' "$planlib_summary"
 
 # ccy's rootless-engine guard (Plan 00072), wired in by Plan 00081.

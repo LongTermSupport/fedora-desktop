@@ -3,9 +3,12 @@
 # `helpers/qa_environment/unittest_counts.py`. Plan 00125, Task 4.2.
 # Driven by scripts/test-qa-helper-summary.bash.
 #
-# Sourced, never executed — it defines one function and runs nothing.
+# Sourced, never executed — it defines three functions and runs nothing.
 #
-# THIS FILE PARSES NO OUTPUT STREAM, and that is the point of it.
+# THE HELPER-TESTS COUNTS ARE NOT PARSED FROM ANY OUTPUT STREAM, and that is the point of
+# `helper_counts_summary`. The other two functions here DO parse output, because the gates
+# they read have no equivalent of a `TestResult` object to take numbers from — so they are
+# built to fail visibly rather than plausibly instead.
 #
 # `unittest` counts a SKIPPED test inside testsRun, so `Ran 1464 tests` is byte-identical
 # whether a test asserted or skipped itself: two machines running different subsets of the
@@ -32,8 +35,9 @@
 # runner writes those two numbers to a file whose path the caller chooses. Nothing a test
 # prints shares a channel with the payload.
 #
-# It is also ONE function rather than two. The previous pair drifted into using opposite
-# match rules and disagreed with each other about the same run; a single reader cannot.
+# The helper-tests counts are also read by ONE function rather than two. The previous pair
+# drifted into using opposite match rules and disagreed with each other about the same run;
+# a single reader cannot.
 
 # helper_counts_summary <counts-file> <expected-token> — prints
 # `Ran 1464 tests in 64 modules (64 tracked), 1 skipped`.
@@ -63,6 +67,13 @@
 # two have different remedies and the empty case is reachable: a test calling `os._exit(0)`
 # skips the write entirely while the runner still exits 0, leaving the zero-byte file
 # `mktemp` created. Existence is not generation.
+#
+# `tracked <= modules` is deliberately NOT checked here, and the reason is placement rather
+# than reachability — the guards above refuse plenty of states the runner cannot produce.
+# It is already enforced UPSTREAM by `qa-helper-tests.bash`'s exit-2 cross-check against
+# `git ls-files`, which fires earlier and names the missing files, so a check here would be
+# a second opinion on strictly less information. That makes this reader's input domain
+# dependent on that check: relax it and this assumption widens silently.
 helper_counts_summary() {
     local path="$1" expected_token="$2"
     local tests="" skipped="" modules="" tracked="" token="" key="" value=""
@@ -199,27 +210,69 @@ helper_counts_summary() {
 # first as the stage and losing the rest. That is the defect round 4 found in the helper-tests
 # reader; it simply lived in 21 more copies, none of them tested.
 #
-# SCOPED TO THE LAST MATCHING LINE, and a line rather than a match because the 21 gates do
-# not agree on a format. Measured across them: `passed: N failed: M` with one, two and three
-# spaces; `passed: N` with no `failed:` at all; and two that prefix the line with the gate's
-# own name (`ccy selinux-verdict: passed: 14  failed: 0`). No anchor fits all five, so the
-# rule is positional: a gate prints its summary last, which is true because it is a summary.
+# SCOPED TO THE LAST MATCHING LINE, then to the LAST match within it. A line rather than a
+# match because the 21 gates do not agree on a format. Measured across them: `passed: N
+# failed: M` with one, two and three spaces; `passed: N` with no `failed:` at all; and two
+# that prefix the line with the gate's own name (`ccy selinux-verdict: passed: 14`).
 #
-# Degrading to a WORD rather than a number is deliberate and matches the other reader: a
-# wrong count reads as a measurement, `passed` cannot. `planlib-tests` genuinely has no
-# count — it prints `PASSED (library version 1.2.0)` — so this path is live, not defensive.
+# WHY LAST IS SOUND HERE, stated as what was measured rather than as a law. An earlier draft
+# said "a gate prints its summary last, which is true because it is a summary" — circular,
+# and false for 8 of the 21, which print `OK` or `VERDICT: PASS` after it. The property that
+# actually holds is narrower: **no gate emits a second `passed: <digits>` line**, and every
+# count-bearing line in all 21 comes from the single parent bash process on stdout, so the
+# `2>&1` capture cannot reorder them — no child writes one, no gate backgrounds anything, and
+# every `EXIT` trap in them is an `rm`. Taking the last is then a tie-break that never fires
+# rather than a bet on ordering.
 #
-# Unlike `helper_counts_summary` this does NOT hard-fail on an unreadable capture. The
-# difference is what the number means: the helper-tests counts distinguish two machines and
-# a blind read there is the defect the plan exists to remove, whereas this is a case count
-# whose gate has already reported pass/fail through its exit status.
+# Degrading to a WORD rather than a number is deliberate: a wrong count reads as a
+# measurement, `passed` cannot. That path is DEFENSIVE — all 21 live callers emit a count,
+# and it is reached only by this library's own tests. (An earlier comment justified it with
+# `planlib-tests`, which prints `PASSED (library version 1.2.0)`; that gate is not a caller,
+# it has its own reader below.)
+#
+# This does NOT hard-fail on an unreadable capture, unlike `helper_counts_summary` — which
+# refuses outright rather than degrading. The difference is what the number means: the
+# helper-tests counts distinguish two machines and a blind read there is the defect the plan
+# exists to remove, whereas this is a case count whose gate has already reported pass or fail
+# through its exit status.
 qa_gate_case_count() {
-    local capture="$1" line=""
+    local capture="$1" line="" match=""
     line=$(printf '%s' "$capture" |
-        awk '/passed: [0-9]+/{answer=$0} END{print answer}')
-    if [[ "$line" =~ passed:[[:space:]]+([0-9]+) ]]; then
+        awk '/passed:[[:space:]]+[0-9]+/{answer=$0} END{print answer}')
+    # LAST match within the line too, so the two rules agree. Taking the first would answer
+    # `passed: 3` for `suite passed: 3 of them; passed: 29 failed: 0` — a wrong number, which
+    # is the one thing this function must never emit. Unreachable across the current 21, and
+    # pinned by a case so it stays that way.
+    match=$(printf '%s' "$line" | grep -oE 'passed:[[:space:]]+[0-9]+' | awk 'END{print}')
+    if [[ "$match" =~ ([0-9]+)$ ]]; then
         printf 'passed: %s' "${BASH_REMATCH[1]}"
     else
         printf 'passed'
+    fi
+}
+
+# qa_gate_detail <capture> <extended-regex> — the matched text from the LAST line that
+# matches, or the literal `summary unreadable` when nothing does.
+#
+# For the two gates whose stage line is not a case count. Same scoping as
+# `qa_gate_case_count`, for the same reason, and it exists because the alternative was
+# measured and had failed silently for the whole life of one of them: `nokill-containerwatch`
+# read `[0-9]+ call site[s]? checked` from a gate that has only ever printed
+# `N container-watch file(s) clean`, so the pattern matched ZERO times, the `||` fallback
+# substituted the prose `no forbidden kill call sites` on every run, and the coverage number
+# never reached the stage line. A blind reader whose blind output is indistinguishable from a
+# real answer — this plan's subject, inside `qa-all.bash`, six lines under a comment about
+# failing to generalise a fix.
+#
+# Hence the fallback is `summary unreadable` and not a plausible sentence. A fallback that
+# ASSERTS something is worse than no fallback: it is a claim nothing verified, and it reads
+# exactly like a measurement. This one cannot be mistaken for one.
+qa_gate_detail() {
+    local capture="$1" pattern="$2" line=""
+    line=$(printf '%s' "$capture" | awk -v re="$pattern" '$0 ~ re {answer=$0} END{print answer}')
+    if [[ -n "$line" && "$line" =~ $pattern ]]; then
+        printf '%s' "${BASH_REMATCH[0]}"
+    else
+        printf 'summary unreadable'
     fi
 }

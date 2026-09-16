@@ -89,21 +89,10 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
   `9a79dd77` (2026-09-11) added the DisplayLink pair; `cb88ec4e`, `ff63ac5d` and `b3f6e909`
   (all 2026-09-14) added the other three. Every one of them landed into an already-red run
 - [x] ✅ **Task 1.3**: Diagnose the two `host_health` failures — **both determined,
-  reproduced byte-exactly, and fixed.** Neither was the ledger. Both were **defective
-  tests reading host state**, not production paths misbehaving; production was doing its
-  job in each case.
-  - `test_login_message` hardcoded `KERNEL` and `NOW` while `main` read
-    `os.uname().release` and the real clock — `main` was the one entry point that could
-    not be given the two facts every other function there takes as arguments. It now
-    takes both as injection seams. **This test also carried a dated bomb**: the fixture
-    stamp against the real clock meant it would have gone red on every machine on
-    **2026-09-28**, CI or not
-  - `test_handoff` relied on *"this container always has findings — no dkms, no systemd
-    bus"*, which is true here and false on a runner (systemd as PID 1, no `/var/lib/dkms`,
-    so both probes take their silent branches). It now supplies its own finding and
-    asserts on that rather than on prose the host happened to produce
-  - Both classes verified against an emulated runner — foreign kernel, future clock,
-    working systemd, absent dkms — and pass
+  reproduced byte-exactly, and fixed**, and verified against an emulated runner. Neither
+  was the ledger. Both were **defective tests reading host state**, not production paths
+  misbehaving. One of them carried a dated bomb that would have reddened every machine on
+  2026-09-28. See `FINDINGS.md`, "The two `host_health` tests"
 
 ### Phase 2: The docs gate — decision required
 
@@ -161,7 +150,8 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
   in a container the real marker files are there. Falsified both ways (journal, 23:52).
   **HOST, and more urgent than "the behaviour is identical" suggested.**
   An undeployed host's `qa-all.bash` is red **and stops 27 hard gates short**, because the
-  drift gate aborts at `qa-all.bash:138` — before `helper-tests`. **Run BOTH
+  drift gate aborts at the `qa-deployed-drift.bash` invocation in `qa-all.bash` — before
+  `helper-tests`. **Run BOTH
   `play-podfreeze.yml` and `play-lxcfreeze.yml`**, not either: each deploys its own binary
   and all three files changed. Runtime behaviour is unchanged. Detail in `FINDINGS.md`
 
@@ -198,21 +188,22 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
 - [x] ✅ **Task 4.4**: The `helper-tests` line no longer scrapes the run's output. Four
   readers that did were each defeated by a test printing unittest-shaped text, the last by
   an `atexit` handler writing after unittest's summary — see `FINDINGS.md`, "The counts are
-  not in the text". `helpers/qa_environment/unittest_counts.py` (19 tests) takes both
+  not in the text". `helpers/qa_environment/unittest_counts.py` (21 tests) takes both
   numbers from unittest's `TestResult` object and writes them to the path
   `qa-helper-tests.bash --counts-file` is given; the single reader in
   `scripts/lib/qa-helper-summary.bash` reads that file and **fails** rather than reporting
-  zero when it cannot, driven by `scripts/test-qa-helper-summary.bash` (43 cases) as its own
+  zero when it cannot, driven by `scripts/test-qa-helper-summary.bash` (51 cases) as its own
   gate. Mutation-tested: 6 of the runner, 13 of the reader, all caught; the last case runs
   the real runner end to end. `qa-all.bash` captures that run's stdout and requires it
   EMPTY, since a `print()` in any test could otherwise forge a stage line
 
-- [x] ✅ **Task 4.5**: The 21 other hard gates each inlined `grep -oE 'passed: [0-9]+'`, and
-  `-o` prints every match, so an earlier `passed: <digits>` made the stage line TWO lines —
+- [x] ✅ **Task 4.5**: 21 other hard gates each inlined `grep -oE 'passed: [0-9]+'`; `-o`
+  prints every match, so an earlier `passed: <digits>` made the stage line TWO lines —
   round 4's defect in 21 untested copies. They now share `qa_gate_case_count`, scoped to the
-  last matching LINE, because the 21 disagree on a format and no anchor fits all five (see
-  `FINDINGS.md`). 9 cases added. Verified as a pure refactor: every stage line is
-  byte-identical to the previous run bar the reader gate's own count
+  last matching LINE because the 21 disagree on a format (see `FINDINGS.md`). Sweeping for
+  the pattern text then missed 2 with a different regex: `nokill-containerwatch` had matched
+  NOTHING since it landed, hidden by a `||` fallback asserting `no forbidden kill call sites`. Both now use `qa_gate_detail`, falling back to the unusable `summary unreadable`.
+  17 cases. Pure refactor: every stage line byte-identical bar the reader gate's own count
 
 ### Phase 5: Close
 

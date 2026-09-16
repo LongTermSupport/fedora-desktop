@@ -159,26 +159,42 @@ they cannot. And a malformed counts file **fails** rather than reporting zero, b
 which is the defect the whole exercise exists to remove, and the one every revision found
 a new way to reintroduce.
 
-**The same shape lived in 21 more places (Task 4.5, now fixed).** Every other hard gate in
-`qa-all.bash` read its case count with an unscoped `grep -oE 'passed: [0-9]+'`: `-o` prints
-every match, so a second occurrence made the stage line two lines and `verdicts.py` read the
-first as the stage and lost the rest. Round 4 found this in the helper-tests reader and it
+**The same shape lived in 23 more places (Task 4.5).** 21 hard gates in `qa-all.bash` read
+their case count with an unscoped `grep -oE 'passed: [0-9]+'`: `-o` prints every match, so a
+second occurrence made the stage line two lines and `verdicts.py` read the first as the stage
+and lost the rest.
+
+The first sweep said "every other hard gate", and that over-claim is how **two more** got
+through: it was 21 of the 29 non-merged gates, and 2 of the remaining 8 had the same defect
+with a *different regex*. Sweeping for the pattern text rather than for the defect is what
+`CLAUDE/AgentNotes.md` calls generalising only as far as the file you were reading.
+
+The worse of the two had never worked. `nokill-containerwatch` read
+`[0-9]+ call site[s]? checked` from a gate whose single commit has only ever printed
+`N container-watch file(s) clean` — **zero matches in its entire life**, with a `||` fallback
+substituting the sentence `no forbidden kill call sites` on every run. A claim nothing had
+verified, printed where a measurement belongs, six lines under a comment complaining that a
+rule had been "written down beside the drift gate and never applied to this one". Both now use
+`qa_gate_detail`, whose fallback is the deliberately useless `summary unreadable`: a fallback
+that asserts something is worse than none, because it is indistinguishable from an answer. Round 4 found this in the helper-tests reader and it
 was fixed there alone; the 21 copies were never looked at, and none was tested.
 
 They now share `qa_gate_case_count`, scoped to the last matching LINE. A line and not a
 match, because the 21 do not agree on a format and no anchor covers all of them:
 
-| Shape                                     | Example                                   |
-| ----------------------------------------- | ----------------------------------------- |
-| one space before `failed:`                | `passed: 29 failed: 0`                    |
-| two spaces                                | `passed: 15  failed: 0`                   |
-| three spaces                              | `passed: 187   failed: 0`                 |
-| no `failed:` at all                       | `passed: 20`                              |
-| prefixed with the gate's own name         | `ccy selinux-verdict: passed: 14  failed: 0` |
-| no count at all                           | `PASSED (library version 1.2.0)`          |
+| Shape                             | Example                                      |
+| --------------------------------- | -------------------------------------------- |
+| one space before `failed:`        | `passed: 29 failed: 0`                       |
+| two spaces                        | `passed: 15  failed: 0`                      |
+| three spaces                      | `passed: 187   failed: 0`                    |
+| no `failed:` at all               | `passed: 20`                                 |
+| prefixed with the gate's own name | `ccy selinux-verdict: passed: 14  failed: 0` |
 
-The last row is why it degrades to the word `passed` rather than to a number — `planlib-tests`
-really does print that. Verified as a pure refactor: every stage line in a full run is
+It degrades to the word `passed` rather than to a number for the usual reason — a wrong count
+reads as a measurement — though that path is DEFENSIVE: all 21 callers emit a count, and only
+this library's own tests reach it. (`planlib-tests` prints `PASSED (library version 1.2.0)`
+and was once cited as the live caller; it is not a caller at all, it has its own reader.)
+Verified as a pure refactor: every stage line in a full run is
 byte-identical to the run before it, bar the reader gate's own case count.
 
 ### What the token does and does not do
@@ -225,6 +241,17 @@ verdict lines that cannot be trusted.
 It is now captured and **required to be empty**, which is the difference between a
 precondition and a gate. The suite has 1,482 tests; "no test prints to stdout" held today by
 accident and one `print()` would have ended it silently.
+
+### No line-number citation into a file this plan edits
+
+`jq -s` has sat at line 600, 608, 624, 626 and 609 across this plan's revisions — one of
+those moves happened *while a reviewer was citing it*, from a two-line comment edit. A stale
+line number still RESOLVES, so a wrong citation reads exactly like a verified one; a failed
+`grep` for anchor text is a failure you can see. The three citations into `qa-all.bash` now
+use unique anchors (`# Merge JSON from all checks`, `jq -s`, `# Final terse summary`,
+`qa-deployed-drift.bash` — each verified to match exactly once). The seven citations into
+files this plan does not touch keep their line numbers, because they have not moved and
+churning them buys nothing.
 
 ## The two machines disagree on three stages, and each is declared
 
@@ -286,6 +313,28 @@ On a runner (uid 1001, a live user session) that socket is reachable,
 is never reached. It passed in the container only because the container runs as a uid with
 no session.
 
+### The two `host_health` tests, one of which was a dated bomb
+
+`test_login_message` hardcoded `KERNEL` and `NOW`, while `main` read `os.uname().release`
+and the real clock. Every other function in that module already takes those two facts as
+arguments; `main` was the single entry point that could not be given them, so the test had
+nothing to hold still and asserted against whatever machine ran it. Both are injection
+seams now.
+
+It also carried a **dated bomb**. Its fixture stamp was compared against the real clock,
+so the assertion had an expiry: on **2026-09-28** it would have gone red on every machine,
+CI or not, with nothing in the diff to point at. A test that reads the host is usually
+found by moving it to another host — this one would have been found by waiting.
+
+`test_handoff` relied on *"this container always has findings — no dkms, no systemd
+bus"*. True here, false on a runner: systemd is PID 1 and `/var/lib/dkms` is absent, so
+both probes take their silent branches and the prose the assertion expected is never
+produced. It now supplies its own finding and asserts on that rather than on whatever the
+host happened to say.
+
+Both classes were verified against an emulated runner — foreign kernel, future clock,
+working systemd, absent dkms — and pass.
+
 ### The freeze library's host guard
 
 `assert_on_host` ORs three container signals, and the test drove it by the suite
@@ -295,7 +344,7 @@ satisfy on a runner. Only `$container` was injectable; the two marker paths now 
 
 **The host consequence, and why "the behaviour is identical" understated it.**
 `qa-deployed-drift.bash:219` covers `files/home/.local/lib/freeze/*` and compares with
-`cmp -s`, so a comment-only change drifts. Its abort is `qa-all.bash:138`, which sits
+`cmp -s`, so a comment-only change drifts. Its abort is the `qa-deployed-drift.bash` invocation in `qa-all.bash`, which sits
 *before* `helper-tests` — so an undeployed host has a red `qa-all.bash` that **stops 27
 hard gates short** (derived from the stage names a real run prints, not from `exit 1`
 lines). That is this plan's own Task 4.1 mechanism aimed at the owner's workstation, and
@@ -369,7 +418,9 @@ what CI *was* masking are the counts at the masked commit and are labelled as su
 
 The seven accumulating stages are `bash`, `python`, `patterns`, `ansible`,
 `ansible-syntax`, `js` and `docs`; they merge into one JSON document and are reported
-together by `qa-all.bash:610-627`.
+together by `qa-all.bash`'s `# Merge JSON from all checks` block (the `jq -s`
+invocation) and its `# Final terse summary` block — the second is where the seven become
+one verdict line, which is what the masking argument turns on.
 
 **This is the explanation the plan was missing.** The two causes were masked differently
 because they fell on opposite sides of that line:

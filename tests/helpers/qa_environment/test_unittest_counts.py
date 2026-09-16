@@ -125,10 +125,17 @@ class TestRunEndToEnd(unittest.TestCase):
         (self.tmp / f"{name}.py").write_text(textwrap.dedent(body), encoding="utf-8")
         return name
 
-    def run_main(self, *modules):
+    def run_main(self, *modules, tracked=None):
         counts_file = self.tmp / "counts"
         code = unittest_counts.main(
-            ["--counts-file", str(counts_file), *modules], stream=self.stream
+            [
+                "--counts-file",
+                str(counts_file),
+                "--tracked-modules",
+                str(len(modules) if tracked is None else tracked),
+                *modules,
+            ],
+            stream=self.stream,
         )
         return code, counts_file
 
@@ -149,6 +156,42 @@ class TestRunEndToEnd(unittest.TestCase):
         code, counts_file = self.run_main(module)
         self.assertEqual(code, 0)
         self.assertEqual(counts_file.read_text(encoding="utf-8"), "tests=2\nskipped=0\nmodules=1\ntracked=1\n")
+
+    def test_main_records_the_tracked_total_it_was_given_not_the_module_count(self):
+        # THE CASE WHOSE ABSENCE WAS THE DEFECT. Every other main()-level case runs one
+        # module and expects `tracked=1`, which is exactly what ignoring the flag would also
+        # produce — so if `main` dropped `--tracked-modules` entirely the whole suite still
+        # passed, and the untracked-file divergence this key exists for would be permanently
+        # invisible. Only asserting a tracked count that DIFFERS from the module count can
+        # tell the two apart.
+        module = self.write_module(
+            "t_tracked",
+            """
+            import unittest
+
+            class T(unittest.TestCase):
+                def test_one(self):
+                    self.assertTrue(True)
+            """,
+        )
+        _, counts_file = self.run_main(module, tracked=7)
+        self.assertEqual(
+            counts_file.read_text(encoding="utf-8"), "tests=1\nskipped=0\nmodules=1\ntracked=7\n"
+        )
+
+    def test_the_tracked_total_is_required_rather_than_defaulted(self):
+        # A default would be the same defect wearing a hat: the gate is the only caller that
+        # supplies a real value, so a silent fallback to the module count makes `tracked`
+        # meaningless the moment the gate stops passing it, with nothing failing.
+        with tempfile.TemporaryDirectory() as tmp:
+            counts_file = pathlib.Path(tmp) / "counts"
+            captured = io.StringIO()
+            with contextlib.redirect_stderr(captured), self.assertRaises(SystemExit) as raised:
+                unittest_counts.main(
+                    ["--counts-file", str(counts_file), "some.module"], stream=io.StringIO()
+                )
+            self.assertNotEqual(raised.exception.code, 0)
+            self.assertIn("--tracked-modules", captured.getvalue())
 
     def test_a_skip_is_counted_where_the_text_summary_would_hide_it(self):
         # The defect this plan exists to remove, stated as a test: `Ran 2 tests` is what
@@ -264,6 +307,7 @@ class TestAgainstARealSubprocess(unittest.TestCase):
         counts_file = self.tmp / "counts"
         env = dict(os.environ, PYTHONPATH=f"{self.repo_root}:{self.tmp}")
         token_args = ["--counts-token", token] if token is not None else []
+        tracked_args = ["--tracked-modules", "1"]
         completed = subprocess.run(
             [
                 sys.executable,
@@ -271,6 +315,7 @@ class TestAgainstARealSubprocess(unittest.TestCase):
                 "helpers.qa_environment.unittest_counts",
                 "--counts-file",
                 str(counts_file),
+                *tracked_args,
                 *token_args,
                 name,
             ],
@@ -389,12 +434,14 @@ class TestArgumentHandling(unittest.TestCase):
         # `Ran 0 tests ... OK` exiting 0 is the false pass helpers/CLAUDE.md warns about.
         with tempfile.TemporaryDirectory() as tmp:
             counts_file = pathlib.Path(tmp) / "counts"
-            message = self.refuses(["--counts-file", str(counts_file)])
+            message = self.refuses(
+                ["--counts-file", str(counts_file), "--tracked-modules", "1"]
+            )
             self.assertIn("modules", message)
             self.assertFalse(counts_file.exists())
 
     def test_a_missing_counts_file_argument_is_refused(self):
-        self.assertIn("--counts-file", self.refuses(["some.module"]))
+        self.assertIn("--counts-file", self.refuses(["some.module", "--tracked-modules", "1"]))
 
 
 if __name__ == "__main__":
