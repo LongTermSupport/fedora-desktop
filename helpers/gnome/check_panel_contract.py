@@ -37,7 +37,7 @@ import os
 import re
 import sys
 
-from helpers.host_health import login_report, probe_results, status_document
+from helpers.host_health import handoff, login_report, probe_results, status_document
 from helpers.play_ledger import ledger
 
 #: The JavaScript half of the contract: the file declaring the shared constants.
@@ -75,6 +75,10 @@ def expected() -> dict[str, str]:
         "FINDINGS": status_document.FINDINGS,
         "UNAVAILABLE": status_document.UNAVAILABLE,
         "STATE_DIR_NAME": ledger.STATE_DIR_NAME,
+        # Both surfaces offer the same command for the same file. The panel's copy is
+        # the one nobody rereads, and a panel offering a program the login report no
+        # longer names would put a command that does not exist under a button.
+        "HANDOFF_COMMAND": handoff.COMMAND,
     }
 
 

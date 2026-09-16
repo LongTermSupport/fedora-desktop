@@ -203,11 +203,18 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
       **without an agent**, or the freshness axis reports "never reached the remote" for
       ever. Stays HOST: a guest proves the mechanism, not this checkout's `origin` (§6,
       [DESIGN-host-health.md](DESIGN-host-health.md) §12)
-- [ ] 🔄 **Task 3.3**: Claude Code handoff — file and offer done
+- [x] ✅ **Task 3.3**: Claude Code handoff — file and offer done
   - [x] ✅ `handoff.py`, mode `0600`; the wrong/not-looked-at split is carried in
     `Finding.checked`, not read from the prose
-  - [ ] ⬜ The **one-click** offer — needs a surface that can receive a click, which is
-    Phase 4's panel
+  - [x] ✅ The **one-click** offer, in the panel's health section. It **copies** the
+    command rather than launching it: `claude` reads the repository it starts in, and
+    the panel knows no checkout path, so a launch would start it in the compositor's
+    working directory where it cannot see the playbooks the diagnosis is about. Copying
+    is also what `container-watch` does on this surface (§9a)
+  - [x] ✅ The path reaches the panel through the status document, and `record_host_state`
+    writes the handoff **before** the document that names it — a path recorded first is
+    a button that fails in the user's hands. Falsified: computing the path instead of
+    taking the write's result turns the ordering test red
 
 ### Phase 4: `fedora-desktop` GNOME panel extension
 
@@ -226,7 +233,10 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     reinterpretation of `play-freshness` — and emptiness is a **fault**, not an unknown.
     `helpers/play_ledger/ledger_presence.py`, 9 tests
     ([DESIGN-play-ledger.md](DESIGN-play-ledger.md) §8)
-  - [ ] ⬜ What a finding does when activated — a Task 3.3 decision (§9)
+  - [x] ✅ What a finding does when activated: **nothing, and that is the answer**. One
+    handoff file describes every finding, so a clickable row per finding would offer the
+    same command N times while implying each had its own. The offer is section-level
+    (§9a, Task 3.3)
   - [x] ✅ **The panel is boot-aware**, and `resolvedSection` is the ONE place the demotion
     happens, so the menu and the icon read the same answer (§11)
   - [x] ✅ `state` is **derived** from the lists, as the producer derives it (§11,

@@ -807,6 +807,11 @@ The `fedora-desktop` GNOME Shell panel — **a read-only surface**:
   status document
 - It renders; it runs no check, applies no fix and launches no play. Re-running a play is
   a human decision, and a clickable surface is where that boundary erodes
+- **When there are findings it offers the Claude Code handoff command**, one row at the
+  bottom of the health section. Activating it **copies** the command — `claude` reads the
+  repository it starts in, and the panel does not know where the checkout is, so a launch
+  would open it somewhere it cannot see the playbooks. No row at all when there is no
+  handoff file; the findings are still listed either way
 - **An absent document reads as `unavailable`, never as healthy.** "Nothing is known
   about this host" is a third state, distinct from "nothing is wrong" — conflating them is
   the failure this plan exists for

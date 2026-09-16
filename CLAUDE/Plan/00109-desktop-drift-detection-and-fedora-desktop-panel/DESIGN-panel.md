@@ -167,14 +167,48 @@ is explicit that the alternatives do not work.
 
 ## 9. Left open, deliberately, for the tasks that must decide them
 
-- **Task 4.2**: whether the health section's per-finding entries do anything when activated. The
-  handoff file is the obvious target (`handoff.offer()` already returns the command as a string),
-  but "one-click" is the part Task 3.3 could not finish, and what a click should *do* — copy the
-  command, as `container-watch` does with its inspect hint, or open a terminal running it — is a
-  3.3 decision, not a 4.2 one.
 - **Task 4.3**: which plays the runner lists. Every play is a long list with no ordering; the
   ledger knows which have ever run here, which is a different and probably better answer. Needs
   the ledger's real contents from a HOST run (Task 1.2) before it can be settled on evidence.
+
+### 9a. Decided: the handoff offer copies, and it is not per-finding
+
+The question was whether the health section's per-finding entries do anything when activated, and
+what a click should do. Both halves are answered, and the first answer is **no**.
+
+**The offer is section-level.** There is ONE handoff file and it describes EVERY finding —
+`handoff.write` takes the whole flattened list. A clickable row per finding would hand out the
+same command N times while implying each row had its own, which is a claim about granularity the
+data does not support. The per-finding rows stay `reactive: false`, and that is now a decision
+rather than an absence of one. One row sits at the bottom of the section, after everything it
+refers to.
+
+**It copies the command; it does not launch it.** Three reasons, and the first would break a
+launch outright:
+
+1. **`claude` reads the repository it starts in**, and this diagnosis is about playbooks. The
+   panel does not know where the checkout is, and the status document does not carry it — a
+   deliberate omission, since a host state file naming a checkout path is a host state file that
+   goes stale on a re-clone. Launching from here would start Claude Code in the compositor's
+   working directory, where it cannot see the thing it is being asked about.
+2. **`container-watch` already copies its inspect hint and notifies**, on this same surface. A
+   second idiom for "here is a command, you run it" would be one to learn for no gain.
+3. **§8: the panel offers, a human decides** — and a clickable surface is precisely where that
+   erodes. §6's terminal-launching mechanism belongs to Task 4.3, which has to choose it on
+   ledger evidence this task does not have; building it here would front-run that.
+
+**The path reaches the panel through the document, and only after the file exists.** The panel's
+sole data source is `host-status.json`, so `status_document.build` carries a `handoff` key —
+always present, `""` when there is none. `login_report.record_host_state` writes the handoff
+FIRST and records the result, because a path written before the file is a button that fails in
+the user's hands. `""` is a complete answer with three origins that agree on what they license:
+a clean host, a failed write, and an unreadable document. None of them gets a button; all of them
+still get their findings rendered, so a host with faults never goes quiet — it just has no
+button.
+
+`handoffPath()` refuses anything that is not an absolute string, because the value is
+interpolated into a command a human runs and a relative path would resolve against whatever
+directory their terminal opened in.
 
 ## 10. As built — the deployment, and the one assertion it deliberately does not make
 

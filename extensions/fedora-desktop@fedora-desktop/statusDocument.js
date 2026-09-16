@@ -56,6 +56,13 @@ export const FILE_NAME = 'host-status.json';
  * and silently. */
 export const STATE_DIR_NAME = 'fedora-desktop';
 
+/** Must match `handoff.COMMAND`, and compared by the same gate. The login report prints
+ * this command and the panel's health section copies it; two hand-maintained copies of
+ * one program name disagree without saying so, and the panel's is the one nobody
+ * rereads. Declared here rather than beside its use, because this file is where the
+ * constants the gate compares live. */
+export const HANDOFF_COMMAND = 'claude';
+
 /** `GLib.get_user_state_dir()` applies the same XDG rule as `ledger.state_dir`. The
  * runtime dir that `container-watch` uses would be wrong here: it is cleared at boot,
  * and a post-boot health verdict that vanishes at boot has no reader. */
@@ -70,6 +77,10 @@ function cannotRead(reason) {
         schema: SCHEMA_VERSION,
         generated_at: '',
         kernel: '',
+        // Empty, and it has to be: a document that could not be read cannot name a
+        // handoff file, and offering a path from this branch would put a button under
+        // the sentence that has just said nothing is known.
+        handoff: '',
         sections: {
             [SELF_SECTION]: {state: UNAVAILABLE, findings: [], unchecked: [reason]},
         },
@@ -317,6 +328,28 @@ export function isBootStale(document, running) {
     const collected = collectedKernel(document);
     return collected !== '' && typeof running === 'string' && running !== '' &&
         collected !== running;
+}
+
+/**
+ * Where the Claude Code handoff file was written, or `''` when there is none.
+ *
+ * Read defensively HERE, once, for the same reason `collectedKernel` is: the document
+ * comes off disk and may be truncated, hand-edited or from a producer that predates the
+ * key. A caller that read `document.handoff` directly would put a non-string into a
+ * shell command.
+ *
+ * `''` is a complete answer and the caller must render it as one. Three cases produce
+ * it and they are not the same thing — a clean host with nothing to diagnose, a handoff
+ * whose write failed, and a document this reader could not read at all — but they agree
+ * on what they license the panel to offer, which is nothing. What distinguishes them is
+ * the rest of the document, which the section renders anyway.
+ */
+export function handoffPath(document) {
+    const path = document?.handoff;
+    // Absolute only. `offer` interpolates this into a command a human is about to run,
+    // and a relative path would resolve against whatever directory the terminal starts
+    // in — which is not where the file is.
+    return typeof path === 'string' && path.startsWith('/') ? path : '';
 }
 
 /** Whole days since collection, or null when that cannot be known — which is NOT the

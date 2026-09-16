@@ -20,6 +20,7 @@
  */
 
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {register} from 'node:module';
 import test from 'node:test';
 
@@ -40,7 +41,7 @@ globalThis.log = () => {};
 
 const StatusDocument = await import(`${EXTENSION}statusDocument.js`);
 const {section: health} = await import(`${EXTENSION}sections/health.js`);
-const {RecordingMenu, GLIB_FILES} = await import('./gi-stubs.mjs');
+const {RecordingMenu, GLIB_FILES, CLIPBOARD, NOTIFICATIONS} = await import('./gi-stubs.mjs');
 
 const OSRELEASE = '/proc/sys/kernel/osrelease';
 
@@ -49,12 +50,15 @@ const REBOOTED_INTO = '6.18.2-100.fc44.x86_64';
 const NOW = Date.parse('2026-09-15T13:00:00Z');
 const BOOT_FINDING = 'evdi: no DKMS module installed for the running kernel 6.17.0-63.fc44.x86_64';
 
+const HANDOFF = '/stub/state/fedora-desktop/play-ledger/host-health-findings.md';
+
 /** A document in the producer's shape. `overrides` replaces whole sections. */
-function document(sections, kernel = COLLECTED) {
+function document(sections, kernel = COLLECTED, handoff = '') {
     return {
         schema: 1,
         generated_at: '2026-09-15T12:00:00Z',
         kernel,
+        handoff,
         sections: {
             'post-boot-health': {state: 'ok', findings: [], unchecked: []},
             'play-ledger': {state: 'ok', findings: [], unchecked: []},
@@ -307,4 +311,107 @@ test('an unreadable procfs gives "could not tell", which suppresses the claim', 
     const running = StatusDocument.runningKernel();
     assert.equal(running, '');
     assert.equal(StatusDocument.isBootStale(document({}), running), false);
+});
+
+/**
+ * The handoff offer — Task 3.3's one-click half (DESIGN-panel.md §9).
+ *
+ * Two rules are pinned here, and both are about what the panel must NOT do.
+ *
+ * The first is that the offer is **section-level, not per-finding**. There is one
+ * handoff file and it describes every finding, so a clickable row per finding would
+ * offer the same command N times while implying each row had its own.
+ *
+ * The second is that a document naming no handoff gets **no row at all** — while still
+ * rendering its findings. A host with faults must never go quiet; it just has no button.
+ * An offer row that appeared regardless and copied an empty command would be a button
+ * that fails in the user's hands, which is worse than no button on a surface whose whole
+ * job is being honest about what is known.
+ */
+function offerRow(menu) {
+    return menu.items.find(
+        item => item?.label?.text === 'Discuss these findings with Claude Code');
+}
+
+test('a document naming a handoff offers it', () => {
+    const row = offerRow(render(document({}, COLLECTED, HANDOFF)));
+    assert.ok(row !== undefined, 'no handoff row was rendered');
+    assert.equal(row.reactive, true);
+});
+
+test('the offered command names the path the producer wrote', () => {
+    const row = offerRow(render(document({}, COLLECTED, HANDOFF)));
+    const detail = row.children.map(child => child.text).join(' ');
+    assert.equal(detail, `${StatusDocument.HANDOFF_COMMAND} '${HANDOFF}'`);
+});
+
+test('activating it COPIES the command and says so', () => {
+    CLIPBOARD.type = null;
+    CLIPBOARD.text = null;
+    NOTIFICATIONS.length = 0;
+    offerRow(render(document({}, COLLECTED, HANDOFF))).emit('activate');
+    assert.equal(CLIPBOARD.type, 'clipboard');
+    assert.equal(CLIPBOARD.text, `${StatusDocument.HANDOFF_COMMAND} '${HANDOFF}'`);
+    assert.equal(NOTIFICATIONS.length, 1);
+});
+
+test('activating it LAUNCHES nothing — the panel offers, a human decides', () => {
+    // `claude` reads the repository it starts in, and the panel does not know where the
+    // checkout is. A launch from here would start it in the compositor's working
+    // directory, where it cannot see the playbooks the diagnosis is about.
+    //
+    // Asserted against the SHIPPED source rather than by watching a stub go uncalled:
+    // a spawn through an API the stubs do not provide would throw at activate time and
+    // never reach an assertion about it. Reading the file cannot miss that.
+    const source = readFileSync(new URL(`${EXTENSION}sections/health.js`), 'utf8');
+    assert.ok(!/Gio\.Subprocess|spawn_command_line|spawn_async|xdg-terminal-exec/.test(source),
+        'the health section launches a process');
+});
+
+test('a document naming no handoff gets no row', () => {
+    assert.equal(offerRow(render(document({}))), undefined);
+});
+
+test('a findings document with no handoff still renders its findings', () => {
+    const doc = document({'post-boot-health': {
+        state: 'findings', findings: [BOOT_FINDING], unchecked: [],
+    }});
+    const menu = render(doc);
+    assert.equal(offerRow(menu), undefined);
+    assert.equal(groupIn(menu, 'This machine now', 'evdi'), 'findings');
+});
+
+test('a relative handoff path is refused rather than offered', () => {
+    // The command is interpolated into something a human runs. A relative path would
+    // resolve against whatever directory their terminal starts in, which is not where
+    // the file is.
+    assert.equal(StatusDocument.handoffPath({handoff: 'play-ledger/findings.md'}), '');
+    assert.equal(offerRow(render(document({}, COLLECTED, 'play-ledger/findings.md'))),
+        undefined);
+});
+
+test('a handoff that is not a string is refused rather than interpolated', () => {
+    assert.equal(StatusDocument.handoffPath({handoff: 7}), '');
+    assert.equal(StatusDocument.handoffPath({}), '');
+    assert.equal(StatusDocument.handoffPath(null), '');
+});
+
+test('an unreadable document offers nothing', () => {
+    // It has just finished saying nothing is known about this host. A button under that
+    // sentence would contradict it.
+    GLIB_FILES.delete(OSRELEASE);
+    const menu = new RecordingMenu();
+    health.build(menu, {
+        schema: 1, generated_at: '', kernel: '', handoff: '',
+        sections: {status: {state: 'unavailable', findings: [], unchecked: ['nothing yet']}},
+    }, NOW, COLLECTED);
+    assert.equal(offerRow(menu), undefined);
+});
+
+test('the offer comes LAST, after everything it refers to', () => {
+    const doc = document({'post-boot-health': {
+        state: 'findings', findings: [BOOT_FINDING], unchecked: [],
+    }}, COLLECTED, HANDOFF);
+    const menu = render(doc);
+    assert.equal(menu.items.at(-1), offerRow(menu));
 });

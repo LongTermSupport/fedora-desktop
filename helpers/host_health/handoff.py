@@ -27,6 +27,18 @@ from helpers.host_health import probe_results
 #: Written beside the ledger so it travels with the rest of this plan's state.
 FILE_NAME = "host-health-findings.md"
 
+#: The program that reads the handoff file.
+#:
+#: `claude`, not `ccy`: diagnosing a broken host from inside a container cannot see the
+#: host.
+#:
+#: A named constant because TWO surfaces offer this command — the login report here, and
+#: the panel's health section in JavaScript. Two hand-maintained copies of one program
+#: name disagree silently, and the panel's copy is the one nobody rereads.
+#: `helpers/gnome/check_panel_contract.py` compares the two declarations. The quoting
+#: around the path is each language's own business; the program name must agree.
+COMMAND = "claude"
+
 def _split(
     findings: list[probe_results.Finding],
 ) -> tuple[list[str], list[str]]:
@@ -112,10 +124,11 @@ def write(
     return path
 
 
-def offer(path: str) -> str:
-    """The line that offers the handoff. A string — it never launches anything.
+def command(path: str) -> str:
+    """The command that opens the handoff. A string — it never launches anything."""
+    return f"{COMMAND} '{path}'"
 
-    `claude`, not `ccy`: diagnosing a broken host from inside a container cannot
-    see the host.
-    """
-    return f"To discuss this with Claude Code: claude '{path}'"
+
+def offer(path: str) -> str:
+    """The line that offers the handoff. A string — it never launches anything."""
+    return f"To discuss this with Claude Code: {command(path)}"

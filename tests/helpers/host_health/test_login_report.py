@@ -434,7 +434,7 @@ class TestTheDocumentIsWrittenWhetherOrNotAnythingIsWrong(unittest.TestCase):
     about a healthy host.
     """
 
-    def _published(self, base: str, **overrides) -> dict:
+    def _published(self, base: str, *, handoff: str = "", **overrides) -> dict:
         arguments = {
             "health": lambda: CLEAN_PROBE,
             "ledger_present": lambda: [],
@@ -447,6 +447,7 @@ class TestTheDocumentIsWrittenWhetherOrNotAnythingIsWrong(unittest.TestCase):
             sections=login_report.collect_sections(**arguments),
             kernel=RUNNING_KERNEL,
             at="2026-09-14T18:00:00Z",
+            handoff_path=handoff,
         )
         return status_document.read(status_document.path(base))
 
@@ -478,6 +479,109 @@ class TestTheDocumentIsWrittenWhetherOrNotAnythingIsWrong(unittest.TestCase):
         with tempfile.TemporaryDirectory() as base:
             document = self._published(base)
         self.assertEqual(document["generated_at"], "2026-09-14T18:00:00Z")
+
+    def test_the_handoff_path_reaches_the_document(self) -> None:
+        """Task 3.3. The panel reads only this file, so a handoff the document does not
+        name is one the panel cannot offer."""
+        with tempfile.TemporaryDirectory() as base:
+            document = self._published(
+                base, handoff="/state/play-ledger/handoff.md", health=lambda: DIRTY_PROBE)
+        self.assertEqual(document["handoff"], "/state/play-ledger/handoff.md")
+
+    def test_a_clean_host_names_no_handoff(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            document = self._published(base)
+        self.assertEqual(document["handoff"], "")
+
+
+class TestTheDocumentNamesAHandoffThatEXISTS(unittest.TestCase):
+    """Task 3.3's one-click offer, and the ordering rule it rests on.
+
+    The panel turns the document's `handoff` key into a button. A path written into the
+    document before the file behind it exists is a button that fails in the user's
+    hands — on the one surface in this plan whose entire job is being trustworthy about
+    what is and is not known. `record_host_state` writes the handoff FIRST and records
+    the result, so an optimistic path is unrepresentable rather than discouraged.
+    """
+
+    def _record(self, root: str, findings: list[probe_results.Finding]) -> dict:
+        self.out: list[str] = []
+        self.diagnostics: list[str] = []
+        ledger_base = os.path.join(root, "state", "play-ledger")
+        state_base = os.path.join(root, "state")
+        login_report.record_host_state(
+            ledger_base=ledger_base,
+            state_base=state_base,
+            sections={login_report.HEALTH: findings},
+            findings=findings,
+            kernel=RUNNING_KERNEL,
+            at="2026-09-14T18:00:00Z",
+            out=self.out.append,
+            diagnostics=self.diagnostics.append,
+        )
+        return status_document.read(status_document.path(state_base))
+
+    def test_the_named_handoff_file_is_ON_DISK(self) -> None:
+        """The assertion that matters, and the one a path-equality check would pass
+        without making: the document's path is opened, not merely compared."""
+        with tempfile.TemporaryDirectory() as root:
+            document = self._record(root, found("evdi: no DKMS module"))
+            self.assertTrue(document["handoff"])
+            with open(document["handoff"], encoding="utf-8") as handle:
+                self.assertIn("evdi", handle.read())
+
+    def test_a_clean_host_names_nothing_and_writes_no_handoff(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            document = self._record(root, [])
+            self.assertEqual(document["handoff"], "")
+            self.assertEqual(self.out, [])
+
+    def test_a_handoff_that_could_not_be_written_is_NOT_named(self) -> None:
+        """The failure this ordering exists to prevent. The handoff directory is a
+        FILE, so `handoff.write` raises — and the document must then say there is no
+        handoff rather than naming one, because the panel would offer it."""
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "state"))
+            with open(os.path.join(root, "state", "play-ledger"), "w") as handle:
+                handle.write("not a directory")
+            document = self._record(root, found("evdi: no DKMS module"))
+        self.assertEqual(document["handoff"], "")
+        self.assertTrue(any("handoff file could not be written" in line for line in self.out))
+
+    def test_the_findings_still_reach_the_document_when_the_handoff_fails(self) -> None:
+        """Losing the handoff must not lose the report. The panel is the surface that
+        would otherwise go quiet about a host with a known fault."""
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "state"))
+            with open(os.path.join(root, "state", "play-ledger"), "w") as handle:
+                handle.write("not a directory")
+            document = self._record(root, found("evdi: no DKMS module"))
+        section = document["sections"][login_report.HEALTH]
+        self.assertEqual(section["state"], status_document.FINDINGS)
+
+    def test_the_offer_is_the_LAST_line_and_names_the_written_path(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            document = self._record(root, found("evdi: no DKMS module"))
+        self.assertIn(document["handoff"], self.out[-1])
+
+    def test_a_failed_document_write_is_a_DIAGNOSTIC_not_part_of_the_report(self) -> None:
+        """Two different kinds of thing on two streams: the handoff is part of what the
+        user is reading, the document is machinery."""
+        with tempfile.TemporaryDirectory() as root:
+            with open(os.path.join(root, "state"), "w") as handle:
+                handle.write("not a directory")
+            login_report.record_host_state(
+                ledger_base=os.path.join(root, "ledger"),
+                state_base=os.path.join(root, "state"),
+                sections={login_report.HEALTH: []},
+                findings=[],
+                kernel=RUNNING_KERNEL,
+                at="2026-09-14T18:00:00Z",
+                out=(out := []).append,
+                diagnostics=(diagnostics := []).append,
+            )
+        self.assertTrue(any("status document could not be written" in line for line in diagnostics))
+        self.assertEqual(out, [])
 
 
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
