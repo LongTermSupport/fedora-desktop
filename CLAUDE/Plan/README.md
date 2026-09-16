@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00130-legacy-plan-scripts-lose-their-last-log-chunk](00130-legacy-plan-scripts-lose-their-last-log-chunk/) - `PlanWorkflow.md` taught `exec > >(tee "$LOG") 2>&1` and a plan-local `logs/` tree, both forbidden by PlanScriptStandards R4. The doc is fixed; nine scripts in eight active plans were already written from it. A process substitution cannot be waited on, so a failing run can lose the chunk explaining why, and the gitignored `logs/` tree orphans on archival.
+
 - [00128-qa-tool-abort-silences-thirty-gates](00128-qa-tool-abort-silences-thirty-gates/) - `qa-all.bash` exits 2 on a fresh clone before roughly thirty gates have run, and reports nothing about any of them, because one gate's dev-only ESLint dependency is absent. Two written-down positions conflict — `CLAUDE.md`'s missing-dependency rule against `qa-js.bash`'s deliberate dev-only comment — so the remedy is an owner decision. Measured and deferred by Plan 00125.
 
 - [00127-docker-and-podman-inside-lxc](00127-docker-and-podman-inside-lxc/) - **Parked.** Docker inside this host's LXC system containers is not working and Podman inside LXC was never established. Triage against `play-docker-in-lxc-support.yml`, then fix in IaC. Distinct from issue #41, which is engine coexistence on the host.
