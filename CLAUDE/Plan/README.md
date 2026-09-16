@@ -152,7 +152,7 @@ Use these Unicode icons in plan documents:
 
 - [00075-fail-signal-discard-sweep-and-gate](00075-fail-signal-discard-sweep-and-gate/) - Sweeps repo-owned bash, Python and playbooks for one defect class — a command's failure silently converted into data and then trusted — and builds a gate that fails the build rather than advising.
 
-- [00076-bash-gate-coverage-hole-nonexecutable-scripts](00076-bash-gate-coverage-hole-nonexecutable-scripts/) - `qa-all.bash` reported 125 bash files OK against 152 in the repo: the other 27 were never opened, having neither a shell extension nor an execute bit, and hid 34 gating findings. Discovery now keys on the shebang, with a coverage assertion behind it.
+- [00129-semgrep-per-rule-coverage-is-invisible](00129-semgrep-per-rule-coverage-is-invisible/) - The pattern gate's `N files OK` is the union of every rule's target set and reads as per-rule coverage; one rule is blind to 67 of 157 files. Carried out of Plan 00076, which met all twelve of its own criteria without it. One owner decision left: ~4.9× scan time for measured numbers, or model the globs in-gate.
 
 - [00079-podman-container-control](00079-podman-container-control/) - `podfreeze`: freeze and unfreeze Podman containers individually, as a CCY group, or by network, via `podman pause` — the one mechanism that works rootless. Renumbered from 00078 after two clones each handed out that number from a `--local` counter.
 
@@ -175,6 +175,8 @@ Use these Unicode icons in plan documents:
 - [00074-grub-cgroup-check-reports-absence-it-cannot-prove](00074-grub-cgroup-check-reports-absence-it-cannot-prove/) - `run.bash`'s legacy-grub cgroup step now distinguishes a failing `grubby` from a genuine negative and aborts on a proven failure instead of continuing
 
 ## Completed Plans
+
+- [00076-bash-gate-coverage-hole-nonexecutable-scripts](Completed/00076-bash-gate-coverage-hole-nonexecutable-scripts/) - `qa-all.bash` reported 125 bash files OK against 152 in the repo: the other 27 were never opened, having neither a shell extension nor an execute bit, and hid 34 gating findings. Discovery now keys on the shebang, with a coverage assertion behind it. Task 4.5, found while closing and outside every success criterion, became Plan 00129.
 
 - [00125-ci-qa-gate-red-and-machine-dependent](Completed/00125-ci-qa-gate-red-and-machine-dependent/) - The `QA` workflow had been red for three weeks and `qa-all.bash` answered differently per machine; the docs gate now asks trackedness rather than existence, and a failing gate no longer aborts the suite.
 
@@ -234,39 +236,9 @@ Use these Unicode icons in plan documents:
 
 - [00094-rclone-rc-auth-instead-of-no-auth](Completed/00094-rclone-rc-auth-instead-of-no-auth/) - Replaces blanket `--rc-no-auth` on the rclone RC — equivalent to shell access as the rclone user, and reachable by every local uid — with a host-generated 0600 secret loaded via systemd `EnvironmentFile=`. ACCEPTED on the host, 11 passed / 0 failed.
 
-- [00057-lxc-net-networkmanager-bridge-race](Completed/00057-lxc-net-networkmanager-bridge-race/) - `lxc-net` failed at boot because an NM autoconnect profile claimed `lxcbr0` first, so dnsmasq never launched and containers never leased — while the play's own bridge check false-passed. Verified on the host: triage 9 failures → 0.
-
-- [00096-docs-drift-repo-wide-fix](Completed/00096-docs-drift-repo-wide-fix/) - Audited every doc under `docs/` plus the root README against the real playbooks: 36 factual defects fixed, dominated by core plays documented as optional, and including two features documented that no task implements.
-
-- [00095-document-ccy-system](Completed/00095-document-ccy-system/) - Shipped `docs/ccy.md` — the repo's daily driver had no user-facing documentation at all. A 10-agent adversarial pass caught six high-severity defects in the first draft, an invented flag among them.
-
-- [00060-stderr-hygiene-coding-standard](Completed/00060-stderr-hygiene-coding-standard/) - A generated `gh-<alias>()` wrapper printed its status line on stdout, breaking `$(… --json)` captures. Fixed, audited repo-wide (0 other real bugs), and shipped `CLAUDE/StderrHygiene.md` as a coding standard.
-
-- [00047-claude-code-mouse-wheel-pageup](Completed/00047-claude-code-mouse-wheel-pageup/) - The wheel clobbered the prompt in Claude Code's alt-screen renderer under `CLAUDE_CODE_DISABLE_MOUSE=1`. Path E shipped: drop the var so Claude Code captures the mouse and scrolls natively. Container 2.22, CCY 3.27.0.
-
-- [00059-plan-folder-cleanup-and-plan-qa](Completed/00059-plan-folder-cleanup-and-plan-qa/) - Made `plan_workflow.qa` explicit in `.claude/hooks-daemon.yaml` and resolved the pre-existing plan-tree drift its first sweep surfaced (missing index rows, completed/cancelled plans left in the active root, missing status headers, a lowercase `plan.md`); `plan-qa --sweep` went 16 findings → 0.
-
-- [002-nordvpn-openvpn-manager](Completed/002-nordvpn-openvpn-manager/) - `nord` bash script + Ansible playbook to manage NordVPN OpenVPN connections via NetworkManager (on-demand import, persistent connections, vault credentials). Shipped `files/home/.local/bin/nord`, `play-nordvpn-openvpn.yml`, and `docs/nordvpn-installation.md`.
-
-- [006-documentation-audit-and-update](Completed/006-documentation-audit-and-update/) - Documentation coverage audit and feature inventory across the repo (coverage assessment + feature inventory supporting docs).
-
-- [015-article-mode](Completed/015-article-mode/) - Article mode for speech-to-text: an indefinite looped recording mode that flushes every 120 s and re-polishes the whole raw article via Claude in a two-pane GTK window (`Shift+Insert`). Shipped `files/home/.local/bin/wsi-article` + `wsi-article-window`.
-
-- [017-merge-ccy-ccb](Completed/017-merge-ccy-ccb/) - Retire CCB and CCB-Browser and consolidate into the single CCY tool.
-
-- [021-firstboot-wizard-redesign](Completed/021-firstboot-wizard-redesign/) - Firstboot wizard redesign.
-
-- [00052-run-bash-human-friendly](Completed/00052-run-bash-human-friendly/) - Made `run.bash` human-friendly (1.5.4 → 1.6.1): Enter accepts at every confirm, safe-polarity defaults, a visible `[default]` on every prompt, and verify-before-write hardening of the vault-password recovery path. HOST live run deferred to the user.
-
-- [020-semgrep-custom-bash-rules](Completed/020-semgrep-custom-bash-rules/) - Add Semgrep with custom bash convention rules (no error hiding, fail-fast enforcement) integrated into qa-all.bash. Semgrep 1.153.1 installed via pipx in CCY Dockerfile (v2.10); 0 violations in 44 bash files.
-
-- [024-claude-md-modular-restructure](Completed/024-claude-md-modular-restructure/) - Restructure monolithic CLAUDE.md (40k+ chars) into modular architecture: lean front page + CLAUDE/ topic files + docs/ for user content. All CLAUDE/ topic files created and @ pointers in place.
-
-- [033-ddev-installation](Completed/033-ddev-installation/) - Install DDEV on rootful Docker (Approach C); rootless Podman remains default engine, LXC unchanged. End-to-end host run verified (`ddev v1.25.1` + `docker 29.4.0`).
-
-- [00043-ipu6-webcam-fallout](Completed/00043-ipu6-webcam-fallout/) - Incident and recovery: the IPU6 play pulled an akmod that dragged in a half-installed kernel with no iwlwifi or btusb. Play rewritten to drop the akmod; recovery via the new `play-AB-dnf-upgrade.yml`, which also cleans up future half-installs.
-
-- [00044-laptop-health-audit](Completed/00044-laptop-health-audit/) - Read-only audit of the daily-driver X1 Carbon, cross-checked against IaC to separate real gaps from busywork: five new or extended plays shipped, three items dropped. Established the "work WITH GNOME, not against it" principle.
+**Older completed plans** — everything beyond the most recent 30 — are in
+[Completed/README.md](Completed/README.md), moved there verbatim. The retention window
+keeps this index readable; the archive keeps the record whole.
 
 ## Cancelled Plans
 

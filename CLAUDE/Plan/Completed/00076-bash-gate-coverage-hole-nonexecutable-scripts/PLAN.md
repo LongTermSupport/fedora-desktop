@@ -1,6 +1,6 @@
 # Plan 00076: The bash gates cannot see 27 of the repo's scripts
 
-**Status**: In Progress
+**Status**: Complete
 **Created**: 2026-08-18
 **Owner**: joseph
 **Priority**: High
@@ -133,7 +133,14 @@ that state — and so were `rclone-tail` and `rclone-cache-status`, which the
   because every rule here is `pattern-regex` and the regex engine reads raw text.
   The gap becomes real only if an AST `pattern:` rule is ever added
 
-- [ ] ⬜ **Task 4.5**: **Per-rule coverage is invisible, and it is not uniform.**
+- [x] ✅ **Task 4.5 — SUPERSEDED by Plan 00129**, not abandoned. Measured to a
+  decision point and then left holding a finished plan open: every one of this
+  plan's twelve success criteria was met without it, so it is a feature found
+  while closing, not a fix this plan owed. The measurements, options and rejected
+  approaches below carry over verbatim to
+  [Plan 00129](../00129-semgrep-per-rule-coverage-is-invisible/PLAN.md), whose
+  Task 1.1 is the owner decision that remains. **Per-rule coverage is invisible,
+  and it is not uniform.**
   The gate prints `✓ patterns: 157 files OK`, which is the **union** and reads as
   "every rule ran on 157 files". Only one did:
 
