@@ -115,6 +115,12 @@ executed populations, which is this page's own subject appearing in the line use
 it. The count differing is the signal; the skip *reason* names what was ignored and is
 printed by `python3 -m unittest -v <module>`, not by the suite at its default verbosity.
 
+A count is a **proxy, not a proof**: two machines could skip the same NUMBER of different
+tests. With the three conditional skips the suite has today the four machine shapes give
+four distinct counts (0, 1, 2, 3), so it is currently exact — but that is a property of
+those three sites, not of the mechanism. Adding a fourth conditional skip means checking
+that property still holds, or surfacing the skipped tests by name instead.
+
 **A stage that cannot pass in an environment is not a strict gate there — it is an absent
 one.** Two consequences follow, and the second is the one that bites:
 
