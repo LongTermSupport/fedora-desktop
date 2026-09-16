@@ -238,7 +238,8 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
 - [x] Each of the tests has been classified as a defective test or a production path
   reading unowned host state, and fixed accordingly — all six were defective tests.
 
-- [ ] The docs gate passes in a checkout with no hooks daemon installed.
+- [x] The docs gate passes in a checkout with no hooks daemon installed — CI run
+  `35081847136`; the two machines' `VENDORED:` counts are mirror images. See `FINDINGS.md`
 
 - [ ] A deliberately introduced failure is distinguishable from the standing state.
   Partly met and worth stating precisely: it is distinguishable *now* in the sense that

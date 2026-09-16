@@ -424,6 +424,26 @@ before this plan. The `helper-tests` row is the deliverable rather than a residu
 machines skip *different* tests, and until the skip count joined the line the two sides
 were byte-identical and read as `agree`.
 
+### After the boundary landed: `docs` agrees on the verdict and differs only in what it says
+
+That table is the state at `fa3cfe8e`. The `docs` row is now closed, and the way it closed
+is the point. Same commit, CI run `35081847136`:
+
+```
+CI:    ✓ docs: 71 files OK (…) — VENDORED: 0 verified, 8 unverifiable (repo absent), 0 broken
+local: ✓ docs: 71 files OK (…) — VENDORED: 8 verified, 0 unverifiable (repo absent), 0 broken
+```
+
+Mirror images, and the same `✓`. The gate's **exit code** no longer depends on what is
+installed; its **sentence** does, and reports exactly what the machine could and could not
+check. A CI run saying `0 verified, 8 unverifiable` is not claiming those eight links are
+fine — it is saying it has no way to know, which is the honest answer and the one that was
+missing for three weeks.
+
+`helper-tests` stays in the table on purpose: `2 skipped` in CI against `1 skipped` locally,
+still declared, still the deliverable. This satisfies the plan's fourth success criterion —
+the docs gate passing in a checkout with no hooks daemon installed.
+
 ## Cause B — tests that read the machine they were written on
 
 Five at first; a sixth surfaced once the abort stopped hiding it.
