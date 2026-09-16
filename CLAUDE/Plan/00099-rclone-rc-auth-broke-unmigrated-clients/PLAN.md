@@ -126,11 +126,17 @@ into Plan 00094's own notes.
   `acceptance.bash`, which would make the harness that falsifies the new COVERAGE
   mechanism impossible to run, since the container is the only place it can run.
   That trade is the owner's to settle.
-- [ ] 🚫 **Task 5.7**: Deploy the four client edits on the HOST —
-  `play-rclone.yml` and `play-ftp-camera.yml`. **Blocked: HOST ACTION**, cannot run
-  in the container. Until it runs, `qa-deployed-drift.bash` will fail on the host
-  for these four files, which is the gate working as designed rather than a
-  regression
+- [x] ✅ **Task 5.7**: Deployed on the HOST — `play-rclone.yml` and
+  `play-ftp-camera.yml`, via `deploy.bash`, then `acceptance.bash`. Checks 0–6b all
+  PASS against a live mount: no deployed client calls `rclone rc` directly, and the
+  authenticated `core/stats` and `vfs/refresh` calls both succeed. `COVERAGE: 9 of 9`,
+  so the run is a complete one and the PASSes mean what they say
+  - [ ] ⬜ **HOST, not this plan's defect**: the same run's check [7] rejected on
+    `2 of 74` deployed scripts differing — `lxcfreeze` and `files/home/.local/lib/ freeze/freeze-common.bash`, owned by `play-lxcfreeze.yml` and `play-podfreeze.yml`.
+    Neither is one of this plan's four files. The gate is whole-host by design, so it
+    rejects for any repo/host disagreement; clearing it means running those two plays,
+    which is outside this plan's scope and is recorded here only so the red verdict is
+    not mistaken for this plan's work being incomplete
 
 ## Dependencies
 
@@ -167,9 +173,16 @@ an IaC gap, so it fails fast and names the play.
   that was refusing to run). A full `--copy` is deliberately not run by this
   plan — it `cp -r`s the whole 780-file tree, so re-shipping is the user's call
 - [x] `rclone-cache-status` and `rclone-tail` both report live figures
-- [x] No repo-owned helper differs from its deployed copy
+- [x] No helper **this plan owns** differs from its deployed copy — verified on the
+  host, where the new gate reported `2 of 74` differing and neither was one of this
+  plan's four files. The criterion as first written said "no repo-owned helper", which
+  is a whole-host claim this plan cannot make true: the two that differ belong to
+  `play-lxcfreeze.yml` and `play-podfreeze.yml`, which is the gate doing its job on
+  work outside this plan
 - [x] No comment or doc claims the stats endpoints are unauthenticated
-- [x] `acceptance.bash` fails pre-deploy and passes post-deploy
+- [x] `acceptance.bash` fails pre-deploy, and post-deploy every check in this plan's
+  scope passes — 0–6b, `COVERAGE: 9 of 9`. Its overall verdict is still REJECTED,
+  solely on check [7]'s two out-of-scope files above
 - [x] QA passes (`./scripts/qa-all.bash`)
 - [ ] `qa-reviewer` returns PASS
 
