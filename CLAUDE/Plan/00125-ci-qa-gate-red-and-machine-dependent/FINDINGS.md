@@ -75,7 +75,7 @@ distinction is the one `CLAUDE.md`'s rule actually turns on:
 | | (b) conditional on the tree being present | (d) exclude daemon-generated files |
 | --- | --- | --- |
 | Depends on the environment | **yes** — checks here, skips in CI | no — same everywhere |
-| Can pass a broken link | yes, exactly where it cannot tell | no — these links were never ours to audit |
+| Can pass a broken link | yes, exactly where it cannot tell | yes — but only in files we neither author nor can fix |
 | Needs a network | no | no |
 
 (b) is "check when convenient". (d) is a **scope** decision: this repository does not author
@@ -85,6 +85,15 @@ these files, cannot fix their links, and would have its edits re-rendered by
 `.claude/skills/` and `.claude/agents/` on precisely that reasoning. The 8 rule files are
 daemon-owned content that happens to be deployed outside the daemon's own directory; the
 exclusion follows ownership rather than path.
+
+**The mechanism is not the same shape, though, and that is (d)'s one real cost.**
+`_EXCLUDE_PREFIX` excludes by PATH: the set it covers is visible by reading the tuple, and a
+file cannot drift into it without moving. A marker-based exclusion is decided by file
+CONTENT, so the excluded set is invisible until something counts it — and it would widen
+silently the day any other file grew that marker. So (d) is admissible **with a coverage
+line**: report how many files the marker excluded, the way `version-pins` reports
+`COVERAGE: 9 of 9`. Without one it is a skip nobody can see, which is the family (b) belongs
+to even though (d) does not.
 
 So the real question for the owner is not which option is admissible but **which
 relationship is true**: is the daemon a dependency this repo's CI should install (a), or is
@@ -162,7 +171,7 @@ satisfy on a runner. Only `$container` was injectable; the two marker paths now 
 **The host consequence, and why "the behaviour is identical" understated it.**
 `qa-deployed-drift.bash:219` covers `files/home/.local/lib/freeze/*` and compares with
 `cmp -s`, so a comment-only change drifts. Its abort is `qa-all.bash:137`, which sits
-*before* `helper-tests` — so an undeployed host has a red `qa-all.bash` that **stops 28
+*before* `helper-tests` — so an undeployed host has a red `qa-all.bash` that **stops 27
 hard gates short** (derived from the stage names a real run prints, not from `exit 1`
 lines). That is this plan's own Task 4.1 mechanism aimed at the owner's workstation, and
 `CLAUDE.md` makes a local `qa-all.bash` the pre-commit requirement, so it is not cosmetic.
@@ -177,9 +186,9 @@ plan's own instruction, which said "either freeze play".
 
 ## The mechanism that kept all of it invisible
 
-`qa-all.bash` exits at the first failing hard gate, and **at the masked commit `29ceee97`,
-25 gates were declared after the `helper-tests` abort** (26 today, because Task 4.4 added
-a gate). A gate that cannot pass in
+`qa-all.bash` exits at the first failing hard gate. **5 hard gates stood behind the
+`helper-tests` abort when it first went red (`9a79dd77`), and 11 by `b3f6e909`** — 26 behind
+it today, though today it passes. A gate that cannot pass in
 an environment therefore does not merely stay red — it stops every gate behind it from
 running at all, and the number of checks actually executing falls with nothing reporting
 it. Three gates in this plan had never run once in CI before the abort was cleared.
@@ -232,15 +241,29 @@ because they fell on opposite sides of that line:
 
 - **Cause A (`docs`) is an accumulating stage.** It has been red since 2026-08-31 and
   masked nothing at all — every gate behind it kept running. That is why the current CI log
-  shows `✗ docs` followed by 25 passing gates and only then `✗ QA FAILED`.
-- **Cause B landed in hard gates.** At `29ceee97`, `helper-tests` aborted at `:153` and
-  **25 hard gates stood behind it and never ran in CI** — derived from that run's own
-  stage-name order, which is why this figure survived the recount that moved the others. Clearing it unmasked
-  `panel-sections`, then `freezelib`, one at a time.
+  shows `✗ docs` followed by 28 passing stages and only then `✗ QA FAILED` (run
+  `35041998528`, counted from that run's own output).
+- **Cause B landed in hard gates**, and the number that matters is the one at the commits
+  where masking actually happened — **not** `29ceee97`, which is this plan's own round-2
+  commit, by which point the test fixes had landed, `helper-tests` passed
+  (`✓ Ran 1456 tests, 2 skipped`) and the run reached its final summary. Nothing was masked
+  there. Counting behind that abort measured a real property of the script and attributed it
+  to a commit that had stopped exhibiting it. Behind `helper-tests` at the commits that were
+  actually red:
+
+  | Commit     | Date       | Hard gates masked |
+  | ---------- | ---------- | ----------------- |
+  | `9a79dd77` | 2026-09-11 | **5**             |
+  | `b3f6e909` | 2026-09-14 | **11**            |
+
+  So the masked set **grew as gates were added behind a gate that could not pass** — which
+  is a worse property than a fixed 25, and the one worth stating: every gate added after a
+  standing abort is born unexecuted. Clearing it unmasked `panel-sections`, then
+  `freezelib`, one at a time.
 
 It also narrows **Task 4.3**. Its option (1) — run every gate, report all verdicts, exit
 non-zero at the end — is not a new design to weigh: it is the design already in force for
 seven stages of this same script, and the one the final summary was written for. The
-question is whether to extend it to the other 28, not whether to invent it. The repo's own
+question is whether to extend it to the other 29, not whether to invent it. The repo's own
 recurring lesson applies to the plan that is documenting it: the right answer already
 existed one directory over — in this case, sixty lines up.

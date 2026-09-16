@@ -11,7 +11,8 @@
 #      `OK (skipped=1, expected failures=1)` and silently reports 0.
 #   3. The match ran over the WHOLE capture, and bash `=~` takes the first hit anywhere, so
 #      any earlier `skipped=<digits>` won. `tests/helpers/vmtest/test_transcript.py` holds
-#      exactly that text in a fixture, and unittest does not buffer stdout.
+#      exactly that text in a fixture, and a test writing to stderr reaches the capture
+#      ahead of the summary.
 #
 # All three have the same shape and it is this plan's subject: **a check whose clean result
 # is indistinguishable from a blind one**. That is precisely the property a hand-check
@@ -113,9 +114,10 @@ check "a two-digit count is not truncated" \
 
 echo "=== helper_skip_count: the count comes from the RESULT line, not the capture ==="
 
-# The round-3 defect, and reachable rather than theoretical: unittest does not buffer
-# stdout, so a test printing one of the repo's own transcript fixtures puts this text on
-# the console ahead of the summary.
+# The round-3 defect, and reachable rather than theoretical: a test writing to STDERR is
+# unbuffered, so printing one of the repo's own transcript fixtures puts this text into the
+# capture ahead of the summary. (A test writing to STDOUT lands after it instead — both
+# directions are covered, because the count must survive either.)
 check "an earlier line mentioning skipped= does not win the match" \
     "2" "$(helper_skip_count "$(capture 'OK (skipped=2)' \
         'VMTEST-CHECKS-DONE passed=7 skipped=41
@@ -132,6 +134,12 @@ check "a skip REASON containing the text does not win the match" \
     "1" "$(helper_skip_count "$(capture 'OK (skipped=1)' \
         "test_x (m.T) ... skipped 'no DP connector; skipped=42'
 Ran 5 tests in 0.006s")")"
+
+# The other direction, which the three cases above cannot reach. A STDOUT decoy is
+# block-buffered to a pipe and flushed at exit, so it arrives AFTER the result line — and a
+# decoy that is itself shaped like a result line would be a second `^OK` match.
+check "a result-shaped decoy flushed after the real one does not win" \
+    "1" "$(helper_skip_count "$(printf 'Ran 5 tests in 0.006s\n\nOK (skipped=1)\nOK (skipped=99)\n')")"
 
 echo "=== helper_skip_count: an unreadable capture is refused, not reported as zero ==="
 
@@ -181,10 +189,26 @@ check "a decoy Ran line mid-capture does not join the summary" \
 check "the summary is exactly one line" \
     "1" "$(helper_test_summary "$(printf 'Ran 3 tests in a scenario\nRan 1464 tests in 0.42s\n\nOK\n')" | grep -c '')"
 
-# unittest's count line sits immediately above its result line, so where a decoy starts at
-# column 0 the LAST match is the authoritative one — taking the first would prefer the decoy.
-check "a decoy anchored at column 0 does not win over unittest's own line" \
+# THE ORDERING THAT ACTUALLY OCCURS, and the one the fixtures above cannot produce.
+# unittest writes its summary to STDERR; a test's `print` goes to STDOUT, which Python
+# BLOCK-BUFFERS when it is a pipe — and `qa-all.bash` captures through a pipe. So a decoy is
+# flushed at process exit and lands AFTER `OK`, never before it. Measured, not reasoned:
+#
+#   3: Ran 1 test in 0.000s
+#   5: OK
+#   6: Ran 3 tests in a scenario     <- the decoy, after everything
+#
+# A "last match wins" rule therefore picks the decoy in the only ordering that is real. The
+# rule that holds is the `Ran` line most recently seen WHEN the result line arrives, which
+# anchors on the same `^(OK|FAILED)` line `helper_skip_count` already trusts.
+check "a decoy flushed AFTER the result line does not win" \
+    "Ran 1 test" "$(helper_test_summary "$(printf '.\n---\nRan 1 test in 0.000s\n\nOK\nRan 3 tests in a scenario\n')")"
+
+check "a decoy on stderr BEFORE unittest's own line does not win either" \
     "Ran 1464 tests" "$(helper_test_summary "$(printf 'Ran 3 tests in a scenario\nRan 1464 tests in 0.42s\n\nOK\n')")"
+
+check "a decoy after a FAILED result line does not win" \
+    "Ran 9 tests" "$(helper_test_summary "$(printf 'Ran 9 tests in 0.1s\n\nFAILED (failures=1)\nRan 3 tests in a scenario\n')")"
 
 echo
 echo "passed: $passed failed: $failed"

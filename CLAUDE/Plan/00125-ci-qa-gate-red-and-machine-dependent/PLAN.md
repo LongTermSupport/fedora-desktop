@@ -60,8 +60,8 @@ all six are fixed.
 **The mechanism, and it hid Cause B rather than "all of it".** `qa-all.bash` runs 7 stages
 that accumulate and 29 hard gates that `exit 1`. Cause A sits in an accumulating stage, so
 it masked nothing — it went red and every gate behind it kept running. Cause B was in hard
-gates, and at the masked commit **25 gates stood behind the `helper-tests` abort**, so three
-of them had never run once in CI. That is Task 4.1's answer and the argument for Task 4.3.
+gates, and **5 to 11 gates stood behind the `helper-tests` abort** while it was red, so
+three of them had never run once in CI. That is Task 4.1's answer and the argument for Task 4.3.
 
 ## Tasks
 
@@ -73,7 +73,7 @@ of them had never run once in CI. That is Task 4.1's answer and the argument for
   and puts them side by side. Four states per stage, because two of them are the point:
   `differs`, and `only-here`/`only-there` — a stage **absent** from one side never ran
   there, which is what the abort does and what no pass/fail comparison can show. Parsing
-  and diffing live in `helpers/qa_environment/verdicts.py` (35 tests) rather than the
+  and diffing live in `helpers/qa_environment/verdicts.py` (40 tests) rather than the
   script, per `helpers/CLAUDE.md`. It renders no verdict (R9) and points at
   `CLAUDE/QA.md`'s declared-dependency table. It declares **neither** `plan_require_host`
   nor `plan_require_container`, deliberately; `triage.bash:18-23` owns that argument and
@@ -116,9 +116,10 @@ of them had never run once in CI. That is Task 4.1's answer and the argument for
   claim that only (a) remained was wrong: **(a)** install the daemon in CI (a network fetch
   per run), or **(d)** exclude daemon-GENERATED files from the link check by their version
   marker — unconditional, no network, and the same ownership judgement
-  `link_check.py:214-223` already makes for four other trees. The 7 repo-authored rule files
-  stay checked either way. Full argument in `FINDINGS.md`. **The owner's call**: (a) treats
-  the daemon as a dependency, (d) treats its output as not ours to audit
+  `link_check.py:214-223` already makes for four other trees, though by CONTENT rather than
+  PATH, so it needs a coverage line or the excluded set is invisible. The 7 repo-authored
+  rule files stay checked either way. Full argument in `FINDINGS.md`. **The owner's call**:
+  (a) treats the daemon as a dependency, (d) treats its output as not ours to audit
 
 - [ ] ⬜ **Task 2.2**: Implement the chosen option; the docs gate passes in a clean checkout.
 
@@ -167,11 +168,11 @@ of them had never run once in CI. That is Task 4.1's answer and the argument for
 ### Phase 4: Make the next regression visible
 
 - [x] ✅ **Task 4.1**: The identical-looking red run is only half of it, and the other half
-  is worse. `qa-all.bash` **exits at the first failing hard gate**, and at the masked commit
-  `29ceee97` (`qa-all.bash:152` for `helper-tests`) **25 gates stood behind it**. So from the
-  moment the DisplayLink pair began failing, CI stopped executing the last 25 gates
-  entirely. The suite did not merely stay red — *the number of checks actually running
-  fell*, and nothing said so. Three compounding causes, written up in `FINDINGS.md`.
+  is worse. `qa-all.bash` **exits at the first failing hard gate**, so from the moment the
+  DisplayLink pair began failing CI stopped executing every gate behind `helper-tests`:
+  **5 at `9a79dd77`, growing to 11 by `b3f6e909`** as new gates were added behind a gate
+  that could not pass. The suite did not merely stay red — *the number of checks actually
+  running fell*, and nothing said so. Three compounding causes, written up in `FINDINGS.md`.
   **Demonstrated live three times while closing Phase 3** — each fix revealed the next gate
   that had never run once (journal, 23:38 and 23:52). The remedy is Task 4.3
 
@@ -197,7 +198,7 @@ of them had never run once in CI. That is Task 4.1's answer and the argument for
 - [x] ✅ **Task 4.4**: The `helper-tests` line now has a test, because it had been wrong
   twice in three revisions and every hand-check died with the session that ran it. Both
   readers moved to `scripts/lib/qa-helper-summary.bash`, sourced by `qa-all.bash`, driven by
-  `scripts/test-qa-helper-summary.bash` (16 cases) which runs as its own gate — so the test
+  `scripts/test-qa-helper-summary.bash` (23 cases) which runs as its own gate — so the test
   exercises the shipped functions rather than a copy of the expression. Falsified against
   all three historical defects: the whole-capture match fails 6 cases, the closing-paren
   match 2, answering `0` for an unreadable capture 3. An unreadable capture now **fails**

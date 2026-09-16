@@ -21,13 +21,22 @@
 # the stage and the second lost. Worse than a wrong number, because a wrong number is at
 # least still a verdict line.
 #
-# The LAST match wins, not the first. unittest's count line sits immediately above its
-# result line, so where a test has printed its own `Ran ...` at column 0 the authoritative
-# one is the final one.
+# Neither the first match nor the last is right, and the reason is buffering rather than
+# formatting. unittest writes its summary to STDERR; a test's `print` goes to STDOUT, which
+# Python BLOCK-BUFFERS to a pipe — and this capture is taken through a pipe. So a decoy is
+# flushed at process exit and appears AFTER the result line, never before it: "last wins"
+# picks the decoy in the only ordering that actually occurs. A decoy on stderr would arrive
+# before, so "first wins" is no better.
+#
+# What holds is unittest's own structure: the count line is the one most recently seen WHEN
+# the result line arrives. That anchors on the same `^(OK|FAILED)` line `helper_skip_count`
+# trusts, so both readers depend on one fact about the format instead of two.
 helper_test_summary() {
     local capture="$1" line=""
     line=$(printf '%s' "$capture" |
-        awk '/^Ran [0-9]+ tests? in /{last=$0} END{print last}')
+        awk '/^Ran [0-9]+ tests? in /{seen=$0}
+             /^(OK|FAILED)( \(|$)/{if (seen != "") {answer=seen}}
+             END{print answer}')
     if [[ "$line" =~ ^(Ran[[:space:]][0-9]+[[:space:]]tests?) ]]; then
         printf '%s' "${BASH_REMATCH[1]}"
     else
@@ -40,8 +49,10 @@ helper_test_summary() {
 #
 # Scoped to `^(OK|FAILED)` FIRST, and that scoping is the load-bearing part. Bash `=~` takes
 # the first match anywhere in the subject, so run over the whole capture any earlier
-# `skipped=<digits>` wins — and unittest does not buffer stdout, so a test printing one of
-# this repo's own transcript fixtures is enough to do it.
+# `skipped=<digits>` wins — and a test writing to stderr is unbuffered, so printing one of
+# this repo's own transcript fixtures is enough to do it. The first match is the right one
+# here for the mirror-image reason: a STDOUT decoy is block-buffered to a pipe and lands
+# after the result line, so it can never precede it.
 #
 # The count is then matched WITHOUT a closing paren, because unittest appends
 # `expected failures=` and `unexpected successes=` after it inside the same bracket:
