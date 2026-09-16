@@ -298,3 +298,43 @@ not make, in the helper written to catch exactly that. It is scoped per check no
 Whether St renders the demoted lines legibly, whether the caveat heading reads as a caveat,
 and whether the icon colour is the right thing to look at. Those need a Wayland session and
 a person, and the gate says so rather than implying its green covers them.
+
+## 12. Open for the owner: who reacts to unlock (Task 5.4a)
+
+Task 5.4's recovery action `REFRESH_BACKGROUND` fires from the dock udev rule and from the
+suspend service. The suspend path is **effectively inert**: the screen is already locked when
+that service runs, so the run correctly refuses. Something in the *user* session has to react
+to **unlock**, and nothing in this repo watches lock state today.
+
+This is not code that is merely unwritten. The two candidates trade off against each other and
+neither is determined by a fact, which is why it is here rather than done.
+
+**A. The panel.** GNOME Shell already dispatches lock state to extensions (`Main.screenShield`,
+or `org.gnome.ScreenSaver`'s `ActiveChanged`), so the panel gets the signal for **no extra
+process at all** — and Task 4.1's harness stubs GNOME imports, so the wiring would be
+unit-testable to the same standard as everything else in Phase 4.
+
+The cost is the contract. `extension.js` opens with *"A read-only surface over the host status
+document. It renders what the checks said; it runs no check of its own, applies no fix, and
+launches no play."* §8 restates it, and Technical Decision 1 in `PLAN.md` — *detection and
+handoff, never unattended repair* — is the plan's own framing. Spawning a recovery helper on
+unlock ends that, and "it is only a display refresh, not a play" is exactly the kind of
+narrowing that erodes a boundary one reasonable exception at a time.
+
+**B. A user systemd unit.** `files/home/.config/systemd/user/` already holds seven units, so the
+deployment path exists and the panel's contract stays intact. The cost is that **systemd has no
+unlock trigger**: the unit would be a long-running D-Bus monitor whose entire job is to watch one
+signal, which is a permanently resident process bought to avoid an architectural concession.
+
+**C. A separate small extension.** Keeps both — the panel's contract and no extra daemon — at the
+cost of a third custom extension with its own play, its own ESLint surface and its own Wayland
+logout to load. `play-container-watch.yml` is the precedent for an extension that owns one
+backend.
+
+**Recommendation: C, then A.** C is the honest answer to "the panel is the natural owner" — the
+*session* is the natural owner, and the panel is merely the session component that already
+exists. B buys a resident daemon for a purity the other two get for free.
+
+**Whichever is chosen, the HOST item under Task 5.4 still gates it.** The unlock signal only
+exists in a live Wayland session, and whether the refresh actually clears a black background has
+only ever been exercised on a healthy desktop.

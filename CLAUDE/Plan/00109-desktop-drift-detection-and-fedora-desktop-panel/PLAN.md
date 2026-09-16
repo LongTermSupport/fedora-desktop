@@ -279,8 +279,15 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   rule and the suspend service, after the wedge ladder and never while locked
   - ⚠️ **Known limitation — the resume path is effectively inert**: the screen is already
     locked when the suspend service runs, so the run correctly refuses. Dock/udev works
-  - [ ] ⬜ **T5.4a**: Cover the unlock case. Needs something in the *user* session that
-    reacts to unlock, not a root oneshot — Phase 4's panel is the natural owner
+  - [ ] 🚫 **T5.4a**: Cover the unlock case — **OWNER'S CALL, not code that is merely
+    unwritten.** Nothing in the repo watches lock state today, and the two viable owners
+    trade off against each other rather than one being determined:
+    the panel gets `ActiveChanged` for free but its own header says it *"runs no check of
+    its own, applies no fix, and launches no play"*, which this would end; a user
+    systemd unit keeps that contract intact but costs a long-running daemon whose only
+    job is to watch one signal the shell already dispatches. Reasoning and the third
+    option in [DESIGN-panel.md §12](DESIGN-panel.md). Implementable and unit-testable
+    here once chosen; the HOST item below gates shipping it either way
   - [ ] ⬜ **HOST**: deploy it, and separately confirm the refresh actually clears a
     black background when the symptom is present — exercised on a healthy desktop only
 
