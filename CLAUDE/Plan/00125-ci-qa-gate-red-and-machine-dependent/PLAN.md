@@ -242,9 +242,9 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
   `35081847136`; the two machines' `VENDORED:` counts are mirror images. See `FINDINGS.md`
 
 - [ ] A deliberately introduced failure is distinguishable from the standing state.
-  Partly met and worth stating precisely: it is distinguishable *now* in the sense that
-  a new failure changes the run's output, because only one cause remains. It is not yet
-  met in the sense Task 4.3 means — a gate that stops RUNNING is still invisible.
+  Partly met, stated precisely: the standing state is GREEN on both machines now, so any
+  new failure changes the run's output. Not met in Task 4.3's sense — a gate that stops
+  running is invisible, and a gate that FAILS erases its own stage line.
 
 ## Risks & Mitigations
 
