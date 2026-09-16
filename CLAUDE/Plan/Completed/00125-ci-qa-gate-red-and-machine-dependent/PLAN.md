@@ -1,6 +1,6 @@
 # Plan 00125: The QA workflow has been red for three weeks, and qa-all.bash answers differently per machine
 
-**Status**: In Progress
+**Status**: Complete (2026-09-16)
 **Created**: 2026-09-15
 **Owner**: joseph
 **Priority**: High
@@ -176,13 +176,14 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
   that would have prevented both defects found today: resolve paths relative to the file,
   never to a fixed absolute root; and exclude the whole `.ansible/` tree from discovery
 
-- [ ] ⬜ **Task 4.3**: Make a gate's *absence* visible. `qa-all.bash` aborting at the first
-  failure means one unfixable gate silently disables every gate after it — the mechanism
-  behind Task 4.1. **Owner's call:** (1) run every gate and report all verdicts before
-  exiting non-zero, or (2) keep the abort and have CI fail on a shrink in the executed-gate
-  list. **(2) is ruled out by measurement** — a failing gate erases its own stage line, so
-  no shrink detector can tell it from one that never ran. Recommendation **(1)** — a
-  mechanical edit at 30 call sites; costing in `FINDINGS.md`
+- [x] ✅ **Task 4.3**: **OWNER DECIDED: option (1) — report everything.** Option (2) was
+  ruled out by measurement first: a failing gate erases its own stage line, so no shrink
+  detector can tell it from one that never ran. Every hard gate now records itself with
+  `qa_hard_gate_failed` and the run continues; `qa_pass_line` owns the `✓` and prints
+  nothing for a gate that already failed, so no gate reports both outcomes. One `exit 1`
+  remains (the final summary), naming every failed gate; the `exit 2` tool aborts stay.
+  Measured under one mutated gate — **before**: 0 of the 26 gates behind it ran, 11 of 38
+  stages parsed, the failing gate absent from the census; **after**: 26, 38, present
 
 - [x] ✅ **Task 4.4**: The `helper-tests` line no longer scrapes the run's output. Four
   readers that did were each defeated by a test printing unittest-shaped text, the last by
@@ -240,10 +241,11 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
 - [x] The docs gate passes in a checkout with no hooks daemon installed — CI run
   `35081847136`; the two machines' `VENDORED:` counts are mirror images. See `FINDINGS.md`
 
-- [ ] A deliberately introduced failure is distinguishable from the standing state.
-  Partly met, stated precisely: the standing state is GREEN on both machines now, so any
-  new failure changes the run's output. Not met in Task 4.3's sense — a gate that stops
-  running is invisible, and a gate that FAILS erases its own stage line.
+- [x] A deliberately introduced failure is distinguishable from the standing state.
+  Demonstrated rather than argued: one mutated gate gives `✗ secret-scan-tests: …`, 26
+  further `✓` lines, and a summary naming it. The same mutation before Task 4.3 gave no
+  stage line for that gate and nothing after it. A gate that cannot RUN (`exit 2`) is still
+  invisible — `qa-js.bash` is the live case, and a Non-Goal here.
 
 ## Risks & Mitigations
 

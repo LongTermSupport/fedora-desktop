@@ -664,5 +664,50 @@ for registered_var in $(printf '%s\n' "${!GATE_COMMAND[@]}" | sort); do
 done
 
 echo
+echo "=== no gate aborts the suite: every gate runs, even after one fails ==="
+
+# Plan 00125, Task 4.3. A hard gate that `exit 1`s disables every gate declared after it, and
+# the run then says "one thing is broken" when it means "one thing is broken and N things are
+# unknown". Measured on this suite before the change: a mutated gate left 0 of the 26 gates
+# behind it running and 11 of 38 stages parsed, with no stage line for the gate that failed.
+#
+# The behaviour itself is proved by running the real suite against a mutated gate, which is
+# far too expensive to do on every commit. What IS cheap is noticing the shape coming back:
+# exactly one `exit 1` may remain in `qa-all.bash`, the final summary's. The `exit 2`
+# missing-tool aborts are deliberate and not counted here — a suite that cannot run its tools
+# has nothing to accumulate.
+exit_ones=0
+if ! exit_ones=$(grep -vE '^[[:space:]]*#' "$REPO_ROOT/scripts/qa-all.bash" |
+    grep -cE '(^|[^[:alnum:]_])exit 1([^0-9]|$)'); then
+    exit_ones=0
+fi
+if [ "$exit_ones" -eq 1 ]; then
+    passed=$((passed + 1))
+    printf '  PASS  qa-all.bash has one exit 1 (the final summary) — no gate aborts the run\n'
+else
+    failed=$((failed + 1))
+    printf '  FAIL  %s\n        %s\n' \
+        "qa-all.bash has $exit_ones \`exit 1\` sites; exactly 1 is expected (the final summary)" \
+        "a gate that exits disables every gate after it — record it with qa_hard_gate_failed instead" >&2
+fi
+
+# A gate that records a failure must also be able to report a pass, or its ✓ line went
+# missing with the abort. Both directions of the same pair, the way the call sites above are
+# checked both ways.
+outcome_calls=0
+if ! outcome_calls=$(grep -vE '^[[:space:]]*#' "$REPO_ROOT/scripts/qa-all.bash" |
+    grep -cE '(^|[^[:alnum:]_])qa_hard_gate_failed[[:space:]]'); then
+    outcome_calls=0
+fi
+if [ "$outcome_calls" -gt 0 ]; then
+    passed=$((passed + 1))
+    printf '  PASS  %s gate(s) record a failure instead of aborting\n' "$outcome_calls"
+else
+    failed=$((failed + 1))
+    printf '  FAIL  %s\n' \
+        "no qa_hard_gate_failed call sites in qa-all.bash — either the gates went back to aborting, or this check went blind" >&2
+fi
+
+echo
 echo "passed: $passed failed: $failed"
 [ "$failed" -eq 0 ]

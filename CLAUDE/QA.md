@@ -102,12 +102,12 @@ it needs a real host and a `gh` token, so it is a host diagnostic.
 than what the repository ships. A local run and a CI run disagreeing is a fact about the
 stage, not a flaky gate — find which input differs before touching anything.
 
-| Gate                     | What it needs from the machine                                                                                        | Where that is missing                                                    |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `qa-ansible-syntax.bash` | a vault password file to **exist** (never read — `--syntax-check` does not decrypt)                                   | a clean checkout, and a linked worktree                                  |
-| `qa-js.bash`             | `extensions/node_modules` — its own message says no playbook installs it. Exits **2**, so no hard gate behind it runs | a linked worktree, and any checkout where `npm install` has not been run |
-| `qa-deployed-drift.bash` | deployed copies under `~/.local/bin` to compare the repo against                                                      | the CCY container and a clean checkout — it self-skips **and names why** |
-| `qa-helper-tests.bash`   | one pair asserts against real `/sys/class/drm` and skips where no connector with a physical display link is present   | a VM whose only connector is virtual                                     |
+| Gate                     | What it needs from the machine                                                                                      | Where that is missing                                                    |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `qa-ansible-syntax.bash` | a vault password file to **exist** (never read — `--syntax-check` does not decrypt)                                 | a clean checkout, and a linked worktree                                  |
+| `qa-js.bash`             | `extensions/node_modules` — its own message says no playbook installs it. Exits **2**, which still aborts the run   | a linked worktree, and any checkout where `npm install` has not been run |
+| `qa-deployed-drift.bash` | deployed copies under `~/.local/bin` to compare the repo against                                                    | the CCY container and a clean checkout — it self-skips **and names why** |
+| `qa-helper-tests.bash`   | one pair asserts against real `/sys/class/drm` and skips where no connector with a physical display link is present | a VM whose only connector is virtual                                     |
 
 `qa-deployed-drift.bash` is the shape to copy: it states the dependency, skips only for a
 reason it prints, and the reason is checkable.
@@ -115,6 +115,9 @@ reason it prints, and the reason is checkable.
 `qa-js.bash` is the shape NOT to copy, and it is in this table because a reviewer hit it,
 not because anyone predicted it: exiting 2 makes it a gate whose absence removes every gate
 behind it, which is the mechanism this page's own subject was hiding inside for three weeks.
+A *failing* gate no longer does that; a gate that cannot RUN still does, which is why this
+row matters more than it did. On a fresh clone `qa-all.bash` reaches `qa-js.bash` and stops
+there — including before `qa-docs.bash`, the gate Plan 00125 repaired.
 
 **`qa-docs.bash` used to head this table and no longer belongs in it.** It needed
 `.claude/hooks-daemon/` on disk, because eight tracked `.claude/rules/*.md` files are
@@ -239,9 +242,11 @@ prose — the stage line prints the live one on every run.)
 
 ### The stage-line readers are shared, and tested against the gates they read
 
-`scripts/lib/qa-helper-summary.bash` holds all three, and between them they produce **every**
-stage line `qa-all.bash` composes — 29 of them. Only `deployed-drift` still builds its own,
-and it never had the defect below.
+`scripts/lib/qa-helper-summary.bash` holds all three, and between them they produce the
+summary in **every** stage line `qa-all.bash` composes — 29 of them. `qa_pass_line` prints
+it, and prints nothing when that gate has already failed, so a gate cannot report both
+outcomes. Only `deployed-drift` builds its own line, because there the line IS the gate's
+output rather than a summary of it.
 
 | Function                  | Used by                              | Degrades to                       |
 | ------------------------- | ------------------------------------ | --------------------------------- |
@@ -322,10 +327,32 @@ one.** Two consequences follow, and the second is the one that bites:
 
 - a permanently-red stage carries no information, because a red run looks exactly like the
   previous red run;
-- `qa-all.bash` **exits at the first failing hard gate**, so a stage that cannot pass also
-  stops every gate declared after it from running at all. The suite does not merely stay
-  red — the number of checks actually executed *falls*, silently, and newly added gates can
-  go their whole life without running once in CI.
+- a failing gate used to **abort the suite**, so a stage that could not pass stopped every
+  gate declared after it from running at all. The suite did not merely stay red — the
+  number of checks actually executed *fell*, silently, and newly added gates could go their
+  whole life without running once in CI. Measured while `helper-tests` was red: the masked
+  set grew **5 → 11 → 25**, and 20 of those had never executed in CI.
+
+**Every gate runs now, and the run reports all of them** (Plan 00125). A failing hard gate
+records itself with `qa_hard_gate_failed` and the suite carries on; the final line names
+every gate that failed rather than the first one that did. Only the seven `exit 2`
+missing-tool aborts still stop the run, because a suite that cannot run its tools has
+nothing to accumulate.
+
+Two things this buys, and the second is easy to miss:
+
+- **the count of executed checks cannot fall silently** — a gate that fails still prints a
+  stage line, so a run's census is complete whatever its verdict;
+- **the failing gate appears in that census at all.** `verdicts.py` matches
+  `^[✓✗⚠] QA (?:passed\|FAILED):` as a RUN SUMMARY *before* it tries the stage pattern, so
+  the old `✗ QA FAILED: <prose>` gave the failing gate no stage line — it erased itself as
+  well as everything behind it. Measured under one mutated gate: **11 of 38** stages parsed
+  before, **38 of 38** after, and the failing gate present only in the second.
+
+`scripts/test-qa-helper-summary.bash` holds the guard: exactly one `exit 1` may remain in
+`qa-all.bash`, the final summary's. Proving the behaviour itself means running the whole
+suite against a mutated gate, which is too slow for every commit; noticing the shape coming
+back is one grep.
 
 So when a gate needs something an environment lacks, add the dependency (`CLAUDE.md` →
 "Missing Dependencies — Fail Fast, Fix in IaC") rather than teaching the gate to tolerate

@@ -36,8 +36,6 @@ Use these Unicode icons in plan documents:
 
 - [00127-docker-and-podman-inside-lxc](00127-docker-and-podman-inside-lxc/) - **Parked.** Docker inside this host's LXC system containers is not working and Podman inside LXC was never established. Triage against `play-docker-in-lxc-support.yml`, then fix in IaC. Distinct from issue #41, which is engine coexistence on the host.
 
-- [00125-ci-qa-gate-red-and-machine-dependent](00125-ci-qa-gate-red-and-machine-dependent/) - The `QA` workflow has not been green for three weeks, so the gate `CLAUDE/QA.md` calls the authority has been reporting nothing. Underneath it, `qa-all.bash` answers differently per machine — green in the container, red on a runner — from eight tracked links into the gitignored hooks-daemon tree and six tests that read host state.
-
 - [00124-chrome-install-gpg-failure-on-upgraded-host](00124-chrome-install-gpg-failure-on-upgraded-host/) - `run.bash` stops at Chrome on a host upgraded from F41, and there were two causes stacked: dnf5 validating against a repo's own keys (so a package URL lands in keyless `@commandline`), and beneath it an imported key that rpm will never refresh because presence is judged by primary id, leaving the newer signing subkey absent.
 
 - [00122-lxc-freeze-thaw-shared-with-podfreeze](00122-lxc-freeze-thaw-shared-with-podfreeze/) - `podfreeze` groups, previews and toggles Podman containers; LXC is a first-class engine here with no equivalent. Adds a sibling `lxcfreeze` — rootful, so a separate tool rather than a flag — on a shared library holding the menu, the derived verb and the dry run that are not engine-specific.
@@ -175,6 +173,8 @@ Use these Unicode icons in plan documents:
 - [00074-grub-cgroup-check-reports-absence-it-cannot-prove](00074-grub-cgroup-check-reports-absence-it-cannot-prove/) - `run.bash`'s legacy-grub cgroup step now distinguishes a failing `grubby` from a genuine negative and aborts on a proven failure instead of continuing
 
 ## Completed Plans
+
+- [00125-ci-qa-gate-red-and-machine-dependent](Completed/00125-ci-qa-gate-red-and-machine-dependent/) - The `QA` workflow had been red for three weeks and `qa-all.bash` answered differently per machine; the docs gate now asks trackedness rather than existence, and a failing gate no longer aborts the suite.
 
 - [00120-ccy-gpu-device-optional-on-headless-hosts](Completed/00120-ccy-gpu-device-optional-on-headless-hosts/) - ccy handed every container `--device /dev/dri` unconditionally, and on a host with no GPU (a headless server, a serial-console VM) podman aborted the session with `stat /dev/dri: no such file or directory`, exit 125; the flags are now a pure function of whether the node exists (ccy 3.56.0, PR #43).
 
