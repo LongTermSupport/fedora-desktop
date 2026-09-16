@@ -126,6 +126,34 @@ into Plan 00094's own notes.
   `acceptance.bash`, which would make the harness that falsifies the new COVERAGE
   mechanism impossible to run, since the container is the only place it can run.
   That trade is the owner's to settle.
+- [x] ✅ **Task 5.8**: Closing `qa-reviewer` round — FIX-BEFORE-MERGE (0 blocking,
+  5 should-fix); report in `subagent-reports/260916-qa-reviewer-close-opus-5.md`.
+  All five actioned, and three were this plan's own defect class recurring one
+  level up:
+  - **S1** — check [7] read `qa-deployed-drift.bash`'s documented SKIP as
+    `PASS repo and host are in sync`, because all three skip paths exit 0. That is
+    the `m7` fix (`✓`→`⚠`) being laundered straight back out by the consumer, and
+    it fires **on the host** inside a linked worktree. Now matched on the output
+    and failed
+  - **S2** — check [3] passed having examined **zero** files when the glob matched
+    nothing. Counted and stated now; zero fails
+  - **S3** — `ftp-camera` was the last client still hardcoding `localhost:5572`,
+    which stopped being the address when `play-rclone.yml` moved to
+    `rc_port_base + mount_index`. `m4`'s premise that every client discovered the
+    address was simply wrong, and the `m4` fix made check [6] probe a *different*
+    endpoint from the client — so the gate stopped touching the thing it vouched
+    for. Discovery now lives in the shared library as
+    `rclone_rc_addr_for_mount`, used by `ftp-camera` and by `triage.bash`, which
+    carried the same hardcoded address
+  - **S4** — the plan index still claimed "ACCEPTED 10/10 on the host",
+    contradicting this file
+  - **S5** — `m6` re-judged, and the owner trade-off holds for `acceptance.bash`
+    only. `deploy.bash` ran `ansible-playbook` **without `cd`-ing to the repo
+    root**, and every path in `ansible.cfg` is relative — inventory, `roles_path`,
+    the vault setting, and `callback_plugins` (Plan 00109's ledger). The host run
+    worked because the operator happened to be standing at the root. Both
+    `deploy.bash` and `triage.bash` are now on `_planlib.inc.bash`;
+    `acceptance.bash` deliberately is not, and says why on the line
 - [x] ✅ **Task 5.7**: Deployed on the HOST — `play-rclone.yml` and
   `play-ftp-camera.yml`, via `deploy.bash`, then `acceptance.bash`. Checks 0–6b all
   PASS against a live mount: no deployed client calls `rclone rc` directly, and the

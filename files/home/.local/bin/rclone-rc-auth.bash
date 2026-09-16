@@ -113,3 +113,59 @@ rclone_rc_available() {
     echo "  rc probe failed: $out" >&2
     return 1
 }
+
+# The RC address of the rclone mount serving <mountpoint>, read from that
+# process's own command line. Empty (and non-zero) when no such mount is found
+# or it was started without --rc-addr.
+#
+# THE DEFAULT PORT IS NOT A DEFAULT ANY MORE. `play-rclone.yml` gives each mount
+# `rclone_rc_port_base + mount_index`, so 5572 belongs to the FIRST mount only —
+# a client assuming it talks to the wrong mount's RC on every other one, and the
+# failure is silent: it preflights against a live RC and then polls that mount's
+# vfs/stats for a copy happening somewhere else. Asking the process is the only
+# answer that stays right when a mount is added.
+#
+# `rclone-cache-status` and `rclone-tail` carry their own richer form of this
+# walk because they also need --cache-dir per mount; converting them onto this
+# is worth doing and is not free, so it is named here rather than left implicit.
+rclone_rc_addr_for_mount() {
+    local mountpoint="$1"
+    local pid cmdline addr
+
+    if [ -z "$mountpoint" ]; then
+        echo "rclone_rc_addr_for_mount: no mountpoint given" >&2
+        return 1
+    fi
+
+    # `pgrep` exits 1 when nothing matches, which is a RESULT here (no mounts at
+    # all) and not an error, so the loop is fed from a checked capture rather
+    # than a bare substitution that would abort the caller under `set -e`.
+    local pids=""
+    if ! pids=$(pgrep -f 'rclone mount'); then
+        echo "rclone_rc_addr_for_mount: no rclone mount process is running" >&2
+        return 1
+    fi
+
+    for pid in $pids; do
+        if ! cmdline=$(tr '\0' ' ' < "/proc/$pid/cmdline"); then
+            # The process exited between pgrep and the read. Not this mount's
+            # problem; keep looking rather than reporting a failure that says
+            # nothing about the mountpoint asked for.
+            continue
+        fi
+        case "$cmdline" in
+            *" $mountpoint "* | *" $mountpoint")
+                addr=$(grep -oE -- '--rc-addr=[^ ]+' <<< "$cmdline" | cut -d= -f2)
+                if [ -z "$addr" ]; then
+                    echo "rclone_rc_addr_for_mount: the mount serving $mountpoint was started without --rc-addr" >&2
+                    return 1
+                fi
+                printf '%s\n' "$addr"
+                return 0
+                ;;
+        esac
+    done
+
+    echo "rclone_rc_addr_for_mount: no rclone mount process serves $mountpoint" >&2
+    return 1
+}

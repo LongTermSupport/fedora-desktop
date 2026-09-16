@@ -95,6 +95,22 @@ bad() {
     FAIL=$((FAIL + 1))
 }
 
+# Temp files are removed on the way out, not only at the end of the block that made them.
+# Both `rm -f` calls below sit after an `if` that can die under `set -e`, so any failure in
+# between leaked the file. A plain EXIT trap is correct HERE specifically because this
+# script deliberately does not source `_planlib.inc.bash` — there is no library handler to
+# displace. (Scripts that DO source it must use `plan_on_cleanup` instead; see
+# PlanScriptStandards.md R4.) Why this one does not: converting it needs `plan_require_host`,
+# which would make the container harness that falsifies the COVERAGE mechanism unrunnable —
+# the owner trade-off recorded in this plan's 14:28 handoff entry.
+#
+# The trap body is INLINE rather than a named function: a function reachable only from a
+# trap string reads as unreachable to shellcheck (SC2317), and suppression directives are
+# banned in this repo, so the way to keep the linter honest is to give it nothing to be
+# wrong about.
+TEMP_FILES=()
+trap 'if [ "${#TEMP_FILES[@]}" -gt 0 ]; then rm -f "${TEMP_FILES[@]}"; fi' EXIT
+
 echo "=============================================================="
 echo "Plan 00099 acceptance — rclone RC clients"
 echo "=============================================================="
@@ -172,6 +188,7 @@ else
     # printing a generic failure is the same discarded-diagnosis defect this
     # plan exists to fix, one level up.
     cred_err=$(mktemp)
+    TEMP_FILES+=("$cred_err")
     if rclone_rc_load_credentials 2> "$cred_err"; then
         ok "credential loaded (non-empty user and password)"
     else
@@ -194,6 +211,12 @@ echo
 RC_BYPASS_RE='(^|[;&|(]|\$\(|!)[[:space:]]*rclone rc '
 check 3 "no deployed script calls 'rclone rc' directly"
 bypass_found=0
+# COUNTED, because "no client bypasses the library" and "there are no clients"
+# produce identical output otherwise. On a host where the glob matches nothing —
+# nothing deployed, a renamed directory — every iteration hits the `continue` and
+# bypass_found stays 0, which was read as proof. A blind scanner and a clean one
+# must not report alike; that is this plan's own subject.
+scanned=0
 for f in "$BIN"/rclone-* "$BIN"/ftp-camera; do
     if [ ! -f "$f" ]; then
         continue
@@ -202,14 +225,18 @@ for f in "$BIN"/rclone-* "$BIN"/ftp-camera; do
     if [ "$f" = "$RC_LIB" ]; then
         continue
     fi
+    scanned=$((scanned + 1))
     hits=""
     if hits=$(grep -nE "$RC_BYPASS_RE" "$f"); then
         bypass_found=1
         bad "$(basename "$f") calls 'rclone rc' directly" "$hits"
     fi
 done
-if [ "$bypass_found" -eq 0 ]; then
-    ok "every deployed client goes through rclone_rc"
+if [ "$scanned" -eq 0 ]; then
+    bad "no deployed client was scanned, so nothing was established" \
+        "looked for $BIN/rclone-* and $BIN/ftp-camera — run deploy.bash first"
+elif [ "$bypass_found" -eq 0 ]; then
+    ok "every deployed client goes through rclone_rc ($scanned scanned)"
 fi
 echo
 
@@ -260,6 +287,14 @@ echo
 # Runs the SAME function the deployed ftp-camera calls, sourced from the SAME
 # deployed library — not a re-implementation of it. A copy is not started here
 # because that would move real data; the preflight is the step that was failing.
+#
+# AND at the same address, which was briefly untrue and is the more interesting
+# half. When this gate moved to a discovered RC_ADDR, ftp-camera was still
+# hardcoding `localhost:5572` — so the gate ran the right function against the
+# wrong endpoint, and the one thing it claimed to cover was the one thing it had
+# stopped touching. ftp-camera now discovers the address from the mount's own
+# process too, via the shared library, so "same function, same library" is once
+# again "same call".
 check 6 "ftp-camera copy preflight authenticates"
 if [ ! -x "$BIN/ftp-camera" ]; then
     bad "ftp-camera is not deployed"
@@ -273,6 +308,7 @@ else
     # "preflight probe failed" alone tells the operator nothing about whether
     # the RC is down, the credential is wrong, or the helper is absent.
     probe_err=$(mktemp)
+    TEMP_FILES+=("$probe_err")
     if rclone_rc_available "http://${RC_ADDR}" 2> "$probe_err"; then
         ok "preflight probe (core/stats, authenticated) succeeded"
     else
@@ -313,7 +349,25 @@ echo
 check 7 "no repo-owned script differs from its deployed copy"
 drift_out=""
 if drift_out=$(bash "$REPO_ROOT/scripts/qa-deployed-drift.bash" 2>&1); then
-    ok "repo and host are in sync"
+    # EXIT 0 IS TWO DIFFERENT ANSWERS, and only one of them is a pass. All three
+    # of the drift gate's skip paths exit 0 having compared nothing — and this is
+    # not only the container's problem: the LINKED-WORKTREE skip fires on the
+    # host, so a run from a worktree would report "in sync" having looked at
+    # nothing at all.
+    #
+    # The gate's own m7 fix changed its skip marker from ✓ to ⚠ for exactly this
+    # reason; consuming the exit code alone laundered that distinction straight
+    # back out one level up. Success criterion 3 rests on this check, so a skip
+    # here is "not established", never "in sync".
+    case "$drift_out" in
+        *skipped*)
+            bad "the drift gate SKIPPED and compared nothing — this is not a pass" \
+                "$drift_out"
+            ;;
+        *)
+            ok "repo and host are in sync"
+            ;;
+    esac
 else
     bad "deployed scripts differ from the repo" "$drift_out"
 fi

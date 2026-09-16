@@ -5,7 +5,9 @@
 # READ-ONLY. Starts nothing, stops nothing, writes nothing outside its own
 # log. Safe to re-run on a live system, mid-incident, as many times as needed.
 #
-# Writes its report to <plan folder>/logs/rclone-rc-clients-triage.log.
+# Writes its run log to untracked/plan-runs/00099/triage/<timestamp>/, via
+# plan_start_log — never beside the plan's tracked files, which is where it used
+# to go and where it would have ridden into Completed/ untracked.
 # That directory is gitignored — these dumps contain live host state and this
 # is a public repo. NO CREDENTIAL VALUE is ever written: the RC password is
 # reported by LENGTH only, and the authenticated probes never echo their argv.
@@ -30,8 +32,8 @@ Gathers, without changing anything:
   * which helpers pass credentials to `rclone rc` and which do not
   * mount unit health and VFS cache state
 
-Renders NO verdict — that is acceptance.bash's job. Report is written to
-  <plan folder>/logs/rclone-rc-clients-triage.log
+Renders NO verdict — that is acceptance.bash's job. The run log path is
+printed at the end; it lands under untracked/plan-runs/ and is UNSCRUBBED.
 EOF
             exit 0
             ;;
@@ -43,17 +45,52 @@ EOF
     esac
 done
 
-PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPORTS_DIR="$PLAN_DIR/logs"
-mkdir -p "$REPORTS_DIR"
-LOG="$REPORTS_DIR/rclone-rc-clients-triage.log"
-exec > >(tee "$LOG") 2>&1
+# ── R1 bootstrap: script-relative, filesystem-only, bounded at the repo boundary ──────────
+# Was `git rev-parse --show-toplevel`, which answers about the CWD rather than the script,
+# and a plan-local `logs/` tree written with `exec > >(tee …)`. Both are forbidden by
+# CLAUDE/PlanScriptStandards.md R1 and R4, and both had consequences here: the log
+# directory is gitignored, so it would have ridden into Completed/ as an untracked
+# leftover, and a `>(…)` process substitution cannot be waited on — so the last buffered
+# chunk, the lines written as a run was dying, could be missing from the file.
+scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+repoRoot="${scriptDir}"
+while [[ "${repoRoot}" != "/" ]] && [[ ! -e "${repoRoot}/ansible.cfg" ]]; do
+    if [[ -e "${repoRoot}/.git" ]]; then
+        printf '[FATAL] no ansible.cfg between %s and the repo root %s\n' "${scriptDir}" "${repoRoot}" >&2
+        exit 1
+    fi
+    repoRoot="$(dirname "${repoRoot}")"
+done
+[[ -e "${repoRoot}/ansible.cfg" ]] || {
+    printf '[FATAL] no ansible.cfg above %s\n' "${scriptDir}" >&2
+    exit 1
+}
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../_planlib.inc.bash
+source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
+plan_init "${BASH_SOURCE[0]}"
+plan_mode gather
+plan_start_log auto
 
-REPO_ROOT="$(git -C "$PLAN_DIR" rev-parse --show-toplevel)"
+REPO_ROOT="$PLAN_REPO_ROOT"
 BIN_SRC="$REPO_ROOT/files/home/.local/bin"
 BIN_DEPLOYED="$HOME/.local/bin"
 RC_AUTH_FILE="$HOME/.config/rclone/rc-auth.env"
-RC_ADDR="localhost:5572"
+# DISCOVERED, not assumed — the same defect S3 found in ftp-camera. play-rclone.yml gives
+# each mount rc_port_base + mount_index, so 5572 is the FIRST mount's port only, and a
+# triage that probes it on a host whose first mount is absent reports "rc unreachable" as a
+# fact about a mount it never addressed. Empty when no mount is running, which every probe
+# below reports rather than papering over.
+RC_ADDR=""
+if rc_source_mount="$(findmnt -n -o TARGET -t fuse.rclone | awk 'NR==1')" \
+    && [[ -n "${rc_source_mount}" ]]; then
+    # shellcheck source-path=SCRIPTDIR
+    # shellcheck source=../../../files/home/.local/bin/rclone-rc-auth.bash
+    source "$PLAN_REPO_ROOT/files/home/.local/bin/rclone-rc-auth.bash"
+    if ! RC_ADDR="$(rclone_rc_addr_for_mount "${rc_source_mount}")"; then
+        RC_ADDR=""
+    fi
+fi
 
 # A non-zero exit is DATA, not a failure. Capture it and carry on.
 probe() {

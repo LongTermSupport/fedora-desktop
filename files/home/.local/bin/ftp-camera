@@ -1089,7 +1089,20 @@ copy_to_mount() {
         return 1
     fi
 
-    local rc_addr="localhost:${RCLONE_RC_PORT:-5572}"
+    # ASKED, not assumed. This used to be `localhost:${RCLONE_RC_PORT:-5572}`,
+    # and since play-rclone.yml started giving each mount rc_port_base +
+    # mount_index, 5572 is the FIRST mount's port only. A --copy to any other
+    # mount preflighted against a live RC belonging to a different mount and
+    # then polled that mount's vfs/stats for a copy happening elsewhere — a
+    # wrong answer with no error anywhere. RCLONE_RC_PORT was read nowhere else
+    # in the repo, so nothing set it.
+    local rc_addr=""
+    if ! rc_addr=$(rclone_rc_addr_for_mount "$dest_path"); then
+        echo "ERROR: could not determine the RC address for $dest_path" >&2
+        echo "  The mount must be running and started with --rc-addr." >&2
+        echo "  Re-run play-rclone.yml, which writes the unit with both." >&2
+        return 1
+    fi
 
     # Verify the RC endpoint answers an AUTHENTICATED call before starting the
     # copy. rclone gates every rc endpoint once --rc-user/--rc-pass are set
