@@ -283,6 +283,13 @@ Full reasoning, alternatives and evidence for each is in
   `--minutes`, a signal raised on the refusing `reboot` path) are killed by it
 - [x] `reboot --in N` refuses AND signals nothing, so no session is warned about a reboot
   that is not coming
+- [ ] (HOST, one command) a warning raised on the host is actually RENDERED to a live
+  session, and so is its retraction — run
+  [`acceptance-signal.bash`](acceptance-signal.bash). This is triage A5, the one thing no
+  container run can establish: `signal` exits 0 on a successful write and knows nothing
+  about whether anything read the file. The script warns a real session and retracts on the
+  way out, including on failure; it reboots nothing, and it ABORTS rather than passing when
+  no session is running
 - [ ] `qa-reviewer` findings all resolved
 - [ ] (HOST, owner) a session recorded before a reboot is detached and attachable after it
 
