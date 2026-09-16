@@ -262,8 +262,19 @@ def _read(path):
 # DECLARED RATHER THAN DETECTED, and that is not laziness. In CI the vendored tree is simply
 # absent, so nothing on disk distinguishes it from a typo — probing for a `.git` would give
 # one answer here and another there, which is the divergence this gate exists to remove.
-# What keeps the declaration honest is `check_vendored_declaration`, which runs wherever
-# those repos DO exist: clone one in and QA fails on the machine you cloned it on.
+#
+# NOTHING CHECKS THAT A DECLARED ROOT IS REALLY A VENDORED REPOSITORY, and this comment used
+# to claim otherwise — it cited a `check_vendored_declaration` that was written, measured
+# (it reported eleven, all of them gitignored acceptance-run fixtures) and deleted, leaving
+# the citation behind. A claim printed where a measurement belongs, in the paragraph
+# answering the obvious objection to a declared exemption list. So, plainly: adding a root
+# here exempts every link under it, and only review stops that. What IS checked is the other
+# direction — a repo nobody declared gets its links reported, with `nested_repository_for`
+# naming it where the machine can see it.
+#
+# Every root must also appear in `_EXCLUDE_PREFIX` above, or this gate would sweep another
+# repository's markdown as if it were ours. Asserted by
+# `test_every_vendored_root_is_also_excluded_from_the_scan`.
 #
 # Parents, not leaves. `roles/vendor/` covers a role vendored tomorrow without a code change.
 _VENDORED_ROOTS = (
@@ -282,44 +293,68 @@ def repo_relative(repo_root, resolved):
 
 
 def vendored_root_for(rel_target):
-    """The declared vendored tree containing `rel_target`, or None."""
+    """The declared vendored tree containing `rel_target`, or None.
+
+    The root ITSELF counts, which `startswith` alone missed: the roots carry a trailing
+    slash, so a link to `../hooks-daemon` matched nothing, and it missed the ignore branch
+    too because `.gitignore`'s rule is directory-only and git cannot tell that a path which
+    does not exist is a directory. It came out as `target does not exist` — a hard CI
+    failure that passes wherever the tree happens to be installed, which is the exact
+    divergence this classification replaced. "Parents, not leaves" did not cover the parent.
+
+    The trailing slash is kept rather than stripped from the comparison, because dropping it
+    would exempt every sibling whose name merely begins the same way (`roles/vendor-extra/`).
+    So: equal to the root, or under it.
+    """
     if rel_target is None:
         return None
     for root in _VENDORED_ROOTS:
-        if rel_target.startswith(root):
+        if rel_target == root.rstrip("/") or rel_target.startswith(root):
             return root
     return None
 
 
-def git_ignored(repo_root, rel_targets):
-    """Which of `rel_targets` this repository's own .gitignore excludes.
+def tracked_paths(repo_root):
+    """Everything this repository tracks: `(files, directories)`, repo-relative.
 
-    `git check-ignore` answers for paths that DO NOT EXIST, which is what makes it usable
-    here: the question is whether this repo claims the path, not whether the file is on
-    this machine. `.gitignore` is tracked, so CI asks the same question and gets the same
-    answer.
+    THE QUESTION IS TRACKEDNESS, not ignored-ness, and the difference is a real divergence
+    rather than a wording preference. The first version asked `git check-ignore`, which is
+    machine-independent but answers something narrower: a file sitting on this disk that was
+    never `git add`ed and matches no ignore rule is *not* ignored, so it passed here and
+    failed in CI where it simply does not exist. Cause A's exact shape, inside the
+    classification built to remove it. The finding has always said "not tracked by this
+    repository"; this is the check finally asking that.
 
-    A tree git cannot answer for raises rather than returning an empty set. "Nothing is
-    ignored" would be a confident verdict derived from a check that did not run, which is
-    the defect class this gate exists to find.
+    The index is in every clean checkout, so CI gets the same answer — the property
+    `check-ignore` was chosen for is kept.
+
+    Directories are derived because `ls-files` lists files, and a link to `docs/` is a link
+    to something this repo plainly owns.
+
+    A tree git cannot answer for raises rather than returning an empty set: "nothing is
+    tracked" would be a confident verdict derived from a check that did not run, and it
+    would condemn every link in the repository.
     """
-    if not rel_targets:
-        return set()
-    targets = sorted(set(rel_targets))
-    # check=False: exit 1 means "no path matched", a RESULT rather than an error. Anything
-    # else is inspected on the next lines and raised.
+    # check=False: the returncode is inspected on the next line, and a non-zero exit here is
+    # an error rather than a result — unlike a probe, there is no meaningful failure mode.
     proc = subprocess.run(
-        ["git", "-C", repo_root, "check-ignore", "--stdin"],
-        input="\n".join(targets) + "\n",
+        ["git", "-C", repo_root, "ls-files", "-z"],
         capture_output=True, text=True, check=False,
     )
-    if proc.returncode not in (0, 1):
+    if proc.returncode != 0:
         raise RuntimeError(
-            f"git check-ignore failed in {repo_root} (exit {proc.returncode}): "
+            f"git ls-files failed in {repo_root} (exit {proc.returncode}): "
             f"{proc.stderr.strip()} — cannot tell which link targets this repository "
-            f"owns, so no link verdict here would mean anything"
+            f"tracks, so no link verdict here would mean anything"
         )
-    return {line for line in proc.stdout.splitlines() if line}
+    files = {path for path in proc.stdout.split("\0") if path}
+    directories = set()
+    for path in files:
+        parent = os.path.dirname(path)
+        while parent:
+            directories.add(parent)
+            parent = os.path.dirname(parent)
+    return files, directories
 
 
 def nested_repository_for(repo_root, rel_target):
@@ -389,17 +424,7 @@ def check_links(repo_root, rel_paths):
     heading_cache = {}
 
     documents = [(rel, _read(os.path.join(repo_root, rel))) for rel in rel_paths]
-    candidates = []
-    for rel, content in documents:
-        base = os.path.dirname(os.path.join(repo_root, rel))
-        for _lineno, target in links(content):
-            filepart, _, _frag = target.partition("#")
-            if filepart:
-                candidate = repo_relative(
-                    repo_root, os.path.normpath(os.path.join(base, filepart)))
-                if candidate is not None:
-                    candidates.append(candidate)
-    ignored = git_ignored(repo_root, candidates)
+    tracked_files, tracked_dirs = tracked_paths(repo_root)
 
     for rel, content in documents:
         path = os.path.join(repo_root, rel)
@@ -425,7 +450,20 @@ def check_links(repo_root, rel_paths):
                                        f"— it has probably moved the file",
                         })
                     continue
-                if rel_target is not None and rel_target in ignored:
+                # EXISTENCE FIRST, trackedness second, and the order is deliberate. A typo'd
+                # link is both absent and untracked; "target does not exist" is the message
+                # that helps. Both are findings either way, so the VERDICT is the same on
+                # both machines — a present-but-untracked target fails here and fails in CI
+                # for the other reason. Same exit code, different detail, which is the
+                # distinction this whole gate turns on.
+                if not os.path.exists(resolved):
+                    findings.append({
+                        "file": rel, "line": lineno, "target": target,
+                        "problem": "target does not exist",
+                    })
+                    continue
+                if rel_target is None or not (rel_target in tracked_files
+                                              or rel_target in tracked_dirs):
                     problem = "target is not tracked by this repository"
                     nested = nested_repository_for(repo_root, rel_target)
                     if nested is not None:
@@ -436,12 +474,6 @@ def check_links(repo_root, rel_paths):
                     findings.append({
                         "file": rel, "line": lineno, "target": target,
                         "problem": problem,
-                    })
-                    continue
-                if not os.path.exists(resolved):
-                    findings.append({
-                        "file": rel, "line": lineno, "target": target,
-                        "problem": "target does not exist",
                     })
                     continue
             else:

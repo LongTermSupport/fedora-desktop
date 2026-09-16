@@ -159,11 +159,24 @@ quietly exempted a link into `untracked/` as well — trading a false failure fo
 skip, which is this repository's recurring defect appearing inside the fix for an instance of
 it. The owner caught it.
 
-**The question asked is `git check-ignore`**, which answers for paths that DO NOT EXIST. That
-is the property the whole design turns on: `.gitignore` is tracked, so CI asks the same
-question about the same string and gets the same answer, with no tree to probe. A check that
-consulted the filesystem would answer one way here and another there, which is the divergence
-being removed rather than a behaviour to reproduce.
+**The question asked is trackedness — and the first version asked something narrower.** It
+asked `git check-ignore`, which is machine-independent and was chosen for exactly that, but
+it answers "does `.gitignore` name this path", while the finding it raised said "target is
+not tracked by this repository". Those come apart for a file sitting on one disk that was
+never `git add`ed and matches no ignore rule: not ignored, so it passed there, and absent in
+CI, so it failed. **Cause A's own shape, inside the classification built to remove it** —
+round 10 reproduced it in a throwaway repo. Zero such links exist today, which is why it
+survived a round.
+
+So the check now asks `git ls-files`, plus the directories those files imply, since a link
+to `docs/` is a link to something this repo plainly owns. The index ships in every clean
+checkout, so the property `check-ignore` was picked for is kept — and the finding's wording
+is finally what the code tests.
+
+Existence is checked FIRST and trackedness second. A typo'd link is both absent and
+untracked, and `target does not exist` is the message that helps; a present-but-untracked
+target fails here and fails in CI for the other reason. Same exit code, different sentence —
+which is the distinction the whole gate turns on, applied to itself.
 
 **Declared, not detected — and here is the honest limit.** In CI the vendored tree is simply
 absent, so nothing on disk distinguishes it from a typo; the roots live in `_VENDORED_ROOTS`.
@@ -176,6 +189,20 @@ population it can see is not the population that matters. What replaced it costs
 only answers for a target that is already a finding: walk UP from that target, and if a
 repository is nested there, say so in the finding. The instruction lands on the machine that
 can see the repo, which is the machine the fix is made on.
+
+**And the limit is worth stating plainly, because a comment here once hid it.** Nothing
+checks that a declared root really is a vendored repository — adding one exempts every link
+under it, and only review stops that. The comment used to claim otherwise, citing the
+`check_vendored_declaration` that had been written, measured and deleted, leaving the
+citation behind: a claim printed where a measurement belongs, in the paragraph answering the
+obvious objection to a declared exemption list. What IS checked is the other direction — a
+repository nobody declared gets its links reported.
+
+Two shapes the declaration nearly missed, both caught by round 10. The roots carry a trailing
+slash and the test was `startswith`, so a link to the ROOT ITSELF (`../hooks-daemon`) matched
+no root — and missed the ignore branch too, because a directory-only rule cannot classify a
+path git has never seen. "Parents, not leaves" did not cover the parent. The slash stays,
+because dropping it would exempt `roles/vendor-extra/`; the test is now equal-or-under.
 
 **Verified against a tree with no daemon**, which is the CI condition: same checker, **0
 findings, 8 vendored links**. With the declaration removed in memory the same 8 come back as
@@ -237,13 +264,23 @@ they interpolated the child's whole capture directly. Sweep three enumerated all
 classified how each derives its stage line, which is the only version that could have been
 right:
 
-| How the stage line is derived          | Count | Status                           |
-| -------------------------------------- | ----- | -------------------------------- |
-| `qa_gate_case_count`                   | 21    | fixed, sweep one                 |
-| `qa_gate_detail`                       | 4     | 2 in sweep two, 2 in sweep three |
-| `helper_counts_summary` (from a file)  | 1     | Task 4.4                         |
-| prints its own line (`deployed-drift`) | 1     | never had the defect             |
-| the two soft-degrading \`              |       | summary="OK"\` gates             |
+| How the stage line is derived            | Gates  | Status                                   |
+| ---------------------------------------- | ------ | ---------------------------------------- |
+| `qa_gate_case_count`                     | 21     | fixed, sweep one                         |
+| `qa_gate_detail`                         | 6      | 2 in sweep two, 4 in sweep three         |
+| `helper_counts_summary` (from a file)    | 1      | Task 4.4                                 |
+| composes its own line (`deployed-drift`) | 1      | never had the defect                     |
+| **total**                                | **29** | 28 composed stage lines + deployed-drift |
+
+The first version of that table was wrong three ways, and round 10 caught all three: it said
+`qa_gate_detail` covered 4 gates when the code says 6 in two other places, it summed to 27
+under a sentence claiming 29, and its last row was not a row at all — an unescaped `|` inside
+`` `|| summary="OK"` `` broke the cell split, so the two gates it meant were invisible AND
+already counted in the `qa_gate_detail` bucket. **An enumeration table that did not
+enumerate, offered as the proof that the population had finally been enumerated.** Worth
+leaving on the page: the numbers in the code were right every time, and the summary of them
+was wrong every time, which is the whole argument for deriving a count rather than writing
+one down.
 
 Each sweep generalised exactly as far as the text it had been reading — for the pattern
 string, then for the fallback operator — rather than for the defect, which is *a stage line
@@ -285,7 +322,7 @@ and was once cited as the live caller; it is not a caller at all, it has its own
 **"A pure refactor: every stage line byte-identical" was written here and in `PLAN.md`, and
 it is retracted.** What is true, measured: 21 of 21 case-count lines are byte-identical, old
 expression against new, on the same captures. What was false is the scope of the claim —
-three other stage lines changed, and all three changed because they were **broken**:
+three other stage lines changed:
 
 ```
 nokill-containerwatch   no forbidden kill call sites  ->  3 container-watch file(s) clean
@@ -296,6 +333,15 @@ extension-compat        …Fedora 44 ships.             ->  …Fedora 44 ships
 The first was described three clauses earlier in the same bullet that called the change pure.
 The measurement was taken correctly and then carried forward across a population that had
 moved — this plan's meta-defect, in the commit retracting two other instances of it.
+
+**And the retraction over-claimed in its turn**, which round 10 caught: it said all three
+changed *because they were broken*. Two were. `extension-compat`'s old reader matched exactly
+one line of a seven-line capture, its `||` fallback never fired, and the change cost it a
+full stop — not the shape `nokill` (zero matches, ever) or `vmtest-manifest` (a three-line
+stage line, every run) were in. The count of three is right and the block above states each
+change exactly; only the word generalising across them was wrong. Round 9's finding 2 was
+that a retraction contained a fresh over-claim, and so did this one — which is the argument
+for stating what each case IS rather than what the set has in common.
 
 **A pattern and a gate that nothing compares will drift, and the drift is silent.** That is
 what `nokill` was, for its whole life. So `test-qa-helper-summary.bash` now extracts every

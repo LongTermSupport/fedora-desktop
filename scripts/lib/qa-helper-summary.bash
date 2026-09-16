@@ -258,9 +258,9 @@ qa_gate_case_count() {
 # For the gates whose stage line is not a case count — 6 captures, 8 patterns, because
 # `vmtest-manifest` reports three separate measurements and joining them beats choosing one.
 # Same scoping as `qa_gate_case_count`, for the same reason, and it exists because the
-# alternative was
-# measured and had failed silently for the whole life of one of them: `nokill-containerwatch`
-# read `[0-9]+ call site[s]? checked` from a gate that has only ever printed
+# alternative was measured and had failed silently for the whole life of one of them:
+# `nokill-containerwatch` read `[0-9]+ call site[s]? checked` from a gate that has only ever
+# printed
 # `N container-watch file(s) clean`, so the pattern matched ZERO times, the `||` fallback
 # substituted the prose `no forbidden kill call sites` on every run, and the coverage number
 # never reached the stage line. A blind reader whose blind output is indistinguishable from a

@@ -298,9 +298,10 @@ class TestScope(unittest.TestCase):
 class _GitTree(unittest.TestCase):
     """A real git repository in a temp dir.
 
-    `git check-ignore` is the mechanism under test, so a fake would be testing
-    a copy of it. It answers for paths that do NOT exist, which is the whole
-    reason it can be used here: CI has no vendored tree to probe.
+    The git index is the mechanism under test, so a fake would be testing a copy
+    of it. `git ls-files` is what decides whether a target is this repository's,
+    and the index ships in every clean checkout — which is why CI reaches the
+    same verdict with no vendored tree present to probe.
     """
 
     def setUp(self):
@@ -417,6 +418,45 @@ class TestVendoredLinkTargets(_GitTree):
         self.assertEqual(len(vendored["broken"]), 1)
         self.assertEqual(vendored["unverifiable"], 1)
 
+    def test_a_link_to_the_vendored_root_ITSELF_is_covered(self):
+        """The one path "parents, not leaves" did not cover — the parent.
+
+        The roots carry a trailing slash and the test was `startswith`, so
+        `[daemon](../hooks-daemon)` matched no root. It missed the ignore branch
+        too: `.gitignore`'s rule is directory-only and git cannot tell that a
+        non-existent path is a directory. Result was `target does not exist` —
+        a hard CI failure, passing wherever the tree happens to be installed,
+        which is precisely the divergence this classification replaced.
+        """
+        self.write(".claude/rules/agent-docs.md", "See [daemon](../hooks-daemon).\n")
+        findings, vendored = self.check(".claude/rules/agent-docs.md")
+        self.assertEqual(findings, [])
+        self.assertEqual(self.vendored_total(vendored), 1)
+
+    def test_a_sibling_of_a_vendored_root_is_not_exempted(self):
+        """The trailing slash is what stops `roles/vendor-extra/` matching.
+
+        Removing it to fix the case above would exempt every sibling whose name
+        merely starts the same way, so the root is matched exactly rather than
+        by a shortened prefix.
+        """
+        self.assertIsNone(link_check.vendored_root_for("roles/vendor-extra/x.md"))
+        self.assertIsNone(link_check.vendored_root_for("roles/vendorx"))
+        self.assertEqual(link_check.vendored_root_for("roles/vendor"), "roles/vendor/")
+        self.assertEqual(link_check.vendored_root_for("roles/vendor/x"), "roles/vendor/")
+
+    def test_every_vendored_root_is_also_excluded_from_the_scan(self):
+        """The two tuples must agree, and nothing asserted it.
+
+        Declaring a vendored root without excluding it from discovery would
+        make this gate sweep another repository's markdown as if it were ours —
+        checking their links, their anchors, and reporting their defects as
+        ours.
+        """
+        for root in link_check._VENDORED_ROOTS:
+            self.assertIn(root, link_check._EXCLUDE_PREFIX,
+                          f"{root} is declared vendored but is still scanned")
+
     def test_an_anchor_into_a_vendored_repo_is_not_checked(self):
         """Existence only. Their headings are theirs to rename.
 
@@ -443,14 +483,60 @@ class TestVendoredLinkTargets(_GitTree):
         self.assertEqual(findings, [])
         self.assertEqual(self.vendored_total(vendored), 1)
 
-    def test_an_ignored_target_that_is_not_vendored_is_a_finding(self):
-        """Ignored but nobody else's: a link to something no checkout has."""
+    def test_an_untracked_target_that_is_not_vendored_is_a_finding(self):
+        """Not ours and nobody else's: a link to something no clean checkout has."""
+        self.write("untracked/notes.md", "# Notes\n")
         self.write("CLAUDE/QA.md", "See [scratch](../untracked/notes.md).\n")
         findings, vendored = self.check("CLAUDE/QA.md")
         self.assertEqual(self.vendored_total(vendored), 0)
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0]["problem"],
                          "target is not tracked by this repository")
+
+    def test_a_present_untracked_UNIGNORED_target_is_a_finding_here_too(self):
+        """The divergence the ignore question could not see.
+
+        A file sitting on this disk, never `git add`ed, matching no ignore
+        rule: green here under an existence check, red in CI where it is simply
+        absent. Cause A's exact shape, which is why the question asked is
+        whether this repository TRACKS the target — the thing the finding has
+        always claimed — rather than whether `.gitignore` happens to name it.
+        """
+        self.write("CLAUDE/Scratch.md", "# Scratch\n")
+        self.write("CLAUDE/QA.md", "See [scratch](./Scratch.md).\n")
+        findings, _ = self.check("CLAUDE/QA.md")
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["problem"],
+                         "target is not tracked by this repository")
+
+    def test_the_same_link_fails_in_CI_too_just_with_a_different_reason(self):
+        """The invariant restated: same verdict, different detail.
+
+        Here the file exists and is untracked; in a clean checkout it is absent.
+        Both are findings, so the exit code agrees — which is all that must.
+        """
+        self.write("CLAUDE/QA.md", "See [scratch](./Scratch.md).\n")
+        findings, _ = self.check("CLAUDE/QA.md")
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["problem"], "target does not exist")
+
+    def test_a_tracked_directory_target_is_accepted(self):
+        """`git ls-files` lists files, so a directory link needs its own answer."""
+        self.write("docs/architecture.md", "# Arch\n")
+        subprocess.run(["git", "-C", self.root, "add", "docs/architecture.md"], check=True)
+        self.write("CLAUDE/QA.md", "See [docs](../docs).\n")
+        findings, _ = self.check("CLAUDE/QA.md")
+        self.assertEqual(findings, [])
+
+    def test_a_tracked_target_that_is_missing_from_disk_still_fails(self):
+        """Trackedness does not excuse absence — a deleted tracked file is broken."""
+        self.write("CLAUDE/Gone.md", "# Gone\n")
+        subprocess.run(["git", "-C", self.root, "add", "CLAUDE/Gone.md"], check=True)
+        os.remove(os.path.join(self.root, "CLAUDE", "Gone.md"))
+        self.write("CLAUDE/QA.md", "See [gone](./Gone.md).\n")
+        findings, _ = self.check("CLAUDE/QA.md")
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["problem"], "target does not exist")
 
     def test_that_finding_fires_even_when_the_file_is_sitting_there(self):
         """The case a plain existence check cannot see.
@@ -544,8 +630,8 @@ class TestTheUndeclaredRepositoryHint(_GitTree):
         os.makedirs(os.path.join(self.root, rel, ".git"))
 
     def test_an_untracked_target_inside_a_nested_repo_says_so(self):
-        self.write(".gitignore", "third_party/\n")
         self.vendor("third_party/somelib")
+        self.write("third_party/somelib/README.md", "# Lib\n")
         self.write("CLAUDE/QA.md", "[x](../third_party/somelib/README.md)\n")
         findings, _ = self.check("CLAUDE/QA.md")
         self.assertEqual(len(findings), 1)
@@ -554,6 +640,7 @@ class TestTheUndeclaredRepositoryHint(_GitTree):
         self.assertIn("_VENDORED_ROOTS", findings[0]["problem"])
 
     def test_an_untracked_target_with_no_nested_repo_keeps_the_plain_wording(self):
+        self.write("untracked/notes.md", "# Notes\n")
         self.write("CLAUDE/QA.md", "[x](../untracked/notes.md)\n")
         findings, _ = self.check("CLAUDE/QA.md")
         self.assertEqual(findings[0]["problem"],
@@ -561,24 +648,25 @@ class TestTheUndeclaredRepositoryHint(_GitTree):
 
     def test_a_git_FILE_counts_as_a_repository(self):
         """A linked worktree leaves a `.git` FILE, not a directory."""
-        self.write(".gitignore", "third_party/\n")
         os.makedirs(os.path.join(self.root, "third_party", "wt"))
         with open(os.path.join(self.root, "third_party", "wt", ".git"), "w",
                   encoding="utf-8") as handle:
             handle.write("gitdir: /elsewhere\n")
+        self.write("third_party/wt/README.md", "# WT\n")
         self.write("CLAUDE/QA.md", "[x](../third_party/wt/README.md)\n")
         findings, _ = self.check("CLAUDE/QA.md")
         self.assertIn("a repository is nested at third_party/wt",
                       findings[0]["problem"])
 
-    def test_the_hint_is_absent_rather_than_wrong_when_the_repo_is_not_here(self):
-        """CI has no nested repo to find, and the finding must still stand.
+    def test_the_hint_is_absent_rather_than_wrong_when_there_is_no_repo(self):
+        """A hint that guessed would be worse than none.
 
-        Degrading to the plain wording is correct: the gate fails either way,
-        and the machine that can name the repo is the machine the fix is made
-        on. A hint that guessed would be worse than none.
+        The file is present and untracked, so the finding stands; there is no
+        nested repository to name, so nothing is named. On a clean checkout the
+        target is absent instead and the finding becomes `target does not
+        exist` — a different sentence, the same verdict.
         """
-        self.write(".gitignore", "third_party/\n")
+        self.write("third_party/somelib/README.md", "# Lib\n")
         self.write("CLAUDE/QA.md", "[x](../third_party/somelib/README.md)\n")
         findings, _ = self.check("CLAUDE/QA.md")
         self.assertEqual(findings[0]["problem"],

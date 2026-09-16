@@ -148,20 +148,33 @@ a vendored repo are not followed even when it is present: their headings are the
 rename, and going red on another repo's churn would be a dependency on it for a defect we
 could not fix.
 
-The question asked is `git check-ignore`, which answers for paths that **do not exist**;
-that is what lets CI reach the same verdict without the tree. The vendored roots are
-DECLARED in `_VENDORED_ROOTS` (`helpers/docs/link_check.py`) rather than detected, because
-in CI there is nothing on disk to detect — probing for a `.git` would answer one way here
-and another there, which is the divergence being removed. They are declared as parents
-(`roles/vendor/`, not each role), so vendoring under an existing root needs no code change;
-a new root is a one-line edit, and the finding that prompts it names the nested repository
-when the machine can see it. The stage line carries all three counts for the same reason
-`version-pins` prints `COVERAGE: 9 of 9` — an exemption nobody counts reads exactly like a
-check that ran and found nothing.
+**The question asked is trackedness** — `git ls-files`, plus the directories it implies,
+since a link to `docs/` is a link to something this repo plainly owns. The index ships in
+every clean checkout, so CI asks the same question.
 
-A tree `git check-ignore` cannot answer for — no git checkout at all — makes the gate exit
-2 rather than assume nothing is ignored. Assuming would be a confident verdict derived from
-a check that did not run.
+Existence is checked **first** and trackedness second, deliberately. A typo'd link is both
+absent and untracked, and `target does not exist` is the message that helps. Both are
+findings either way, so a present-but-untracked target fails here and fails in CI for the
+other reason: same exit code, different sentence.
+
+That ordering is also the fix for the first version, which asked `git check-ignore`. That
+question is machine-independent but narrower than the finding it raised: a file sitting on
+one disk, never `git add`ed and matching no ignore rule, is not ignored — so it passed there
+and failed in CI. Cause A's own shape, inside the classification built to remove it.
+
+The vendored roots are DECLARED in `_VENDORED_ROOTS` (`helpers/docs/link_check.py`) rather
+than detected, because in CI there is nothing on disk to detect — probing for a `.git` would
+answer one way here and another there. They are declared as parents (`roles/vendor/`, not
+each role), so vendoring under an existing root needs no code change; a new root is a
+one-line edit, and the finding that prompts it names the nested repository when the machine
+can see it. **Nothing checks that a declared root really is a vendored repository** — adding
+one exempts every link under it, and only review stops that. The stage line carries all
+three counts for the same reason `version-pins` prints `COVERAGE: 9 of 9` — an exemption
+nobody counts reads exactly like a check that ran and found nothing.
+
+A tree git cannot answer for — no checkout at all — makes the gate exit 2 rather than assume
+nothing is tracked. Assuming would be a confident verdict derived from a check that did not
+run, and it would condemn every link in the repository.
 
 **A skip is not a pass, so the `helper-tests` line carries the skip count.** `unittest`
 counts a skipped test inside `testsRun`, so `Ran N tests` is byte-identical whether a test

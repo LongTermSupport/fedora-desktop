@@ -546,12 +546,35 @@ capture_for() {
     printf '%s' "${gate_capture[$var]}"
 }
 
+# THE EXTRACTION MUST ACCEPT EVERY SPELLING, or a call site is silently not checked and the
+# coupling this whole section exists for does not apply to it. The first version keyed on
+# `"$lower_snake"` with a single-quoted pattern, and four spellings went unmatched: `${braces}`,
+# any uppercase or digit in the name, and a double-quoted pattern. `link_check.py`'s
+# `_QA_SCRIPT_GATE` had already been widened for exactly this reason, 250 lines away in the
+# same commit — "keying on one spelling would exempt the other two without saying so".
+#
 # `grep -o` prints every match, which is wanted here: one line per call site.
-mapfile -t detail_sites < <(grep -oE 'qa_gate_detail "\$[a-z_]+" '\''[^'\'']+'\''' "$QA_ALL")
+detail_re='qa_gate_detail "\$\{?[A-Za-z_][A-Za-z0-9_]*\}?" ('\''[^'\'']+'\''|"[^"]+")'
+mapfile -t detail_sites < <(grep -oE "$detail_re" "$QA_ALL")
 
-if [ "${#detail_sites[@]}" -eq 0 ]; then
+# GUARDING ZERO IS NOT ENOUGH — the partial case is the one that reads as clean. An
+# under-matching regex extracts SOME call sites, checks those, and reports a pass; nothing
+# distinguishes that from having checked them all. So the denominator is counted
+# independently, from a deliberately loose pattern that cannot miss what the strict one
+# catches, and the two must agree.
+detail_calls=$(grep -cE '[^_]qa_gate_detail ' "$QA_ALL")
+if [ "${#detail_sites[@]}" -ne "$detail_calls" ]; then
+    failed=$((failed + 1))
+    printf '  FAIL  %s\n        %s\n' \
+        "extracted ${#detail_sites[@]} qa_gate_detail call site(s) from qa-all.bash but it has $detail_calls" \
+        "the extraction regex does not cover every spelling — the difference is unchecked, not absent" >&2
+elif [ "$detail_calls" -eq 0 ]; then
     failed=$((failed + 1))
     printf '  FAIL  %s\n' "no qa_gate_detail call sites found in qa-all.bash — the extraction broke, not the gates" >&2
+else
+    passed=$((passed + 1))
+    printf '  PASS  COVERAGE: %s of %s qa_gate_detail call site(s) extracted\n' \
+        "${#detail_sites[@]}" "$detail_calls"
 fi
 
 for site in "${detail_sites[@]}"; do

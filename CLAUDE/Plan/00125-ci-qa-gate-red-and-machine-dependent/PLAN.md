@@ -97,22 +97,22 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
 ### Phase 2: The docs gate — decided, and out of the dependency business
 
 - [x] ✅ **Task 2.1**: **DECIDED by the owner: not (a).** The daemon is not to be installed
-  in CI — "maybe later, but only if we decide it's needed". The boundary is the rule: *we do
-  not QA another repo's files*, covering the daemon, the vendored roles, and whatever is
-  vendored next. The owner's framing also beat the recorded option (d), which excluded whole
-  FILES by a content marker: the exemption is on the resolved **target**, so a generated
-  file's own broken links still count, and it is decided by path rather than by content
+  in CI — "maybe later, but only if we decide it's needed". The rule is *we do not QA another
+  repo's files*, covering the daemon, the vendored roles, and whatever is vendored next. It
+  also beat the recorded option (d): the exemption is on the resolved **target**, not on
+  whole files by a content marker, so a generated file's own broken links still count
 
-- [x] ✅ **Task 2.2**: `link_check.py` classifies a target three ways instead of two —
-  tracked (checked), inside a declared vendored repo (not followed, counted), ignored but
-  vendored by nobody (**a finding**). The third is what makes the second safe: "ignored, so
-  skip" would have quietly exempted a link into `untracked/` too, trading a false failure for
-  a silent skip. The question asked is `git check-ignore`, which answers for paths that do
-  not exist — so CI reaches the same verdict without the tree. Roots are DECLARED, because
-  in CI there is nothing on disk to detect; declared as parents, so vendoring under an
-  existing root needs no code change. The stage line carries `VENDORED: N link(s)`.
-  **Proved against a daemon-less tree**: same checker, 0 findings, 8 vendored — and with the
-  declaration removed, the same 8 come back as findings naming the nested repo. 14 cases
+- [x] ✅ **Task 2.2**: `link_check.py` classifies a target three ways — tracked (checked),
+  inside a declared vendored repo (warned on, never failed), neither (**a finding**). The
+  third is what makes the second safe: exempting everything unowned would have covered a
+  link into `untracked/` too, trading a false failure for a silent skip. A vendored target
+  is still looked at: `verified` / `unverifiable` (repo absent) / `broken` (repo present,
+  target gone — its own `⚠` line). The **exit code** is what must not depend on what is
+  installed; the detail may, and should. The question asked is trackedness (`git ls-files`),
+  which is what the finding has always claimed and is in every clean checkout. Roots are
+  DECLARED, as parents, so vendoring under an existing root needs no code change.
+  **Proved against a daemon-less tree**: 0 findings, 8 unverifiable; remove the declaration
+  and the same 8 return as findings naming the nested repo. 26 cases
 
 ### Phase 3: The tests that read the machine they were written on
 
@@ -208,8 +208,9 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
   the whole capture — `vmtest-manifest` emitted a THREE-line stage line every run, losing two
   measurements to `verdicts.py`). All 29 hard gates are enumerated now. **Not a pure
   refactor**, and that claim is retracted: 21 of 21 case-count lines are byte-identical, and
-  3 changed because they were broken. 25 cases, 8 read out of `qa-all.bash` and run against
-  the real gate, so a pattern cannot drift from its gate again (see `FINDINGS.md`)
+  3 changed — two of them broken, one losing a stray full stop. 26 cases, 8 read out of
+  `qa-all.bash` and run against the real gate with a `COVERAGE: n of m`, so a pattern cannot
+  drift from its gate again (see `FINDINGS.md`)
 
 ### Phase 5: Close
 

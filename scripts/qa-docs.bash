@@ -83,8 +83,20 @@ NFINDINGS=$(jq -r '.findings | length' "$TMP_RAW")
 # exemption nobody counts reads exactly like a check that ran and found nothing, which is the
 # defect class this repo keeps finding. `// "?"` rather than `// 0` — a missing key means the
 # checker stopped emitting it, and that must not read as a clean zero.
-V_OK=$(jq -r '.vendored.ok // "?"' "$TMP_RAW")
-V_UNVERIFIABLE=$(jq -r '.vendored.unverifiable // "?"' "$TMP_RAW")
+# `broken` is the one that MUST NOT default, and it was the one that did. `jq` answers 0 for
+# `.absent | length`, so a checker that stopped emitting the key would have read as zero, the
+# `-gt 0` branch would never fire, the whole ⚠ line and its list of links would vanish, and
+# the ✓ line would assert `0 broken`. A blind read byte-identical to a clean one, inside the
+# guard written to prevent exactly that. The two counters that cannot silence anything had
+# the guard; the one that can did not. A missing key is now a hard failure, not a count.
+if ! jq -e 'has("vendored") and (.vendored | has("ok") and has("unverifiable") and has("broken"))' \
+    "$TMP_RAW" >/dev/null; then
+    echo "✗ docs: link_check emitted no vendored counts — the boundary check did not run," >&2
+    echo "  or stopped reporting. Refusing to print a stage line that would read as clean." >&2
+    exit 2
+fi
+V_OK=$(jq -r '.vendored.ok' "$TMP_RAW")
+V_UNVERIFIABLE=$(jq -r '.vendored.unverifiable' "$TMP_RAW")
 V_BROKEN=$(jq -r '.vendored.broken | length' "$TMP_RAW")
 
 # Reshape into the shape qa-all.bash's jq merge expects.
@@ -96,6 +108,7 @@ jq '{
             "passed": (.scanned - (.findings | map(.file) | unique | length)),
             "failed": (.findings | map(.file) | unique | length)
         },
+        "vendored": .vendored,
         "results": .findings,
         "failures": [.findings[] | {
             "file":  .file,
