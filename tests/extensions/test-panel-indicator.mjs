@@ -29,7 +29,7 @@ globalThis.log = () => {};
 
 const StatusDocument = await import(`${EXTENSION}statusDocument.js`);
 const {default: FedoraDesktopExtension} = await import(`${EXTENSION}extension.js`);
-const {GLIB_FILES, STATUS_AREA, TIMERS} = await import('./gi-stubs.mjs');
+const {GLIB_FILES, STATUS_AREA, TIMERS, DEFERRED_READS} = await import('./gi-stubs.mjs');
 
 const OSRELEASE = '/proc/sys/kernel/osrelease';
 const KERNEL = '6.17.0-63.fc44.x86_64';
@@ -68,6 +68,8 @@ function enabled(contents) {
     GLIB_FILES.clear();
     STATUS_AREA.clear();
     TIMERS.clear();
+    DEFERRED_READS.enabled = false;
+    DEFERRED_READS.pending = [];
     GLIB_FILES.set(OSRELEASE, `${KERNEL}\n`);
     if (contents !== null) {
         GLIB_FILES.set(DOCUMENT_PATH, contents);
@@ -120,6 +122,62 @@ test('a host with no document at all says so, and does not render as clean', () 
     assert.equal(icon.icon_name, NOTHING_KNOWN);
     assert.ok(indicator.menu.texts.some(text => text.includes('nothing is known')),
         `the menu never said why: ${JSON.stringify(indicator.menu.texts)}`);
+});
+
+/** Enabled with the read HELD, so the panel is observable in the state it occupies
+ * between `enable()` returning and the document arriving. `deliver()` releases it. */
+function enabledWithHeldRead(contents) {
+    const live = (() => {
+        DEFERRED_READS.enabled = true;
+        DEFERRED_READS.pending = [];
+        GLIB_FILES.clear();
+        STATUS_AREA.clear();
+        TIMERS.clear();
+        GLIB_FILES.set(OSRELEASE, `${KERNEL}\n`);
+        GLIB_FILES.set(DOCUMENT_PATH, contents);
+        const extension = new FedoraDesktopExtension({uuid: 'fedora-desktop@fedora-desktop'});
+        extension.enable();
+        const indicator = STATUS_AREA.get('fedora-desktop');
+        assert.ok(indicator, 'the indicator was never added to the status area');
+        return {extension, indicator, icon: indicator.children[0]};
+    })();
+    assert.equal(DEFERRED_READS.pending.length, 1,
+        'enable() did not start exactly one read, so nothing is being held');
+    return {
+        ...live,
+        deliver() {
+            assert.equal(DEFERRED_READS.flush(), 1);
+        },
+    };
+}
+
+test('with no document yet, the menu SAYS it is reading rather than showing nothing', () => {
+    // The `document === null` branch, which is unreachable once a read has answered — so
+    // with the stub answering immediately this whole state was untestable, and mutating
+    // the branch to `if (false)` changed no test's outcome.
+    const live = enabledWithHeldRead(document(StatusDocument.OK));
+    assert.deepEqual(live.indicator.menu.texts, ['reading host status…']);
+    assert.equal(live.icon.icon_name, NOTHING_KNOWN);
+
+    live.deliver();
+    assert.notDeepEqual(live.indicator.menu.texts, ['reading host status…'],
+        'the document arrived and the menu still says it is reading');
+    assert.equal(live.icon.icon_name, NEUTRAL);
+});
+
+test('each render REPLACES the menu rather than appending to it', () => {
+    // Without menu.removeAll() every poll stacks another copy of the whole menu under the
+    // last one. Nothing raises; the panel just grows a duplicate set of lines per
+    // interval, which is why only a second render can catch it.
+    const live = enabledWithHeldRead(document(StatusDocument.FINDINGS, ['evdi: no module']));
+    live.deliver();
+    const afterFirst = live.indicator.menu.texts;
+    assert.ok(afterFirst.length > 0, 'the first render produced no lines to compare');
+
+    DEFERRED_READS.enabled = false;
+    live.extension._refresh();
+    assert.deepEqual(live.indicator.menu.texts, afterFirst,
+        'the second render appended to the menu instead of replacing it');
 });
 
 test('disable() destroys the indicator and removes the poll', () => {

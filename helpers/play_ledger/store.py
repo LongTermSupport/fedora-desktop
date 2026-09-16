@@ -98,7 +98,7 @@ def broken_reason(base: str) -> str | None:
         return fh.read().strip()
 
 
-def clear_broken(base: str, *, at: str = "") -> None:
+def clear_broken(base: str, *, at: str) -> None:
     """Forget a recorded hole. Deliberate and explicit — never automatic.
 
     Leaves a CLEARED marker behind, because the hole outlives the sentinel: the rows
@@ -106,12 +106,20 @@ def clear_broken(base: str, *, at: str = "") -> None:
     here on. `ledger.cleared_path` carries the full argument. Written BEFORE the
     sentinel is unlinked, so a failure between the two leaves the ledger
     known-broken rather than silently claiming to be complete.
+
+    `at` is REQUIRED, and it used to default to `""` and write a bare newline. An
+    undated marker says a hole was cleared and not when, which is the half of the fact a
+    reader would act on — so the default made the wrong marker representable, and the
+    sole caller duly wrote one. A required argument makes it unwritable instead of
+    merely unchosen.
     """
+    if not at:
+        raise ValueError("clear_broken needs the time it was cleared, not an empty string")
     sentinel = ledger.sentinel_path(base)
     if not os.path.exists(sentinel):
         return
     with open(ledger.cleared_path(base), "a", encoding="utf-8") as fh:
-        fh.write(f"{at}\n" if at else "\n")
+        fh.write(f"{at}\n")
     os.unlink(sentinel)
 
 

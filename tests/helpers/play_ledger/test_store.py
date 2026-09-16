@@ -144,13 +144,24 @@ class TestSentinel(StoreTestCase):
 
     def test_clearing_is_explicit(self):
         store.mark_broken(self.base, error="x", at=NOW)
-        store.clear_broken(self.base)
+        store.clear_broken(self.base, at=NOW)
         self.assertIsNone(store.broken_reason(self.base))
 
     def test_clearing_an_unbroken_ledger_is_not_an_error(self):
         store.ensure_ledger(self.base, commit=COMMIT, at=NOW)
-        store.clear_broken(self.base)
+        store.clear_broken(self.base, at=NOW)
         self.assertIsNone(store.broken_reason(self.base))
+
+    def test_an_undated_CLEARED_marker_cannot_be_written(self):
+        """The marker's job is to say the records are a lower bound FROM SOME POINT ON.
+        `at` used to default to "" and the sole caller duly wrote a bare newline, so the
+        wrong marker was representable and therefore written. Refused, not defaulted."""
+        store.mark_broken(self.base, error="x", at=NOW)
+        with self.assertRaises(ValueError):
+            store.clear_broken(self.base, at="")
+        self.assertIsNotNone(
+            store.broken_reason(self.base),
+            "the sentinel was removed even though the marker could not be written")
 
 
 class TestReadLines(StoreTestCase):

@@ -424,6 +424,22 @@ class TestWhatThisHostKnowsAboutItself(unittest.TestCase):
         self.assertFalse(findings[0].checked)
         self.assertIn(f"0 of {len(tracked)}", findings[0].text)
 
+    def test_PARTIAL_coverage_is_reported_too_not_just_zero(self) -> None:
+        """One clean answer and silence about the other renders exactly like a host that
+        compared both — the zero-coverage defect one pin further along. Not reachable
+        with today's manifest, which is why it is asserted against a built one."""
+        rpm_pin = pin(var="displaylink_version",
+                      installed={"kind": "rpm", "name": "displaylink-driver"})
+        findings = check_pins.check(
+            pins=[pin(), rpm_pin], playbook_text=lambda _: PLAYBOOK,
+            dkms_status=lambda: DKMS_FIXED,
+            rpm_version=lambda _: "v6.3.0-1",
+            registry=self.NO_SUBSYSTEM)
+        self.assertEqual(len(findings), 1)
+        self.assertFalse(findings[0].checked)
+        self.assertIn("1 of 2", findings[0].text)
+        self.assertIn("no DKMS subsystem", findings[0].text)
+
     def test_a_host_that_DOES_compare_its_pins_gets_no_coverage_finding(self) -> None:
         """The control. A guard that fires whatever the coverage was would pass every
         assertion above while reporting zero coverage on a host that compared

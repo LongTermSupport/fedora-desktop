@@ -60,8 +60,11 @@ CLAUDE/
 > `CLAUDE/Plan/NNNNN-name/`, so they travel with the plan into `Completed/` and
 > never clutter the repo root.
 
-**Canonical plan-local scripts** (all optional, all fail-fast, all HOST-run where
-they deploy or touch the live system — never run Ansible inside the CCY container):
+**Canonical plan-local scripts** (all fail-fast, all HOST-run where they deploy or
+touch the live system — never run Ansible inside the CCY container). They are
+optional only for a plan that changes nothing outside the repo; see
+[the rule below](#a-plan-blocked-on-needs-running-is-missing-a-script-not-waiting-for-a-human)
+for when they are mandatory:
 
 - **`deploy.bash`** — runs the plan's Ansible command(s) (e.g.
   `./playbooks/imports/.../play-foo.yml`). A thin, idempotent wrapper.
@@ -108,6 +111,50 @@ bootstrap, and reference skeletons are in
 > `.git`. The original reasoning below was right — the path must survive the move
 > into `Completed/` and must not be a fixed `../` hop; only the mechanism was
 > wrong.
+
+### A plan blocked on "needs running" is missing a script, not waiting for a human
+
+**"This needs a HOST run" is not a status a plan may rest in. It is a script that has
+not been written yet.**
+
+An agent working here cannot run Ansible — the container rule is absolute — so every
+plan that changes the machine reaches a point where a human must run something. That
+point is fine. What is not fine is arriving there with the instructions in prose, in a
+chat message, or spread across a task list, because then the plan's remaining cost is
+*working out what to type*, and that cost is paid again by whoever picks it up next.
+Plans sit unfinished for weeks on work that is ten minutes of typing nobody can
+reconstruct.
+
+So, for any plan whose remaining work touches the host:
+
+- **`deploy.bash` is mandatory.** Everything the host needs, in the order it needs it,
+  with `plan_gate_change` naming what will change. Never a list of `ansible-playbook`
+  lines in a message — the same rule [PlanTriage.md](PlanTriage.md) already sets for
+  probes, for the same reason: a command in chat is a command nobody can re-run,
+  review, or correct.
+- **`acceptance.bash` is mandatory**, and it renders the verdict `deploy.bash` must not
+  (R9). It carries a **coverage line** — `COVERAGE: n of m checks executed` — and
+  **rejects an incomplete run even with zero failures**. A gate that skipped half its
+  checks and printed only passes is indistinguishable from one that passed.
+- **Anything a script genuinely cannot establish** — a Wayland session, a monitor
+  replugged by hand, a reboot — is named by the script as NOT ESTABLISHABLE and listed
+  for the human. It is never quietly omitted, and it never counts as a passed check.
+
+**When several plans are waiting, that is one batch, not several errands.** A runner
+that walks the plan tree, finds every in-progress plan shipping these scripts, takes
+**one** consent for the whole set, and runs `deploy.bash` then `acceptance.bash` for
+each turns six interruptions into one. Two properties are what make it trustworthy
+rather than convenient:
+
+- It **discovers** the plans by reading `**Status**: In Progress` at run time. A list
+  written into the runner goes stale the first time a plan completes and then names
+  finished work for ever, which reads exactly like having checked.
+- A failing plan **does not abort the batch** — the plans are independent, so stopping
+  would strand the ones that would have worked — but a plan's own `acceptance.bash`
+  **never** runs when its `deploy.bash` failed, because those two are not independent.
+
+Keep the runner in `untracked/`: it is a convenience over the plan tree, it holds no
+knowledge of its own, and an agent can regenerate it from this section in a minute.
 
 ### All three write their own log — not just `triage.bash`
 

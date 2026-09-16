@@ -316,7 +316,7 @@ unit-testable to the same standard as everything else in Phase 4.
 
 The cost is the contract. `extension.js` opens with *"A read-only surface over the host status
 document. It renders what the checks said; it runs no check of its own, applies no fix, and
-launches no play."* §8 restates it, and Technical Decision 1 in `PLAN.md` — *detection and
+launches no play."* §8 restates it, and Technical Decision 1 in [`DECISIONS.md`](DECISIONS.md) — *detection and
 handoff, never unattended repair* — is the plan's own framing. Spawning a recovery helper on
 unlock ends that, and "it is only a display refresh, not a play" is exactly the kind of
 narrowing that erodes a boundary one reasonable exception at a time.

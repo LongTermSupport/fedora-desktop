@@ -1,8 +1,8 @@
 """Tests for helpers.host_health.login_report — Plan 00109, Tasks 3.1 and 3.2.
 
-The login surface. It runs the three checks this plan built — post-boot health,
-play freshness, installed-vs-pinned — merges their findings into ONE report, and
-notifies only if there is something to say.
+The login surface. It runs the four checks this plan built — post-boot health,
+ledger presence, play freshness, installed-vs-pinned — merges their findings into ONE
+report, and notifies only if there is something to say.
 
 What is pinned here, all of it about the ways a health surface stops being one:
 
@@ -357,7 +357,7 @@ class TestTheFreshnessSeamKeepsItsChannelsApart(unittest.TestCase):
 
 
 class TestSectionsKeepTheirIdentity(unittest.TestCase):
-    """The notification flattens three checks into one list; the status document must
+    """The notification flattens four checks into one list; the status document must
     not, because the panel's registry matches a section by id and a section it cannot
     find renders `unavailable`.
 

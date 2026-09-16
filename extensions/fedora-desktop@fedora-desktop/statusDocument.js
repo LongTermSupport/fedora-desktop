@@ -266,8 +266,8 @@ export function documentReasons(document) {
 }
 
 /** The whole document's state: the worst of its sections, read on this boot. A panel
- * showing a neutral icon because two of three sections are fine would be hiding the
- * third. */
+ * showing a neutral icon because most of its sections are fine would be hiding the one
+ * that is not. */
 export function overallState(document, ids, running) {
     let sawUnavailable = documentReasons(document).length > 0;
     for (const id of ids) {

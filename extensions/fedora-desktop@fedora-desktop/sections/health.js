@@ -6,9 +6,8 @@
  *
  * It renders the four checks Phase 3 built — post-boot health, ledger presence, play
  * freshness, and installed-versus-pinned — and it renders them, never re-implements
- * them. A check
- * reimplemented in JavaScript would be a second check that drifts from the one under
- * test.
+ * them. A check reimplemented in JavaScript would be a second check that drifts from
+ * the one under test.
  *
  * The one rule this file exists to hold: known faults and things nobody could check are
  * shown as different kinds of thing. A list that mixes them and distinguishes neither

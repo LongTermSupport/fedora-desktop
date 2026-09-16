@@ -190,6 +190,31 @@ const NEXT_SOURCE_ID = {value: 1};
  * answer for this exact object. */
 const IO_ERROR_ENUM = {CANCELLED: 'cancelled', NOT_FOUND: 'not-found'};
 
+/**
+ * Hold the read instead of answering it, so a test can look at the panel in the state it
+ * is in BEFORE any document has arrived.
+ *
+ * The default synchronous answer is convenient and hides one whole state: on a real host
+ * the shell paints the indicator and the menu the moment `enable()` returns, and the file
+ * read completes some time after that. Every decision the panel makes for `document ===
+ * null` — the "reading host status…" row, the icon it starts on — is only reachable in
+ * that window, and with an immediate answer the window does not exist to be asserted on.
+ *
+ * `enabled` is set by a test and cleared by it; `flush()` delivers what was held.
+ */
+export const DEFERRED_READS = {
+    enabled: false,
+    pending: [],
+    flush() {
+        const held = this.pending;
+        this.pending = [];
+        for (const deliver of held) {
+            deliver();
+        }
+        return held.length;
+    },
+};
+
 function ioError(code, message) {
     const error = new Error(message);
     error.matches = (domain, candidate) => domain === IO_ERROR_ENUM && candidate === code;
@@ -221,7 +246,12 @@ export const Gio = {
         new_for_path: path => ({
             path,
             load_contents_async(cancellable, callback) {
-                callback(this, {path: this.path, cancellable});
+                const result = {path: this.path, cancellable};
+                if (DEFERRED_READS.enabled) {
+                    DEFERRED_READS.pending.push(() => callback(this, result));
+                    return;
+                }
+                callback(this, result);
             },
             load_contents_finish(result) {
                 if (result.cancellable?.cancelled) {

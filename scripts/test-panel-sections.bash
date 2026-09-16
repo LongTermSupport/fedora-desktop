@@ -55,16 +55,53 @@ if ! output="$(node --test "${TEST_FILES[@]}" 2>&1)"; then
     exit 1
 fi
 
-# A gate that ran NOTHING must not report a pass. `node --test` exits 0 on a file
-# declaring no tests, so the count is read from the summary rather than assumed. Both
-# summary spellings are accepted — `ℹ pass N` from the spec reporter, `# pass N` from TAP
-# — because which one appears depends on the Node in use, and a runner that silently
-# stopped recognising the line would be a gate that reports a pass for every run.
+# A gate that ran NOTHING must not report a pass. Both summary spellings are accepted —
+# `ℹ pass N` from the spec reporter, `# pass N` from TAP — because which one appears
+# depends on the Node in use, and a runner that silently stopped recognising the line
+# would be a gate that reports a pass for every run.
 count="$(printf '%s\n' "$output" |
     awk '{gsub(/\033\[[0-9;]*m/,"")} /^(ℹ|#) pass [0-9]+$/ {print $3}')"
-if [[ ! "$count" =~ ^[0-9]+$ ]] || [[ "$count" -eq 0 ]]; then
+if [[ ! "$count" =~ ^[0-9]+$ ]]; then
     printf '%s\n' "$output" >&2
     echo "✗ panel-sections: no passing-test count in the run's summary; discovery is broken" >&2
+    exit 1
+fi
+
+# THE FLOOR IS DERIVED FROM THE SUITES, and `count -gt 0` is not enough on its own.
+# Measured: `node --test` on a file declaring no tests reports `tests 1 / pass 1`, scoring
+# the FILE as the passing test — so two emptied suites would report `passed: 2` and exit 0,
+# and the check above would have been satisfied by a run that judged nothing at all.
+#
+# So each suite must declare at least one test of its own, and the run must have passed at
+# least as many as the files declare. Both numbers come from the files, so neither goes
+# stale when a test is added.
+expected=0
+for test_file in "${TEST_FILES[@]}"; do
+    declared=0
+    # grep -c exits 1 for zero matches — a RESULT — and 2 for a real error such as an
+    # unreadable file. Collapsing the two makes a broken read look like an empty suite.
+    grep_status=0
+    if declared="$(grep -c '^test(' "$test_file")"; then
+        grep_status=0
+    else
+        grep_status=$?
+    fi
+    if [[ "$grep_status" -gt 1 ]]; then
+        echo "✗ panel-sections: could not read $test_file (grep exit $grep_status)" >&2
+        exit 2
+    fi
+    if [[ "$declared" -eq 0 ]]; then
+        echo "✗ panel-sections: $test_file declares no test(); node scores an empty file as" >&2
+        echo "  one passing test, so this would otherwise have been reported as a pass" >&2
+        exit 1
+    fi
+    expected=$((expected + declared))
+done
+
+if [[ "$count" -lt "$expected" ]]; then
+    printf '%s\n' "$output" >&2
+    echo "✗ panel-sections: $count passed but the suites declare $expected test(s);" >&2
+    echo "  some declared test did not run" >&2
     exit 1
 fi
 

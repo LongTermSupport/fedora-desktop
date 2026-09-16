@@ -304,33 +304,41 @@ def check(
     # raised already carries a line naming the error, so the axis is visibly unavailable
     # and a second sentence about coverage would only repeat it at every login. This
     # guard is for the case where the check returned NOTHING.
-    if pins and compared == 0 and not findings:
-        findings.append(probe_results.unchecked(_zero_coverage(
-            declared=len(pins), tracked=tracked, unanswerable_dkms=unanswerable_dkms)))
+    # PARTIAL coverage counts too, not only zero. A host that compared 1 of 2 tracked
+    # pins returns one clean answer and no statement about the other, which renders `ok`
+    # exactly like a host that compared both — the same defect one pin further along.
+    # Today's manifest cannot reach that state (its only tracked pin is DKMS-resolved),
+    # and adding a non-DKMS tracked pin FAILS the suite loudly rather than arriving here
+    # silently; this is the guard for after someone does.
+    if pins and not findings and (tracked == 0 or compared < tracked):
+        findings.append(probe_results.unchecked(_coverage(
+            declared=len(pins), tracked=tracked, compared=compared,
+            unanswerable_dkms=unanswerable_dkms)))
     return findings
 
 
-def _zero_coverage(*, declared: int, tracked: int, unanswerable_dkms: int) -> str:
-    """Why nothing was compared, in the numbers of the host that compared nothing.
+def _coverage(*, declared: int, tracked: int, compared: int,
+              unanswerable_dkms: int) -> str:
+    """What this host compared, in this host's numbers.
 
-    "The repo tracks nothing" and "this host could answer none of what the repo tracks"
-    are different facts and call for different actions — one is a decision to revisit in
+    "The repo tracks nothing" and "this host could not answer what the repo tracks" are
+    different facts and call for different actions — one is a decision to revisit in
     `vars/version-pins.yml`, the other is a property of the machine, and only the second
-    varies between hosts sharing this manifest.
+    varies between hosts sharing one manifest.
 
-    The DKMS clause is appended only when the skip count accounts for every tracked pin,
-    so a skip added later cannot inherit a reason that was never established: the
-    sentence is true without it.
+    The DKMS clause is appended only when the skip accounts for EVERY pin that went
+    uncompared, so a skip added later cannot inherit a reason that was never
+    established: the sentence is true without it.
     """
     if tracked == 0:
         return (f"the installed-vs-pinned check compared 0 of {declared} declared pins, "
                 "so nothing on this host was held against the repo's versions")
     reason = ""
-    if unanswerable_dkms == tracked:
-        reason = (" — every tracked pin is DKMS-resolved and this host has no DKMS "
-                  "subsystem")
-    return (f"the installed-vs-pinned check compared 0 of {tracked} tracked pins on this "
-            f"host{reason}")
+    if unanswerable_dkms == tracked - compared:
+        which = "every tracked pin is" if compared == 0 else "the uncompared ones are"
+        reason = f" — {which} DKMS-resolved and this host has no DKMS subsystem"
+    return (f"the installed-vs-pinned check compared {compared} of {tracked} tracked "
+            f"pins on this host{reason}")
 
 
 def declared_pins(root: str) -> list[manifest.Pin]:

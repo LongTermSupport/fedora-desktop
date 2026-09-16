@@ -1,7 +1,7 @@
 # The host play-run ledger — design
 
 Phase 1's design output (Tasks 1.1, and the shape 1.2 and 1.3 must build to). Referenced from
-`PLAN.md` Decision 2; this file owns the detail.
+[`DECISIONS.md`](DECISIONS.md) Decision 2; this file owns the detail.
 
 The ledger answers one question the repo cannot answer about itself: **which plays have actually
 been run on this host, and against which version of themselves.** Everything in Phase 2 is a
@@ -153,12 +153,12 @@ worse than no check:
 
 ### Four verdicts, because two would lie
 
-| verdict       | when                                                              | why it is not folded into another                                                                            |
-| ------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `FRESH`       | no commit touched it since the run, and the bytes still match     | not reported at all                                                                                          |
-| `STALE`       | a commit touched it, **or** a dirty run's bytes no longer match   | the actionable case                                                                                          |
-| `GONE`        | ledgered, absent from HEAD                                        | outranks `STALE` however many commits touched it: "re-run this play" is wrong advice for a play that is gone |
-| `UNEXPLAINED` | clean run, no commit, different bytes                             | the ledger and the repo disagree and nothing available says which is right; guessing is how a check starts lying |
+| verdict       | when                                                            | why it is not folded into another                                                                                |
+| ------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `FRESH`       | no commit touched it since the run, and the bytes still match   | not reported at all                                                                                              |
+| `STALE`       | a commit touched it, **or** a dirty run's bytes no longer match | the actionable case                                                                                              |
+| `GONE`        | ledgered, absent from HEAD                                      | outranks `STALE` however many commits touched it: "re-run this play" is wrong advice for a play that is gone     |
+| `UNEXPLAINED` | clean run, no commit, different bytes                           | the ledger and the repo disagree and nothing available says which is right; guessing is how a check starts lying |
 
 **Git history is the authority; `play_sha256` is only the dirty-tree guard** (§1). So a
 commit that reverts a play to byte-identical content is still `STALE` — the play's history

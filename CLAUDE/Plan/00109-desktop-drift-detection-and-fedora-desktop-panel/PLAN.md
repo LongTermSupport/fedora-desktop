@@ -324,7 +324,10 @@ session and was approaching the size at which edits are blocked:
   silent about every play never run here
 - [ ] A clean system produces **no notification at all** at login
 - [ ] The panel opens from one icon and shows health plus play state
-- [x] `./scripts/qa-all.bash` passes (929 files, every gate green); ESLint clean from
+- [x] `./scripts/qa-all.bash` passes (929 files, exit 0, three standing advisories —
+  shellcheck's 172 informational issues, semgrep's 15 partially-parsed files, and the
+  container's `deployed-drift` skip; "every gate green" would be the overclaim this plan
+  is about); ESLint clean from
   `extensions/`, which is where its config lives — `eslint .` at the repo root finds no
   config at all and fails for that reason, which is not a finding about the code
 - [ ] Host-only checks skip cleanly in the CCY container **and in CI** — the container

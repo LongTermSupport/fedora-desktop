@@ -77,6 +77,15 @@ something wrong at 09:00, add an 11:00 `finding` entry that corrects it. This
 keeps the log an honest record of what was believed when, and lets the daemon's
 `journal-append-only` check confirm each edit only adds.
 
+**This repo's rule wins over the daemon's `journal-entry-ordering` remediation, and
+the conflict is real.** That advisory tells you to *"move the out-of-order entry back
+to its chronological slot, keeping its text unchanged"*. Do not: moving an entry is an
+edit to an earlier entry, which is the one thing this section forbids, and the append-
+only check exists precisely to stop it. Disclose the misordering in a new bottom entry
+instead and leave the advisory standing. An advisory that stays red is a smaller cost
+than a log that can be rearranged, because the whole value of the log is that nobody
+can go back and tidy what they believed at the time.
+
 ### Hand-off convention
 
 The resumer's entry point is the **last entry of the newest day-file**. End a
