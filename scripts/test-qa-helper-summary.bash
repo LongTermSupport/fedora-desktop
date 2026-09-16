@@ -562,7 +562,22 @@ mapfile -t detail_sites < <(grep -oE "$detail_re" "$QA_ALL")
 # distinguishes that from having checked them all. So the denominator is counted
 # independently, from a deliberately loose pattern that cannot miss what the strict one
 # catches, and the two must agree.
-detail_calls=$(grep -cE '[^_]qa_gate_detail ' "$QA_ALL")
+#
+# The denominator has to be loose enough that nothing the strict one catches can escape it,
+# and the first attempt was not: `[^_]qa_gate_detail ` requires a character BEFORE the name,
+# so a call at column 1 was missed by the denominator AND by the extraction — the two would
+# have agreed while both under-counting, which is the failure this check exists to prevent,
+# wearing the check's own uniform. `(^|[^_[:alnum:]])` covers the line start; the class keeps
+# `_qa_gate_detail` and similar from counting. Comment lines are dropped so a prose mention
+# of the function cannot over-count and fail the suite for the wrong reason.
+#
+# `grep -c` exits 1 when it counts zero. That is a RESULT here, not an error — the branch
+# below reports it — so the status is consumed explicitly rather than discarded.
+detail_calls=0
+if ! detail_calls=$(grep -vE '^[[:space:]]*#' "$QA_ALL" |
+    grep -cE '(^|[^_[:alnum:]])qa_gate_detail[[:space:]]'); then
+    detail_calls=0
+fi
 if [ "${#detail_sites[@]}" -ne "$detail_calls" ]; then
     failed=$((failed + 1))
     printf '  FAIL  %s\n        %s\n' \
