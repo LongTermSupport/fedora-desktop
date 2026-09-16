@@ -79,6 +79,13 @@ fi
 
 SCANNED=$(jq -r '.scanned' "$TMP_RAW")
 NFINDINGS=$(jq -r '.findings | length' "$TMP_RAW")
+# Links into a vendored repository, by outcome. Reported rather than silently dropped: an
+# exemption nobody counts reads exactly like a check that ran and found nothing, which is the
+# defect class this repo keeps finding. `// "?"` rather than `// 0` — a missing key means the
+# checker stopped emitting it, and that must not read as a clean zero.
+V_OK=$(jq -r '.vendored.ok // "?"' "$TMP_RAW")
+V_UNVERIFIABLE=$(jq -r '.vendored.unverifiable // "?"' "$TMP_RAW")
+V_BROKEN=$(jq -r '.vendored.broken | length' "$TMP_RAW")
 
 # Reshape into the shape qa-all.bash's jq merge expects.
 jq '{
@@ -98,12 +105,25 @@ jq '{
         }]
     }' "$TMP_RAW" > "$JSON_OUT"
 
+# A broken link into a vendored repo that IS PRESENT is a serious warning, not a finding:
+# demonstrably wrong — usually that repo moved the file and our generated pointers are stale
+# — but not ours to fix, so it must not fail this repo's CI. It gets its own `⚠` stage line
+# because the count alone would leave nobody able to act on it, and `qa-patterns.bash`
+# already establishes a ⚠-then-✓ pair as a shape `verdicts.py` parses.
+if [[ "$V_BROKEN" -gt 0 ]]; then
+    echo "⚠ docs: $V_BROKEN link(s) into a PRESENT vendored repo are broken — it has probably moved the file:"
+    jq -r '.vendored.broken[] | "    \(.file):\(.line)  \(.target)"' "$TMP_RAW"
+fi
+
+VENDORED_SUMMARY="VENDORED: $V_OK verified, $V_UNVERIFIABLE unverifiable (repo absent), $V_BROKEN broken"
+
 if [[ "$NFINDINGS" -eq 0 ]]; then
-    echo "✓ docs: $SCANNED files OK (links, anchors, playbook catalogue, topic index)"
+    echo "✓ docs: $SCANNED files OK (links, anchors, playbook catalogue, topic index)" \
+        "— $VENDORED_SUMMARY"
     exit 0
 fi
 
-echo "✗ docs: $NFINDINGS finding(s) across $SCANNED files"
+echo "✗ docs: $NFINDINGS finding(s) across $SCANNED files — $VENDORED_SUMMARY"
 jq -r '.findings[] | "  \(.file):\(.line)  \(.target)  — \(.problem)"' "$TMP_RAW"
 echo "  Details: jq '.failures[]' $JSON_OUT"
 exit 1

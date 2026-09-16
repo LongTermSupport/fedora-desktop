@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unit-test scripts/lib/qa-helper-summary.bash — Plan 00125, Task 4.2.
+# Unit-test scripts/lib/qa-helper-summary.bash — Plan 00125, Tasks 4.4 and 4.5.
 #
 # WHY THIS EXISTS. The `helper-tests` stage line has to distinguish a clean run from a
 # blind one, because `unittest` counts a SKIPPED test inside testsRun and `Ran 1464 tests`
@@ -468,7 +468,7 @@ check "an earlier count on the same line does not win" \
 check "extra whitespace after the colon is read, not degraded" \
     "passed: 29" "$(qa_gate_case_count 'passed:  29 failed: 0')"
 
-echo "=== qa_gate_detail: the two gates whose stage line is not a case count ==="
+echo "=== qa_gate_detail: the gates whose stage line is not a case count ==="
 
 # `nokill-containerwatch` read `[0-9]+ call site[s]? checked` from a gate that has only ever
 # printed `N container-watch file(s) clean`. Zero matches for its entire life, hidden by a
@@ -498,6 +498,87 @@ check "an empty capture says so too" \
 check "the last matching line wins here as well" \
     "2 files clean" \
     "$(qa_gate_detail "$(printf '1 files clean\n2 files clean\n')" '[0-9]+ files clean')"
+
+echo
+echo "=== every qa_gate_detail pattern is read from qa-all.bash and run against its real gate ==="
+
+# THE DEFECT THIS CLOSES. `nokill-containerwatch` was blind for its entire life because its
+# pattern and the gate's wording drifted apart and nothing compared them. The cases above
+# would not have caught it: they assert against a HARDCODED COPY of the gate's output, and a
+# copy cannot notice the thing it is copying changing. The end-to-end counts case one screen
+# up already states the principle — "the only case here that would survive the format being
+# changed on one side only" — and it was not applied to the two patterns whose drift was the
+# defect being repaired.
+#
+# So this reads each pattern out of the REAL qa-all.bash and runs the REAL gate that
+# produces the capture it is applied to. Neither side is a fixture.
+#
+# It is also self-extending, which is the property that matters more than the eight cases:
+# a new qa_gate_detail call site whose capture variable is not registered below FAILS here,
+# so the next pattern cannot be added without being coupled to its gate.
+
+QA_ALL="$REPO_ROOT/scripts/qa-all.bash"
+
+# capture-variable -> the command that produces it, run from the repo root. These are the
+# gates' own invocations, copied from qa-all.bash's call sites, not re-derived.
+gate_command_for() {
+    case "$1" in
+        nokill_out) echo "bash scripts/qa-nokill-containerwatch.bash" ;;
+        planlib_out) echo "bash scripts/test-planlib.bash" ;;
+        compat_out) echo "python3 -m helpers.gnome.check_extension_compat" ;;
+        panel_contract_out) echo "python3 -m helpers.gnome.check_panel_contract ." ;;
+        manifest_out) echo "bash scripts/qa-vmtest-manifest.bash" ;;
+        pins_out) echo "bash scripts/qa-version-pins.bash" ;;
+        *) return 1 ;;
+    esac
+}
+
+# Each gate runs once however many patterns are applied to its capture.
+declare -A gate_capture=()
+capture_for() {
+    local var="$1" command
+    if [ -n "${gate_capture[$var]+set}" ]; then
+        printf '%s' "${gate_capture[$var]}"
+        return 0
+    fi
+    command="$(gate_command_for "$var")" || return 1
+    gate_capture[$var]="$(cd "$REPO_ROOT" && eval "$command" 2>&1)"
+    printf '%s' "${gate_capture[$var]}"
+}
+
+# `grep -o` prints every match, which is wanted here: one line per call site.
+mapfile -t detail_sites < <(grep -oE 'qa_gate_detail "\$[a-z_]+" '\''[^'\'']+'\''' "$QA_ALL")
+
+if [ "${#detail_sites[@]}" -eq 0 ]; then
+    failed=$((failed + 1))
+    printf '  FAIL  %s\n' "no qa_gate_detail call sites found in qa-all.bash — the extraction broke, not the gates" >&2
+fi
+
+for site in "${detail_sites[@]}"; do
+    site_var="${site#qa_gate_detail \"\$}"
+    site_var="${site_var%%\"*}"
+    site_pattern="${site#*\'}"
+    site_pattern="${site_pattern%\'}"
+
+    if ! site_capture="$(capture_for "$site_var")"; then
+        failed=$((failed + 1))
+        printf '  FAIL  %s\n        %s\n' \
+            "qa-all.bash reads \$$site_var with qa_gate_detail, but no gate command is registered for it" \
+            "register it in gate_command_for so the pattern is checked against what the gate prints" >&2
+        continue
+    fi
+
+    site_answer="$(qa_gate_detail "$site_capture" "$site_pattern")"
+    if [ "$site_answer" = "summary unreadable" ]; then
+        failed=$((failed + 1))
+        printf '  FAIL  %s\n        pattern: %s\n        the gate printed: %s\n' \
+            "the pattern qa-all.bash applies to \$$site_var no longer matches that gate's output" \
+            "$site_pattern" "$site_capture" >&2
+    else
+        passed=$((passed + 1))
+        printf '  PASS  %s -> %s\n' "\$$site_var" "$site_answer"
+    fi
+done
 
 echo
 echo "passed: $passed failed: $failed"

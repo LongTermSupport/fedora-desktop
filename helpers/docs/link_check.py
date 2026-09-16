@@ -24,6 +24,7 @@ which is where that belongs.
 import json
 import os
 import re
+import subprocess
 import sys
 
 # [text](target), but not images (![...]).
@@ -254,14 +255,154 @@ def _read(path):
         return handle.read()
 
 
+# Trees holding a DIFFERENT repository, vendored into this checkout. A link landing inside
+# one is out of scope: the file is not ours, we could not fix a broken link there, and an
+# edit would be re-rendered by that repo's own installer on the next upgrade.
+#
+# DECLARED RATHER THAN DETECTED, and that is not laziness. In CI the vendored tree is simply
+# absent, so nothing on disk distinguishes it from a typo — probing for a `.git` would give
+# one answer here and another there, which is the divergence this gate exists to remove.
+# What keeps the declaration honest is `check_vendored_declaration`, which runs wherever
+# those repos DO exist: clone one in and QA fails on the machine you cloned it on.
+#
+# Parents, not leaves. `roles/vendor/` covers a role vendored tomorrow without a code change.
+_VENDORED_ROOTS = (
+    ".claude/hooks-daemon/",
+    "roles/vendor/",
+)
+
+
+
+def repo_relative(repo_root, resolved):
+    """`resolved` as a repo-relative path, or None when it escapes the root."""
+    rel = os.path.relpath(resolved, repo_root)
+    if rel == ".." or rel.startswith(".." + os.sep):
+        return None
+    return rel
+
+
+def vendored_root_for(rel_target):
+    """The declared vendored tree containing `rel_target`, or None."""
+    if rel_target is None:
+        return None
+    for root in _VENDORED_ROOTS:
+        if rel_target.startswith(root):
+            return root
+    return None
+
+
+def git_ignored(repo_root, rel_targets):
+    """Which of `rel_targets` this repository's own .gitignore excludes.
+
+    `git check-ignore` answers for paths that DO NOT EXIST, which is what makes it usable
+    here: the question is whether this repo claims the path, not whether the file is on
+    this machine. `.gitignore` is tracked, so CI asks the same question and gets the same
+    answer.
+
+    A tree git cannot answer for raises rather than returning an empty set. "Nothing is
+    ignored" would be a confident verdict derived from a check that did not run, which is
+    the defect class this gate exists to find.
+    """
+    if not rel_targets:
+        return set()
+    targets = sorted(set(rel_targets))
+    # check=False: exit 1 means "no path matched", a RESULT rather than an error. Anything
+    # else is inspected on the next lines and raised.
+    proc = subprocess.run(
+        ["git", "-C", repo_root, "check-ignore", "--stdin"],
+        input="\n".join(targets) + "\n",
+        capture_output=True, text=True, check=False,
+    )
+    if proc.returncode not in (0, 1):
+        raise RuntimeError(
+            f"git check-ignore failed in {repo_root} (exit {proc.returncode}): "
+            f"{proc.stderr.strip()} — cannot tell which link targets this repository "
+            f"owns, so no link verdict here would mean anything"
+        )
+    return {line for line in proc.stdout.splitlines() if line}
+
+
+def nested_repository_for(repo_root, rel_target):
+    """The nested repository containing `rel_target`, or None. A HINT, not a verdict.
+
+    Walks UP from the target looking for a `.git`, which may be a FILE — that is what a
+    linked worktree leaves behind. Bounded by `repo_root`, whose own `.git` is not a
+    nested anything.
+
+    Deliberately NOT a tree walk looking for undeclared repositories. That version was
+    written, and it reported eleven — every one a gitignored acceptance-run fixture from a
+    completed plan, none of them vendored. Every vendored repo is gitignored, so a walk
+    either skips them all or drags in every stray clone; the population it can see is not
+    the population that matters.
+
+    This answers only for a target that is ALREADY a finding, so it costs nothing on a
+    clean run and turns "not tracked by this repository" into an instruction. On a machine
+    without the repo present — CI — it answers None and the finding keeps its plain
+    wording, which is the right degradation: the gate still fails, and the local run is
+    where the fix gets made anyway.
+    """
+    if rel_target is None:
+        return None
+    current = os.path.dirname(rel_target)
+    while current:
+        if os.path.exists(os.path.join(repo_root, current, ".git")):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+    return None
+
+
 def check_links(repo_root, rel_paths):
-    """Check every link in rel_paths. Returns a list of finding dicts."""
+    """Check every link in rel_paths.
+
+    Returns `(findings, vendored)`. `vendored` is
+    `{"ok": n, "unverifiable": n, "broken": [finding-shaped dicts]}` — the three outcomes a
+    link into another repository can have, counted rather than discarded, because an
+    exemption nobody counts reads exactly like a check that ran and found nothing.
+
+    A vendored target is still LOOKED AT where looking means something:
+
+      - the repo is present and the target is there   -> `ok`, silent
+      - the repo is absent                            -> `unverifiable`; nothing here could
+                                                         have said, which is CI's case
+      - the repo is present and the target is NOT     -> `broken`; the link is demonstrably
+                                                         wrong, usually because the vendored
+                                                         repo moved the file
+
+    None of the three is a finding, because none is ours to fix, and that is the invariant
+    the whole design protects: the gate's EXIT CODE must not depend on what is installed.
+    What it SAYS may, and should — a machine that can see the repo can say more about it,
+    and saying more never flips a verdict.
+
+    Anchors into a vendored repo are not followed even when the repo is present. Their
+    headings are theirs to rename, and a gate that went red on another repo's churn would be
+    a dependency on it for a defect we could not fix.
+
+    A target this repo ignores but nobody vendored is a FINDING, not an exemption. It is
+    a link to something no clean checkout has and no other repository owns, and folding
+    it in with the vendored case would trade a false failure for a silent skip.
+    """
     findings = []
+    vendored = {"ok": 0, "unverifiable": 0, "broken": []}
     heading_cache = {}
 
-    for rel in rel_paths:
+    documents = [(rel, _read(os.path.join(repo_root, rel))) for rel in rel_paths]
+    candidates = []
+    for rel, content in documents:
+        base = os.path.dirname(os.path.join(repo_root, rel))
+        for _lineno, target in links(content):
+            filepart, _, _frag = target.partition("#")
+            if filepart:
+                candidate = repo_relative(
+                    repo_root, os.path.normpath(os.path.join(base, filepart)))
+                if candidate is not None:
+                    candidates.append(candidate)
+    ignored = git_ignored(repo_root, candidates)
+
+    for rel, content in documents:
         path = os.path.join(repo_root, rel)
-        content = _read(path)
 
         for lineno, target in links(content):
             filepart, _, frag = target.partition("#")
@@ -269,6 +410,34 @@ def check_links(repo_root, rel_paths):
             if filepart:
                 resolved = os.path.normpath(
                     os.path.join(os.path.dirname(path), filepart))
+                rel_target = repo_relative(repo_root, resolved)
+                vendored_root = vendored_root_for(rel_target)
+                if vendored_root is not None:
+                    if not os.path.exists(os.path.join(repo_root, vendored_root)):
+                        vendored["unverifiable"] += 1
+                    elif os.path.exists(resolved):
+                        vendored["ok"] += 1
+                    else:
+                        vendored["broken"].append({
+                            "file": rel, "line": lineno, "target": target,
+                            "problem": f"broken link into the vendored repository at "
+                                       f"{vendored_root.rstrip('/')}, which IS present here "
+                                       f"— it has probably moved the file",
+                        })
+                    continue
+                if rel_target is not None and rel_target in ignored:
+                    problem = "target is not tracked by this repository"
+                    nested = nested_repository_for(repo_root, rel_target)
+                    if nested is not None:
+                        problem += (
+                            f" — a repository is nested at {nested}; if it is vendored,"
+                            " declare it in _VENDORED_ROOTS"
+                            " (helpers/docs/link_check.py)")
+                    findings.append({
+                        "file": rel, "line": lineno, "target": target,
+                        "problem": problem,
+                    })
+                    continue
                 if not os.path.exists(resolved):
                     findings.append({
                         "file": rel, "line": lineno, "target": target,
@@ -290,7 +459,7 @@ def check_links(repo_root, rel_paths):
                     "problem": "no heading matches the anchor",
                 })
 
-    return findings
+    return findings, vendored
 
 
 def check_playbook_catalogue(repo_root):
@@ -376,7 +545,7 @@ def main(argv):
         }))
         return 2
 
-    findings = check_links(repo_root, scoped)
+    findings, vendored = check_links(repo_root, scoped)
     findings += check_playbook_catalogue(repo_root)
     findings += check_topic_index(repo_root)
     findings += check_qa_gate_inventory(repo_root)
@@ -385,7 +554,14 @@ def main(argv):
         "type": "docs",
         "status": "fail" if findings else "pass",
         "scanned": len(scoped),
-        "summary": {"files": len(scoped), "findings": len(findings)},
+        "vendored": vendored,
+        "summary": {
+            "files": len(scoped),
+            "findings": len(findings),
+            "vendored_ok": vendored["ok"],
+            "vendored_unverifiable": vendored["unverifiable"],
+            "vendored_broken": len(vendored["broken"]),
+        },
         "findings": findings,
     }, indent=2))
     return 1 if findings else 0

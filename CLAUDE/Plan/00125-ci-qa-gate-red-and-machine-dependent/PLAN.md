@@ -38,8 +38,11 @@ genuinely done and CI *was* green at its Batch 9. This is a regression that land
 
 - Rewriting any gate's *substance*. This plan restores the signal; it does not re-open
   what the gates check.
-- The worktree vault-password gap (`CLAUDE/Plan/00123-…/WORKTREE-QA-GAP.md`). A linked
-  worktree is a third environment with its own missing input and its own decision.
+- The linked-worktree gaps — the vault password file, and `qa-js.bash` exiting 2 on an
+  absent `extensions/node_modules`. A worktree is a third environment with its own missing
+  inputs and its own decision; both are now named in `CLAUDE/QA.md`'s table. (This bullet
+  cited a document on an unmerged branch, which `qa-docs.bash` cannot see because it
+  excludes `CLAUDE/Plan/**`.)
 - Running ccy itself in CI — Plan 00113 owns that.
 
 ## Context & Background
@@ -80,37 +83,36 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
   this page does not restate it. First run found six differences: the two declared ones,
   and four that were only this checkout being ahead of the compared commit — so it now says
   so rather than letting a reader chase them
-- [x] ✅ **Task 1.2**: **`0015c886`, 2026-08-31** — and the task's own premise was wrong.
-  There was no further cause "between those dates" because there was nothing between them:
-  no commit was pushed to `F44` in those five days, so CI observed nothing. `0015c886` is
-  the next run after the last green, and it failed on **docs alone** (7 findings, every one
-  `target does not exist`, all 203 helper tests passing). Cause A is the original breakage
-  and was the only one for eleven days. Cause B arrived later and in two waves —
-  `9a79dd77` (2026-09-11) added the DisplayLink pair; `cb88ec4e`, `ff63ac5d` and `b3f6e909`
-  (all 2026-09-14) added the other three. Every one of them landed into an already-red run
+- [x] ✅ **Task 1.2**: **`0015c886`, 2026-08-31** — and the task's own premise was wrong:
+  there was no further cause "between those dates" because no commit was pushed in those
+  five days, so CI observed nothing. Cause A ran alone for eleven days; Cause B arrived in
+  two later waves, every one landing into an already-red run. Commits and dates in
+  `FINDINGS.md`
 - [x] ✅ **Task 1.3**: Diagnose the two `host_health` failures — **both determined,
   reproduced byte-exactly, and fixed**, and verified against an emulated runner. Neither
   was the ledger. Both were **defective tests reading host state**, not production paths
   misbehaving. One of them carried a dated bomb that would have reddened every machine on
   2026-09-28. See `FINDINGS.md`, "The two `host_health` tests"
 
-### Phase 2: The docs gate — decision required
+### Phase 2: The docs gate — decided, and out of the dependency business
 
-- [ ] ⬜ **Task 2.1**: **DECISION GATE** — how a tracked file may reference an installed,
-  gitignored tree. All 8 findings are daemon-generated: the 8 rule files carrying
-  `hooks-daemon-rule-version` are exactly the 8 reported, rendered by the daemon's own
-  installer. **(b)** is the skip-if-absent shape `CLAUDE.md` prohibits by name; **(c)** is
-  re-rendered by `sync_directory_role_rules()` at the next upgrade. The link is not wrong —
-  its premise, *the daemon is installed*, is false in CI. **Two live options** — my earlier
-  claim that only (a) remained was wrong: **(a)** install the daemon in CI (a network fetch
-  per run), or **(d)** exclude daemon-GENERATED files from the link check by their version
-  marker — unconditional, no network, and the same ownership judgement
-  `link_check.py:214-223` already makes for four other trees, though by CONTENT rather than
-  PATH, so it needs a coverage line or the excluded set is invisible. The 7 repo-authored
-  rule files stay checked either way. Full argument in `FINDINGS.md`. **The owner's call**:
-  (a) treats the daemon as a dependency, (d) treats its output as not ours to audit
+- [x] ✅ **Task 2.1**: **DECIDED by the owner: not (a).** The daemon is not to be installed
+  in CI — "maybe later, but only if we decide it's needed". The boundary is the rule: *we do
+  not QA another repo's files*, covering the daemon, the vendored roles, and whatever is
+  vendored next. The owner's framing also beat the recorded option (d), which excluded whole
+  FILES by a content marker: the exemption is on the resolved **target**, so a generated
+  file's own broken links still count, and it is decided by path rather than by content
 
-- [ ] ⬜ **Task 2.2**: Implement the chosen option; the docs gate passes in a clean checkout.
+- [x] ✅ **Task 2.2**: `link_check.py` classifies a target three ways instead of two —
+  tracked (checked), inside a declared vendored repo (not followed, counted), ignored but
+  vendored by nobody (**a finding**). The third is what makes the second safe: "ignored, so
+  skip" would have quietly exempted a link into `untracked/` too, trading a false failure for
+  a silent skip. The question asked is `git check-ignore`, which answers for paths that do
+  not exist — so CI reaches the same verdict without the tree. Roots are DECLARED, because
+  in CI there is nothing on disk to detect; declared as parents, so vendoring under an
+  existing root needs no code change. The stage line carries `VENDORED: N link(s)`.
+  **Proved against a daemon-less tree**: same checker, 0 findings, 8 vendored — and with the
+  declaration removed, the same 8 come back as findings naming the nested repo. 14 cases
 
 ### Phase 3: The tests that read the machine they were written on
 
@@ -200,10 +202,14 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
 - [x] ✅ **Task 4.5**: 21 other hard gates each inlined `grep -oE 'passed: [0-9]+'`; `-o`
   prints every match, so an earlier `passed: <digits>` made the stage line TWO lines —
   round 4's defect in 21 untested copies. They now share `qa_gate_case_count`, scoped to the
-  last matching LINE because the 21 disagree on a format (see `FINDINGS.md`). Sweeping for
-  the pattern text then missed 2 with a different regex: `nokill-containerwatch` had matched
-  NOTHING since it landed, hidden by a `||` fallback asserting `no forbidden kill call sites`. Both now use `qa_gate_detail`, falling back to the unusable `summary unreadable`.
-  17 cases. Pure refactor: every stage line byte-identical bar the reader gate's own count
+  last matching LINE because the 21 disagree on a format. **Swept three times, short twice**:
+  for the pattern text (missed 2 with a different regex, one of them `nokill`, which had
+  matched NOTHING since it landed), then for the `||` fallback (missed 2 that interpolated
+  the whole capture — `vmtest-manifest` emitted a THREE-line stage line every run, losing two
+  measurements to `verdicts.py`). All 29 hard gates are enumerated now. **Not a pure
+  refactor**, and that claim is retracted: 21 of 21 case-count lines are byte-identical, and
+  3 changed because they were broken. 25 cases, 8 read out of `qa-all.bash` and run against
+  the real gate, so a pattern cannot drift from its gate again (see `FINDINGS.md`)
 
 ### Phase 5: Close
 

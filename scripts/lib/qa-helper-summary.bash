@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Read the `helper-tests` stage line out of the counts file written by
-# `helpers/qa_environment/unittest_counts.py`. Plan 00125, Task 4.2.
+# The three readers that produce `qa-all.bash`'s stage lines: the `helper-tests` counts out
+# of the file `helpers/qa_environment/unittest_counts.py` writes, and the case count and the
+# summary detail out of the other gates' captured output. Plan 00125, Tasks 4.4 and 4.5.
 # Driven by scripts/test-qa-helper-summary.bash.
 #
 # Sourced, never executed — it defines three functions and runs nothing.
@@ -254,8 +255,10 @@ qa_gate_case_count() {
 # qa_gate_detail <capture> <extended-regex> — the matched text from the LAST line that
 # matches, or the literal `summary unreadable` when nothing does.
 #
-# For the two gates whose stage line is not a case count. Same scoping as
-# `qa_gate_case_count`, for the same reason, and it exists because the alternative was
+# For the gates whose stage line is not a case count — 6 captures, 8 patterns, because
+# `vmtest-manifest` reports three separate measurements and joining them beats choosing one.
+# Same scoping as `qa_gate_case_count`, for the same reason, and it exists because the
+# alternative was
 # measured and had failed silently for the whole life of one of them: `nokill-containerwatch`
 # read `[0-9]+ call site[s]? checked` from a gate that has only ever printed
 # `N container-watch file(s) clean`, so the pattern matched ZERO times, the `||` fallback
@@ -267,6 +270,11 @@ qa_gate_case_count() {
 # Hence the fallback is `summary unreadable` and not a plausible sentence. A fallback that
 # ASSERTS something is worse than no fallback: it is a claim nothing verified, and it reads
 # exactly like a measurement. This one cannot be mistaken for one.
+#
+# The fallback is a last resort, not the guard. What actually stops a pattern drifting from
+# its gate is `test-qa-helper-summary.bash`, which reads every pattern below OUT of
+# `qa-all.bash` and runs it against the real gate — a call site whose capture variable is not
+# registered there fails, so the next one cannot be added uncoupled.
 qa_gate_detail() {
     local capture="$1" pattern="$2" line=""
     line=$(printf '%s' "$capture" | awk -v re="$pattern" '$0 ~ re {answer=$0} END{print answer}')

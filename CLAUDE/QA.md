@@ -70,7 +70,7 @@ they are deliberately not jq-merged stages, so they cannot disturb the positiona
 | `test-podfreeze.bash`                       | `podfreeze`'s decisions, pinned before Plan 00122 Task 4.2 extracted a library out of it                  |
 | `test-host-health-login-snippet.bash`       | the server login snippet's interactive guard — an unconditional print breaks `scp` (Plan 00109)           |
 | `test-qa-ansible-failfast.bash`             | the fail-fast directive regex in `qa-ansible.bash`, read from it rather than copied                       |
-| `test-qa-helper-summary.bash`               | the reader behind this suite's own `helper-tests` line, which four times stopped telling clean from blind |
+| `test-qa-helper-summary.bash`               | the three readers in `lib/qa-helper-summary.bash` that produce every stage line below                     |
 | `helpers.gnome.check_extension_compat`      | every extension declares the GNOME Shell major this branch's Fedora ships                                 |
 | `helpers.gnome.check_panel_contract`        | the panel's constants, document keys and section ids agree with the producer (Plan 00109)                 |
 | `qa-vmtest-manifest.bash`                   | `vars/vm-test-scenarios.yml` parses and is coherent (Plan 00110); a broken control must be rejected first |
@@ -101,15 +101,67 @@ it needs a real host and a `gh` token, so it is a host diagnostic.
 than what the repository ships. A local run and a CI run disagreeing is a fact about the
 stage, not a flaky gate — find which input differs before touching anything.
 
-| Gate                     | What it needs from the machine                                                                                                                 | Where that is missing                                                    |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `qa-docs.bash`           | `.claude/hooks-daemon/` on disk — tracked `.claude/rules/*.md` link into it, and the link-existence check does not consult the scan exclusions | every clean checkout: the tree is gitignored, so CI can never satisfy it |
-| `qa-ansible-syntax.bash` | a vault password file to **exist** (never read — `--syntax-check` does not decrypt)                                                            | a clean checkout, and a linked worktree                                  |
-| `qa-deployed-drift.bash` | deployed copies under `~/.local/bin` to compare the repo against                                                                               | the CCY container and a clean checkout — it self-skips **and names why** |
-| `qa-helper-tests.bash`   | one pair asserts against real `/sys/class/drm` and skips where no connector with a physical display link is present                            | a VM whose only connector is virtual                                     |
+| Gate                     | What it needs from the machine                                                                                        | Where that is missing                                                    |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `qa-ansible-syntax.bash` | a vault password file to **exist** (never read — `--syntax-check` does not decrypt)                                   | a clean checkout, and a linked worktree                                  |
+| `qa-js.bash`             | `extensions/node_modules` — its own message says no playbook installs it. Exits **2**, so no hard gate behind it runs | a linked worktree, and any checkout where `npm install` has not been run |
+| `qa-deployed-drift.bash` | deployed copies under `~/.local/bin` to compare the repo against                                                      | the CCY container and a clean checkout — it self-skips **and names why** |
+| `qa-helper-tests.bash`   | one pair asserts against real `/sys/class/drm` and skips where no connector with a physical display link is present   | a VM whose only connector is virtual                                     |
 
 `qa-deployed-drift.bash` is the shape to copy: it states the dependency, skips only for a
 reason it prints, and the reason is checkable.
+
+`qa-js.bash` is the shape NOT to copy, and it is in this table because a reviewer hit it,
+not because anyone predicted it: exiting 2 makes it a gate whose absence removes every gate
+behind it, which is the mechanism this page's own subject was hiding inside for three weeks.
+
+**`qa-docs.bash` used to head this table and no longer belongs in it.** It needed
+`.claude/hooks-daemon/` on disk, because eight tracked `.claude/rules/*.md` files are
+GENERATED by that repository's installer and link into it — so the same commit was green
+here and red in CI for three weeks. It now classifies a link target three ways instead of
+two, and the verdict no longer depends on what is installed:
+
+| The target is…                  | Verdict                                                 |
+| ------------------------------- | ------------------------------------------------------- |
+| tracked by this repo            | checked as before; missing is a **failure**             |
+| inside a declared vendored repo | **warned on, never failed** — three outcomes below      |
+| ignored but vendored by nobody  | **failure** — a link to something no clean checkout has |
+
+The third row is what makes the second safe. "Ignored, so skip it" would have quietly
+exempted a link into `untracked/` as well, trading a false failure for a silent skip — this
+repository's recurring defect, in the fix for an instance of it.
+
+**A vendored target is still looked at**, in the one case where looking means something:
+
+| The vendored repo is… | The target is… | Outcome                                        |
+| --------------------- | -------------- | ---------------------------------------------- |
+| present               | there          | `verified` — silent                            |
+| **absent** (CI)       | unknowable     | `unverifiable` — soft; nothing here could say  |
+| present               | **missing**    | `broken` — its own `⚠` line, listing the links |
+
+`broken` means the link is demonstrably wrong, which usually means that repository moved the
+file and our generated pointers are stale — worth saying loudly, and still not ours to fix.
+So it warns and does not fail: **the gate's exit code must never depend on what is
+installed**, which is the whole point. What the gate SAYS may, and should — a machine that
+can see the repo can say more about it, and saying more never flips a verdict. Anchors into
+a vendored repo are not followed even when it is present: their headings are theirs to
+rename, and going red on another repo's churn would be a dependency on it for a defect we
+could not fix.
+
+The question asked is `git check-ignore`, which answers for paths that **do not exist**;
+that is what lets CI reach the same verdict without the tree. The vendored roots are
+DECLARED in `_VENDORED_ROOTS` (`helpers/docs/link_check.py`) rather than detected, because
+in CI there is nothing on disk to detect — probing for a `.git` would answer one way here
+and another there, which is the divergence being removed. They are declared as parents
+(`roles/vendor/`, not each role), so vendoring under an existing root needs no code change;
+a new root is a one-line edit, and the finding that prompts it names the nested repository
+when the machine can see it. The stage line carries all three counts for the same reason
+`version-pins` prints `COVERAGE: 9 of 9` — an exemption nobody counts reads exactly like a
+check that ran and found nothing.
+
+A tree `git check-ignore` cannot answer for — no git checkout at all — makes the gate exit
+2 rather than assume nothing is ignored. Assuming would be a confident verdict derived from
+a check that did not run.
 
 **A skip is not a pass, so the `helper-tests` line carries the skip count.** `unittest`
 counts a skipped test inside `testsRun`, so `Ran N tests` is byte-identical whether a test
@@ -143,8 +195,49 @@ which matters because a test calling `os._exit(0)` skips the write while the pro
 exits 0 — leaving exactly the zero-byte file `mktemp` created. Existence is not generation.
 
 `qa-all.bash` also **captures** the run's stdout and requires it to be empty. That stream is
-the one `verdicts.py` parses for stage lines, so one `print()` among 1,482 tests could forge
-or split this suite's own verdict; a precondition that large is a gate rather than a comment.
+the one `verdicts.py` parses for stage lines, so a single `print()` anywhere in the suite
+could forge or split this suite's own verdict; a precondition that broad is a gate rather
+than a comment. (This sentence carried the test count until it had rotted twice and the two
+copies of it disagreed. A number that must be re-measured to stay true does not belong in
+prose — the stage line prints the live one on every run.)
+
+### The stage-line readers are shared, and tested against the gates they read
+
+`scripts/lib/qa-helper-summary.bash` holds all three, and between them they produce **every**
+stage line `qa-all.bash` composes — 28 of them. Only `deployed-drift` still builds its own,
+and it never had the defect below.
+
+| Function                  | Used by                              | Degrades to                       |
+| ------------------------- | ------------------------------------ | --------------------------------- |
+| `helper_counts_summary()` | `helper-tests`                       | **nothing — it fails the gate**   |
+| `qa_gate_case_count()`    | 21 gates that print `passed: <n>`    | the word `passed`, never a number |
+| `qa_gate_detail()`        | 6 gates whose summary is not a count | the literal `summary unreadable`  |
+
+(The `()` is load-bearing, not decoration: `check_qa_gate_inventory` reads any row whose
+first cell is a backticked bare name as a **gate this document claims**, so writing them
+plain made the table assert three gates that do not exist — caught by that check's own test.)
+
+Only the first hard-fails, and the asymmetry is deliberate: its number distinguishes two
+machines, so a blind read there is the defect this page exists to remove. The other two read
+a gate that has *already* reported pass or fail through its exit status, so the stage line is
+detail rather than verdict — but it must still never be a **wrong** number, which is why
+neither ever substitutes a plausible-looking one.
+
+Each gate used to inline its own reader. `grep -oE 'passed: [0-9]+'` prints EVERY match, so
+an earlier `passed: <digits>` in the capture made the stage line two lines, and `verdicts.py`
+reads the first as the stage and loses the rest — one defect, found once, then found again in
+21 untested copies, and again in 2 more that had a different regex. `vmtest-manifest`
+interpolated its whole capture and emitted a **three-line** stage line on every run, dropping
+two coverage measurements into nothing.
+
+**Adding a gate: do not write a reader.** Call one of the three. If your gate's summary is not
+a case count, use `qa_gate_detail` with a pattern matching what it actually prints — and note
+that `test-qa-helper-summary.bash` extracts every `qa_gate_detail` pattern from `qa-all.bash`
+and runs it against the real gate, so a call site whose capture variable is not registered
+there FAILS. That is deliberate: `nokill-containerwatch` read `[0-9]+ call site[s]? checked`
+from a gate that has only ever printed `N container-watch file(s) clean` — zero matches for
+its entire life, behind a `||` fallback that asserted `no forbidden kill call sites` on every
+run. A pattern and a gate that nothing compares will drift, and the drift is silent.
 
 A count is a **proxy, not a proof**: two machines could skip the same NUMBER of different
 tests. With the three conditional skips the suite has today the four machine shapes give

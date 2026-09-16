@@ -15,8 +15,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# The reader for the helper-tests stage line. Sourced rather than inlined so a committed
-# test can drive the real function — see the library header for why that line earns a file.
+# The three stage-line readers. Between them they produce EVERY `printf '✓ …'` below — 28 of
+# them, counted: `qa_gate_case_count` 21, `qa_gate_detail` 6, `helper_counts_summary` 1. Only
+# `deployed-drift` still composes its own line, and it never had the defect. Sourced rather
+# than inlined so a committed test can drive the real functions — see the library header.
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/qa-helper-summary.bash
 source "$SCRIPT_DIR/lib/qa-helper-summary.bash"
@@ -188,9 +190,11 @@ fi
 
 # The child's stdout is CAPTURED, like every other hard gate's, and then required to be
 # empty. Leaving it inherited put it in this script's own stdout — the stream `verdicts.py`
-# parses for `^[✓✗⚠] name: ` stage lines — so one `print()` in any of 1,483 tests could
-# forge a stage line or split this one. An unenforced precondition over a suite that large
-# is exactly the shape this plan exists to remove, so it is a gate rather than a comment.
+# parses for `^[✓✗⚠] name: ` stage lines — so a single `print()` anywhere in the suite could
+# forge a stage line or split this one. An unenforced precondition that broad is exactly the
+# shape this plan exists to remove, so it is a gate rather than a comment. (The test count
+# was written here and in CLAUDE/QA.md until both had rotted and disagreed; the stage line
+# prints the live number every run, which is where a count belongs.)
 if [[ -s "$TMP_HELPER_OUT" ]]; then
     echo "✗ QA FAILED: helper-tests wrote to stdout, which is this suite's verdict stream" >&2
     echo "  A test printing here can forge or split a stage line. If it is a test's own" >&2
@@ -555,7 +559,7 @@ fi
 # Print the pass line, for the same reason the drift gate does: a gate whose only
 # visible output is a failure is indistinguishable from a gate that is not
 # running — which is exactly how these two spent months documented but unrun.
-compat_summary=$(printf '%s' "$compat_out" | grep -E '^All [0-9]+ extension') || compat_summary="OK"
+compat_summary=$(qa_gate_detail "$compat_out" 'All [0-9]+ extension[(]s[)] cover the GNOME Shell that Fedora [0-9]+ ships')
 printf '✓ extension-compat: %s\n' "$compat_summary"
 
 # The host status document is written by Python and read by the panel's JavaScript, so
@@ -570,9 +574,8 @@ if ! panel_contract_out="$(cd "$SCRIPT_DIR/.." && python3 -m helpers.gnome.check
     echo "✗ QA FAILED: the panel and the status document producer disagree" >&2
     exit 1
 fi
-panel_contract_summary=$(printf '%s' "$panel_contract_out" | grep -E '^PANEL-CONTRACT-OK') ||
-    panel_contract_summary="OK"
-printf '✓ panel-contract: %s\n' "${panel_contract_summary#PANEL-CONTRACT-OK }"
+panel_contract_summary=$(qa_gate_detail "$panel_contract_out" '[0-9]+ constant[(]s[)] agree between .+')
+printf '✓ panel-contract: %s\n' "$panel_contract_summary"
 
 # The VM-test scenario manifest (Plan 00110). vars/vm-test-scenarios.yml is the
 # source of the bridge's scenario allowlist, and the stdlib-only helper that
@@ -586,7 +589,15 @@ if ! manifest_out="$(bash "$SCRIPT_DIR/qa-vmtest-manifest.bash" 2>&1)"; then
     echo "✗ QA FAILED: the VM-test scenario manifest is not valid" >&2
     exit 1
 fi
-printf '✓ vmtest-manifest: %s\n' "$manifest_out"
+# THIS GATE PRINTS THREE LINES, and interpolating the capture made the stage line three
+# lines long — `verdicts.py` keeps the first and drops the other two, both of which are
+# coverage measurements. Three scoped reads joined into one line rather than one chosen
+# line, because each is a different measurement and picking one would discard two on
+# purpose where the old code discarded them by accident.
+manifest_counts=$(qa_gate_detail "$manifest_out" 'vars/[a-z-]+[.]yml: scenarios=[0-9]+ runnable=[0-9]+ bridge=[0-9]+ host_only=[0-9]+ bases=[0-9]+')
+manifest_checkers=$(qa_gate_detail "$manifest_out" '[0-9]+ scenario[(]s[)] agree with their guest checker')
+manifest_reboot=$(qa_gate_detail "$manifest_out" '[0-9]+ scenario fixture[(]s[)] run before a declared reboot')
+printf '✓ vmtest-manifest: %s; %s; %s\n' "$manifest_counts" "$manifest_checkers" "$manifest_reboot"
 
 # The upstream version-pin manifest (Plan 00109). vars/version-pins.yml says where
 # every pinned version lives, and neither of its two consumers runs here — the
@@ -600,7 +611,8 @@ if ! pins_out="$(bash "$SCRIPT_DIR/qa-version-pins.bash" 2>&1)"; then
     echo "✗ QA FAILED: the upstream version-pin manifest is not valid" >&2
     exit 1
 fi
-printf '✓ version-pins: %s\n' "$pins_out"
+pins_summary=$(qa_gate_detail "$pins_out" 'vars/[a-z-]+[.]yml: VERSION-PINS-OK .+')
+printf '✓ version-pins: %s\n' "$pins_summary"
 
 # Merge JSON from all checks
 STATUS="pass"

@@ -118,6 +118,71 @@ and option (a) as originally phrased fetches a whole repository to get it. `--de
 the sane form. The dependency on an external repo's availability is real either way, and
 that, not the byte count, is what the owner is actually weighing.
 
+### The decision: not (a), and the owner's framing beat (d)
+
+**Not (a).** The daemon is not installed in CI — "maybe later, but only if we decide it's
+needed". The rule adopted instead is broader than the option as recorded: *we do not QA
+another repo's files*, covering the daemon, the vendored Ansible roles, and whatever gets
+vendored next.
+
+That framing is **better than (d)**, and it removes (d)'s one real cost. (d) excluded whole
+FILES by a content marker, so the excluded set was invisible and could widen silently the day
+any other file grew that marker. The boundary excludes by resolved **target**: a
+daemon-generated file's own *other* links are still checked, and the decision is by path, so
+nothing can drift into it by having something written into it.
+
+**Three outcomes, not two, and the third is what makes the second safe.**
+
+| The target is…                  | Verdict                                                 |
+| ------------------------------- | ------------------------------------------------------- |
+| tracked by this repository      | checked as before; missing is a **failure**             |
+| inside a declared vendored repo | **warned on, never failed** — three outcomes below      |
+| ignored, but vendored by nobody | **failure** — a link to something no clean checkout has |
+
+And a vendored target is still LOOKED AT, in the one case where looking means something —
+the owner's refinement, which recovers exactly what a flat exemption was throwing away.
+The three outcomes (`verified` / `unverifiable` / `broken`) are tabulated in
+[`CLAUDE/QA.md`](../../QA.md), which owns the gate reference; what belongs here is why.
+
+`broken` is the case a flat "not followed" discarded, and it is the useful one: the repo is
+right there, so "cannot say" is false — the link is demonstrably wrong, which usually means
+that repository moved the file and our generated pointers are stale. It warns rather than
+fails because it is still not ours to fix, and because **the exit code must not depend on
+what is installed**. What the gate SAYS may, and should: a machine that can see the repo can
+say more about it, and saying more never flips a verdict. That distinction — verdict
+machine-independent, detail machine-dependent — is the one the original defect blurred, and
+it is worth stating because "make the gate machine-independent" taken literally would have
+thrown the `broken` case away too.
+
+Stopping at "ignored, so skip it" was the version I was about to ship, and it would have
+quietly exempted a link into `untracked/` as well — trading a false failure for a silent
+skip, which is this repository's recurring defect appearing inside the fix for an instance of
+it. The owner caught it.
+
+**The question asked is `git check-ignore`**, which answers for paths that DO NOT EXIST. That
+is the property the whole design turns on: `.gitignore` is tracked, so CI asks the same
+question about the same string and gets the same answer, with no tree to probe. A check that
+consulted the filesystem would answer one way here and another there, which is the divergence
+being removed rather than a behaviour to reproduce.
+
+**Declared, not detected — and here is the honest limit.** In CI the vendored tree is simply
+absent, so nothing on disk distinguishes it from a typo; the roots live in `_VENDORED_ROOTS`.
+They are declared as PARENTS (`roles/vendor/`, not each role), so vendoring under an existing
+root needs no code change. A first attempt made the declaration self-maintaining by walking
+the tree for undeclared `.git` directories; it was written, it reported **eleven**, and every
+one was a gitignored acceptance-run fixture under a completed plan. Every vendored repo is
+gitignored, so a sweep either skips all of them or drags in every stray clone — the
+population it can see is not the population that matters. What replaced it costs nothing and
+only answers for a target that is already a finding: walk UP from that target, and if a
+repository is nested there, say so in the finding. The instruction lands on the machine that
+can see the repo, which is the machine the fix is made on.
+
+**Verified against a tree with no daemon**, which is the CI condition: same checker, **0
+findings, 8 vendored links**. With the declaration removed in memory the same 8 come back as
+findings, each naming `.claude/hooks-daemon` and pointing at `_VENDORED_ROOTS`; restored,
+they go away again; and a typo in our own tree is still `target does not exist`. The
+exemption is doing work, and it is not blindness.
+
 ## The counts are not in the text
 
 The `helper-tests` stage line has to tell a clean machine from a blind one, because
@@ -164,10 +229,33 @@ their case count with an unscoped `grep -oE 'passed: [0-9]+'`: `-o` prints every
 second occurrence made the stage line two lines and `verdicts.py` read the first as the stage
 and lost the rest.
 
-The first sweep said "every other hard gate", and that over-claim is how **two more** got
-through: it was 21 of the 29 non-merged gates, and 2 of the remaining 8 had the same defect
-with a *different regex*. Sweeping for the pattern text rather than for the defect is what
-`CLAUDE/AgentNotes.md` calls generalising only as far as the file you were reading.
+**It took three sweeps, and the first two were both short — in the same way, for the same
+reason.** Sweep one said "every other hard gate": it was 21 of the 29 non-merged gates, and
+**2** of the remaining 8 had the same defect with a *different regex*. Sweep two, correcting
+that, swept for the `||` fallback — and missed **2 more** that had no fallback at all because
+they interpolated the child's whole capture directly. Sweep three enumerated all 29 and
+classified how each derives its stage line, which is the only version that could have been
+right:
+
+| How the stage line is derived          | Count | Status                           |
+| -------------------------------------- | ----- | -------------------------------- |
+| `qa_gate_case_count`                   | 21    | fixed, sweep one                 |
+| `qa_gate_detail`                       | 4     | 2 in sweep two, 2 in sweep three |
+| `helper_counts_summary` (from a file)  | 1     | Task 4.4                         |
+| prints its own line (`deployed-drift`) | 1     | never had the defect             |
+| the two soft-degrading \`              |       | summary="OK"\` gates             |
+
+Each sweep generalised exactly as far as the text it had been reading — for the pattern
+string, then for the fallback operator — rather than for the defect, which is *a stage line
+derived from an unscoped read of the capture*. `CLAUDE/AgentNotes.md` names the habit. The
+lesson that transfers is not "sweep harder": it is that a sweep over a population nobody
+enumerated is a measurement of what you happened to look at.
+
+**`vmtest-manifest` was the one still emitting the defect on every run.** Three unconditional
+`echo`s on its success path, interpolated whole, made a THREE-line stage line; `verdicts.py`
+kept the first and dropped two coverage measurements. It is now three scoped reads joined
+into one line — three rather than one chosen line, because each is a different measurement
+and picking one would discard two on purpose where the old code discarded them by accident.
 
 The worse of the two had never worked. `nokill-containerwatch` read
 `[0-9]+ call site[s]? checked` from a gate whose single commit has only ever printed
@@ -194,8 +282,28 @@ It degrades to the word `passed` rather than to a number for the usual reason �
 reads as a measurement — though that path is DEFENSIVE: all 21 callers emit a count, and only
 this library's own tests reach it. (`planlib-tests` prints `PASSED (library version 1.2.0)`
 and was once cited as the live caller; it is not a caller at all, it has its own reader.)
-Verified as a pure refactor: every stage line in a full run is
-byte-identical to the run before it, bar the reader gate's own case count.
+**"A pure refactor: every stage line byte-identical" was written here and in `PLAN.md`, and
+it is retracted.** What is true, measured: 21 of 21 case-count lines are byte-identical, old
+expression against new, on the same captures. What was false is the scope of the claim —
+three other stage lines changed, and all three changed because they were **broken**:
+
+```
+nokill-containerwatch   no forbidden kill call sites  ->  3 container-watch file(s) clean
+vmtest-manifest         (three lines)                 ->  one line, all three measurements
+extension-compat        …Fedora 44 ships.             ->  …Fedora 44 ships
+```
+
+The first was described three clauses earlier in the same bullet that called the change pure.
+The measurement was taken correctly and then carried forward across a population that had
+moved — this plan's meta-defect, in the commit retracting two other instances of it.
+
+**A pattern and a gate that nothing compares will drift, and the drift is silent.** That is
+what `nokill` was, for its whole life. So `test-qa-helper-summary.bash` now extracts every
+`qa_gate_detail` pattern out of the real `qa-all.bash` and runs it against the real gate —
+neither side a fixture. Re-introducing the dead `[0-9]+ call site[s]? checked` pattern fails
+it, so the suite would have caught the defect the day it landed. A call site whose capture
+variable is not registered there fails too, which is what stops the next pattern being added
+uncoupled.
 
 ### What the token does and does not do
 
