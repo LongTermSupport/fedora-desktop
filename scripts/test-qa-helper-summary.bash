@@ -135,11 +135,6 @@ check "a skip REASON containing the text does not win the match" \
         "test_x (m.T) ... skipped 'no DP connector; skipped=42'
 Ran 5 tests in 0.006s")")"
 
-# The other direction, which the three cases above cannot reach. A STDOUT decoy is
-# block-buffered to a pipe and flushed at exit, so it arrives AFTER the result line — and a
-# decoy that is itself shaped like a result line would be a second `^OK` match.
-check "a result-shaped decoy flushed after the real one does not win" \
-    "1" "$(helper_skip_count "$(printf 'Ran 5 tests in 0.006s\n\nOK (skipped=1)\nOK (skipped=99)\n')")"
 
 echo "=== helper_skip_count: an unreadable capture is refused, not reported as zero ==="
 
@@ -189,26 +184,34 @@ check "a decoy Ran line mid-capture does not join the summary" \
 check "the summary is exactly one line" \
     "1" "$(helper_test_summary "$(printf 'Ran 3 tests in a scenario\nRan 1464 tests in 0.42s\n\nOK\n')" | grep -c '')"
 
-# THE ORDERING THAT ACTUALLY OCCURS, and the one the fixtures above cannot produce.
-# unittest writes its summary to STDERR; a test's `print` goes to STDOUT, which Python
-# BLOCK-BUFFERS when it is a pipe — and `qa-all.bash` captures through a pipe. So a decoy is
-# flushed at process exit and lands AFTER `OK`, never before it. Measured, not reasoned:
+# THE INPUT IS STDERR ONLY, and that is what makes a simple rule sound.
 #
-#   3: Ran 1 test in 0.000s
-#   5: OK
-#   6: Ran 3 tests in a scenario     <- the decoy, after everything
+# Chasing orderings was the wrong approach and cost three revisions. A test's `print` goes to
+# STDOUT, which Python BLOCK-BUFFERS to a pipe — so a small decoy flushes at exit and lands
+# AFTER the result line, while a decoy followed by >8KB flushes EARLY and lands BEFORE it.
+# Both are reachable, measured, so no first-or-last rule over a merged stream can be right:
 #
-# A "last match wins" rule therefore picks the decoy in the only ordering that is real. The
-# rule that holds is the `Ran` line most recently seen WHEN the result line arrives, which
-# anchors on the same `^(OK|FAILED)` line `helper_skip_count` already trusts.
-check "a decoy flushed AFTER the result line does not win" \
-    "Ran 1 test" "$(helper_test_summary "$(printf '.\n---\nRan 1 test in 0.000s\n\nOK\nRan 3 tests in a scenario\n')")"
-
-check "a decoy on stderr BEFORE unittest's own line does not win either" \
+#   print("Ran 3 tests in a scenario"); print("OK (skipped=99)"); print("X"*9000)
+#   -> the decoy's result line arrives ahead of unittest's, and skip_count answered 99 for a
+#      run whose real answer was 0.
+#
+# So `qa-all.bash` no longer merges the channels. unittest writes its summary to STDERR;
+# `qa-helper-tests.bash`'s own progress line goes to STDOUT. Parsing stderr alone removes the
+# entire stdout class, and on stderr unittest's summary is ALWAYS last — a test writes during
+# the run, the summary is printed after every test finishes. Hence: last match wins, for both
+# readers, symmetrically.
+check "a decoy earlier on stderr does not win the summary" \
     "Ran 1464 tests" "$(helper_test_summary "$(printf 'Ran 3 tests in a scenario\nRan 1464 tests in 0.42s\n\nOK\n')")"
 
-check "a decoy after a FAILED result line does not win" \
-    "Ran 9 tests" "$(helper_test_summary "$(printf 'Ran 9 tests in 0.1s\n\nFAILED (failures=1)\nRan 3 tests in a scenario\n')")"
+check "a decoy before a FAILED result line does not win" \
+    "Ran 9 tests" "$(helper_test_summary "$(printf 'Ran 3 tests in a scenario\nRan 9 tests in 0.1s\n\nFAILED (failures=1)\n')")"
+
+check "a result-shaped decoy earlier on stderr does not win the skip count" \
+    "1" "$(helper_skip_count "$(printf 'OK (skipped=99)\nRan 5 tests in 0.006s\n\nOK (skipped=1)\n')")"
+
+check "the two readers agree on the same capture" \
+    "Ran 5 tests|1" "$(cap=$(printf 'Ran 3 tests in x\nOK (skipped=99)\nRan 5 tests in 0.006s\n\nOK (skipped=1)\n'); \
+        printf '%s|%s' "$(helper_test_summary "$cap")" "$(helper_skip_count "$cap")")"
 
 echo
 echo "passed: $passed failed: $failed"

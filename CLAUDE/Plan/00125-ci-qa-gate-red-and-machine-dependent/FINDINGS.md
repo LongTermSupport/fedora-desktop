@@ -188,11 +188,13 @@ plan's own instruction, which said "either freeze play".
 
 `qa-all.bash` exits at the first failing hard gate. **5 hard gates stood behind the
 `helper-tests` abort when it first went red (`9a79dd77`), 11 by `b3f6e909`, and 25 by
-`497370ba`** — the last red commit before the first fix. 26 behind it today, though today it
+`497370ba`** (`cedc9426~1`, the high-water mark). 26 behind it today, though today it
 passes. A gate that cannot pass in
 an environment therefore does not merely stay red — it stops every gate behind it from
 running at all, and the number of checks actually executing falls with nothing reporting
-it. Three gates in this plan had never run once in CI before the abort was cleared.
+it. **20 of the 25 gates behind the abort had never run once in CI** by the time the first
+fix landed, and clearing it surfaced real failures in two of them — `panel-sections`, then
+`freezelib` — one at a time, as each fix let the run reach one gate further.
 
 That is Task 4.1's answer and the argument for Task 4.3.
 
@@ -256,7 +258,7 @@ because they fell on opposite sides of that line:
   | ---------- | ---------- | ----------------- | --- |
   | `9a79dd77` | 2026-09-11 | **5**             | helper-tests first goes red |
   | `b3f6e909` | 2026-09-14 | **11**            | |
-  | `497370ba` | 2026-09-15 | **25**            | last red commit before the first fix |
+  | `497370ba` | 2026-09-15 | **25**            | `cedc9426~1` — the high-water mark, immediately before this plan's first fix |
 
   The masked set **grew fivefold in four days**, because 21 commits touched `qa-all.bash` in
   that window and every gate they added landed behind an abort that already could not be

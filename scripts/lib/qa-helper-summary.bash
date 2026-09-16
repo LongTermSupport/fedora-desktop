@@ -5,11 +5,26 @@
 # Sourced, never executed — it defines functions and runs nothing.
 #
 # This is two lines of text handling that lives in its own file because it has been wrong
-# twice: `unittest` counts a SKIPPED test inside testsRun, so `Ran 1456 tests` is
+# repeatedly: `unittest` counts a SKIPPED test inside testsRun, so `Ran 1456 tests` is
 # byte-identical whether a test asserted or skipped itself, and two machines running
 # different subsets of the same suite printed the same sentence for weeks. The skip count
 # is what distinguishes them, which makes every way of reading it wrongly a way of putting
 # the blindness back. The test file records each one.
+#
+# BOTH FUNCTIONS TAKE UNITTEST'S STDERR, NOT A MERGED CAPTURE. That is a precondition, not a
+# detail, and it is what makes "last match wins" sound in both.
+#
+# Three revisions were spent looking for a match rule that survives a merged stream, and no
+# such rule exists. A test's `print` goes to STDOUT, which Python BLOCK-BUFFERS to a pipe: a
+# small decoy flushes at process exit and lands AFTER unittest's summary, while a decoy
+# followed by more than the 8KB buffer flushes EARLY and lands BEFORE it. Both are
+# reachable, both were measured, so first-wins and last-wins each fail one of them — and the
+# two readers disagreed with each other on the same capture.
+#
+# Separating the channels deletes the whole class instead of out-guessing it. unittest writes
+# its summary to stderr; `qa-helper-tests.bash` writes its own progress line to stdout. On
+# stderr alone, unittest's summary is ALWAYS last: a test writes during the run, and the
+# summary is printed after every test has finished.
 
 # helper_test_summary <capture> — `Ran N tests`, or the word `passed` if unittest's count
 # line is absent. Degrading to a WORD rather than a number is deliberate: a wrong count
@@ -21,22 +36,11 @@
 # the stage and the second lost. Worse than a wrong number, because a wrong number is at
 # least still a verdict line.
 #
-# Neither the first match nor the last is right, and the reason is buffering rather than
-# formatting. unittest writes its summary to STDERR; a test's `print` goes to STDOUT, which
-# Python BLOCK-BUFFERS to a pipe — and this capture is taken through a pipe. So a decoy is
-# flushed at process exit and appears AFTER the result line, never before it: "last wins"
-# picks the decoy in the only ordering that actually occurs. A decoy on stderr would arrive
-# before, so "first wins" is no better.
-#
-# What holds is unittest's own structure: the count line is the one most recently seen WHEN
-# the result line arrives. That anchors on the same `^(OK|FAILED)` line `helper_skip_count`
-# trusts, so both readers depend on one fact about the format instead of two.
+# LAST match wins — sound only because the input is unittest's STDERR (see the header).
 helper_test_summary() {
     local capture="$1" line=""
     line=$(printf '%s' "$capture" |
-        awk '/^Ran [0-9]+ tests? in /{seen=$0}
-             /^(OK|FAILED)( \(|$)/{if (seen != "") {answer=seen}}
-             END{print answer}')
+        awk '/^Ran [0-9]+ tests? in /{answer=$0} END{print answer}')
     if [[ "$line" =~ ^(Ran[[:space:]][0-9]+[[:space:]]tests?) ]]; then
         printf '%s' "${BASH_REMATCH[1]}"
     else
@@ -47,12 +51,9 @@ helper_test_summary() {
 # helper_skip_count <capture> — the number of skipped tests, from unittest's own result
 # line. Fails (returning non-zero, writing to stderr) when that line cannot be found.
 #
-# Scoped to `^(OK|FAILED)` FIRST, and that scoping is the load-bearing part. Bash `=~` takes
-# the first match anywhere in the subject, so run over the whole capture any earlier
-# `skipped=<digits>` wins — and a test writing to stderr is unbuffered, so printing one of
-# this repo's own transcript fixtures is enough to do it. The first match is the right one
-# here for the mirror-image reason: a STDOUT decoy is block-buffered to a pipe and lands
-# after the result line, so it can never precede it.
+# Scoped to the LAST `^(OK|FAILED)` line, symmetrically with `helper_test_summary`. Bash
+# `=~` takes the first match anywhere in the subject, so run over the whole capture any
+# earlier `skipped=<digits>` wins.
 #
 # The count is then matched WITHOUT a closing paren, because unittest appends
 # `expected failures=` and `unexpected successes=` after it inside the same bracket:
@@ -63,7 +64,9 @@ helper_test_summary() {
 # whole line exists to remove.
 helper_skip_count() {
     local capture="$1" result=""
-    if ! result=$(printf '%s' "$capture" | grep -E '^(OK|FAILED)( \(|$)'); then
+    if ! result=$(printf '%s' "$capture" |
+        awk '/^(OK|FAILED)( \(|$)/{answer=$0} END{if (answer != "") print answer}' |
+        grep -E '^(OK|FAILED)( \(|$)'); then
         printf 'helper_skip_count: no unittest result line (^OK / ^FAILED) in the capture\n' >&2
         return 1
     fi

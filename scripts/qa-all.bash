@@ -29,7 +29,10 @@ TMP_ANSIBLE=$(mktemp)
 TMP_ANSIBLE_SYNTAX=$(mktemp)
 TMP_JS=$(mktemp)
 TMP_DOCS=$(mktemp)
-trap 'rm -f "$TMP_BASH" "$TMP_PYTHON" "$TMP_PATTERNS" "$TMP_ANSIBLE" "$TMP_ANSIBLE_SYNTAX" "$TMP_JS" "$TMP_DOCS"' EXIT
+# Every temp file this script owns is cleaned by ONE trap. A second `trap ... EXIT` would
+# silently REPLACE this one rather than add to it, leaking the seven above on every run.
+TMP_HELPER_ERR=$(mktemp)
+trap 'rm -f "$TMP_BASH" "$TMP_PYTHON" "$TMP_PATTERNS" "$TMP_ANSIBLE" "$TMP_ANSIBLE_SYNTAX" "$TMP_JS" "$TMP_DOCS" "$TMP_HELPER_ERR"' EXIT
 FAILED=0
 
 # Run sub-checks (each writes JSON to temp file, outputs terse to stdout)
@@ -153,12 +156,19 @@ echo "$drift_out"
 # Hard, non-structural gates like the two above — deliberately NOT jq-merged
 # stages, so they cannot disturb the positional .[0]..[6] merge below. Both are
 # fast (the suite is ~0.06s; the compat check is static).
+# The two streams are kept APART here, and that is load-bearing rather than tidy.
+# unittest's summary goes to stderr; a test's own `print` goes to stdout, block-buffered to
+# a pipe, so in a `2>&1` capture a decoy can land either side of the result line depending
+# on how much it printed. Parsing stderr alone removes that entire class — see the header of
+# scripts/lib/qa-helper-summary.bash. On failure both streams are shown, in stream order.
 helper_out=""
-if ! helper_out="$(bash "$SCRIPT_DIR/qa-helper-tests.bash" 2>&1)"; then
+if ! helper_out="$(bash "$SCRIPT_DIR/qa-helper-tests.bash" 2>"$TMP_HELPER_ERR")"; then
     echo "$helper_out" >&2
+    cat "$TMP_HELPER_ERR" >&2
     echo "✗ QA FAILED: helper unit tests" >&2
     exit 1
 fi
+helper_err="$(cat "$TMP_HELPER_ERR")"
 # The skip count travels with the line because `unittest` counts a SKIPPED test inside
 # testsRun: "Ran 1456 tests" is byte-identical whether a test asserted or skipped itself.
 # Two machines then report the same verdict over different executed populations — which is
@@ -169,8 +179,8 @@ fi
 # Both readers live in scripts/lib/ rather than here because this line has been wrong twice
 # in three revisions and each hand-check was thrown away with the session that made it.
 # scripts/test-qa-helper-summary.bash drives them, and its own gate runs below.
-helper_summary="$(helper_test_summary "$helper_out")"
-if ! helper_skipped="$(helper_skip_count "$helper_out")"; then
+helper_summary="$(helper_test_summary "$helper_err")"
+if ! helper_skipped="$(helper_skip_count "$helper_err")"; then
     echo "✗ QA FAILED: helper-tests ran but its result line could not be read" >&2
     exit 1
 fi

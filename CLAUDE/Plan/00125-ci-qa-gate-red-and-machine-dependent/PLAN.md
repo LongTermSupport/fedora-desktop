@@ -170,7 +170,7 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
 - [x] ✅ **Task 4.1**: The identical-looking red run is only half of it, and the other half
   is worse. `qa-all.bash` **exits at the first failing hard gate**, so from the moment the
   DisplayLink pair began failing CI stopped executing every gate behind `helper-tests`:
-  **5 at `9a79dd77`, 11 by `b3f6e909`, 25 by `497370ba`** — a fivefold growth in four days,
+  **5 at `9a79dd77`, 11 by `b3f6e909`, 25 by `497370ba`** (`cedc9426~1`) — fivefold in four days,
   because every gate added in that window landed behind an abort already out of reach. The suite did not merely stay red — *the number of checks actually
   running fell*, and nothing said so. Three compounding causes, written up in `FINDINGS.md`.
   **Demonstrated live three times while closing Phase 3** — each fix revealed the next gate
