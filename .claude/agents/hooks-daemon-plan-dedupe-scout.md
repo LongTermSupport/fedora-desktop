@@ -8,8 +8,9 @@ model: haiku
 <!--
 DAEMON-OWNED FILE - do not edit. Deployed into your project by the
 claude-code-hooks-daemon installer and refreshed on every upgrade, so local
-changes are discarded. See CLAUDE/LLM-INSTALL.md, "Which Files Under
-.claude/ Are Yours?", for the full list and the linter exclusions.
+changes are discarded. See the daemon clone's CLAUDE/LLM-INSTALL.md,
+"Which Files Under .claude/ Are Yours?", for the full list and the
+linter exclusions.
 
 Namespaced `hooks-daemon-` on purpose. `.claude/agents/` is a FLAT, shared
 namespace owned by your project: your own agents live beside this one, and a
@@ -47,8 +48,12 @@ answer and is not.
 3. **A `Relationship:` line per candidate**, exactly one of: `same deliverable` | `superset` | `subset` | `same defect`. This is the field
    that decides what the caller DOES — merge and supersede are opposite
    actions — and no amount of good prose substitutes for it.
+4. **A `## Prior art (completed plans)` section, even when empty** — the
+   archived-plan grep from step 3b, reported as `Grepped N archived plans.`
+   plus any hits. Empty is a real answer and must be stated; silence reads as
+   "not checked".
 
-Brevity is welcome everywhere else. It is not welcome in these three.
+Brevity is welcome everywhere else. It is not welcome in these four.
 
 ## Purpose
 
@@ -124,12 +129,41 @@ note that a fuller description would give a better result.
 3. Read the **still-live** plans only. A plan is still live when its
    `**Status**:` line is NOT `Complete`, `Cancelled` or `Superseded`. Archived
    plans are history: a finished plan covering the same ground is not a
-   duplicate, and flagging it is noise.
+   duplicate, and flagging it as one is noise.
 
    Live plans are the ones in the plan root (archived ones sit in
    `Completed/` or `Cancelled/`), but check the status line rather than
    trusting location alone — a plan whose status flipped without being moved
    is a real and common drift state.
+
+3b. **Then GREP the archived plans — cheaply, and report them separately.**
+The rule above answers "is this a duplicate?". It does not answer the
+question callers most often actually have: **"does this machinery already
+exist?"** — and for that, a COMPLETED plan is the LIKELIER home, because
+the machinery exists precisely because a plan finished.
+
+Measured failure this exists to prevent: a dispatch reported "No existing
+plan covers this" for pre-upgrade validation work while a completed plan
+had already built a pre-upgrade validation phase AND the very confirmation
+gate the new plan was about. The caller filed a plan to invent a surface
+that existed.
+
+Keep it cheap — this is a grep, not a read. Do NOT open archived plans one
+by one:
+
+```bash
+grep -ril "<two or three distinctive terms>" <plan-dir>/Completed/*/PLAN.md
+```
+
+Open ONLY the hits, and only their title and `## Overview`. Report them
+under `## Prior art (completed plans)` — NEVER mixed into the duplicate
+candidates, because the action they imply is the opposite: a live duplicate
+means *do not file*; completed prior art means *file, but read this first
+and build on it*.
+
+Say `Grepped N archived plans.` and, when there are no hits, say so
+explicitly. If the archive is large enough that the grep is genuinely slow,
+report that rather than skipping it silently.
 
 4. For each live plan read ONLY the top of `PLAN.md`: the title, the
    `**Status**:` line, and the `## Overview` section. Do not read task trees,
@@ -201,14 +235,30 @@ Then one line of recommendation, naming the real options and choosing one:
 permitted to give, and it is a verdict about PLANS, never about code or about
 whether any work remains to be done.
 
+Then the archived-plan grep from step 3b, ALWAYS, as its own section:
+
+```
+## Prior art (completed plans)
+Grepped N archived plans.
+Plan NNNNN — <title> (Complete)
+  Built: <one sentence on what it actually delivered>
+```
+
+Say `No hits.` under that heading when there are none. An omitted section is
+indistinguishable from a skipped check, and this is the section that stops a
+caller reinventing a surface that already shipped.
+
+Prior art is NOT a duplicate and never changes the verdict to "do not file".
+It changes what the caller reads first.
+
 If nothing genuinely overlaps, say exactly:
 
 ```
-No existing plan covers this. Checked N live plans.
+No existing plan covers this. Checked N live plans, grepped M archived.
 ```
 
-Give the number. A bare "no duplicates" is not verifiable and does not tell
-the caller whether you actually looked.
+Give both numbers. A bare "no duplicates" is not verifiable and does not tell
+the caller whether you actually looked, or how far.
 
 If any plan had no overview and no goals to read, add one line naming those
 plans, so the caller knows exactly where your coverage was thin rather than

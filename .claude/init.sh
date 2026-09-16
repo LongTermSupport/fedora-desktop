@@ -28,6 +28,23 @@ _HOOKS_DAEMON_CI_ENFORCED=false
 # Flag set by ensure_daemon when daemon directory/venv is absent (fresh clone)
 _HOOKS_DAEMON_NOT_INSTALLED=false
 
+# Set by ensure_daemon when the installed clone and the project's TRACKED
+# deployed assets name different daemon versions (Plan 00386, GitHub issue #38).
+# The two version globals are only meaningful while the flag is true.
+_HOOKS_DAEMON_VERSION_MISMATCH=false
+_HOOKS_DAEMON_CLONE_VERSION=""
+_HOOKS_DAEMON_TRACKED_VERSION=""
+
+# Set by the repo-detection guard below: this checkout IS the hooks-daemon
+# repository and self-install has not been set up in it. Distinct from
+# NOT_INSTALLED because the remedy is the opposite of the standard one — a
+# restart cannot help, and the reader must run the installer with a flag the
+# standard message never mentions. A fresh clone of this repository is the one
+# environment the project cannot dogfood, since every maintainer checkout has
+# already been installed into, so this branch is written for a reader who has
+# no context at all.
+_HOOKS_DAEMON_REPO_UNCONFIGURED=false
+
 #
 # emit_hook_error() - Output a valid hook error response to stdout
 #
@@ -37,7 +54,13 @@ _HOOKS_DAEMON_NOT_INSTALLED=false
 # DRY: Uses Python utility to generate error responses - single source of truth.
 #
 # Args:
-#   $1 - Event name (e.g., "PreToolUse", "Stop")
+#   $1 - Event name (e.g., "PreToolUse", "Stop"), or EMPTY when the caller
+#        genuinely cannot know it. Claude Code validates `hookEventName`
+#        against a closed enum, and a value outside it invalidates the WHOLE
+#        document rather than just that field — so a placeholder word there
+#        does not degrade the response, it destroys it. Pass empty instead and
+#        the universal `systemMessage` field carries the text with no event
+#        name at all.
 #   $2 - Error type (e.g., "daemon_startup_failed")
 #   $3 - Error details
 #
@@ -46,9 +69,14 @@ _HOOKS_DAEMON_NOT_INSTALLED=false
 #   Also logs to stderr for debugging
 #
 emit_hook_error() {
-    local event_name="${1:-Unknown}"
+    local event_name="${1:-}"
     local error_type="${2:-unknown_error}"
     local error_details="${3:-No details available}"
+
+    # The checkout this answer is about. PROJECT_PATH is assigned at source
+    # time, below this function's definition, so the `:-` default covers the
+    # one caller that runs before it (the init_path_error branch) under set -u.
+    local _hooks_daemon_checkout="${PROJECT_PATH:-unknown checkout}"
 
     # Log to stderr for debugging (agent won't see this)
     echo "HOOKS DAEMON ERROR [$error_type]: $error_details" >&2
@@ -71,13 +99,49 @@ emit_hook_error() {
             "3. Use the hooks-daemon skill to install (Skill tool: skill=hooks-daemon, args=install)" \
             "" \
             "DO NOT continue working without the daemon.")
+    elif [[ "$_HOOKS_DAEMON_REPO_UNCONFIGURED" == "true" ]]; then
+        # THE HOOKS-DAEMON REPO ITSELF, never installed into.
+        #
+        # Checked ahead of NOT_INSTALLED because both are true here and only
+        # this one is actionable: the standard message says "restart", and a
+        # restart cannot create a venv that was never built. Same reasoning as
+        # the VERSION_MISMATCH branch below — when the usual advice cannot
+        # succeed, saying so outright beats offering a better option, because
+        # a reader who follows advice that cannot work concludes the
+        # repository is broken rather than unconfigured.
+        context_msg=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
+            "HOOKS DAEMON: this checkout is the hooks-daemon repository, not yet set up" \
+            "" \
+            "You have cloned the daemon's own source. Its runtime pieces — the" \
+            "virtualenv, the dependencies and .claude/hooks-daemon.env — are" \
+            "gitignored per-checkout artefacts, so a clone never carries them." \
+            "Checkout: $_hooks_daemon_checkout" \
+            "" \
+            "ALL safety handlers, code quality checks, and workflow enforcement are INACTIVE." \
+            "" \
+            "A RESTART CANNOT FIX THIS — there is nothing built to restart yet." \
+            "" \
+            "TO FIX — build this checkout's runtime, from the repository root:" \
+            "  scripts/bootstrap-self-install.sh" \
+            "" \
+            "Do NOT run install.py --self-install here. install.py is the CLIENT" \
+            "installer: it OVERWRITES this repository's own tracked" \
+            ".claude/hooks-daemon.yaml and .claude/settings.json with default" \
+            "templates (--force only decides whether a .bak is kept first).")
     elif [[ "$_HOOKS_DAEMON_NOT_INSTALLED" == "true" ]]; then
         # NOT INSTALLED: Guide to install guide — project was cloned but daemon never set up
-        context_msg=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
+        #
+        # The checkout is named because this answer is most often seen in a
+        # checkout the reader did not expect: a git worktree has no
+        # (gitignored) .claude/hooks-daemon.env, so it never enters
+        # self-install mode and EVERY wrapper in it lands here, while the main
+        # checkout beside it is fully protected.
+        context_msg=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
             "HOOKS DAEMON: Not installed" \
             "" \
             "This project uses the Claude Code Hooks Daemon for safety enforcement," \
             "but the daemon is not installed in this environment." \
+            "Checkout: $_hooks_daemon_checkout" \
             "" \
             "ALL safety handlers, code quality checks, and workflow enforcement are INACTIVE." \
             "" \
@@ -85,6 +149,42 @@ emit_hook_error() {
             "  Use the hooks-daemon skill to install (Skill tool: skill=hooks-daemon, args=install)" \
             "" \
             "After installing, restart your Claude session for hooks to activate.")
+    elif [[ "$_HOOKS_DAEMON_VERSION_MISMATCH" == "true" ]]; then
+        # VERSION MISMATCH: the clone and the project's TRACKED deployed assets
+        # name different versions (Plan 00386, GitHub issue #38).
+        #
+        # The standard message below points at `restart`, and a restart changes
+        # neither version — so a reader who follows it loops forever while every
+        # safety handler stays inactive. This branch therefore says outright that
+        # a restart cannot work, rather than merely offering a better option.
+        #
+        # The remedy differs by DIRECTION, so both are spelled out separately: a
+        # clone behind the tracked assets is upgraded, while a clone AHEAD of
+        # them means the tracked assets are the stale half and telling the reader
+        # to upgrade would be advice that cannot succeed.
+        local _hd_remedy_1 _hd_remedy_2
+        if _version_lt "$_HOOKS_DAEMON_CLONE_VERSION" "$_HOOKS_DAEMON_TRACKED_VERSION"; then
+            _hd_remedy_1="TO FIX — upgrade the clone to the version this repository expects:"
+            _hd_remedy_2="  Use the hooks-daemon skill to upgrade (Skill tool: skill=hooks-daemon, args=upgrade $_HOOKS_DAEMON_TRACKED_VERSION)"
+        else
+            _hd_remedy_1="TO FIX — the TRACKED assets are the stale half here; regenerate and commit them:"
+            _hd_remedy_2="  Run generate-docs from the installed clone, then commit the resulting diff."
+        fi
+
+        context_msg=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
+            "HOOKS DAEMON: version mismatch — installed clone v$_HOOKS_DAEMON_CLONE_VERSION, tracked assets v$_HOOKS_DAEMON_TRACKED_VERSION" \
+            "" \
+            "The daemon under .claude/hooks-daemon/ is gitignored and per-checkout," \
+            "so it can fall behind the TRACKED assets this repository has committed." \
+            "Checkout: $_hooks_daemon_checkout" \
+            "" \
+            "ALL safety handlers, code quality checks, and workflow enforcement are INACTIVE." \
+            "" \
+            "A RESTART CANNOT FIX THIS — both versions are unchanged by one." \
+            "" \
+            "$_hd_remedy_1" \
+            "$_hd_remedy_2" \
+            "Then restart your Claude session for hooks to activate.")
     else
         # Standard error message
         # NOTE: Language is intentionally measured to avoid triggering investigation loops
@@ -113,7 +213,17 @@ emit_hook_error() {
     # Stop/SubagentStop: top-level decision only (deny to show error)
     # Other events: hookSpecificOutput with context (fail-open allow)
     if command -v jq &>/dev/null; then
-        if [[ "$_HOOKS_DAEMON_CI_ENFORCED" == "true" ]]; then
+        if [[ -z "$event_name" ]]; then
+            # The guards that run while init.sh is being SOURCED reach here:
+            # they fire before the forwarder that sourced us reaches its own
+            # body, so the event in flight is genuinely unknown. Every branch
+            # below keys on the event name, so none can be chosen honestly —
+            # and `hookSpecificOutput` has nowhere to put "I do not know".
+            # `systemMessage` is one of the five universal output fields
+            # defined on EVERY event, so it needs no event name and cannot
+            # name the wrong one. Fails open, like the branches below.
+            jq -n --arg msg "$context_msg" '{"systemMessage": $msg}'
+        elif [[ "$_HOOKS_DAEMON_CI_ENFORCED" == "true" ]]; then
             # CI enforced: hard deny/block for ALL event types to prevent work
             local ci_reason="Hooks daemon REQUIRED (ci_enabled: true) but not installed"
             if [[ "$event_name" == "PreToolUse" ]]; then
@@ -127,9 +237,13 @@ emit_hook_error() {
                     '{"hookSpecificOutput": {"hookEventName": $event, "additionalContext": $context}}'
             fi
         elif [[ "$_HOOKS_DAEMON_NOT_INSTALLED" == "true" ]]; then
-            # Not installed: Stop/SubagentStop block, others fail-open with install guidance
+            # Not installed: Stop/SubagentStop block, others fail-open with install guidance.
+            # The block reason names the checkout: this response is shaped
+            # exactly like a WORKING stop gate's, so without the path there is
+            # nothing to tell "the gate ran" from "no gate ran here".
             if [[ "$event_name" == "Stop" || "$event_name" == "SubagentStop" ]]; then
-                jq -n --arg reason "Hooks daemon not installed - protection not active" \
+                jq -n --arg reason \
+                    "Hooks daemon not installed at $_hooks_daemon_checkout - protection not active" \
                     '{"decision": "block", "reason": $reason}'
             else
                 jq -n --arg event "$event_name" --arg context "$context_msg" \
@@ -158,10 +272,16 @@ emit_hook_error() {
 import json
 import sys
 
-event_name, context_msg, ci_enforced, not_installed = sys.argv[1:5]
+event_name, context_msg, ci_enforced, not_installed, checkout = sys.argv[1:6]
 stop_events = ("Stop", "SubagentStop")
 
-if ci_enforced == "true":
+if not event_name:
+    # No event name: see the jq branch above. systemMessage is universal, so it
+    # is the only field that can carry this without naming an event. No
+    # backticks in this block -- the outer shell quotes it, and shellcheck
+    # reads a backtick inside single quotes as a dead command substitution.
+    resp = {"systemMessage": context_msg}
+elif ci_enforced == "true":
     if event_name == "PreToolUse":
         resp = {"decision": "deny", "reason": context_msg}
     elif event_name in stop_events:
@@ -170,7 +290,10 @@ if ci_enforced == "true":
         resp = {"hookSpecificOutput": {"hookEventName": event_name, "additionalContext": context_msg}}
 elif not_installed == "true":
     if event_name in stop_events:
-        resp = {"decision": "block", "reason": "Hooks daemon not installed - protection not active"}
+        resp = {
+            "decision": "block",
+            "reason": f"Hooks daemon not installed at {checkout} - protection not active",
+        }
     else:
         resp = {"hookSpecificOutput": {"hookEventName": event_name, "additionalContext": context_msg}}
 else:
@@ -180,7 +303,8 @@ else:
         resp = {"hookSpecificOutput": {"hookEventName": event_name, "additionalContext": context_msg}}
 
 print(json.dumps(resp))
-' "$event_name" "$context_msg" "$_HOOKS_DAEMON_CI_ENFORCED" "$_HOOKS_DAEMON_NOT_INSTALLED"
+' "$event_name" "$context_msg" "$_HOOKS_DAEMON_CI_ENFORCED" "$_HOOKS_DAEMON_NOT_INSTALLED" \
+            "$_hooks_daemon_checkout"
     fi
 }
 
@@ -199,7 +323,7 @@ done
 
 if [[ "$PROJECT_PATH" == "/" ]]; then
     # Output valid JSON error to stdout - event name unknown at this point
-    emit_hook_error "Unknown" "init_path_error" "Could not find .claude directory in path hierarchy. Hooks daemon cannot initialize."
+    emit_hook_error "" "init_path_error" "Could not find .claude directory in path hierarchy. Hooks daemon cannot initialize."
     exit 0  # Exit 0 so Claude Code processes the JSON response
 fi
 
@@ -219,7 +343,7 @@ HOOKS_DAEMON_ROOT_DIR="${HOOKS_DAEMON_ROOT_DIR:-$PROJECT_PATH/.claude/hooks-daem
 # .claude/hooks-daemon/.claude/hooks-daemon structure
 #
 if [[ -d "$PROJECT_PATH/.claude/hooks-daemon/.claude/hooks-daemon" ]]; then
-    emit_hook_error "Unknown" "nested_installation" \
+    emit_hook_error "" "nested_installation" \
         "NESTED INSTALLATION DETECTED! Found: $PROJECT_PATH/.claude/hooks-daemon/.claude/hooks-daemon. Remove $PROJECT_PATH/.claude/hooks-daemon and reinstall."
     exit 0
 fi
@@ -253,12 +377,20 @@ if [[ -d "$PROJECT_PATH/.git" ]]; then
             has_self_install=true
         fi
 
-        # Check config file for self_install_mode (requires Python, done later)
-        # For now, just trust the HOOKS_DAEMON_ROOT_DIR override
+        # Deliberately NOT read: .claude/hooks-daemon.yaml's self_install_mode.
+        # It is tracked and says `true` in this repository, so reading it would
+        # satisfy this guard on every fresh clone — and that is exactly wrong.
+        # The config declares INTENT; the two signals above are evidence the
+        # runtime was actually BUILT. A clone has the intent and none of the
+        # runtime, so believing the config would wave it through to the
+        # "not installed" branch, whose advice is to run the CLIENT installer —
+        # which overwrites this repository's own tracked config. Refusing here,
+        # with the bootstrap instruction, is the useful answer.
 
         if [[ "$has_self_install" != "true" ]] && [[ ! -f "$PROJECT_PATH/.claude/hooks-daemon.env" ]]; then
-            emit_hook_error "Unknown" "hooks_daemon_repo_detected" \
-                "This is the hooks-daemon repository. To install for development, run: python install.py --self-install"
+            _HOOKS_DAEMON_REPO_UNCONFIGURED=true
+            emit_hook_error "" "hooks_daemon_repo_detected" \
+                "This is the hooks-daemon repository. To set it up for development, run: scripts/bootstrap-self-install.sh"
             exit 0
         fi
     fi
@@ -480,6 +612,15 @@ if [[ -z "${CLAUDE_HOOKS_SOCKET_PATH:-}" ]] && [[ ! -S "$SOCKET_PATH" ]]; then
         _discovered_path=$(cat "$_discovery_file" 2>/dev/null)
         if [[ -n "$_discovered_path" ]] && [[ -S "$_discovered_path" ]]; then
             SOCKET_PATH="$_discovered_path"
+            # The daemon that fell back put its PID file beside that socket
+            # under the same stem (paths.get_pid_path mirrors get_socket_path),
+            # so the PID path must follow too. Left at the long default,
+            # is_daemon_running finds no PID, `cli start` then sees a live
+            # socket that is "not ours" and refuses it, and every forwarder
+            # reports daemon_startup_failed while status shows RUNNING.
+            if [[ -z "${CLAUDE_HOOKS_PID_PATH:-}" ]]; then
+                PID_PATH="${_discovered_path%.sock}.pid"
+            fi
         fi
     fi
 fi
@@ -706,6 +847,110 @@ _is_daemon_installed() {
 }
 
 #
+# _clone_version() - Version of the INSTALLED (gitignored) daemon clone
+#
+# Read with grep from version.py rather than by importing the package: the
+# clone that failed to start is often the one whose venv or interpreter is the
+# problem, so anything requiring a working Python would be unavailable at
+# exactly the moment this answer is needed.
+#
+# Output:
+#   The version on stdout, nothing when it cannot be determined
+#
+# Returns:
+#   0 if a version was read, 1 otherwise (a normal state, not an error)
+#
+_clone_version() {
+    local version_file="$HOOKS_DAEMON_ROOT_DIR/src/claude_code_hooks_daemon/version.py"
+    [[ -f "$version_file" ]] || return 1
+
+    local line
+    line="$(grep -m1 -oE '^__version__ = "[0-9]+\.[0-9]+\.[0-9]+"' "$version_file")" || return 1
+
+    local version="${line#*\"}"
+    printf '%s' "${version%\"}"
+}
+
+#
+# _tracked_deployed_version() - Version the project's TRACKED assets came from
+#
+# .claude/HOOKS-DAEMON.md is a tracked deployed asset regenerated by
+# generate-docs on every upgrade, and it carries the only machine-readable
+# record of which version deployed the rest. The header shape is the one
+# docs_generator._render_header() emits.
+#
+# THIS PATTERN IS DUPLICATED IN PYTHON, and cannot be shared: this function must
+# work when the package cannot be imported at all. The canonical parser is
+# utils/deployed_version.py::VERSION_MARKER_RE, and
+# tests/integration/test_init_sh_stale_clone_version.py feeds one header line to
+# both and asserts they agree — that test is the only thing holding the two
+# together, so do not change either pattern without it.
+#
+# Output:
+#   The version on stdout, nothing when no marker is present
+#
+# Returns:
+#   0 if a version was read, 1 otherwise (a project that never generated the
+#   doc, or whose doc predates the header, is NORMAL — not broken)
+#
+_tracked_deployed_version() {
+    local doc="$PROJECT_PATH/.claude/HOOKS-DAEMON.md"
+    [[ -f "$doc" ]] || return 1
+
+    local line
+    line="$(grep -m1 -oE '> Generated on [0-9]{4}-[0-9]{2}-[0-9]{2} \(v[0-9]+\.[0-9]+\.[0-9]+\) by' "$doc")" || return 1
+
+    local version="${line##*\(v}"
+    printf '%s' "${version%%\)*}"
+}
+
+#
+# _version_lt() - True when $1 sorts strictly before $2
+#
+# Pure bash rather than `sort -V`: this runs on every hook of a broken install,
+# and the field-numeric comparison has no portability question to answer. Both
+# arguments are X.Y.Z by construction — the extraction patterns above accept
+# nothing else — so the fields are always numeric.
+#
+_version_lt() {
+    [[ "$1" == "$2" ]] && return 1
+
+    local -a left right
+    IFS=. read -r -a left <<< "$1"
+    IFS=. read -r -a right <<< "$2"
+
+    local i
+    for i in 0 1 2; do
+        local l="${left[i]:-0}" r="${right[i]:-0}"
+        if (( l < r )); then return 0; fi
+        if (( l > r )); then return 1; fi
+    done
+    return 1
+}
+
+#
+# _detect_stale_clone() - Do the clone and the tracked assets disagree?
+#
+# Sets _HOOKS_DAEMON_CLONE_VERSION and _HOOKS_DAEMON_TRACKED_VERSION on a
+# mismatch. Says nothing when either version is unreadable: unknowable is not
+# the same as wrong, and accusing a project on absent evidence is how an
+# advisory earns the habit of being ignored.
+#
+# Returns:
+#   0 if the two versions differ, 1 otherwise
+#
+_detect_stale_clone() {
+    local clone tracked
+    clone="$(_clone_version)" || return 1
+    tracked="$(_tracked_deployed_version)" || return 1
+    [[ "$clone" == "$tracked" ]] && return 1
+
+    _HOOKS_DAEMON_CLONE_VERSION="$clone"
+    _HOOKS_DAEMON_TRACKED_VERSION="$tracked"
+    return 0
+}
+
+#
 # _is_ci_environment() - Detect if running in any CI/CD environment
 #
 # Checks common CI environment variables across major platforms.
@@ -846,9 +1091,19 @@ ensure_daemon() {
         return 0
     fi
 
-    # Non-CI environment: fail with error so agent sees it and can act
-    # Distinguish not-installed (fresh clone) from installed-but-not-starting
-    if ! _is_daemon_installed; then
+    # Non-CI environment: fail with error so agent sees it and can act.
+    # Three diagnoses, MOST SPECIFIC FIRST (Plan 00386).
+    #
+    # The version mismatch is tested before _is_daemon_installed deliberately.
+    # That check requires a RESOLVED venv interpreter, and a clone stale enough
+    # to fail startup often cannot resolve one — so a genuine version mismatch
+    # would otherwise be reported as "not installed", which says nothing about
+    # the versions and sends the reader to install rather than upgrade. Reversing
+    # the order costs nothing: _detect_stale_clone reads the clone's own
+    # version.py, so it CANNOT fire unless a clone is really present on disk.
+    if _detect_stale_clone; then
+        _HOOKS_DAEMON_VERSION_MISMATCH=true
+    elif ! _is_daemon_installed; then
         _HOOKS_DAEMON_NOT_INSTALLED=true
     fi
     return 1
@@ -1125,17 +1380,34 @@ def print_worktree(output):
     worktree PATH (not JSON), so print the raw .worktreePath the daemon returns.
     If the daemon produced no path (no handler / error), FAIL the creation
     cleanly with a non-zero exit rather than echoing '{}' — Claude Code would
-    take '{}' literally as the path '/<cwd>/{}' (the original Plan 00188 bug).'''
+    take '{}' literally as the path '/<cwd>/{}' (the original Plan 00188 bug).
+
+    On failure, report the daemon's OWN reason (Plan 00419 N10). A handler that
+    raises has its exception accumulated into the result context, which for this
+    event serialises as systemMessage — so the reason is already in these bytes.
+    Discarding it and guessing at a cause instead sent a real investigation to
+    check a handler registration that was never in doubt, and a message that
+    confidently names the wrong cause is worse than one that names none.'''
     try:
         data = json.loads(output)
     except Exception:
         data = None
-    path = data.get('worktreePath') if isinstance(data, dict) else None
+    if not isinstance(data, dict):
+        data = {}
+    path = data.get('worktreePath')
     if path:
         print(path)
         sys.exit(0)
-    print('HOOKS DAEMON: WorktreeCreate produced no worktree path '
-          '(is the worktree_create handler enabled?)', file=sys.stderr)
+    # systemMessage carries a crashed handler's exception; reason carries a
+    # deliberate refusal. Either is the daemon speaking for itself.
+    detail = data.get('systemMessage') or data.get('reason')
+    message = 'HOOKS DAEMON: WorktreeCreate produced no worktree path.'
+    if detail:
+        message = message + ' The daemon reported: ' + str(detail)
+    else:
+        message = message + (' No reason was returned — check the daemon logs '
+                             '(Skill tool: skill=hooks-daemon, args=logs).')
+    print(message, file=sys.stderr)
     sys.exit(1)
 
 # Read the raw hook_input payload from stdin (preserves control characters).

@@ -37,7 +37,27 @@ Upgrade the Claude Code Hooks Daemon and commit the result atomically.
    ```
 
    Exit code `0` means nothing to do — skip to the next step. Exit code `1`
-   means there are `was → now` entries to reconcile. For **each** entry:
+   means there is reconciliation work, and what you receive is a **bounded
+   summary**, never the entries: counts, the path of the full report
+   (`untracked/truth-changes/v<from>-to-v<to>/REPORT.md`) and one line per
+   **chunk file** (`chunk-NN-<topic>.md` beside it). The full report is
+   deliberately not printed — an unbounded one is delivered head-and-tail
+   with the middle silently dropped, and it grows with every release crossed.
+   Do NOT read the full report into your own context; delegate the chunks:
+
+   - **Dispatch one subagent per chunk file, in parallel.** A chunk is one
+     topic, and chunks are disjoint in the documents they touch, so parallel
+     subagents cannot race for a file. A chunk marked `SEQUENTIAL` (entries
+     with no topic) runs alone, AFTER every other chunk has returned.
+   - The subagent's brief is the chunk file: tell it to read that path and
+     follow it. The file carries the rules below and its own entries only.
+   - **Each subagent returns ONLY what it changed** — the files it edited,
+     one line each, plus which entries no doc asserted. Never the entries it
+     read: you hold paths and counts, not the report.
+   - A small range (a few chunks of one or two truths each) you may reconcile
+     yourself from the chunk files; the rules are the same.
+
+   The rules every chunk carries, for **each** entry:
 
    - **Semantically** search the PROJECT'S OWN docs for the `was` statement —
      `CLAUDE/`, `docs/`, `README*`, `AGENTS*`, and any project instruction
@@ -58,7 +78,9 @@ Upgrade the Claude Code Hooks Daemon and commit the result atomically.
 
    Stage and commit any project-doc edits **separately** from the daemon
    upgrade commit below (they touch project files, not daemon-owned paths). You
-   can re-run `check-truth-changes` any time to re-reconcile.
+   can re-run `check-truth-changes` any time to re-reconcile; `--full` prints
+   the whole report inline for a human reader, and `--report-dir` moves the
+   files.
 
 5. **Surface newly-available / recommended config options** (skip on `--force`
    reinstall, where `from_version == to_version`). Some releases add opt-in
@@ -71,16 +93,22 @@ Upgrade the Claude Code Hooks Daemon and commit the result atomically.
    ```
 
    Exit code `0` means nothing to surface — skip to the next step. Exit code `1`
-   means there are suggestions. Read them:
+   means there are suggestions. What you receive is a **bounded summary**: the
+   actionable lines inline, and the path of the full advisory
+   (`untracked/config-changes/v<from>-to-v<to>/ADVISORY.md`) for every
+   description, note and example. Read the summary:
 
    - Anything under **🆕 Recommended — enable these** is a feature the daemon
-     recommends turning on. The output shows the key, the recommended value, and
+     recommends turning on. The line shows the key, the recommended value, and
      your current value. To adopt one, set that key/value in
      `.claude/hooks-daemon.yaml`.
-   - If a recommendation carries a migration **Note** (e.g. "migrate existing
-     memory into tracked docs first"), perform that migration **before**
-     enabling — follow any referenced post-upgrade task.
-   - Items under **💡 New Options Available** are informational; adopt if useful.
+   - A line marked "has a migration Note" (e.g. "migrate existing memory into
+     tracked docs first") needs that migration performed **before** enabling —
+     read the Note for that key in the full advisory and follow any referenced
+     post-upgrade task.
+   - **💡 New Options Available** is a count; the options are informational and
+     listed with examples in the full advisory — adopt if useful. `--full`
+     prints the whole advisory inline instead.
    - Anything under **⚠️ Stale handler keys** is a `handlers.<event>.<key>`
      entry the installed daemon does not register for that event: it names
      the event or pseudo-event the handler lives under now, or says the

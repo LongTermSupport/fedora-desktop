@@ -52,6 +52,13 @@ QA_EXCLUDE_DIRS=(
     # A gate that fails on its own side effects gets ignored, or bypassed.
     ".ansible"
     ".claude/hooks-daemon"
+    # The upgrade preserves the previous copy of any daemon-deployed tree it is
+    # about to replace here. It is a byte copy of `.claude/skills` two lines
+    # below, which is already excluded — so scanning the backup gates upstream
+    # code this repo cannot fix, under a path the original is exempt from. It is
+    # recreated by every upgrade whose deployed tree differs, so deleting the
+    # directory defers this failure rather than fixing it.
+    ".claude/hooks-daemon-backups"
     ".claude/ccy"
     ".claude/skills"
     ".claude/worktrees"

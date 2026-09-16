@@ -76,6 +76,21 @@ goal/effort/auto-model-restore. The CLI helper ``--emit-model-switch
 <family>`` writes one for whichever session owns the newest context
 sidecar; it does not start a supervisor.
 
+A third signal family, `hooks-daemon signal <kind>` (Plan 00417), warns the
+agent that the HOST machine is about to reboot or shut down -- the one
+channel of the three reachable from OUTSIDE the container. Its security shape
+is deliberately different: a closed `kind` (`reboot-warning`,
+`shutdown-warning`, `reboot-cancelled`) plus, for the two that need one, a
+bare positive integer minutes -- never free text. `load_operator_signal`
+validates AND renders the message in one step, from templates fixed in THIS
+file (`_render_operator_message`); `minutes` is the only value ever
+interpolated. It is consumed at the same idle choke point, ahead of the goal
+and model-switch/restore families, but still subordinate to
+compact/continue/escape, DROP ANCHOR and the coupled-effort correction. A
+transient WARNING-level status-line countdown (the message channel below)
+posts the moment a valid signal is observed, independent of whether the chat
+line can be typed yet, so a human watching the terminal sees it too.
+
 It also GUARDS the session against accidental terminal control keys that would
 otherwise freeze or kill it: Ctrl+Z (SUSP) is stripped from the forwarded input
 (``strip_suspend``) AND, belt-and-braces, the stop/quit SIGNALS are swallowed if
@@ -197,7 +212,7 @@ if TYPE_CHECKING:
 # (see CLAUDE/development/RELEASING.md). Display-only for the banner and the
 # runtime status file; staleness detection (Plan 00164 Phase 3) uses a content
 # hash of THIS file so it is correct even between version bumps.
-__version__ = "3.63.0"
+__version__ = "3.65.0"
 
 # Absolute path to THIS running script — hashed for staleness detection so the
 # daemon can tell when the on-disk supervisor differs from the running one.
@@ -468,6 +483,21 @@ _SLASH_OBSERVED_MAX_LINES = 8
 _LINE_BACKSPACE_BYTES = frozenset({0x08, 0x7F})
 # Bytes that never make the box "non-empty" on their own: space and tab.
 _LINE_WHITESPACE_BYTES = frozenset({0x20, 0x09})
+# Plan 00398 Phase 4: Ctrl-W (unix-word-rubout, 0x17) deletes the trailing
+# WORD in a real shell -- neither a full clear nor plain content, so it needs
+# its own handling rather than falling into `_LINE_CLEAR_BYTES` (wrong: it
+# does not clear the whole line) or the unrecognised-byte fallthrough (wrong:
+# appending the raw byte left the tracked box permanently non-empty, since
+# nothing ever removes it again short of Enter/Ctrl-U/Ctrl-C).
+_LINE_WORD_DELETE_BYTES = frozenset({0x17})
+# Ctrl-K (kill-to-end-of-line, 0x0B) deletes everything AFTER the cursor in a
+# real shell. This model tracks no cursor position (it assumes "typing at the
+# end", the same assumption `_LINE_BACKSPACE_BYTES` already makes) -- under
+# that assumption there is nothing after the cursor to kill, so it is modelled
+# as a harmless no-op: consumed, but neither appended (which wedged the box
+# non-empty forever) nor treated as a clear (which could silently drop content
+# still genuinely in the real box).
+_LINE_KILL_TO_END_BYTES = frozenset({0x0B})
 # A submitted line whose (whitespace-stripped) text starts with this is a human
 # `/compact` — the supervisor detects it to avoid stacking its own /compact on
 # top (Claude Code aborts the duplicate). Covers `/compact` and `/compact <args>`.
@@ -613,6 +643,11 @@ _CSI_ARROW_UP = 0x41  # 'A'
 _CSI_ARROW_DOWN = 0x42  # 'B'
 _PASTE_START_PARAMS = (0x32, 0x30, 0x30)  # "200"
 _PASTE_END_PARAMS = (0x32, 0x30, 0x31)  # "201"
+# Plan 00398 Phase 4: bound on how many bytes `_in_paste` trusts without
+# seeing the end marker. Generous -- far past any real paste -- so it only
+# ever trips on a genuinely dropped/malformed ESC[201~, not a large legitimate
+# paste.
+_PASTE_LATCH_MAX_BYTES = 65536
 
 
 class HumanInputLine:
@@ -638,6 +673,18 @@ class HumanInputLine:
         self._state: int = _ST_GROUND
         self._csi_params: list[int] = []
         self._in_paste: bool = False
+        # Plan 00398 Phase 4: bytes consumed as paste payload since the
+        # current `_in_paste` spell started -- bounds the latch (see
+        # `_PASTE_LATCH_MAX_BYTES`). Meaningless while `_in_paste` is False.
+        self._paste_bytes: int = 0
+        # Plan 00398 Phase 2: wall-clock timestamp the buffer's CONTENT last
+        # changed (set/cleared/refreshed by every content-mutating `feed`, never
+        # by mere elapsed time) -- the stability guard's whole basis. `None`
+        # until the first change. Wall-clock to match every other timer in this
+        # file (cooldowns, escape intervals), and because it must be meaningful
+        # to BOTH the long-lived host instance and a short-lived worker instance
+        # fed only `now_wall` over JSON.
+        self._last_changed_at: float | None = None
         # Edge flag: set when a submitted line was a human `/compact`, cleared by
         # take_compact_submitted() so the supervisor acts on it exactly once.
         self._compact_submitted: bool = False
@@ -652,11 +699,24 @@ class HumanInputLine:
         # autocomplete swallowing the argument bytes) is diagnosable from the
         # worker's diagnostic log instead of failing invisibly.
         self._slash_submitted: list[str] = []
+        # Edge flag: the human pressed Enter (on ANY box content, even an empty
+        # one). Whatever the box held went with it -- including a line the
+        # supervisor itself typed -- so the own-line follow-up stands down.
+        self._enter_pressed: bool = False
 
-    def feed(self, data: bytes) -> None:
-        """Advance the line model with a chunk of forwarded human stdin bytes."""
+    def feed(self, data: bytes, *, now: float | None = None) -> None:
+        """Advance the line model with a chunk of forwarded human stdin bytes.
+
+        ``now`` (Plan 00398 Phase 2) stamps a CONTENT change for the stability
+        guard -- wall-clock, so it lines up with every other timer in this
+        file. Defaults to the real clock; tests pass a fixed value so
+        stability can be asserted deterministically.
+        """
+        before = bytes(self._buffer)
         for byte in data:
             self._consume(byte)
+        if bytes(self._buffer) != before:
+            self._last_changed_at = time.time() if now is None else now
 
     def _consume(self, byte: int) -> None:
         state = self._state
@@ -682,11 +742,28 @@ class HumanInputLine:
             # Inside bracketed paste every non-ESC byte is literal paste
             # payload -- real box content, including embedded CR/LF.
             self._buffer.append(byte)
+            self._paste_bytes += 1
+            if self._paste_bytes > _PASTE_LATCH_MAX_BYTES:
+                # Plan 00398 Phase 4: bound the latch. No real bracketed-paste
+                # burst is this large, so a dropped/missing ESC[201~ end
+                # marker must not swallow every later keystroke -- including
+                # the human's own Enter -- forever. Falls back to ground,
+                # consistent with this parser's policy for other malformed
+                # sequences (an aborted CSI does the same).
+                self._in_paste = False
             return
-        if byte in _LINE_CLEAR_BYTES:
+        if byte in _LINE_WORD_DELETE_BYTES:
+            self._word_delete()
+        elif byte in _LINE_KILL_TO_END_BYTES:
+            # No cursor tracking -- see `_LINE_KILL_TO_END_BYTES`. Consumed as
+            # a no-op: neither appended (which wedged the box permanently
+            # non-empty) nor a clear (which could drop real content).
+            pass
+        elif byte in _LINE_CLEAR_BYTES:
             # Only Enter SUBMITS the line; Ctrl-U/Ctrl-C discard it. A submitted
             # `/compact` sets the edge flag so the supervisor can defer to it.
             if byte in _LINE_SUBMIT_BYTES:
+                self._enter_pressed = True
                 if self._buffer_is_compact():
                     self._compact_submitted = True
                 effort_arg = self._buffer_command_arg(_EFFORT_COMMAND)
@@ -702,6 +779,19 @@ class HumanInputLine:
                 self._buffer.pop()
         else:
             self._buffer.append(byte)
+
+    def _word_delete(self) -> None:
+        """Delete the trailing WORD (Ctrl-W / unix-word-rubout), not the whole line.
+
+        Pops trailing whitespace, then the non-whitespace run behind it --
+        mirroring real shells (`readline`'s unix-word-rubout), and consistent
+        with `_LINE_BACKSPACE_BYTES` in operating purely on the tail of the
+        buffer (no cursor-position tracking exists in this model).
+        """
+        while self._buffer and self._buffer[-1] in _LINE_WHITESPACE_BYTES:
+            self._buffer.pop()
+        while self._buffer and self._buffer[-1] not in _LINE_WHITESPACE_BYTES:
+            self._buffer.pop()
 
     def _consume_esc(self, byte: int) -> None:
         if byte == _CSI_INTRODUCER:
@@ -729,8 +819,10 @@ class HumanInputLine:
         params = tuple(self._csi_params)
         if final == _CSI_FINAL_TILDE and params == _PASTE_START_PARAMS:
             self._in_paste = True
+            self._paste_bytes = 0
         elif final == _CSI_FINAL_TILDE and params == _PASTE_END_PARAMS:
             self._in_paste = False
+            self._paste_bytes = 0
         elif not params and final in (_CSI_ARROW_UP, _CSI_ARROW_DOWN):
             # Up/Down recall history into an empty box -- conservatively content.
             self._buffer.append(final)
@@ -786,10 +878,46 @@ class HumanInputLine:
         self._slash_submitted = []
         return lines
 
+    def take_enter_pressed(self) -> bool:
+        """Return True once if the human pressed Enter since last checked."""
+        pressed = self._enter_pressed
+        self._enter_pressed = False
+        return pressed
+
     @property
     def is_empty(self) -> bool:
         """True when the box holds no non-whitespace human input."""
         return all(byte in _LINE_WHITESPACE_BYTES for byte in self._buffer)
+
+    def is_abandoned(self, *, now: float, threshold_seconds: float) -> bool:
+        """True when the box holds content UNCHANGED for >= ``threshold_seconds``.
+
+        Plan 00398 Phase 2: deliberately NOT "non-empty for threshold_seconds".
+        The clock restarts on every content-mutating `feed` (including one that
+        clears the box), so a human typing continuously is never judged
+        abandoned no matter how long the box has been non-empty -- only a box
+        that has stopped changing is. Always False while empty: there is
+        nothing to abandon.
+        """
+        if self.is_empty or self._last_changed_at is None:
+            return False
+        return (now - self._last_changed_at) >= threshold_seconds
+
+    def clear(self) -> None:
+        """Reset the tracked box to empty, as if a real submit had cleared it.
+
+        Plan 00398 Phase 3: the abandoned-box flush presses Enter directly on
+        the PTY master (the same path every other supervisor injection uses),
+        which never passes through `feed` -- so without an explicit reset the
+        model would keep showing the just-submitted text forever and judge it
+        abandoned again on every later tick. Called ONLY by that flush path,
+        immediately after deciding to fire it.
+        """
+        self._buffer.clear()
+        self._state = _ST_GROUND
+        self._csi_params = []
+        self._in_paste = False
+        self._last_changed_at = None
 
 
 @dataclass
@@ -800,11 +928,16 @@ class InputActivity:
     last_input_monotonic: float | None = None
     line: HumanInputLine = field(default_factory=HumanInputLine)
 
-    def record(self, data: bytes) -> None:
-        """Record a chunk of stdin data that was forwarded to the child."""
+    def record(self, data: bytes, *, now: float | None = None) -> None:
+        """Record a chunk of stdin data that was forwarded to the child.
+
+        ``now`` (Plan 00398 Phase 2) is the wall-clock stamp forwarded to
+        `HumanInputLine.feed` for its stability clock; defaults to the real
+        clock, same as `feed` itself.
+        """
         self.bytes_seen += len(data)
         self.last_input_monotonic = os.times().elapsed
-        self.line.feed(data)
+        self.line.feed(data, now=now)
 
     def take_compact_submitted(self) -> bool:
         """Return True once if the human submitted a `/compact` since last checked."""
@@ -1498,6 +1631,8 @@ class Decision(enum.Enum):
     WOULD_EFFORT = "would-effort"
     WOULD_MODEL = "would-model"
     WOULD_AUDIT = "would-audit"
+    WOULD_OPERATOR_SIGNAL = "would-operator-signal"
+    WOULD_SESSION_ACTIONS = "would-session-actions"
 
 
 class SupervisorState(enum.Enum):
@@ -1578,6 +1713,14 @@ class Evaluation:
 
     decision: Decision
     reason: str
+    # Plan 00398 Phase 3: True ONLY for the abandoned-input-box flush (a
+    # WOULD_RESUBMIT fired because the box has been unchanged past the
+    # stability threshold, not the AWAIT-flush loop's or the own-line
+    # follow-up's WOULD_RESUBMIT). Tells the caller to reset the tracked
+    # `HumanInputLine` model, which the flush's own injected Enter -- written
+    # straight to the PTY master like every other supervisor keystroke --
+    # never touches.
+    abandoned_box_flush: bool = False
 
 
 @dataclass(frozen=True)
@@ -1602,6 +1745,11 @@ class TickFacts:
     # platform's own downgrade record, so a human's model choice needs no
     # recognition to be respected.
     human_effort_command: str | None = None
+    # The human pressed Enter since the last tick. Recomputed by the worker
+    # from ``human_raw_input`` (so no host change is needed to carry it);
+    # False on the in-process path and on legacy hosts. Whatever the box held
+    # was submitted by that keypress, so a pending own line is cleared.
+    human_enter_pressed: bool = False
     # Plan 00317: raw stdin bytes forwarded since the last tick, base64-encoded
     # (JSON has no byte-string type). Drained from the host's ``RawInputTap``.
     # The worker feeds this into its OWN persistent ``HumanInputLine`` and
@@ -1624,6 +1772,15 @@ class TickFacts:
     # never be consumed on a LATER tick and injected out of turn. 0 on the
     # in-process path (no worker, no correlation needed).
     tick_id: int = 0
+    # Plan 00398 Phase 2: True when the tracked input box holds content that
+    # has sat UNCHANGED for >= the stability threshold (never "non-empty for
+    # threshold_seconds" -- see `HumanInputLine.is_abandoned`). Computed by the
+    # host from its own long-lived `HumanInputLine`, which never loses history
+    # to a worker restart; the worker does NOT re-derive or AND this the way it
+    # does `input_line_empty` (unlike command recognition, a worker restart
+    # resetting this specific clock would silently re-open the very unbounded
+    # gate this plan exists to close). False on legacy hosts.
+    input_line_abandoned: bool = False
 
 
 @dataclass(frozen=True)
@@ -1703,6 +1860,13 @@ class TickOutcome:
     # flush happened this tick. `_apply_decision` writes it as an ADDITIONAL
     # decision.log line, never a substitute for the primary one.
     audit_flush_log: str | None = None
+    # Plan 00398 Phase 3: True ONLY when this tick decided the abandoned-box
+    # flush (`Evaluation.abandoned_box_flush`), so the HOST resets its tracked
+    # `HumanInputLine` (and the WORKER its own) once the Enter is injected --
+    # that injection never passes through `feed`, so without this the model
+    # would show the just-flushed text as non-empty forever. False for every
+    # other decision and for legacy replies without the field.
+    abandoned_box_flushed: bool = False
 
 
 def _coerce_float(value: object) -> float:
@@ -2387,6 +2551,10 @@ _GOAL_MAX_LOGICAL_LINES = 8
 # Family-specific per-process cap so a signal storm cannot type repeatedly
 # (each signal is also consumed on injection).
 _MAX_GOAL_INJECTIONS = 5
+# The goal cap is a ROLLING budget: at most _MAX_GOAL_INJECTIONS successful
+# injections inside this window. A lifetime cap met the fifth goal of a
+# session that lived for days and then silently ignored every later plan flip.
+_GOAL_CAP_WINDOW_SECONDS = 3600.0
 _DRY_RUN_GOAL_BODY_PREFIX = "would inject /goal (dry-run — no real /goal sent):"
 
 # ---------------------------------------------------------------------------
@@ -2614,6 +2782,115 @@ def load_standing_auth_signal(
 
 
 # ---------------------------------------------------------------------------
+# Session-actions directive (Plan 00416 Task 2.3).
+#
+# SessionStart output is delivered correctly and simply not acted on: injected
+# context is scenery, not a turn. The daemon tags each session-start message
+# with a computed tier, `Stop` verifies, and in between THIS types one
+# turn-level directive telling the agent to action every ACTION_REQUIRED item.
+# What changes the outcome is the channel, not the wording -- a single typed
+# line got the whole start-up block worked through where the block itself did
+# not.
+#
+# Security shape: the OPERATOR-SIGNAL one, not the goal one. The payload is a
+# positive integer `count` and nothing else, and every word below comes from
+# the fixed template in `_render_session_actions_message`. So unlike the goal
+# and standing-auth families -- which carry daemon-composed text and therefore
+# need a verbatim header check to keep a forged file from typing prose -- this
+# channel has no text to forge. A file carrying extra fields renders exactly
+# the same sentence.
+_SESSION_ACTIONS_SIGNAL_SUFFIX = ".session-actions"
+_SESSION_ACTIONS_SIGNAL_GLOB = f"*{_SESSION_ACTIONS_SIGNAL_SUFFIX}"
+# Pinned to the daemon-side writer's own field name
+# (`claude_code_hooks_daemon.utils.session_actions_signal.FIELD_COUNT`) by
+# `tests/unit/supervise/test_session_actions_signal.py`, since this script
+# cannot import that package.
+_SESSION_ACTIONS_FIELD_COUNT = "count"
+# Reuses the goal TTL: an idle-consumed signal with the same generous window.
+_DEFAULT_SESSION_ACTIONS_TTL_SECONDS = _DEFAULT_GOAL_SIGNAL_TTL_SECONDS
+# Runaway backstop only. The daemon writes at most one signal per session
+# start, and the file is consumed on injection, so this catches nothing but a
+# pathological write/consume loop.
+_MAX_SESSION_ACTIONS_INJECTIONS = 10
+# Carries the SAME invariant provenance marker every other supervisor chat
+# injection does, so skill-scan and the guardrail tests recognise it as
+# supervisor traffic.
+_SESSION_ACTIONS_HEADER = (
+    "🤖 [ccy-supervisor] session-start check — machine-generated, NOT a human "
+    "instruction and NOT human authorisation for anything"
+)
+_DRY_RUN_SESSION_ACTIONS_BODY_PREFIX = (
+    "would inject session-actions directive (dry-run — no real message sent):"
+)
+
+
+def _render_session_actions_message(count: int) -> str:
+    """Render the fixed, daemon-owned directive for ``count`` must-do items.
+
+    ``count`` is the ONLY value ever interpolated, and only after
+    :func:`load_session_actions_signal` has proven it a positive integer.
+    Every other word is the literal below, so no signal file -- forged,
+    corrupted or merely newer than this script -- can put words of its own
+    choosing into the chat.
+
+    The wording deliberately does NOT restate the items. They are already in
+    this session's start-up output verbatim; repeating them here would be the
+    "say it louder" remedy Plan 00416 rules out, and would also make this
+    channel one that carries content rather than a pointer.
+    """
+    return (
+        f"{_SESSION_ACTIONS_HEADER}: {count} item(s) in this session's start-up "
+        "output are tagged [ACTION_REQUIRED], which is computed from a failing "
+        "verifier rather than declared — something on disk says this session is "
+        "mis-configured. Read them and action every one before other work; "
+        "`hooks-daemon session-actions` re-lists them if they have scrolled out "
+        "of view."
+    )
+
+
+def load_session_actions_signal(
+    directory: Path,
+    *,
+    now: float,
+    ttl_seconds: float = _DEFAULT_SESSION_ACTIONS_TTL_SECONDS,
+    own_sessions: frozenset[str] | None = None,
+) -> tuple[Path | None, str | None, str | None]:
+    """Return ``(path, rendered_message, reject_reason)`` for a directive signal.
+
+    The same three-shape contract as :func:`load_standing_auth_signal`, but
+    like :func:`load_operator_signal` it validates AND RENDERS in one step:
+    the returned message is built entirely by
+    :func:`_render_session_actions_message`, so nothing read from the file is
+    ever used as anything other than a number.
+    """
+    if not directory.is_dir():
+        return None, None, None
+    for path in sorted(directory.glob(_SESSION_ACTIONS_SIGNAL_GLOB)):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None, None, f"unreadable/malformed session-actions signal {path.name}"
+        if not isinstance(data, dict):
+            return None, None, f"session-actions signal {path.name} is not a JSON object"
+        if not _session_in_scope(data.get("session_id"), own_sessions):
+            continue
+        if (now - _coerce_float(data.get("ts"))) > ttl_seconds:
+            continue
+        count = data.get(_SESSION_ACTIONS_FIELD_COUNT)
+        # `bool` is an `int` subclass -- excluded explicitly so `"count": true`
+        # is rejected rather than silently coerced to a one-item directive.
+        if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
+            return (
+                None,
+                None,
+                f"session-actions signal {path.name} has a non-positive-integer "
+                f"count {count!r}",
+            )
+        return path, _render_session_actions_message(count), None
+    return None, None, None
+
+
+# ---------------------------------------------------------------------------
 # Manual model-switch signal (test trigger / deliberate override).
 #
 # Mirrors the goal-intent signal: a session-keyed file dropped into the
@@ -2779,6 +3056,163 @@ def load_model_downgrade_signal(
     return None
 
 
+# ---------------------------------------------------------------------------
+# Operator signal (Plan 00417): reboot/shutdown warnings from OUTSIDE the
+# container, written by `hooks-daemon signal` (mirroring `--emit-model-switch`
+# and `inject-goal`). The SECURITY SHAPE is different from every signal above
+# on purpose: this is the one channel reachable from the HOST, not from
+# inside a session, so it is built closed rather than merely shape-checked --
+# a fixed set of `kind`s and, for the two that need one, a bare positive
+# integer (`minutes`). There is no free-text field and no reason field
+# anywhere in the schema, so a forged or corrupted signal file can, at
+# absolute worst, cause one of three PRE-WRITTEN sentences below to appear
+# early, late, or not at all -- never arbitrary text. `load_operator_signal`
+# validates AND renders in one step (unlike `load_goal_signal`, which only
+# validates shape and leaves the text itself alone): the payload's only use
+# anywhere in `_render_operator_message` is a number inside a literal
+# template, and `kind` is used only to SELECT which literal to return, never
+# interpolated into it.
+# ---------------------------------------------------------------------------
+
+_OPERATOR_SIGNAL_SUFFIX = ".operator-signal"
+_OPERATOR_SIGNAL_GLOB = f"*{_OPERATOR_SIGNAL_SUFFIX}"
+# Reuses the reaper's own generous window rather than the shorter goal-signal
+# TTL: a reboot warning must still be deliverable after a session stays busy
+# for a while, and a signal that outlived this TTL is about to be reaped
+# anyway, so there is no point setting a shorter one.
+_DEFAULT_OPERATOR_SIGNAL_TTL_SECONDS = _DEFAULT_REAP_TTL_SECONDS
+
+# The closed set of kinds -- pinned to the daemon-side writer's own copies
+# (`claude_code_hooks_daemon.utils.operator_signal`) by
+# `tests/unit/supervise/test_operator_signal.py`, since this script cannot
+# import that package.
+_OPERATOR_KIND_REBOOT_WARNING = "reboot-warning"
+_OPERATOR_KIND_SHUTDOWN_WARNING = "shutdown-warning"
+_OPERATOR_KIND_REBOOT_CANCELLED = "reboot-cancelled"
+_OPERATOR_KINDS_WITH_MINUTES = frozenset(
+    {_OPERATOR_KIND_REBOOT_WARNING, _OPERATOR_KIND_SHUTDOWN_WARNING}
+)
+_OPERATOR_KINDS = _OPERATOR_KINDS_WITH_MINUTES | {_OPERATOR_KIND_REBOOT_CANCELLED}
+
+# Carries the SAME invariant provenance marker every other supervisor chat
+# injection does (see the RULESET note above `_AUDIT_BANNER_GLYPH`), so
+# skill-scan and the guardrail tests recognise it as supervisor traffic.
+_OPERATOR_HEADER = (
+    "🤖 [ccy-supervisor] operator signal — machine-generated, NOT a human instruction"
+)
+_DRY_RUN_OPERATOR_BODY_PREFIX = (
+    "would inject operator-signal warning (dry-run — no real message sent):"
+)
+# Status-line display window for a `reboot-cancelled` notice, which carries
+# no minutes and so has no real deadline to count down to -- a short, fixed,
+# non-countdown TTL like the other one-off keystroke notices.
+_OPERATOR_CANCEL_NOTICE_TTL_SECONDS = 30.0
+
+
+def _render_operator_message(kind: str, minutes: int | None) -> str:
+    """Render the fixed, daemon-owned sentence for one operator-signal kind.
+
+    The ONLY value ever interpolated is ``minutes``, and only after
+    :func:`load_operator_signal` has already proven it a positive integer --
+    every other word comes from the literal templates below. ``kind`` itself
+    is never interpolated into the returned text, only used to SELECT a
+    branch, so even a forged ``kind`` string could never appear verbatim in
+    what the agent reads.
+    """
+    if kind == _OPERATOR_KIND_REBOOT_WARNING:
+        return (
+            f"{_OPERATOR_HEADER}: the host machine will reboot in {minutes} minute(s). "
+            "Commit and push any uncommitted work, journal state, finish the current "
+            "step, and start nothing new -- a session restore will follow."
+        )
+    if kind == _OPERATOR_KIND_SHUTDOWN_WARNING:
+        return (
+            f"{_OPERATOR_HEADER}: the host machine will shut down in {minutes} minute(s) "
+            "and NO session restore will follow. Commit and push any uncommitted work, "
+            "journal state, finish the current step, start nothing new, and leave a "
+            "handoff entry for whoever picks this up."
+        )
+    if kind == _OPERATOR_KIND_REBOOT_CANCELLED:
+        return (
+            f"{_OPERATOR_HEADER}: the previously warned reboot has been cancelled -- "
+            "resume normal work."
+        )
+    raise ValueError(f"unknown operator signal kind {kind!r}")  # pragma: no cover -- unreachable;
+    # load_operator_signal already refuses any kind outside _OPERATOR_KINDS
+    # before this function is ever called.
+
+
+def load_operator_signal(
+    directory: Path,
+    *,
+    now: float,
+    ttl_seconds: float = _DEFAULT_OPERATOR_SIGNAL_TTL_SECONDS,
+    own_sessions: frozenset[str] | None = None,
+) -> tuple[Path | None, str | None, float | None, str | None]:
+    """Return ``(path, rendered_message, deadline_wall, reject_reason)``.
+
+    A four-shape contract, widened by one field from :func:`load_goal_signal`:
+    a valid fresh in-scope signal yields ``(path, message, deadline, None)``;
+    an in-scope fresh signal that FAILS validation (unknown kind, a
+    non-positive-integer ``minutes``) yields ``(None, None, None, reason)``;
+    no actionable signal at all yields ``(None, None, None, None)``.
+    Foreign-session and stale signals are skipped silently.
+
+    Unlike ``load_goal_signal`` -- which validates the goal payload's SHAPE
+    only and leaves the text itself alone -- this validates AND RENDERS in
+    one step: the returned ``message`` is built entirely by
+    :func:`_render_operator_message` from fixed templates, so nothing read
+    from the file is ever used as anything other than a number or a branch
+    selector.
+
+    ``deadline_wall`` is the absolute wall-clock instant (epoch seconds,
+    the signal's own ``ts`` field plus ``minutes`` * 60) a status-line
+    countdown should count down to, or ``None`` for a kind that carries no
+    minutes (``reboot-cancelled``). It is computed from the signal's ts,
+    once, here -- recomputing "now + minutes" on every tick would push the
+    deadline forward by however long that tick took, so the countdown would
+    never converge on the real deadline.
+    """
+    if not directory.is_dir():
+        return None, None, None, None
+    for path in sorted(directory.glob(_OPERATOR_SIGNAL_GLOB)):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None, None, None, f"unreadable/malformed operator signal {path.name}"
+        if not isinstance(data, dict):
+            return None, None, None, f"operator signal {path.name} is not a JSON object"
+        if not _session_in_scope(data.get("session_id"), own_sessions):
+            continue
+        ts = _coerce_float(data.get("ts"))
+        if (now - ts) > ttl_seconds:
+            continue
+        kind = data.get("kind")
+        if kind not in _OPERATOR_KINDS:
+            return None, None, None, f"operator signal {path.name} names unknown kind {kind!r}"
+        minutes: int | None = None
+        if kind in _OPERATOR_KINDS_WITH_MINUTES:
+            raw_minutes = data.get("minutes")
+            # `bool` is an `int` subclass -- excluded explicitly so
+            # `"minutes": true` is rejected rather than silently coerced to 1.
+            if (
+                isinstance(raw_minutes, bool)
+                or not isinstance(raw_minutes, int)
+                or raw_minutes <= 0
+            ):
+                return (
+                    None,
+                    None,
+                    None,
+                    f"operator signal {path.name} has a non-positive-integer minutes "
+                    f"{raw_minutes!r}",
+                )
+            minutes = raw_minutes
+        deadline = ts + minutes * 60.0 if minutes is not None else None
+        return path, _render_operator_message(kind, minutes), deadline, None
+    return None, None, None, None
+
+
 def reap_stale_sidecars(
     directory: Path,
     *,
@@ -2790,8 +3224,10 @@ def reap_stale_sidecars(
 
     Reaps ``*.json`` sidecars, ``*.compacting`` signals, ``*.goal-intent``
     signals, ``*.goal-clear`` triggers, ``*.standing-auth-intent`` signals,
-    ``*.model-switch-intent`` signals and ``*.model-downgrade``
-    signals whose FILE MTIME is older than ``ttl_seconds``. Mtime (not the JSON ``ts``) is used so a
+    ``*.model-switch-intent`` signals, ``*.model-downgrade``
+    signals, ``*.operator-signal`` signals and ``*.session-actions``
+    directives whose FILE MTIME is older than
+    ``ttl_seconds``. Mtime (not the JSON ``ts``) is used so a
     malformed, truncated, or foreign file is reaped uniformly without a parse --
     a dead file is a dead file. The single newest-mtime ``*.json`` is ALWAYS
     spared, so the supervisor's current reading source is never removed even when
@@ -2817,6 +3253,8 @@ def reap_stale_sidecars(
         + list(directory.glob(_STANDING_AUTH_SIGNAL_GLOB))
         + list(directory.glob(_MODEL_SWITCH_SIGNAL_GLOB))
         + list(directory.glob(_MODEL_DOWNGRADE_SIGNAL_GLOB))
+        + list(directory.glob(_OPERATOR_SIGNAL_GLOB))
+        + list(directory.glob(_SESSION_ACTIONS_SIGNAL_GLOB))
     ):
         try:
             mtime = path.stat().st_mtime
@@ -2898,6 +3336,12 @@ class CompactStateMachine:
         self._injections = 0
         self._last_action_ts: float | None = None
         self._compaction_handled = False
+        # Plan 00398 Phase 3: one-shot per-episode latch -- True once the
+        # abandoned-box flush has fired for the box's CURRENT abandoned spell,
+        # so a box the flush's Enter failed to clear gets exactly one attempt,
+        # never a resubmit loop. Reset (in `_evaluate_monitor`) the moment the
+        # box stops reading abandoned, whatever the reason.
+        self._abandoned_box_handled = False
         # ESC-flush bookkeeping for the current AWAIT_COMPACTING episode: how many
         # [esc] we have already injected to flush the queued /compact. Capped at
         # policy.max_escapes, then we give up and return to MONITOR (Plan 00164).
@@ -2915,6 +3359,15 @@ class CompactStateMachine:
         # signals are consumed on injection, so this only ever matters under a
         # signal storm; per-process lifetime, never reset.
         self._goal_injections = 0
+        # Wall-clock timestamps of successful goal injections, pruned to the
+        # rolling cap window on read (`goal_injections_within`).
+        self._goal_injection_ts: list[float] = []
+        # The supervisor's own most recent submitted line, while it is still
+        # unconfirmed: its text, the time it was typed (or last followed up),
+        # and how many follow-up Enters have been pressed for it.
+        self._own_line_text: str | None = None
+        self._own_line_ts: float | None = None
+        self._own_line_resubmits = 0
         # Plan 00299: the exact combined /goal text last SUCCESSFULLY
         # injected (None until the first injection). Compared verbatim (not
         # hashed -- the text is already length-capped) against the next
@@ -2927,6 +3380,10 @@ class CompactStateMachine:
         # Plan 00283: standing-authorisation reinforcement injections this process
         # has fired. Runaway backstop only (see _MAX_STANDING_AUTH_INJECTIONS).
         self._standing_auth_injections = 0
+        # Plan 00416: session-actions directives typed this process. Runaway
+        # backstop only (see _MAX_SESSION_ACTIONS_INJECTIONS) -- the daemon
+        # writes at most one signal per session start, consumed on injection.
+        self._session_actions_injections = 0
         # Plan 00278: effort-floor tracking. The last observed (session,
         # family) pair, an open downgrade episode ("session:family"), the
         # pending injection key ("session:family:target" — recomputed from
@@ -3570,16 +4027,69 @@ class CompactStateMachine:
         """How many goal injections this process has fired (Plan 00269)."""
         return self._goal_injections
 
-    def mark_goal_injection(self, goal_line: str | None = None) -> None:
-        """Count one goal injection against the family cap (Plan 00269).
+    def mark_goal_injection(
+        self, goal_line: str | None = None, *, now_wall: float | None = None
+    ) -> None:
+        """Count one goal injection against the rolling family cap (Plan 00269).
 
         ``goal_line`` (Plan 00299) records the injected text as the thrash
         guard for the NEXT tick's candidate; omitted/None leaves the guard
         unchanged (legacy callers, and tests exercising the cap alone).
+        ``now_wall`` stamps the injection for the rolling window; a legacy
+        host that omits it is stamped with the wall clock.
         """
         self._goal_injections += 1
+        self._goal_injection_ts.append(time.time() if now_wall is None else now_wall)
         if goal_line is not None:
             self._last_goal_text = goal_line
+
+    def goal_injections_within(self, window_seconds: float, now_wall: float) -> int:
+        """How many goal injections fired in the last ``window_seconds``."""
+        return sum(1 for ts in self._goal_injection_ts if now_wall - ts < window_seconds)
+
+    @property
+    def own_line_pending(self) -> bool:
+        """True while a line the supervisor typed is still unconfirmed."""
+        return self._own_line_text is not None
+
+    @property
+    def own_line_text(self) -> str | None:
+        """The unconfirmed own line's text, or None."""
+        return self._own_line_text
+
+    @property
+    def own_line_resubmits(self) -> int:
+        """How many follow-up Enters the pending own line has had."""
+        return self._own_line_resubmits
+
+    def mark_own_line_typed(self, payload: str, now_wall: float) -> None:
+        """Remember a just-submitted own line as unconfirmed box content.
+
+        A raw keypress (ESC, a bare Enter) is not a line and is never
+        remembered; only text that was pasted and submitted is.
+        """
+        if not payload.strip() or payload in (_RESUBMIT_PAYLOAD, _ESC_PAYLOAD):
+            return
+        self._own_line_text = payload
+        self._own_line_ts = now_wall
+        self._own_line_resubmits = 0
+
+    def mark_own_line_resubmit(self, now_wall: float) -> None:
+        """Record one follow-up Enter and restart the interval."""
+        self._own_line_resubmits += 1
+        self._own_line_ts = now_wall
+
+    def own_line_resubmit_due(self, now_wall: float) -> bool:
+        """True when the pending own line has aged past the follow-up interval."""
+        if self._own_line_ts is None:
+            return False
+        return now_wall - self._own_line_ts >= _OWN_LINE_RESUBMIT_SECONDS
+
+    def clear_own_line(self) -> None:
+        """Forget the pending own line (it went, or the budget is spent)."""
+        self._own_line_text = None
+        self._own_line_ts = None
+        self._own_line_resubmits = 0
 
     @property
     def last_goal_text(self) -> str | None:
@@ -3613,6 +4123,15 @@ class CompactStateMachine:
         self._standing_auth_injections += 1
 
     @property
+    def session_actions_injections(self) -> int:
+        """How many session-actions directives this process has typed (Plan 00416)."""
+        return self._session_actions_injections
+
+    def mark_session_actions_injection(self) -> None:
+        """Count one session-actions directive against the runaway backstop (Plan 00416)."""
+        self._session_actions_injections += 1
+
+    @property
     def dry_run_fired(self) -> bool:
         """True once a dry-run marker has been injected this session (Plan 00183)."""
         return self._dry_run_fired
@@ -3639,9 +4158,14 @@ class CompactStateMachine:
             "await_is_human": self._await_is_human,
             "dry_run_fired": self._dry_run_fired,
             "goal_injections": self._goal_injections,
+            "goal_injection_ts": list(self._goal_injection_ts),
+            "own_line_text": self._own_line_text,
+            "own_line_ts": self._own_line_ts,
+            "own_line_resubmits": self._own_line_resubmits,
             "goal_clear_injections": self._goal_clear_injections,
             "last_goal_text": self._last_goal_text,
             "standing_auth_injections": self._standing_auth_injections,
+            "session_actions_injections": self._session_actions_injections,
             "last_model_session": self._last_model_session,
             "last_model_family": self._last_model_family,
             "downgrade_episode": self._downgrade_episode,
@@ -3691,6 +4215,19 @@ class CompactStateMachine:
             self._dry_run_fired = bool(state["dry_run_fired"])
         if "goal_injections" in state:
             self._goal_injections = _coerce_int(state["goal_injections"])
+        if "goal_injection_ts" in state:
+            raw = state["goal_injection_ts"]
+            self._goal_injection_ts = (
+                [_coerce_float(item) for item in raw] if isinstance(raw, list) else []
+            )
+        if "own_line_text" in state:
+            raw = state["own_line_text"]
+            self._own_line_text = None if raw is None else str(raw)
+        if "own_line_ts" in state:
+            raw = state["own_line_ts"]
+            self._own_line_ts = None if raw is None else _coerce_float(raw)
+        if "own_line_resubmits" in state:
+            self._own_line_resubmits = _coerce_int(state["own_line_resubmits"])
         if "goal_clear_injections" in state:
             self._goal_clear_injections = _coerce_int(state["goal_clear_injections"])
         if "last_goal_text" in state:
@@ -3698,6 +4235,8 @@ class CompactStateMachine:
             self._last_goal_text = None if raw is None else str(raw)
         if "standing_auth_injections" in state:
             self._standing_auth_injections = _coerce_int(state["standing_auth_injections"])
+        if "session_actions_injections" in state:
+            self._session_actions_injections = _coerce_int(state["session_actions_injections"])
         if "last_model_session" in state:
             raw = state["last_model_session"]
             self._last_model_session = None if raw is None else str(raw)
@@ -3781,6 +4320,7 @@ class CompactStateMachine:
         human_compact_submitted: bool = False,
         work_idle: bool = True,
         foreground_ambiguous: bool = False,
+        input_line_abandoned: bool = False,
     ) -> Evaluation:
         """Advance the machine one step and return what it WOULD do.
 
@@ -3799,6 +4339,22 @@ class CompactStateMachine:
         ``work_idle`` (Plan 00152) is True when the child has produced no output
         recently (the turn has settled). It only gates the LOWER red band: an
         elevated-band or critical reading compacts regardless of ``work_idle``.
+
+        ``idle`` is a SEPARATE, unconditional gate checked ahead of the
+        ``work_idle``/band split above and applies to EVERY band including
+        critical (Plan 00398): it is False on a human keystroke or a non-empty
+        input box, and a compaction never fires while it is False, however
+        urgent the reading. Do not read the ``work_idle`` sentence above as
+        "critical always compacts" -- it describes only the band split that
+        follows ``idle``, not a bypass of ``idle`` itself.
+
+        ``input_line_abandoned`` (Plan 00398 Phase 3) is True when the box
+        ``idle`` is False for has held UNCHANGED content past the stability
+        threshold -- a human mid-sentence, not one who has walked away. While
+        it holds, a red-or-worse reading fires ONE flush (submit the pending
+        text via the existing resubmit/Enter path, `Decision.WOULD_RESUBMIT`)
+        instead of deferring forever, then compacts normally once the box
+        reads empty again.
         """
         compacting = reading is not None and reading.compacting
         if compacting:
@@ -3858,6 +4414,7 @@ class CompactStateMachine:
             work_idle=work_idle,
             now=now,
             foreground_ambiguous=foreground_ambiguous,
+            input_line_abandoned=input_line_abandoned,
         )
 
     def _evaluate_monitor(
@@ -3868,7 +4425,14 @@ class CompactStateMachine:
         work_idle: bool,
         now: float,
         foreground_ambiguous: bool = False,
+        input_line_abandoned: bool = False,
     ) -> Evaluation:
+        # Plan 00398 Phase 3: the flush latch is scoped to the box's CURRENT
+        # abandoned spell, consumed here every tick regardless of what follows
+        # below -- a stale/non-red/ambiguous tick must not leave a stale latch
+        # armed for a LATER, unrelated episode.
+        if not input_line_abandoned:
+            self._abandoned_box_handled = False
         if reading is None:
             return Evaluation(Decision.NOOP, "no sidecar reading")
         if reading.stale:
@@ -3881,6 +4445,28 @@ class CompactStateMachine:
         if foreground_ambiguous:
             return Evaluation(Decision.NOOP, _REASON_FOREGROUND_AMBIGUOUS)
         if not idle:
+            if input_line_abandoned and not self._abandoned_box_handled:
+                # Owner ruling (Plan 00398): text unchanged for the stability
+                # threshold is "captured text by accident" -- submit it via the
+                # SAME resubmit/Enter machinery the AWAIT-flush loop already
+                # uses (no new keystroke path), then let the ordinary idle+red
+                # check above compact on a later tick once the box reads empty.
+                # One-shot: `_abandoned_box_handled` is not cleared again until
+                # the box stops reading abandoned, so a box the Enter fails to
+                # clear gets exactly one attempt, never a resubmit loop.
+                # Deliberately does NOT touch `_last_action_ts`: doing so would
+                # arm the (up to 300s) compact cooldown against this flush and
+                # delay the very compaction it exists to unblock -- CRITICAL
+                # bypasses cooldown, but a non-critical urgent reading (the
+                # production incident's actual band) would not.
+                self._abandoned_box_handled = True
+                return Evaluation(
+                    Decision.WOULD_RESUBMIT,
+                    f"input box unchanged for >= "
+                    f"{_DEFAULT_INPUT_LINE_ABANDON_SECONDS:.0f}s -> submitting the "
+                    "pending text before compacting",
+                    abandoned_box_flush=True,
+                )
             return Evaluation(Decision.NOOP, _REASON_BUSY_COMPOSING)
         # Plan 00152 graduated bands: critical is always urgent. In the LOWER red
         # band (red but not urgent) stay PATIENT -- defer until the child output
@@ -4085,6 +4671,27 @@ _DRY_RUN_RESUBMIT_BODY = (
     "would press [enter] to submit a /compact left unsubmitted in the input box "
     "(dry-run — no real Enter sent)"
 )
+# Plan 00398 Phase 3: the SAME keystroke (Decision.WOULD_RESUBMIT, a raw Enter)
+# also flushes a box abandoned by the HUMAN, which is a different situation
+# from the AWAIT-flush use above (no /compact was ever queued) -- distinct
+# dry-run wording only, so the visible marker does not mislead about a stuck
+# /compact that was never there. The armed payload is identical either way
+# (`_RESUBMIT_PAYLOAD`): only the human-visible dry-run text differs.
+_DRY_RUN_ABANDONED_FLUSH_BODY = (
+    "would press [enter] to submit text left unchanged in the input box, then "
+    "compact (dry-run — no real Enter sent)"
+)
+# The supervisor's OWN typed line is followed up. A submitted injection is
+# remembered as box content until there is evidence it went: a human Enter, or
+# the session going busy after a follow-up Enter. Until then, at each lull
+# (human idle, child quiet) this long after the line was typed, one more Enter
+# is pressed -- harmless on an empty box, and the only key that submits a line
+# left sitting there (an Enter mid-turn did not submit a pasted /goal, which
+# then sat in the box for eight hours). Bounded so a session with a dialog
+# open, where Enter confirms a default, is never hammered.
+_OWN_LINE_RESUBMIT_SECONDS = 15.0
+_MAX_OWN_LINE_RESUBMITS = 2
+_OWN_LINE_NOOP_PREFIX = "own line"
 
 
 def _format_bot_prefix(now_wall: float | None = None) -> str:
@@ -4272,10 +4879,20 @@ _DEFAULT_IDLE_FLOOR_SECONDS = 2.0
 # the tick only ran on a clear `select` timeout (a genuine lull). Between-turn
 # lulls easily exceed this; an actively streaming turn never does.
 _DEFAULT_WORK_SETTLE_SECONDS = 3.0
+# Plan 00398 Phase 2: how long the input box's CONTENT must sit UNCHANGED
+# before it is judged abandoned rather than mid-composition. Far above the
+# idle floor above (2s, "between keystrokes") -- this is "the human walked
+# away", not "between keystrokes", so it must not be confused with or tuned
+# alongside it. Owner ruling, verbatim: "120 to give it plenty of safety".
+_DEFAULT_INPUT_LINE_ABANDON_SECONDS = 120.0
 
 
 def _resolve_payload(
-    decision: Decision, *, dry_run: bool, now_wall: float | None = None
+    decision: Decision,
+    *,
+    dry_run: bool,
+    now_wall: float | None = None,
+    abandoned_box_flush: bool = False,
 ) -> str | None:
     """Return the keystroke payload for a decision, or None for NOOP.
 
@@ -4287,6 +4904,12 @@ def _resolve_payload(
     ``_format_bot_prefix(now_wall)``) so the human can see WHEN the supervisor
     acted when scrolling back. The raw ESC (armed) is exempt -- it is an
     interrupt key, not a human-readable line.
+
+    ``abandoned_box_flush`` (Plan 00398 Phase 3) selects the dry-run wording
+    for a ``WOULD_RESUBMIT`` fired to flush a box abandoned by the HUMAN,
+    rather than the AWAIT-flush loop's stuck-``/compact`` case -- the armed
+    payload is identical either way (a bare Enter); only the visible marker
+    text would otherwise mislead about a ``/compact`` that was never queued.
     """
     prefix = _format_bot_prefix(now_wall)
     if decision is Decision.WOULD_COMPACT:
@@ -4300,7 +4923,10 @@ def _resolve_payload(
     if decision is Decision.WOULD_ESCAPE:
         return f"{prefix} {_DRY_RUN_ESCAPE_BODY}" if dry_run else _ESC_PAYLOAD
     if decision is Decision.WOULD_RESUBMIT:
-        return f"{prefix} {_DRY_RUN_RESUBMIT_BODY}" if dry_run else _RESUBMIT_PAYLOAD
+        if not dry_run:
+            return _RESUBMIT_PAYLOAD
+        body = _DRY_RUN_ABANDONED_FLUSH_BODY if abandoned_box_flush else _DRY_RUN_RESUBMIT_BODY
+        return f"{prefix} {body}"
     return None
 
 
@@ -4497,7 +5123,12 @@ def decide_once(
     # Empty-input-box guard: the machine only ever decides to inject when its
     # `idle` input is True, so AND-ing the box state into `idle` guards every
     # injection path without new machine states -- the busy branches already
-    # defer-and-retry correctly (no latch, no cooldown, signal kept).
+    # defer-and-retry correctly (no latch, no cooldown, signal kept). Plan
+    # 00398: this guard is no longer UNBOUNDED -- while `can_inject` is False,
+    # `_evaluate_monitor` separately checks `facts.input_line_abandoned` (the
+    # box content unchanged past the stability threshold) and, for a
+    # red-or-worse reading, flushes it via the existing resubmit/Enter
+    # machinery instead of deferring forever.
     can_inject = facts.idle and facts.input_line_empty
     # Plan 00164 Phase 4 fix: adopt the host's authoritative machine state before
     # deciding so the worker never runs on divergent state. None on the in-process
@@ -4529,8 +5160,14 @@ def decide_once(
         human_compact_submitted=facts.human_compact_submitted,
         work_idle=facts.work_idle,
         foreground_ambiguous=foreground_ambiguous,
+        input_line_abandoned=facts.input_line_abandoned,
     )
-    payload = _resolve_payload(evaluation.decision, dry_run=dry_run, now_wall=facts.now_wall)
+    payload = _resolve_payload(
+        evaluation.decision,
+        dry_run=dry_run,
+        now_wall=facts.now_wall,
+        abandoned_box_flush=evaluation.abandoned_box_flush,
+    )
     # Additional confirming Enters for a /model injection (set by the manual
     # switch branch and the auto-restore branch below); every other decision
     # leaves this at 0, which is a no-op in _perform_injection.
@@ -4572,7 +5209,7 @@ def decide_once(
         and not facts.input_line_empty
         and evaluation.reason in _INJECTION_GATED_REASONS
     ):
-        deferred_log = f"{_DEFERRED_LOG_PREFIX} ({evaluation.reason})"
+        deferred_log = f"{_DEFERRED_LOG_PREFIX} ({evaluation.reason}){_noop_band_suffix(reading)}"
     # Plan 00168 Phase 1: for every OTHER NOOP tick (not the input-box deferral
     # above, which already logs), emit a deduped NOOP-reason diagnostic naming
     # the gate + observed band. This makes a red-but-not-compacting session
@@ -4770,6 +5407,78 @@ def decide_once(
             submit = True
             deferred_log = None
             noop_reason_log = None
+    # ── Operator signal (Plan 00417): reboot/shutdown warning from the HOST ──
+    # Placed ahead of goal and model injections (owner's placement): a
+    # host-initiated reboot/shutdown warning is time-critical in a way
+    # neither is. Still strictly subordinate to compact/continue/escape,
+    # DROP ANCHOR and the coupled-effort correction above -- none of those
+    # may ever be interrupted by an informational warning. The STATUS-LINE
+    # notice below posts as soon as a valid signal is observed, regardless of
+    # whether the chat line can be typed THIS tick -- mirroring the audit
+    # banner's rationale (a file write cannot disturb what the user is
+    # typing) -- so the human sees the countdown at once even mid-turn. The
+    # chat line itself waits for the same idle + empty-box gate as the goal
+    # signal (``can_inject``), and additionally will not paste over a
+    # still-unconfirmed own line, since it types free text the same way goal
+    # and standing-auth do.
+    if (
+        payload is None
+        and evaluation.decision is Decision.NOOP
+        and signal_path is None
+        and machine.state is SupervisorState.MONITOR
+    ):
+        operator_path, operator_message, operator_deadline, operator_reject = load_operator_signal(
+            sidecar_dir, now=facts.now_wall, own_sessions=own_sessions
+        )
+        if operator_reject is not None:
+            # Fail-closed: an in-scope signal that failed validation (unknown
+            # kind, a non-positive-integer minutes) is dropped and the reason
+            # is logged -- nothing is ever posted to the status line for it.
+            noop_reason_log = f"{_NOOP_LOG_PREFIX}: {operator_reject}"
+        elif operator_path is not None and operator_message is not None:
+            write_status_message(
+                sidecar_dir.parent,
+                text=operator_message,
+                expires_at=(
+                    operator_deadline
+                    if operator_deadline is not None
+                    else facts.now_wall + _OPERATOR_CANCEL_NOTICE_TTL_SECONDS
+                ),
+                level=_STATUS_LEVEL_WARNING,
+                countdown=operator_deadline is not None,
+                now=facts.now_wall,
+            )
+            if machine.own_line_pending:
+                noop_reason_log = (
+                    f"{_NOOP_LOG_PREFIX}: operator signal pending but "
+                    f"{_OWN_LINE_NOOP_PREFIX} still in the input box"
+                )
+            elif not can_inject:
+                if facts.idle and not facts.input_line_empty:
+                    deferred_log = f"{_DEFERRED_LOG_PREFIX} (operator signal pending)"
+                else:
+                    noop_reason_log = (
+                        f"{_NOOP_LOG_PREFIX}: operator signal pending but session busy"
+                    )
+            else:
+                decision_value = Decision.WOULD_OPERATOR_SIGNAL.value
+                reason = "operator signal -> would inject warning"
+                if dry_run:
+                    payload = (
+                        f"{_format_bot_prefix(facts.now_wall)} "
+                        f"{_DRY_RUN_OPERATOR_BODY_PREFIX} {operator_message}"
+                    )
+                else:
+                    # The rendered message already opens with the bot-prefixed
+                    # machine-origin header, so it is typed verbatim as one
+                    # real user-role line -- no slash command, no extra chrome.
+                    payload = operator_message
+                submit = True
+                # Consumed in dry-run too -- the demonstration episode is
+                # spent either way, mirroring the goal signal's rule.
+                consume_signal_path = str(operator_path)
+                deferred_log = None
+                noop_reason_log = None
     # ── Manual model-switch override (test trigger / deliberate override) ────
     # Checked ahead of goal, effort and auto-model-restore so a deliberate
     # switch is never starved by them -- but still strictly after
@@ -4827,6 +5536,57 @@ def decide_once(
                 consume_signal_path = str(switch_path)
                 deferred_log = None
                 noop_reason_log = None
+    # ── The supervisor's OWN line is followed up ────────────────────────────
+    # Ahead of every family that would type MORE text (goal, goal clear,
+    # standing-auth), because those must not paste on top of a line that may
+    # still be sitting in the box. Subordinate to the compaction machine,
+    # whose ESC/Enter flush already handles its own stuck /compact.
+    own_line_blocks_text = False
+    if (
+        payload is None
+        and evaluation.decision is Decision.NOOP
+        and signal_path is None
+        and machine.state is SupervisorState.MONITOR
+        and machine.own_line_pending
+    ):
+        if facts.human_enter_pressed:
+            # The human submitted the box, own line included.
+            machine.clear_own_line()
+            noop_reason_log = (
+                f"{_NOOP_LOG_PREFIX}: {_OWN_LINE_NOOP_PREFIX} submitted by a human [enter]"
+            )
+        elif machine.own_line_resubmits > 0 and not facts.work_idle:
+            # The child went to work after the follow-up Enter: the line went.
+            machine.clear_own_line()
+            noop_reason_log = (
+                f"{_NOOP_LOG_PREFIX}: {_OWN_LINE_NOOP_PREFIX} confirmed submitted "
+                "(session busy after [enter])"
+            )
+        elif machine.own_line_resubmits >= _MAX_OWN_LINE_RESUBMITS:
+            machine.clear_own_line()
+            noop_reason_log = (
+                f"{_NOOP_LOG_PREFIX}: {_OWN_LINE_NOOP_PREFIX} follow-up budget spent "
+                f"({_MAX_OWN_LINE_RESUBMITS} [enter]) -> assumed submitted"
+            )
+        elif can_inject and facts.work_idle and machine.own_line_resubmit_due(facts.now_wall):
+            decision_value = Decision.WOULD_RESUBMIT.value
+            reason = (
+                f"{_OWN_LINE_NOOP_PREFIX} may still be unsubmitted in the input box "
+                f"({machine.own_line_text.split(None, 1)[0] if machine.own_line_text else '?'}) "
+                f"-> pressing [enter] "
+                f"({machine.own_line_resubmits + 1}/{_MAX_OWN_LINE_RESUBMITS})"
+            )
+            payload = (
+                f"{_format_bot_prefix(facts.now_wall)} {_DRY_RUN_RESUBMIT_BODY}"
+                if dry_run
+                else _RESUBMIT_PAYLOAD
+            )
+            submit = False
+            machine.mark_own_line_resubmit(facts.now_wall)
+            deferred_log = None
+            noop_reason_log = None
+        else:
+            own_line_blocks_text = True
     if (
         payload is None
         and evaluation.decision is Decision.NOOP
@@ -4844,12 +5604,20 @@ def decide_once(
             # is dropped and the reason is logged (deduped by write_noop).
             noop_reason_log = f"{_NOOP_LOG_PREFIX}: {goal_reject}"
         elif goal_path is not None and goal_line is not None:
-            if not can_inject:
+            if own_line_blocks_text:
+                noop_reason_log = (
+                    f"{_NOOP_LOG_PREFIX}: goal signal pending but {_OWN_LINE_NOOP_PREFIX} "
+                    "still in the input box"
+                )
+            elif not can_inject:
                 if facts.idle and not facts.input_line_empty:
                     deferred_log = f"{_DEFERRED_LOG_PREFIX} (goal injection pending)"
                 else:
                     noop_reason_log = f"{_NOOP_LOG_PREFIX}: goal signal pending but session busy"
-            elif machine.goal_injections >= _MAX_GOAL_INJECTIONS:
+            elif (
+                machine.goal_injections_within(_GOAL_CAP_WINDOW_SECONDS, facts.now_wall)
+                >= _MAX_GOAL_INJECTIONS
+            ):
                 noop_reason_log = f"{_NOOP_LOG_PREFIX}: goal injection cap reached"
             elif goal_line == machine.last_goal_text:
                 # Plan 00299 thrash guard: the daemon re-renders the combined
@@ -4899,7 +5667,12 @@ def decide_once(
             own_sessions=own_sessions,
         )
         if clear_path is not None:
-            if not can_inject:
+            if own_line_blocks_text:
+                noop_reason_log = (
+                    f"{_NOOP_LOG_PREFIX}: goal clear pending but {_OWN_LINE_NOOP_PREFIX} "
+                    "still in the input box"
+                )
+            elif not can_inject:
                 if facts.idle and not facts.input_line_empty:
                     deferred_log = f"{_DEFERRED_LOG_PREFIX} (goal clear pending)"
                 else:
@@ -5144,7 +5917,12 @@ def decide_once(
             # the reason logged (deduped by write_noop).
             noop_reason_log = f"{_NOOP_LOG_PREFIX}: {sa_reject}"
         elif sa_path is not None and sa_line is not None:
-            if not can_inject:
+            if own_line_blocks_text:
+                noop_reason_log = (
+                    f"{_NOOP_LOG_PREFIX}: standing-auth signal pending but "
+                    f"{_OWN_LINE_NOOP_PREFIX} still in the input box"
+                )
+            elif not can_inject:
                 if facts.idle and not facts.input_line_empty:
                     deferred_log = f"{_DEFERRED_LOG_PREFIX} (standing-auth reminder pending)"
                 else:
@@ -5174,6 +5952,71 @@ def decide_once(
                 consume_signal_path = str(sa_path)
                 deferred_log = None
                 noop_reason_log = None
+    # ── Session-actions directive (Plan 00416 Task 2.3) ─────────────────────
+    # LAST of every injectable family, below even the standing-auth reminder:
+    # it points at something the session has ALREADY been told, in its own
+    # start-up output, so anything with a live action to take goes first. The
+    # daemon's session_actions_directive handler writes the signal when a
+    # SessionStart verifier is currently failing; here we type the fixed
+    # directive as one real user-role line. The HOST counts a successful
+    # injection (mark_session_actions_injection); the signal is consumed on
+    # injection so it cannot re-fire.
+    if (
+        payload is None
+        and evaluation.decision is Decision.NOOP
+        and signal_path is None
+        and machine.state is SupervisorState.MONITOR
+    ):
+        actions_path, actions_message, actions_reject = load_session_actions_signal(
+            sidecar_dir,
+            now=facts.now_wall,
+            ttl_seconds=goal_signal_ttl_seconds,
+            own_sessions=own_sessions,
+        )
+        if actions_reject is not None:
+            # Fail-closed: an in-scope signal that failed validation (a
+            # non-positive-integer count, malformed JSON) is dropped and the
+            # reason logged.
+            noop_reason_log = f"{_NOOP_LOG_PREFIX}: {actions_reject}"
+        elif actions_path is not None and actions_message is not None:
+            if own_line_blocks_text:
+                noop_reason_log = (
+                    f"{_NOOP_LOG_PREFIX}: session-actions directive pending but "
+                    f"{_OWN_LINE_NOOP_PREFIX} still in the input box"
+                )
+            elif not can_inject:
+                if facts.idle and not facts.input_line_empty:
+                    deferred_log = f"{_DEFERRED_LOG_PREFIX} (session-actions directive pending)"
+                else:
+                    noop_reason_log = (
+                        f"{_NOOP_LOG_PREFIX}: session-actions directive pending but session busy"
+                    )
+            elif machine.session_actions_injections >= _MAX_SESSION_ACTIONS_INJECTIONS:
+                noop_reason_log = f"{_NOOP_LOG_PREFIX}: session-actions injection cap reached"
+            else:
+                decision_value = Decision.WOULD_SESSION_ACTIONS.value
+                reason = "session-actions signal -> would inject directive"
+                if dry_run:
+                    payload = (
+                        f"{_format_bot_prefix(facts.now_wall)} "
+                        f"{_DRY_RUN_SESSION_ACTIONS_BODY_PREFIX} {actions_message}"
+                    )
+                else:
+                    # The rendered message already opens with the bot-prefixed
+                    # machine-origin header, so it is typed verbatim as one real
+                    # user-role line — no slash command, no extra chrome.
+                    payload = actions_message
+                submit = True
+                # Consumed on injection (dry-run too) so it cannot re-fire.
+                consume_signal_path = str(actions_path)
+                deferred_log = None
+                noop_reason_log = None
+    # Remember a submitted own LINE (never a raw keypress, never a dry-run
+    # marker) as unconfirmed box content -- recorded at decision time, like
+    # the audit trail, so the follow-up ships by worker hot-reload alone. A
+    # failed PTY write costs one harmless Enter at the next lull.
+    if payload is not None and submit and not dry_run:
+        machine.mark_own_line_typed(payload, facts.now_wall)
     return TickOutcome(
         decision_value=decision_value,
         reason=reason,
@@ -5197,6 +6040,7 @@ def decide_once(
         audit_flush_log=(
             audit_flush_log_line if decision_value != Decision.WOULD_AUDIT.value else None
         ),
+        abandoned_box_flushed=evaluation.abandoned_box_flush,
     )
 
 
@@ -5291,11 +6135,13 @@ def _apply_post_injection_bookkeeping(
     # host restart (import_state merges by present key, so an older host
     # never clobbers the worker's audit backlog; it merely doesn't carry it).
     if outcome.decision_value == Decision.WOULD_GOAL.value:
-        machine.mark_goal_injection(outcome.goal_line)
+        machine.mark_goal_injection(outcome.goal_line, now_wall=now_wall)
     elif outcome.decision_value == Decision.WOULD_GOAL_CLEAR.value:
         machine.mark_goal_clear_injection()
     elif outcome.decision_value == Decision.WOULD_STANDING_AUTH.value:
         machine.mark_standing_auth_injection()
+    elif outcome.decision_value == Decision.WOULD_SESSION_ACTIONS.value:
+        machine.mark_session_actions_injection()
     elif outcome.decision_value == Decision.WOULD_EFFORT.value:
         # The DROP ANCHOR branch is checked FIRST of all, then the coupled
         # branch, in decide_once -- so `is_anchor_injection` (Plan 00297)
@@ -5360,6 +6206,8 @@ def _poll_once(
     goal_signal_ttl_seconds: float = _DEFAULT_GOAL_SIGNAL_TTL_SECONDS,
     model_confirm_enters: int = _DEFAULT_MODEL_CONFIRM_ENTERS,
     effort_confirm_enters: int = _DEFAULT_EFFORT_CONFIRM_ENTERS,
+    input_line_abandoned: bool = False,
+    on_input_line_flushed: Callable[[], None] | None = None,
 ) -> Evaluation:
     """One in-process supervisor tick: decide (``decide_once``) then inject.
 
@@ -5368,6 +6216,12 @@ def _poll_once(
     the decision to ``decide_once`` and the injection to ``_apply_decision``.
     ``own_sessions`` (Plan 00166) is passed straight through to ``decide_once``
     (``None`` = no own-session filter; the production loop resolves and passes it).
+
+    ``on_input_line_flushed`` (Plan 00398 Phase 3) is called, if given, exactly
+    when this tick's outcome is the abandoned-box flush -- the caller's chance
+    to reset whatever tracked ``HumanInputLine`` it owns, which this function
+    has no reference to (``input_line_empty``/``input_line_abandoned`` arrive
+    as plain booleans, same as every other fact here).
     """
     facts = TickFacts(
         now_wall=now_wall,
@@ -5376,6 +6230,7 @@ def _poll_once(
         human_compact_submitted=human_compact_submitted,
         work_idle=work_idle,
         human_effort_command=human_effort_command,
+        input_line_abandoned=input_line_abandoned,
     )
     outcome = decide_once(
         machine,
@@ -5394,6 +6249,8 @@ def _poll_once(
     )
     injected = _apply_decision(outcome, master_writer=master_writer, log=log)
     _apply_post_injection_bookkeeping(machine, outcome, injected=injected, now_wall=now_wall)
+    if outcome.abandoned_box_flushed and on_input_line_flushed is not None:
+        on_input_line_flushed()
     return Evaluation(decision=Decision(outcome.decision_value), reason=outcome.reason)
 
 
@@ -5418,9 +6275,11 @@ def _facts_to_json(facts: TickFacts) -> str:
             "human_compact_submitted": facts.human_compact_submitted,
             "work_idle": facts.work_idle,
             "human_effort_command": facts.human_effort_command,
+            "human_enter_pressed": facts.human_enter_pressed,
             "human_raw_input": facts.human_raw_input,
             "machine_state": facts.machine_state,
             "tick_id": facts.tick_id,
+            "input_line_abandoned": facts.input_line_abandoned,
         }
     )
 
@@ -5434,9 +6293,11 @@ def _facts_from_json(line: str) -> TickFacts:
         human_compact_submitted=bool(data["human_compact_submitted"]),
         work_idle=bool(data["work_idle"]),
         human_effort_command=data.get("human_effort_command"),
+        human_enter_pressed=bool(data.get("human_enter_pressed", False)),
         human_raw_input=str(data.get("human_raw_input", "")),
         machine_state=data.get("machine_state"),
         tick_id=int(data.get("tick_id", 0)),
+        input_line_abandoned=bool(data.get("input_line_abandoned", False)),
     )
 
 
@@ -5460,6 +6321,7 @@ def _outcome_to_json(outcome: TickOutcome) -> str:
             "is_anchor_injection": outcome.is_anchor_injection,
             "is_anchor_escape": outcome.is_anchor_escape,
             "audit_flush_log": outcome.audit_flush_log,
+            "abandoned_box_flushed": outcome.abandoned_box_flushed,
         }
     )
 
@@ -5484,6 +6346,7 @@ def _outcome_from_json(line: str) -> TickOutcome:
         is_anchor_injection=bool(data.get("is_anchor_injection", False)),
         is_anchor_escape=bool(data.get("is_anchor_escape", False)),
         audit_flush_log=data.get("audit_flush_log"),
+        abandoned_box_flushed=bool(data.get("abandoned_box_flushed", False)),
     )
 
 
@@ -5524,6 +6387,17 @@ def run_worker(
     no host-side change and no session restart. Reset (buffer cleared) on
     every restart -- the same risk profile ``machine``'s in-flight state
     already carries across a restart.
+
+    ``input_line_abandoned`` (Plan 00398 Phase 2) is deliberately NOT
+    re-derived/ANDed here the way ``input_line_empty`` is: it is a duration
+    measured against a clock, not a parse of the current bytes, and this
+    recognizer's own clock resets to "fresh" on every worker restart with no
+    replay of prior history (``raw_tap`` only ships bytes forwarded SINCE the
+    restart). ANDing would silently re-open the unbounded gate Plan 00398
+    exists to close for up to the whole stability threshold after every
+    restart -- worse, indefinitely if no further human byte ever arrives to
+    seed a fresh reading. The host's own long-lived model never has that gap,
+    so its verdict is taken as-is.
     """
     machine = CompactStateMachine(policy)
     line_recognizer = HumanInputLine()
@@ -5554,6 +6428,9 @@ def run_worker(
             # input box -- the exact invariant the empty-box guard exists for.
             # Either side seeing text is enough to hold the injection.
             input_line_empty=facts.input_line_empty and line_recognizer.is_empty,
+            # OR, never override: a legacy host sends False, and the worker's
+            # own recognizer is the one that actually sees the keypress.
+            human_enter_pressed=facts.human_enter_pressed or line_recognizer.take_enter_pressed(),
         )
         for typed_slash in line_recognizer.take_slash_submitted():
             # Recognition-miss observability: WHICH command family the human's
@@ -5591,6 +6468,12 @@ def run_worker(
             # the whole purpose is to contain ANY unexpected decision failure.
             append_worker_error("decide_once failed:\n" + traceback.format_exc())
             outcome = _worker_error_noop()
+        if outcome.abandoned_box_flushed:
+            # Plan 00398 Phase 3: mirror the host's own reset (below) on THIS
+            # process's recognizer -- the flush's Enter never passes through
+            # `feed`, so without this `line_recognizer.is_empty` would keep
+            # ANDing the box back to non-empty on every later tick, forever.
+            line_recognizer.clear()
         # Plan 00182: echo the request's correlation id so the host can match
         # this reply to the tick that produced it and drop any stale reply left
         # buffered by an earlier timed-out tick.
@@ -6039,6 +6922,7 @@ def supervise(
     poll_seconds: float = _DEFAULT_POLL_SECONDS,
     idle_floor_seconds: float = _DEFAULT_IDLE_FLOOR_SECONDS,
     work_settle_seconds: float = _DEFAULT_WORK_SETTLE_SECONDS,
+    input_line_abandon_seconds: float = _DEFAULT_INPUT_LINE_ABANDON_SECONDS,
     decider: Callable[[TickFacts], TickOutcome | None] | None = None,
 ) -> int:
     """Run `argv` under a PTY, forwarding I/O and polling the context sidecar.
@@ -6070,6 +6954,10 @@ def supervise(
         work_settle_seconds: Minimum quiet time on the CHILD output before the
             lower red band is allowed to compact (Plan 00152). The elevated and
             critical bands ignore it and compact promptly.
+        input_line_abandon_seconds: How long the input box's content must sit
+            UNCHANGED before a red-or-worse reading submits it (via the
+            existing resubmit/Enter path) and compacts, rather than deferring
+            forever (Plan 00398). Not the same axis as `idle_floor_seconds`.
 
     Returns:
         The child's exit code (or 128+signal if it died from a signal).
@@ -6183,6 +7071,11 @@ def supervise(
         # failure (decider returns None) fall back to the identical in-process
         # path so a tick is never dropped. The host always performs the injection.
         now_wall = time.time()
+        # Plan 00398 Phase 2: computed from the host's own long-lived model,
+        # which never loses history to a worker restart (see `TickFacts`).
+        input_line_abandoned = activity.line.is_abandoned(
+            now=now_wall, threshold_seconds=input_line_abandon_seconds
+        )
         outcome = None
         if decider is not None:
             outcome = decider(
@@ -6197,6 +7090,7 @@ def supervise(
                     # Ship the host's authoritative machine state so the worker
                     # decides on it -- never on divergent worker-local state.
                     machine_state=machine.export_state(),
+                    input_line_abandoned=input_line_abandoned,
                 )
             )
             transition = fallback_transitions.note(worker_answered=outcome is not None)
@@ -6225,6 +7119,11 @@ def supervise(
             _apply_post_injection_bookkeeping(
                 machine, outcome, injected=injected, now_wall=now_wall
             )
+            # Plan 00398 Phase 3: the flush's own Enter never passes through
+            # `feed` (same as every other supervisor injection), so without
+            # this the model would show the just-flushed text forever.
+            if outcome.abandoned_box_flushed:
+                activity.line.clear()
         else:
             _poll_once(
                 machine,
@@ -6244,6 +7143,8 @@ def supervise(
                 foreground_margin_seconds=policy.foreground_margin_seconds,
                 own_sessions=cached_own_session_ids(),  # Plan 00166: only our own sessions
                 goal_signal_ttl_seconds=policy.goal_signal_ttl_seconds,
+                input_line_abandoned=input_line_abandoned,
+                on_input_line_flushed=activity.line.clear,
             )
         # Plan 00297: loud, rate-limited owner-facing alert once the anchor
         # has exceeded its attempt/time bound -- purely a notification, the

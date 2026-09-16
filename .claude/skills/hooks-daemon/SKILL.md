@@ -1,7 +1,7 @@
 ---
 name: hooks-daemon
-description: Manage Claude Code Hooks Daemon - install, upgrade, check health, restart, run the housekeeping pass, and report issues
-argument-hint: "[install|upgrade|optimise|housekeeping|restart|health|bug-report|report] [args...]"
+description: Manage Claude Code Hooks Daemon - install, upgrade, optimise the configuration, check health, restart, run the housekeeping pass, status-line-explained to explain every status-line icon, issue-report to file a defect upstream, file a local bug-report, and report issues
+argument-hint: "[install|upgrade|optimise|housekeeping|restart|health|status-line-explained|issue-report|bug-report|report] [args...]"
 disable-model-invocation: false
 user-invocable: true
 allowed-tools: Bash, Read, Write, Edit
@@ -101,23 +101,50 @@ Verify daemon is running correctly:
 See [health.md](health.md) for health check details, including where the logs
 and the verbose environment audit are.
 
-### Report an Issue
+### Explain the Status Line
 
-Two different actions — pick by what you need:
+Every status-line icon, explained: what it is in general and what its
+current value means right now — the answer to "what does this icon mean?"
+for a segment that has no blocking rule to look up:
 
 ```claude-code
-/hooks-daemon bug-report "description of the issue"   # diagnostic bundle for maintainers
-/hooks-daemon report "daemon stopped responding"       # LLM-driven investigation with a timeline
+/hooks-daemon status-line-explained                 # text
+/hooks-daemon status-line-explained --format json    # machine-readable
 ```
 
-`bug-report` is fast and mechanical: version, status, config, handlers, recent
-logs and a health checklist, written to `untracked/bug-reports/`. `report` is
-an investigation: it collects evidence, builds a timeline, and writes a
-narrative to `./untracked/hooks-daemon-{description}.md`. Reach for
-`bug-report` first; use `report` when the bug-report was not enough to explain
-what happened.
+See [status-line-explained.md](status-line-explained.md) for the full output
+shape and design notes (it is a read-only, reference rendering — see that
+page for what "reference" means here).
 
-See [bug-report.md](bug-report.md) and [report.md](report.md).
+### Report an Issue
+
+Three different actions, and the first distinction is the one that matters:
+**only `issue-report` produces something safe to publish.**
+
+```claude-code
+/hooks-daemon issue-report                             # the SOP for filing UPSTREAM
+/hooks-daemon bug-report "description of the issue"    # LOCAL diagnostic, for you to read
+/hooks-daemon report "daemon stopped responding"       # LOCAL investigation with a timeline
+```
+
+`issue-report` drives the whole procedure for filing a defect against the
+daemon's own repository: the checks that establish there IS a defect, the
+generator that builds a filable body, and the filing. That repository's tracker
+is public and an issue cannot be retracted, so the generator collects a
+controlled field set and never gathers the hostname, git remote, `.env`, config
+dump or logs.
+
+`bug-report` and `report` are **diagnostics for the person running them**.
+`bug-report` is fast and mechanical — version, status, config, handlers, recent
+logs and a health checklist, written to `untracked/bug-reports/`. `report` is an
+investigation: it collects evidence, builds a timeline, and writes a narrative
+to `./untracked/hooks-daemon-{description}.md`. Reach for `bug-report` first;
+use `report` when the bug-report was not enough to explain what happened.
+**Neither is a filing artefact** — both reproduce project-specific material on
+purpose, because you are the reader.
+
+See [issue-report.md](issue-report.md), [bug-report.md](bug-report.md) and
+[report.md](report.md).
 
 ## Capabilities (CLI verbs)
 
@@ -137,6 +164,7 @@ they are not routed. Run the verb directly (on a self-install the wrapper is
 .claude/hooks-daemon/bin/hooks-daemon init-project-handlers           # scaffold project-level handlers
 .claude/hooks-daemon/bin/hooks-daemon release-notes      # installed version's notes (--latest, --version, --list)
 .claude/hooks-daemon/bin/hooks-daemon plan-qa --sweep    # plan-tree drift (--lint <PLAN.md>, --check-staged)
+.claude/hooks-daemon/bin/hooks-daemon reference-repos     # freshness of reference clones (--json, --all)
 .claude/hooks-daemon/bin/hooks-daemon housekeeping --list # the housekeeping pass, step by step
 ```
 
@@ -162,14 +190,17 @@ If you're experiencing issues:
 # 2. View recent logs
 .claude/hooks-daemon/bin/hooks-daemon logs
 
-# 3. Generate a quick bug report with diagnostics
+# 3. Generate a quick bug report with diagnostics — for YOU to read
 /hooks-daemon bug-report "description of the issue"
 
-# 4. Generate a full investigation report with timeline
+# 4. Generate a full investigation report with timeline — also local
 /hooks-daemon report "description of the issue"
 
 # 5. Restart to recover
 /hooks-daemon restart
+
+# 6. Concluded it is a daemon defect? File it upstream properly:
+/hooks-daemon issue-report
 ```
 
 ## Troubleshooting
@@ -229,6 +260,19 @@ case "$SUBCOMMAND" in
         printf '%s\n' "${REPORT_PROMPT//\$ARGUMENTS/$*}"
         ;;
 
+    status-line-explained)
+        # Explain every status-line icon: what it is, current value (Plan 00369).
+        bash "$SKILL_DIR/scripts/daemon-cli.sh" "$SUBCOMMAND" "$@"
+        ;;
+
+    issue-report)
+        # Prints the upstream-reporting procedure for Claude to follow (like
+        # `report`). NOT forwarded to the CLI verb of the same name: that verb
+        # takes a --fields JSON file which is the OUTPUT of steps 1 and 2, so
+        # running it first would be running the procedure backwards.
+        cat "$SKILL_DIR/issue-report.md"
+        ;;
+
     restart|bug-report)
         # Forward to daemon CLI wrapper.
         bash "$SKILL_DIR/scripts/daemon-cli.sh" "$SUBCOMMAND" "$@"
@@ -246,8 +290,10 @@ case "$SUBCOMMAND" in
         echo "                        Full housekeeping pass: reports first, held steps on request, optimise last"
         echo "  restart               Restart daemon (required after config changes)"
         echo "  health                Check daemon health and status"
-        echo "  bug-report DESC       Diagnostic bundle for maintainers"
-        echo "  report DESC           LLM-driven investigation report with a timeline"
+        echo "  status-line-explained Explain every status-line icon (--format json)"
+        echo "  issue-report          File a defect UPSTREAM: the checks, the generator, the filing"
+        echo "  bug-report DESC       LOCAL diagnostic bundle — for you to read, never to publish"
+        echo "  report DESC           LLM-driven investigation report with a timeline (also local)"
         echo ""
         echo "After editing .claude/hooks-daemon.yaml, always run: /hooks-daemon restart"
         echo ""
