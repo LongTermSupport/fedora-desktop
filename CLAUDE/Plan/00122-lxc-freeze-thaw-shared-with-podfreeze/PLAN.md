@@ -277,32 +277,31 @@ after ten seconds. Evidence in the 26-09-16 journal.
   costs: thaw renews the lease, but every ssh session into a container — and the agent
   socket forwarded over it — dies with the frozen TCP connection. Reconnecting is the
   fix; the hint should say so before the user finds out from a failed `git push`
-- [ ] ⬜ **Task 5.5**: `lxc-attach` chowns the file its stderr points at (a triage probe
-  with stderr unredirected left a root-owned capture). Record the hazard in
-  `CLAUDE/AgentNotes.md`
+- [x] ✅ **Task 5.5**: `lxc-attach` chowns the file its stderr points at (a triage probe
+  with stderr unredirected left a root-owned capture). Recorded in
+  `CLAUDE/AgentNotes.md` under Project Gotchas
 
-### Phase 6: Suspend to disk — research, then a decision gate
+### Phase 6: Suspend to disk — closed: not realistic for a systemd container
 
-The freezer holds processes in RAM and loses them on reboot. A longer hold (an
-end-of-week snapshot) wants the state on disk. Two candidates with different survivors:
-`lxc-checkpoint` (CRIU 4.2.1 and LXC 6.0.6 are on the host) restores sessions and all
-but is fragile for systemd containers, and an engine running inside a container is
-CRIU's hardest case — engines inside LXC are not working here today (Plan 00127,
-parked), so the spike cannot cover that case yet; graceful `lxc-stop` then `lxc-start`
-loses running processes, keeps every byte on disk, boots in seconds and cannot fail to
-restore. The owner designated one idle container for the spike.
+**Decision (owner, from the spike): no suspend-to-disk verb.** CRIU cannot dump the
+nested UTS namespace systemd-logind creates, and behind that sit mount propagation,
+cgroup v2 ownership and TCP state — each a per-container concession before the next
+blocker shows. Proxmox reaches the same conclusion by avoiding it: its container
+"suspend" is the cgroup freezer, hibernate to disk exists only for VMs, container
+migration is stop-copy-start, and container backups are filesystem snapshots. The two
+real options are the ones already here: freeze for a short RAM-resident hold, graceful
+`lxc-stop` and `lxc-start` for anything that must survive a reboot, with `lxc-snapshot`
+on the btrfs rootfs as the rollback point. A workload that needs its running state kept
+across reboots wants a VM. Evidence and reasoning in the 26-09-16 journal.
 
-- [ ] 🔄 **Task 6.1**: Spike `lxc-checkpoint` on the designated container: dump, host
-  reboot, restore, ssh in. **First step failed**: CRIU cannot dump the nested UTS
-  namespace that systemd-logind's `ProtectHostname=yes` creates, so no image was
-  written. Going further needs a systemd drop-in in every container, via IaC, before
-  the next blocker is even visible — evidence in the 26-09-16 journal. Re-run once
-  Plan 00127 has an engine working inside a container, if the gate says CRIU
-- [ ] ⬜ **Task 6.2**: **DECISION GATE** — owner's call from the spike: a verb built on
-  CRIU, on stop/start, or neither. If stop/start, the verb is named for what it does
-  (a shutdown, not a suspend) and the menu says which containers it would stop
-- [ ] ⬜ **Task 6.3**: Implement the chosen verb, if any, on the library's act loop so
-  the dry run, the named per-container failure and the menu all apply to it
+- [x] ✅ **Task 6.1**: Spike on the designated container — conclusive at the first
+  step: CRIU refused before writing an image (nested UTS namespace from logind's
+  `ProtectHostname=yes`). Not pursued past that, since the fix is a systemd drop-in in
+  every container and only buys the next blocker
+- [x] ✅ **Task 6.2**: **DECISION**: neither verb. Stop/start is what `lxc-stop` and
+  `lxc-start` already are, and wrapping them in `lxcfreeze` would put a shutdown behind
+  a tool whose name says otherwise
+- [x] 🚫 **Task 6.3**: Cancelled by Task 6.2 — nothing to implement
 - [ ] ⬜ **Task 6.4**: `qa-reviewer` over Phases 5–6 before the plan is marked Complete
 
 ## Success Criteria

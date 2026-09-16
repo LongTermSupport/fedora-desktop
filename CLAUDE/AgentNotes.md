@@ -921,6 +921,14 @@ string, `CCY_SKIP_NETWORK_PREFLIGHT`) over a line number. Launcher line numbers 
 repo have gone stale within the hour of being verified, and a stale number that lands on
 plausible neighbouring code is worse than no citation at all.
 
+### `lxc-attach` chowns the file its stderr points at
+
+A probe such as `sudo lxc-attach -n NAME -- cmd | cat` with stderr left on the harness's
+capture file hands that file to root: the harness then cannot read its own output back
+and reports it as missing. Three triage probes were lost to this in Plan 00122 before
+the cause was seen. Every `lxc-attach` in a script or a probe goes through `2>&1 | cat`
+or a `{ ...; } 2>&1 | cat` group, so both streams are a pipe.
+
 ---
 
 ## Already Documented Elsewhere
