@@ -99,10 +99,20 @@ The two `host_health` failures were diagnosed and fixed under Task 1.3.
 
 ### Phase 1: Establish what is actually true
 
-- [ ] ⬜ **Task 1.1**: `triage.bash` for this plan — one read-only script that reports, for
-  the current checkout: each `qa-all.bash` stage's verdict, and for every stage that
-  differs from the last CI run, the specific input it read that CI does not have. The
-  point is a per-stage machine-dependence answer, not a pass/fail.
+- [x] ✅ **Task 1.1**: `triage.bash` + `probe-qa-verdicts.bash` — runs `qa-all.bash` here,
+  downloads the newest **completed** CI run's whole log (not `--log-failed`: a stage that
+  *passed* on both machines over different inputs is the case that hid `js` for weeks),
+  and puts them side by side. Four states per stage, because two of them are the point:
+  `differs`, and `only-here`/`only-there` — a stage **absent** from one side never ran
+  there, which is what the abort does and what no pass/fail comparison can show. Parsing
+  and diffing live in `helpers/qa_environment/verdicts.py` (25 tests) rather than the
+  script, per `helpers/CLAUDE.md`. It renders no verdict (R9) and points at
+  `CLAUDE/QA.md`'s declared-dependency table. Deliberately declares **neither**
+  `plan_require_host` nor `plan_require_container`, which R2 calls rare and asks to be
+  re-examined — examined and stated in the header: the finding *is* where it ran, so it
+  is meant to be run in both places and the reports read side by side. First run found
+  six differences: the two declared ones, and four that were only this checkout being
+  ahead of the compared commit — so it now says so rather than letting a reader chase them
 - [x] ✅ **Task 1.2**: **`0015c886`, 2026-08-31** — and the task's own premise was wrong.
   There was no further cause "between those dates" because there was nothing between them:
   no commit was pushed to `F44` in those five days, so CI observed nothing. `0015c886` is
@@ -151,10 +161,9 @@ The two `host_health` failures were diagnosed and fixed under Task 1.3.
   that carry **no physical display link** (`Virtual`, `Writeback`), for which the test's
   inference was never sound. A denylist on purpose: an unrecognised type is asserted
   against, not skipped, so a linkless type nobody has met yet surfaces as a failure rather
-  than as a test that quietly stopped checking. Falsified four ways — the pair still passes
-  against this container's real `eDP-1`; reintroducing `os.path.getsize()` fails it 2/2; a
-  `Virtual`-only tree skips and **names what it ignored**; and a `card1-DP-1` whose EDID
-  reads zero still **fails**, which is the requirement this task was written around
+  than as a test that quietly stopped checking. Falsified four ways (journal, 23:30),
+  including the requirement this task was written around: a real link type whose EDID
+  reads zero still **fails**
 - [x] ✅ **Task 3.2**: The dbus fallback test — the bus is now **injected** rather than
   arranged on the host, because the host cannot be arranged: the uid-derived candidate is
   by design not environment-controllable. Which branch `resolve_session_bus` picks is
@@ -181,8 +190,7 @@ The two `host_health` failures were diagnosed and fixed under Task 1.3.
   `freeze-common.bash` now reads the two marker **paths** from overridable variables
   (defaults unchanged, no tool sets them). All three signals are driven on any machine,
   and the **allow** direction is asserted for the first time — it could never be, because
-  in a container the real marker files are there. Falsified both ways: a guard that never
-  refuses fails the three refuse cases; one that always refuses fails the allow case.
+  in a container the real marker files are there. Falsified both ways (journal, 23:52).
   Needs a HOST deploy to reach the installed copy — `tasks/deploy-freeze-lib.yml`, via
   either freeze play — though the behaviour is identical, so nothing is broken meanwhile
 
@@ -193,20 +201,14 @@ The two `host_health` failures were diagnosed and fixed under Task 1.3.
   line 152 for `helper-tests`), and **26 gates are declared after that point**. So from the
   moment the DisplayLink pair began failing, CI stopped executing the last 26 gates
   entirely. The suite did not merely stay red — *the number of checks actually running
-  fell*, and nothing said so. Three compounding causes:
-
-  1. the first red was a gate that **cannot pass in CI by construction** (a gitignored link
-     target), so it was never a regression anyone could fix by fixing code;
-  2. a permanently-red run carries no information, so each later regression joined it
-     invisibly — Cause B's four commits all landed into an already-red run;
-  3. local `qa-all.bash` was green throughout, and `CLAUDE.md` names it the pre-commit
-     requirement, so the contributor's own signal said green every time.
-
-  **Demonstrated live while closing Phase 3**: fixing the helper tests revealed
-  `panel-sections`, a gate added the *same day* this plan was filed, carrying a hardcoded
-  `/workspace` — the CCY container's mount point — that made it impossible to pass anywhere
-  else. It had never run in CI once, because the abort happened first. The remedy is
-  Task 4.3
+  fell*, and nothing said so. Three compounding causes: the first red was a gate that
+  **cannot pass in CI by construction** (a gitignored link target), so it was never a
+  regression anyone could fix by fixing code; a permanently-red run carries no
+  information, so each later regression joined it invisibly; and local `qa-all.bash` was
+  green throughout while `CLAUDE.md` names it the pre-commit requirement, so the
+  contributor's own signal said green every time. **Demonstrated live three times while
+  closing Phase 3** — each fix revealed the next gate that had never run once (journal,
+  23:38 and 23:52). The remedy is Task 4.3
 
 - [x] ✅ **Task 4.2**: `CLAUDE/QA.md` now carries *"The same command does not reach the same
   verdict everywhere"* — a table of each environment-dependent stage and what it needs,
