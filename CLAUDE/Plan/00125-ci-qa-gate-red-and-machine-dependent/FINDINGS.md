@@ -61,6 +61,23 @@ it. `.github/workflows/` contains no reference to the daemon at all today, so th
 addition rather than a repair. It is still the owner's call, because it makes every QA run
 depend on an external repository's installer — a cost the rules do not decide.
 
+**That cost, measured rather than asserted.** Two things were claimed to the owner without
+checking, so both were checked:
+
+- **Would it actually fix the gate?** Yes. The link target resolves:
+  `.claude/rules/../hooks-daemon/CLAUDE/DirectoryRoles.md` normalises to a file that exists
+  on an installed machine. Nothing else about the eight findings needs to change.
+- **How heavy is it?** The installed tree here is 452M, but **336M of that is the daemon's
+  own `untracked/` runtime state**, which a fresh clone does not carry. The repository is
+  ~49M of history plus a working tree of similar order, and the `.venv` (16M) is built
+  locally. So the honest figure for CI is *a shallow clone of one public GitHub repository*,
+  not half a gigabyte.
+
+Worth stating plainly for the decision: CI needs **one 12KB file** — `DirectoryRoles.md` —
+and option (a) as originally phrased fetches a whole repository to get it. `--depth 1` is
+the sane form. The dependency on an external repo's availability is real either way, and
+that, not the byte count, is what the owner is actually weighing.
+
 ## Cause B — tests that read the machine they were written on
 
 Five at first; a sixth surfaced once the abort stopped hiding it.
