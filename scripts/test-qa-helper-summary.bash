@@ -520,28 +520,26 @@ echo "=== every qa_gate_detail pattern is read from qa-all.bash and run against 
 # capture-variable -> the command that produces it, run from the repo root. These are the
 # gates' own invocations, copied from qa-all.bash's call sites, not re-derived.
 #
-# The names are listed separately as well because the coupling has to hold in BOTH
-# directions. A call site with no registered command fails in the loop below; a registered
-# command no call site reads would otherwise be dead weight that says nothing, and its
-# silence is indistinguishable from a gate whose pattern is being checked.
-GATE_COMMAND_VARS=(
-    nokill_out
-    planlib_out
-    compat_out
-    panel_contract_out
-    manifest_out
-    pins_out
+# ONE TABLE, read both ways. The coupling has to hold in both directions — a call site with
+# no registered command fails in the loop below, and a registration no call site reads fails
+# after it — and the first version of that second check enumerated the registrations in a
+# hand-written array BESIDE the case statement it was checking. Two lists that must agree,
+# which is the pattern this plan has now removed four times: an arm added to one and not the
+# other was invisible, so the orphaned registration the check exists to catch reported PASS.
+# `CLAUDE/AgentNotes.md` states the rule — replacing a stale enumeration with a fresher one is
+# not the fix; deriving the set is. There is nothing to derive here, so instead there is only
+# one table, and a lookup and an iteration over the same keys cannot disagree.
+declare -A GATE_COMMAND=(
+    [nokill_out]="bash scripts/qa-nokill-containerwatch.bash"
+    [planlib_out]="bash scripts/test-planlib.bash"
+    [compat_out]="python3 -m helpers.gnome.check_extension_compat"
+    [panel_contract_out]="python3 -m helpers.gnome.check_panel_contract ."
+    [manifest_out]="bash scripts/qa-vmtest-manifest.bash"
+    [pins_out]="bash scripts/qa-version-pins.bash"
 )
 gate_command_for() {
-    case "$1" in
-        nokill_out) echo "bash scripts/qa-nokill-containerwatch.bash" ;;
-        planlib_out) echo "bash scripts/test-planlib.bash" ;;
-        compat_out) echo "python3 -m helpers.gnome.check_extension_compat" ;;
-        panel_contract_out) echo "python3 -m helpers.gnome.check_panel_contract ." ;;
-        manifest_out) echo "bash scripts/qa-vmtest-manifest.bash" ;;
-        pins_out) echo "bash scripts/qa-version-pins.bash" ;;
-        *) return 1 ;;
-    esac
+    [ -n "${GATE_COMMAND[$1]+set}" ] || return 1
+    printf '%s' "${GATE_COMMAND[$1]}"
 }
 
 # Each gate runs once however many patterns are applied to its capture.
@@ -573,10 +571,33 @@ capture_for() {
 # either parses an occurrence of the name or lists it in `unparsed` with its line and text.
 # One case per accepted spelling lives in its unit tests, which is where the widening the
 # regex version never verified is now verified.
+sites_json=""
+parser_rc=0
 sites_json="$(cd "$REPO_ROOT" && python3 -m helpers.qa_environment.gate_call_sites \
-    scripts/qa-all.bash)"
-site_count="$(printf '%s' "$sites_json" | jq '.sites | length')"
-unparsed_count="$(printf '%s' "$sites_json" | jq '.unparsed | length')"
+    scripts/qa-all.bash 2>&1)" || parser_rc=$?
+
+# THE PAYLOAD IS CHECKED BEFORE ITS NUMBERS ARE READ. Without this, a parser that cannot run
+# leaves `sites_json` empty, both `jq` calls produce nothing, both `[` comparisons abort on a
+# non-integer, and the else branch prints `PASS COVERAGE:` with an empty number — a branch
+# reporting success from a state where it measured nothing. That exact fall-through was found
+# in the grep version this replaced, so importing it here would be the third time.
+#
+# The reverse-direction check below would also fail in that state, so the RUN goes red either
+# way. That rescue is incidental and must not be leaned on: it is a different check answering
+# for this one, and this one has to answer for itself.
+sites_check=""
+if [ "$parser_rc" -ne 0 ] || ! sites_check="$(printf '%s' "$sites_json" |
+    jq -e '(.sites | type == "array") and (.unparsed | type == "array")' 2>&1)"; then
+    failed=$((failed + 1))
+    printf '  FAIL  %s\n        parser exit %s, jq said: %s\n        output: %s\n' \
+        "the call-site parser produced no usable output — nothing below checked anything" \
+        "$parser_rc" "$sites_check" "$sites_json" >&2
+    site_count=0
+    unparsed_count=0
+else
+    site_count="$(printf '%s' "$sites_json" | jq '.sites | length')"
+    unparsed_count="$(printf '%s' "$sites_json" | jq '.unparsed | length')"
+fi
 
 if [ "$unparsed_count" -ne 0 ]; then
     failed=$((failed + 1))
@@ -630,7 +651,7 @@ done < <(printf '%s' "$sites_json" | jq -r '.sites[] | "\(.var)\t\(.pattern)"')
 # registration nobody reads is dead weight whose silence is indistinguishable from a pattern
 # being checked — and it is what a vanished call site leaves behind, which is the one way the
 # parsed population can shrink without the parser being at fault.
-for registered_var in "${GATE_COMMAND_VARS[@]}"; do
+for registered_var in $(printf '%s\n' "${!GATE_COMMAND[@]}" | sort); do
     if [ -n "${site_vars_seen[$registered_var]+set}" ]; then
         passed=$((passed + 1))
         printf '  PASS  %s is registered and read\n' "\$$registered_var"

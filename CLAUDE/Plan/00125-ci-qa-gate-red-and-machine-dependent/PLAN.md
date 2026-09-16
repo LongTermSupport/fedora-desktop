@@ -268,5 +268,4 @@ Every commit is `Plan 00125: …` on `F44`; `git log --oneline --grep 'Plan 0012
 list, and `JOURNAL/` carries what each one found. Repeating it here only creates a second
 copy to keep in step.
 
-Remaining: Task 2.1 (decision), 2.2 (its implementation), 4.3 (decision), 5.2 (follows 2.2),
-5.3 (`qa-reviewer`).
+Remaining: Task 4.3 (owner's decision) and Task 5.3 (`qa-reviewer`).

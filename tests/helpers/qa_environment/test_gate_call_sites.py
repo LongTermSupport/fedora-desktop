@@ -143,6 +143,30 @@ class TestUnparsedIsTheGuard(unittest.TestCase):
         self.assertEqual(sites, [])
         self.assertEqual(len(unparsed), 1)
 
+    def test_an_escaped_quote_inside_a_pattern_is_reported_not_truncated(self):
+        """The third state the module header says cannot exist.
+
+        `(?P<pattern>.*?)(?P=quote)` is non-greedy, so a `\\"` inside a
+        double-quoted pattern ends it early: the site parses, `unparsed` is
+        empty, and the pattern handed on is a fragment. Downstream that becomes
+        "the pattern no longer matches that gate's output" — a true failure with
+        a false diagnosis, which is one of the four defects this parser exists
+        to remove. Refusing it is the honest answer for something the parser
+        cannot read.
+        """
+        text = '''out=$(qa_gate_detail "$a_out" "say \\"hi\\" now")\n'''
+        sites, unparsed = gate_call_sites.call_sites(text)
+        self.assertEqual(sites, [])
+        self.assertEqual(len(unparsed), 1)
+        self.assertIn("a_out", unparsed[0]["text"])
+
+    def test_a_pattern_with_no_escapes_is_unaffected(self):
+        """The control for the case above — refusing must not refuse everything."""
+        text = '''out=$(qa_gate_detail "$a_out" "say hi now")\n'''
+        sites, unparsed = gate_call_sites.call_sites(text)
+        self.assertEqual(unparsed, [])
+        self.assertEqual(sites[0]["pattern"], "say hi now")
+
     def test_the_report_carries_the_line_number(self):
         text = "x=1\ny=2\n" + """out=$(qa_gate_detail $bare 'one')\n"""
         _, unparsed = gate_call_sites.call_sites(text)

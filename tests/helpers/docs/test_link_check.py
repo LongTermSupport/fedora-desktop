@@ -823,13 +823,23 @@ class TestTheVendoredWarningBlock(unittest.TestCase):
         The property: the whole block is ONE stage named `docs`, however many
         broken links it lists. A detail line read as a stage would invent a gate
         per broken link and inflate the census.
+
+        TWO ASSERTIONS, because the parser one does not cover the indentation.
+        Measured: stripping the indent leaves the parse unchanged, since a
+        detail line carries no stage symbol either way — what the parser
+        discriminates is a detail line that BEGINS with one, which gives
+        `['⚠','⚠','⚠','✓']`. The indent is still load-bearing (`SYMBOL_BEARING`
+        wants the symbol at line start), so it is asserted directly rather than
+        left to a parser that would not notice it going.
         """
         broken = [self.entry(file=name, line=n)
                   for name, n in (("docs/a.md", 1), ("CLAUDE/b.md", 2))]
         lines = link_check.vendored_warning_lines(
             {"ok": 0, "unverifiable": 0, "broken": broken})
-        text = "\n".join(lines + ["✓ docs: 71 files OK — VENDORED: 0, 0, 2"]) + "\n"
+        for detail in lines[1:]:
+            self.assertTrue(detail.startswith("    "), detail)
 
+        text = "\n".join(lines + ["✓ docs: 71 files OK — VENDORED: 0, 0, 2"]) + "\n"
         parsed = verdicts.parse(text)
         self.assertEqual(sorted(parsed.stages), ["docs"])
         self.assertEqual([entry.symbol for entry in parsed.stages["docs"]],

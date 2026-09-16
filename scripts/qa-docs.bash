@@ -93,6 +93,10 @@ NFINDINGS=$(jq -r '.findings | length' "$TMP_RAW")
 # exemption nobody counts reads exactly like a check that ran and found nothing, which is the
 # defect class this repo keeps finding.
 #
+# EVERY NUMBER IN THE STAGE LINE IS CHECKED HERE, `.tracked` included. It was the last field
+# in that line nothing covered, which is a poor place for the one number added *because* an
+# unstated denominator reads as clean — it printed `(null tracked)` when the key went missing.
+#
 # TYPES, NOT JUST PRESENCE, and the difference is the whole guard. `has("broken")` answers
 # yes for `{"broken": null}`, and `null | length` is 0 in jq — so a checker that emitted the
 # key with nothing in it would read as a clean zero, the ⚠ block would be empty, and the ✓
@@ -105,7 +109,8 @@ NFINDINGS=$(jq -r '.findings | length' "$TMP_RAW")
 # Two adjacent guards with two conventions is how one of them ends up the weaker one.
 vendored_check=""
 if ! vendored_check="$(jq -e '
-        (.vendored.ok | type == "number")
+        (.tracked | type == "number")
+        and (.vendored.ok | type == "number")
         and (.vendored.unverifiable | type == "number")
         and (.vendored.broken | type == "array")
         and (.vendored_warning | type == "array")' "$TMP_RAW" 2>&1)"; then

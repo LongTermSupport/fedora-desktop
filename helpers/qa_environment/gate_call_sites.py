@@ -19,6 +19,15 @@ occurrence or reports it.
 
 Comments are removed first, quote-aware, because the name appears in prose in the very file
 being read.
+
+WHAT IT READS AND WHAT IT DOES NOT, stated no wider than it is true. It understands comments
+and quoting well enough to tell a comment from a `#` inside a string. It does NOT track
+string or heredoc CONTEXT, so the name written inside a string literal or a heredoc body —
+`echo "use qa_gate_detail here"` — is scanned like any other occurrence, fails to parse, and
+is reported as an unparsed call site. That is a false report with a confident message, which
+is the same misdiagnosis class the comment stripping removes, one construct over. It is
+latent: `qa-all.bash` has no such occurrence today. Anyone meeting that message for a line
+that is plainly a string now knows where to look.
 """
 
 import json
@@ -34,9 +43,25 @@ _OCCURRENCE = re.compile(rf"(?<![A-Za-z0-9_]){_NAME}(?![A-Za-z0-9_])")
 # `"$var"` or `"${var}"`, then a pattern in either quote style. The pattern's quote character
 # is captured and the closing quote must match it, so a `'` inside a double-quoted pattern
 # does not end it early.
+#
+# `(?<!\\)` on the closing quote finds the real end of the pattern. Without it the non-greedy
+# group stops at the first `"` of a `\"` and the site PARSES with a truncated pattern — not
+# dropped, not reported, just wrong, which downstream becomes "the pattern no longer matches
+# that gate's output": a true failure with a false diagnosis.
 _ARGS = re.compile(
-    r"""\s+"\$\{?(?P<var>[A-Za-z_][A-Za-z0-9_]*)\}?"\s+(?P<quote>['"])(?P<pattern>.*?)(?P=quote)"""
+    r"""\s+"\$\{?(?P<var>[A-Za-z_][A-Za-z0-9_]*)\}?"\s+"""
+    r"""(?P<quote>['"])(?P<pattern>.*?)(?<!\\)(?P=quote)"""
 )
+
+# THIS PARSER DOES NOT INTERPRET BASH ESCAPES, and an escaped quote is where that stops being
+# harmless. Bash reads `"say \"hi\" now"` as `say "hi" now`; the text between the quotes is
+# `say \"hi\" now`. Handing the second on would apply a pattern that is not the one
+# `qa-all.bash` applies, and the whole point of this gate is that those two are the same
+# string. Finding the right closing quote is therefore necessary but not sufficient — a
+# pattern carrying an escaped quote is returned as `unparsed`, which is the honest answer for
+# something this parser cannot read. Other backslashes are left alone: `\b` and `\d` are
+# ordinary regex and bash passes them through unchanged. No live pattern contains a quote.
+_ESCAPED_QUOTE = re.compile(r"\\['\"]")
 
 
 def strip_comment(line):
@@ -77,7 +102,7 @@ def call_sites(text):
         line = strip_comment(raw)
         for occurrence in _OCCURRENCE.finditer(line):
             match = _ARGS.match(line, occurrence.end())
-            if match is None:
+            if match is None or _ESCAPED_QUOTE.search(match.group("pattern")):
                 unparsed.append({"line": lineno, "text": raw.strip()})
                 continue
             sites.append({
