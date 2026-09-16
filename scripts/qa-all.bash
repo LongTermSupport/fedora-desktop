@@ -226,7 +226,7 @@ if ! scan_out="$(bash "$SCRIPT_DIR/test-secret-scan.bash" 2>&1)"; then
     echo "✗ QA FAILED: secret scanner unit tests" >&2
     exit 1
 fi
-scan_summary=$(printf '%s' "$scan_out" | grep -oE 'passed: [0-9]+') || scan_summary="passed"
+scan_summary=$(qa_gate_case_count "$scan_out")
 printf '✓ secret-scan-tests: %s\n' "$scan_summary"
 
 # The plan-script library's own regression suite (scripts/test-planlib.bash).
@@ -261,8 +261,7 @@ if ! rootless_out="$(bash "$SCRIPT_DIR/test-ccy-rootless-guard.bash" 2>&1)"; the
     echo "✗ QA FAILED: ccy rootless-engine guard unit tests" >&2
     exit 1
 fi
-rootless_summary=$(printf '%s' "$rootless_out" | grep -oE 'passed: [0-9]+') ||
-    rootless_summary="passed"
+rootless_summary=$(qa_gate_case_count "$rootless_out")
 printf '✓ ccy-rootless-guard: %s\n' "$rootless_summary"
 
 # select_token's per-mode answer to an unusable token pool (Plan 00048, CCY 3.50.0).
@@ -284,8 +283,7 @@ if ! token_mode_out="$(bash "$SCRIPT_DIR/test-ccy-token-mode.bash" 2>&1)"; then
     echo "✗ QA FAILED: ccy token-mode unit tests" >&2
     exit 1
 fi
-token_mode_summary=$(printf '%s' "$token_mode_out" | grep -oE 'passed: [0-9]+') ||
-    token_mode_summary="passed"
+token_mode_summary=$(qa_gate_case_count "$token_mode_out")
 printf '✓ ccy-token-mode: %s\n' "$token_mode_summary"
 
 # ccy's SSH identity resolution (Plan 00116, CCY 3.54.0).
@@ -302,8 +300,7 @@ if ! ssh_handling_out="$(bash "$SCRIPT_DIR/test-ccy-ssh-handling.bash" 2>&1)"; t
     echo "✗ QA FAILED: ccy ssh-handling unit tests" >&2
     exit 1
 fi
-ssh_handling_summary=$(printf '%s' "$ssh_handling_out" | grep -oE 'passed: [0-9]+') ||
-    ssh_handling_summary="passed"
+ssh_handling_summary=$(qa_gate_case_count "$ssh_handling_out")
 printf '✓ ccy-ssh-handling: %s\n' "$ssh_handling_summary"
 
 # ccy's SELinux relabel decision (Plan 00118, CCY 3.55.0).
@@ -318,8 +315,7 @@ if ! selinux_verdict_out="$(bash "$SCRIPT_DIR/test-ccy-selinux-verdict.bash" 2>&
     echo "✗ QA FAILED: ccy selinux-verdict unit tests" >&2
     exit 1
 fi
-selinux_verdict_summary=$(printf '%s' "$selinux_verdict_out" | grep -oE 'passed: [0-9]+') ||
-    selinux_verdict_summary="passed"
+selinux_verdict_summary=$(qa_gate_case_count "$selinux_verdict_out")
 printf '✓ ccy-selinux-verdict: %s\n' "$selinux_verdict_summary"
 
 # gpu_device_flags (Plan 00120): the GPU device is handed to the container only where the host
@@ -331,8 +327,7 @@ if ! gpu_device_out="$(bash "$SCRIPT_DIR/test-ccy-gpu-device.bash" 2>&1)"; then
     echo "✗ QA FAILED: ccy gpu-device unit tests" >&2
     exit 1
 fi
-gpu_device_summary=$(printf '%s' "$gpu_device_out" | grep -oE 'passed: [0-9]+') ||
-    gpu_device_summary="passed"
+gpu_device_summary=$(qa_gate_case_count "$gpu_device_out")
 printf '✓ ccy-gpu-device: %s\n' "$gpu_device_summary"
 
 # ccy_host_hostname (Plan 00121): CCY_HOST_HOSTNAME tells the container which MACHINE it is
@@ -346,8 +341,7 @@ if ! host_hostname_out="$(bash "$SCRIPT_DIR/test-ccy-host-hostname.bash" 2>&1)";
     echo "✗ QA FAILED: ccy host-hostname unit tests" >&2
     exit 1
 fi
-host_hostname_summary=$(printf '%s' "$host_hostname_out" | grep -oE 'passed: [0-9]+') ||
-    host_hostname_summary="passed"
+host_hostname_summary=$(qa_gate_case_count "$host_hostname_out")
 printf '✓ ccy-host-hostname: %s\n' "$host_hostname_summary"
 
 # host_only_preflight (Plan 00121): the host-CLI gate on a scenario that puts a real GitHub
@@ -360,8 +354,7 @@ if ! host_only_gate_out="$(bash "$SCRIPT_DIR/test-vmtest-host-only-gate.bash" 2>
     echo "✗ QA FAILED: vmtest host-only gate unit tests" >&2
     exit 1
 fi
-host_only_gate_summary=$(printf '%s' "$host_only_gate_out" | grep -oE 'passed: [0-9]+') ||
-    host_only_gate_summary="passed"
+host_only_gate_summary=$(qa_gate_case_count "$host_only_gate_out")
 printf '✓ vmtest-host-only-gate: %s\n' "$host_only_gate_summary"
 
 # reboot_guest / guest_prepare (Plan 00109): whether a run is judged before or after a
@@ -374,8 +367,7 @@ if ! reboot_dispatch_out="$(bash "$SCRIPT_DIR/test-vmtest-reboot-dispatch.bash" 
     echo "✗ QA FAILED: vmtest reboot dispatch unit tests" >&2
     exit 1
 fi
-reboot_dispatch_summary=$(printf '%s' "$reboot_dispatch_out" | grep -oE 'passed: [0-9]+') ||
-    reboot_dispatch_summary="passed"
+reboot_dispatch_summary=$(qa_gate_case_count "$reboot_dispatch_out")
 printf '✓ vmtest-reboot-dispatch: %s\n' "$reboot_dispatch_summary"
 
 # The kernel selection inside that fixture (Plan 00109). The only step of the route no
@@ -389,8 +381,7 @@ if ! kernel_selection_out="$(bash "$SCRIPT_DIR/test-vmtest-kernel-selection.bash
     echo "✗ QA FAILED: vmtest kernel selection unit tests" >&2
     exit 1
 fi
-kernel_selection_summary=$(printf '%s' "$kernel_selection_out" | grep -oE 'passed: [0-9]+') ||
-    kernel_selection_summary="passed"
+kernel_selection_summary=$(qa_gate_case_count "$kernel_selection_out")
 printf '✓ vmtest-kernel-selection: %s\n' "$kernel_selection_summary"
 
 # The fixture→checker record contract (Plan 00109). One scenario's fixture writes a file
@@ -403,8 +394,7 @@ if ! prepare_record_out="$(bash "$SCRIPT_DIR/test-vmtest-prepare-record.bash" 2>
     echo "✗ QA FAILED: vmtest prepare-record contract tests" >&2
     exit 1
 fi
-prepare_record_summary=$(printf '%s' "$prepare_record_out" | grep -oE 'passed: [0-9]+') ||
-    prepare_record_summary="passed"
+prepare_record_summary=$(qa_gate_case_count "$prepare_record_out")
 printf '✓ vmtest-prepare-record: %s\n' "$prepare_record_summary"
 
 # The panel's decisions (Plan 00109): the shipped statusDocument.js and sections/health.js
@@ -418,8 +408,7 @@ if ! panel_sections_out="$(bash "$SCRIPT_DIR/test-panel-sections.bash" 2>&1)"; t
     echo "✗ QA FAILED: panel section unit tests" >&2
     exit 1
 fi
-panel_sections_summary=$(printf '%s' "$panel_sections_out" | grep -oE 'passed: [0-9]+') ||
-    panel_sections_summary="passed"
+panel_sections_summary=$(qa_gate_case_count "$panel_sections_out")
 printf '✓ panel-sections: %s\n' "$panel_sections_summary"
 
 # hl_write_localhost_yml (Plan 00119): the headless localhost.yml writer, driven through the
@@ -430,8 +419,7 @@ if ! localhost_yml_out="$(bash "$SCRIPT_DIR/test-run-bash-headless-localhost-yml
     echo "✗ QA FAILED: run.bash headless localhost.yml unit tests" >&2
     exit 1
 fi
-localhost_yml_summary=$(printf '%s' "$localhost_yml_out" | grep -oE 'passed: [0-9]+') ||
-    localhost_yml_summary="passed"
+localhost_yml_summary=$(qa_gate_case_count "$localhost_yml_out")
 printf '✓ run-bash-headless-localhost-yml: %s\n' "$localhost_yml_summary"
 
 # hl_ssh_agent_stop (Plan 00063 Task 3.4): the headless ssh-agent teardown, driven through a
@@ -445,8 +433,7 @@ if ! ssh_agent_out="$(bash "$SCRIPT_DIR/test-run-bash-ssh-agent-teardown.bash" 2
     echo "✗ QA FAILED: run.bash ssh-agent teardown unit tests" >&2
     exit 1
 fi
-ssh_agent_summary=$(printf '%s' "$ssh_agent_out" | grep -oE 'passed: [0-9]+') ||
-    ssh_agent_summary="passed"
+ssh_agent_summary=$(qa_gate_case_count "$ssh_agent_out")
 printf '✓ run-bash-ssh-agent-teardown: %s\n' "$ssh_agent_summary"
 
 # The run-log secret scrubber (Plan 00121). Redaction is the easy half; what this gate exists
@@ -460,8 +447,7 @@ if ! run_log_scrub_out="$(bash "$SCRIPT_DIR/test-run-log-scrub.bash" 2>&1)"; the
     echo "✗ QA FAILED: run-log secret scrubber unit tests" >&2
     exit 1
 fi
-run_log_scrub_summary=$(printf '%s' "$run_log_scrub_out" | grep -oE 'passed: [0-9]+') ||
-    run_log_scrub_summary="passed"
+run_log_scrub_summary=$(qa_gate_case_count "$run_log_scrub_out")
 printf '✓ run-log-scrub: %s\n' "$run_log_scrub_summary"
 
 # The shared freeze library (Plan 00122 Task 4.2), which podfreeze and lxcfreeze both
@@ -478,8 +464,7 @@ if ! freezelib_out="$(bash "$SCRIPT_DIR/test-freezelib.bash" 2>&1)"; then
     echo "✗ QA FAILED: shared freeze library unit tests" >&2
     exit 1
 fi
-freezelib_summary=$(printf '%s' "$freezelib_out" | grep -oE 'passed: [0-9]+') ||
-    freezelib_summary="passed"
+freezelib_summary=$(qa_gate_case_count "$freezelib_out")
 printf '✓ freezelib: %s\n' "$freezelib_summary"
 
 # lxcfreeze's decisions (Plan 00122). The tool itself cannot run here — this container has
@@ -495,8 +480,7 @@ if ! lxcfreeze_out="$(bash "$SCRIPT_DIR/test-lxcfreeze.bash" 2>&1)"; then
     echo "✗ QA FAILED: lxcfreeze decision unit tests" >&2
     exit 1
 fi
-lxcfreeze_summary=$(printf '%s' "$lxcfreeze_out" | grep -oE 'passed: [0-9]+') ||
-    lxcfreeze_summary="passed"
+lxcfreeze_summary=$(qa_gate_case_count "$lxcfreeze_out")
 printf '✓ lxcfreeze: %s\n' "$lxcfreeze_summary"
 
 # podfreeze's decisions (Plan 00122 Task 4.1), pinned BEFORE the shared library is
@@ -513,8 +497,7 @@ if ! podfreeze_out="$(bash "$SCRIPT_DIR/test-podfreeze.bash" 2>&1)"; then
     echo "✗ QA FAILED: podfreeze decision unit tests" >&2
     exit 1
 fi
-podfreeze_summary=$(printf '%s' "$podfreeze_out" | grep -oE 'passed: [0-9]+') ||
-    podfreeze_summary="passed"
+podfreeze_summary=$(qa_gate_case_count "$podfreeze_out")
 printf '✓ podfreeze: %s\n' "$podfreeze_summary"
 
 # The server login snippet (Plan 00109 Task 3.2). It is the first thing this repo puts in
@@ -528,8 +511,7 @@ if ! login_snippet_out="$(bash "$SCRIPT_DIR/test-host-health-login-snippet.bash"
     echo "✗ QA FAILED: host-health login snippet unit tests" >&2
     exit 1
 fi
-login_snippet_summary=$(printf '%s' "$login_snippet_out" | grep -oE 'passed: [0-9]+') ||
-    login_snippet_summary="passed"
+login_snippet_summary=$(qa_gate_case_count "$login_snippet_out")
 printf '✓ host-health-login-snippet: %s\n' "$login_snippet_summary"
 
 # The fail-fast directive pattern's own unit suite (Plan 00081 F10).
@@ -544,8 +526,7 @@ if ! failfast_out="$(bash "$SCRIPT_DIR/test-qa-ansible-failfast.bash" 2>&1)"; th
     echo "✗ QA FAILED: fail-fast directive pattern unit tests" >&2
     exit 1
 fi
-failfast_summary=$(printf '%s' "$failfast_out" | grep -oE 'passed: [0-9]+') ||
-    failfast_summary="passed"
+failfast_summary=$(qa_gate_case_count "$failfast_out")
 printf '✓ failfast-pattern-tests: %s\n' "$failfast_summary"
 
 # The reader behind THIS script's own helper-tests line (Plan 00125).
@@ -561,8 +542,7 @@ if ! helper_summary_out="$(bash "$SCRIPT_DIR/test-qa-helper-summary.bash" 2>&1)"
     echo "✗ QA FAILED: helper-tests counts reader unit tests" >&2
     exit 1
 fi
-helper_summary_tests=$(printf '%s' "$helper_summary_out" | grep -oE 'passed: [0-9]+') ||
-    helper_summary_tests="passed"
+helper_summary_tests=$(qa_gate_case_count "$helper_summary_out")
 printf '✓ helper-counts-reader: %s\n' "$helper_summary_tests"
 
 compat_out=""

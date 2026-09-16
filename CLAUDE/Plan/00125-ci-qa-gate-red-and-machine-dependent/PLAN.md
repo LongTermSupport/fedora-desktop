@@ -192,10 +192,8 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
   compare the executed-gate list against the declared one and fail on a shrink. This is a
   structural change to the suite and affects local runs too, so it is the owner's call.
   **Narrowed:** the first option is not a new design — 7 of the 36 gates already work that
-  way (`|| rc=$?`, `FAILED++`, reported together at the end) against 29 that `exit 1`.
-  The question is whether to extend the existing design to those 29, not
-  whether to invent it. That split is also why the two causes hid differently — `docs`
-  accumulates and masked nothing; Cause B was in hard gates. See `FINDINGS.md`
+  way against 29 that `exit 1`, so the question is whether to extend it, not invent it. That
+  split is also why the two causes hid differently. See `FINDINGS.md`
 
 - [x] ✅ **Task 4.4**: The `helper-tests` line no longer scrapes the run's output. Four
   readers that did were each defeated by a test printing unittest-shaped text, the last by
@@ -204,16 +202,17 @@ gates, and the set behind the `helper-tests` abort **grew 5 → 11 → 25** whil
   numbers from unittest's `TestResult` object and writes them to the path
   `qa-helper-tests.bash --counts-file` is given; the single reader in
   `scripts/lib/qa-helper-summary.bash` reads that file and **fails** rather than reporting
-  zero when it cannot, driven by `scripts/test-qa-helper-summary.bash` (34 cases) as its own
-  gate. Mutation-tested: 6 mutations of the runner, 13 of the reader, all caught. The last
-  case runs the real runner end to end, so a format change on one side alone turns it red.
-  `qa-all.bash` captures the run's stdout and requires it EMPTY — that stream is the one
-  `verdicts.py` parses, so a `print()` in any test could otherwise forge a stage line
+  zero when it cannot, driven by `scripts/test-qa-helper-summary.bash` (43 cases) as its own
+  gate. Mutation-tested: 6 of the runner, 13 of the reader, all caught; the last case runs
+  the real runner end to end. `qa-all.bash` captures that run's stdout and requires it
+  EMPTY, since a `print()` in any test could otherwise forge a stage line
 
-- [ ] ⬜ **Task 4.5**: 21 other hard gates read their case count with an unscoped
-  `grep -oE 'passed: [0-9]+'`, which can make a stage line two lines. **Not blocked on
-  anyone** — deferred because the 21 disagree on a format, so a shared reader is a design
-  task rather than an extraction. Survey in `FINDINGS.md`
+- [x] ✅ **Task 4.5**: The 21 other hard gates each inlined `grep -oE 'passed: [0-9]+'`, and
+  `-o` prints every match, so an earlier `passed: <digits>` made the stage line TWO lines —
+  round 4's defect in 21 untested copies. They now share `qa_gate_case_count`, scoped to the
+  last matching LINE, because the 21 disagree on a format and no anchor fits all five (see
+  `FINDINGS.md`). 9 cases added. Verified as a pure refactor: every stage line is
+  byte-identical to the previous run bar the reader gate's own count
 
 ### Phase 5: Close
 

@@ -188,3 +188,38 @@ helper_counts_summary() {
     printf 'Ran %s %s in %s %s (%s tracked), %s skipped' \
         "$tests" "$test_noun" "$modules" "$module_noun" "$tracked" "$skipped"
 }
+
+# qa_gate_case_count <capture> — `passed: N` for a `scripts/test-*.bash` gate, or the word
+# `passed` when the capture carries no count.
+#
+# The second reader behind `qa-all.bash`'s stage lines, and it lives here for the same reason
+# the first does: 21 hard gates used to inline `grep -oE 'passed: [0-9]+'`, and `-o` prints
+# EVERY match, so any earlier `passed: <digits>` in a child's output was emitted alongside the
+# real one and the stage line became TWO lines — which `verdicts.py` half-drops, reading the
+# first as the stage and losing the rest. That is the defect round 4 found in the helper-tests
+# reader; it simply lived in 21 more copies, none of them tested.
+#
+# SCOPED TO THE LAST MATCHING LINE, and a line rather than a match because the 21 gates do
+# not agree on a format. Measured across them: `passed: N failed: M` with one, two and three
+# spaces; `passed: N` with no `failed:` at all; and two that prefix the line with the gate's
+# own name (`ccy selinux-verdict: passed: 14  failed: 0`). No anchor fits all five, so the
+# rule is positional: a gate prints its summary last, which is true because it is a summary.
+#
+# Degrading to a WORD rather than a number is deliberate and matches the other reader: a
+# wrong count reads as a measurement, `passed` cannot. `planlib-tests` genuinely has no
+# count — it prints `PASSED (library version 1.2.0)` — so this path is live, not defensive.
+#
+# Unlike `helper_counts_summary` this does NOT hard-fail on an unreadable capture. The
+# difference is what the number means: the helper-tests counts distinguish two machines and
+# a blind read there is the defect the plan exists to remove, whereas this is a case count
+# whose gate has already reported pass/fail through its exit status.
+qa_gate_case_count() {
+    local capture="$1" line=""
+    line=$(printf '%s' "$capture" |
+        awk '/passed: [0-9]+/{answer=$0} END{print answer}')
+    if [[ "$line" =~ passed:[[:space:]]+([0-9]+) ]]; then
+        printf 'passed: %s' "${BASH_REMATCH[1]}"
+    else
+        printf 'passed'
+    fi
+}

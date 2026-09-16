@@ -159,12 +159,27 @@ they cannot. And a malformed counts file **fails** rather than reporting zero, b
 which is the defect the whole exercise exists to remove, and the one every revision found
 a new way to reintroduce.
 
-**Task 4.5 is the same shape, unfixed.** 21 other hard gates in `qa-all.bash` read their
-case count with `grep -oE 'passed: [0-9]+'`, unscoped: `-o` prints every match, so a
-second occurrence makes the stage line two lines and `verdicts.py` reads the first as the
-stage and loses the rest. It is not fixed in passing because those gates do not agree on a
-format — `passed: N` alone, one/two/three spaces before `failed:`, and two prefixed with
-the gate's own name — so a shared reader is a design task, not an extraction.
+**The same shape lived in 21 more places (Task 4.5, now fixed).** Every other hard gate in
+`qa-all.bash` read its case count with an unscoped `grep -oE 'passed: [0-9]+'`: `-o` prints
+every match, so a second occurrence made the stage line two lines and `verdicts.py` read the
+first as the stage and lost the rest. Round 4 found this in the helper-tests reader and it
+was fixed there alone; the 21 copies were never looked at, and none was tested.
+
+They now share `qa_gate_case_count`, scoped to the last matching LINE. A line and not a
+match, because the 21 do not agree on a format and no anchor covers all of them:
+
+| Shape                                     | Example                                   |
+| ----------------------------------------- | ----------------------------------------- |
+| one space before `failed:`                | `passed: 29 failed: 0`                    |
+| two spaces                                | `passed: 15  failed: 0`                   |
+| three spaces                              | `passed: 187   failed: 0`                 |
+| no `failed:` at all                       | `passed: 20`                              |
+| prefixed with the gate's own name         | `ccy selinux-verdict: passed: 14  failed: 0` |
+| no count at all                           | `PASSED (library version 1.2.0)`          |
+
+The last row is why it degrades to the word `passed` rather than to a number — `planlib-tests`
+really does print that. Verified as a pure refactor: every stage line in a full run is
+byte-identical to the run before it, bar the reader gate's own case count.
 
 ### What the token does and does not do
 

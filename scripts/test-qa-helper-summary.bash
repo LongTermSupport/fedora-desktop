@@ -48,10 +48,12 @@ fi
 # shellcheck source=lib/qa-helper-summary.bash
 source "$LIB"
 
-if ! declare -F helper_counts_summary >/dev/null; then
-    echo "FAIL: helper_counts_summary is not defined after sourcing the library" >&2
-    exit 1
-fi
+for fn in helper_counts_summary qa_gate_case_count; do
+    if ! declare -F "$fn" >/dev/null; then
+        echo "FAIL: ${fn} is not defined after sourcing the library" >&2
+        exit 1
+    fi
+done
 
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
@@ -411,6 +413,44 @@ else
     check "the real runner writes a file this reader understands" \
         "Ran 2 tests in 1 module (1 tracked), 1 skipped" "$(summary "$e2e_counts")"
 fi
+
+echo "=== qa_gate_case_count: the OTHER stage-line reader, shared by 21 gates ==="
+
+# Each of those gates ran `grep -oE 'passed: [0-9]+'` over its child's whole capture. `-o`
+# prints EVERY match, so a second occurrence made the stage line TWO lines, and `verdicts.py`
+# reads the first as the stage and loses the rest. Same defect round 4 found in the
+# helper-tests reader; it just lived in 21 more places. Scoping to the LAST matching LINE is
+# what fixes it, and it has to be a line rather than a match because the 21 do not agree on a
+# format — see the cases below.
+
+check "a bare summary line is read" \
+    "passed: 29" "$(qa_gate_case_count 'passed: 29 failed: 0')"
+
+# The real spread across the 21, measured from the scripts rather than assumed.
+check "two spaces before failed: is read" \
+    "passed: 15" "$(qa_gate_case_count 'passed: 15  failed: 0')"
+check "three spaces before failed: is read" \
+    "passed: 187" "$(qa_gate_case_count 'passed: 187   failed: 0')"
+check "a count with no failed: at all is read" \
+    "passed: 20" "$(qa_gate_case_count 'passed: 20')"
+check "a line prefixed with the gate's own name is read" \
+    "passed: 14" "$(qa_gate_case_count 'ccy selinux-verdict: passed: 14  failed: 0')"
+
+# THE DEFECT, stated as a test. An earlier `passed: N` anywhere in the capture used to be
+# emitted alongside the real one, making the stage line two lines.
+check "an earlier count in the capture does not join the summary" \
+    "passed: 29" "$(qa_gate_case_count "$(printf '  PASS  a case mentioning passed: 3 in its label\npassed: 29 failed: 0\n')")"
+
+check "the answer is exactly one line" \
+    "1" "$(qa_gate_case_count "$(printf 'passed: 3 failed: 0\npassed: 29 failed: 0\n')" | grep -c '')"
+
+# A gate whose output has no count at all must degrade to a WORD, never to a number: a wrong
+# count reads as a measurement, `passed` cannot be mistaken for one. (planlib-tests is real:
+# it prints `PASSED (library version 1.2.0)`.)
+check "a capture with no count degrades to a word" \
+    "passed" "$(qa_gate_case_count 'PASSED (library version 1.2.0)')"
+check "an empty capture degrades to a word" \
+    "passed" "$(qa_gate_case_count '')"
 
 echo
 echo "passed: $passed failed: $failed"
