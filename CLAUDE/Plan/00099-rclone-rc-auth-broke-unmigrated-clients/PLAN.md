@@ -167,15 +167,16 @@ into Plan 00094's own notes.
   would be the Plan 00094 failure repeated by this plan. Run `deploy.bash` then
   `acceptance.bash` again — or `untracked/meta-deploy.bash`, which runs this
   alongside every other waiting plan
-- [x] ✅ **Task 5.10**: Closing `qa-reviewer` round 2 — **BLOCK**: 2 blocking, 4
-  should-fix, and all 7 of round 1's minors still open. All actioned, each one
-  mutation-tested (the assertion shown to kill a mutant *and* to leave a correct
-  build alone). The blocking pair were both this plan's own defect class recurring
-  inside its own fixes: `ftp-camera --copy` broken by Task 5.8's address discovery,
-  and a gate that could not see it because it probed its own address rather than the
-  client's. Findings, fixes and the falsification evidence:
-  [JOURNAL/00099-Journal-26-09-16.md](JOURNAL/00099-Journal-26-09-16.md); the review
-  itself is in `subagent-reports/`
+- [x] ✅ **Task 5.10**: Closing `qa-reviewer` rounds 2, 3 and 4 — BLOCK, then
+  FIX-BEFORE-MERGE twice. Every finding actioned and each fix mutation-tested, with a
+  control proving the assertion does not fail on a correct build. One thread runs through
+  all three: the gate kept vouching for `ftp-camera --copy` by approximating the client's
+  input, and each approximation was defeated by a different normalisation that still broke
+  the client. Ended in round 4 by deleting the stand-in — `ftp-camera` grew
+  `--copy-preflight`, the read-only half of `--copy`, and check [6] invokes the client.
+  Round by round, with the falsification evidence:
+  [JOURNAL/00099-Journal-26-09-16.md](JOURNAL/00099-Journal-26-09-16.md); the reviews are
+  in `subagent-reports/`
 
 ## Dependencies
 

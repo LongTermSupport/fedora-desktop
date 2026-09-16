@@ -45,6 +45,8 @@ SORT_ONLY=false
 PASS_ONLY=false
 PUSH_ONLY=false
 COPY_ONLY=false
+#: --copy's checks, without the copy. Read-only, and the acceptance gate's entry point.
+PREFLIGHT_ONLY=false
 PRUNE_ONLY=false
 ASYNC_MODE=false
 ASYNC_COPY_MODE=false
@@ -105,6 +107,9 @@ Primary modes (pick at most one; default = full FTP server):
   --pass        Print the camera FTP password to stdout and exit
   --push        Direct push to rclone remote (reliable, synchronous)
   --copy        Copy via rclone mount (caches locally) then verify on remote
+  --copy-preflight
+                Run --copy's checks and stop. Read-only: copies nothing, starts
+                nothing. Prints the RC address it resolved for the mount.
   --prune       Remove RAW files whose corresponding JPG has been deleted
 
 Modifiers (apply to FTP-server modes only; combinable):
@@ -360,6 +365,7 @@ while [ "$#" -gt 0 ]; do
         --pass)        PASS_ONLY=true ;;
         --push)        PUSH_ONLY=true ;;
         --copy)        COPY_ONLY=true ;;
+        --copy-preflight) PREFLIGHT_ONLY=true ;;
         --prune)       PRUNE_ONLY=true ;;
         --async)       ASYNC_MODE=true ;;
         --async-copy)  ASYNC_MODE=true; ASYNC_COPY_MODE=true ;;
@@ -1053,7 +1059,21 @@ find_mount_path() {
 # browsing), wait for async uploads to complete, then verify files reached
 # the remote via rclone check. On failure, prints exactly what's missing
 # and suggests --push as a fallback.
-copy_to_mount() {
+# Everything --copy must establish before it moves a single byte, and NOTHING else.
+#
+# A separate function because the acceptance gate needs to run exactly this and copy
+# nothing. Three review rounds tried to approximate it from outside — a path inside the
+# mount, then the mount root with a trailing dot, then a one-level subdirectory — and each
+# approximation was satisfied by a normalisation that still broke this function, because
+# `find_mount_path` returns the mount target plus the remote's whole multi-component path
+# offset and no stand-in carried that shape. An approximation of a code path is a different
+# code path; the only input guaranteed to be the client's is the client's.
+#
+# Writes the resolved RC address to stdout — that is its return value, so every diagnostic
+# goes to stderr. Sets DEST_PATH and RC_ADDR for the caller, which needs both.
+DEST_PATH=""
+RC_ADDR=""
+copy_preflight() {
     if [ ! -f "$CONFIG_FILE" ]; then
         echo "ERROR: $CONFIG_FILE not found — run play-ftp-camera.yml first" >&2
         return 1
@@ -1075,16 +1095,10 @@ copy_to_mount() {
         return 1
     fi
 
-    if [ ! -d "$UPLOAD_DIR" ]; then
-        echo "ERROR: Upload directory not found: $UPLOAD_DIR" >&2
-        return 1
-    fi
+    DEST_PATH=$(find_mount_path)
 
-    local dest_path
-    dest_path=$(find_mount_path)
-
-    if [ ! -d "$dest_path" ]; then
-        echo "ERROR: Mount destination not found: $dest_path" >&2
+    if [ ! -d "$DEST_PATH" ]; then
+        echo "ERROR: Mount destination not found: $DEST_PATH" >&2
         echo "  Is the rclone mount active?" >&2
         return 1
     fi
@@ -1096,9 +1110,9 @@ copy_to_mount() {
     # then polled that mount's vfs/stats for a copy happening elsewhere — a
     # wrong answer with no error anywhere. RCLONE_RC_PORT was read nowhere else
     # in the repo, so nothing set it.
-    local rc_addr=""
-    if ! rc_addr=$(rclone_rc_addr_for_mount "$dest_path"); then
-        echo "ERROR: could not determine the RC address for $dest_path" >&2
+    RC_ADDR=""
+    if ! RC_ADDR=$(rclone_rc_addr_for_mount "$DEST_PATH"); then
+        echo "ERROR: could not determine the RC address for $DEST_PATH" >&2
         echo "  The mount must be running and started with --rc-addr." >&2
         echo "  Re-run play-rclone.yml, which writes the unit with both." >&2
         return 1
@@ -1114,13 +1128,28 @@ copy_to_mount() {
     # authentication configured at all, so a working mount failed the preflight.
     # Probing what the function actually uses avoids that whole class of
     # mismatch in both directions.
-    if ! rclone_rc_available "http://${rc_addr}"; then
-        echo "ERROR: rclone remote control did not answer at ${rc_addr}" >&2
+    if ! rclone_rc_available "http://${RC_ADDR}"; then
+        echo "ERROR: rclone remote control did not answer at ${RC_ADDR}" >&2
         echo "  Confirm the mount is running and was started with --rc:" >&2
         echo "    systemctl --user status rclone-<remote> --no-pager -l" >&2
         echo "  If --rc is missing from its ExecStart, or the call was refused" >&2
         echo "  with HTTP 401, re-run play-rclone.yml — it writes both the unit" >&2
         echo "  and the RC credential file." >&2
+        return 1
+    fi
+
+    printf '%s\n' "$RC_ADDR"
+    return 0
+}
+
+copy_to_mount() {
+    copy_preflight > /dev/null || return 1
+
+    local dest_path="$DEST_PATH"
+    local rc_addr="$RC_ADDR"
+
+    if [ ! -d "$UPLOAD_DIR" ]; then
+        echo "ERROR: Upload directory not found: $UPLOAD_DIR" >&2
         return 1
     fi
 
@@ -2249,6 +2278,18 @@ if [ "$PUSH_ONLY" = true ]; then
     trap - EXIT INT TERM
     push_uploads
     exit 0
+fi
+
+# ── Copy preflight only ──────────────────────────────────────────────────────
+# Everything --copy checks before it moves a byte, and then stop. Read-only: it starts
+# nothing, copies nothing and changes nothing. Exists so the acceptance gate can exercise
+# THIS resolution rather than a stand-in for it — three review rounds of approximating
+# `find_mount_path`'s output from outside each passed while leaving --copy broken.
+# Prints the resolved RC address on success; the diagnostics are copy_preflight's own.
+if [ "$PREFLIGHT_ONLY" = true ]; then
+    trap - EXIT INT TERM
+    copy_preflight
+    exit $?
 fi
 
 # ── Copy-via-mount mode ──────────────────────────────────────────────────────

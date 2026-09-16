@@ -209,7 +209,9 @@ rclone_rc_addr_for_mount() {
                 # semantics first and then relax this.
                 if [ "$(printf '%s\n' "$matches" | wc -l)" -gt 1 ]; then
                     echo "rclone_rc_addr_for_mount: the mount serving $mountpoint has more than one --rc-addr: $(printf '%s' "$matches" | tr '\n' ' ')" >&2
-                    echo "  rclone uses the last; the sibling helpers use the first. Fix the unit rather than guess." >&2
+                    echo "  Which one this mount is listening on is not established here, so no address is returned." >&2
+                    echo "  The sibling helpers take the first; that is their convention, not evidence." >&2
+                    echo "  Fix the unit to carry one --rc-addr, or establish the semantics first." >&2
                     return 1
                 fi
                 addr="$matches"
