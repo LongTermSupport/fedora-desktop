@@ -528,6 +528,21 @@ class TestVendoredLinkTargets(_GitTree):
         findings, _ = self.check("CLAUDE/QA.md")
         self.assertEqual(findings, [])
 
+    def test_a_link_to_the_repository_root_is_not_a_finding(self):
+        """`git ls-files` lists no entry for the root, and the root is ours.
+
+        `repo_relative` answers `.` for it, which is in neither the file set nor
+        the derived-directory set, so it came out as "not tracked by this
+        repository" — a false failure about the repository itself. No such link
+        exists today; it is latent, and a reader meeting it would have nothing
+        to act on.
+        """
+        self.write("README.md", "# R\n")
+        subprocess.run(["git", "-C", self.root, "add", "README.md"], check=True)
+        self.write("CLAUDE/QA.md", "See [the repo](..).\n")
+        findings, _ = self.check("CLAUDE/QA.md")
+        self.assertEqual(findings, [])
+
     def test_a_tracked_target_that_is_missing_from_disk_still_fails(self):
         """Trackedness does not excuse absence — a deleted tracked file is broken."""
         self.write("CLAUDE/Gone.md", "# Gone\n")

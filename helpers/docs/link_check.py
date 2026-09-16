@@ -348,7 +348,10 @@ def tracked_paths(repo_root):
             f"tracks, so no link verdict here would mean anything"
         )
     files = {path for path in proc.stdout.split("\0") if path}
-    directories = set()
+    # `.` is the repository itself, which `ls-files` naturally never lists and which is
+    # obviously ours. Without it, a link resolving to the repo root read as "not tracked by
+    # this repository" — a false failure about the repository.
+    directories = {"."}
     for path in files:
         parent = os.path.dirname(path)
         while parent:
