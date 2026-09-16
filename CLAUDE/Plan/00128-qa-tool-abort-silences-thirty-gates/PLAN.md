@@ -83,10 +83,21 @@ than the severe one. [FINDINGS.md §2](FINDINGS.md)
   so a crash could not read as a clean run, and its meaning must survive Phase 3. And the
   js gate is the **only** one whose missing input is dev-only; the other five name tools a
   provisioned host has anyway, which is why the conflict lands here and nowhere else
-- [ ] ⬜ **Task 1.3**: Establish who actually hits this — a fresh clone, a linked
-  worktree, CI (green only because `.github/workflows/qa.yml` runs `npm ci`), and the CCY
-  container. 00125 found `CLAUDE/QA.md` and its own Non-Goal disagreeing about that
-  population, so read the current text rather than either summary
+- [x] ✅ **Task 1.3**: Five populations checked, not summarised.
+  [FINDINGS.md §6](FINDINGS.md). `CLAUDE/QA.md:108` is correct as written — a linked
+  worktree and any checkout without `npm install` — and both halves were verified by
+  making one of each. **There is a live instance in this repo now**: of the two worktrees
+  under `untracked/worktrees/`, one has no `extensions/node_modules`, so `qa-all.bash`
+  there would abort after seven gates today
+  - [x] ✅ **`CLAUDE/QA.md:112` already prescribes the fix shape** —
+    *"`qa-deployed-drift.bash` is the shape to copy: it states the dependency, skips only
+    for a reason it prints, and the reason is checkable."* Phase 3 applies an existing
+    standard rather than inventing one
+  - [x] ✅ **…and the named model has a residue of the same defect.** It reports its skips
+    as `✓ deployed-drift: skipped (…)` — a TICK, which `verdicts.py` parses, so anything
+    counting ✓ stages counts a gate that ran nothing as one that passed. Task 3.1's `⚠` is
+    deliberately a third symbol rather than a tick with prose after it
+    ([FINDINGS.md §7](FINDINGS.md))
 - [ ] ⬜ **Task 1.4**: A plan-local `triage.bash` wrapping Task 1.1's measurement, so the
   7-versus-38 number is re-derivable after Phase 3 rather than being a figure in a
   document. Built on `_planlib.inc.bash` per `CLAUDE/PlanScriptStandards.md`

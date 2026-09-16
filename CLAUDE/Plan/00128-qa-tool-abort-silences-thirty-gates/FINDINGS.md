@@ -89,3 +89,56 @@ the blast radius and moving it earlier would grow it — with no gate noticing e
 Phase 3's fix should not be "move the js gate to the end". That would reduce this
 instance to near-zero while leaving the mechanism intact for the next tool that goes
 missing, and it would make the suite's correctness depend on an ordering no test asserts.
+
+## 6. Who hits this, verified per population (Task 1.3)
+
+00125 recorded `CLAUDE/QA.md` and its own Non-Goal disagreeing about the population, so
+each was checked rather than either summary trusted.
+
+**`CLAUDE/QA.md:108` is correct as written** — *"a linked worktree, and any checkout where
+`npm install` has not been run"*. Both halves verified:
+
+| Population           | Has `extensions/node_modules`? | How established                                  |
+| -------------------- | ------------------------------ | ------------------------------------------------ |
+| fresh `git clone`    | no                             | cloned one; `qa-all.bash` exits 2 (§1)           |
+| linked git worktree  | no                             | created one with `git worktree add`, then removed |
+| CI                   | yes                            | `.github/workflows/qa.yml:66` runs `npm ci`      |
+| this CCY container   | yes                            | `qa-js` passes here; someone ran `npm ci`        |
+| a *fresh* CCY container | no                          | 00125 measured why: no node stage, and the path is under the bind mount |
+
+**There is a live instance in this repository right now.** Of the two worktrees under
+`untracked/worktrees/`, `worktree-plan-00125-review` has no `extensions/node_modules`, so
+`./scripts/qa-all.bash` run there today would abort after seven gates. Both worktrees are
+clean — nothing uncommitted, nothing unpushed — so this is not hypothetical exposure on a
+population that does not exist.
+
+*(Unrelated housekeeping, noted not acted on: `worktree-plan-00125-review` belongs to a
+plan that is Complete and archived, and has no unsaved work. Removing it is the owner's
+call, not this plan's.)*
+
+## 7. QA.md already names the fix shape — and the model it names has a residue of the same defect
+
+`CLAUDE/QA.md:112-113`, immediately under the machine-dependence table:
+
+> `qa-deployed-drift.bash` is the shape to copy: it states the dependency, skips only for a
+> reason it prints, and the reason is checkable.
+
+That is Task 3.1's requirement, already written down as this repository's own standard,
+and `qa-js.bash` does not meet it — it aborts the suite instead of skipping with a reason.
+So Phase 3 is not inventing a convention; it is applying one the docs already prescribe.
+
+**But the named model is not quite right either, and Phase 3 should improve on it rather
+than copy it.** `qa-deployed-drift.bash:69`, `:85` and `:92` all report their skip as:
+
+```
+✓ deployed-drift: skipped (CCY container — no deployed copies to compare); …
+```
+
+A tick. The reason is printed, which is the important half — but the SYMBOL says pass, and
+`helpers/qa_environment/verdicts.py` parses that symbol. Anything counting ✓ stages counts
+a gate that ran nothing as a gate that passed. That is this repo's recurring defect class
+surviving inside the gate held up as the example of avoiding it.
+
+So Task 3.1's `⚠ <name>: not run — <tool> absent` is deliberately a third symbol, not a
+tick with prose after it. Three states need three symbols if a machine is going to read
+them, and one already does.
