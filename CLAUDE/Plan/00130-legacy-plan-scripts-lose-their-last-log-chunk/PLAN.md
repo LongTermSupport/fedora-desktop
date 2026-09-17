@@ -114,17 +114,18 @@ between the operator and a one-shot run.
   reached its end AND the log drained. Both halves, measured, on a converted script.
 
   **Still owed**: 00066, 00079 (×4) and 00080. 00075's is moot — that plan archived on
-  2026-09-17. None of the remainder belongs to an in-progress plan; the batch harness used
-  to skip them for that reason, and now does not. Naming a plan with `--only` *is* the
-  schedule: the In Progress filter is dropped, `Completed/` is searched, and a plan whose
-  only script is `triage.bash` still qualifies — which is what these three are. One
-  command covers all of them:
+  2026-09-17. These are run directly, one path each:
 
   ```bash
-  ./untracked/meta-deploy.bash --only 00066 --only 00079 --only 00080
+  ./CLAUDE/Plan/00066-ftp-camera-airbnb-wifi-and-hotspot-triage/triage.bash
+  ./CLAUDE/Plan/00080-ccy-session-network-isolation/triage.bash
+  ./CLAUDE/Plan/00079-podman-container-control/{triage,deploy,acceptance,unit-test-selection}.bash
   ```
 
-  Confirmed with `--list`: three plans selected, and the unnamed schedule is unchanged.
+  Not through `meta-deploy.bash`. That runs once, over every In Progress plan, and these
+  belong to closed ones. A selection flag was briefly added here to reach them and then
+  removed: it turned a batch runner into a longer way of typing a path, and a wrapper that
+  can also run one thing is a second selection mode to reason about for no gain.
 
   **The check-0 caveat recorded here was stale and is withdrawn.** It named 00079's
   `acceptance.bash`; the anchored-grep defect was in its `unit-test-selection.bash`, and

@@ -34,8 +34,6 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00133-ccy-auto-compact-window-default-and-daemon-check](00133-ccy-auto-compact-window-default-and-daemon-check/) - CCY sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000` by default, overridable per project in a tracked `ccy.env`, while the hooks daemon independently warns when the window is unset or above the ceiling — that half being an upstream issue whose body must be generated, never hand-drafted.
-
 - [00132-crashloop-killed-shell-then-greeter-suspended-on-ac](00132-crashloop-killed-shell-then-greeter-suspended-on-ac/) - A container crash loop exhausted the session D-Bus quota and killed `gnome-shell`; the GDM greeter then idle-suspended the plugged-in machine, because `gdm` is configured by no play here. Research and design only; no fix applied.
 
 - [00131-semgrep-or-true-rule-is-blind-to-the-enclosed-form](00131-semgrep-or-true-rule-is-blind-to-the-enclosed-form/) - The `|| true` rule is anchored to end-of-line, so `$( cmd || true )` is invisible to it — which is how two instances shipped. Widening it finds 18 live sites in 8 files; four are the git hooks that gate secret scanning for this public repo, where a wrong fix fails open. Carried from Plan 00122 Task 3.7.
@@ -174,6 +172,8 @@ Use these Unicode icons in plan documents:
 
 ## Completed Plans
 
+- [00133-ccy-auto-compact-window-default-and-daemon-check](Completed/00133-ccy-auto-compact-window-default-and-daemon-check/) - CCY sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000` for every session. The first attempt shipped `600k`, which the variable parses as 600 and floors to 100,000 — six times tighter than intended, and survivable enough to run for a week. Three review rounds were needed because the first two corrections were each wrong in turn.
+
 - [00099-rclone-rc-auth-broke-unmigrated-clients](Completed/00099-rclone-rc-auth-broke-unmigrated-clients/) - Plan 00094 authenticated the rclone RC on a false premise, so three unmigrated clients got HTTP 401 and reported it as a dead mount for a week. One sourced credential library, every client migrated, plus the new `qa-deployed-drift.bash` gate. Re-deployed and ACCEPTED on the host, `COVERAGE: 9 of 9`.
 
 - [00124-chrome-install-gpg-failure-on-upgraded-host](Completed/00124-chrome-install-gpg-failure-on-upgraded-host/) - The key was never missing: rpm 6 names `gpg-pubkey` packages by full fingerprint where the helper assumed a short id, so the lookup matched nothing and reported an absent key that was verifying packages throughout. ACCEPTED on the host, 23 assertions.
@@ -232,7 +232,6 @@ Use these Unicode icons in plan documents:
 
 - [00083-plan-index-hygiene-and-comment-handlers](Completed/00083-plan-index-hygiene-and-comment-handlers/) - Enables the three handlers the 3.54.0 daemon upgrade shipped disabled (`comment_changelog`, `comment_size`, `sensitive_content`), each after measuring its existing backlog rather than assuming it, and clears the 39 over-length rows the new `index-row-length` check found in this index.
 
-- [025-ccy-spring-cleaning](Completed/025-ccy-spring-cleaning/) - CCY codebase spring cleaning: fix 63 shellcheck warnings, remove 20 dead functions, fix double-sourcing, exit-vs-return, and code quality issues
 
 **Older completed plans** — everything beyond the most recent 30 — are in
 [Completed/README.md](Completed/README.md), moved there verbatim. The retention window
