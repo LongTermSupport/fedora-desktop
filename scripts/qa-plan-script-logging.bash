@@ -35,7 +35,12 @@ cd "$ROOT_DIR"
 
 # The pattern's first character is bracketed so this gate does not match its own
 # source when someone greps the tree for offenders.
-OFFENCE='exec[[:space:]]*>[[:space:]]*>\([[:space:]]*[t]ee'
+#
+# The open paren is bracketed rather than backslash-escaped because awk reads a
+# -v value as a STRING first: `\(` loses its backslash there and reaches the
+# regex engine as a bare `(`, which is an unmatched group. awk then aborts on the
+# first file it scans, so the gate failed with a regex error instead of a verdict.
+OFFENCE='exec[[:space:]]*>[[:space:]]*>[(][[:space:]]*[t]ee'
 
 # scan_file <path> — print each offending line as "<line>:<text>", ignoring comments.
 # An already-converted script that documents its own conversion in a comment must not
