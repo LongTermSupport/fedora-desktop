@@ -88,32 +88,33 @@ fi
 examined=0
 findings=()
 
-for planDir in CLAUDE/Plan/[0-9]*-*/; do
-    [[ -d "$planDir" ]] || continue
+# RECURSIVE, deliberately. A top-level `"$planDir"*.bash` glob examined 52 of the 63
+# scripts in the active tree and printed the 52 as though it were the population — and
+# 00099's falsification/ holds eleven scripts, including a retired/ subdirectory, that it
+# never opened. That is this gate's own subject: a clean result indistinguishable from a
+# blind one, in the gate written to stop it. Same for `logs/`, which was only checked
+# directly under the plan folder.
+while IFS= read -r script; do
+    examined=$((examined + 1))
 
-    for script in "$planDir"*.bash; do
-        [[ -f "$script" ]] || continue
-        examined=$((examined + 1))
-
-        hits="$(scan_file "$script")"
-        if [[ -n "$hits" ]]; then
-            while IFS= read -r hit; do
-                findings+=("$script:$hit")
-            done <<< "$hits"
-        fi
-    done
-
-    # $planDir carries a trailing slash from the glob, so it is not re-added here.
-    if [[ -d "${planDir}logs" ]]; then
-        findings+=("${planDir}logs: plan-local run-log directory")
+    hits="$(scan_file "$script")"
+    if [[ -n "$hits" ]]; then
+        while IFS= read -r hit; do
+            findings+=("$script:$hit")
+        done <<< "$hits"
     fi
-done
+done < <(find CLAUDE/Plan/[0-9]*-*/ -type f -name '*.bash' | sort)
+
+while IFS= read -r logDir; do
+    [[ -n "$logDir" ]] || continue
+    findings+=("$logDir: plan-local run-log directory")
+done < <(find CLAUDE/Plan/[0-9]*-*/ -type d -name logs | sort)
 
 # A glob that matched nothing and a tree with no offences print identically unless the
 # count is stated. Plan 00130's own triage made this mistake first and fixed it; a gate
 # is the last place to repeat it.
 if [[ "$examined" -eq 0 ]]; then
-    echo "ERROR: examined 0 plan scripts — the glob matched nothing, so this gate certified nothing" >&2
+    echo "ERROR: examined 0 plan scripts — the search matched nothing, so this gate certified nothing" >&2
     exit 1
 fi
 
