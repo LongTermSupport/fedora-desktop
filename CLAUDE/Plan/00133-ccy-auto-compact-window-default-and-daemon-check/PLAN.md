@@ -198,9 +198,11 @@ The load-bearing findings:
   launcher, and was wrong. A green 4.2 says the variable arrived; it says nothing
   about what the value resolves to, which is what 4.3 exists for and what was
   skipped.
-  **Owed on 3.58.1**: the same live read, from a session launched by the deployed
-  3.58.1. The earlier claim to have re-confirmed it was not sourced — 3.58.1 is this
-  plan's own commit, and deploying it is a host step that happens after.
+  **Discharged on the corrected value**: the owner deployed it and restarted, and that
+  session read `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000` from its own environment with
+  no `ccy.env` override present. Same standard as the 3.58.0 read, and the same limit:
+  it establishes what the launcher forwarded, not what Claude Code resolved it to. A
+  host `export` before launch is not observable from inside either. That is 4.3's job.
 - [ ] ⬜ **Task 4.3**: **HOST run.** Confirm Claude Code has actually *accepted*
   the value rather than merely received it: run `/config` and read the auto-compact
   line. It prints the resolved number **and** its source together —
@@ -228,10 +230,8 @@ The load-bearing findings:
 
 ## Success Criteria
 
-- [ ] A CCY session started with no project override reports
-  `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000` from its live environment. (Held open:
-  the 3.58.0 read was first-hand, but no session has yet been launched by a
-  deployed 3.58.1.)
+- [x] A CCY session started with no project override reports
+  `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000` from its live environment.
 - [ ] `/config` reports `600,000 tokens (from CLAUDE_CODE_AUTO_COMPACT_WINDOW)` —
   the resolved figure and its source together. Presence was never the hard part:
   `600k` was present, sourced to the environment, and resolved to 100,000.
