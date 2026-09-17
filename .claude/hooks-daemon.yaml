@@ -47,6 +47,19 @@ plan_workflow:
     staleness_days: 30
     legacy_plan_allowlist: []  # legacy plans fixed properly in 00059, not suppressed
     collision_allowlist: []
+    # Non-plan files allowed at the plan root, on top of the built-in
+    # {README.md, CLAUDE.md, mkplan.bash, _TEMPLATE_.md}.
+    #
+    # meta-deploy.bash runs a named list of plans' triage/deploy/acceptance scripts in one
+    # go. It belongs beside mkplan.bash and _planlib.inc.bash — it is plan-system tooling,
+    # not a plan — and it is listed here rather than moved to scripts/ because scripts/ is
+    # for repo-wide gates and tools, which this is not.
+    #
+    # _planlib.inc.bash is here for the same reason: the shared library every plan's
+    # deploy/triage/acceptance script sources.
+    extra_root_files:
+      - meta-deploy.bash
+      - _planlib.inc.bash
     journal:                   # Plan journalling (daemon v3.40.0). All checks advise-only unless mode: block.
       enabled: true
       grandfather_before: 60   # plans 00001-00059 predate journalling — never nag them to add a JOURNAL/
@@ -265,7 +278,14 @@ handlers:
         seed:
           default_mode: symlink
           entries:
-            - .claude/hooks-daemon.env
+            # optional, because this file is an OVERRIDE (it sets
+            # HOOKS_DAEMON_ROOT_DIR for installs whose project path differs) and
+            # this host does not have one — the daemon resolves its root fine
+            # without it. Declared required, a missing override aborted worktree
+            # creation outright. Fabricating the file instead would have forced a
+            # root dir that is currently correct by default.
+            - path: .claude/hooks-daemon.env
+              optional: true
 
 # Pseudo-events: synthetic events fired from real ones with frequency control.
 # A pseudo-event ABSENT from this file is never registered, so the nitpick
