@@ -202,6 +202,47 @@
         XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
       when: not is_server | bool
 
+    # READ BACK WHAT THE RELOAD WAS FOR. The reload above is this play's fix for a defect
+    # whose whole signature is the filesystem and the live manager disagreeing, and until
+    # now the play asserted neither side of it — it reported success on a machine where
+    # `is-enabled` said `enabled` and `list-dependencies` did not name the unit, which is
+    # exactly the state the reload exists to prevent. A fix that cannot be observed to have
+    # worked is indistinguishable from one that did not.
+    #
+    # This is the probe-then-fail shape: the query is allowed to fail so its output can be
+    # judged, and the judgement is the next task rather than a warning nobody reads.
+    - name: Read Back Whether The Live Manager Now Pulls In The Health Unit
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - --user
+          - list-dependencies
+          - graphical-session.target
+          - --no-pager
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+      register: hh_wants_readback
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe-then-fail — the verdict is the next task
+      when: not is_server | bool
+
+    - name: Assert The Health Unit Is In The Live Graph, Not Only On Disk
+      ansible.builtin.fail:
+        msg: >-
+          {{ unit_name }} is enabled on disk but graphical-session.target does not name it in
+          the running user manager, so it will not fire at login. The daemon-reload above did
+          not take effect on the already-active target. Collect, on the host:
+          `systemctl --user list-dependencies graphical-session.target --no-pager | cat`,
+          `ls -l ~/.config/systemd/user/graphical-session.target.wants/ | cat`,
+          `systemctl --user show {{ unit_name }} -p LoadState -p UnitFileState -p WantedBy --no-pager | cat`
+          and `loginctl show-user "$USER" -p Linger --no-pager | cat`.
+      when:
+        - not is_server | bool
+        - hh_wants_readback.rc == 0
+        - unit_name not in hh_wants_readback.stdout
+
     # ── Server delivery: a timer to collect, a login shell to report ─────────────────
     - name: Deploy The Host Health Collection Unit
       ansible.builtin.template:

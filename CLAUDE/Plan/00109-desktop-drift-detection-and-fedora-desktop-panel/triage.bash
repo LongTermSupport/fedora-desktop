@@ -116,6 +116,32 @@ else
 fi
 printf '\n'
 
+# ── is the health unit in the LIVE graph, or only on disk? ───────────────────────
+#
+# THE DISCRIMINATING PROBE for acceptance check [11]. That check failed after a deploy
+# whose reload task reported success, and the four readings below are what separate the
+# two explanations — neither of which can be told from the other by a single query.
+#
+#   * `is-enabled` reads the FILESYSTEM; `list-dependencies` reads the RUNNING manager's
+#     in-memory graph. Those disagreeing IS the defect's signature, so both are taken.
+#   * If the wants-symlink is present and the unit LOADED yet the target still omits it,
+#     the reload did not re-evaluate an already-active target, and the play's fix is
+#     insufficient rather than merely un-applied.
+#   * Linger decides whether a logout can clear a stale graph at all: with it on,
+#     `user@UID.service` survives the logout.
+#
+# Taken BEFORE and AFTER a deploy, a pair of these runs says which it is. That is why the
+# batch now brackets every deploy with triage rather than leaving it to be typed by hand.
+printf '### [11] discriminators — the filesystem view vs the live manager view\n\n'
+probe 'live graph: does graphical-session.target name the unit?' \
+    systemctl --user list-dependencies graphical-session.target --no-pager
+probe 'filesystem: the wants-symlink directory' \
+    ls -l "${HOME}/.config/systemd/user/graphical-session.target.wants/"
+probe 'the unit as the manager has loaded it' \
+    systemctl --user show host-health.service -p LoadState -p UnitFileState -p WantedBy --no-pager
+probe 'linger — does user@UID survive a logout?' \
+    loginctl show-user "${USER}" -p Linger --no-pager
+
 # Resolved here rather than inside a `bash -c` string, so the path this run
 # actually looked at appears in the log.
 _ledgerDir="${XDG_STATE_HOME:-${HOME}/.local/state}/fedora-desktop/play-ledger"

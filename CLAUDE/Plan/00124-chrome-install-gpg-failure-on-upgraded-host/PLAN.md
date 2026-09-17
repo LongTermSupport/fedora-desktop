@@ -128,7 +128,17 @@ this plan makes were demonstrably breakable. Report:
 - [x] ✅ **Task 4.1**: Re-run on the F41-upgraded laptop; Chrome installs. Confirmed
   by the owner — the key check cleared and the run carried on past Chrome. This
   is the first end-to-end proof of the rpm half, which no container can give.
-- [ ] ⬜ **Task 4.2**: A second run reports the key tasks as **ok**, not changed.
+
+- [x] ✅ **Task 4.2**: **Answered on the host, 2026-09-17.** `deploy.bash` runs the play
+  twice by design — leg 1 converges, leg 2 is this task's second run — and the two PLAY
+  RECAPs are the evidence: `ok=14 changed=2 failed=0`, then `ok=14 changed=0 failed=0`.
+  Both legs passed and `acceptance.bash` then rendered ACCEPTED in the same batch.
+
+  This is the measurement the task's own warning demanded: the refresh path erases a key
+  and re-imports it, so a broken idempotency gate would not fail — it would erase and
+  re-import for ever while reporting green. `changed=0` on the second pass is what rules
+  that out, and it could only ever be read on a real host. A second run reports the key
+  tasks as **ok**, not changed.
   `triage.bash` section 2 answers this without needing the run watched: it identifies
   every installed `gpg-pubkey` package by the primary inside its armour, confirms the
   one carrying `7721F63BD38B4796` also carries `FD533C07C264648F`, and compares the
@@ -136,6 +146,7 @@ this plan makes were demonstrably breakable. Report:
   report maps each fact to the play task it predicts. Run it, then run the play —
   agreement is the evidence, rather than a human watching two runs and remembering
   what the first said.
+
   - **First attempt aborted, and the cause was in this plan's own code** — see
     Task 4.4. Re-run `deploy.bash` now that it is fixed.
 
