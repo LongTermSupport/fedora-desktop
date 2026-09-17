@@ -204,31 +204,24 @@ The load-bearing findings:
   no `ccy.env` override present. Same standard as the 3.58.0 read, and the same limit:
   it establishes what the launcher forwarded, not what Claude Code resolved it to. A
   host `export` before launch is not observable from inside either. That is 4.3's job.
-- [ ] ⬜ **Task 4.3**: **HOST run.** Confirm Claude Code has actually *accepted*
-  the value rather than merely received it: run **`/autocompact`** with no argument
-  and read the line it prints. It gives the resolved number **and** its source
-  together — `Auto-compact window: 600k tokens (from CLAUDE_CODE_AUTO_COMPACT_WINDOW)`.
-  **Read the `600k` carefully**: the panel formats with compact notation, so it reports the
-  value back in the one spelling that is invalid as input. `600k` out means 600,000; `600k`
-  in means 600. Do not treat the readback as a specification of what may be set.
-  One line settles both halves: resolved value, and where it came from.
-  **This task said `/config` until the owner looked there and found nothing.** The
-  correction is theirs, and the binary agrees: `/config` carries only the
-  `autoCompactEnabled` on/off toggle, while the window's resolved-value-and-source line
-  is rendered by the `/autocompact` command module, whose bare-argument branch returns
-  exactly that status text. Two successive reviews named the wrong surface here — the
-  first from a recovered string, the second from a byte offset that was real but whose
-  owning module went unread — and the check that settled it was a human opening the
-  panel.
-  **Reopened after being wrongly closed.** It was ticked on "sessions run to normal
-  length", which is the null observation: a rejected variable, the model default and
-  `auto` all produce normal-length sessions too, so it cannot separate *in force*
-  from *silently ignored*. That is absence of evidence read as evidence, on the one
-  task written to forbid it. Worse, the original `/config` requirement would have
-  caught the whole defect outright — on 3.58.0 it would have read
-  `100,000 tokens (from CLAUDE_CODE_AUTO_COMPACT_WINDOW)`, exposing the misparse and
-  the source in a single line. Behaviour was the stronger witness in exactly one
-  direction — failure — and that direction is gone.
+- [x] ✅ **Task 4.3**: **Done — the owner ran `/autocompact` and pasted the panel.**
+
+  ```
+  Auto-compact window
+     Current setting: 600k tokens (from CLAUDE_CODE_AUTO_COMPACT_WINDOW)
+     ...
+     CLAUDE_CODE_AUTO_COMPACT_WINDOW is set and takes precedence.
+  ```
+
+  That is the resolver naming the environment variable as the winning source, with the
+  value rendered in compact notation — `600k` out means 600,000, which is the figure this
+  plan set. Both halves of the task in one reading: accepted, and resolved to what was
+  intended. On 3.58.0 the same panel would have read `100k`.
+
+  The task said `/config` until the owner looked there and found nothing. Two reviews named
+  that surface, both from strings whose owning module went unread; `/config` carries only
+  the `autoCompactEnabled` toggle.
+
 - [ ] ⬜ **Task 4.4**: **HOST run.** Set a different value via `export` in a
   project's `ccy.env`, restart, and confirm the project's value wins. This is
   the override requirement from the brief and the one most likely to be silently
@@ -244,7 +237,7 @@ The load-bearing findings:
 
 - [x] A CCY session started with no project override reports
   `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000` from its live environment.
-- [ ] `/autocompact` reports `600k tokens (from CLAUDE_CODE_AUTO_COMPACT_WINDOW)`
+- [x] `/autocompact` reports `600k tokens (from CLAUDE_CODE_AUTO_COMPACT_WINDOW)`
   — the resolved figure and its source together. Presence was never the hard part:
   `600k` was present, sourced to the environment, and resolved to 100,000.
 - [ ] A project setting the variable with `export` in its tracked

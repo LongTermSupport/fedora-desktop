@@ -107,6 +107,21 @@ else
         exit 1
     fi
 
+    # Count the host lines before judging them. `grep | grep -qv` on an EMPTY recap finds
+    # nothing to object to and passes — a verdict of "no host changed" derived from no hosts
+    # at all, which is the 0-of-0 vacuous pass this repo keeps re-finding. The population is
+    # asserted first, so the assertion can only be made about something.
+    recapHosts=0
+    while IFS= read -r _line; do
+        recapHosts=$((recapHosts + 1))
+    done < <(grep -E '^[^ ]+ +: +ok=' "${secondLog}")
+
+    if [[ "${recapHosts}" -eq 0 ]]; then
+        printf '[FATAL] the second pass recap in %s lists no hosts. "Nothing changed" across\n' "${secondLog}" >&2
+        printf '        zero hosts is not evidence of convergence.\n' >&2
+        exit 1
+    fi
+
     if grep -E '^[^ ]+ +: +ok=' "${secondLog}" | grep -qv 'changed=0 '; then
         printf '\n[FATAL] the second pass reported changes — the play does not converge:\n' >&2
         grep -E '^[^ ]+ +: +ok=' "${secondLog}" >&2
@@ -115,7 +130,7 @@ else
         exit 1
     fi
 
-    printf '\n[idempotency] second pass: changed=0 on every host.\n'
+    printf '\n[idempotency] second pass: changed=0 on each of %s host(s).\n' "${recapHosts}"
 fi
 
 plan_finish
