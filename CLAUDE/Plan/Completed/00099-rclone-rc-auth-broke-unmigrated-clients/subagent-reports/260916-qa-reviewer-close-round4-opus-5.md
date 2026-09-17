@@ -194,19 +194,24 @@ the round-3 task in the plan's own established shape, and expect a round-4 one.
   Also confirmed on this machine that a stacked mount's rows carry the *identical* TARGET string
   (`findmnt -n -o TARGET --target /sys/devices/virtual/powercap` → two identical lines), so "first row"
   cannot pick the wrong target. `findmnt` is util-linux 2.38.1.
+
 - **[3] duplicate check id.** Detected, named and rejected; a clean run is not flagged (transcript
   above, scenarios B and C).
+
 - **[5] the journal link.** `PLAN.md:176-178` now links
-  `[JOURNAL/00099-Journal-26-09-16.md](JOURNAL/00099-Journal-26-09-16.md)`; the file exists.
+  `[JOURNAL/00099-Journal-26-09-16.md]` to `JOURNAL/00099-Journal-26-09-16.md`; the file exists.
   `plan-qa --sweep` reports nothing for 00099.
+
 - **[6] the Delivery section.** Now names the later deployed-file commits — and it is **more accurate
   than round 3's finding was**. Round 3 listed `c3554f2e` among the three; `git show --stat c3554f2e`
   is `CLAUDE/Plan/Completed/README.md`, 7 insertions, no deployed file. The commit correctly dropped it
   and substituted `68c8bbfa`, which does touch `files/home/.local/bin/rclone-rc-auth.bash`. Verified
   against `git show --stat <h> -- files/ scripts/` for all four.
+
 - **[1] partially.** The `/.` stand-in is gone and the two mutants round 3 named are now killed —
   `falsify-check6-input2.bash` reproduces its table exactly (old input kills 1 of 3, new input kills
   3 of 3, shipped passes both). The residual is finding 1.
+
 - **The no-subdirectory arm is reachable and correct.** Measured: empty dir → exit 0, empty output →
   the "no subdirectory" `bad`; files-only dir → same; non-existent path → exit 1 → the "could not list"
   `bad`; unreadable root as an unprivileged user → exit 1 → the same arm. Neither arm falls back to the
@@ -249,16 +254,16 @@ the round-3 task in the plan's own established shape, and expect a round-4 one.
 
 ## Mechanical gates
 
-| Gate | Result |
-| --- | --- |
-| `./scripts/qa-all.bash` | **PASS**, exit 0 — 943 files |
-| `hooks-daemon plan-qa --sweep` | exit 1, **7 findings, 0 blocking, none for Plan 00099** |
-| `shellcheck -x -S style` | CLEAN on `acceptance.bash` and `rclone-rc-auth.bash` |
-| `ansible-playbook --syntax-check` | **not triggered** — no playbook in the diff; `qa-ansible-syntax` covered 82 playbooks green inside `qa-all.bash` |
-| `acceptance.bash`, live | ABORTs at check [0], exit 1 (no mount in this container); `--help` exits 0 |
-| `qa-helper-tests.bash` | **not triggered** (no `helpers/`, `tests/helpers/` change) — ran inside `qa-all.bash` anyway, 1568 tests |
-| `helpers.gnome.check_extension_compat` | **not triggered** (no `metadata.json`) — ran inside `qa-all.bash`, 5 extensions OK |
-| `eslint` in `extensions/` | **not triggered** (no extension JS) — `qa-all.bash` js check green, 12 files |
+| Gate                                   | Result                                                                                                           |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `./scripts/qa-all.bash`                | **PASS**, exit 0 — 943 files                                                                                     |
+| `hooks-daemon plan-qa --sweep`         | exit 1, **7 findings, 0 blocking, none for Plan 00099**                                                          |
+| `shellcheck -x -S style`               | CLEAN on `acceptance.bash` and `rclone-rc-auth.bash`                                                             |
+| `ansible-playbook --syntax-check`      | **not triggered** — no playbook in the diff; `qa-ansible-syntax` covered 82 playbooks green inside `qa-all.bash` |
+| `acceptance.bash`, live                | ABORTs at check [0], exit 1 (no mount in this container); `--help` exits 0                                       |
+| `qa-helper-tests.bash`                 | **not triggered** (no `helpers/`, `tests/helpers/` change) — ran inside `qa-all.bash` anyway, 1568 tests         |
+| `helpers.gnome.check_extension_compat` | **not triggered** (no `metadata.json`) — ran inside `qa-all.bash`, 5 extensions OK                               |
+| `eslint` in `extensions/`              | **not triggered** (no extension JS) — `qa-all.bash` js check green, 12 files                                     |
 
 No required gate was skipped.
 
