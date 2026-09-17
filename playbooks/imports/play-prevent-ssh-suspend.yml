@@ -66,6 +66,37 @@
       # repo's any_errors_fatal aborts the whole run (Plan 00061 §6.2).
       when: provisioning_profile != 'server'
 
+    # `gsettings set` exits 0 whenever the SCHEMA resolves, which says nothing about
+    # where the value landed. A write that went to the wrong place — a stale
+    # DBUS_SESSION_BUS_ADDRESS from a uid that has since changed, or a dconf database
+    # some later profile outranks — is indistinguishable from one that took. Nothing
+    # here ever read the key back, so the setting could have been half-applied
+    # indefinitely with the play reporting green. Plan 00132 found exactly that class
+    # of gap one account over, in the greeter.
+    #
+    # Same become_user and the same `environment:` block as the set task deliberately:
+    # the read must cross the SAME bus as the write, or it proves nothing about it.
+    #
+    # Compared against "'nothing'" WITH its quotes, because that is what `gsettings get`
+    # prints for a string — stripping them would also accept a bare `nothing` from a
+    # differently-typed key. This is the probe-then-fail shape Fail Fast permits, not a
+    # `failed_when: false` suppression.
+    - name: Read back the AC suspend policy
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - gsettings
+          - get
+          - org.gnome.settings-daemon.plugins.power
+          - sleep-inactive-ac-type
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts.getent_passwd[user_login][1] }}/bus"
+      register: ssh_suspend_ac_readback
+      changed_when: false
+      failed_when: ssh_suspend_ac_readback.stdout | trim != "'nothing'"
+      when: provisioning_profile != 'server'
+
     - name: Verify ssh-suspend-guard is running
       ansible.builtin.command: systemctl is-active ssh-suspend-guard
       changed_when: false

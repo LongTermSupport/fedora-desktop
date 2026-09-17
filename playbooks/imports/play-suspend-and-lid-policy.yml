@@ -234,6 +234,85 @@
         - gnome_power_schema is not skipped
         - gnome_power_schema.rc | default(1) != 0
 
+    # ---- Layer 4: the GREETER's power policy ------------------------------------------------
+    # Layers 1-3 all reach exactly ONE account: the human user, via `gsettings` over that user's
+    # session bus. The `gdm` account that owns the display whenever no one is logged in is
+    # touched by none of them, so it inherits GNOME's stock default — sleep-inactive-ac-type
+    # 'suspend' at 900s — and the documented "never idle-suspend on AC" intent INVERTS the
+    # moment the user session ends.
+    #
+    # That is not theoretical. A container crash loop exhausted the session D-Bus quota
+    # overnight and killed gnome-shell; the greeter took over and suspended the plugged-in
+    # machine 900 seconds later, to the second, taking the surviving tmux work with it.
+    # Plan 00132 has the evidence chain.
+    #
+    # A `gdm.d` drop-in alone is sufficient, which was NOT obvious: /etc/dconf/profile/gdm does
+    # not exist on Fedora, and the first reading of that was "the database is never consulted,
+    # so this fix would be inert". Wrong — gdm ships its profile with the package at
+    # /usr/share/dconf/profile/gdm, and it already stacks `system-db:gdm` FIRST among the
+    # system databases, ahead of local, site, distro and the greeter's own defaults.
+    #
+    # No dconf lock: the only database ranked above system-db:gdm is user-db:user, which for the
+    # greeter is /var/lib/gdm/.config/dconf/user — it holds no sleep-inactive key, and the
+    # greeter runs no UI that would write one. A lock would defend against a write that nothing
+    # performs. If the read-back below ever fails while the drop-in is present, that assumption
+    # has changed and the lock becomes load-bearing.
+    - name: Ensure the gdm dconf drop-in directory exists
+      ansible.builtin.file:
+        path: /etc/dconf/db/gdm.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when: provisioning_profile != 'server'
+
+    - name: Stop the GDM greeter idle-suspending a machine that is plugged in
+      ansible.builtin.copy:
+        dest: /etc/dconf/db/gdm.d/10-power
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          {{ ansible_managed | comment }}
+          # The greeter owns the display whenever nobody is logged in. Without this it
+          # inherits GNOME's default of suspending on AC after 900s, which contradicts
+          # this host's policy and kills anything still running outside the session.
+          # See CLAUDE/Plan/00132-*.
+          [org/gnome/settings-daemon/plugins/power]
+          sleep-inactive-ac-type='nothing'
+      register: gdm_power_dropin
+      when: provisioning_profile != 'server'
+
+    # dconf compiles /etc/dconf/db/<name>.d/ into the binary /etc/dconf/db/<name>. The file
+    # alone changes nothing until this runs — which is exactly the shape of fix that passes a
+    # file-exists assertion and alters no behaviour, so the read-back below is what actually
+    # proves it.
+    - name: Compile the dconf databases
+      ansible.builtin.command:
+        argv: [dconf, update]
+      changed_when: false
+      # Unconditional on purpose. Gating on `gdm_power_dropin is changed` would mean a run
+      # that finds the file already correct never recompiles — so a binary database deleted
+      # or left stale by anything else stays broken, and the play cannot self-heal. `dconf
+      # update` is idempotent and cheap; the compile is the state we want, not the copy.
+      when: provisioning_profile != 'server'
+
+    - name: Read back the greeter's effective AC suspend policy
+      become: true
+      become_user: gdm
+      environment:
+        DCONF_PROFILE: gdm
+      ansible.builtin.command:
+        argv:
+          - gsettings
+          - get
+          - org.gnome.settings-daemon.plugins.power
+          - sleep-inactive-ac-type
+      register: gdm_ac_readback
+      changed_when: false
+      failed_when: gdm_ac_readback.stdout | trim != "'nothing'"
+      when: provisioning_profile != 'server'
+
     # ---- Verification, LAST ----------------------------------------------------------------
     # Deliberately the final tasks, not adjacent to layer 1. Under any_errors_fatal a failing
     # verification aborts the run at that point — so sitting between layer 1 and layers 2/3 it

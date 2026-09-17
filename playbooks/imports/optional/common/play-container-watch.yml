@@ -38,8 +38,14 @@
         owner: root
         group: root
         mode: "0644"
+      # An EXPLICIT list, not a directory copy or a glob (Plan 00055 D8). The cost
+      # is that a new module is silently absent on the host until it is added
+      # here — and cli.py imports every one of these at module scope, so a
+      # missing entry is not a degraded scan, it is an ImportError on every tick.
+      # Adding a module to helpers/containerwatch/ means adding it here too.
       loop:
         - core.py
+        - crashloop.py
         - cli.py
 
     # =========================================================================

@@ -37,7 +37,7 @@ import sys
 import tempfile
 import time
 
-from helpers.containerwatch import core
+from helpers.containerwatch import core, crashloop
 
 # Production defaults (overridable by config file, then by env — see
 # resolve_thresholds). 900 s = 15 min; CPU% is per-single-core (so multi-core
@@ -157,19 +157,110 @@ def resolve_name(attr: core.Attribution) -> str:
     return result.stdout.strip().lstrip("/")
 
 
+def sample_restarts(engine: str) -> tuple[dict, dict, dict] | None:
+    """Sample one engine's restart counters, running states and names.
+
+    Returns ``(counts, running, names)`` keyed by container id, or **None** when
+    the engine could not be sampled at all.
+
+    None and three empty mappings are deliberately different. Empty means "this
+    engine was asked and has no containers"; None means "this engine was not
+    asked, or would not answer". Collapsing them would let an engine that failed
+    to respond be reported as an engine checked and found clean — the
+    partial-result-read-as-complete defect this repo keeps meeting.
+
+    ONE `ps` plus ONE `inspect` for the whole set, not a call per container. The
+    scan's cost must not scale with how much the user happens to be running.
+    """
+    if not engine_available(engine):
+        return None
+
+    fmt = "{{.Id}}\t{{.RestartCount}}\t{{.State.Running}}\t{{.Name}}"
+    try:
+        listed = subprocess.run(
+            [engine, "ps", "-aq"],
+            check=True, capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT_S,
+        )
+        ids = [line.strip() for line in listed.stdout.splitlines() if line.strip()]
+        if not ids:
+            return {}, {}, {}
+        result = subprocess.run(
+            [engine, "inspect", "--format", fmt, *ids],
+            check=True, capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT_S,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+
+    return crashloop.parse_inspect_lines(result.stdout)
+
+
+def sample_all_engines() -> tuple[dict, dict, dict, dict, dict]:
+    """Sample every restart-capable engine, and report which were covered.
+
+    Returns ``(counts, running, names, engines, coverage)``.
+
+    Docker is included because the plan requires it and the watchdog already
+    attributes docker containers. An earlier revision defaulted the engine
+    argument to podman and never passed one, so a docker container could
+    crash-loop and produce a report indistinguishable from a healthy host.
+    """
+    counts: dict[str, int] = {}
+    running: dict[str, bool] = {}
+    names: dict[str, str] = {}
+    engines: dict[str, str] = {}
+    checked: list[str] = []
+    available: list[str] = []
+
+    for engine in crashloop.RESTART_CAPABLE_ENGINES:
+        if engine_available(engine):
+            available.append(engine)
+        sampled = sample_restarts(engine)
+        if sampled is None:
+            continue
+        checked.append(engine)
+        engine_counts, engine_running, engine_names = sampled
+        counts.update(engine_counts)
+        running.update(engine_running)
+        names.update(engine_names)
+        for container_id in engine_counts:
+            engines[container_id] = engine
+
+    coverage = crashloop.engine_coverage(checked=checked, available=available)
+    return counts, running, names, engines, coverage
+
+
 # --------------------------------------------------------------------------- #
 # Report assembly, atomic write, DBus emission
 # --------------------------------------------------------------------------- #
 def build_report(
-    findings: list, host_cores: int, age_threshold: int, cpu_threshold: float, generated_at: int
+    findings: list,
+    host_cores: int,
+    age_threshold: int,
+    cpu_threshold: float,
+    generated_at: int,
+    restart_counts: dict | None = None,
+    crashloop_coverage: dict | None = None,
 ) -> dict:
-    return {
+    """Assemble the report.
+
+    `restart_counts` is this tick's raw per-container restart counter. It is
+    persisted so the NEXT tick can difference against it — the report is already
+    written every tick and read by the CLI, so it serves as the state store and
+    no second one is introduced. Keyword-defaulted so existing callers and their
+    tests are unaffected.
+    """
+    report = {
         "schema": core.SCHEMA_VERSION,
         "generated_at": generated_at,
         "host_cores": host_cores,
         "thresholds": {"age_s": age_threshold, "cpu_pct": cpu_threshold},
         "findings": findings,
     }
+    if restart_counts is not None:
+        report["restart_counts"] = restart_counts
+    if crashloop_coverage is not None:
+        report["crashloop_coverage"] = crashloop_coverage
+    return report
 
 
 def write_report_atomic(path: str, report: dict) -> None:
@@ -224,25 +315,89 @@ def load_injected(spec: str) -> list:
 # Rendering
 # --------------------------------------------------------------------------- #
 def render_status(report: dict) -> str:
-    n = len(report.get("findings", []))
+    findings = report.get("findings", [])
+    n = len(findings)
     if n == 0:
         return "container-watch: OK — 0 findings"
+
+    # Crash loops are named in the one-line summary rather than folded into a
+    # total. This line is what the timer writes to the journal every tick, and
+    # "3 findings" reads like the CPU noise the watchdog usually reports —
+    # whereas a crash loop is a threat to the whole session and should not have
+    # to be discovered by running a second command.
+    loops = sum(1 for f in findings if f.get("kind") == "crashloop")
+    if loops:
+        return (
+            f"container-watch: {loops} CRASH LOOP(S) + {n - loops} other finding(s) "
+            "— run `container-watch list`"
+        )
     return f"container-watch: {n} finding(s) — run `container-watch list`"
 
 
 def render_list(report: dict) -> str:
+    """Render findings for a human.
+
+    Two SHAPES of finding share this report and they do not share columns: a
+    CPU/age finding is about a process (cpu_pct, age_s, cmd), a crash-loop
+    finding is about a container and has no process at all. Rendered through the
+    process columns a crash-loop finding printed as zeros and a blank command —
+    present in the report, invisible to the reader. They are tabulated
+    separately, because a detector whose output cannot be read is not a defence.
+    """
     findings = report.get("findings", [])
-    if not findings:
-        return "No findings."
-    lines = [f"{'CONTAINER':<24} {'ENGINE':<8} {'CPU%':>6} {'AGE_S':>7}  CMD"]
-    for f in findings:
-        cmd = f.get("cmd", "")
-        if len(cmd) > 50:
-            cmd = cmd[:47] + "..."
+    loops = [f for f in findings if f.get("kind") == "crashloop"]
+    procs = [f for f in findings if f.get("kind") != "crashloop"]
+
+    lines: list[str] = []
+
+    if loops:
+        lines.append("CRASH LOOPS")
         lines.append(
-            f"{f.get('container_name', '?'):<24} {f.get('engine', '?'):<8} "
-            f"{f.get('cpu_pct', 0):>6} {f.get('age_s', 0):>7}  {cmd}"
+            f"  {'CONTAINER':<24} {'ENGINE':<8} {'RESTARTS':>10} {'PER_MIN':>8}  WHY"
         )
+        for f in loops:
+            per_min = f.get("restarts_per_min")
+            per_min_text = "-" if per_min is None else str(per_min)
+            lines.append(
+                f"  {f.get('container_name', '?'):<24} {f.get('engine', '?'):<8} "
+                f"{f.get('restart_count', 0):>10} {per_min_text:>8}  "
+                f"{', '.join(f.get('reasons', []))}"
+            )
+        lines.append("")
+        lines.append(
+            "  A container restarting without bound puts every cycle on the session"
+        )
+        lines.append(
+            "  D-Bus. Sustained, that exhausts the per-UID quota and kills the desktop."
+        )
+        lines.append("  Stop it, or fix why it exits:  podman stop <container>")
+        if procs:
+            lines.append("")
+
+    if procs:
+        lines.append(f"{'CONTAINER':<24} {'ENGINE':<8} {'CPU%':>6} {'AGE_S':>7}  CMD")
+        for f in procs:
+            cmd = f.get("cmd", "")
+            if len(cmd) > 50:
+                cmd = cmd[:47] + "..."
+            lines.append(
+                f"{f.get('container_name', '?'):<24} {f.get('engine', '?'):<8} "
+                f"{f.get('cpu_pct', 0):>6} {f.get('age_s', 0):>7}  {cmd}"
+            )
+
+    if not lines:
+        return "No findings."
+
+    coverage = report.get("crashloop_coverage")
+    if coverage:
+        lines.append("")
+        lines.append(
+            "crash-loop coverage: checked "
+            f"{', '.join(coverage.get('checked') or ['(none)'])}"
+            f" | not checked {', '.join(coverage.get('not_checked') or ['(none)'])}"
+            f" | no restart counter {', '.join(coverage.get('unsupported') or [])}"
+        )
+
     return "\n".join(lines)
 
 
@@ -283,6 +438,31 @@ def read_report() -> dict:
         return json.load(fh)
 
 
+def previous_report_for_rate() -> dict:
+    """Last tick's report, for differencing restart counts — never fatal.
+
+    `read_report` is allowed to raise for the `status`/`list`/`explain` commands,
+    where an unreadable report IS the answer and a traceback is the honest one.
+    The SCAN path is different: the report there is a cache of the previous tick,
+    not the thing being asked about, so a truncated or half-written file must not
+    stop the scan from finding CPU-pinned processes and writing a fresh one.
+
+    Degrades to an empty report, which `crashloop.previous_sample` reads as "no
+    basis to measure a rate" — the absolute gate still applies. The failure is
+    announced on stderr rather than swallowed: the timer's stderr lands in the
+    journal, so a report that is corrupt every tick is visible rather than silent.
+    """
+    try:
+        return read_report()
+    except (OSError, json.JSONDecodeError) as exc:
+        print(
+            f"container-watch: previous report unreadable ({exc}); "
+            "restart-rate gate is inactive this tick",
+            file=sys.stderr,
+        )
+        return {}
+
+
 # --------------------------------------------------------------------------- #
 # Subcommands
 # --------------------------------------------------------------------------- #
@@ -307,7 +487,47 @@ def _scan_once(interval_s: float, inject: str | None) -> dict:
             allowlist=config.get("allowlist", []),
         )
 
-    report = build_report(findings, os.cpu_count() or 1, age, cpu, int(time.time()))
+    now = int(time.time())
+
+    # Under --inject nothing is sampled, and crucially `restart_counts` is left
+    # as None below so the injected report does NOT overwrite the real baseline.
+    # Writing {} there destroyed the previous tick's counts, which left the rate
+    # gate blind for a full window afterwards — a test seam must not clobber
+    # production state.
+    loop_findings: list = []
+    coverage = None
+    counts: dict = {}
+    if inject is None:
+        counts, states, names, engines, coverage = sample_all_engines()
+
+        # The rate gate differences against the PREVIOUS report, so it is silent
+        # on the very first tick after install. That is the absolute gate's whole
+        # purpose — see helpers/containerwatch/crashloop.py.
+        prev_counts, prev_at = crashloop.previous_sample(previous_report_for_rate())
+        elapsed = crashloop.elapsed_since(previous_at=prev_at, now=now)
+        loop_findings = crashloop.evaluate(
+            previous=prev_counts if elapsed is not None else {},
+            current=counts,
+            running=states,
+            elapsed_s=elapsed if elapsed is not None else 0.0,
+            names=names,
+            engines=engines,
+        )
+        allowlist = config.get("allowlist", [])
+        loop_findings = [
+            f for f in loop_findings if not crashloop.matches_allowlist(f, allowlist)
+        ]
+
+    findings = list(findings) + loop_findings
+    report = build_report(
+        findings,
+        os.cpu_count() or 1,
+        age,
+        cpu,
+        now,
+        restart_counts=counts if inject is None else None,
+        crashloop_coverage=coverage,
+    )
     write_report_atomic(report_path(), report)
     emit_signal(len(findings), report_path())
     return report
