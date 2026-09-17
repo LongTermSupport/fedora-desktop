@@ -48,6 +48,12 @@ LISTING = (
     "gpg-pubkey-99887766-55443322\n"
 )
 GOOGLE_ENVELOPE = f"gpg-pubkey-{SHORT}-5713b0fd"
+
+#: rpm 6 (Fedora 43+) names a `gpg-pubkey` package after the key's FULL fingerprint
+#: rather than the primary's short id. Google's fingerprint ends in the primary above,
+#: so the short id is still in there — just not where a `gpg-pubkey-d38b4796-` prefix
+#: match can see it.
+FINGERPRINT_ENVELOPE = "gpg-pubkey-eb4c1bfd4f042f6ddfccc7dd7721f63bd38b4796-5713b0fd"
 ARMOUR = "-----BEGIN PGP PUBLIC KEY BLOCK-----\nmQENBFcA\n-----END PGP PUBLIC KEY BLOCK-----\n"
 
 
@@ -192,24 +198,6 @@ class TestKeyIds(unittest.TestCase):
         self.assertEqual(subkeys.key_ids(text)["subkeys"], {SIGNER})
 
 
-class TestShortId(unittest.TestCase):
-    """rpm names a `gpg-pubkey` package after the SHORT id — the last 8 hex digits of
-    gpg's long id, lowercased. Deriving it is what lets the removal be aimed at one
-    key by identity rather than at anything whose description mentions a vendor."""
-
-    def test_takes_the_last_eight_hex_digits_lowercased(self) -> None:
-        self.assertEqual(subkeys.short_id(PRIMARY), SHORT)
-
-    def test_an_already_short_id_is_returned_as_is(self) -> None:
-        self.assertEqual(subkeys.short_id(SHORT.upper()), SHORT)
-
-    def test_an_unusable_primary_raises(self) -> None:
-        """An id too short to name a package is not something to guess at: it would
-        build a removal target that matches packages nobody meant to name."""
-        with self.assertRaises(ValueError):
-            subkeys.short_id("ABC")
-
-
 def _key(envelope: str, primary: str | None, subs: set[str]) -> subkeys.InstalledKey:
     return subkeys.InstalledKey(envelope=envelope, primary=primary, subkeys=frozenset(subs))
 
@@ -253,17 +241,26 @@ class TestNeedsRefresh(unittest.TestCase):
         self.assertEqual(verdict.action, "import")
         self.assertEqual(verdict.stale, ())
 
-    def test_a_key_at_this_id_that_is_not_ours_is_imported_not_removed(self) -> None:
-        """Short ids are 8 hex digits and are not unique. A key sitting at the same id
-        with a different primary is somebody else's, so our key is simply absent —
-        and the erase must not be pointed at a stranger's key to make room."""
+    def test_a_key_that_is_not_ours_is_imported_not_removed(self) -> None:
+        """Every other key in the keyring reaches this function now that the listing is
+        unfiltered. None of them is evidence our key is present, and the erase must not
+        be pointed at one of them to make room."""
         verdict = subkeys.needs_refresh(
             installed=[_key("gpg-pubkey-d38b4796-aaaaaaaa", "DEADBEEFD38B4796", {OLD_SUBKEY})],
             published={"primary": PRIMARY, "subkeys": {SIGNER}},
         )
         self.assertFalse(verdict.refresh)
         self.assertTrue(verdict.import_missing)
-        self.assertIn("DEADBEEFD38B4796", verdict.reason)
+        self.assertEqual(verdict.stale, ())
+
+    def test_an_unreadable_installed_key_is_never_erased(self) -> None:
+        """gpg printing nothing for an installed key leaves its primary `None`, which
+        is not a match — so it is spared, not erased on a guess."""
+        verdict = subkeys.needs_refresh(
+            installed=[_key("gpg-pubkey-deadbeef-aaaaaaaa", None, set())],
+            published={"primary": PRIMARY, "subkeys": {SIGNER}},
+        )
+        self.assertEqual(verdict.action, "import")
         self.assertEqual(verdict.stale, ())
 
     def test_a_stranger_beside_a_stale_key_of_ours_is_not_erased(self) -> None:
@@ -317,39 +314,40 @@ class TestNeedsRefresh(unittest.TestCase):
 
 
 class TestInstalledEnvelopes(unittest.TestCase):
-    def test_returns_only_the_package_named_for_this_key_id(self) -> None:
+    """The listing is NOT filtered by package name, and that is the fix for the
+    Fedora 44 break: rpm's `gpg-pubkey` version is an rpm packaging detail, so
+    selecting on it decided identity from a string rpm is free to change."""
+
+    def test_returns_every_installed_key_whatever_rpm_named_it(self) -> None:
         runner = FakeRunner(listing=LISTING)
-        self.assertEqual(subkeys.installed_envelopes(SHORT, run=runner), [GOOGLE_ENVELOPE])
+        self.assertEqual(
+            subkeys.installed_envelopes(run=runner),
+            ["gpg-pubkey-a1b2c3d4-5e6f7081", GOOGLE_ENVELOPE, "gpg-pubkey-99887766-55443322"],
+        )
 
-    def test_the_id_is_matched_case_insensitively(self) -> None:
-        """gpg prints the long id in upper case and rpm names the package in lower."""
-        runner = FakeRunner(listing=LISTING)
-        self.assertEqual(subkeys.installed_envelopes(SHORT.upper(), run=runner), [GOOGLE_ENVELOPE])
+    def test_a_fingerprint_named_package_is_not_filtered_out(self) -> None:
+        """THE regression. A prefix match on the primary's short id dropped this one,
+        so a key that was installed and working was reported absent."""
+        runner = FakeRunner(listing=f"{FINGERPRINT_ENVELOPE}\n")
+        self.assertEqual(subkeys.installed_envelopes(run=runner), [FINGERPRINT_ENVELOPE])
 
-    def test_a_longer_id_starting_with_this_one_is_not_a_match(self) -> None:
-        """`gpg-pubkey-d38b4796a-…` is a different key. Anchoring on the separator is
-        what keeps the removal aimed at one package."""
-        runner = FakeRunner(listing=f"gpg-pubkey-{SHORT}ab-5713b0fd\n")
-        self.assertEqual(subkeys.installed_envelopes(SHORT, run=runner), [])
-
-    def test_every_match_is_returned_not_just_the_first(self) -> None:
-        """A stale duplicate is what an upgraded host accumulates, and leaving one
-        behind would leave the same unusable key in the keyring after the refresh."""
-        runner = FakeRunner(listing=LISTING + f"gpg-pubkey-{SHORT}-4615767f\n")
-        self.assertEqual(len(subkeys.installed_envelopes(SHORT, run=runner)), 2)
-
-    def test_no_matching_key_is_an_empty_list_not_an_error(self) -> None:
-        """A host that never imported the key is a normal state, and the play handles
+    def test_an_empty_keyring_is_an_empty_list_not_an_error(self) -> None:
+        """A host that never imported any key is a normal state, and the play handles
         it by importing. It must not look like a failed probe."""
-        runner = FakeRunner(listing=LISTING)
-        self.assertEqual(subkeys.installed_envelopes("aaaaaaaa", run=runner), [])
+        runner = FakeRunner(listing="")
+        self.assertEqual(subkeys.installed_envelopes(run=runner), [])
+
+    def test_blank_lines_are_not_returned_as_envelopes(self) -> None:
+        """An empty string would become an `rpm -q` argument naming every package."""
+        runner = FakeRunner(listing=f"\n{GOOGLE_ENVELOPE}\n\n")
+        self.assertEqual(subkeys.installed_envelopes(run=runner), [GOOGLE_ENVELOPE])
 
     def test_a_failing_rpm_raises_rather_than_reporting_no_key(self) -> None:
         """'rpm could not tell me' and 'there is no key' are different facts. Reporting
         the first as the second would re-import a key on every run, for ever."""
         runner = FakeRunner(listing=LISTING, fail={"rpm"})
         with self.assertRaises(subprocess.CalledProcessError):
-            subkeys.installed_envelopes(SHORT, run=runner)
+            subkeys.installed_envelopes(run=runner)
 
 
 class TestKeyArmour(unittest.TestCase):
@@ -438,20 +436,61 @@ class TestMain(unittest.TestCase):
 
     def test_a_stale_installed_key_reports_refresh(self) -> None:
         """The published key carries the signer; the installed one does not. This is
-        the host in issue #45, driven all the way through."""
+        the host in issue #45, driven all the way through. Every key in the listing is
+        read, in order, so the staged answers run published-then-keyring."""
         runner = StagedRunner(
             listing=LISTING,
             armour=ARMOUR,
-            answers=[_colons(PRIMARY, [OLD_SUBKEY, SIGNER]), _colons(PRIMARY, [OLD_SUBKEY])],
+            answers=[
+                _colons(PRIMARY, [OLD_SUBKEY, SIGNER]),      # the published key
+                _colons("AAAABBBBCCCCDDDD", []),             # gpg-pubkey-a1b2c3d4
+                _colons(PRIMARY, [OLD_SUBKEY]),              # ours, stale
+                _colons("1111222233334444", []),             # gpg-pubkey-99887766
+            ],
         )
         code, lines = self._run(runner)
         self.assertEqual(code, 0)
         self.assertIn(f"{subkeys.ACTION_MARKER} refresh", lines)
-        self.assertIn(f"{subkeys.ENVELOPE_MARKER} {GOOGLE_ENVELOPE}", lines)
+        self.assertEqual(
+            [line for line in lines if line.startswith(subkeys.ENVELOPE_MARKER)],
+            [f"{subkeys.ENVELOPE_MARKER} {GOOGLE_ENVELOPE}"],
+        )
 
     def test_a_current_installed_key_reports_none(self) -> None:
         runner = StagedRunner(
             listing=LISTING,
+            armour=ARMOUR,
+            answers=[
+                _colons(PRIMARY, [SIGNER]),
+                _colons("AAAABBBBCCCCDDDD", []),
+                _colons(PRIMARY, [SIGNER]),
+                _colons("1111222233334444", []),
+            ],
+        )
+        code, lines = self._run(runner)
+        self.assertEqual(code, 0)
+        self.assertIn(f"{subkeys.ACTION_MARKER} none", lines)
+
+    def test_a_host_with_no_such_key_reports_import(self) -> None:
+        """The one key in the keyring belongs to somebody else, so ours is absent."""
+        runner = StagedRunner(
+            listing="gpg-pubkey-a1b2c3d4-5e6f7081\n",
+            armour=ARMOUR,
+            answers=[_colons(PRIMARY, [SIGNER]), _colons("AAAABBBBCCCCDDDD", [])],
+        )
+        code, lines = self._run(runner)
+        self.assertEqual(code, 0)
+        self.assertIn(f"{subkeys.ACTION_MARKER} import", lines)
+        self.assertFalse([line for line in lines if line.startswith(subkeys.ENVELOPE_MARKER)])
+
+    def test_a_fingerprint_named_package_is_found_and_reports_none(self) -> None:
+        """THE Fedora 44 break, end to end. rpm 6 names the package after the full
+        fingerprint, so the old `gpg-pubkey-d38b4796-` prefix match found nothing and
+        reported `import` for a key that was installed and verifying packages. The play
+        then imported nothing — `rpm_key` agreed the key was already present — and its
+        post-condition failed on that host on every run, for ever."""
+        runner = StagedRunner(
+            listing=f"{FINGERPRINT_ENVELOPE}\n",
             armour=ARMOUR,
             answers=[_colons(PRIMARY, [SIGNER]), _colons(PRIMARY, [SIGNER])],
         )
@@ -459,18 +498,18 @@ class TestMain(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn(f"{subkeys.ACTION_MARKER} none", lines)
 
-    def test_a_host_with_no_such_key_reports_import(self) -> None:
-        """gpg is asked ONCE — there is no installed armour to read — so a second
-        staged answer would mean the helper had invented a key to inspect."""
+    def test_a_stale_fingerprint_named_package_is_named_for_erasure(self) -> None:
+        """Finding it is only half the fix: the erase must name the package rpm
+        actually installed, or `rpm --erase` is handed a name that does not exist."""
         runner = StagedRunner(
-            listing="gpg-pubkey-a1b2c3d4-5e6f7081\n",
+            listing=f"{FINGERPRINT_ENVELOPE}\n",
             armour=ARMOUR,
-            answers=[_colons(PRIMARY, [SIGNER])],
+            answers=[_colons(PRIMARY, [OLD_SUBKEY, SIGNER]), _colons(PRIMARY, [OLD_SUBKEY])],
         )
         code, lines = self._run(runner)
         self.assertEqual(code, 0)
-        self.assertIn(f"{subkeys.ACTION_MARKER} import", lines)
-        self.assertFalse([line for line in lines if line.startswith(subkeys.ENVELOPE_MARKER)])
+        self.assertIn(f"{subkeys.ACTION_MARKER} refresh", lines)
+        self.assertIn(f"{subkeys.ENVELOPE_MARKER} {FINGERPRINT_ENVELOPE}", lines)
 
     def test_a_stranger_beside_our_stale_key_is_read_and_spared(self) -> None:
         """End to end over the second demonstrated break. Two packages at the same short
@@ -494,16 +533,30 @@ class TestMain(unittest.TestCase):
         described = [c for c in runner.calls if "%{description}" in c]
         self.assertEqual(len(described), 2, "both envelopes must be read, not just the first")
 
-    def test_the_listing_is_matched_against_the_published_key_id(self) -> None:
-        """Nothing in the invocation names Google. The id comes out of the published
-        key itself, so the removal cannot drift onto a key the play never read."""
+    def test_every_installed_key_is_read_by_its_own_envelope(self) -> None:
+        """Nothing in the invocation names Google, and nothing selects on the package
+        name. Each key is opened under the name rpm gave it, and identity is decided
+        from the armour inside — so the removal cannot drift onto a key never read."""
         runner = StagedRunner(
             listing=LISTING,
             armour=ARMOUR,
-            answers=[_colons(PRIMARY, [SIGNER]), _colons(PRIMARY, [SIGNER])],
+            answers=[
+                _colons(PRIMARY, [SIGNER]),
+                _colons("AAAABBBBCCCCDDDD", []),
+                _colons(PRIMARY, [SIGNER]),
+                _colons("1111222233334444", []),
+            ],
         )
         self._run(runner)
-        self.assertIn(["rpm", "-q", GOOGLE_ENVELOPE, "--qf", "%{description}"], runner.calls)
+        described = [call for call in runner.calls if "%{description}" in call]
+        self.assertEqual(
+            described,
+            [
+                ["rpm", "-q", "gpg-pubkey-a1b2c3d4-5e6f7081", "--qf", "%{description}"],
+                ["rpm", "-q", GOOGLE_ENVELOPE, "--qf", "%{description}"],
+                ["rpm", "-q", "gpg-pubkey-99887766-55443322", "--qf", "%{description}"],
+            ],
+        )
 
     def test_an_unreadable_published_key_fails_rather_than_printing_none(self) -> None:
         """The play must stop here. Printing `none` would leave the host with a key
