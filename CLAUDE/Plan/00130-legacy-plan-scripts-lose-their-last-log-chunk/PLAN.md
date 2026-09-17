@@ -34,7 +34,7 @@ tooling makes its recorded history disagree with what it ran.
 - A gate fails on a re-introduction, so this cannot be a one-off tidy that decays —
   the pattern came back once already, from a document that has since been fixed.
 - No plan-local `logs/` directory remains in the active plan tree.
-- `untracked/meta-deploy.bash` takes **one** consent for the whole batch. **It already
+- `CLAUDE/Plan/meta-deploy.bash` takes **one** consent for the whole batch. **It already
   does, and this plan's original claim that it did not was wrong** — see the
   correction below; the goal is kept so a future conversion cannot reintroduce the
   problem unnoticed.
@@ -113,14 +113,36 @@ between the operator and a one-shot run.
   full closing banner through its own last line — the `Full report:` path — so the script
   reached its end AND the log drained. Both halves, measured, on a converted script.
 
-  **Still owed**: 00066, 00079 (×4) and 00080. 00075's is moot — that plan archived on
-  2026-09-17. These are run directly, one path each:
+  **Done in the container on 2026-09-17**: 00079's `unit-test-selection.bash` — the one
+  script in this set that runs anywhere, by its own header. `VERDICT: PASS`, exit 0, and
+  the log drained: 5,959 bytes ending on its own last line, byte-identical to the terminal.
+
+  Getting there took a fix, and the fix is the argument for this task. The script had been
+  **dead**, silently, and no gate could have said so. `podfreeze` grew a shared freeze
+  library resolved from `${BASH_SOURCE[0]}` and sourced *above* this test's cut marker, so
+  sourcing the cut copy out of a flat `mktemp` file sent that resolver looking in
+  `/lib/freeze`, where it called `exit 1` before one function was defined. The cut file now
+  goes into a temp directory shaped like the tool's own tree — `bin/` beside
+  `lib/freeze/` — so the real resolver runs unmodified against the repo's real library.
+  Linting cannot find this, which is this task's whole premise.
+
+  **Still owed, all HOST**: 00066, 00079 (×3: `triage`, `deploy`, `acceptance`) and 00080.
+  00075's is moot — that plan archived on 2026-09-17. Run directly, one path each:
 
   ```bash
   ./CLAUDE/Plan/00066-ftp-camera-airbnb-wifi-and-hotspot-triage/triage.bash
   ./CLAUDE/Plan/00080-ccy-session-network-isolation/triage.bash
-  ./CLAUDE/Plan/00079-podman-container-control/{triage,deploy,acceptance,unit-test-selection}.bash
+  ./CLAUDE/Plan/00079-podman-container-control/{triage,deploy,acceptance}.bash
   ```
+
+  **00066's was not actually host-gated** — its header said HOST-ONLY and nothing enforced
+  it. That matters *here* rather than only there: run in the container it would not have
+  errored, every probe would have reported "absent", and it would have reached its last
+  line — discharging this task with a report that was a confident wrong answer about a
+  machine it never touched. It now calls `plan_require_host` (R2), placed ahead of the
+  `camera` user lookup, which would otherwise have caught the container by accident and
+  blamed an undeployed play, sending the reader to run Ansible in the one place this repo
+  forbids it. Falsified both ways: refuses in the container, `--help` still works.
 
   Not through `meta-deploy.bash`. That runs once, over every In Progress plan, and these
   belong to closed ones. A selection flag was briefly added here to reach them and then
@@ -151,9 +173,12 @@ between the operator and a one-shot run.
   these scripts". **No live `deploy.bash` needs it** — see the correction above. What the
   task actually produced is the fix to `meta-deploy.bash`'s test: it now requires a `read`
   prompt AND the absence of the library, rather than inferring one from the other.
-  `./untracked/meta-deploy.bash --list` prints 9 plans, 14 units and no exception.
-  Any script this plan converts inherits `PLAN_ASSUME_YES` as a side effect of gaining
-  the library, so the guarantee holds through Phase 2 rather than needing separate work.
+  `./CLAUDE/Plan/meta-deploy.bash --list` names no exception. (It printed "9 plans, 14
+  units" when this was written; the list is hardcoded and the unit count was dropped when
+  the script was simplified, so the counts are not the thing to assert — the absence of an
+  exception is.) Any script this plan converts inherits `PLAN_ASSUME_YES` as a side effect
+  of gaining the library, so the guarantee holds through Phase 2 rather than needing
+  separate work.
 
 ### Phase 3: Make it stick
 
@@ -188,13 +213,15 @@ between the operator and a one-shot run.
 - [x] ✅ No script under `CLAUDE/Plan/NNNNN-*/` contains `exec > >(tee` — asserted on
   every run by `scripts/qa-plan-script-logging.bash`, not by a one-off grep
 - [x] ✅ No `logs/` directory remains under `CLAUDE/Plan/NNNNN-*/` — same gate, same run
-- [ ] 🧑 Each converted script has been RUN and reaches its last line — **HOST**. Proven
-  for 00062's `triage.bash` in-container, drain included; the rest stop at a
-  `plan_require_host` or a missing-tool guard, which proves the bootstrap but not the
-  last line. See Task 2.2
-- [x] `./untracked/meta-deploy.bash --list` names no script the batch consent cannot
+- [ ] 🧑 Each converted script has been RUN and reaches its last line — **HOST** for the
+  remainder. Proven in-container, drain included, for 00062's `triage.bash` and 00079's
+  `unit-test-selection.bash`; proven on the host for 00098's `triage.bash` (×2) and
+  `acceptance.bash`. The rest stop at a `plan_require_host` guard, which proves the
+  bootstrap but not the last line. See Task 2.2
+- [x] ✅ `CLAUDE/Plan/meta-deploy.bash --list` names no script the batch consent cannot
   answer — the batch is one consent, as the operator asked for. Met, and the criterion
-  now tests the property rather than a proxy for it
+  now tests the property rather than a proxy for it. (Path updated: the script moved out
+  of `untracked/` when it became tracked tooling)
 - [x] ✅ The new gate fails on a re-introduced occurrence and passes on the clean tree —
   both controls run in-script on every invocation, and it was additionally falsified
   against the LIVE tree during the conversion: 6 offences, then 4, then 1, then none

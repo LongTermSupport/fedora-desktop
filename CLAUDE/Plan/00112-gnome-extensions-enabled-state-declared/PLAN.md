@@ -167,7 +167,7 @@ is the single source instead, and disk only confirms it.
 
 ### Phase 2: Acceptance
 
-- [ ] ⬜ **Task 2.1 — PARTLY DONE by the 2026-09-17 batch run.** HOST, the operator's
+- [x] ✅ **Task 2.1 — DONE by the 2026-09-17 batch runs.** HOST, the operator's
   step: `triage.bash`, then `deploy.bash`, then `deploy.bash` again (idempotent: no
   change on the second run), then `triage.bash` again. The two `triage-runs/` reports
   are the evidence that the host's own list gained the deployed UUIDs and lost nothing.
@@ -196,11 +196,18 @@ is the single source instead, and disk only confirms it.
   one of the two plays it had changed. Both plays are now legs of this script, so the next
   batch run unblocks Task 2.2 rather than leaving it where it was.
 
-- [ ] 🚫 **Task 2.2**: `vmtest run desktop-fresh-install` against the pushed
+  **And it has run**: the `20260917-143518` batch executed the lab leg, `ok=41 changed=0 failed=0`. `changed=0` on its first run as a leg is convergence, not a skip — the play is
+  the sole source of the deployed guest checker, so a deployed copy that differed would have
+  reported changed. The host's checker therefore matches this plan's version of it, which is
+  the condition Task 2.2 was waiting on.
+
+- [ ] 🧑 **Task 2.2 — HOST**: `vmtest run desktop-fresh-install` against the pushed
   commit; `deployed-extensions-active` green in the post-reboot session; run id
   recorded here; `desktop-44` certified forward by the passing run.
-  **Blocked on Task 2.1's lab redeploy, not on the code.** Two runs have gone
-  green and neither certifies this:
+  **No longer blocked** — the lab redeploy it was waiting on ran in the
+  `20260917-143518` batch, so the deployed guest checker matches this plan. What
+  remains is the run itself, which boots a guest and cannot be done from the
+  container. Two runs have gone green and neither certifies this:
 
   - `20260914T085408Z-desktop-fresh-install` — pass 16/16 against `cb88ec4e`,
     `COVERAGE: 8 of 8`. Predates every Phase 1b fix
@@ -227,7 +234,7 @@ is the single source instead, and disk only confirms it.
 
 **The host-side criteria below are a script, not an instruction.** Run `triage.bash`,
 `deploy.bash`, `deploy.bash` again, `triage.bash`, then `acceptance.bash` — or
-`untracked/meta-deploy.bash` to run this plan alongside the others waiting.
+`CLAUDE/Plan/meta-deploy.bash` to run this plan alongside the others waiting.
 `acceptance.bash` carries ten COVERAGE-registered checks, proves "nothing was removed" by
 diffing the before/after triage pair rather than asserting it, and separates
 could-not-establish (exit 2) from failed (exit 1) so a missing GNOME session never reads
@@ -235,8 +242,12 @@ as a pass. The VM-lab claims are printed as NOT ESTABLISHABLE HERE and never cou
 
 - [ ] `vmtest run desktop-fresh-install` verdict `pass`, 16/16, in the session
   after the reboot.
-- [ ] Re-running the play on a host with extra user-enabled extensions removes
-  none of them and reports no change.
+- [x] ✅ Re-running the play on a host with extra user-enabled extensions removes
+  none of them and reports no change. Both halves, on the `20260917-143518` batch: the
+  host carried 14 pre-existing UUIDs of which **5 are not declared by this repo**, so the
+  clause is exercised rather than vacuous, and check [5] reports all 14 survived. "No
+  change" is the idempotency second pass inside `deploy.bash` — the play re-run for real,
+  `changed=0` on each of 1 host — not check [6]'s prediction of it.
 - [x] No `FAIL-FAST-OK` annotation remains on the enable path. Both enable paths: the
   declared-state route this plan built, and `play-container-watch.yml`, which was still
   on the mechanism this plan replaced (Task 1.11). The one remaining `failed_when` under

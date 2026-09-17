@@ -330,7 +330,7 @@ session and was approaching the size at which edits are blocked:
 **The HOST items in the task tree are now two scripts, not a list of instructions.**
 (No count here on purpose: the previous sentence gave one, it was the acceptance gate's
 check count rather than the task tree's, and it went stale the moment a task was ticked.) Run `deploy.bash` then `acceptance.bash` in this folder — or
-`untracked/meta-deploy.bash` to run this plan alongside the others waiting.
+`CLAUDE/Plan/meta-deploy.bash` to run this plan alongside the others waiting.
 `deploy.bash` runs four plays in a deliberate order, with `play-displaylink.yml` last
 because it is the only one that can demand a MOK enrolment and a reboot; its change gate
 says so before anything runs. `acceptance.bash` carries nineteen COVERAGE-registered

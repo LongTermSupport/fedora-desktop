@@ -109,13 +109,46 @@ CUT_LINE="${CUT%%:*}"
 # had run this test — and a future cut landing mid-function would fail
 # qa-bash.bash pointing at a file that is not in git and cannot be inspected
 # from a fresh clone. Nothing needs it to persist.
-FUNCS="$(mktemp -t podfreeze-funcs.XXXXXX.bash)"
-# R4: register the teardown, never `trap … EXIT`. A hand-written EXIT trap REPLACES the
-# library's handler, and the run log then loses its final buffered chunk.
-remove_funcs_tmpfile() {
-    rm -f "$FUNCS"
+#
+# A DIRECTORY that mirrors the tool's own layout, not a bare file. podfreeze
+# grew a shared freeze library, resolved relative to `${BASH_SOURCE[0]}` and
+# sourced ABOVE the cut marker — so it executes when this test sources the cut.
+# From a flat temp file that resolver looks in `/lib/freeze`, finds nothing and
+# calls `exit 1` before one function is defined, which is what silently killed
+# this test. Reproducing `bin/` beside `lib/freeze/` lets the REAL resolver run
+# unmodified against the repo's real library: the same "runs the changed bytes"
+# principle the cut itself exists for, rather than a stub that could drift.
+FREEZE_SRC="$PLAN_REPO_ROOT/files/home/.local/lib/freeze/freeze-common.bash"
+if [ ! -r "$FREEZE_SRC" ]; then
+    echo "ERROR: the shared freeze library is not readable at $FREEZE_SRC." >&2
+    echo "  podfreeze sources it at load time, above this test's cut point, so" >&2
+    echo "  the functions under test cannot be defined without it." >&2
+    exit 1
+fi
+# This script runs `set -uo pipefail` deliberately, WITHOUT errexit, so each step below
+# is checked by hand. An unchecked failure here would leave `$FUNCS` unwritable and the
+# error would surface as a confusing "cut file is empty" further down.
+if ! FUNCS_DIR="$(mktemp -d -t podfreeze-funcs.XXXXXX)"; then
+    echo "ERROR: could not create a temp directory for the cut functions." >&2
+    exit 1
+fi
+FUNCS="$FUNCS_DIR/bin/podfreeze-funcs.bash"
+# R4: register the teardown BEFORE anything is created inside the directory, so an
+# a failure part-way through still cleans up. Never `trap … EXIT` — a hand-written EXIT
+# trap REPLACES the library's handler, and the run log then loses its final chunk.
+remove_funcs_tmpdir() {
+    rm -rf "$FUNCS_DIR"
 }
-plan_on_cleanup remove_funcs_tmpfile || exit 1
+plan_on_cleanup remove_funcs_tmpdir || exit 1
+if ! mkdir -p "$FUNCS_DIR/bin" "$FUNCS_DIR/lib/freeze"; then
+    echo "ERROR: could not lay out the temp tree under $FUNCS_DIR." >&2
+    exit 1
+fi
+if ! ln -s "$FREEZE_SRC" "$FUNCS_DIR/lib/freeze/freeze-common.bash"; then
+    echo "ERROR: could not link the freeze library into $FUNCS_DIR." >&2
+    echo "  Without it podfreeze's resolver aborts before defining a function." >&2
+    exit 1
+fi
 awk -v n="$CUT_LINE" 'NR < n - 2' "$TOOL" > "$FUNCS"
 
 ACTION=""

@@ -56,7 +56,7 @@ Runs ${PLAY} on the HOST:
     /usr/bin/compress and would shadow the wrappers
 
 --check previews without changing anything. -y/--yes consents to the change gate
-non-interactively, which is what untracked/meta-deploy.bash passes when it runs
+non-interactively, which is what CLAUDE/Plan/meta-deploy.bash passes when it runs
 this as part of a batch.
 
 Then run acceptance.bash, which renders the verdict and covers PLAN.md Phase 4's

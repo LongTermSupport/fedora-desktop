@@ -104,6 +104,14 @@ while [ "$#" -gt 0 ]; do
     shift
 done
 
+# R2, and BEFORE the `camera` user lookup below. The header has said HOST-ONLY since
+# this was written, but said it only to a reader: nothing stopped the script running in
+# the CCY container, which has no vsftpd, no NetworkManager and no camera on its network.
+# Ordering matters — the lookup below would catch a container by accident and blame it on
+# an undeployed play, sending the reader to run Ansible in the one place this repo forbids
+# it. After arg parsing, so `--help` still works anywhere.
+plan_require_host "it reads the HOST's vsftpd log, NetworkManager state and the camera's own network"
+
 # Resolved AFTER arg parsing so --help works on a machine that has never run
 # play-ftp-camera.yml.
 #
