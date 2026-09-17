@@ -91,17 +91,24 @@
           source ~/.bash-git-prompt/gitprompt.sh
 
     # https://github.com/cli/cli/blob/trunk/docs/install_linux.md#fedora-centos-red-hat-enterprise-linux-dnf
-    - name: Install Github Client
+    # --overwrite re-fetches the repofile every run: upstream rotates the signing
+    # key and edits the gpgkey= line, and a repofile written once keeps pointing at
+    # the retired key, so `dnf update` fails signature verification on new gh RPMs.
+    - name: Configure GitHub CLI Repository
       become: true
       ansible.builtin.shell: |
         set -euo pipefail
         dnf -y install 'dnf-command(config-manager)'
-        dnf -y config-manager addrepo --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
-        dnf -y install gh
+        dnf -y config-manager addrepo --overwrite --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
       args:
         executable: /bin/bash
-        chdir: /usr/bin/
-        creates: gh
+      changed_when: true
+
+    - name: Install Github Client
+      become: true
+      ansible.builtin.dnf:
+        name:
+          - gh
 
     # https://github.com/newren/git-filter-repo
     - name: Install DNF Git Filter Repo

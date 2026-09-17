@@ -2210,12 +2210,10 @@ else
 
 title "Installing Github CLI"
 _sudo dnf -y install 'dnf-command(config-manager)'
-# Check if gh-cli repo already exists before adding
-if ! _sudo dnf repolist | grep -q "gh-cli"; then
-  _sudo dnf config-manager addrepo --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
-else
-  echo "GitHub CLI repository already configured"
-fi
+# Always re-fetch: upstream rotates the signing key and edits the gpgkey= line, so a
+# repofile written once keeps pointing at the retired key and gh updates then fail
+# signature verification.
+_sudo dnf config-manager addrepo --overwrite --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
 _sudo dnf -y install gh
 completed
 
