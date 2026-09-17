@@ -63,4 +63,59 @@ plan_start_log auto
 plan_deploy_leg "play-gnome-shell-extensions.yml" \
     plan_ansible_playbook playbooks/imports/play-gnome-shell-extensions.yml
 
+# ── second pass: idempotency, asserted rather than left to the operator ───────────────────
+# Task 2.1 asks for the play to run TWICE, because one run cannot distinguish a play that
+# settles from a play that churns — and a play that REMOVED something only on a re-run would
+# look identical to a single clean run's evidence. Running it here rather than asking the
+# operator to remember is what lets the batch harness discharge the task: it invokes
+# deploy.bash once, with no arguments.
+#
+# The recap is parsed, not eyeballed. `changed=0` on every host is the whole claim.
+#
+# This leg is deliberately NOT plan_deploy_leg: the verdict comes from the log's recap, so
+# the run must continue far enough to read it even when ansible-playbook exits non-zero.
+# Every path below ends in an explicit exit — a non-zero run, a missing log, an absent recap
+# and a non-zero changed count are four different failures and each says which it is.
+if [[ "${#PLAN_CHECK_ARGS[@]}" -gt 0 ]]; then
+    printf '\n[skip] idempotency second pass — --check changes nothing, so a second\n' >&2
+    printf '       preview could only repeat the first.\n' >&2
+else
+    _plan_banner "[deploy leg] play-gnome-shell-extensions.yml (second pass)"
+    secondLog="${PLAN_RUN_DIR}/idempotency-second-pass.log"
+    secondStatus=0
+    plan_ansible_playbook playbooks/imports/play-gnome-shell-extensions.yml \
+        > "${secondLog}" 2>&1 || secondStatus=$?
+
+    if [[ -s "${secondLog}" ]]; then
+        cat "${secondLog}"
+    fi
+
+    if [[ "${secondStatus}" -ne 0 ]]; then
+        printf '\n[ABORT] the idempotency second pass exited %s. The first pass changed the\n' "${secondStatus}" >&2
+        printf '        host, so this is a play that breaks on the state it just created.\n' >&2
+        exit 1
+    fi
+
+    if [[ ! -s "${secondLog}" ]]; then
+        printf '[FATAL] the second pass produced no log at %s. Unproven is not proven.\n' "${secondLog}" >&2
+        exit 1
+    fi
+
+    if ! grep -q '^PLAY RECAP' "${secondLog}"; then
+        printf '[FATAL] no PLAY RECAP in %s — the run never reached its own summary, so\n' "${secondLog}" >&2
+        printf '        there is no changed count to read.\n' >&2
+        exit 1
+    fi
+
+    if grep -E '^[^ ]+ +: +ok=' "${secondLog}" | grep -qv 'changed=0 '; then
+        printf '\n[FATAL] the second pass reported changes — the play does not converge:\n' >&2
+        grep -E '^[^ ]+ +: +ok=' "${secondLog}" >&2
+        printf '\n        Task 2.1 asks for no change on the second run. A play that changes\n' >&2
+        printf '        something every time cannot evidence that it removed nothing.\n' >&2
+        exit 1
+    fi
+
+    printf '\n[idempotency] second pass: changed=0 on every host.\n'
+fi
+
 plan_finish

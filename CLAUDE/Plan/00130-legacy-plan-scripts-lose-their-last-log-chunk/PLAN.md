@@ -114,8 +114,17 @@ between the operator and a one-shot run.
   reached its end AND the log drained. Both halves, measured, on a converted script.
 
   **Still owed**: 00066, 00079 (×4) and 00080. 00075's is moot — that plan archived on
-  2026-09-17. None of the remainder belongs to an in-progress plan, so the batch harness
-  never reaches them and each needs running deliberately. 00079's `acceptance.bash`
+  2026-09-17. None of the remainder belongs to an in-progress plan; the batch harness used
+  to skip them for that reason, and now does not. Naming a plan with `--only` *is* the
+  schedule: the In Progress filter is dropped, `Completed/` is searched, and a plan whose
+  only script is `triage.bash` still qualifies — which is what these three are. One
+  command covers all of them:
+
+  ```bash
+  ./untracked/meta-deploy.bash --only 00066 --only 00079 --only 00080
+  ```
+
+  Confirmed with `--list`: three plans selected, and the unnamed schedule is unchanged. 00079's `acceptance.bash`
   additionally aborts at check 0 for an unrelated, already-flagged reason — an anchored
   grep whose target line grew a trailing sentence — so it needs that fix before it can
   prove anything here.

@@ -17,6 +17,19 @@ Two version numbers move independently — see
 
 ---
 
+## 3.58.3
+
+**Docs only: the window is read with `/autocompact`, not `/config`.** Both this changelog
+and `docs/ccy.md` said the environment variable takes the window out of `/config`'s hands.
+`/config` never had it — it carries the auto-compact on/off toggle and nothing else. The
+resolved figure and where it came from are printed by `/autocompact` with no argument:
+
+```
+Auto-compact window: 600,000 tokens (from CLAUDE_CODE_AUTO_COMPACT_WINDOW)
+```
+
+Found by an operator opening `/config` and seeing no such row. No behaviour changes.
+
 ## 3.58.2
 
 **Docs only: the 3.58.1 note explained the bug wrongly.** It said `600k` had produced a

@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.58.2"  # CLAUDE_CODE_AUTO_COMPACT_WINDOW defaults to 600000 — plain digits only, the variable has no k suffix; override per project in ccy.env. See docs/ccy-changelog.md.
+CCY_VERSION="3.58.3"  # CLAUDE_CODE_AUTO_COMPACT_WINDOW defaults to 600000 — plain digits only, the variable has no k suffix; read the live value with /autocompact. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -3133,7 +3133,8 @@ fi
 # here. Do not "tidy" this back to a suffix.
 #
 # The effective threshold is min(this value, the model's context window), and the variable
-# beats the autoCompactWindow setting, so the window can no longer be changed from /config.
+# beats the autoCompactWindow setting, so the window can no longer be changed from
+# /autocompact, which reports the override instead of applying it.
 # The ${VAR:-default} form below preserves both overrides: a host export before launch, and
 # an `export` line in a project's .claude/ccy/ccy.env, which the entrypoint sources after
 # this environment is in place. See docs/ccy.md.

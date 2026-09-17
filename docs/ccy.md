@@ -587,7 +587,8 @@ Upstream recommends `auto`, which defers to the model's own context window and s
 nothing; CCY's 600,000 is a deliberate cost ceiling for the 1M-context models this workflow
 runs. Two consequences worth knowing: the effective threshold is
 `min(this value, the model's context window)`, and setting the environment variable beats
-the `autoCompactWindow` setting, so the window can no longer be changed from `/config`.
+the `autoCompactWindow` setting, so the window can no longer be changed from
+`/autocompact`, which reports the override instead of applying it.
 
 Override it per project in [`ccy.env`](#2-ccyenv--per-project-environment).
 

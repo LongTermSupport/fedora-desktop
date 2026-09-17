@@ -179,10 +179,14 @@ is the single source instead, and disk only confirms it.
   established. Check [5] — "the deploy removed nothing from the enabled list" — passed
   on the before/after triage pair, which is the one claim no single reading can make.
 
-  **Still owed**: the SECOND `deploy.bash`. The batch harness deploys once, so nothing
-  in that run speaks to idempotency, and a play that removed something only on a
-  re-run would look identical to this evidence. Also still owed: the
-  `play-vm-test-lab.yml` redeploy that unblocks Task 2.2
+  **The second deploy is no longer the operator's to remember.** `deploy.bash` now runs
+  the play a second time itself and asserts `changed=0` on every host, failing the run
+  otherwise. It went in the plan's own script rather than the batch harness because plan
+  tooling travels with the plan, and because a blanket "deploy everything twice" would be
+  wrong for every other plan. The harness needed no change: it invokes `deploy.bash` once,
+  with no arguments, which is now enough.
+
+  **Still owed**: the `play-vm-test-lab.yml` redeploy that unblocks Task 2.2
 
 - [ ] 🚫 **Task 2.2**: `vmtest run desktop-fresh-install` against the pushed
   commit; `deployed-extensions-active` green in the post-reboot session; run id
