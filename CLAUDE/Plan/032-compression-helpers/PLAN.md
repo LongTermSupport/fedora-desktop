@@ -111,8 +111,10 @@ This phase was six things for a human to try by hand, which is why the plan sat
 judgement** — each is a filesystem assertion — so they are now assertions, and the
 plan closes on a run rather than on somebody being at a keyboard.
 
-- [x] ✅ **Task 4.0**: `deploy.bash` — runs the play, HOST-gated (R2), one change gate,
-  and `-y` so `CLAUDE/Plan/meta-deploy.bash` can answer it as part of the batch.
+- [x] ✅ **Task 4.0**: `deploy.bash` — runs the play, HOST-gated (R2), and accepts `-y`
+  so `CLAUDE/Plan/meta-deploy.bash` can pass it as part of the batch. (It said "one change
+  gate": there is none, and there is no such mechanism — R8 removed `plan_gate_change`.
+  The script asks nothing, so `-y` is a no-op here.)
 - [x] ✅ **Task 4.1**: `acceptance.bash` — nine checks against the **deployed**
   `/usr/local/bin` wrappers, with a stated COVERAGE line. Checks 2-7 are the six items
   below, one each; checks 0, 1 and 8 are the preconditions that stop a green run meaning

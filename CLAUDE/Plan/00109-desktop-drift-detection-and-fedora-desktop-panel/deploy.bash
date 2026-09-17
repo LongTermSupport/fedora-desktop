@@ -63,7 +63,8 @@ Runs Plan 00109's four plays on the HOST, fail-fast, in this order:
   playbooks/imports/optional/common/play-vm-test-lab.yml
   playbooks/imports/optional/hardware-specific/play-displaylink.yml
 
--y/--yes consents to the change gate non-interactively.
+-y/--yes is accepted and skips any plan_confirm prompt. This script asks nothing, so
+it is a no-op here — there is no change gate; R8 removed plan_gate_change.
 
 --check is REFUSED — see the refusal message for the reason.
 

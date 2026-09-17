@@ -91,7 +91,9 @@ between the operator and a one-shot run.
 ### Phase 2: Convert
 
 - [x] ✅ **Task 2.1**: All ten converted. The gate written for Task 3.1 is the check:
-  `PLAN-SCRIPT-LOGGING-OK: 51 plan script(s) examined, no offences`. Convert each script
+  `PLAN-SCRIPT-LOGGING-OK: <n> plan script(s) examined, no offences` — the population
+  tracks the active tree and shrinks as plans archive (51 when this was written, 45 now),
+  so "no offences" is the assertion and the count is not. Convert each script
   to `plan_start_log auto`, removing the
   `LOG=`/`mkdir -p` lines **and any consumer of `$LOG`**. That last part is not
   optional: the identical conversion in Plan 00099 removed `LOG=` and left one
@@ -144,8 +146,11 @@ between the operator and a one-shot run.
   blamed an undeployed play, sending the reader to run Ansible in the one place this repo
   forbids it. Falsified both ways: refuses in the container, `--help` still works.
 
-  Not through `meta-deploy.bash`. That runs once, over every In Progress plan, and these
-  belong to closed ones. A selection flag was briefly added here to reach them and then
+  Not through `meta-deploy.bash`, simply because they are not in its list. (This used to
+  say it "runs once, over every In Progress plan, and these belong to closed ones". Both
+  halves are false: the list is a hardcoded `PLANS=()` array of five — as Task 2.4 below
+  says twelve lines on — and of these, 00080 is In Progress while 00066 and 00079 are
+  Blocked. None is Complete.) A selection flag was briefly added here to reach them and then
   removed: it turned a batch runner into a longer way of typing a path, and a wrapper that
   can also run one thing is a second selection mode to reason about for no gain.
 
@@ -156,9 +161,11 @@ between the operator and a one-shot run.
   against the current `podfreeze`: exactly one matching line. Nothing blocks these runs.
 
   **Not done, and cannot be here**: the rest stop early by design rather than by defect —
-  `plan_require_host` refuses, or a probe finds no `camera` user, no reachable podman, no
-  `lxc`. Stopping at a guard proves the bootstrap and `plan_start_log` work; it does not
-  reach the last line. Those need a host run, which the batch supplies.
+  `plan_require_host` refuses. All five now carry that guard, the last of them
+  (`00066/triage.bash`) added by this plan, so the missing-tool branches this used to also
+  list are unreachable: nothing gets far enough to look for a `camera` user or a podman.
+  Stopping at a guard proves the bootstrap and `plan_start_log` work; it does not reach the
+  last line. Those need a host run.
 
   **This is the one thing standing between 00130 and Complete.** Nothing else is owed.
 
@@ -225,8 +232,15 @@ between the operator and a one-shot run.
 - [x] ✅ The new gate fails on a re-introduced occurrence and passes on the clean tree —
   both controls run in-script on every invocation, and it was additionally falsified
   against the LIVE tree during the conversion: 6 offences, then 4, then 1, then none
-- [x] ✅ QA passes (`./scripts/qa-all.bash`) — 973 files, green
-- [ ] ⬜ `qa-reviewer` returns PASS
+- [x] ✅ QA passes (`./scripts/qa-all.bash`) — green. (The file count is deliberately not
+  quoted: it was "973 files" here and the live run reports 1,002. The count tracks the tree,
+  not this plan, so asserting it dates the criterion for no gain — Task 2.4's own lesson.)
+- [ ] 🔄 `qa-reviewer` returns PASS — **run**, verdict FIX-BEFORE-MERGE with no BLOCK
+  ([subagent-reports/260917-qa-reviewer-opus-5.md](subagent-reports/260917-qa-reviewer-opus-5.md)).
+  Seven of its eight findings are fixed. The eighth is an owner decision, not a fix: the
+  plan-local `00079/unit-test-selection.bash` duplicates `scripts/test-podfreeze.bash`,
+  which covers the same 13 functions, runs on every `qa-all.bash`, and does not retire into
+  `Completed/` when 00079 does. Re-run after that is settled.
 
 ## Delivery & Milestones
 

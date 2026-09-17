@@ -6,8 +6,8 @@
 #   The one tested implementation of the safety-critical primitives a plan's
 #   `deploy.bash` / `verify.bash` / `triage.bash` / `acceptance.bash` needs:
 #   script-relative repo-root resolution, the host-vs-container guard, sudo
-#   priming, a tee'd run log with a deterministic drain, /dev/tty prompts, the
-#   change gate, and fail-fast-vs-continue leg semantics. A conforming
+#   priming, a tee'd run log with a deterministic drain, /dev/tty prompts, and
+#   fail-fast-vs-continue leg semantics. A conforming
 #   orchestrator is BOOTSTRAP + MODE + LEGS and hand-rolls none of it.
 #
 #   Standards, rule by rule: ../PlanScriptStandards.md
@@ -292,9 +292,17 @@ plan_init() {
     return 0
 }
 
-# plan_mode <deploy|gather> — declare the run's nature up front. deploy enables fail-fast
-# legs and REQUIRES the change gate before the first ansible invocation; gather enables
-# record-and-continue legs and FORBIDS the gate.
+# plan_mode <deploy|gather> — declare the run's nature up front. deploy means fail-fast
+# legs, gather means record-and-continue legs.
+#
+# This function itself only validates the token and sets PLAN_MODE; the teeth are in the leg
+# runners, where `plan_deploy_leg` refuses to run under `gather` (R7), so a read-only script
+# cannot mutate by accident.
+#
+# Neither mode involves a change gate: there is none. R8 forbids a blanket confirmation
+# prompt, `plan_gate_change` does not exist, and `scripts/test-planlib.bash` asserts it stays
+# that way. `plan_confirm` is for a script that must ask something specific; no mode requires
+# or forbids it.
 plan_mode() {
     local mode="${1:?plan_mode requires deploy or gather}"
     case "${mode}" in
@@ -568,7 +576,7 @@ plan_start_log() {
     return 0
 }
 
-# ── prompts and the change gate ──────────────────────────────────────────────────────────
+# ── prompts ──────────────────────────────────────────────────────────────────────────────
 
 # plan_confirm <prompt> [expected-token] — ask for typed consent. Returns 0 only on an exact
 # token match.

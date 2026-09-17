@@ -332,8 +332,10 @@ session and was approaching the size at which edits are blocked:
 check count rather than the task tree's, and it went stale the moment a task was ticked.) Run `deploy.bash` then `acceptance.bash` in this folder — or
 `CLAUDE/Plan/meta-deploy.bash` to run this plan alongside the others waiting.
 `deploy.bash` runs four plays in a deliberate order, with `play-displaylink.yml` last
-because it is the only one that can demand a MOK enrolment and a reboot; its change gate
-says so before anything runs. `acceptance.bash` carries nineteen COVERAGE-registered
+because it is the only one that can demand a MOK enrolment and a reboot. (That last point
+is recorded in `deploy.bash`'s header comment, not announced at runtime: this said "its
+change gate says so before anything runs", and there is neither a gate — R8 removed
+`plan_gate_change` — nor any runtime warning.) `acceptance.bash` carries nineteen COVERAGE-registered
 checks and prints what needs a Wayland session or your own eyes under FOR THE HUMAN,
 never counting those as passed.
 

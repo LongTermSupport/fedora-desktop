@@ -127,7 +127,10 @@ See D4 and D6.
   acceptance freezes/thaws a **throwaway** container on a **throwaway** network,
   checks `--ccy --dry-run` against the live CCY set as a contract, and checks
   the in-container refusal, the unknown-network and unknown-name failures, and
-  mutually-exclusive targets. `--all` is never run for real. Both log to `logs/`
+  mutually-exclusive targets. `--all` is never run for real. Both log through
+  `plan_start_log auto`, to `untracked/plan-runs/<plan>/<script>/<timestamp>/` — Plan
+  00130 converted them and relocated the old plan-local `logs/` tree, which no longer
+  exists here
 
 - [x] ✅ **Task 3.2**: User runs `CLAUDE/Plan/00079-podman-container-control/deploy.bash`
   on the HOST (it runs `play-claude-yolo.yml` **then** `play-podfreeze.yml`,

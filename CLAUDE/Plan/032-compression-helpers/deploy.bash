@@ -55,9 +55,10 @@ Runs ${PLAY} on the HOST:
   * refuses outright if the ncompress package is installed, because it ships
     /usr/bin/compress and would shadow the wrappers
 
---check previews without changing anything. -y/--yes consents to the change gate
-non-interactively, which is what CLAUDE/Plan/meta-deploy.bash passes when it runs
-this as part of a batch.
+--check previews without changing anything. -y/--yes is accepted and skips any
+plan_confirm prompt, which is what CLAUDE/Plan/meta-deploy.bash passes when it runs
+this as part of a batch — but this script asks nothing, so here it is a no-op. There
+is no change gate: R8 removed plan_gate_change from the library.
 
 Then run acceptance.bash, which renders the verdict and covers PLAN.md Phase 4's
 six user-testing items.

@@ -133,8 +133,8 @@ if ! FUNCS_DIR="$(mktemp -d -t podfreeze-funcs.XXXXXX)"; then
     exit 1
 fi
 FUNCS="$FUNCS_DIR/bin/podfreeze-funcs.bash"
-# R4: register the teardown BEFORE anything is created inside the directory, so an
-# a failure part-way through still cleans up. Never `trap … EXIT` — a hand-written EXIT
+# R4: register the teardown BEFORE anything is created inside the directory, so a
+# failure part-way through still cleans up. Never `trap … EXIT` — a hand-written EXIT
 # trap REPLACES the library's handler, and the run log then loses its final chunk.
 remove_funcs_tmpdir() {
     rm -rf "$FUNCS_DIR"
@@ -150,6 +150,18 @@ if ! ln -s "$FREEZE_SRC" "$FUNCS_DIR/lib/freeze/freeze-common.bash"; then
     exit 1
 fi
 awk -v n="$CUT_LINE" 'NR < n - 2' "$TOOL" > "$FUNCS"
+
+# The `- 2` is an offset tied to the marker being preceded by exactly one blank line and one
+# `# ---` rule. If that rule is ever removed the cut takes the closing brace of the function
+# above with it, and the symptom is dozens of assertion failures from a file that never
+# parsed — not one error naming the cause. Parsing it first turns that into a named failure.
+# `scripts/test-podfreeze.bash` has guarded its own cut this way from the start.
+if ! bash -n "$FUNCS"; then
+    echo "FAIL: the extracted definitions do not parse — the cut landed mid-construct." >&2
+    echo "  The offset before the '# Argument parsing' marker assumes a blank line and a" >&2
+    echo "  '# ---' rule precede it in $TOOL. Check that, or adjust the offset deliberately." >&2
+    exit 1
+fi
 
 ACTION=""
 # shellcheck source=/dev/null
