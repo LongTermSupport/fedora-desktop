@@ -108,6 +108,18 @@ between the operator and a one-shot run.
   present in the run log under `untracked/plan-runs/`. That is the defect's actual
   symptom, measured, on a converted script.
 
+  **Done on the HOST by the 2026-09-17 batch run**: 00098's `triage.bash` (twice, as the
+  before/after bracket) and its `acceptance.bash`. The acceptance run log ends with the
+  full closing banner through its own last line — the `Full report:` path — so the script
+  reached its end AND the log drained. Both halves, measured, on a converted script.
+
+  **Still owed**: 00066, 00079 (×4) and 00080. 00075's is moot — that plan archived on
+  2026-09-17. None of the remainder belongs to an in-progress plan, so the batch harness
+  never reaches them and each needs running deliberately. 00079's `acceptance.bash`
+  additionally aborts at check 0 for an unrelated, already-flagged reason — an anchored
+  grep whose target line grew a trailing sentence — so it needs that fix before it can
+  prove anything here.
+
   **Not done, and cannot be here**: the rest stop early by design rather than by defect —
   `plan_require_host` refuses, or a probe finds no `camera` user, no reachable podman, no
   `lxc`. Stopping at a guard proves the bootstrap and `plan_start_log` work; it does not
