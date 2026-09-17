@@ -21,10 +21,13 @@ was plugged in**. That second failure is this repo's own: the plays set
 idle-suspend when plugged in" intent silently inverts the moment the user session dies
 and the unmanaged `gdm` account becomes the one in charge of the display.
 
-Two defects, one incident. Neither had any detection: ten hours of runaway restarts
-produced no signal anywhere, and the host-health surface this repo already owns never saw
-it. This plan is **research and design only** — it establishes the facts, records them,
-and specifies the defences. It applies no fix.
+Two defects, one incident, and no detection of either: ten hours of runaway restarts
+produced no signal anywhere.
+
+Phases 1–4 are research and design and apply no fix. Phases 5–6 are the implementation,
+handled by another agent. **Detection alone is not protection** — the report goes to a
+logged-in human, and nobody was logged in; that is the incident's defining property. So
+Phase 6 adds enforcement that acts without one.
 
 ## Goals
 
@@ -94,8 +97,8 @@ check is an extension of its watchdog, not of host-health — the reasoning, inc
 
 - [x] ✅ **Task 2.1**: **Answered: a `gdm.d` drop-in alone is sufficient.** The "inert fix" fear is withdrawn — GDM ships `/usr/share/dconf/profile/gdm`, which already stacks `system-db:gdm` first among the system databases. Nothing needs creating under `/etc/dconf/profile/`
 - [x] ✅ **Task 2.2**: **Answered: no lock required.** Only `user-db:user` outranks `system-db:gdm`, and the greeter's user db holds no `sleep-inactive-*` key — nor any UI that would write one. Omitted on YAGNI grounds, with the read-back as the falsifier
-- [x] ✅ **Task 2.3**: **Answered: no.** `session.conf` declares 1e9; the session broker runs with `--max-bytes` 1e14 and the system broker with 512 MiB. The values are scope-dependent constants, not a reading of the XML. Editing `session.conf` would be an inert fix
-- [x] ✅ **Task 2.4**: **Answered: there is no headroom figure to threshold against.** The global ceiling is 1e14 and was never what broke; the binding limit is a per-peer receive share the broker derives internally and exposes through no flag, file or bus method. Quota-headroom monitoring is rejected, and the restart-rate proxy is adopted instead
+- [x] ✅ **Task 2.3**: **Answered: no.** `session.conf` declares 1e9; the session broker runs at 1e14 and the system broker at 512 MiB — scope-dependent constants, not a reading of the XML. Editing `session.conf` would be an inert fix
+- [x] ✅ **Task 2.4**: **Answered: no headroom figure exists to threshold against.** The 1e14 ceiling was never what broke; the binding limit is a per-peer receive share exposed through no flag, file or bus method. Quota-headroom monitoring rejected; the restart-rate proxy adopted
 
 ### Phase 3: Specify the defences (design, no implementation)
 
@@ -103,11 +106,11 @@ check is an extension of its watchdog, not of host-health — the reasoning, inc
 
 - [x] ✅ **Task 3.2**: **Specified** in [research/greeter-power-policy.md](research/greeter-power-policy.md#the-read-back-specification-task-32) — the exact task to add to `play-prevent-ssh-suspend.yml`, why it must cross the same bus as the write, and why it compares against `'nothing'` with its quotes
 
-- [x] ✅ **Task 3.3**: **Specified** in [research/detection-gap.md](research/detection-gap.md#the-confirmed-course-of-action-task-33). Extend **plan 00055's** container watchdog (2-minute timer, attribution, `report.json`, D-Bus signal, panel + notification, allowlist, reporting-only), **not** `host-health-collect` — that runs daily and delivers at login, and this incident destroys the session before anyone logs in. Signal: `RestartCount` delta per tick (≥10), plus an absolute floor (~1,000) so a loop already running at start-up is caught on the first tick. Measured separation on this host: offender 124,873, next-highest 19, all others 0
+- [x] ✅ **Task 3.3**: **Specified** in [research/detection-gap.md](research/detection-gap.md#the-confirmed-course-of-action-task-33). Extend **plan 00055's** watchdog (2-minute tick, attribution, report, notification), **not** `host-health-collect` — daily, and delivers at login, which this incident precedes. Signal: `RestartCount` delta per tick (≥10) plus an absolute floor (~1,000) for a loop already running at start-up. Measured separation: offender 124,873, next-highest 19, all others 0
 
 - [x] ✅ **Task 3.4**: **Recorded.** Greeter: the read-back in Task 3.1 must move from `'suspend'` to `'nothing'` — a file that exists while the read-back still says `'suspend'` is a failed fix, not an applied one. Detection: the four-row falsification table in [research/detection-gap.md](research/detection-gap.md#how-it-gets-falsified-task-34), whose first row must be executed **while the loop is still live**
 
-- [x] ✅ **Task 3.5**: **Recorded**, in the 26-09-17 journal (09:34 and the 09:35 correction)
+- [x] ✅ **Task 3.5**: **Recorded** in the 26-09-17 journal (09:34, with the 09:35 correction)
   and in the statement below. The task was to record a finding, and the finding is written
   in the two places a reader looks; there is nothing further to implement, which is the
   whole point of it. Record that the workload-resilience defence **already works and needs no change**. The compositor is declared unrecoverable upstream (`Restart=no`, "On wayland we cannot restart"), so session death is unpreventable by design — and the tmux-hosted work correctly survived it, running for a further 901 seconds. It was then killed by the greeter suspend. This makes the greeter fix (Task 3.1) the *sole* remaining exposure for long-running work on this host, not one mitigation among several
@@ -125,10 +128,21 @@ argument in [research/detection-gap.md](research/detection-gap.md): the crash lo
 still live and is the only genuine test case in existence.
 
 - [ ] ⬜ **Task 5.1**: Port the validated algorithm into `helpers/containerwatch` (plan 00055), tests first per that plan's D4. The algorithm is no longer a proposal — `detect-crashloop.bash` in this folder is a working, lint-clean reference implementation with a recorded true positive; port it rather than re-deriving it. Podman + Docker; LXC explicitly out of scope, not silently skipped. **Also confirm 00055's outstanding L3 panel/notification pass** — that delivery leg is unverified and this defence depends on it
-- [x] ✅ **Task 5.2**: **The true positive is captured and can no longer be lost.** `detect-crashloop.bash` (this folder) implements the specified algorithm and was run against the live loop: 13 containers, **1 flagged**, **0 false positives**, both conditions firing independently. The nearest borderline case — a container with 19 lifetime restarts — was correctly cleared. Evidence in [research/detection-gap.md](research/detection-gap.md#the-true-positive-captured). Done ahead of the rest of Phase 5 because it was the only perishable step
+- [x] ✅ **Task 5.2**: **True positive captured and no longer losable.** `detect-crashloop.bash` ran against the live loop: 13 containers, **1 flagged**, **0 false positives**, both conditions firing independently; the nearest borderline case (19 lifetime restarts) correctly cleared. Evidence in [research/detection-gap.md](research/detection-gap.md#the-true-positive-captured). Done out of order because it was the only perishable step
 - [ ] ⬜ **Task 5.3**: Ship the greeter `gdm.d` drop-in per Task 3.1 via `play-suspend-and-lid-policy.yml`, with the read-back assertion. Run the play; confirm the greeter reads `'nothing'`
 - [ ] ⬜ **Task 5.4**: Add the read-back assertions for the existing user-scope keys (Task 3.2)
-- [ ] ⬜ **Task 5.5**: Only now, stop the crash loop, and confirm the detection goes quiet — the true negative
+- [ ] ⬜ **Task 5.5**: Only now, stop the crash loop (`podman stop` — the policy is `unless-stopped`, so an explicit stop is definitive and needs no policy edit), and confirm the detection goes quiet — the true negative
+
+### Phase 6: Teeth — enforcement, because detection is not protection
+
+Detection alone **would not have saved the session**: the report goes to a logged-in human
+and nobody was logged in. Specified in
+[research/detection-gap.md](research/detection-gap.md#teeth-detection-alone-would-not-have-saved-the-session).
+
+- [ ] ⬜ **Task 6.1**: Automatic `podman stop` at **100 restarts within a rolling window** (windowed, not cumulative). ~85,000 restarts exhaust the quota, so 100 is **0.1% of the way to failure** and trips ~10 hours early
+- [ ] ⬜ **Task 6.2**: Home it in **plan 00079**, not 00055 — whose D3 is reporting-only and gated. An orderly, signal-free `podman stop` is not what D3 rejected, but it still does not belong in that tree
+- [ ] ⬜ **Task 6.3**: Probe whether `cgroup_manager = "cgroupfs"` removes the `libpod-*.scope` churn. **Hypothesis, not a recommendation** — must not reach a play before a read-back proves it moves the behaviour
+- [ ] ⬜ **Task 6.4**: UID containment recorded as the structural option — the broker accounts per-UID and podman runs as the desktop's own UID. Strongest, most disruptive; recorded, not proposed
 
 ## Success Criteria
 
@@ -150,8 +164,8 @@ still live and is the only genuine test case in existence.
 
 | Risk                                                                                                       | Mitigation                                                                                                                    |
 | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| ~~The `gdm.d` drop-in is **inert** because `/etc/dconf/profile/gdm` does not exist~~                       | **Closed, disproven.** GDM ships the profile at `/usr/share/dconf/profile/gdm` and it already stacks `system-db:gdm`          |
-| ~~A monitoring threshold is set against a quota whose real value and headroom are unknown~~                | **Closed by avoidance.** Task 2.4 found no headroom figure exists, so quota monitoring was rejected rather than tuned         |
+| ~~Two earlier risks: an "inert" `gdm.d` drop-in, and a threshold set against an unknown quota~~            | **Both closed** — one disproven, one avoided. Tasks 2.1 and 2.4                                                               |
+| Enforcement stops a container a human wanted running                                                       | Windowed threshold of 100 with ~1000x headroom to failure; `podman stop` is reversible and leaves the project's config intact |
 | The restart-rate threshold is a **proxy** and will miss a different cause of bus-quota pressure            | Accepted knowingly: Task 2.4 showed the class-level signal is unavailable at any threshold. Recorded rather than papered over |
 | The live crash loop is stopped before it can be used to validate detection, losing the only real test case | Defence-before-fix ordering: build and validate detection against the live loop, and only then stop it                        |
 

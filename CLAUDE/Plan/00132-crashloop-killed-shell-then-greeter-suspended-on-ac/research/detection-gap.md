@@ -265,3 +265,94 @@ the algorithm into `helpers/containerwatch` with its tests, and the **true negat
 5.5 — stop the loop, confirm the detection goes quiet) is the half of the validation pair
 that has not been observed. The true positive was the perishable half, and it is now
 banked.
+
+## Teeth: detection alone would not have saved the session
+
+Everything above is **detection**, and detection is not protection. This has to be said
+plainly because the plan reads as though it were:
+
+> The watchdog's report is delivered to a logged-in human. In this incident **nobody was
+> logged in** — that is the incident's defining property. A reporting-only defence would
+> have observed the loop for ten hours, written a finding nobody read, and watched the
+> compositor die on schedule.
+
+So the design needs a layer that acts without a human. Three candidates, weakest to
+strongest.
+
+### Layer 1 — automatic stop at a restart threshold (the decided approach)
+
+Stop a container that has restarted more than **100 times within a rolling window**.
+
+The margin is what makes this defensible rather than reckless:
+
+| Quantity                                   | Value                                |
+| ------------------------------------------ | ------------------------------------ |
+| Restarts needed to exhaust the D-Bus quota | ~85,000 (≈10 h at the observed rate) |
+| Enforcement threshold                      | 100                                  |
+| Proportion of the way to failure           | **0.1%**                             |
+| Time to trip at the observed ~130/min      | ~45 seconds                          |
+
+Three orders of magnitude of headroom. The action fires roughly ten hours before the
+desktop would die, and the nearest legitimate container on this host sits at 19 restarts
+*for its whole lifetime*.
+
+**The window matters.** A *cumulative* bar of 100 would eventually fire on a container that
+restarted slowly over months, which is normal operation, not a storm. A *windowed* count
+fires only on a loop.
+
+**Where it must NOT live.** Plan 00055's watchdog is reporting-only by explicit decision
+(D3), enforced by `scripts/qa-nokill-containerwatch.bash`. Putting an enforcement action
+there contradicts that plan's own contract.
+
+**Why `podman stop` is nevertheless not what D3 rejected.** The gate's forbidden patterns
+are *signal* kills — `os.kill`, `os.killpg`, `pkill`, `kill -<sig>`, `Gio.Subprocess.force_exit`
+— scanned across `helpers/containerwatch/*.py` and the extension. D3 rejected hard-killing
+processes and capping CPU as symptom-hiding. An orderly engine-level
+`podman stop` is a different act: reversible, signal-free, and it addresses the loop at its
+source rather than masking its effects. The container's policy is `unless-stopped`, which
+means *restart unless explicitly stopped*, so a plain stop is definitive and needs no
+policy edit — and therefore leaves the external project's configuration untouched.
+
+**Home:** plan 00079 (Podman container control), which already exists for container
+lifecycle actions, not 00055.
+
+### Layer 2 — remove the coupling (UNVERIFIED, needs a probe)
+
+The session-bus traffic exists because podman uses the **systemd** cgroup manager
+(`podman info` reports `cgroupManager=systemd`), registering every container as a transient
+`libpod-*.scope` with the **user** systemd manager — 20 such scopes are live right now. Each
+start and stop makes that manager emit unit and job signals on the session bus, which is
+where the bytes come from.
+
+`cgroup_manager = "cgroupfs"` in `containers.conf` would stop scope creation, and with it
+the signal storm.
+
+**This is a hypothesis, not a recommendation.** It is not established here that cgroupfs
+eliminates the signals, and it trades away systemd's cgroup integration and resource
+accounting. It needs its own probe before anyone writes it into a play — precisely the
+inert-fix discipline this plan has already been caught by twice.
+
+### Layer 3 — containment by UID (the strongest, and the most disruptive)
+
+The broker accounts per-UID, and the failure message names it:
+
+```
+UID <uid> exceeded its 'bytes' quota on UID <uid>.
+```
+
+Rootless podman runs as the **same UID as the desktop**. Workload containers under a
+*different* UID could not exhaust the desktop's budget at all — no threshold, no timing, no
+tuning, and it holds against causes nobody has thought of yet, which is what none of the
+layers above can claim. [independent-witness-agent-session.md](independent-witness-agent-session.md)
+is the existing evidence: a container-hosted session survived the outage untouched because
+its blast radius stopped at the boundary.
+
+The cost is a real change to how work is run on this host, so it is recorded as the
+structural option rather than proposed for immediate adoption.
+
+### And the greeter fix is teeth too
+
+Worth restating, because it is easy to file as tidiness: the greeter change prevents the
+**machine** being suspended even when the session dies. Layer 1 protects the session;
+the greeter fix protects everything still running outside it — which, as the tmux evidence
+shows, is where the surviving work actually lives.
