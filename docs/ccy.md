@@ -563,17 +563,25 @@ CCY deliberately sets **no** sub-agent fan-out limits — the section below expl
 
 The value is in tokens, and CCY sets it as **`600000` — full digits, no `k` suffix**.
 
-That is not cosmetic, and it is not a quirk — it is the documented rule. Upstream's
-[model configuration page](https://code.claude.com/docs/en/model-config) states that the
-`/autocompact` command and `--autocompact` flag accept a plain count, a `k`/`M` suffix, or a
-bare 100–1000 meaning thousands, but that **the environment variable accepts only the plain
-token count**. The suffix forms belong to the command and the flag, not here.
+That is not cosmetic. **The environment variable has no suffix handling at all.** It is read
+by a generic numeric helper — the same one behind `BASH_MAX_OUTPUT_LENGTH` — which accepts a
+plain integer, scientific notation (`6e5`) or group-separated digits, and otherwise falls
+through to `parseInt`. So `600k` parses as `600`. The resolver then floors the result at
+100,000 and caps it at 1,000,000.
 
-CCY 3.58.0 shipped `600k` regardless, and sessions auto-compacted immediately — the
-behaviour of a 600-token window. This page previously claimed `600k`, `600000` and `600`
-were "the same figure". That sentence was never sourced; it is contradicted by the page
-above, and the launcher default was written on top of it. Use digits, and do not tidy the
-suffix back in.
+CCY 3.58.0 shipped `600k` and therefore ran every session at **100,000 tokens**, not
+600,000. The floor is what made that survivable and thus easy to miss: a session with a
+100k ceiling boots, works, and merely compacts far more often than it should.
+
+The `auto`/`500k`/`200`-means-thousands grammar is real, but it belongs to the
+`/autocompact` command and the `--autocompact` flag. This page previously presented that
+grammar as the variable's own and called `600k`, `600000` and `600` "the same figure" — one
+code path's rule applied to another, and the launcher default was written on top of it. Use
+digits, and do not tidy the suffix back in.
+
+Verified against the shipped CLI (2.1.274) rather than a documentation page, because the
+binary can be re-extracted and a page cannot: the resolver is `zv`, the parser chain is
+`tZ` → `zl`, and the floor constant is `Z1e=1e5`.
 
 Upstream recommends `auto`, which defers to the model's own context window and so caps
 nothing; CCY's 600,000 is a deliberate cost ceiling for the 1M-context models this workflow

@@ -34,7 +34,7 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00133-ccy-auto-compact-window-default-and-daemon-check](00133-ccy-auto-compact-window-default-and-daemon-check/) - CCY sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600k` by default, overridable per project in a tracked `ccy.env`, while the hooks daemon independently warns when the window is unset or above the ceiling — that half being an upstream issue whose body must be generated, never hand-drafted.
+- [00133-ccy-auto-compact-window-default-and-daemon-check](00133-ccy-auto-compact-window-default-and-daemon-check/) - CCY sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000` by default, overridable per project in a tracked `ccy.env`, while the hooks daemon independently warns when the window is unset or above the ceiling — that half being an upstream issue whose body must be generated, never hand-drafted.
 
 - [00132-crashloop-killed-shell-then-greeter-suspended-on-ac](00132-crashloop-killed-shell-then-greeter-suspended-on-ac/) - A container crash loop exhausted the session D-Bus quota and killed `gnome-shell`; the GDM greeter then idle-suspended the plugged-in machine, because `gdm` is configured by no play here. Research and design only; no fix applied.
 

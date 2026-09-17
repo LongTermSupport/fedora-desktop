@@ -39,12 +39,16 @@ The load-bearing findings:
 - **The variable is real and honoured.** Confirmed by extracting it, with its
   parse-error and precedence strings, from the shipped Claude Code CLI binary.
   Both deliverables are live work, not inert.
-- **The unit is tokens.** Accepted grammar is `auto`, or `100k..1M` tokens, with
-  `600k`, `600000` and `600` all equivalent. This plan specifies **`600k`**.
+- **The unit is tokens.** ⚠️ **This entry was false and shipped a broken default.** The
+  `auto`/`500k`/`600`-shorthand grammar belongs to the `/autocompact` command, not to the
+  environment variable, which has no suffix handling: `600k` parses as `600`, is then
+  floored to 100,000, and the session runs at a sixth of the intended ceiling. This plan
+  specifies **`600000`**. See the correction at the head of
+  [research/auto-compact-window-facts.md](research/auto-compact-window-facts.md).
 - **The env var beats the `autoCompactWindow` setting.** Setting it means the
   window can no longer be changed from `/config`.
 - **The effective threshold is `min(setting, model context window)`**, which is
-  why `600k` is the right figure: it is a 1M-context guard, and 1M-context models
+  why `600000` is the right figure: it is a 1M-context guard, and 1M-context models
   are what this project runs.
 - **Upstream recommends `auto`.** Overriding it is a deliberate, defensible
   choice, but it must be commented as such so it is not reverted as an error —
@@ -56,7 +60,7 @@ The load-bearing findings:
 
 ## Goals
 
-- CCY sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600k` by default for every session
+- CCY sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000` by default for every session
   it launches, using the same `${VAR:-default}` idiom as its sibling variables.
 - A project overrides that default with one `export` line in its tracked
   `.claude/ccy/ccy.env`, and that override demonstrably wins.
@@ -75,7 +79,7 @@ The load-bearing findings:
   under `.claude/hooks-daemon/`.
 - **Filing the issue from inside this container.** The body must be generated,
   and the filing is the owner's action. See Task 3.1.
-- **Choosing `600k` on technical grounds.** It is the operator's stated figure
+- **Choosing 600,000 on technical grounds.** It is the operator's stated figure
   and this plan implements it. The plan records where it does and does not bite;
   it does not relitigate the number.
 - **Changing the `autoCompactWindow` setting, `/config`, or any Claude Code
@@ -94,7 +98,8 @@ The load-bearing findings:
   CLI binary with its parse-error and precedence strings. Had this failed, both
   deliverables would have been inert, which is why it was settled first.
 - [x] ✅ **Task 1.2**: Establish the unit and accepted grammar. **Done** —
-  tokens; `auto` or `100k..1M`; `600k` is valid and is the form to use.
+  tokens. (This task's recovered grammar was the `/autocompact` command's; the variable
+  takes plain digits only — see the Established-facts correction above.)
 - [x] ✅ **Task 1.3**: Establish where CCY should set it and prove the
   precedence chain leaves a project's `ccy.env` winning. **Done** — the
   launcher's `-e` block; chain traced through the entrypoint's `ccy.env` source
@@ -102,7 +107,7 @@ The load-bearing findings:
 - [x] ✅ **Task 1.4**: Establish how the daemon would warn and which component
   owns it. **Done** — `optimal_config_checker` already audits sibling env vars,
   so the upstream ask is an added check, not a new handler.
-- [x] ✅ **Task 1.5**: **Owner decision — settled: `600k`.** The figure is the
+- [x] ✅ **Task 1.5**: **Owner decision — settled: 600,000.** The figure is the
   operator's and is not up for relitigation. Losing the `/config` control for the
   window is the accepted consequence of setting the variable at all.
 
@@ -111,10 +116,10 @@ The load-bearing findings:
 - [x] ✅ **Task 2.1**: Add the forwarded default to the `container_cmd run`
   argument list in `files/var/local/claude-yolo/claude-yolo`, immediately
   alongside the existing Claude Code environment flags, as
-  `-e "CLAUDE_CODE_AUTO_COMPACT_WINDOW=${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-600k}"`.
+  `-e "CLAUDE_CODE_AUTO_COMPACT_WINDOW=${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-600000}"`.
   The `${VAR:-default}` form is what preserves host and project override.
 - [x] ✅ **Task 2.2**: Add a short comment at that line recording **why** the
-  default overrides a value upstream calls recommended, and that `600k` is a
+  default overrides a value upstream calls recommended, and that 600,000 is a
   1M-context guard. Without it, a later reader sees only an override of a
   recommended setting and reverts it. Keep it to the current state — no history.
   The comment sits in a banner block immediately above `container_cmd run`, the
@@ -148,7 +153,7 @@ The load-bearing findings:
 - [x] ✅ **Task 3.2**: **Owner decision — settled**, so the generated body states
   it rather than asking. The daemon warns when the window is unset, when it is
   `auto`, or when it exceeds the ceiling; the ceiling is per-project configurable
-  in the daemon config and defaults to `600k`. `auto` warns because it defers to
+  in the daemon config and defaults to 600,000. `auto` warns because it defers to
   the model rather than capping — the whole point of the check. No exemption for
   a model whose own window is smaller: the setting is a ceiling, and a ceiling
   that never binds is still correctly set.
@@ -165,6 +170,16 @@ The load-bearing findings:
 - [x] ✅ **Task 3.5**: Confirm the body carries no identifying detail — this is
   a public repo posting to a public tracker, and the pre-commit secret scanner
   does not cover the `gh` CLI.
+- [ ] ⬜ **Task 3.6**: **Correct issue 46.** Its body states the falsified grammar
+  to an external maintainer as a specification — "`100k..1M` expressed as `600k`,
+  `600000` or `600`" — and asks them to build a normaliser for spellings the
+  environment variable does not accept, with the requested ceiling written `600k`.
+  Correcting the plan's internal record left the one copy outside this repository's
+  control untouched, which is the copy that can mislead someone else's code.
+  A correcting **comment** is not a created issue body, so
+  `R-UPSTREAM-ISSUE-UNVERIFIED-BODY` does not apply — but the grammar must be
+  re-derived from the binary rather than restated from a documentation page, and
+  posting is the owner's call because the tracker is public.
 
 ### Phase 4: Verify
 
@@ -175,23 +190,29 @@ The load-bearing findings:
 - [x] ✅ **Task 4.2**: **HOST run.** Start a session with no `ccy.env` override
   and confirm from inside it that the variable carries the CCY default — read the
   live environment, do not infer it from the launcher source. A check that only
-  re-reads the diff vouches for nothing. **Done, and it is the cautionary case for
-  this whole phase.** On 3.58.0 this check passed: a session with no override
-  (checked, not assumed) read `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600k`. The value was
-  present, correct against the launcher, and *wrong* — that session was compacting
-  at roughly 600 tokens. A green 4.2 says the variable arrived; it says nothing
-  about what the value does, which is exactly what 4.3 was written to catch and
-  exactly what was skipped over. Re-confirmed on 3.58.1: no override, live
-  environment reads `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000`.
-- [x] ✅ **Task 4.3**: **HOST run.** Confirm Claude Code has actually *accepted*
-  the value rather than merely received it. **Answered by behaviour, not by
-  `/config`** — and answered twice over. On 3.58.0 the setting was emphatically in
-  force: sessions auto-compacted immediately, which is a 600-token window acting on
-  the variable, so `600k` was accepted and parsed as `600`. On 3.58.1 sessions run
-  to normal length, which is the same evidence with the opposite sign. Behaviour is
-  a stronger witness than the `/config` label here, because it distinguishes
-  "accepted" from "accepted and parsed as intended" — the distinction that mattered
-  and that neither the variable's presence nor a source label would have exposed.
+  re-reads the diff vouches for nothing. **Done on 3.58.0, and it is the cautionary
+  case for this whole phase.** A session with no override (checked, not assumed)
+  read `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600k`. The value was present, matched the
+  launcher, and was wrong. A green 4.2 says the variable arrived; it says nothing
+  about what the value resolves to, which is what 4.3 exists for and what was
+  skipped.
+  **Owed on 3.58.1**: the same live read, from a session launched by the deployed
+  3.58.1. The earlier claim to have re-confirmed it was not sourced — 3.58.1 is this
+  plan's own commit, and deploying it is a host step that happens after.
+- [ ] ⬜ **Task 4.3**: **HOST run.** Confirm Claude Code has actually *accepted*
+  the value rather than merely received it: run `/config` and read the auto-compact
+  line. It prints the resolved number **and** its source together —
+  `600,000 tokens (from CLAUDE_CODE_AUTO_COMPACT_WINDOW)` — so one line settles both
+  halves.
+  **Reopened after being wrongly closed.** It was ticked on "sessions run to normal
+  length", which is the null observation: a rejected variable, the model default and
+  `auto` all produce normal-length sessions too, so it cannot separate *in force*
+  from *silently ignored*. That is absence of evidence read as evidence, on the one
+  task written to forbid it. Worse, the original `/config` requirement would have
+  caught the whole defect outright — on 3.58.0 it would have read
+  `100,000 tokens (from CLAUDE_CODE_AUTO_COMPACT_WINDOW)`, exposing the misparse and
+  the source in a single line. Behaviour was the stronger witness in exactly one
+  direction — failure — and that direction is gone.
 - [ ] ⬜ **Task 4.4**: **HOST run.** Set a different value via `export` in a
   project's `ccy.env`, restart, and confirm the project's value wins. This is
   the override requirement from the brief and the one most likely to be silently
@@ -205,12 +226,13 @@ The load-bearing findings:
 
 ## Success Criteria
 
-- [x] A CCY session started with no project override reports
-  `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000` from its live environment.
-- [x] The window is shown to be in force **and parsed as intended** — not merely
-  present. Presence was never the hard part: `600k` was present and acted on, as a
-  600-token window. Sessions running to normal length on `600000` are the evidence
-  that the figure now means what it says.
+- [ ] A CCY session started with no project override reports
+  `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000` from its live environment. (Held open:
+  the 3.58.0 read was first-hand, but no session has yet been launched by a
+  deployed 3.58.1.)
+- [ ] `/config` reports `600,000 tokens (from CLAUDE_CODE_AUTO_COMPACT_WINDOW)` —
+  the resolved figure and its source together. Presence was never the hard part:
+  `600k` was present, sourced to the environment, and resolved to 100,000.
 - [ ] A project setting the variable with `export` in its tracked
   `.claude/ccy/ccy.env` gets its own value, not `600000`.
 - [ ] A host export before launch also overrides the CCY default.
@@ -238,3 +260,8 @@ The load-bearing findings:
   3.58.0, and `docs/ccy.md` documents the `export` override.
 - Phase 3 delivered — `26b64939`: the upstream issue body is generated and read;
   filing (Task 3.4) and all of Phase 4 are HOST/owner actions.
+- Phase 2's value was wrong and was corrected — `8c87c646`: `CCY_VERSION` 3.58.1,
+  the window written `600000`. `600k` had resolved to a 100,000-token ceiling.
+- The correction's own account was wrong in turn, and was corrected against the
+  binary: the window was never 600 tokens, the grammar came from the `/autocompact`
+  command rather than the variable, and Task 4.3 is reopened.

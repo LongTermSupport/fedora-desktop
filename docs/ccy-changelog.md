@@ -17,27 +17,42 @@ Two version numbers move independently — see
 
 ---
 
+## 3.58.2
+
+**Docs only: the 3.58.1 note explained the bug wrongly.** It said `600k` had produced a
+600-token window. It had not — the resolver floors the parsed value at 100,000, so the real
+ceiling was 100,000 tokens. The launcher comment, `docs/ccy.md` and the 3.58.1 entry below
+now state the mechanism as extracted from the shipped CLI, and the 3.58.0 entry is marked
+superseded. No behaviour changes; the forwarded value is `600000` as it was in 3.58.1.
+
 ## 3.58.1
 
 **Fix: the auto-compact window is written in full digits.** 3.58.0 passed
-`CLAUDE_CODE_AUTO_COMPACT_WINDOW=600k`. Sessions launched with it auto-compacted
-immediately — the behaviour of a window of 600 tokens rather than 600,000.
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW=600k`. The environment variable does not accept a `k`
+suffix, so sessions ran with a **100,000-token** window instead of the intended 600,000 —
+a six-fold tighter ceiling, and the reason sessions kept compacting far earlier than
+expected.
 
-That is the documented behaviour, not a surprise: upstream's
-[model configuration page](https://code.claude.com/docs/en/model-config) says the `k`/`M`
-suffix is accepted by the `/autocompact` command and `--autocompact` flag, while **the
-environment variable accepts only the plain token count**. 3.58.0 used a form the variable
-never took, on the strength of an unsourced claim in `docs/ccy.md` that the suffixed and
-unsuffixed spellings were equivalent.
+Traced in the shipped CLI (2.1.274). The variable is parsed by a generic numeric helper
+shared with `BASH_MAX_OUTPUT_LENGTH`, which accepts a plain integer, scientific notation or
+group-separated digits and has no suffix handling: `600k` falls through to
+`parseInt("600k")` = 600. The resolver then floors the result at 100,000, which is what
+turned a nonsense figure into a plausible-looking session rather than an obvious failure.
+The `auto`/`500k` grammar does exist — it belongs to the `/autocompact` command and the
+`--autocompact` flag, not to the environment variable.
 
-The value is now `600000`. The ceiling itself is unchanged in intent: still 600,000 tokens,
-still a deliberate cost guard for the 1M-context models this workflow runs.
+The value is now `600000`. The ceiling is unchanged in intent: still 600,000 tokens, still
+a deliberate cost guard for the 1M-context models this workflow runs.
 
 Only sessions started after this lands are affected — the variable is set at container
 creation, so an already-running session keeps whatever it was launched with. Restart a
 session to pick it up.
 
 ## 3.58.0
+
+> **Superseded by 3.58.1.** The `600k` value below never worked, and the grammar this entry
+> states is the `/autocompact` command's, not the environment variable's. Do not copy either
+> from here — see the 3.58.1 entry above.
 
 **Sessions get an auto-compact ceiling.** Claude Code reads
 `CLAUDE_CODE_AUTO_COMPACT_WINDOW` to decide how large a session may grow before

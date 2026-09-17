@@ -3,6 +3,13 @@
 Everything below was **measured**, not assumed. Each claim names how it was
 established so a later reader can re-run the check rather than trust this file.
 
+> **This title over-promises, and §2 is the proof.** Measuring a string is not the same as
+> establishing what it governs. §2's string was recovered correctly and attributed to the
+> wrong code path, and because this file is the evidence trail every task cites, the error
+> propagated into a shipped default. "Established" here means *a string was recovered*;
+> it does not mean *the claim about the variable was tested*. Re-verify against the
+> function that emits the string before relying on any section.
+
 ## 1. The variable is real and is honoured
 
 **Established.** The name appears as a literal string in the shipped Claude Code
@@ -19,13 +26,43 @@ It is not an inert or speculative name: the strings recovered around it are the
 notice. A variable with a bespoke parse error and a precedence notice is a
 variable that is read.
 
-## 2. The unit is **tokens**, and the accepted grammar is wider than a bare integer
+## 2. The unit is **tokens** — and this section's grammar belongs to a different code path
 
-Recovered parse-error string, verbatim:
+> **CORRECTION — this section generated the plan's central defect. Read it before the
+> text below.** The recovered string is genuine and is still quoted verbatim here. It
+> describes the **`/autocompact` slash command**, not the environment variable. The
+> section applied one code path's grammar to another, and everything downstream — the
+> launcher default, `docs/ccy.md`, `PLAN.md`, and the body of upstream issue 46 —
+> inherited it.
+>
+> The two paths, both re-extracted from `claude.exe` 2.1.274:
+>
+> - **the slash command** is `ort()` at byte 207501200. It parses with `Flt`, writes
+>   `userSettings.autoCompactWindow`, and emits the string below on failure. `auto`,
+>   `500k` and the `200`-means-200,000 shorthand are *its* grammar;
+> - **the environment variable** is read by `zv` at byte 196882539, which parses with the
+>   generic helper `tZ` (byte 194168301) — the same one used for
+>   `BASH_MAX_OUTPUT_LENGTH`. `tZ` calls `zl` (byte 189515398):
+>   `zl(e){let n=String(e).trim();return N(n)??parseInt(n,10)}`. `N` accepts plain
+>   integers, scientific notation (`6e5`) and group separators — **no `k`/`M` suffix**.
+>   So `zl("600k")` falls through to `parseInt("600k",10)` = `600`.
+>
+> `zv` then applies `Math.max(Z1e, effective)` with `Z1e=1e5` (byte 189727644), so the
+> environment variable **cannot produce a window below 100,000 tokens**. `600k` therefore
+> gave a 100,000-token window — not 600,000 as intended, and not 600 either. An invalid
+> value is different again: `status:"invalid"` skips the whole branch and the variable has
+> no effect at all.
+>
+> The lesson generalises to every other claim in this file: a string recovered from the
+> binary is evidence about **the code path that emits it**, and nothing else. Each section
+> below names its string but not the function around it, so each is open to the same error.
+
+Recovered parse-error string, verbatim — **emitted by `ort()`, the `/autocompact` slash
+command**:
 
 > `Couldn't parse '…'. Expected 'auto' or 100k..1M tokens (e.g. 500k, 200000, or 200 as shorthand)`
 
-So:
+So, **for the slash command and the `--autocompact` flag only**:
 
 | Form     | Meaning                        |
 | -------- | ------------------------------ |
@@ -34,10 +71,9 @@ So:
 | `200000` | 200,000 tokens                 |
 | `200`    | Shorthand for 200,000 tokens   |
 
-Accepted range is **100k to 1M tokens**. The operator's `600k` is inside that
-range and is expressible verbatim as `600k`. Writing `600000` would be
-equivalent; writing `600` would also be equivalent, via the shorthand. **`600k`
-is the clearest of the three** and is the form this plan specifies.
+**For the environment variable**: a plain integer, scientific notation, or group-separated
+digits. Floored at 100,000, capped at 1,000,000. `600000` is the only spelling of this
+plan's intended figure that the variable actually accepts.
 
 ## 3. Precedence inside Claude Code: the env var wins over the setting
 
@@ -62,9 +98,9 @@ Recovered strings: `… capped to … by model`, and:
 > `Auto-compact summarizes the conversation when context usage approaches this limit. The actual threshold is the minimum of this setting and your model's maximum context window.`
 
 **This is the single most important caveat in this plan.** On a model with a
-200k context window, `600k` is clamped to 200k and the setting changes nothing —
-it is not harmful, but it is inert. `600k` only bites on a 1M-context model,
-where it makes a session compact at 600k rather than running on toward 1M.
+200k context window, `600000` is clamped to 200k and the setting changes nothing —
+it is not harmful, but it is inert. `600000` only bites on a 1M-context model,
+where it makes a session compact at 600,000 rather than running on toward 1M.
 
 A related recovered string confirms this is the variable's intended use for
 exactly that case — it is named as the remedy when a 1M cap is not otherwise
@@ -121,8 +157,8 @@ environment is already in place, and **before** it `exec`s `claude`:
 
 | Step | Location                                      | Effect                                     |
 | ---- | --------------------------------------------- | ------------------------------------------ |
-| 1    | `claude-yolo` `-e` flag                       | CCY default `600k` enters the container    |
-| 2    | host export before launch                     | Overrides step 1 via `${VAR:-600k}`        |
+| 1    | `claude-yolo` `-e` flag                       | CCY default `600000` enters the container  |
+| 2    | host export before launch                     | Overrides step 1 via `${VAR:-600000}`      |
 | 3    | `entrypoint.sh` sources `.claude/ccy/ccy.env` | Overrides steps 1–2 — **the project wins** |
 | 4    | `entrypoint.sh` `exec`s `claude`              | Final value is what Claude Code reads      |
 
@@ -196,7 +232,7 @@ The issue body should present this as the question it is, rather than asserting
 one answer:
 
 - Should `auto` count as "set" and pass?
-- Should the threshold be configurable per project, defaulting to 600k?
+- Should the threshold be configurable per project, defaulting to 600,000?
 - Should the check be skipped when the resolved model window is below the
   threshold, where the setting is inert anyway?
 

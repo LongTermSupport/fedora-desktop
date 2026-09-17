@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.58.1"  # CLAUDE_CODE_AUTO_COMPACT_WINDOW defaults to 600000 (written in full digits, not a k suffix); override per project in ccy.env. See docs/ccy-changelog.md.
+CCY_VERSION="3.58.2"  # CLAUDE_CODE_AUTO_COMPACT_WINDOW defaults to 600000 — plain digits only, the variable has no k suffix; override per project in ccy.env. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -3126,10 +3126,11 @@ fi
 # 600,000-token ceiling, which is a guard for the 1M-context models this workflow runs. Do
 # not revert it back to `auto` as if it were an accident — it is a deliberate cost ceiling.
 #
-# WRITTEN IN FULL DIGITS, NOT `600k`. The k-suffixed form was shipped in 3.58.0 and sessions
-# auto-compacted immediately, consistent with the suffix being dropped and 600 taken as a
-# literal token count. Digits remove the ambiguity: there is no suffix to interpret. Do not
-# "tidy" this back to a suffix.
+# WRITTEN IN FULL DIGITS, NOT `600k`. This variable has no suffix handling: it is parsed by
+# the generic numeric helper shared with BASH_MAX_OUTPUT_LENGTH, so `600k` becomes 600, and
+# the resolver then floors it at 100,000. 3.58.0 shipped the suffix and every session ran at
+# a 100,000-token ceiling. The `auto`/`500k` grammar belongs to the /autocompact command, not
+# here. Do not "tidy" this back to a suffix.
 #
 # The effective threshold is min(this value, the model's context window), and the variable
 # beats the autoCompactWindow setting, so the window can no longer be changed from /config.
