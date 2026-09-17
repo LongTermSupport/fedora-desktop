@@ -96,26 +96,60 @@ def read_btime(proc_root: str) -> int:
     raise RuntimeError(f"no btime line in {proc_root}/stat")
 
 
-def make_cpu_sampler(proc_root: str, interval_s: float, clock_ticks: int):
-    """Return a `sampler(pid) -> float | None` that diffs two /proc stat reads.
+def _read_proc_stats(proc_root: str) -> dict[int, str]:
+    """Snapshot /proc/<pid>/stat for every process, skipping any that vanish."""
+    snapshot: dict[int, str] = {}
+    try:
+        entries = os.listdir(proc_root)
+    except FileNotFoundError:
+        return snapshot
 
-    Reads stat, sleeps `interval_s`, reads again, and hands both snapshots to
-    core.cpu_delta_pct (which guards PID reuse via starttime). Returns None if
-    the process vanished between reads — the scan skips it rather than flagging.
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            with open(os.path.join(proc_root, entry, "stat"), encoding="utf-8") as fh:
+                snapshot[int(entry)] = fh.read()
+        except (FileNotFoundError, ProcessLookupError, PermissionError):
+            # A process exiting mid-walk is ordinary, not an error: it simply has
+            # no CPU figure this tick. Narrow exceptions, so a genuine fault still
+            # propagates.
+            continue
+    return snapshot
+
+
+def make_cpu_sampler(proc_root: str, interval_s: float, clock_ticks: int):
+    """Return a `sampler(pid) -> float | None` backed by ONE shared sleep.
+
+    ONE SLEEP PER SCAN, NOT ONE PER PROCESS, AND THIS IS A CORRECTNESS MATTER.
+
+    Sleeping `interval_s` for each candidate in turn made a scan configured to
+    run every 2 minutes take about 11.8 minutes on a real host. That silently
+    disabled automatic containment: the rate gate differences restart counts
+    across a rolling 600-second window and needs two samples inside it, so with
+    ticks ~708 seconds apart the previous sample was always trimmed and every
+    container held exactly one. The teeth were deployed and could not fire.
+
+    Both snapshots are taken across the SAME interval for every process, so the
+    figures are also comparable between processes — which per-pid sleeps never
+    guaranteed.
+
+    The snapshots are taken lazily on first use, so a scan that flags nothing
+    never pays the interval at all. `core.cpu_delta_pct` still guards PID reuse
+    via starttime; a process absent from either snapshot yields None and the scan
+    skips it rather than flagging it.
     """
+    snapshots: dict[str, dict[int, str]] = {}
 
     def sampler(pid: int) -> float | None:
-        stat = os.path.join(proc_root, str(pid), "stat")
-        try:
-            with open(stat, encoding="utf-8") as fh:
-                before = fh.read()
-        except FileNotFoundError:
-            return None
-        time.sleep(interval_s)
-        try:
-            with open(stat, encoding="utf-8") as fh:
-                after = fh.read()
-        except FileNotFoundError:
+        if not snapshots:
+            snapshots["before"] = _read_proc_stats(proc_root)
+            time.sleep(interval_s)
+            snapshots["after"] = _read_proc_stats(proc_root)
+
+        before = snapshots["before"].get(pid)
+        after = snapshots["after"].get(pid)
+        if before is None or after is None:
             return None
         return core.cpu_delta_pct(before, after, interval_s, clock_ticks)
 
@@ -339,6 +373,25 @@ def apply_containment(candidates: list[dict], *, now: int, allowlist: list, enab
     journal, which on a SERVER is the only delivery channel there is — no panel,
     no notification, nobody logged in.
     """
+    # A SILENT "never fires" is the worst failure this feature has, and it has
+    # already happened once: the scan was slower than the containment window, so
+    # the previous sample was always trimmed, no rate was ever measurable, and
+    # nothing said so. Everything looked healthy because nothing was reported.
+    if enabled and candidates and all(
+        containment.restarts_in_window(
+            c.get("history") or [], now=now, window_s=containment.DEFAULT_WINDOW_S
+        )
+        is None
+        for c in candidates
+    ):
+        print(
+            "container-watch: containment is BLIND this tick — no container has two "
+            f"restart samples within {containment.DEFAULT_WINDOW_S}s, so no restart "
+            "rate is measurable. If this persists, the scan is running slower than "
+            "the containment window and a crash loop would NOT be stopped.",
+            file=sys.stderr,
+        )
+
     outcomes: list[dict] = []
     for candidate in candidates:
         decision = containment.decide(
