@@ -78,11 +78,27 @@ fi
 # Cut at the marker rather than at a line number, so this does not rot as the
 # script grows. A missing marker is a hard failure: silently sourcing the whole
 # file would run the main flow.
+#
+# ANCHORED AT THE START ONLY. This previously required `$` at the end too, and the
+# marker line later grew a trailing sentence — so the match failed, the test aborted at
+# check 0, and it stayed that way while reading as a normal failure. A marker survives
+# being annotated; an exact-line match does not, which made the strict anchor the very
+# rot the comment above claims to avoid.
+#
+# The trade for dropping `$` is ambiguity, so that is checked rather than assumed: more
+# than one matching line means the cut point is a guess, and a guess here silently sources
+# a different part of the file.
 CUT=""
-if ! CUT="$(grep -n '^# Argument parsing$' "$TOOL")"; then
+if ! CUT="$(grep -n '^# Argument parsing' "$TOOL")"; then
     echo "ERROR: could not find the '# Argument parsing' marker in $TOOL." >&2
     echo "  This test cuts the file there to source functions without running" >&2
     echo "  main. Restore the marker, or update this test deliberately." >&2
+    exit 1
+fi
+if [ "$(printf '%s\n' "$CUT" | wc -l)" -ne 1 ]; then
+    echo "ERROR: the '# Argument parsing' marker matches more than one line in $TOOL:" >&2
+    printf '%s\n' "$CUT" >&2
+    echo "  The cut point would be a guess. Make the marker unique." >&2
     exit 1
 fi
 CUT_LINE="${CUT%%:*}"
