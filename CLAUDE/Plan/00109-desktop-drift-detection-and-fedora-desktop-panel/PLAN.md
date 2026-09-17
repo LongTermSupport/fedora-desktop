@@ -158,6 +158,12 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     succeeded" is a different claim. `desktop-fresh-install` has a graphical session, so
     the lab can settle this given the play in its `run_env`
     ([DESIGN-host-health.md](DESIGN-host-health.md) §12)
+  - [x] ✅ **The distinction this sub-task insisted on was a real defect,** found the first
+    time it was checked: the enable task's `daemon_reload:` runs *before* the enable, so it
+    re-read a directory without the symlink it existed for. Reload split into its own task
+    after the enable. Evidence: `JOURNAL/00109-Journal-26-09-17.md`
+  - [ ] ⬜ **HOST**: re-run the play, confirm `list-dependencies` names the unit, log out and
+    back in, re-run `acceptance.bash`. Checks [1]–[5], [11], [12], [15] cascade behind this
 - [ ] 🔄 **Task 3.2**: Surface findings to the user — code done, HOST run pending
   - [x] ✅ `login_report.py` — one notification, silent when clean
   - [ ] ⬜ **HOST**: confirm a real notification arrives, and a clean login is silent

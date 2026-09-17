@@ -137,7 +137,6 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: '0644'
-      register: hh_unit
       when: not is_server | bool
 
     # Unconditional within the desktop branch, and the enable is its own probe. Two
@@ -168,7 +167,6 @@
         - "{{ user_units_dir }}/{{ collect_timer }}"
         - "{{ user_units_dir }}/timers.target.wants/{{ collect_timer }}"
         - "{{ bashrc_includes_dir }}/host-health-report.bash"
-      register: hh_server_removed
       when: not is_server | bool
 
     - name: Enable The Login-Time Health Report
@@ -178,7 +176,28 @@
         name: "{{ unit_name }}"
         scope: user
         enabled: true
-        daemon_reload: "{{ hh_unit.changed or hh_server_removed.changed }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+      when: not is_server | bool
+
+    # The reload is its OWN task, AFTER the enable, and that ordering is the point.
+    #
+    # `daemon_reload` on the task above cannot do the job it was written for: the
+    # ansible.builtin.systemd module runs the reload FIRST, before it touches the enabled
+    # state, so it re-read a unit directory that did not yet contain the wants-symlink the
+    # same task was about to create. The running user manager therefore never learned about
+    # the unit. Observed: `systemctl --user is-enabled` reported `enabled` (it reads the
+    # filesystem) while `list-dependencies graphical-session.target` did not name it (it
+    # reads the live manager), three minutes after a successful deploy.
+    #
+    # Lingering keeps `user@UID.service` alive across logout, so the stale graph does not
+    # clear itself by logging out either.
+    - name: Reload The User Manager So It Sees The New Wants-Symlink
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.systemd:
+        scope: user
+        daemon_reload: true
       environment:
         XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
       when: not is_server | bool
@@ -191,7 +210,6 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: '0644'
-      register: hh_collect_service
       when: is_server | bool
 
     - name: Deploy The Host Health Collection Timer
@@ -201,7 +219,6 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: '0644'
-      register: hh_collect_timer
       when: is_server | bool
 
     # `.bashrc-includes` and the loop that sources it are play-basic-configs.yml's,
@@ -257,7 +274,22 @@
       loop:
         - "{{ user_units_dir }}/{{ unit_name }}"
         - "{{ user_units_dir }}/graphical-session.target.wants/{{ unit_name }}"
-      register: hh_desktop_removed
+      when: is_server | bool
+
+    # Reload BEFORE enable+start here, unlike the desktop branch above, and for a different
+    # reason: this task also STARTS the timer, and a start must act on a manager that has
+    # already read the new unit files. The desktop branch only enables, so its reload has to
+    # come after the symlink exists. Both orderings are deliberate; neither is the module's
+    # `daemon_reload:` parameter, which always reloads first and so can only ever serve the
+    # second case.
+    - name: Reload The User Manager Before Starting The Collection Timer
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.systemd:
+        scope: user
+        daemon_reload: true
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
       when: is_server | bool
 
     - name: Enable And Start The Host Health Collection Timer
@@ -268,9 +300,18 @@
         scope: user
         enabled: true
         state: started
-        daemon_reload: >-
-          {{ hh_collect_service.changed or hh_collect_timer.changed
-             or hh_desktop_removed.changed }}
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+      when: is_server | bool
+
+    # And again AFTER the enable, so the timers.target wants-symlink this task just created
+    # is in the manager's graph too — the same defect the desktop branch has.
+    - name: Reload The User Manager So It Sees The Timer Wants-Symlink
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.systemd:
+        scope: user
+        daemon_reload: true
       environment:
         XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
       when: is_server | bool
