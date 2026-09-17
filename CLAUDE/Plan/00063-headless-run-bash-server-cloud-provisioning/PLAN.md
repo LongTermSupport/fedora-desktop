@@ -155,11 +155,14 @@ remains needs a secret no VM scenario carries — see the Status note above.
   the container-to-host bridge as `20260913T181420Z-server-fast-provision`.
   The Anaconda-installed Server variant is `server-full-provision` (Plan 00110
   Phase 3b).
-- [ ] ⬜ **Task 3.2**: Confirm the desktop interactive path is unchanged. Needs a
-  human at a terminal by definition — an automated scenario cannot answer "does this
-  still prompt correctly". `desktop-fresh-install` does not cover it: the lab drives
-  every guest with `RUN_BASH_HEADLESS=1` (`files/home/.local/bin/vmtest:918`), so it
-  exercises the interactive path exactly as little as the server scenarios do
+- [ ] 🧑 **Task 3.2 — HUMAN AT A TERMINAL, permanently**: Confirm the desktop
+  interactive path is unchanged. **This task will never be discharged by a script, and
+  should not be read as work waiting to be automated.** An automated scenario cannot
+  answer "does this still prompt correctly", because driving the prompts is what makes a
+  run non-interactive. `desktop-fresh-install` does not cover it: the lab drives every
+  guest with `RUN_BASH_HEADLESS=1` (`files/home/.local/bin/vmtest:918`), so it exercises
+  the interactive path exactly as little as the server scenarios do. The only thing that
+  closes it is a person running `run.bash` on a desktop and reading the prompts
 - [ ] 🔄 **Task 3.3**: The GitHub token path (Task 2.3). `gh auth login --with-token`
   with a scoped PAT on stdin, then `gh-account-setup.bash` failing loud under
   `RUN_BASH_HEADLESS` instead of opening a device flow.
