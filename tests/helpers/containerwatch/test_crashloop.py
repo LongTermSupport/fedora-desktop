@@ -13,9 +13,14 @@ container that has already been stopped. The `running` gate exists for that, and
 `test_absolute_does_not_fire_once_stopped` is the regression.
 """
 
+import contextlib
+import io
+import os
+import shutil
+import tempfile
 import unittest
 
-from helpers.containerwatch import crashloop
+from helpers.containerwatch import cli, crashloop
 
 
 class RestartDeltaTests(unittest.TestCase):
@@ -278,6 +283,51 @@ class PreviousSampleTests(unittest.TestCase):
             {"generated_at": 1, "restart_counts": {"good": 7, "bad": None}}
         )
         self.assertEqual(counts, {"good": 7})
+
+
+class PreviousReportForRateTests(unittest.TestCase):
+    """A corrupt cache must not stop the scan that would overwrite it."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self._prev_runtime = os.environ.get("XDG_RUNTIME_DIR")
+        os.environ["XDG_RUNTIME_DIR"] = self._tmp
+        os.makedirs(os.path.join(self._tmp, "container-watch"), exist_ok=True)
+
+    def tearDown(self):
+        if self._prev_runtime is None:
+            os.environ.pop("XDG_RUNTIME_DIR", None)
+        else:
+            os.environ["XDG_RUNTIME_DIR"] = self._prev_runtime
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _write(self, text):
+        with open(cli.report_path(), "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def test_a_valid_report_is_returned(self):
+        self._write('{"generated_at": 7, "restart_counts": {"a": 3}}')
+        self.assertEqual(cli.previous_report_for_rate()["restart_counts"], {"a": 3})
+
+    def test_a_truncated_report_does_not_raise(self):
+        # A half-written file is exactly what a killed tick leaves behind. The
+        # scan must still run and write a good one over it.
+        self._write('{"generated_at": 7, "restart_c')
+        self.assertEqual(cli.previous_report_for_rate(), {})
+
+    def test_a_corrupt_report_leaves_the_rate_gate_inactive_not_wrong(self):
+        self._write("this is not json")
+        counts, generated_at = crashloop.previous_sample(cli.previous_report_for_rate())
+        self.assertEqual(counts, {})
+        self.assertIsNone(generated_at)
+
+    def test_the_failure_is_announced_on_stderr(self):
+        # Silent degradation would hide a report that is corrupt every tick.
+        self._write("nope")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            cli.previous_report_for_rate()
+        self.assertIn("unreadable", err.getvalue())
 
 
 class ElapsedTests(unittest.TestCase):

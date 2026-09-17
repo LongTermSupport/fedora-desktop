@@ -354,6 +354,31 @@ def read_report() -> dict:
         return json.load(fh)
 
 
+def previous_report_for_rate() -> dict:
+    """Last tick's report, for differencing restart counts — never fatal.
+
+    `read_report` is allowed to raise for the `status`/`list`/`explain` commands,
+    where an unreadable report IS the answer and a traceback is the honest one.
+    The SCAN path is different: the report there is a cache of the previous tick,
+    not the thing being asked about, so a truncated or half-written file must not
+    stop the scan from finding CPU-pinned processes and writing a fresh one.
+
+    Degrades to an empty report, which `crashloop.previous_sample` reads as "no
+    basis to measure a rate" — the absolute gate still applies. The failure is
+    announced on stderr rather than swallowed: the timer's stderr lands in the
+    journal, so a report that is corrupt every tick is visible rather than silent.
+    """
+    try:
+        return read_report()
+    except (OSError, json.JSONDecodeError) as exc:
+        print(
+            f"container-watch: previous report unreadable ({exc}); "
+            "restart-rate gate is inactive this tick",
+            file=sys.stderr,
+        )
+        return {}
+
+
 # --------------------------------------------------------------------------- #
 # Subcommands
 # --------------------------------------------------------------------------- #
@@ -384,7 +409,7 @@ def _scan_once(interval_s: float, inject: str | None) -> dict:
     # The rate gate differences against the PREVIOUS report, so it is silent on
     # the very first tick after install. That is the absolute gate's whole
     # purpose — see helpers/containerwatch/crashloop.py.
-    prev_counts, prev_at = crashloop.previous_sample(read_report())
+    prev_counts, prev_at = crashloop.previous_sample(previous_report_for_rate())
     elapsed = crashloop.elapsed_since(previous_at=prev_at, now=now)
     loop_findings = crashloop.evaluate(
         previous=prev_counts if elapsed is not None else {},
