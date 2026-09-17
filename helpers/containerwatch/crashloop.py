@@ -88,6 +88,61 @@ def scaled_rate_threshold(*, per_tick: int, tick_s: int, elapsed_s: float) -> in
     return max(1, scaled)
 
 
+# Engines that expose a restart counter, so a crash loop is observable at all.
+RESTART_CAPABLE_ENGINES = ("podman", "docker")
+
+# LXC has no equivalent counter. Named explicitly rather than omitted: an engine
+# left out of a report reads as one that was checked and found clean.
+UNSUPPORTED_ENGINES = ("lxc",)
+
+_INSPECT_FIELDS = 4
+
+
+def parse_inspect_lines(text: str) -> tuple[dict[str, int], dict[str, bool], dict[str, str]]:
+    """Parse tab-separated ``id<TAB>restarts<TAB>running<TAB>name`` lines.
+
+    Returns ``(counts, running, names)``. A malformed or non-numeric line is
+    dropped rather than guessed at — a container whose state cannot be read is
+    one this module has nothing to say about, and inventing a value for it would
+    be worse than omitting it.
+    """
+    counts: dict[str, int] = {}
+    running: dict[str, bool] = {}
+    names: dict[str, str] = {}
+
+    for line in text.splitlines():
+        parts = line.split("\t")
+        if len(parts) != _INSPECT_FIELDS:
+            continue
+        container_id, raw_count, raw_running, name = parts
+        try:
+            count = int(raw_count)
+        except ValueError:
+            continue
+        counts[container_id] = count
+        # Compared as a string on purpose: the non-empty string "false" is TRUE
+        # in Python, and treating it as such would re-introduce the permanent
+        # false alarm the running gate exists to prevent.
+        running[container_id] = raw_running.strip().lower() == "true"
+        names[container_id] = name.strip().lstrip("/")
+
+    return counts, running, names
+
+
+def engine_coverage(*, checked: list[str], available: list[str]) -> dict:
+    """State which engines this scan actually covered.
+
+    Silence about an engine is indistinguishable from a clean result for it, so
+    the report says what was checked, what was present but not checked, and what
+    cannot be checked at all.
+    """
+    return {
+        "checked": sorted(checked),
+        "not_checked": sorted(set(available) - set(checked)),
+        "unsupported": list(UNSUPPORTED_ENGINES),
+    }
+
+
 def matches_allowlist(finding: dict, allowlist: list[dict]) -> bool:
     """True if `finding` is deliberately suppressed by `allowlist`.
 

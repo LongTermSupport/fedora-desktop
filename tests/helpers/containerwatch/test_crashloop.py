@@ -242,6 +242,59 @@ class FindingShapeTests(unittest.TestCase):
         self.assertIsNone(finding["restarts_per_min"])
 
 
+class ParseInspectTests(unittest.TestCase):
+    """Parsing the engine's inspect output — previously untested."""
+
+    def test_a_well_formed_line_is_parsed(self):
+        counts, running, names = crashloop.parse_inspect_lines(
+            "abc\t131377\ttrue\t/some-container\n"
+        )
+        self.assertEqual(counts, {"abc": 131377})
+        self.assertEqual(running, {"abc": True})
+        self.assertEqual(names, {"abc": "some-container"})
+
+    def test_false_running_is_parsed_as_false_not_truthy_string(self):
+        # The string "false" is truthy in Python. Getting this wrong would
+        # re-introduce the permanent false alarm the running gate exists to stop.
+        _, running, _ = crashloop.parse_inspect_lines("abc\t9\tfalse\t/x\n")
+        self.assertIs(running["abc"], False)
+
+    def test_a_malformed_line_is_skipped_not_guessed_at(self):
+        counts, _, _ = crashloop.parse_inspect_lines("abc\t5\ttrue\t/x\ngarbage\n")
+        self.assertEqual(counts, {"abc": 5})
+
+    def test_a_non_numeric_count_is_dropped(self):
+        counts, running, _ = crashloop.parse_inspect_lines("abc\t<none>\ttrue\t/x\n")
+        self.assertEqual(counts, {})
+        self.assertEqual(running, {})
+
+    def test_a_name_with_no_leading_slash_survives(self):
+        _, _, names = crashloop.parse_inspect_lines("abc\t1\ttrue\tplain\n")
+        self.assertEqual(names["abc"], "plain")
+
+    def test_empty_output_yields_empty_mappings(self):
+        self.assertEqual(crashloop.parse_inspect_lines(""), ({}, {}, {}))
+
+
+class EngineCoverageTests(unittest.TestCase):
+    """An engine skipped without saying so reads as an engine found clean."""
+
+    def test_coverage_names_what_was_checked_and_what_was_not(self):
+        coverage = crashloop.engine_coverage(checked=["podman"], available=["podman", "docker"])
+        self.assertEqual(coverage["checked"], ["podman"])
+        self.assertEqual(coverage["not_checked"], ["docker"])
+
+    def test_lxc_is_always_declared_unsupported_rather_than_omitted(self):
+        # LXC exposes no restart counter, so it can never be checked. Leaving it
+        # out entirely would let a reader assume it was covered.
+        coverage = crashloop.engine_coverage(checked=["podman"], available=["podman"])
+        self.assertIn("lxc", coverage["unsupported"])
+
+    def test_an_engine_present_but_unsampled_is_reported_as_not_checked(self):
+        coverage = crashloop.engine_coverage(checked=[], available=["podman", "docker"])
+        self.assertEqual(sorted(coverage["not_checked"]), ["docker", "podman"])
+
+
 class AllowlistTests(unittest.TestCase):
     """Suppression must be per-container, and must not happen by accident.
 
