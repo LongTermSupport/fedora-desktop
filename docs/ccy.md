@@ -678,11 +678,16 @@ A project that wants a different ceiling than CCY's `600000` default says so her
 
 ```bash
 # .claude/ccy/ccy.env
-export CLAUDE_CODE_AUTO_COMPACT_WINDOW=1M
+export CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000
 ```
 
+**Plain digits, here too.** This example read `1M` until it was noticed that `1M` parses to
+`1` and is then floored to 100,000 — the identical bug the section above documents, sitting
+in the page that documents it, in the one snippet a reader would copy. `1M` works for the
+`/autocompact` command; it does not work here.
+
 The `export` is load-bearing. The entrypoint sources this file and then `exec`s `claude`, so
-a bare `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1M` sets a shell variable that never reaches the
+a bare `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000` sets a shell variable that never reaches the
 process that reads it. The project's value wins because the file is sourced after the
 launcher's forwarded environment is already in place.
 

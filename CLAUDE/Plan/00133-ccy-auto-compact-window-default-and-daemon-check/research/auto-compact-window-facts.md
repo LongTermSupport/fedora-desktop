@@ -21,10 +21,14 @@ describes it.
 - Method: `grep -abo` for the literal name to get byte offsets, then `dd` to
   extract the surrounding bytes at each offset.
 
-It is not an inert or speculative name: the strings recovered around it are the
-`/config` UI copy for the setting, the parse-error message, and the precedence
-notice. A variable with a bespoke parse error and a precedence notice is a
-variable that is read.
+It is not an inert or speculative name: the strings recovered around it are the UI copy
+for the setting, the parse-error message, and the precedence notice. A variable with a
+bespoke parse error and a precedence notice is a variable that is read.
+
+> **Corrected**: this paragraph said `/config` UI copy. It is not — those strings belong to
+> the `/autocompact` command module. `/config` carries only the `autoCompactEnabled` on/off
+> toggle. The same mistake as §2, made about a different surface: a string was located and
+> the module owning it was not read.
 
 ## 2. The unit is **tokens** — and this section's grammar belongs to a different code path
 
@@ -77,19 +81,23 @@ plan's intended figure that the variable actually accepts.
 
 ## 3. Precedence inside Claude Code: the env var wins over the setting
 
-Recovered `/config` string, verbatim:
+Recovered string, verbatim — returned by the **`/autocompact`** command, not `/config`:
 
 > `CLAUDE_CODE_AUTO_COMPACT_WINDOW is set and takes precedence. Unset it to change this setting.`
 
-The settings-file equivalent is `autoCompactWindow`. The `/config` panel labels
-its sources distinctly — `… tokens (from CLAUDE_CODE_AUTO_COMPACT_WINDOW)` vs
-`… tokens (from settings)` vs `… tokens (default for this model)` — so a human
-can always see which source won.
+The settings-file equivalent is `autoCompactWindow`. `/autocompact` labels its sources
+distinctly — `… tokens (from CLAUDE_CODE_AUTO_COMPACT_WINDOW)` vs `… tokens (from settings)`
+vs `… tokens (default for this model)` — so a human can always see which source won. The
+number is rendered with compact notation, so 600,000 reads back as `600k`: the readback
+spelling is not an input spelling.
 
-**Consequence for this plan:** setting the env var means a project can no longer
-change the window from the settings UI. That is the intended trade for a
-declarative default, but it should be documented so it is not discovered as a
-surprise.
+**Consequence for this plan:** setting the env var means a project can no longer change the
+window from `/autocompact`, which reports the override instead of applying it. That is the
+intended trade for a declarative default, but it should be documented so it is not
+discovered as a surprise.
+
+> **Corrected**: this section attributed all of the above to `/config`, and the plan and the
+> user-facing docs inherited it until an operator opened `/config` and found no such row.
 
 ## 4. The effective threshold is `min(window, model context window)`
 
@@ -119,6 +127,12 @@ Recovered strings, verbatim:
 > `The auto setting picks a window tuned for your model and is strongly recommended for the best cost and performance.`
 
 > `Overriding auto may result in high token usage, especially when resuming long sessions.`
+
+These strings come from the same `/autocompact` module as §2 and §3, so they describe the
+**setting**. `auto` is not a value the environment variable accepts at all — it fails the
+numeric parse, and a failed parse skips the branch entirely, leaving the variable with no
+effect. "Set it to `auto`" is therefore not available as advice for the env var, which
+matters for §7's daemon question.
 
 This does not block the plan — a deliberate, documented override is a legitimate
 choice, and the operator has made it. It does mean two things:

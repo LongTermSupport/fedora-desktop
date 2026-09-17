@@ -25,8 +25,13 @@ and `docs/ccy.md` said the environment variable takes the window out of `/config
 resolved figure and where it came from are printed by `/autocompact` with no argument:
 
 ```
-Auto-compact window: 600,000 tokens (from CLAUDE_CODE_AUTO_COMPACT_WINDOW)
+Auto-compact window: 600k tokens (from CLAUDE_CODE_AUTO_COMPACT_WINDOW)
 ```
+
+**Note the `600k`.** The display formats with compact notation, so it reads the value back in
+the one spelling you must not write. What you read is not a specification of what you may
+set: `600k` on the way out means 600,000; `600k` on the way in means 600. This entry first
+quoted the line as `600,000 tokens`, which was a guess at the formatter.
 
 Found by an operator opening `/config` and seeing no such row. No behaviour changes.
 
@@ -63,9 +68,11 @@ session to pick it up.
 
 ## 3.58.0
 
-> **Superseded by 3.58.1.** The `600k` value below never worked, and the grammar this entry
-> states is the `/autocompact` command's, not the environment variable's. Do not copy either
-> from here — see the 3.58.1 entry above.
+> **Superseded by 3.58.1 and 3.58.3.** Three things below are wrong, not one: the `600k`
+> value never worked; the grammar stated is the `/autocompact` command's, not the
+> environment variable's; and the window was never a `/config` setting, so the variable
+> takes nothing out of `/config`'s hands. Copy nothing from here — see the 3.58.1 and
+> 3.58.3 entries above.
 
 **Sessions get an auto-compact ceiling.** Claude Code reads
 `CLAUDE_CODE_AUTO_COMPACT_WINDOW` to decide how large a session may grow before

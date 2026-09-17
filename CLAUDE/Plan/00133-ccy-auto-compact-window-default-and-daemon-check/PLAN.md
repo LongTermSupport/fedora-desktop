@@ -207,8 +207,11 @@ The load-bearing findings:
 - [ ] ⬜ **Task 4.3**: **HOST run.** Confirm Claude Code has actually *accepted*
   the value rather than merely received it: run **`/autocompact`** with no argument
   and read the line it prints. It gives the resolved number **and** its source
-  together — `Auto-compact window: 600,000 tokens (from CLAUDE_CODE_AUTO_COMPACT_WINDOW)`
-  — so one line settles both halves.
+  together — `Auto-compact window: 600k tokens (from CLAUDE_CODE_AUTO_COMPACT_WINDOW)`.
+  **Read the `600k` carefully**: the panel formats with compact notation, so it reports the
+  value back in the one spelling that is invalid as input. `600k` out means 600,000; `600k`
+  in means 600. Do not treat the readback as a specification of what may be set.
+  One line settles both halves: resolved value, and where it came from.
   **This task said `/config` until the owner looked there and found nothing.** The
   correction is theirs, and the binary agrees: `/config` carries only the
   `autoCompactEnabled` on/off toggle, while the window's resolved-value-and-source line
@@ -241,7 +244,7 @@ The load-bearing findings:
 
 - [x] A CCY session started with no project override reports
   `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000` from its live environment.
-- [ ] `/autocompact` reports `600,000 tokens (from CLAUDE_CODE_AUTO_COMPACT_WINDOW)`
+- [ ] `/autocompact` reports `600k tokens (from CLAUDE_CODE_AUTO_COMPACT_WINDOW)`
   — the resolved figure and its source together. Presence was never the hard part:
   `600k` was present, sourced to the environment, and resolved to 100,000.
 - [ ] A project setting the variable with `export` in its tracked
