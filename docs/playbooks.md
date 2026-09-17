@@ -759,7 +759,8 @@ Compression helpers — installs `compress` and `uncompress` commands:
 
 #### play-container-watch.yml
 
-Container watchdog — **reporting only, it never kills, stops or throttles anything**:
+Container watchdog. It reports on processes, and it **automatically stops a container that
+is in a runaway restart loop** — the one action it is permitted to take:
 
 - Deploys the `containerwatch` helper, its CLI wrapper, and a `systemd --user` timer that runs
   periodic scans
@@ -769,10 +770,23 @@ Container watchdog — **reporting only, it never kills, stops or throttles anyt
   D-Bus accounting and take GNOME Shell down with every window you had open
 - States which container engines a scan actually covered, on a clean report as well as a dirty
   one, so "0 findings" cannot quietly mean "no engine answered"
+- **Stops a crash-looping container** after 100 restarts inside a rolling ten-minute window.
+  Only ever a graceful `stop`, and **only** for a container whose restart policy is unbounded
+  — one with no restart policy cannot be restarted by the engine anyway, so whatever is
+  cycling it is something else and stopping it would not help. A capped `on-failure:N` gives
+  up by itself. This puts whole classes of container out of reach by construction
+- **Audits restart policies**, which is the half that helps before anything goes wrong.
+  `on-failure:N` is the only policy podman caps; `always` and `unless-stopped` retry for ever
+  and ignore any retry count set beside them, so a container can look bounded and not be —
+  and there is no backoff, so a failing container restarts at engine speed
+- `container-watch policies` lists every container's policy and acts on nothing
 - Installs a GNOME Shell panel extension that surfaces the findings
-- Writes a `report.json` and emits a DBus signal; taking action is left to you
-- Its no-kill guarantee is enforced by a dedicated QA gate — see
-  [CLAUDE/QA.md](../CLAUDE/QA.md)
+- Writes a `report.json` and emits a DBus signal
+- **Works on a server**, where it matters most: the helper, CLI and user timer are not
+  desktop-gated, and with no panel to read the journal line is the whole notification
+- The single stop call site is enforced by a dedicated QA gate, which holds that one file to a
+  **stricter** rule than the rest of the watchdog — it may issue a graceful stop and may not
+  name `kill`, `rm`, `pause` or a force flag at all. See [CLAUDE/QA.md](../CLAUDE/QA.md)
 
 #### play-host-health-login-report.yml
 
