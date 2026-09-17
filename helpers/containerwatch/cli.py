@@ -37,7 +37,7 @@ import sys
 import tempfile
 import time
 
-from helpers.containerwatch import core, crashloop
+from helpers.containerwatch import containment, core, crashloop, restartpolicy
 
 # Production defaults (overridable by config file, then by env — see
 # resolve_thresholds). 900 s = 15 min; CPU% is per-single-core (so multi-core
@@ -52,6 +52,11 @@ DBUS_PATH = "/org/fedoradesktop/ContainerWatch"
 DBUS_INTERFACE = "org.fedoradesktop.ContainerWatch"
 
 _SUBPROCESS_TIMEOUT_S = 5
+
+# A stop must outlive the grace period it grants the workload, or the timeout
+# fires while the container is still shutting down cleanly and the outcome is
+# recorded as a failure that did not happen.
+_CONTAINMENT_TIMEOUT_S = containment.STOP_TIMEOUT_S + 10
 
 
 # --------------------------------------------------------------------------- #
@@ -194,6 +199,154 @@ def sample_restarts(engine: str) -> tuple[dict, dict, dict] | None:
     return crashloop.parse_inspect_lines(result.stdout)
 
 
+def sample_restart_policy_rows(engine: str) -> list[dict] | None:
+    """Sample one engine's configured restart policies, or None if unreachable.
+
+    Same None-vs-empty distinction as `sample_restarts`, for the same reason: an
+    engine that would not answer must not read as an engine with nothing to
+    report.
+    """
+    if not engine_available(engine):
+        return None
+
+    fmt = (
+        "{{.Id}}\t{{.Name}}\t{{.HostConfig.RestartPolicy.Name}}"
+        "\t{{.HostConfig.RestartPolicy.MaximumRetryCount}}"
+    )
+    try:
+        listed = subprocess.run(
+            [engine, "ps", "-aq"],
+            check=True, capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT_S,
+        )
+        ids = [line.strip() for line in listed.stdout.splitlines() if line.strip()]
+        if not ids:
+            return []
+        result = subprocess.run(
+            [engine, "inspect", "--format", fmt, *ids],
+            check=True, capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT_S,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+
+    return restartpolicy.parse_lines(result.stdout)
+
+
+def audit_all_restart_policies() -> tuple[list[dict], dict]:
+    """Restart-policy findings, and the classification of EVERY container.
+
+    Returns ``(findings, classifications)``. The findings are the preventive
+    report; the classifications are what containment gates on, so the same
+    inspect serves both and the two can never disagree about a container.
+
+    A container missing from `classifications` is one whose policy could not be
+    read, and containment treats that as "do not act" — the safe direction.
+    """
+    findings: list[dict] = []
+    classifications: dict[str, str] = {}
+    for engine in crashloop.RESTART_CAPABLE_ENGINES:
+        rows = sample_restart_policy_rows(engine)
+        if rows is None:
+            continue
+        for row in rows:
+            classifications[row["container_id"]] = restartpolicy.classify(
+                row["policy"], row["max_retries"]
+            )
+        findings.extend(restartpolicy.audit(rows, engine=engine))
+    return findings, classifications
+
+
+def containment_enabled(config: dict) -> bool:
+    """Whether automatic containment may act. Default ON, deliberately.
+
+    Detection that never acts is the state that let a restart storm take a
+    desktop down while a report was being written about it — and on a server
+    nobody reads the report at all. Defaulting this off would ship the defence in
+    the posture that already failed.
+
+    The measured separation makes on-by-default defensible: the storm ran to
+    131,377 restarts while the busiest legitimate container on the same host
+    managed 19 in its lifetime. Set `containment: false` to opt out, and the
+    allowlist exempts individual containers without disabling the rest.
+    """
+    value = config.get("containment", True)
+    return bool(value) if isinstance(value, bool) else True
+
+
+def previous_history(report: dict) -> dict:
+    """Per-container restart history from the last report, or an empty mapping.
+
+    Anything unreadable degrades to empty rather than raising: a corrupt history
+    must cost a window of containment sensitivity, never the whole scan.
+    """
+    raw = report.get("restart_history")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): v for k, v in raw.items() if isinstance(v, list)}
+
+
+def advance_history(history: dict, *, counts: dict, now: int) -> dict:
+    """Append this tick's counts, and drop containers that no longer exist.
+
+    Pruning matters: without it, the history grows for ever on a host that churns
+    through short-lived containers, and report.json is read and rewritten every
+    tick.
+    """
+    return {
+        cid: containment.record_sample(history.get(cid, []), at=now, count=count)
+        for cid, count in counts.items()
+    }
+
+
+def apply_containment(candidates: list[dict], *, now: int, allowlist: list, enabled: bool) -> list[dict]:
+    """Stop the containers that have earned it, and record every outcome.
+
+    THE ONLY PLACE IN THIS PACKAGE THAT CHANGES A CONTAINER'S STATE. It is kept
+    to a handful of lines, and the decision it acts on is made in the pure
+    `containment` module where every branch is tested without a container.
+
+    Outcomes are recorded for refusals too. "Why was this NOT stopped" is the
+    question asked after an incident, and a log that only records actions cannot
+    answer it.
+
+    Diagnostics go to stderr because a `systemd --user` timer's stderr is the
+    journal, which on a SERVER is the only delivery channel there is — no panel,
+    no notification, nobody logged in.
+    """
+    outcomes: list[dict] = []
+    for candidate in candidates:
+        decision = containment.decide(
+            candidate, now=now, allowlist=allowlist, enabled=enabled
+        )
+        name = candidate.get("container_name", "?")
+        if not decision.contain:
+            outcomes.append({"container_name": name, "stopped": False, "reason": decision.reason})
+            continue
+
+        argv = containment.build_stop_argv(
+            engine=candidate["engine"], container_id=candidate["container_id"]
+        )
+        try:
+            subprocess.run(
+                argv, check=True, capture_output=True, text=True,
+                timeout=_CONTAINMENT_TIMEOUT_S,
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired) as exc:
+            # A failed stop is louder than a successful one: the host is still in
+            # danger and nothing has relieved it.
+            print(f"container-watch: CONTAINMENT FAILED for {name}: {exc}", file=sys.stderr)
+            outcomes.append({"container_name": name, "stopped": False, "reason": f"stop failed: {exc}"})
+            continue
+
+        print(
+            f"container-watch: STOPPED {name} — {decision.reason}. "
+            "It was restarting fast enough to threaten the whole host.",
+            file=sys.stderr,
+        )
+        outcomes.append({"container_name": name, "stopped": True, "reason": decision.reason})
+
+    return outcomes
+
+
 def sample_all_engines() -> tuple[dict, dict, dict, dict, dict]:
     """Sample every restart-capable engine, and report which were covered.
 
@@ -240,6 +393,8 @@ def build_report(
     generated_at: int,
     restart_counts: dict | None = None,
     crashloop_coverage: dict | None = None,
+    restart_history: dict | None = None,
+    containment: list | None = None,
 ) -> dict:
     """Assemble the report.
 
@@ -260,6 +415,13 @@ def build_report(
         report["restart_counts"] = restart_counts
     if crashloop_coverage is not None:
         report["crashloop_coverage"] = crashloop_coverage
+    if restart_history is not None:
+        report["restart_history"] = restart_history
+    # Recorded even when empty, unlike the fields above: an empty list is the
+    # positive statement "containment ran and stopped nothing", which is a
+    # different fact from the key being absent because it never ran at all.
+    if containment is not None:
+        report["containment"] = containment
     return report
 
 
@@ -354,11 +516,28 @@ def render_status(report: dict) -> str:
     # "3 findings" reads like the CPU noise the watchdog usually reports —
     # whereas a crash loop is a threat to the whole session and should not have
     # to be discovered by running a second command.
+    # An action taken outranks anything merely observed. On a server this line in
+    # the journal is the ONLY notice anyone gets that a container was stopped.
+    stopped = [o for o in report.get("containment", []) if o.get("stopped")]
+    if stopped:
+        names = ", ".join(o.get("container_name", "?") for o in stopped)
+        return f"container-watch: STOPPED {len(stopped)} crash-looping container(s): {names}"
+
     loops = sum(1 for f in findings if f.get("kind") == "crashloop")
     if loops:
         return (
             f"container-watch: {loops} CRASH LOOP(S) + {n - loops} other finding(s) "
             "— run `container-watch list`"
+        )
+
+    # Policy findings are advisory, and saying "N findings" about them would read
+    # like something is wrong now. Named separately so a host whose only issue is
+    # configuration is not confused with one that is actually misbehaving.
+    policies = sum(1 for f in findings if f.get("kind") == "restart-policy")
+    if policies == n:
+        return (
+            f"container-watch: {policies} container(s) configured to restart without "
+            "limit — run `container-watch list`"
         )
     return f"container-watch: {n} finding(s) — run `container-watch list`"
 
@@ -375,9 +554,19 @@ def render_list(report: dict) -> str:
     """
     findings = report.get("findings", [])
     loops = [f for f in findings if f.get("kind") == "crashloop"]
-    procs = [f for f in findings if f.get("kind") != "crashloop"]
+    policies = [f for f in findings if f.get("kind") == "restart-policy"]
+    procs = [f for f in findings if f.get("kind") not in ("crashloop", "restart-policy")]
 
     lines: list[str] = []
+
+    # Containment first: something was STOPPED on this host, and that outranks
+    # every advisory below it. Burying an action the watchdog took under tables of
+    # things it merely noticed is how an operator finds out by accident.
+    for outcome in report.get("containment", []):
+        if outcome.get("stopped"):
+            lines.append(f"STOPPED {outcome.get('container_name', '?')} — {outcome.get('reason', '')}")
+    if lines:
+        lines.append("")
 
     if loops:
         lines.append("CRASH LOOPS")
@@ -400,6 +589,34 @@ def render_list(report: dict) -> str:
             "  D-Bus. Sustained, that exhausts the per-UID quota and kills the desktop."
         )
         lines.append("  Stop it, or fix why it exits:  podman stop <container>")
+        if policies or procs:
+            lines.append("")
+
+    if policies:
+        lines.append("RESTART POLICIES THAT PERMIT AN UNBOUNDED STORM")
+        lines.append(f"  {'CONTAINER':<24} {'ENGINE':<8} {'POLICY':<16} RETRIES")
+        for f in policies:
+            retries = f.get("max_retries", 0)
+            lines.append(
+                f"  {f.get('container_name', '?'):<24} {f.get('engine', '?'):<8} "
+                f"{f.get('policy', '?'):<16} {retries if retries else '-'}"
+            )
+        lines.append("")
+        lines.append(
+            "  `on-failure:N` is the ONLY policy podman caps. `always` and"
+        )
+        lines.append(
+            "  `unless-stopped` retry for ever, and ignore any retry count set"
+        )
+        lines.append(
+            "  alongside them — so a container can look bounded and not be."
+        )
+        lines.append(
+            "  There is no backoff either, so a failing container restarts at"
+        )
+        lines.append(
+            "  engine speed until something gives. Recreate with --restart=on-failure:5"
+        )
         if procs:
             lines.append("")
 
@@ -561,13 +778,45 @@ def _scan_once(interval_s: float, inject: str | None) -> dict:
             f for f in loop_findings if not crashloop.matches_allowlist(f, allowlist)
         ]
 
+        # The PREVENTIVE half: which containers are configured so that a storm is
+        # possible at all. Independent of whether anything is storming now, and
+        # the only part of this defence that helps before something goes wrong.
+        policy_findings, policy_class = audit_all_restart_policies()
+
+        # Rolling per-container history, carried in the report that already
+        # exists. Containment needs a window, and a single previous sample only
+        # yields the interval between two ticks.
+        history = advance_history(
+            previous_history(previous_report_for_rate()), counts=counts, now=now
+        )
+        candidates = [
+            {
+                "container_id": cid,
+                "container_name": names.get(cid, cid),
+                "engine": engines.get(cid, "podman"),
+                "running": states.get(cid, False),
+                # Absent means the policy could not be read, which `decide`
+                # treats as a refusal — the safe direction.
+                "restart_policy": policy_class.get(cid, ""),
+                "history": history.get(cid, []),
+            }
+            for cid in counts
+        ]
+        outcomes = apply_containment(
+            candidates, now=now, allowlist=allowlist, enabled=containment_enabled(config)
+        )
+
     if inject is None:
         write_counts: dict | None = counts
         write_coverage = coverage
+        write_history: dict | None = history
     else:
         write_counts, write_coverage = carry_forward_baseline(previous_report_for_rate())
+        write_history = previous_history(previous_report_for_rate()) or None
+        policy_findings = []
+        outcomes = []
 
-    findings = list(findings) + loop_findings
+    findings = list(findings) + loop_findings + policy_findings
     report = build_report(
         findings,
         os.cpu_count() or 1,
@@ -576,6 +825,8 @@ def _scan_once(interval_s: float, inject: str | None) -> dict:
         now,
         restart_counts=write_counts,
         crashloop_coverage=write_coverage,
+        restart_history=write_history,
+        containment=outcomes,
     )
     write_report_atomic(report_path(), report)
     emit_signal(len(findings), report_path())
@@ -588,6 +839,61 @@ def cmd_scan(args) -> int:
         print(json.dumps(report))
     else:
         print(render_status(report))
+    return 0
+
+
+def render_policies(rows: list[dict], classifications: dict) -> str:
+    """Every container's restart policy, including the ones that are fine.
+
+    A complete list, not just the offenders: this is the command to run to ANSWER
+    the question "what is configured where", and a table showing only problems
+    cannot distinguish a clean host from an unread one.
+    """
+    if not rows:
+        return "No containers found."
+
+    verdicts = {
+        "uncapped": "UNBOUNDED",
+        "capped": "ok (capped)",
+        "none": "ok (no restart)",
+        "unknown": "UNKNOWN",
+    }
+    lines = [f"{'CONTAINER':<34} {'POLICY':<16} {'RETRIES':>7}  VERDICT"]
+    for row in sorted(rows, key=lambda r: (r["policy"], r["container_name"])):
+        classification = classifications.get(row["container_id"], "unknown")
+        lines.append(
+            f"{row['container_name'][:34]:<34} {row['policy']:<16} "
+            f"{row['max_retries']:>7}  {verdicts.get(classification, classification)}"
+        )
+
+    unbounded = sum(1 for c in classifications.values() if c == "uncapped")
+    lines.append("")
+    if unbounded:
+        lines.append(
+            f"{unbounded} container(s) restart without limit. Only these can be"
+        )
+        lines.append(
+            "automatically stopped, and only after a sustained restart storm."
+        )
+    else:
+        lines.append("No container is configured to restart without limit.")
+    return "\n".join(lines)
+
+
+def cmd_policies(args) -> int:
+    """Read-only. Runs `inspect` and prints; stops nothing, writes no report."""
+    rows: list[dict] = []
+    classifications: dict[str, str] = {}
+    for engine in crashloop.RESTART_CAPABLE_ENGINES:
+        sampled = sample_restart_policy_rows(engine)
+        if sampled is None:
+            continue
+        rows.extend(sampled)
+        for row in sampled:
+            classifications[row["container_id"]] = restartpolicy.classify(
+                row["policy"], row["max_retries"]
+            )
+    print(render_policies(rows, classifications))
     return 0
 
 
@@ -629,6 +935,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_scan.set_defaults(func=cmd_scan)
 
     sub.add_parser("status", help="one-line summary").set_defaults(func=cmd_status)
+    sub.add_parser(
+        "policies", help="restart policy of every container (read-only, acts on nothing)"
+    ).set_defaults(func=cmd_policies)
     sub.add_parser("list", help="table of current findings").set_defaults(func=cmd_list)
 
     p_explain = sub.add_parser("explain", help="full detail + exec hint for a host pid")

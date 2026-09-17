@@ -46,6 +46,10 @@
       loop:
         - core.py
         - crashloop.py
+        # cli.py imports both at module scope, so omitting either is an ImportError
+        # on every tick — a watchdog that is installed, scheduled, and dead.
+        - containment.py
+        - restartpolicy.py
         - cli.py
 
     # =========================================================================

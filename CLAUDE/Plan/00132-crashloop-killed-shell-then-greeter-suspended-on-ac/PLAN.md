@@ -145,9 +145,18 @@ Detection alone **would not have saved the session**: the report goes to a logge
 and nobody was logged in. Specified in
 [research/detection-gap.md](research/detection-gap.md#teeth-detection-alone-would-not-have-saved-the-session).
 
-- [ ] ⬜ **Task 6.1**: Automatic `podman stop` at **100 restarts within a rolling window** (windowed, not cumulative). ~85,000 restarts exhaust the quota, so 100 is **0.1% of the way to failure** and trips ~10 hours early
+- [x] ✅ **Task 6.1**: **Built.** `helpers/containerwatch/containment.py` — 100 restarts inside a rolling 10-minute window, windowed rather than cumulative because `RestartCount` never resets. A graceful `stop` only: `kill` denies the workload its shutdown path, `rm` destroys it, and `pause` is actively wrong because a frozen container still holds the transient units whose accumulation is the damage. **Enabled by default**, which is safe because of Task 6.5's structural guard rather than because of the threshold alone
+
+- [x] ✅ **Task 6.5**: **Containment acts only where the restart policy is unbounded.** Stronger than any threshold: a container with no restart policy cannot be restarted by the engine, so whatever cycles it is something else and stopping it would neither address the cause nor stay stopped; a capped `on-failure:N` already gives up by itself. Verified against the real host — with a 99,999-restart storm applied to **every** container, exactly the unbounded ones were selected and every no-policy container refused
+
+- [x] ✅ **Task 6.6**: **Preventive audit** (`restartpolicy.py`), which is the half that helps before anything is wrong. `on-failure:N` is the only capped policy; `always` and `unless-stopped` retry for ever **and ignore any retry count set beside them**, so a container can look bounded and not be — and podman applies no backoff, so a failure restarts at engine speed rather than settling. `container-watch policies` renders every container including the healthy ones, because a table of only offenders cannot distinguish a clean host from an unread one
+
+- [x] ✅ **Task 6.7**: **The no-kill gate was tightened, not relaxed.** `containment.py` is named as the single audited exception and then held to a **stricter** list than any other file — it may build a graceful stop and may not name `kill`, `rm`, `pause` or a force flag at all. Six control fixtures now pin both directions, and they caught a real defect during authoring: one pattern is literally `--force`, which grep parsed as an option until the scan passed `--`
+
 - [ ] ⬜ **Task 6.2**: Home it in **plan 00079**, not 00055 — whose D3 is reporting-only and gated. An orderly, signal-free `podman stop` is not what D3 rejected, but it still does not belong in that tree
+
 - [ ] ⬜ **Task 6.3**: Probe whether `cgroup_manager = "cgroupfs"` removes the `libpod-*.scope` churn. **Hypothesis, not a recommendation** — must not reach a play before a read-back proves it moves the behaviour
+
 - [ ] ⬜ **Task 6.4**: UID containment recorded as the structural option — the broker accounts per-UID and podman runs as the desktop's own UID. Strongest, most disruptive; recorded, not proposed
 
 ## Success Criteria
