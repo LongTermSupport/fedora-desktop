@@ -288,15 +288,34 @@
     # alone changes nothing until this runs — which is exactly the shape of fix that passes a
     # file-exists assertion and alters no behaviour, so the read-back below is what actually
     # proves it.
+    #
+    # THE COMPILE IS GATED BECAUSE IT IS NOT A NO-OP. `dconf update` rewrites EVERY database
+    # under /etc/dconf/db, not just the one whose drop-in changed, and each rewrite notifies
+    # every live session. A logged-in user's profile stacks `local` and `site`, so a change
+    # confined to `gdm.d` still reaches their GNOME Shell — which segfaulted handling exactly
+    # that notification, in libgnome-desktop's update_clock(), and took the desktop with it.
+    #
+    # The gate is NOT `gdm_power_dropin is changed`: that ties the compile to whether Ansible
+    # wrote the file, so a database gone stale by any other route is never rebuilt and no
+    # later run can repair it. The helper compares the compiled database against the drop-ins
+    # it was built from, which self-heals AND stays silent on a run that changed nothing.
+    - name: Check whether any dconf database is stale
+      ansible.builtin.command:
+        argv: [python3, -m, helpers.dconf.staleness, /etc/dconf/db]
+        chdir: "{{ root_dir }}"
+      register: dconf_staleness
+      changed_when: false
+      when: provisioning_profile != 'server'
+
     - name: Compile the dconf databases
       ansible.builtin.command:
         argv: [dconf, update]
-      changed_when: false
-      # Unconditional on purpose. Gating on `gdm_power_dropin is changed` would mean a run
-      # that finds the file already correct never recompiles — so a binary database deleted
-      # or left stale by anything else stays broken, and the play cannot self-heal. `dconf
-      # update` is idempotent and cheap; the compile is the state we want, not the copy.
-      when: provisioning_profile != 'server'
+      changed_when: true
+      when:
+        - provisioning_profile != 'server'
+        # Quoted whole: the marker contains a colon-space, which YAML would otherwise read as
+        # a mapping key and the schema check rejects as a non-boolean condition.
+        - "dconf_staleness.stdout | trim != 'DCONF-STALE: none'"
 
     - name: Read back the greeter's effective AC suspend policy
       become: true
