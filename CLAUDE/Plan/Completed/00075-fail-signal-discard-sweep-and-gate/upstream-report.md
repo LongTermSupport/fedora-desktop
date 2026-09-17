@@ -1,5 +1,13 @@
 # Upstream report — claude-code-hooks-daemon
 
+> **NOT FILED, AND NOT TO BE FILED.** Both findings below were re-checked on
+> 2026-09-17 against the daemon as installed, and both had been fixed upstream in
+> the meantime: `lint_on_edit` honours `options.exclude_paths` (measured — an edit
+> to the excluded fixture draws no findings), and the python-resolution call now
+> reads the failed condition's status and propagates it (`.claude/init.sh:445-451`).
+> Kept as the record of what was found and why nothing was sent, not as a draft
+> awaiting a send. Detail in `JOURNAL/00075-Journal-26-09-17.md`.
+
 Two findings from Plan 00075, both in daemon-owned files that are replaced
 wholesale on upgrade, so **neither may be patched locally**. Ready to file; the
 text below is written to be pasted into an issue as-is.

@@ -1,6 +1,7 @@
 # Plan 00075: Discarded failure signals — sweep the repo and build the gate
 
-**Status**: In Progress
+**Status**: Complete
+**Completed**: 2026-09-17
 **Created**: 2026-08-17
 **Owner**: joseph
 **Priority**: High
@@ -141,13 +142,22 @@ introduces a gate makes the gate unreviewable. Neither is a blocker.
   - `dkms` missing no longer gives the same verdict as `dkms` running and finding
     nothing
 
-- [ ] ⬜ **Task 4.4**: Report upstream to the hooks-daemon: `lint_on_edit` honours
-  neither a per-handler `options.exclude_paths` nor the project-wide
-  `daemon.exclude_paths` (both tried, neither works), so a deliberately-invalid
-  test fixture cannot be exempted and prints a wall of findings on every edit.
-  Also `.claude/init.sh:310` — `resolve_venv_python` failing returns 0, a live
-  instance of this plan's own class. Neither may be patched locally: both are
-  overwritten on daemon upgrade
+- [x] ✅ **Task 4.4**: **Nothing to report — both defects were fixed upstream between
+  the filing of this task and now.** Re-checked before writing an issue, because a
+  report about a defect that no longer exists costs a maintainer's time on a public
+  tracker.
+
+  - `lint_on_edit` **does** honour `options.exclude_paths` now; the handler's own
+    guidance documents it and says the project-wide `daemon.exclude_paths` applies too.
+    Measured rather than read: `.claude/hooks-daemon.yaml` excludes
+    `.semgrep/bash-conventions.bash`, and an edit to that deliberately-invalid fixture
+    now draws no findings at all where it used to print a wall of them. The probe edit
+    was reverted; `git status` confirms the file is unchanged.
+  - `resolve_venv_python` no longer discards its failure. The call is now
+    `.claude/init.sh:445-451` — `if PYTHON_CMD="$(resolve_venv_python …)"; then return 0; fi` followed by `local rv=$?`, which reads the failed condition's status, blanks
+    `PYTHON_CMD` and returns `rv`. That is the correct form of the very pattern this plan
+    exists to catch, and the stale line number (`:310`) is itself the reason to re-read
+    before reporting.
 
 ## Technical Decisions
 
