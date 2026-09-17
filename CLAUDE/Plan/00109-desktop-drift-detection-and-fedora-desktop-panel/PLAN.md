@@ -102,7 +102,7 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 > [DESIGN-play-ledger.md](DESIGN-play-ledger.md) §§1–4.
 
 - [x] ✅ **Task 1.1**: Design the ledger record and its location
-- [ ] 🔄 **Task 1.2**: Write the ledger on every play run — `callback_plugins/play_ledger.py`
+- [x] ✅ **Task 1.2**: Write the ledger on every play run — `callback_plugins/play_ledger.py`
   - [x] ✅ **It had never worked on ansible-core 2.19** (issue #46). 2.19 removed
     `ansible_pos` and moved the play's source position into an `Origin` tag on the play
     itself, so every play became a recorded hole and the ledger marked itself `BROKEN` on
@@ -122,11 +122,11 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     play and the `copy()` a callback is actually handed. A fake origin cannot catch a
     rename in the thing it is faking, which is why the whole suite stayed green while the
     ledger recorded nothing for its entire life. Falsified against the pre-fix behaviour
-  - [ ] ⬜ **HOST or VM**: verify against a real run — genesis plus one row per play,
-    `--check` adds nothing, a second run appends. No guest checker reads the ledger today;
-    that is the gap, not the machine ([DESIGN-host-health.md](DESIGN-host-health.md) §12).
-    **This item would have caught both defects above on its first execution**, which is
-    the argument for it rather than against it
+  - [x] ✅ **HOST**: verified against a real run — acceptance `20260917-143702`, checks
+    [6]–\[8\]: genesis present, 18 plays folded, no hole, a row per play, repeat runs append,
+    and a non-applying run leaves the ledger byte-identical (`--list-tasks`, not `--check`;
+    `acceptance.bash` §8 says why). No guest checker reads the ledger
+    ([DESIGN-host-health.md](DESIGN-host-health.md) §12) — that gap is unchanged
 - [x] ✅ **Task 1.3**: Backfill — **none**, answered by a reporting rule instead: a play
   with no record has never been run here, and silence is correct for it
 
@@ -150,20 +150,19 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 
 > Design: [DESIGN-host-health.md](DESIGN-host-health.md) §§1–11.
 
-- [ ] 🔄 **Task 3.1**: Post-boot health probe — code done, HOST wiring pending
+- [x] ✅ **Task 3.1**: Post-boot health probe — wired and running on the HOST
   - [x] ✅ `probe_results.py` (verdicts) and `probe.py` (the half that touches the
     machine); `host-health.service`, deployed by `play-host-health-login-report.yml`
-  - [ ] ⬜ **HOST or VM**: run the play, then assert the unit is actually *wanted* —
-    `systemctl --user list-dependencies graphical-session.target` must name it. "The play
-    succeeded" is a different claim. `desktop-fresh-install` has a graphical session, so
-    the lab can settle this given the play in its `run_env`
-    ([DESIGN-host-health.md](DESIGN-host-health.md) §12)
+  - [x] ✅ **HOST**: the unit is actually *wanted*, not merely enabled — check [11],
+    `graphical-session.target` names it among its dependencies. "The play succeeded" was
+    always a different claim, and the two disagreed for real
   - [x] ✅ **The distinction this sub-task insisted on was a real defect,** found the first
     time it was checked: the enable task's `daemon_reload:` runs *before* the enable, so it
     re-read a directory without the symlink it existed for. Reload split into its own task
     after the enable. Evidence: `JOURNAL/00109-Journal-26-09-17.md`
-  - [ ] ⬜ **HOST**: re-run the play, confirm `list-dependencies` names the unit, log out and
-    back in, re-run `acceptance.bash`. Checks [1]–[5], [11], [12], [15] cascade behind this
+  - [x] ✅ **HOST**: play re-run, logged out and back in, `acceptance.bash` re-run —
+    ACCEPTED, 19 of 19 checks, 21 assertions, 0 failed (`20260917-143702`). [1]–[5], [11],
+    [12] and [15] all cleared together, as predicted. Check [12] records the login itself
 - [ ] 🔄 **Task 3.2**: Surface findings to the user — code done, HOST run pending
   - [x] ✅ `login_report.py` — one notification, silent when clean
   - [ ] ⬜ **HOST**: confirm a real notification arrives, and a clean login is silent
@@ -196,20 +195,17 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
       carries its own refusal (§8.2, which also corrects an initial wrong diagnosis)
     - [x] ✅ `reboot_before_checks` is a scenario's answer, not a profile's, and a profile
       the CLI has no mechanics for is a refusal rather than a silent no-reboot (§8.1)
-    - [ ] ⬜ **HOST**: run `play-vm-test-lab.yml` once, so the new scenario reaches the
-      deployed allowlist and the two new guest scripts reach `~/.local/share/vmtest`.
-      The bridge refuses an id that is only in the manifest — deliberately, and this is
-      the only step an agent cannot do
+    - [x] ✅ **HOST**: `play-vm-test-lab.yml` run — check [16] confirms the scenario is in
+      the deployed allowlist and both guest scripts are deployed executable, so the bridge
+      will no longer refuse the id
     - [ ] ⬜ **VM — nothing in this task is established until this passes**:
       `./scripts/vmtest-request.bash run-scenario server-host-health-kernel-change`. The timer arms, a document appears, **a clean
       server login is silent**, a live fault is reported as a fault, the guest reboots
       into a different kernel, the report names the boot mismatch, the previous boot's
       fault is demoted rather than repeated as current, and an `scp` through the guest's
       own `sshd` completes on both sides of the reboot
-    - [ ] ⬜ **HOST**: confirm **this** checkout has a remote the timer can fetch
-      **without an agent**, or the freshness axis reports "never reached the remote" for
-      ever. Stays HOST: a guest proves the mechanism, not this checkout's `origin` (§6,
-      [DESIGN-host-health.md](DESIGN-host-health.md) §12)
+    - [x] ✅ **HOST**: check [17] — `origin` resolves non-interactively, with a recorded
+      successful fetch. The freshness axis will not report "never reached the remote"
 - [x] ✅ **Task 3.3**: Claude Code handoff — file and offer done
   - [x] ✅ `handoff.py`, mode `0600`; the wrong/not-looked-at split is carried in
     `Finding.checked`, not read from the prose
@@ -264,16 +260,21 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     whether the icon is the right thing to look at. Only a Wayland session can say, and
     the harness deliberately does not claim to
 - [ ] ⬜ **Task 4.3**: Play/task runner — plays with their ledger state, launched in a
-  visible terminal, never in the background. Which plays it lists needs the ledger's real
-  contents from Task 1.2's HOST run
+  visible terminal, never in the background. **Unblocked, and unwritten.** It was waiting on
+  Task 1.2's HOST run for the ledger's real contents; check [7] now has them — 18 plays, run
+  counts from 1 to 6. This is the plan's one piece of outstanding code
 - [x] ✅ **Task 4.4**: Sections registered, not hardcoded — one array entry per section
 - [ ] 🔄 **Task 4.5**: ESLint clean, deployed by its own play, Wayland-correct
   - [x] ✅ ESLint and compat gate green; `play-fedora-desktop-panel.yml` deploys it
   - [x] ✅ The contract gate compares a **derived** set — 9 constants, plus every key of
     a built document and every section id from the real seam — so a name added on the
     producer side cannot be one the gate forgot. Falsified on five mutants
-  - [ ] ⬜ **HOST**: run the play, log out and back in, confirm the panel appears and its
-    health section renders all four checks
+  - [x] ✅ **HOST**: play run, logged out and back in — checks [13]–\[15\]: all 5 files
+    deployed, the uuid enabled, the deployed reader and the producer agree on the document
+    path, and the running shell reports `State ACTIVE`. Check [3] has the document naming
+    all four checks
+  - [ ] ⬜ **HOST — eyes only**: that the icon is *visibly* in the top bar. [13]–[15] are
+    everything short of seeing it, and a gate cannot close that last step
 
 ### Phase 5: Recover the desktop background after a monitor change
 
@@ -301,8 +302,10 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     job is to watch one signal the shell already dispatches. Reasoning and the third
     option in [DESIGN-panel.md §12](DESIGN-panel.md). Implementable and unit-testable
     here once chosen; the HOST item below gates shipping it either way
-  - [ ] ⬜ **HOST**: deploy it, and separately confirm the refresh actually clears a
-    black background when the symptom is present — exercised on a healthy desktop only
+  - [x] ✅ **HOST**: deployed and armed — check \[18\]: recovery tree, udev rule and dock
+    unit deployed, `displaylink-suspend.service` enabled
+  - [ ] ⬜ **HOST**: that the refresh actually clears a black background. Needs the symptom
+    present, and it is an upstream bug that cannot be induced on demand
 
 ## Dependencies
 
