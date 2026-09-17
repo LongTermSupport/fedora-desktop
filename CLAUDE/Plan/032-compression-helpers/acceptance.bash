@@ -349,8 +349,15 @@ if run_in "$WORK/x6/src" ouch compress -- loose-one.txt loose-two.txt ../bomb.zi
     # The fixture is ASSERTED flat before it is used. A zip that happened to nest would make
     # this check pass without exercising tarbomb protection at all — a green result that
     # says nothing, which is the failure mode this whole gate is written against.
-    listing="$(ouch list "$WORK/x6/bomb.zip")"
-    if printf '%s\n' "$listing" | grep -q '/'; then
+    # `ouch list` prints an `Archive: "<path>"` header before the members, and that path
+    # contains slashes — so testing the whole output for `/` matched the header every time
+    # and reported a genuinely flat fixture as nested. The header is dropped and only the
+    # MEMBER lines are tested.
+    listing="$(ouch list "$WORK/x6/bomb.zip" | awk '!/^Archive:/')"
+    if [ -z "$listing" ]; then
+        bad "ouch list named no members, so the fixture cannot be checked for flatness" \
+            "without that check this check would assert nothing"
+    elif printf '%s\n' "$listing" | grep -q '/'; then
         bad "the fixture zip is not flat, so this check would not test tarbomb protection" \
             "$(printf '%s' "$listing" | tr '\n' ' ')"
     else
@@ -404,8 +411,13 @@ else
 fi
 if [ "$uncompress_rc" -eq 0 ]; then
     bad "uncompress silently replaced an existing ./proj/" "it must refuse without --force"
-elif [ ! -f "$WORK/x5/proj/one.txt" ]; then
-    bad "uncompress refused (exit $uncompress_rc) but the existing folder was emptied anyway"
+elif [ -z "$(find "$WORK/x5/proj" -name one.txt -type f -print -quit)" ]; then
+    # Located by search, for the same reason check 5 locates it by search: the real round
+    # trip double-nests, so the member is at ./proj/proj/one.txt. This assertion carried
+    # the flattened path after check 5 had been corrected for it — the identical wrong
+    # assumption, left standing two checks further down.
+    bad "uncompress refused (exit $uncompress_rc) but the existing folder was emptied anyway" \
+        "$(find "$WORK/x5/proj" -printf '%P ')"
 else
     ok "uncompress refused with exit $uncompress_rc and left the existing folder intact"
 fi
