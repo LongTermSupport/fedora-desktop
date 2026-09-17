@@ -37,7 +37,7 @@ import sys
 import tempfile
 import time
 
-from helpers.containerwatch import core
+from helpers.containerwatch import core, crashloop
 
 # Production defaults (overridable by config file, then by env — see
 # resolve_thresholds). 900 s = 15 min; CPU% is per-single-core (so multi-core
@@ -157,19 +157,90 @@ def resolve_name(attr: core.Attribution) -> str:
     return result.stdout.strip().lstrip("/")
 
 
+def sample_restarts(engine: str = "podman") -> tuple[dict, dict, dict]:
+    """Sample every container's restart counter, running state and name.
+
+    Returns ``(counts, running, names)`` keyed by container id.
+
+    ONE `ps` plus ONE `inspect` for the whole set, not a call per container: the
+    watchdog runs every two minutes on a desktop and a per-container round trip
+    would make the scan's cost scale with how much the user happens to be
+    running.
+
+    LXC is absent ON PURPOSE. It exposes no restart counter, so it cannot be
+    evaluated — and an engine skipped without saying so reads as an engine that
+    was checked and found clean. `crashloop_engines_checked()` names what was
+    actually covered so the report can state it.
+
+    Engine unavailable, daemon down, no containers: all yield empty mappings. A
+    crash-loop probe that cannot sample must report nothing rather than report
+    "healthy", and empty mappings produce no findings.
+    """
+    if not engine_available(engine):
+        return {}, {}, {}
+
+    fmt = "{{.Id}}\t{{.RestartCount}}\t{{.State.Running}}\t{{.Name}}"
+    try:
+        listed = subprocess.run(
+            [engine, "ps", "-aq"],
+            check=True, capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT_S,
+        )
+        ids = [line.strip() for line in listed.stdout.splitlines() if line.strip()]
+        if not ids:
+            return {}, {}, {}
+        result = subprocess.run(
+            [engine, "inspect", "--format", fmt, *ids],
+            check=True, capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT_S,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        return {}, {}, {}
+
+    counts: dict[str, int] = {}
+    running: dict[str, bool] = {}
+    names: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 4:
+            continue
+        container_id, raw_count, raw_running, name = parts
+        try:
+            counts[container_id] = int(raw_count)
+        except ValueError:
+            continue
+        running[container_id] = raw_running.strip().lower() == "true"
+        names[container_id] = name.strip().lstrip("/")
+    return counts, running, names
+
+
 # --------------------------------------------------------------------------- #
 # Report assembly, atomic write, DBus emission
 # --------------------------------------------------------------------------- #
 def build_report(
-    findings: list, host_cores: int, age_threshold: int, cpu_threshold: float, generated_at: int
+    findings: list,
+    host_cores: int,
+    age_threshold: int,
+    cpu_threshold: float,
+    generated_at: int,
+    restart_counts: dict | None = None,
 ) -> dict:
-    return {
+    """Assemble the report.
+
+    `restart_counts` is this tick's raw per-container restart counter. It is
+    persisted so the NEXT tick can difference against it — the report is already
+    written every tick and read by the CLI, so it serves as the state store and
+    no second one is introduced. Keyword-defaulted so existing callers and their
+    tests are unaffected.
+    """
+    report = {
         "schema": core.SCHEMA_VERSION,
         "generated_at": generated_at,
         "host_cores": host_cores,
         "thresholds": {"age_s": age_threshold, "cpu_pct": cpu_threshold},
         "findings": findings,
     }
+    if restart_counts is not None:
+        report["restart_counts"] = restart_counts
+    return report
 
 
 def write_report_atomic(path: str, report: dict) -> None:
@@ -307,7 +378,30 @@ def _scan_once(interval_s: float, inject: str | None) -> dict:
             allowlist=config.get("allowlist", []),
         )
 
-    report = build_report(findings, os.cpu_count() or 1, age, cpu, int(time.time()))
+    now = int(time.time())
+    counts, states, names = ({}, {}, {}) if inject is not None else sample_restarts()
+
+    # The rate gate differences against the PREVIOUS report, so it is silent on
+    # the very first tick after install. That is the absolute gate's whole
+    # purpose — see helpers/containerwatch/crashloop.py.
+    prev_counts, prev_at = crashloop.previous_sample(read_report())
+    elapsed = crashloop.elapsed_since(previous_at=prev_at, now=now)
+    loop_findings = crashloop.evaluate(
+        previous=prev_counts if elapsed is not None else {},
+        current=counts,
+        running=states,
+        elapsed_s=elapsed if elapsed is not None else 0.0,
+        names=names,
+    )
+    allowlist = config.get("allowlist", [])
+    loop_findings = [
+        f for f in loop_findings if not core.matches_allowlist(f, allowlist)
+    ]
+
+    findings = list(findings) + loop_findings
+    report = build_report(
+        findings, os.cpu_count() or 1, age, cpu, now, restart_counts=counts
+    )
     write_report_atomic(report_path(), report)
     emit_signal(len(findings), report_path())
     return report
