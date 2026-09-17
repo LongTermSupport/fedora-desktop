@@ -1,7 +1,8 @@
 # Plan 00082: implement RUN_BASH_GITHUB_ACCOUNTS=none in run.bash headless v1
 
-**Status**: In Progress
+**Status**: Complete
 **Created**: 2026-08-24
+**Completed**: 2026-09-17
 **Owner**: joseph
 **Priority**: Medium
 
@@ -112,9 +113,23 @@ planned here.
 
 ### Phase 5: Host verification (operator, not this session)
 
-- [ ] ⬜ **Task 5.1**: On a real HOST, run `ansible-playbook playbooks/playbook-main.yml --list-tasks` (or a full run) to independently confirm the Task-2-of-blocker-analysis ordering claim (gh installed before `play-github-cli-multi.yml` runs, regardless of GitHub config) rather than relying on the static trace alone.
+- [x] ✅ **Task 5.1**: Satisfied by something stronger than this task asked for. It wanted
+  `--list-tasks`; what exists is a full `playbook-main.yml` run that **completed** under
+  `RUN_BASH_GITHUB_ACCOUNTS=none` — Plan 00110's lab run `20260913T170901Z-server-fast-provision`,
+  repeated through the container-to-host bridge as `20260913T181420Z`. The ordering claim is
+  proven by execution rather than by a listing: `guest-acceptance-server.bash:158` asserts
+  `gh-cli-installed` in a guest with no GitHub identity at all, and a wrong static trace would
+  have aborted that run.
 
-- [ ] ⬜ **Task 5.2**: On a real HOST (or a disposable cloud/server VM), run a full `RUN_BASH_GITHUB_ACCOUNTS=none` headless provision end-to-end and confirm it completes.
+- [x] ✅ **Task 5.2**: Done, by the same run. `vmtest:920` and `:1229` hardcode
+  `RUN_BASH_GITHUB_ACCOUNTS=none` as the provisioning default — only the opt-in
+  `SCENARIO_HOST_ONLY` branch (`:1230-1234`) substitutes an account — so every
+  `server-fast-provision` run *is* this task's scenario. `RUN-BASH-EXIT 0`, a PLAY RECAP
+  with work done, 13 guest checks green, including `repo-cloned-at-pinned-commit`
+  (`guest-acceptance-server.bash:69`) and `localhost-yml-no-identity` (`:94`, grepping for
+  `^github_accounts: {}$` — Task 2.3's exact deliverable). This task's own note expected a
+  downstream repo to supply the proof; the lab supplied it first, in-repo, with named
+  assertions.
 
   **In progress, from the consuming side**: a downstream deployment repo that pins this
   one is running exactly this proof — `run.bash` downloaded at this branch's merge
@@ -128,8 +143,8 @@ planned here.
 
 ## Success Criteria
 
-- [ ] `RUN_BASH_GITHUB_ACCOUNTS=none` passes preflight with no token/SSH-passphrase files, proceeds through identity + vault + main-playbook execution with no GitHub/SSH setup, clones `fedora-desktop` over HTTPS. (Preflight-level proven in-container; full execution is Phase 5 host work.)
-- [ ] Existing GitHub-configured headless path and interactive path unchanged (no regression). (Preflight-level regression proven in-container via both acceptance.bash suites; full execution is Phase 5 host work.)
+- [x] ✅ `RUN_BASH_GITHUB_ACCOUNTS=none` passes preflight with no token/SSH-passphrase files, proceeds through identity + vault + main-playbook execution with no GitHub/SSH setup, and clones the repo in a guest with no GitHub identity (`guest-acceptance-server.bash:69` `repo-cloned-at-pinned-commit`, `:94` `localhost-yml-no-identity`). **HTTPS is inferred, not asserted** — the clone succeeds where SSH could not work, but no check reads the remote URL scheme.
+- [x] ✅ Existing GitHub-configured headless path and interactive path unchanged (no regression) — preflight-level regression proven in-container via both acceptance.bash suites, and the `SCENARIO_HOST_ONLY` branch (`vmtest:1230-1234`) exercises the account-supplied path in the same harness.
 - [x] ✅ Contradictory `none` + `RUN_BASH_CONFIG_SOURCE`/`RUN_BASH_RESTORE_PROJECTS=1` fails fast in preflight.
 - [x] ✅ `./scripts/qa-all.bash` green; 00063's and 00082's acceptance.bash both green in-container.
 - [x] ✅ qa-reviewer (opus) review completed with findings addressed — verdict FIX-BEFORE-MERGE, all 6 "should fix" items resolved (see JOURNAL).
@@ -140,5 +155,11 @@ planned here.
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00082-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- Branch: `task/run-bash-github-accounts-none` (local, not yet pushed — per
-  operator instruction, this work is reviewed locally before any push decision).
+- Branch: `task/run-bash-github-accounts-none` — merged via PR #33 (`68f1596f`).
+  The line that stood here said "local, not yet pushed"; it was written before the
+  merge and never revised, so the plan carried a stale delivery state for the whole
+  of Phase 5.
+- Phase 5 was discharged by Plan 00110's lab run rather than by a hand-run on a host:
+  `vmtest` provisions with `RUN_BASH_GITHUB_ACCOUNTS=none` by default, so
+  `20260913T170901Z-server-fast-provision` (repeated as `20260913T181420Z`) *is* this
+  plan's scenario, with named guest assertions standing in for the missing manual recap.
