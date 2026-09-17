@@ -352,7 +352,7 @@ PLAN_SUDO_PRIMED=0
 # quietly returning the pause to every deploy in the tree.
 PLAN_MODE="deploy"
 run_capture declare -F plan_gate_change
-assert_eq "plan_gate_change does not exist (see PlanScriptStandards.md R9)" "1" "${RC}"
+assert_eq "plan_gate_change does not exist (see PlanScriptStandards.md R8)" "1" "${RC}"
 run_capture declare -F _plan_assert_change_allowed
 assert_eq "its enforcement backstop does not exist either" "1" "${RC}"
 
@@ -759,8 +759,21 @@ if printf '%s\n' "${CONFIRM_BODY}" | grep -Eq '>[[:space:]]*/dev/tty'; then
 else
     pass "plan_confirm routes the prompt through ordered stdout"
 fi
-assert_contains "plan_confirm reads the reply from /dev/tty (ansible drains stdin)" \
-    "</dev/tty" "${CONFIRM_BODY}"
+# Matched with a pattern rather than a literal, because `</dev/tty` and `< /dev/tty` are
+# the same redirect and the literal form failed on the second spelling — a false failure
+# about whitespace, in a test whose subject is where the reply is read from.
+if printf '%s\n' "${CONFIRM_BODY}" | grep -Eq '<[[:space:]]*/dev/tty'; then
+    pass "plan_confirm reads the reply from /dev/tty (ansible drains stdin)"
+else
+    fail "plan_confirm reads the reply from /dev/tty (ansible drains stdin)" \
+        "a read redirected from /dev/tty" "no such redirect in the function body"
+fi
+
+# The prompt must survive a typo. A single-shot compare discarded a whole deploy mid-batch
+# when the reply arrived with two extra words in front of the expected token, which is the
+# recoverable input mistake InteractiveScripts.md says to re-prompt on.
+assert_contains "plan_confirm re-prompts rather than aborting on the first wrong answer" \
+    "attempt" "${CONFIRM_BODY}"
 
 DEPLOY_BODY="$(extract_func plan_deploy_leg)"
 assert_contains "deploy_leg carries the BASH_SUBSHELL guard" "BASH_SUBSHELL" "${DEPLOY_BODY}"

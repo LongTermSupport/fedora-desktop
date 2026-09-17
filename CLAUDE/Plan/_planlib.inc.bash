@@ -590,18 +590,38 @@ plan_confirm() {
     if ! _plan_tty_openable; then
         _plan_err "cannot prompt for '${prompt}': no controlling terminal (${PLAN_TTY_PROBE_ERR}). Re-run from a terminal, or pass -y/--yes (PLAN_ASSUME_YES=1) to consent non-interactively." || return 1
     fi
-    printf '\n%s\n>>> type "%s" and press Enter to proceed: \n' "${prompt}" "${expected}"
-    IFS= read -r reply </dev/tty
-    reply="$(_plan_strip_cr "${reply}")"
-    if [[ "${reply}" == "${expected}" ]]; then
-        return 0
-    fi
-    printf '==> not confirmed (got "%s", expected "%s")\n' "${reply}" "${expected}" >&2
+    # BOUNDED RETRY, not a single shot. InteractiveScripts.md: strict validation, friendly
+    # recovery — re-prompt on a recoverable input mistake, and reserve hard aborts for
+    # states that genuinely cannot be recovered. A mistyped token is the textbook
+    # recoverable mistake, and the cost of getting this wrong was measured: a plan's entire
+    # deploy was discarded mid-batch because the reply arrived as "its <token>" rather than
+    # "<token>", two words the operator never typed.
+    #
+    # Bounded rather than infinite: an empty reply repeated by a closed pipe would otherwise
+    # spin for ever, and this is exactly where an unbounded wait hides.
+    local attempt
+    for attempt in 1 2 3; do
+        printf '\n%s\n>>> type "%s" and press Enter to proceed: \n' "${prompt}" "${expected}"
+        if ! IFS= read -r reply </dev/tty; then
+            printf '==> input closed before an answer was given — not confirmed\n' >&2
+            return 1
+        fi
+        reply="$(_plan_strip_cr "${reply}")"
+        if [[ "${reply}" == "${expected}" ]]; then
+            return 0
+        fi
+        if [[ "${attempt}" -lt 3 ]]; then
+            printf '==> that is not it (got "%s", expected "%s") — try again [attempt %d of 3]\n' \
+                "${reply}" "${expected}" "${attempt}" >&2
+        fi
+    done
+    printf '==> not confirmed after 3 attempts (last reply "%s", expected "%s")\n' \
+        "${reply}" "${expected}" >&2
     return 1
 }
 
 # There is NO blanket confirmation prompt before a deploy, by design: running `deploy.bash`
-# is itself the consent. See PlanScriptStandards.md R9.
+# is itself the consent. See PlanScriptStandards.md R8.
 #
 # `plan_confirm` remains for a script that must ask something specific.
 
