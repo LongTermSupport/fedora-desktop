@@ -693,7 +693,13 @@ else
     if ! deps="$(systemctl --user list-dependencies "${HEALTH_TARGET}" --no-pager)"; then
         bad "systemctl --user list-dependencies ${HEALTH_TARGET} failed" \
             "the unit reads as '${unit_enabled}', but nothing confirms the target pulls it in"
-    elif printf '%s' "${deps}" | grep -q -F -e "${HEALTH_UNIT}"; then
+    # NOT `printf … | grep -q`. `grep -q` exits the instant it matches, so printf dies of
+    # SIGPIPE writing to the closed pipe, and `set -o pipefail` reports the pipeline as
+    # FAILED — turning a match into a miss. It only bites once the text exceeds the 64 KiB
+    # pipe buffer, which is why it read as intermittent: this check's `list-dependencies`
+    # output is 330 KiB, so it inverted every run, while the small-output checks never did.
+    # A bash pattern match spawns nothing and cannot be signalled.
+    elif [[ "${deps}" == *"${HEALTH_UNIT}"* ]]; then
         ok "${unit_enabled}, and ${HEALTH_TARGET} names it among its dependencies"
     else
         # KEEP THE EVIDENCE. A previous run had triage find the unit in the live graph and
@@ -761,7 +767,7 @@ else
     if ! declared="$(gsettings get org.gnome.shell enabled-extensions)"; then
         bad "gsettings could not read org.gnome.shell enabled-extensions" \
             "that key is the only thing the shell reads at session start, so nothing confirms the panel will load"
-    elif printf '%s' "${declared}" | grep -q -F -e "${EXT_UUID}"; then
+    elif [[ "${declared}" == *"${EXT_UUID}"* ]]; then
         ok "all ${#EXT_FILES[@]} files deployed, and the uuid is in enabled-extensions"
     else
         bad "the extension is deployed but its uuid is not in enabled-extensions" \
@@ -815,7 +821,7 @@ else
 fi
 if [[ "${verify_rc}" -ne 0 ]]; then
     bad "the shell reports the extension as broken" "${verify_out}"
-elif printf '%s' "${verify_out}" | grep -q -F -e "[ok]"; then
+elif [[ "${verify_out}" == *"[ok]"* ]]; then
     ok "${verify_out}"
 else
     bad "the extension is not loaded in this session" \
