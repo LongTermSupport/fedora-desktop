@@ -35,7 +35,7 @@ Both overrides still work, because the launcher uses the same `${VAR:-default}` 
 sibling variables: a host `export` before launch wins, and so does an `export` line in a
 project's tracked `.claude/ccy/ccy.env`, which the entrypoint sources after the launcher's
 environment is in place and before it `exec`s `claude`. The example in
-[ccy.md](ccy.md#claude-code-environment-ccy-sets) uses `export` for that reason — a bare
+[ccy.md](ccy.md#overriding-the-auto-compact-window) uses `export` for that reason — a bare
 assignment does not survive the `exec`.
 
 ## 3.57.0
