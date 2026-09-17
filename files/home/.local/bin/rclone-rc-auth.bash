@@ -191,7 +191,16 @@ rclone_rc_addr_for_mount() {
         case "$cmdline" in
             *" $mountpoint "* | *" $mountpoint")
                 local matches
-                matches=$(grep -oE -- '--rc-addr=[^ ]+' <<< "$cmdline" | cut -d= -f2)
+                # grep exits 1 when the flag is absent, which is what the guard below
+                # exists to report. Assigned directly, that failing pipeline kills the
+                # shell under `set -euo pipefail` and the guard never runs — this copy
+                # survives ONLY because every caller invokes the function as an `if`
+                # condition, where errexit is suspended. That is the caller's property,
+                # not this line's, and the four sibling copies that did not have it each
+                # died silently. Captured explicitly so the guard holds in any context.
+                if ! matches=$(grep -oE -- '--rc-addr=[^ ]+' <<< "$cmdline" | cut -d= -f2); then
+                    matches=""
+                fi
                 if [ -z "$matches" ]; then
                     echo "rclone_rc_addr_for_mount: the mount serving $mountpoint was started without --rc-addr" >&2
                     return 1

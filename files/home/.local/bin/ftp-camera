@@ -40,7 +40,12 @@ fi
 MONITOR_PID=""
 VSFTPD_LOG_PID=""
 VIEWER_MONITOR_PID=""
-START_MARKER=$(mktemp)
+# Declared empty here, CREATED in Main. Only `cleanup` reads it, and `cleanup` runs only on
+# the FTP-server path — every early-exit mode (--pass, --sort, --push, --copy-preflight,
+# --copy, --prune) clears the EXIT trap before returning, so a marker made at load time was
+# never removed. Measured: one /tmp entry per run, and the acceptance gate invokes
+# --copy-preflight every time it runs.
+START_MARKER=""
 SORT_ONLY=false
 PASS_ONLY=false
 PUSH_ONLY=false
@@ -1093,6 +1098,18 @@ copy_preflight() {
 
     if ! command -v rclone > /dev/null; then
         echo "ERROR: rclone not found — run play-rclone.yml first" >&2
+        return 1
+    fi
+
+    # python3 parses the RC stats driving `--copy`'s wait loop, and that loop runs AFTER the
+    # `cp -r`. Absent, the copy completed and the run then died with the files already on
+    # the mount and no progress reporting — the one failure this function's header promises
+    # cannot happen ("everything --copy must establish before it moves a single byte").
+    # Checked here so the promise is true rather than nearly true.
+    if ! command -v python3 > /dev/null; then
+        echo "ERROR: python3 not found — --copy needs it to read the RC upload stats" >&2
+        echo "  It is a base system package; a host without it has a broken install rather" >&2
+        echo "  than a missing option. Re-run this host's provisioning play." >&2
         return 1
     fi
 
@@ -2316,6 +2333,11 @@ if [ "$PRUNE_ONLY" = true ]; then
 fi
 
 # ── Main ───────────────────────────────────────────────────────────────────────
+
+# The reference timestamp `cleanup` compares uploads against. Created HERE rather than at
+# load time: every mode above returns without running `cleanup`, so a marker made at load
+# time leaked one /tmp entry per invocation. Past this point `cleanup` will run.
+START_MARKER=$(mktemp)
 
 # Validate async-copy prerequisites BEFORE starting vsftpd so a misconfigured
 # rclone setup doesn't expose the FTP port and then fail on the first upload.

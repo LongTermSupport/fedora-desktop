@@ -84,10 +84,7 @@ RC_LIB="$BIN/rclone-rc-auth.bash"
 # rclone_rc_port_base + mount_index, only the FIRST mount is on 5572, and an
 # explicit rc_port can move even that one. A fixed address would make this gate
 # REJECT a healthy multi-mount host for a reason unrelated to what it tests.
-# REFRESH_FS is the remote belonging to that same address, so check [6b] cannot
-# ask one mount's RC to refresh another mount's filesystem.
 RC_ADDR=""
-REFRESH_FS=""
 
 RAN_CHECKS=()
 
@@ -164,12 +161,17 @@ if [ "$mount_count" -eq 0 ]; then
 fi
 ok "$mount_count rclone mount(s) present"
 
-# Read the RC address off the mount's own rclone process, the way every client
-# this plan fixed now does. Taking the first mount is deliberate and stated:
-# one authenticated mount is enough to prove the migration, and pairing its
-# address with its OWN remote is what stops [6b] refreshing across mounts.
-REFRESH_FS=$(findmnt -n -o SOURCE -t fuse.rclone | head -n1)
-rc_mount=$(findmnt -n -o TARGET -t fuse.rclone | head -n1)
+# Read the RC address off the mount's own rclone process, the way every client this plan
+# fixed now does. Taking the first mount is deliberate and stated, and the COVERAGE note
+# below says so in the output rather than only in this comment: one authenticated mount is
+# enough to prove the migration, but a gate that exercises 1 of 3 and prints "every
+# assertion passed" has stated a scope it does not have.
+#
+# First row by expansion, not `| head -n1`: a failing producer in a pipeline yields exit 0
+# and an empty value wherever the caller runs `set -e` without pipefail, and an empty
+# rc_mount degenerates the cmdline matcher below into one that matches any process.
+mount_targets=$(findmnt -n -o TARGET -t fuse.rclone)
+rc_mount="${mount_targets%%$'\n'*}"
 for rc_pid in $(pgrep -f 'rclone [m]ount'); do
     # Guarded, because the process can exit between pgrep and this read — which is not
     # this mount's problem and must not abort a gate under `set -e`. The shared library
@@ -179,11 +181,42 @@ for rc_pid in $(pgrep -f 'rclone [m]ount'); do
     fi
     case "$rc_cmdline" in
         *" $rc_mount "* | *" $rc_mount")
-            RC_ADDR=$(grep -oE -- '--rc-addr=[^ ]+' <<< "$rc_cmdline" | head -n1 | cut -d= -f2)
+            # grep exits 1 when this mount publishes NO --rc-addr, which is precisely the
+            # case the ABORT block below was written for. At top level under `set -euo
+            # pipefail` an assignment from a failing pipeline kills the script, so that
+            # block was UNREACHABLE: the gate exited 1 after check [0]'s first PASS with no
+            # ABORT, no COVERAGE and no verdict at all. Round 5's `note` defect again —
+            # a branch nothing had ever executed, on the multi-mount case check [0]'s own
+            # comment calls normal.
+            #
+            # The library's copy of this line survives only because its callers wrap it in
+            # an `if` condition, where errexit is suspended. That is the CALLER's property,
+            # not the line's. Measured: same line, top level, dies; inside a function used
+            # as a condition, reaches the guard.
+            #
+            # First match by expansion rather than `| head -n1`, which yields exit 0 and an
+            # empty value when the producer fails in a caller without pipefail.
+            if rc_addr_raw=$(grep -oE -- '--rc-addr=[^ ]+' <<< "$rc_cmdline"); then
+                RC_ADDR="${rc_addr_raw%%$'\n'*}"
+                RC_ADDR="${RC_ADDR#--rc-addr=}"
+            else
+                RC_ADDR=""
+            fi
             break
             ;;
     esac
 done
+# Mount coverage, STATED. This gate has a COVERAGE discipline for its checks and had none
+# for mounts: on a three-mount host it exercised one and printed "every assertion passed",
+# claiming a scope it does not have. The limit is deliberate — one authenticated mount
+# proves the migration — but a deliberate limit still has to be visible at verdict time,
+# not only in a comment above the loop.
+if [ "$mount_count" -gt 1 ]; then
+    note "MOUNT COVERAGE: 1 of $mount_count mounts exercised ($rc_mount) — checks 1, 6 and 6b"
+    note "  speak for that mount alone. The others are unexamined, not proven healthy."
+else
+    note "MOUNT COVERAGE: 1 of 1 mounts exercised ($rc_mount)"
+fi
 if [ -z "$RC_ADDR" ]; then
     echo "  ABORT  the mount on $rc_mount publishes no --rc-addr." >&2
     echo "         Checks 1, 6 and 6b have no RC to talk to, so this gate" >&2
@@ -254,6 +287,34 @@ bypass_found=0
 # nothing deployed, a renamed directory — every iteration hits the `continue` and
 # bypass_found stays 0, which was read as proof. A blind scanner and a clean one
 # must not report alike; that is this plan's own subject.
+#
+# And counted against a DENOMINATOR, which it was not. "3 scanned" is a numerator with
+# nothing to compare it to: with rclone-cache-warm simply never deployed, the gate scanned
+# the other three, found no bypass, and ACCEPTED — while the client carrying round 6's
+# blocking defect was absent from the host entirely. The drift gate does not cover it
+# either, because it classes a never-deployed file as NOT_DEPLOYED rather than as drift.
+#
+# The denominator comes from the REPO, which is the source of truth for what this plan
+# owns. Enumerated by the same glob, so a sixth client added later is counted without
+# anyone remembering to update a list here.
+owned=()
+for repo_client in "$REPO_ROOT/files/home/.local/bin"/rclone-* "$REPO_ROOT/files/home/.local/bin"/ftp-camera; do
+    if [ ! -f "$repo_client" ]; then
+        continue
+    fi
+    if [ "$(basename "$repo_client")" = "$(basename "$RC_LIB")" ]; then
+        continue
+    fi
+    owned+=("$(basename "$repo_client")")
+done
+
+missing_clients=()
+for owned_name in "${owned[@]+"${owned[@]}"}"; do
+    if [ ! -f "$BIN/$owned_name" ]; then
+        missing_clients+=("$owned_name")
+    fi
+done
+
 scanned=0
 for f in "$BIN"/rclone-* "$BIN"/ftp-camera; do
     if [ ! -f "$f" ]; then
@@ -273,8 +334,11 @@ done
 if [ "$scanned" -eq 0 ]; then
     bad "no deployed client was scanned, so nothing was established" \
         "looked for $BIN/rclone-* and $BIN/ftp-camera — run deploy.bash first"
+elif [ "${#missing_clients[@]}" -ne 0 ]; then
+    bad "${#missing_clients[@]} of ${#owned[@]} client(s) this plan owns are NOT DEPLOYED: ${missing_clients[*]}" \
+        "a client that is absent cannot bypass the library, so scanning the rest proves nothing about it — run deploy.bash"
 elif [ "$bypass_found" -eq 0 ]; then
-    ok "every deployed client goes through rclone_rc ($scanned scanned)"
+    ok "every deployed client goes through rclone_rc ($scanned of ${#owned[@]} this plan owns)"
 fi
 echo
 
@@ -376,6 +440,19 @@ else
     elif [ -z "$client_addr" ]; then
         bad "ftp-camera's preflight succeeded but named no RC address" \
             "it prints the address it resolved; an empty answer means the deployed build predates --copy-preflight, so nothing here was exercised"
+    elif [[ ! "$client_addr" =~ ^[^[:space:]]+:[0-9]+$ ]]; then
+        # The disagreement branch below used to accept ANY non-empty stdout as "an address
+        # the client resolved". Measured with two stub clients: a banner line before the
+        # address, and an error string printed to stdout with exit 0 — both produced
+        # `PASS ... authenticated at its own mount's ERROR: rclone remote control did not
+        # answer`, and the gate ACCEPTED. The deployed client's stdout is clean today, so it
+        # was latent rather than a live false green; but the one branch that admits a
+        # disagreement was admitting everything, in the check this plan rebuilt four times.
+        #
+        # So the shape is required first. What the client prints must look like an address
+        # before any verdict treats it as one.
+        bad "ftp-camera's preflight printed something that is not a host:port address" \
+            "stdout was: $client_addr"
     elif [ "$client_addr" != "$RC_ADDR" ]; then
         # Not necessarily a fault: check [0] takes the FIRST fuse.rclone mount, which need
         # not be ftp-camera's. Reported rather than judged, with both numbers, because
@@ -396,22 +473,32 @@ echo
 # it for real. vfs/refresh only re-reads directory listings into the VFS cache;
 # it moves no data and deletes nothing, so it is safe in an acceptance gate.
 check 6b "vfs/refresh (rclone-cache-warm --fast's endpoint) authenticates"
-if [ ! -r "$RC_LIB" ]; then
-    bad "cannot test vfs/refresh without $RC_LIB"
-elif [ -z "$REFRESH_FS" ]; then
-    bad "no rclone mount source to refresh"
+# RUN THE CLIENT, for the same reason check [6] does.
+#
+# This check used to issue `rclone_rc --url=… vfs/refresh "fs=$REFRESH_FS"` from the gate
+# itself, while its own catalogue entry named rclone-cache-warm. That is the stand-in
+# rounds 2-5 spent four rounds removing from check [6], still in place one check down: the
+# client's real call is `("fs=$RCLONE_SOURCE" "recursive=true")` plus `remote=$REL_PATH`,
+# after its own --rc-addr walk — which is where round 6's blocking defect lived. The gate's
+# approximation would have passed throughout, because the gate never took that walk.
+#
+# --fast is read-only: vfs/refresh re-reads directory listings into the VFS cache. It moves
+# no data and deletes nothing.
+if [ ! -x "$BIN/rclone-cache-warm" ]; then
+    bad "rclone-cache-warm is not deployed, so its vfs/refresh path cannot be exercised" \
+        "run deploy.bash"
+elif [ -z "$rc_mount" ]; then
+    bad "no rclone mountpoint to refresh"
 else
-    # $REFRESH_FS and $RC_ADDR were read from the SAME mount in check [0].
-    # Choosing them independently would let this ask one mount's RC to refresh
-    # another mount's remote, which fails for a reason that is not the one
-    # under test.
-    refresh_out=""
-    if refresh_out=$(rclone_rc --url="http://${RC_ADDR}" vfs/refresh "fs=$REFRESH_FS" 2>&1); then
-        ok "vfs/refresh accepted on $REFRESH_FS"
+    warm_err=$(mktemp)
+    TEMP_FILES+=("$warm_err")
+    if "$BIN/rclone-cache-warm" --fast "$rc_mount" > /dev/null 2> "$warm_err"; then
+        ok "rclone-cache-warm --fast authenticated and refreshed $rc_mount"
     else
-        bad "vfs/refresh was refused — rclone-cache-warm --fast would fail" \
-            "$refresh_out"
+        bad "rclone-cache-warm --fast failed — the vfs/refresh path is still broken" \
+            "$(cat "$warm_err")"
     fi
+    rm -f "$warm_err"
 fi
 echo
 
@@ -429,13 +516,41 @@ if drift_out=$(bash "$REPO_ROOT/scripts/qa-deployed-drift.bash" 2>&1); then
     # reason; consuming the exit code alone laundered that distinction straight
     # back out one level up. Success criterion 3 rests on this check, so a skip
     # here is "not established", never "in sync".
+    #
+    # And the SAME laundering, one level further in. Plan 00081 made that gate state
+    # `$NOT_DEPLOYED not installed on this host` ALWAYS, including zero, precisely so a
+    # reader sees it (`qa-deployed-drift.bash:285-288`). Reducing its whole output to a
+    # `*skipped*` substring test discarded that number and printed "repo and host are in
+    # sync" over the top of `; 12 not installed on this host` — the m7/S1 pattern
+    # recurring, on the same check, for the third time. A never-deployed file is not drift
+    # by that gate's definition, so nothing else covers it.
     case "$drift_out" in
         *skipped*)
             bad "the drift gate SKIPPED and compared nothing — this is not a pass" \
                 "$drift_out"
             ;;
         *)
-            ok "repo and host are in sync"
+            # The count is carried through rather than summarised away. Non-zero is not a
+            # failure of this check — the host legitimately does not run every play — but
+            # it is the number that would have said "the client you are vouching for is
+            # not on this machine", so it is stated where the verdict is read.
+            not_deployed_clause=""
+            case "$drift_out" in
+                *"not installed on this host"*)
+                    not_deployed_clause="${drift_out#*match the repo; }"
+                    not_deployed_clause="${not_deployed_clause%% not installed on this host*}"
+                    ;;
+            esac
+            if [ -z "$not_deployed_clause" ]; then
+                bad "the drift gate did not state its not-installed count" \
+                    "Plan 00081 made that count unconditional; its absence means this check is reading output it does not understand: $drift_out"
+            elif [ "$not_deployed_clause" = "0" ]; then
+                ok "repo and host are in sync, with 0 repo-owned files not installed here"
+            else
+                note "$not_deployed_clause repo-owned file(s) are not installed on this host — not drift,"
+                note "  but not compared either. Check [3] names any of this plan's own clients among them."
+                ok "every deployed repo-owned file matches the repo"
+            fi
             ;;
     esac
 else
@@ -517,9 +632,16 @@ if [ "${#catalogue_duplicates[@]}" -ne 0 ]; then
     echo "  A repeated CHECK_CATALOGUE entry inflates the declared count, so the" >&2
     echo "  COVERAGE line understates its own coverage." >&2
 fi
-# The counts themselves, compared directly. The four named conditions above each
-# describe a KNOWN way they can disagree; this one holds whether or not the cause has a
-# name yet, which is the only form of this assertion that a fifth cause cannot walk past.
+# The counts themselves, compared directly. The four named conditions above each describe a
+# KNOWN way they can disagree; this holds whether or not the cause has a name yet.
+#
+# CORRECTION to what this comment used to claim. It said this was "the only form of this
+# assertion a fifth cause cannot walk past", and that overstates it: with `missing`,
+# `undeclared`, `duplicates` and `catalogue_duplicates` all empty, the two arrays are
+# repeat-free sets of the same elements, so their sizes MUST agree and this branch is
+# unreachable on its own. Four mutants confirmed it — COUNT MISMATCH printed only ever
+# alongside a named cause. It is a backstop against the four detectors themselves being
+# wrong, which is worth keeping and is a smaller claim than the one made here before.
 if [ "${#RAN_CHECKS[@]}" -ne "${#EXPECTED_CHECKS[@]}" ]; then
     echo "  COUNT MISMATCH: ${#RAN_CHECKS[@]} executed against ${#EXPECTED_CHECKS[@]} declared" >&2
     count_disagrees=1

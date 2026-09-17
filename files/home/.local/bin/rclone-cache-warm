@@ -96,13 +96,32 @@ if [[ "$FAST" == true ]]; then
     # Each mount runs its own RC server on its own port, so read the address
     # off this mount's rclone process rather than assuming the default.
     RC_ADDR=""
-    for pid in $(pgrep -f 'rclone mount' 2> /dev/null || true); do
+    # Bracketed first character, the repo's rule (rclone-rc-auth.bash:179 and its comment).
+    # pgrep excludes its own pid so no live false positive was constructed here, but the
+    # unbracketed form is one `ps | grep` refactor away from counting the caller, and the
+    # library and the acceptance gate both bracket it.
+    for pid in $(pgrep -f '[r]clone mount' 2> /dev/null || true); do
         if ! cmdline=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2> /dev/null); then
             continue
         fi
         case "$cmdline" in
             *" $MOUNT_POINT "* | *" $MOUNT_POINT")
-                RC_ADDR=$(grep -oE -- '--rc-addr=[^ ]+' <<< "$cmdline" | head -n1 | cut -d= -f2)
+                # grep exits 1 when the cmdline carries NO --rc-addr, which is the exact
+                # answer the check below wants — not a failure. Under `set -euo pipefail`
+                # an assignment from a failing pipeline kills the script, so the `-z`
+                # guard six lines down was UNREACHABLE: `--fast` against a mount started
+                # without --rc exited 1 silently, printing neither its own error nor the
+                # play to run. Captured explicitly instead.
+                #
+                # First match by expansion rather than `| head -n1`: a failing producer in
+                # a pipeline yields exit 0 and an empty value wherever the caller has
+                # `set -e` without pipefail, which is the same class of silent wrong answer.
+                if rc_addr_raw=$(grep -oE -- '--rc-addr=[^ ]+' <<< "$cmdline"); then
+                    RC_ADDR="${rc_addr_raw%%$'\n'*}"
+                    RC_ADDR="${RC_ADDR#--rc-addr=}"
+                else
+                    RC_ADDR=""
+                fi
                 break
                 ;;
         esac

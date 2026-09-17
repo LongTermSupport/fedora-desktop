@@ -101,7 +101,7 @@ fi
 
 # A non-zero exit is DATA, not a failure. Capture it and carry on.
 #
-# This is why the probes are NOT plan_gather_legs: "core/stats WITHOUT credentials returned
+# This is why the probes are NOT plan_gather_leg calls: "core/stats WITHOUT credentials returned
 # 401" is the plan's central finding and exits 1, so a leg would record the run's own
 # discovery as a failed leg and exit non-zero on a perfect run. A leg means the gathering
 # broke; a non-zero probe means the host answered.

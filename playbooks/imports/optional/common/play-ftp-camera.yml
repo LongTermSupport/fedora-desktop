@@ -451,6 +451,10 @@
             ftp-camera --push         direct push to rclone remote (synchronous)
             ftp-camera --copy         copy via mount + verify (caches locally)
                                       (--push and --copy require ftp_camera_rclone_remote)
+            ftp-camera --copy-preflight
+                                      everything --copy checks before it moves a
+                                      byte, then stop. Read-only; prints the RC
+                                      address it resolved
             ftp-camera --prune        remove RAW files whose JPG has been deleted
             ftp-camera --async        sort each upload by EXIF the moment it arrives
             ftp-camera --async-copy   sort + copy each upload into the local rclone

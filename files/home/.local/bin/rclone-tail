@@ -107,17 +107,31 @@ discover_mounts() {
 
         rc_addr=""
         # Find the rclone PID whose cmdline ends with this mount target.
-        # `pgrep -f 'rclone mount'` filters down the candidate set; we then
+        # `pgrep -f '[r]clone mount'` filters down the candidate set; we then
         # match the mountpoint as a literal token to avoid regex pitfalls
         # with paths.
-        for pid in $(pgrep -f 'rclone mount' 2>/dev/null || true); do
+        # Bracketed first character, the repo's rule (rclone-rc-auth.bash:179).
+        for pid in $(pgrep -f '[r]clone mount' 2>/dev/null || true); do
             if ! cmdline=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null); then
                 continue
             fi
             case "$cmdline" in
                 *" $target "*|*" $target")
-                    rc_addr=$(grep -oE -- '--rc-addr=[^ ]+' <<<"$cmdline" \
-                        | head -n1 | cut -d= -f2)
+                    # grep exits 1 when the flag is absent — a legitimate answer, not a
+                    # failure. Assigning from the failing pipeline under `set -euo
+                    # pipefail` kills the shell; here that is masked only because this
+                    # loop runs inside a pipeline subshell where errexit is suspended, so
+                    # the same line one refactor away is a silent death. The sibling copy
+                    # in rclone-cache-warm was not masked and did die.
+                    #
+                    # First match by expansion rather than `| head -n1`, which returns
+                    # exit 0 and an empty value when the producer fails without pipefail.
+                    if rc_raw=$(grep -oE -- '--rc-addr=[^ ]+' <<< "$cmdline"); then
+                        rc_addr="${rc_raw%%$'\n'*}"
+                        rc_addr="${rc_addr#--rc-addr=}"
+                    else
+                        rc_addr=""
+                    fi
                     break
                     ;;
             esac

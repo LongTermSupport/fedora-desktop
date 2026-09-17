@@ -107,28 +107,33 @@ into Plan 00094's own notes.
 
 - [x] ✅ **Task 5.1**: Write `acceptance.bash` — exercises the DEPLOYED scripts,
   not the repo copies, since a source-tree gate is what missed this last time
+
 - [x] ✅ **Task 5.2**: Confirm it FAILS before deploy — 9 failed / 1 passed, and
   the single pass was "RC rejects unauthenticated calls", i.e. exactly the
   broken state the host was in
+
 - [x] ✅ **Task 5.3**: Run `deploy.bash` on the host (both plays, clean)
+
 - [x] ✅ **Task 5.4**: Confirm `acceptance.bash` passes after deploy — ACCEPTED 10/10.
   The gate grew checks `[0]` and `[6b]` between the pre-deploy run above and this
   one, which is why the two totals do not reconcile against each other; the
   COVERAGE line the gate now prints exists so a reader never has to work that
   out from a bare pass count again
+
 - [x] ✅ **Task 5.5**: Run `./scripts/qa-all.bash` — passed, 441 files
+
 - [x] ✅ **Task 5.6**: Run the `qa-reviewer` agent over the full diff — FIX-BEFORE-MERGE
   (0 blocking, 3 should-fix, 8 minor, 3 nits); report in
   `subagent-reports/260916-qa-reviewer-opus-5.md`. Every finding actioned except
-  `m6`, which is outstanding by decision rather than oversight: converting the plan
-  scripts onto `_planlib.inc.bash` requires `plan_require_host` on `acceptance.bash`,
-  which would make the COVERAGE falsification harness impossible to run. That trade is
-  the owner's to settle — see the 14:28 handoff entry in
-  `JOURNAL/00099-Journal-26-09-16.md`.
+  `m6`: converting the plan scripts onto `_planlib.inc.bash` requires `plan_require_host`
+  on `acceptance.bash`, which would make the COVERAGE harness unrunnable. The owner's call
+  — see the 14:28 handoff entry in `JOURNAL/00099-Journal-26-09-16.md`.
+
 - [x] ✅ **Task 5.8**: Closing `qa-reviewer` round — FIX-BEFORE-MERGE (0 blocking,
   5 should-fix); report in `subagent-reports/260916-qa-reviewer-close-opus-5.md`.
   All five actioned, and three were this plan's own defect class recurring one
   level up:
+
   - **S1** — check [7] read `qa-deployed-drift.bash`'s documented SKIP as
     `PASS repo and host are in sync`, because all three skip paths exit 0. That is
     the `m7` fix (`✓`→`⚠`) being laundered straight back out by the consumer, and
@@ -153,12 +158,14 @@ into Plan 00094's own notes.
     worked because the operator happened to be standing at the root. Both
     `deploy.bash` and `triage.bash` are now on `_planlib.inc.bash`;
     `acceptance.bash` deliberately is not, and says why on the line
+
 - [x] ✅ **Task 5.7**: Deployed on the HOST — `play-rclone.yml` and
   `play-ftp-camera.yml`, via `deploy.bash`, then `acceptance.bash`. Checks 0–6b all
   PASS against a live mount: no deployed client calls `rclone rc` directly, and the
   authenticated `core/stats` and `vfs/refresh` calls both succeed. `COVERAGE: 9 of 9`,
   so the run is a complete one and the PASSes mean what they say. Superseded as
   evidence by Task 5.9 — the deployed files have changed since
+
 - [ ] ⬜ **Task 5.9 — RE-DEPLOY, because Tasks 5.8 and 5.10's fixes changed deployed
   files.** `ftp-camera` and `rclone-rc-auth.bash` both changed after Task 5.7's host
   run, so the host is running a build this repo no longer contains. That is the drift
@@ -166,19 +173,19 @@ into Plan 00094's own notes.
   would be the Plan 00094 failure repeated by this plan. Run `deploy.bash` then
   `acceptance.bash` again — or `untracked/meta-deploy.bash`, which runs this
   alongside every other waiting plan
-- [x] ✅ **Task 5.10**: Closing `qa-reviewer` rounds 2, 3, 4 and 5 — BLOCK, then
-  FIX-BEFORE-MERGE three times. Every finding actioned and each fix mutation-tested, with a
-  control proving the assertion does not fail on a correct build. One thread runs through
-  rounds 2–4: the gate kept vouching for `ftp-camera --copy` by approximating the client's
-  input, and each approximation was defeated by a different normalisation. Ended in round 4
-  by deleting the stand-in — `ftp-camera` grew `--copy-preflight`, the read-only half of
-  `--copy`, and check [6] invokes the client.
-  Round 5's blocking finding is the same defect one level out: check [6] called an
-  undefined `note`, so that branch exited 127 with no verdict — and the harness vouching
-  for check [6] had *grepped* the gate rather than running it. It now executes it. Round by
-  round, with the falsification evidence:
-  [JOURNAL/00099-Journal-26-09-16.md](JOURNAL/00099-Journal-26-09-16.md); the reviews are
-  in `subagent-reports/`
+
+- [x] ✅ **Task 5.10**: Closing `qa-reviewer` rounds 2–6 — BLOCK, then FIX-BEFORE-MERGE four
+  times. Each fix is mutation-tested with a control, in `falsification/` (see its README).
+  One thread runs through all five: a check that reads clean whether or not it looked.
+  Rounds 2–4, the gate approximated `ftp-camera --copy`'s input and each approximation was
+  defeated by a different normalisation; ended by deleting the stand-in. Rounds 5 and 6, a
+  call to an undefined `note` and a `grep` assignment that killed the run before the guard
+  written for that case — both on branches nothing had ever executed. Round by round:
+  [JOURNAL/](JOURNAL/); reviews in `subagent-reports/`.
+
+  **"Every finding actioned" was wrong when this said it.** Carried: `m6` from Task 5.6
+  (owner's call). Round-5 nits 8–10 went unactioned and unmentioned until round 6 named
+  them; all three are done now.
 
 ## Dependencies
 
@@ -267,6 +274,7 @@ Found while working, deliberately not addressed here:
 <!-- Curated milestones + delivery commit hashes only. Blow-by-blow lives in JOURNAL/. -->
 
 - Plan opened; root cause confirmed by triage (F1–F6)
+
 - **Delivery: `942fb724`** — the library, all four migrated clients, both plays, the drift
   gate and its `qa-all.bash` wiring, in one commit.
   **Its message says "Plan 00072", and that is not a mislabel of another plan**: this plan
@@ -275,10 +283,19 @@ Found while working, deliberately not addressed here:
   carried a `00072-Journal-…` file. `git log --grep=00099` therefore finds nothing, which
   is exactly how Task 5.6 nearly failed to locate its own diff. Recorded here so the next
   reader does not repeat the search.
+
 - `scripts/qa-deployed-drift.bash` has since been edited by Plans 00081, 00110 and 00122 —
   this plan owns its introduction, not its current state
+
 - **The delivery is not one commit, and treating it as one is what made the host go
-  stale.** Three later commits changed files that deploy to the host: `17819cda` (the
-  closing review's S1–S5, including `ftp-camera`'s address discovery), `510dbbf4` (round
-  2 — the library's mount-root normalisation) and `113fe2e1` (round 4 — `ftp-camera --copy-preflight`). Task 5.7's host run predates all of them, which is why Task 5.9
-  exists and why success criteria 1, 3 and 5 are unticked again
+  stale.** Task 5.7's host run was at 15:41; every commit after it that touched a deployed
+  file leaves the host behind again, which is why Task 5.9 exists and why success criteria
+  1, 3 and 5 are unticked. **The list is not written out here.** It was, twice, and was
+  wrong both times — it said "three" when there were five, and the commit that corrected
+  it did not add itself. Derive it instead:
+
+  ```bash
+  git log --format='%h %ad %s' --date=format:'%m-%d %H:%M' 942fb724..HEAD -- files/home/.local/bin/
+  ```
+
+  Anything in that output dated after 09-16 15:41 postdates the host run
