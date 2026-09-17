@@ -36,7 +36,7 @@
     # a default here would silently override the user's host_vars setting.
     # The variable is consumed via `| default('')` at the use sites below.
     # Set it in environment/localhost/host_vars/localhost.yml, e.g.:
-    #   ftp_camera_rclone_remote: "LTS-G-Drive:/PHOTO/LIBRARY"
+    #   ftp_camera_rclone_remote: "my-remote:/PHOTO/LIBRARY"
     # MUST point at the library ROOT (the parent of photos/ and videos/),
     # not at a media subfolder — ftp-camera --push/--copy ships the whole
     # local tree (photos/ and videos/ siblings) in one call.
@@ -475,7 +475,7 @@
 
           Optional rclone push: set ftp_camera_rclone_remote in host_vars
           to enable --push, --copy, and --async-copy. Must point at the library ROOT
-          (the parent of photos/ and videos/), e.g. "LTS-G-Drive:/PHOTO/LIBRARY".
+          (the parent of photos/ and videos/), e.g. "my-remote:/PHOTO/LIBRARY".
           Currently configured: {{ ftp_camera_rclone_remote | default('(unset)') }}
 
           Sort layout (mirrors library):
