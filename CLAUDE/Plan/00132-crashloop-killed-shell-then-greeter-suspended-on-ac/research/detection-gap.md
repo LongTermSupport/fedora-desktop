@@ -218,3 +218,50 @@ why restart churn is a desktop-stability problem and not merely untidy.
 
 The first row is the one that must be executed **before** the loop is stopped, per the
 ordering above. It is the only true positive available without synthesising one.
+
+## The true positive, captured
+
+**This has now been done, and the result is recorded here because it cannot be
+reproduced once the container is stopped.**
+
+`detect-crashloop.bash` in this plan folder implements the algorithm above exactly and was
+run against the live loop. It is read-only and anonymises container names, which is what
+makes its output quotable in this tracked, public repository.
+
+```
+sample interval   : 45s
+rate threshold    : 3 restart(s) per 45s  (= 10 per 120s production tick)
+absolute threshold: 1000 cumulative restarts
+
+ok       container-A  cumulative=0      delta=0
+ok       container-B  cumulative=1      delta=0
+…
+ok       container-J  cumulative=19     delta=0
+FLAGGED  container-L  RATE (98 restarts in 45s, threshold 3)
+                    + ABSOLUTE (128505 cumulative, threshold 1000)
+ok       container-M  cumulative=0      delta=0
+
+RESULT: 1 container(s) FLAGGED — detection fired.
+```
+
+Thirteen containers, **one** flagged, **zero** false positives. Three properties of that
+result matter more than the fact that it fired:
+
+1. **Both conditions triggered independently.** The rate test and the absolute test each
+   caught it on their own, so neither is load-bearing alone — which is what makes the
+   absolute test a genuine first-tick safety net rather than decoration.
+2. **`container-J` was not flagged.** It carries 19 lifetime restarts — real churn from
+   real failures — and sat correctly below both thresholds with a zero delta. This is the
+   nearest thing on the host to a borderline case, and the thresholds cleared it by a wide
+   margin. The gap between 19 and 128,505 is where the threshold lives, and it is enormous.
+3. **Every other container returned a delta of exactly zero.** The discriminator is not
+   "the offender is high"; it is that a healthy host is *completely* static on this metric.
+
+The rate had risen to ~130 restarts/minute by this sample, from ~66/minute when the
+incident was first triaged. The loop is not steady, it is accelerating.
+
+**What is still owed:** this is a prototype, not the shipped defence. Task 5.1 must port
+the algorithm into `helpers/containerwatch` with its tests, and the **true negative** (Task
+5.5 — stop the loop, confirm the detection goes quiet) is the half of the validation pair
+that has not been observed. The true positive was the perishable half, and it is now
+banked.
