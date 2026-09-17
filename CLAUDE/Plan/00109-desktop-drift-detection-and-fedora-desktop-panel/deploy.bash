@@ -110,8 +110,6 @@ plan_require_host "it runs Ansible against this machine's systemd user manager, 
 plan_prime_sudo
 plan_start_log auto
 
-plan_gate_change "python3-pyyaml installed for the system interpreter; the login-time health unit deployed and ENABLED against graphical-session.target on a desktop profile (or the host-health-collect timer enabled and started plus a ~/.bashrc-includes snippet on a server profile), with the other profile's units and symlinks removed; the fedora-desktop panel extension copied into the user's extensions tree and its uuid MERGED into org.gnome.shell enabled-extensions; the rootless libvirt/QEMU lab stack installed and the scenario manifest, allowlist and guest scripts rendered into the lab tree; and the DisplayLink vendor RPM, a DKMS autoinstall, the recovery helper tree, its dock udev rule and its suspend service — which can require a MOK enrolment and a reboot"
-
 # BEFORE the plays, not after: the ledger records each play as it runs, and while a
 # BROKEN sentinel is live it records nothing. Clearing afterwards would leave this very
 # deploy's four plays unrecorded — the hole would be closed and immediately re-opened for

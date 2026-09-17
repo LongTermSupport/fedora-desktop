@@ -60,8 +60,6 @@ plan_require_host "it runs Ansible against this machine's GNOME session and dcon
 plan_prime_sudo
 plan_start_log auto
 
-plan_gate_change "extension packages installed where absent, extensions fetched and their schemas compiled, the custom extension copied, and every deployed UUID ADDED to org.gnome.shell enabled-extensions (nothing removed), then Space Bar and Dash to Dock dconf keys written"
-
 plan_deploy_leg "play-gnome-shell-extensions.yml" \
     plan_ansible_playbook playbooks/imports/play-gnome-shell-extensions.yml
 

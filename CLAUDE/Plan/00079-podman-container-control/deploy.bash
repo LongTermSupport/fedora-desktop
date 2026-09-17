@@ -7,7 +7,7 @@
 # error". A deploy whose verification is a separate command the human has to
 # remember is a deploy that routinely goes unverified.
 #
-# Usage: deploy.bash [-y|--yes] [--no-verify] [--help]
+# Usage: deploy.bash [--no-verify] [--help]
 
 set -uo pipefail
 scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -35,9 +35,8 @@ for arg in "$@"; do
             cat << 'EOF'
 Plan 00079 — deploy podfreeze (HOST ONLY)
 
-Usage: deploy.bash [-y|--yes] [--no-verify] [--help]
+Usage: deploy.bash [--no-verify] [--help]
 
-  -y, --yes     do not ask for confirmation
   --no-verify   deploy only; do not run acceptance.bash afterwards
 
 Runs two plays, then hands over to acceptance.bash and exits with its verdict:
@@ -57,9 +56,6 @@ until they are relaunched. podfreeze still reaches them via --ccy (the
 <project>_yolo[_N] name), but not via --github/--token/--ssh-key.
 EOF
             exit 0
-            ;;
-        -y | --yes)
-            PLAN_ASSUME_YES=1
             ;;
         --no-verify)
             VERIFY=0
@@ -128,11 +124,6 @@ echo "image is rebuilt, and no container is started, stopped, frozen, or"
 echo "thawed. Sessions already running keep the old launcher's behaviour"
 echo "until they are relaunched, so they carry no labels yet."
 echo
-
-# R5/R8: the gate goes through the library, never a bare `read`. The run log is
-# open by now, so a hand-rolled partial-line prompt would block-buffer in the tee
-# pipeline and the run would wedge with nothing on screen. -y/--yes still skips it.
-plan_gate_change "the CCY launcher and the podfreeze command are deployed to this machine" || exit 1
 
 # Sequential and fail-fast: the second play deploys a tool that depends on what
 # the first one installs, so running it after a failure would deploy a selector

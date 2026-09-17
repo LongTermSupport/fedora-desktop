@@ -7,8 +7,8 @@
 #
 # EFFECT ON THE HOST: play-claude-yolo.yml reconciles the whole CCY install — launcher,
 # lib/, image build context, skills, bashrc includes — not only the one new library. It can
-# trigger a container image rebuild if the image is behind. Gated before anything mutates
-# (R8). tmux itself is already installed by play-tmux-sessions.yml (Plan 00105) and is not
+# trigger a container image rebuild if the image is behind. The host cc wrapper is
+# redeployed alongside it by play-claude-code.yml. tmux itself is already installed by play-tmux-sessions.yml (Plan 00105) and is not
 # touched here.
 #
 # Usage: ./deploy.bash [-h|--help] [--check]
@@ -29,7 +29,7 @@ done
     exit 1
 }
 # shellcheck source-path=SCRIPTDIR
-# shellcheck source=../_planlib.inc.bash
+# shellcheck source=../../_planlib.inc.bash
 source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
 
@@ -54,8 +54,6 @@ fi
 plan_require_host "it runs Ansible against this machine's CCY install"
 plan_prime_sudo
 plan_start_log auto
-
-plan_gate_change "CCY launcher and lib/ redeployed to /var/local/claude-yolo (whole play-claude-yolo.yml reconciled; may rebuild the image); host cc wrapper redeployed by play-claude-code.yml"
 
 plan_deploy_leg "play-claude-yolo.yml" \
     plan_ansible_playbook playbooks/imports/play-claude-yolo.yml

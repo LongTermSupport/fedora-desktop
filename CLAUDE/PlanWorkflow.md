@@ -80,7 +80,7 @@ for when they are mandatory:
 **Build these on the sourced library, do not hand-roll them.** Source
 [`CLAUDE/Plan/_planlib.inc.bash`](Plan/_planlib.inc.bash) and use its primitives
 (`plan_init`, `plan_mode`, `plan_require_host`, `plan_prime_sudo`,
-`plan_start_log`, `plan_gate_change`, `plan_ansible_playbook`,
+`plan_start_log`, `plan_ansible_playbook`,
 `plan_deploy_leg`/`plan_gather_leg`, `plan_finish`). The rules, the canonical
 bootstrap, and reference skeletons are in
 [**PlanScriptStandards.md**](PlanScriptStandards.md).
@@ -128,10 +128,11 @@ reconstruct.
 So, for any plan whose remaining work touches the host:
 
 - **`deploy.bash` is mandatory.** Everything the host needs, in the order it needs it,
-  with `plan_gate_change` naming what will change. Never a list of `ansible-playbook`
-  lines in a message — the same rule [PlanTriage.md](PlanTriage.md) already sets for
-  probes, for the same reason: a command in chat is a command nobody can re-run,
-  review, or correct.
+  with its **header comment** naming what the run changes. Never a list of
+  `ansible-playbook` lines in a message — the same rule [PlanTriage.md](PlanTriage.md)
+  already sets for probes, for the same reason: a command in chat is a command nobody
+  can re-run, review, or correct. It does **not** stop to ask permission to proceed:
+  running it is the consent (R8).
 - **`acceptance.bash` is mandatory**, and it renders the verdict `deploy.bash` must not
   (R9). It carries a **coverage line** — `COVERAGE: n of m checks executed` — and
   **rejects an incomplete run even with zero failures**. A gate that skipped half its

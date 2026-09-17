@@ -5,7 +5,7 @@
 # HOST ONLY (CLAUDE/PlanScriptStandards.md R2) — Ansible never runs in the CCY container.
 #
 # EFFECT ON THE HOST: play-comms.yml enables Flathub, installs or updates the Slack
-# Flatpak, and applies the override this plan is about. Gated before anything mutates (R8).
+# Flatpak, and applies the override this plan is about: filesystems=home:ro.
 # Slack must be restarted afterwards for a running instance to pick up the new sandbox.
 #
 # Usage: ./deploy.bash [-h|--help] [--check]
@@ -26,7 +26,7 @@ done
     exit 1
 }
 # shellcheck source-path=SCRIPTDIR
-# shellcheck source=../_planlib.inc.bash
+# shellcheck source=../../_planlib.inc.bash
 source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
 
@@ -51,8 +51,6 @@ fi
 plan_require_host "it runs Ansible against this machine's Flatpak installation"
 plan_prime_sudo
 plan_start_log auto
-
-plan_gate_change "Slack Flatpak override filesystems=home:ro; Flathub remote and Slack install reconciled"
 
 plan_deploy_leg "play-comms.yml" \
     plan_ansible_playbook playbooks/imports/play-comms.yml

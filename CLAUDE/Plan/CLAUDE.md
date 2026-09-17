@@ -35,7 +35,7 @@ unscrubbed and can never be committed, so the rule that says so should be the
 travel into `Completed/` has no reason to sit among the files that do.
 
 **Build these on [`_planlib.inc.bash`](_planlib.inc.bash)** — source it and use its primitives
-rather than hand-rolling the repo-root walk, the run log, the prompts, the change gate or the
+rather than hand-rolling the repo-root walk, the run log, the prompts or the
 ansible invocation. Rules, bootstrap and skeletons:
 [`../PlanScriptStandards.md`](../PlanScriptStandards.md).
 

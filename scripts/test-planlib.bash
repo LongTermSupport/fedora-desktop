@@ -343,31 +343,18 @@ PLAN_SUDO_CMD=(sudo)
 PLAN_MODE="deploy"
 PLAN_SUDO_PRIMED=0
 
-# ── the change gate ──────────────────────────────────────────────────────────────────────
-
-PLAN_MODE="gather"
-run_capture plan_gate_change "something"
-assert_eq "gate_change is refused in gather mode (a read-only run has nothing to gate)" "1" "${RC}"
-assert_contains "the refusal explains why a read-only run must not gate" "read-only" "${OUT}"
-
-PLAN_MODE=""
-run_capture plan_gate_change "something"
-assert_eq "gate_change requires a declared mode" "1" "${RC}"
-
+# ── there is no change gate, and that is asserted ────────────────────────────────────────
+#
+# The library once made every deploy stop and wait for the operator to type
+# "change-this-machine". It was removed: running deploy.bash is itself the consent, and a
+# prompt arriving minutes into an unattended batch reads as a hang rather than a question.
+# Asserted rather than merely deleted, so a future reintroduction fails here instead of
+# quietly returning the pause to every deploy in the tree.
 PLAN_MODE="deploy"
-PLAN_CHECK=1
-PLAN_GATE_PASSED=0
-run_capture plan_gate_change "a dry run"
-assert_eq "gate_change auto-passes under --check (a dry run changes nothing)" "0" "${RC}"
-assert_eq "the auto-pass records the gate as passed" "1" "${PLAN_GATE_PASSED}"
-PLAN_CHECK=0
-
-PLAN_GATE_PASSED=0
-PLAN_ASSUME_YES=1
-run_capture plan_gate_change "an explicitly consented change"
-assert_eq "gate_change honours -y/PLAN_ASSUME_YES without a tty" "0" "${RC}"
-assert_eq "the -y pass records the gate as passed" "1" "${PLAN_GATE_PASSED}"
-PLAN_ASSUME_YES=0
+run_capture declare -F plan_gate_change
+assert_eq "plan_gate_change does not exist (see PlanScriptStandards.md R9)" "1" "${RC}"
+run_capture declare -F _plan_assert_change_allowed
+assert_eq "its enforcement backstop does not exist either" "1" "${RC}"
 
 # ── ansible guards (no ansible is invoked; the refusals happen first) ─────────────────────
 
@@ -413,19 +400,15 @@ cd "${REPO_ROOT}" || {
 }
 PATH="${ORIG_PATH}"
 
-# In deploy mode nothing may reach ansible until the gate has passed — the backstop for a
-# script that forgets plan_gate_change.
+# A deploy-mode ansible run needs no gate to have passed first — there is no gate. What
+# still has to hold is that the play exists and the mode was declared.
 PLAY="${TMPROOT}/f/repo/CLAUDE/Plan/00007-init/play.yml"
 : >"${PLAY}"
 PLAN_MODE="deploy"
-PLAN_GATE_PASSED=0
-run_capture plan_ansible_playbook "${PLAY}"
-assert_eq "a deploy-mode play is refused before the change gate passes" "1" "${RC}"
-assert_contains "the refusal names the gate the script must call" "plan_gate_change" "${OUT}"
-run_capture plan_ansible_adhoc localhost -m ping
-assert_eq "a deploy-mode ad-hoc run is refused before the change gate passes" "1" "${RC}"
+run_capture plan_ansible_playbook "${TMPROOT}/f/repo/CLAUDE/Plan/00007-init/absent.yml"
+assert_eq "a play that does not exist is refused" "1" "${RC}"
+assert_contains "the refusal names the missing playbook" "not found" "${OUT}"
 PLAN_MODE=""
-PLAN_GATE_PASSED=0
 
 # ── legs ─────────────────────────────────────────────────────────────────────────────────
 
@@ -450,7 +433,6 @@ assert_eq "gather_leg is refused in deploy mode" "1" "${RC}"
 OUT="$(bash -c "
     source '${LIB}'
     PLAN_MODE=deploy
-    PLAN_GATE_PASSED=1
     plan_deploy_leg 'canary' false
     printf 'REACHED-NEXT-LEG'
 " 2>&1)"
@@ -464,7 +446,6 @@ assert_contains "a failed deploy leg says it is aborting" "ABORT" "${OUT}"
 OUT="$(bash -c "
     source '${LIB}'
     PLAN_MODE=deploy
-    PLAN_GATE_PASSED=1
     captured=\$(plan_deploy_leg 'in-substitution' true)
     printf 'REACHED-NEXT-LEG %s' \"\${captured}\"
 " 2>&1)"

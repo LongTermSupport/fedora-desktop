@@ -85,8 +85,6 @@ plan_require_host "it runs Ansible, which installs a package and writes both fre
 plan_prime_sudo
 plan_start_log auto
 
-plan_gate_change "fzf installed if absent; ~/.local/lib/freeze/freeze-common.bash written (0644, new file); ~/.local/bin/podfreeze and ~/.local/bin/lxcfreeze written (0755) — podfreeze is REPLACED by its post-extraction build; the pre-rename ~/.local/bin/podman-freeze removed if present. No container is frozen, thawed, started or stopped"
-
 # podfreeze first — see ORDER IS DELIBERATE above. A failed leg aborts the run, so a
 # broken library deploy never reaches the second play (R7).
 plan_deploy_leg "play-podfreeze.yml — podfreeze plus the shared freeze library and fzf" \

@@ -144,7 +144,7 @@ the latter was true once, stopped being true, and would send a reader off to bui
 one. If committing plan run logs ever becomes worthwhile, wire that scrubber in **first**, in
 the same change that moves them back under version control.
 
-### R5 — Prompts: `plan_confirm` / `plan_gate_change` only
+### R5 — Prompts: `plan_confirm` only
 
 A bare `read` after `plan_start_log` is forbidden: ansible legs drain the inherited stdin so a
 later plain `read` misfires, and a promptless partial line block-buffers in the tee pipeline so
@@ -156,8 +156,12 @@ unbuffered, bypasses the tee, and races *ahead* of buffered output so the prompt
 its own banner. Never hand-roll a `printf … >/dev/tty` prompt.
 
 For genuinely interactive helpers the bounded-retry UX rules in
-[InteractiveScripts.md](InteractiveScripts.md) apply; a plan orchestrator's gate is a
-single typed confirmation, not a retry loop — a wrong answer aborts before anything changes.
+[InteractiveScripts.md](InteractiveScripts.md) apply; a plan orchestrator asks a single
+specific question and takes a wrong answer as an abort, not as a retry.
+
+`plan_confirm` is for a question a script genuinely needs answered — which of two hosts,
+whether to destroy a named artefact it found. It is **not** for a blanket "may I proceed?";
+see R8.
 
 ### R6 — Ansible: `plan_ansible_playbook` / `plan_ansible_adhoc`, from the repo root
 
@@ -189,15 +193,36 @@ its abort would terminate only the subshell and control would flow on to the nex
 run would look aborted while actually continuing. The library detects that misuse via
 `BASH_SUBSHELL` and takes the whole run down rather than half-obeying.
 
-### R8 — Gate on state-change, not on target
+### R8 — No blanket confirmation prompt; running the script IS the consent
 
-A state-changing script calls `plan_gate_change '<what changes>'` once, before its first
-mutating leg. There is no safe environment to practise on here — the target *is* the
-operator's own workstation — so the axis that carries meaning is whether the run changes
-anything. A read-only gather must **not** gate: a play that changes nothing has nothing to
-gate, and a pointless prompt teaches operators to type through gates. `--check` auto-passes.
-`_plan_assert_change_allowed` is the backstop: in deploy mode nothing reaches ansible until the
-gate has passed.
+A deploy script must **not** stop and ask the operator to confirm that it may change the
+machine. Invoking a script whose name and header both say it deploys is already an
+unambiguous statement of intent, and a second in-script prompt conveys nothing the
+invocation did not carry. It also costs: in a batch run the prompt arrives minutes in, long
+after anyone is watching, so it reads as a hang rather than a question. And a gate people
+learn to type through stops being a gate — it trains the very reflex it exists to interrupt.
+
+The library once had `plan_gate_change` for this. It has been removed, and
+`scripts/test-planlib.bash` asserts it stays removed. Do not reintroduce it, in the library
+or hand-rolled in a plan script.
+
+What **does** protect a state-changing run is structural rather than conversational:
+
+- **`plan_mode deploy` vs `plan_mode gather`** (R7) — the run declares whether it changes
+  anything, and the wrong leg-runner for the declared mode is a hard error. A read-only
+  script cannot mutate by accident because `plan_deploy_leg` refuses to run in `gather`.
+- **`--check`** — the dry run is the rehearsal, and it is a flag rather than a prompt, so it
+  is available to an unattended caller as well as to a human.
+- **`plan_require_host`** (R2) — the run refuses to proceed anywhere but the HOST, which is
+  the mistake that actually costs something; a container answer about the operator's
+  workstation is a confident wrong one.
+
+What the gate's description string used to say — *what this run changes* — is still owed to
+the reader. Put it in the script's header comment, where it is legible before the run starts
+rather than only once it is under way.
+
+`plan_confirm` stays available for a **specific** question a script cannot answer itself
+(R5). "May I proceed?" is not such a question.
 
 ### R9 — Triage gathers facts; acceptance renders the verdict
 

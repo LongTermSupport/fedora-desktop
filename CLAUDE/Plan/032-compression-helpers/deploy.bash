@@ -6,9 +6,11 @@
 # Phase 4 was six things for a human to try by hand, and acceptance.bash now asserts all
 # six, so this script plus that gate is the whole remainder.
 #
-# WHAT THIS CHANGES: the change gate below names it. The part that is not a file copy —
-# /usr/local/bin/ouch is a SYMLINK written with force:true, so an existing ouch symlink at
-# that path is repointed at the pinned version.
+# WHAT THIS CHANGES: the pinned ouch static binary is downloaded to /opt/ouch-<version>/,
+# and /usr/local/bin/compress and /usr/local/bin/uncompress are written 0755 root:root.
+# The part that is not a file copy — /usr/local/bin/ouch is a SYMLINK written with
+# force:true, so an existing ouch symlink at that path is REPOINTED at the pinned version.
+# No archive anywhere on this host is created, extracted or modified.
 #
 # The play PREFLIGHTS the ncompress package and refuses while it is installed, because that
 # package ships /usr/bin/compress and /usr/bin/uncompress. That refusal is the play's, not
@@ -77,8 +79,6 @@ fi
 plan_require_host "it runs Ansible, which writes to /opt, /usr/local/bin and queries this machine's rpm database"
 plan_prime_sudo
 plan_start_log auto
-
-plan_gate_change "the pinned ouch static binary downloaded to /opt/ouch-<version>/ and /usr/local/bin/ouch REPOINTED at it (force:true, so an existing symlink there is replaced); /usr/local/bin/compress and /usr/local/bin/uncompress written 0755 root:root. The play REFUSES and changes nothing if the ncompress package is installed, since that package owns /usr/bin/compress. No archive anywhere on this host is created, extracted or modified"
 
 plan_deploy_leg "${PLAY} — leg 1, converge" \
     plan_ansible_playbook "${PLAY}"

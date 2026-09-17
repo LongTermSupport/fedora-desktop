@@ -25,7 +25,12 @@
 # run. Run it after this.
 #
 # WHAT THIS CHANGES: everything play-browsers.yml does, which is more than this plan's
-# part — the change gate below names it. The part that is not a file edit: a stale Google
+# part. gnupg2 is installed if absent; Google's published signing key is written to
+# /etc/pki/rpm-gpg/RPM-GPG-KEY-google-chrome; /etc/default/google-chrome is written with
+# repo_add_once=false so Chrome's own scriptlet stops re-adding its repository;
+# /etc/yum.repos.d/google-chrome.repo is written to point at the local key; and
+# google-chrome-stable, brave-browser and vivaldi-stable are installed if absent, the last
+# two adding their own repositories. The part that is not a file edit: a stale Google
 # key is ERASED FROM THE RPM KEYRING and the published one IMPORTED INTO IT. That keyring
 # is what rpm and dnf verify every package against, and the change persists.
 #
@@ -95,8 +100,6 @@ fi
 plan_require_host "it runs Ansible against this machine's rpm keyring, /etc/pki/rpm-gpg, /etc/yum.repos.d and dnf"
 plan_prime_sudo
 plan_start_log auto
-
-plan_gate_change "gnupg2 installed if absent; Google's published signing key written to /etc/pki/rpm-gpg/RPM-GPG-KEY-google-chrome; a STALE Google key ERASED FROM THIS HOST'S RPM KEYRING and the published one IMPORTED INTO IT — that keyring is what rpm and dnf verify every package against, and the change persists; /etc/default/google-chrome written with repo_add_once=false so Chrome's own scriptlet stops re-adding its repository; /etc/yum.repos.d/google-chrome.repo written to point at the local key; and google-chrome-stable, brave-browser and vivaldi-stable installed if absent, the last two adding their own repositories"
 
 plan_deploy_leg "${PLAY} — leg 1, converge" \
     plan_ansible_playbook "${PLAY}"

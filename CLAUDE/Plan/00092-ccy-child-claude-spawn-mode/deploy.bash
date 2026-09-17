@@ -45,8 +45,6 @@ plan_prime_sudo
 
 plan_start_log auto
 
-plan_gate_change "install the CCY launcher, entrypoint, Dockerfile and skills into /opt/claude-yolo and /var/local/claude-yolo (idempotent)"
-
 plan_deploy_leg "play-claude-yolo.yml" \
     plan_ansible_playbook playbooks/imports/play-claude-yolo.yml
 

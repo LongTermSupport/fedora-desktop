@@ -14,8 +14,8 @@
 # check that did not run is not a check that passed.
 #
 # STANDARD-EXCEPTION(R7): declared 'gather' though it changes state. What it changes it
-# created and destroys, and declaring 'deploy' would demand plan_gate_change (R8) —
-# prompting for consent to a machine change before a read of what the last deploy did.
+# created and destroys, so nothing on this host outlives the run — declaring 'deploy'
+# would mark it as changing the machine when it only reads what the last deploy did.
 #
 # STANDARD-EXCEPTION(R9): ends on an explicit exit, not plan_finish. The verdict is
 # THREE-valued and plan_finish exits 0 or 1, so a probe that never ran would have to be

@@ -9,7 +9,10 @@
 # ftp-camera is deployed by play-ftp-camera.yml; the rclone helpers and the
 # shared credential library by play-rclone.yml. Both, or the fix is partial.
 #
-# play-rclone.yml REWRITES the mount units and RESTARTS the mounts, which
+# WHAT IT CHANGES ON THE HOST: the rclone RC credential file and the shared
+# rclone-rc-auth.bash library are written; rclone-cache-status, rclone-cache-warm
+# and rclone-tail are replaced with their migrated forms; ftp-camera likewise.
+# play-rclone.yml REWRITES every rclone mount unit and RESTARTS the mounts, which
 # interrupts the VFS write-back queue. This script refuses to run while an
 # ftp-camera process is in flight.
 #
@@ -118,8 +121,6 @@ fi
 
 plan_prime_sudo
 plan_start_log auto
-
-plan_gate_change "the rclone RC credential file and the shared rclone-rc-auth.bash library written; rclone-cache-status, rclone-cache-warm and rclone-tail replaced with their migrated forms; every rclone mount unit REWRITTEN and the mounts RESTARTED, which interrupts the VFS write-back queue; and ftp-camera replaced with its migrated form"
 
 plan_deploy_leg "play-rclone.yml" \
     plan_ansible_playbook "${PLAY_RCLONE}"

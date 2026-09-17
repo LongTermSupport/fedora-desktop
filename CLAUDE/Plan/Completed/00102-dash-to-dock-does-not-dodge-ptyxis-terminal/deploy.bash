@@ -7,7 +7,7 @@
 #
 # EFFECT ON THE HOST: play-gnome-shell-extensions.yml installs/updates every listed GNOME
 # Shell extension and may restart the Shell if an extension download happens, besides
-# writing the one dconf key this plan is about. Gated before anything mutates (R8).
+# writing the one dconf key this plan is about: intellihide-mode -> ALL_WINDOWS.
 #
 # Usage: ./deploy.bash [-h|--help] [--check]
 set -euo pipefail
@@ -27,7 +27,7 @@ done
     exit 1
 }
 # shellcheck source-path=SCRIPTDIR
-# shellcheck source=../_planlib.inc.bash
+# shellcheck source=../../_planlib.inc.bash
 source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
 
@@ -52,8 +52,6 @@ fi
 plan_require_host "it runs Ansible against this machine's GNOME session"
 plan_prime_sudo
 plan_start_log auto
-
-plan_gate_change "Dash to Dock intellihide-mode -> ALL_WINDOWS; every extension in play-gnome-shell-extensions.yml reconciled (may restart GNOME Shell)"
 
 plan_deploy_leg "play-gnome-shell-extensions.yml" \
     plan_ansible_playbook playbooks/imports/play-gnome-shell-extensions.yml

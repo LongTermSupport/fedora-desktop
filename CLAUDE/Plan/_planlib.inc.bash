@@ -145,7 +145,7 @@ if [[ -n "${PLANLIB_SOURCED:-}" ]]; then
     return 0
 fi
 
-PLANLIB_VERSION="1.3.0"
+PLANLIB_VERSION="1.4.0"
 PLANLIB_SOURCED=1
 export PLANLIB_VERSION
 
@@ -156,7 +156,6 @@ PLAN_MODE=""
 PLAN_LOG_STARTED=0
 PLAN_RUN_DIR=""
 PLAN_RUN_LOG=""
-PLAN_GATE_PASSED=0
 PLAN_SUDO_PRIMED=0
 PLAN_CHECK="${PLAN_CHECK:-0}"
 PLAN_ASSUME_YES="${PLAN_ASSUME_YES:-0}"
@@ -186,7 +185,7 @@ PLAN_SUDO_CMD=(sudo)
 # Exported so a plan script (or a play it invokes) can read the run's declared state without
 # re-deriving it. PLAN_SUDO_PRIMED in particular lets a leg decide whether an unattended
 # `become` task can be expected to succeed.
-export PLAN_MODE PLAN_CHECK PLAN_GATE_PASSED PLAN_SUDO_PRIMED
+export PLAN_MODE PLAN_CHECK PLAN_SUDO_PRIMED
 
 # ── internals: loud failure and banners ──────────────────────────────────────────────────
 
@@ -601,47 +600,10 @@ plan_confirm() {
     return 1
 }
 
-# plan_gate_change <description> — the one gate a state-changing run passes before its first
-# mutating leg.
+# There is NO blanket confirmation prompt before a deploy, by design: running `deploy.bash`
+# is itself the consent. See PlanScriptStandards.md R9.
 #
-# The axis is whether THE RUN changes state, not which environment it targets: this repo
-# configures the operator's OWN workstation, so there is no safe environment to practise on
-# and no "prod" to single out. `plan_mode deploy` gates once; `plan_mode gather` must not gate
-# at all, because a read-only play changes nothing and a pointless prompt teaches operators to
-# type through gates.
-#
-# Skipped under --check: a dry run changes nothing.
-plan_gate_change() {
-    local desc="${1:-a change to this machine}"
-    if [[ "${PLAN_MODE}" == "gather" ]]; then
-        _plan_err "plan_gate_change called in gather mode — a read-only run changes nothing, so there is nothing to gate. Use 'plan_mode deploy' for a state-changing run." || return 1
-    fi
-    if [[ "${PLAN_MODE}" != "deploy" ]]; then
-        _plan_err "plan_gate_change requires 'plan_mode deploy' to be declared first (mode is '${PLAN_MODE:-unset}')" || return 1
-    fi
-    if [[ "${PLAN_CHECK}" == "1" ]]; then
-        printf '==> [--check] change gate for "%s" auto-passed (a dry run changes nothing)\n' "${desc}"
-        PLAN_GATE_PASSED=1
-        export PLAN_GATE_PASSED
-        return 0
-    fi
-    if plan_confirm "THIS MACHINE WILL BE CHANGED: ${desc}." "change-this-machine"; then
-        PLAN_GATE_PASSED=1
-        export PLAN_GATE_PASSED
-        return 0
-    fi
-    _plan_err "change gate not confirmed — aborting before the first mutating leg" || return 1
-}
-
-# _plan_assert_change_allowed — the last line of defence. In deploy mode nothing may reach
-# ansible until the gate has passed, so a script that forgets plan_gate_change fails here
-# instead of reconfiguring the machine unannounced. Gather mode passes straight through.
-_plan_assert_change_allowed() {
-    if [[ "${PLAN_MODE}" == "deploy" ]] && [[ "${PLAN_GATE_PASSED}" -ne 1 ]]; then
-        _plan_err "a deploy-mode ansible run was attempted before the change gate passed — call plan_gate_change '<what changes>' first" || return 1
-    fi
-    return 0
-}
+# `plan_confirm` remains for a script that must ask something specific.
 
 # ── ansible (plain and local; ansible.cfg supplies inventory and vault) ───────────────────
 
@@ -667,7 +629,6 @@ plan_ansible_playbook() {
     if [[ ! -e "${resolved}" ]]; then
         _plan_err "playbook not found: ${resolved}" || return 1
     fi
-    _plan_assert_change_allowed || return 1
     (
         cd "${PLAN_REPO_ROOT}" || exit 1
         exec ansible-playbook "${PLAN_CHECK_ARGS[@]+"${PLAN_CHECK_ARGS[@]}"}" "${play}" "$@" </dev/null
@@ -680,7 +641,6 @@ plan_ansible_adhoc() {
     if [[ -z "${PLAN_REPO_ROOT}" ]]; then
         _plan_err "plan_ansible_adhoc called before plan_init" || return 1
     fi
-    _plan_assert_change_allowed || return 1
     (
         cd "${PLAN_REPO_ROOT}" || exit 1
         exec ansible -v "${PLAN_CHECK_ARGS[@]+"${PLAN_CHECK_ARGS[@]}"}" "$@" </dev/null
@@ -780,7 +740,7 @@ plan_finish() {
 # rest in PLAN_REMAINING_ARGS. Set PLAN_USAGE first to get a useful --help.
 #
 #   --check     thread --check into every ansible invocation (dry run)
-#   -y|--yes    consent non-interactively (skips plan_confirm / plan_gate_change prompts)
+#   -y|--yes    consent non-interactively (skips any plan_confirm prompt)
 #   -h|--help   print PLAN_USAGE and stop
 plan_parse_common_flags() {
     PLAN_REMAINING_ARGS=()

@@ -54,10 +54,6 @@ plan_require_host "it deploys systemd, udev and logind configuration to the live
 plan_prime_sudo
 plan_start_log auto
 
-plan_gate_change "suspend/lid/wakeup policy on THIS machine: logind lid config, UPower
-IgnoreLid, a udev rule disarming AC and USB-C power-delivery wakeup sources, a system-sleep
-hook that re-issues an aborted suspend, and GNOME battery idle-suspend"
-
 plan_deploy_leg "suspend and lid policy" \
     plan_ansible_playbook playbooks/imports/play-suspend-and-lid-policy.yml
 

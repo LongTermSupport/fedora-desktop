@@ -12,7 +12,7 @@
 # installs the helper package under /usr/local/lib, generates the lab SSH keypair and the
 # bridge's HMAC signing key (both only if absent), and enables six user units: the bridge
 # path/service, its heartbeat timer and the nightly timer. It does not build a base or
-# boot anything. Gated before anything mutates (R8).
+# boot anything.
 #
 # Usage: ./deploy.bash [-h|--help] [--check]
 set -euo pipefail
@@ -32,7 +32,7 @@ done
     exit 1
 }
 # shellcheck source-path=SCRIPTDIR
-# shellcheck source=../_planlib.inc.bash
+# shellcheck source=../../_planlib.inc.bash
 source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
 
@@ -57,8 +57,6 @@ fi
 plan_require_host "it runs Ansible against this machine's hypervisor stack and user session"
 plan_prime_sudo
 plan_start_log auto
-
-plan_gate_change "virt packages installed, systemd --user linger enabled, ~/.local/share/vmtest populated (CLI, guest scripts, kickstarts, manifest, allowlist), helpers under /usr/local/lib, lab SSH keypair and bridge signing key generated if absent, six vmtest user units enabled (bridge path/service, heartbeat timer, nightly timer)"
 
 plan_deploy_leg "play-vm-test-lab.yml" \
     plan_ansible_playbook playbooks/imports/optional/common/play-vm-test-lab.yml
