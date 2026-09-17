@@ -170,17 +170,28 @@ The load-bearing findings:
 
 - [x] ✅ **Task 4.1**: **HOST run.** Deploy the updated `claude-yolo` to the
   host via the owning playbook. Ansible must never run in this container.
-  **Done by the owner** — a session now runs on the deployed CCY 3.58.0.
+  **Done by the owner**, twice: first on 3.58.0, then again on 3.58.1 after
+  3.58.0's value turned out to be harmful.
 - [x] ✅ **Task 4.2**: **HOST run.** Start a session with no `ccy.env` override
-  and confirm from inside it that the variable is `600k` — read the live
-  environment, do not infer it from the launcher source. A check that only
-  re-reads the diff vouches for nothing. **Done** — a session whose `ccy.env`
-  carries no `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (checked, not assumed) read
-  `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600k` from its own environment.
-- [ ] ⬜ **Task 4.3**: **HOST run.** Confirm Claude Code has actually *accepted*
-  the value rather than merely received it: `/config` labels the window's source
-  explicitly, and should attribute it to the environment variable. This is the
-  step that distinguishes "the variable is set" from "the setting is in force".
+  and confirm from inside it that the variable carries the CCY default — read the
+  live environment, do not infer it from the launcher source. A check that only
+  re-reads the diff vouches for nothing. **Done, and it is the cautionary case for
+  this whole phase.** On 3.58.0 this check passed: a session with no override
+  (checked, not assumed) read `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600k`. The value was
+  present, correct against the launcher, and *wrong* — that session was compacting
+  at roughly 600 tokens. A green 4.2 says the variable arrived; it says nothing
+  about what the value does, which is exactly what 4.3 was written to catch and
+  exactly what was skipped over. Re-confirmed on 3.58.1: no override, live
+  environment reads `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000`.
+- [x] ✅ **Task 4.3**: **HOST run.** Confirm Claude Code has actually *accepted*
+  the value rather than merely received it. **Answered by behaviour, not by
+  `/config`** — and answered twice over. On 3.58.0 the setting was emphatically in
+  force: sessions auto-compacted immediately, which is a 600-token window acting on
+  the variable, so `600k` was accepted and parsed as `600`. On 3.58.1 sessions run
+  to normal length, which is the same evidence with the opposite sign. Behaviour is
+  a stronger witness than the `/config` label here, because it distinguishes
+  "accepted" from "accepted and parsed as intended" — the distinction that mattered
+  and that neither the variable's presence nor a source label would have exposed.
 - [ ] ⬜ **Task 4.4**: **HOST run.** Set a different value via `export` in a
   project's `ccy.env`, restart, and confirm the project's value wins. This is
   the override requirement from the brief and the one most likely to be silently
@@ -195,11 +206,13 @@ The load-bearing findings:
 ## Success Criteria
 
 - [x] A CCY session started with no project override reports
-  `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600k` from its live environment.
-- [ ] Claude Code attributes its auto-compact window to the environment
-  variable, confirming the value is in force and not merely present.
+  `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000` from its live environment.
+- [x] The window is shown to be in force **and parsed as intended** — not merely
+  present. Presence was never the hard part: `600k` was present and acted on, as a
+  600-token window. Sessions running to normal length on `600000` are the evidence
+  that the figure now means what it says.
 - [ ] A project setting the variable with `export` in its tracked
-  `.claude/ccy/ccy.env` gets its own value, not `600k`.
+  `.claude/ccy/ccy.env` gets its own value, not `600000`.
 - [ ] A host export before launch also overrides the CCY default.
 - [x] `CCY_VERSION` is bumped and `docs/ccy-changelog.md` carries the entry.
 - [x] `docs/ccy.md` documents the variable and the override with a correct

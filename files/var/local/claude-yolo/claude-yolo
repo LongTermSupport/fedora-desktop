@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.58.0"  # CLAUDE_CODE_AUTO_COMPACT_WINDOW defaults to 600k, capping how large a session grows before auto-compaction; override per project in ccy.env. See docs/ccy-changelog.md.
+CCY_VERSION="3.58.1"  # CLAUDE_CODE_AUTO_COMPACT_WINDOW defaults to 600000 (written in full digits, not a k suffix); override per project in ccy.env. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -3123,8 +3123,13 @@ fi
 # CLAUDE_CODE_AUTO_COMPACT_WINDOW caps how large a session grows before Claude Code
 # summarises it. Upstream's recommended value is `auto`, which defers to the model's own
 # context window and so imposes no cap at all; CCY deliberately overrides it with a fixed
-# 600k-token ceiling, which is a guard for the 1M-context models this workflow runs. Do not
-# revert it back to `auto` as if it were an accident — it is a deliberate cost ceiling.
+# 600,000-token ceiling, which is a guard for the 1M-context models this workflow runs. Do
+# not revert it back to `auto` as if it were an accident — it is a deliberate cost ceiling.
+#
+# WRITTEN IN FULL DIGITS, NOT `600k`. The k-suffixed form was shipped in 3.58.0 and sessions
+# auto-compacted immediately, consistent with the suffix being dropped and 600 taken as a
+# literal token count. Digits remove the ambiguity: there is no suffix to interpret. Do not
+# "tidy" this back to a suffix.
 #
 # The effective threshold is min(this value, the model's context window), and the variable
 # beats the autoCompactWindow setting, so the window can no longer be changed from /config.
@@ -3158,7 +3163,7 @@ container_cmd run $DOCKER_FLAGS --rm \
     -e "CCY_CLAUDE_WRAPPER=${CCY_CLAUDE_WRAPPER:-}" \
     -e "CCY_NO_SUPERVISOR=${CCY_NO_SUPERVISOR:-}" \
     -e "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-1}" \
-    -e "CLAUDE_CODE_AUTO_COMPACT_WINDOW=${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-600k}" \
+    -e "CLAUDE_CODE_AUTO_COMPACT_WINDOW=${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-600000}" \
     -e "MAX_THINKING_TOKENS=${MAX_THINKING_TOKENS:-}" \
     -e "TERM=${TERM:-xterm}" \
     -e "COLORTERM=${COLORTERM:-truecolor}" \

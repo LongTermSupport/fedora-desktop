@@ -17,6 +17,26 @@ Two version numbers move independently — see
 
 ---
 
+## 3.58.1
+
+**Fix: the auto-compact window is written in full digits.** 3.58.0 passed
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW=600k`. Sessions launched with it auto-compacted
+immediately — the behaviour of a window of 600 tokens rather than 600,000.
+
+That is the documented behaviour, not a surprise: upstream's
+[model configuration page](https://code.claude.com/docs/en/model-config) says the `k`/`M`
+suffix is accepted by the `/autocompact` command and `--autocompact` flag, while **the
+environment variable accepts only the plain token count**. 3.58.0 used a form the variable
+never took, on the strength of an unsourced claim in `docs/ccy.md` that the suffixed and
+unsuffixed spellings were equivalent.
+
+The value is now `600000`. The ceiling itself is unchanged in intent: still 600,000 tokens,
+still a deliberate cost guard for the 1M-context models this workflow runs.
+
+Only sessions started after this lands are affected — the variable is set at container
+creation, so an already-running session keeps whatever it was launched with. Restart a
+session to pick it up.
+
 ## 3.58.0
 
 **Sessions get an auto-compact ceiling.** Claude Code reads

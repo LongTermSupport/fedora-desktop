@@ -552,7 +552,7 @@ sources that file after this environment is forwarded.
 | Variable                               | CCY default | Why                                                          |
 | -------------------------------------- | ----------- | ------------------------------------------------------------ |
 | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | `1`         | Enables the agent-teams features CCY sessions use            |
-| `CLAUDE_CODE_AUTO_COMPACT_WINDOW`      | `600k`      | Caps session size before auto-compaction; see below          |
+| `CLAUDE_CODE_AUTO_COMPACT_WINDOW`      | `600000`    | Caps session size before auto-compaction; see below          |
 | `MAX_THINKING_TOKENS`                  | *(unset)*   | Forwarded only if you export it; CCY does not impose a value |
 | `TERM` / `COLORTERM`                   | inherited   | Falls back to `xterm` / `truecolor` if unset on the host     |
 | `FORCE_COLOR`                          | `1`         | Keeps colour output intact inside the container              |
@@ -561,10 +561,23 @@ CCY deliberately sets **no** sub-agent fan-out limits — the section below expl
 
 #### `CLAUDE_CODE_AUTO_COMPACT_WINDOW` — the auto-compact ceiling
 
-The value is in tokens: `auto`, or `100k`..`1M` (`600k`, `600000` and `600` are the same
-figure). Upstream recommends `auto`, which defers to the model's own context window and so
-caps nothing; CCY's `600k` is a deliberate cost ceiling for the 1M-context models this
-workflow runs. Two consequences worth knowing: the effective threshold is
+The value is in tokens, and CCY sets it as **`600000` — full digits, no `k` suffix**.
+
+That is not cosmetic, and it is not a quirk — it is the documented rule. Upstream's
+[model configuration page](https://code.claude.com/docs/en/model-config) states that the
+`/autocompact` command and `--autocompact` flag accept a plain count, a `k`/`M` suffix, or a
+bare 100–1000 meaning thousands, but that **the environment variable accepts only the plain
+token count**. The suffix forms belong to the command and the flag, not here.
+
+CCY 3.58.0 shipped `600k` regardless, and sessions auto-compacted immediately — the
+behaviour of a 600-token window. This page previously claimed `600k`, `600000` and `600`
+were "the same figure". That sentence was never sourced; it is contradicted by the page
+above, and the launcher default was written on top of it. Use digits, and do not tidy the
+suffix back in.
+
+Upstream recommends `auto`, which defers to the model's own context window and so caps
+nothing; CCY's 600,000 is a deliberate cost ceiling for the 1M-context models this workflow
+runs. Two consequences worth knowing: the effective threshold is
 `min(this value, the model's context window)`, and setting the environment variable beats
 the `autoCompactWindow` setting, so the window can no longer be changed from `/config`.
 
@@ -652,7 +665,7 @@ Two properties matter:
 
 #### Overriding the auto-compact window
 
-A project that wants a different ceiling than CCY's `600k` default says so here:
+A project that wants a different ceiling than CCY's `600000` default says so here:
 
 ```bash
 # .claude/ccy/ccy.env
