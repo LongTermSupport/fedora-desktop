@@ -199,8 +199,10 @@ The load-bearing findings:
   `.claude/ccy/ccy.env` gets its own value, not `600k`.
 - [ ] A host export before launch also overrides the CCY default.
 - [x] `CCY_VERSION` is bumped and `docs/ccy-changelog.md` carries the entry.
-- [x] `docs/ccy.md` documents the variable, the override with a correct
-  `export` example, and the `min(setting, model window)` caveat.
+- [x] `docs/ccy.md` documents the variable and the override with a correct
+  `export` example. It also states the `min(setting, model window)` relationship,
+  which is where that belongs — Task 2.6 no longer requires it, because it is a
+  reason the figure is right rather than a caveat against it.
 - [x] `./scripts/qa-all.bash` passes.
 - [ ] The `qa-reviewer` agent reports no findings.
 - [x] No hand-drafted upstream issue body exists anywhere in this plan folder.
