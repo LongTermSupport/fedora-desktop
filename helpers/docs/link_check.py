@@ -219,6 +219,14 @@ _EXCLUDE_PREFIX = (
     ".claude/ccy/",
     ".claude/skills/",
     ".claude/agents/",
+    # A linked worktree is another checkout of THIS repository, so it is excluded here but
+    # deliberately absent from `_VENDORED_ROOTS` below: nothing is vendored, and the links
+    # inside it are checked by the run that happens in that checkout. Swept from here they
+    # all fail, because `ls-files` in this checkout lists nothing under this prefix — so a
+    # peer's temporary worktree reddens the gate for every session sharing the tree, over
+    # links that are not broken. That is the "another repository's markdown as if it were
+    # ours" failure the vendored-roots comment describes, arriving by a different door.
+    ".claude/worktrees/",
     ".ansible/",
     "roles/vendor/",
 )

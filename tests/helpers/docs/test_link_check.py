@@ -295,6 +295,18 @@ class TestScope(unittest.TestCase):
     def test_excludes_arbitrary_other_markdown(self):
         self.assertFalse(link_check.in_scope("extensions/SOMENOTES.md"))
 
+    def test_excludes_linked_worktrees(self):
+        # A linked worktree is ANOTHER CHECKOUT OF THIS REPOSITORY, and its markdown is
+        # already swept by the run that happens inside it. Sweeping it from here reports
+        # every relative link in its CLAUDE.md tree as untracked, because `ls-files` in
+        # this checkout does not list paths under `.claude/worktrees/` — so one peer's
+        # transient worktree turns the whole gate red for everyone sharing the tree, over
+        # links that are not broken and that this checkout could not fix.
+        self.assertFalse(
+            link_check.in_scope(".claude/worktrees/plan-00001-x-abcdef12/CLAUDE.md"))
+        self.assertFalse(
+            link_check.in_scope(".claude/worktrees/plan-00001-x-abcdef12/docs/README.md"))
+
 
 class _GitTree(unittest.TestCase):
     """A real git repository in a temp dir.
