@@ -124,10 +124,13 @@ between the operator and a one-shot run.
   ./untracked/meta-deploy.bash --only 00066 --only 00079 --only 00080
   ```
 
-  Confirmed with `--list`: three plans selected, and the unnamed schedule is unchanged. 00079's `acceptance.bash`
-  additionally aborts at check 0 for an unrelated, already-flagged reason — an anchored
-  grep whose target line grew a trailing sentence — so it needs that fix before it can
-  prove anything here.
+  Confirmed with `--list`: three plans selected, and the unnamed schedule is unchanged.
+
+  **The check-0 caveat recorded here was stale and is withdrawn.** It named 00079's
+  `acceptance.bash`; the anchored-grep defect was in its `unit-test-selection.bash`, and
+  Plan 00079 fixed it the same day — the pattern is start-anchored now, with a
+  more-than-one-match branch so dropping `$` cannot silently cut elsewhere. Re-checked
+  against the current `podfreeze`: exactly one matching line. Nothing blocks these runs.
 
   **Not done, and cannot be here**: the rest stop early by design rather than by defect —
   `plan_require_host` refuses, or a probe finds no `camera` user, no reachable podman, no
