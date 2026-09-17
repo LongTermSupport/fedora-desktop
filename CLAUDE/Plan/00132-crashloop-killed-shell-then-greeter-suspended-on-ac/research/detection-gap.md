@@ -266,6 +266,51 @@ the algorithm into `helpers/containerwatch` with its tests, and the **true negat
 that has not been observed. The true positive was the perishable half, and it is now
 banked.
 
+## The true negative — and the design defect it caught
+
+The loop was stopped with `podman stop` (its policy is `unless-stopped`, so an explicit
+stop is definitive and no policy edit was needed). It stayed stopped, and the scope churn
+went from ~50 starts per 40 s to **zero**. Final count: **131,377** restarts.
+
+Re-running the detector was supposed to be a formality. It was not:
+
+```
+FLAGGED  container-L  ABSOLUTE (131377 cumulative, threshold 1000)
+RESULT: 1 container(s) FLAGGED — detection fired.
+```
+
+The **rate** test correctly went silent — delta zero, no finding. The **absolute** test kept
+firing, because `RestartCount` is cumulative and never resets. As originally specified, that
+threshold would have alarmed **for ever** on a container already dealt with.
+
+That is worse than a missing alarm. An alarm that cannot be cleared is one an operator
+learns to ignore, and it would have trained the human to ignore the exact signal this whole
+plan exists to deliver.
+
+**The fix: gate the absolute test on the container actually running.** A container that is
+not running cannot be looping. With the gate in place the same host returns:
+
+```
+ok       container-L  cumulative=131377 delta=0
+
+Historic, deliberately NOT flagged:
+  container-L has 131377 cumulative restarts but is not running -- historic, not looping
+RESULT: no container flagged.
+```
+
+The count is still *reported*, just not *flagged* — the suppression is visible rather than
+silent, so a reader can see the history without being alarmed by it.
+
+**This is the argument for the validation pair in one paragraph.** The true positive proved
+the detector fires. Only the true negative proved it also *stops* firing, and that is where
+the defect was. A plan that had shipped after the positive alone would have shipped a
+permanent false alarm. **Task 5.1 must port the running-gate, not just the thresholds.**
+
+Also recorded from the final inspection: the container exits with code **0**. It was not
+crashing — it completed successfully and `unless-stopped` restarted it regardless, which is
+what that policy does. "Crash loop" is the right name for the effect and the wrong name for
+the cause.
+
 ## Teeth: detection alone would not have saved the session
 
 Everything above is **detection**, and detection is not protection. This has to be said

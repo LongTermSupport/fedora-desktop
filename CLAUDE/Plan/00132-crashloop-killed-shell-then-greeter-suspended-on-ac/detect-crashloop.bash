@@ -194,6 +194,7 @@ echo
 FINDINGS=0
 LABEL_INDEX=0
 REPORT=""
+HISTORIC=""
 ALPHABET='ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
 while read -r id count2; do
@@ -225,8 +226,28 @@ while read -r id count2; do
     if [ -n "$delta" ] && [ "$delta" -ge "$RATE_THRESHOLD" ]; then
         reasons="RATE (${delta} restarts in ${INTERVAL}s, threshold ${RATE_THRESHOLD})"
     fi
+
+    # The ABSOLUTE test is gated on the container actually RUNNING, and that gate
+    # is not a nicety -- without it this test is a permanent false positive.
+    #
+    # RestartCount is cumulative and never resets. The first version of this
+    # script omitted the gate, and the true-negative run caught it immediately:
+    # after the loop was stopped the rate test correctly went silent, while the
+    # absolute test went on flagging 131,377 restarts on an exited container --
+    # and would have done so for ever, on a container already dealt with. An
+    # alarm that cannot be cleared is one an operator learns to ignore, which
+    # costs more than having no alarm at all.
+    #
+    # A container that is not running cannot be looping. That is the whole test.
     if [ "$count2" -ge "$ABSOLUTE_THRESHOLD" ]; then
-        reasons="${reasons}${reasons:+ + }ABSOLUTE (${count2} cumulative, threshold ${ABSOLUTE_THRESHOLD})"
+        if ! running="$(podman inspect --format '{{.State.Running}}' "$id" 2>/dev/null)"; then
+            running="unknown"
+        fi
+        if [ "$running" = 'true' ]; then
+            reasons="${reasons}${reasons:+ + }ABSOLUTE (${count2} cumulative, threshold ${ABSOLUTE_THRESHOLD}, still running)"
+        else
+            HISTORIC="${HISTORIC}${label} has ${count2} cumulative restarts but is not running -- historic, not looping"$'\n'
+        fi
     fi
 
     if [ -n "$reasons" ]; then
@@ -238,6 +259,11 @@ while read -r id count2; do
 done <<< "$SAMPLE2"
 
 printf '%s' "$REPORT"
+if [ -n "$HISTORIC" ]; then
+    echo
+    echo "Historic, deliberately NOT flagged:"
+    printf '%s' "$HISTORIC" | awk '{print "  " $0}'
+fi
 echo
 echo "----------------------------------------------------------------"
 echo "LXC: no RestartCount equivalent — OUT OF SCOPE, not checked."

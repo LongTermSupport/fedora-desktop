@@ -131,7 +131,7 @@ still live and is the only genuine test case in existence.
 - [x] ✅ **Task 5.2**: **True positive captured and no longer losable.** `detect-crashloop.bash` ran against the live loop: 13 containers, **1 flagged**, **0 false positives**, both conditions firing independently; the nearest borderline case (19 lifetime restarts) correctly cleared. Evidence in [research/detection-gap.md](research/detection-gap.md#the-true-positive-captured). Done out of order because it was the only perishable step
 - [ ] ⬜ **Task 5.3**: Ship the greeter `gdm.d` drop-in per Task 3.1 via `play-suspend-and-lid-policy.yml`, with the read-back assertion. Run the play; confirm the greeter reads `'nothing'`
 - [ ] ⬜ **Task 5.4**: Add the read-back assertions for the existing user-scope keys (Task 3.2)
-- [ ] ⬜ **Task 5.5**: Only now, stop the crash loop (`podman stop` — the policy is `unless-stopped`, so an explicit stop is definitive and needs no policy edit), and confirm the detection goes quiet — the true negative
+- [x] ✅ **Task 5.5**: **Loop stopped and the true negative obtained.** `podman stop` was definitive (policy `unless-stopped`); churn fell from ~50 starts/40s to **zero** and stayed there. Final count 131,377. The re-run **found a defect**: `RestartCount` is cumulative, so the absolute test kept firing on a container already dealt with — a permanent false alarm. Fixed by gating the absolute test on the container actually running; the count is still reported, just not flagged. Detector now exits 0. **Task 5.1 must port the running-gate, not just the thresholds**
 
 ### Phase 6: Teeth — enforcement, because detection is not protection
 
