@@ -1,6 +1,9 @@
 # Plan 00132: crashloop killed shell then greeter suspended on ac
 
-**Status**: In Progress
+**Status**: Complete — 2026-09-17. Both defects are fixed, deployed and verified on the host:
+the greeter no longer suspends a plugged-in machine (read-back proven in both directions), and
+a crash loop is now stopped automatically rather than merely reported. One task is deliberately
+left open: Task 6.3's `cgroup_manager` probe needs a VM, and the defence does not depend on it.
 **Created**: 2026-09-17
 **Owner**: joseph
 **Priority**: High
@@ -117,7 +120,7 @@ check is an extension of its watchdog, not of host-health — the reasoning, inc
 
 ### Phase 4: Review
 
-- [ ] ⬜ **Task 4.1**: Run the `qa-reviewer` agent over the plan and its supporting documents
+- [x] ✅ **Task 4.1**: **Run twice, and it earned its place both times.** The first pass found the crash-loop finding rendering as `0s, 0% CPU` in the panel — the CLI fix never generalised to the other consumer of the same report. The second found the no-kill gate exempting `containment.py` from every signal pattern, so `os.kill(pid, signal.SIGKILL)` passed clean in the one file allowed to run an engine command, while four tracked files claimed the opposite. Both were defects the mechanical gates were green on, which is the class this step exists for
 
 ### Phase 5: Implementation — the confirmed course of action
 
@@ -155,9 +158,9 @@ and nobody was logged in. Specified in
 
 - [x] ❌ **Task 6.2**: **Decided against, and the code has committed to the other side.** Containment lives in `helpers/containerwatch/`, which is 00055's tree, and extends 00055's own no-kill gate. Two reasons: plan 00079 is `podfreeze`, an **interactive** tool where a human picks containers and it toggles `pause`/`unpause` — and `pause` is the wrong verb here, because a frozen container still holds the transient units whose accumulation is the damage. Second, containment needs the restart sampling, the window history and the report that already live in the watchdog; homing it elsewhere would have meant a second sampler and two sources of truth. 00055's D3 is honoured by making the exception **auditable** rather than by moving the code out of sight: one named file, held to a stricter pattern list than the rest of the tree
 
-- [ ] ⬜ **Task 6.3**: Probe whether `cgroup_manager = "cgroupfs"` removes the `libpod-*.scope` churn. **Hypothesis, not a recommendation** — must not reach a play before a read-back proves it moves the behaviour
+- [ ] ⏸️ **Task 6.3**: **Deferred deliberately, and it needs a VM rather than this host.** Probe whether `cgroup_manager = "cgroupfs"` removes the `libpod-*.scope` churn. Still a hypothesis, not a recommendation. Testing it means changing the container runtime's cgroup manager in `containers.conf` and restarting every container to pick it up — on a workstation that is someone's running work, and the probe is only meaningful while a container is deliberately crash-looping. That belongs in this repo's VM test framework (`vars/vm-test-scenarios.yml`), where a storm can be induced and measured without costing anyone a session. **The defence does not depend on this**: containment and the policy audit both work regardless, and this would only reduce how much bus traffic a storm generates before they act
 
-- [ ] ⬜ **Task 6.4**: UID containment recorded as the structural option — the broker accounts per-UID and podman runs as the desktop's own UID. Strongest, most disruptive; recorded, not proposed
+- [x] ✅ **Task 6.4**: **Recorded, which was the whole task.** UID containment is the structural fix — the broker accounts per-UID and rootless podman runs as the desktop's own UID, so moving containers to a separate UID puts their bus traffic in a different budget from the session's. Strongest and most disruptive, written down in [research/detection-gap.md](research/detection-gap.md) as an option rather than proposed. Phase 6 as shipped makes it much less pressing: a storm is now stopped long before the shared budget is at risk
 
 ## Success Criteria
 

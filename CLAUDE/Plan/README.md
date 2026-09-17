@@ -34,8 +34,6 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00132-crashloop-killed-shell-then-greeter-suspended-on-ac](00132-crashloop-killed-shell-then-greeter-suspended-on-ac/) - A container crash loop exhausted the session D-Bus quota and killed `gnome-shell`; the GDM greeter then idle-suspended the plugged-in machine, because `gdm` is configured by no play here. Research and design only; no fix applied.
-
 - [00131-semgrep-or-true-rule-is-blind-to-the-enclosed-form](00131-semgrep-or-true-rule-is-blind-to-the-enclosed-form/) - The `|| true` rule is anchored to end-of-line, so `$( cmd || true )` is invisible to it — which is how two instances shipped. Widening it finds 18 live sites in 8 files; four are the git hooks that gate secret scanning for this public repo, where a wrong fix fails open. Carried from Plan 00122 Task 3.7.
 
 - [00130-legacy-plan-scripts-lose-their-last-log-chunk](00130-legacy-plan-scripts-lose-their-last-log-chunk/) - `PlanWorkflow.md` taught `exec > >(tee "$LOG") 2>&1` and a plan-local `logs/` tree, both forbidden by PlanScriptStandards R4. The doc is fixed; ten scripts in seven active plans, of 53 examined, were already written from it. A process substitution cannot be waited on, so a failing run can lose the chunk explaining why, and the gitignored `logs/` tree orphans on archival.
@@ -172,6 +170,8 @@ Use these Unicode icons in plan documents:
 
 ## Completed Plans
 
+- [00132-crashloop-killed-shell-then-greeter-suspended-on-ac](Completed/00132-crashloop-killed-shell-then-greeter-suspended-on-ac/) - A container crash loop exhausted the session D-Bus quota and killed `gnome-shell`, then the unmanaged GDM greeter idle-suspended the plugged-in machine. Both fixed and deployed; the watchdog now stops a runaway restart loop instead of only reporting it.
+
 - [00133-ccy-auto-compact-window-default-and-daemon-check](Completed/00133-ccy-auto-compact-window-default-and-daemon-check/) - CCY sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000` for every session. The first attempt shipped `600k`, which the variable parses as 600 and floors to 100,000 — six times tighter than intended, and survivable enough to run for a week. Three review rounds were needed because the first two corrections were each wrong in turn.
 
 - [00099-rclone-rc-auth-broke-unmigrated-clients](Completed/00099-rclone-rc-auth-broke-unmigrated-clients/) - Plan 00094 authenticated the rclone RC on a false premise, so three unmigrated clients got HTTP 401 and reported it as a dead mount for a week. One sourced credential library, every client migrated, plus the new `qa-deployed-drift.bash` gate. Re-deployed and ACCEPTED on the host, `COVERAGE: 9 of 9`.
@@ -229,9 +229,6 @@ Use these Unicode icons in plan documents:
 - [00087-gitleaks-generic-key-false-positive](Completed/00087-gitleaks-generic-key-false-positive/) - Fixes a gitleaks CI false positive (`generic-api-key` on a "Medium/byteiota" source citation) by rephrasing the flagged text rather than growing `.gitleaks.toml`'s allowlist. Merged (`b15fc4d`).
 
 - [00084-port-sudo-password-file-onto-f44](Completed/00084-port-sudo-password-file-onto-f44/) - Ports Plan 00073's `RUN_BASH_SUDO_PASSWORD_FILE` (stranded on an unmerged, diverged branch) onto `F44` so it composes with Plan 00082's `GITHUB_ACCOUNTS=none` — no single commit previously carried both. Merged (`d48fabd`). Also fixed two real VM hostnames from the downstream consumer estate that had been committed into this public repo's tracked content.
-
-- [00083-plan-index-hygiene-and-comment-handlers](Completed/00083-plan-index-hygiene-and-comment-handlers/) - Enables the three handlers the 3.54.0 daemon upgrade shipped disabled (`comment_changelog`, `comment_size`, `sensitive_content`), each after measuring its existing backlog rather than assuming it, and clears the 39 over-length rows the new `index-row-length` check found in this index.
-
 
 **Older completed plans** — everything beyond the most recent 30 — are in
 [Completed/README.md](Completed/README.md), moved there verbatim. The retention window
