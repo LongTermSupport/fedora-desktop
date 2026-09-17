@@ -687,14 +687,25 @@ if ! unit_enabled="$(systemctl --user is-enabled "${HEALTH_UNIT}")"; then
         "run ./deploy.bash; if the user manager is unreachable, run this gate from inside the graphical session"
 else
     deps=""
-    if ! deps="$(systemctl --user list-dependencies "${HEALTH_TARGET}")"; then
+    # `--no-pager` for parity with triage.bash's probe. Without it the two commands are not
+    # the same command, and a run where triage found the unit in the live graph and this
+    # check did not is exactly the disagreement that must not be left to guesswork.
+    if ! deps="$(systemctl --user list-dependencies "${HEALTH_TARGET}" --no-pager)"; then
         bad "systemctl --user list-dependencies ${HEALTH_TARGET} failed" \
             "the unit reads as '${unit_enabled}', but nothing confirms the target pulls it in"
     elif printf '%s' "${deps}" | grep -q -F -e "${HEALTH_UNIT}"; then
         ok "${unit_enabled}, and ${HEALTH_TARGET} names it among its dependencies"
     else
+        # KEEP THE EVIDENCE. A previous run had triage find the unit in the live graph and
+        # this check miss it minutes later, and nothing survived to say which reading was
+        # wrong. The captured output makes the next occurrence answerable instead of a
+        # second round of speculation.
+        # PLAN_RUN_DIR, exported by plan_start_log: run logs live under untracked/ and are
+        # unscrubbed, so this capture must never land beside the script in the plan folder.
+        depsCapture="${PLAN_RUN_DIR}/check-11-list-dependencies.txt"
+        printf '%s\n' "${deps}" > "${depsCapture}"
         bad "${HEALTH_UNIT} is '${unit_enabled}' but ${HEALTH_TARGET} does not name it" \
-            "it will never fire at login; the .wants symlink under the user unit directory is missing or stale"
+            "it will never fire at login; the .wants symlink under the user unit directory is missing or stale — the ${#deps} bytes this check actually read are in ${depsCapture}"
     fi
 fi
 printf '\n'
