@@ -170,7 +170,9 @@ The load-bearing findings:
 - [x] ✅ **Task 3.5**: Confirm the body carries no identifying detail — this is
   a public repo posting to a public tracker, and the pre-commit secret scanner
   does not cover the `gh` CLI.
-- [ ] ⬜ **Task 3.6**: **Correct issue 46.** Its body states the falsified grammar
+- [x] ✅ **Task 3.6**: **Correct issue 46. Done** —
+  <https://github.com/Edmonds-Commerce-Limited/claude-code-hooks-daemon/issues/46#issuecomment-5714237738>.
+  Its body states the falsified grammar
   to an external maintainer as a specification — "`100k..1M` expressed as `600k`,
   `600000` or `600`" — and asks them to build a normaliser for spellings the
   environment variable does not accept, with the requested ceiling written `600k`.
