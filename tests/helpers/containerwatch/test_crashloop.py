@@ -242,6 +242,52 @@ class FindingShapeTests(unittest.TestCase):
         self.assertIsNone(finding["restarts_per_min"])
 
 
+class AllowlistTests(unittest.TestCase):
+    """Suppression must be per-container, and must not happen by accident.
+
+    The watchdog's existing `core.matches_allowlist` was written for
+    process-shaped findings and matches `cmd` with fnmatch. A crash-loop finding
+    has NO cmd, and `fnmatch("", "*")` is TRUE — so reusing it meant an entry
+    carrying `cmd_pattern: "*"`, written to quieten a noisy container's CPU
+    findings, would ALSO have silently muted every crash-loop alarm on the host.
+    Muting the alarm that exists to prevent a desktop-killing loop, as a side
+    effect of tuning an unrelated one, is the worst failure this file can have.
+    """
+
+    FINDING = {"kind": "crashloop", "container_name": "noisy", "restart_count": 5}
+
+    def test_an_exact_name_suppresses(self):
+        self.assertTrue(
+            crashloop.matches_allowlist(self.FINDING, [{"container_name": "noisy"}])
+        )
+
+    def test_a_different_name_does_not(self):
+        self.assertFalse(
+            crashloop.matches_allowlist(self.FINDING, [{"container_name": "other"}])
+        )
+
+    def test_a_catch_all_cmd_pattern_does_not_mute_the_alarm(self):
+        # THE REGRESSION. This entry is about processes, not containers.
+        self.assertFalse(
+            crashloop.matches_allowlist(self.FINDING, [{"cmd_pattern": "*"}])
+        )
+
+    def test_a_name_qualified_by_a_cmd_pattern_does_not_mute_it_either(self):
+        # "allow THIS PROCESS in this container" is not "allow this container to
+        # crash-loop". Only an unqualified name entry means the latter.
+        self.assertFalse(
+            crashloop.matches_allowlist(
+                self.FINDING, [{"container_name": "noisy", "cmd_pattern": "*node*"}]
+            )
+        )
+
+    def test_an_empty_entry_matches_nothing(self):
+        self.assertFalse(crashloop.matches_allowlist(self.FINDING, [{}]))
+
+    def test_an_empty_allowlist_matches_nothing(self):
+        self.assertFalse(crashloop.matches_allowlist(self.FINDING, []))
+
+
 class PreviousSampleTests(unittest.TestCase):
     """Reading the last tick's counts back out of report.json.
 

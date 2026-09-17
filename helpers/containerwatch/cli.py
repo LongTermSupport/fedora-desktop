@@ -420,7 +420,7 @@ def _scan_once(interval_s: float, inject: str | None) -> dict:
     )
     allowlist = config.get("allowlist", [])
     loop_findings = [
-        f for f in loop_findings if not core.matches_allowlist(f, allowlist)
+        f for f in loop_findings if not crashloop.matches_allowlist(f, allowlist)
     ]
 
     findings = list(findings) + loop_findings

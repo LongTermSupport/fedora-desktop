@@ -88,6 +88,32 @@ def scaled_rate_threshold(*, per_tick: int, tick_s: int, elapsed_s: float) -> in
     return max(1, scaled)
 
 
+def matches_allowlist(finding: dict, allowlist: list[dict]) -> bool:
+    """True if `finding` is deliberately suppressed by `allowlist`.
+
+    Deliberately NOT ``core.matches_allowlist``. That one is written for
+    process-shaped findings and matches ``cmd`` with fnmatch; a crash-loop
+    finding has no ``cmd``, and ``fnmatch("", "*")`` is **True**. Reusing it
+    meant an entry carrying ``cmd_pattern: "*"`` — a perfectly reasonable way to
+    quieten one container's CPU findings — would ALSO have muted every
+    crash-loop alarm on the host, silently, as a side effect of tuning something
+    unrelated.
+
+    So only an UNQUALIFIED container name suppresses here. An entry that carries
+    a ``cmd_pattern`` is a statement about processes ("allow this command inside
+    that container"), not about the container's right to restart without bound,
+    and it is ignored.
+    """
+    name = finding.get("container_name", "")
+    for entry in allowlist:
+        if entry.get("cmd_pattern") is not None:
+            continue
+        want_name = entry.get("container_name")
+        if want_name is not None and want_name == name:
+            return True
+    return False
+
+
 def previous_sample(report: dict) -> tuple[dict[str, int], int | None]:
     """Recover the last tick's restart counts and timestamp from a report.
 
