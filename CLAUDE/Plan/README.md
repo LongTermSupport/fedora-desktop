@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00132-crashloop-killed-shell-then-greeter-suspended-on-ac](00132-crashloop-killed-shell-then-greeter-suspended-on-ac/) - A container crash loop exhausted the session D-Bus quota and killed `gnome-shell`; the GDM greeter then idle-suspended the plugged-in machine, because `gdm` is configured by no play here. Research and design only; no fix applied.
+
 - [00131-semgrep-or-true-rule-is-blind-to-the-enclosed-form](00131-semgrep-or-true-rule-is-blind-to-the-enclosed-form/) - The `|| true` rule is anchored to end-of-line, so `$( cmd || true )` is invisible to it — which is how two instances shipped. Widening it finds 18 live sites in 8 files; four are the git hooks that gate secret scanning for this public repo, where a wrong fix fails open. Carried from Plan 00122 Task 3.7.
 
 - [00130-legacy-plan-scripts-lose-their-last-log-chunk](00130-legacy-plan-scripts-lose-their-last-log-chunk/) - `PlanWorkflow.md` taught `exec > >(tee "$LOG") 2>&1` and a plan-local `logs/` tree, both forbidden by PlanScriptStandards R4. The doc is fixed; ten scripts in seven active plans, of 53 examined, were already written from it. A process substitution cannot be waited on, so a failing run can lose the chunk explaining why, and the gitignored `logs/` tree orphans on archival.
