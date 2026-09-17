@@ -100,6 +100,7 @@ than of host-health.
 - [ ] ⬜ **Task 3.2**: Specify a read-back assertion for the *existing* user-scope power keys. Neither play currently re-reads what it set, which is why this gap survived
 - [ ] ⬜ **Task 3.3**: Specify the crash-loop detection defence as an extension of the existing host-health surface, not a new parallel mechanism
 - [ ] ⬜ **Task 3.4**: Record the falsification method for each defence — what observation would show it does *not* work
+- [ ] ⬜ **Task 3.5**: Record that the workload-resilience defence **already works and needs no change**. The compositor is declared unrecoverable upstream (`Restart=no`, "On wayland we cannot restart"), so session death is unpreventable by design — and the tmux-hosted work correctly survived it, running for a further 901 seconds. It was then killed by the greeter suspend. This makes the greeter fix (Task 3.1) the *sole* remaining exposure for long-running work on this host, not one mitigation among several
 
 ### Phase 4: Review
 
