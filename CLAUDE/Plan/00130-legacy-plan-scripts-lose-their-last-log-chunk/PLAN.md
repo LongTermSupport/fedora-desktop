@@ -90,20 +90,38 @@ between the operator and a one-shot run.
 
 ### Phase 2: Convert
 
-- [ ] ⬜ **Task 2.1**: Convert each script to `plan_start_log auto`, removing the
+- [x] ✅ **Task 2.1**: All ten converted. The gate written for Task 3.1 is the check:
+  `PLAN-SCRIPT-LOGGING-OK: 51 plan script(s) examined, no offences`. Convert each script
+  to `plan_start_log auto`, removing the
   `LOG=`/`mkdir -p` lines **and any consumer of `$LOG`**. That last part is not
   optional: the identical conversion in Plan 00099 removed `LOG=` and left one
   `echo "Full report: $LOG"`, and under `set -u` the script then died on its own last
   line on every run — `shellcheck -x` CLEAN and `qa-all.bash` green throughout,
   because no gate executes plan scripts.
-- [ ] ⬜ **Task 2.2**: Run each converted script far enough to prove it reaches its
-  own last line. Linting is exactly what missed this class before.
+
+- [ ] 🧑 **Task 2.2 — PARTLY DONE, the rest needs the HOST**: Run each converted script
+  far enough to prove it reaches its own last line. Linting is exactly what missed this
+  class before, so this cannot be discharged by `shellcheck`.
+
+  **Done in the container**: 00062's `triage.bash` ran to completion, exit 0, and the
+  drain was verified directly — the final chunk, closing banner through last line, is
+  present in the run log under `untracked/plan-runs/`. That is the defect's actual
+  symptom, measured, on a converted script.
+
+  **Not done, and cannot be here**: the rest stop early by design rather than by defect —
+  `plan_require_host` refuses, or a probe finds no `camera` user, no reachable podman, no
+  `lxc`. Stopping at a guard proves the bootstrap and `plan_start_log` work; it does not
+  reach the last line. Those need a host run, which the batch supplies.
+
+  **This is the one thing standing between 00130 and Complete.** Nothing else is owed.
+
 - [x] ✅ **Task 2.3**: **Relocated, not removed.** All three (00079, 00080, 00098) held
   real run output — 00079's four logs go back to August. Deleting them would have
   destroyed the only record of those runs to satisfy a rule about *where* run logs live,
   so each moved to `untracked/plan-runs/<plan>/legacy-plan-local-logs/`, which is that
   rule's answer rather than its opposite. The plan folders now hold no `logs/` dir, which
   is what Task 3.1's gate asserts.
+
 - [x] ✅ **Task 2.4**: Was "adopt `PLAN_ASSUME_YES` so the batch's one consent covers
   these scripts". **No live `deploy.bash` needs it** — see the correction above. What the
   task actually produced is the fix to `meta-deploy.bash`'s test: it now requires a `read`
@@ -142,15 +160,21 @@ between the operator and a one-shot run.
 
 ## Success Criteria
 
-- [ ] No script under `CLAUDE/Plan/NNNNN-*/` contains `exec > >(tee`
-- [ ] No `logs/` directory remains under `CLAUDE/Plan/NNNNN-*/`
-- [ ] Each converted script has been RUN and reaches its last line
+- [x] ✅ No script under `CLAUDE/Plan/NNNNN-*/` contains `exec > >(tee` — asserted on
+  every run by `scripts/qa-plan-script-logging.bash`, not by a one-off grep
+- [x] ✅ No `logs/` directory remains under `CLAUDE/Plan/NNNNN-*/` — same gate, same run
+- [ ] 🧑 Each converted script has been RUN and reaches its last line — **HOST**. Proven
+  for 00062's `triage.bash` in-container, drain included; the rest stop at a
+  `plan_require_host` or a missing-tool guard, which proves the bootstrap but not the
+  last line. See Task 2.2
 - [x] `./untracked/meta-deploy.bash --list` names no script the batch consent cannot
   answer — the batch is one consent, as the operator asked for. Met, and the criterion
   now tests the property rather than a proxy for it
-- [ ] The new gate fails on a re-introduced occurrence and passes on the clean tree
-- [ ] QA passes (`./scripts/qa-all.bash`)
-- [ ] `qa-reviewer` returns PASS
+- [x] ✅ The new gate fails on a re-introduced occurrence and passes on the clean tree —
+  both controls run in-script on every invocation, and it was additionally falsified
+  against the LIVE tree during the conversion: 6 offences, then 4, then 1, then none
+- [x] ✅ QA passes (`./scripts/qa-all.bash`) — 973 files, green
+- [ ] ⬜ `qa-reviewer` returns PASS
 
 ## Delivery & Milestones
 
