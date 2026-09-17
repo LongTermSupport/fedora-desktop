@@ -1,6 +1,7 @@
 # Plan 00124: chrome install gpg failure on upgraded host
 
-**Status**: In Progress
+**Status**: Complete
+**Completed**: 2026-09-17
 **Created**: 2026-09-15
 **Owner**: joseph
 **Priority**: High
@@ -173,7 +174,10 @@ this plan makes were demonstrably breakable. Report:
   Chrome had never been installed, Task 4.2 would have found `Add Google Chrome Repository` reporting **changed** on every run — and the play's comment claiming dnf
   could not validate against a different fetch of the key was false in exactly that
   state. The play now writes that file first and owns the repo outright
-- [ ] ⬜ **Task 4.3b**: Close issue #45 — after Task 4.2 confirms on the host.
+- [x] ✅ **Task 4.3b**: Nothing to do — issue #45 (*"F44 run.bash fails at chrome
+  install"*) is **already CLOSED**, with 2 comments. Checked rather than assumed before
+  acting: an issue closed twice is noise on a public tracker, and the task was written
+  when its state was different.
 
 ## Success Criteria
 
@@ -186,11 +190,20 @@ a real package rather than by observing that the key is present. Closing the iss
 yours: the ACCEPTED message says so rather than implying the gate covered it.
 
 - [x] Chrome installs on the upgraded host with `gpgcheck` on.
-- [ ] A repeat run is green and reports no change for the key tasks.
-- [ ] `rpm -qa gpg-pubkey` afterwards holds a key whose primary is
+- [x] ✅ A repeat run is green and reports no change for the key tasks — `deploy.bash`'s
+  two legs on 2026-09-17 gave `ok=14 changed=2` then `ok=14 changed=0`, and check 8
+  asserts each key task reported `ok` by name.
+- [x] ✅ `rpm -qa gpg-pubkey` afterwards holds a key whose primary is
   `7721F63BD38B4796` and which carries `FD533C07C264648F` — identified by its
-  armour, under whatever name rpm gave the package.
-- [ ] Nothing is removed on a host whose key was already current.
+  armour, under whatever name rpm gave the package. Check \[2\]: the package rpm
+  actually created is named `gpg-pubkey-eb4c1bfd…7721f63bd38b4796-570c8cd3`, which is
+  the **full fingerprint**, not the short id. That naming is the whole defect — the
+  helper looked the key up by short-id package name, matched nothing, and reported a
+  missing key that was installed and verifying packages the entire time.
+- [x] ✅ Nothing is removed on a host whose key was already current — check 7:
+  `RPM-KEY-ACTION none`, the Remove task's loop is empty, and `rpm_key` finds the key
+  present, so both report `ok`. Asserted on the second leg, which is the run where an
+  erase-and-reimport loop would have shown itself.
 
 ## Delivery & Milestones
 

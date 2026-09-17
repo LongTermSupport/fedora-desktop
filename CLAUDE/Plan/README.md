@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00133-ccy-auto-compact-window-default-and-daemon-check](00133-ccy-auto-compact-window-default-and-daemon-check/) - CCY sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600k` by default, overridable per project in a tracked `ccy.env`, while the hooks daemon independently warns when the window is unset or above the ceiling — that half being an upstream issue whose body must be generated, never hand-drafted.
+
 - [00132-crashloop-killed-shell-then-greeter-suspended-on-ac](00132-crashloop-killed-shell-then-greeter-suspended-on-ac/) - A container crash loop exhausted the session D-Bus quota and killed `gnome-shell`; the GDM greeter then idle-suspended the plugged-in machine, because `gdm` is configured by no play here. Research and design only; no fix applied.
 
 - [00131-semgrep-or-true-rule-is-blind-to-the-enclosed-form](00131-semgrep-or-true-rule-is-blind-to-the-enclosed-form/) - The `|| true` rule is anchored to end-of-line, so `$( cmd || true )` is invisible to it — which is how two instances shipped. Widening it finds 18 live sites in 8 files; four are the git hooks that gate secret scanning for this public repo, where a wrong fix fails open. Carried from Plan 00122 Task 3.7.
@@ -43,8 +45,6 @@ Use these Unicode icons in plan documents:
 - [00128-qa-tool-abort-silences-thirty-gates](00128-qa-tool-abort-silences-thirty-gates/) - `qa-all.bash` exits 2 on a fresh clone before roughly thirty gates have run, and reports nothing about any of them, because one gate's dev-only ESLint dependency is absent. Two written-down positions conflict — `CLAUDE.md`'s missing-dependency rule against `qa-js.bash`'s deliberate dev-only comment — so the remedy is an owner decision. Measured and deferred by Plan 00125.
 
 - [00127-docker-and-podman-inside-lxc](00127-docker-and-podman-inside-lxc/) - **Parked.** Docker inside this host's LXC system containers is not working and Podman inside LXC was never established. Triage against `play-docker-in-lxc-support.yml`, then fix in IaC. Distinct from issue #41, which is engine coexistence on the host.
-
-- [00124-chrome-install-gpg-failure-on-upgraded-host](00124-chrome-install-gpg-failure-on-upgraded-host/) - `run.bash` stops at Chrome on a host upgraded from F41, and there were two causes stacked: dnf5 validating against a repo's own keys (so a package URL lands in keyless `@commandline`), and beneath it an imported key that rpm will never refresh because presence is judged by primary id, leaving the newer signing subkey absent.
 
 - [00121-run-log-secret-scrubber-and-token-scenario](00121-run-log-secret-scrubber-and-token-scenario/) - Secrets are scanned at the git boundary only, so runtime artefacts like VM transcripts go unchecked; builds a fail-closed scrubber and the opt-in `server-github-token` scenario that Plan 00063's Tasks 3.3 and 3.4 need.
 
@@ -176,6 +176,8 @@ Use these Unicode icons in plan documents:
 
 ## Completed Plans
 
+- [00124-chrome-install-gpg-failure-on-upgraded-host](Completed/00124-chrome-install-gpg-failure-on-upgraded-host/) - The key was never missing: rpm 6 names `gpg-pubkey` packages by full fingerprint where the helper assumed a short id, so the lookup matched nothing and reported an absent key that was verifying packages throughout. ACCEPTED on the host, 23 assertions.
+
 - [00075-fail-signal-discard-sweep-and-gate](Completed/00075-fail-signal-discard-sweep-and-gate/) - Sweeps repo-owned bash, Python and playbooks for one defect class — a command's failure silently converted into data and then trusted — and builds a gate that fails the build rather than advising. Closed after re-checking its last task: both hooks-daemon defects it meant to report upstream had since been fixed there.
 
 - [00122-lxc-freeze-thaw-shared-with-podfreeze](Completed/00122-lxc-freeze-thaw-shared-with-podfreeze/) - `podfreeze` groups, previews and toggles Podman containers; LXC is a first-class engine here with no equivalent. Adds a sibling `lxcfreeze` — rootful, so a separate tool rather than a flag — on a shared library both tools source. ACCEPTED on the host: 12 of 12 checks, 33 assertions, 0 failed. `podfreeze`'s fzf picker remains the one path no gate exercises.
@@ -233,8 +235,6 @@ Use these Unicode icons in plan documents:
 - [025-ccy-spring-cleaning](Completed/025-ccy-spring-cleaning/) - CCY codebase spring cleaning: fix 63 shellcheck warnings, remove 20 dead functions, fix double-sourcing, exit-vs-return, and code quality issues
 
 - [00050-fedora-44-tracking](Completed/00050-fedora-44-tracking/) - Fedora 43 → 44 migration tracking, research only: 55 findings across six version-sensitivity dimensions. The bump's core is one line, but seven highs gate it; execution deferred to a decision gate.
-
-- [00077-ansible-inject-facts-as-vars-deprecation](Completed/00077-ansible-inject-facts-as-vars-deprecation/) - Converts the 11 live `ansible_<fact>` references that ansible-core 2.24 removes, and closes the hole with `qa-ansible.bash` Check 5. COMPLETE — proven on the host, after the first acceptance run certified nothing because it set an env var that does not exist.
 
 **Older completed plans** — everything beyond the most recent 30 — are in
 [Completed/README.md](Completed/README.md), moved there verbatim. The retention window
