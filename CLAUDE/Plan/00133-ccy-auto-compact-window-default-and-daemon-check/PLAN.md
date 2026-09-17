@@ -168,12 +168,15 @@ The load-bearing findings:
 
 ### Phase 4: Verify
 
-- [ ] ⬜ **Task 4.1**: **HOST run.** Deploy the updated `claude-yolo` to the
+- [x] ✅ **Task 4.1**: **HOST run.** Deploy the updated `claude-yolo` to the
   host via the owning playbook. Ansible must never run in this container.
-- [ ] ⬜ **Task 4.2**: **HOST run.** Start a session with no `ccy.env` override
+  **Done by the owner** — a session now runs on the deployed CCY 3.58.0.
+- [x] ✅ **Task 4.2**: **HOST run.** Start a session with no `ccy.env` override
   and confirm from inside it that the variable is `600k` — read the live
   environment, do not infer it from the launcher source. A check that only
-  re-reads the diff vouches for nothing.
+  re-reads the diff vouches for nothing. **Done** — a session whose `ccy.env`
+  carries no `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (checked, not assumed) read
+  `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600k` from its own environment.
 - [ ] ⬜ **Task 4.3**: **HOST run.** Confirm Claude Code has actually *accepted*
   the value rather than merely received it: `/config` labels the window's source
   explicitly, and should attribute it to the environment variable. This is the
@@ -191,7 +194,7 @@ The load-bearing findings:
 
 ## Success Criteria
 
-- [ ] A CCY session started with no project override reports
+- [x] A CCY session started with no project override reports
   `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600k` from its live environment.
 - [ ] Claude Code attributes its auto-compact window to the environment
   variable, confirming the value is in force and not merely present.
