@@ -186,7 +186,15 @@ is the single source instead, and disk only confirms it.
   wrong for every other plan. The harness needed no change: it invokes `deploy.bash` once,
   with no arguments, which is now enough.
 
-  **Still owed**: the `play-vm-test-lab.yml` redeploy that unblocks Task 2.2
+  **The 2026-09-17 batch run went green on every leg**, idempotency included: the second
+  pass reported `changed=0` on 1 host, and acceptance passed with the triage bracket either
+  side. Task 2.1's host steps are discharged.
+
+  **The lab redeploy is no longer a separate thing to remember either.** It was owed after
+  that run because `deploy.bash` only ran `play-gnome-shell-extensions.yml`, so no batch
+  could ever reach `play-vm-test-lab.yml` — the same omission as Plan 00094, which deployed
+  one of the two plays it had changed. Both plays are now legs of this script, so the next
+  batch run unblocks Task 2.2 rather than leaving it where it was.
 
 - [ ] 🚫 **Task 2.2**: `vmtest run desktop-fresh-install` against the pushed
   commit; `deployed-extensions-active` green in the post-reboot session; run id

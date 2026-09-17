@@ -40,10 +40,15 @@ plan_init "${BASH_SOURCE[0]}"
 
 PLAN_USAGE="usage: deploy.bash [-h|--help] [--check]
 
-Runs playbooks/imports/play-gnome-shell-extensions.yml on the HOST. The change
-this plan makes is the 'Declare Deployed Extensions Enabled' task: every
-deployed UUID is added to org.gnome.shell enabled-extensions, additively.
---check previews without changing anything.
+Runs two plays on the HOST, in this order:
+  1. play-gnome-shell-extensions.yml, twice. The change this plan makes is the
+     'Declare Deployed Extensions Enabled' task: every deployed UUID is added to
+     org.gnome.shell enabled-extensions, additively. The second run asserts
+     changed=0, which is Task 2.1's idempotency requirement.
+  2. play-vm-test-lab.yml, because vmtest copies its guest checker from the
+     host's DEPLOYED copy — so Task 2.2 certifies nothing until this lands.
+
+--check previews without changing anything and skips the idempotency pass.
 
 Run triage.bash before and after, and diff the reports."
 
@@ -132,5 +137,21 @@ else
 
     printf '\n[idempotency] second pass: changed=0 on each of %s host(s).\n' "${recapHosts}"
 fi
+
+# ── the lab, because Task 2.2 is meaningless without it ───────────────────────────────────
+# `vmtest` copies its guest checker from the HOST'S DEPLOYED COPY, not from the checkout
+# under test, so until this play runs the lab certifies a run against a checker that
+# predates this plan — which is how `20260914T100220Z` passed 16/16 while declaring
+# `COVERAGE: 8 of 1`. Task 2.1 asks for this play by name for that reason.
+#
+# It is here rather than left to the operator because of the precedent one plan over:
+# Plan 00094 changed a file and deployed only the other play, so the repo fix never
+# reached the host and stayed broken for weeks. A deploy that covers one of the two plays
+# its own plan changed is the same omission waiting to repeat.
+#
+# After the idempotency pass, not before: that assertion is about the extensions play
+# converging, and a second play in between would put its changes in the recap being judged.
+plan_deploy_leg "play-vm-test-lab.yml" \
+    plan_ansible_playbook playbooks/imports/optional/common/play-vm-test-lab.yml
 
 plan_finish
