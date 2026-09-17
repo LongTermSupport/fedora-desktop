@@ -37,11 +37,11 @@ readonly publishedUrl="https://dl.google.com/linux/linux_signing_key.pub"
 # imported under F41 is never refreshed and the newer subkey never arrives.
 readonly primaryKeyId="7721F63BD38B4796"
 readonly signingSubkeyId="FD533C07C264648F"
-# rpm names a gpg-pubkey package after the last 8 hex digits of the primary,
-# lowercased. Derived rather than spelled out a second time, so the two cannot
-# drift apart — it is the same derivation helpers/rpm_keys/subkeys.py makes.
-_shortId="${primaryKeyId: -8}"
-readonly envelopePrefix="gpg-pubkey-${_shortId,,}-"
+# The installed key is selected by the PRIMARY inside its armour, never by the name
+# rpm gave the package — the same identity helpers/rpm_keys/subkeys.py uses. rpm's
+# gpg-pubkey version is the primary's short id under rpm 4 and 5 and the key's full
+# fingerprint under rpm 6, so a `gpg-pubkey-<short id>-` prefix match reports the key
+# as absent on Fedora 44 while it sits in the keyring verifying packages.
 
 # PROBE_RC — the exit status of the LAST probe, so a caller can record a DECISIVE
 # question that went unanswered. Probes themselves always return 0: one
@@ -171,6 +171,24 @@ dump_installed_armour() {
     fi
     printf '%s\n' "${armour}" >"${dest}"
     printf 'wrote %s\n' "${dest}"
+}
+
+# primary_of <key-path> <primary-id> — does this key's FIRST certificate have that
+# primary? The one question that decides whether an installed package is our key, and
+# it is asked of the armour rather than of the package name, which rpm renames between
+# major versions. Parsing stops at the second `pub` for the same reason the helper's
+# does: a transitional bundle's second certificate is not the key being asked about.
+#
+# A key gpg cannot read has no primary, which is NOT a match — so it is reported as
+# somebody else's and left alone, never erased on a guess. That is the same call
+# helpers/rpm_keys/subkeys.py makes for an unreadable installed key.
+primary_of() {
+    local path="$1" wanted="$2"
+    gpg --show-keys --with-colons "${path}" \
+        | awk -F: -v id="${wanted}" '
+            $1 == "pub" && !seen { seen = 1; hit = ($5 == id) }
+            END { exit (seen && hit) ? 0 : 1 }
+        '
 }
 
 # fetch_published_key <dest> — one HTTPS GET of Google's published key, through the
@@ -350,24 +368,33 @@ NOTE
     printf '\n### 2.1 What the keyring holds\n\n'
     probe_match 'the OpenPGP tool the key check reads keys with' rpm -q gnupg2
 
-    local listing="" line="" envelope="" armourPath=""
+    local listing="" line="" envelope="" armourPath="" candidate="" dumpOutput=""
     local envelopes=()
     if ! listing="$(rpm -qa gpg-pubkey --qf '%{name}-%{version}-%{release}\n' 2>&1)"; then
         printf -- '- the rpm keyring could not be listed: %s\n' "${listing}"
         note_unanswered "the installed Google key"
     else
+        # Selected by the PRIMARY inside each key, exactly as the helper does. The
+        # package name is an rpm packaging detail and says nothing reliable about
+        # which key the package holds, so every installed key is opened and asked.
         while IFS= read -r line; do
-            # Anchored on the trailing separator, exactly as the helper does: these
-            # names are what the play would hand `rpm --erase`, and a prefix match
-            # would claim a key nobody asked about.
-            case "${line}" in
-                "${envelopePrefix}"*) envelopes+=("${line}") ;;
-            esac
+            [[ -n "${line}" ]] || continue
+            candidate="${runDir}/candidate-${line}.asc"
+            if ! dumpOutput="$(dump_installed_armour "${line}" "${candidate}" 2>&1)"; then
+                printf -- '- %s could not be opened, so whether it is Google primary %s\n' \
+                    "${line}" "${primaryKeyId}"
+                printf '  is UNKNOWN: %s\n' "${dumpOutput}"
+                note_unanswered "the identity of the installed key ${line}"
+                continue
+            fi
+            if primary_of "${candidate}" "${primaryKeyId}"; then
+                envelopes+=("${line}")
+            fi
         done <<<"${listing}"
 
         if [[ "${#envelopes[@]}" -eq 0 ]]; then
-            printf -- '- NO gpg-pubkey package named %s* is installed, so this keyring holds\n' "${envelopePrefix}"
-            printf '  no copy of Google primary %s. That is the import case.\n' "${primaryKeyId}"
+            printf -- '- NO installed gpg-pubkey package carries Google primary %s,\n' "${primaryKeyId}"
+            printf '  so this keyring holds no copy of it. That is the import case.\n'
         else
             printf -- '- installed key packages for this primary: %s\n' "${envelopes[*]}"
             for envelope in "${envelopes[@]}"; do

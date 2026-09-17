@@ -107,11 +107,11 @@ readonly CHROME_PACKAGE="google-chrome-stable"
 # subkey the current Chrome package is signed by. No fingerprint is invented here.
 readonly PRIMARY_KEY_ID="7721F63BD38B4796"
 readonly SIGNING_SUBKEY_ID="FD533C07C264648F"
-# rpm names a gpg-pubkey package after the last 8 hex digits of the primary, lowercased.
-# Derived rather than spelled out again so the two cannot drift — the same derivation
-# helpers/rpm_keys/subkeys.py makes.
-_shortId="${PRIMARY_KEY_ID: -8}"
-readonly ENVELOPE_PREFIX="gpg-pubkey-${_shortId,,}-"
+# The installed key is identified by the PRIMARY inside its armour and never by the name
+# rpm gave the package — the same identity helpers/rpm_keys/subkeys.py uses. rpm's
+# gpg-pubkey version is the primary's short id under rpm 4 and 5 and the key's full
+# fingerprint under rpm 6, so a `gpg-pubkey-<short id>-` prefix match calls the key absent
+# on Fedora 44 while it sits in the keyring verifying packages.
 
 readonly REPORT="${PLAN_RUN_DIR}/plan-00124-acceptance-report.md"
 
@@ -527,20 +527,20 @@ if ! keyring="$(rpm -qa gpg-pubkey --qf '%{name}-%{version}-%{release}\n' 2>&1)"
 else
     envelopes=()
     while IFS= read -r line; do
-        # Anchored on the trailing separator, as the helper is: a prefix match would claim
-        # a key nobody asked about.
-        case "${line}" in
-            "${ENVELOPE_PREFIX}"*) envelopes+=("${line}") ;;
-        esac
+        # EVERY installed key, unfiltered. The package name is an rpm packaging detail and
+        # says nothing reliable about which key the package holds, so identity is settled
+        # below from each key's own armour instead.
+        [[ -n "${line}" ]] && envelopes+=("${line}")
     done <<<"${keyring}"
 
     if [[ "${#envelopes[@]}" -eq 0 ]]; then
-        bad "no gpg-pubkey package named ${ENVELOPE_PREFIX}* is installed" \
+        bad "the rpm keyring holds no gpg-pubkey packages at all" \
             "This keyring holds no copy of Google primary ${PRIMARY_KEY_ID}, so dnf cannot verify a Chrome package at all. Run deploy.bash."
     else
-        note "installed key packages at this short id: ${envelopes[*]}"
+        note "${#envelopes[@]} installed key package(s) to identify by their armour"
         oursTotal=0
         unreadable=0
+        strangers=0
         for envelope in "${envelopes[@]}"; do
             armourPath="${PLAN_RUN_DIR}/installed-${envelope}.asc"
             if ! envelope_armour "${envelope}" "${armourPath}"; then
@@ -554,10 +554,10 @@ else
                 continue
             fi
             if [[ "${KEY_PRIMARY}" != "${PRIMARY_KEY_ID}" ]]; then
-                # Short ids are 8 hex digits and are not unique. A package sitting here
-                # with a different primary belongs to somebody else — it is not evidence
-                # for this plan, and it is not ours to remove either.
-                note "${envelope} carries primary ${KEY_PRIMARY}, which is NOT Google's — somebody else's key, left alone"
+                # Every other vendor's key in the keyring lands here. None is evidence for
+                # this plan, and none is ours to remove — they are counted, not narrated,
+                # because a desktop holds dozens and a line each would bury the verdict.
+                strangers=$((strangers + 1))
                 continue
             fi
             oursTotal=$((oursTotal + 1))
@@ -569,8 +569,8 @@ else
             fi
         done
         if [[ "${oursTotal}" -eq 0 ]] && [[ "${unreadable}" -eq 0 ]]; then
-            bad "nothing installed at this short id carries Google's primary ${PRIMARY_KEY_ID}" \
-                "The packages found belong to other vendors, so this host holds no Google key."
+            bad "no installed key carries Google's primary ${PRIMARY_KEY_ID}" \
+                "All ${strangers} installed key package(s) belong to other vendors, so this host holds no Google key. Run deploy.bash."
         fi
     fi
 fi

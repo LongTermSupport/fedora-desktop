@@ -46,8 +46,6 @@ Use these Unicode icons in plan documents:
 
 - [00124-chrome-install-gpg-failure-on-upgraded-host](00124-chrome-install-gpg-failure-on-upgraded-host/) - `run.bash` stops at Chrome on a host upgraded from F41, and there were two causes stacked: dnf5 validating against a repo's own keys (so a package URL lands in keyless `@commandline`), and beneath it an imported key that rpm will never refresh because presence is judged by primary id, leaving the newer signing subkey absent.
 
-- [00122-lxc-freeze-thaw-shared-with-podfreeze](00122-lxc-freeze-thaw-shared-with-podfreeze/) - `podfreeze` groups, previews and toggles Podman containers; LXC is a first-class engine here with no equivalent. Adds a sibling `lxcfreeze` — rootful, so a separate tool rather than a flag — on a shared library holding the menu, the derived verb and the dry run that are not engine-specific.
-
 - [00121-run-log-secret-scrubber-and-token-scenario](00121-run-log-secret-scrubber-and-token-scenario/) - Secrets are scanned at the git boundary only, so runtime artefacts like VM transcripts go unchecked; builds a fail-closed scrubber and the opt-in `server-github-token` scenario that Plan 00063's Tasks 3.3 and 3.4 need.
 
 - [00119-headless-github-ssh-443-input](00119-headless-github-ssh-443-input/) - Headless provisioning had no input for the always-on `ssh.github.com:443` route, so a box whose egress blocks port 22 could upload its GitHub key and then hang on every SSH use of it; `RUN_BASH_GITHUB_SSH_443=1` writes `github_ssh_over_443: true` into the fresh localhost.yml.
@@ -180,6 +178,8 @@ Use these Unicode icons in plan documents:
 
 ## Completed Plans
 
+- [00122-lxc-freeze-thaw-shared-with-podfreeze](Completed/00122-lxc-freeze-thaw-shared-with-podfreeze/) - `podfreeze` groups, previews and toggles Podman containers; LXC is a first-class engine here with no equivalent. Adds a sibling `lxcfreeze` — rootful, so a separate tool rather than a flag — on a shared library both tools source. ACCEPTED on the host: 12 of 12 checks, 33 assertions, 0 failed. `podfreeze`'s fzf picker remains the one path no gate exercises.
+
 - [00082-run-bash-github-accounts-none](Completed/00082-run-bash-github-accounts-none/) - Lets `run.bash` headless v1 provision with `RUN_BASH_GITHUB_ACCOUNTS=none`, which previously failed preflight as an unsupported follow-up. Merged as PR #33 (`68f1596f`); Phase 5's live proof came from Plan 00110's lab run, whose `vmtest` default provisions with `none` and asserts a clone in a guest with no GitHub identity.
 
 - [00076-bash-gate-coverage-hole-nonexecutable-scripts](Completed/00076-bash-gate-coverage-hole-nonexecutable-scripts/) - `qa-all.bash` reported 125 bash files OK against 152 in the repo: the other 27 were never opened, having neither a shell extension nor an execute bit, and hid 34 gating findings. Discovery now keys on the shebang, with a coverage assertion behind it. Task 4.5, found while closing and outside every success criterion, became Plan 00129.
@@ -237,8 +237,6 @@ Use these Unicode icons in plan documents:
 - [00077-ansible-inject-facts-as-vars-deprecation](Completed/00077-ansible-inject-facts-as-vars-deprecation/) - Converts the 11 live `ansible_<fact>` references that ansible-core 2.24 removes, and closes the hole with `qa-ansible.bash` Check 5. COMPLETE — proven on the host, after the first acceptance run certified nothing because it set an env var that does not exist.
 
 - [00078-ccy-network-preflight-skip](Completed/00078-ccy-network-preflight-skip/) - Adds `CCY_SKIP_NETWORK_PREFLIGHT=1` so `ccy` can launch on an egress-fenced host, where the unconditional alpine-pull-and-HTTP liveness probe cannot pass by design. CCY 3.39.0.
-
-- [00097-lightweight-agent-browser-engine](Completed/00097-lightweight-agent-browser-engine/) - Adds Lightpanda 0.3.6 as a complementary lightweight engine, reached through the `--engine` flag `agent-browser` already had: 379 ms / ~25 MB against Chromium's 1177 ms / ~1345 MB at identical fidelity on eight JS fixtures. Chromium stays the default because Lightpanda fails silently outside its scope.
 
 **Older completed plans** — everything beyond the most recent 30 — are in
 [Completed/README.md](Completed/README.md), moved there verbatim. The retention window

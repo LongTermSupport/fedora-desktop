@@ -1,7 +1,8 @@
 # Plan 00122: freeze and thaw LXC containers, as podfreeze does for Podman
 
-**Status**: In Progress
+**Status**: Complete
 **Created**: 2026-09-15
+**Completed**: 2026-09-17
 **Owner**: joseph
 **Priority**: Medium
 
@@ -244,11 +245,14 @@ divergent as it is now — which is the half that was actually complained about.
   tool without its library does not start; copying the tasks into both plays is the
   drift this task existed to remove. Each play keeps its own name, anchor and
   dependencies (`fzf` is podfreeze's alone)
-- [ ] ⬜ **Task 4.6**: **HOST** — both tools still behave as before, and `podfreeze`'s
-  fzf path in particular, which no suite here can exercise. Neither tool can be run at
-  all from the container: it has no reachable podman and no `lxc`, and both refuse to
-  start inside a container by design. Run `play-podfreeze.yml` and `play-lxcfreeze.yml`
-  first — the library is a NEW file, and a deployed tool without it does not start
+- [x] ✅ **Task 4.6**: **HOST** — done by the batch run of `deploy.bash` then
+  `acceptance.bash`: 12 of 12 checks, 33 assertions, 0 failed, ACCEPTED. Both deployed
+  tools start against the shared library and list containers (check [4]), both resolve it
+  by the same relative hop (check [2]), and all three artefacts are byte-identical to
+  their repo copies at the declared mode (check [1]). **The fzf path itself is still
+  unexercised** — check [3] asserts only that `fzf` is installed, so "podfreeze behaves as
+  before" is established for the start, library-resolution and list paths, and is inferred
+  rather than measured for the picker
 
 ### Phase 5: A thawed container must be reachable
 
@@ -337,9 +341,10 @@ run this plan alongside the others waiting. `acceptance.bash` carries twelve
 COVERAGE-registered checks, creates and destroys its own throwaway container, and prints
 the two claims no gate can settle rather than letting a green verdict imply them.
 
-- [ ] `lxcfreeze` freezes a running LXC container and thaws it again, verified with
-  `lxc-info -s` rather than by the tool's own report
-- [ ] Running `lxcfreeze` twice on the same target toggles it, as `podfreeze` does
+- [x] ✅ `lxcfreeze` freezes a running LXC container and thaws it again, verified with
+  `lxc-info -s` rather than by the tool's own report — checks [7] and [8] of the host run
+- [x] ✅ Running `lxcfreeze` twice on the same target toggles it, as `podfreeze` does —
+  check \[8\]: the same command run again returned the container to RUNNING
 - [x] **Phases 2–3 only**: `git diff` touches **no** line of
   `files/home/.local/bin/podfreeze`. Held through Task 4.1, which is why that
   suite pins the tool as shipped rather than a version adjusted to be testable.
@@ -347,13 +352,23 @@ the two claims no gate can settle rather than letting a green verdict imply them
   necessarily edits `podfreeze`, and Task 4.4 — "Task 4.1's suite must still pass
   against `podfreeze`" — is the criterion that replaces it. The suite, not the
   absence of a diff, is what now protects the tool.
-- [ ] A refused or absent `sudo` produces a named failure, never an empty selection
-- [ ] `lxc` not installed is reported as such, and is distinguishable from zero containers
+- [x] ✅ A refused or absent `sudo` produces a named failure, never an empty selection —
+  check [10]
+- [x] ✅ `lxc` not installed is reported as such, and is distinguishable from zero
+  containers — check [11], which also asserts the message names the play that installs it
 - [x] Every decision the suites cover has a mutant that kills it — 18 for `lxcfreeze`,
   15 for `podfreeze`, 20 for the shared library, each killed by a NAMED case
 - [x] `./scripts/qa-all.bash` passes
-- [ ] After `lxcfreeze thaw`, ssh into the container succeeds on the first attempt,
-  after a freeze longer than the one-hour lease
+- [x] ✅ After `lxcfreeze thaw`, ssh into the container succeeds on the first attempt,
+  after a freeze longer than the one-hour lease — **closed on an argument plus a partial
+  measurement, not on the stated experiment.** What was measured (Task 5.2) is a real
+  freeze/thaw whose `journalctl -t dnsmasq-dhcp` shows `DHCPDISCOVER` through `DHCPACK` in
+  the same second as the thaw. The renewal is unconditional, so a freeze longer than the
+  lease reaches that identical code path and the only untested variable is whether the
+  address had already been dropped. The owner declined to stage an hour-long freeze for
+  it; the real overnight case confirms itself the next time it occurs. **If a first-attempt
+  ssh ever fails after a long freeze, this criterion — not the renewal code — is where the
+  gap was accepted.**
 - [x] The suspend-to-disk decision is recorded with the spike's evidence — the decision
   in Phase 6's heading, the evidence in the 26-09-16 journal (10:00, 10:02, 10:10)
 

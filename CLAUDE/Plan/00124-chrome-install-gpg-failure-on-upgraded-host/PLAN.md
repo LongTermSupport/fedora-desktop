@@ -70,9 +70,10 @@ idempotent.
 ### Phase 2: The decision, as a tested helper
 
 - [x] ✅ **Task 2.1**: `tests/helpers/rpm_keys/test_subkeys.py` first.
-- [x] ✅ **Task 2.2**: `helpers/rpm_keys/subkeys.py` — `key_ids`, `short_id`,
-  `read_key`, `read_armour`, `installed_envelopes`, `key_armour`,
-  `needs_refresh`, `report`, `main`. Injected runner throughout.
+- [x] ✅ **Task 2.2**: `helpers/rpm_keys/subkeys.py` — `key_ids`, `read_key`,
+  `read_armour`, `installed_envelopes`, `key_armour`, `needs_refresh`, `report`,
+  `main`. Injected runner throughout. (`short_id` was here until Task 4.4 removed
+  the package-name lookup that needed it.)
 - [x] ✅ **Task 2.3**: Verify the gpg parsing against the **real** published key,
   not only fixtures — the one part unit tests cannot vouch for.
 
@@ -128,12 +129,28 @@ this plan makes were demonstrably breakable. Report:
   by the owner — the key check cleared and the run carried on past Chrome. This
   is the first end-to-end proof of the rpm half, which no container can give.
 - [ ] ⬜ **Task 4.2**: A second run reports the key tasks as **ok**, not changed.
-  `triage.bash` section 2 answers this without needing the run watched: it reads the
-  installed `gpg-pubkey-d38b4796-*` envelopes, confirms each carries
-  `FD533C07C264648F`, and compares the deployed key file byte-for-byte against what
-  Google publishes now. A table in the report maps each fact to the play task it
-  predicts. Run it, then run the play — agreement is the evidence, rather than a
-  human watching two runs and remembering what the first said.
+  `triage.bash` section 2 answers this without needing the run watched: it identifies
+  every installed `gpg-pubkey` package by the primary inside its armour, confirms the
+  one carrying `7721F63BD38B4796` also carries `FD533C07C264648F`, and compares the
+  deployed key file byte-for-byte against what Google publishes now. A table in the
+  report maps each fact to the play task it predicts. Run it, then run the play —
+  agreement is the evidence, rather than a human watching two runs and remembering
+  what the first said.
+  - **First attempt aborted, and the cause was in this plan's own code** — see
+    Task 4.4. Re-run `deploy.bash` now that it is fixed.
+
+### Phase 4b: The Fedora 44 package-naming break
+
+- [x] ✅ **Task 4.4**: The Task 4.2 run failed at `Verify The Imported Google Key Is Now Current` with `RPM-KEY-ACTION import` on a host whose key was present and
+  working. `installed_envelopes` selected packages by rpm's `%{version}` — the
+  primary's short id under rpm 4 and 5, the key's **full fingerprint** under rpm 6,
+  which is what Fedora 44 ships. Identity was decided from a string rpm renames
+  between major versions. It now returns every installed `gpg-pubkey` package and
+  `needs_refresh` decides identity from the primary parsed out of each key's own
+  armour. `short_id` has no caller left and is deleted. `probe-chrome.bash` and
+  `acceptance.bash` carried the same derivation and would have vouched for the fix
+  while checking the wrong thing; both now select by armour too. The play is
+  unchanged — its post-condition was correct and caught this exactly as designed.
 - [x] ✅ **Task 4.3a**: `qa-reviewer` agent — FIX-BEFORE-MERGE, 8 findings, all acted
   on. Report:
   [subagent-reports/260915-qa-reviewer-opus-5.md](subagent-reports/260915-qa-reviewer-opus-5.md).
@@ -159,8 +176,9 @@ yours: the ACCEPTED message says so rather than implying the gate covered it.
 
 - [x] Chrome installs on the upgraded host with `gpgcheck` on.
 - [ ] A repeat run is green and reports no change for the key tasks.
-- [ ] `rpm -qa gpg-pubkey` afterwards holds a Google key carrying
-  `FD533C07C264648F`.
+- [ ] `rpm -qa gpg-pubkey` afterwards holds a key whose primary is
+  `7721F63BD38B4796` and which carries `FD533C07C264648F` — identified by its
+  armour, under whatever name rpm gave the package.
 - [ ] Nothing is removed on a host whose key was already current.
 
 ## Delivery & Milestones
