@@ -112,6 +112,21 @@ plan_start_log auto
 
 plan_gate_change "python3-pyyaml installed for the system interpreter; the login-time health unit deployed and ENABLED against graphical-session.target on a desktop profile (or the host-health-collect timer enabled and started plus a ~/.bashrc-includes snippet on a server profile), with the other profile's units and symlinks removed; the fedora-desktop panel extension copied into the user's extensions tree and its uuid MERGED into org.gnome.shell enabled-extensions; the rootless libvirt/QEMU lab stack installed and the scenario manifest, allowlist and guest scripts rendered into the lab tree; and the DisplayLink vendor RPM, a DKMS autoinstall, the recovery helper tree, its dock udev rule and its suspend service — which can require a MOK enrolment and a reboot"
 
+# BEFORE the plays, not after: the ledger records each play as it runs, and while a
+# BROKEN sentinel is live it records nothing. Clearing afterwards would leave this very
+# deploy's four plays unrecorded — the hole would be closed and immediately re-opened for
+# the run that closed it.
+#
+# The sentinel this clears is dated 2026-09-15 and names the ansible-core 2.19 `ansible_pos`
+# removal, which `plugin_support.py` has since been fixed for. By design the sentinel never
+# clears itself, so it needs saying once that the CAUSE is gone; the hole was real and the
+# plays that ran during it are not recovered by this.
+# `env --chdir` rather than a bare `cd`: `python3 -m helpers…` resolves the package from
+# the cwd, and plan_deploy_leg refuses to be called inside a subshell, so the cd has to
+# belong to the command rather than to the script around it.
+plan_deploy_leg "clear the ledger's BROKEN sentinel" \
+    env --chdir="${PLAN_REPO_ROOT}" python3 -m helpers.play_ledger.check_freshness --clear-broken
+
 plan_deploy_leg "play-host-health-login-report.yml" \
     plan_ansible_playbook playbooks/imports/optional/common/play-host-health-login-report.yml
 
