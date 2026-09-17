@@ -17,19 +17,40 @@ set -euo pipefail
 #
 #   CLAUDE/Plan/00066-ftp-camera-airbnb-wifi-and-hotspot-triage/triage.bash
 #
-# Pattern: CLAUDE/PlanWorkflow.md → "Plan-Local Scripts & Artifacts".
+# Pattern: CLAUDE/PlanWorkflow.md → "Plan-Local Scripts & Artifacts";
+# mechanics: CLAUDE/PlanScriptStandards.md.
 #
-# It WRITES ITS OWN REPORT to untracked/reports/ (gitignored scratch inside the
-# repo tree). That directory is bind-mounted into the CCY container, so the
-# agent assisting on this plan reads the report directly at the same
-# repo-relative path — no copy-paste of terminal output required.
+# Its whole stdout IS the report, and `plan_start_log auto` (R4) tees that to a
+# per-run directory under untracked/plan-runs/ inside the repo tree. That tree is
+# bind-mounted into the CCY container, so the agent assisting on this plan reads
+# the log directly at the same repo-relative path — no copy-paste of terminal
+# output required. It is per-run, so re-running never clobbers the previous run's
+# evidence, and it is UNSCRUBBED — this report dumps live host state (NICs, IPs,
+# SSIDs) and this is a public repo, so read it in place and never commit it.
 #
 # Best run RIGHT AFTER a failing camera session, while the vsftpd log still
 # holds the evidence.
 #
-# It needs sudo for /var/log/vsftpd.log and for reading inside the upload tree.
+# It needs sudo for /var/log/vsftpd.log and for reading inside the upload tree,
+# so plan_prime_sudo runs BEFORE the log opens (R3) — a sudo prompt issued after
+# the tee redirect is flooded and garbled.
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+repoRoot="${scriptDir}"
+while [[ "${repoRoot}" != "/" ]] && [[ ! -e "${repoRoot}/ansible.cfg" ]]; do
+  if [[ -e "${repoRoot}/.git" ]]; then
+    printf '[FATAL] no ansible.cfg between %s and the repo root %s\n' "${scriptDir}" "${repoRoot}" >&2
+    exit 1
+  fi
+  repoRoot="$(dirname "${repoRoot}")"
+done
+[[ -e "${repoRoot}/ansible.cfg" ]] || { printf '[FATAL] no ansible.cfg above %s\n' "${scriptDir}" >&2; exit 1; }
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../_planlib.inc.bash
+source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
+plan_init "${BASH_SOURCE[0]}"
+
+plan_mode gather
 
 VSFTPD_LOG="/var/log/vsftpd.log"
 CONFIG_FILE="/etc/ftp-camera/config"
@@ -100,15 +121,10 @@ if [ -z "$UPLOAD_DIR" ]; then
     exit 1
 fi
 
-# The report lives in THIS plan's folder so it travels with the plan into
-# Completed/. Resolved from the script's own location, not the repo root, so
-# that move does not break it. Plan logs/ dirs are gitignored — this report is
-# a dump of live host state (NICs, IPs, SSIDs) and this is a public repo.
-PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPORTS_DIR="$PLAN_DIR/logs"
-mkdir -p "$REPORTS_DIR"
-LOG="$REPORTS_DIR/ftp-camera-triage.log"
-exec > >(tee "$LOG") 2>&1
+# Sudo is primed on the terminal BEFORE the run log opens (R3), then the log is
+# opened by the library, which owns the tee, the drain and the signal handlers.
+plan_prime_sudo
+plan_start_log auto
 
 # Combined-output capture without hiding errors: prints the command's rc and
 # its stdout+stderr. A non-zero rc is DATA here, not a failure — so we record
@@ -198,7 +214,7 @@ show_nm_profile_events() {
 # file under untracked/. Starts and stops nothing.
 capture_ftp_control() {
     local seconds="$1"
-    local trace="$REPORTS_DIR/ftp-control-trace.txt"
+    local trace="$PLAN_RUN_DIR/ftp-control-trace.txt"
 
     echo "──────── 0. FTP CONTROL-CHANNEL CAPTURE ────────"
     echo
@@ -275,8 +291,11 @@ capture_ftp_control() {
 
 # Extract the verb/response stream from a capture, in order. This is the
 # payload of the whole exercise — everything else in this report is context.
+# The trace lives in THIS run's directory, so only a --capture run in the same
+# invocation has one to analyse. A passive run says so rather than reaching into
+# an older run's evidence and presenting it as current.
 analyse_ftp_trace() {
-    local trace="$REPORTS_DIR/ftp-control-trace.txt"
+    local trace="$PLAN_RUN_DIR/ftp-control-trace.txt"
     local verbs='(USER|TYPE|PASV|EPSV|PORT|STOR|RETR|LIST|MLSD|NLST|SIZE|MDTM|DELE|RNFR|RNTO|CWD|PWD|QUIT|FEAT|SYST|NOOP|ABOR|REST|APPE)'
 
     if [ ! -s "$trace" ]; then
@@ -316,7 +335,7 @@ show_exiftool_version() {
 
 echo "════════════════════════════════════════════════════════════"
 echo " Plan 00066 — ftp-camera triage"
-echo " repo:   $REPO_ROOT"
+echo " repo:   $PLAN_REPO_ROOT"
 echo " user:   $(id -un) (uid $(id -u))   host: $(uname -n)"
 echo " upload: $UPLOAD_DIR"
 echo "════════════════════════════════════════════════════════════"
@@ -428,8 +447,8 @@ else
     sudo tail -n 60 "$VSFTPD_LOG"
     echo
 
-    # The decisive evidence. Present whenever --capture has been run at least
-    # once; summarised here so it lands in the same report as its context.
+    # The decisive evidence. Present when THIS run was given --capture;
+    # summarised here so it lands in the same report as its context.
     echo "──────── 4b. FTP CONTROL-CHANNEL TRACE ────────"
     echo
     analyse_ftp_trace
@@ -500,7 +519,7 @@ probe "rclone user services" systemctl --user list-units 'rclone-*' --no-pager
 
 echo "════════════════════════════════════════════════════════════"
 echo " Triage complete."
-echo " Report written to: $LOG"
+echo " This whole report is the run log; its path is printed as this run ends."
 echo
 echo " Read section 4 first: if 'successful uploads per filename' shows a"
 echo " count above 1 while FAIL UPLOAD is 0, the camera is re-sending frames"

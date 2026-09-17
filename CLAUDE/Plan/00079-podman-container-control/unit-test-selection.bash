@@ -21,6 +21,22 @@
 # Usage: unit-test-selection.bash [--help]
 
 set -uo pipefail
+scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+repoRoot="${scriptDir}"
+while [[ "${repoRoot}" != "/" ]] && [[ ! -e "${repoRoot}/ansible.cfg" ]]; do
+  if [[ -e "${repoRoot}/.git" ]]; then
+    printf '[FATAL] no ansible.cfg between %s and the repo root %s\n' "${scriptDir}" "${repoRoot}" >&2
+    exit 1
+  fi
+  repoRoot="$(dirname "${repoRoot}")"
+done
+[[ -e "${repoRoot}/ansible.cfg" ]] || { printf '[FATAL] no ansible.cfg above %s\n' "${scriptDir}" >&2; exit 1; }
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../_planlib.inc.bash
+source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
+# STANDARD-EXCEPTION(R1): this script runs without errexit (see the `set` line above) because
+# its assertions record failures and continue, so library calls that RETURN 1 are gated here.
+plan_init "${BASH_SOURCE[0]}" || exit 1
 
 for arg in "$@"; do
     case "$arg" in
@@ -37,7 +53,8 @@ networks, one with no network, and one already frozen.
 
 Covers ccy_names, build_network_map, network_names, count_in_state,
 target_effect (both the derived-verb rule and an explicit verb overriding it),
-infer_action, and the selectors. Writes its log to this plan's logs/.
+infer_action, and the selectors. Writes its run log under untracked/plan-runs/,
+and names the exact path on the way out.
 EOF
             exit 0
             ;;
@@ -49,15 +66,10 @@ EOF
     esac
 done
 
-PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(git -C "$PLAN_DIR" rev-parse --show-toplevel)"
+plan_mode gather || exit 1
+plan_start_log auto || exit 1
 
-mkdir -p "$PLAN_DIR/logs"
-LOG="$PLAN_DIR/logs/unit-test-selection.log"
-exec > >(tee "$LOG") 2>&1
-echo "Logging this run to: $LOG" >&2
-
-TOOL="$REPO_ROOT/files/home/.local/bin/podfreeze"
+TOOL="$PLAN_REPO_ROOT/files/home/.local/bin/podfreeze"
 if [ ! -f "$TOOL" ]; then
     echo "ERROR: $TOOL not found." >&2
     exit 1
@@ -82,7 +94,12 @@ CUT_LINE="${CUT%%:*}"
 # qa-bash.bash pointing at a file that is not in git and cannot be inspected
 # from a fresh clone. Nothing needs it to persist.
 FUNCS="$(mktemp -t podfreeze-funcs.XXXXXX.bash)"
-trap 'rm -f "$FUNCS"' EXIT
+# R4: register the teardown, never `trap … EXIT`. A hand-written EXIT trap REPLACES the
+# library's handler, and the run log then loses its final buffered chunk.
+remove_funcs_tmpfile() {
+    rm -f "$FUNCS"
+}
+plan_on_cleanup remove_funcs_tmpfile || exit 1
 awk -v n="$CUT_LINE" 'NR < n - 2' "$TOOL" > "$FUNCS"
 
 ACTION=""

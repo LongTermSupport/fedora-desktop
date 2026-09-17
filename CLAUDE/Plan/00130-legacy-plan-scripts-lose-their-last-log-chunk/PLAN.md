@@ -98,7 +98,12 @@ between the operator and a one-shot run.
   because no gate executes plan scripts.
 - [ ] ⬜ **Task 2.2**: Run each converted script far enough to prove it reaches its
   own last line. Linting is exactly what missed this class before.
-- [ ] ⬜ **Task 2.3**: Remove the orphaned plan-local `logs/` directories.
+- [x] ✅ **Task 2.3**: **Relocated, not removed.** All three (00079, 00080, 00098) held
+  real run output — 00079's four logs go back to August. Deleting them would have
+  destroyed the only record of those runs to satisfy a rule about *where* run logs live,
+  so each moved to `untracked/plan-runs/<plan>/legacy-plan-local-logs/`, which is that
+  rule's answer rather than its opposite. The plan folders now hold no `logs/` dir, which
+  is what Task 3.1's gate asserts.
 - [x] ✅ **Task 2.4**: Was "adopt `PLAN_ASSUME_YES` so the batch's one consent covers
   these scripts". **No live `deploy.bash` needs it** — see the correction above. What the
   task actually produced is the fix to `meta-deploy.bash`'s test: it now requires a `read`
@@ -109,12 +114,31 @@ between the operator and a one-shot run.
 
 ### Phase 3: Make it stick
 
-- [ ] ⬜ **Task 3.1**: A QA gate rejecting `exec > >(tee` and plan-local `logs/` under
-  `CLAUDE/Plan/NNNNN-*/`, wired into `qa-all.bash`. It must be falsified against a
-  deliberately re-introduced occurrence, and against a clean tree, before it is trusted.
-- [ ] ⬜ **Task 3.2**: Decide whether `.gitignore`'s `CLAUDE/Plan/**/logs/` entry stays.
-  It stops an accident reaching the public repo, which is worth keeping; but it is also
-  what made the orphan invisible. Both readings are defensible — record which and why.
+- [x] ✅ **Task 3.1**: `scripts/qa-plan-script-logging.bash`, wired into `qa-all.bash` as
+  a hard, non-merged gate. It carries **both** controls in-script — a fixture with the
+  pattern must be REJECTED and one without it ACCEPTED — so a scanner that stopped
+  matching fails the gate rather than passing it. It also states how many scripts it
+  EXAMINED, because "no offences" and "the glob matched nothing" print identically
+  otherwise; examining zero is itself a failure.
+
+  **Falsified against the real tree as well as the fixtures**, which is the stronger
+  evidence: run during the conversion it reported 6 offences, then 4, then 1, then
+  `PLAN-SCRIPT-LOGGING-OK: 51 plan script(s) examined, no offences`. It discriminated on
+  live content, four times, rather than only against material written to be caught.
+  Comment lines are excluded and that exclusion is exercised by a real file — 00099's
+  converted `triage.bash` describes the old pattern twice in comments and is correctly
+  not flagged.
+
+  Scope is active plans only. `Completed/` is frozen history: rewriting a closed plan's
+  scripts changes the record of what was actually run, and none of them will run again.
+
+- [x] ✅ **Task 3.2**: **The `.gitignore` entry STAYS**, with the reasoning written beside
+  it. It is genuinely what made the three orphans invisible to every `git status` that
+  would have shown them — but that gap is now closed by Task 3.1's gate, which rejects a
+  plan-local `logs/` dir by name and loudly. What remains is the one job the gate cannot
+  do: a gate can be skipped, and if it is, an unscrubbed dump of live host state must
+  still not be committable to a public repo. Removing the entry would trade a fail-safe
+  for visibility that has already been restored by other means.
 
 ## Success Criteria
 

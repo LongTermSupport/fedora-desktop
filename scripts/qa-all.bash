@@ -683,6 +683,22 @@ manifest_checkers=$(qa_gate_detail "$manifest_out" '[0-9]+ scenario[(]s[)] agree
 manifest_reboot=$(qa_gate_detail "$manifest_out" '[0-9]+ scenario fixture[(]s[)] run before a declared reboot')
 qa_pass_line vmtest-manifest "$manifest_counts; $manifest_checkers; $manifest_reboot"
 
+# Plan-script run logging (Plan 00130). `exec > >(tee "$LOG") 2>&1` redirects into a
+# process substitution the shell cannot wait on, so the run log loses its last chunk —
+# reliably the part naming what failed. No other gate here executes a plan script, and
+# lint cannot see the defect, so the pattern survived in ten scripts across seven plans.
+# The gate rejects a control fixture carrying the pattern before judging the tree, and
+# states how many scripts it EXAMINED: "no offences" and "the glob matched nothing"
+# print identically otherwise.
+plan_logging_out=""
+if ! plan_logging_out="$(bash "$SCRIPT_DIR/qa-plan-script-logging.bash" 2>&1)"; then
+    qa_hard_gate_failed plan-script-logging \
+        "a plan script uses the un-waitable run-log pattern, or keeps a plan-local logs/ dir" \
+        "$plan_logging_out"
+fi
+qa_pass_line plan-script-logging \
+    "$(qa_gate_detail "$plan_logging_out" '[0-9]+ plan script[(]s[)] examined, no offences')"
+
 # The upstream version-pin manifest (Plan 00109). vars/version-pins.yml says where
 # every pinned version lives, and neither of its two consumers runs here — the
 # review tool needs an authenticated gh, the installed-vs-pinned check needs a real

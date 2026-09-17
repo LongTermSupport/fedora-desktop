@@ -70,12 +70,35 @@ case "${1:-}" in
         ;;
 esac
 
-PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(git -C "$PLAN_DIR" rev-parse --show-toplevel)"
-REPORTS_DIR="$PLAN_DIR/logs"
-mkdir -p "$REPORTS_DIR"
-LOG="$REPORTS_DIR/claude-state-acceptance.log"
-exec > >(tee "$LOG") 2>&1
+# ── R1 bootstrap: script-relative, filesystem-only, bounded at the repo boundary ──────────
+# Was `git rev-parse --show-toplevel`, which answers about the CWD rather than the script, so
+# run by path from a repo this one is nested inside it resolved THERE — and every path below
+# is built from the answer, so checks 2, 5 and 7 would have measured the wrong tree.
+scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+repoRoot="${scriptDir}"
+while [[ "${repoRoot}" != "/" ]] && [[ ! -e "${repoRoot}/ansible.cfg" ]]; do
+    if [[ -e "${repoRoot}/.git" ]]; then
+        printf '[FATAL] no ansible.cfg between %s and the repo root %s\n' "${scriptDir}" "${repoRoot}" >&2
+        exit 1
+    fi
+    repoRoot="$(dirname "${repoRoot}")"
+done
+[[ -e "${repoRoot}/ansible.cfg" ]] || {
+    printf '[FATAL] no ansible.cfg above %s\n' "${scriptDir}" >&2
+    exit 1
+}
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../_planlib.inc.bash
+source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
+plan_init "${BASH_SOURCE[0]}"
+# This gate inspects and reports; it repairs nothing, so gather is the honest mode.
+plan_mode gather
+# R4. Replaces a plan-local `logs/` tree written with `exec > >(tee …)`: a `>(…)` process
+# substitution cannot be waited on, so the final buffered chunk — including the VERDICT
+# lines below — could be missing from the file that was supposed to record it.
+plan_start_log auto
+
+REPO_ROOT="$PLAN_REPO_ROOT"
 
 # Resolve the real grep executable, bypassing any function/alias. `command grep`
 # is a shell construct that find/xargs cannot exec — see triage.bash.
@@ -280,13 +303,13 @@ echo "=========================================================="
 if [ "$FAILURES" -eq 0 ]; then
     echo " VERDICT: PASS — $CHECKS check(s), 0 failures"
     echo
-    echo " Full report: $LOG"
+    echo " Full report: $PLAN_RUN_LOG"
     echo "=========================================================="
     exit 0
 fi
 echo " VERDICT: FAIL — $FAILURES of $CHECKS check(s) failed"
 echo
 echo " Read the [FAIL] lines above; each names its remedy."
-echo " Full report: $LOG"
+echo " Full report: $PLAN_RUN_LOG"
 echo "=========================================================="
 exit 1

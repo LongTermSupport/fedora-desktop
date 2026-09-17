@@ -535,6 +535,7 @@ declare -A GATE_COMMAND=(
     [compat_out]="python3 -m helpers.gnome.check_extension_compat"
     [panel_contract_out]="python3 -m helpers.gnome.check_panel_contract ."
     [manifest_out]="bash scripts/qa-vmtest-manifest.bash"
+    [plan_logging_out]="bash scripts/qa-plan-script-logging.bash"
     [pins_out]="bash scripts/qa-version-pins.bash"
 )
 gate_command_for() {

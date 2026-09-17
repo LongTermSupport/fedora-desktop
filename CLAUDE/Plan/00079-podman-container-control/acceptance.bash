@@ -19,6 +19,22 @@
 # Usage: acceptance.bash [--help]
 
 set -uo pipefail
+scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+repoRoot="${scriptDir}"
+while [[ "${repoRoot}" != "/" ]] && [[ ! -e "${repoRoot}/ansible.cfg" ]]; do
+  if [[ -e "${repoRoot}/.git" ]]; then
+    printf '[FATAL] no ansible.cfg between %s and the repo root %s\n' "${scriptDir}" "${repoRoot}" >&2
+    exit 1
+  fi
+  repoRoot="$(dirname "${repoRoot}")"
+done
+[[ -e "${repoRoot}/ansible.cfg" ]] || { printf '[FATAL] no ansible.cfg above %s\n' "${scriptDir}" >&2; exit 1; }
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../_planlib.inc.bash
+source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
+# STANDARD-EXCEPTION(R1): this gate runs without errexit (see the `set` line above) because
+# every check records a PASS/FAIL and continues, so library calls that RETURN 1 are gated here.
+plan_init "${BASH_SOURCE[0]}" || exit 1
 
 for arg in "$@"; do
     case "$arg" in
@@ -53,8 +69,9 @@ container on a throwaway network and checks:
   14  an unknown --github value fails loudly
   15  no pre-rename podman-freeze is left on PATH
 
-Writes its log to this plan's logs/acceptance.log. The throwaway container and
-network are removed on exit, including on failure.
+Writes its run log under untracked/plan-runs/, and names the exact path on the
+way out. The throwaway container and network are removed on exit, including on
+failure.
 EOF
             exit 0
             ;;
@@ -66,22 +83,15 @@ EOF
     esac
 done
 
-PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(git -C "$PLAN_DIR" rev-parse --show-toplevel)"
+plan_mode gather || exit 1
 
-if [ "$REPO_ROOT" = "/workspace" ]; then
-    echo "ERROR: this looks like a CCY container (/workspace)." >&2
-    echo "  This gate needs the HOST's podman. See CLAUDE/ContainerRules.md." >&2
-    exit 1
-fi
+# This gate needs the HOST's podman (CLAUDE/ContainerRules.md).
+plan_require_host "it exercises the deployed podfreeze against real host containers" || exit 1
 
-mkdir -p "$PLAN_DIR/logs"
-LOG="$PLAN_DIR/logs/acceptance.log"
-exec > >(tee "$LOG") 2>&1
-echo "Logging this run to: $LOG" >&2
+plan_start_log auto || exit 1
 
 TOOL="$HOME/.local/bin/podfreeze"
-REPO_TOOL="$REPO_ROOT/files/home/.local/bin/podfreeze"
+REPO_TOOL="$PLAN_REPO_ROOT/files/home/.local/bin/podfreeze"
 NET="podfreeze-acceptance-net-$$"
 CNAME="podfreeze-acceptance-$$"
 
@@ -142,16 +152,18 @@ fi
 # The selection/labelling unit test runs first: if that logic is broken there is
 # no point manufacturing containers to discover it more slowly, and its failure
 # output points at a function rather than at a symptom.
-if [ ! -x "$PLAN_DIR/unit-test-selection.bash" ]; then
+if [ ! -x "$PLAN_SCRIPT_DIR/unit-test-selection.bash" ]; then
     echo "ERROR: unit-test-selection.bash is missing or not executable." >&2
     exit 1
 fi
 echo "### 0. selection/labelling unit test"
-if "$PLAN_DIR/unit-test-selection.bash" > /dev/null; then
-    echo "  OK — unit test passes (its own log is in logs/)"
+# Only its STDOUT is parked, so a passing run stays readable. Its failures and the
+# run-log path its own plan_start_log announces both come through on stderr.
+if "$PLAN_SCRIPT_DIR/unit-test-selection.bash" > /dev/null; then
+    echo "  OK — unit test passes (it opened its own run log under untracked/plan-runs/)"
 else
     echo "ERROR: the selection unit test FAILED — not proceeding to containers." >&2
-    echo "  See $PLAN_DIR/logs/unit-test-selection.log" >&2
+    echo "  Its run log is named in the '==> run log' line it printed above." >&2
     exit 1
 fi
 echo
@@ -190,7 +202,10 @@ cleanup() {
         echo "  note: network $NET not removed: $out"
     fi
 }
-trap cleanup EXIT
+# R4: register the teardown, never `trap … EXIT`. A hand-written EXIT trap REPLACES
+# the library's handler, and the run log then loses its final buffered chunk — the
+# lines written as the run was dying, which are the ones that matter.
+plan_on_cleanup cleanup || exit 1
 
 echo "### fixture"
 if ! out="$(podman network create "$NET" 2>&1)"; then
@@ -707,9 +722,9 @@ else
 fi
 echo "=============================================================="
 
-# The script's status IS this test — deliberately not `exit 0`/`exit 1`.
-# Version 0.9.0 of the linter cannot trace the EXIT-trap edge out of a terminal
-# `exit` node, so an explicit exit here makes it report the whole cleanup()
-# body as unreachable (SC2317). Leaving the final command as the verdict test
-# gives the same exit status with no suppression annotation.
+# The script's status IS this test — deliberately not `exit 0`/`exit 1`. The
+# linter cannot trace the teardown edge out of a terminal `exit` node, so an
+# explicit exit here makes it report the whole cleanup() body as unreachable
+# (SC2317). Leaving the final command as the verdict test gives the same exit
+# status with no suppression annotation.
 [ "$FAIL" -eq 0 ]

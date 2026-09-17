@@ -75,6 +75,13 @@ FORCE-PUSH-REQUIRED.md
 # committed: they are dumps of live host state — unit files, mount points,
 # container names, private IPs, SSIDs — and this is a public repository. The
 # pre-commit secret scanner would reject most of them anyway.
+# KEPT DELIBERATELY, after Plan 00130 asked whether it should go. It is what made
+# three orphaned logs/ dirs invisible to every `git status` that would have shown
+# them — but the visibility gap is now closed by scripts/qa-plan-script-logging.bash,
+# which rejects a plan-local logs/ dir by name. That leaves this entry doing the one
+# job the gate cannot: a gate can be skipped, and if it is, an unscrubbed dump of live
+# host state must still not be committable to a public repo. Defence in depth with the
+# blind spot closed, rather than a single control that fails open.
 CLAUDE/Plan/**/logs/
 
 # Scratch space for raw captures: journal excerpts, process dumps, triage working

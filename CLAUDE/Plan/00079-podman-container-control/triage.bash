@@ -5,9 +5,10 @@
 # starts, stops, pauses, builds, or removes anything. Safe to re-run at any
 # time, on a live system, with CCY sessions running.
 #
-# Run this on the HOST (not inside a CCY container). It writes its full
-# report to this plan's logs/ directory (gitignored), so the agent can read
-# it from inside the container at the same repo-relative path.
+# Run this on the HOST (not inside a CCY container). plan_start_log writes its
+# full report under untracked/plan-runs/ (gitignored), and names the path on
+# the way out, so the agent can read it from inside the container at the same
+# repo-relative path.
 #
 # Probes map to PLAN.md hypotheses:
 #   H1  rootless pause support (cgroups v2 + podman version)
@@ -20,13 +21,28 @@
 #   H7  'podman' is ONE shared bridge, not a per-container default, so every
 #       CCY session launched without --network shares it
 set -euo pipefail
+scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+repoRoot="${scriptDir}"
+while [[ "${repoRoot}" != "/" ]] && [[ ! -e "${repoRoot}/ansible.cfg" ]]; do
+  if [[ -e "${repoRoot}/.git" ]]; then
+    printf '[FATAL] no ansible.cfg between %s and the repo root %s\n' "${scriptDir}" "${repoRoot}" >&2
+    exit 1
+  fi
+  repoRoot="$(dirname "${repoRoot}")"
+done
+[[ -e "${repoRoot}/ansible.cfg" ]] || { printf '[FATAL] no ansible.cfg above %s\n' "${scriptDir}" >&2; exit 1; }
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../_planlib.inc.bash
+source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
+plan_init "${BASH_SOURCE[0]}"
 
 usage() {
     cat <<'EOF'
 Usage: triage.bash [--help]
 
 Read-only fact-gathering for Plan 00079 (podman container control).
-Run on the HOST. Writes a full report to <plan>/logs/podfreeze-triage.log.
+Run on the HOST. Writes a full report under untracked/plan-runs/, and names
+the exact path on the way out.
 
 Options:
   --help    Show this help and exit (creates nothing).
@@ -47,13 +63,11 @@ for arg in "$@"; do
     esac
 done
 
+plan_mode gather
+
 # This is HOST triage: inside a container there is no host podman to probe,
 # and an empty report would read as evidence of absence (PlanTriage.md).
-if [ -e /run/.containerenv ] || [ -e /.dockerenv ]; then
-    echo "ERROR: running inside a container — this triage probes the HOST podman." >&2
-    echo "  Run it on the host: CLAUDE/Plan/00079-podman-container-control/triage.bash" >&2
-    exit 1
-fi
+plan_require_host "it probes the HOST podman, its networks and the CCY session labels"
 
 if ! command -v podman > /dev/null; then
     echo "ERROR: podman is not installed on this host." >&2
@@ -63,12 +77,7 @@ if ! command -v podman > /dev/null; then
     exit 1
 fi
 
-PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPORTS_DIR="$PLAN_DIR/logs"
-mkdir -p "$REPORTS_DIR"
-LOG="$REPORTS_DIR/podfreeze-triage.log"
-exec > >(tee "$LOG") 2>&1
-echo "Logging this run to: $LOG" >&2
+plan_start_log auto
 
 # Non-zero exit status is data, not failure (PlanTriage.md probe pattern).
 probe() {
@@ -97,7 +106,7 @@ pause_filter_support() {
 echo "================================================================"
 echo "Plan 00079 triage — podman container control facts"
 echo "Host: (hostname withheld from log by design — this repo is public,"
-echo "       but logs/ is gitignored; still, no need to embed it)"
+echo "       and although untracked/ is gitignored, no need to embed it)"
 echo "================================================================"
 echo
 

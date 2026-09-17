@@ -17,27 +17,39 @@ set -euo pipefail
 #
 #   CLAUDE/Plan/00062-disk-reclaim-tui/triage.bash
 #
-# Pattern: CLAUDE/PlanWorkflow.md → "Plan-Local Scripts & Artifacts".
+# Pattern: CLAUDE/PlanWorkflow.md → "Plan-Local Scripts & Artifacts";
+# mechanics: CLAUDE/PlanScriptStandards.md.
 #
-# It WRITES ITS OWN REPORT to untracked/reports/ (gitignored scratch inside the
-# repo tree). That directory is bind-mounted into the CCY container, so the agent
-# assisting on this plan can read the report directly at the same repo-relative
-# path — no copy-paste of terminal output required.
+# Its whole stdout IS the report, and `plan_start_log auto` (R4) tees that to a
+# per-run directory under untracked/plan-runs/ inside the repo tree. That tree is
+# bind-mounted into the CCY container, so the agent assisting on this plan reads
+# the log directly at the same repo-relative path — no copy-paste of terminal
+# output required. It is per-run, so re-running never clobbers the previous run's
+# evidence, and it is UNSCRUBBED: read it in place, never commit it.
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+repoRoot="${scriptDir}"
+while [[ "${repoRoot}" != "/" ]] && [[ ! -e "${repoRoot}/ansible.cfg" ]]; do
+  if [[ -e "${repoRoot}/.git" ]]; then
+    printf '[FATAL] no ansible.cfg between %s and the repo root %s\n' "${scriptDir}" "${repoRoot}" >&2
+    exit 1
+  fi
+  repoRoot="$(dirname "${repoRoot}")"
+done
+[[ -e "${repoRoot}/ansible.cfg" ]] || { printf '[FATAL] no ansible.cfg above %s\n' "${scriptDir}" >&2; exit 1; }
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../_planlib.inc.bash
+source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
+plan_init "${BASH_SOURCE[0]}"
+
 STORAGE="$HOME/.local/share/containers/storage"
 TEMPDIRS="$STORAGE/overlay/tempdirs"
 
-# Write the full report into THIS plan's gitignored logs/ dir AND to the
-# terminal. Fixed filename = latest run. The report lives in the plan folder so
-# it travels with the plan into Completed/; the dir is resolved from the
-# script's own location, not the repo root, so that move does not break it.
-# tee to a file (never /dev/null).
-PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPORTS_DIR="$PLAN_DIR/logs"
-mkdir -p "$REPORTS_DIR"
-LOG="$REPORTS_DIR/reclaim-podman-triage.log"
-exec > >(tee "$LOG") 2>&1
+PLAN_USAGE="usage: triage.bash [-h|--help]"
+plan_mode gather
+plan_parse_common_flags "$@"
+
+plan_start_log auto
 
 # Combined-output capture without hiding errors: prints the command's rc and its
 # stdout+stderr. A non-zero rc is DATA here, not a failure — so we branch on it,
@@ -52,7 +64,7 @@ probe() {
 
 echo "════════════════════════════════════════════════════════════"
 echo " Plan 00062 — rootless podman store triage"
-echo " repo: $REPO_ROOT"
+echo " repo: $PLAN_REPO_ROOT"
 echo " user: $(id -un) (uid $(id -u))   host: $(uname -n)"
 echo "════════════════════════════════════════════════════════════"
 echo
@@ -181,6 +193,6 @@ echo "════════════════════════�
 echo " podman system df exit code: $DF_RC   (0 = the store loaded)"
 echo " overlay/tempdirs: $([ -d "$TEMPDIRS" ] && echo present || echo absent)"
 echo
-echo " Report written to: $LOG"
-echo " (repo-relative: untracked/reports/reclaim-podman-triage.log — the agent"
-echo "  reads it directly; no need to copy-paste anything.)"
+echo " This whole report is the run log; its path is printed as this run ends."
+echo " It sits under untracked/plan-runs/ inside the repo, so the agent reads it"
+echo " directly at the same repo-relative path — no need to copy-paste anything."

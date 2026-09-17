@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Plan 00080 triage — grounded facts for CCY session network isolation.
 #
-# Run this on the HOST (not inside a CCY container). It writes its full report
-# to this plan's logs/ directory (gitignored), so an agent can read it from
-# inside a container at the same repo-relative path.
+# Run this on the HOST (not inside a CCY container) — enforced by
+# plan_require_host (CLAUDE/PlanScriptStandards.md R2). Its whole stdout IS the
+# report, and plan_start_log auto (R4) tees that to a per-run directory under
+# untracked/plan-runs/ inside the repo tree, so an agent can read it from inside
+# a container at the same repo-relative path. Per-run, so re-running never
+# clobbers the previous run's evidence, and UNSCRUBBED — never commit it.
 #
 # TWO MODES:
 #   (default)        READ-ONLY. Queries podman and reads /proc inside live
@@ -28,6 +31,22 @@
 #   P11 U4   does --rm survive SIGKILL of the podman client? (the leak rate)
 #   P12 U8   where network configs live; does a leak strand an interface?
 set -euo pipefail
+scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+repoRoot="${scriptDir}"
+while [[ "${repoRoot}" != "/" ]] && [[ ! -e "${repoRoot}/ansible.cfg" ]]; do
+  if [[ -e "${repoRoot}/.git" ]]; then
+    printf '[FATAL] no ansible.cfg between %s and the repo root %s\n' "${scriptDir}" "${repoRoot}" >&2
+    exit 1
+  fi
+  repoRoot="$(dirname "${repoRoot}")"
+done
+[[ -e "${repoRoot}/ansible.cfg" ]] || { printf '[FATAL] no ansible.cfg above %s\n' "${scriptDir}" >&2; exit 1; }
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../_planlib.inc.bash
+source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
+plan_init "${BASH_SOURCE[0]}"
+
+plan_mode gather
 
 usage() {
     cat << 'EOF'
@@ -42,11 +61,12 @@ Usage: triage.bash [--reachability] [--help]
 
 Default is passive: it only queries podman and reads /proc inside live sessions.
 
-Writes its report to this plan's logs/network-isolation-triage.log.
+Writes its report to a per-run directory under untracked/plan-runs/; the path is
+printed when the run starts and again when it ends.
 
 PRIVACY: the report names container names, projects, GitHub accounts and IP
-addresses. logs/ is gitignored for that reason — do not paste it into an issue,
-a PR, or a gist.
+addresses. untracked/ is excluded from git wholesale for that reason — do not
+paste it into an issue, a PR, or a gist.
 EOF
 }
 
@@ -68,15 +88,7 @@ for arg in "$@"; do
     esac
 done
 
-PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(git -C "$PLAN_DIR" rev-parse --show-toplevel)"
-
-if [ "$REPO_ROOT" = "/workspace" ]; then
-    echo "ERROR: this looks like a CCY container (/workspace)." >&2
-    echo "  This triage inspects the HOST's podman, which is not reachable" >&2
-    echo "  from in here. Run it on the host." >&2
-    exit 1
-fi
+plan_require_host "it inspects the HOST podman, its networks and the live CCY sessions on them"
 
 if ! command -v podman > /dev/null; then
     echo "ERROR: podman is not installed." >&2
@@ -86,10 +98,7 @@ if ! command -v podman > /dev/null; then
     exit 1
 fi
 
-mkdir -p "$PLAN_DIR/logs"
-LOG="$PLAN_DIR/logs/network-isolation-triage.log"
-exec > >(tee "$LOG") 2>&1
-echo "Logging this run to: $LOG" >&2
+plan_start_log auto
 
 # A non-zero exit is DATA here, not a failure — capture it and carry on.
 probe() {
@@ -388,7 +397,11 @@ cleanup_probes() {
         echo "  no probe networks remain"
     fi
 }
-trap cleanup_probes EXIT
+# Registered, not trapped (R4): a hand-written EXIT trap REPLACES the library's
+# handler and the run log loses its final buffered chunk — the lines written as
+# the run was dying. Registered cleanups run before the log drains, so their
+# output is in it.
+plan_on_cleanup cleanup_probes
 
 if ! podman image exists "$PROBE_IMAGE"; then
     echo "ERROR: $PROBE_IMAGE is not present locally, and this triage will not" >&2

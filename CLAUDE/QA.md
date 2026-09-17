@@ -80,6 +80,7 @@ they are deliberately not jq-merged stages, so they cannot disturb the positiona
 | `helpers.gnome.check_panel_contract`        | the panel's constants, document keys and section ids agree with the producer (Plan 00109)                                                |
 | `qa-vmtest-manifest.bash`                   | `vars/vm-test-scenarios.yml` parses and is coherent (Plan 00110); a broken control must be rejected first                                |
 | `qa-version-pins.bash`                      | `vars/version-pins.yml` parses, and every row still names a playbook that declares that var (Plan 00109)                                 |
+| `qa-plan-script-logging.bash`               | no active plan script uses the un-waitable `exec > >(tee …)` run log, and no plan folder keeps a local `logs/` dir (Plan 00130)          |
 
 `qa-helper-tests.bash` and `check_extension_compat` were **documented here as gates and
 not run by `qa-all.bash`** until Plan 00081. Following this document's own "ALWAYS and

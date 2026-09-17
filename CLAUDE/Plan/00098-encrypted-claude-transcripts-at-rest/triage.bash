@@ -6,7 +6,10 @@
 # with sessions running. Gathers facts only — it renders NO verdict; the
 # pass/fail gate is acceptance.bash.
 #
-# Writes its report to <plan folder>/logs/claude-state-triage.log.
+# Writes its run log to untracked/plan-runs/00098-.../triage/<timestamp>/, via
+# plan_start_log — never beside the plan's tracked files, which is where it used
+# to go and where it would have ridden into Completed/ untracked. That log is
+# UNSCRUBBED; read it in place and never commit it.
 #
 # Runs in either place, and says which it is:
 #   - inside a CCY container -> sees the project store at /workspace/.claude/ccy
@@ -57,11 +60,34 @@ case "${1:-}" in
         ;;
 esac
 
-PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPORTS_DIR="$PLAN_DIR/logs"
-mkdir -p "$REPORTS_DIR"
-LOG="$REPORTS_DIR/claude-state-triage.log"
-exec > >(tee "$LOG") 2>&1
+# ── R1 bootstrap: script-relative, filesystem-only, bounded at the repo boundary ──────────
+# Was a hand-rolled plan-dir resolution plus `git rev-parse --show-toplevel`, which answers
+# about the CWD rather than the script — run by path from a repo this one is nested inside,
+# the launch-path census below would have read THAT repo's claude-yolo tree.
+scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+repoRoot="${scriptDir}"
+while [[ "${repoRoot}" != "/" ]] && [[ ! -e "${repoRoot}/ansible.cfg" ]]; do
+    if [[ -e "${repoRoot}/.git" ]]; then
+        printf '[FATAL] no ansible.cfg between %s and the repo root %s\n' "${scriptDir}" "${repoRoot}" >&2
+        exit 1
+    fi
+    repoRoot="$(dirname "${repoRoot}")"
+done
+[[ -e "${repoRoot}/ansible.cfg" ]] || {
+    printf '[FATAL] no ansible.cfg above %s\n' "${scriptDir}" >&2
+    exit 1
+}
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../_planlib.inc.bash
+source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
+plan_init "${BASH_SOURCE[0]}"
+plan_mode gather
+# R4. Replaces `exec > >(tee "$LOG")`: a `>(…)` process substitution cannot be waited on, so
+# the last buffered chunk — the lines written as a run was dying — could be missing from the
+# very file meant to record them.
+plan_start_log auto
+
+REPO_ROOT="$PLAN_REPO_ROOT"
 
 # Resolve the real grep EXECUTABLE, bypassing any function/alias of the same
 # name. `type -P` searches $PATH only, so an interactive shell's ugrep wrapper
@@ -91,11 +117,23 @@ scan_count_files() {
 }
 
 # A non-zero exit status is DATA, not a failure. Capture it and carry on.
+#
+# `"$@"` here is an EXTERNAL command at every call site, never a shell function. A function
+# invoked this way is an indirection shellcheck cannot follow, and in a script that ends in
+# plan_finish — so never falls off the end — every such body is then reported unreachable
+# (SC2317), and suppressions are banned (R11). The function-backed probes below therefore
+# call their function directly and hand the result to emit_probe.
 probe() {
     local label="$1"
     shift
     local out rc
     if out="$("$@" 2>&1)"; then rc=0; else rc=$?; fi
+    emit_probe "$label" "$rc" "$out"
+}
+
+# emit_probe <label> <rc> <output> — render one stanza from an already-captured result.
+emit_probe() {
+    local label="$1" rc="$2" out="$3"
     printf '### %s  (rc=%d)\n%s\n\n' "$label" "$rc" "${out:-(no output)}"
     return 0
 }
@@ -116,8 +154,8 @@ DESKTOP_STORE=""
 if [ -d /workspace/.claude/ccy ]; then
     CCY_STORE="/workspace/.claude/ccy"
     CONTEXT="CCY container (project store visible; host ~/.claude is NOT)"
-elif [ -d "$PLAN_DIR/../../../.claude/ccy" ]; then
-    CCY_STORE="$(cd "$PLAN_DIR/../../../.claude/ccy" && pwd)"
+elif [ -d "$REPO_ROOT/.claude/ccy" ]; then
+    CCY_STORE="$(cd "$REPO_ROOT/.claude/ccy" && pwd)"
     CONTEXT="HOST (project store visible via the repo working tree)"
 else
     CONTEXT="neither store found at the expected paths"
@@ -275,17 +313,18 @@ for STORE in "$CCY_STORE" "$DESKTOP_STORE"; do
     echo "=========================================================="
     echo " STORE: $STORE"
     echo "=========================================================="
-    probe "permission posture" posture_census "$STORE"
-    probe "corpus size and age" size_and_age_census "$STORE"
-    probe "secret pattern census" secret_census "$STORE"
+    if probe_out="$(posture_census "$STORE" 2>&1)"; then probe_rc=0; else probe_rc=$?; fi
+    emit_probe "permission posture" "$probe_rc" "$probe_out"
+    if probe_out="$(size_and_age_census "$STORE" 2>&1)"; then probe_rc=0; else probe_rc=$?; fi
+    emit_probe "corpus size and age" "$probe_rc" "$probe_out"
+    if probe_out="$(secret_census "$STORE" 2>&1)"; then probe_rc=0; else probe_rc=$?; fi
+    emit_probe "secret pattern census" "$probe_rc" "$probe_out"
     probe "CACHEDIR.TAG present?" ls -l "$STORE/CACHEDIR.TAG"
 done
 
 # ---------------------------------------------------------------------------
 # Launch-path facts (repo source, not live state)
 # ---------------------------------------------------------------------------
-REPO_ROOT="$(git -C "$PLAN_DIR" rev-parse --show-toplevel)"
-
 echo "=========================================================="
 echo " LAUNCH PATH (repo source)"
 echo "=========================================================="
@@ -303,7 +342,8 @@ umask_census() {
     echo "  READ THIS FOR: a 0 means every file Claude Code creates inherits the"
     echo "    default umask (022), i.e. group/other-readable, forever."
 }
-probe "umask set anywhere in the CCY launch path?" umask_census
+if probe_out="$(umask_census 2>&1)"; then probe_rc=0; else probe_rc=$?; fi
+emit_probe "umask set anywhere in the CCY launch path?" "$probe_rc" "$probe_out"
 probe "current shell umask" umask
 
 echo "=========================================================="
@@ -311,6 +351,11 @@ echo " END OF REPORT"
 echo
 echo " READ FIRST: the 'permission posture' section of each store, and the"
 echo " scanner self-test at the top. Everything else is supporting detail."
-echo
-echo " Full report saved to: $LOG"
 echo "=========================================================="
+
+# plan_finish names the run log and any failed leg, and exits with a status that agrees with
+# that text. It must be last: it terminates the run, so anything below it is dead code. It
+# also replaces `echo "Full report saved to: $LOG"`, whose variable this conversion removed —
+# left behind, that line kills the script on its own last line under `set -u`, on every run,
+# where neither shellcheck nor qa-all.bash would see it because no gate executes plan scripts.
+plan_finish

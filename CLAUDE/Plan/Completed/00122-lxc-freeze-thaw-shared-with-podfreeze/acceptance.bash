@@ -55,7 +55,7 @@ done
     exit 1
 }
 # shellcheck source-path=SCRIPTDIR
-# shellcheck source=../_planlib.inc.bash
+# shellcheck source=../../_planlib.inc.bash
 source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
 
@@ -285,7 +285,7 @@ freeze_decision_fingerprint() {
         # the same lapse R1 warns about, and the same shape lxcfreeze itself uses. Check 1
         # is what establishes that the two copies are the same bytes.
         # shellcheck source-path=SCRIPTDIR
-        # shellcheck source=../../../files/home/.local/lib/freeze/freeze-common.bash
+        # shellcheck source=../../../../files/home/.local/lib/freeze/freeze-common.bash
         source "$DEPLOYED_LIB"
         INV_NAME=(c1 c2 c3)
         INV_STATE=("$FREEZE_STATE_RUNNING" "$FREEZE_STATE_FROZEN" "$FREEZE_STATE_RUNNING")

@@ -10,8 +10,24 @@
 # Usage: deploy.bash [-y|--yes] [--no-verify] [--help]
 
 set -uo pipefail
+scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+repoRoot="${scriptDir}"
+while [[ "${repoRoot}" != "/" ]] && [[ ! -e "${repoRoot}/ansible.cfg" ]]; do
+  if [[ -e "${repoRoot}/.git" ]]; then
+    printf '[FATAL] no ansible.cfg between %s and the repo root %s\n' "${scriptDir}" "${repoRoot}" >&2
+    exit 1
+  fi
+  repoRoot="$(dirname "${repoRoot}")"
+done
+[[ -e "${repoRoot}/ansible.cfg" ]] || { printf '[FATAL] no ansible.cfg above %s\n' "${scriptDir}" >&2; exit 1; }
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../_planlib.inc.bash
+source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
+# STANDARD-EXCEPTION(R1): this script runs without errexit (see the `set` line above), so
+# every library call that RETURNS 1 rather than exiting is gated explicitly. Without the
+# gate a failed plan_init would flow on into the deploy.
+plan_init "${BASH_SOURCE[0]}" || exit 1
 
-ASSUME_YES=0
 VERIFY=1
 for arg in "$@"; do
     case "$arg" in
@@ -43,7 +59,7 @@ EOF
             exit 0
             ;;
         -y | --yes)
-            ASSUME_YES=1
+            PLAN_ASSUME_YES=1
             ;;
         --no-verify)
             VERIFY=0
@@ -56,21 +72,15 @@ EOF
     esac
 done
 
-PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(git -C "$PLAN_DIR" rev-parse --show-toplevel)"
+plan_mode deploy || exit 1
 
-# --- container guard: never run Ansible inside CCY ---------------------------
-if [ "$REPO_ROOT" = "/workspace" ]; then
-    echo "ERROR: this looks like a CCY container (/workspace)." >&2
-    echo "  Ansible must run on the HOST, not in the container." >&2
-    echo "  See CLAUDE/ContainerRules.md." >&2
-    exit 1
-fi
+# --- container guard: never run Ansible inside CCY (CLAUDE/ContainerRules.md) -
+plan_require_host "it runs Ansible against this workstation, which must happen on the HOST" || exit 1
 
-mkdir -p "$PLAN_DIR/logs"
-LOG="$PLAN_DIR/logs/deploy.log"
-exec > >(tee "$LOG") 2>&1
-echo "Logging this run to: $LOG" >&2
+# Before the log opens: a sudo prompt issued after the tee redirect is flooded
+# and garbled, and these plays `become`.
+plan_prime_sudo || exit 1
+plan_start_log auto || exit 1
 
 # BOTH plays, in this order. podfreeze selects CCY sessions on labels the
 # LAUNCHER sets, so deploying the tool without the launcher would ship a
@@ -88,8 +98,8 @@ echo "=============================================================="
 echo
 
 for play in "${PLAYS[@]}"; do
-    if [ ! -f "$REPO_ROOT/$play" ]; then
-        echo "ERROR: playbook not found: $REPO_ROOT/$play" >&2
+    if [ ! -f "$PLAN_REPO_ROOT/$play" ]; then
+        echo "ERROR: playbook not found: $PLAN_REPO_ROOT/$play" >&2
         exit 1
     fi
 done
@@ -100,7 +110,7 @@ done
 # absent, and under pipefail that would kill the script at the assignment.
 CCY_VER=""
 CCY_VER="$(grep -m1 -oE 'CCY_VERSION="[0-9.]+"' \
-    "$REPO_ROOT/files/var/local/claude-yolo/claude-yolo" |
+    "$PLAN_REPO_ROOT/files/var/local/claude-yolo/claude-yolo" |
     grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?')" || CCY_VER=""
 if [ -z "$CCY_VER" ]; then
     CCY_VER="version unreadable"
@@ -119,20 +129,10 @@ echo "thawed. Sessions already running keep the old launcher's behaviour"
 echo "until they are relaunched, so they carry no labels yet."
 echo
 
-if [ "$ASSUME_YES" -ne 1 ]; then
-    printf 'Proceed? [y/N] ' >&2
-    if ! read -r reply < /dev/tty; then
-        reply=""
-        echo >&2
-    fi
-    case "$reply" in
-        y | Y | yes | YES) ;;
-        *)
-            echo "Aborted. Nothing deployed." >&2
-            exit 1
-            ;;
-    esac
-fi
+# R5/R8: the gate goes through the library, never a bare `read`. The run log is
+# open by now, so a hand-rolled partial-line prompt would block-buffer in the tee
+# pipeline and the run would wedge with nothing on screen. -y/--yes still skips it.
+plan_gate_change "the CCY launcher and the podfreeze command are deployed to this machine" || exit 1
 
 # Sequential and fail-fast: the second play deploys a tool that depends on what
 # the first one installs, so running it after a failure would deploy a selector
@@ -141,7 +141,7 @@ for play in "${PLAYS[@]}"; do
     echo
     echo "### $play"
     echo
-    if ! ansible-playbook "$REPO_ROOT/$play"; then
+    if ! ansible-playbook "$PLAN_REPO_ROOT/$play"; then
         echo >&2
         echo "ERROR: $play failed — see the output above." >&2
         echo "  Nothing after it was run." >&2
@@ -162,11 +162,11 @@ echo "=============================================================="
 if [ "$VERIFY" -eq 0 ]; then
     echo
     echo "Skipping verification (--no-verify). Run it yourself:"
-    echo "  $PLAN_DIR/acceptance.bash"
+    echo "  $PLAN_SCRIPT_DIR/acceptance.bash"
     exit 0
 fi
 
-if [ ! -x "$PLAN_DIR/acceptance.bash" ]; then
+if [ ! -x "$PLAN_SCRIPT_DIR/acceptance.bash" ]; then
     echo "ERROR: acceptance.bash is missing or not executable." >&2
     echo "  Deploy succeeded but nothing verified it." >&2
     exit 1
@@ -175,6 +175,6 @@ fi
 echo
 echo "### handing over to acceptance.bash"
 echo
-# It writes its own log; this exec'd copy inherits the tee, so the deploy log
-# carries the verdict too.
-"$PLAN_DIR/acceptance.bash"
+# It opens its own run log under untracked/plan-runs/; this child also inherits
+# THIS run's log stream, so the deploy log carries the verdict too.
+"$PLAN_SCRIPT_DIR/acceptance.bash"
