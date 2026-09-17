@@ -273,7 +273,8 @@
         group: root
         mode: "0644"
         content: |
-          {{ ansible_managed | comment }}
+          # ANSIBLE MANAGED: play-suspend-and-lid-policy.yml — do not edit by hand
+          #
           # The greeter owns the display whenever nobody is logged in. Without this it
           # inherits GNOME's default of suspending on AC after 900s, which contradicts
           # this host's policy and kills anything still running outside the session.
@@ -300,6 +301,12 @@
     - name: Read back the greeter's effective AC suspend policy
       become: true
       become_user: gdm
+      vars:
+        # The inherited interpreter is the invoking user's pyenv shim, under their home
+        # directory and unreadable to `gdm` — the module then dies with rc 126 and a
+        # deserialisation error that names neither the account nor the path. The greeter
+        # account has no pyenv and no business reading one, so pin the system interpreter.
+        ansible_python_interpreter: /usr/bin/python3
       environment:
         DCONF_PROFILE: gdm
       ansible.builtin.command:
