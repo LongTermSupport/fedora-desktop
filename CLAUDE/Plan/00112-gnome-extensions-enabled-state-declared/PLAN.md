@@ -167,12 +167,22 @@ is the single source instead, and disk only confirms it.
 
 ### Phase 2: Acceptance
 
-- [ ] ⬜ **Task 2.1**: HOST — the operator's step. `triage.bash`, then `deploy.bash`,
-  then `deploy.bash` again (idempotent: no change on the second run), then
-  `triage.bash` again. The two `triage-runs/` reports are the evidence that the
-  host's own list gained the deployed UUIDs and lost nothing.
+- [ ] ⬜ **Task 2.1 — PARTLY DONE by the 2026-09-17 batch run.** HOST, the operator's
+  step: `triage.bash`, then `deploy.bash`, then `deploy.bash` again (idempotent: no
+  change on the second run), then `triage.bash` again. The two `triage-runs/` reports
+  are the evidence that the host's own list gained the deployed UUIDs and lost nothing.
   **Also re-run `play-vm-test-lab.yml`** — Task 2.2 cannot mean anything until the
-  host's deployed guest checker matches this plan's version of it
+  host's deployed guest checker matches this plan's version of it.
+
+  **Discharged**: the batch ran triage → deploy → triage → acceptance, and the
+  acceptance gate returned ACCEPTED on `COVERAGE: 10 of 10`, 0 failed, 0 could not be
+  established. Check [5] — "the deploy removed nothing from the enabled list" — passed
+  on the before/after triage pair, which is the one claim no single reading can make.
+
+  **Still owed**: the SECOND `deploy.bash`. The batch harness deploys once, so nothing
+  in that run speaks to idempotency, and a play that removed something only on a
+  re-run would look identical to this evidence. Also still owed: the
+  `play-vm-test-lab.yml` redeploy that unblocks Task 2.2
 
 - [ ] 🚫 **Task 2.2**: `vmtest run desktop-fresh-install` against the pushed
   commit; `deployed-extensions-active` green in the post-reboot session; run id

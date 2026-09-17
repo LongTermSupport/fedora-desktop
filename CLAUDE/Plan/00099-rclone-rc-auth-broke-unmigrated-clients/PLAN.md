@@ -166,8 +166,10 @@ into Plan 00094's own notes.
   so the run is a complete one and the PASSes mean what they say. Superseded as
   evidence by Task 5.9 — the deployed files have changed since
 
-- [ ] ⬜ **Task 5.9 — RE-DEPLOY, because Tasks 5.8 and 5.10's fixes changed deployed
-  files.** `ftp-camera` and `rclone-rc-auth.bash` both changed after Task 5.7's host
+- [x] ✅ **Task 5.9 — RE-DEPLOY, because Tasks 5.8 and 5.10's fixes changed deployed
+  files. DONE** by the 2026-09-17 batch run: `deploy.bash` then `acceptance.bash`,
+  ACCEPTED on `COVERAGE: 9 of 9`, 0 failed, checks [6] and [7] both passing — so the
+  drift this task existed to close is closed. See the JOURNAL day-file. `ftp-camera` and `rclone-rc-auth.bash` both changed after Task 5.7's host
   run, so the host is running a build this repo no longer contains. That is the drift
   this plan's own gate exists to catch, and leaving 5.7 ticked without saying so
   would be the Plan 00094 failure repeated by this plan. Run `deploy.bash` then
@@ -218,24 +220,21 @@ an IaC gap, so it fails fast and names the play.
 
 ## Success Criteria
 
-- [ ] `ftp-camera`'s copy preflight authenticates against the mount (the step
+- [x] `ftp-camera`'s copy preflight authenticates against the mount (the step
   that was refusing to run). A full `--copy` is deliberately not run by this
   plan — it `cp -r`s the whole 780-file tree, so re-shipping is the user's call.
-  **Unticked again by Task 5.9**: the round-2 review found this build resolved the
-  RC address from a path the match could never find, so `--copy` aborted on every
-  run. Fixed, but only the host re-run can tick this
+  Ticked by Task 5.9's host re-run: check [6] passed against the address the client
+  itself resolves
 - [x] `rclone-cache-status` and `rclone-tail` both report live figures
-- [ ] No helper **this plan owns** differs from its deployed copy. The criterion as
+- [x] No helper **this plan owns** differs from its deployed copy. The criterion as
   first written said "no repo-owned helper", which is a whole-host claim this plan
   cannot make true: the two that differ belong to `play-lxcfreeze.yml` and
   `play-podfreeze.yml`, which is the gate doing its job on work outside this plan.
   **Unticked again by Task 5.9** — this plan's own files changed after the host run
 - [x] No comment or doc claims the stats endpoints are unauthenticated
-- [ ] `acceptance.bash` fails pre-deploy, and post-deploy every check in this plan's
-  scope passes — 0–6b, `COVERAGE: 9 of 9`. The last host run met this, with its
-  overall verdict REJECTED solely on check [7]'s two out-of-scope files above.
-  **Unticked again by Task 5.9**: the gate itself changed — check [6] now resolves
-  the address the client resolves — so the previous run no longer vouches for it
+- [x] `acceptance.bash` fails pre-deploy, and post-deploy every check in this plan's
+  scope passes — 0–6b, `COVERAGE: 9 of 9`. Ticked by Task 5.9's host re-run, whose
+  overall verdict was ACCEPTED, not merely "REJECTED on out-of-scope files"
 - [x] QA passes (`./scripts/qa-all.bash`)
 - [ ] `qa-reviewer` returns PASS
 
