@@ -1,7 +1,7 @@
 # Greeter power policy
 
-Why the machine idle-suspended while plugged in, and why the obvious fix would do
-nothing.
+Why the machine idle-suspended while plugged in, which dconf database actually governs
+the greeter, and why a single `gdm.d` drop-in is sufficient.
 
 ## The finding
 
@@ -41,42 +41,72 @@ unmanaged account takes over and the policy inverts. A machine left at the login
 is a machine with suspend-on-AC enabled, which is precisely the state the SSH guard
 exists to prevent.
 
-## Why the obvious fix would be inert
+## The "inert fix" concern, investigated and withdrawn
 
-The reflex fix is a drop-in at `/etc/dconf/db/gdm.d/`. On this host that would very
-likely change nothing:
+This document previously recorded that a `/etc/dconf/db/gdm.d/` drop-in would very likely
+be **inert**, on the grounds that `/etc/dconf/profile/gdm` does not exist and so nothing
+would declare the `gdm` database worth reading. That reasoning was sound but the premise
+was incomplete, and the conclusion is **wrong**.
 
-| Path                              | State                                                                                                              |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `/etc/dconf/profile/gdm`          | **Does not exist**                                                                                                 |
-| `/etc/dconf/profile/`             | Contains only `ibus` and `user`                                                                                    |
-| `/etc/dconf/db/gdm.d/`            | Empty except an empty `locks/`                                                                                     |
-| `/etc/dconf/db/gdm`               | Present, 104 bytes, but contains no settings — `strings` yields only `GVariant` and `/.locks`. Owned by no package |
-| `/var/lib/gdm/.config/dconf/user` | 736 bytes; holds power-**profile** and notification keys. Does **not** contain `sleep-inactive-*`                  |
+`/etc/dconf/profile/` is not the only profile location. GDM ships its profile with the
+package, and it is present on this host:
 
-dconf resolves a profile by name — the greeter runs with `DCONF_PROFILE=gdm` — and reads
-`/etc/dconf/profile/gdm` to learn which databases that profile stacks. With that file
-absent, the `gdm.d` database has nothing declaring it should be consulted. Writing a
-file into an unread database is the kind of fix that looks applied, passes a file-exists
-assertion, and changes no behaviour.
+```
+$ cat /usr/share/dconf/profile/gdm
+user-db:user
+system-db:gdm
+system-db:local
+system-db:site
+system-db:distro
+file-db:/usr/share/gdm/greeter-dconf-defaults
+```
 
-So the change is at least two parts: create the profile that stacks the database, **and**
-populate the database. Whether a `locks/` entry is additionally required is a separate
-question — locks exist to stop a user-scope value overriding the system one, and `gdm`
-currently has no competing value for this key, so a lock may be belt-and-braces rather
-than load-bearing. Recorded as Task 2.2.
+`system-db:gdm` is already in the stack, and it is the **highest-priority system database**
+in it. So a `gdm.d` drop-in is read, and it outranks `local`, `site`, `distro` and the
+greeter's own shipped defaults. Nothing needs creating under `/etc/dconf/profile/`.
 
-## Open question that decides the approach
+The state of the databases confirms nothing currently competes for this key:
 
-**Does creating `/etc/dconf/profile/gdm` plus a `gdm.d` entry actually change the
-greeter's effective value?** This is unverified and must not be assumed. The test is a
-read-back in the greeter's own scope after `dconf update`, compared against the
-pre-change reading of `'suspend'`. Until that read-back is observed, no file layout
-should be written into a play as "the fix".
+| Path                                    | State                                                                                            |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `/usr/share/dconf/profile/gdm`          | **Present** — stacks `system-db:gdm` first among the system databases                            |
+| `/etc/dconf/profile/gdm`                | Absent, and does not need to exist                                                               |
+| `/etc/dconf/db/gdm.d/`                  | Empty except an empty `locks/` — this is where the drop-in goes                                  |
+| `/etc/dconf/db/gdm`                     | Compiled, 104 bytes, holds no settings (the same size as the empty `local` and `site` databases) |
+| `/usr/share/gdm/greeter-dconf-defaults` | Contains **no** power keys                                                                       |
+| `/etc/dconf/db/distro.d/`               | Contains **no** power keys                                                                       |
 
-This matters beyond convenience: the same trap — a plausible configuration path that may
-not be the live one — is recorded independently for the D-Bus quota in
-[detection-gap.md](detection-gap.md). Two mechanisms, same failure mode.
+With no database in the stack setting the key, the greeter falls through to the GNOME
+schema default. Read back in the greeter's own scope, that is exactly what is observed:
+
+```
+$ sudo -u gdm env DCONF_PROFILE=gdm gsettings get org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type
+'suspend'
+$ sudo -u gdm env DCONF_PROFILE=gdm gsettings get org.gnome.settings-daemon.plugins.power sleep-inactive-ac-timeout
+900
+```
+
+900 seconds is the 15-minute delay between the greeter appearing and the suspend, matched
+to the second in [incident-chain.md](incident-chain.md).
+
+**Task 2.1 is therefore answered: a `gdm.d` drop-in alone is sufficient.** The fix is one
+part, not two.
+
+## Whether a lock is required — it is not
+
+A dconf **lock** prevents a higher-priority database from overriding a system value. In
+this profile the only thing above `system-db:gdm` is `user-db:user`, which for the greeter
+resolves to `/var/lib/gdm/.config/dconf/user`. That database exists (736 bytes) and holds
+power-**profile** and notification keys, but **not** `sleep-inactive-*` — and the greeter
+has no UI that would write one, since it never runs gnome-control-center.
+
+So a lock would defend against a write that nothing performs. It is omitted on YAGNI
+grounds, and this paragraph is the record of *why* rather than an oversight. **Task 2.2
+answered: no lock.**
+
+The falsification for that decision is cheap and belongs in the read-back: if the
+post-change read-back in the greeter scope ever returns `'suspend'` again while the
+drop-in is present, a user-db value has appeared and the lock becomes load-bearing.
 
 ## The second-order finding
 
@@ -90,3 +120,47 @@ the user-scope value was correct throughout. But the absence of that habit is wh
 policy could be half-applied for as long as it has been without anything noticing. Any
 greeter change should ship with the read-back that proves it, and the existing user-scope
 sets deserve the same treatment. Recorded as Tasks 3.1 and 3.2.
+
+### The read-back specification (Task 3.2)
+
+The gap is in `play-prevent-ssh-suspend.yml`, task *"Disable suspend on AC power"*
+(`:51-67`). It issues `gsettings set … sleep-inactive-ac-type nothing` over the user's
+session bus, carries `changed_when: false`, and **nothing ever reads the key back**.
+`gsettings set` exits 0 whenever the schema resolves, so a write that lands in the wrong
+place — a stale `DBUS_SESSION_BUS_ADDRESS` from a UID that has since changed, or a dconf
+database a later profile outranks — is indistinguishable from one that took. The play then
+ends with *"Verify ssh-suspend-guard is running"*, which asserts a **different** thing and
+makes the play look verified.
+
+Add immediately after the set task, inside the same
+`when: provisioning_profile != 'server'` guard and with the identical `become_user` and
+`environment:` block — the read must cross the same bus as the write, or it proves nothing
+about it:
+
+```yaml
+- name: Read back the AC suspend policy
+  become: true
+  become_user: "{{ user_login }}"
+  ansible.builtin.command:
+    argv:
+      - gsettings
+      - get
+      - org.gnome.settings-daemon.plugins.power
+      - sleep-inactive-ac-type
+  environment:
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts.getent_passwd[user_login][1] }}/bus"
+  register: ssh_suspend_ac_readback
+  changed_when: false
+  failed_when: ssh_suspend_ac_readback.stdout | trim != "'nothing'"
+  when: provisioning_profile != 'server'
+```
+
+`failed_when` compares against `'nothing'` **with its quotes**, because that is what
+`gsettings get` prints for a string; stripping them would also accept a bare `nothing`
+from a differently-typed key. This is the probe-then-fail shape the fail-fast rule
+permits, not a `failed_when: false` suppression.
+
+Deliberately **not** specified: a matching read-back for
+`play-suspend-and-lid-policy.yml`'s host-scope keys. Task 3.1 already specifies one for
+the greeter key it adds, and inventing assertions for keys this incident never touched is
+scope this plan has no evidence for.

@@ -66,10 +66,14 @@ was running throughout. Anything the host-health surface wants to notice about a
 that has died — as opposed to a machine that has rebooted — has a place to notice it from
 that does not itself die with the compositor.
 
-Whether that is the right place for the check is a design question for Phase 3, not a
-conclusion here. The fact worth carrying forward is that the blast radius of the session
-bus stops at the container boundary, and this incident demonstrates it rather than assuming
-it.
+Phase 3 settled where the check goes, and it is **not** here: it extends plan 00055's
+container watchdog, which runs on the host every two minutes — see
+[detection-gap.md](detection-gap.md#where-it-belongs-extend-plan-00055-do-not-build-anything-new).
+A container-hosted observer survives the outage but has no route to tell anyone about it,
+which makes it a good witness and a poor alarm.
+
+The fact worth carrying forward is that the blast radius of the session bus stops at the
+container boundary, and this incident demonstrates it rather than assuming it.
 
 ## How to reproduce this reading
 

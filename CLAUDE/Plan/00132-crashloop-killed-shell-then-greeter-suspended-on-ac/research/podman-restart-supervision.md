@@ -72,15 +72,55 @@ the same instances the desktop uses. There is no separate bus, no separate quota
 priority distinction between a container churning and a compositor delivering input
 events.
 
-`dbus-broker` accounts resources per UID. The broker exposes
-`--max-bytes BYTES`, documented as "Maximum number of bytes **each user** may allocate in
-the broker" — a per-user quota, which is exactly what the failure message names. On this
-host the launcher runs as `dbus-broker-launch --scope user` with no `--max-bytes`
-passed, so whatever quota applied was a default or was derived from configuration; which
-of those is true is unresolved and recorded in [detection-gap.md](detection-gap.md).
+`dbus-broker` accounts resources per UID, and the failure message names that accounting
+directly:
 
-Either way the structural point stands: a container restart storm and the user's desktop
-draw from one shared, quota-limited resource, and the storm exhausts it first.
+```
+dbus-broker[…]: UID <uid> exceeded its 'bytes' quota on UID <uid>.
+dbus-broker[…]: Peer :1.63 is being disconnected as it does not have the resources
+                to receive a signal it subscribed to.
+```
+
+The victims are **receivers**, not senders. A peer is disconnected because its own receive
+allocation could not hold a signal it had subscribed to — so the exhausted resource is a
+per-peer receive allowance carved out of the user's budget, not a global ceiling the whole
+bus shares.
+
+### The quota is not configurable, and raising it is not available
+
+The launcher does pass `--max-bytes`; the earlier reading that it did not was taken from
+the launcher's argv rather than the broker's. The broker's own argv on this host:
+
+| Bus                       | `--max-bytes`                     |
+| ------------------------- | --------------------------------- |
+| Session (`--scope user`)  | `100000000000000` (1e14, ~100 TB) |
+| System (`--scope system`) | `536870912` (512 MiB)             |
+
+Two conclusions follow, and both are load-bearing.
+
+**First, `--max-bytes` is not derived from the XML limits.** `session.conf` declares
+`max_incoming_bytes` and `max_outgoing_bytes` as `1000000000` (1e9). The session broker
+was launched with 1e14 and the system broker with 512 MiB. Neither equals the configured
+1e9, and the two scopes differ from each other while their config files declare the same
+byte limits — `/usr/share/defaults/at-spi2/accessibility.conf` also declares 1e9 and its
+broker likewise got 1e14. The values are scope-dependent constants, not a reading of the
+XML. **Task 2.3 answered: no.** Editing `session.conf` limits would be a textbook inert
+fix — a file changed, an assertion passed, and no behaviour altered. This is the same trap
+the greeter fix was suspected of and cleared of; here it is real.
+
+**Second, the session quota is already effectively infinite.** At 1e14 bytes, no restart
+storm exhausts the global ceiling. So "raise the quota" is not a mitigation that exists:
+there is nothing to raise. What was exhausted is the per-peer share the broker derives
+internally, which no configuration file or command-line flag on this host exposes.
+
+The precise divisor the broker uses to derive a peer's share is **not** established here,
+and deliberately so — it does not change the conclusion. Whatever the formula, the value
+is not reachable from configuration, so no defence can be built on adjusting it.
+
+The structural point therefore stands and hardens: a container restart storm and the
+user's desktop draw from one shared, quota-limited resource; the storm exhausts it first;
+and **the resource cannot be enlarged**. Rate control at the source and detection are the
+only levers.
 
 ## Measured rate
 
@@ -102,9 +142,10 @@ any project, would produce the same outcome.
 
 The candidate mitigations are recorded rather than applied, per this plan's Non-Goals:
 
-| Mitigation                                                    | Where it lives                                  | Note                                                      |
-| ------------------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------- |
-| `on-failure:N` instead of `unless-stopped`                    | The external project                            | Verified as the only capped policy, but outside this repo |
-| Quadlet unit so systemd's `StartLimitBurst` genuinely applies | The external project                            | This is podman's own recommendation                       |
-| Quota headroom monitoring                                     | This repo, via the existing host-health surface | Requires the quota's real value first — Task 2.4          |
-| Raising the per-UID D-Bus quota                               | This repo                                       | **Unverified path** — see Task 2.3 before specifying      |
+| Mitigation                                                    | Where it lives       | Status                                                                                                               |
+| ------------------------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `on-failure:N` instead of `unless-stopped`                    | The external project | Verified as the only capped policy, but outside this repo                                                            |
+| Quadlet unit so systemd's `StartLimitBurst` genuinely applies | The external project | This is podman's own recommendation                                                                                  |
+| **Restart-rate detection**                                    | This repo            | **The defence this repo can build.** Specified in [detection-gap.md](detection-gap.md)                               |
+| ~~Quota headroom monitoring~~                                 | —                    | **Rejected.** The quota is 1e14 and the breach is a per-peer share; there is no headroom figure to threshold against |
+| ~~Raising the per-UID D-Bus quota~~                           | —                    | **Rejected.** Not derived from config, already effectively infinite — nothing to raise                               |
