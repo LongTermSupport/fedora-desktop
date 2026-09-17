@@ -211,19 +211,25 @@ export default class ContainerWatchExtension extends Extension {
 
         for (const finding of findings) {
             const name = finding.container_name || finding.container_id || 'unknown';
-            const ageS = Number.isFinite(finding.age_s) ? finding.age_s : 0;
-            const cpu = Number.isFinite(finding.cpu_pct) ? finding.cpu_pct : 0;
-            const cmd = this._truncate(finding.cmd || finding.argv0 || '', CMD_TRUNCATE_LEN);
 
-            const summary = `${name} — ${this._formatAge(ageS)}, ${cpu}% CPU`;
+            // TWO FINDING SHAPES SHARE THIS REPORT, AND THEY DESCRIBE DIFFERENT THINGS.
+            // A process finding is about one busy PID inside a container (cpu_pct, age_s,
+            // cmd). A crash-loop finding is about the CONTAINER restarting without bound
+            // and carries no process at all. Rendered through the process columns it read
+            // "<name> — 0s, 0% CPU" with a blank second line: present in the report and
+            // invisible to the reader, which for the finding that can take the desktop
+            // down is the worst of both.
+            const {summary, detail} = finding.kind === 'crashloop'
+                ? this._describeCrashLoop(finding, name)
+                : this._describeProcess(finding, name);
+
             const item = new PopupMenu.PopupMenuItem(summary);
 
-            // Second line: the command, dimmed.
-            const detail = new St.Label({
-                text: cmd,
+            const detailLabel = new St.Label({
+                text: detail,
                 style: 'font-size: 0.85em; color: #aaaaaa; padding-left: 1em;',
             });
-            item.add_child(detail);
+            item.add_child(detailLabel);
 
             const hint = typeof finding.exec_hint === 'string' ? finding.exec_hint : '';
             item.connect('activate', () => {
@@ -231,6 +237,36 @@ export default class ContainerWatchExtension extends Extension {
             });
             menu.addMenuItem(item);
         }
+    }
+
+    _describeProcess(finding, name) {
+        const ageS = Number.isFinite(finding.age_s) ? finding.age_s : 0;
+        const cpu = Number.isFinite(finding.cpu_pct) ? finding.cpu_pct : 0;
+        return {
+            summary: `${name} — ${this._formatAge(ageS)}, ${cpu}% CPU`,
+            detail: this._truncate(finding.cmd || finding.argv0 || '', CMD_TRUNCATE_LEN),
+        };
+    }
+
+    _describeCrashLoop(finding, name) {
+        const count = Number.isFinite(finding.restart_count) ? finding.restart_count : 0;
+        const perMin = finding.restarts_per_min;
+
+        // The RATE leads when it is known, because it describes what is happening now;
+        // the cumulative count never resets, so on its own it cannot tell a loop running
+        // right now from one dealt with weeks ago.
+        const rate = Number.isFinite(perMin)
+            ? `${perMin}/min`
+            : 'rate unknown this tick';
+
+        const reasons = Array.isArray(finding.reasons) && finding.reasons.length > 0
+            ? finding.reasons.join(' + ')
+            : 'unknown';
+
+        return {
+            summary: `${name} — crash loop: ${rate}`,
+            detail: `${count} restarts total · triggered by: ${reasons}`,
+        };
     }
 
     // Copy the engine-correct inspect command (guidance only — never executed
@@ -244,15 +280,22 @@ export default class ContainerWatchExtension extends Extension {
         Main.notify('Container Watch', `Copied inspect command for ${name}`);
     }
 
-    // Notify once per newly-appeared finding. Dedupe on host_pid:container_id so
-    // the same finding on the next tick does not re-notify; prune keys that have
+    // Notify once per newly-appeared finding. Dedupe on kind:host_pid:container_id
+    // so the same finding on the next tick does not re-notify; prune keys that have
     // disappeared so a later recurrence notifies again.
+    //
+    // `kind` leads because the two finding shapes are about different things: one
+    // container can legitimately be both crash-looping AND running a hot process,
+    // and those are two findings a human wants told about separately. A crash-loop
+    // finding has no host_pid, so without `kind` its key relied on the `undefined`
+    // in that slot to stay distinct — unique by accident rather than by intent.
     _notifyNew(findings) {
         const currentKeys = new Set();
         const fresh = [];
 
         for (const finding of findings) {
-            const key = `${finding.host_pid}:${finding.container_id}`;
+            const kind = finding.kind || 'process';
+            const key = `${kind}:${finding.host_pid}:${finding.container_id}`;
             currentKeys.add(key);
             if (!this._seenKeys.has(key)) {
                 fresh.push(finding);

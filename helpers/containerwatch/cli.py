@@ -302,6 +302,25 @@ def emit_signal(count: int, report_path: str) -> None:
 # --------------------------------------------------------------------------- #
 # Inject seam (deterministic UI/CLI drive without a real runaway)
 # --------------------------------------------------------------------------- #
+def carry_forward_baseline(previous: dict | None) -> tuple[dict | None, dict | None]:
+    """The restart baseline and coverage to re-write when this scan sampled nothing.
+
+    Returns `(None, None)` rather than `({}, {})` when the previous report has no
+    baseline to carry. An empty mapping is a positive claim that every container
+    stood at zero, which would difference the whole host against zero on the next
+    tick and flag all of it; `None` says only that nothing is known, which is the
+    truth.
+    """
+    if not isinstance(previous, dict):
+        return None, None
+    counts = previous.get("restart_counts")
+    coverage = previous.get("crashloop_coverage")
+    return (
+        counts if isinstance(counts, dict) else None,
+        coverage if isinstance(coverage, dict) else None,
+    )
+
+
 def load_injected(spec: str) -> list:
     """Load a synthetic finding (or 'empty') for --inject — the L3 test seam."""
     if spec == "empty":
@@ -318,6 +337,16 @@ def render_status(report: dict) -> str:
     findings = report.get("findings", [])
     n = len(findings)
     if n == 0:
+        # "OK" is a claim about the host, and it is only honest for the engines
+        # this tick actually reached. An engine that is installed but did not
+        # answer leaves a blind spot, and reporting OK over a blind spot is the
+        # failure this watchdog exists to avoid.
+        unchecked = (report.get("crashloop_coverage") or {}).get("not_checked") or []
+        if unchecked:
+            return (
+                f"container-watch: 0 findings, but NOT CHECKED: {', '.join(unchecked)} "
+                "— this is not a clean bill of health"
+            )
         return "container-watch: OK — 0 findings"
 
     # Crash loops are named in the one-line summary rather than folded into a
@@ -386,19 +415,32 @@ def render_list(report: dict) -> str:
             )
 
     if not lines:
-        return "No findings."
+        lines.append("No findings.")
 
-    coverage = report.get("crashloop_coverage")
-    if coverage:
+    # UNCONDITIONAL, and that is the point. This line was previously appended only
+    # when a finding already existed — so the one case it exists for, a clean
+    # report a human reads to conclude "the host is fine", was the one case it was
+    # suppressed. A scan where every engine failed to answer renders identically
+    # to a scan that found nothing wrong unless the report says which engines it
+    # actually covered.
+    coverage_line = _render_coverage(report.get("crashloop_coverage"))
+    if coverage_line:
         lines.append("")
-        lines.append(
-            "crash-loop coverage: checked "
-            f"{', '.join(coverage.get('checked') or ['(none)'])}"
-            f" | not checked {', '.join(coverage.get('not_checked') or ['(none)'])}"
-            f" | no restart counter {', '.join(coverage.get('unsupported') or [])}"
-        )
+        lines.append(coverage_line)
 
     return "\n".join(lines)
+
+
+def _render_coverage(coverage: dict | None) -> str:
+    """One line naming what the crash-loop scan did and did not cover."""
+    if not coverage:
+        return ""
+    return (
+        "crash-loop coverage: checked "
+        f"{', '.join(coverage.get('checked') or ['(none)'])}"
+        f" | not checked {', '.join(coverage.get('not_checked') or ['(none)'])}"
+        f" | no restart counter {', '.join(coverage.get('unsupported') or ['(none)'])}"
+    )
 
 
 def render_explain(report: dict, host_pid: int) -> str:
@@ -489,11 +531,12 @@ def _scan_once(interval_s: float, inject: str | None) -> dict:
 
     now = int(time.time())
 
-    # Under --inject nothing is sampled, and crucially `restart_counts` is left
-    # as None below so the injected report does NOT overwrite the real baseline.
-    # Writing {} there destroyed the previous tick's counts, which left the rate
-    # gate blind for a full window afterwards — a test seam must not clobber
-    # production state.
+    # Under --inject nothing is sampled, so this scan has no restart counts of its
+    # own — but it still WRITES report.json, atomically replacing the previous
+    # tick's file. Omitting the counts therefore erases them exactly as surely as
+    # writing {} would, and the rate gate is blind for a full window after anyone
+    # exercises the notification path. The previous tick's baseline is carried
+    # forward instead: a test seam must not damage production state.
     loop_findings: list = []
     coverage = None
     counts: dict = {}
@@ -518,6 +561,12 @@ def _scan_once(interval_s: float, inject: str | None) -> dict:
             f for f in loop_findings if not crashloop.matches_allowlist(f, allowlist)
         ]
 
+    if inject is None:
+        write_counts: dict | None = counts
+        write_coverage = coverage
+    else:
+        write_counts, write_coverage = carry_forward_baseline(previous_report_for_rate())
+
     findings = list(findings) + loop_findings
     report = build_report(
         findings,
@@ -525,8 +574,8 @@ def _scan_once(interval_s: float, inject: str | None) -> dict:
         age,
         cpu,
         now,
-        restart_counts=counts if inject is None else None,
-        crashloop_coverage=coverage,
+        restart_counts=write_counts,
+        crashloop_coverage=write_coverage,
     )
     write_report_atomic(report_path(), report)
     emit_signal(len(findings), report_path())

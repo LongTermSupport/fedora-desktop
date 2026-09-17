@@ -55,6 +55,17 @@ FORBIDDEN_PATTERNS=(
     # are not matched; the trailing form distinguishes an invocation from prose.
     '\bpkill[[:space:]]'
     '\bkill[[:space:]]+-'
+    # ENDING A CONTAINER, which every pattern above misses. All of them key on
+    # delivering a signal to a PID, and `["podman", "stop", cid]` delivers none —
+    # it asks the engine to do it. That is the exact shape Plan 00132 Phase 6
+    # proposes to add deliberately, so the gate holding the reporting-only line
+    # until then has to be able to see it.
+    #
+    # Matched as an ARGV element, never as prose: the report legitimately tells a
+    # human "podman stop <container>", and a gate that cannot tell guidance from
+    # execution would force that guidance to be removed to stay green.
+    '["'"'"'](podman|docker)["'"'"'],[[:space:]]*["'"'"'](stop|kill|rm|pause|restart)["'"'"']'
+    '[[:space:](]engine,[[:space:]]*["'"'"'](stop|kill|rm|pause|restart)["'"'"']'
 )
 
 # Collect target files. The JS extension dir is created by a sibling task and may
@@ -139,6 +150,43 @@ PYEOF
         echo "  self-test (b) PASS: exec_hint guidance literal not flagged"
     else
         echo "  self-test (b) FAIL: guidance literal wrongly flagged (rc=$pass_rc)" >&2
+        self_test_ok=0
+    fi
+
+    # (c) A container STOP argv must be DETECTED. Nothing above this pattern's
+    # addition could see it: it delivers no signal to any pid.
+    local stop_fixture="$tmp/stop_fixture.py"
+    cat > "$stop_fixture" <<'PYEOF'
+import subprocess
+def halt(engine, cid):
+    subprocess.run([engine, "stop", cid], check=True)
+    subprocess.run(["podman", "rm", cid], check=True)
+PYEOF
+
+    local stop_rc=0
+    scan_targets "$stop_fixture" > /dev/null || stop_rc=$?
+    if [[ $stop_rc -eq 1 ]]; then
+        echo "  self-test (c) PASS: container stop argv detected"
+    else
+        echo "  self-test (c) FAIL: container stop argv NOT detected (rc=$stop_rc)" >&2
+        self_test_ok=0
+    fi
+
+    # (d) The SAME words as prose must PASS. The watchdog's report tells a human
+    # to run `podman stop <container>`, and a gate that could not tell that from
+    # an argv would force the advice out of the report to stay green.
+    local advice_fixture="$tmp/advice_fixture.py"
+    cat > "$advice_fixture" <<'PYEOF'
+def advise():
+    return "  Stop it, or fix why it exits:  podman stop <container>"
+PYEOF
+
+    local advice_rc=0
+    scan_targets "$advice_fixture" > /dev/null || advice_rc=$?
+    if [[ $advice_rc -eq 0 ]]; then
+        echo "  self-test (d) PASS: stop advice prose not flagged"
+    else
+        echo "  self-test (d) FAIL: stop advice prose wrongly flagged (rc=$advice_rc)" >&2
         self_test_ok=0
     fi
 

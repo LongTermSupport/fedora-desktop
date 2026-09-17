@@ -119,6 +119,9 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
 **Actions**:
 
 - Configures systemd inhibitor so active SSH sessions block suspend
+- Reads the AC suspend policy back as the target user, over that user's own session bus, and
+  **aborts the run** unless it is `'nothing'` — a policy written but not in effect is a failed
+  fix, not an applied one
 
 ### play-suspend-and-lid-policy.yml
 
@@ -136,18 +139,29 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
   lid still closed (window derived from the ~3s abort measured in Plan 00104)
 - Enables GNOME idle-suspend on battery (the AC sibling stays disabled — see
   `play-prevent-ssh-suspend.yml`)
+- Stops the **GDM greeter** idle-suspending a plugged-in machine, via a `dconf` drop-in for the
+  `gdm` database. The greeter owns the display whenever nobody is logged in, and otherwise
+  inherits GNOME's default of suspending on AC after 900s — which is how a machine left running
+  overnight was found asleep after its session died
+  - The `dconf update` compile is **gated on the database actually being stale**, not run every
+    time. It rewrites every database under `/etc/dconf/db`, including the `local` and `site`
+    ones a logged-in user's profile stacks, and each rewrite notifies live sessions — a
+    notification that has crashed a running GNOME Shell. The gate compares each compiled
+    database against its drop-ins, so a stale one is still repaired on any run
 - Verifies the wakeup policy applied, printing a `COVERAGE:` line on every real run (skipped
   under `--check`, where sysfs has not been written). A host with no such hardware passes and
   says so rather than failing
 
 **This play is on the default provisioning path and will abort the run** (`any_errors_fatal`)
-in three cases:
+in four cases:
 
 - `/usr/lib/systemd/system-sleep` is missing — systemd scans only that path, so the recovery
   hook would be installed where nothing runs it. Checked in preflight, before anything is
   written.
 - the GNOME power schema is unreadable on a non-`server` profile host — e.g. provisioning
   over SSH before first graphical login. Layer 3 cannot be set, leaving no backstop.
+- the GDM greeter does not read back `'nothing'` for its AC suspend policy — the drop-in
+  exists but is not in effect, which is a failed fix wearing the appearance of an applied one.
 - the wakeup policy did not apply, or a targeted device could not be vouched for — its
   `power/wakeup` was unreadable, held a value that is neither `enabled` nor `disabled`, or
   its device entry no longer resolves. This check runs **last**, deliberately, so that a
@@ -745,10 +759,16 @@ Compression helpers — installs `compress` and `uncompress` commands:
 
 #### play-container-watch.yml
 
-Container process watchdog — **reporting only, it never kills or throttles anything**:
+Container watchdog — **reporting only, it never kills, stops or throttles anything**:
 
 - Deploys the `containerwatch` helper, its CLI wrapper, and a `systemd --user` timer that runs
   periodic scans
+- Reports two different things: a **process** that is both old and hot inside a container, and a
+  **container in a crash loop**. The second is not a tidiness matter — a container restarting
+  without bound registers a transient unit per cycle, and enough of them exhaust the session
+  D-Bus accounting and take GNOME Shell down with every window you had open
+- States which container engines a scan actually covered, on a clean report as well as a dirty
+  one, so "0 findings" cannot quietly mean "no engine answered"
 - Installs a GNOME Shell panel extension that surfaces the findings
 - Writes a `report.json` and emits a DBus signal; taking action is left to you
 - Its no-kill guarantee is enforced by a dedicated QA gate — see

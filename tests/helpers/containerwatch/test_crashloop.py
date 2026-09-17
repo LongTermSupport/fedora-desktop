@@ -23,6 +23,146 @@ import unittest
 from helpers.containerwatch import cli, crashloop
 
 
+class InjectMustNotDestroyTheBaselineTests(unittest.TestCase):
+    """`--inject` is a test seam, and a test seam must not damage production state.
+
+    The injected scan samples nothing, so it has no restart counts of its own. It
+    still WRITES report.json, atomically replacing the previous tick's file — so
+    omitting the counts erases them just as surely as writing an empty mapping
+    would. The rate gate then has no baseline to difference against and is blind
+    for a full window after anyone exercises the notification path.
+    """
+
+    def test_carry_forward_keeps_the_previous_counts(self):
+        previous = {"restart_counts": {"id-a": 42}, "crashloop_coverage": {"checked": ["podman"]}}
+        counts, coverage = cli.carry_forward_baseline(previous)
+        self.assertEqual(counts, {"id-a": 42})
+        self.assertEqual(coverage, {"checked": ["podman"]})
+
+    def test_carry_forward_from_a_report_without_counts_yields_none(self):
+        # Not {}: an empty mapping is a claim that every container was at zero,
+        # which would difference the whole host against zero on the next tick.
+        counts, coverage = cli.carry_forward_baseline({})
+        self.assertIsNone(counts)
+        self.assertIsNone(coverage)
+
+    def test_carry_forward_from_a_corrupt_report_yields_none(self):
+        counts, coverage = cli.carry_forward_baseline(None)
+        self.assertIsNone(counts)
+        self.assertIsNone(coverage)
+
+
+class CoverageIsStatedEvenWhenCleanTests(unittest.TestCase):
+    """A blind scan and a clean host must not print the same thing.
+
+    `sample_restarts` returns None when the engine cannot be reached — a socket
+    problem, a permissions problem, a timeout. If the coverage statement is only
+    emitted alongside a finding, then the tick where every engine failed renders
+    as "OK — 0 findings", which is the exact reading `engine_coverage`'s own
+    docstring calls out as indistinguishable from a clean result.
+    """
+
+    def _report(self, *, findings, coverage):
+        return {"findings": findings, "crashloop_coverage": coverage}
+
+    def test_a_clean_report_still_names_the_engines_checked(self):
+        out = cli.render_list(
+            self._report(
+                findings=[],
+                coverage={"checked": ["podman"], "not_checked": [], "unsupported": ["lxc"]},
+            )
+        )
+        self.assertIn("No findings", out)
+        self.assertIn("podman", out)
+
+    def test_a_clean_report_names_an_engine_that_was_not_checked(self):
+        out = cli.render_list(
+            self._report(
+                findings=[],
+                coverage={"checked": ["podman"], "not_checked": ["docker"], "unsupported": []},
+            )
+        )
+        self.assertIn("docker", out)
+
+    def test_status_flags_an_unchecked_engine_rather_than_reporting_ok(self):
+        out = cli.render_status(
+            self._report(
+                findings=[],
+                coverage={"checked": [], "not_checked": ["podman"], "unsupported": []},
+            )
+        )
+        self.assertNotEqual(out, "container-watch: OK — 0 findings")
+        self.assertIn("podman", out)
+
+    def test_status_says_ok_when_everything_present_was_checked(self):
+        out = cli.render_status(
+            self._report(
+                findings=[],
+                coverage={"checked": ["podman"], "not_checked": [], "unsupported": ["lxc"]},
+            )
+        )
+        self.assertIn("OK", out)
+        self.assertIn("0 findings", out)
+
+    def test_a_report_with_no_coverage_key_still_renders(self):
+        # Every report written before this feature existed is in that state.
+        self.assertIn("No findings", cli.render_list({"findings": []}))
+        self.assertIn("OK", cli.render_status({"findings": []}))
+
+
+class CrashLoopExecHintTests(unittest.TestCase):
+    """A crash-loop finding must carry usable guidance, like a process finding does.
+
+    The panel offers every finding a click that copies `exec_hint`. With no hint
+    the click answered "No inspect hint for <container>" — the one finding that
+    can take the desktop down being also the one the UI had nothing to say about.
+
+    `logs`, not `exec`: a crash-looping container is mostly NOT running, so
+    `exec` would fail on most attempts, and why it keeps dying is in its logs.
+    """
+
+    def test_rootless_podman_hint_reads_logs(self):
+        self.assertEqual(
+            crashloop.build_exec_hint(engine="podman", container_name="c-a"),
+            "podman logs --tail 50 c-a",
+        )
+
+    def test_docker_hint_uses_the_docker_spelling(self):
+        self.assertEqual(
+            crashloop.build_exec_hint(engine="docker", container_name="c-a"),
+            "docker logs --tail 50 c-a",
+        )
+
+    def test_an_unknown_engine_does_not_invent_a_command(self):
+        # A confident-looking command for an engine we did not identify is worse
+        # than none: it would be pasted into a shell.
+        hint = crashloop.build_exec_hint(engine="weird", container_name="c-a")
+        self.assertTrue(hint.startswith("#"), hint)
+        self.assertIn("weird", hint)
+
+    def test_evaluate_attaches_the_hint_to_every_finding(self):
+        findings = crashloop.evaluate(
+            previous={"id-a": 0},
+            current={"id-a": 500},
+            running={"id-a": True},
+            elapsed_s=120.0,
+            names={"id-a": "c-a"},
+            engines={"id-a": "docker"},
+        )
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["exec_hint"], "docker logs --tail 50 c-a")
+
+    def test_the_hint_names_the_container_not_the_raw_id(self):
+        findings = crashloop.evaluate(
+            previous={"id-a": 0},
+            current={"id-a": 500},
+            running={"id-a": True},
+            elapsed_s=120.0,
+            names={"id-a": "friendly-name"},
+        )
+        self.assertIn("friendly-name", findings[0]["exec_hint"])
+
+
 class RestartDeltaTests(unittest.TestCase):
     """The rate signal: how many restarts happened between two ticks."""
 

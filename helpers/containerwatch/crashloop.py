@@ -210,6 +210,25 @@ def elapsed_since(*, previous_at: int | None, now: int) -> float | None:
     return float(delta)
 
 
+_LOG_TAIL = 50
+
+
+def build_exec_hint(*, engine: str, container_name: str) -> str:
+    """Guidance text for inspecting a crash-looping container. Never executed.
+
+    `logs`, not `exec`: a container in a crash loop spends most of its time NOT
+    running, so an `exec` would simply fail on most attempts — and the reason it
+    keeps dying is in the logs, which survive the restart.
+
+    An engine this module does not recognise gets a comment, not a command. A
+    confident-looking command for a misidentified engine is worse than no hint,
+    because a hint exists to be pasted into a shell.
+    """
+    if engine in RESTART_CAPABLE_ENGINES:
+        return f"{engine} logs --tail {_LOG_TAIL} {container_name}"
+    return f"# unrecognised engine '{engine}' — inspect {container_name} by hand"
+
+
 def make_finding(
     *,
     container_id: str,
@@ -241,6 +260,9 @@ def make_finding(
         "restarts_per_min": per_min,
         "elapsed_s": elapsed_s,
         "reasons": reasons,
+        # Same key the process-shaped findings use, so the panel's copy action and
+        # the CLI's `explain` work on this finding without special-casing either.
+        "exec_hint": build_exec_hint(engine=engine, container_name=container_name),
     }
 
 

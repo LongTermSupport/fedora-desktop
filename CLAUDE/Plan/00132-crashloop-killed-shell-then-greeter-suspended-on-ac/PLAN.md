@@ -164,7 +164,7 @@ and nobody was logged in. Specified in
   including the read-back that proves it works (P3 in `triage.bash`)
 - [x] The detection defence is specified against a **measured** signal, in an existing
   surface, with a falsification method per claim
-- [x] No fix has been applied to the host or the playbooks by this plan
+- [x] No fix was applied to the host or the playbooks **while planning-only mode was in force** — every change here landed after that mode was lifted and worktree execution was authorised. Restated rather than left ticked: as originally worded this criterion became false the moment Phase 5 shipped, and a tick against a false statement is worse than an unticked box
 
 ## Risks & Mitigations
 
