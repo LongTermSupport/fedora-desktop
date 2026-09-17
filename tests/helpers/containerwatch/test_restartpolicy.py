@@ -19,7 +19,7 @@ That last point is why "it will settle down on its own" is not true here.
 
 import unittest
 
-from helpers.containerwatch import restartpolicy
+from helpers.containerwatch import cli, restartpolicy
 
 
 class ClassificationTests(unittest.TestCase):
@@ -113,6 +113,62 @@ class AuditTests(unittest.TestCase):
     def test_the_advice_names_the_container_so_it_can_be_acted_on(self):
         finding = restartpolicy.audit(self._rows(), engine="podman")[0]
         self.assertIn("c-a", finding["advice"])
+
+
+class AdvisoriesAreNotFindingsTests(unittest.TestCase):
+    """A restart policy is a STATE, not an event, and it never clears.
+
+    Carried in `findings`, ten uncapped containers make the panel say "10 flagged
+    containers" on every tick for ever. That is an alarm nobody can clear, which
+    trains the reader to ignore the panel — and what they would learn to ignore
+    is the crash-loop alarm that actually matters. `crashloop.py`'s own docstring
+    says exactly this about the cumulative gate; the same trap was walked into
+    again here.
+
+    So advisories ride in their own key: `findings` means "something is wrong
+    NOW", and the flagged count keeps that meaning.
+    """
+
+    def _report(self, findings, advisories):
+        return cli.build_report(
+            findings, 4, 600, 80.0, 1000, advisories=advisories
+        )
+
+    def _advisory(self):
+        return {
+            "kind": "restart-policy",
+            "container_name": "c-a",
+            "engine": "podman",
+            "policy": "unless-stopped",
+            "max_retries": 0,
+            "classification": "uncapped",
+            "advice": "recreate with --restart=on-failure:5",
+        }
+
+    def test_advisories_do_not_enter_the_findings_list(self):
+        report = self._report([], [self._advisory()])
+        self.assertEqual(report["findings"], [])
+        self.assertEqual(len(report["advisories"]), 1)
+
+    def test_status_does_not_call_an_advisory_a_finding(self):
+        out = cli.render_status(self._report([], [self._advisory()]))
+        self.assertNotIn("1 finding", out)
+
+    def test_status_still_mentions_the_advisory(self):
+        # Separated, not hidden — the whole point is that it is actionable.
+        out = cli.render_status(self._report([], [self._advisory()]))
+        self.assertIn("restart", out.lower())
+
+    def test_a_host_with_only_advisories_is_not_reported_as_having_findings(self):
+        report = self._report([], [self._advisory(), self._advisory()])
+        self.assertEqual(len(report["findings"]), 0)
+
+    def test_list_renders_advisories_with_the_remedy(self):
+        out = cli.render_list(self._report([], [self._advisory()]))
+        self.assertIn("on-failure", out)
+
+    def test_an_advisory_carries_guidance_to_act_on(self):
+        self.assertTrue(self._advisory()["advice"])
 
 
 if __name__ == "__main__":

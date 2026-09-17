@@ -151,28 +151,36 @@ export default class ContainerWatchExtension extends Extension {
             }
 
             let findings;
+            let advisories;
             try {
                 const text = new TextDecoder().decode(contents);
                 const report = JSON.parse(text);
                 findings = Array.isArray(report?.findings) ? report.findings : [];
+                advisories = Array.isArray(report?.advisories) ? report.advisories : [];
             } catch (e) {
                 log(`container-watch: failed to parse report.json: ${e.message}`);
-                this._applyFindings([]);
+                this._applyFindings([], []);
                 return;
             }
 
-            this._applyFindings(findings);
+            this._applyFindings(findings, advisories);
         });
     }
 
-    _applyFindings(findings) {
+    _applyFindings(findings, advisories = []) {
         // Guard against a callback that lands after disable().
         if (!this._indicator || !this._icon) {
             return;
         }
 
+        // The icon and the notification track FINDINGS ONLY. An advisory is a
+        // configuration state that is true on every tick until someone changes
+        // it, so counting it here would light the panel amber for ever and
+        // notify about it repeatedly — an alarm nobody can clear teaches the
+        // reader to ignore the panel, and the thing they would then miss is the
+        // crash loop this exists to report.
         this._updateIcon(findings.length);
-        this._rebuildMenu(findings);
+        this._rebuildMenu(findings, advisories);
         this._notifyNew(findings);
     }
 
@@ -189,7 +197,7 @@ export default class ContainerWatchExtension extends Extension {
         }
     }
 
-    _rebuildMenu(findings) {
+    _rebuildMenu(findings, advisories = []) {
         const menu = this._indicator.menu;
         menu.removeAll();
 
@@ -198,6 +206,7 @@ export default class ContainerWatchExtension extends Extension {
                 reactive: false,
             });
             menu.addMenuItem(item);
+            this._appendAdvisories(menu, advisories);
             return;
         }
 
@@ -237,6 +246,48 @@ export default class ContainerWatchExtension extends Extension {
             });
             menu.addMenuItem(item);
         }
+
+        this._appendAdvisories(menu, advisories);
+    }
+
+    // Advisories sit BELOW the findings, behind their own separator and in dimmed
+    // text, because they are a different kind of statement: nothing is wrong now,
+    // this is how something is configured. Clicking one copies the remedy.
+    _appendAdvisories(menu, advisories) {
+        if (!advisories || advisories.length === 0) {
+            return;
+        }
+
+        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        const header = new PopupMenu.PopupMenuItem(
+            `${advisories.length} container${advisories.length === 1 ? '' : 's'} set to restart without limit`,
+            {reactive: false}
+        );
+        header.label.style = 'font-size: 0.9em; color: #aaaaaa;';
+        menu.addMenuItem(header);
+
+        for (const advisory of advisories) {
+            const name = advisory.container_name || advisory.container_id || 'unknown';
+            const policy = advisory.policy || 'unknown';
+            const item = new PopupMenu.PopupMenuItem(`${name} — ${policy}`);
+            item.label.style = 'font-size: 0.9em;';
+
+            const advice = typeof advisory.advice === 'string' ? advisory.advice : '';
+            item.connect('activate', () => {
+                this._copyAdvice(advice, name);
+            });
+            menu.addMenuItem(item);
+        }
+    }
+
+    _copyAdvice(advice, name) {
+        if (!advice) {
+            Main.notify('Container Watch', `No advice recorded for ${name}`);
+            return;
+        }
+        St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, advice);
+        Main.notify('Container Watch', `Copied restart-policy advice for ${name}`);
     }
 
     _describeProcess(finding, name) {

@@ -422,6 +422,7 @@ def build_report(
     crashloop_coverage: dict | None = None,
     restart_history: dict | None = None,
     containment: list | None = None,
+    advisories: list | None = None,
 ) -> dict:
     """Assemble the report.
 
@@ -449,6 +450,17 @@ def build_report(
     # different fact from the key being absent because it never ran at all.
     if containment is not None:
         report["containment"] = containment
+    # ADVISORIES ARE NOT FINDINGS, and the separation is load-bearing.
+    #
+    # A restart policy is a STATE, not an event: it is true on every tick until
+    # someone recreates the container. Carried in `findings`, ten uncapped
+    # containers make the panel report ten flagged containers for ever — an alarm
+    # nobody can clear, which teaches the reader to ignore the panel. What they
+    # would then be ignoring is the crash-loop alarm that matters.
+    #
+    # `findings` therefore keeps one meaning: something is wrong NOW.
+    if advisories is not None:
+        report["advisories"] = advisories
     return report
 
 
@@ -524,7 +536,17 @@ def load_injected(spec: str) -> list:
 # --------------------------------------------------------------------------- #
 def render_status(report: dict) -> str:
     findings = report.get("findings", [])
+    advisories = report.get("advisories", [])
     n = len(findings)
+
+    # An action taken outranks anything observed, findings and advisories alike.
+    # On a server this journal line is the only notice anyone gets that a
+    # container was stopped, so it is checked before everything else.
+    stopped = [o for o in report.get("containment", []) if o.get("stopped")]
+    if stopped:
+        names = ", ".join(o.get("container_name", "?") for o in stopped)
+        return f"container-watch: STOPPED {len(stopped)} crash-looping container(s): {names}"
+
     if n == 0:
         # "OK" is a claim about the host, and it is only honest for the engines
         # this tick actually reached. An engine that is installed but did not
@@ -535,6 +557,14 @@ def render_status(report: dict) -> str:
             return (
                 f"container-watch: 0 findings, but NOT CHECKED: {', '.join(unchecked)} "
                 "— this is not a clean bill of health"
+            )
+        # Advisories are mentioned, never counted as findings: nothing is wrong
+        # now, and the wording has to keep saying so or the distinction is lost
+        # the moment it matters.
+        if advisories:
+            return (
+                f"container-watch: OK — 0 findings ({len(advisories)} container(s) "
+                "configured to restart without limit; see `container-watch list`)"
             )
         return "container-watch: OK — 0 findings"
 
@@ -557,15 +587,6 @@ def render_status(report: dict) -> str:
             "— run `container-watch list`"
         )
 
-    # Policy findings are advisory, and saying "N findings" about them would read
-    # like something is wrong now. Named separately so a host whose only issue is
-    # configuration is not confused with one that is actually misbehaving.
-    policies = sum(1 for f in findings if f.get("kind") == "restart-policy")
-    if policies == n:
-        return (
-            f"container-watch: {policies} container(s) configured to restart without "
-            "limit — run `container-watch list`"
-        )
     return f"container-watch: {n} finding(s) — run `container-watch list`"
 
 
@@ -581,8 +602,9 @@ def render_list(report: dict) -> str:
     """
     findings = report.get("findings", [])
     loops = [f for f in findings if f.get("kind") == "crashloop"]
-    policies = [f for f in findings if f.get("kind") == "restart-policy"]
-    procs = [f for f in findings if f.get("kind") not in ("crashloop", "restart-policy")]
+    procs = [f for f in findings if f.get("kind") != "crashloop"]
+    # From their own key, not from `findings` — see build_report.
+    policies = report.get("advisories", [])
 
     lines: list[str] = []
 
@@ -620,7 +642,8 @@ def render_list(report: dict) -> str:
             lines.append("")
 
     if policies:
-        lines.append("RESTART POLICIES THAT PERMIT AN UNBOUNDED STORM")
+        lines.append("ADVISORY — restart policies that permit an unbounded storm")
+        lines.append("(nothing is wrong right now; this is configuration)")
         lines.append(f"  {'CONTAINER':<24} {'ENGINE':<8} {'POLICY':<16} RETRIES")
         for f in policies:
             retries = f.get("max_retries", 0)
@@ -843,7 +866,7 @@ def _scan_once(interval_s: float, inject: str | None) -> dict:
         policy_findings = []
         outcomes = []
 
-    findings = list(findings) + loop_findings + policy_findings
+    findings = list(findings) + loop_findings
     report = build_report(
         findings,
         os.cpu_count() or 1,
@@ -854,6 +877,7 @@ def _scan_once(interval_s: float, inject: str | None) -> dict:
         crashloop_coverage=write_coverage,
         restart_history=write_history,
         containment=outcomes,
+        advisories=policy_findings,
     )
     write_report_atomic(report_path(), report)
     emit_signal(len(findings), report_path())
