@@ -1,11 +1,16 @@
 #!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
 ---
-# Container Process Watchdog (reporting-only)
+# Container Watchdog
 #
 # Deploys the containerwatch helper, its CLI wrapper, the systemd --user timer
 # that runs periodic scans, and the GNOME Shell panel extension that surfaces the
-# findings report. This is a REPORTING-ONLY watchdog: it never kills or throttles
-# any process, it only writes a report.json + emits a DBus signal.
+# findings report.
+#
+# It NEVER signals a process — that guarantee is unchanged and gated by
+# scripts/qa-nokill-containerwatch.bash. It has exactly one action it may take: a
+# graceful `stop` of a container in a runaway restart loop whose restart policy is
+# unbounded. A container with no restart policy cannot be restarted by the engine
+# anyway, so it is out of reach by construction rather than by threshold.
 #
 # Standalone / opt-in play (like play-speech-to-text.yml) — deliberately NOT
 # imported from playbook-main.yml. Run it directly:

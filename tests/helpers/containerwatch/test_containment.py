@@ -10,9 +10,12 @@ than a comment. The module is PURE: it decides, and a separate executor acts, so
 none of these cases needs a container to exercise.
 """
 
+import contextlib
+import io
 import unittest
+import unittest.mock
 
-from helpers.containerwatch import containment
+from helpers.containerwatch import cli, containment
 
 
 def _sample(ts, count):
@@ -255,6 +258,135 @@ class OnlyUnboundedPoliciesAreContainedTests(unittest.TestCase):
             enabled=True,
         )
         self.assertFalse(decision.contain)
+
+
+class TheExecutorRunsNothingItShouldNotTests(unittest.TestCase):
+    """Pin the safety claim AT THE LAYER THAT EXECUTES.
+
+    `decide()` is thoroughly tested, but it cannot stop a container — this can.
+    These assert on the subprocess call itself, so a future refactor that wires
+    the executor to the wrong field, or forgets to consult `decide` at all, fails
+    here rather than on someone's machine.
+    """
+
+    def _candidate(self, **over):
+        base = {
+            "container_id": "id-a",
+            "container_name": "c-a",
+            "engine": "podman",
+            "running": True,
+            "restart_policy": "uncapped",
+            "history": [{"at": 0, "count": 0}, {"at": 300, "count": 500}],
+        }
+        base.update(over)
+        return base
+
+    def _run_with_spy(self, candidates, **kw):
+        calls = []
+
+        def spy(argv, **_):
+            calls.append(argv)
+            return unittest.mock.Mock(returncode=0, stdout="", stderr="")
+
+        opts = {"now": 300, "allowlist": [], "enabled": True}
+        opts.update(kw)
+        with unittest.mock.patch.object(cli.subprocess, "run", spy), \
+                contextlib.redirect_stderr(io.StringIO()):
+            outcomes = cli.apply_containment(candidates, **opts)
+        return calls, outcomes
+
+    def test_a_qualifying_container_is_stopped_exactly_once(self):
+        calls, outcomes = self._run_with_spy([self._candidate()])
+        self.assertEqual(calls, [["podman", "stop", "--time", "10", "id-a"]])
+        self.assertTrue(outcomes[0]["stopped"])
+
+    def test_no_subprocess_runs_when_the_policy_is_not_unbounded(self):
+        for policy in ("none", "capped", "unknown", ""):
+            calls, outcomes = self._run_with_spy(
+                [self._candidate(restart_policy=policy)]
+            )
+            self.assertEqual(calls, [], f"policy {policy!r} must run nothing")
+            self.assertFalse(outcomes[0]["stopped"])
+
+    def test_no_subprocess_runs_when_disabled(self):
+        calls, _ = self._run_with_spy([self._candidate()], enabled=False)
+        self.assertEqual(calls, [])
+
+    def test_no_subprocess_runs_for_an_allowlisted_container(self):
+        calls, _ = self._run_with_spy(
+            [self._candidate()], allowlist=[{"container_name": "c-a"}]
+        )
+        self.assertEqual(calls, [])
+
+    def test_no_subprocess_runs_below_the_threshold(self):
+        calls, _ = self._run_with_spy(
+            [self._candidate(history=[{"at": 0, "count": 0}, {"at": 300, "count": 3}])]
+        )
+        self.assertEqual(calls, [])
+
+    def test_one_container_being_stopped_does_not_stop_the_others(self):
+        calls, outcomes = self._run_with_spy(
+            [
+                self._candidate(),
+                self._candidate(container_id="id-b", container_name="c-b", restart_policy="none"),
+            ]
+        )
+        self.assertEqual(calls, [["podman", "stop", "--time", "10", "id-a"]])
+        self.assertEqual([o["stopped"] for o in outcomes], [True, False])
+
+    def test_a_failing_stop_is_recorded_not_swallowed(self):
+        def boom(argv, **_):
+            raise cli.subprocess.CalledProcessError(1, argv)
+
+        stderr = io.StringIO()
+        with unittest.mock.patch.object(cli.subprocess, "run", boom), \
+                contextlib.redirect_stderr(stderr):
+            outcomes = cli.apply_containment(
+                [self._candidate()], now=300, allowlist=[], enabled=True
+            )
+        self.assertFalse(outcomes[0]["stopped"])
+        self.assertIn("CONTAINMENT FAILED", stderr.getvalue())
+
+    def test_a_refusal_records_why(self):
+        # "Why was this NOT stopped" is the question asked after an incident.
+        _, outcomes = self._run_with_spy([self._candidate(restart_policy="none")])
+        self.assertTrue(outcomes[0]["reason"])
+
+
+class TheOptOutMustNotFailOpenTests(unittest.TestCase):
+    """A mistyped opt-out must not silently mean "keep stopping containers".
+
+    The config is JSON, so `{"containment": "false"}` and `{"containment": 0}` are
+    the obvious ways to get this wrong. Reading either permissively hands the
+    destructive behaviour to someone who explicitly tried to turn it off — the
+    worst possible direction for a default-on feature to fail in.
+    """
+
+    def test_absent_means_enabled(self):
+        self.assertTrue(cli.containment_enabled({}))
+
+    def test_explicit_true_means_enabled(self):
+        self.assertTrue(cli.containment_enabled({"containment": True}))
+
+    def test_explicit_false_means_disabled(self):
+        self.assertFalse(cli.containment_enabled({"containment": False}))
+
+    def test_the_string_false_is_refused_not_read_as_enabled(self):
+        with self.assertRaises(ValueError):
+            cli.containment_enabled({"containment": "false"})
+
+    def test_a_number_is_refused(self):
+        with self.assertRaises(ValueError):
+            cli.containment_enabled({"containment": 0})
+
+    def test_null_is_refused(self):
+        with self.assertRaises(ValueError):
+            cli.containment_enabled({"containment": None})
+
+    def test_the_error_names_the_key_so_it_can_be_fixed(self):
+        with self.assertRaises(ValueError) as ctx:
+            cli.containment_enabled({"containment": "no"})
+        self.assertIn("containment", str(ctx.exception))
 
 
 class TheCommandIsStopAndOnlyStopTests(unittest.TestCase):

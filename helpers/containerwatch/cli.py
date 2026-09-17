@@ -231,28 +231,42 @@ def sample_restart_policy_rows(engine: str) -> list[dict] | None:
     return restartpolicy.parse_lines(result.stdout)
 
 
-def audit_all_restart_policies() -> tuple[list[dict], dict]:
-    """Restart-policy findings, and the classification of EVERY container.
+def audit_all_restart_policies() -> tuple[list[dict], dict, dict]:
+    """Restart-policy findings, the classification of every container, and coverage.
 
-    Returns ``(findings, classifications)``. The findings are the preventive
-    report; the classifications are what containment gates on, so the same
-    inspect serves both and the two can never disagree about a container.
+    Returns ``(findings, classifications, coverage)``. The findings are the
+    preventive report; the classifications are what containment gates on, so the
+    same inspect serves both and the two can never disagree about a container.
+
+    Coverage is returned rather than discarded for the reason
+    `crashloop.engine_coverage` exists: an engine that would not answer must not
+    read as an engine with nothing to report. Without it, "no container restarts
+    without limit" is printed just as readily when podman was unreachable as when
+    the host is genuinely clean.
 
     A container missing from `classifications` is one whose policy could not be
     read, and containment treats that as "do not act" — the safe direction.
     """
     findings: list[dict] = []
     classifications: dict[str, str] = {}
+    checked: list[str] = []
+    available: list[str] = []
+
     for engine in crashloop.RESTART_CAPABLE_ENGINES:
+        if engine_available(engine):
+            available.append(engine)
         rows = sample_restart_policy_rows(engine)
         if rows is None:
             continue
+        checked.append(engine)
         for row in rows:
             classifications[row["container_id"]] = restartpolicy.classify(
                 row["policy"], row["max_retries"]
             )
         findings.extend(restartpolicy.audit(rows, engine=engine))
-    return findings, classifications
+
+    coverage = crashloop.engine_coverage(checked=checked, available=available)
+    return findings, classifications, coverage
 
 
 def containment_enabled(config: dict) -> bool:
@@ -268,8 +282,21 @@ def containment_enabled(config: dict) -> bool:
     managed 19 in its lifetime. Set `containment: false` to opt out, and the
     allowlist exempts individual containers without disabling the rest.
     """
-    value = config.get("containment", True)
-    return bool(value) if isinstance(value, bool) else True
+    if "containment" not in config:
+        return True
+
+    value = config["containment"]
+    if not isinstance(value, bool):
+        # Fail fast, and specifically do NOT fall back to the permissive reading.
+        # The config is JSON, so `"false"` and `0` are the obvious ways to get
+        # this wrong — and quietly treating either as "enabled" would hand the
+        # destructive behaviour to the one person who explicitly tried to turn it
+        # off. That is the worst direction for a default-on feature to fail in.
+        raise ValueError(
+            f"config key 'containment' must be true or false, got {value!r} — "
+            "refusing to guess whether automatic container stopping is wanted"
+        )
+    return value
 
 
 def previous_history(report: dict) -> dict:
@@ -781,7 +808,7 @@ def _scan_once(interval_s: float, inject: str | None) -> dict:
         # The PREVENTIVE half: which containers are configured so that a storm is
         # possible at all. Independent of whether anything is storming now, and
         # the only part of this defence that helps before something goes wrong.
-        policy_findings, policy_class = audit_all_restart_policies()
+        policy_findings, policy_class, _policy_coverage = audit_all_restart_policies()
 
         # Rolling per-container history, carried in the report that already
         # exists. Containment needs a window, and a single previous sample only
@@ -842,14 +869,26 @@ def cmd_scan(args) -> int:
     return 0
 
 
-def render_policies(rows: list[dict], classifications: dict) -> str:
+def render_policies(rows: list[dict], classifications: dict, coverage: dict | None = None) -> str:
     """Every container's restart policy, including the ones that are fine.
 
     A complete list, not just the offenders: this is the command to run to ANSWER
     the question "what is configured where", and a table showing only problems
     cannot distinguish a clean host from an unread one.
+
+    Coverage is stated in both the empty and the populated case, because the
+    sentence "no container restarts without limit" is a claim about the engines
+    that answered — and silence about the rest would make an unreachable engine
+    indistinguishable from a clean one.
     """
+    unchecked = (coverage or {}).get("not_checked") or []
+
     if not rows:
+        if unchecked:
+            return (
+                f"No containers found — but these engine(s) did not answer: "
+                f"{', '.join(unchecked)}. This is not a clean bill of health."
+            )
         return "No containers found."
 
     verdicts = {
@@ -877,6 +916,11 @@ def render_policies(rows: list[dict], classifications: dict) -> str:
         )
     else:
         lines.append("No container is configured to restart without limit.")
+    if unchecked:
+        lines.append(
+            f"NOT CHECKED: {', '.join(unchecked)} — the statement above covers "
+            "only the engines that answered."
+        )
     return "\n".join(lines)
 
 
@@ -884,16 +928,24 @@ def cmd_policies(args) -> int:
     """Read-only. Runs `inspect` and prints; stops nothing, writes no report."""
     rows: list[dict] = []
     classifications: dict[str, str] = {}
+    checked: list[str] = []
+    available: list[str] = []
+
     for engine in crashloop.RESTART_CAPABLE_ENGINES:
+        if engine_available(engine):
+            available.append(engine)
         sampled = sample_restart_policy_rows(engine)
         if sampled is None:
             continue
+        checked.append(engine)
         rows.extend(sampled)
         for row in sampled:
             classifications[row["container_id"]] = restartpolicy.classify(
                 row["policy"], row["max_retries"]
             )
-    print(render_policies(rows, classifications))
+
+    coverage = crashloop.engine_coverage(checked=checked, available=available)
+    print(render_policies(rows, classifications, coverage))
     return 0
 
 

@@ -780,6 +780,12 @@ is in a runaway restart loop** — the one action it is permitted to take:
   and ignore any retry count set beside them, so a container can look bounded and not be —
   and there is no backoff, so a failing container restarts at engine speed
 - `container-watch policies` lists every container's policy and acts on nothing
+- **To turn stopping off**, set `"containment": false` in the watchdog's config. It must be a
+  JSON boolean — `"false"` or `0` is rejected with an error rather than quietly read as
+  "enabled", because a mistyped opt-out must not hand you the destructive behaviour
+- **The allowlist caveat**: an allowlist entry exempts a container from containment only if it
+  names the container and carries **no** `cmd_pattern`. An entry with a `cmd_pattern` is a
+  statement about processes, and does not exempt the container from being stopped
 - Installs a GNOME Shell panel extension that surfaces the findings
 - Writes a `report.json` and emits a DBus signal
 - **Works on a server**, where it matters most: the helper, CLI and user timer are not

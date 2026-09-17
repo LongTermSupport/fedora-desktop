@@ -1,5 +1,5 @@
 [Unit]
-Description=Container process watchdog scan (reporting-only)
+Description=Container watchdog scan (reports; stops a runaway restart loop)
 Documentation=https://github.com/LongTermSupport/fedora-desktop
 # Detection reads world-readable /proc and resolves rootless-Podman names as the
 # session user, so this runs in the user manager (not system) — it also reaches
@@ -10,6 +10,12 @@ After=graphical-session.target
 
 [Service]
 Type=oneshot
-# Reporting-only: scan writes report.json and emits a DBus signal. It NEVER kills
-# or throttles anything — there is no termination path in the tool.
+# The scan writes report.json and emits a DBus signal, and it has exactly ONE
+# action it may take: a graceful `stop` of a container in a runaway restart loop
+# (100 restarts inside a rolling 10 minutes) whose restart policy is unbounded.
+# It never signals a process, and never kills, removes or pauses a container.
+#
+# This matters here because `systemctl --user cat` is where an operator looks to
+# answer "did this stop my container?" — so the unit must not claim it cannot.
+# Stops are announced on stderr, which for a user timer is the journal.
 ExecStart=%h/.local/bin/container-watch scan

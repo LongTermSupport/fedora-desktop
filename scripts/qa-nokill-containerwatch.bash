@@ -1,10 +1,18 @@
 #!/usr/bin/bash
 # L0 no-kill safety gate for the container-watch watchdog (Plan 00055 Phase 5).
 #
-# The shipped watchdog is REPORTING-ONLY: it scans, attributes, and reports
-# offending container processes, but it MUST NEVER terminate or throttle one.
+# The watchdog MUST NEVER signal a process. That has not changed, and it applies
+# to every file including containment.py.
+#
+# It may take exactly ONE action: containment.py may ask an engine for a graceful
+# `stop` of a container in a runaway restart loop (Plan 00132 Phase 6). That file
+# is therefore exempt from LIFECYCLE_PATTERNS and from nothing else — it is still
+# held to every SIGNAL_PATTERN, plus CONTAINMENT_FORBIDDEN on top, which bars the
+# destructive container verbs its job does not need.
+#
 # This gate FAILS the build if any *executable* process-termination call site is
-# introduced into the watchdog code.
+# introduced anywhere in the watchdog, or if containment.py grows a verb beyond
+# the single stop it exists for.
 #
 # Critically, it scopes to *call-site syntax* (the `(` / argv / shell-invocation
 # form), so the word "kill" remains allowed inside guidance string literals such
@@ -35,7 +43,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 #   JS/GJS: subproc.force_exit( , subproc.send_signal( , Gio.Subprocess argv
 #           starting kill/pkill.
 #   Shell : a bare `pkill ` or `kill -<signal>` invocation.
-FORBIDDEN_PATTERNS=(
+# SIGNAL DELIVERY TO A PID. These apply to EVERY file in the watchdog, including
+# containment.py — that file is allowed to ask an engine to stop a container, and
+# is never allowed to signal a process itself.
+SIGNAL_PATTERNS=(
     # Python signal delivery to a pid
     '\bos\.kill[[:space:]]*\('
     '\bos\.killpg[[:space:]]*\('
@@ -55,18 +66,24 @@ FORBIDDEN_PATTERNS=(
     # are not matched; the trailing form distinguishes an invocation from prose.
     '\bpkill[[:space:]]'
     '\bkill[[:space:]]+-'
-    # ENDING A CONTAINER, which every pattern above misses. All of them key on
-    # delivering a signal to a PID, and `["podman", "stop", cid]` delivers none —
-    # it asks the engine to do it. That is the exact shape Plan 00132 Phase 6
-    # proposes to add deliberately, so the gate holding the reporting-only line
-    # until then has to be able to see it.
-    #
-    # Matched as an ARGV element, never as prose: the report legitimately tells a
-    # human "podman stop <container>", and a gate that cannot tell guidance from
-    # execution would force that guidance to be removed to stay green.
+)
+
+# ENDING A CONTAINER, which every pattern above misses. All of those key on
+# delivering a signal to a PID, and `["podman", "stop", cid]` delivers none — it
+# asks the engine to do it.
+#
+# These are the ONLY patterns containment.py is exempt from, because issuing a
+# graceful stop is that file's entire purpose. Every other file is held to them.
+#
+# Matched as an ARGV element, never as prose: the report legitimately tells a
+# human "podman stop <container>", and a gate that cannot tell guidance from
+# execution would force that guidance out of the report to stay green.
+LIFECYCLE_PATTERNS=(
     '["'"'"'](podman|docker)["'"'"'],[[:space:]]*["'"'"'](stop|kill|rm|pause|restart)["'"'"']'
     '[[:space:](]engine,[[:space:]]*["'"'"'](stop|kill|rm|pause|restart)["'"'"']'
 )
+
+FORBIDDEN_PATTERNS=("${SIGNAL_PATTERNS[@]}" "${LIFECYCLE_PATTERNS[@]}")
 
 # Collect target files. The JS extension dir is created by a sibling task and may
 # not exist yet — glob it without failing (nullglob), and gate whatever exists.
@@ -126,11 +143,19 @@ CONTAINMENT_FORBIDDEN=(
     '["'"'"']-f["'"'"']'
 )
 
-# containment.py is exempt from the lifecycle patterns and subject to these instead.
+# containment.py is exempt from LIFECYCLE_PATTERNS ONLY, and is additionally held
+# to CONTAINMENT_FORBIDDEN. It remains subject to every SIGNAL_PATTERN.
+#
+# An earlier revision skipped this file for the whole of FORBIDDEN_PATTERNS and
+# checked only the three patterns below. That switched off all eight signal
+# patterns for the ONE file allowed to run an engine command: `os.kill(pid,
+# signal.SIGKILL)` and `["pkill", "-f", name]` both passed the gate clean, while
+# four tracked files claimed the opposite. The exemption must be the narrowest
+# thing that lets the file do its job, not the file itself.
 assert_containment_stops_only() {
     local file="$1"
     local pat hit rc found=0
-    for pat in "${CONTAINMENT_FORBIDDEN[@]}"; do
+    for pat in "${SIGNAL_PATTERNS[@]}" "${CONTAINMENT_FORBIDDEN[@]}"; do
         rc=0
         # `--` terminates option parsing: one of these patterns is literally
         # `--force`, which grep would otherwise read as an unrecognised option and
@@ -274,6 +299,34 @@ PYEOF
         self_test_ok=0
     fi
 
+    # (g) A containment module that SIGNALS A PROCESS must be rejected.
+    #
+    # Fixture (f) proves nothing about this: `rm --force` matches two patterns in
+    # CONTAINMENT_FORBIDDEN, so it stayed green while every signal pattern was
+    # switched off for this file. This fixture is the one that would have caught
+    # that, and it uses the two shapes that actually slipped through.
+    local signalling_containment="$tmp/signalling_containment.py"
+    cat > "$signalling_containment" <<'PYEOF'
+import os
+import signal
+import subprocess
+
+
+def reap(pid, name):
+    os.kill(pid, signal.SIGKILL)
+    subprocess.run(["pkill", "-f", name], check=False)
+PYEOF
+
+    local sig_rc=0 sig_out
+    sig_out="$(assert_containment_stops_only "$signalling_containment" 2>&1)" || sig_rc=$?
+    if [[ $sig_rc -eq 1 ]]; then
+        echo "  self-test (g) PASS: signalling containment rejected"
+    else
+        echo "  self-test (g) FAIL: signalling containment NOT rejected (rc=$sig_rc)" >&2
+        echo "$sig_out" >&2
+        self_test_ok=0
+    fi
+
     rm -rf "$tmp"
 
     if [[ $self_test_ok -eq 1 ]]; then
@@ -321,14 +374,15 @@ main() {
     local offenders rc=0
     offenders="$(scan_targets "${targets[@]}")" || rc=$?
     if [[ $rc -eq 0 ]]; then
-        echo "✓ no-kill gate: ${#targets[@]} container-watch file(s) clean — reporting-only confirmed"
+        echo "✓ no-kill gate: ${#targets[@]} container-watch file(s) clean — no process-termination call site"
         return 0
     fi
 
     echo "✗ no-kill gate: executable process-termination call site(s) found in the watchdog:" >&2
     echo "$offenders" >&2
     echo >&2
-    echo "The container-watch watchdog is REPORTING-ONLY. Remove the termination call." >&2
+    echo "The watchdog must never signal a process, and only containment.py may ask" >&2
+    echo "an engine to stop a container. Remove the termination call." >&2
     echo "The word 'kill' is allowed ONLY inside guidance string literals (exec_hint)," >&2
     echo "not as an executable call site." >&2
     return 1
