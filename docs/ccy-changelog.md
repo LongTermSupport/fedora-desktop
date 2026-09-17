@@ -17,6 +17,27 @@ Two version numbers move independently — see
 
 ---
 
+## 3.58.0
+
+**Sessions get an auto-compact ceiling.** Claude Code reads
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW` to decide how large a session may grow before
+auto-compaction summarises it. Left unset it follows the model's own context window, so a
+long session accumulates context — and cost — well past the point where compacting would
+have been cheaper. CCY now sets it to `600k` tokens for every session it launches.
+
+The value is in tokens; the accepted grammar is `auto`, or `100k`..`1M`. Upstream's
+recommended value is `auto`, which defers to the model and therefore caps nothing, so this
+default is a deliberate override rather than an oversight — `600k` is a guard for the
+1M-context models this workflow runs. The effective threshold is `min(this value, the model's context window)`, and the environment variable beats the `autoCompactWindow`
+setting, which means the window can no longer be changed from `/config`.
+
+Both overrides still work, because the launcher uses the same `${VAR:-default}` idiom as its
+sibling variables: a host `export` before launch wins, and so does an `export` line in a
+project's tracked `.claude/ccy/ccy.env`, which the entrypoint sources after the launcher's
+environment is in place and before it `exec`s `claude`. The example in
+[ccy.md](ccy.md#claude-code-environment-ccy-sets) uses `export` for that reason — a bare
+assignment does not survive the `exec`.
+
 ## 3.57.0
 
 **The container can tell which machine it is running on.** A container's `HOSTNAME` is the

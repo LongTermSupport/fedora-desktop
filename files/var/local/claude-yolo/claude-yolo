@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.57.0"  # CCY_HOST_HOSTNAME carries the host machine's name into the container, which otherwise only sees its own container id. See docs/ccy-changelog.md.
+CCY_VERSION="3.58.0"  # CLAUDE_CODE_AUTO_COMPACT_WINDOW defaults to 600k, capping how large a session grows before auto-compaction; override per project in ccy.env. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -3118,6 +3118,19 @@ if ! CCY_HOST_HOSTNAME="$(ccy_host_hostname "$(uname -n)")"; then
     exit 1
 fi
 
+# --- the auto-compact window ------------------------------------------------
+#
+# CLAUDE_CODE_AUTO_COMPACT_WINDOW caps how large a session grows before Claude Code
+# summarises it. Upstream's recommended value is `auto`, which defers to the model's own
+# context window and so imposes no cap at all; CCY deliberately overrides it with a fixed
+# 600k-token ceiling, which is a guard for the 1M-context models this workflow runs. Do not
+# revert it back to `auto` as if it were an accident — it is a deliberate cost ceiling.
+#
+# The effective threshold is min(this value, the model's context window), and the variable
+# beats the autoCompactWindow setting, so the window can no longer be changed from /config.
+# The ${VAR:-default} form below preserves both overrides: a host export before launch, and
+# an `export` line in a project's .claude/ccy/ccy.env, which the entrypoint sources after
+# this environment is in place. See docs/ccy.md.
 container_cmd run $DOCKER_FLAGS --rm \
     --name "$CONTAINER_NAME" \
     --label ccy=true \
@@ -3145,6 +3158,7 @@ container_cmd run $DOCKER_FLAGS --rm \
     -e "CCY_CLAUDE_WRAPPER=${CCY_CLAUDE_WRAPPER:-}" \
     -e "CCY_NO_SUPERVISOR=${CCY_NO_SUPERVISOR:-}" \
     -e "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-1}" \
+    -e "CLAUDE_CODE_AUTO_COMPACT_WINDOW=${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-600k}" \
     -e "MAX_THINKING_TOKENS=${MAX_THINKING_TOKENS:-}" \
     -e "TERM=${TERM:-xterm}" \
     -e "COLORTERM=${COLORTERM:-truecolor}" \

@@ -552,11 +552,23 @@ sources that file after this environment is forwarded.
 | Variable                               | CCY default | Why                                                          |
 | -------------------------------------- | ----------- | ------------------------------------------------------------ |
 | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | `1`         | Enables the agent-teams features CCY sessions use            |
+| `CLAUDE_CODE_AUTO_COMPACT_WINDOW`      | `600k`      | Caps session size before auto-compaction; see below          |
 | `MAX_THINKING_TOKENS`                  | *(unset)*   | Forwarded only if you export it; CCY does not impose a value |
 | `TERM` / `COLORTERM`                   | inherited   | Falls back to `xterm` / `truecolor` if unset on the host     |
 | `FORCE_COLOR`                          | `1`         | Keeps colour output intact inside the container              |
 
 CCY deliberately sets **no** sub-agent fan-out limits — the section below explains why.
+
+#### `CLAUDE_CODE_AUTO_COMPACT_WINDOW` — the auto-compact ceiling
+
+The value is in tokens: `auto`, or `100k`..`1M` (`600k`, `600000` and `600` are the same
+figure). Upstream recommends `auto`, which defers to the model's own context window and so
+caps nothing; CCY's `600k` is a deliberate cost ceiling for the 1M-context models this
+workflow runs. Two consequences worth knowing: the effective threshold is
+`min(this value, the model's context window)`, and setting the environment variable beats
+the `autoCompactWindow` setting, so the window can no longer be changed from `/config`.
+
+Override it per project in [`ccy.env`](#2-ccyenv--per-project-environment).
 
 ### Sub-agent limits in long unattended sessions
 
@@ -637,6 +649,20 @@ Two properties matter:
 - **Host settings win.** The `${VAR:-default}` idiom means a value set on the host, or by
   `ccy --supervise`, overrides the project default; an empty value falls through to the
   project's.
+
+#### Overriding the auto-compact window
+
+A project that wants a different ceiling than CCY's `600k` default says so here:
+
+```bash
+# .claude/ccy/ccy.env
+export CLAUDE_CODE_AUTO_COMPACT_WINDOW=1M
+```
+
+The `export` is load-bearing. The entrypoint sources this file and then `exec`s `claude`, so
+a bare `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1M` sets a shell variable that never reaches the
+process that reads it. The project's value wins because the file is sourced after the
+launcher's forwarded environment is already in place.
 
 #### `CCY_CHILD_CLAUDE` — let a session spawn child `claude` processes
 

@@ -43,9 +43,9 @@ The load-bearing findings:
   `600k`, `600000` and `600` all equivalent. This plan specifies **`600k`**.
 - **The env var beats the `autoCompactWindow` setting.** Setting it means the
   window can no longer be changed from `/config`.
-- **The effective threshold is `min(setting, model context window)`** — so
-  `600k` is a 1M-context guard and is silently inert on a 200k-context model.
-  This must be documented, not implied away.
+- **The effective threshold is `min(setting, model context window)`**, which is
+  why `600k` is the right figure: it is a 1M-context guard, and 1M-context models
+  are what this project runs.
 - **Upstream recommends `auto`.** Overriding it is a deliberate, defensible
   choice, but it must be commented as such so it is not reverted as an error —
   and it raises a real design question for the daemon check, carried into
@@ -60,8 +60,8 @@ The load-bearing findings:
   it launches, using the same `${VAR:-default}` idiom as its sibling variables.
 - A project overrides that default with one `export` line in its tracked
   `.claude/ccy/ccy.env`, and that override demonstrably wins.
-- The override, the precedence order, and the `min(setting, model window)`
-  caveat are documented in `docs/ccy.md` alongside the variables already there.
+- The override and the precedence order are documented in `docs/ccy.md`
+  alongside the variables already there.
 - A correctly generated upstream issue asks the hooks daemon to warn when the
   window is unset or above the ceiling, with a per-project override — filed by
   the owner, from a `hooks-daemon issue-report` body.
@@ -102,37 +102,38 @@ The load-bearing findings:
 - [x] ✅ **Task 1.4**: Establish how the daemon would warn and which component
   owns it. **Done** — `optimal_config_checker` already audits sibling env vars,
   so the upstream ask is an added check, not a new handler.
-- [ ] ⬜ **Task 1.5**: **Owner decision.** Confirm `600k` is still wanted given
-  that it is inert below a 1M-context model, and that setting it disables the
-  `/config` control for the window. Both are consequences, not objections — this
-  is a confirmation, not a challenge to the figure.
+- [x] ✅ **Task 1.5**: **Owner decision — settled: `600k`.** The figure is the
+  operator's and is not up for relitigation. Losing the `/config` control for the
+  window is the accepted consequence of setting the variable at all.
 
 ### Phase 2: The CCY default
 
-- [ ] ⬜ **Task 2.1**: Add the forwarded default to the `container_cmd run`
+- [x] ✅ **Task 2.1**: Add the forwarded default to the `container_cmd run`
   argument list in `files/var/local/claude-yolo/claude-yolo`, immediately
   alongside the existing Claude Code environment flags, as
   `-e "CLAUDE_CODE_AUTO_COMPACT_WINDOW=${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-600k}"`.
   The `${VAR:-default}` form is what preserves host and project override.
-- [ ] ⬜ **Task 2.2**: Add a short comment at that line recording **why** the
+- [x] ✅ **Task 2.2**: Add a short comment at that line recording **why** the
   default overrides a value upstream calls recommended, and that `600k` is a
   1M-context guard. Without it, a later reader sees only an override of a
   recommended setting and reverts it. Keep it to the current state — no history.
-- [ ] ⬜ **Task 2.3**: **Mandatory version bump.** Increment `CCY_VERSION` in
+  The comment sits in a banner block immediately above `container_cmd run`, the
+  file's existing convention for such notes: a comment inside the backslash-
+  continued argument list is too fragile to keep.
+- [x] ✅ **Task 2.3**: **Mandatory version bump.** Increment `CCY_VERSION` in
   `claude-yolo` and update its one-line description. The script self-checks its
   version against a stored hash and will refuse to run if the bump is missed, so
   this is not a formality.
-- [ ] ⬜ **Task 2.4**: Add the matching entry to `docs/ccy-changelog.md`,
+- [x] ✅ **Task 2.4**: Add the matching entry to `docs/ccy-changelog.md`,
   required by the bump in Task 2.3.
-- [ ] ⬜ **Task 2.5**: Add a row for the variable to the **"Claude Code
+- [x] ✅ **Task 2.5**: Add a row for the variable to the **"Claude Code
   environment CCY sets"** table in `docs/ccy.md`. That section already states
   the precedence rule in prose, so the row inherits it.
-- [ ] ⬜ **Task 2.6**: Document the per-project override in `docs/ccy.md`'s
+- [x] ✅ **Task 2.6**: Document the per-project override in `docs/ccy.md`'s
   `ccy.env` section, with a worked example. The example **must** use `export`
   — a bare assignment does not survive the `exec` into `claude`, as the
-  entrypoint's own comment records. State the `min(setting, model window)`
-  caveat here too, so a project setting a large value is not misled.
-- [ ] ⬜ **Task 2.7**: Run `./scripts/qa-all.bash`. Required before any commit
+  entrypoint's own comment records.
+- [x] ✅ **Task 2.7**: Run `./scripts/qa-all.bash`. Required before any commit
   touching Bash.
 
 ### Phase 3: The upstream daemon issue
@@ -144,13 +145,13 @@ The load-bearing findings:
   plan folder** — Plan 00075 was closed precisely because its hand-drafted
   `upstream-report.md` could no longer be filed, and repeating that wastes the
   work twice.
-- [ ] ⬜ **Task 3.2**: **Owner decision**, settled before the body is generated
-  so the generated text reflects it. The brief asks the daemon to warn when the
-  window is unset or above `600k`, but `auto` is upstream's own recommended
-  value and would be caught by a literal "unset" reading. Decide: does `auto`
-  pass? Is the ceiling per-project configurable, defaulting to `600k`? Is the
-  check skipped where the model window makes the setting inert? The issue should
-  carry these as questions, not as an asserted design.
+- [x] ✅ **Task 3.2**: **Owner decision — settled**, so the generated body states
+  it rather than asking. The daemon warns when the window is unset, when it is
+  `auto`, or when it exceeds the ceiling; the ceiling is per-project configurable
+  in the daemon config and defaults to `600k`. `auto` warns because it defers to
+  the model rather than capping — the whole point of the check. No exemption for
+  a model whose own window is smaller: the setting is a ceiling, and a ceiling
+  that never binds is still correctly set.
 - [ ] ⬜ **Task 3.3**: Ensure the generated body asks for the check to be added
   to the existing `optimal_config_checker`, which already audits sibling Claude
   Code environment variables, rather than for a new handler — a smaller and more
@@ -193,8 +194,8 @@ The load-bearing findings:
 - [ ] A project setting the variable with `export` in its tracked
   `.claude/ccy/ccy.env` gets its own value, not `600k`.
 - [ ] A host export before launch also overrides the CCY default.
-- [ ] `CCY_VERSION` is bumped and `docs/ccy-changelog.md` carries the entry.
-- [ ] `docs/ccy.md` documents the variable, the override with a correct
+- [x] `CCY_VERSION` is bumped and `docs/ccy-changelog.md` carries the entry.
+- [x] `docs/ccy.md` documents the variable, the override with a correct
   `export` example, and the `min(setting, model window)` caveat.
 - [ ] `./scripts/qa-all.bash` passes.
 - [ ] The `qa-reviewer` agent reports no findings.
