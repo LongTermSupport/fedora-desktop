@@ -458,6 +458,14 @@ else
         # not be ftp-camera's. Reported rather than judged, with both numbers, because
         # silently accepting a disagreement is how the addresses diverged in the first place.
         note "ftp-camera resolved $client_addr; check [0] probes $RC_ADDR (different mounts, or one of them is wrong)"
+        # CORRECT THE COVERAGE CLAIM. Check [0] printed "checks 1, 6 and 6b speak for that
+        # mount alone" before it could know which mount [6] would use — and here it used a
+        # different one. Left uncorrected, the verdict asserts a scope wider than the
+        # evidence in one direction and narrower in the other, which is exactly the
+        # read-clean-whether-or-not-it-looked defect this gate was rebuilt to remove.
+        note "  COVERAGE CORRECTION: check [6] speaks for $client_addr, not $RC_ADDR."
+        note "  Check [1] proved auth is ENFORCED only at $RC_ADDR — nothing here shows"
+        note "  ftp-camera's own mount rejects unauthenticated calls."
         ok "ftp-camera's copy preflight authenticated at its own mount's $client_addr"
     else
         ok "ftp-camera's copy preflight authenticated at $client_addr"

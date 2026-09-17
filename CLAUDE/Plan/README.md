@@ -152,7 +152,7 @@ Use these Unicode icons in plan documents:
 
 - [00098-encrypted-claude-transcripts-at-rest](00098-encrypted-claude-transcripts-at-rest/) - Claude Code writes plaintext transcripts at well-known paths — inside the repo working tree for CCY. Research inverted the design: blast-radius reduction first (permissions, retention, backup exclusion), live-state encryption gated on evidence that did not arrive.
 
-- [00099-rclone-rc-auth-broke-unmigrated-clients](00099-rclone-rc-auth-broke-unmigrated-clients/) - Plan 00094 authenticated the rclone RC on a false premise, so three unmigrated clients got HTTP 401 and reported it as a dead mount for a week. One sourced credential library, every client migrated, plus the new `qa-deployed-drift.bash` gate. Awaiting a host re-deploy — the closing review changed deployed files, so the last host run no longer describes this build.
+- [00099-rclone-rc-auth-broke-unmigrated-clients](00099-rclone-rc-auth-broke-unmigrated-clients/) - Plan 00094 authenticated the rclone RC on a false premise, so three unmigrated clients got HTTP 401 and reported it as a dead mount for a week. One sourced credential library, every client migrated, plus the new `qa-deployed-drift.bash` gate. Re-deployed and ACCEPTED on the host, `COVERAGE: 9 of 9`, 0 failed.
 
 - [00129-semgrep-per-rule-coverage-is-invisible](00129-semgrep-per-rule-coverage-is-invisible/) - The pattern gate's `N files OK` is the union of every rule's target set and reads as per-rule coverage; one rule is blind to 67 of 157 files. Carried out of Plan 00076, which met all twelve of its own criteria without it. One owner decision left: ~4.9× scan time for measured numbers, or model the globs in-gate.
 

@@ -251,14 +251,15 @@ Found while working, deliberately not addressed here:
   guard**, which false-positives on any process merely mentioning the name. Not
   edited — that plan is closed and its script will not run again. This plan's
   copy anchors the pattern.
-- **Two deployed scripts this plan does not own are drifted on the host.** The
-  host acceptance run's check [7] rejected on `2 of 74`: `lxcfreeze` and
-  `files/home/.local/lib/freeze/freeze-common.bash`, owned by `play-lxcfreeze.yml`
-  and `play-podfreeze.yml`. Neither is one of this plan's five files. The gate is
-  whole-host by design, so it rejects for any repo/host disagreement; clearing it
-  means running those two plays. Recorded here rather than as a task because it is
-  a box that is never to be ticked by this plan — it is another plan's work, and a
-  permanently unticked task reads as this plan being incomplete.
+- **Two deployed scripts this plan does not own WERE drifted on the host, and no
+  longer are.** An earlier acceptance run's check [7] rejected on `2 of 74`:
+  `lxcfreeze` and `files/home/.local/lib/freeze/freeze-common.bash`, owned by
+  `play-lxcfreeze.yml` and `play-podfreeze.yml`. Neither is one of this plan's five
+  files. The 2026-09-17 host run's check [7] passed with zero drift, so whatever ran
+  those plays in the meantime cleared it. Kept as a record because this bullet was
+  the stated reason a success criterion could not be ticked, and deleting it would
+  leave that history unexplained. The gate remains whole-host by design, so it will
+  reject again for any repo/host disagreement — including one this plan did not cause.
 
 ## Risks & Mitigations
 
