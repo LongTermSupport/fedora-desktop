@@ -16,6 +16,11 @@
     hifiRsVersion: "latest"
     hifiRsPath: "/home/{{ user_login }}/.local/bin/hifi-rs"
 
+    # Anchored MPRIS-identity regexes for players that scrobble themselves, so
+    # rescrobbled does not submit their tracks a second time. See the Configure
+    # Rescrobbled task for the anchoring rules before adding an entry.
+    rescrobbledPlayerIgnorelist: []
+
     # Rescrobbled configuration for Last.fm scrobbling
     # Check https://github.com/InputUsername/rescrobbled/releases for updates
     rescrobbledVersion: 0.10.0
@@ -202,15 +207,30 @@
     # Contains the Last.fm API key + secret in plaintext, so lock it to 0600 and
     # suppress logging/diff so `--diff` runs never print the credentials.
     #
-    # No player-ignorelist: hifi-rs is now the only Qobuz player this play
-    # installs, it has no scrobbler of its own, and rescrobbled is the only
-    # thing that scrobbles it. The ignorelist previously here existed solely to
-    # stop QBZ being double-scrobbled, and QBZ is gone.
+    # rescrobbled scrobbles whatever publishes MPRIS. hifi-rs, the only player
+    # this play installs, has no scrobbler of its own and must be scrobbled.
+    # A player that scrobbles itself must be listed in
+    # rescrobbledPlayerIgnorelist or every one of its tracks is submitted twice
+    # — both submissions fire on Last.fm's half-duration / 4-minute rule, so the
+    # duplicates land seconds apart with no error anywhere to notice.
+    #
+    # Entries are anchored regexes matched against the player's MPRIS identity.
+    # rescrobbled tests them against identity, bus name and instance-stripped
+    # bus name (player.rs regex_set_contains) and RegexSet matching is
+    # unanchored, so anchor each entry (^Name$) or it will match other players
+    # by substring — including hifi-rs, which must never be ignored. Confirm an
+    # identity with `journalctl --user -u rescrobbled`, which prints it verbatim.
+    #
+    # Empty here by design: no play in this repo installs a self-scrobbling
+    # player. Hosts that install one elsewhere set this in their own host_vars.
     - name: Configure Rescrobbled
       ansible.builtin.copy:
         content: |
           lastfm-key = "{{ lastfm_api_key }}"
           lastfm-secret = "{{ lastfm_api_secret }}"
+          {% if rescrobbledPlayerIgnorelist | length > 0 %}
+          player-ignorelist = {{ rescrobbledPlayerIgnorelist | to_json }}
+          {% endif %}
         dest: /home/{{ user_login }}/.config/rescrobbled/config.toml
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
