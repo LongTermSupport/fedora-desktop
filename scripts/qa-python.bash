@@ -57,7 +57,40 @@ if [[ "$RUFF_ACTUAL" != "$RUFF_EXPECTED" ]]; then
     echo "  The enforced ruleset is ruff's DEFAULT set, so a different version is a" >&2
     echo "  different gate. Either match the pin, or bump .ruff-version deliberately" >&2
     echo "  and triage what the new defaults add (then rebuild the ccy image)." >&2
-    exit 2
+
+    # FAIL this gate, do not ABORT the suite. A wrong version is not a missing
+    # tool: exit 2 means "cannot run, refuse to report", and qa-all turns it into
+    # a whole-run abort at stage 2 of ~45 — so a ruff that is merely one patch
+    # release ahead took 44 unrelated gates offline. That is the precise failure
+    # qa-all.bash's own "EVERY GATE RUNS" comment records as already fixed once.
+    #
+    # ruff is deliberately NOT invoked below: its findings would come from a gate
+    # this repo has not agreed to, and chasing them is what QA.md forbids.
+    #
+    # The JSON is still written, and that is load-bearing rather than tidiness.
+    # qa-all merges the seven stage files with `jq -s`, which CONCATENATES
+    # slurped documents and addresses them positionally as .[0]..[6]. An absent
+    # or empty file here contributes no element, so every later stage shifts down
+    # one slot and the report silently relabels patterns as python, ansible as
+    # patterns, and so on. A failing stage must still produce exactly one
+    # document.
+    jq -n --arg expected "$RUFF_EXPECTED" --arg actual "$RUFF_ACTUAL" \
+        '{
+            "type": "python",
+            "status": "fail",
+            "summary": {"total": 0, "passed": 0, "failed": 1},
+            "results": [],
+            "failures": [{
+                "file": ".ruff-version",
+                "type": "python",
+                "status": "fail",
+                "error": ("ruff version mismatch: expected " + $expected + ", found " + $actual
+                          + " — ruff was not run, so no python file was linted this run")
+            }],
+            "ruff_diagnostics": []
+        }' > "$JSON_OUT"
+    echo "✗ python: ruff version mismatch → $JSON_OUT (no files linted)"
+    exit 1
 fi
 
 # Discover files — via the SHARED discovery library, the same one the bash gates

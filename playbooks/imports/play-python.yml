@@ -11,13 +11,15 @@
     # old static list go stale on every CPython point release and fail with
     # "definition not found"; deriving everything from pyenv self-heals that.
     pyenv_minor_count: 4
+    # The SAME file .claude/ccy/Dockerfile and .github/workflows/qa.yml read, so
+    # host, container and CI run one ruff version rather than three.
+    ruff_version: "{{ lookup('ansible.builtin.file', root_dir ~ '/.ruff-version') | trim }}"
   tasks:
     - name: Ensure pipx Installed, Pyenv dependencies, and dependencies required by various python packages
       become: true
       ansible.builtin.dnf:
         name:
           - pipx
-          - ruff
           - uv
           - make
           - cmake
@@ -45,6 +47,47 @@
           - portmidi-devel
           - portaudio-devel
           - python3-devel
+
+    # Ruff is pinned, unlike every other tool here, because scripts/qa-python.bash
+    # ASSERTS the version: the gate's verdict changes with the binary, so a host
+    # running a different ruff is running a different gate.
+    #
+    # It comes from pipx rather than dnf specifically so it CAN be pinned. Fedora's
+    # package tracks whatever Fedora ships and moved to 0.16.6 against a 0.16.4 pin,
+    # which turned the python gate red on the host while the container stayed green.
+    # The dnf package is removed rather than left alongside, so /usr/bin/ruff cannot
+    # shadow the pinned one depending on PATH order.
+    - name: Remove Fedora's unpinned ruff package
+      become: true
+      ansible.builtin.dnf:
+        name: ruff
+        state: absent
+
+    # Probed rather than reinstalled unconditionally: community.general.pipx treats
+    # an already-present app as satisfied regardless of its version, so a pin change
+    # would otherwise never be applied — and `force: true` alone would reinstall on
+    # every run and report changed for ever.
+    - name: Check the installed ruff version
+      ansible.builtin.command:
+        cmd: ruff --version
+      register: ruff_installed
+      changed_when: false
+      failed_when: false # FAIL-FAST-OK: probe — absence is the normal first-run state
+
+    - name: Install ruff at the pinned version
+      community.general.pipx:
+        name: ruff
+        source: "ruff=={{ ruff_version }}"
+        state: install
+        force: true
+      when: ruff_installed.rc != 0 or ruff_version not in ruff_installed.stdout
+
+    - name: Verify ruff now matches the pin
+      ansible.builtin.command:
+        cmd: ruff --version
+      register: ruff_verify
+      changed_when: false
+      failed_when: ruff_version not in ruff_verify.stdout
 
     - name: Install PDM
       community.general.pipx:
