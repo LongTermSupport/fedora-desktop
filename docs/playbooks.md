@@ -1143,12 +1143,7 @@ Photography tools:
 Qobuz apps — gapless HD audio streaming from Qobuz:
 
 - **hifi-rs**: Rust-based Qobuz CLI player
-- **QBZ**: Native full-featured hi-fi Qobuz **GUI** player (Rust/Slint, no
-  webview), installed as a Flatpak from Flathub (`com.blitzfc.qbz`). Launches
-  from the app grid. Bit-perfect DAC passthrough / exclusive mode works — the
-  Flatpak manifest grants `--device=all`, `--socket=pulseaudio`, and PipeWire
-  access.
-- **rescrobbled**: Last.fm scrobbling systemd service, for hifi-rs only
+- **rescrobbled**: Last.fm scrobbling systemd service, for hifi-rs
 
 **Shell functions**:
 
@@ -1161,11 +1156,10 @@ qobuz_status          # Show hifi-rs status
 **Features**:
 
 - High-resolution audio streaming (up to 24-bit/192kHz)
-- Last.fm scrobbling, split by player: QBZ scrobbles itself, while rescrobbled
-  covers hifi-rs, which has no scrobbler of its own. rescrobbled is configured
-  to ignore QBZ (`player-ignorelist`) — without that it also scrobbles QBZ over
-  MPRIS and every QBZ track is submitted twice. If scrobbles go missing or
-  double up, check which of the two owns the player before changing anything.
+- Last.fm scrobbling via rescrobbled, which covers hifi-rs — hifi-rs has no
+  scrobbler of its own. rescrobbled carries no `player-ignorelist`: it did
+  once, to stop the QBZ GUI player being scrobbled twice, but QBZ was
+  withdrawn upstream and no longer ships from this repo.
 
 #### play-rclone.yml
 

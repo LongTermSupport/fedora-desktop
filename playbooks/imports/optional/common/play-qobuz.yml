@@ -1,7 +1,7 @@
 #!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
 ---
 - hosts: desktop
-  name: Qobuz Apps - Native GUI Player, CLI Player and Last.fm Scrobbling
+  name: Qobuz Apps - CLI Player and Last.fm Scrobbling
   # The rescrobbled config is written well before the handler that restarts the
   # unit, and the manual-setup block in between can abort the play. Without
   # force_handlers that notification is lost for good: the next run sees an
@@ -77,80 +77,6 @@
             == ('HIFIRS_UNCHANGED' in hifirs_install.stdout))
       tags:
         - hifi-rs
-
-    # QBZ (https://qbz.lol, github.com/vicrodh/qbz) — a native, full-featured
-    # hi-fi Qobuz *GUI* player (Rust + Slint, no webview). Unlike hifi-rs
-    # (a headless CLI binary dropped into ~/.local/bin above), QBZ
-    # is a desktop application, so it is installed as a Flatpak from Flathub
-    # rather than as a raw release binary:
-    #   - Flathub (com.blitzfc.qbz) gives desktop integration (.desktop + icon),
-    #     sandboxing, and automatic updates — no version-pinning maintenance like
-    #     the hifi-rs tarball task carries.
-    #   - Bit-perfect DAC passthrough / exclusive mode still works: the Flathub
-    #     manifest grants --device=all (exposes /dev/snd), --socket=pulseaudio,
-    #     and read-only PipeWire access, so the sandbox does not block real
-    #     high-resolution output.
-    # The QBZ GUI player (Flatpak) is desktop-only; the hifi-rs CLI player and
-    # the rescrobbled Last.fm scrobbler below stay available headless. These
-    # four qbz-tagged tasks are gated off on a server (Plan 00061 mixed play).
-    - name: Enable Flathub remote
-      become: true
-      community.general.flatpak_remote:
-        name: flathub
-        flatpakrepo_url: https://flathub.org/repo/flathub.flatpakrepo
-        state: present
-      when: provisioning_profile != 'server'
-      tags:
-        - qbz
-
-    - name: Install QBZ (native Qobuz GUI player) from Flathub
-      become: true
-      community.general.flatpak:
-        name: com.blitzfc.qbz
-        remote: flathub
-        state: present
-      when: provisioning_profile != 'server'
-      tags:
-        - qbz
-
-    # Persist two launch fixes as a Flatpak override so they apply to EVERY launch
-    # (GNOME app-grid .desktop as well as `flatpak run`), not just the CLI:
-    #   1. QBZ_RENDERER=gl — QBZ's default wgpu/Vulkan renderer times out acquiring
-    #      a surface frame on hybrid-GPU laptops (Intel Arc iGPU + NVIDIA dGPU),
-    #      crashing on load with "timeout ... acquire the next frame". The GL
-    #      (femtovg/OpenGL) renderer is a different path that starts reliably.
-    #   2. --talk-name=org.freedesktop.secrets — the Flathub manifest omits Secret
-    #      Service access, so QBZ can't reach gnome-keyring and its error path
-    #      panics a zbus thread ("no reactor running"). Granting it removes both
-    #      the warning and the panic and lets QBZ use the real keyring.
-    # community.general has no flatpak-override module, so drive the CLI, guarded
-    # to stay idempotent (only apply when the override is not already set).
-    - name: Read current QBZ Flatpak overrides
-      become: true
-      ansible.builtin.command:
-        cmd: flatpak override --show com.blitzfc.qbz
-      register: qbz_flatpak_override
-      changed_when: false
-      when: provisioning_profile != 'server'
-      tags:
-        - qbz
-
-    - name: Force QBZ GL renderer and grant keyring access (persist for app-grid launches)
-      become: true
-      ansible.builtin.command:
-        cmd: flatpak override --env=QBZ_RENDERER=gl --talk-name=org.freedesktop.secrets com.blitzfc.qbz
-      # Profile gate first so the qbz_flatpak_override.stdout reference below is
-      # never evaluated on a server (the Read task above is skipped there).
-      when:
-        - provisioning_profile != 'server'
-        - >-
-          'QBZ_RENDERER=gl' not in qbz_flatpak_override.stdout
-          or 'org.freedesktop.secrets' not in qbz_flatpak_override.stdout
-      # The when: guard above already means this only runs when an override is
-      # missing, so reaching the command is itself the change.
-      changed_when: true
-      tags:
-        - qbz
 
     - name: Install Recsrobbled
       ansible.builtin.shell: |
@@ -276,30 +202,15 @@
     # Contains the Last.fm API key + secret in plaintext, so lock it to 0600 and
     # suppress logging/diff so `--diff` runs never print the credentials.
     #
-    # player-ignorelist exists because this play installs TWO Qobuz players with
-    # different scrobbling needs. hifi-rs is a headless CLI binary with no
-    # scrobbler of its own — rescrobbled is the only thing that scrobbles it, and
-    # it must keep doing so. QBZ scrobbles to Last.fm itself, and also publishes
-    # MPRIS; with no ignorelist rescrobbled picks QBZ up too and every QBZ track
-    # is submitted twice. Both fire at the same point (Last.fm's half-duration /
-    # 4-minute rule), so the duplicates land seconds apart.
-    #
-    # "^QBZ$" is anchored against QBZ's MPRIS identity string. rescrobbled tests
-    # the ignorelist against identity, bus name, and instance-stripped bus name
-    # (player.rs regex_set_contains), and RegexSet matching is unanchored, so the
-    # anchors keep this from matching any other player's name by substring.
-    #
-    # The identity is upstream-controlled: if a QBZ release renames it, this stops
-    # matching and the double-scrobbling returns with no error anywhere. Do NOT
-    # widen the pattern — it would start swallowing hifi-rs. Confirm the current
-    # identity in `journalctl --user -u rescrobbled`, which prints it verbatim as
-    # "Player <identity> stopped, looking for a new MPRIS player...".
+    # No player-ignorelist: hifi-rs is now the only Qobuz player this play
+    # installs, it has no scrobbler of its own, and rescrobbled is the only
+    # thing that scrobbles it. The ignorelist previously here existed solely to
+    # stop QBZ being double-scrobbled, and QBZ is gone.
     - name: Configure Rescrobbled
       ansible.builtin.copy:
         content: |
           lastfm-key = "{{ lastfm_api_key }}"
           lastfm-secret = "{{ lastfm_api_secret }}"
-          player-ignorelist = [ "^QBZ$" ]
         dest: /home/{{ user_login }}/.config/rescrobbled/config.toml
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
@@ -409,7 +320,6 @@
         msg: |
           ✓ Rescrobbled successfully installed and running!
           ✓ hifi-rs playback will be scrobbled to Last.fm by rescrobbled
-          ✓ QBZ is ignored by rescrobbled — QBZ scrobbles itself
 
           To check status: systemctl --user status rescrobbled
           To view logs: journalctl --user -u rescrobbled -f
@@ -520,15 +430,12 @@
           - ============================================
           - ""
           - ✓ hifi-rs {{ hifiRsVersionFinal }} installed (CLI player)
-          - ✓ QBZ (native GUI player) installed via Flathub (com.blitzfc.qbz)
           - ✓ rescrobbled {{ rescrobbledVersion }} installed and running
           - ""
           - "Usage:"
           - play <qobuz_url>     - Play a Qobuz URL with hifi-rs
           - hplay <qobuz_url>    - Alias for play
           - qobuz_status         - Show hifi-rs status
-          - ""
-          - "QBZ (GUI player) launches from the app grid, or: flatpak run com.blitzfc.qbz"
 
   handlers:
     # rescrobbled reads config.toml once at startup, and the "Start and Enable"

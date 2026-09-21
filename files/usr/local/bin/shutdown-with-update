@@ -19,7 +19,7 @@ if ! dnf -y upgrade; then
     exit 1
 fi
 
-# Flatpak apps (Slack, QBZ, videography tools) are installed system-wide by the
+# Flatpak apps (Slack, videography tools) are installed system-wide by the
 # playbooks (become: true) and are NOT covered by dnf, so update them explicitly.
 # Update failures are non-fatal here: this runs right before poweroff, and a
 # flaky mirror must never leave the machine unable to shut down.
