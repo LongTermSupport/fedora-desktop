@@ -1158,9 +1158,10 @@ qobuz_status          # Show hifi-rs status
 - High-resolution audio streaming (up to 24-bit/192kHz)
 - Last.fm scrobbling via rescrobbled, which covers hifi-rs — hifi-rs has no
   scrobbler of its own
-- `rescrobbledPlayerIgnorelist` (default empty) lists anchored MPRIS identities
-  of players that scrobble themselves. Set it in host_vars if such a player is
-  installed on the machine, or its tracks are submitted twice
+- rescrobbled's `player-ignorelist` holds anchored MPRIS identities of players
+  that scrobble themselves, so their tracks are not submitted twice. It lists
+  QBZ, which this repo does not install: the entry is inert unless a machine
+  has QBZ from elsewhere, and prevents silent duplicate scrobbles when it does
 
 #### play-rclone.yml
 

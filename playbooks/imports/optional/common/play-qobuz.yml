@@ -17,10 +17,6 @@
     hifiRsPath: "/home/{{ user_login }}/.local/bin/hifi-rs"
 
     # Anchored MPRIS-identity regexes for players that scrobble themselves, so
-    # rescrobbled does not submit their tracks a second time. See the Configure
-    # Rescrobbled task for the anchoring rules before adding an entry.
-    rescrobbledPlayerIgnorelist: []
-
     # Rescrobbled configuration for Last.fm scrobbling
     # Check https://github.com/InputUsername/rescrobbled/releases for updates
     rescrobbledVersion: 0.10.0
@@ -208,29 +204,32 @@
     # suppress logging/diff so `--diff` runs never print the credentials.
     #
     # rescrobbled scrobbles whatever publishes MPRIS. hifi-rs, the only player
-    # this play installs, has no scrobbler of its own and must be scrobbled.
-    # A player that scrobbles itself must be listed in
-    # rescrobbledPlayerIgnorelist or every one of its tracks is submitted twice
-    # — both submissions fire on Last.fm's half-duration / 4-minute rule, so the
-    # duplicates land seconds apart with no error anywhere to notice.
+    # this play installs, has no scrobbler of its own, so rescrobbled must keep
+    # scrobbling it. A player that scrobbles itself has to be ignored here or
+    # every one of its tracks is submitted twice — both submissions fire on
+    # Last.fm's half-duration / 4-minute rule, so the duplicates land seconds
+    # apart with nothing anywhere reporting a problem.
     #
-    # Entries are anchored regexes matched against the player's MPRIS identity.
-    # rescrobbled tests them against identity, bus name and instance-stripped
-    # bus name (player.rs regex_set_contains) and RegexSet matching is
-    # unanchored, so anchor each entry (^Name$) or it will match other players
-    # by substring — including hifi-rs, which must never be ignored. Confirm an
-    # identity with `journalctl --user -u rescrobbled`, which prints it verbatim.
+    # "^QBZ$" stays even though this repo no longer installs QBZ. The entry is
+    # a defensive guard, not a declaration of ownership: QBZ was withdrawn
+    # upstream, but removing it from this repo does not remove it from a
+    # machine that already had it, and it still publishes MPRIS and still
+    # scrobbles itself. Keeping the entry costs one regex evaluation per
+    # discovered player when QBZ is absent (is_ignorelisted only ever tests
+    # players that exist), and prevents silent double-scrobbling when it is
+    # present. Deleting it is fail-open; keeping it is fail-safe.
     #
-    # Empty here by design: no play in this repo installs a self-scrobbling
-    # player. Hosts that install one elsewhere set this in their own host_vars.
+    # Entries are matched unanchored against identity, bus name and
+    # instance-stripped bus name (player.rs regex_set_contains), so anchor
+    # every entry (^Name$). Do NOT widen this one: a loose pattern would start
+    # swallowing hifi-rs, which must never be ignored. Confirm an identity with
+    # `journalctl --user -u rescrobbled`, which prints it verbatim.
     - name: Configure Rescrobbled
       ansible.builtin.copy:
         content: |
           lastfm-key = "{{ lastfm_api_key }}"
           lastfm-secret = "{{ lastfm_api_secret }}"
-          {% if rescrobbledPlayerIgnorelist | length > 0 %}
-          player-ignorelist = {{ rescrobbledPlayerIgnorelist | to_json }}
-          {% endif %}
+          player-ignorelist = [ "^QBZ$" ]
         dest: /home/{{ user_login }}/.config/rescrobbled/config.toml
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
