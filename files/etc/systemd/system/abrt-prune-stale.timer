@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily prune of stale ABRT problem records
+
+[Timer]
+OnCalendar=daily
+# A laptop that was off at the scheduled time catches up at the next boot.
+Persistent=true
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target

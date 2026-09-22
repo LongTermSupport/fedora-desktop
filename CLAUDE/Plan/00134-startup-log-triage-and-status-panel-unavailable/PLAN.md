@@ -79,10 +79,13 @@ containers that needs its own diagnosis (F7).
 - [ ] ⬜ **Task 2.4**: `play-toolbox-install.yml` — ensure
   `~/.config/autostart/jetbrains-toolbox.desktop` is mode 0644 whenever it exists (the
   application rewrites it, so this must run every pass, not be `creates:`-guarded).
-- [ ] ⬜ **Task 2.5**: ABRT policy as IaC — decide and encode: retention
-  (`MaxCrashReportsSize` / age pruning), whether `abrt-applet` notifies for
-  non-desktop executables, and whether the 64-record backlog is reported or dropped.
-  Owner decision needed on reporting; the retention part is not controversial.
+- [ ] 🔄 **Task 2.5**: ABRT policy as IaC — `play-basic-configs.yml` sets
+  `abrt_auto_reporting` (project default on; per-host override) via
+  `abrt-auto-reporting`, and installs `abrt-prune-stale.{service,timer}` running
+  `files/usr/local/bin/abrt-prune-stale.bash` daily with `abrt_retention_days`
+  (default 30). Owner chose: reporting off on their host, 7-day retention — both set
+  in `host_vars`, not in the repo. Remaining: deploy, then confirm no applet backlog
+  notification at the next login.
 - [ ] ⬜ **Task 2.6**: Thunar — confirm no play installs it, then either own it in a play
   or remove it; the duplicate `org.freedesktop.FileManager1` service file goes with it.
 

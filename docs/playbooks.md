@@ -112,6 +112,9 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
 - Installs YQ binary
 - Optimizes DNF with parallel downloads
 - Configures hardware settings
+- Sets the ABRT crash-reporting policy (`abrt_auto_reporting`) and installs a daily
+  timer that removes problem records older than `abrt_retention_days` — see
+  [configuration.md](configuration.md#crash-reporting-abrt)
 
 ### play-prevent-ssh-suspend.yml
 

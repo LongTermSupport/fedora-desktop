@@ -442,3 +442,76 @@
       # as the USB-audio task above). Bare-metal servers wanting firmware updates can
       # revisit this behind an explicit opt-in probe.
       when: provisioning_profile != 'server'
+
+    # ABRT crash handling policy (Plan 00134). Two decisions, both stated here rather
+    # than left to Fedora's defaults:
+    #   abrt_auto_reporting  — send anonymous µReports for packaged crashes (default on;
+    #                          a host that never wants anything sent sets it false in
+    #                          host_vars). abrt-auto-reporting edits abrt.conf itself
+    #                          and takes effect without a restart.
+    #   abrt_retention_days  — records older than this are removed daily. Unreported
+    #                          records (unpackaged or third-party-repo binaries can
+    #                          never be reported) otherwise accumulate for ever, and
+    #                          abrt-applet re-announces every one at each login.
+    - name: Probe ABRT auto-reporting state
+      ansible.builtin.command: abrt-auto-reporting
+      register: abrt_auto_reporting_probe
+      changed_when: false
+      tags: abrt
+
+    - name: Set ABRT auto-reporting per abrt_auto_reporting
+      ansible.builtin.command:
+        argv:
+          - abrt-auto-reporting
+          - "{{ 'enabled' if (abrt_auto_reporting | default(true) | bool) else 'disabled' }}"
+      when: >-
+        abrt_auto_reporting_probe.stdout | trim
+        != ('enabled' if (abrt_auto_reporting | default(true) | bool) else 'disabled')
+      tags: abrt
+
+    - name: Deploy ABRT stale-record prune script
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/usr/local/bin/abrt-prune-stale.bash"
+        dest: /usr/local/bin/abrt-prune-stale.bash
+        owner: root
+        group: root
+        mode: "0755"
+      tags: abrt
+
+    - name: Deploy ABRT prune service unit
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/etc/systemd/system/abrt-prune-stale.service.j2"
+        dest: /etc/systemd/system/abrt-prune-stale.service
+        owner: root
+        group: root
+        mode: "0644"
+      vars:
+        abrt_prune_days: "{{ abrt_retention_days | default(30) }}"
+      tags: abrt
+
+    - name: Deploy ABRT prune timer unit
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/etc/systemd/system/abrt-prune-stale.timer"
+        dest: /etc/systemd/system/abrt-prune-stale.timer
+        owner: root
+        group: root
+        mode: "0644"
+      tags: abrt
+
+    - name: Enable and start the ABRT prune timer
+      ansible.builtin.systemd:
+        name: abrt-prune-stale.timer
+        enabled: true
+        state: started
+        daemon_reload: true
+      tags: abrt
+
+    # Run the prune now so a backlog is cleared on this pass, not at the next tick.
+    - name: Prune stale ABRT records now
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/abrt-prune-stale.bash
+          - "{{ abrt_retention_days | default(30) }}"
+      register: abrt_prune_result
+      changed_when: "'ABRT-PRUNE-CHANGED' in abrt_prune_result.stdout"
+      tags: abrt

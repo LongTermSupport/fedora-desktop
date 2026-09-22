@@ -162,6 +162,20 @@ See the full guide for the complete workflow, commands, and troubleshooting:
 - Disable the Caps Lock key (via xkb-options)
 - Disable middle-click closing tabs in the Ptyxis terminal
 
+### Crash Reporting (ABRT)
+
+`play-basic-configs.yml` sets the ABRT policy instead of leaving Fedora's defaults.
+Override either value in `host_vars/localhost.yml`:
+
+```yaml
+abrt_auto_reporting: false   # default true — send anonymous µReports for packaged crashes
+abrt_retention_days: 7       # default 30 — a daily timer removes older problem records
+```
+
+Auto-reporting only covers crashes in signed Fedora packages; records from unpackaged
+or third-party-repo binaries can never be reported, which is why the retention timer
+exists — without it they accumulate and `abrt-applet` re-announces them at every login.
+
 ## Optional Features Configuration
 
 These require running their playbook explicitly.

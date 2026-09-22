@@ -1,0 +1,15 @@
+{{ ansible_managed | comment }}
+[Unit]
+Description=Remove ABRT problem records older than {{ abrt_prune_days }} day(s)
+Documentation=file:///usr/local/bin/abrt-prune-stale.bash
+After=abrtd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/abrt-prune-stale.bash {{ abrt_prune_days }}
+# Stated, not inherited: systemd disables the start timeout for Type=oneshot, and a
+# hung abrt-cli would otherwise leave the unit activating for ever.
+TimeoutStartSec=300
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=abrt-prune-stale
