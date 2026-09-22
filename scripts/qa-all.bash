@@ -436,6 +436,21 @@ fi
 host_hostname_summary=$(qa_gate_case_count "$host_hostname_out")
 qa_pass_line ccy-host-hostname "$host_hostname_summary"
 
+# The ccy-sessions network column: a tmux session and a container know nothing about each
+# other, so the picker joins them through the process tree. Get the walk wrong and a row
+# labels a session with ANOTHER session's network — worse than showing nothing, because a
+# reader would act on it. Driven across both engines, `--name` in both spellings, podman's
+# re-exec, a non-engine process carrying `--name`, a container outside every session tree,
+# and both engines' renderings of an empty network list.
+session_network_out=""
+if ! session_network_out="$(bash "$SCRIPT_DIR/test-ccy-session-network.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-session-network \
+        "ccy session-network unit tests failed" \
+        "$session_network_out"
+fi
+session_network_summary=$(qa_gate_case_count "$session_network_out")
+qa_pass_line ccy-session-network "$session_network_summary"
+
 # host_only_preflight (Plan 00121): the host-CLI gate on a scenario that puts a real GitHub
 # PAT into a guest. One of three independent gates — the other two are the bridge allowlist
 # and bridge_run's manifest refusal — and the one a human types past. Driven through the

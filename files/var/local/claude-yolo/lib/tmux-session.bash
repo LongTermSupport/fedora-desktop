@@ -164,14 +164,207 @@ ccy_tmux_offer() {
     printf 'attach %s\n' "${row%% *}"
 }
 
+# ── which network a session's container is on ────────────────────────────────────────────
+#
+# A tmux session and a container know nothing about each other, so the link has to be found.
+# It is the PROCESS TREE: the engine client running the container is a descendant of the
+# session's pane, and it carries the container's name on its own command line
+# (`--name <container>`) — the same fact lib/docker-health.bash already matches on. Name
+# arithmetic would not do: sessions are numbered `-2` and containers `_1`, independently, so
+# `ccy-app-2` and `app_yolo_1` cannot be paired by shape.
+#
+# The network itself is then asked of the ENGINE — not of the saved launch config, and not of
+# the `--network` flag sitting on that same command line. Both of those record what was
+# REQUESTED at launch, while `ccy --connect <net>` attaches a network to a container that is
+# already running, so only the engine knows what a session is connected to now.
+
+# ccy_session_containers <panes> <processes> — "<session> <engine> <container>" for every
+# session in <panes>, in pane order, with "- -" when its tree holds no engine client. PURE:
+# both tables arrive as text, so every shape is testable
+# (scripts/test-ccy-session-network.bash).
+#   <panes>     "<session> <pane-pid>" per line
+#   <processes> "<pid> <ppid> <command line>" per line
+ccy_session_containers() {
+    local panes="$1" processes="$2"
+    local -A parent=() client=() session_of=() seen=() owner=()
+    local -a order=() client_pids=() fields=()
+    local pid ppid args engine container session walk hops i
+
+    while read -r pid ppid args; do
+        [[ -n "$pid" ]] || continue
+        parent["$pid"]="$ppid"
+        # --name is not an engine-only flag, so the command itself has to be the engine.
+        engine="${args%% *}"
+        engine="${engine##*/}"
+        case "$engine" in
+        podman | docker) ;;
+        *) continue ;;
+        esac
+        read -r -a fields <<<"$args"
+        container=""
+        for ((i = 1; i < ${#fields[@]}; i++)); do
+            case "${fields[i]}" in
+            --name=*)
+                container="${fields[i]#--name=}"
+                break
+                ;;
+            --name)
+                container="${fields[i + 1]:-}"
+                break
+                ;;
+            esac
+        done
+        [[ -n "$container" ]] || continue
+        client["$pid"]="${engine} ${container}"
+        client_pids+=("$pid")
+    done <<<"$processes"
+
+    while read -r session pid; do
+        [[ -n "$session" && -n "$pid" ]] || continue
+        session_of["$pid"]="$session"
+        if [[ -z "${seen[$session]:-}" ]]; then
+            seen["$session"]=1
+            order+=("$session")
+        fi
+    done <<<"$panes"
+
+    # Climb from each client to the pane that owns it. Rootless podman re-executes itself in
+    # a user namespace, so one container legitimately appears twice in one tree; the first
+    # client found wins and both name the same container anyway. The hop cap is what stops a
+    # malformed table — a cycle, a pid that is its own parent — from spinning here.
+    if [[ "${#client_pids[@]}" -gt 0 ]]; then
+        for pid in "${client_pids[@]}"; do
+            walk="$pid"
+            hops=0
+            while [[ -n "$walk" && "$walk" != "0" && "$hops" -lt 32 ]]; do
+                if [[ -n "${session_of[$walk]:-}" ]]; then
+                    session="${session_of[$walk]}"
+                    if [[ -z "${owner[$session]:-}" ]]; then
+                        owner["$session"]="${client[$pid]}"
+                    fi
+                    break
+                fi
+                walk="${parent[$walk]:-}"
+                hops=$((hops + 1))
+            done
+        done
+    fi
+
+    if [[ "${#order[@]}" -gt 0 ]]; then
+        for session in "${order[@]}"; do
+            printf '%s %s\n' "$session" "${owner[$session]:-"- -"}"
+        done
+    fi
+}
+
+# ccy_network_word <container> <networks> — the one word a picker row shows for a session.
+# PURE. <container> is "-" when no container was found for that session.
+#   <networks> "<container> <the engine's rendering of its network list>" per line
+#
+# Three ordinary states get three distinct words, because a reader cannot act on an
+# ambiguity:
+#   <name>[,<name>]  what the ENGINE says the container is connected to right now
+#   none             the container runs on no named network — `ccy --no-network`, or an
+#                    engine default that is not a named network
+#   no container     there is nothing to ask about: a `cc` session runs claude on the host,
+#                    and a ccy session outlives a container that has exited
+# The fourth word, "unknown", belongs to the caller: it is what a FAILED probe shows, and it
+# is deliberately none of these.
+ccy_network_word() {
+    local container="$1" networks="$2" name rest raw
+    if [[ "$container" == "-" ]]; then
+        printf 'no container'
+        return 0
+    fi
+    while read -r name rest; do
+        [[ "$name" == "$container" ]] || continue
+        # Podman's ps template renders a Go slice — "[a b]", "[]" — where Docker renders a
+        # comma string. Both reduce to the same list.
+        raw="$rest"
+        if [[ "$raw" == \[*\] ]]; then
+            raw="${raw:1:${#raw}-2}"
+        fi
+        raw="${raw//,/ }"
+        local -a nets=()
+        read -r -a nets <<<"$raw"
+        if [[ "${#nets[@]}" -eq 0 ]]; then
+            printf 'none'
+        else
+            local IFS=,
+            printf '%s' "${nets[*]}"
+        fi
+        return 0
+    done <<<"$networks"
+    printf 'no container'
+}
+
+# ccy_tmux_network_rows — "<session> <network word>" for every session on CCY's server.
+#
+# Three probes whatever the number of sessions: tmux for the panes, one process table, and
+# one query per engine that is actually running a CCY container — none at all when no session
+# has one. The picker rebuilds its rows on every loop, so this has to stay flat in the
+# session count rather than shelling out per row.
+#
+# Returns 1, having said why, when a probe fails. The caller then shows "unknown" on every
+# row rather than a blank, because a blank would read as "no network".
+ccy_tmux_network_rows() {
+    local panes processes containers networks="" listing session engine container
+    local -A engines=()
+
+    # No server yet is the normal first-run state and means no sessions to report, exactly as
+    # in ccy_tmux_list. It must not surface as an error: the caller prints one for every
+    # failure, and a host with nothing running would be met with a complaint.
+    if ! panes=$(ccy_tmux list-panes -a -F '#{session_name} #{pane_pid}' 2>&1); then
+        if [[ "$panes" == *"no server running"* ]] || [[ "$panes" == *"No such file or directory"* ]]; then
+            return 0
+        fi
+        print_error "tmux list-panes failed: $panes"
+        return 1
+    fi
+    if ! processes=$(ps -ww -eo pid=,ppid=,args= 2>&1); then
+        print_error "the process table could not be read, so no session can be matched to a container: $processes"
+        return 1
+    fi
+
+    containers=$(ccy_session_containers "$panes" "$processes")
+
+    # A here-string over empty text still yields one blank line, so the session guard is what
+    # stops an empty engine name being collected and then run as a command.
+    while read -r session engine container; do
+        [[ -n "$session" && "$container" != "-" ]] || continue
+        engines["$engine"]=1
+    done <<<"$containers"
+
+    for engine in "${!engines[@]}"; do
+        # Every CCY container carries `--label ccy=true`, so this asks about those and
+        # nothing else on the host.
+        if ! listing=$("$engine" ps --filter label=ccy=true --format '{{.Names}} {{.Networks}}' 2>&1); then
+            print_error "$engine ps failed: $listing"
+            return 1
+        fi
+        networks+="${listing}"$'\n'
+    done
+
+    while read -r session engine container; do
+        [[ -n "$session" ]] || continue
+        printf '%s %s\n' "$session" "$(ccy_network_word "$container" "$networks")"
+    done <<<"$containers"
+}
+
 # ── the shared picker: one look for ccy, cc and ccy-sessions ─────────────────────────────
 
-# ccy_tmux_row <name> <attached> <dir> — one aligned picker row. The state words are what
-# the pickers test for, so they are defined once here.
+# ccy_tmux_row <name> <attached> <dir> [network] — one aligned picker row. The state words are
+# what the pickers test for, so they are defined once here. [network] adds a column before the
+# directory; with no network given the column is left out altogether rather than padded,
+# because a blank one would read as "no network" to the picker that never asked.
 ccy_tmux_row() {
     local state="detached"
     if [[ "$2" != "0" ]]; then
         state="open elsewhere"
+    fi
+    if [[ -n "${4:-}" ]]; then
+        printf '%-28s  %-15s  %-22s  %s' "$1" "$state" "$4" "${3/#${HOME}/\~}"
+        return 0
     fi
     printf '%-28s  %-15s  %s' "$1" "$state" "${3/#${HOME}/\~}"
 }

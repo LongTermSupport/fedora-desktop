@@ -169,7 +169,13 @@ an open session is detached again at once — so two terminals can never mirror 
 `claude`, whoever wins a race.
 
 `ccy-sessions` is the view across every project: a picker listing each session with its
-state and directory. Arrow keys choose, Enter attaches a detached one, Ctrl-X ends one (it
+state, its container network and its directory. The network is asked of the container
+engine, so it reflects a later [`--connect`](#networking) and not only the launch flags:
+a name is the network the session's container is on, `none` means no named network
+(`--no-network`, or a default that is not one), `no container` means there is nothing to
+ask — a `cc` session, or a container that has exited under a session that has not — and
+`unknown` means the question could not be answered, with the reason printed above the
+list. Arrow keys choose, Enter attaches a detached one, Ctrl-X ends one (it
 asks first), Ctrl-N starts a new `ccy` session in the current directory, and the last
 row is always Exit (Esc or `q` do the same). Every yes/no question is the same picker,
 starting on Exit so Enter alone is the safe answer. A session that is open in another
@@ -493,17 +499,17 @@ are forwarded unchanged.
 
 ### Session
 
-| Flag              | Effect                                                                |
-| ----------------- | --------------------------------------------------------------------- |
-| `ccy`             | Start a session in the current directory                              |
-| `ccy "task"`      | Start an interactive session with an opening instruction              |
-| `--prompt "text"` | Start with a preseeded prompt                                         |
-| `--headless`      | Run non-interactively — requires `--prompt` (not the positional form) |
-| `--supervise`     | Wrap `claude` in the in-container supervisor                          |
-| `--top`           | Container manager: list and stop running CCY containers               |
-| `ccy-sessions`    | Separate command: list every CCY tmux session, attach or end one      |
-| `--debug`         | Interactive debug-layer selection (CCY, entrypoint, Claude Code)      |
-| `--`              | End of CCY options; everything after is forwarded raw to `claude`     |
+| Flag              | Effect                                                                       |
+| ----------------- | ---------------------------------------------------------------------------- |
+| `ccy`             | Start a session in the current directory                                     |
+| `ccy "task"`      | Start an interactive session with an opening instruction                     |
+| `--prompt "text"` | Start with a preseeded prompt                                                |
+| `--headless`      | Run non-interactively — requires `--prompt` (not the positional form)        |
+| `--supervise`     | Wrap `claude` in the in-container supervisor                                 |
+| `--top`           | Container manager: list and stop running CCY containers                      |
+| `ccy-sessions`    | Separate command: every CCY tmux session with its network, attach or end one |
+| `--debug`         | Interactive debug-layer selection (CCY, entrypoint, Claude Code)             |
+| `--`              | End of CCY options; everything after is forwarded raw to `claude`            |
 
 ### Image and updates
 

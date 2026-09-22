@@ -17,6 +17,37 @@ Two version numbers move independently — see
 
 ---
 
+## 3.59.0
+
+**`ccy-sessions` says which network each session is on.** The picker had the session name,
+its state and its directory; the one thing you could not see was the network its container
+is connected to, which is the whole point of `ccy --network`. Rows now carry it as a fourth
+column, between the state and the directory.
+
+The value comes from the container engine, not from the launcher's saved config and not
+from the `--network` flag on the launch command line. Both of those record what was asked
+for; `ccy --connect <net>` attaches a network to a container that is already running, so
+only the engine knows what a session is on now.
+
+Four words, kept distinct because a reader cannot act on an ambiguity:
+
+| Column         | Means                                                                    |
+| -------------- | ------------------------------------------------------------------------ |
+| `<name>`       | the network(s) the engine reports for that session's container           |
+| `none`         | the container is on no named network — `--no-network`, or a bare default |
+| `no container` | nothing to ask about: a `cc` session, or a container that has exited     |
+| `unknown`      | a probe failed; the reason is printed above the list                     |
+
+A session is matched to its container through the process tree — the engine client naming
+the container is a descendant of the session's pane. Session numbering (`-2`) and container
+numbering (`_1`) run independently, so the two cannot be paired by name.
+
+Cost is flat in the number of sessions: one `tmux list-panes`, one process table, and one
+`podman ps` — none at all when no session has a container.
+
+Also fixed: `ccy-sessions --help` printed `t -euo pipefail` as its last line and would have
+clipped the help text as the header grew. It now stops at the first non-comment line.
+
 ## 3.58.3
 
 **Docs only: the window is read with `/autocompact`, not `/config`.** Both this changelog

@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.58.3"  # CLAUDE_CODE_AUTO_COMPACT_WINDOW defaults to 600000 — plain digits only, the variable has no k suffix; read the live value with /autocompact. See docs/ccy-changelog.md.
+CCY_VERSION="3.59.0"  # ccy-sessions rows now name the container network each session is on, asked of the engine itself. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

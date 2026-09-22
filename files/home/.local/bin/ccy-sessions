@@ -12,6 +12,15 @@
 # as such and Enter on it is refused — the tmux server enforces the same rule, so even a
 # race cannot mirror one claude into two terminals. It can still be ended from here.
 #
+# Each row also names the container network that session is on, asked of the container
+# engine itself so it reflects a later ccy --connect and not only the launch flags:
+#   <network>      the network the session's container is connected to
+#   none           the container is on no named network (ccy --no-network, or a default
+#                  that is not a named network)
+#   no container   nothing to ask about — a cc session runs claude on the host, and a ccy
+#                  session outlives a container that has exited
+#   unknown        the question could not be answered; the reason is printed above the list
+#
 # Usage:
 #   ccy-sessions            the picker
 #   ccy-sessions -h|--help  this text
@@ -23,8 +32,11 @@ CCY_LIB="/var/local/claude-yolo/lib"
 CCY_LAUNCHER="/var/local/claude-yolo/claude-yolo"
 MAX_TRIES=3
 
+# The help text IS the header comment above, printed back. It stops at the first line that
+# is not a comment rather than at a hardcoded line number: the range form printed `t -euo
+# pipefail` as its last line, and silently clipped the text whenever the header grew.
 usage() {
-    sed -n '2,20p' "${BASH_SOURCE[0]}" | cut -c3-
+    awk 'NR == 1 { next } /^#/ { print substr($0, 3); next } { exit }' "${BASH_SOURCE[0]}"
 }
 
 case "${1:-}" in
@@ -58,11 +70,25 @@ source "${CCY_LIB}/common-pure.bash"
 source "${CCY_LIB}/tmux-session.bash"
 
 # rows — every session as a picker row, in the library's house format.
+#
+# The network column is filled from one pass over the host (see ccy_tmux_network_rows), not
+# one lookup per row, so refreshing the list costs the same with ten sessions as with one.
+# A probe that fails leaves every row reading "unknown": the reason is already on stderr,
+# and a blank there would be read as "this session has no network".
 rows() {
-    local name attached dir
+    local name attached dir word netmap
+    local -A net=()
+    if netmap="$(ccy_tmux_network_rows)"; then
+        while read -r name word; do
+            [[ -n "${name}" ]] || continue
+            net["${name}"]="${word}"
+        done <<<"${netmap}"
+    else
+        echo "The network column reads 'unknown' for every session — see the error above." >&2
+    fi
     while read -r name attached dir; do
         [[ -n "${name}" ]] || continue
-        ccy_tmux_row "${name}" "${attached}" "${dir}"
+        ccy_tmux_row "${name}" "${attached}" "${dir}" "${net[${name}]:-unknown}"
         printf '\n'
     done < <(ccy_tmux_list)
 }
@@ -99,7 +125,8 @@ else
 fi
 HEADER="$(ccy_tmux_header "Enter attach   Ctrl-X end   Ctrl-N new   Esc or q quit" \
     "${new_line}" \
-    "\"open elsewhere\" is attached in another terminal: it can be ended here, not attached")"
+    "\"open elsewhere\" is attached in another terminal: it can be ended here, not attached" \
+    "network column: the container's network — \"none\" is on no named network, \"no container\" is nothing to ask")"
 
 attempt=1
 while :; do
