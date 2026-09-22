@@ -16,7 +16,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # The three stage-line readers. Between them they produce the SUMMARY in every stage line
-# below — 29 of them, counted: `qa_gate_case_count` 22, `qa_gate_detail` 6,
+# below — 31 of them, counted: `qa_gate_case_count` 23, `qa_gate_detail` 7,
 # `helper_counts_summary` 1. `qa_pass_line` prints it; only `deployed-drift` composes its own
 # line, because there the line IS the gate's output rather than a summary of it. Sourced
 # rather than inlined so a committed test can drive the real functions — see the library
@@ -450,6 +450,25 @@ if ! session_network_out="$(bash "$SCRIPT_DIR/test-ccy-session-network.bash" 2>&
 fi
 session_network_summary=$(qa_gate_case_count "$session_network_out")
 qa_pass_line ccy-session-network "$session_network_summary"
+
+# ssh-suspend-guard's session detection: the guard asked `ss` about port 22 and grepped for
+# sshd, so on a host whose sshd listens elsewhere it never took the inhibit lock and the
+# machine suspended mid-session — the one outcome it exists to prevent, arriving silently.
+# It had no test at all: a daemon loop whose failure only shows on a host that moved its
+# port. The detection is a function now, driven against captured `ss` output.
+#
+# The summary is read with qa_gate_detail rather than qa_gate_case_count: this suite reports
+# `VERDICT: PASS`, not a `passed: N` line, and qa_gate_case_count's fallback would print a
+# bare `passed` — reachable by no other gate, and exactly the blind-reader shape the library
+# header warns about.
+ssh_suspend_guard_out=""
+if ! ssh_suspend_guard_out="$(bash "$SCRIPT_DIR/test-ssh-suspend-guard.bash" 2>&1)"; then
+    qa_hard_gate_failed ssh-suspend-guard \
+        "ssh-suspend-guard session-detection unit tests failed" \
+        "$ssh_suspend_guard_out"
+fi
+ssh_suspend_guard_summary=$(qa_gate_detail "$ssh_suspend_guard_out" 'VERDICT: PASS')
+qa_pass_line ssh-suspend-guard "$ssh_suspend_guard_summary"
 
 # host_only_preflight (Plan 00121): the host-CLI gate on a scenario that puts a real GitHub
 # PAT into a guest. One of three independent gates — the other two are the bridge allowlist

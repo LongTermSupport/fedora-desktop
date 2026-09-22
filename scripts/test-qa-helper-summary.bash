@@ -538,6 +538,7 @@ declare -A GATE_COMMAND=(
     [plan_logging_out]="bash scripts/qa-plan-script-logging.bash"
     [pins_out]="bash scripts/qa-version-pins.bash"
     [toolchain_out]="bash scripts/qa-toolchain.bash"
+    [ssh_suspend_guard_out]="bash scripts/test-ssh-suspend-guard.bash"
 )
 gate_command_for() {
     [ -n "${GATE_COMMAND[$1]+set}" ] || return 1
