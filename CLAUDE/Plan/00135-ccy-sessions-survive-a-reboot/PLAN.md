@@ -167,6 +167,11 @@ below.
   warning with `--dry-run` before updating, so an unwarnable session refuses early.
   🧑 Not unit-tested: the body is dnf and firmware; Phase 5 proves it.
 
+- [x] ✅ **Task 3.6**: `shutdown-with-update` warns too (owner's decision, 26-09-22). The
+  rehearsal, the two warnings and the countdown run under both names; the name chooses the
+  signal kind (`shutdown-warning` or `reboot-warning`) and the last step. Both now need
+  `SUDO_USER`. Open decision 3 below is thereby reversed.
+
 ### Phase 4: Docs
 
 - [x] ✅ **Task 4.1**: `docs/tmux-sessions.md`: the row stays "gone" for plain tmux
@@ -198,6 +203,9 @@ below.
 - [ ] 🧑 **Task 5.6**: `reboot-with-update --in 2` over SSH with two sessions open: the
   dry-run rehearsal passes, updates run, both warnings arrive, the machine reboots as root,
   the sessions come back.
+- [ ] 🧑 **Task 5.7**: `shutdown-with-update --in 1` with a session open: the
+  `shutdown-warning` arrives in the session, the machine powers off, the session is back
+  after the next boot.
 - [ ] 🧑 **Task 5.5**: Put the evidence in the PR description.
 
 ## Dependencies
@@ -217,9 +225,10 @@ below.
    interactivity, and it holds only token/ssh/network. A restored session runs in a real
    pane, so a launch that named its settings comes back unattended and one that answered
    prompts asks again, visibly.
-3. **`shutdown-with-update` is left as it is.** It is an updater that then shuts down; the
-   helper is a warner that then reboots. Making one call the other is an integration this
-   plan does not need for its goals; noted for whoever next touches either.
+3. **`shutdown-with-update` warns too** — reversed by the owner on 26-09-22 after Task 3.5
+   made the two names one script (Task 3.6). The earlier position, that an updater which
+   shuts down and a warner which reboots need not know about each other, stopped holding
+   once they were the same file.
 
 Both of the first two came from [research/launcher-facts.md](research/launcher-facts.md)
 and neither was answered by the issue. The original questions, for the record:

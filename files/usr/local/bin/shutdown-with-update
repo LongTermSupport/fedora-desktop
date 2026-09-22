@@ -2,28 +2,36 @@
 # Shutdown with Update - Updates firmware, dnf packages, Flatpaks, pipx tools and the Rust toolchain before shutdown
 #
 # Two names, one script. Installed as /usr/local/bin/shutdown-with-update and, by symlink,
-# /usr/local/bin/reboot-with-update; the name decides what happens after the updates:
-#   shutdown-with-update          shutdown -h now, with the inhibitor prompt below
-#   reboot-with-update [--in N]   warn every running ccy/cc session through
-#                                 `ccy-sessions notify`, count down N minutes (default 2),
-#                                 warn again at one minute, then systemctl reboot. Sessions
-#                                 that opted in to restore come back after the boot.
-# Both run as root via sudo. The reboot mode needs SUDO_USER: the sessions belong to that
-# user and are found through that user's tmux server.
+# /usr/local/bin/reboot-with-update. Both run the updates, then warn every running ccy/cc
+# session through `ccy-sessions notify`, count down N minutes (default 2, `--in N`), warn
+# again at one minute, and only then bring the machine down. The name decides the signal
+# kind the sessions are sent and the last step:
+#   shutdown-with-update [--in N]   shutdown-warning, then shutdown -h now with the
+#                                   inhibitor prompt below
+#   reboot-with-update [--in N]     reboot-warning, then systemctl reboot
+# From a session's point of view the two are the same event with a longer gap: a session
+# that opted in to restore comes back at the next boot either way.
+# Both run as root via sudo and need SUDO_USER: the sessions belong to that user and are
+# found through that user's tmux server.
 set -euo pipefail
 
 MODE="shutdown"
+WARNING_KIND="shutdown-warning"
 case "$(basename "$0")" in
 shutdown-with-update) ;;
-reboot-with-update) MODE="reboot" ;;
+reboot-with-update)
+    MODE="reboot"
+    WARNING_KIND="reboot-warning"
+    ;;
 *)
     echo "Error: this script must be invoked as shutdown-with-update or reboot-with-update, not $(basename "$0")" >&2
     exit 64
     ;;
 esac
 
-# Ctrl+C: stop, and if the sessions have already been told a reboot is coming, tell them it
-# is not (ccy-sessions notify reboot-cancelled, as the user whose sessions they are).
+# Ctrl+C: stop, and if the sessions have already been told the machine is going down, tell
+# them it is not. `reboot-cancelled` is the daemon's one withdrawal signal and covers both
+# warning kinds. Sent as the user whose sessions they are.
 SESSIONS_WARNED=false
 COUNTDOWN_PID=""
 cancel() {
@@ -54,20 +62,17 @@ REBOOT_MINUTES=2
 while [ $# -gt 0 ]; do
     case "$1" in
     -h | --help)
-        echo "Usage: $(basename "$0")$([ "$MODE" = reboot ] && printf ' [--in MINUTES]')"
+        echo "Usage: $(basename "$0") [--in MINUTES]"
         echo "Updates firmware, dnf packages, Flatpaks, pipx tools and the Rust toolchain, then"
+        echo "warns every running ccy/cc session (default 2 minutes, again at 1) and"
         if [ "$MODE" = reboot ]; then
-            echo "warns every running ccy/cc session (default 2 minutes, again at 1) and reboots."
+            echo "reboots."
         else
             echo "shuts the machine down."
         fi
         exit 0
         ;;
     --in)
-        if [ "$MODE" != "reboot" ]; then
-            echo "Error: --in applies to reboot-with-update only" >&2
-            exit 64
-        fi
         if ! [[ "${2:-}" =~ ^[1-9][0-9]*$ ]]; then
             echo "Error: --in needs a whole number of minutes, at least 1; got '${2:-}'" >&2
             exit 64
@@ -82,31 +87,31 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# The reboot mode's last step runs as the invoking user, whose ccy-sessions is the one that
-# can see that user's tmux server. Checked here, and rehearsed with --dry-run, BEFORE the
-# updates: a live session whose project has no daemon CLI is a refusal, and finding that out
-# after twenty minutes of dnf would be the wrong order.
-if [ "$MODE" = "reboot" ]; then
-    if [ -z "${SUDO_USER:-}" ]; then
-        echo "Error: reboot-with-update must be run through sudo from the user whose sessions are to be warned" >&2
-        exit 1
-    fi
-    # Status captured explicitly: under strict mode a failed getent would otherwise abort
-    # with no message at all, two lines before the one that names the problem.
-    if ! user_home="$(getent passwd "$SUDO_USER" | cut -d: -f6)" || [ -z "$user_home" ]; then
-        echo "Error: could not resolve a home directory for $SUDO_USER (getent passwd), so ccy-sessions cannot be found" >&2
-        exit 1
-    fi
-    CCY_SESSIONS="$user_home/.local/bin/ccy-sessions"
-    if [ ! -x "$CCY_SESSIONS" ]; then
-        echo "Error: $CCY_SESSIONS is missing; playbooks/imports/play-claude-yolo.yml deploys it" >&2
-        exit 1
-    fi
-    echo "Checking that every running ccy/cc session can be warned..."
-    if ! sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" reboot --in "$REBOOT_MINUTES" --dry-run; then
-        echo "Error: not every session can be warned (see above). Nothing was updated and nothing reboots." >&2
-        exit 1
-    fi
+# The warnings run as the invoking user, whose ccy-sessions is the one that can see that
+# user's tmux server. Checked here, and rehearsed with --dry-run, BEFORE the updates: a live
+# session whose project has no daemon CLI is a refusal, and finding that out after twenty
+# minutes of dnf would be the wrong order. The rehearsal is `ccy-sessions reboot --dry-run`
+# in both modes: it signals nothing, and what it checks — that every session can be reached
+# — is the same question for a shutdown.
+if [ -z "${SUDO_USER:-}" ]; then
+    echo "Error: $(basename "$0") must be run through sudo from the user whose sessions are to be warned" >&2
+    exit 1
+fi
+# Status captured explicitly: under strict mode a failed getent would otherwise abort
+# with no message at all, two lines before the one that names the problem.
+if ! user_home="$(getent passwd "$SUDO_USER" | cut -d: -f6)" || [ -z "$user_home" ]; then
+    echo "Error: could not resolve a home directory for $SUDO_USER (getent passwd), so ccy-sessions cannot be found" >&2
+    exit 1
+fi
+CCY_SESSIONS="$user_home/.local/bin/ccy-sessions"
+if [ ! -x "$CCY_SESSIONS" ]; then
+    echo "Error: $CCY_SESSIONS is missing; playbooks/imports/play-claude-yolo.yml deploys it" >&2
+    exit 1
+fi
+echo "Checking that every running ccy/cc session can be warned..."
+if ! sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" reboot --in "$REBOOT_MINUTES" --dry-run; then
+    echo "Error: not every session can be warned (see above). Nothing was updated and the machine stays up." >&2
+    exit 1
 fi
 
 echo "Starting firmware updates..."
@@ -219,21 +224,22 @@ if akmods_building; then
     fi
 fi
 
+# Warn, count down, warn at one minute — as the user, through ccy-sessions, so the signals
+# reach each project's own daemon. The power action itself is root's: `systemctl reboot`
+# as the user is refused by polkit on a session that is not local and active, which an SSH
+# login is not, and this command is as likely to be run over SSH as not.
+echo "Warning running ccy/cc sessions: $MODE in $REBOOT_MINUTES minute(s)..."
+sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify "$WARNING_KIND" --minutes "$REBOOT_MINUTES"
+SESSIONS_WARNED=true
+if [ "$REBOOT_MINUTES" -gt 1 ]; then
+    countdown $(((REBOOT_MINUTES - 1) * 60))
+    sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify "$WARNING_KIND" --minutes 1
+    echo "${MODE^} in 1 minute..."
+fi
+countdown 60
+trap - INT TERM
+
 if [ "$MODE" = "reboot" ]; then
-    # Warn, count down, warn at one minute — as the user, through ccy-sessions, so the
-    # signals reach each project's own daemon. The reboot itself is root's: `systemctl
-    # reboot` as the user is refused by polkit on a session that is not local and active,
-    # which an SSH login is not, and this command is as likely to be run over SSH as not.
-    echo "Warning running ccy/cc sessions: reboot in $REBOOT_MINUTES minute(s)..."
-    sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify reboot-warning --minutes "$REBOOT_MINUTES"
-    SESSIONS_WARNED=true
-    if [ "$REBOOT_MINUTES" -gt 1 ]; then
-        countdown $(((REBOOT_MINUTES - 1) * 60))
-        sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify reboot-warning --minutes 1
-        echo "Reboot in 1 minute..."
-    fi
-    countdown 60
-    trap - INT TERM
     echo "Rebooting..."
     exec systemctl reboot
 fi
