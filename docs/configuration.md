@@ -183,9 +183,12 @@ Auto-reporting only covers crashes in signed Fedora packages; records from unpac
 or third-party-repo binaries can never be reported, which is why the retention timer
 exists — without it they accumulate and `abrt-applet` re-announces them at every login.
 
-The whole policy applies to the desktop profile only. The server profile installs no
-ABRT (no `abrt-auto-reporting`, no applet), so the tasks are skipped there and nothing
-is persisted to `localhost.yml` for it.
+The whole policy applies to the desktop profile only: the applet and µReports are
+desktop concerns, so the tasks are skipped on the server profile and nothing is persisted
+to `localhost.yml` there. On the desktop profile the play installs the two packages it
+drives (`abrt` and `abrt-tui`) rather than relying on the image to ship them. A host
+provisioned as desktop and later resolved as server keeps its units and its persisted
+block; the play does not remove them.
 
 ## Optional Features Configuration
 

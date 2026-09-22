@@ -86,7 +86,8 @@ containers that needs its own diagnosis (F7).
   (default 30). Owner chose: reporting off on their host, 7-day retention — both set
   in `host_vars`, not in the repo — the play persists whatever values are in effect
   (`-e` or defaults) into a managed block there. Deployed (79 → 10 records).
-  Remaining: confirm no applet backlog notification at the next login.
+  Desktop profile only, and the block installs `abrt` + `abrt-tui` itself (PR #50; journal
+  16:40). Remaining: confirm no applet backlog notification at the next login.
 - [ ] ⬜ **Task 2.6**: Thunar — confirm no play installs it, then either own it in a play
   or remove it; the duplicate `org.freedesktop.FileManager1` service file goes with it.
 
