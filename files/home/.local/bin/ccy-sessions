@@ -251,18 +251,27 @@ cmd_reboot() {
 
     # The one-minute warning is the last word before the reboot; with --in 1 it is also the
     # first, so it is not sent twice.
-    reached="$(signal_projects reboot-warning "${minutes}" "${dry_run}")" || return 1
+    # Armed BEFORE the first warning goes out, so an interrupt that lands mid-loop — some
+    # projects warned, some not — still cancels. A cancellation reaching a project that was
+    # never warned is harmless; a warned project left uncancelled is not.
     if [[ "${dry_run}" == false ]]; then
         REBOOT_WARNED=true
         trap cancel_reboot INT TERM
     fi
+    reached="$(signal_projects reboot-warning "${minutes}" "${dry_run}")" || return 1
     echo "Rebooting in ${minutes} minute(s); ${reached} project(s) warned." >&2
     if [[ "${minutes}" -gt 1 ]]; then
         if [[ "${dry_run}" == true ]]; then
             echo "would wait $((minutes - 1)) minute(s), then warn again at one minute" >&2
         else
             countdown "$(((minutes - 1) * MINUTE_SECONDS))"
-            signal_projects reboot-warning 1 false >/dev/null || return 1
+            # A failed second warning leaves every project expecting a reboot that is now
+            # not going to happen, so it is withdrawn before giving up.
+            if ! signal_projects reboot-warning 1 false >/dev/null; then
+                trap - INT TERM
+                signal_projects reboot-cancelled "" false >/dev/null
+                return 1
+            fi
             echo "Rebooting in 1 minute." >&2
         fi
     fi

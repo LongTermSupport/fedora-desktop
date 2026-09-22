@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.60.2
+
+Review nits to 3.60.1. `ccy-sessions reboot` arms its cancellation trap before the first
+warning goes out, so an interrupt mid-loop still withdraws it, and a failed one-minute
+warning withdraws the first one before giving up. The missing-tool message for
+`systemd-run`/`systemd-escape` no longer points at the tmux play.
+
 ## 3.60.1
 
 Review fixes to 3.60.0, before it reached a machine. `ccy-sessions reboot` refused to

@@ -36,7 +36,8 @@ cancel() {
     if [ "$SESSIONS_WARNED" = true ]; then
         sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify reboot-cancelled
     fi
-    exit 1
+    # 130, as ccy-sessions exits on the same event.
+    exit 130
 }
 trap cancel INT TERM
 
@@ -90,7 +91,13 @@ if [ "$MODE" = "reboot" ]; then
         echo "Error: reboot-with-update must be run through sudo from the user whose sessions are to be warned" >&2
         exit 1
     fi
-    CCY_SESSIONS="$(getent passwd "$SUDO_USER" | cut -d: -f6)/.local/bin/ccy-sessions"
+    # Status captured explicitly: under strict mode a failed getent would otherwise abort
+    # with no message at all, two lines before the one that names the problem.
+    if ! user_home="$(getent passwd "$SUDO_USER" | cut -d: -f6)" || [ -z "$user_home" ]; then
+        echo "Error: could not resolve a home directory for $SUDO_USER (getent passwd), so ccy-sessions cannot be found" >&2
+        exit 1
+    fi
+    CCY_SESSIONS="$user_home/.local/bin/ccy-sessions"
     if [ ! -x "$CCY_SESSIONS" ]; then
         echo "Error: $CCY_SESSIONS is missing; playbooks/imports/play-claude-yolo.yml deploys it" >&2
         exit 1

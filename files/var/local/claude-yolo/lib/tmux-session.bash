@@ -547,9 +547,13 @@ ccy_tmux_start_detached() {
     local launcher="${3:?ccy_tmux_start_detached requires a launcher}"
     shift 3
     local tool regdir trampoline
-    for tool in tmux systemd-run systemd-escape; do
+    if [[ -z "$(command -v tmux)" ]]; then
+        print_error "tmux is not installed, so session '$name' cannot be started. Deploy it with playbooks/imports/play-tmux-sessions.yml (part of playbook-main.yml)."
+        return 1
+    fi
+    for tool in systemd-run systemd-escape; do
         if [[ -z "$(command -v "$tool")" ]]; then
-            print_error "$tool is not installed, so session '$name' cannot be started. Deploy it with playbooks/imports/play-tmux-sessions.yml (part of playbook-main.yml)."
+            print_error "$tool is not available, so session '$name' cannot be started. It ships with systemd, which this host is expected to run; a user manager is what keeps the session out of the terminal's cgroup."
             return 1
         fi
     done
