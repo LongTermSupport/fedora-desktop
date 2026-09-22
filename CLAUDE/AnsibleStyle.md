@@ -180,6 +180,56 @@ at the point of use instead; host_vars and `-e` still override. Detail and
 diagnosis:
 [AgentNotes.md → Ansible 2.19 self-default vars recurse at runtime](AgentNotes.md#ansible-219-self-default-vars-recurse-at-runtime----syntax-check-misses-it).
 
+### Per-host options: the play persists them into host_vars
+
+A play that exposes a per-host option (`abrt_auto_reporting`, `lastpass_accounts`,
+`nordvpn_username`, …) **writes the value in effect back into
+`environment/localhost/host_vars/localhost.yml`** as a markered `blockinfile`. It
+does not ask the operator to hand-edit the file, and it does not leave a `-e`
+override as a one-run fact that the next full run silently reverts.
+
+The block is created with the project defaults when the host has never set the
+option, and rewritten with the `-e` values when they are passed — so passing an
+override once *is* the way to change the host's policy. Because `blockinfile`
+converges on its marker, the task is `ok` on every later run.
+
+```yaml
+# 1. Resolve once, under names that differ from the option names: the block below
+#    would otherwise be the self-referential `x: {{ x | default(...) }}` shape.
+- name: Resolve the effective ABRT policy
+  ansible.builtin.set_fact:
+    abrt_policy_reporting: "{{ 'enabled' if (abrt_auto_reporting | default(true) | bool) else 'disabled' }}"
+    abrt_policy_days: "{{ abrt_retention_days | default(30) | int }}"
+
+# 2. Persist. host_vars is the user's file: become: false, create: false (the file
+#    always exists — the vault workflow made it).
+- name: Persist ABRT policy to localhost.yml
+  become: false
+  ansible.builtin.blockinfile:
+    path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
+    marker: "# {mark} ANSIBLE MANAGED: ABRT crash policy"
+    block: |
+      # ABRT crash policy — see docs/configuration.md#crash-reporting-abrt
+      abrt_auto_reporting: {{ 'true' if abrt_policy_reporting == 'enabled' else 'false' }}
+      abrt_retention_days: {{ abrt_policy_days }}
+    create: false
+
+# 3. Every later task reads the resolved facts, never the raw option.
+```
+
+Rules the pattern carries:
+
+- One marker per concern, named for what the block holds — never a shared "misc" block.
+- Secrets go through `ansible-vault encrypt_string` first and the task is `no_log: true`
+  (see `play-qobuz.yml`); plain options are written plain.
+- The block comment links the `docs/configuration.md` section that documents the option,
+  so the file explains itself to whoever opens it.
+- Document the option in `docs/configuration.md` with both routes: the `-e` one-liner
+  that persists, and the YAML the block will contain.
+
+Reference implementations: `play-basic-configs.yml` (ABRT policy), `play-lastpass.yml`,
+`play-nordvpn-openvpn.yml`, `play-qobuz.yml` (vault-encrypted values).
+
 ### Template References
 
 ```yaml

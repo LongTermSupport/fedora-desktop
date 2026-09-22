@@ -166,8 +166,9 @@ See the full guide for the complete workflow, commands, and troubleshooting:
 
 `play-basic-configs.yml` sets the ABRT policy instead of leaving Fedora's defaults, and
 writes the values in effect into a managed block in `host_vars/localhost.yml` (created
-with the project defaults on first run). Edit the block, or pass the values once and the
-play persists them:
+with the project defaults on first run). This is the standard shape for every per-host
+option: pass it once with `-e` and the play persists it, or edit the block directly
+(pattern: `CLAUDE/AnsibleStyle.md`, *Per-host options*). For ABRT:
 
 ```bash
 ./playbooks/imports/play-basic-configs.yml --tags abrt -e abrt_auto_reporting=false -e abrt_retention_days=7
