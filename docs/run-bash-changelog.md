@@ -15,6 +15,21 @@ the index, not the record.
 
 ---
 
+## 1.21.1 — a headless run without `admin:public_key` aborts instead of waiting at a browser prompt; key titles carry the hostname
+
+When the GitHub token lacks `admin:public_key`, the SSH-access step runs `gh auth refresh`,
+which opens a device-code flow in a browser. On a headless box there is no browser and no
+human, so the run did not fail fast: it waited at that prompt for ever, with the banner already
+saying provisioning was unattended. The step now takes the same guard every other prompt in
+this file takes — `hl_abort` under `HEADLESS`, naming the missing scope and the two ways to
+supply it — and the interactive path is unchanged.
+
+The uploaded key was titled `fedora-desktop setup <date>`, so two boxes set up on the same
+day were indistinguishable in `/user/keys` and revoking one meant guessing. The title now
+carries the short hostname as well as the date.
+
+Patch: neither change alters what a correctly-configured run does.
+
 ## 1.21.0 — an ssh-agent that survives teardown aborts the run instead of warning (Plan 00063)
 
 `ssh-agent -k` returns non-zero for two states that are not alike: the agent was already gone,

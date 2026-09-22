@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.21.0"
+RUN_BASH_VERSION="1.21.1"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -2341,6 +2341,11 @@ export GH_REPO
 title "Configuring GitHub SSH Access"
 # Check if we have the required permission
 if ! ghCheckTokenPermission "admin:public_key" > /dev/null 2>&1; then
+  # `gh auth refresh` opens a browser device-code flow, which a headless box cannot
+  # complete: without this guard the run waits at that prompt with no human to answer it.
+  [[ "${HEADLESS:-}" == "true" ]] && hl_abort "GitHub SSH access" \
+    "the GitHub token lacks admin:public_key, and gh auth refresh needs a browser a headless run does not have" \
+    "provide a PAT carrying vars/github-required-scopes.yml + admin:public_key in RUN_BASH_GITHUB_TOKEN_FILE, or set RUN_BASH_GITHUB_ACCOUNTS=none"
   warning "Missing admin:public_key permission - requesting it now"
   $GH_REPO auth refresh -h github.com -s admin:public_key
 fi
@@ -2354,12 +2359,14 @@ ssh_key_blob=$(awk '{print $2}' ~/.ssh/id.pub)
 # Use gh api to check for SSH keys without triggering signing key scope warning
 if ! $GH_REPO api user/keys 2>/dev/null | grep -qF "$ssh_key_blob"; then
   # Add SSH key for authentication only (not signing)
-  if $GH_REPO ssh-key add ~/.ssh/id.pub --title="fedora-desktop setup $(date +%Y-%m-%d)" --type=authentication 2>&1; then
+  # Titled by hostname so two boxes set up on the same day are distinguishable in
+  # /user/keys, which is what makes per-box revocation possible.
+  if $GH_REPO ssh-key add ~/.ssh/id.pub --title="fedora-desktop $(hostname -s) $(date +%Y-%m-%d)" --type=authentication 2>&1; then
     success "SSH authentication key added to GitHub"
   else
     error "Failed to add SSH key to GitHub"
     echo -e "${YELLOW}${ARROW} Try manually adding your SSH key:${NC}"
-    echo -e "   cat ~/.ssh/id.pub | $GH_REPO ssh-key add --title='fedora-desktop setup' --type=authentication"
+    echo -e "   cat ~/.ssh/id.pub | $GH_REPO ssh-key add --title=\"fedora-desktop \$(hostname -s)\" --type=authentication"
     exit 1
   fi
 else
