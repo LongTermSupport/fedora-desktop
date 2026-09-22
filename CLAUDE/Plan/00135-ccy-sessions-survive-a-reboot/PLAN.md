@@ -190,6 +190,11 @@ below.
   claim being tested, confirm the sessions are back, in the right directories, resumed and
   supervised.
 - [ ] 🧑 **Task 5.4**: Confirm a machine with the opt-in **off** restores nothing.
+- [ ] 🧑 **Task 5.5a**: Re-verify Plan 00111's terminal-death guarantee, which this plan
+  restructured (the start and the attach are now two tmux calls): start a session, kill
+  the terminal emulator, confirm the session survives and `ccy` in that directory offers it.
+- [ ] 🧑 **Task 5.5b**: Note that a restored `ccy` session runs with the supervisor ARMED
+  (`--supervise`), which the original may not have; confirm that is wanted.
 - [ ] 🧑 **Task 5.6**: `reboot-with-update --in 2` over SSH with two sessions open: the
   dry-run rehearsal passes, updates run, both warnings arrive, the machine reboots as root,
   the sessions come back.

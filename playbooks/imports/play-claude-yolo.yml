@@ -540,7 +540,20 @@
     - name: Assert The Restore Unit's Live State Matches The Opt-In
       ansible.builtin.fail:
         msg: >-
-          ccy-sessions-restore.service is {{ 'enabled on disk but default.target does not name it in the running user manager, so it will not run at boot' if (ccy_restore_sessions | default(false) | bool) else 'still named by default.target in the running user manager although it is not opted in' }}.
+          {% if ccy_restore_readback.rc != 0 %}
+          The running user manager could not be asked what default.target pulls in
+          (`systemctl --user list-dependencies` exited {{ ccy_restore_readback.rc }}:
+          {{ ccy_restore_readback.stderr | default('') }}), so whether
+          ccy-sessions-restore.service will run at boot is unknown. This usually means no
+          user manager is reachable for {{ user_login }} — play-systemd-user-tweaks.yml
+          (part of playbook-main.yml) starts it.
+          {% elif ccy_restore_sessions | default(false) | bool %}
+          ccy-sessions-restore.service is enabled on disk but default.target does not name it
+          in the running user manager, so it will not run at boot.
+          {% else %}
+          ccy-sessions-restore.service is still named by default.target in the running user
+          manager although it is not opted in.
+          {% endif %}
           Collect, on the host:
           `systemctl --user list-dependencies default.target --no-pager | cat`,
           `ls -l ~/.config/systemd/user/default.target.wants/ | cat`

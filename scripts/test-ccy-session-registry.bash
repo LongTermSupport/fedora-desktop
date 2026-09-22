@@ -140,9 +140,15 @@ check "a second bare word after that value is dropped" "--model|opus" \
 check "-- and everything after it are kept verbatim" "--token|work|--|--prevent|--rebuild|some text" \
     "$(joined ccy_registry_replay_args ccy --token work -- --prevent --rebuild 'some text')"
 
-# cc hands every argument to claude, so none of ccy's one-shot set means anything there.
-check "cc arguments pass through untouched" "--model|opus|--prevent|a note" \
-    "$(joined ccy_registry_replay_args cc --model opus --prevent 'a note')"
+# cc hands every argument to claude, so none of ccy's one-shot flags means anything there
+# and every flag is kept — but a bare opening instruction is exactly as stale on a cc
+# replay, and `cc "refactor the parser"` must not resume a conversation by re-sending it.
+check "cc flags and their values pass through untouched" "--model|opus|--prevent|a value" \
+    "$(joined ccy_registry_replay_args cc --model opus --prevent 'a value')"
+check "cc: a bare first message is dropped" "--model|opus" \
+    "$(joined ccy_registry_replay_args cc 'refactor the parser' --model opus)"
+check "cc: a bare message after -- is kept" "--|refactor the parser" \
+    "$(joined ccy_registry_replay_args cc -- 'refactor the parser')"
 
 echo ""
 echo "=== --no-restore: an opt-out for a one-off session ==="

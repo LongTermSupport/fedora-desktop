@@ -10,9 +10,7 @@
 #                                 that opted in to restore come back after the boot.
 # Both run as root via sudo. The reboot mode needs SUDO_USER: the sessions belong to that
 # user and are found through that user's tmux server.
-
-# Trap Ctrl+C and exit cleanly
-trap 'echo -e "\nShutdown cancelled by user."; exit 1' INT TERM
+set -euo pipefail
 
 MODE="shutdown"
 case "$(basename "$0")" in
@@ -24,9 +22,46 @@ reboot-with-update) MODE="reboot" ;;
     ;;
 esac
 
+# Ctrl+C: stop, and if the sessions have already been told a reboot is coming, tell them it
+# is not (ccy-sessions notify reboot-cancelled, as the user whose sessions they are).
+SESSIONS_WARNED=false
+COUNTDOWN_PID=""
+cancel() {
+    trap - INT TERM
+    if [ -n "$COUNTDOWN_PID" ] && ! kill "$COUNTDOWN_PID"; then
+        echo "(the countdown had already ended)"
+    fi
+    echo ""
+    echo "${MODE^} cancelled by user."
+    if [ "$SESSIONS_WARNED" = true ]; then
+        sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify reboot-cancelled
+    fi
+    exit 1
+}
+trap cancel INT TERM
+
+# A sleep the trap can interrupt: bash runs a handler only after the foreground command
+# finishes, so a plain `sleep 60` would honour Ctrl-C a minute late — after the reboot.
+countdown() {
+    sleep "$1" &
+    COUNTDOWN_PID=$!
+    wait "$COUNTDOWN_PID"
+    COUNTDOWN_PID=""
+}
+
 REBOOT_MINUTES=2
 while [ $# -gt 0 ]; do
     case "$1" in
+    -h | --help)
+        echo "Usage: $(basename "$0")$([ "$MODE" = reboot ] && printf ' [--in MINUTES]')"
+        echo "Updates firmware, dnf packages, Flatpaks, pipx tools and the Rust toolchain, then"
+        if [ "$MODE" = reboot ]; then
+            echo "warns every running ccy/cc session (default 2 minutes, again at 1) and reboots."
+        else
+            echo "shuts the machine down."
+        fi
+        exit 0
+        ;;
     --in)
         if [ "$MODE" != "reboot" ]; then
             echo "Error: --in applies to reboot-with-update only" >&2
@@ -145,15 +180,27 @@ else
 fi
 
 echo "Updates complete. Checking for kernel module builds..."
-# Check if akmods is actually running (not just active/exited)
-if pgrep -f "akmods" > /dev/null || systemctl status akmods 2>/dev/null | grep -q "Building"; then
+# akmods is building when its process is present or its unit reports so. A bash pattern
+# match, not `| grep -q`: under pipefail a matched grep exits first and the producer dies of
+# SIGPIPE, which reports the pipeline as failed on exactly the match it was looking for.
+akmods_building() {
+    local status
+    if pgrep -f "[a]kmods" >/dev/null; then
+        return 0
+    fi
+    # `systemctl status` exits non-zero for an inactive unit; the text is still the answer,
+    # so the status is read for its output and its exit code is deliberately not a verdict.
+    if status="$(systemctl status akmods 2>&1)"; then :; fi
+    [[ "$status" == *"Building"* ]]
+}
+if akmods_building; then
     echo "Waiting for akmods to complete kernel module builds..."
-    echo "(Press Ctrl+C to cancel shutdown)"
-    
+    echo "(Press Ctrl+C to cancel)"
+
     count=0
-    while (pgrep -f "akmods" > /dev/null || systemctl status akmods 2>/dev/null | grep -q "Building") && [ $count -lt 60 ]; do
+    while akmods_building && [ "$count" -lt 60 ]; do
         sleep 5
-        ((count++))
+        count=$((count + 1))
         echo -n "."
     done
     echo ""
@@ -171,13 +218,15 @@ if [ "$MODE" = "reboot" ]; then
     # reboot` as the user is refused by polkit on a session that is not local and active,
     # which an SSH login is not, and this command is as likely to be run over SSH as not.
     echo "Warning running ccy/cc sessions: reboot in $REBOOT_MINUTES minute(s)..."
-    sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify reboot-warning --minutes "$REBOOT_MINUTES" || exit 1
+    sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify reboot-warning --minutes "$REBOOT_MINUTES"
+    SESSIONS_WARNED=true
     if [ "$REBOOT_MINUTES" -gt 1 ]; then
-        sleep $(((REBOOT_MINUTES - 1) * 60))
-        sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify reboot-warning --minutes 1 || exit 1
+        countdown $(((REBOOT_MINUTES - 1) * 60))
+        sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify reboot-warning --minutes 1
         echo "Reboot in 1 minute..."
     fi
-    sleep 60
+    countdown 60
+    trap - INT TERM
     echo "Rebooting..."
     exec systemctl reboot
 fi
@@ -187,7 +236,7 @@ if ! shutdown -h now 2>&1; then
     echo ""
     echo "Shutdown blocked by inhibitors or logged-in users."
     echo "Current inhibitors:"
-    systemd-inhibit --list --no-pager | grep -v "^WHO"
+    systemd-inhibit --list --no-pager | awk '!/^WHO/'
     echo ""
     read -p "Force shutdown anyway? (y/N): " -n 1 -r
     echo ""

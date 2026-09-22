@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.60.0"  # Sessions survive a reboot: every session is recorded, ccy-sessions restore brings them back (opt-in), ccy-sessions reboot warns them first. See docs/ccy-changelog.md.
+CCY_VERSION="3.60.1"  # Sessions survive a reboot: every session is recorded, ccy-sessions restore brings them back (opt-in), ccy-sessions reboot warns them first. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -239,6 +239,8 @@ Options:
                          entrypoint.sh sources before claude runs.
   --no-supervise         Run claude unwrapped. Disables auto-compaction AND the
                          ctrl+z guard, so ctrl+z can freeze the session.
+  --no-restore           Do not bring this session back after a reboot on a machine
+                         that restores sessions (ccy-sessions restore; docs/ccy.md)
   --top                  Container manager: list/stop all CCY containers
   --prevent              Disable CCY for this project folder (writes 'never' to .claude/ccy/allowed-hostnames)
   --help, -h             Show this help message
@@ -715,7 +717,7 @@ if [ ${#suspect_flags[@]} -gt 0 ]; then
         if [ ${#unknown[@]} -gt 0 ]; then
             ccy_flags=(
                 --rebuild --disable-custom-docker --no-ssh --github-443 --no-network
-                --headless --supervise --no-supervise --prompt --debug --engine --ssh-key --token --create-token
+                --headless --supervise --no-supervise --no-restore --ssh-agent --prompt --debug --engine --ssh-key --token --create-token
                 --update-token --list-tokens --export-token --network --connect
                 --custom --custom-docker --top --prevent --help
             )

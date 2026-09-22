@@ -26,6 +26,7 @@
 #   ccy-sessions                                    the picker (needs a terminal)
 #   ccy-sessions notify reboot-warning --minutes N  tell every live session's project that
 #                                                   the machine reboots in N minutes
+#   ccy-sessions notify shutdown-warning --minutes N  the same, for a shutdown
 #   ccy-sessions notify reboot-cancelled            tell them it is not happening after all
 #   ccy-sessions reboot --in N [--dry-run]          warn, count down, warn again at one
 #                                                   minute, then systemctl reboot
@@ -123,8 +124,17 @@ daemon_cli() {
 signal_projects() {
     local kind="${1}" minutes="${2}" dry_run="${3}"
     local -a projects=() missing=() cli_args=()
-    local dir cli
-    mapfile -t projects < <(live_projects)
+    local dir cli listing
+    # The listing's failure must survive into this function: `mapfile` over a process
+    # substitution always exits 0, and would turn "tmux could not list sessions" into
+    # "no sessions", after which a reboot would proceed with every session unwarned.
+    if ! listing="$(live_projects)"; then
+        print_error "the live session list could not be read, so nothing is signalled and nothing may reboot."
+        return 1
+    fi
+    if [[ -n "${listing}" ]]; then
+        mapfile -t projects <<<"${listing}"
+    fi
     if [[ "${#projects[@]}" -eq 0 ]]; then
         echo "No CCY or cc sessions are running; nothing to signal." >&2
         printf '0\n'
@@ -191,6 +201,33 @@ cmd_notify() {
     signal_projects "${kind}" "${minutes}" false >/dev/null
 }
 
+# Ctrl-C during the countdown: the sessions were told a reboot was coming, so they are told
+# it is not. Only once a warning has actually gone out, and never on a dry run.
+REBOOT_WARNED=false
+COUNTDOWN_PID=""
+cancel_reboot() {
+    trap - INT TERM
+    if [[ -n "${COUNTDOWN_PID}" ]] && ! kill "${COUNTDOWN_PID}"; then
+        echo "(the countdown had already ended)" >&2
+    fi
+    echo "" >&2
+    echo "Reboot cancelled." >&2
+    if [[ "${REBOOT_WARNED}" == true ]]; then
+        signal_projects reboot-cancelled "" false >/dev/null
+    fi
+    exit 130
+}
+
+# countdown <seconds> — a sleep the trap can interrupt. bash runs a trap handler only once
+# the foreground command has finished, so a plain `sleep 120` would make Ctrl-C take effect
+# two minutes later, after the reboot. A backgrounded sleep and a `wait` return at once.
+countdown() {
+    sleep "${1}" &
+    COUNTDOWN_PID=$!
+    wait "${COUNTDOWN_PID}"
+    COUNTDOWN_PID=""
+}
+
 cmd_reboot() {
     local minutes="" dry_run=false reached
     while [[ $# -gt 0 ]]; do
@@ -215,12 +252,16 @@ cmd_reboot() {
     # The one-minute warning is the last word before the reboot; with --in 1 it is also the
     # first, so it is not sent twice.
     reached="$(signal_projects reboot-warning "${minutes}" "${dry_run}")" || return 1
+    if [[ "${dry_run}" == false ]]; then
+        REBOOT_WARNED=true
+        trap cancel_reboot INT TERM
+    fi
     echo "Rebooting in ${minutes} minute(s); ${reached} project(s) warned." >&2
     if [[ "${minutes}" -gt 1 ]]; then
         if [[ "${dry_run}" == true ]]; then
             echo "would wait $((minutes - 1)) minute(s), then warn again at one minute" >&2
         else
-            sleep "$(((minutes - 1) * MINUTE_SECONDS))"
+            countdown "$(((minutes - 1) * MINUTE_SECONDS))"
             signal_projects reboot-warning 1 false >/dev/null || return 1
             echo "Rebooting in 1 minute." >&2
         fi
@@ -229,7 +270,8 @@ cmd_reboot() {
         echo "would reboot (systemctl reboot)" >&2
         return 0
     fi
-    sleep "${MINUTE_SECONDS}"
+    countdown "${MINUTE_SECONDS}"
+    trap - INT TERM
     systemctl reboot
 }
 

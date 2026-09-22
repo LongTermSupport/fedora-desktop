@@ -82,7 +82,9 @@ ccy_registry_launch_args() {
 
 # ccy_registry_replay_args <prefix> [args...] — the arguments a restore replays, one per
 # line. PURE. For prefix `ccy` the one-shot set is removed; any other launcher (cc) forwards
-# everything to claude, so nothing in that set means anything there and all is kept.
+# everything to claude, so ccy's flags mean nothing there and every flag is kept — but a
+# bare opening instruction is as stale on a cc replay as on a ccy one, and is dropped by
+# the same rule.
 #
 # The parser this mirrors is the launcher's own flat loop: a value-taking flag consumes the
 # NEXT word whatever it is, `--` ends ccy's options. Three groups:
@@ -107,7 +109,18 @@ ccy_registry_replay_args() {
             continue
         fi
         if [[ "$prefix" != "ccy" ]]; then
-            printf '%s\n' "$arg"
+            case "$arg" in
+            -*)
+                value_slot=true
+                printf '%s\n' "$arg"
+                ;;
+            *)
+                if [[ "$value_slot" == true ]]; then
+                    printf '%s\n' "$arg"
+                fi
+                value_slot=false
+                ;;
+            esac
             continue
         fi
         if [[ "$drop_next" == true ]]; then

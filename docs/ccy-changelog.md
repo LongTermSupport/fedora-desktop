@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.60.1
+
+Review fixes to 3.60.0, before it reached a machine. `ccy-sessions reboot` refused to
+proceed when tmux could not list sessions only on the restore path; now on the warning path
+too, so a listing failure can no longer read as "no sessions" and reboot unwarned. Ctrl-C
+during the countdown sends `reboot-cancelled` to every project that was warned. A `cc`
+record drops a bare opening instruction on replay, as a `ccy` record already did. A start
+that fails after its record was written removes the record. `ccy --help` lists
+`--no-restore`.
+
 ## 3.60.0
 
 **Sessions survive a reboot** ([issue #44](https://github.com/LongTermSupport/fedora-desktop/issues/44), Plan 00135). Every `ccy` and `cc` session now writes a record under

@@ -240,14 +240,14 @@ launcher behaves as it always does: a launch that named its token, key and netwo
 nothing and comes back unattended; one that answered prompts the first time asks them
 again, in the pane, where `ccy-sessions` will show it waiting.
 
-| Situation at boot                         | What restore does                                                                          |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Record present, directory exists          | Starts the session detached                                                                |
-| Session with that name already running    | Skips it and says so                                                                       |
-| Launched with `--no-restore`              | Skips it: the record says so                                                               |
-| Record's directory has since been deleted | Fails loudly, keeps the record for you, carries on with the others; the unit ends `failed` |
-| Live session list cannot be read          | Starts nothing — restoring blind could double every session                                |
-| Machine not opted in                      | Nothing runs; the records still accumulate and are removed as sessions end                 |
+| Situation at boot                         | What restore does                                                                                                                 |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Record present, directory exists          | Starts the session detached                                                                                                       |
+| Session with that name already running    | Skips it and says so                                                                                                              |
+| Launched with `--no-restore`              | Skips it: the record says so                                                                                                      |
+| Record's directory has since been deleted | Fails loudly, keeps the record for you, carries on with the others; the unit ends `failed`                                        |
+| Live session list cannot be read          | Starts nothing — restoring blind could double every session                                                                       |
+| Machine not opted in                      | Nothing runs. Records are still written and removed as sessions end; one left by a killed session stays until that name is reused |
 
 `ccy --no-restore` marks a one-off session as not worth bringing back. `ccy-sessions restore --dry-run` prints what a restore would start and starts nothing.
 

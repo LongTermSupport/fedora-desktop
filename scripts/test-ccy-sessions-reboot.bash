@@ -56,6 +56,10 @@ mkdir -p "$BIN"
 cat >"$BIN/tmux" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [ -n "${TEST_TMUX_BROKEN:-}" ]; then
+    echo "lost server" >&2
+    exit 1
+fi
 case "$*" in
 *list-sessions*) cat "$TEST_SESSIONS" ;;
 *)
@@ -202,6 +206,51 @@ run reboot --in 2
 check "no sessions: nothing to warn, still reboots" "0" "$rc"
 check "with no signals" "0" "$(calls | grep -c '^cli')"
 check "and one systemctl reboot" "1" "$(calls | grep -c '^systemctl reboot$')"
+
+echo ""
+echo "=== a session list that cannot be read is not an empty one ==="
+# The failure case prints the same "nothing to signal" as the empty case if the listing's
+# exit status is dropped on the way — and then the machine reboots with every agent
+# unwarned, exit 0. The fake tmux fails outright here.
+printf '%s\n' "ccy-a 1 $A" >"$SESSIONS"
+: >"$LOG"
+out="$(PATH="$BIN:$PATH" TEST_TMUX_BROKEN=1 CCY_LIB="$LIB_DIR" CCY_SESSIONS_MINUTE_SECONDS=0 CCY_STATE_DIR="$SCRATCH/state" "$TOOL" reboot --in 1 </dev/null 2>&1)"
+rc=$?
+check "reboot refuses when tmux cannot list sessions" "1" "$rc"
+check "and reboots nothing" "0" "$(calls | grep -c '^systemctl')"
+check "and signals nothing" "0" "$(calls | grep -c '^cli')"
+check "and says why" "yes" "$([[ "$out" == *"could not be read"* ]] && echo yes || echo no)"
+: >"$LOG"
+out="$(PATH="$BIN:$PATH" TEST_TMUX_BROKEN=1 CCY_LIB="$LIB_DIR" CCY_STATE_DIR="$SCRATCH/state" "$TOOL" notify reboot-warning --minutes 5 </dev/null 2>&1)"
+rc=$?
+check "notify refuses too" "1" "$rc"
+# The rehearsal reboot-with-update relies on must refuse as well, or it protects nothing.
+: >"$LOG"
+out="$(PATH="$BIN:$PATH" TEST_TMUX_BROKEN=1 CCY_LIB="$LIB_DIR" CCY_STATE_DIR="$SCRATCH/state" "$TOOL" reboot --in 2 --dry-run </dev/null 2>&1)"
+rc=$?
+check "and so does the dry run" "1" "$rc"
+
+echo ""
+echo "=== Ctrl-C during the countdown tells the sessions the reboot is off ==="
+printf '%s\n' "ccy-a 1 $A" "cc-b 0 $B" >"$SESSIONS"
+: >"$LOG"
+# A real minute here, so the countdown is in progress when the interrupt arrives.
+PATH="$BIN:$PATH" CCY_LIB="$LIB_DIR" CCY_SESSIONS_MINUTE_SECONDS=60 CCY_STATE_DIR="$SCRATCH/state" \
+    "$TOOL" reboot --in 3 </dev/null >"$SCRATCH/cancel.out" 2>&1 &
+reboot_pid=$!
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    if [ "$(calls | grep -c 'signal reboot-warning --minutes 3 ')" -eq 2 ]; then break; fi
+    sleep 0.1
+done
+# TERM rather than INT: a job started with & from a non-interactive shell has SIGINT
+# ignored, and an ignored-at-entry signal cannot be trapped, so INT would prove nothing
+# here. The tool traps both the same way; TERM is also what systemd sends.
+kill -TERM "$reboot_pid"
+if wait "$reboot_pid"; then rc=0; else rc=$?; fi
+check "an interrupted reboot exits 130" "130" "$rc"
+check "every warned project is told reboot-cancelled" "2" "$(calls | grep -c 'signal reboot-cancelled --all-sessions --project-root')"
+check "and nothing reboots" "0" "$(calls | grep -c '^systemctl')"
+check "and it says so" "yes" "$(grep -q 'Reboot cancelled' "$SCRATCH/cancel.out" && echo yes || echo no)"
 
 echo ""
 echo "=== restore is reachable as a subcommand ==="

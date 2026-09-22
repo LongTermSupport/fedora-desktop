@@ -520,7 +520,12 @@ ccy_tmux_insulate() {
     mapfile -t replay < <(ccy_registry_replay_args "$CCY_TMUX_SESSION_PREFIX" "${launch[@]}")
     ccy_registry_write "$name" "$PWD" "$launcher" "$CCY_TMUX_SESSION_PREFIX" "$restore" "${replay[@]}" || return 1
 
-    ccy_tmux_start_detached "$name" "$PWD" "$launcher" "${launch[@]}" || return 1
+    # A record with no session behind it would be restored at the next boot as a session
+    # that was never running, so a failed start takes its record with it.
+    if ! ccy_tmux_start_detached "$name" "$PWD" "$launcher" "${launch[@]}"; then
+        ccy_registry_remove "$name"
+        return 1
+    fi
     # Attaching IS the session from here: this client is the terminal's, and disposable.
     exec tmux -L "$CCY_TMUX_SOCKET" attach-session -t "=$name"
 }
@@ -542,7 +547,7 @@ ccy_tmux_start_detached() {
     local launcher="${3:?ccy_tmux_start_detached requires a launcher}"
     shift 3
     local tool regdir trampoline
-    for tool in tmux systemd-run; do
+    for tool in tmux systemd-run systemd-escape; do
         if [[ -z "$(command -v "$tool")" ]]; then
             print_error "$tool is not installed, so session '$name' cannot be started. Deploy it with playbooks/imports/play-tmux-sessions.yml (part of playbook-main.yml)."
             return 1
