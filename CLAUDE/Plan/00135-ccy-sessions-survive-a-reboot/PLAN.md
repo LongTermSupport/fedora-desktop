@@ -64,13 +64,23 @@ below.
 - **The daemon dependency has landed and is verified present** in the installed clone:
   `hooks-daemon signal {reboot-warning,shutdown-warning,reboot-cancelled} [--minutes N] [--all-sessions] [--project-root PATH]`.
   `--project-root` matters: the helper runs from outside each project.
-- **The `systemd --user` pattern to copy** is
-  `playbooks/imports/optional/common/play-host-health-login-report.yml`. It carries a trap
-  worth not repeating: the `ansible.builtin.systemd` module runs `daemon_reload` **before**
-  it changes the enabled state, so a reload requested on the enable task re-reads a
-  directory that does not yet contain the symlink the enable is about to create. That play
-  splits the reload into its own task *after* the enable, and reads back
-  `list-dependencies` rather than trusting `is-enabled`. Task 2.3 must do the same.
+- **The `systemd --user` pattern to copy** is `play-container-watch.yml` — unit file under
+  `files/home/.config/systemd/user/`, explicit loop, uid resolved via `getent` + assert,
+  `scope: user` plus `XDG_RUNTIME_DIR`. **Linger is not its job**:
+  `play-systemd-user-tweaks.yml:23-50` already owns that.
+  `play-host-health-login-report.yml` is worth reading alongside it for one trap: the
+  `ansible.builtin.systemd` module runs `daemon_reload` **before** it changes the enabled
+  state, so a reload requested on the enable task re-reads a directory that does not yet
+  contain the symlink the enable is about to create. That play splits the reload into its
+  own task *after* the enable and reads back `list-dependencies` rather than trusting
+  `is-enabled`. Task 2.3 must do the same.
+- **The registry path needs deciding, not assuming.** The issue says
+  `~/.local/state/ccy/sessions/`, but this repo's own XDG convention is
+  `$XDG_STATE_HOME/fedora-desktop` (`helpers/play_ledger/ledger.py:48-81`). Pick one
+  deliberately; do not end up with two conventions because the issue named a path.
+- **`docs/tmux-sessions.md:27-34`** is the table to amend, and `:36` says in prose
+  "Nothing restarts them after a reboot". Both contradict this plan once it lands, so both
+  change together — a table row without the sentence leaves the page arguing with itself.
 - **Test harness**: `scripts/test-*.bash`, run by `scripts/qa-all.bash`. Seven
   `test-ccy-*.bash` scripts already exist to model on. There is **no** existing test for
   `tmux-session.bash`.
@@ -119,8 +129,9 @@ below.
   (`tmux -L ccy`), in the recorded directory, with the recorded arguments plus
   `--supervise --continue`.
 - [ ] ⬜ **Task 2.2**: Opt-in play variable, defaulting to today's behaviour (no restore).
-  The play enables linger when — and only when — restore is enabled; linger is what lets
-  the user manager exist before login.
+  **Linger is already owned** by `play-systemd-user-tweaks.yml:23-50` — depend on it, do
+  not enable it a second time here. Two plays both enabling linger is two owners for one
+  fact, and the second one to be edited wins silently.
 - [ ] ⬜ **Task 2.3**: Deploy it from the owning play, following
   `play-host-health-login-report.yml`: reload as its **own task after** the enable, then
   **read back** that `default.target` actually names the unit. `is-enabled` reads the
@@ -258,6 +269,16 @@ on: attack surface and noise, not a lockout.
 
 That is worth fixing, but it is a different change with a different argument, and it needs
 its own issue so the anti-lockout reasoning is weighed rather than silently dropped.
+
+**A second site strengthens the case for that issue**: `files/usr/local/bin/ssh-suspend-guard:36`
+still hardcodes port 22. So "SSH is on 22" is assumed in two independent places, and a
+machine that moved sshd has one of them silently not doing its job. Also worth recording
+in that issue: **no sshd port variable exists** in `vars/` or `environment/`, and that is
+deliberate — `play-lxc-install-config.yml` *discovers* the ports from `sshd -T` through
+`helpers/sshd_ports/cli.py` rather than declaring them. Adding a declared variable would
+introduce a second source of truth that can disagree with the daemon's own answer. The
+brief asked for exactly that variable, which is the part most worth re-examining before
+anyone builds it.
 
 ## Delivery & Milestones
 
