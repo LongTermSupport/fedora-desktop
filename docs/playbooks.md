@@ -817,21 +817,35 @@ anything**:
   from one that ran and found something — and `systemctl --user is-failed` would stay silent
   about a health surface that had stopped working
 
-**One play, two deliveries.** Only the delivery is profile-specific; the checks are not. `scope: general`, branching on `provisioning_profile`:
+**One play, two collectors.** Only the trigger is profile-specific; the checks are not. `scope: general`, branching on `provisioning_profile`:
 
 - **desktop** — a `systemd --user` unit at the **end of a graphical login**, not at boot,
   so somebody is present to read the notification
 - **server** — `graphical-session.target` never activates and there is no session bus, so
-  a `--user` **timer** runs the same collection and a `~/.bashrc-includes` snippet prints
-  what it left at the next interactive shell. A `git fetch` at every SSH login would slow
-  every login and can hang on an unreachable remote
+  a `--user` **timer** runs the same collection. A `git fetch` at every SSH login would
+  slow every login and can hang on an unreachable remote
 - The timer is **daily**, derived from the consumer's 14-day staleness bound rather than
   picked: one failed run, one reboot or a day powered off must not read as a stale host,
   but a collector that has stopped must be reported well inside the fortnight
+
+**The terminal reads it on both profiles.** A `~/.bashrc-includes` snippet prints what the
+collector left at the next interactive shell, locally or over SSH, and
+`~/.local/bin/fedora-desktop-health` prints the whole report on demand:
+
+- **In full once a day, then one line.** Every tmux pane and terminal tab is a new
+  interactive shell, and the same wall of findings on each is how a report gets muted. The
+  snippet prints the full report the first time a given message is seen on a given day and
+  a one-line reminder naming `fedora-desktop-health` after that. Changed findings are shown
+  in full again at once. The stamp lives beside the status document; if it cannot be
+  written the report prints in full, which costs noise rather than a finding
+- **`fedora-desktop-health` always answers.** A clean host gets a sentence saying so and
+  when the status was collected, because silence is the right reply at login and the wrong
+  one to a direct question. `--hold` waits for Enter before exiting, which is how the panel
+  opens it in a terminal window that would otherwise close with it
 - The snippet prints **only for an interactive shell**. bash reads `~/.bashrc` for a
   non-interactive shell too when sshd started it, so anything printed unconditionally
   breaks `scp`, `sftp` and `rsync` to the host with a protocol error
-- On a server it fails loudly if `~/.bashrc` does not source `~/.bashrc-includes` — run
+- It fails loudly if `~/.bashrc` does not source `~/.bashrc-includes` — run
   `playbook-main.yml` first. A snippet nothing reads looks exactly like a healthy host
 - **The server checkout needs a remote the timer can fetch without an agent.** A timer
   has no `ssh-agent`, and the freshness check never prompts, so an SSH remote with a
@@ -850,6 +864,11 @@ The `fedora-desktop` GNOME Shell panel — **a read-only surface**:
   status document
 - It renders; it runs no check, applies no fix and launches no play. Re-running a play is
   a human decision, and a clickable surface is where that boundary erodes
+- **"Open the full report in a terminal"**, one row under the collection time, opens
+  `fedora-desktop-health --hold` in the user's default terminal through `xdg-terminal-exec`,
+  which this play installs. The panel is the indicator; the text in the terminal is the
+  reading surface. The command comes from `play-host-health-login-report.yml`, and the row
+  says so if that play has not run here
 - **When there are findings it offers the Claude Code handoff command**, one row at the
   bottom of the health section. Activating it **copies** the command — `claude` reads the
   repository it starts in, and the panel does not know where the checkout is, so a launch

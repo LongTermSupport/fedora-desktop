@@ -41,7 +41,9 @@ globalThis.log = () => {};
 
 const StatusDocument = await import(`${EXTENSION}statusDocument.js`);
 const {section: health} = await import(`${EXTENSION}sections/health.js`);
-const {RecordingMenu, GLIB_FILES, CLIPBOARD, NOTIFICATIONS} = await import('./gi-stubs.mjs');
+const {
+    RecordingMenu, GLIB_FILES, CLIPBOARD, NOTIFICATIONS, SPAWNS, SPAWN_FAILURE, EXECUTABLES,
+} = await import('./gi-stubs.mjs');
 
 const OSRELEASE = '/proc/sys/kernel/osrelease';
 
@@ -360,12 +362,15 @@ test('activating it LAUNCHES nothing — the panel offers, a human decides', () 
     // checkout is. A launch from here would start it in the compositor's working
     // directory, where it cannot see the playbooks the diagnosis is about.
     //
-    // Asserted against the SHIPPED source rather than by watching a stub go uncalled:
-    // a spawn through an API the stubs do not provide would throw at activate time and
-    // never reach an assertion about it. Reading the file cannot miss that.
+    // Watched through the stub, now that the stubs provide the spawn API (the report
+    // row below uses it): a spawn through any OTHER API would still throw at activate
+    // time, so the source check keeps covering the routes the stub does not.
+    SPAWNS.length = 0;
+    offerRow(render(document({}, COLLECTED, HANDOFF))).emit('activate');
+    assert.equal(SPAWNS.length, 0, 'the handoff row spawned a process');
     const source = readFileSync(new URL(`${EXTENSION}sections/health.js`), 'utf8');
-    assert.ok(!/Gio\.Subprocess|spawn_command_line|spawn_async|xdg-terminal-exec/.test(source),
-        'the health section launches a process');
+    assert.ok(!/spawn_command_line|spawn_async/.test(source),
+        'the health section spawns through an API the tests cannot see');
 });
 
 test('a document naming no handoff gets no row', () => {
@@ -414,4 +419,108 @@ test('the offer comes LAST, after everything it refers to', () => {
     }}, COLLECTED, HANDOFF);
     const menu = render(doc);
     assert.equal(menu.items.at(-1), offerRow(menu));
+});
+
+/**
+ * The full report in a terminal (Plan 00136). The panel is an indicator; the text a
+ * terminal prints is the reading surface, and this row is how a click gets there. It
+ * launches ONE thing — the on-demand report command, which reads and never re-runs a
+ * play — so DESIGN-panel.md §8 still holds: nothing here applies anything.
+ */
+const REPORT_ROW = 'Open the full report in a terminal';
+const COMMAND_PATH = '/stub/home/.local/bin/fedora-desktop-health';
+
+function reportRow(menu) {
+    return menu.items.find(item => item?.label?.text === REPORT_ROW);
+}
+
+function resetLaunches() {
+    SPAWNS.length = 0;
+    NOTIFICATIONS.length = 0;
+    SPAWN_FAILURE.message = null;
+    EXECUTABLES.clear();
+}
+
+test('the report row is offered whatever the document says', () => {
+    // A clean host, a host with findings, and a host nothing has checked all have a
+    // report to read — the command says which. Unlike the handoff, there is no state
+    // in which "open the report" would contradict the menu above it.
+    const clean = render(document({}));
+    const findings = render(document({'post-boot-health': {
+        state: 'findings', findings: [BOOT_FINDING], unchecked: [],
+    }}));
+    GLIB_FILES.delete(OSRELEASE);
+    const unreadable = new RecordingMenu();
+    health.build(unreadable, {
+        schema: 1, generated_at: '', kernel: '', handoff: '',
+        sections: {status: {state: 'unavailable', findings: [], unchecked: ['nothing yet']}},
+    }, NOW, COLLECTED);
+    for (const menu of [clean, findings, unreadable]) {
+        const row = reportRow(menu);
+        assert.ok(row !== undefined, 'no report row was rendered');
+        assert.equal(row.reactive, true);
+    }
+});
+
+test('the row comes FIRST, before the findings it expands on', () => {
+    // A person who wants the detail should not have to read past a summary to find the
+    // way to it. Below the collection line, above the separator that opens the checks.
+    const menu = render(document({}));
+    const texts = menu.texts;
+    assert.equal(texts[1], REPORT_ROW);
+    assert.match(texts[0], /^collect/);
+});
+
+test('activating it opens the command in the default terminal, by argv, held open', () => {
+    resetLaunches();
+    EXECUTABLES.add(COMMAND_PATH);
+    reportRow(render(document({}))).emit('activate');
+    assert.equal(SPAWNS.length, 1);
+    assert.deepEqual(SPAWNS[0].argv, ['xdg-terminal-exec', COMMAND_PATH, '--hold']);
+});
+
+test('the path is built from the home directory and the shared command name', () => {
+    assert.equal(StatusDocument.onDemandCommandPath(), COMMAND_PATH);
+    assert.ok(COMMAND_PATH.endsWith(`/${StatusDocument.ON_DEMAND_COMMAND}`));
+});
+
+test('a command that is not installed is said so, and nothing is spawned', () => {
+    // The report play installs the command; the panel play does not. A host with the
+    // panel and not the report has nothing to open, and a terminal that flashes up and
+    // closes on "command not found" tells the user nothing.
+    resetLaunches();
+    reportRow(render(document({}))).emit('activate');
+    assert.equal(SPAWNS.length, 0);
+    assert.equal(NOTIFICATIONS.length, 1);
+    assert.match(NOTIFICATIONS[0].body, /play-host-health-login-report\.yml/);
+});
+
+test('a terminal that cannot start is reported, naming the command to run by hand', () => {
+    resetLaunches();
+    EXECUTABLES.add(COMMAND_PATH);
+    SPAWN_FAILURE.message = 'Failed to execute child process "xdg-terminal-exec"';
+    reportRow(render(document({}))).emit('activate');
+    assert.equal(NOTIFICATIONS.length, 1);
+    assert.match(NOTIFICATIONS[0].body, /fedora-desktop-health/);
+    assert.match(NOTIFICATIONS[0].body, /xdg-terminal-exec/);
+});
+
+test('the report row is the ONLY thing in the section that spawns', () => {
+    // Every row is activated where it can be; only one may reach the process table.
+    resetLaunches();
+    EXECUTABLES.add(COMMAND_PATH);
+    const menu = render(document({'post-boot-health': {
+        state: 'findings', findings: [BOOT_FINDING], unchecked: [],
+    }}, COLLECTED, HANDOFF));
+    let activated = 0;
+    for (const item of menu.items) {
+        if (item?.handlers?.has('activate') && item !== reportRow(menu)) {
+            item.emit('activate');
+            activated += 1;
+        }
+    }
+    // The handoff row is the one other clickable row. A count of zero would mean the
+    // loop matched nothing and the assertion below was vouching blind.
+    assert.equal(activated, 1);
+    assert.equal(SPAWNS.length, 0);
 });

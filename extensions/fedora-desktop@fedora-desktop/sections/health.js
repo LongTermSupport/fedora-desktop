@@ -14,6 +14,8 @@
  * reads like a complete picture of a machine, which is how the incident happened.
  */
 
+import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
 import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
@@ -60,8 +62,9 @@ function findingItem(text, styleClass) {
  *    surface. A second idiom for "here is a command, you run it" would be one to learn
  *    for no gain.
  * 3. DESIGN-panel.md §8: the panel offers, a human decides — and a clickable surface is
- *    precisely where that erodes. §6's terminal-launching mechanism belongs to Task 4.3,
- *    which must choose it on evidence this task does not have.
+ *    precisely where that erodes. The one thing this section does launch is the report
+ *    viewer (`appendOpenReport`, Plan 00136), which reads and changes nothing; §6's
+ *    play-launching mechanism still belongs to Task 4.3.
  *
  * Absent when there is no handoff, which is the honest rendering of all three ways that
  * happens: a clean host has nothing to diagnose, and a failed write or an unreadable
@@ -84,6 +87,48 @@ function appendHandoffOffer(menu, document) {
     item.connect('activate', () => {
         St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, command);
         Main.notify('Fedora Desktop', 'Copied the handoff command');
+    });
+    menu.addMenuItem(item);
+}
+
+/**
+ * The full report, in a terminal (Plan 00136).
+ *
+ * The panel is an indicator; the text `fedora-desktop-health` prints is the reading
+ * surface, on a desktop as on a server. This row is how a click gets there: the user's
+ * default terminal via `xdg-terminal-exec`, the command held open so the window does
+ * not close with it. An argv, never an interpolated command string — the path carries
+ * the home directory, and GLib's command-line form would word-split it.
+ *
+ * It launches a READER. Nothing about §8 moves: no check runs here, no play runs there.
+ *
+ * Offered for every document, unlike the handoff: a clean host, a host with findings
+ * and a host nothing has checked all have a report, and the command says which.
+ *
+ * Two things can go wrong and both are said rather than swallowed: the command is not
+ * installed (the report play has not run on this host — a terminal flashing "command
+ * not found" and closing would tell the user nothing), and the terminal itself cannot
+ * start. `Gio.Subprocess.new` reports only whether the TERMINAL started; what happens
+ * inside it is the command's business, and it holds its own window open on an error.
+ */
+function appendOpenReport(menu) {
+    const item = new PopupMenu.PopupMenuItem('Open the full report in a terminal');
+    item.connect('activate', () => {
+        const command = StatusDocument.onDemandCommandPath();
+        if (!GLib.file_test(command, GLib.FileTest.IS_EXECUTABLE)) {
+            Main.notify('Fedora Desktop',
+                `${StatusDocument.ON_DEMAND_COMMAND} is not installed here; ` +
+                'run play-host-health-login-report.yml');
+            return;
+        }
+        try {
+            Gio.Subprocess.new(['xdg-terminal-exec', command, '--hold'],
+                Gio.SubprocessFlags.NONE);
+        } catch (e) {
+            Main.notify('Fedora Desktop',
+                `Could not open a terminal through xdg-terminal-exec (${e.message}). ` +
+                `Run ${StatusDocument.ON_DEMAND_COMMAND} in one.`);
+        }
     });
     menu.addMenuItem(item);
 }
@@ -186,6 +231,9 @@ export const section = {
 
     build(menu, document, nowMillis, runningKernel) {
         appendCollectedAt(menu, document, nowMillis);
+        // Before the separator that opens the checks: the way to the detail sits with
+        // the summary, not below a list the user has to read past to find it.
+        appendOpenReport(menu);
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         if (appendSelfReport(menu, document)) {
             return;

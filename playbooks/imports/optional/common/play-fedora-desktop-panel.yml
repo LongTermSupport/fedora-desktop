@@ -58,6 +58,16 @@
       ansible.builtin.meta: end_play
       when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
 
+    # The health section's "open the full report in a terminal" row (Plan 00136) opens
+    # the user's default terminal through the XDG launcher, so whichever terminal they
+    # chose is the one that opens. Declared here because this play owns the row; the
+    # command it runs is installed by play-host-health-login-report.yml, and the row
+    # says so if that play has not run.
+    - name: Install The Default-Terminal Launcher The Panel Opens Reports With
+      ansible.builtin.dnf:
+        name: xdg-terminal-exec
+        state: present
+
     # A whole-directory copy, the `play-container-watch.yml` form. The extension is
     # several files including `sections/`, and an explicit per-file loop is one more
     # place to forget a new one — a file that exists in the repo and never deploys

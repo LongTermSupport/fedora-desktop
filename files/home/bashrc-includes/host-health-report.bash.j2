@@ -1,14 +1,18 @@
 {{ ansible_managed | comment }}
-# The SERVER half of Plan 00109's login-time host health report.
+# The terminal delivery of the host health report (Plan 00109 server route; Plan 00136
+# made it both profiles). On a desktop the notification and the panel remain; the clear
+# text a terminal prints, locally or over SSH, is the primary reading surface.
 #
-# The desktop delivery is `notify-send` from a graphical-session.target unit. A server
-# has no session bus and that target never activates, so a server got no drift detection
-# at all — yet the checks behind the report are profile-agnostic; only the delivery
-# was desktop-bound.
+# The checks do NOT run here. `host-health-collect.timer` (server) or `host-health.service`
+# (desktop, at the end of a graphical login) runs them and leaves the status document
+# behind; this prints what it left. A `git fetch` at every SSH login would add latency to
+# every login and can hang on an unreachable remote.
 #
-# The checks do NOT run here. `host-health-collect.timer` runs them on a schedule and
-# leaves the status document behind; this prints what it left. A `git fetch` at every SSH
-# login would add latency to every login and can hang on an unreachable remote.
+# ONCE A DAY IN FULL. Every tmux pane and terminal tab is a new interactive shell, and the
+# same wall of findings on each is how a report gets muted. `--once-a-day` prints the full
+# report the first time a given message is seen on a given day and a one-line reminder
+# naming `fedora-desktop-health` after that; changed findings are shown in full again at
+# once. That command prints the whole report on demand.
 
 # INTERACTIVE ONLY, and this is the load-bearing line. bash reads ~/.bashrc for a
 # NON-interactive shell too when sshd is what started it, so anything printed here lands
@@ -35,9 +39,13 @@ fi
 # same-named modules in their own projects, and a `cd` would drop every SSH login into
 # the checkout instead of the user's home directory.
 #
+# `-P`, because `-m` would otherwise put the shell's OWN directory first on sys.path,
+# ahead of PYTHONPATH. A new tmux pane opens in the project it belongs to, and a project
+# with a `helpers/` directory would then be what this imports.
+#
 # /usr/bin/python3 by path, because a bare `python3` resolves through a pyenv shim on a
 # host that has one — a different interpreter from the one the play installs into.
-PYTHONPATH="{{ root_dir }}" /usr/bin/python3 -m helpers.host_health.login_message
+PYTHONPATH="{{ root_dir }}" /usr/bin/python3 -P -m helpers.host_health.login_message --once-a-day
 
 # Always 0. This is sourced from a loop in ~/.bashrc, and a health reporter that costs
 # the user the login to the host it reports on is worse than no reporter — the same

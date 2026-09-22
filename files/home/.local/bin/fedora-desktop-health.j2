@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+{{ ansible_managed | comment }}
+# fedora-desktop-health — print this host's health report, in full, now (Plan 00136).
+#
+# The report itself is collected by host-health.service (desktop, end of a graphical
+# login) or host-health-collect.timer (server) and left in the host state directory;
+# the login shell prints it once a day and then a one-line reminder that names this
+# command. This is where that reminder, and the panel's "open the full report" row,
+# send a person. It reads; it never runs a check, never re-runs a play.
+#
+# Unlike the login shell it always answers: a clean host gets a sentence saying so and
+# when the status was collected, because silence is the right reply at login and the
+# wrong one to a direct question.
+#
+#   fedora-desktop-health          print the report and exit
+#   fedora-desktop-health --hold   print it, then wait for Enter — for a terminal that
+#                                  would otherwise close with its command, which is how
+#                                  the panel launches it
+set -euo pipefail
+
+ROOT_DIR="{{ root_dir }}"
+HOLD=false
+
+usage() {
+    cat <<'EOF'
+Usage: fedora-desktop-health [--hold]
+
+Prints this machine's fedora-desktop health report: what is broken now, what could not
+be checked, plays that have changed since they last ran here, and installed versions
+that differ from the repo's pins. Says so plainly when there is nothing to report.
+
+Options:
+  --hold      after printing, wait for Enter before exiting (keeps a launched
+              terminal window open)
+  -h, --help  this text
+
+Examples:
+  fedora-desktop-health
+  xdg-terminal-exec fedora-desktop-health --hold
+EOF
+}
+
+# Wait for Enter on stdin, with the prompt on stderr so the report on stdout stays
+# clean. EOF (Ctrl-D, a closed stdin) releases it too: a window nobody can type into
+# must not hang for ever.
+hold() {
+    printf '\nPress Enter to close this window. ' >&2
+    if ! read -r _; then
+        echo >&2
+    fi
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+    -h | --help)
+        usage
+        exit 0
+        ;;
+    --hold)
+        HOLD=true
+        shift
+        ;;
+    *)
+        echo "fedora-desktop-health: unknown option '$1' — see fedora-desktop-health --help" >&2
+        exit 64
+        ;;
+    esac
+done
+
+# The checkout path was written in by Ansible. If it has moved, `python3 -m` would print
+# a multi-line ImportError traceback; the missing path is the useful sentence.
+if [ ! -r "$ROOT_DIR/helpers/host_health/login_message.py" ]; then
+    echo "fedora-desktop-health: the fedora-desktop checkout at $ROOT_DIR has gone, so there is no report to print; re-run play-host-health-login-report.yml from the checkout's new location" >&2
+    if [ "$HOLD" = true ]; then
+        hold
+    fi
+    exit 1
+fi
+
+# PYTHONPATH on the command only, never exported, and no `cd`: this runs in whatever
+# directory the user's terminal is in and must leave it there. `-P` because `-m` would
+# otherwise put that directory FIRST on sys.path, ahead of PYTHONPATH — run from inside
+# any project with a `helpers/` directory, the report would import that project's code.
+#
+# /usr/bin/python3 by path, because a bare `python3` resolves through a pyenv shim on a
+# host that has one — a different interpreter from the one the play installs into.
+#
+# `|| status=$?`, not `if ! …; then status=$?`: inside that `then` branch `$?` is the
+# negation's status, which is always 0, so the failure would be recorded as success.
+status=0
+PYTHONPATH="$ROOT_DIR" /usr/bin/python3 -P -m helpers.host_health.login_message --on-demand || status=$?
+if [ "$HOLD" = true ]; then
+    hold
+fi
+exit "$status"

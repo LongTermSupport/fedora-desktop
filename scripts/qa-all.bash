@@ -16,7 +16,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # The three stage-line readers. Between them they produce the SUMMARY in every stage line
-# below — 33 of them, counted: `qa_gate_case_count` 25, `qa_gate_detail` 7,
+# below — 36 of them, counted: `qa_gate_case_count` 26, `qa_gate_detail` 9,
 # `helper_counts_summary` 1. `qa_pass_line` prints it; only `deployed-drift` composes its own
 # line, because there the line IS the gate's output rather than a summary of it. Sourced
 # rather than inlined so a committed test can drive the real functions — see the library
@@ -668,6 +668,19 @@ if ! login_snippet_out="$(bash "$SCRIPT_DIR/test-host-health-login-snippet.bash"
 fi
 login_snippet_summary=$(qa_gate_case_count "$login_snippet_out")
 qa_pass_line host-health-login-snippet "$login_snippet_summary"
+
+# The on-demand report command (Plan 00136). The login snippet's reminder and the panel's
+# terminal row both hand a person to it and walk away, so it has to answer on its own: a
+# sentence on a clean host, `--hold` released by Enter or EOF, and a missing checkout named
+# without a traceback.
+health_command_out=""
+if ! health_command_out="$(bash "$SCRIPT_DIR/test-fedora-desktop-health.bash" 2>&1)"; then
+    qa_hard_gate_failed fedora-desktop-health \
+        "fedora-desktop-health command unit tests failed" \
+        "$health_command_out"
+fi
+health_command_summary=$(qa_gate_case_count "$health_command_out")
+qa_pass_line fedora-desktop-health "$health_command_summary"
 
 # The fail-fast directive pattern's own unit suite (Plan 00081 F10).
 #

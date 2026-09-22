@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Unit-test the server login snippet (files/home/bashrc-includes/host-health-report.bash.j2).
+# Unit-test the login snippet (files/home/bashrc-includes/host-health-report.bash.j2),
+# deployed on both profiles since Plan 00136.
 #
 # WHY THIS EXISTS. bash reads ~/.bashrc for a NON-interactive shell when sshd is the one
 # that started it, which is why a `.bashrc` that prints anything breaks scp, sftp and
@@ -86,7 +87,7 @@ fi
 FINDING_TEXT="the widget frobnicator is not built for the running kernel"
 
 make_state() {
-    local name="$1" kind="$2"
+    local name="$1" kind="$2" finding="${3:-$FINDING_TEXT}"
     local home="$WORK_DIR/$name"
     mkdir -p "$home/fedora-desktop"
     if [ "$kind" = "absent" ]; then
@@ -103,7 +104,7 @@ make_state() {
     # invented kernel makes every case here speak and the silent cases stop testing what
     # they were written for. That is not hypothetical: it happened, and took three
     # assertions with it.
-    PYTHONPATH="$REPO_ROOT" python3 - "$home" "$kind" "$FINDING_TEXT" <<'PYEOF'
+    PYTHONPATH="$REPO_ROOT" python3 - "$home" "$kind" "$finding" <<'PYEOF'
 import sys
 
 from helpers.host_health import probe, probe_results, status_document
@@ -159,6 +160,29 @@ case "$interactive_findings" in
     *) got_finding="no: [$interactive_findings]" ;;
 esac
 check "an interactive shell is shown the finding" "yes" "$got_finding"
+
+# ── once a day in full, then one line (Plan 00136) ───────────────────────────────────
+# Every tmux pane is a new interactive shell. The second one today gets a reminder that
+# names the on-demand command, not the findings again.
+second_shell="$(source_snippet interactive "$STATE_FINDINGS" "$RENDERED")"
+check "a second shell the same day gets exactly one line" "1" "$(printf '%s\n' "$second_shell" | grep -c .)"
+case "$second_shell" in
+    *"$FINDING_TEXT"*) got_reminder="the findings again" ;;
+    *fedora-desktop-health*) got_reminder="the reminder" ;;
+    *) got_reminder="neither: [$second_shell]" ;;
+esac
+check "the second shell's line names fedora-desktop-health" "the reminder" "$got_reminder"
+
+# Changed findings are news, whatever the clock says: rewrite the document and the next
+# shell is shown the new finding in full.
+CHANGED_TEXT="the wifi firmware is missing for the running kernel"
+make_state findings findings "$CHANGED_TEXT" >/dev/null
+changed_shell="$(source_snippet interactive "$STATE_FINDINGS" "$RENDERED")"
+case "$changed_shell" in
+    *"$CHANGED_TEXT"*) got_changed=yes ;;
+    *) got_changed="no: [$changed_shell]" ;;
+esac
+check "changed findings are shown in full again the same day" "yes" "$got_changed"
 
 check "a clean host says nothing" "" "$(source_snippet interactive "$STATE_CLEAN" "$RENDERED")"
 
@@ -259,11 +283,17 @@ if [ "$(printf '%s\n' "$invocation" | grep -c .)" -ne 1 ]; then
     interpreter="no single invocation line found: [$invocation]"
 else
     case "$invocation" in
-        *"/usr/bin/python3 -m helpers.host_health.login_message"*) interpreter=explicit ;;
+        *"/usr/bin/python3 -P -m helpers.host_health.login_message"*) interpreter=explicit ;;
         *) interpreter="implicit: [$invocation]" ;;
     esac
 fi
 check "the snippet calls the system interpreter by path" "explicit" "$interpreter"
+
+case "$invocation" in
+    *" --once-a-day"*) once=yes ;;
+    *) once="no: [$invocation]" ;;
+esac
+check "the snippet asks for the once-a-day mode" "yes" "$once"
 
 printf '\npassed: %s failed: %s\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]

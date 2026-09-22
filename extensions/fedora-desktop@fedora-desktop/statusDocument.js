@@ -63,6 +63,17 @@ export const STATE_DIR_NAME = 'fedora-desktop';
  * constants the gate compares live. */
 export const HANDOFF_COMMAND = 'claude';
 
+/** Must match `login_message.ON_DEMAND_COMMAND`, compared by the same gate (Plan
+ * 00136). The command that prints the full report in a terminal; the login shell's
+ * reminder names it and the health section launches it. */
+export const ON_DEMAND_COMMAND = 'fedora-desktop-health';
+
+/** Where `play-host-health-login-report.yml` installs that command. An absolute path,
+ * because the shell's PATH is not a login shell's and need not include ~/.local/bin. */
+export function onDemandCommandPath() {
+    return GLib.build_filenamev([GLib.get_home_dir(), '.local', 'bin', ON_DEMAND_COMMAND]);
+}
+
 /** `GLib.get_user_state_dir()` applies the same XDG rule as `ledger.state_dir`. The
  * runtime dir that `container-watch` uses would be wrong here: it is cleared at boot,
  * and a post-boot health verdict that vanishes at boot has no reader. */

@@ -37,7 +37,13 @@ import os
 import re
 import sys
 
-from helpers.host_health import handoff, login_report, probe_results, status_document
+from helpers.host_health import (
+    handoff,
+    login_message,
+    login_report,
+    probe_results,
+    status_document,
+)
 from helpers.play_ledger import ledger
 
 #: The JavaScript half of the contract: the file declaring the shared constants.
@@ -79,6 +85,10 @@ def expected() -> dict[str, str]:
         # the one nobody rereads, and a panel offering a program the login report no
         # longer names would put a command that does not exist under a button.
         "HANDOFF_COMMAND": handoff.COMMAND,
+        # The panel launches this command by name from the user's bin directory, and the
+        # play installs it under the Python side's name. A rename on one side is a row
+        # that notifies "not installed" on every host (Plan 00136).
+        "ON_DEMAND_COMMAND": login_message.ON_DEMAND_COMMAND,
     }
 
 

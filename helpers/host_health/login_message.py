@@ -1,14 +1,19 @@
-"""The status document rendered for a login shell (Plan 00109, Task 3.2 server route).
+"""The status document rendered for a terminal (Plan 00109, Task 3.2; Plan 00136).
 
-The second consumer of `status_document`, and the one a **server** gets. The desktop
-delivery is `notify-send` from a `graphical-session.target` unit, and it ends at that
-notification: there is no session bus to reach on a server and that target never
-activates. This is the server delivery of the *same* play —
-`play-host-health-login-report.yml` is `scope: general` and carries both, for the reason
-its own header sets out: only the delivery was ever profile-specific, so a second
-playbook would have been four byte-identical tasks and a pair that drifts. Without this
-delivery, a server — where unattended drift goes unnoticed longest, because nobody logs
-in to see a notification — got nothing.
+The second consumer of `status_document`, and the one every interactive shell gets on
+both profiles. It began as the **server** delivery — no session bus for `notify-send`,
+`graphical-session.target` never activates — and Plan 00136 made it the primary reading
+surface on a desktop too: the clear text a login shell prints, over SSH or in a local
+terminal, is what a panel menu cannot be. Both deliveries come from
+`play-host-health-login-report.yml`, which is `scope: general` for the reason its own
+header sets out: only the delivery was ever profile-specific.
+
+Two modes on top of the plain render, both Plan 00136's. `--once-a-day` is the login
+shell's: the full report the first time a given message is seen on a given day, and a
+one-line reminder naming `fedora-desktop-health` after that, because every tmux pane is
+a new interactive shell and the same wall of findings on each is how a report gets muted.
+`--on-demand` is that command's: it always answers, with a positive sentence on a clean
+host, because silence is the right reply at login and the wrong one to a direct question.
 
 What makes this affordable is that the checks no longer run here. They run on their own
 schedule and leave the document behind; this prints what they left. A `git fetch` at every
@@ -42,12 +47,23 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import hashlib
 import os
 import sys
 from typing import TextIO
 
 from helpers.host_health import probe, status_document
 from helpers.play_ledger import ledger, repo
+
+#: The command that prints this report on demand (Plan 00136). Installed by
+#: `play-host-health-login-report.yml` into the user's `~/.local/bin`; the panel builds
+#: the same path from the same name to open it in a terminal, and
+#: `helpers/gnome/check_panel_contract.py` compares the two declarations.
+ON_DEMAND_COMMAND = "fedora-desktop-health"
+
+#: Beside the status document: the day and the message last shown in full, so a
+#: login shell can tell "the same findings, again" from "something changed".
+STAMP_FILE_NAME = "host-health-shown"
 
 #: How old the document may be before its age is itself reported. Declared, not buried in
 #: a branch, because it is a judgement about how often a host is expected to be checked
@@ -225,13 +241,132 @@ def render(document: object, *, now: str, running_kernel: str) -> str:
 
 
 def read_and_render(path: str, *, now: str, running_kernel: str) -> str:
-    """The whole server-side job: read the document, render it.
+    """The whole login-shell job: read the document, render it.
 
     `status_document.read` already turns absent, unparseable and unknown-schema into an
     `unavailable` document rather than an empty one, so this cannot accidentally report a
     missing file as a healthy host.
     """
     return render(status_document.read(path), now=now, running_kernel=running_kernel)
+
+
+def clean_statement(document: object, *, now: str) -> str:
+    """What a person who ASKED is told about a clean host (Plan 00136, on demand).
+
+    Silence is the right answer at login and the wrong one to a direct question: a
+    command that prints nothing looks broken. The age is stated because "clean" is a
+    claim about the moment of collection, not about now.
+    """
+    age = _age_days(
+        document.get("generated_at") if isinstance(document, dict) else None, now
+    )
+    # `render` reports an unreadable age as a finding, so a clean message never reaches
+    # here with `None`; a stamp inside the future tolerance floors to -1 and is today.
+    if age is None or age <= 0:
+        when = "today"
+    elif age == 1:
+        when = "yesterday"
+    else:
+        when = f"{age} days ago"
+    return f"fedora-desktop: nothing needs attention; the host status was collected {when}."
+
+
+def stamp_path(state_dir: str) -> str:
+    """Where the once-a-day stamp lives: beside the status document."""
+    return os.path.join(state_dir, STAMP_FILE_NAME)
+
+
+def item_counts(message: str) -> tuple[int, int]:
+    """`(faults, unchecked)` in a rendered message.
+
+    Counted apart because the report's whole thesis is that they are different things:
+    a line under the not-checked heading is something nobody looked at, and a reminder
+    that folded it into "needs attention" would make the claim the report refuses to.
+    """
+    faults = 0
+    unchecked = 0
+    below = False
+    for line in message.split("\n"):
+        if line.strip() == _NOT_CHECKED:
+            below = True
+        elif line.startswith("  - "):
+            if below:
+                unchecked += 1
+            else:
+                faults += 1
+    return faults, unchecked
+
+
+def _plural(count: int, noun: str) -> str:
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
+def reminder(message: str) -> str:
+    """The one line a later shell gets on a day the message has already been shown."""
+    faults, unchecked = item_counts(message)
+    parts = []
+    if faults:
+        parts.append(_plural(faults, "fault"))
+    if unchecked:
+        parts.append(_plural(unchecked, "unchecked item"))
+    return (
+        f"fedora-desktop: {' and '.join(parts)} in the health report (shown in full "
+        f"earlier today) — run {ON_DEMAND_COMMAND} for the details"
+    )
+
+
+def _day_of(now: str) -> str:
+    return now[:10]
+
+
+def _digest(message: str) -> str:
+    return hashlib.sha256(message.encode("utf-8")).hexdigest()
+
+
+def _read_stamp(path: str) -> tuple[str, str] | None:
+    """`(day, digest)` from the stamp, or None for absent, unreadable or malformed.
+
+    A stamp this cannot read is the same as no stamp: the cost of being wrong that way
+    is one repeated report, and the cost of the other way is a finding nobody saw.
+    """
+    try:
+        with open(path, encoding="utf-8") as handle:
+            fields = handle.read().split()
+    except OSError:
+        return None
+    if len(fields) != 2 or len(fields[1]) != 64:
+        return None
+    return fields[0], fields[1]
+
+
+def _write_stamp(path: str, *, day: str, digest: str) -> None:
+    """Record what was just shown. Failure is swallowed HERE and only here, by design:
+    the caller has already printed the full report, which is the safe outcome, and a
+    traceback over an unwritable state directory would cost the shell its prompt."""
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(f"{day} {digest}\n")
+    except OSError:
+        return
+
+
+def once_a_day(message: str, *, stamp: str, now: str) -> str:
+    """The message in full the first time today, the reminder after that.
+
+    Keyed on the message's bytes as well as the day: a document rewritten with different
+    findings is news, whatever the clock says, and the same findings collected again
+    are not. A clean message is returned as is and leaves the stamp alone — there is
+    nothing to be reminded of.
+    """
+    if not message:
+        return message
+    day = _day_of(now)
+    digest = _digest(message)
+    if _read_stamp(stamp) == (day, digest):
+        return reminder(message)
+    _write_stamp(stamp, day=day, digest=digest)
+    return message
 
 
 def main(
@@ -266,21 +401,48 @@ def main(
         default=None,
         help="this host's fedora-desktop state directory; resolved from XDG by default",
     )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--once-a-day",
+        action="store_true",
+        help="login shell: the full report once a day per message, a one-line "
+        "reminder after that",
+    )
+    mode.add_argument(
+        "--on-demand",
+        action="store_true",
+        help=f"{ON_DEMAND_COMMAND}: always answer, with a positive statement when clean",
+    )
+    parser.add_argument(
+        "--stamp-dir",
+        default=None,
+        help="where the once-a-day stamp is kept; the state directory by default",
+    )
     arguments = parser.parse_args(argv)
     out = stdout if stdout is not None else sys.stdout
 
     state_dir = arguments.state_dir or ledger.state_dir(
         os.environ, os.path.expanduser("~")
     )
-    message = read_and_render(
-        status_document.path(state_dir),
-        now=now if now is not None else repo.utc_now(),
+    current = now if now is not None else repo.utc_now()
+    document = status_document.read(status_document.path(state_dir))
+    message = render(
+        document,
+        now=current,
         # One definition of "the running kernel", shared with the producer, rather than a
         # second `os.uname()` here that could drift from it.
         running_kernel=(
             running_kernel if running_kernel is not None else probe.running_kernel()
         ),
     )
+    if arguments.on_demand and not message:
+        message = clean_statement(document, now=current)
+    elif arguments.once_a_day:
+        message = once_a_day(
+            message,
+            stamp=stamp_path(arguments.stamp_dir or state_dir),
+            now=current,
+        )
     if message:
         out.write(f"{message}\n")
     return 0

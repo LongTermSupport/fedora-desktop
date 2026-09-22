@@ -155,9 +155,19 @@ export const panel = {
  */
 export const GLIB_FILES = new Map();
 
+/** Paths `GLib.file_test` reports as executable. A test adds the on-demand command's
+ * path to say the report play has run on this host, and leaves it out to say it has
+ * not — the row must answer differently for the two (Plan 00136). */
+export const EXECUTABLES = new Set();
+
 export const GLib = {
     get_user_state_dir: () => '/stub/state',
+    get_home_dir: () => '/stub/home',
     build_filenamev: parts => parts.join('/'),
+    FileTest: {IS_EXECUTABLE: 'is-executable'},
+    file_test(path, test) {
+        return test === 'is-executable' && EXECUTABLES.has(path);
+    },
     file_get_contents(path) {
         if (!GLIB_FILES.has(path)) {
             const error = new Error(`stub GLib: no such file ${path}`);
@@ -221,8 +231,27 @@ function ioError(code, message) {
     return error;
 }
 
+/** Every process the panel asked for, as `{argv, flags}`, in order. The health
+ * section's terminal row is the ONE place the panel spawns anything, and a test that
+ * could not see the argv could not tell a report viewer from a play runner. */
+export const SPAWNS = [];
+
+/** Set `message` to make the next spawn throw the way `Gio.Subprocess.new` does when
+ * the program is not there — the panel has to say so rather than fail silently. */
+export const SPAWN_FAILURE = {message: null};
+
 export const Gio = {
     IOErrorEnum: IO_ERROR_ENUM,
+    SubprocessFlags: {NONE: 0},
+    Subprocess: {
+        new(argv, flags) {
+            SPAWNS.push({argv, flags});
+            if (SPAWN_FAILURE.message !== null) {
+                throw new Error(SPAWN_FAILURE.message);
+            }
+            return {};
+        },
+    },
     Cancellable: class StubCancellable {
         constructor() {
             this.cancelled = false;

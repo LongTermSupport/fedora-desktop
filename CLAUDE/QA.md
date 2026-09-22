@@ -16,10 +16,10 @@
 
 ## What qa-all.bash Runs
 
-`qa-all.bash` runs **thirty-seven** gates. Seven merge their JSON into
-`/tmp/qa-results.json` through a positional `.[0]..[6]` merge; the other thirty run
-separately (see below). Those seven emit **eight** named verdict lines — `qa-bash.bash`
-prints `bash` and `shellcheck` — so a run shows 38 stage names for 37 gates.
+`qa-all.bash` runs **forty-four** gates. Seven merge their JSON into
+`/tmp/qa-results.json` through a positional `.[0]..[6]` merge; the other thirty-seven
+run separately (see below). Those seven emit **eight** named verdict lines — `qa-bash.bash`
+prints `bash` and `shellcheck` — so a run shows 45 stage names for 44 gates.
 
 Counted from a run's own verdict lines rather than kept by hand, because a number in a
 document is the first thing to go stale: `./scripts/qa-all.bash` and count the distinct
@@ -45,7 +45,7 @@ fresher hand-written list.
 | `qa-docs.bash`           | Link targets exist; every `#anchor` matches a real heading; every play imported by `playbook-main.yml` is named in both `docs/playbooks.md` and `docs/architecture.md`; every `CLAUDE/*.md` has an index row (Plan 00070)                                                                                                                                                                                                                                                               | Core docs only — `docs/`, `CLAUDE/*.md`, `README.md`, `*/CLAUDE.md`, `.claude/rules/`. **Not** `CLAUDE/Plan/**`                                       |
 | `qa-toolchain.bash`      | Runs FIRST, as a hard gate: every tool a gate runs (ruff, semgrep, shellcheck) is installed at the version `/.qa-versions` pins. A mismatch or absence fails this gate and lets the rest run — never exit 2, which would abort the suite (see "The QA Toolchain Is Pinned")                                                                                                                                                                                                             | The machine, not any file                                                                                                                             |
 
-Twenty-nine further gates run inside `qa-all.bash` as **hard, non-structural** checks —
+Thirty-seven further gates run inside `qa-all.bash` as **hard, non-structural** checks —
 they are deliberately not jq-merged stages, so they cannot disturb the positional
 `.[0]..[6]` JSON merge. Any one of them fails the whole run immediately:
 
@@ -77,7 +77,8 @@ they are deliberately not jq-merged stages, so they cannot disturb the positiona
 | `test-freezelib.bash`                       | the freeze library both freeze tools source — every decision under BOTH state vocabularies (Plan 00122)                                                                                                                                                               |
 | `test-lxcfreeze.bash`                       | `lxcfreeze`'s decisions — a state or a config it could not read must not resolve to a fact (Plan 00122)                                                                                                                                                               |
 | `test-podfreeze.bash`                       | `podfreeze`'s decisions, pinned before Plan 00122 Task 4.2 extracted a library out of it                                                                                                                                                                              |
-| `test-host-health-login-snippet.bash`       | the server login snippet's interactive guard — an unconditional print breaks `scp` (Plan 00109)                                                                                                                                                                       |
+| `test-host-health-login-snippet.bash`       | the login snippet's interactive guard — an unconditional print breaks `scp` — and its once-a-day gate (Plans 00109, 00136)                                                                                                                                            |
+| `test-fedora-desktop-health.bash`           | the on-demand report command: a sentence on a clean host, `--hold` released by Enter or EOF, a missing checkout named without a traceback (Plan 00136)                                                                                                                |
 | `test-qa-ansible-failfast.bash`             | the fail-fast directive regex in `qa-ansible.bash`, read from it rather than copied                                                                                                                                                                                   |
 | `test-qa-helper-summary.bash`               | the three readers in `lib/qa-helper-summary.bash` that produce every stage line below                                                                                                                                                                                 |
 | `test-qa-docs-exit-codes.bash`              | `qa-docs.bash`'s three exit codes, driven against fixture trees — a crash must never read as clean                                                                                                                                                                    |

@@ -210,6 +210,14 @@ button.
 interpolated into a command a human runs and a relative path would resolve against whatever
 directory their terminal opened in.
 
+**Since settled for the report itself, by Plan 00136.** The health section launches one
+thing: `fedora-desktop-health --hold` in the user's default terminal, through
+`xdg-terminal-exec` by argv, from a row under the collection time. That is a reader, so §8
+holds, and reason 1 above does not apply to it: the command is installed by the report play
+with the checkout path written in, so the panel needs to know only the user's home
+directory. Reason 1 still applies to the handoff, which still copies. Task 4.3's play
+runner remains unwritten and will hang off the same command.
+
 ## 10. As built — the deployment, and the one assertion it deliberately does not make
 
 `play-fedora-desktop-panel.yml`, its own play for the reasons in §7. Two decisions the

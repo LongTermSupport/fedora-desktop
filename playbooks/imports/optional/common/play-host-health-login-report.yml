@@ -10,17 +10,22 @@
 # a DKMS module could not build, and every automated check in this repo was green
 # throughout — none of them looks at the host.
 #
-# ONE PLAY, TWO DELIVERIES, because only the delivery was ever profile-specific. The
-# checks are profile-agnostic, and a second playbook for the second delivery meant four
+# ONE PLAY, TWO COLLECTORS, because only the trigger was ever profile-specific. The
+# checks are profile-agnostic, and a second playbook for the second trigger meant four
 # byte-identical tasks and a pair that would drift the first time one of them was fixed.
 #
 #   desktop — `host-health.service`, a systemd --user unit at the END of a graphical
 #             login, delivering by notify-send. The end of login, not boot: the whole
 #             point is that somebody is present to read it.
 #   server  — `graphical-session.target` never activates and there is no session bus, so
-#             the same collection runs on `host-health-collect.timer` and a
-#             ~/.bashrc-includes snippet prints what it left at the next interactive
-#             shell. A git fetch at every SSH login would slow every login and can hang.
+#             the same collection runs on `host-health-collect.timer`. A git fetch at
+#             every SSH login would slow every login and can hang.
+#
+# THE TERMINAL READS IT ON BOTH (Plan 00136). A ~/.bashrc-includes snippet prints what
+# the collector left at the next interactive shell — in full once a day per message,
+# then a one-line reminder — and `~/.local/bin/fedora-desktop-health` prints the whole
+# report on demand. Locally or over SSH, that text is the primary reading surface; the
+# desktop notification and the panel point at it rather than replace it.
 #
 # Reporting-only, and that is a hard boundary: nothing here re-runs a play, installs
 # anything beyond the report's own runtime dependency, or moves the working tree.
@@ -47,6 +52,9 @@
     collect_timer: host-health-collect.timer
     user_units_dir: "/home/{{ user_login }}/.config/systemd/user"
     bashrc_includes_dir: "/home/{{ user_login }}/.bashrc-includes"
+    # `fedora-desktop-health` below must match `login_message.ON_DEMAND_COMMAND`: the
+    # snippet's reminder names it and the panel launches it from this directory.
+    user_bin_dir: "/home/{{ user_login }}/.local/bin"
     # The marker play-basic-configs.yml writes when it adds the sourcing loop. Asserted
     # rather than assumed: without that loop the snippet is deployed and never read, and
     # a report nothing reads looks exactly like a host with nothing to report.
@@ -158,7 +166,10 @@
     # `.wants/` symlink that outlives it — so the symlink goes too. `state: absent` is
     # idempotent and cannot fail on a host that never had them, which `systemctl
     # disable` would.
-    - name: Remove The Server Delivery
+    #
+    # The login snippet is NOT in this list: since Plan 00136 it is a delivery on both
+    # profiles and is deployed unconditionally below.
+    - name: Remove The Server Collector
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent
@@ -166,7 +177,6 @@
         - "{{ user_units_dir }}/{{ collect_service }}"
         - "{{ user_units_dir }}/{{ collect_timer }}"
         - "{{ user_units_dir }}/timers.target.wants/{{ collect_timer }}"
-        - "{{ bashrc_includes_dir }}/host-health-report.bash"
       when: not is_server | bool
 
     - name: Enable The Login-Time Health Report
@@ -243,7 +253,7 @@
         - hh_wants_readback.rc == 0
         - unit_name not in hh_wants_readback.stdout
 
-    # ── Server delivery: a timer to collect, a login shell to report ─────────────────
+    # ── Server collector: a timer, because no graphical login ever ends there ────────
     - name: Deploy The Host Health Collection Unit
       ansible.builtin.template:
         src: "{{ root_dir }}/files/home/.config/systemd/user/{{ collect_service }}.j2"
@@ -262,6 +272,8 @@
         mode: '0644'
       when: is_server | bool
 
+    # ── The terminal delivery, both profiles (Plan 00136) ─────────────────────────────
+    #
     # `.bashrc-includes` and the loop that sources it are play-basic-configs.yml's,
     # which is in playbook-main's core path — this play reads that contract rather than
     # re-declaring it, so there is one owner of the mechanism.
@@ -269,7 +281,6 @@
       ansible.builtin.slurp:
         src: "/home/{{ user_login }}/.bashrc"
       register: hh_bashrc
-      when: is_server | bool
 
     - name: Assert The Bashrc Includes Loop Is Present
       ansible.builtin.assert:
@@ -280,7 +291,6 @@
           snippet this play deploys would never be read and this host would report as
           healthy while nothing checked it. Run playbook-main.yml (or
           playbooks/imports/play-basic-configs.yml) first, which owns that loop.
-      when: is_server | bool
 
     - name: Ensure Bashrc Includes Directory Exists
       ansible.builtin.file:
@@ -289,7 +299,6 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: '0755'
-      when: is_server | bool
 
     # Templated for the same reason as the units: it names this checkout's path.
     - name: Deploy The Login-Shell Health Report Snippet
@@ -299,7 +308,26 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: '0644'
-      when: is_server | bool
+
+    - name: Ensure The User Bin Directory Exists
+      ansible.builtin.file:
+        path: "{{ user_bin_dir }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
+    # The command the snippet's reminder names and the panel's row launches. Templated:
+    # it names this checkout's path, exactly as the snippet does. The name is spelled
+    # out in src and dest, not taken from a var: qa-deployed-drift maps every `.j2` under
+    # files/home/.local/bin to a literal `dest:` so it can compare the deployed copy.
+    - name: Deploy The On-Demand Health Report Command
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/home/.local/bin/fedora-desktop-health.j2"
+        dest: "/home/{{ user_login }}/.local/bin/fedora-desktop-health"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
 
     # Enabled AND started: `enabled` alone writes the timers.target.wants symlink but
     # leaves the timer unarmed until the next boot, and a report that begins a reboot
@@ -308,7 +336,7 @@
     # The mirror of the desktop branch's cleanup, for the same reason: correcting a
     # mis-set profile must not leave a notify-send unit installed on a box with no
     # session bus, wanted by a target that never activates.
-    - name: Remove The Desktop Delivery
+    - name: Remove The Desktop Collector
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent

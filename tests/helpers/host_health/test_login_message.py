@@ -487,5 +487,208 @@ class TestTheEntryPointALoginShellCalls(unittest.TestCase):
             self.assertIn("no host status", out.getvalue())
 
 
+FINDINGS = {
+    "health": [
+        probe_results.broken("evdi: no DKMS module"),
+        probe_results.broken("nvidia: no DKMS module"),
+    ]
+}
+
+
+class TestOnceADay(unittest.TestCase):
+    """Plan 00136: the full report once a day per user, a one-line reminder after that.
+
+    Every interactive shell sources the snippet — every tmux pane, every tab — and the
+    same wall of findings on each one is how a report gets muted. The gate is per
+    message, not per day alone: a document rewritten with different findings is news
+    and is shown in full whatever the clock says. The stamp is host state, never a
+    reason to say less than the truth: if it cannot be written, the report is printed
+    in full, which is the failure mode that costs a little noise rather than a finding.
+    """
+
+    def _run(self, base: str, sections: dict, **overrides: str) -> str:
+        status_document.write_atomic(status_document.path(base), document(sections))
+        out = io.StringIO()
+        arguments = {"now": NOW, "running_kernel": KERNEL, **overrides}
+        status = login_message.main(
+            ["--state-dir", base, "--once-a-day"], stdout=out, **arguments
+        )
+        self.assertEqual(status, 0)
+        return out.getvalue()
+
+    def test_the_first_shell_of_the_day_gets_the_full_report(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            first = self._run(base, FINDINGS)
+            self.assertIn("evdi", first)
+            self.assertIn("nvidia", first)
+
+    def test_the_second_shell_gets_one_line_naming_the_command(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            self._run(base, FINDINGS)
+            second = self._run(base, FINDINGS)
+            self.assertEqual(second.count("\n"), 1)
+            self.assertNotIn("evdi", second)
+            self.assertIn(login_message.ON_DEMAND_COMMAND, second)
+
+    def test_the_reminder_counts_the_faults(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            self._run(base, FINDINGS)
+            self.assertIn("2 faults in the health report", self._run(base, FINDINGS))
+
+    def test_one_fault_reads_as_a_sentence(self) -> None:
+        one = {"health": [probe_results.broken("evdi: no DKMS module")]}
+        with tempfile.TemporaryDirectory() as base:
+            self._run(base, one)
+            self.assertIn("1 fault in the health report", self._run(base, one))
+
+    def test_unchecked_lines_are_counted_apart_from_faults(self) -> None:
+        """A not-checked line is something nobody looked at. The reminder must not fold
+        it into a fault count, which is the exact claim the full report refuses."""
+        mixed = {
+            "health": [
+                probe_results.broken("evdi: no DKMS module"),
+                probe_results.unchecked("dkms could not be run"),
+            ]
+        }
+        with tempfile.TemporaryDirectory() as base:
+            self._run(base, mixed)
+            line = self._run(base, mixed)
+            self.assertIn("1 fault and 1 unchecked item", line)
+
+    def test_unchecked_only_is_not_called_a_fault(self) -> None:
+        only = {"health": [probe_results.unchecked("dkms could not be run")]}
+        with tempfile.TemporaryDirectory() as base:
+            self._run(base, only)
+            line = self._run(base, only)
+            self.assertIn("1 unchecked item in the health report", line)
+            self.assertNotIn("fault", line)
+
+    def test_changed_findings_are_shown_in_full_again_the_same_day(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            self._run(base, FINDINGS)
+            changed = {"health": [probe_results.broken("wifi: firmware missing")]}
+            self.assertIn("wifi", self._run(base, changed))
+
+    def test_a_new_day_starts_with_the_full_report(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            self._run(base, FINDINGS)
+            tomorrow = self._run(base, FINDINGS, now="2026-09-15T08:00:00Z")
+            self.assertIn("evdi", tomorrow)
+
+    def test_a_clean_host_says_nothing_and_leaves_no_stamp(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            self.assertEqual(self._run(base, {"health": []}), "")
+            self.assertFalse(os.path.exists(login_message.stamp_path(base)))
+
+    def test_the_stamp_lives_in_the_host_state_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            self._run(base, FINDINGS)
+            self.assertTrue(os.path.isfile(login_message.stamp_path(base)))
+            self.assertTrue(login_message.stamp_path(base).startswith(base))
+
+    def test_an_unwritable_stamp_costs_noise_not_a_finding(self) -> None:
+        """The state directory is a file, so nothing under it can be created. The
+        report must still print in full and the shell must still get its prompt."""
+        with tempfile.TemporaryDirectory() as base:
+            status_document.write_atomic(
+                status_document.path(base), document(FINDINGS)
+            )
+            blocked = os.path.join(base, "blocked")
+            with open(blocked, "w", encoding="utf-8") as handle:
+                handle.write("not a directory")
+            out = io.StringIO()
+            status = login_message.main(
+                ["--state-dir", base, "--once-a-day", "--stamp-dir", blocked],
+                stdout=out, now=NOW, running_kernel=KERNEL,
+            )
+            self.assertEqual(status, 0)
+            self.assertIn("evdi", out.getvalue())
+
+    def test_a_corrupt_stamp_is_treated_as_no_stamp(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            self._run(base, FINDINGS)
+            with open(login_message.stamp_path(base), "w", encoding="utf-8") as handle:
+                handle.write("garbage\n")
+            self.assertIn("evdi", self._run(base, FINDINGS))
+
+    def test_the_reminder_is_itself_one_line_ending_in_a_newline(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            self._run(base, FINDINGS)
+            second = self._run(base, FINDINGS)
+            self.assertTrue(second.endswith("\n"))
+            self.assertTrue(second.startswith("fedora-desktop:"))
+
+
+class TestOnDemand(unittest.TestCase):
+    """Plan 00136: `fedora-desktop-health` asks for the report and always gets an answer.
+
+    A person who typed the command is owed a sentence on a clean host — silence is the
+    right answer at login and the wrong one to a direct question. The stamp is neither
+    read nor written: asking on demand must not make the next login shell go quiet.
+    """
+
+    def _run(self, base: str, sections: dict | None, **overrides: str) -> str:
+        if sections is not None:
+            status_document.write_atomic(
+                status_document.path(base), document(sections)
+            )
+        out = io.StringIO()
+        arguments = {"now": NOW, "running_kernel": KERNEL, **overrides}
+        status = login_message.main(
+            ["--state-dir", base, "--on-demand"], stdout=out, **arguments
+        )
+        self.assertEqual(status, 0)
+        return out.getvalue()
+
+    def test_a_clean_host_gets_a_positive_statement(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            text = self._run(base, {"health": []})
+            self.assertIn("nothing needs attention", text)
+            self.assertIn("today", text)
+
+    def test_ordinary_clock_skew_reads_as_today_not_minus_one_days(self) -> None:
+        """`render` tolerates a stamp up to a day ahead as NTP skew, and `.days` floors
+        that to -1. The clean sentence must not print the floor."""
+        with tempfile.TemporaryDirectory() as base:
+            text = self._run(base, {"health": []}, now="2026-09-14T17:00:00Z")
+            self.assertIn("collected today", text)
+            self.assertNotIn("-1", text)
+
+    def test_a_clean_host_collected_yesterday_says_so(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            text = self._run(base, {"health": []}, now="2026-09-15T18:00:00Z")
+            self.assertIn("yesterday", text)
+
+    def test_findings_are_printed_in_full(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            text = self._run(base, FINDINGS)
+            self.assertIn("evdi", text)
+            self.assertIn("nvidia", text)
+
+    def test_a_missing_document_is_reported_not_called_clean(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            self.assertIn("no host status", self._run(base, None))
+
+    def test_it_never_writes_the_stamp(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            self._run(base, FINDINGS)
+            self.assertFalse(os.path.exists(login_message.stamp_path(base)))
+
+    def test_asking_on_demand_does_not_silence_the_next_login_shell(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            self._run(base, FINDINGS)
+            out = io.StringIO()
+            login_message.main(
+                ["--state-dir", base, "--once-a-day"], stdout=out,
+                now=NOW, running_kernel=KERNEL,
+            )
+            self.assertIn("evdi", out.getvalue())
+
+    def test_the_command_name_is_a_declared_constant(self) -> None:
+        """The panel builds a path from the same name; the contract gate compares
+        the two declarations, so the Python side has to be a constant it can read."""
+        self.assertEqual(login_message.ON_DEMAND_COMMAND, "fedora-desktop-health")
+
+
 if __name__ == "__main__":
     unittest.main()
