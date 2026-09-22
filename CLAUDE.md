@@ -297,8 +297,6 @@ Full detail on any rule: `bin/hooks-daemon explain-rule <ID>`.
 
 <!-- handler: remote-docs-commit-gate -->
 
-<!-- handler: remote-docs-routing -->
-
 <!-- handler: root-recursion-guard -->
 
 <!-- handler: block-secret-file-read -->
@@ -337,8 +335,6 @@ Full detail on any rule: `bin/hooks-daemon explain-rule <ID>`.
 
 <!-- handler: pipe-blocker -->
 
-<!-- handler: plan-number-helper -->
-
 <!-- handler: plan-qa-edit -->
 
 <!-- handler: block-plan-time-estimates -->
@@ -360,6 +356,12 @@ Full detail on any rule: `bin/hooks-daemon explain-rule <ID>`.
 <!-- handler: validate-instruction-content -->
 
 <!-- handler: prevent-worktree-file-copying -->
+
+<!-- handler: plan-number-helper -->
+
+<!-- handler: remote-docs-routing -->
+
+<!-- handler: subagent-cron-delete-blocker -->
 
 <!-- handler: lint-on-edit -->
 
@@ -392,7 +394,6 @@ Full detail on any rule: `bin/hooks-daemon explain-rule <ID>`.
 | R-QA-SUPPRESSION                   | a QA suppression directive (noqa, type: ignore, eslint-disable, ...)                                                                                 | Suppression comments hide real problems and create technical debt                                                                                                                                 | Fix the underlying issue; do not suppress the warning                                                                    |
 | R-QUARANTINE-ARTEFACT-READ         | reading a quarantined `*-opus-security-DETAIL*` artefact into the coordinator                                                                        | A DETAIL artefact holds raw flaggable substance meant for a human or another quarantine agent only                                                                                                | Read the paired `*-opus-security-SUMMARY*` artefact instead                                                              |
 | R-REMOTE-DOCS-STAGED-PROVENANCE    | a commit staging a remote-docs file without valid provenance frontmatter                                                                             | An unattributed vendored document that reaches history needs a rewrite to remove, and cannot be refreshed, dated or trusted meanwhile                                                             | Capture with `hooks-daemon remote-docs add <url>` and re-stage                                                           |
-| R-REMOTE-DOCS-VENDORED-COPY        | a WebFetch of a URL this project already holds a fresh vendored copy of                                                                              | The local copy is faster, costs no network round trip, and is the corpus the remote-docs tree exists to build                                                                                     | Read the local path named in the message, or refresh it if you need newer content                                        |
 | R-ROOT-RECURSION-CATASTROPHIC      | `grep -r`/`find`/`rg`/... rooted at `/`, `/proc`, `/sys`, `/home`, `/root`, `~`, `$HOME`                                                             | Walks the entire filesystem and can pin every CPU core for hours                                                                                                                                  | Scope the search to the project (e.g. `rg -l "pattern" .`)                                                               |
 | R-SECRET-READ                      | Read/Write/Edit/NotebookEdit/Grep targeting a protected path                                                                                         | The file's contents must NEVER be read into context by any route — not Read, not Bash, not an interpreter one-liner, not a copy                                                                   | Use `bin/hooks-daemon secret-meta <path>` for metadata, or ask the user                                                  |
 | R-SECRET-BASH-MENTION              | a Bash command whose text mentions a protected path                                                                                                  | The file's contents must NEVER be read into context by any route — not Read, not Bash, not an interpreter one-liner, not a copy                                                                   | Use `bin/hooks-daemon secret-meta <path>` for metadata, or ask the user                                                  |
@@ -438,8 +439,6 @@ Full detail on any rule: `bin/hooks-daemon explain-rule <ID>`.
 | R-NPM-NON-LLM-COMMAND              | a raw `npm run`/`npx` command when llm: wrappers exist                                                                                               | llm: commands provide LLM-friendly, machine-readable output                                                                                                                                       | Use the project's `npm run llm:*` equivalent instead                                                                     |
 | R-PIPE-TO-TAIL                     | \`                                                                                                                                                   | tail\`                                                                                                                                                                                            | Truncates output and causes information loss                                                                             |
 | R-PIPE-TO-HEAD                     | \`                                                                                                                                                   | head\`                                                                                                                                                                                            | Truncates output and causes information loss                                                                             |
-| R-PLAN-NUMBER-DISCOVERY            | a bash discovery scan (ls/find/sort+tail) for the next plan number                                                                                   | Misses subdirectories like Completed/ and disagrees across branches                                                                                                                               | Use the printed next plan number, or the git counter directly                                                            |
-| R-PLAN-FOLDER-MKDIR                | `mkdir <plan-dir>/NNNNN-name` (hand-creating a plan folder)                                                                                          | Claims a plan number the moment the folder appears, but nothing records the claim until PLAN.md is written                                                                                        | Use the mkplan.bash scaffolder instead                                                                                   |
 | R-PLAN-QA-EDIT                     | a PLAN.md/README.md Write/Edit violates a block-level plan QA check                                                                                  | Plan QA linting catches issues you can fix immediately, before they reach commit                                                                                                                  | Fix the content per each finding's remediation below and retry                                                           |
 | R-PLAN-TIME-ESTIMATE               | Time estimates not allowed in plan documents                                                                                                         | Time estimates in plans create false expectations and pressure                                                                                                                                    | Break work into concrete tasks and implementation steps; let the user decide scheduling                                  |
 | R-WRITE-OUTSIDE-PROJECT-ROOT       | a write whose target is outside the repository root                                                                                                  | Outside the repo nothing is version-controlled, reviewed or durable — a container's temp directory is wiped on restart, and every other path rule is scoped to the repo so none of them judges it | Write it inside the repository — `untracked/scratch/` is the scratch location                                            |
@@ -463,6 +462,10 @@ Full detail on any rule: `bin/hooks-daemon explain-rule <ID>`.
 | R-INSTRUCTION-CHANGE-SUMMARY       | change summaries (e.g. 'Added 15 lines', 'Removed 8 lines')                                                                                          | A line-count delta describes one diff, not a stable instruction                                                                                                                                   | Remove the summary; the diff itself is preserved in git                                                                  |
 | R-INSTRUCTION-COMPLETION-INDICATOR | completion indicators (e.g. 'ALL DONE!', 'Task complete!', 'Finished task')                                                                          | A completion phrase announces a session's end, not a fact about the project                                                                                                                       | Remove the phrase; instruction files should never celebrate finishing a task                                             |
 | R-WORKTREE-FILE-COPY               | `cp`/`mv`/`rsync` between a worktree and the main repo                                                                                               | Defeats worktree isolation, bypasses git tracking, and can nuke untracked work in the target directory                                                                                            | cd into the worktree, commit, then git merge back                                                                        |
+| R-PLAN-NUMBER-DISCOVERY            | a bash discovery scan (ls/find/sort+tail) for the next plan number                                                                                   | Misses subdirectories like Completed/ and disagrees across branches                                                                                                                               | Use the printed next plan number, or the git counter directly                                                            |
+| R-PLAN-FOLDER-MKDIR                | `mkdir <plan-dir>/NNNNN-name` (hand-creating a plan folder)                                                                                          | Claims a plan number the moment the folder appears, but nothing records the claim until PLAN.md is written                                                                                        | Use the mkplan.bash scaffolder instead                                                                                   |
+| R-REMOTE-DOCS-VENDORED-COPY        | a WebFetch of a URL this project already holds a fresh vendored copy of                                                                              | The local copy is faster, costs no network round trip, and is the corpus the remote-docs tree exists to build                                                                                     | Read the local path named in the message, or refresh it if you need newer content                                        |
+| R-SUBAGENT-CRON-DELETE             | `CronDelete` called from inside a subagent                                                                                                           | A session cron belongs to the coordinator's session, which is the session that loses coverage when it goes                                                                                        | Report the cron id and your reasoning to the coordinator and let it decide                                               |
 | R-LINT-FAILURE                     | a written/authored file that fails its language's lint check                                                                                         | The write has already landed on disk; this is a failure report, not a rollback                                                                                                                    | Fix the reported problems with Edit — do not re-Write the file from scratch                                              |
 | R-ESLINT-ERRORS                    | a written/authored TS/TSX file with reported ESLint errors                                                                                           | The write has already landed on disk; this is a failure report, not a rollback                                                                                                                    | Fix the reported problems with Edit (`npx eslint <file> --fix` clears most)                                              |
 | R-ESLINT-TIMEOUT                   | an ESLint run that did not finish within the configured timeout                                                                                      | This handler DENIES on a timeout — unlike lint_on_edit, which allows                                                                                                                              | Investigate why ESLint is slow (config, project size); retry the edit                                                    |
@@ -506,10 +509,6 @@ One line each; these fire with their own guidance when relevant. Full text: `bin
 
 - ansible_enforcement — no direct system management commands
 
-<!-- handler: background-process-tracker -->
-
-- background_process_tracker — backgrounded processes are tracked
-
 <!-- handler: command-hints -->
 
 - command_hints — advisory reminders after specific commands
@@ -545,6 +544,10 @@ One line each; these fire with their own guidance when relevant. Full text: `bin
 <!-- handler: merge-qa-report -->
 
 - merge_qa_report — post-hoc plan/docs QA report after a merge
+
+<!-- handler: background-process-tracker -->
+
+- background_process_tracker — backgrounded processes are tracked
 
 <!-- handler: ccy-supervisor-integrity -->
 
@@ -633,6 +636,10 @@ One line each; these fire with their own guidance when relevant. Full text: `bin
 <!-- handler: cron-subagent-stop-enforcer -->
 
 - cron_subagent_stop_enforcer — SubagentStop twin of `cron_stop_enforcer`
+
+<!-- handler: subagent-report-path-verifier -->
+
+- subagent_report_path_verifier — a claimed report path must exist
 
 <!-- handler: worktree-create -->
 
