@@ -16,7 +16,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # The three stage-line readers. Between them they produce the SUMMARY in every stage line
-# below — 31 of them, counted: `qa_gate_case_count` 23, `qa_gate_detail` 7,
+# below — 33 of them, counted: `qa_gate_case_count` 25, `qa_gate_detail` 7,
 # `helper_counts_summary` 1. `qa_pass_line` prints it; only `deployed-drift` composes its own
 # line, because there the line IS the gate's output rather than a summary of it. Sourced
 # rather than inlined so a committed test can drive the real functions — see the library
