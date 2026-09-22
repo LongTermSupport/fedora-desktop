@@ -27,11 +27,21 @@ fi
 cutoff="$(date -d "${retention_days} days ago" +%s)"
 
 # `-u` selects records OLDER than the timestamp; {short_id} is the id `remove` accepts.
-mapfile -t stale_ids < <(abrt-cli list -u "$cutoff" --format '{short_id}')
+# An empty match prints the literal line "No problems" (rc 0) instead of nothing, so
+# it must be recognised or it would be handed to `remove` as an id.
+listing="$(abrt-cli list -u "$cutoff" --format '{short_id}')"
+if [ "$listing" = "No problems" ]; then
+    listing=""
+fi
+mapfile -t stale_ids <<< "$listing"
 
 removed=0
 for id in "${stale_ids[@]}"; do
     [ -n "$id" ] || continue
+    if ! [[ "$id" =~ ^[0-9a-f]+$ ]]; then
+        echo "error: unexpected line from abrt-cli list, not a problem id: '$id'" >&2
+        exit 1
+    fi
     abrt-cli remove -f "$id" >&2
     removed=$((removed + 1))
 done
