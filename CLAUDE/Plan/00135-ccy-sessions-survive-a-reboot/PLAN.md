@@ -149,13 +149,23 @@ below.
 - [x] ✅ **Task 3.1**: `ccy-sessions` is a dispatcher: bare = picker, `notify`, `reboot`,
   `restore`, `--help`. The TTY guard sits under the dispatch, on the picker path only.
   Usage mistakes exit 64, refusals exit 1.
+
 - [x] ✅ **Task 3.2**: `notify reboot-warning --minutes N`, `notify shutdown-warning`,
   `notify reboot-cancelled`. Every live project is checked for a daemon CLI **before** any
   is signalled, so a refusal leaves no project half-warned.
+
 - [x] ✅ **Task 3.3**: `reboot --in N [--dry-run]`: warn N, wait, warn 1, wait, `systemctl reboot`. `--in 1` warns once. Minutes are a positive integer or a usage error.
+
 - [x] ✅ **Task 3.4**: `scripts/test-ccy-sessions-reboot.bash`, wired into `qa-all.bash`:
   the real executable under a fake `tmux`, a fake `systemctl` and a per-project logging
   stand-in for the daemon CLI, with the minute shortened to zero.
+
+- [x] ✅ **Task 3.5**: `reboot-with-update [--in N]` (owner's request, 26-09-22):
+  `shutdown-with-update` under a second name, symlinked by `play-basic-configs.yml`. Same
+  updates, then `ccy-sessions notify` as the invoking user for the two warnings, then
+  `systemctl reboot` as root (polkit refuses a plain user's reboot over SSH). Rehearses the
+  warning with `--dry-run` before updating, so an unwarnable session refuses early.
+  🧑 Not unit-tested: the body is dnf and firmware; Phase 5 proves it.
 
 ### Phase 4: Docs
 
@@ -180,6 +190,9 @@ below.
   claim being tested, confirm the sessions are back, in the right directories, resumed and
   supervised.
 - [ ] 🧑 **Task 5.4**: Confirm a machine with the opt-in **off** restores nothing.
+- [ ] 🧑 **Task 5.6**: `reboot-with-update --in 2` over SSH with two sessions open: the
+  dry-run rehearsal passes, updates run, both warnings arrive, the machine reboots as root,
+  the sessions come back.
 - [ ] 🧑 **Task 5.5**: Put the evidence in the PR description.
 
 ## Dependencies

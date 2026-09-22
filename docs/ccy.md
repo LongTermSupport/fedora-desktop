@@ -270,6 +270,13 @@ are the two halves on their own, for a reboot that something else is going to pe
 A plain `systemctl reboot` warns nobody — only the helper does. The restore still works
 after one; the sessions simply were not told.
 
+**`reboot-with-update [--in N]`** is the patch-cycle version: the same firmware, dnf,
+Flatpak, pipx and Rust updates as `shutdown-with-update`, then the warning and countdown
+above (N defaults to 2), then the reboot — as root, since a reboot over SSH is refused to
+a plain user. It rehearses the warning with `--dry-run` **before** updating, so a session
+that cannot be warned stops it before twenty minutes of `dnf`, not after. Deployed by
+`play-basic-configs.yml` as a second name for the same script.
+
 ---
 
 ## The Security Model

@@ -1,8 +1,71 @@
 #!/bin/bash
 # Shutdown with Update - Updates firmware, dnf packages, Flatpaks, pipx tools and the Rust toolchain before shutdown
+#
+# Two names, one script. Installed as /usr/local/bin/shutdown-with-update and, by symlink,
+# /usr/local/bin/reboot-with-update; the name decides what happens after the updates:
+#   shutdown-with-update          shutdown -h now, with the inhibitor prompt below
+#   reboot-with-update [--in N]   warn every running ccy/cc session through
+#                                 `ccy-sessions notify`, count down N minutes (default 2),
+#                                 warn again at one minute, then systemctl reboot. Sessions
+#                                 that opted in to restore come back after the boot.
+# Both run as root via sudo. The reboot mode needs SUDO_USER: the sessions belong to that
+# user and are found through that user's tmux server.
 
 # Trap Ctrl+C and exit cleanly
 trap 'echo -e "\nShutdown cancelled by user."; exit 1' INT TERM
+
+MODE="shutdown"
+case "$(basename "$0")" in
+shutdown-with-update) ;;
+reboot-with-update) MODE="reboot" ;;
+*)
+    echo "Error: this script must be invoked as shutdown-with-update or reboot-with-update, not $(basename "$0")" >&2
+    exit 64
+    ;;
+esac
+
+REBOOT_MINUTES=2
+while [ $# -gt 0 ]; do
+    case "$1" in
+    --in)
+        if [ "$MODE" != "reboot" ]; then
+            echo "Error: --in applies to reboot-with-update only" >&2
+            exit 64
+        fi
+        if ! [[ "${2:-}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Error: --in needs a whole number of minutes, at least 1; got '${2:-}'" >&2
+            exit 64
+        fi
+        REBOOT_MINUTES="$2"
+        shift 2
+        ;;
+    *)
+        echo "Error: unknown option '$1'" >&2
+        exit 64
+        ;;
+    esac
+done
+
+# The reboot mode's last step runs as the invoking user, whose ccy-sessions is the one that
+# can see that user's tmux server. Checked here, and rehearsed with --dry-run, BEFORE the
+# updates: a live session whose project has no daemon CLI is a refusal, and finding that out
+# after twenty minutes of dnf would be the wrong order.
+if [ "$MODE" = "reboot" ]; then
+    if [ -z "${SUDO_USER:-}" ]; then
+        echo "Error: reboot-with-update must be run through sudo from the user whose sessions are to be warned" >&2
+        exit 1
+    fi
+    CCY_SESSIONS="$(getent passwd "$SUDO_USER" | cut -d: -f6)/.local/bin/ccy-sessions"
+    if [ ! -x "$CCY_SESSIONS" ]; then
+        echo "Error: $CCY_SESSIONS is missing; playbooks/imports/play-claude-yolo.yml deploys it" >&2
+        exit 1
+    fi
+    echo "Checking that every running ccy/cc session can be warned..."
+    if ! sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" reboot --in "$REBOOT_MINUTES" --dry-run; then
+        echo "Error: not every session can be warned (see above). Nothing was updated and nothing reboots." >&2
+        exit 1
+    fi
+fi
 
 echo "Starting firmware updates..."
 if ! fwupdmgr refresh --force; then
@@ -100,6 +163,23 @@ if pgrep -f "akmods" > /dev/null || systemctl status akmods 2>/dev/null | grep -
     else
         echo "Kernel modules built successfully."
     fi
+fi
+
+if [ "$MODE" = "reboot" ]; then
+    # Warn, count down, warn at one minute — as the user, through ccy-sessions, so the
+    # signals reach each project's own daemon. The reboot itself is root's: `systemctl
+    # reboot` as the user is refused by polkit on a session that is not local and active,
+    # which an SSH login is not, and this command is as likely to be run over SSH as not.
+    echo "Warning running ccy/cc sessions: reboot in $REBOOT_MINUTES minute(s)..."
+    sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify reboot-warning --minutes "$REBOOT_MINUTES" || exit 1
+    if [ "$REBOOT_MINUTES" -gt 1 ]; then
+        sleep $(((REBOOT_MINUTES - 1) * 60))
+        sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify reboot-warning --minutes 1 || exit 1
+        echo "Reboot in 1 minute..."
+    fi
+    sleep 60
+    echo "Rebooting..."
+    exec systemctl reboot
 fi
 
 echo "Attempting shutdown..."
