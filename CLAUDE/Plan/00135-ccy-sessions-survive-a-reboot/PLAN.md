@@ -84,16 +84,30 @@ below.
 
 - [ ] ⬜ **Task 1.1**: Registry format and location. One file per session under
   `~/.local/state/ccy/sessions/`, named for the tmux session. Records: tmux session name,
-  project directory, and the launch arguments with one-shot arguments removed. Decide and
-  **write down** which arguments are one-shot — replaying `--rebuild` or a `--continue`
-  that was not asked for is a wrong restore, not a cosmetic one. Enumerate them from the
-  launcher's own parser rather than from memory.
+  project directory, and the launch arguments with one-shot arguments removed.
+
+  **The one-shot set is already enumerated with file:line citations** in
+  [research/launcher-facts.md](research/launcher-facts.md) §4 — use it rather than
+  re-deriving. Three things from it change this task:
+
+  - **`--prevent` is destructive to replay.** It writes `never` into
+    `.claude/ccy/allowed-hostnames`, disabling ccy for that project. A restore that
+    replayed argv verbatim would turn ccy off for the project it was restoring. This is
+    the case that makes the filter load-bearing rather than tidy.
+  - **`--continue` is not a ccy flag at all** — it is Claude Code's own and falls through
+    to `CLAUDE_ARGS` (`claude-yolo:638-640`). The plan's "plus `--continue`" is a
+    passthrough, not a ccy option.
+  - **`--ssh-agent` needs a decision**: the agent socket differs after a reboot, so
+    replaying it points at a socket that no longer exists.
+
 - [ ] ⬜ **Task 1.2**: Write on start, delete on clean exit, both inside
   `ccy_tmux_insulate`. A record that outlives its session is the signal restore reads; a
   record deleted on an *unclean* exit would silently lose a session. The delete belongs on
   the normal-exit path only.
+
 - [ ] ⬜ **Task 1.3**: `no-restore` marking, so a one-off session can opt out of being
   brought back.
+
 - [ ] ⬜ **Task 1.4**: `scripts/test-ccy-session-registry.bash`, red first. Cover: record
   written on start; removed on clean exit; **survives a kill** (the case the whole feature
   rests on); one-shot arguments stripped; `no-restore` honoured; a directory with spaces.
@@ -169,6 +183,35 @@ below.
   **Verified present** in this checkout's installed clone.
 - Plan 00111 (Completed) — the tmux server under `systemd --user`, `ccy-sessions`, and the
   re-attach offer. This plan extends all three.
+
+## Open decisions — settle these before writing Phase 3
+
+Both come from [research/launcher-facts.md](research/launcher-facts.md) and neither is
+answered by the issue.
+
+**1. The helper only warns when the helper is used.** The issue names "an automated patch
+cycle" as a reason to want this, but a patch cycle runs `systemctl reboot`, not
+`ccy-sessions reboot` — so it would warn nobody. This repo already ships the pattern that
+would catch every path: `files/usr/local/bin/ssh-suspend-guard` +
+`playbooks/imports/play-prevent-ssh-suspend.yml` hold a `systemd-inhibit --what=sleep`
+lock in a loop as a system unit, and `--what=shutdown` is its sibling. An inhibitor would
+warn on *any* reboot; the helper warns on one. The helper is still worth having (it owns
+the countdown and the deliberate case), but if the patch-cycle case matters, the inhibitor
+is the mechanism that actually covers it. Decide which is being bought here.
+
+**2. Replay argv, or reuse the quick-launch path?** `--token`, `--ssh-key` and `--network`
+are **already persisted per project** in `.last-launch.conf` (`claude-yolo:2880`), with a
+quick-launch path at `:911-915`. Restoring through that path rather than replaying a
+filtered argv would make the whole one-shot filter above unnecessary — the persisted set
+contains no one-shot flags by construction. That is a materially simpler design than the
+issue proposes. It needs checking that the quick-launch path covers everything a restore
+needs, but it should be checked before the filter is built.
+
+**3. `shutdown-with-update` already exists** (`files/usr/local/bin/shutdown-with-update`,
+119 lines) as a user-invoked pre-shutdown updater. It is not a hook on `systemctl reboot`
+— nothing intercepts a plain reboot today — but it is the existing "operator deliberately
+brings the machine down" path, and two commands that both mean that should know about each
+other rather than diverge.
 
 ## Technical Decisions
 
