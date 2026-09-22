@@ -73,7 +73,6 @@ handlers:
   pre_tool_use:
     # SAFETY HANDLERS (Priority 10-20)
     destructive_git: {enabled: true, priority: 10}          # Block git reset --hard, clean -f, etc
-    daemon_restart_verifier: {enabled: true, priority: 10}  # Advisory: suggest daemon restart verification
     sed_blocker:                                             # Block sed (use Edit tool instead)
       enabled: true
       priority: 10
