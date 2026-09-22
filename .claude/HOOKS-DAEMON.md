@@ -1,6 +1,6 @@
 # Hooks Daemon - Active Configuration
 
-> Generated on 2026-09-16 (v3.65.0) by `generate-docs`. Regenerate: `.claude/hooks-daemon/bin/hooks-daemon generate-docs`
+> Generated on 2026-09-22 (v3.66.0) by `generate-docs`. Regenerate: `.claude/hooks-daemon/bin/hooks-daemon generate-docs`
 
 ## Plan Mode
 
@@ -14,7 +14,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 
 ## Active Handlers
 
-### PreToolUse (62 handlers)
+### PreToolUse (63 handlers)
 
 | Priority | Handler | Behaviour | Description |
 |----------|---------|----------|-------------|
@@ -34,6 +34,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 14 | project_containment | BLOCKING | Deny a write to a path named outside the repository root |
 | 14 | quarantine_artefact_read_guard | BLOCKING | Deny reading a quarantined DETAIL artefact from the main context |
 | 14 | secret_file_guard | BLOCKING | Deny any tool call that would put a protected file's contents into context |
+| 14 | subagent_cron_delete_blocker | BLOCKING | Deny ``CronDelete`` inside a subagent; the coordinator is unaffected |
 | 15 | dangerous_permissions | TERMINAL | Block chmod 777 and dangerous permission commands |
 | 15 | pipe_blocker | BLOCKING | Block expensive commands piped to tail/head to prevent information loss |
 | 15 | security_antipattern | BLOCKING | Block Write/Edit of files containing security antipatterns |
@@ -163,11 +164,12 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 9 | teammate_reap_advisor | ADVISORY | Report the Stop payload's ``background_tasks`` count and name ``TaskStop`` |
 | 15 | auto_continue_stop | TERMINAL | Intercept Stop events and enforce explicit stop reasons or auto-continue |
 
-### SubagentStop (2 handlers)
+### SubagentStop (3 handlers)
 
 | Priority | Handler | Behaviour | Description |
 |----------|---------|----------|-------------|
 | 7 | cron_subagent_stop_enforcer | BLOCKING | Block a SubagentStop while a declared persistent cron is missing |
+| 8 | subagent_report_path_verifier | BLOCKING | Block a SubagentStop whose claimed report file does not exist |
 | 15 | subagent_report_size_blocker | TERMINAL | Block a SubagentStop whose ``last_assistant_message`` is oversized |
 
 ### Status (15 handlers)

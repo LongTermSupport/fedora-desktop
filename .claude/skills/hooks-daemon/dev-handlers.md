@@ -193,11 +193,14 @@ Choose the appropriate event type for your handler:
 Choose priority based on handler type (bands defined by `PriorityRange` in
 the daemon's `constants/priority.py`, the source of truth):
 
-- **0-9**: Test fixtures only (no built-in handlers ship here)
+- **0-9**: Test fixtures, plus the Stop-family handlers that must run before a
+  terminal Stop catch-all (`cron_stop_enforcer`, `cron_subagent_stop_enforcer`,
+  `teammate_reap_advisor`) — a Stop handler placed after that catch-all never
+  fires on an ordinary stop
 - **10-20**: Safety handlers (destructive operations)
 - **25-35**: Code quality (linting, QA suppression)
 - **36-55**: Workflow (planning, project-specific rules)
-- **56-65**: Advisory (non-blocking guidance)
+- **56-73**: Advisory (non-blocking guidance)
 - **100+**: Logging/cleanup (reserved; no built-in handlers ship here)
 
 ## Testing Project Handlers

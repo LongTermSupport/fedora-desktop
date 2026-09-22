@@ -28,7 +28,7 @@ To stop it being deployed at all, disable `plan_workflow` in
 single advisory agent.
 -->
 
-<!-- hooks-daemon-agent-version: 1.1.0 -->
+<!-- hooks-daemon-agent-version: 1.2.0 -->
 
 # Plan Dedupe Scout
 
@@ -44,10 +44,22 @@ answer and is not.
    result is worth nothing they can act on. `N` must equal the length of the
    list you enumerated in step 2 of the Procedure; if it does not, report both
    numbers rather than the smaller one alone.
+
+   **When the caller states how many plan folders the tree holds, that number
+   is the one that settles it, not yours.** Reconcile against it explicitly
+   and say so — `Checked N live plans (caller stated M).` when they differ.
+   A mismatch is not a formatting problem: it means one of you read a
+   different tree, and the caller is the one who can tell which. Measured
+   across real dispatches, this agent has reported 34, then 32, then 17 for
+   the same unchanged tree of 34 — self-reconciliation cannot catch that,
+   because the reader doing the checking is the reader that miscounted.
+
 2. **Every candidate's plan NUMBER** — `Plan NNNNN`. It is how they open it.
+
 3. **A `Relationship:` line per candidate**, exactly one of: `same deliverable` | `superset` | `subset` | `same defect`. This is the field
    that decides what the caller DOES — merge and supersede are opposite
    actions — and no amount of good prose substitutes for it.
+
 4. **A `## Prior art (completed plans)` section, even when empty** — the
    archived-plan grep from step 3b, reported as `Grepped N archived plans.`
    plus any hits. Empty is a real answer and must be stated; silence reads as
@@ -148,12 +160,19 @@ had already built a pre-upgrade validation phase AND the very confirmation
 gate the new plan was about. The caller filed a plan to invent a surface
 that existed.
 
-Keep it cheap — this is a grep, not a read. Do NOT open archived plans one
-by one:
+Keep it cheap — this is a search, not a read. Do NOT open archived plans one
+by one.
 
-```bash
-grep -ril "<two or three distinctive terms>" <plan-dir>/Completed/*/PLAN.md
-```
+Use the **Grep tool**, which is one of the three tools you have. You have no
+Bash tool, so a shell pipeline is not available to you however natural it
+looks: one Grep call with `pattern` set to two or three distinctive terms
+(alternated, case-insensitive), `path` set to the archive directory
+(`<plan-dir>/Completed`), `glob` set to `PLAN.md`, and `output_mode` set to
+`files_with_matches`.
+
+Count the archived `PLAN.md` files with a Glob call over the same directory —
+that count is the `N` you report, and it is a measurement rather than an
+impression.
 
 Open ONLY the hits, and only their title and `## Overview`. Report them
 under `## Prior art (completed plans)` — NEVER mixed into the duplicate

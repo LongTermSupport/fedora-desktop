@@ -12,6 +12,7 @@
 #
 # Usage:
 #   <plan-dir>/mkplan.bash "descriptive-kebab-name"
+#   <plan-dir>/mkplan.bash --journal <plan-number> <category> <body-file> [--ref R] [--title T]
 #
 # Deployment contract (READ THIS):
 #   The script scaffolds plans in ITS OWN directory, resolved from BASH_SOURCE
@@ -49,6 +50,12 @@
 # folder + PLAN.md are written with bash (mkdir / cat), NOT the Claude Code
 # Write tool, so the daemon's plan-numbering handler never sees the write and
 # never double-increments. The lock (step 3) closes the multi-process race.
+#
+# --journal <plan-number> <category> <body-file> (Plan 00427): appends one
+# entry to an EXISTING plan's JOURNAL/, reading the clock itself in UTC so
+# the caller never supplies (and cannot mis-estimate) a timestamp. It does
+# NOT take the lock above and NEVER touches the counter — the two operations
+# have different lifecycles and must stay provably separate (D6a).
 
 set -euo pipefail
 
@@ -58,6 +65,15 @@ readonly MAX_NAME_LENGTH=80
 readonly LOCK_BASENAME=".mkplan.lock"
 readonly LOCK_MAX_ATTEMPTS=100
 readonly LOCK_RETRY_SECONDS=0.1
+
+# Journal assets (Plan 00163), also used by --journal (Plan 00427).
+readonly JOURNAL_DIR_BASENAME="JOURNAL"
+readonly JOURNAL_TEMPLATE_BASENAME="_JOURNAL_TEMPLATE_.md"
+
+# The grammar's legal category set (Plan 00427 D5), mirrored from
+# _JOURNAL_TEMPLATE_.md's "Entry grammar" line -- the template is the prose
+# SSoT, this array is the enforcement copy. Keep them in sync by hand.
+readonly JOURNAL_CATEGORIES=(action finding decision thought blocker handoff)
 
 # Populated once the lock is held, so the EXIT trap only ever removes a lock
 # this process actually owns (never another runner's lock on a timeout-die).
@@ -141,10 +157,227 @@ filesystem_highest() {
     printf '%d' "$highest"
 }
 
+# Plan folders in the plan ROOT only -- the same set the dedupe scout is told
+# to enumerate, so the two numbers are comparable. Archived plans live one
+# level down under Completed/ and Cancelled/ and are deliberately not counted
+# (Plan 00434): the scout reports them separately, under its own heading.
+root_plan_folder_count() {
+    local plan_dir="$1"
+    local count=0 dir base
+    shopt -s nullglob
+    for dir in "$plan_dir"/*/; do
+        base="$(basename "$dir")"
+        if [[ "$base" =~ ^[0-9]{1,5}-[a-zA-Z] ]]; then
+            count=$((count + 1))
+        fi
+    done
+    shopt -u nullglob
+    printf '%d' "$count"
+}
+
+# Resolve the plan dir (override, else this script's own dir) into the global
+# `plan_dir`. Shared by the plan-creation path and --journal (Plan 00427 D6):
+# both need the same self-location logic, neither needs the counter lock.
+resolve_plan_dir() {
+    if [[ -n "${MKPLAN_PLAN_DIR:-}" ]]; then
+        # Explicit override for shared/symlinked deployments.
+        [[ -d "$MKPLAN_PLAN_DIR" ]] || die "MKPLAN_PLAN_DIR is set but not a directory: $MKPLAN_PLAN_DIR"
+        plan_dir="$(cd -P "$MKPLAN_PLAN_DIR" && pwd)"
+        return
+    fi
+
+    # Resolve the real directory containing this script, following symlinks,
+    # so the plan dir is wherever the script physically lives -- independent
+    # of CWD.
+    local source_path link_dir
+    source_path="${BASH_SOURCE[0]}"
+    while [[ -L "$source_path" ]]; do
+        link_dir="$(cd -P "$(dirname "$source_path")" && pwd)"
+        source_path="$(readlink "$source_path")"
+        [[ "$source_path" == /* ]] || source_path="$link_dir/$source_path"
+    done
+    plan_dir="$(cd -P "$(dirname "$source_path")" && pwd)"
+}
+
+# True (0) iff $1 is one of the legal journal categories.
+_journal_category_is_valid() {
+    local candidate="$1" known
+    for known in "${JOURNAL_CATEGORIES[@]}"; do
+        [[ "$known" == "$candidate" ]] && return 0
+    done
+    return 1
+}
+
+journal_usage() {
+    cat >&2 <<'USAGE'
+Usage: mkplan.bash --journal <plan-number> <category> <body-file> [--ref R] [--title T]
+
+Appends one entry to today's JOURNAL/ day-file for an existing plan. The
+script reads the clock itself (UTC) -- it never accepts a time from the
+caller. Never rewrites: the day-file is created from _JOURNAL_TEMPLATE_.md
+when absent, then the entry is appended.
+
+Arguments:
+  plan-number  Required. The plan's number, e.g. 427 or 00427.
+  category     Required. One of: action, finding, decision, thought,
+               blocker, handoff.
+  body-file    Required. Path to a file holding the entry body (markdown).
+
+Options:
+  --ref R      Optional task/phase reference (e.g. T2.1, P1). Defaults to
+               the grammar's "no ref" marker (an em dash).
+  --title T    Optional short title appended to the heading.
+USAGE
+}
+
+# Append one journal entry to an existing plan's JOURNAL/, per Plan 00427
+# D1-D6a. Every validation happens BEFORE any filesystem mutation, so a
+# rejected call writes nothing (D5). Deliberately does NOT call acquire_lock
+# and NEVER touches $COUNTER_KEY (D6a) -- a journal append happens far more
+# often than a plan is created, and must not contend with, or be confused
+# for, plan-number assignment.
+run_journal_mode() {
+    shift # drop the leading --journal
+
+    if [[ $# -lt 3 ]]; then
+        journal_usage
+        die "--journal expects at least 3 arguments (plan-number, category, body-file), got $#"
+    fi
+
+    local plan_number="$1" category="$2" body_file="$3"
+    shift 3
+
+    local ref="—" entry_title=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --ref)
+                [[ $# -ge 2 ]] || die "--ref requires a value"
+                ref="$2"
+                shift 2
+                ;;
+            --title)
+                [[ $# -ge 2 ]] || die "--title requires a value"
+                entry_title="$2"
+                shift 2
+                ;;
+            *)
+                journal_usage
+                die "unrecognised --journal argument: $1"
+                ;;
+        esac
+    done
+
+    if [[ ! "$plan_number" =~ ^[0-9]{1,5}$ ]]; then
+        die "invalid plan number '$plan_number' -- expected digits, e.g. 427 or 00427"
+    fi
+    local padded_number
+    printf -v padded_number '%0*d' "$NUMBER_WIDTH" "$((10#$plan_number))"
+
+    if ! _journal_category_is_valid "$category"; then
+        die "invalid category '$category' -- must be one of: ${JOURNAL_CATEGORIES[*]}"
+    fi
+
+    if [[ ! -f "$body_file" ]]; then
+        die "body file not found: $body_file"
+    fi
+    local body
+    if ! body="$(cat "$body_file")"; then
+        die "could not read body file: $body_file"
+    fi
+    if [[ -z "${body//[[:space:]]/}" ]]; then
+        die "body file is empty: $body_file"
+    fi
+
+    resolve_plan_dir
+    local repo_root
+    if ! repo_root="$(git -C "$plan_dir" rev-parse --show-toplevel)"; then
+        die "$plan_dir is not inside a git repository — cannot resolve the plan folder"
+    fi
+
+    # Locate the plan folder for this number: direct child, or one level
+    # inside a non-numbered subdir (Completed/, archive/...). Read-only.
+    local matches=() nullglob_was_set=0
+    if shopt -q nullglob; then
+        nullglob_was_set=1
+    fi
+    shopt -s nullglob
+    matches=( "$plan_dir/$padded_number-"*/ "$plan_dir"/*/"$padded_number-"*/ )
+    if (( ! nullglob_was_set )); then
+        shopt -u nullglob
+    fi
+    if [[ ${#matches[@]} -eq 0 ]]; then
+        die "no plan folder found for number $padded_number under $plan_dir"
+    fi
+    if [[ ${#matches[@]} -gt 1 ]]; then
+        die "multiple plan folders match number $padded_number: ${matches[*]}"
+    fi
+    local plan_folder="${matches[0]%/}"
+
+    local journal_template_file="$plan_dir/$JOURNAL_TEMPLATE_BASENAME"
+    if [[ ! -f "$journal_template_file" ]]; then
+        die "no $JOURNAL_TEMPLATE_BASENAME in $plan_dir -- journalling is not enabled for this project"
+    fi
+
+    # --- validation complete; every mutation below this line -----------
+
+    local journal_dir="$plan_folder/$JOURNAL_DIR_BASENAME"
+    mkdir -p "$journal_dir" || die "could not create journal folder: $journal_dir"
+
+    # Read the clock ITSELF, normalised to UTC (D2, D3) -- the caller never
+    # supplies a time, so a two-writer cross-zone pair stays consistent. A
+    # SINGLE `date` call produces both fields so a midnight-UTC straddle can't
+    # pair a pre-boundary day with a post-boundary time (or vice versa) --
+    # two separate calls could otherwise write e.g. a "## 00:00" entry into
+    # the PREVIOUS day's file.
+    local journal_stamp journal_day journal_time
+    journal_stamp="$(date -u +%y-%m-%d' '%H:%M)"
+    journal_day="${journal_stamp%% *}"
+    journal_time="${journal_stamp##* }"
+
+    local journal_file="$journal_dir/$padded_number-Journal-$journal_day.md"
+
+    if [[ ! -f "$journal_file" ]]; then
+        local folder_name plan_title owner journal_body
+        folder_name="$(basename "$plan_folder")"
+        plan_title="${folder_name#*-}"
+        plan_title="${plan_title//-/ }"
+        if ! owner="$(git -C "$repo_root" config user.name)" || [[ -z "$owner" ]]; then
+            owner="Unknown"
+        fi
+        if ! journal_body="$(cat "$journal_template_file")"; then
+            die "could not read journal template '$journal_template_file'"
+        fi
+        journal_body="${journal_body//\{\{PLAN_NUMBER\}\}/$padded_number}"
+        journal_body="${journal_body//\{\{PLAN_TITLE\}\}/$plan_title}"
+        journal_body="${journal_body//\{\{DATE\}\}/$journal_day}"
+        journal_body="${journal_body//\{\{TIME\}\}/$journal_time}"
+        journal_body="${journal_body//\{\{OWNER\}\}/$owner}"
+        printf '%s\n' "$journal_body" > "$journal_file"
+    fi
+
+    # Append-only (D4): the block below only ever adds bytes at the bottom.
+    local heading="## $journal_time · $category · $ref"
+    if [[ -n "$entry_title" ]]; then
+        heading="$heading   — $entry_title"
+    fi
+    {
+        printf '\n%s\n\n' "$heading"
+        printf '%s\n' "$body"
+    } >> "$journal_file"
+
+    printf 'mkplan: appended a %s entry to %s\n' "$category" "${journal_file#"$repo_root"/}" >&2
+    printf '%s\n' "$journal_file"
+}
+
 # --- argument handling -----------------------------------------------------
 
 if [[ $# -eq 1 ]] && { [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; }; then
     usage
+    exit 0
+fi
+
+if [[ "${1:-}" == "--journal" ]]; then
+    run_journal_mode "$@"
     exit 0
 fi
 
@@ -187,21 +420,7 @@ fi
 
 # --- locate the plan dir (override, else this script's own dir) + the repo --
 
-if [[ -n "${MKPLAN_PLAN_DIR:-}" ]]; then
-    # Explicit override for shared/symlinked deployments.
-    [[ -d "$MKPLAN_PLAN_DIR" ]] || die "MKPLAN_PLAN_DIR is set but not a directory: $MKPLAN_PLAN_DIR"
-    plan_dir="$(cd -P "$MKPLAN_PLAN_DIR" && pwd)"
-else
-    # Resolve the real directory containing this script, following symlinks, so
-    # the plan dir is wherever the script physically lives — independent of CWD.
-    source_path="${BASH_SOURCE[0]}"
-    while [[ -L "$source_path" ]]; do
-        link_dir="$(cd -P "$(dirname "$source_path")" && pwd)"
-        source_path="$(readlink "$source_path")"
-        [[ "$source_path" == /* ]] || source_path="$link_dir/$source_path"
-    done
-    plan_dir="$(cd -P "$(dirname "$source_path")" && pwd)"
-fi
+resolve_plan_dir
 
 # The counter lives in the enclosing repo's git config — resolve it from the
 # plan dir (not CWD) so the script works from anywhere, including nested repos.
@@ -338,16 +557,23 @@ fi
 # PLAN.md. Gated on a project-owned _JOURNAL_TEMPLATE_.md whose presence is the
 # "this project journals" marker, so non-journalling projects get clean plans.
 # Written with bash (mkdir / cat), not the Write tool — same reason as PLAN.md.
-readonly JOURNAL_DIR_BASENAME="JOURNAL"
-readonly JOURNAL_TEMPLATE_BASENAME="_JOURNAL_TEMPLATE_.md"
+# (JOURNAL_DIR_BASENAME / JOURNAL_TEMPLATE_BASENAME are declared once, near
+# the top, shared with --journal / Plan 00427.)
 journal_template_file="$plan_dir/$JOURNAL_TEMPLATE_BASENAME"
 if [[ -f "$journal_template_file" ]]; then
     journal_dir="$target/$JOURNAL_DIR_BASENAME"
     if ! mkdir "$journal_dir"; then
         die "could not create journal folder '$journal_dir'"
     fi
-    journal_day="$(date +%y-%m-%d)"
-    journal_time="$(date +%H:%M)"
+    # UTC, not local (Plan 00427 D3): every day-file's sentinel promises UTC
+    # timestamps, including this scaffolder-written seed entry.
+    # ONE invocation for both fields: two calls can straddle midnight UTC, and
+    # the day names the FILE while the time stamps the ENTRY — so a straddle
+    # writes a `## 00:00` entry into the previous day's file, which
+    # journal-entry-ordering and journal-entry-future-dated then flag.
+    journal_stamp="$(date -u +%y-%m-%d' '%H:%M)"
+    journal_day="${journal_stamp%% *}"
+    journal_time="${journal_stamp##* }"
     journal_file="$journal_dir/$padded-Journal-$journal_day.md"
     if ! journal_body="$(cat "$journal_template_file")"; then
         die "could not read journal template '$journal_template_file'"
@@ -376,6 +602,11 @@ git -C "$repo_root" config --local "$COUNTER_KEY" "$new_counter"
 # --- report ----------------------------------------------------------------
 
 rel_target="${target#"$repo_root"/}"
+# Stated for the dedupe dispatch below. The scout is asked to report how many
+# live plans it checked, and until now the only thing that number could be
+# reconciled against was the scout's own enumeration -- which is no check at
+# all when the enumeration is what went wrong (Plan 00434, ledger 00422 N13).
+root_plan_count="$(root_plan_folder_count "$plan_dir")"
 cat >&2 <<DONE
 mkplan: created plan $padded
   folder: $rel_target/
@@ -386,6 +617,11 @@ Next steps (not done automatically):
   - Check nothing already covers this, BEFORE you invest in filling it in.
     Dispatch the hooks-daemon-plan-dedupe-scout agent with what this plan is
     about; it reads the still-live plans and names any that already cover it.
+    TELL IT there are $root_plan_count plan folders in $plan_rel/ right now,
+    this one included. Its report must say 'Checked N live plans.' - when that
+    N is not $root_plan_count it read a different tree, so re-dispatch rather
+    than act on the verdict. The number is stated here because the agent
+    cannot audit its own count.
     Nothing is invested yet, so merging or superseding now costs one 'git rm -r'.
     Suggested, not required - it never blocks, and it can be wrong.
   - Fill in PLAN.md (overview, goals, tasks).
