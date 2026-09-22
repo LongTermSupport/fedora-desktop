@@ -27,13 +27,47 @@ release_lock() {
     fi
 }
 
+# ssh_session_active <ss-output> — true when any established TCP connection is owned by an
+# sshd process. Takes the text rather than running `ss` itself so it can be driven against
+# captured output by scripts/test-ssh-suspend-guard.bash.
+#
+# THE PORT IS NOT THE QUESTION; THE OWNING PROCESS IS. This filtered `sport = :22`, which
+# hardcoded the standard port — so on a machine whose sshd listens anywhere else the
+# condition was never true, the lock was never taken, and the machine suspended in the
+# middle of an active SSH session. Silently, and that is the single outcome this guard
+# exists to prevent. Asking who owns the connection answers correctly wherever sshd
+# listens, with nothing to configure and nothing to keep in step with sshd_config.
+#
+# `"sshd` — the opening quote is part of the pattern — and not a bare `sshd`:
+#   - `ss -n` prints numeric addresses, so the only place a process name appears is the
+#     users:(("name",pid=…)) column. Anchoring on the quote keeps a hostname or a remote
+#     port from ever matching.
+#   - it still matches `sshd-session`, the per-connection child OpenSSH 9.8 split out. An
+#     exact-word `sshd` match would quietly stop matching on a newer OpenSSH — the same
+#     shape of silent failure as the hardcoded port.
+#   - an outbound client is `"ssh"`, which does not contain `"sshd`, so it cannot count.
+#
+# A BASH PATTERN MATCH, NOT `| grep -q`. `grep -q` exits at its first match, so `ss` is
+# killed by SIGPIPE writing into the closed pipe and `set -o pipefail` reports the whole
+# pipeline as FAILED — turning a match into a miss, and releasing the lock during the exact
+# session it should be held for. It only bites once the output exceeds the 64 KiB pipe
+# buffer, so it would appear on a busy host and never on a quiet one. A pattern match spawns
+# no process and cannot be signalled.
+ssh_session_active() {
+    [[ "${1}" == *'"sshd'* ]]
+}
+
 trap release_lock EXIT TERM INT
 
 logger -t ssh-suspend-guard "started"
 
+# --- main loop (scripts/test-ssh-suspend-guard.bash cuts the file here) ---
 while true; do
-    # Detect established inbound SSH connections (sshd listening on port 22)
-    if ss -tnp state established 'sport = :22' | grep -q sshd; then
+    # No `|| true`: if `ss` fails we cannot tell whether a session is live, and guessing
+    # either way is worse than stopping. `set -e` ends the run, the EXIT trap releases the
+    # lock, and the unit's Restart=always/RestartSec=5 brings it straight back.
+    established="$(ss -tnp state established)"
+    if ssh_session_active "${established}"; then
         take_lock
     else
         release_lock
