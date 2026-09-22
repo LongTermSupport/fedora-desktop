@@ -164,8 +164,14 @@ See the full guide for the complete workflow, commands, and troubleshooting:
 
 ### Crash Reporting (ABRT)
 
-`play-basic-configs.yml` sets the ABRT policy instead of leaving Fedora's defaults.
-Override either value in `host_vars/localhost.yml`:
+`play-basic-configs.yml` sets the ABRT policy instead of leaving Fedora's defaults, and
+writes the values in effect into a managed block in `host_vars/localhost.yml` (created
+with the project defaults on first run). Edit the block, or pass the values once and the
+play persists them:
+
+```bash
+./playbooks/imports/play-basic-configs.yml --tags abrt -e abrt_auto_reporting=false -e abrt_retention_days=7
+```
 
 ```yaml
 abrt_auto_reporting: false   # default true — send anonymous µReports for packaged crashes

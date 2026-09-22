@@ -453,6 +453,15 @@
     #                          records (unpackaged or third-party-repo binaries can
     #                          never be reported) otherwise accumulate for ever, and
     #                          abrt-applet re-announces every one at each login.
+    # Resolved once under distinct names: the persisted block below would otherwise
+    # read as `abrt_retention_days: {{ abrt_retention_days | default(30) }}`, which is
+    # the ansible-core 2.19 self-referential shape the QA gate rejects.
+    - name: Resolve the effective ABRT policy
+      ansible.builtin.set_fact:
+        abrt_policy_reporting: "{{ 'enabled' if (abrt_auto_reporting | default(true) | bool) else 'disabled' }}"
+        abrt_policy_days: "{{ abrt_retention_days | default(30) | int }}"
+      tags: abrt
+
     - name: Probe ABRT auto-reporting state
       ansible.builtin.command: abrt-auto-reporting
       register: abrt_auto_reporting_probe
@@ -463,10 +472,24 @@
       ansible.builtin.command:
         argv:
           - abrt-auto-reporting
-          - "{{ 'enabled' if (abrt_auto_reporting | default(true) | bool) else 'disabled' }}"
-      when: >-
-        abrt_auto_reporting_probe.stdout | trim
-        != ('enabled' if (abrt_auto_reporting | default(true) | bool) else 'disabled')
+          - "{{ abrt_policy_reporting }}"
+      when: abrt_auto_reporting_probe.stdout | trim != abrt_policy_reporting
+      tags: abrt
+
+    # Persist the effective values into host_vars so a `-e` override on one run is the
+    # policy on every later run, and a host that never set them gets the block with the
+    # project defaults. The markered block converges on re-runs (same pattern as the
+    # LastPass / NordVPN / Qobuz plays). host_vars is the user's file, hence become: false.
+    - name: Persist ABRT policy to localhost.yml
+      become: false
+      ansible.builtin.blockinfile:
+        path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
+        marker: "# {mark} ANSIBLE MANAGED: ABRT crash policy"
+        block: |
+          # ABRT crash policy — see docs/configuration.md#crash-reporting-abrt
+          abrt_auto_reporting: {{ 'true' if abrt_policy_reporting == 'enabled' else 'false' }}
+          abrt_retention_days: {{ abrt_policy_days }}
+        create: false
       tags: abrt
 
     - name: Deploy ABRT stale-record prune script
@@ -486,7 +509,7 @@
         group: root
         mode: "0644"
       vars:
-        abrt_prune_days: "{{ abrt_retention_days | default(30) }}"
+        abrt_prune_days: "{{ abrt_policy_days }}"
       tags: abrt
 
     - name: Deploy ABRT prune timer unit
@@ -511,7 +534,7 @@
       ansible.builtin.command:
         argv:
           - /usr/local/bin/abrt-prune-stale.bash
-          - "{{ abrt_retention_days | default(30) }}"
+          - "{{ abrt_policy_days }}"
       register: abrt_prune_result
       changed_when: "'ABRT-PRUNE-CHANGED' in abrt_prune_result.stdout"
       tags: abrt
