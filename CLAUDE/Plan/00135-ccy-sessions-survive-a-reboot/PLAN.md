@@ -92,9 +92,10 @@ below.
 > Independent of the daemon CLI and of restore. Lands first; nothing else needs it to
 > exist to be useful, and it is what makes restore possible at all.
 
-- [ ] ⬜ **Task 1.1**: Registry format and location. One file per session under
+- [x] ✅ **Task 1.1**: Registry format and location. One file per session under
   `~/.local/state/ccy/sessions/`, named for the tmux session. Records: tmux session name,
-  project directory, and the launch arguments with one-shot arguments removed.
+  project directory, launcher, prefix, restore flag, and the launch arguments with one-shot
+  arguments removed. `lib/session-registry.bash`; location decision in the 26-09-22 journal.
 
   **The one-shot set is already enumerated with file:line citations** in
   [research/launcher-facts.md](research/launcher-facts.md) §4 — use it rather than
@@ -110,67 +111,60 @@ below.
   - **`--ssh-agent` needs a decision**: the agent socket differs after a reboot, so
     replaying it points at a socket that no longer exists.
 
-- [ ] ⬜ **Task 1.2**: Write on start, delete on clean exit, both inside
-  `ccy_tmux_insulate`. A record that outlives its session is the signal restore reads; a
-  record deleted on an *unclean* exit would silently lose a session. The delete belongs on
-  the normal-exit path only.
+- [x] ✅ **Task 1.2**: Write on start, delete on clean exit, both inside
+  `ccy_tmux_insulate`. The write is there; the delete rides in the pane's trampoline
+  (`ccy_registry_trampoline`), which runs when the launcher returns and not when the pane
+  is killed. `ccy-sessions` Ctrl-X removes the record itself, since a `kill-session` never
+  reaches the trampoline.
 
-- [ ] ⬜ **Task 1.3**: `no-restore` marking, so a one-off session can opt out of being
-  brought back.
+- [x] ✅ **Task 1.3**: `--no-restore` marking, consumed by the insulation; neither launcher
+  sees it. `cc` strips it again on the paths where insulation does not apply.
 
-- [ ] ⬜ **Task 1.4**: `scripts/test-ccy-session-registry.bash`, red first. Cover: record
-  written on start; removed on clean exit; **survives a kill** (the case the whole feature
-  rests on); one-shot arguments stripped; `no-restore` honoured; a directory with spaces.
+- [x] ✅ **Task 1.4**: `scripts/test-ccy-session-registry.bash`, wired into `qa-all.bash`.
+  Covers the write, the clean and failing exits, the **kill** (the real trampoline under
+  `kill -KILL`), the one-shot filter case by case, `--no-restore`, a directory with spaces,
+  and the malformed-record rejections.
 
 ### Phase 2: The restore service
 
-- [ ] ⬜ **Task 2.1**: `ccy-sessions-restore.service`, `systemd --user`,
-  `WantedBy=default.target`. For each record: start detached on the ccy tmux server
-  (`tmux -L ccy`), in the recorded directory, with the recorded arguments plus
-  `--supervise --continue`.
-- [ ] ⬜ **Task 2.2**: Opt-in play variable, defaulting to today's behaviour (no restore).
-  **Linger is already owned** by `play-systemd-user-tweaks.yml:23-50` — depend on it, do
-  not enable it a second time here. Two plays both enabling linger is two owners for one
-  fact, and the second one to be edited wins silently.
-- [ ] ⬜ **Task 2.3**: Deploy it from the owning play, following
-  `play-host-health-login-report.yml`: reload as its **own task after** the enable, then
-  **read back** that `default.target` actually names the unit. `is-enabled` reads the
-  filesystem and `list-dependencies` reads the live manager; they disagree precisely when
-  this is broken, so assert the second.
-- [ ] ⬜ **Task 2.4**: Decide and document what restore does with a record whose directory
-  has since vanished, and with one whose session name is already live. Neither is exotic:
-  a deleted checkout and a hand-started session are both ordinary. Failing loudly on the
-  first and skipping the second is the likely answer, but it is a decision, not a default.
-- [ ] ⬜ **Task 2.5**: Tests for record-set → commands, red first. A real `systemd --user`
-  unit cannot be exercised in the CCY container; the *translation* can, and that is where
-  the bugs live.
+- [x] ✅ **Task 2.1**: `ccy-sessions-restore.service`, `systemd --user`,
+  `WantedBy=default.target`, running `ccy-sessions restore`. Each record is started through
+  `ccy_tmux_start_detached` — the same function the interactive start now uses — with the
+  recorded arguments plus `--continue`, and `--supervise` for `ccy` (not `cc`, which
+  forwards its argv to `claude`).
+- [x] ✅ **Task 2.2**: `ccy_restore_sessions` (`| default(false)`), declared in `host_vars`.
+  Linger untouched; the play comment names its owner.
+- [x] ✅ **Task 2.3**: In `play-claude-yolo.yml`: enable (or remove the wants-symlink when
+  not opted in), reload as its own task, read back `list-dependencies default.target` and
+  assert the live graph matches the opt-in either way.
+- [x] ✅ **Task 2.4**: Decided (journal 26-09-22): vanished directory → error, record kept,
+  run continues, unit ends failed; live name → skip and say so; unreadable live list →
+  start nothing. Documented in `docs/ccy.md`.
+- [x] ✅ **Task 2.5**: The translation is tested in `test-ccy-session-registry.bash` over a
+  stubbed live list and a recording stub for the start; the executable's `restore`
+  subcommand is exercised headless in `test-ccy-sessions-reboot.bash`.
 
 ### Phase 3: The reboot helper
 
-- [ ] ⬜ **Task 3.1**: Restructure `ccy-sessions` into a subcommand dispatcher. Bare
-  `ccy-sessions` stays the picker, byte-for-byte in behaviour. **Move the TTY guard out of
-  the preamble and into the picker path** — `notify` must work headless. `--help` must keep
-  working without a terminal. Per `CLAUDE/InteractiveScripts.md`, the picker keeps its
-  friendly-recovery behaviour; the new non-interactive subcommands fail fast instead.
-- [ ] ⬜ **Task 3.2**: `ccy-sessions notify reboot-warning --minutes N` and
-  `ccy-sessions notify reboot-cancelled`. For each live session's project, invoke that
-  project's daemon CLI with `--all-sessions` and `--project-root`. A project with no daemon
-  CLI is a **loud refusal** — name the project and exit non-zero. Not a warning, not a
-  skip.
-- [ ] ⬜ **Task 3.3**: `ccy-sessions reboot --in N` — notify, print the countdown, notify
-  again at one minute, then `systemctl reboot`. `--dry-run` prints what it would signal and
-  reboots nothing.
-- [ ] ⬜ **Task 3.4**: `scripts/test-ccy-sessions-reboot.bash`, red first, against a stub
-  daemon CLI. Cover: signals every project exactly once; refuses loudly on a missing CLI
-  and **reboots nothing** in that case; `--dry-run` invokes neither the CLI nor
-  `systemctl`; the one-minute second signal fires; the bare picker path is unchanged.
+- [x] ✅ **Task 3.1**: `ccy-sessions` is a dispatcher: bare = picker, `notify`, `reboot`,
+  `restore`, `--help`. The TTY guard sits under the dispatch, on the picker path only.
+  Usage mistakes exit 64, refusals exit 1.
+- [x] ✅ **Task 3.2**: `notify reboot-warning --minutes N`, `notify shutdown-warning`,
+  `notify reboot-cancelled`. Every live project is checked for a daemon CLI **before** any
+  is signalled, so a refusal leaves no project half-warned.
+- [x] ✅ **Task 3.3**: `reboot --in N [--dry-run]`: warn N, wait, warn 1, wait, `systemctl reboot`. `--in 1` warns once. Minutes are a positive integer or a usage error.
+- [x] ✅ **Task 3.4**: `scripts/test-ccy-sessions-reboot.bash`, wired into `qa-all.bash`:
+  the real executable under a fake `tmux`, a fake `systemctl` and a per-project logging
+  stand-in for the daemon CLI, with the minute shortened to zero.
 
 ### Phase 4: Docs
 
-- [ ] ⬜ **Task 4.1**: `docs/tmux-sessions.md` "What survives what" gains a host-reboot row
-  — with restore enabled and without, because the honest answer differs per machine.
-- [ ] ⬜ **Task 4.2**: `docs/ccy.md` documents the registry, the service, the helper and the
-  opt-in, including that restore is off by default and what turns it on.
+- [x] ✅ **Task 4.1**: `docs/tmux-sessions.md`: the row stays "gone" for plain tmux
+  sessions (true), and the sentence beneath it says which sessions are the exception and
+  on which machines.
+- [x] ✅ **Task 4.2**: `docs/ccy.md` "Sessions Survive a Reboot": registry, opt-in, the
+  restore decision table, the replay filter, the prompt behaviour, the reboot helper and
+  its refusal; command-reference and troubleshooting rows; `docs/ccy-changelog.md` 3.60.0.
 
 ### Phase 5: Proof on a real machine
 
@@ -195,10 +189,22 @@ below.
 - Plan 00111 (Completed) — the tmux server under `systemd --user`, `ccy-sessions`, and the
   re-attach offer. This plan extends all three.
 
-## Open decisions — settle these before writing Phase 3
+## Open decisions — settled; reasoning in the 26-09-22 journal
 
-Both come from [research/launcher-facts.md](research/launcher-facts.md) and neither is
-answered by the issue.
+1. **Bought here: the helper, not an inhibitor.** The helper owns the deliberate case and
+   the countdown; a plain `systemctl reboot` warns nobody, and the docs say so. A
+   `--what=shutdown` inhibitor that warns on every path is a separate change with its own
+   argument (it delays every reboot, including unattended ones) and is not started here.
+2. **Replay filtered argv.** The quick-launch path is a prompt, so it does not remove the
+   interactivity, and it holds only token/ssh/network. A restored session runs in a real
+   pane, so a launch that named its settings comes back unattended and one that answered
+   prompts asks again, visibly.
+3. **`shutdown-with-update` is left as it is.** It is an updater that then shuts down; the
+   helper is a warner that then reboots. Making one call the other is an integration this
+   plan does not need for its goals; noted for whoever next touches either.
+
+Both of the first two came from [research/launcher-facts.md](research/launcher-facts.md)
+and neither was answered by the issue. The original questions, for the record:
 
 **1. The helper only warns when the helper is used.** The issue names "an automated patch
 cycle" as a reason to want this, but a patch cycle runs `systemctl reboot`, not

@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.59.0"  # ccy-sessions rows now name the container network each session is on, asked of the engine itself. See docs/ccy-changelog.md.
+CCY_VERSION="3.60.0"  # Sessions survive a reboot: every session is recorded, ccy-sessions restore brings them back (opt-in), ccy-sessions reboot warns them first. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,7 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # from lib/ (see CCY_HASH), because a hand-written list of what the program
 # consists of is a list that goes stale — this one omitted common-pure.bash,
 # which common.bash sources, for two months.
-CCY_LIBS=(common token-management ssh-handling network-management dockerfile-custom docker-health tmux-session)
+CCY_LIBS=(common token-management ssh-handling network-management dockerfile-custom docker-health session-registry tmux-session)
 
 if [ -f "$SCRIPT_DIR/lib/common.bash" ]; then
     source "$SCRIPT_DIR/lib/common.bash"
@@ -60,6 +60,8 @@ source "$SCRIPT_DIR/lib/network-management.bash"
 source "$SCRIPT_DIR/lib/dockerfile-custom.bash"
 # shellcheck source=lib/docker-health.bash
 source "$SCRIPT_DIR/lib/docker-health.bash"
+# shellcheck source=lib/session-registry.bash
+source "$SCRIPT_DIR/lib/session-registry.bash"
 # shellcheck source=lib/tmux-session.bash
 source "$SCRIPT_DIR/lib/tmux-session.bash"
 
@@ -595,6 +597,12 @@ for arg in "$@"; do
         SUPERVISE_MODE=true
     elif [ "$arg" = "--no-supervise" ]; then
         NO_SUPERVISE_MODE=true
+    elif [ "$arg" = "--no-restore" ]; then
+        # The session registry's opt-out (lib/session-registry.bash): consumed by the tmux
+        # insulation on the way into the session. It is only still here on the paths where
+        # insulation does not apply, and it means nothing to this script — but left
+        # unrecognised it would fall through to claude as an unknown option.
+        :
     elif [ "$arg" = "--prompt" ]; then
         NEXT_IS_PROMPT=true
     elif [ "$arg" = "--debug" ]; then

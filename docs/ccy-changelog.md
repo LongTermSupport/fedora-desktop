@@ -17,6 +17,31 @@ Two version numbers move independently — see
 
 ---
 
+## 3.60.0
+
+**Sessions survive a reboot** ([issue #44](https://github.com/LongTermSupport/fedora-desktop/issues/44), Plan 00135). Every `ccy` and `cc` session now writes a record under
+`~/.local/state/ccy/sessions/` while it runs; the record goes when the launcher returns and
+stays when the session is killed, so what is still there at boot is what was running at
+shutdown. Three things read it:
+
+- **`ccy-sessions restore`** — starts each recorded session again, detached, in its
+  directory, with its arguments minus the one-shot ones (`--rebuild`, `--prompt`, an opening
+  instruction, `--prevent`, `--connect`, the token modes, `--ssh-agent`, …) plus `--continue`
+  and, for `ccy`, `--supervise`. Shipped as `ccy-sessions-restore.service` in the user
+  manager. **Opt-in and off by default**: `ccy_restore_sessions: true` in `host_vars`
+  enables it; nothing changes on a machine that has not asked.
+- **`ccy-sessions reboot --in N`** — warns every live session's project through its own
+  hooks-daemon CLI (`signal reboot-warning`, daemon ≥ 3.65.0), again at one minute, then
+  `systemctl reboot`. A project with no daemon CLI is a refusal: named, nothing signalled,
+  nothing rebooted. `--dry-run` reboots nothing. `notify reboot-warning --minutes N` and
+  `notify reboot-cancelled` are the halves on their own.
+- **`ccy --no-restore`** — marks a one-off session as not to be brought back.
+
+`ccy-sessions` no longer needs a terminal for these subcommands; the picker still does.
+Ending a session from the picker (Ctrl-X) removes its record. New library
+`lib/session-registry.bash`; `lib/tmux-session.bash` gains `ccy_tmux_start_detached`,
+shared by the interactive start and the restore so both produce the same session.
+
 ## 3.59.0
 
 **`ccy-sessions` says which network each session is on.** The picker had the session name,

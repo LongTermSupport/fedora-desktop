@@ -196,7 +196,7 @@ both kinds. From the keyboard the two feel identical; only the container differs
 | F12, Detach                                        | Leaves the session running; `ccy` re-attaches                                          |
 | `claude` exits                                     | Container removed as before; the tmux session closes with it                           |
 | Launcher fails inside the session                  | Window stays open showing the error until you press Enter                              |
-| Host reboots                                       | Everything is gone, as before                                                          |
+| Host reboots                                       | Gone — unless the machine has opted in to [restore](#sessions-survive-a-reboot)        |
 
 Sessions live on CCY's own tmux server (socket `ccy`), so a plain `tmux ls` does not show
 them; `ccy-sessions` does. The server is started under a transient `systemd --user` scope
@@ -205,6 +205,70 @@ in `--headless` mode, or when there is no terminal (it says so on stderr when st
 redirected, as under `--debug`). Inside a tmux of your own, `ccy` checks where that server
 lives: one started from a terminal tab dies with the tab, so `ccy` refuses and tells you to
 detach and run it from the plain shell; a server outside any terminal's scope is left alone.
+
+## Sessions Survive a Reboot
+
+Since CCY 3.60.0 every `ccy` and `cc` session writes a record while it runs, under
+`~/.local/state/ccy/sessions/` (one file per session, named for it). The record is removed
+the moment the launcher returns — a session that ended, however it ended — and is left
+behind when the session is killed: a reboot, a power cut, Ctrl-X in `ccy-sessions` (which
+removes it itself). So a record still present at boot means exactly "this was running when
+the machine went down", with no shutdown hook and no timing to get wrong.
+
+**Restore is opt-in per machine, and off by default.** A laptop rebooted daily does not want
+four agents resuming at login. Declare it in `host_vars`:
+
+```yaml
+ccy_restore_sessions: true
+```
+
+and run `play-claude-yolo.yml` (part of `playbook-main.yml`). That enables
+`ccy-sessions-restore.service` in the user manager, wanted by `default.target`, which with
+linger (also part of `playbook-main.yml`) is reached at boot before anyone logs in. It runs
+`ccy-sessions restore`: for each record it starts the session again, detached, on CCY's
+server, in the recorded directory, with the recorded arguments plus `--continue` (and
+`--supervise` for `ccy`). `ccy-sessions` then lists them as detached; `ccy` in the project
+directory offers them back.
+
+What is replayed is the launch command line **minus the one-shot arguments**: `--rebuild`,
+`--prompt "text"` and a bare opening instruction, `--prevent`, `--connect`, the token
+create/update/export modes, `--custom`, `--top`, `--debug`, `--headless` and `--ssh-agent`
+(the agent socket is a different path after a reboot). Settings — `--token`, `--ssh-key`,
+`--network`, `--no-network`, `--no-ssh`, `--github-443`, `--engine`, `--no-supervise` —
+and everything after `--` are kept. A restored session starts in a real tmux pane, so the
+launcher behaves as it always does: a launch that named its token, key and network asks
+nothing and comes back unattended; one that answered prompts the first time asks them
+again, in the pane, where `ccy-sessions` will show it waiting.
+
+| Situation at boot                         | What restore does                                                                          |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Record present, directory exists          | Starts the session detached                                                                |
+| Session with that name already running    | Skips it and says so                                                                       |
+| Launched with `--no-restore`              | Skips it: the record says so                                                               |
+| Record's directory has since been deleted | Fails loudly, keeps the record for you, carries on with the others; the unit ends `failed` |
+| Live session list cannot be read          | Starts nothing — restoring blind could double every session                                |
+| Machine not opted in                      | Nothing runs; the records still accumulate and are removed as sessions end                 |
+
+`ccy --no-restore` marks a one-off session as not worth bringing back. `ccy-sessions restore --dry-run` prints what a restore would start and starts nothing.
+
+### Warning sessions before a reboot
+
+`ccy-sessions reboot --in N` is the deliberate way to take a machine down with agents
+running. It tells every live session's project that the machine reboots in N minutes,
+prints the countdown, tells them again at one minute, then runs `systemctl reboot`. The
+telling goes through each project's own hooks-daemon CLI
+(`.claude/hooks-daemon/bin/hooks-daemon signal reboot-warning --minutes N --all-sessions`),
+which needs daemon 3.65.0 or later; the helper names a signal kind and a number and never
+composes a message, so a reboot notice cannot become a prompt into a running agent.
+
+A live session whose project has **no** daemon CLI is a refusal, not a warning: the project
+is named, nothing is signalled, and nothing reboots. End that session or install the daemon
+there, then try again. `--dry-run` prints what would be signalled and reboots nothing.
+`ccy-sessions notify reboot-warning --minutes N` and `ccy-sessions notify reboot-cancelled`
+are the two halves on their own, for a reboot that something else is going to perform.
+
+A plain `systemctl reboot` warns nobody — only the helper does. The restore still works
+after one; the sessions simply were not told.
 
 ---
 
@@ -499,17 +563,18 @@ are forwarded unchanged.
 
 ### Session
 
-| Flag              | Effect                                                                       |
-| ----------------- | ---------------------------------------------------------------------------- |
-| `ccy`             | Start a session in the current directory                                     |
-| `ccy "task"`      | Start an interactive session with an opening instruction                     |
-| `--prompt "text"` | Start with a preseeded prompt                                                |
-| `--headless`      | Run non-interactively — requires `--prompt` (not the positional form)        |
-| `--supervise`     | Wrap `claude` in the in-container supervisor                                 |
-| `--top`           | Container manager: list and stop running CCY containers                      |
-| `ccy-sessions`    | Separate command: every CCY tmux session with its network, attach or end one |
-| `--debug`         | Interactive debug-layer selection (CCY, entrypoint, Claude Code)             |
-| `--`              | End of CCY options; everything after is forwarded raw to `claude`            |
+| Flag              | Effect                                                                                                                                           |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ccy`             | Start a session in the current directory                                                                                                         |
+| `ccy "task"`      | Start an interactive session with an opening instruction                                                                                         |
+| `--prompt "text"` | Start with a preseeded prompt                                                                                                                    |
+| `--headless`      | Run non-interactively — requires `--prompt` (not the positional form)                                                                            |
+| `--supervise`     | Wrap `claude` in the in-container supervisor                                                                                                     |
+| `--no-restore`    | Do not bring this session back after a reboot (see [restore](#sessions-survive-a-reboot))                                                        |
+| `--top`           | Container manager: list and stop running CCY containers                                                                                          |
+| `ccy-sessions`    | Separate command: every CCY tmux session with its network, attach or end one; `reboot --in N` warns them and reboots; `restore` brings them back |
+| `--debug`         | Interactive debug-layer selection (CCY, entrypoint, Claude Code)                                                                                 |
+| `--`              | End of CCY options; everything after is forwarded raw to `claude`                                                                                |
 
 ### Image and updates
 
@@ -1137,6 +1202,8 @@ absent supervisor and `--no-supervise`; both announce themselves at launch. See
 | `ccy` offers a session I do not want          | Answer `n` for a fresh one, or end the old one from `ccy-sessions` (choose it, Ctrl-X).                                                                                                                                                            |
 | "open in another terminal" when attaching     | A session can be attached from one terminal only. Detach it there first (F12, Detach), or end it from `ccy-sessions`.                                                                                                                              |
 | "tmux is not installed"                       | `play-tmux-sessions.yml` has not run on this host. It is part of `playbook-main.yml`.                                                                                                                                                              |
+| Sessions did not come back after a reboot     | Restore is opt-in: `ccy_restore_sessions: true` in `host_vars`, then the play. If it is on, \`systemctl --user status ccy-sessions-restore --no-pager                                                                                              |
+| `ccy-sessions reboot` refuses                 | A live session's project has no hooks-daemon CLI, so it cannot be warned. It is named; end it or install the daemon there. Nothing was signalled or rebooted.                                                                                      |
 | Need to see what CCY itself is doing          | `ccy --debug` for interactive debug-layer selection.                                                                                                                                                                                               |
 
 ---

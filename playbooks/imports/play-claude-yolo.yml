@@ -324,6 +324,7 @@
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/dockerfile-custom.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/docker-health.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/tmux-session.bash"
+        - "{{ root_dir }}/files/var/local/claude-yolo/lib/session-registry.bash"
       tags:
         - scripts
         - library
@@ -439,6 +440,115 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0755"
+
+    # =========================================================================
+    # Restore ccy sessions after a reboot — OPT-IN (Plan 00135, issue #44)
+    # =========================================================================
+    # Every ccy and cc session writes a record while it runs (lib/session-registry.bash);
+    # `ccy-sessions restore` starts the recorded ones again at boot. The unit is always
+    # deployed, so `systemctl --user start ccy-sessions-restore` works on any host, but it
+    # is ENABLED only where `ccy_restore_sessions: true` is declared in host_vars — a
+    # laptop rebooted daily does not want four agents resuming at login, and the default
+    # must stay exactly today's behaviour.
+    #
+    # Linger is NOT enabled here: play-systemd-user-tweaks.yml owns it, and two owners of
+    # one fact is how the second one to be edited wins silently. It is what makes
+    # default.target reachable at boot without a login, so restore before login depends
+    # on that play having run — it is in playbook-main's core path.
+    - name: Ensure the User Systemd Unit Directory Exists
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/systemd/user"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
+    - name: Deploy the ccy Session Restore Unit
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.config/systemd/user/ccy-sessions-restore.service"
+        dest: "/home/{{ user_login }}/.config/systemd/user/ccy-sessions-restore.service"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+
+    # Resolved, never defaulted: a guessed uid points the user-manager calls below at
+    # another user's runtime directory without failing (play-container-watch.yml has the
+    # history). `fail_key: false` hands the verdict to the assert, whose message names the
+    # problem; getent still sets the key to None for a missing user, so `is not none` must
+    # be tested before `[1]` is indexed.
+    - name: Resolve The Session User UID
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ user_login }}"
+        fail_key: false
+
+    - name: Assert The Session User Exists
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['getent_passwd'][user_login] is defined
+          - ansible_facts['getent_passwd'][user_login] is not none
+          - ansible_facts['getent_passwd'][user_login][1] | int > 0
+        fail_msg: >-
+          Could not resolve a uid for {{ user_login }}, so this play cannot find that
+          user's systemd manager. It would otherwise guess, and a guessed uid points
+          at the wrong runtime directory without failing.
+
+    # Opted in: enable, then reload as its OWN task AFTER the enable, then read back.
+    # The module's `daemon_reload:` runs BEFORE it changes the enabled state, so it re-reads
+    # a directory that does not yet hold the wants-symlink the same task is about to
+    # create; `is-enabled` then says enabled (it reads the filesystem) while the live
+    # manager does not pull the unit in. play-host-health-login-report.yml measured that
+    # and this follows it: the read-back asks the live manager, not the disk.
+    - name: Enable the ccy Session Restore Unit
+      ansible.builtin.systemd:
+        name: ccy-sessions-restore.service
+        scope: user
+        enabled: true
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+      when: ccy_restore_sessions | default(false) | bool
+
+    # Not opted in: the unit stays deployed and the wants-symlink goes. `state: absent` is
+    # idempotent and cannot fail on a host that never enabled it, which `disable` would.
+    - name: Leave the ccy Session Restore Unit Disabled
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/systemd/user/default.target.wants/ccy-sessions-restore.service"
+        state: absent
+      when: not (ccy_restore_sessions | default(false) | bool)
+
+    - name: Reload The User Manager So It Sees The Restore Unit's Enabled State
+      ansible.builtin.systemd:
+        scope: user
+        daemon_reload: true
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+
+    - name: Read Back Whether The Live Manager Pulls In The Restore Unit
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - --user
+          - list-dependencies
+          - default.target
+          - --no-pager
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+      register: ccy_restore_readback
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe-then-fail — the verdict is the next task
+
+    - name: Assert The Restore Unit's Live State Matches The Opt-In
+      ansible.builtin.fail:
+        msg: >-
+          ccy-sessions-restore.service is {{ 'enabled on disk but default.target does not name it in the running user manager, so it will not run at boot' if (ccy_restore_sessions | default(false) | bool) else 'still named by default.target in the running user manager although it is not opted in' }}.
+          Collect, on the host:
+          `systemctl --user list-dependencies default.target --no-pager | cat`,
+          `ls -l ~/.config/systemd/user/default.target.wants/ | cat`
+          and `systemctl --user show ccy-sessions-restore.service -p LoadState -p UnitFileState -p WantedBy --no-pager | cat`.
+      when: >-
+        ccy_restore_readback.rc != 0
+        or (('ccy-sessions-restore.service' in ccy_restore_readback.stdout)
+            != (ccy_restore_sessions | default(false) | bool))
 
     - name: Create Claude YOLO Root Directory
       ansible.builtin.file:

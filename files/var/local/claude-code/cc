@@ -50,6 +50,8 @@ source "$COMMON_PURE"
 source "$TOKEN_MGMT"
 # shellcheck source=../claude-yolo/lib/tmux-session.bash
 source "$CCY_LIB_DIR/tmux-session.bash"
+# shellcheck source=../claude-yolo/lib/session-registry.bash
+source "$CCY_LIB_DIR/session-registry.bash"
 
 # Terminal-death insulation, the same as ccy's and on the same server: the session is
 # re-executed inside tmux BEFORE the token chooser, so the prompt and the claude pty both
@@ -60,6 +62,12 @@ source "$CCY_LIB_DIR/tmux-session.bash"
 CCY_TMUX_SESSION_PREFIX="cc"
 ccy_tmux_insulate "$(get_project_name)" "$(cd "$(dirname "$0")" && pwd)/$(basename "$0")" "$@"
 ccy_tmux_banner
+# `--no-restore` is the session registry's opt-out, consumed by the insulation above on the
+# way INTO tmux. On the way back in, and on the paths where insulation does not apply, it
+# is still in this argv — and everything left in it goes to claude, which would refuse an
+# option it does not know.
+mapfile -t CC_ARGS < <(ccy_registry_launch_args "$@")
+set -- "${CC_ARGS[@]}"
 
 # Stale-credential shadow-proofing (full rationale in the named-token branch
 # below). claude reads .credentials.json even when CLAUDE_CODE_OAUTH_TOKEN is

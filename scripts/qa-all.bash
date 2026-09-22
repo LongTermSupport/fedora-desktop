@@ -470,6 +470,35 @@ fi
 ssh_suspend_guard_summary=$(qa_gate_detail "$ssh_suspend_guard_out" 'VERDICT: PASS')
 qa_pass_line ssh-suspend-guard "$ssh_suspend_guard_summary"
 
+# The ccy session registry (Plan 00135): a restore after a reboot reads nothing but this. A
+# record must appear on start, go when the launcher returns, and STAY when the pane is
+# killed — the real trampoline is run and kill -KILLed here. The replay filter is the other
+# half: `--prevent` in a record would switch ccy off for the project it restores, so the
+# one-shot set is driven case by case, with `--model opus` kept and a bare first message
+# dropped. The restore itself is tested as a translation over a stubbed live list.
+session_registry_out=""
+if ! session_registry_out="$(bash "$SCRIPT_DIR/test-ccy-session-registry.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-session-registry \
+        "ccy session-registry unit tests failed" \
+        "$session_registry_out"
+fi
+session_registry_summary=$(qa_gate_case_count "$session_registry_out")
+qa_pass_line ccy-session-registry "$session_registry_summary"
+
+# ccy-sessions notify / reboot / restore (Plan 00135): the REAL executable under a fake
+# tmux, a fake systemctl and a per-project stand-in for the daemon CLI. Every project
+# signalled exactly once; a project with no daemon CLI refuses BEFORE anything is signalled
+# and reboots nothing; --dry-run touches neither; the one-minute second warning fires;
+# `systemctl reboot` is the last call; the bare picker path still demands a terminal.
+sessions_reboot_out=""
+if ! sessions_reboot_out="$(bash "$SCRIPT_DIR/test-ccy-sessions-reboot.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-sessions-reboot \
+        "ccy-sessions reboot/notify/restore unit tests failed" \
+        "$sessions_reboot_out"
+fi
+sessions_reboot_summary=$(qa_gate_case_count "$sessions_reboot_out")
+qa_pass_line ccy-sessions-reboot "$sessions_reboot_summary"
+
 # host_only_preflight (Plan 00121): the host-CLI gate on a scenario that puts a real GitHub
 # PAT into a guest. One of three independent gates — the other two are the bridge allowlist
 # and bridge_run's manifest refusal — and the one a human types past. Driven through the

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# ccy-sessions — see every CCY and cc session, return to a detached one, or end one.
+# ccy-sessions — see every CCY and cc session, return to a detached one, or end one; warn
+# them all before a reboot; bring them back after one.
 #
 # ccy and cc run each interactive session inside tmux on CCY's own server (see
 # docs/ccy.md "Sessions Survive the Terminal"), so a session outlives the terminal that
@@ -22,15 +23,31 @@
 #   unknown        the question could not be answered; the reason is printed above the list
 #
 # Usage:
-#   ccy-sessions            the picker
-#   ccy-sessions -h|--help  this text
+#   ccy-sessions                                    the picker (needs a terminal)
+#   ccy-sessions notify reboot-warning --minutes N  tell every live session's project that
+#                                                   the machine reboots in N minutes
+#   ccy-sessions notify reboot-cancelled            tell them it is not happening after all
+#   ccy-sessions reboot --in N [--dry-run]          warn, count down, warn again at one
+#                                                   minute, then systemctl reboot
+#   ccy-sessions restore [--dry-run]                start every session recorded as running
+#                                                   at the last shutdown (the boot unit)
+#   ccy-sessions -h|--help                          this text
 #
-# Needs a terminal and fzf. Runs on the HOST: inside a CCY container there is no server.
+# notify and reboot speak to each project through ITS OWN hooks-daemon CLI
+# (.claude/hooks-daemon/bin/hooks-daemon signal ...), naming only a signal kind and a
+# number of minutes — never a message. A live session whose project has no daemon CLI is a
+# refusal: it is named, nothing is signalled, and reboot reboots nothing. Exit 64 for a
+# usage mistake, 1 for a refusal.
+#
+# Runs on the HOST: inside a CCY container there is no server.
 set -euo pipefail
 
-CCY_LIB="/var/local/claude-yolo/lib"
+CCY_LIB="${CCY_LIB:-/var/local/claude-yolo/lib}"
 CCY_LAUNCHER="/var/local/claude-yolo/claude-yolo"
 MAX_TRIES=3
+# A minute, in seconds. Overridable so the countdown can be driven by a test; nothing else
+# should ever set it.
+MINUTE_SECONDS="${CCY_SESSIONS_MINUTE_SECONDS:-60}"
 
 # The help text IS the header comment above, printed back. It stops at the first line that
 # is not a comment rather than at a hardcoded line number: the range form printed `t -euo
@@ -39,22 +56,26 @@ usage() {
     awk 'NR == 1 { next } /^#/ { print substr($0, 3); next } { exit }' "${BASH_SOURCE[0]}"
 }
 
-case "${1:-}" in
-"") ;;
+usage_error() {
+    echo "ccy-sessions: $1 See ccy-sessions --help." >&2
+    exit 64
+}
+
+subcommand="${1:-}"
+case "${subcommand}" in
+"" | notify | reboot | restore) ;;
 -h | --help)
     usage
     exit 0
     ;;
 *)
-    echo "ccy-sessions: unknown option '${1}'. See ccy-sessions --help." >&2
-    exit 64
+    usage_error "unknown option '${subcommand}'."
     ;;
 esac
-
-if [[ ! -t 0 || ! -t 1 ]]; then
-    echo "ccy-sessions needs a terminal: it attaches sessions to the one you are in." >&2
-    exit 1
+if [[ -n "${subcommand}" ]]; then
+    shift
 fi
+
 if [[ ! -f "${CCY_LIB}/tmux-session.bash" ]]; then
     if [[ -d /workspace ]]; then
         echo "ccy-sessions runs on the host, not inside a CCY container." >&2
@@ -66,8 +87,188 @@ fi
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../var/local/claude-yolo/lib/common-pure.bash
 source "${CCY_LIB}/common-pure.bash"
+# shellcheck source=../../../var/local/claude-yolo/lib/session-registry.bash
+source "${CCY_LIB}/session-registry.bash"
 # shellcheck source=../../../var/local/claude-yolo/lib/tmux-session.bash
 source "${CCY_LIB}/tmux-session.bash"
+
+# ── notify / reboot: one signal per live project ─────────────────────────────────────────
+
+# minutes_or_die <value> <flag> — a positive integer, or a usage error naming the flag.
+minutes_or_die() {
+    if [[ ! "${1}" =~ ^[1-9][0-9]*$ ]]; then
+        usage_error "${2} needs a whole number of minutes, at least 1; got '${1}'."
+    fi
+}
+
+# live_projects — the directory of every live session, each once, one per line. A listing
+# failure is a failure (the library has already said why).
+live_projects() {
+    local listing name attached dir
+    listing="$(ccy_tmux_list)" || return 1
+    while read -r name attached dir; do
+        [[ -n "${name}" && -n "${dir}" ]] || continue
+        printf '%s\n' "${dir}"
+    done <<<"${listing}" | awk '!seen[$0]++'
+}
+
+daemon_cli() {
+    printf '%s/.claude/hooks-daemon/bin/hooks-daemon' "${1}"
+}
+
+# signal_projects <kind> <minutes-or-empty> <dry-run> — invoke each live project's daemon
+# CLI once. Every project is checked for a CLI BEFORE any is signalled, so a refusal leaves
+# no project half-warned about a reboot that is then not going to happen. Prints the count
+# of projects reached to stdout; reports go to stderr.
+signal_projects() {
+    local kind="${1}" minutes="${2}" dry_run="${3}"
+    local -a projects=() missing=() cli_args=()
+    local dir cli
+    mapfile -t projects < <(live_projects)
+    if [[ "${#projects[@]}" -eq 0 ]]; then
+        echo "No CCY or cc sessions are running; nothing to signal." >&2
+        printf '0\n'
+        return 0
+    fi
+    for dir in "${projects[@]}"; do
+        cli="$(daemon_cli "${dir}")"
+        if [[ ! -x "${cli}" ]]; then
+            missing+=("${dir}")
+        fi
+    done
+    if [[ "${#missing[@]}" -gt 0 ]]; then
+        print_error "a live session's project has no hooks-daemon CLI, so its session cannot be warned. Nothing was signalled."
+        for dir in "${missing[@]}"; do
+            echo "  ${dir}  (expected $(daemon_cli "${dir}"))" >&2
+        done
+        echo "Install the daemon there (the hooks-daemon skill, 'install'), or end that session first." >&2
+        return 1
+    fi
+    cli_args=(signal "${kind}")
+    if [[ -n "${minutes}" ]]; then
+        cli_args+=(--minutes "${minutes}")
+    fi
+    cli_args+=(--all-sessions)
+    for dir in "${projects[@]}"; do
+        if [[ "${dry_run}" == true ]]; then
+            echo "would signal ${kind}${minutes:+ --minutes ${minutes}} to ${dir}" >&2
+            continue
+        fi
+        if ! "$(daemon_cli "${dir}")" "${cli_args[@]}" --project-root "${dir}"; then
+            print_error "signalling ${kind} to ${dir} failed."
+            return 1
+        fi
+        echo "signalled ${kind}${minutes:+ (${minutes} min)} to ${dir}" >&2
+    done
+    printf '%s\n' "${#projects[@]}"
+}
+
+cmd_notify() {
+    local kind="${1:-}" minutes=""
+    case "${kind}" in
+    reboot-warning | shutdown-warning)
+        if [[ "${2:-}" != "--minutes" || -z "${3:-}" ]]; then
+            usage_error "'notify ${kind}' needs --minutes N."
+        fi
+        minutes_or_die "${3}" "--minutes"
+        minutes="${3}"
+        if [[ $# -gt 3 ]]; then
+            usage_error "unexpected argument '${4}'."
+        fi
+        ;;
+    reboot-cancelled)
+        if [[ $# -gt 1 ]]; then
+            usage_error "'notify reboot-cancelled' takes no further arguments."
+        fi
+        ;;
+    "")
+        usage_error "'notify' needs a signal kind: reboot-warning, shutdown-warning or reboot-cancelled."
+        ;;
+    *)
+        usage_error "unknown signal kind '${kind}'."
+        ;;
+    esac
+    signal_projects "${kind}" "${minutes}" false >/dev/null
+}
+
+cmd_reboot() {
+    local minutes="" dry_run=false reached
+    while [[ $# -gt 0 ]]; do
+        case "${1}" in
+        --in)
+            [[ -n "${2:-}" ]] || usage_error "--in needs a number of minutes."
+            minutes_or_die "${2}" "--in"
+            minutes="${2}"
+            shift 2
+            ;;
+        --dry-run)
+            dry_run=true
+            shift
+            ;;
+        *)
+            usage_error "unknown reboot option '${1}'."
+            ;;
+        esac
+    done
+    [[ -n "${minutes}" ]] || usage_error "'reboot' needs --in N."
+
+    # The one-minute warning is the last word before the reboot; with --in 1 it is also the
+    # first, so it is not sent twice.
+    reached="$(signal_projects reboot-warning "${minutes}" "${dry_run}")" || return 1
+    echo "Rebooting in ${minutes} minute(s); ${reached} project(s) warned." >&2
+    if [[ "${minutes}" -gt 1 ]]; then
+        if [[ "${dry_run}" == true ]]; then
+            echo "would wait $((minutes - 1)) minute(s), then warn again at one minute" >&2
+        else
+            sleep "$(((minutes - 1) * MINUTE_SECONDS))"
+            signal_projects reboot-warning 1 false >/dev/null || return 1
+            echo "Rebooting in 1 minute." >&2
+        fi
+    fi
+    if [[ "${dry_run}" == true ]]; then
+        echo "would reboot (systemctl reboot)" >&2
+        return 0
+    fi
+    sleep "${MINUTE_SECONDS}"
+    systemctl reboot
+}
+
+cmd_restore() {
+    case "${1:-}" in
+    "" | --dry-run) ;;
+    *)
+        usage_error "unknown restore option '${1}'."
+        ;;
+    esac
+    if [[ $# -gt 1 ]]; then
+        usage_error "unexpected argument '${2}'."
+    fi
+    ccy_registry_restore "$@"
+}
+
+case "${subcommand}" in
+notify)
+    cmd_notify "$@"
+    exit
+    ;;
+reboot)
+    cmd_reboot "$@"
+    exit
+    ;;
+restore)
+    cmd_restore "$@"
+    exit
+    ;;
+esac
+
+# ── the picker ───────────────────────────────────────────────────────────────────────────
+# Only the picker needs a terminal: it attaches sessions to the one it runs in. The
+# subcommands above run headless — the restore unit has no terminal, and a reboot helper
+# is as likely to be run over ssh as from a desktop.
+if [[ ! -t 0 || ! -t 1 ]]; then
+    echo "ccy-sessions needs a terminal: it attaches sessions to the one you are in." >&2
+    exit 1
+fi
 
 # rows — every session as a picker row, in the library's house format.
 #
@@ -94,11 +295,13 @@ rows() {
 }
 
 # confirm_end <name> — end a session and everything in it, after the picker's yes/no
-# (no is the default row).
+# (no is the default row). An ended session is not a session to restore: its record goes
+# with it, since a kill-session never lets the pane's trampoline remove it.
 confirm_end() {
     local name="${1}"
     if ccy_tmux_confirm "End ${name}?" "Everything running in it will be killed." "end '${name}'"; then
         ccy_tmux kill-session -t "=${name}"
+        ccy_registry_remove "${name}"
         echo "Ended '${name}'." >&2
     else
         echo "Kept '${name}'." >&2

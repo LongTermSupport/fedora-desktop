@@ -33,7 +33,11 @@ attach to an LXC container, run a long job. Mouse scrolling scrolls the session.
 | You detach (F12, Detach)       | keeps running |
 | Host reboots                   | gone          |
 
-Sessions are transient dev state by design. Nothing restarts them after a reboot.
+Sessions are transient dev state by design. Nothing restarts a plain tmux session after a
+reboot. `ccy` and `cc` sessions are the exception, on a machine that has opted in: they
+are recorded while they run and started again at boot, detached, in the same project
+directory — see [CCY: Sessions Survive a Reboot](ccy.md#sessions-survive-a-reboot). Off by
+default, so a machine that has not opted in behaves exactly as this table says.
 
 ## CCY sessions have their own server
 

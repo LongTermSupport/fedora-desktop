@@ -23,8 +23,10 @@
 # Running ccy in a project that has a detached session — the one a dead terminal left
 # behind — offers to re-attach it; a session open in another terminal is never offered.
 #
-# Requires print_error (common-pure.bash, always loaded first). The interactive parts follow
-# CLAUDE/InteractiveScripts.md: strict validation, bounded re-prompt, EOF is a clean exit.
+# Requires print_error (common-pure.bash, always loaded first) and lib/session-registry.bash:
+# every session started here is recorded so a reboot can be undone, and the record's removal
+# rides in the pane's trampoline. The interactive parts follow CLAUDE/InteractiveScripts.md:
+# strict validation, bounded re-prompt, EOF is a clean exit.
 
 CCY_TMUX_SOCKET="ccy"
 # The launcher this library is serving, which names its sessions: ccy-<project> for the
@@ -505,19 +507,56 @@ ccy_tmux_insulate() {
 
     name=$(ccy_tmux_next_name "$project") || return 1
     echo "Starting session '$name' under tmux. If this terminal dies, run ${CCY_TMUX_SESSION_PREFIX} here again to re-attach." >&2
-    # The trampoline's dollars are escaped: they expand in the bash tmux starts, not here.
-    local hold_on_failure
-    hold_on_failure="\"\$@\"; rc=\$?; if [ \"\$rc\" -ne 0 ]; then printf '\\n${CCY_TMUX_SESSION_PREFIX} exited with status %s. Press Enter to close this session.\\n' \"\$rc\"; read -r; fi; exit \"\$rc\""
-    # The scope keeps the server out of the terminal's cgroup; --collect lets systemd forget
-    # it once empty, whatever its exit status. The session is created detached, the
-    # single-attach hook is installed, and only then is this client attached — one server
-    # round trip, so no client can reach the session before the hook exists.
-    exec systemd-run --user --scope --quiet --collect \
-        --unit "ccy-tmux-$$" --description "CCY tmux session $name" \
+
+    # THE registry write, and the only one: this is the single place a session is created
+    # from a terminal, so the record cannot drift from the session. `--no-restore` is the
+    # registry's opt-out and never reaches the launcher; what is recorded for replay is the
+    # launch argv with the one-shot arguments removed (see lib/session-registry.bash).
+    local launcher="$1" restore=yes
+    shift
+    local -a launch=() replay=()
+    ccy_registry_wants_restore "$@" || restore=no
+    mapfile -t launch < <(ccy_registry_launch_args "$@")
+    mapfile -t replay < <(ccy_registry_replay_args "$CCY_TMUX_SESSION_PREFIX" "${launch[@]}")
+    ccy_registry_write "$name" "$PWD" "$launcher" "$CCY_TMUX_SESSION_PREFIX" "$restore" "${replay[@]}" || return 1
+
+    ccy_tmux_start_detached "$name" "$PWD" "$launcher" "${launch[@]}" || return 1
+    # Attaching IS the session from here: this client is the terminal's, and disposable.
+    exec tmux -L "$CCY_TMUX_SOCKET" attach-session -t "=$name"
+}
+
+# ccy_tmux_start_detached <name> <dir> <launcher> [args...] — create a session on CCY's
+# server running <launcher> in <dir>, detached, and return. Shared by the interactive start
+# above and by the boot-time restore (ccy-sessions restore), so both produce the same
+# session: same scope, same hook, same trampoline, and therefore the same record lifecycle.
+#
+# The scope keeps the server out of the caller's cgroup — a terminal tab's, or the restore
+# unit's, which would otherwise take the server with it when the oneshot ended. --collect
+# lets systemd forget the scope once empty, whatever its exit status. The session is created
+# detached and the single-attach hook installed in one server round trip, so no client can
+# reach the session before the hook exists. The pane runs the registry's trampoline, which
+# removes the session's record when <launcher> returns and holds the window on a failure.
+ccy_tmux_start_detached() {
+    local name="${1:?ccy_tmux_start_detached requires a session name}"
+    local dir="${2:?ccy_tmux_start_detached requires a directory}"
+    local launcher="${3:?ccy_tmux_start_detached requires a launcher}"
+    shift 3
+    local tool regdir trampoline
+    for tool in tmux systemd-run; do
+        if [[ -z "$(command -v "$tool")" ]]; then
+            print_error "$tool is not installed, so session '$name' cannot be started. Deploy it with playbooks/imports/play-tmux-sessions.yml (part of playbook-main.yml)."
+            return 1
+        fi
+    done
+    regdir=$(ccy_registry_dir) || return 1
+    trampoline=$(ccy_registry_trampoline "$regdir/$name" "$CCY_TMUX_SESSION_PREFIX")
+    # The unit name carries the session name (escaped) as well as this pid: a restore starts
+    # several sessions from one process, and two scopes may not share a name.
+    systemd-run --user --scope --quiet --collect \
+        --unit "ccy-tmux-$$-$(systemd-escape -- "$name")" --description "CCY tmux session $name" \
         -- tmux -L "$CCY_TMUX_SOCKET" \
-        new-session -d -s "$name" -- bash -c "$hold_on_failure" ccy-tmux "$@" \; \
-        set-hook -g client-attached "$(ccy_tmux_single_attach_hook)" \; \
-        attach-session -t "=$name"
+        new-session -d -s "$name" -c "$dir" -- bash -c "$trampoline" ccy-tmux "$launcher" "$@" \; \
+        set-hook -g client-attached "$(ccy_tmux_single_attach_hook)"
 }
 
 # ccy_tmux_banner — inside a CCY session, one line on how to leave and come back. Silent in

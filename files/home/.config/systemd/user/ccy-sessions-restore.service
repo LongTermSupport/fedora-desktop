@@ -1,0 +1,19 @@
+[Unit]
+Description=Restore the ccy and cc sessions that were running at the last shutdown
+Documentation=https://github.com/LongTermSupport/fedora-desktop
+# The registry (~/.local/state/ccy/sessions/) holds one record per session that was
+# running when the machine went down; each is started again, detached, on CCY's own tmux
+# server. Runs in the user manager because that is where the sessions live: the tmux
+# server is started under a transient `systemd --user` scope, exactly as an interactive
+# launch starts it. With linger enabled (play-systemd-user-tweaks.yml) default.target is
+# reached at boot, before anyone logs in.
+
+[Service]
+Type=oneshot
+# The restore is a translation of records into `tmux new-session` calls and returns as
+# soon as the sessions exist; the sessions themselves are NOT this unit's children.
+# Each is placed in its own scope by systemd-run, so this oneshot ending does not end them.
+ExecStart=%h/.local/bin/ccy-sessions restore
+
+[Install]
+WantedBy=default.target
