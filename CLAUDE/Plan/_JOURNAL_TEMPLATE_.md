@@ -1,5 +1,7 @@
 # Plan {{PLAN_NUMBER}} — Journal {{DATE}}
 
+_Scaffolded by `mkplan.bash`; timestamps in this file are UTC._
+
 > **Append-only activity log** for plan {{PLAN_NUMBER}}. One file per day
 > (`{{PLAN_NUMBER}}-Journal-YY-MM-DD.md`). `PLAN.md` tracks the plan (what/why,
 > current state, tasks); this journal tracks what actually *happened* —
@@ -13,7 +15,9 @@
 > ## HH:MM · category · REF   — optional short title
 > ```
 >
-> - `HH:MM` local 24h (the date is in the filename); times increase down the file.
+> - `HH:MM` UTC 24h (the date is in the filename, also UTC); times increase
+>   down the file. A file with no sentinel line above predates this system —
+>   its times are local, zone unrecorded (legacy; never rewritten).
 > - `category` ∈ `action` | `finding` | `decision` | `thought` | `blocker` | `handoff`
 > - `REF` = optional task/phase ref (`T1.2`, `P1`) or `—`.
 > - Bodies may embed fenced logs/diffs/snippets — no size limit — with a

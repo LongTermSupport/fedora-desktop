@@ -43,12 +43,27 @@ CLAUDE/Plan/NNNNN-name/
 - `JOURNAL/` is an upper-case landmark sibling of `PLAN.md`, **inside** the plan
   folder — so archiving a plan (`git mv` into `Completed/`) carries the journal
   for free.
+
 - Day-files are named `NNNNN-Journal-YY-MM-DD.md`: the redundant `NNNNN` plan
-  number survives copy/paste and greps cleanly; `YY-MM-DD` is the local day.
-- **One file per local day.** Multiple entries append to that day's file. A day
+  number survives copy/paste and greps cleanly; `YY-MM-DD` is the UTC day.
+
+- **One file per UTC day.** Multiple entries append to that day's file. A day
   with no activity has **no file** — never scaffold empty day-files.
+
 - `mkplan.bash` scaffolds `JOURNAL/` plus a seeded day-1 file automatically when
   a `_JOURNAL_TEMPLATE_.md` is present in the plan directory.
+
+- **Prefer `mkplan.bash --journal` to append an entry.** It reads the clock
+  itself in UTC, so no caller ever supplies a time and no entry can carry the
+  wrong zone; it creates the day-file (with its sentinel) on first use:
+
+  ```bash
+  CLAUDE/Plan/mkplan.bash --journal <plan-number> <category> <body-file> \
+      [--ref R] [--title T]
+  ```
+
+  Hand-authoring an entry with `Write`/`Edit` still works and is not blocked,
+  but the timestamp is then yours to get right — and nothing records the zone.
 
 ## Entry grammar
 
@@ -58,12 +73,25 @@ Each entry is a heading with a fixed grammar followed by a free markdown body:
 ## HH:MM · CATEGORY · REF   [— optional short title]
 ```
 
-- **`HH:MM`** — local 24-hour time (the date lives in the filename). Times run
-  monotonically down a file.
+- **`HH:MM`** — UTC 24-hour time (the date lives in the filename, also UTC).
+  Times run monotonically down a file. A day-file scaffolded by `mkplan.bash`
+  records this with a sentinel line in its preamble:
+
+  ```
+  _Scaffolded by `mkplan.bash`; timestamps in this file are UTC._
+  ```
+
+  A day-file **without** that line predates the system: its times are local
+  with the zone unrecorded (legacy — never rewritten, never migrated). The
+  daemon's `journal-entry-future-dated` check reads that exact line to decide
+  which clock to judge a file's timestamps by, so do not reword it.
+
 - **`CATEGORY`** — one of a small fixed core set:
   `action` · `finding` · `decision` · `thought` · `blocker` · `handoff`.
   (Clients may extend this set — that is *convention*, not enforced.)
+
 - **`REF`** — optional task/phase reference (`T2.1`, `P2`, or `—` for none).
+
 - Separator is the middot `·` (U+00B7).
 
 Bodies may embed fenced logs, diffs, or code snippets — put a one-line takeaway
