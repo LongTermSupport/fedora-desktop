@@ -91,4 +91,4 @@ Python helper sidesteps that entire class of breakage.
   `|| true`, no `2>/dev/null` swallowing, no bare `except`. Errors propagate and
   stop the play — this repo's #1 rule.
 - ruff's ruleset and version are both pinned; suppression comments are blocked.
-  See [CLAUDE/QA.md → ruff](../CLAUDE/QA.md#ruff-the-ruleset-is-explicit-and-the-version-is-pinned).
+  See [CLAUDE/QA.md → the QA toolchain is pinned](../CLAUDE/QA.md#the-qa-toolchain-is-pinned-because-a-verdict-belongs-to-its-binary).

@@ -3,7 +3,7 @@ paths:
   - "scripts/qa-*.bash"
   - "helpers/docs/**"
   - "ruff.toml"
-  - ".ruff-version"
+  - ".qa-versions"
   - ".semgrep/**"
   - ".github/workflows/**"
 ---

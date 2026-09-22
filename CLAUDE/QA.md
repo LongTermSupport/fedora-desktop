@@ -43,6 +43,7 @@ fresher hand-written list.
 | `qa-ansible-syntax.bash` | `ansible-playbook --syntax-check` on every playbook — a file with a top-level `- hosts:` **or `- import_playbook:`** (Plan 00081 F9/F14: deriving from `hosts:` alone dropped `playbook-main.yml`). Parse-only — safe in the CCY container. The pass line states the breakdown, so a coverage change is visible                                                                                                                                                                         | **Repo-wide**, not a fixed path list; excludes vendor/upstream trees. Includes playbooks under `CLAUDE/Plan/**`                                       |
 | `qa-js.bash`             | `node --check` on repo JS + `eslint .` in `extensions/`                                                                                                                                                                                                                                                                                                                                                                                                                                 | Repo-owned `.js` (excludes vendor/node_modules) + `extensions/`                                                                                       |
 | `qa-docs.bash`           | Link targets exist; every `#anchor` matches a real heading; every play imported by `playbook-main.yml` is named in both `docs/playbooks.md` and `docs/architecture.md`; every `CLAUDE/*.md` has an index row (Plan 00070)                                                                                                                                                                                                                                                               | Core docs only — `docs/`, `CLAUDE/*.md`, `README.md`, `*/CLAUDE.md`, `.claude/rules/`. **Not** `CLAUDE/Plan/**`                                       |
+| `qa-toolchain.bash`      | Runs FIRST, as a hard gate: every tool a gate runs (ruff, semgrep, shellcheck) is installed at the version `/.qa-versions` pins. A mismatch or absence fails this gate and lets the rest run — never exit 2, which would abort the suite (see "The QA Toolchain Is Pinned")                                                                                                                                                                                                             | The machine, not any file                                                                                                                             |
 
 Twenty-nine further gates run inside `qa-all.bash` as **hard, non-structural** checks —
 they are deliberately not jq-merged stages, so they cannot disturb the positional
@@ -664,17 +665,37 @@ under-reported them.
 
 ---
 
-## ruff: the Ruleset Is Explicit and the Version Is Pinned
+## The QA Toolchain Is Pinned, Because a Verdict Belongs to Its Binary
 
-`ruff.toml` enumerates `select` explicitly (`E4`, `E7`, `E9`, `F`) so the
-enforced ruleset does **not** drift with ruff's own default set — an
-unenumerated default once turned `main` red with no commit behind it.
-`/.ruff-version` is the single source of truth for the version, read by
-`.claude/ccy/Dockerfile` and `.github/workflows/qa.yml` and **asserted** by
-`scripts/qa-python.bash`: a version bump can change how the same selected rules
-behave, so it is pinned too. If the assertion fails, match the pin — do not
-"fix" findings a different ruff invented. Bumping the pin means owning the
-triage of whatever changes and rebuilding the ccy image.
+`/.qa-versions` is the single source of truth for the version of every tool a gate
+runs — ruff (`qa-python`), semgrep (`qa-patterns`), shellcheck (`qa-bash`). Four
+consumers read it, so none can drift from the others:
+
+| Consumer                            | Role                                    |
+| ----------------------------------- | --------------------------------------- |
+| `scripts/qa-toolchain.bash`         | asserts the machine, every `qa-all` run |
+| `playbooks/imports/play-python.yml` | installs it on the host                 |
+| `.claude/ccy/Dockerfile`            | bakes it into the CCY image             |
+| `.github/workflows/qa.yml`          | installs it in CI                       |
+
+Unpinned, the divergence is silent: each environment is confident and they
+disagree. shellcheck 0.9.0 and 0.11.0 reported 173 and 141 issues on the same
+tree. Tools no gate runs (ansible-lint, yamllint) are deliberately **not** in the
+file: asserting them would gate on nothing, and a standalone pinned ansible-lint
+would carry its own ansible-core beside the one `run.bash` injects into `ansible`.
+
+`ruff.toml` additionally enumerates `select` explicitly (`E4`, `E7`, `E9`, `F`)
+so the ruleset does **not** drift with ruff's own default set — an unenumerated
+default once turned `main` red with no commit behind it. The version is pinned
+on top of that, because a bump can change how the same selected rules behave.
+
+If an assertion fails, match the pin — do not "fix" findings a different binary
+invented. **Bumping a pin is a deliberate act**: change the value, triage
+whatever the new version reports, and rebuild the CCY image (`ccy --rebuild`),
+or every container keeps asserting the old value and fails.
+
+Host and container are brought into line by `./playbooks/imports/play-python.yml`
+and `ccy --rebuild` respectively; the gate's failure output names both.
 
 Suppression comments (`# noqa`, `# type: ignore`, `# shellcheck disable`) are
 blocked by the hooks daemon. Fix the code, or exempt the file in `ruff.toml`

@@ -11,9 +11,13 @@
     # old static list go stale on every CPython point release and fail with
     # "definition not found"; deriving everything from pyenv self-heals that.
     pyenv_minor_count: 4
-    # The SAME file .claude/ccy/Dockerfile and .github/workflows/qa.yml read, so
-    # host, container and CI run one ruff version rather than three.
-    ruff_version: "{{ lookup('ansible.builtin.file', root_dir ~ '/.ruff-version') | trim }}"
+    # The SAME file .claude/ccy/Dockerfile, .github/workflows/qa.yml and
+    # scripts/qa-toolchain.bash read, so host, container and CI run one set of
+    # QA tool versions rather than three. KEY=VALUE lines, comments skipped.
+    qa_versions: >-
+      {{ dict(lookup('ansible.builtin.file', root_dir ~ '/.qa-versions').splitlines()
+              | select('match', '^[A-Z_]+=')
+              | map('split', '=', 1)) }}
   tasks:
     - name: Ensure pipx Installed, Pyenv dependencies, and dependencies required by various python packages
       become: true
@@ -48,46 +52,90 @@
           - portaudio-devel
           - python3-devel
 
-    # Ruff is pinned, unlike every other tool here, because scripts/qa-python.bash
-    # ASSERTS the version: the gate's verdict changes with the binary, so a host
-    # running a different ruff is running a different gate.
+    # The QA toolchain is pinned, unlike the development tools below, because
+    # scripts/qa-toolchain.bash ASSERTS these versions: a gate's verdict is a
+    # property of the binary that produced it, so a host running different
+    # versions is running different gates. Two shellchecks four minor releases
+    # apart reported 141 and 173 issues on this same tree. Only tools a gate
+    # runs are pinned: ruff (qa-python), semgrep (qa-patterns), shellcheck
+    # (qa-bash).
     #
-    # It comes from pipx rather than dnf specifically so it CAN be pinned. Fedora's
-    # package tracks whatever Fedora ships and moved to 0.16.6 against a 0.16.4 pin,
-    # which turned the python gate red on the host while the container stayed green.
-    # The dnf package is removed rather than left alongside, so /usr/bin/ruff cannot
-    # shadow the pinned one depending on PATH order.
-    - name: Remove Fedora's unpinned ruff package
+    # The Python tools come from pipx rather than dnf specifically so they CAN
+    # be pinned. Fedora's ruff package tracks whatever Fedora ships and moved to
+    # 0.16.6 against a 0.16.4 pin. The dnf packages are removed rather than left
+    # alongside, so /usr/bin cannot shadow the pinned binaries via PATH order.
+    - name: Remove Fedora's unpinned QA tool packages
       become: true
       ansible.builtin.dnf:
-        name: ruff
+        name:
+          - ruff
+          - ShellCheck
         state: absent
 
-    # Probed rather than reinstalled unconditionally: community.general.pipx treats
-    # an already-present app as satisfied regardless of its version, so a pin change
-    # would otherwise never be applied — and `force: true` alone would reinstall on
-    # every run and report changed for ever.
-    - name: Check the installed ruff version
+    # Probed rather than reinstalled unconditionally: community.general.pipx
+    # treats an already-present app as satisfied regardless of its version, so a
+    # pin change would otherwise never be applied — and `force: true` alone would
+    # reinstall on every run and report changed for ever.
+    - name: Check installed QA tool versions
       ansible.builtin.command:
-        cmd: ruff --version
-      register: ruff_installed
+        cmd: "{{ item.cmd }} --version"
+      register: qa_tool_installed
+      changed_when: false
+      failed_when: false # FAIL-FAST-OK: probe — absence is the normal first-run state
+      loop:
+        - {cmd: ruff, pkg: ruff, version: "{{ qa_versions.RUFF }}"}
+        - {cmd: semgrep, pkg: semgrep, version: "{{ qa_versions.SEMGREP }}"}
+      loop_control:
+        label: "{{ item.cmd }}"
+
+    - name: Install QA tools at their pinned versions
+      community.general.pipx:
+        name: "{{ item.item.pkg }}"
+        source: "{{ item.item.pkg }}=={{ item.item.version }}"
+        state: install
+        force: true
+      when: item.rc != 0 or item.item.version not in item.stdout
+      loop: "{{ qa_tool_installed.results }}"
+      loop_control:
+        label: "{{ item.item.cmd }}"
+
+    # shellcheck is not a Python package, so it cannot ride pipx, and Fedora's
+    # package tracks Fedora. The upstream static binary goes to /usr/local/bin —
+    # the same place and the same tarball the CCY image and CI use — so all three
+    # environments run one shellcheck. Probed first for the same reason as above.
+    - name: Check the installed shellcheck version
+      ansible.builtin.command:
+        cmd: shellcheck --version
+      register: shellcheck_installed
       changed_when: false
       failed_when: false # FAIL-FAST-OK: probe — absence is the normal first-run state
 
-    - name: Install ruff at the pinned version
-      community.general.pipx:
-        name: ruff
-        source: "ruff=={{ ruff_version }}"
-        state: install
-        force: true
-      when: ruff_installed.rc != 0 or ruff_version not in ruff_installed.stdout
+    - name: Install shellcheck at the pinned version
+      become: true
+      ansible.builtin.unarchive:
+        src: "https://github.com/koalaman/shellcheck/releases/download/v{{ qa_versions.SHELLCHECK }}/shellcheck-v{{ qa_versions.SHELLCHECK }}.linux.x86_64.tar.xz"
+        remote_src: true
+        dest: /usr/local/bin
+        include:
+          - "shellcheck-v{{ qa_versions.SHELLCHECK }}/shellcheck"
+        extra_opts:
+          - --strip-components=1
+        owner: root
+        group: root
+        mode: "0755"
+      when: >-
+        shellcheck_installed.rc != 0
+        or ('version: ' ~ qa_versions.SHELLCHECK) not in shellcheck_installed.stdout
 
-    - name: Verify ruff now matches the pin
+    # The installs above are not self-verifying: pipx can succeed while the binary
+    # on PATH stays the old one (another install site shadowing it), which is the
+    # exact failure the dnf removal above exists to prevent. Assert the outcome
+    # rather than the action.
+    - name: Verify the QA toolchain now matches the pins
       ansible.builtin.command:
-        cmd: ruff --version
-      register: ruff_verify
+        cmd: "{{ root_dir }}/scripts/qa-toolchain.bash"
+      register: qa_toolchain_verify
       changed_when: false
-      failed_when: ruff_version not in ruff_verify.stdout
 
     - name: Install PDM
       community.general.pipx:
@@ -99,14 +147,6 @@
     - name: Hugging Face CLI
       community.general.pipx:
         name: huggingface_hub
-        state: latest
-
-    # Required by scripts/qa-patterns.bash (runs .semgrep/bash-conventions.yml rules
-    # against all bash files in the repo). qa-all.bash fails with rc=2 if missing —
-    # see CLAUDE.md "Missing Dependencies" rule (fix via IaC, never tolerate the gap).
-    - name: Semgrep (host-side QA pattern scanner)
-      community.general.pipx:
-        name: semgrep
         state: latest
 
     - name: Pyenv Python Version Management

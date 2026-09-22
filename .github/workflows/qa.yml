@@ -41,19 +41,30 @@ jobs:
         with:
           node-version: "20"
 
-      # shellcheck is preinstalled on ubuntu-latest runners; the rest are not.
+      # Every QA tool is pinned from the single source of truth (.qa-versions),
+      # the same file the host playbook and the CCY image read. A gate's verdict
+      # is a property of the binary that produced it, so an unpinned tool means
+      # CI and a developer's machine can disagree with nothing reporting it —
+      # and reddens main with no commit behind it.
+      #
+      # shellcheck is preinstalled on ubuntu-latest, at whatever version the
+      # runner image happens to carry, so it is replaced rather than trusted.
       - name: Install QA tooling
         run: |
           set -euo pipefail
+          . ./.qa-versions
           python -m pip install --upgrade pip
-          # ruff is pinned from the single source of truth (.ruff-version, Plan 00071):
-          # its enabled ruleset IS its default set, which grows every release, so an
-          # unpinned ruff reddens main with no commit behind it.
-          pip install "ruff==$(cat .ruff-version)" semgrep ansible
-          shellcheck --version
-          ruff --version
-          semgrep --version
-          ansible-playbook --version
+          pip install \
+            "ruff==${RUFF}" \
+            "semgrep==${SEMGREP}" \
+            ansible
+          curl -fsSL -o /tmp/shellcheck.tar.xz \
+            "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK}/shellcheck-v${SHELLCHECK}.linux.x86_64.tar.xz"
+          tar -xJf /tmp/shellcheck.tar.xz -C /tmp
+          sudo install -m 0755 "/tmp/shellcheck-v${SHELLCHECK}/shellcheck" /usr/local/bin/shellcheck
+          # Asserts the whole toolchain at once, so CI fails on a drifted pin
+          # here rather than reporting a verdict nobody else can reproduce.
+          ./scripts/qa-toolchain.bash
 
       # Install the project's pinned role + collections (requirements.yml) so
       # `ansible-playbook --syntax-check` can resolve every module/role the

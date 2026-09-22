@@ -2,10 +2,11 @@
 # https://docs.astral.sh/ruff/configuration/
 #
 # The RULESET is pinned explicitly below (see `[lint] select`), and the ruff
-# VERSION is pinned via `/.ruff-version` — the single source of truth, read by
+# VERSION is pinned via `/.qa-versions` — the single source of truth for the
+# whole QA toolchain, read by `playbooks/imports/play-python.yml`,
 # `.claude/ccy/Dockerfile` and `.github/workflows/qa.yml`, and ASSERTED by
-# `scripts/qa-python.bash` so a host with a different ruff fails loudly rather
-# than quietly returning a different verdict.
+# `scripts/qa-toolchain.bash` so a host with a different ruff fails loudly
+# rather than quietly returning a different verdict.
 
 [lint]
 # DECLARE THE RULE SET EXPLICITLY. Do not go back to relying on ruff's built-in

@@ -20,7 +20,9 @@ ERRORS=0
 
 # Fail fast: check required dependencies
 if ! command -v ruff &>/dev/null; then
-    echo "✗ python: ruff not installed (sudo dnf install ruff)" >&2
+    echo "✗ python: ruff not installed — run ./playbooks/imports/play-python.yml" >&2
+    echo "  (NOT 'dnf install ruff': Fedora's package is unpinned and is removed" >&2
+    echo "  by that play precisely so it cannot shadow the pinned pipx one.)" >&2
     exit 2
 fi
 
@@ -34,28 +36,30 @@ fi
 # change the verdict for the identical `select` list. Asserting the version
 # converts that divergence from silent to loud.
 #
-# ruff reaches this repo three ways, and only two are pinnable from here:
-#   .claude/ccy/Dockerfile            pipx install ruff==$(cat .ruff-version)  [pinned]
-#   .github/workflows/qa.yml          pip install ruff==$(cat .ruff-version)   [pinned]
-#   playbooks/imports/play-python.yml dnf: ruff                                [Fedora's]
-# The dnf one tracks whatever Fedora ships and CANNOT be pinned from here.
-# Asserting the version is what makes that divergence LOUD instead of silent:
-# a host whose ruff differs is told so, rather than quietly getting another answer.
-RUFF_VERSION_FILE="$REPO_ROOT/.ruff-version"
+# All three install sites now read the same `.qa-versions`, and all three pin:
+#   .claude/ccy/Dockerfile            pipx install ruff==${RUFF}
+#   .github/workflows/qa.yml          pip install ruff==${RUFF}
+#   playbooks/imports/play-python.yml pipx, having removed Fedora's dnf package
+#
+# scripts/qa-toolchain.bash asserts the whole toolchain up front, so this check
+# is a second line rather than the only one: it stays because this gate is the
+# thing that becomes wrong, and a gate that trusts a neighbour to have validated
+# its inputs is a gate that silently stops checking when the neighbour moves.
+RUFF_VERSION_FILE="$REPO_ROOT/.qa-versions"
 if [[ ! -f "$RUFF_VERSION_FILE" ]]; then
     echo "✗ python: $RUFF_VERSION_FILE is missing — it is the single source of truth" >&2
-    echo "  for the pinned ruff version, and every install site reads it." >&2
+    echo "  for every QA tool version, and four consumers read it." >&2
     exit 2
 fi
-RUFF_EXPECTED="$(tr -d '[:space:]' < "$RUFF_VERSION_FILE")"
+RUFF_EXPECTED="$(awk -F= '/^RUFF=/ {print $2}' "$RUFF_VERSION_FILE" | tr -d '[:space:]')"
 RUFF_ACTUAL="$(ruff --version | awk '{print $2}')"
 if [[ "$RUFF_ACTUAL" != "$RUFF_EXPECTED" ]]; then
     echo "✗ python: ruff version mismatch — this gate's verdict is version-dependent." >&2
-    echo "    expected : $RUFF_EXPECTED  (.ruff-version)" >&2
+    echo "    expected : $RUFF_EXPECTED  (.qa-versions)" >&2
     echo "    found    : $RUFF_ACTUAL  ($(command -v ruff))" >&2
     echo "" >&2
     echo "  The enforced ruleset is ruff's DEFAULT set, so a different version is a" >&2
-    echo "  different gate. Either match the pin, or bump .ruff-version deliberately" >&2
+    echo "  different gate. Either match the pin, or bump .qa-versions deliberately" >&2
     echo "  and triage what the new defaults add (then rebuild the ccy image)." >&2
 
     # FAIL this gate, do not ABORT the suite. A wrong version is not a missing
@@ -81,7 +85,7 @@ if [[ "$RUFF_ACTUAL" != "$RUFF_EXPECTED" ]]; then
             "summary": {"total": 0, "passed": 0, "failed": 1},
             "results": [],
             "failures": [{
-                "file": ".ruff-version",
+                "file": ".qa-versions",
                 "type": "python",
                 "status": "fail",
                 "error": ("ruff version mismatch: expected " + $expected + ", found " + $actual

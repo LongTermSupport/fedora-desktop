@@ -24,7 +24,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         python3-pytest \
         python3-numpy \
         python3-pil \
+        xz-utils \
     && rm -rf /var/lib/apt/lists/*
+
+# xz-utils is not decoration: GNU tar shells out to the `xz` binary for -J, and
+# upstream shellcheck ships ONLY a .tar.xz. Without it the pinned-toolchain layer
+# dies on "tar (child): xz: Cannot exec". gitleaks below survives because its
+# asset is .tar.gz and gzip is built in.
 
 # python3-pytest, python3-numpy and python3-pil exist for tests/clip_scan/,
 # the one test tree in this repo that is not stdlib-only (helpers/ tests are,
@@ -43,23 +49,48 @@ RUN pipx install --include-deps ansible \
     && pipx inject ansible jmespath \
     && pipx inject ansible passlib
 
-# semgrep runs the .semgrep/bash-conventions.yml rules in scripts/qa-patterns.bash
-RUN pipx install semgrep
-
 # Install Ansible testing and linting tools using pipx
 #
 # ruff is PINNED (Plan 00071). Its enabled ruleset is its DEFAULT set, and that
 # default grows with each release — 0.16.0 enables UP, BLE, SIM, DTZ, B and more,
 # far beyond the historical E4/E7/E9/F. An unpinned ruff therefore silently
 # tightens the gate on a schedule nobody in this repo controls, and main goes red
-# without a commit. The version is the single source of truth in /.ruff-version;
-# scripts/qa-python.bash asserts the installed ruff matches it, so a drift here
+# without a commit. The versions are the single source of truth in /.qa-versions;
+# scripts/qa-toolchain.bash asserts the installed tools match it, so a drift here
 # fails loudly rather than changing the verdict.
-COPY .ruff-version /tmp/.ruff-version
-RUN pipx install ansible-lint && \
-    pipx install yamllint && \
-    pipx install "ruff==$(cat /tmp/.ruff-version)" && \
-    rm -f /tmp/.ruff-version
+#
+# Every QA tool is pinned, not just ruff: the same argument applies to all of
+# them. shellcheck 0.9.0 (this image's apt build) and 0.11.0 (the host's)
+# reported 173 and 141 issues on the same tree, so the bash gate's verdict
+# depended on where it ran. scripts/qa-toolchain.bash asserts each pinned tool
+# against .qa-versions — the file is the population, so no count is repeated here.
+#
+# Each pinned tool is installed HERE and nowhere else in this file. pipx declines a
+# package it already has rather than correcting its version, so an unpinned install
+# of the same tool in an earlier layer would turn the pinned one below into a silent
+# no-op and the image would carry whatever was latest at build time while claiming
+# the pin. Do not add a second install site for any of these.
+COPY .qa-versions /tmp/.qa-versions
+
+# shellcheck is not a Python package so it cannot ride the pipx line, and the
+# base image's apt build is years behind the host's. The upstream static binary
+# goes to /usr/local/bin, which precedes /usr/bin on PATH and so shadows the apt
+# one without needing it removed. It lives in the PROJECT image rather than the
+# shared base because it is this repo's gate that demands the exact version
+# (ContainerRules.md: project-only tooling belongs here).
+#
+# One RUN, so /tmp/.qa-versions is still present for both halves and is removed
+# exactly once, at the end.
+RUN set -eux; \
+    . /tmp/.qa-versions; \
+    pipx install "ruff==${RUFF}"; \
+    pipx install "semgrep==${SEMGREP}"; \
+    curl -fsSL -o /tmp/shellcheck.tar.xz \
+        "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK}/shellcheck-v${SHELLCHECK}.linux.x86_64.tar.xz"; \
+    tar -xJf /tmp/shellcheck.tar.xz -C /tmp; \
+    install -m 0755 "/tmp/shellcheck-v${SHELLCHECK}/shellcheck" /usr/local/bin/shellcheck; \
+    rm -rf /tmp/shellcheck.tar.xz "/tmp/shellcheck-v${SHELLCHECK}"; \
+    rm -f /tmp/.qa-versions
 
 # Install GitHub CLI (gh) - used by git configuration playbook
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -127,8 +158,14 @@ RUN mkdir -p /host-debug-logs \
              /host-config
 
 # Verify installations
+#
+# ansible-lint and yamllint are deliberately absent: nothing in this repo invokes
+# either one. Verifying a tool no layer installs is how this block turns a tidy-up
+# into a build failure, so the list tracks what is actually installed above.
 RUN ansible --version && \
-    ansible-lint --version && \
+    ruff --version && \
+    semgrep --version && \
+    shellcheck --version && \
     gh --version && \
     yq --version && \
     gitleaks version && \

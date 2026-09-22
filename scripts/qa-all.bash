@@ -88,6 +88,26 @@ qa_pass_line() {
     printf '✓ %s: %s\n' "$name" "$summary"
 }
 
+# Toolchain assertion FIRST, because every verdict below is a property of the
+# binary that produced it. Reading 44 results and only then learning the linter
+# was the wrong version means re-reading all 44 wondering which changed.
+#
+# It is a hard gate, NOT one of the seven merged stages: it reports on the
+# environment rather than on any file, so it has no per-file JSON to contribute
+# and must not disturb the positional .[0]..[6] merge.
+#
+# Deliberately does not abort. A drifted toolchain makes the gates below
+# unreliable, not unrunnable, and their output is still the most useful thing
+# available while somebody fixes the version.
+toolchain_out=""
+if ! toolchain_out="$(bash "$SCRIPT_DIR/qa-toolchain.bash" 2>&1)"; then
+    qa_hard_gate_failed toolchain \
+        "QA tool versions do not match .qa-versions — verdicts below are not comparable" \
+        "$toolchain_out"
+fi
+toolchain_summary=$(qa_gate_detail "$toolchain_out" 'TOOLCHAIN-OK .+')
+qa_pass_line toolchain "$toolchain_summary"
+
 # Run sub-checks (each writes JSON to temp file, outputs terse to stdout)
 # Exit code 2 = missing required tool — refuse to run entirely
 rc=0

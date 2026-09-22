@@ -537,6 +537,7 @@ declare -A GATE_COMMAND=(
     [manifest_out]="bash scripts/qa-vmtest-manifest.bash"
     [plan_logging_out]="bash scripts/qa-plan-script-logging.bash"
     [pins_out]="bash scripts/qa-version-pins.bash"
+    [toolchain_out]="bash scripts/qa-toolchain.bash"
 )
 gate_command_for() {
     [ -n "${GATE_COMMAND[$1]+set}" ] || return 1

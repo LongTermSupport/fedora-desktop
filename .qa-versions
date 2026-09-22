@@ -1,0 +1,29 @@
+# QA toolchain versions — the single source of truth, for every environment.
+#
+# A gate's verdict is a property of the BINARY that produced it, not just of the
+# repo. Two shellchecks four minor releases apart reported 141 and 173 issues on
+# this same tree. Unpinned, that divergence is silent: each environment is
+# confident and they disagree.
+#
+# Only tools a gate RUNS are pinned here. Asserting a tool nothing invokes is a
+# gate on nothing, and pinning ansible-lint standalone would give it its own
+# ansible-core in a second venv, beside the one run.bash injects into ansible.
+#
+# Read by all four consumers, so none of them can drift from the others:
+#   scripts/qa-toolchain.bash    asserts what is actually installed, every run
+#   playbooks/imports/play-python.yml   installs it on the host
+#   .claude/ccy/Dockerfile       bakes it into the CCY image
+#   .github/workflows/qa.yml     installs it in CI
+#
+# KEY=VALUE, no quoting, no expansion: it has to be readable by bash `source`,
+# by a Dockerfile RUN, and by a GitHub Actions step without any of them needing
+# a YAML or JSON parser first.
+#
+# BUMPING ONE IS A DELIBERATE ACT. A new version is a new gate: change the value,
+# then triage whatever findings the new binary invents, re-run
+# playbooks/imports/play-python.yml on the host, and rebuild the CCY image
+# (`ccy --rebuild`) or every container keeps asserting the old value and fails.
+
+RUFF=0.16.4
+SEMGREP=1.177.0
+SHELLCHECK=0.11.0
