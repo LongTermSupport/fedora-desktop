@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00135-ccy-sessions-survive-a-reboot](00135-ccy-sessions-survive-a-reboot/) - Implements issue #44: a session registry written at start and deleted at clean exit, a `systemd --user` restore service that brings back whatever was still recorded at boot, and `ccy-sessions reboot --in N` warning every live session through the hooks-daemon signal CLI. Restore is opt-in; the default keeps today's behaviour. Phase 5 needs a machine that can be rebooted.
+
 - [00134-startup-log-triage-and-status-panel-unavailable](00134-startup-log-triage-and-status-panel-unavailable/) - A post-update reboot showed "crash" notifications and the status panel's blue question-mark, yet nothing crashed: the `BROKEN` play ledger comes from any ad-hoc `ansible … -m` run (reproduced), the crash notices are ABRT re-announcing an old backlog, and the logs exposed four more silent repo-owned defects.
 
 - [00131-semgrep-or-true-rule-is-blind-to-the-enclosed-form](00131-semgrep-or-true-rule-is-blind-to-the-enclosed-form/) - The `|| true` rule is anchored to end-of-line, so `$( cmd || true )` is invisible to it — which is how two instances shipped. Widening it finds 18 live sites in 8 files; four are the git hooks that gate secret scanning for this public repo, where a wrong fix fails open. Carried from Plan 00122 Task 3.7.

@@ -1,0 +1,222 @@
+# Plan 00135: ccy sessions survive a reboot
+
+**Status**: In Progress
+**Created**: 2026-09-22
+**Owner**: joseph
+**Priority**: High
+
+Implements [fedora-desktop#44](https://github.com/LongTermSupport/fedora-desktop/issues/44).
+
+## Overview
+
+A ccy session today dies with the machine and does not come back. Plan 00111 made a
+session survive its *terminal* by moving it onto a tmux server under `systemd --user`;
+this plan makes it survive a *reboot*. Two halves: warn every live session before the
+machine goes down, and restart the recorded ones after it.
+
+The warning half is a thin caller. The hooks-daemon already owns the signal channel and
+its CLI shipped in v3.65.0, so nothing here composes a message — the helper names a
+signal kind and an integer and nothing else. The restore half is the real work: ccy
+writes no per-session state today, so a boot has nothing to read.
+
+Restore is opt-in per machine. A laptop that is rebooted daily does not want four agents
+resuming at login, and the default must stay exactly what it is now.
+
+## Goals
+
+- Every live ccy session is warned N minutes before a deliberate reboot, and again at one
+  minute, through the daemon's existing signal CLI.
+- A session running when the machine went down is running again after it, in the same
+  project directory, resumed (`--continue`) and supervised.
+- A machine that has not opted in behaves exactly as it does today.
+- A project whose daemon CLI is missing is a loud refusal, never a silent skip.
+
+## Non-Goals
+
+- No message channel, no free text, no prompt path into a session. The helper may name a
+  signal kind and an integer; that is the whole vocabulary.
+- Not a crash-recovery feature. An unclean power loss leaves stale records by design —
+  that is exactly how restore knows what was running.
+- Not a scheduler. This plan reboots on request; it does not decide when to reboot.
+- Does not change how `ccy` starts a session interactively, or the picker's behaviour.
+
+## Context & Background
+
+Established by reading, before any code was written. Each is load-bearing for a task
+below.
+
+- **`ccy-sessions` already exists** (`files/home/.local/bin/ccy-sessions`, 152 lines) and
+  is **picker-only**: its argument parsing accepts `""` or `-h|--help` and rejects
+  everything else with exit 64. It also **hard-exits without a TTY** (`[[ ! -t 0 || ! -t 1 ]]`,
+  line 42) and refuses to run inside a CCY container. `notify` will be called by an
+  automated patch cycle with no terminal, so the TTY guard has to move below dispatch —
+  see Task 3.1. This is a restructure of an existing tool, not a new one.
+- **`lib/tmux-session.bash`** (339 lines) already exposes `ccy_tmux_list` →
+  `<name> <attached-count> <directory>` per line, plus `ccy_tmux_project_sessions`,
+  `ccy_tmux_next_name` and `ccy_tmux_is_detached`. Listing live sessions is solved; do not
+  re-implement it.
+- **`ccy_tmux_insulate <project> <command> [args...]`** (line 248) is the launcher's
+  single entry point for creating a session. It is the one choke point where a registry
+  write and its matching delete both belong. Anywhere else and they drift apart.
+- **No per-session state is written today.** The `.claude/ccy/sessions/` paths in the
+  launcher are Claude's own transcripts, not a ccy registry. The registry is genuinely
+  new.
+- **The daemon dependency has landed and is verified present** in the installed clone:
+  `hooks-daemon signal {reboot-warning,shutdown-warning,reboot-cancelled} [--minutes N] [--all-sessions] [--project-root PATH]`.
+  `--project-root` matters: the helper runs from outside each project.
+- **The `systemd --user` pattern to copy** is
+  `playbooks/imports/optional/common/play-host-health-login-report.yml`. It carries a trap
+  worth not repeating: the `ansible.builtin.systemd` module runs `daemon_reload` **before**
+  it changes the enabled state, so a reload requested on the enable task re-reads a
+  directory that does not yet contain the symlink the enable is about to create. That play
+  splits the reload into its own task *after* the enable, and reads back
+  `list-dependencies` rather than trusting `is-enabled`. Task 2.3 must do the same.
+- **Test harness**: `scripts/test-*.bash`, run by `scripts/qa-all.bash`. Seven
+  `test-ccy-*.bash` scripts already exist to model on. There is **no** existing test for
+  `tmux-session.bash`.
+
+## Tasks
+
+### Phase 1: The session registry
+
+> Independent of the daemon CLI and of restore. Lands first; nothing else needs it to
+> exist to be useful, and it is what makes restore possible at all.
+
+- [ ] ⬜ **Task 1.1**: Registry format and location. One file per session under
+  `~/.local/state/ccy/sessions/`, named for the tmux session. Records: tmux session name,
+  project directory, and the launch arguments with one-shot arguments removed. Decide and
+  **write down** which arguments are one-shot — replaying `--rebuild` or a `--continue`
+  that was not asked for is a wrong restore, not a cosmetic one. Enumerate them from the
+  launcher's own parser rather than from memory.
+- [ ] ⬜ **Task 1.2**: Write on start, delete on clean exit, both inside
+  `ccy_tmux_insulate`. A record that outlives its session is the signal restore reads; a
+  record deleted on an *unclean* exit would silently lose a session. The delete belongs on
+  the normal-exit path only.
+- [ ] ⬜ **Task 1.3**: `no-restore` marking, so a one-off session can opt out of being
+  brought back.
+- [ ] ⬜ **Task 1.4**: `scripts/test-ccy-session-registry.bash`, red first. Cover: record
+  written on start; removed on clean exit; **survives a kill** (the case the whole feature
+  rests on); one-shot arguments stripped; `no-restore` honoured; a directory with spaces.
+
+### Phase 2: The restore service
+
+- [ ] ⬜ **Task 2.1**: `ccy-sessions-restore.service`, `systemd --user`,
+  `WantedBy=default.target`. For each record: start detached on the ccy tmux server
+  (`tmux -L ccy`), in the recorded directory, with the recorded arguments plus
+  `--supervise --continue`.
+- [ ] ⬜ **Task 2.2**: Opt-in play variable, defaulting to today's behaviour (no restore).
+  The play enables linger when — and only when — restore is enabled; linger is what lets
+  the user manager exist before login.
+- [ ] ⬜ **Task 2.3**: Deploy it from the owning play, following
+  `play-host-health-login-report.yml`: reload as its **own task after** the enable, then
+  **read back** that `default.target` actually names the unit. `is-enabled` reads the
+  filesystem and `list-dependencies` reads the live manager; they disagree precisely when
+  this is broken, so assert the second.
+- [ ] ⬜ **Task 2.4**: Decide and document what restore does with a record whose directory
+  has since vanished, and with one whose session name is already live. Neither is exotic:
+  a deleted checkout and a hand-started session are both ordinary. Failing loudly on the
+  first and skipping the second is the likely answer, but it is a decision, not a default.
+- [ ] ⬜ **Task 2.5**: Tests for record-set → commands, red first. A real `systemd --user`
+  unit cannot be exercised in the CCY container; the *translation* can, and that is where
+  the bugs live.
+
+### Phase 3: The reboot helper
+
+- [ ] ⬜ **Task 3.1**: Restructure `ccy-sessions` into a subcommand dispatcher. Bare
+  `ccy-sessions` stays the picker, byte-for-byte in behaviour. **Move the TTY guard out of
+  the preamble and into the picker path** — `notify` must work headless. `--help` must keep
+  working without a terminal. Per `CLAUDE/InteractiveScripts.md`, the picker keeps its
+  friendly-recovery behaviour; the new non-interactive subcommands fail fast instead.
+- [ ] ⬜ **Task 3.2**: `ccy-sessions notify reboot-warning --minutes N` and
+  `ccy-sessions notify reboot-cancelled`. For each live session's project, invoke that
+  project's daemon CLI with `--all-sessions` and `--project-root`. A project with no daemon
+  CLI is a **loud refusal** — name the project and exit non-zero. Not a warning, not a
+  skip.
+- [ ] ⬜ **Task 3.3**: `ccy-sessions reboot --in N` — notify, print the countdown, notify
+  again at one minute, then `systemctl reboot`. `--dry-run` prints what it would signal and
+  reboots nothing.
+- [ ] ⬜ **Task 3.4**: `scripts/test-ccy-sessions-reboot.bash`, red first, against a stub
+  daemon CLI. Cover: signals every project exactly once; refuses loudly on a missing CLI
+  and **reboots nothing** in that case; `--dry-run` invokes neither the CLI nor
+  `systemctl`; the one-minute second signal fires; the bare picker path is unchanged.
+
+### Phase 4: Docs
+
+- [ ] ⬜ **Task 4.1**: `docs/tmux-sessions.md` "What survives what" gains a host-reboot row
+  — with restore enabled and without, because the honest answer differs per machine.
+- [ ] ⬜ **Task 4.2**: `docs/ccy.md` documents the registry, the service, the helper and the
+  opt-in, including that restore is off by default and what turns it on.
+
+### Phase 5: Proof on a real machine
+
+> **HOST/VM ONLY — cannot be done in the CCY container.** Whoever executes this plan needs
+> a machine they can reboot. This phase is the deliverable, not a formality: every task
+> above can pass its unit tests and still not restore a session.
+
+- [ ] 🧑 **Task 5.1**: Open two ccy sessions in different projects. Confirm two records
+  exist. Exit one cleanly; confirm its record is gone and the other's remains.
+- [ ] 🧑 **Task 5.2**: `ccy-sessions reboot --in 2`. Confirm the warning is visible **in
+  each session**, and that the one-minute signal arrives.
+- [ ] 🧑 **Task 5.3**: Let it reboot. After boot, without logging in if linger is the
+  claim being tested, confirm the sessions are back, in the right directories, resumed and
+  supervised.
+- [ ] 🧑 **Task 5.4**: Confirm a machine with the opt-in **off** restores nothing.
+- [ ] 🧑 **Task 5.5**: Put the evidence in the PR description.
+
+## Dependencies
+
+- `claude-code-hooks-daemon` ≥ 3.65.0 for `hooks-daemon signal` (their #39, closed).
+  **Verified present** in this checkout's installed clone.
+- Plan 00111 (Completed) — the tmux server under `systemd --user`, `ccy-sessions`, and the
+  re-attach offer. This plan extends all three.
+
+## Technical Decisions
+
+- **Registry, not a shutdown hook.** A shutdown hook races the shutdown it is reacting to
+  and an unclean power loss never runs one. A record written at start and deleted at clean
+  exit means "still present at boot" == "was running when the machine went down", with no
+  timing assumption at all.
+- **`ccy_tmux_insulate` owns both the write and the delete.** Splitting them across two
+  call sites is how they drift.
+- **The helper never composes text.** A signal kind and an integer. This keeps a reboot
+  notification from becoming an injection path into a running agent.
+- **Restore is opt-in.** The default stays today's behaviour, so deploying this plan
+  changes nothing until a machine asks for it.
+
+## Success Criteria
+
+- [ ] A session running at reboot is running after it, in the right directory, resumed.
+- [ ] Each live session's project is signalled exactly once per warning, and again at one
+  minute.
+- [ ] A project missing the daemon CLI causes a loud refusal and **no reboot**.
+- [ ] `--dry-run` signals nothing and reboots nothing.
+- [ ] A machine with restore disabled behaves exactly as before this plan.
+- [ ] `./scripts/qa-all.bash` green.
+- [ ] `qa-reviewer` agent over the full plan diff, findings resolved.
+- [ ] No hostname, address, username or private path anywhere in the diff or the PR.
+
+## Out of Scope — tracked separately
+
+**The firewalld / sshd-port item from the original brief is NOT in this plan**, and should
+not be bolted onto it: different subsystem, different risk, and the brief's premise does
+not survive reading the code.
+
+`playbooks/imports/play-lxc-install-config.yml:127-132` enables firewalld's stock `ssh`
+service, and the very next block (`:144-177`) already discovers sshd's real ports via the
+tested `helpers/sshd_ports` helper and permits every one of them. The comment at `:134-138`
+states the concern the brief raises, in its own words, as the reason that second block
+exists.
+
+So the stock enable is not an oversight — it is a deliberate anti-lockout guard for a
+*first-ever* firewalld start on a remote headless VM, where the alternative to opening 22
+is potentially losing the only access path. Removing it to honour a port variable would
+delete that guard. What it actually costs today is an open port 22 that nothing listens
+on: attack surface and noise, not a lockout.
+
+That is worth fixing, but it is a different change with a different argument, and it needs
+its own issue so the anti-lockout reasoning is weighed rather than silently dropped.
+
+## Delivery & Milestones
+
+- Each phase commits and pushes separately, in order: registry → restore → helper → docs.
+- Phases 1 and 2 do not depend on the daemon CLI and can land before Phase 3.
