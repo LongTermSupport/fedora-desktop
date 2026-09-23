@@ -190,7 +190,7 @@ D1–D4 are the owner's choices, made 2026-09-23.
 - [x] ✅ **Task 4.6**: The root sbin script, its sudoers drop-in (that one command only;
   validated with `visudo -c` before install), and the root-only become-password file
   provisioned from vault.
-- [ ] ⬜ **Task 4.4**: `deploy.bash` and `acceptance.bash` for this plan (host-only). The
+- [x] ✅ **Task 4.4**: `deploy.bash` and `acceptance.bash` for this plan (host-only). The
   acceptance script prints a coverage line and names anything it cannot establish.
 
 ### Phase 5: Close
