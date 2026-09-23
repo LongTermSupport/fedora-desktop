@@ -157,6 +157,27 @@ become_file="$(calls | sed -n 's/^become-file: //p')"
 check "and that copy is gone once the run ends" "no" "$(yes_if test -e "$become_file")"
 check "says the password route was proven" "yes" "$(yes_if grep -q 'sudo=password' <<<"$out")"
 
+# The descriptor must be READ, never reopened by its /dev/fd path. On the host the caller
+# is root and the password file is root-only 0600: a user opening /dev/fd/3 re-checks the
+# file's permissions and gets EACCES, even though the descriptor it inherited is readable.
+# A socket reproduces that for any user, root included: its /dev/fd path cannot be opened
+# at all, while reading the descriptor works.
+: >"$LOG"
+out="$(env -u FEDORA_DESKTOP_PLAY_LOCK_FD HOME="$FAKE_HOME" PATH="$BIN:/usr/bin:/bin" \
+    XDG_RUNTIME_DIR="$RUNTIME" TEST_LOG="$LOG" TEST_LOCK="$LOCK" \
+    FAKE_NOPASSWD=0 FAKE_SUDO_PASSWORD='correct horse' RUN_BASH_SUDO_PASSWORD_FILE=/dev/fd/3 \
+    python3 -c '
+import os, socket, sys
+ours, theirs = socket.socketpair()
+ours.sendall(b"correct horse")
+ours.close()
+os.dup2(theirs.fileno(), 3)
+os.execvp("bash", ["bash", *sys.argv[1:]])
+' "$CHECKOUT/run.bash" --headless "$PLAY" </dev/null 2>&1)"
+rc=$?
+check "a descriptor whose path cannot be reopened: exits 0" "0" "$rc"
+check "and Ansible still gets the password" "become: correct horse" "$(calls | grep '^become:')"
+
 run_play FAKE_NOPASSWD=0 FAKE_SUDO_PASSWORD='right' RUN_BASH_SUDO_PASSWORD_FILE="$PW" -- --headless "$PLAY"
 check "a wrong password refuses the run" "1" "$rc"
 check "before the play runs" "0" "$(ran)"

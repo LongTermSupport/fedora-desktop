@@ -15,6 +15,14 @@ the index, not the record.
 
 ---
 
+## 1.22.1 — a `/dev/fd/N` secret is read from the descriptor, not reopened (Plan 00137)
+
+1.22.0 accepted `RUN_BASH_SUDO_PASSWORD_FILE=/dev/fd/N` and then opened that path. Opening
+`/dev/fd/N` re-checks the target's permissions. So the case it was built for, a root caller
+handing a user a root-only 0600 file, failed with `Permission denied`. The descriptor itself
+was readable all along. The descriptor is now read directly, and a test passes the password
+over a socket, whose path nobody can reopen, so the difference is proven in any environment.
+
 ## 1.22.0 — one play can run unattended, and play runs on a host take one shared lock (Plan 00137)
 
 `--headless <play>.yml` (or `RUN_BASH_HEADLESS=1` through a play's shebang) used to be

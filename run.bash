@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.22.0"
+RUN_BASH_VERSION="1.22.1"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -124,7 +124,17 @@ hl_resolve_secret() {
     headless_fail "Both ${_file} and ${_lit} are set (ambiguous, and the literal still leaks)." \
       "Set exactly one — prefer the *_FILE form (the secret bytes never enter the environment)."
   fi
-  if [[ -n "$_fileval" ]]; then
+  if [[ "$_fileval" =~ ^/dev/fd/([0-9]+)$ ]]; then
+    # An inherited descriptor is READ, never reopened by its /dev/fd path. Opening that
+    # path re-checks the target's permissions, so a user handed a root-only 0600 file by
+    # a root caller gets EACCES from the path while the descriptor itself reads fine.
+    local _fd="${BASH_REMATCH[1]}"
+    if ! { true <&"$_fd"; } 2>/dev/null; then
+      headless_fail "${_file}=${_fileval} is not an open, readable descriptor." \
+        "The caller must open the secret and pass that descriptor to this process (e.g. 3<file)."
+    fi
+    _result="$(cat <&"$_fd")"
+  elif [[ -n "$_fileval" ]]; then
     if [[ ! -r "$_fileval" ]]; then
       headless_fail "${_file}=${_fileval} is not a readable file." \
         "Point it at a 0600 file containing the secret; there is no fallback to a literal."
