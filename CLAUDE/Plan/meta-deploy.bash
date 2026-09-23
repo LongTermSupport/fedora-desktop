@@ -41,11 +41,7 @@ PLAN_ROOT="${scriptDir}"
 # when it does not. A plan with none of triage.bash, deploy.bash and acceptance.bash has
 # nothing for this script to do. A triage-only plan is run once, read-only.
 PLANS=(
-    00134-startup-log-triage-and-status-panel-unavailable
     00109-desktop-drift-detection-and-fedora-desktop-panel
-    032-compression-helpers
-    00079-podman-container-control
-    00080-ccy-session-network-isolation
 )
 
 LIST_ONLY=0
