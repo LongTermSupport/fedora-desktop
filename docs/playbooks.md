@@ -1280,6 +1280,13 @@ everything it installed.
   checks they did.
 - A failed play means no reboot. It installs a sudoers rule for one root-owned command
   (`/usr/local/sbin/fedora-desktop-self-update`), and nothing broader.
+- The cycle's plays run on a root-owned ansible-core from dnf, with collections in a
+  root-owned path under `/usr/local/share/fedora-desktop/`. They never use your pipx
+  install, which anything running as you could modify.
+- It sets `kernel.yama.ptrace_scope=1`. As your user you can no longer attach
+  `gdb -p` or `strace -p` to a process you did not start. Run the tool as the parent
+  (`strace <cmd>`), or use sudo. Turning the play off removes the drop-in but leaves
+  the live value alone until the next boot.
 - Inputs, and the desktop-side signing key: [configuration.md](configuration.md#unattended-server-self-update).
 
 #### play-speech-to-text.yml

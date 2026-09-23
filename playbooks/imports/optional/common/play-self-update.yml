@@ -26,6 +26,17 @@
     self_update_clone: /var/lib/fedora-desktop/deploy
     self_update_state_dir: /var/lib/fedora-desktop/self-update
     self_update_sbin: /usr/local/sbin/fedora-desktop-self-update
+    # D5 hardening: the cycle's plays run on a root-owned ansible-core and collections
+    # path, never the user's pipx install in ~/.local, which any process running as the
+    # user could rewrite to capture the become password.
+    self_update_ansible_playbook: /usr/bin/ansible-playbook
+    self_update_ansible_galaxy: /usr/bin/ansible-galaxy
+    # The same floor play-AA-preflight-sanity.yml asserts for every run.
+    self_update_ansible_min_version: "2.20"
+    self_update_share_dir: /usr/local/share/fedora-desktop
+    self_update_collections_dir: /usr/local/share/fedora-desktop/ansible-collections
+    self_update_collections_stamp: /usr/local/share/fedora-desktop/ansible-collections.requirements-sha256
+    self_update_ptrace_dropin: /etc/sysctl.d/60-fedora-desktop-ptrace.conf
     self_update_units:
       - fedora-desktop-self-update.service
       - fedora-desktop-self-update.timer
@@ -334,6 +345,200 @@
         - self_update_clone not in self_update_safe_dirs.stdout_lines
 
     # =========================================================================
+    # Enabled: D5 hardening — root-owned ansible-core and collections
+    # =========================================================================
+    # jmespath and passlib are the two libraries run.bash injects into the pipx install
+    # (json_query, password_hash), so the system install can run the same plays.
+    - name: Install the System ansible-core the Cycle Runs
+      ansible.builtin.dnf:
+        name:
+          - ansible-core
+          - python3-jmespath
+          - python3-passlib
+        state: present
+      when: self_update_on
+
+    - name: Read the System ansible-playbook
+      ansible.builtin.stat:
+        path: "{{ self_update_ansible_playbook }}"
+        follow: true
+      register: self_update_ansible_stat
+      when: self_update_on
+
+    - name: Read the System ansible-core Version
+      ansible.builtin.command:
+        argv:
+          - "{{ self_update_ansible_playbook }}"
+          - --version
+      register: self_update_ansible_version
+      changed_when: false
+      when: self_update_on
+
+    # Resolved through any symlink: the file that actually runs must be root's, and
+    # nobody else may be able to write it.
+    - name: Assert the System ansible-playbook Is Root-Owned and New Enough
+      ansible.builtin.assert:
+        that:
+          - self_update_ansible_stat.stat.exists
+          - self_update_ansible_stat.stat.pw_name == 'root'
+          - not self_update_ansible_stat.stat.wgrp
+          - not self_update_ansible_stat.stat.woth
+          - self_update_core_version | length > 0
+          - self_update_core_version is version(self_update_ansible_min_version, '>=')
+        fail_msg: >-
+          {{ self_update_ansible_playbook }} must be a root-owned file nobody else can
+          write, running ansible-core {{ self_update_ansible_min_version }} or newer (the
+          floor play-AA-preflight-sanity.yml sets). Found: owner
+          {{ self_update_ansible_stat.stat.pw_name | default('missing') }}, core
+          {{ self_update_core_version | default('unknown', true) }}. If Fedora's
+          ansible-core is older than the floor, this cycle cannot run on this release.
+      vars:
+        self_update_core_version: >-
+          {{ (self_update_ansible_version.stdout | regex_search('\[core ([0-9][0-9.]*)\]', '\1')
+          | default([''], true) | first) | trim }}
+      when: self_update_on
+
+    - name: Create the Root-Owned Collections Directory
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - "{{ self_update_share_dir }}"
+        - "{{ self_update_collections_dir }}"
+      when: self_update_on
+
+    # The deploy clone's requirements.yml is the source of truth: it is the tree the
+    # cycle runs. Reinstalled only when that file's hash differs from the stamp.
+    - name: Hash the Deploy Clone's Requirements
+      ansible.builtin.stat:
+        path: "{{ self_update_clone }}/requirements.yml"
+        checksum_algorithm: sha256
+      register: self_update_requirements
+      when: self_update_on
+
+    - name: Assert the Deploy Clone Has a Requirements File
+      ansible.builtin.assert:
+        that:
+          - self_update_requirements.stat.exists
+        fail_msg: >-
+          {{ self_update_clone }}/requirements.yml is missing, so the collections the plays
+          need cannot be installed for the system ansible-core.
+      when: self_update_on
+
+    - name: Read the Collections Stamp
+      ansible.builtin.stat:
+        path: "{{ self_update_collections_stamp }}"
+      register: self_update_stamp_stat
+      when: self_update_on
+
+    - name: Read the Recorded Requirements Hash
+      ansible.builtin.slurp:
+        src: "{{ self_update_collections_stamp }}"
+      register: self_update_stamp
+      when:
+        - self_update_on
+        - self_update_stamp_stat.stat.exists
+
+    # chdir outside the clone so no ansible.cfg shapes the install, and the collections
+    # path in the environment so galaxy writes where the cycle will read.
+    - name: Install the Collections into the Root-Owned Path
+      ansible.builtin.command:
+        argv:
+          - "{{ self_update_ansible_galaxy }}"
+          - collection
+          - install
+          - --force
+          - -r
+          - "{{ self_update_clone }}/requirements.yml"
+          - -p
+          - "{{ self_update_collections_dir }}"
+        chdir: "{{ self_update_share_dir }}"
+      environment:
+        ANSIBLE_COLLECTIONS_PATH: "{{ self_update_collections_dir }}"
+      register: self_update_galaxy
+      changed_when: true
+      when:
+        - self_update_on
+        - (not self_update_stamp_stat.stat.exists)
+          or ((self_update_stamp.content | default('') | b64decode | trim) != self_update_requirements.stat.checksum)
+
+    - name: Record the Installed Requirements Hash
+      ansible.builtin.copy:
+        content: "{{ self_update_requirements.stat.checksum }}\n"
+        dest: "{{ self_update_collections_stamp }}"
+        owner: root
+        group: root
+        mode: "0644"
+      when:
+        - self_update_on
+        - self_update_galaxy is changed
+
+    - name: Find Anything in the Collections Path Not Root's or Writable by Others
+      ansible.builtin.command:
+        argv:
+          - find
+          - "{{ self_update_collections_dir }}"
+          - (
+          - "!"
+          - -user
+          - root
+          - -o
+          - -perm
+          - /022
+          - )
+          - "!"
+          - -type
+          - l
+          - -print
+          - -quit
+      register: self_update_collections_writable
+      changed_when: false
+      when: self_update_on
+
+    - name: Assert the Collections Path Is Root-Owned Throughout
+      ansible.builtin.assert:
+        that:
+          - self_update_collections_writable.stdout == ''
+        fail_msg: >-
+          {{ self_update_collections_dir }} holds something that is not root-owned, or is
+          group- or world-writable (first offender:
+          {{ self_update_collections_writable.stdout }}). The cycle loads these modules as
+          it runs with the become password in hand.
+      when: self_update_on
+
+    # ptrace_scope=1: a process may read another's memory only if it launched it, so a
+    # process running as the user cannot read the become password out of the running
+    # controller. Applied live and read back from the kernel, not trusted from the file.
+    - name: Restrict ptrace to Descendants
+      ansible.posix.sysctl:
+        name: kernel.yama.ptrace_scope
+        value: "1"
+        state: present
+        sysctl_file: "{{ self_update_ptrace_dropin }}"
+        sysctl_set: true
+        reload: true
+      when: self_update_on
+
+    - name: Read the Live ptrace Scope
+      ansible.builtin.slurp:
+        src: /proc/sys/kernel/yama/ptrace_scope
+      register: self_update_ptrace_live
+      when: self_update_on
+
+    - name: Assert the Kernel Restricts ptrace
+      ansible.builtin.assert:
+        that:
+          - (self_update_ptrace_live.content | b64decode | trim) == '1'
+        fail_msg: >-
+          kernel.yama.ptrace_scope is {{ self_update_ptrace_live.content | b64decode | trim }}
+          after writing {{ self_update_ptrace_dropin }}; it must be 1, or a process
+          running as the user can read the become password from the cycle's memory.
+      when: self_update_on
+
+    # =========================================================================
     # Enabled: the units (D9), enabled, reloaded, then read back
     # =========================================================================
     - name: Deploy the Self-Update Service and Timer
@@ -456,7 +661,16 @@
         - "{{ self_update_etc_dir }}/self-update.allowed_signers"
         - "{{ self_update_clone }}"
         - "{{ self_update_state_dir }}"
+        - "{{ self_update_collections_dir }}"
+        - "{{ self_update_collections_stamp }}"
+        # The drop-in goes, but the live value is deliberately left alone: lowering a
+        # hardening setting on a running machine is the owner's call, and it reverts to
+        # the distribution default at the next boot anyway.
+        - "{{ self_update_ptrace_dropin }}"
       when: not self_update_on
+
+    # The ansible-core package stays installed: this play cannot know whether it predates
+    # the cycle, and removing a package something else uses is not a safe "off".
 
     - name: Reload systemd After Removing the Self-Update Units
       ansible.builtin.systemd:
