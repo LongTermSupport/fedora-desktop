@@ -185,6 +185,49 @@ class TestPlaySource(unittest.TestCase):
             plugin_support.play_source((None, 1, 1))
 
 
+class TestPlayToRecord(unittest.TestCase):
+    """An ad-hoc `ansible -m` play has no file, so there is nothing to ledger — and
+    treating it as a hole marked the ledger BROKEN on every ad-hoc run (Plan 00134 F2)."""
+
+    def test_an_ad_hoc_run_is_skipped_even_with_no_position(self) -> None:
+        self.assertIsNone(
+            plugin_support.play_to_record(plugin_support.ADHOC_PLAYBOOK_FILE, None)
+        )
+
+    def test_an_ad_hoc_run_is_skipped_even_if_a_position_appears(self) -> None:
+        """No file on disk backs an ad-hoc play, whatever position Ansible may tag it
+        with, so a ledger row for it could never be joined to a play file."""
+        self.assertIsNone(
+            plugin_support.play_to_record(
+                plugin_support.ADHOC_PLAYBOOK_FILE, ("<adhoc>", 1, 1)
+            )
+        )
+
+    def test_the_sentinel_is_the_one_ansible_cli_adhoc_sets(self) -> None:
+        self.assertEqual(plugin_support.ADHOC_PLAYBOOK_FILE, "__adhoc_playbook__")
+
+    def test_a_playbook_play_with_no_position_still_refuses(self) -> None:
+        with self.assertRaises(ValueError):
+            plugin_support.play_to_record("/repo/playbooks/playbook-main.yml", None)
+
+    def test_an_unknown_playbook_with_no_position_still_refuses(self) -> None:
+        """No v2_playbook_on_start seen is not evidence of an ad-hoc run."""
+        with self.assertRaises(ValueError):
+            plugin_support.play_to_record(None, None)
+
+    def test_a_play_named_like_an_ad_hoc_one_is_not_skipped(self) -> None:
+        """The discriminator is the CLI's sentinel file name, not the play's name,
+        which any playbook author is free to choose."""
+        with self.assertRaises(ValueError):
+            plugin_support.play_to_record("Ansible Ad-Hoc", None)
+
+    def test_a_playbook_play_yields_its_file(self) -> None:
+        self.assertEqual(
+            plugin_support.play_to_record("/repo/p.yml", ("/repo/imports/x.yml", 2, 3)),
+            "/repo/imports/x.yml",
+        )
+
+
 class TestRepoRootFrom(unittest.TestCase):
     def test_is_the_parent_of_the_plugin_directory(self) -> None:
         self.assertEqual(
