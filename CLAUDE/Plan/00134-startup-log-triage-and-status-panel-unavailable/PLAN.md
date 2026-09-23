@@ -46,20 +46,26 @@ containers that needs its own diagnosis (F7).
 
 ### Phase 1: the reported symptom (panel + long notification)
 
-- [ ] ⬜ **Task 1.1**: `callback_plugins/play_ledger.py` / `helpers/play_ledger` — a play
+- [x] ✅ **Task 1.1**: `callback_plugins/play_ledger.py` / `helpers/play_ledger` — a play
   with no source position that is an ad-hoc play (built by `ansible.cli.adhoc`; name
   `Ansible Ad-Hoc`, no `Origin`) is **skipped**, not recorded as a hole. A playbook
   play with no position still marks the ledger broken. Regression test in
   `tests/helpers/` using `plugin_support` (Ansible is not importable there).
-- [ ] ⬜ **Task 1.2**: `helpers/host_health/login_report.py` — the untrustworthy-ledger
+- [x] ✅ **Task 1.2**: `helpers/host_health/login_report.py` — the untrustworthy-ledger
   finding keeps the remedy: carry the multi-line diagnostic as detail lines instead of
   `"; ".join(...)`, so the clear command is neither flattened nor cut off.
-- [ ] ⬜ **Task 1.3**: `extensions/fedora-desktop@fedora-desktop` — add a "Copy" menu
+- [x] ✅ **Task 1.3**: `extensions/fedora-desktop@fedora-desktop` — add a "Copy" menu
   action for the findings text (the `St.Clipboard` pattern `container-watch` uses),
-  and keep the `notify-send` body to a headline plus the findings file path.
+  and keep the `notify-send` body to a headline plus the findings file path. Every
+  findings label also wraps (the owner reported the unwrapped line breaking the panel).
 - [ ] ⬜ **Task 1.4**: Document in `docs/` that the BROKEN sentinel is cleared with the
   command the check prints, and that this is the operator's route (already coded in
   `check_freshness --clear-broken`).
+- [ ] 🔄 **Task 1.5**: `helpers/play_ledger` — a removed play is reported `GONE` for ever.
+  A tracked retired-plays map names each removed play's successor; the `GONE` finding
+  names that successor and stops once the successor has run after the removal. An entry
+  whose key still exists, or whose successor does not, is an error. Seeded with
+  `play-claude-code.yml → play-claude-yolo.yml` (merged for the Plan 00135 `cc` break).
 
 ### Phase 2: defects the logs exposed
 
