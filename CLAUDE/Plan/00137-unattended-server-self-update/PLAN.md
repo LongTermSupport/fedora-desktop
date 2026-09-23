@@ -131,11 +131,11 @@ D1–D4 are the owner's choices, made 2026-09-23.
   file, its `src:` files, `import_tasks`/`include_tasks`, the `vars/` it loads, and the
   `helpers/` it calls. The ledger's `judged` verdicts are layered on for GONE and
   UNEXPLAINED plays. The result is filtered by D2. TDD against fixture repos.
-- [ ] ⬜ **Task 1.4**: A lock shared by the updater, `run.bash` single-play and `--run-play`.
+- [x] ✅ **Task 1.4**: A lock shared by the updater, `run.bash` single-play and `--run-play`.
 
 ### Phase 2: Unattended play runner
 
-- [ ] ⬜ **Task 2.1**: A headless single-play path. It runs a sudo-only preflight, supports
+- [x] ✅ **Task 2.1**: A headless single-play path. It runs a sudo-only preflight, supports
   `--become-password-file`, never prompts, uses an explicit PATH, and exits non-zero on
   failure. It has none of the first-install behaviour of a full headless run.
 - [ ] ⬜ **Task 2.2**: Fetch authentication that works from a timer: an HTTPS fetch URL for
@@ -145,7 +145,7 @@ D1–D4 are the owner's choices, made 2026-09-23.
 
 - [ ] ❌ **Task 3.1**: ~~`ccy-sessions stop` that keeps the records~~. Cancelled by D1:
   the reboot ends the sessions, and Plan 00135 proves that path keeps their records.
-- [ ] ⬜ **Task 3.2**: A boot-time restore that cannot block on a prompt, plus a
+- [x] ✅ **Task 3.2**: A boot-time restore that cannot block on a prompt, plus a
   post-restore check: the pane is alive, the container is up, and `capture-pane` shows no
   prompt. Anything else is reported. Blocking menus include a zombie container, an
   existing container, and a token or network prompt.
