@@ -814,6 +814,12 @@ below):
   successfully after the removal. Delete the old play in the same commit that merges its
   tasks, because the check uses the deletion commit as proof the tasks arrived. An entry whose play still exists, or whose successor does not, is
   reported as an error rather than ignored
+- **"The ledger is marked BROKEN"** means a play ran without being recorded. The reason
+  line says why. Once the cause is fixed, clear it from the checkout with
+  `python3 -m helpers.play_ledger.check_freshness --clear-broken`, which is the command the
+  finding prints. It never clears itself. Clearing does not recover the plays that ran
+  unrecorded, so re-run any you rely on being judged. An ad-hoc `ansible -m` or
+  `ansible-console` command does not mark it
 - **Silent when clean.** Nothing is shown on a healthy login — a check that speaks every
   time gets muted
 - A check that *could not run* is reported as a finding, never as a pass. That is the

@@ -59,9 +59,9 @@ containers that needs its own diagnosis (F7).
   action for the findings text (the `St.Clipboard` pattern `container-watch` uses),
   and keep the `notify-send` body to a headline plus the findings file path. Every
   findings label also wraps (the owner reported the unwrapped line breaking the panel).
-- [ ] ⬜ **Task 1.4**: Document in `docs/` that the BROKEN sentinel is cleared with the
+- [x] ✅ **Task 1.4**: Document in `docs/` that the BROKEN sentinel is cleared with the
   command the check prints, and that this is the operator's route (already coded in
-  `check_freshness --clear-broken`).
+  `check_freshness --clear-broken`). In `docs/playbooks.md`, under the host-health play.
 - [x] ✅ **Task 1.5**: `helpers/play_ledger` — a removed play is reported `GONE` for ever.
   A tracked retired-plays map names each removed play's successor; the `GONE` finding
   names that successor and stops once the successor has run after the removal. An entry
