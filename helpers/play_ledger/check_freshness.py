@@ -194,10 +194,16 @@ def _apply_retirements(
         if successor is None:
             kept.append(verdict)
             continue
-        # The successor's LATEST run: if that commit lacks the old play, the run
-        # carried everything the old play used to deploy.
+        # The successor's LATEST run, and only a SUCCESSFUL one: a run that failed at
+        # its first task never reached what it absorbed. If that commit lacks the old
+        # play, the run carried everything the old play used to deploy — which holds
+        # only if the removal and the merge land in ONE commit (see retired.py).
         record = latest.get(successor)
-        ran_after = record is not None and not path_exists_at(repo_root, record["commit"], verdict.play)
+        ran_after = (
+            record is not None
+            and record["outcome"] == "ok"
+            and not path_exists_at(repo_root, record["commit"], verdict.play)
+        )
         remaining = freshness.retire(verdict, successor=successor, successor_ran_after_removal=ran_after)
         if remaining is not None:
             kept.append(remaining)

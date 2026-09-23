@@ -336,12 +336,25 @@ class TestRetiredPlays(unittest.TestCase):
         )
         return code, out.getvalue(), err.getvalue()
 
-    def _seed_successor(self, base: str, *, commit: str) -> None:
+    def _seed_successor(self, base: str, *, commit: str, outcome: str = "ok") -> None:
         store.append_record(base, ledger.build_record(
             play=NEW_PLAY, name=NEW_PLAY, commit=commit, dirty=False,
-            play_sha256=SIXTY_FOUR_HEX, outcome="ok", changed=0,
+            play_sha256=SIXTY_FOUR_HEX, outcome=outcome, changed=0,
             started=STAMP, finished=STAMP,
         ))
+
+    def test_a_failed_successor_run_after_the_removal_does_not_retire_it(self) -> None:
+        """A run that failed early may never have reached the absorbed tasks."""
+        for outcome in ("failed", "unreachable"):
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as base:
+                _seed(base, [OLD_PLAY])
+                self._seed_successor(base, commit=REMOVAL_COMMIT, outcome=outcome)
+                code, out, _ = self._run(
+                    base, exists=lambda commit, path: path == NEW_PLAY
+                    or (path == OLD_PLAY and commit != REMOVAL_COMMIT and commit != "HEAD"),
+                )
+                self.assertEqual(code, check_freshness.EXIT_FINDINGS)
+                self.assertIn(f"run {NEW_PLAY}", out)
 
     def test_before_the_successor_has_run_it_is_reported_with_the_successor_named(self) -> None:
         with tempfile.TemporaryDirectory() as base:

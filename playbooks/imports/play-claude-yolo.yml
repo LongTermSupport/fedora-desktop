@@ -329,6 +329,9 @@
         owner: root
         group: root
         mode: "0755"
+      tags:
+        - scripts
+        - launchers
 
     - name: Install Shared Helper Libraries
       become: true
@@ -348,9 +351,12 @@
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/docker-health.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/tmux-session.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/session-registry.bash"
+      # `launchers` is on the lib and on every script that sources it (ccy, cc,
+      # ccy-sessions), with the directories they land in: a tag that deployed one
+      # without the others would recreate the new-lib-under-old-cc break.
       tags:
         - scripts
-        - library
+        - launchers
 
     # Clean up the per-host install of the obsolete terminal-detection.bash
     # lib (Plan 00047 pre-flight, removed in the pivot away from Path C+).
@@ -414,7 +420,7 @@
         mode: "0755"
       tags:
         - scripts
-        - wrapper
+        - launchers
 
     - name: Deploy Bashrc Include for Root
       become: true
@@ -510,6 +516,9 @@
         owner: root
         group: root
         mode: "0755"
+      tags:
+        - scripts
+        - launchers
 
     - name: Install cc Wrapper Script
       become: true
@@ -521,7 +530,7 @@
         mode: "0755"
       tags:
         - scripts
-        - wrapper
+        - launchers
 
     # Claude Code writes its session state — full conversation transcripts,
     # verbatim pre-edit file bodies in file-history/, shell snapshots, prompt
@@ -677,6 +686,9 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0755"
+      tags:
+        - scripts
+        - launchers
 
     # The human way back to a session whose terminal died: lists every CCY tmux session,
     # attaches a detached one by number, ends one on request. Sources lib/tmux-session.bash
@@ -688,6 +700,9 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0755"
+      tags:
+        - scripts
+        - launchers
 
     # =========================================================================
     # Restore ccy sessions after a reboot — OPT-IN (Plan 00135, issue #44)

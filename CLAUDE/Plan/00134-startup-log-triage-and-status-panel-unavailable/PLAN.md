@@ -47,8 +47,9 @@ containers that needs its own diagnosis (F7).
 ### Phase 1: the reported symptom (panel + long notification)
 
 - [x] ✅ **Task 1.1**: `callback_plugins/play_ledger.py` / `helpers/play_ledger` — a play
-  with no source position that is an ad-hoc play (built by `ansible.cli.adhoc`; name
-  `Ansible Ad-Hoc`, no `Origin`) is **skipped**, not recorded as a hole. A playbook
+  with no source position that is an ad-hoc play is **skipped**, not recorded as a hole.
+  Recognised by the playbook file name `__adhoc_playbook__` that `ansible.cli.adhoc`
+  sets, not by the play name `Ansible Ad-Hoc`, which any playbook can use. A playbook
   play with no position still marks the ledger broken. Regression test in
   `tests/helpers/` using `plugin_support` (Ansible is not importable there).
 - [x] ✅ **Task 1.2**: `helpers/host_health/login_report.py` — the untrustworthy-ledger
@@ -66,6 +67,13 @@ containers that needs its own diagnosis (F7).
   names that successor and stops once the successor has run after the removal. An entry
   whose key still exists, or whose successor does not, is an error. Seeded with
   `play-claude-code.yml → play-claude-yolo.yml` (merged for the Plan 00135 `cc` break).
+  Only a successful successor run retires it.
+- [ ] ⬜ **Task 1.6**: the ad-hoc skip against real Ansible — extend
+  `tests/helpers/play_ledger/test_source_position_against_real_ansible.py` so it drives
+  the callback's playbook-start → play-start path with the CLI's `__adhoc_playbook__`
+  marker, so an Ansible change to that marker fails a test. Then decide what
+  `ansible-console` should do: it runs plays without a playbook-start event, so the
+  callback still marks the ledger broken for it (ansible-core 2.19 `cli/console.py`).
 
 ### Phase 2: defects the logs exposed
 

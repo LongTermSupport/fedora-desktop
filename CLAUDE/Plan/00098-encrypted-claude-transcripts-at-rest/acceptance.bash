@@ -11,7 +11,7 @@
 #
 # Run it:
 #   - in a CCY container, to check the project store and the deployed umask
-#   - on the HOST after `ansible-playbook playbooks/imports/play-claude-code.yml`,
+#   - on the HOST after `./playbooks/imports/play-claude-yolo.yml`,
 #     to check the desktop store too
 #
 set -euo pipefail
@@ -261,7 +261,7 @@ echo
 echo "### 5. desktop store contained"
 if [ -d "$HOME/.claude" ] && [ ! -L "$HOME/.claude" ]; then
     report_store "desktop store" "$HOME/.claude" \
-        "Deploy it: ansible-playbook $REPO_ROOT/playbooks/imports/play-claude-code.yml"
+        "Deploy it: $REPO_ROOT/playbooks/imports/play-claude-yolo.yml"
 else
     skip "desktop store" "not present here (inside CCY, /root/.claude is a symlink into the project store)"
 fi

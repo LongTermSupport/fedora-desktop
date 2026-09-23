@@ -806,8 +806,9 @@ anything**:
 - A play that was run here and has since been deleted is reported as "no longer exists
   at HEAD". When a play is merged into another, add it to
   `helpers/play_ledger/retired-plays.json` (`{"<removed play>": "<successor>"}`): the
-  finding then says to run the successor, and clears once the successor has run after
-  the removal. An entry whose play still exists, or whose successor does not, is
+  finding then says to run the successor, and clears once the successor has run
+  successfully after the removal. Delete the old play in the same commit that merges its
+  tasks, because the check uses the deletion commit as proof the tasks arrived. An entry whose play still exists, or whose successor does not, is
   reported as an error rather than ignored
 - **Silent when clean.** Nothing is shown on a healthy login — a check that speaks every
   time gets muted

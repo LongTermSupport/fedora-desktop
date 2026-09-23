@@ -9,7 +9,7 @@
 # no way to apply it fails identically forever, and each run looks like a fresh finding
 # rather than the same unapplied fix.
 #
-# WHAT IT CHANGES ON THE HOST: play-claude-code.yml re-asserts ownership and the 0700/0600
+# WHAT IT CHANGES ON THE HOST: play-claude-yolo.yml re-asserts ownership and the 0700/0600
 # permission model over the Claude Code state directory, so files below it stop being
 # reachable by other local users. It does not touch transcript content.
 #
@@ -40,8 +40,8 @@ PLAN_USAGE="usage: deploy.bash [-h|--help] [-y|--yes] [--check]
 Plan 00098 — deploy the Claude Code store containment (HOST ONLY)
 
 Runs:
-  1. play-claude-code.yml — re-asserts the 0700/0600 permission model over the
-                            Claude Code state directory
+  1. play-claude-yolo.yml — re-asserts the 0700/0600 permission model over the
+                            Claude Code state directory (it deploys cc and ccy)
 
 Run acceptance.bash afterwards to confirm the change landed."
 
@@ -56,7 +56,7 @@ fi
 
 plan_require_host "it rewrites the ownership and permissions of this machine's Claude Code state directory"
 
-PLAY_CLAUDE_CODE="playbooks/imports/play-claude-code.yml"
+PLAY_CLAUDE_CODE="playbooks/imports/play-claude-yolo.yml"
 
 if [[ ! -f "${PLAN_REPO_ROOT}/${PLAY_CLAUDE_CODE}" ]]; then
     printf '[FATAL] playbook not found: %s\n' "${PLAN_REPO_ROOT}/${PLAY_CLAUDE_CODE}" >&2
@@ -66,5 +66,5 @@ fi
 plan_prime_sudo
 plan_start_log auto
 
-plan_deploy_leg "play-claude-code.yml" \
+plan_deploy_leg "play-claude-yolo.yml" \
     plan_ansible_playbook "${PLAY_CLAUDE_CODE}"

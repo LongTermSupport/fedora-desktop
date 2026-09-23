@@ -25,6 +25,14 @@ venv, no pip) — full pattern, rationale, and test layout in
 [helpers/CLAUDE.md](../helpers/CLAUDE.md). First example: `helpers/pyenv/` driving
 `playbooks/imports/play-python.yml`.
 
+## Removing or Merging a Play
+
+The play ledger remembers every play a host has run, so a deleted play is reported as
+"no longer exists at HEAD" for ever. When a play is merged into another, delete it in
+the **same commit** that moves its tasks, and add it to
+`helpers/play_ledger/retired-plays.json`. The rule and its checks are in
+`helpers/play_ledger/retired.py`.
+
 ## Executable Playbooks Requirement
 
 **ALL playbooks in this directory MUST be directly executable.**

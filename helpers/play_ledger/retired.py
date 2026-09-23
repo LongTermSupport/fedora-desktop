@@ -4,7 +4,13 @@ A play the ledger has seen and HEAD no longer has is GONE, and GONE on its own h
 no remedy — there is nothing to re-run, so the finding would stand for ever. When a
 play is merged into another, `retired-plays.json` beside this file records the
 successor. `freshness.retire` then turns the advice into "run the successor", and
-drops the finding once the successor has run at a commit without the old play.
+drops the finding once the successor has run SUCCESSFULLY at a commit without the old
+play.
+
+**Remove the old play and merge its tasks into the successor in ONE commit.** "The old
+play is absent at that commit" is the only evidence the successor carried its tasks,
+so a commit that deletes the play before the tasks arrive would let a run of the
+unfinished successor retire it.
 
 **Refused, never read around.** The map changes what a health check says, so a map
 that is malformed, names a play still at HEAD, or points at a successor that does not
