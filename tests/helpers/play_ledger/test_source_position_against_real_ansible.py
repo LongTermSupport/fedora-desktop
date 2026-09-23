@@ -24,10 +24,13 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import textwrap
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+
+from helpers.play_ledger import plugin_support
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
@@ -69,6 +72,25 @@ PROBE = textwrap.dedent(
             getattr(getattr(obj, "_ds", None), "ansible_pos", None),
         )
     print(json.dumps({{"answers": answers, "ansible": ansible.__version__}}))
+    """
+)
+
+
+#: Parses one real ansible CLI's argv and prints what the ledger decides from it. One CLI
+#: per process, because `context.CLIARGS` is a process-wide singleton set on first parse.
+CLI_PROBE = textwrap.dedent(
+    """
+    import json, sys
+    sys.path.insert(0, {repo!r})
+    from ansible import context
+    from ansible.cli.adhoc import AdHocCLI
+    from ansible.cli.console import ConsoleCLI
+    from ansible.cli.playbook import PlaybookCLI
+    from helpers.play_ledger import plugin_support
+
+    cli = {{"playbook": PlaybookCLI, "adhoc": AdHocCLI, "console": ConsoleCLI}}[{label!r}]
+    cli({argv!r}).parse()
+    print(json.dumps(plugin_support.names_playbooks(dict(context.CLIARGS))))
     """
 )
 
@@ -122,6 +144,85 @@ class TestSourcePositionAgainstRealAnsible(unittest.TestCase):
         is lost in `copy()`, every unit test passes and every real run records a hole."""
         probed = self._probe(PLAYBOOK)
         self.assertEqual(probed["answers"]["parsed"], probed["answers"]["copy"])
+
+
+class TestFilelessRunsAgainstRealAnsible(unittest.TestCase):
+    """The ledger skips plays with no file behind them — ad-hoc `ansible -m` and
+    `ansible-console` — and knows them only by what the real CLIs set. A fake of those
+    shapes cannot catch Ansible changing them, so these ask the real ones."""
+
+    def _names_playbooks(self, label: str, argv: list[str]) -> bool:
+        result = subprocess.run(
+            [_ansible_python(), "-c", CLI_PROBE.format(repo=REPO_ROOT, label=label, argv=argv)],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=REPO_ROOT,
+            stdin=subprocess.DEVNULL,
+        )
+        if result.returncode != 0:
+            self.fail(f"the {label} CLI probe could not run:\n{result.stderr.strip()}")
+        return json.loads(result.stdout)
+
+    def test_only_ansible_playbook_names_playbook_files(self) -> None:
+        """If ansible-playbook stopped naming its files here, every run would go
+        unrecorded — this is the test that says so, rather than an empty ledger."""
+        self.assertIs(self._names_playbooks("playbook", ["ansible-playbook", "site.yml"]), True)
+        self.assertIs(
+            self._names_playbooks("adhoc", ["ansible", "localhost", "-m", "ping"]), False
+        )
+        self.assertIs(self._names_playbooks("console", ["ansible-console", "localhost"]), False)
+
+    def _run(
+        self, command: str, argv: list[str], state_home: str, stdin: str = ""
+    ) -> subprocess.CompletedProcess:
+        """A real ansible CLI run from the checkout, so the repo's own ansible.cfg
+        enables the callback. The inventory is implicit localhost and the vault file a
+        throwaway, so nothing of this host's configuration is read."""
+        executable = shutil.which(command)
+        if executable is None:
+            self.fail(f"{command} is not on PATH beside ansible-playbook — an IaC gap")
+        with tempfile.TemporaryDirectory() as scratch:
+            vault = os.path.join(scratch, "vault-pass")
+            with open(vault, "w", encoding="utf-8") as handle:
+                handle.write("throwaway\n")
+            return subprocess.run(
+                [executable, "localhost", "-i", "localhost,", "-c", "local", *argv],
+                input=stdin,
+                capture_output=True,
+                text=True,
+                check=False,
+                cwd=REPO_ROOT,
+                env={**os.environ, "XDG_STATE_HOME": state_home,
+                     "ANSIBLE_VAULT_PASSWORD_FILE": vault},
+            )
+
+    def _ad_hoc_ping(self, state_home: str) -> subprocess.CompletedProcess:
+        return self._run("ansible", ["-m", "ping"], state_home)
+
+    def test_a_real_console_run_leaves_the_ledger_untouched(self) -> None:
+        """`ansible-console` sends no playbook-start event, so it has no ad-hoc marker;
+        it is known by naming no playbook. `ok: [localhost]` proves the play ran."""
+        with tempfile.TemporaryDirectory() as state_home:
+            result = self._run("ansible-console", [], state_home, stdin="ping\nexit\n")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("ok: [localhost]", result.stdout)
+            self.assertNotIn(plugin_support.FAILURE_MARKER, result.stdout + result.stderr)
+            self.assertEqual(os.listdir(state_home), [])
+
+    def test_the_callback_is_live_for_an_ad_hoc_run(self) -> None:
+        """Control: without it, a silent ledger below would prove nothing. A relative
+        state home makes the callback's constructor refuse, loudly."""
+        result = self._ad_hoc_ping("relative/state")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(plugin_support.FAILURE_MARKER, result.stderr)
+
+    def test_a_real_ad_hoc_run_leaves_the_ledger_untouched(self) -> None:
+        with tempfile.TemporaryDirectory() as state_home:
+            result = self._ad_hoc_ping(state_home)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn(plugin_support.FAILURE_MARKER, result.stderr)
+            self.assertEqual(os.listdir(state_home), [])
 
 
 if __name__ == "__main__":
