@@ -82,24 +82,32 @@ containers that needs its own diagnosis (F7).
   `monitor.bluez.properties` + `monitor.bluez.rules`), remove the `*.lua.d` files and
   directories, restart WirePlumber. Verify with `wpctl status` / `wpctl inspect` that
   the properties are present on the nodes. Code done (node properties now match nodes,
-  not devices; other Lua left behind stops the play). HOST verify pending.
+  not devices; other Lua left behind stops the play). Deployed by the host batch (journal
+  26-09-23 19:10): only the two `.conf` files remain, and there has been no Lua warning since
+  the restart. Remaining: `wpctl inspect` on the HOST.
 - [ ] 🔄 **Task 2.2**: `play-browsers.yml` — resolve the duplicate `[vivaldi]` repo id:
   keep exactly one of the two repo files (the RPM's own post-install writes
   `vivaldi.repo`; the play writes `vivaldi-fedora.repo`) and make the play remove the
   other on every run. Verify `dnf5 repolist` shows one `vivaldi` and dnf5daemon logs
   no `Id is present more than once`. Code done: `vivaldi-fedora.repo` is kept, and
   `/etc/default/vivaldi` `repo_add_once="false"` stops the scriptlet recreating the
-  other (the RPM's scriptlets are quoted in the journal, 18:35). HOST verify pending.
-- [ ] 🔄 **Task 2.3**: `files/home/.config/systemd/user/vmtest-bridge@.service` — replace
+  other (the RPM's scriptlets are quoted in the journal, 18:35). Deployed by the host batch:
+  the duplicate `[vivaldi]` id is gone. Remaining: after the next boot, dnf5daemon logs no
+  `Id is present more than once` (both lines this boot predate the deploy).
+- [x] ✅ **Task 2.3**: `files/home/.config/systemd/user/vmtest-bridge@.service` — replace
   `RuntimeMaxSec=120` with `TimeoutStartSec=120` and fix the comment. Audit every
   other `Type=oneshot` unit in `files/` for the same mistake. Code done: the other 12
   oneshot units carry no `RuntimeMaxSec` (neither do inline units in plays), and
   `systemd-analyze verify` shows the "no effect" warning for the old unit but not the new
-  one. HOST verify pending (deploy leg 7).
-- [ ] 🔄 **Task 2.4**: `play-toolbox-install.yml` — ensure
+  one. HOST verified by the batch (journal 26-09-23 19:10): after deploy leg 7 the user manager
+  re-read its units three times, and the bridge instance no longer warned. A user unit this
+  repo does not deploy still does, so the criterion below needs the owner.
+- [x] ✅ **Task 2.4**: `play-toolbox-install.yml` — ensure
   `~/.config/autostart/jetbrains-toolbox.desktop` is mode 0644 whenever it exists (the
   application rewrites it, so this must run every pass, not be `creates:`-guarded).
-  Code done (stat, then a mode task gated on existence). HOST verify pending.
+  Code done (stat, then a mode task gated on existence). HOST verified by the batch: the
+  mode task changed the entry. Triage (before) found it executable; triage (after) finds
+  no executable autostart entry.
 - [ ] 🔄 **Task 2.5**: ABRT policy as IaC — `play-basic-configs.yml` sets
   `abrt_auto_reporting` (project default on; per-host override) via
   `abrt-auto-reporting`, and installs `abrt-prune-stale.{service,timer}` running
@@ -124,14 +132,23 @@ containers that needs its own diagnosis (F7).
   list, per running container, the workspace mount options (`:z` present or not),
   and the label the host sees on each frequently-denied path; then decide whether
   the CCY relabel is skipped in some launch mode or host-created paths revert.
-  Probes written, HOST run pending: run `triage.bash` with the denying sessions up.
+  HOST run done (journal 26-09-23 19:10, finding). The host is Permissive, and
+  `selinux_enforcing_verdict` maps Permissive to `off`, so CCY binds every workspace
+  without `:z` by design. Every `container_t` access to `user_home_t` is then logged. No
+  launch mode skips the relabel, and no host path reverts. **Owner decision**: options
+  A/B/C are in the journal (recommended A: relabel whenever SELinux is not Disabled).
 - [ ] 🔄 **Task 3.2**: Docker 29 nftables backend vs `lxc-docker-user-iptables-reconcile`
   — verify whether the `DOCKER-USER` iptables chain the reconcile script edits is
   consulted at all with the nftables backend; if not, that script's egress rules are
   dead and Plan 00127's assumptions need revisiting. Also decide whether the per-boot
   firewalld `COMMAND_FAILED`/`NAME_CONFLICT` noise is worth silencing.
-  Probes written, HOST run pending. The DOCKER-USER assumption lives in
-  `play-lxc-install-config.yml`'s header and the reconcile script; Plan 00127 has none.
+  The DOCKER-USER assumption lives in `play-lxc-install-config.yml`'s header and the
+  reconcile script; Plan 00127 has none. HOST run done (journal 26-09-23 19:10, finding).
+  Docker 29 here uses its **iptables** backend, not nftables. `FORWARD` jumps to
+  `DOCKER-USER`, and its counters are live. The reconcile unit is **not installed** on this
+  host. The firewalld lines are Docker's per-boot cleanup. **Owner decision**: a backend
+  assert in the play, one re-run of that play, and leaving the noise unsilenced were
+  proposed.
 
 ### Phase 4: close
 
@@ -141,8 +158,9 @@ containers that needs its own diagnosis (F7).
 
 ## Success Criteria
 
-- [ ] `XDG_STATE_HOME=$(mktemp -d) ansible localhost -m ping` from the checkout leaves no
-  `BROKEN` sentinel (the exact reproduction in the research doc).
+- [x] `XDG_STATE_HOME=$(mktemp -d) ansible localhost -m ping` from the checkout leaves no
+  `BROKEN` sentinel (the exact reproduction in the research doc). HOST, triage (after) of the
+  2026-09-23 batch: no ledger directory was created at all.
 - [ ] After clearing the sentinel and one graphical login, the panel icon is not
   `unavailable`, and any finding shown can be copied from the panel menu.
 - [ ] `journalctl --user -b` has no `Lua configuration files are NOT supported` line and
