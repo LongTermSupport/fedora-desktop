@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.61.0"  # A restored session answers only the prompts with one safe answer; ccy-sessions verify-restore reports the rest. See docs/ccy-changelog.md.
+CCY_VERSION="3.62.0"  # verify-restore knows every prompt a restored launch can reach, and a replay knows every flag. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -3231,7 +3231,7 @@ if [[ "${CCY_COMPOSE_WAS_STARTED:-}" = "true" ]]; then
     echo ""
 
     while true; do
-        read -rp "Stop compose services? [Y/n]: " _stop_choice
+        read -rp "$CCY_PROMPT_COMPOSE_STOP [Y/n]: " _stop_choice
         _stop_choice=${_stop_choice:-Y}
         echo ""
         case "$_stop_choice" in

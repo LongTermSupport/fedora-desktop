@@ -94,6 +94,51 @@ ccy_registry_launch_args() {
 #   kept, with value    --token, --ssh-key, --network, --engine
 # A word that is not a flag is a first message to claude — stale on replay — unless it
 # follows a flag ccy does not know, when it is that flag's value (`--model opus`).
+#
+# The groups are the one list; scripts/test-ccy-session-registry.bash derives the
+# launcher's flags from its parser and fails on any flag in none of them. --help, --version,
+# -h and -v exit before a session exists, so they never reach a record; they are listed so
+# the population is complete.
+CCY_REGISTRY_DROP_FLAGS=(--rebuild --create-token --list-tokens --custom --custom-docker --top
+    --prevent --debug --headless --disable-custom-docker --ssh-agent --no-restore
+    --help --version -h -v)
+CCY_REGISTRY_DROP_VALUE_FLAGS=(--update-token --export-token --connect --prompt)
+CCY_REGISTRY_KEEP_VALUE_FLAGS=(--token --ssh-key --network --engine)
+CCY_REGISTRY_KEEP_FLAGS=(--no-ssh --github-443 --no-network --supervise --no-supervise)
+
+# ccy_registry_flag_class <word> — drop, drop-value, keep-value, keep, or unknown.
+ccy_registry_flag_class() {
+    local word="${1?ccy_registry_flag_class requires a word}"
+    case "$word" in
+    --rebuild=* | --update-token=*)
+        printf 'drop\n'
+        ;;
+    *)
+        if _ccy_registry_listed "$word" "${CCY_REGISTRY_DROP_FLAGS[@]}"; then
+            printf 'drop\n'
+        elif _ccy_registry_listed "$word" "${CCY_REGISTRY_DROP_VALUE_FLAGS[@]}"; then
+            printf 'drop-value\n'
+        elif _ccy_registry_listed "$word" "${CCY_REGISTRY_KEEP_VALUE_FLAGS[@]}"; then
+            printf 'keep-value\n'
+        elif _ccy_registry_listed "$word" "${CCY_REGISTRY_KEEP_FLAGS[@]}"; then
+            printf 'keep\n'
+        else
+            printf 'unknown\n'
+        fi
+        ;;
+    esac
+}
+
+# _ccy_registry_listed <word> [members...] — whether the word is one of the members.
+_ccy_registry_listed() {
+    local word="$1" member
+    shift
+    for member in "$@"; do
+        [[ "$member" == "$word" ]] && return 0
+    done
+    return 1
+}
+
 ccy_registry_replay_args() {
     local prefix="${1:?ccy_registry_replay_args requires a prefix}"
     shift
@@ -132,34 +177,33 @@ ccy_registry_replay_args() {
             printf '%s\n' "$arg"
             continue
         fi
-        case "$arg" in
-        --rebuild | --rebuild=* | --create-token | --update-token=* | --list-tokens | --custom | \
-            --custom-docker | --top | --prevent | --debug | --headless | --disable-custom-docker | \
-            --ssh-agent | --no-restore)
+        case "$(ccy_registry_flag_class "$arg")" in
+        drop)
             value_slot=false
             ;;
-        --update-token | --export-token | --connect | --prompt)
+        drop-value)
             drop_next=true
             value_slot=false
             ;;
-        --token | --ssh-key | --network | --engine)
+        keep-value)
             keep_next=true
             value_slot=false
             printf '%s\n' "$arg"
             ;;
-        --no-ssh | --github-443 | --no-network | --supervise | --no-supervise)
+        keep)
             value_slot=false
-            printf '%s\n' "$arg"
-            ;;
-        -*)
-            value_slot=true
             printf '%s\n' "$arg"
             ;;
         *)
-            if [[ "$value_slot" == true ]]; then
+            if [[ "$arg" == -* ]]; then
+                value_slot=true
                 printf '%s\n' "$arg"
+            else
+                if [[ "$value_slot" == true ]]; then
+                    printf '%s\n' "$arg"
+                fi
+                value_slot=false
             fi
-            value_slot=false
             ;;
         esac
     done
@@ -543,7 +587,13 @@ ccy_registry_restore() {
     local -A live=()
     local -a args=() manifest=()
     regdir=$(ccy_registry_dir) || return 1
-    if [[ ! -d "$regdir" ]]; then
+    # Only an ABSENT registry is an empty one. A path that is there but cannot be listed
+    # would glob to nothing and read as "nothing to restore" on a boot that restored nothing.
+    if [[ -e "$regdir" && ! (-d "$regdir" && -r "$regdir" && -x "$regdir") ]]; then
+        print_error "the session registry $regdir is not a readable directory, so the sessions recorded there cannot be listed; nothing is restored."
+        return 1
+    fi
+    if [[ ! -e "$regdir" ]]; then
         echo "ccy session registry: nothing to restore ($regdir does not exist)." >&2
         if [[ "$dry_run" == false ]]; then
             ccy_restore_manifest_write "${manifest[@]}" || return 1

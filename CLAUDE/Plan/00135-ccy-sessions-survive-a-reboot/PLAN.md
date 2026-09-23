@@ -193,6 +193,16 @@ below.
   - Each case above is driven under fakes in `scripts/test-ccy-sessions-reboot.bash`. A
     real `shutdown -h now` blocked by inhibitors is left to Task 5.7.
 
+- [x] ✅ **Task 3.8**: fixes ported from the superseded PR #47's review
+  (`subagent-reports/260923-pr47-ports-opus-5.md`), CCY 3.62.0:
+
+  - `ccy-sessions reboot` withdraws its warning on every non-zero exit, as Task 3.7 made
+    `shutdown-with-update` do. A withdrawal carries on past a project that refuses it.
+  - Derived guards in `test-ccy-session-registry.bash`: every launcher flag has a replay
+    decision, and every `read -p` prints a registered prompt or is listed as unreachable.
+    The compose-stop and token-setup prompts are now registered.
+  - A registry path that exists but cannot be listed fails the restore.
+
 ### Phase 4: Docs
 
 - [x] ✅ **Task 4.1**: `docs/tmux-sessions.md`: the row stays "gone" for plain tmux

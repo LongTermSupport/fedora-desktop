@@ -2,7 +2,9 @@
 # Token Management Library
 # Token operations for claude-yolo (ccy)
 #
-# Version: 1.12.2 - Comment-only: plan references renumbered after the plan-tree
+# Version: 1.13.0 - The token-setup pause is a registered prompt
+#                  (CCY_PROMPT_TOKEN_SETUP), so verify-restore can name it.
+#         1.12.2 - Comment-only: plan references renumbered after the plan-tree
 #                  collision fix (00073->00100, 00074->00101). No behaviour change.
 #         1.12.1 - Plan 00101: an over-limit reading is not a scale conflict.
 #                  Field sample: the API sent 5h-utilization 1.01 (fraction
@@ -788,8 +790,7 @@ create_token() {
     echo "  3. Copy the token when it's displayed (starts with sk-ant-oat01-)"
     echo "  4. The process will save it automatically"
     echo ""
-    echo "Press Enter to continue..."
-    read -r
+    read -rp "$CCY_PROMPT_TOKEN_SETUP " _unused
     echo ""
 
     # Run setup-token via claude CLI entrypoint

@@ -154,6 +154,52 @@ check "cc: a bare message after -- is kept" "--|refactor the parser" \
     "$(joined ccy_registry_replay_args cc -- 'refactor the parser')"
 
 echo ""
+echo "=== every launcher flag has a replay decision ==="
+# An unclassified flag falls through the filter as "kept", so a new one-shot flag (the
+# --prevent class) would be replayed at every boot and nothing would say so. The flag set is
+# DERIVED from the launcher's two parse sites, never listed here: the argument loop's
+# `"$arg" = "--flag"` tests and the `"$1" = ...` checks before it (--help, --version and
+# their short forms). Each pattern starts after the `$`, which an ERE reads as an anchor.
+LAUNCHER="$REPO_ROOT/files/var/local/claude-yolo/claude-yolo"
+mapfile -t loop_flags < <(grep -oE 'arg" ==? "--[a-z0-9-]+' "$LAUNCHER" | grep -oE -- '--[a-z0-9-]+' | sort -u)
+mapfile -t positional_flags < <(grep -oE '1" ==? "-[a-z0-9-]+' "$LAUNCHER" | grep -oE -- '-[a-z0-9-]+$' | sort -u)
+mapfile -t parsed_flags < <(printf '%s\n' "${loop_flags[@]}" "${positional_flags[@]}" | sort -u)
+# A parse site that stopped matching would shrink the population and still pass, so each
+# bucket is floored and printed.
+printf '  COVERAGE: %s flags from the argument loop, %s from the positional checks\n' \
+    "${#loop_flags[@]}" "${#positional_flags[@]}"
+check "the argument loop's flags were found" "many" \
+    "$([ "${#loop_flags[@]}" -ge 20 ] && echo many || echo "only ${#loop_flags[@]}")"
+check "the positional flags were found" "four" \
+    "$([ "${#positional_flags[@]}" -ge 4 ] && echo four || echo "only ${#positional_flags[@]}")"
+unclassified=""
+for flag in "${parsed_flags[@]}"; do
+    [ "$(ccy_registry_flag_class "$flag")" = unknown ] && unclassified+="$flag "
+done
+check "every launcher flag is classified" "" "$unclassified"
+# The mirror: a classified flag the launcher no longer parses is a rename on one side only.
+stale=""
+for flag in "${CCY_REGISTRY_DROP_FLAGS[@]}" "${CCY_REGISTRY_DROP_VALUE_FLAGS[@]}" \
+    "${CCY_REGISTRY_KEEP_VALUE_FLAGS[@]}" "${CCY_REGISTRY_KEEP_FLAGS[@]}"; do
+    printf '%s\n' "${parsed_flags[@]}" | grep -qxF -- "$flag" || stale+="$flag "
+done
+check "every classified flag is one the launcher parses" "" "$stale"
+double=""
+for flag in "${parsed_flags[@]}"; do
+    n=0
+    for group in CCY_REGISTRY_DROP_FLAGS CCY_REGISTRY_DROP_VALUE_FLAGS CCY_REGISTRY_KEEP_VALUE_FLAGS CCY_REGISTRY_KEEP_FLAGS; do
+        declare -n members="$group"
+        printf '%s\n' "${members[@]}" | grep -qxF -- "$flag" && n=$((n + 1))
+        unset -n members
+    done
+    [ "$n" -gt 1 ] && double+="$flag "
+done
+check "no flag is classified twice" "" "$double"
+check "an unknown flag reads as unknown" "unknown" "$(ccy_registry_flag_class --not-a-ccy-flag)"
+check "--rebuild=<target> is dropped" "drop" "$(ccy_registry_flag_class --rebuild=project)"
+check "--update-token=<name> is dropped" "drop" "$(ccy_registry_flag_class --update-token=personal)"
+
+echo ""
 echo "=== --no-restore: an opt-out for a one-off session ==="
 if ccy_registry_wants_restore --token work; then
     check "no flag means restore" "yes" "yes"
@@ -431,6 +477,19 @@ check "and says nothing was recorded" "yes" "$([[ "$out" == *"nothing to restore
 ccy_restore_manifest_read
 check "and still writes an empty manifest for this boot" "boot-one:0" "$RM_BOOT:${#RM_NAMES[@]}"
 
+# A registry path that exists but cannot be listed is not an empty registry: the glob would
+# find nothing, the restore would report success, and verify-restore would pass on a boot
+# that restored no session. An unreadable directory cannot be staged here (the container
+# runs as root, which reads any directory), so the non-directory case stands in for it.
+mkdir -p "$SCRATCH/state"
+REGDIR_PATH="$(ccy_registry_dir)"
+: >"$REGDIR_PATH"
+out="$(ccy_registry_restore 2>&1)"
+rc=$?
+check "a registry path that is not a directory is a failure" "1" "$rc"
+check "and says why" "yes" "$([[ "$out" == *"not a readable directory"* ]] && echo yes || echo "no: $out")"
+rm -f "$REGDIR_PATH"
+
 # A listing failure is a failure: starting sessions on top of an unknown live set could
 # double up every one of them.
 rm -rf "$SCRATCH/state"
@@ -500,6 +559,77 @@ check "an unknown launcher is not waved through" "DEAD unknown-launcher-zz" "$(c
 # match every screen, and a shared name would report the wrong prompt.
 check "prompt names are unique" "0" "$(ccy_known_prompts | cut -f1 | sort | uniq -d | grep -c .)"
 check "no prompt text is empty" "0" "$(ccy_known_prompts | awk -F'\t' '$2 == ""' | grep -c .)"
+
+echo ""
+echo "=== every prompt a launch can wait at is one verify-restore knows ==="
+# verify-restore recognises a waiting session only by ccy_known_prompts, so a prompt missing
+# from it reads as OK (cc) or STARTING (ccy). The prompts are DERIVED from every `read -p`
+# in the launcher and its libraries. Each must print a registered CCY_PROMPT_* constant, or
+# be listed below with the reason a restored launch cannot reach it (the rule in
+# common-pure.bash's header). A `read` with no -p at all is an unlabelled prompt and fails.
+CCY_SOURCES=("$LAUNCHER" "$LIB_DIR"/*.bash)
+registered_consts="$(declare -f ccy_known_prompts | grep -oE 'CCY_PROMPT_[A-Z0-9_]+' | sort -u)"
+# "<file>|<literal prompt text>|<why a restore cannot reach it>"
+UNREACHABLE_PROMPTS=(
+    "claude-yolo|Enter layer numbers (or press Enter for all): |--debug, dropped on replay"
+    "claude-yolo|Continue with this configuration? [Y/n]: |--debug, dropped on replay"
+    "claude-yolo|Press Enter to continue...|--debug, dropped on replay"
+    "docker-health.bash|> |a sub-prompt of the listed zombie and existing-container menus"
+    "docker-health.bash|Action: |ccy --top, dropped on replay"
+    "dockerfile-custom.bash|Select [1-4]: |--custom, dropped on replay"
+    "dockerfile-custom.bash|Select template [1-\${#templates[@]}]: |--custom, dropped on replay"
+    "dockerfile-custom.bash|Select [1-3]: |--custom and --custom-docker, dropped on replay"
+    "dockerfile-custom.bash|Press Enter to continue...|--custom-docker, dropped on replay"
+    "token-management.bash|Enter a name for this token (e.g., 'personal', 'work', 'default'): |token creation, reached only past a listed token prompt or a dropped flag"
+    "token-management.bash|Overwrite? (y/N): |token creation, reached only past a listed token prompt or a dropped flag"
+    "token-management.bash|Token: |token creation, reached only past a listed token prompt or a dropped flag"
+    "token-management.bash|Try again? (Y/n): |token creation, reached only past a listed token prompt or a dropped flag"
+    "token-management.bash|Select tokens to export [1-\${#valid_tokens[@]}, space-separated, or a]: |--export-token, dropped on replay"
+    "ssh-handling.bash|\$prompt_text|built from CCY_PROMPT_SSH_KEY"
+)
+unregistered=""
+unlabelled=""
+sites=0
+declare -A allow_used=()
+for src in "${CCY_SOURCES[@]}"; do
+    base="$(basename "$src")"
+    while IFS= read -r site; do
+        sites=$((sites + 1))
+        text="${site#*-p \"}"
+        [[ "$site" == *'-rp "'* ]] && text="${site#*-rp \"}"
+        text="${text%%\"*}"
+        if [[ "$text" =~ ^\$\{?(CCY_PROMPT_[A-Z0-9_]+) ]]; then
+            grep -qxF "${BASH_REMATCH[1]}" <<<"$registered_consts" || unregistered+="$base:${BASH_REMATCH[1]} "
+            continue
+        fi
+        allowed=no
+        for entry in "${UNREACHABLE_PROMPTS[@]}"; do
+            IFS='|' read -r efile etext _ <<<"$entry"
+            if [ "$efile" = "$base" ] && [ "$etext" = "$text" ]; then
+                allowed=yes
+                allow_used["$efile|$etext"]=1
+            fi
+        done
+        [ "$allowed" = yes ] || unregistered+="$base:'$text' "
+    done < <(grep -E '(^|[;&|![:space:]])read [^<]*-r?p "' "$src" | grep -vE '^\s*#')
+    while IFS= read -r site; do
+        unlabelled+="$base:'$site' "
+    done < <(grep -nE '(^\s*|[;&!] *|then +)read( -r)?\s*($|[a-z_]+\s*$)' "$src" | grep -vE '^[0-9]+:\s*#')
+done
+printf '  COVERAGE: %s prompting read sites across %s files\n' "$sites" "${#CCY_SOURCES[@]}"
+check "the prompting reads were found" "many" "$([ "$sites" -ge 40 ] && echo many || echo "only $sites")"
+check "every prompt is registered or reasoned unreachable" "" "$unregistered"
+check "no interactive read is missing its prompt" "" "$unlabelled"
+stale_allow=""
+for entry in "${UNREACHABLE_PROMPTS[@]}"; do
+    IFS='|' read -r efile etext _ <<<"$entry"
+    [ -n "${allow_used["$efile|$etext"]:-}" ] || stale_allow+="$efile:'$etext' "
+done
+check "every unreachable-prompt entry still names a real prompt" "" "$stale_allow"
+check "the compose-stop prompt is registered" "yes" \
+    "$(ccy_known_prompts | grep -q '^compose-stop	' && echo yes || echo no)"
+check "a session waiting at compose-stop is reported waiting" "WAITING-AT-PROMPT compose-stop" \
+    "$(ccy_restore_verdict ccy 1 "$CCY_PROMPT_COMPOSE_STOP [Y/n]: " up)"
 
 echo ""
 echo "──────────────────────────────────────────────────────────────"
