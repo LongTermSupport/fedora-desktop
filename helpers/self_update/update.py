@@ -48,7 +48,11 @@ trusted by the time root imports anything from the clone.
 
 - `--anchor` (the play, after it clones): leave a trusted HEAD where it is, otherwise
   move the branch back to the newest trusted commit in HEAD's first-parent history. It
-  never moves forward, which is the cycle's job. No trusted commit means refusal.
+  never moves forward, which is the cycle's job. No trusted commit means refusal. Unlike
+  an update, it also refuses any file the commit does not track, IGNORED ones included,
+  before and after moving, except the exact paths given with `--allow-untracked`. Root
+  imports from this tree, and `git status` never lists an ignored `.pyc` or a leftover
+  submodule checkout.
 
       SELF-UPDATE-ANCHORED <sha>       HEAD, trusted
       SELF-UPDATE-ANCHOR-MOVED <sha>   the untrusted commit it moved away from
@@ -204,6 +208,20 @@ def _require_clean_branch(git: _Git, branch: str) -> None:
         raise Refusal(EXIT_DIRTY, f"the checkout has local changes or untracked files: {shown}")
 
 
+def _require_no_strays(git: _Git, allowed: tuple[str, ...]) -> None:
+    """Refuse any file git does not track, ignored ones included, except the exact paths allowed.
+
+    `git status` never lists an ignored file, and python imports a `.pyc` beside its source
+    without comparing the two. Root imports from the deploy clone, so an ignored file there
+    is code nobody signed: a leftover submodule checkout, or a planted `__pycache__`.
+    """
+    listed = git.out("ls-files", "--others", "-z").split("\0")
+    strays = [path for path in listed if path and path not in allowed]
+    if strays:
+        shown = "; ".join(strays[:10]) + (f"; and {len(strays) - 10} more" if len(strays) > 10 else "")
+        raise Refusal(EXIT_DIRTY, f"the checkout holds files its commit does not, ignored ones included: {shown}")
+
+
 def _require_fedora_pin(git: _Git, target: str, os_release: str) -> None:
     try:
         pinned = gate.pinned_fedora_version(git.out("show", f"{target}:vars/fedora-version.yml"))
@@ -271,8 +289,12 @@ def _update(
     return EXIT_OK
 
 
-def _anchor(*, git: _Git, branch: str, principal: str, os_release: str, stdout: TextIO, stderr: TextIO) -> int:
+def _anchor(
+    *, git: _Git, branch: str, principal: str, os_release: str, allow_untracked: tuple[str, ...],
+    stdout: TextIO, stderr: TextIO,
+) -> int:
     _require_clean_branch(git, branch)
+    _require_no_strays(git, allow_untracked)
     head = git.out("rev-parse", "HEAD").strip()
     history = git.out("rev-list", "--first-parent", f"--max-count={ANCHOR_WALK_LIMIT}", "HEAD").split()
     choice = gate.choose_target((sha, _verdict(git, sha, principal, stderr)) for sha in history)
@@ -296,6 +318,10 @@ def _anchor(*, git: _Git, branch: str, principal: str, os_release: str, stdout: 
     now = git.out("rev-parse", "HEAD").strip()
     if now != choice.target:
         raise Refusal(EXIT_GIT_FAILED, f"after anchoring HEAD is {now[:12]}, not {choice.target[:12]}")
+    # A checkout removes the files the old commit tracked, but not a directory still holding
+    # files it did not track, so the tree is judged again at the commit it now claims to be.
+    _require_clean_branch(git, branch)
+    _require_no_strays(git, allow_untracked)
     stdout.write(f"SELF-UPDATE-ANCHORED {now}\nSELF-UPDATE-ANCHOR-MOVED {head}\n")
     return EXIT_OK
 
@@ -313,9 +339,13 @@ def _guarded(stderr: TextIO, action: Callable[[], int]) -> int:
 
 def anchor(
     *, checkout: str, branch: str, allowed_signers: str, principal: str, os_release: str = "/etc/os-release",
-    stdout: TextIO, stderr: TextIO, env: Mapping[str, str] | None = None,
+    allow_untracked: tuple[str, ...] = (), stdout: TextIO, stderr: TextIO, env: Mapping[str, str] | None = None,
 ) -> int:
-    """Make the checkout's HEAD a trusted commit, moving it back if it is not."""
+    """Make the checkout's HEAD a trusted commit, moving it back if it is not.
+
+    `allow_untracked` names, exactly, the files the caller itself puts in the checkout (the
+    play's host_vars copy). Any other file the commit does not track refuses the anchor.
+    """
     if not principal:
         stderr.write("self-update: --principal must name the signer to trust\n")
         return EXIT_USAGE
@@ -324,7 +354,7 @@ def anchor(
         _check_signers_file(allowed_signers)
         git = _Git(checkout, allowed_signers, env if env is not None else os.environ)
         return _anchor(git=git, branch=branch, principal=principal, os_release=os_release,
-                       stdout=stdout, stderr=stderr)
+                       allow_untracked=allow_untracked, stdout=stdout, stderr=stderr)
 
     return _guarded(stderr, act)
 
@@ -390,11 +420,16 @@ def main(argv: list[str] | None = None) -> int:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--anchor", action="store_true", help="make HEAD a trusted commit (the play, after cloning)")
+    parser.add_argument("--allow-untracked", action="append", default=[], metavar="PATH",
+                        help="with --anchor: an untracked file the caller put there itself (repeatable)")
     args = parser.parse_args(argv)
+    if args.allow_untracked and not args.anchor:
+        parser.error("--allow-untracked only applies with --anchor")
     if args.anchor:
         return anchor(
             checkout=args.checkout, branch=args.branch, allowed_signers=args.allowed_signers,
-            principal=args.principal, os_release=args.os_release, stdout=sys.stdout, stderr=sys.stderr,
+            principal=args.principal, os_release=args.os_release, allow_untracked=tuple(args.allow_untracked),
+            stdout=sys.stdout, stderr=sys.stderr,
         )
     if not args.remote:
         parser.error("--remote is required to update")

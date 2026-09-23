@@ -234,12 +234,21 @@ if extraOut="$(sudo -n -l "${SBIN}" run --config /nonexistent 2>&1)"; then
 else
     ok "an extra argument is refused by sudo (${extraOut})"
 fi
+# A refusal passes only for the two reasons that prove the grant is not blanket: sudo wants a
+# password for it, or this user may not run it at all. Any other failure (a broken sudoers, a
+# PAM error) says nothing about the grant, so it is COULD NOT ESTABLISH, never a pass.
 blanketOut=""
 if blanketOut="$(sudo -n true 2>&1)"; then
     bad "sudo -n true also succeeds: this user has a wider passwordless grant" \
         "the server profile removes NOPASSWD:ALL (play-basic-configs.yml); find the other grant with: sudo -l"
+elif [[ "${blanketOut}" == *"a password is required"* ]]; then
+    ok "sudo -n true needs a password (${blanketOut}), so the passwordless grant is not blanket"
+elif [[ "${blanketOut}" == *"is not allowed to"* || "${blanketOut}" == *"not in the sudoers file"* ||
+    "${blanketOut}" == *"may not run sudo"* ]]; then
+    ok "sudo -n true is not allowed at all (${blanketOut}), so the grant is not blanket"
 else
-    ok "sudo -n true is refused (${blanketOut}), so the grant is not blanket"
+    unknown "sudo -n true failed for a reason that says nothing about the grant (${blanketOut})" \
+        "check sudo itself works for this user, then re-run this script"
 fi
 
 # --- 1. root-only files ----------------------------------------------------------------------
@@ -253,6 +262,7 @@ expect_stat "${ETC}/self-update.allowed_signers" root:root 644
 # --- 2. the toolchain the plays run ---------------------------------------------------------
 check 2 "the system ansible-playbook and its collections are root-owned, not writable by others"
 not_writable_by_others "${ANSIBLE_PLAYBOOK}" "system ansible-playbook"
+not_writable_by_others "${ANSIBLE_PLAYBOOK%/*}/ansible-config" "system ansible-config (the cycle asks it for the search paths)"
 not_writable_by_others "${COLLECTIONS}" "the collections path"
 
 # --- 3. ptrace ------------------------------------------------------------------------------

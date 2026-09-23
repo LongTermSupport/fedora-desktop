@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
+import json
 import os
 import pwd
 import re
@@ -490,6 +491,53 @@ _SYSTEM_PLUGIN_ENV = {
 }
 
 
+def search_path_environment(*, clone: str, collections_dir: str) -> dict[str, str]:
+    """Every code search path a play's ansible uses, pinned away from the user's home."""
+    plugin_paths = {name: f"/usr/share/ansible/plugins/{kind}" for name, kind in _SYSTEM_PLUGIN_ENV.items()}
+    plugin_paths["ANSIBLE_CALLBACK_PLUGINS"] = f"{clone}/callback_plugins:/usr/share/ansible/plugins/callback"
+    return {
+        **plugin_paths,
+        "ANSIBLE_ROLES_PATH": f"{clone}/roles/vendor",
+        "ANSIBLE_COLLECTIONS_PATH": collections_dir,
+        "PYTHONNOUSERSITE": "1",
+    }
+
+
+def home_search_paths(dump: object, *, home: str, cwd: str) -> list[str]:
+    """`NAME=path` for each code search path under `home` in an `ansible-config dump --format json`.
+
+    The pinned list above is one ansible-core release's; a later release can add a search
+    path defaulting under ~/.ansible that no list names. So the effective settings are asked
+    for and judged by rule: ansible-config reports every search path as a LIST named *PATH*,
+    and any element under the user's home is a finding; so is the inventory, whose host_vars
+    choose the interpreter. A string value names one file or working directory (the local
+    tmp, the galaxy token), which is data, not a place code is looked up. A relative element
+    is judged from `cwd`, where the play runs; `~` is the home. The trailing GALAXY_SERVERS
+    entry holds server URLs, not paths. Any other shape is refused rather than guessed at.
+    """
+    if not isinstance(dump, list):
+        raise ValueError("the ansible-config dump is not a list of settings")
+    root = os.path.normpath(home)
+    findings = []
+    for setting in dump:
+        if isinstance(setting, dict) and setting.keys() == {"GALAXY_SERVERS"}:
+            continue
+        if not isinstance(setting, dict) or not isinstance(setting.get("name"), str):
+            raise ValueError(f"the ansible-config dump holds a setting with no name: {setting!r}")
+        value = setting.get("value")
+        searched = "PATH" in setting["name"] or setting["name"] == "DEFAULT_HOST_LIST"
+        if not searched or not isinstance(value, list):
+            continue
+        for element in value:
+            if not isinstance(element, str):
+                continue
+            expanded = root + element[1:] if element == "~" or element.startswith("~/") else element
+            resolved = os.path.normpath(os.path.join(cwd, expanded))
+            if resolved == root or resolved.startswith(root + os.sep):
+                findings.append(f"{setting['name']}={element}")
+    return findings
+
+
 def play_environment(
     *, home: str, user: str, runtime: str, clone: str, ansible_playbook: str, collections_dir: str,
     lock_fd: int, become_fd: int, vault_fd: int,
@@ -508,15 +556,10 @@ def play_environment(
     run gathers its own, fresh after the reboot a previous cycle made, and the user never
     writes into the clone or leaves anything behind in it.
     """
-    plugin_paths = {name: f"/usr/share/ansible/plugins/{kind}" for name, kind in _SYSTEM_PLUGIN_ENV.items()}
-    plugin_paths["ANSIBLE_CALLBACK_PLUGINS"] = f"{clone}/callback_plugins:/usr/share/ansible/plugins/callback"
     return {
         **user_environment(home=home, user=user, runtime=runtime, ansible_playbook=ansible_playbook),
-        **plugin_paths,
-        "ANSIBLE_ROLES_PATH": f"{clone}/roles/vendor",
-        "PYTHONNOUSERSITE": "1",
+        **search_path_environment(clone=clone, collections_dir=collections_dir),
         "RUN_BASH_ANSIBLE_PLAYBOOK": ansible_playbook,
-        "ANSIBLE_COLLECTIONS_PATH": collections_dir,
         "ANSIBLE_CACHE_PLUGIN": "memory",
         "ANSIBLE_VAULT_PASSWORD_FILE": f"/dev/fd/{vault_fd}",
         "RUN_BASH_SUDO_PASSWORD_FILE": f"/dev/fd/{become_fd}",
@@ -618,8 +661,10 @@ class RealHost:
         )
 
     def check_toolchain(self) -> str | None:
+        ansible_config = os.path.join(os.path.dirname(self._ansible_playbook), "ansible-config")
         try:
             require_trusted(self._ansible_playbook, "system ansible-playbook", directory=False)
+            require_trusted(ansible_config, "system ansible-config", directory=False)
             require_trusted(self._config.ansible_collections_dir, "ANSIBLE_COLLECTIONS_DIR", directory=True)
         except ConfigError as error:
             return str(error)
@@ -630,6 +675,22 @@ class RealHost:
         if resolved != self._ansible_playbook:
             return (f"ansible-playbook as {self._config.user} resolves to {resolved or 'nothing'}, "
                     f"not the system {self._ansible_playbook}")
+        return self._search_paths_error(ansible_config)
+
+    def _search_paths_error(self, ansible_config: str) -> str | None:
+        """Ask ansible itself, as the plays will run it, whether any code search path is in the home."""
+        env = {**self._user_environment(),
+               **search_path_environment(clone=self._clone, collections_dir=self._config.ansible_collections_dir)}
+        dumped = self._as_user([ansible_config, "dump", "--format", "json"], env=env, capture=True)
+        if dumped.returncode != 0:
+            return f"{ansible_config} dump failed with exit {dumped.returncode}"
+        try:
+            findings = home_search_paths(json.loads(dumped.stdout), home=self._home, cwd=self._clone)
+        except ValueError as error:
+            return f"{ansible_config} dump could not be read: {error}"
+        if findings:
+            return (f"ansible as {self._config.user} would look for code under {self._home}, "
+                    f"which the user can write: {'; '.join(findings)}")
         return None
 
     def check_remote(self, url: str) -> str | None:

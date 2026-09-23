@@ -49,7 +49,32 @@ Settled by the IaC (`play-self-update.yml`); the orchestrator must match:
   `ansible.cfg`, so the two paths that file sets are named as the clone's own:
   `ANSIBLE_CALLBACK_PLUGINS` leads with `<clone>/callback_plugins` (the play ledger) and
   `ANSIBLE_ROLES_PATH` is `<clone>/roles/vendor`. The list is ansible-core 2.19's
-  `base.yml`; a release that adds a new search path must be added to `cycle.py`.
+  `base.yml`. A release that adds a search path would slip past it, so before any play
+  `check_toolchain` runs the system `ansible-config dump --format json` as the user,
+  from the clone, with the same env, and refuses with exit 70 if any setting whose
+  name contains `PATH`, or the inventory (`DEFAULT_HOST_LIST`), has a list element
+  under the user's home. `~` counts as the home, and a relative element is resolved
+  from the clone. Only list values are judged. ansible reports every search path as a
+  list, and a string names one file or working directory (`DEFAULT_LOCAL_TMP`,
+  `GALAXY_TOKEN_PATH`, `PERSISTENT_CONTROL_PATH_DIR`). That is data the plays write as
+  the user, covered by the "run as you" caveat, not a place code is looked up. The
+  trailing `GALAXY_SERVERS` entry is skipped, and any other shape is refused. On
+  ansible-core 2.19 the unpinned dump has 18 findings and the pinned one has none.
+- **No stray files in the clone.** Python imports a `.pyc` beside its source without
+  checking it against the source. `git status` never lists ignored files, and a nested
+  repository shows as one directory. So the wrapper runs
+  `git ls-files --others` without `--exclude-standard`, which lists ignored and nested
+  entries too, and refuses (20) anything except
+  `environment/localhost/host_vars/localhost.yml`. `update.py --anchor` refuses the same
+  way (`--allow-untracked` names the one exception) both before and after it moves HEAD.
+  The play clones with `recursive: false`, because a submodule's commits are not signed
+  by the pinned key. Root runs `python3 -E -s -B -X pycache_prefix=<state dir>/pycache`.
+  `-B` writes no bytecode into the clone, and the prefix means a pyc beside a source is
+  never read. `-I` cannot be used, because it drops the cwd that `-m` imports from.
+- **The child plays' Python needs nothing further.** They run as the user, who cannot
+  write the root-owned clone. The wrapper has just proved it holds no stray file, and
+  root, running with `-B`, writes none. So no pyc the children could read exists, and
+  one they tried to write would fail on permissions, which Python ignores.
 - **Post-boot unit.** It runs at every boot with no condition of its own, so `verify`
   exits 0 when no check is owed.
 
@@ -65,7 +90,8 @@ These keys have no defaults. The orchestrator refuses to run if one is missing:
 - `ALERT_SINKS` (for example `slack`, `github`, or empty until Task 0.4)
 - `ANSIBLE_COLLECTIONS_DIR`: the root-owned collections path for the system
   `ansible-core` (D5 hardening, Task 4.7). The orchestrator refuses, with exit 70, when
-  the `ansible-playbook` the child would resolve is not a root-owned file.
+  the `ansible-playbook` the child would resolve, or the `ansible-config` beside it, is
+  not a root-owned file.
 
 ## Subcommands
 

@@ -15,8 +15,9 @@
 #
 # Exit codes: 0 done or nothing to do; 20 update or trust gate refused; 21 a play failed;
 # 22 a session could not be warned; 23 a restored session is not running; 24 the reboot
-# request was refused; 64 usage; 70 config invalid, or the system ansible-core or its
-# collections are not root-owned; 75 another play run holds the lock;
+# request was refused; 64 usage; 70 config invalid, the allowed-signers file or the system
+# ansible-core or its collections are not root-owned, or an ansible search path is in the
+# user's home; 75 another play run holds the lock;
 # 77 not run as root; 130 the countdown was interrupted.
 #
 # Root only, and nothing it runs comes from the caller: PATH is fixed, every path is a
@@ -74,10 +75,13 @@ for dir in "${CLONE}" "${STATE}" "${PUBLISHED}"; do
 done
 
 # The helpers are imported from the deploy clone, so nothing is imported until its HEAD is
-# proven to be a commit the pinned key signed and its tree is exactly that commit. The
-# cycle's own gate judges only commits ABOVE HEAD, so it cannot vouch for the code that
-# runs it. The signing programs are pinned on git's command line, so the clone's config
-# cannot choose what judges it, and a non-SSH signature runs `false`, never a signer.
+# proven to be a commit the pinned key signed and the clone holds no file that commit does
+# not, ignored ones included: Python would import a stray .pyc or a stray module as readily
+# as a signed one. The only exception is the host_vars copy the play installs, which is
+# data. The cycle's own gate judges only commits ABOVE HEAD, so it cannot vouch for the
+# code that runs it. The signing programs are pinned on git's command line, so the clone's
+# config cannot choose what judges it, and a non-SSH signature runs `false`, never a signer.
+# The key list that judges is itself checked first: whoever could edit it could vouch.
 if [[ ! -f "${CONFIG}" ]]; then
     echo "fedora-desktop-self-update: ${CONFIG} does not exist; deploy the self-update play first" >&2
     exit 70
@@ -85,6 +89,16 @@ fi
 PRINCIPAL="$(awk -F= '$1 == "PRINCIPAL" { print substr($0, length($1) + 2); exit }' "${CONFIG}")"
 if [[ -z "${PRINCIPAL}" ]]; then
     echo "fedora-desktop-self-update: ${CONFIG} names no PRINCIPAL; re-run the self-update play" >&2
+    exit 70
+fi
+unwritable_by_others() {
+    local owner mode
+    read -r owner mode < <(stat -c '%u %a' -- "$1")
+    [[ "${owner}" == 0 || "${owner}" == "${EUID}" ]] && ((!(8#${mode} & 8#022)))
+}
+if [[ -L "${ALLOWED_SIGNERS}" || ! -f "${ALLOWED_SIGNERS}" ]] ||
+    ! unwritable_by_others "${ALLOWED_SIGNERS}" || ! unwritable_by_others "${ETC}"; then
+    echo "fedora-desktop-self-update: ${ALLOWED_SIGNERS} (the allowed-signers key list) is not a regular file that only root can change; re-run the self-update play" >&2
     exit 70
 fi
 if ! SSH_KEYGEN="$(command -v ssh-keygen)"; then
@@ -104,9 +118,18 @@ if ! DIRT="$("${GIT[@]}" status --porcelain=v1 --untracked-files=all 2>&1)" || [
     echo "fedora-desktop-self-update: the deploy clone differs from its signed HEAD; nothing from it was run. ${UNTRUSTED}" >&2
     exit 20
 fi
+# Without --exclude-standard this lists ignored files too, and a nested repository as `dir/`.
+if ! STRAYS="$("${GIT[@]}" ls-files --others --exclude=/environment/localhost/host_vars/localhost.yml 2>&1)" ||
+    [[ -n "${STRAYS}" ]]; then
+    echo "fedora-desktop-self-update: the deploy clone holds files its signed commit does not, ignored ones included; nothing from it was run. ${UNTRUSTED}. They are: ${STRAYS//$'\n'/; }" >&2
+    exit 20
+fi
 
+# -B writes no bytecode into the clone, and the pycache prefix, in root's own state
+# directory, means none beside the sources is ever read. -E and -s ignore PYTHON* and
+# the user site. (-I would drop the clone from sys.path, and -m needs it there.)
 cd "${CLONE}"
-exec python3 -m helpers.self_update.cycle \
+exec python3 -E -s -B -X "pycache_prefix=${STATE}/pycache" -m helpers.self_update.cycle \
     --config "${CONFIG}" --state-dir "${STATE}" --published-dir "${PUBLISHED}" --clone "${CLONE}" \
     --become "${BECOME}" --vault "${VAULT}" --allowed-signers "${ALLOWED_SIGNERS}" \
     --ansible-playbook "${ANSIBLE_PLAYBOOK}" "$@"
