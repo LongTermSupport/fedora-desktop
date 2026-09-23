@@ -511,8 +511,9 @@ def home_search_paths(dump: object, *, home: str, cwd: str) -> list[str]:
     for and judged by rule: ansible-config reports every search path, and the inventory whose
     host_vars choose the interpreter, as a LIST, and any list element under the user's home
     is a finding. No setting name is trusted to say which lists are paths. A string value
-    names one file or working directory (the local tmp, the galaxy token), which is data, not
-    a place code is looked up. A relative element is judged from `cwd`, where the play runs,
+    names one file or working directory (the local tmp, the galaxy token) and is not judged.
+    The local tmp does hold the module cache, but ansible makes a fresh directory under it
+    for each process, so nothing can be planted there before a run. A relative element is judged from `cwd`, where the play runs,
     so a plugin name or a pattern lands in the clone, not the home. `~/…` is the home; a bare
     `~` is a backup-file suffix, since ansible expands it in every path it dumps. The
     trailing GALAXY_SERVERS entry holds server URLs, not paths. Any other shape is refused

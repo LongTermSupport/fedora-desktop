@@ -59,8 +59,11 @@ Settled by the IaC (`play-self-update.yml`); the orchestrator must match:
   ansible expands it in every path it dumps, and the one that survives is the backup
   suffix in `INVENTORY_IGNORE_EXTS` and `MODULE_IGNORE_EXTS`. Only list values are judged. ansible reports every search path as a
   list, and a string names one file or working directory (`DEFAULT_LOCAL_TMP`,
-  `GALAXY_TOKEN_PATH`, `PERSISTENT_CONTROL_PATH_DIR`). That is data the plays write as
-  the user, covered by the "run as you" caveat, not a place code is looked up. The
+  `GALAXY_TOKEN_PATH`, `PERSISTENT_CONTROL_PATH_DIR`), and these are not judged.
+  `DEFAULT_LOCAL_TMP` is one place code is read from, since ansible keeps its module
+  cache (`ansiballz_cache`) under it. Ansible makes a fresh directory there for each
+  process, so nothing can be planted before a run. Tampering while a play runs is the
+  "run as you" caveat in D5. The
   trailing `GALAXY_SERVERS` entry is skipped, and any other shape is refused. On
   ansible-core 2.19 the unpinned dump has 18 findings and the pinned one has none.
 - **No stray files in the clone.** Python imports a `.pyc` beside its source without

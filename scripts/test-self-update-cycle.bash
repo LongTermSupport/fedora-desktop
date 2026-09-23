@@ -558,6 +558,23 @@ check "and it names what is inside it" "yes" "$(says 'host_vars/localhost.yml/hi
 rm -rf "$CLONE/environment/localhost/host_vars/localhost.yml"
 mv "$SCRATCH/localhost.yml.saved" "$CLONE/environment/localhost/host_vars/localhost.yml"
 
+# The stray listing is read through a process substitution, whose failure `set -e` never
+# sees. A git that cannot list must still stop the cycle, not read as "no strays".
+REAL_GIT="$(command -v git)"
+cat >"$BIN/git" <<EOF
+#!/usr/bin/env bash
+for arg in "\$@"; do
+    [ "\$arg" = "ls-files" ] && { echo "git stub: ls-files failed" >&2; exit 128; }
+done
+exec "$REAL_GIT" "\$@"
+EOF
+chmod 755 "$BIN/git"
+cycle run --dry-run
+check "a git that cannot list the untracked files is refused (20)" "20" "$RC"
+check "and nothing is called" "" "$(calls)"
+check "and it says why" "yes" "$(says 'could not list the deploy clone' "$ERR")"
+rm "$BIN/git"
+
 # The file the wrapper checks HEAD against, before any Python runs, must be one nobody else
 # can rewrite; update.py checks it too, but only after the clone's code is imported.
 chmod 666 "$ETC/self-update.allowed_signers"

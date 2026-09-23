@@ -205,10 +205,9 @@ D1–D4 are the owner's choices, made 2026-09-23.
 
 - [x] ✅ **Task 5.1**: Docs: what the cycle does, the trust model, how to pause it, and how
   to read its log.
-- [ ] 🔄 **Task 5.2**: `./scripts/qa-all.bash`, then the `qa-reviewer` agent over the full
-  diff, with findings resolved. Rounds 1 and 2 were BLOCK, and round 3 FIX-BEFORE-MERGE;
-  all their findings are fixed (journal 18:35, 19:16 and 19:36). A confirming round is
-  owed.
+- [x] ✅ **Task 5.2**: `./scripts/qa-all.bash`, then the `qa-reviewer` agent over the full
+  diff, with findings resolved. Rounds 1 and 2 were BLOCK, round 3 FIX-BEFORE-MERGE, and
+  round 4 PASS WITH NITS. Every finding is fixed (journal 18:35, 19:16, 19:36 and 19:56).
 - [ ] ⬜ **Task 5.3**: HOST: one full cycle on a server with two live sessions, triggered by
   a real commit that touches `lib/`.
 
