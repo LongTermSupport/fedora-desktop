@@ -802,6 +802,8 @@ is in a runaway restart loop** — the one action it is permitted to take:
 Login-time host health report — **reporting only, it never re-runs a play or installs
 anything**:
 
+- The desktop notification only counts the findings and says where to read them — the
+  panel or `fedora-desktop-health`; it never carries the findings themselves
 - Merges four checks into **one** message: DKMS modules missing a build for the
   **running** kernel and failed system and user units, whether the play ledger is there
   to read at all, plays that have changed since they were last run here, and repo pins
@@ -869,6 +871,8 @@ The `fedora-desktop` GNOME Shell panel — **a read-only surface**:
   which this play installs. The panel is the indicator; the text in the terminal is the
   reading surface. The command comes from `play-host-health-login-report.yml`, and the row
   says so if that play has not run here
+- **Findings wrap, and "Copy these findings" puts them on the clipboard** as the menu
+  shows them. A menu label cannot be selected, and a finding can carry a command to run
 - **When there are findings it offers the Claude Code handoff command**, one row at the
   bottom of the health section. Activating it **copies** the command — `claude` reads the
   repository it starts in, and the panel does not know where the checkout is, so a launch

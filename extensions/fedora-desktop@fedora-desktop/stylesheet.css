@@ -2,19 +2,25 @@
  * nobody could check is stated in words by the menu itself — these styles reinforce
  * it, they never carry it alone, because colour is not a statement. */
 
+/* max-width is what makes the wrap in sections/health.js happen: a wrapping label still
+ * asks for its full text width, and the popup grows to it unless the label is capped. */
+
 .fedora-desktop-finding {
     font-size: 0.95em;
     padding-left: 1em;
+    max-width: 36em;
 }
 
 .fedora-desktop-caveat {
     font-size: 0.9em;
     font-style: italic;
     padding-left: 1em;
+    max-width: 36em;
 }
 
 .fedora-desktop-detail {
     font-size: 0.9em;
     color: #aaaaaa;
     padding-left: 1em;
+    max-width: 36em;
 }

@@ -27,8 +27,9 @@ FAILURE_MARKER = "LEDGER-WRITE-FAILED"
 #: printed bare on every play of every failing run, and quoted bare into a public
 #: issue. One constant, so the two places that tell an operator about the hole cannot
 #: give different instructions.
+CHECKOUT_PLACEHOLDER = "<your fedora-desktop checkout>"
 CLEAR_COMMAND = (
-    "cd <your fedora-desktop checkout> && "
+    f"cd {CHECKOUT_PLACEHOLDER} && "
     "python3 -m helpers.play_ledger.check_freshness --clear-broken"
 )
 

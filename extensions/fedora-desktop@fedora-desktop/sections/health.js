@@ -16,6 +16,7 @@
 
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import Pango from 'gi://Pango';
 import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
@@ -40,11 +41,42 @@ const CHECKS = [
  * clickable row per finding would offer the same command N times while implying each row
  * had its own. The offer is section-level, below. A row that looks clickable and is not
  * would be its own small lie. */
-function findingItem(text, styleClass) {
+function findingItem(text, styleClass, shown) {
     const item = new PopupMenu.PopupMenuItem('', {reactive: false});
     item.label.text = text;
     item.label.style_class = styleClass;
+    wrap(item.label);
+    shown.push(`  - ${text}`);
     return item;
+}
+
+/** A finding can be one long sentence carrying its diagnostic and the command that
+ * clears it. Unwrapped, a menu label is as wide as its text, so the popup ran off the
+ * screen as a single line. The width cap is the stylesheet's `max-width`. */
+function wrap(label) {
+    label.clutter_text.line_wrap = true;
+    label.clutter_text.line_wrap_mode = Pango.WrapMode.WORD_CHAR;
+    label.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
+}
+
+/**
+ * Copy what the section shows, as text. A menu label cannot be selected, and a finding
+ * that names a command is only useful if the command can be pasted. The lines are the
+ * ones the rows above were built from, so the copy cannot say something the menu did not.
+ * Absent when nothing but headers was shown.
+ */
+function appendCopyFindings(menu, shown) {
+    if (!shown.some(line => line.startsWith('  - '))) {
+        return;
+    }
+    const text = shown.join('\n');
+    menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+    const item = new PopupMenu.PopupMenuItem('Copy these findings');
+    item.connect('activate', () => {
+        St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, text);
+        Main.notify('Fedora Desktop', 'Copied the findings');
+    });
+    menu.addMenuItem(item);
 }
 
 /**
@@ -83,6 +115,7 @@ function appendHandoffOffer(menu, document) {
         text: command,
         style_class: 'fedora-desktop-detail',
     });
+    wrap(detail);
     item.add_child(detail);
     item.connect('activate', () => {
         St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, command);
@@ -133,7 +166,19 @@ function appendOpenReport(menu) {
     menu.addMenuItem(item);
 }
 
-function appendCheck(menu, document, check, runningKernel) {
+function appendCaveat(menu, shown) {
+    // Stated, not implied by styling alone. "Not checked" reads as a mild caveat next to
+    // a fault; it is in fact a statement that nothing is known, and the heading has to
+    // say so in words.
+    const text = 'not checked — nothing is known about these:';
+    const caveat = new PopupMenu.PopupMenuItem('', {reactive: false});
+    caveat.label.text = text;
+    caveat.label.style_class = 'fedora-desktop-caveat';
+    menu.addMenuItem(caveat);
+    shown.push(`  ${text}`);
+}
+
+function appendCheck(menu, document, check, runningKernel, shown) {
     // `resolvedSection`, not `sectionOf`: the boot demotion has to be the same answer the
     // icon gets, and a copy of it here would be a second mechanism for one fact.
     const section = StatusDocument.resolvedSection(document, check.id, runningKernel);
@@ -143,24 +188,22 @@ function appendCheck(menu, document, check, runningKernel) {
     menu.addMenuItem(header);
 
     if (section.state === StatusDocument.OK) {
-        menu.addMenuItem(findingItem('nothing to report', 'fedora-desktop-detail'));
+        const item = new PopupMenu.PopupMenuItem('', {reactive: false});
+        item.label.text = 'nothing to report';
+        item.label.style_class = 'fedora-desktop-detail';
+        menu.addMenuItem(item);
         return;
     }
 
+    shown.push(check.title);
     for (const text of section.findings) {
-        menu.addMenuItem(findingItem(text, 'fedora-desktop-finding'));
+        menu.addMenuItem(findingItem(text, 'fedora-desktop-finding', shown));
     }
 
     if (section.unchecked.length > 0) {
-        // Stated, not implied by styling alone. "Not checked" reads as a mild caveat
-        // next to a fault; it is in fact a statement that nothing is known, and the
-        // heading has to say so in words.
-        const caveat = new PopupMenu.PopupMenuItem('', {reactive: false});
-        caveat.label.text = 'not checked — nothing is known about these:';
-        caveat.label.style_class = 'fedora-desktop-caveat';
-        menu.addMenuItem(caveat);
+        appendCaveat(menu, shown);
         for (const text of section.unchecked) {
-            menu.addMenuItem(findingItem(text, 'fedora-desktop-detail'));
+            menu.addMenuItem(findingItem(text, 'fedora-desktop-detail', shown));
         }
     }
 }
@@ -183,17 +226,17 @@ function appendCheck(menu, document, check, runningKernel) {
  * Returns true when it rendered, so the caller skips the checks: there is no data behind
  * them, and four `unavailable` blocks restate one absence four times.
  */
-function appendSelfReport(menu, document) {
+function appendSelfReport(menu, document, shown) {
     const self = document?.sections?.[StatusDocument.SELF_SECTION];
     if (!self) {
         return false;
     }
     const normalised = StatusDocument.sectionOf(document, StatusDocument.SELF_SECTION);
     for (const text of normalised.findings) {
-        menu.addMenuItem(findingItem(text, 'fedora-desktop-finding'));
+        menu.addMenuItem(findingItem(text, 'fedora-desktop-finding', shown));
     }
     for (const text of normalised.unchecked) {
-        menu.addMenuItem(findingItem(text, 'fedora-desktop-detail'));
+        menu.addMenuItem(findingItem(text, 'fedora-desktop-detail', shown));
     }
     return true;
 }
@@ -235,7 +278,9 @@ export const section = {
         // the summary, not below a list the user has to read past to find it.
         appendOpenReport(menu);
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        if (appendSelfReport(menu, document)) {
+        const shown = [];
+        if (appendSelfReport(menu, document, shown)) {
+            appendCopyFindings(menu, shown);
             return;
         }
         // A shape this cannot read is REPORTED, before anything derived from it. Rendering
@@ -243,20 +288,19 @@ export const section = {
         // "has no <id> section" lines and never says what actually happened.
         const reasons = StatusDocument.documentReasons(document);
         if (reasons.length > 0) {
-            const caveat = new PopupMenu.PopupMenuItem('', {reactive: false});
-            caveat.label.text = 'not checked — nothing is known about these:';
-            caveat.label.style_class = 'fedora-desktop-caveat';
-            menu.addMenuItem(caveat);
+            appendCaveat(menu, shown);
             for (const text of reasons) {
-                menu.addMenuItem(findingItem(text, 'fedora-desktop-detail'));
+                menu.addMenuItem(findingItem(text, 'fedora-desktop-detail', shown));
             }
+            appendCopyFindings(menu, shown);
             return;
         }
         for (const check of CHECKS) {
-            appendCheck(menu, document, check, runningKernel);
+            appendCheck(menu, document, check, runningKernel, shown);
         }
-        // LAST, after everything it refers to. The offer is about the findings above it,
-        // and a button before them would ask the user to act before reading.
+        // LAST, after everything they refer to. The offers are about the findings above
+        // them, and a button before them would ask the user to act before reading.
+        appendCopyFindings(menu, shown);
         appendHandoffOffer(menu, document);
     },
 };
