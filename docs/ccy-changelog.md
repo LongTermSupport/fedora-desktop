@@ -17,6 +17,24 @@ Two version numbers move independently — see
 
 ---
 
+## 3.63.0
+
+Every line that names the token a launch will use now shows its expiry, coloured. That
+covers the `--token NAME` confirmation, the interactive selection's confirmation, and the
+Quick Launch summary. A saved token name with no matching file says so. The selection
+menu, `--list-tokens` and the export menu already coloured it.
+
+The colour bands change (token-management 1.14.0):
+
+- red: the token cannot be used, because it has expired or it expires today, which
+  `is_token_valid` already refuses;
+- yellow: 14 days or fewer left;
+- green: more than 14 days left.
+
+Before, the bands were red at 5 days or fewer, orange at 30 or fewer, and green beyond.
+This ports a change from May that was never merged (commit 304bd599). Its only
+difference was that it showed a token expiring today in yellow.
+
 ## 3.62.0
 
 `ccy-sessions verify-restore` names a waiting session only by the prompts in

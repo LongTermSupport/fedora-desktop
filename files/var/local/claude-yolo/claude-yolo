@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.62.0"  # verify-restore knows every prompt a restored launch can reach, and a replay knows every flag. See docs/ccy-changelog.md.
+CCY_VERSION="3.63.0"  # The token a launch uses is shown with its expiry, coloured. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -945,7 +945,17 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
         echo "Found previous launch configuration (${LAST_LAUNCH_DATE:-unknown}):"
-        echo "  Token:   ${LAST_TOKEN:-none}"
+        last_token_label=""
+        if [ -n "${LAST_TOKEN:-}" ]; then
+            # The same lookup --token NAME makes: the first file with that name.
+            last_token_files=("$TOKEN_DIR/${LAST_TOKEN}".*.token)
+            if [ -f "${last_token_files[0]}" ]; then
+                last_token_label="$(token_expiry_label "${last_token_files[0]}")"
+            else
+                last_token_label=" (no token file with this name)"
+            fi
+        fi
+        echo "  Token:   ${LAST_TOKEN:-none}${last_token_label}"
         echo "  SSH Key: ${LAST_SSH_KEYS:-none}"
         echo "  Network: ${LAST_NETWORK:-none}"
         echo ""
@@ -1145,7 +1155,7 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
 
     filename=$(basename "$SELECTED_TOKEN")
     token_name="${filename%.*.token}"
-    echo "✓ Using token: $token_name"
+    echo "✓ Using token: $token_name$(token_expiry_label "$SELECTED_TOKEN")"
 else
     # No token specified, check if tokens exist.
     # A glob, not `ls`: the glob's no-match is a fact about the directory, where
