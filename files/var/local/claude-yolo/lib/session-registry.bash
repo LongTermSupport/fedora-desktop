@@ -294,6 +294,11 @@ ccy_registry_read() {
     esac
 }
 
+# The line a failed session's window is held on, which is how verify-restore tells a pane
+# whose launcher has already exited from one that is still starting. It is spliced into a
+# single-quoted printf format in the trampoline, so it must hold no quote and no percent.
+CCY_SESSION_ENDED_TEXT="Press Enter to close this session."
+
 # ccy_registry_trampoline <record-path> <prefix> — the `bash -c` string a session's tmux
 # pane runs, printed. It runs the launcher (the pane's remaining arguments), removes the
 # record the moment the launcher RETURNS — a returned launcher is an ended session, whatever
@@ -307,7 +312,7 @@ ccy_registry_trampoline() {
     local record="${1:?ccy_registry_trampoline requires a record path}"
     local prefix="${2:?ccy_registry_trampoline requires a prefix}" quoted
     printf -v quoted '%q' "$record"
-    printf '%s' "\"\$@\"; rc=\$?; rm -f -- ${quoted}; if [ \"\$rc\" -ne 0 ]; then printf '\\n${prefix} exited with status %s. Press Enter to close this session.\\n' \"\$rc\"; read -r; fi; exit \"\$rc\""
+    printf '%s' "\"\$@\"; rc=\$?; rm -f -- ${quoted}; if [ \"\$rc\" -ne 0 ]; then printf '\\n${prefix} exited with status %s. ${CCY_SESSION_ENDED_TEXT}\\n' \"\$rc\"; read -r; fi; exit \"\$rc\""
 }
 
 # ccy_registry_restore_args <prefix> [replay-args...] — the arguments a restore starts the
@@ -336,6 +341,181 @@ ccy_registry_restore_args() {
     fi
 }
 
+# ── the restore manifest: what the last restore brought up, for verify-restore ──────────
+#
+# A restored session's record is removed by its trampoline the moment its launcher returns,
+# so a session that failed to come back leaves no record behind to be checked. The manifest
+# is the restore's own account of every session that should now be up (the ones it started
+# and the ones it found already running), written when it finishes, and it names the boot
+# it ran in: a manifest from an earlier boot says nothing about this one.
+# It lives beside the registry, never inside it: restore reads every file in the registry.
+CCY_RESTORE_MANIFEST_HEADER="ccy-restore-manifest 1"
+
+# ccy_registry_manifest_path — the manifest's path, printed.
+ccy_registry_manifest_path() {
+    local regdir
+    regdir=$(ccy_registry_dir) || return 1
+    printf '%s/last-restore\n' "${regdir%/sessions}"
+}
+
+# ccy_boot_id — this boot's id, printed. CCY_BOOT_ID_FILE overrides the source for tests.
+ccy_boot_id() {
+    local file="${CCY_BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}" id=""
+    if ! IFS= read -r id <"$file" || [[ -z "$id" ]]; then
+        print_error "this boot's id could not be read from $file."
+        return 1
+    fi
+    printf '%s\n' "$id"
+}
+
+# ccy_restore_manifest_write [<name> <prefix> <dir>]... — record the sessions a restore
+# started, stamped with this boot's id. Written whole then moved into place, like a record.
+ccy_restore_manifest_write() {
+    local path boot tmp
+    path=$(ccy_registry_manifest_path) || return 1
+    boot=$(ccy_boot_id) || return 1
+    (umask 077 && mkdir -p "$(dirname "$path")") || {
+        print_error "could not create the directory for the restore manifest $path"
+        return 1
+    }
+    tmp="$path.tmp.$$"
+    if ! (
+        umask 077
+        {
+            printf '%s\n' "$CCY_RESTORE_MANIFEST_HEADER"
+            printf 'boot=%s\n' "$boot"
+            while [[ $# -ge 3 ]]; do
+                printf 'name=%s\nprefix=%s\ndir=%s\n' "$1" "$2" "$3"
+                shift 3
+            done
+        } >"$tmp"
+    ); then
+        rm -f -- "$tmp"
+        print_error "could not write the restore manifest $path"
+        return 1
+    fi
+    if ! mv -f -- "$tmp" "$path"; then
+        rm -f -- "$tmp"
+        print_error "could not move the restore manifest into place at $path"
+        return 1
+    fi
+}
+
+# ccy_restore_manifest_read — parse the manifest into RM_BOOT and the parallel arrays
+# RM_NAMES, RM_PREFIXES and RM_DIRS. Strict, like ccy_registry_read: each entry is a name=,
+# prefix=, dir= triple in that order, and anything else is a rejection. A missing manifest
+# is a rejection too, with its own message: no restore has run.
+ccy_restore_manifest_read() {
+    local path line key value first=true expect=name
+    RM_BOOT=""
+    RM_NAMES=() RM_PREFIXES=() RM_DIRS=()
+    path=$(ccy_registry_manifest_path) || return 1
+    if [[ ! -e "$path" ]]; then
+        print_error "no session restore has been recorded ($path does not exist)."
+        return 1
+    fi
+    if [[ ! -r "$path" ]]; then
+        print_error "the restore manifest $path cannot be read."
+        return 1
+    fi
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$first" == true ]]; then
+            first=false
+            if [[ "$line" != "$CCY_RESTORE_MANIFEST_HEADER" ]]; then
+                print_error "the restore manifest $path does not start with '$CCY_RESTORE_MANIFEST_HEADER' and is not read."
+                return 1
+            fi
+            continue
+        fi
+        [[ -n "$line" ]] || continue
+        key="${line%%=*}"
+        value="${line#*=}"
+        if [[ "$line" != *=* ]]; then
+            print_error "the restore manifest $path has a line without '=': $line"
+            return 1
+        fi
+        if [[ "$key" == boot && -z "$RM_BOOT" && "$expect" == name && "${#RM_NAMES[@]}" -eq 0 ]]; then
+            RM_BOOT="$value"
+            continue
+        fi
+        if [[ "$key" != "$expect" ]]; then
+            print_error "the restore manifest $path has '$key' where '$expect' was expected and is not read."
+            return 1
+        fi
+        case "$key" in
+        name) RM_NAMES+=("$value") expect=prefix ;;
+        prefix) RM_PREFIXES+=("$value") expect=dir ;;
+        dir) RM_DIRS+=("$value") expect=name ;;
+        esac
+    done <"$path"
+    if [[ "$first" == true ]]; then
+        print_error "the restore manifest $path is empty."
+        return 1
+    fi
+    if [[ -z "$RM_BOOT" ]]; then
+        print_error "the restore manifest $path names no boot."
+        return 1
+    fi
+    if [[ "$expect" != name ]]; then
+        print_error "the restore manifest $path ends part-way through an entry."
+        return 1
+    fi
+}
+
+# ccy_restore_verdict <prefix> <live 0|1> <screen> <container> — one restored session's
+# state, printed as "<STATE>[ <detail>]". PURE: every probe arrives as text, so every
+# shape is testable (scripts/test-ccy-session-registry.bash).
+#   <screen>     the pane's visible text (tmux capture-pane -p)
+#   <container>  for ccy: "up" when the session's container is running, "starting" when
+#                its engine client exists and the container is not yet listed, "-" when
+#                there is no engine client; ignored for cc, which runs claude on the host
+#
+# The screen is judged by its LAST non-blank line, where a prompt waiting for input sits:
+#   DEAD launcher-exited            the trampoline's hold line: the launcher has returned
+#   WAITING-AT-PROMPT <name>        a prompt from ccy_known_prompts
+#   STARTING                        a ccy session with no running container yet
+#   OK                              anything else, with the container up for ccy
+# A session that is not live at all is "DEAD session-not-running".
+ccy_restore_verdict() {
+    local prefix="$1" live="$2" screen="$3" container="$4"
+    local last="" line name text
+    if [[ "$live" != 1 ]]; then
+        printf 'DEAD session-not-running\n'
+        return 0
+    fi
+    while IFS= read -r line; do
+        line="${line%"${line##*[![:space:]]}"}"
+        [[ -n "$line" ]] && last="$line"
+    done <<<"$screen"
+    last="${last#"${last%%[![:space:]]*}"}"
+    if [[ "$last" == *"$CCY_SESSION_ENDED_TEXT" ]]; then
+        printf 'DEAD launcher-exited\n'
+        return 0
+    fi
+    while IFS=$'\t' read -r name text; do
+        [[ -n "$name" ]] || continue
+        if [[ "$last" == "$text"* ]]; then
+            printf 'WAITING-AT-PROMPT %s\n' "$name"
+            return 0
+        fi
+    done < <(ccy_known_prompts)
+    case "$prefix" in
+    cc)
+        printf 'OK\n'
+        ;;
+    ccy)
+        if [[ "$container" == up ]]; then
+            printf 'OK\n'
+        else
+            printf 'STARTING\n'
+        fi
+        ;;
+    *)
+        printf 'DEAD unknown-launcher-%s\n' "$prefix"
+        ;;
+    esac
+}
+
 # ccy_registry_restore [--dry-run] — start every recorded session that is not running.
 #
 # Per record: marked no-restore → skipped; its session name already live → skipped (a
@@ -345,8 +525,12 @@ ccy_registry_restore_args() {
 # session. The run's exit status is non-zero if anything failed. Nothing is started at all if
 # the live set cannot be read: restoring on top of an unknown set could double every session.
 #
+# Each session is started with CCY_SESSION_RESTORE=1 on its command, which lets the launcher
+# answer the prompts that have one safe answer. The rest still ask, in the pane, and
+# `ccy-sessions verify-restore` names them from the manifest written at the end.
+#
 # Reports go to stderr, which under systemd is the journal. --dry-run prints the decisions
-# and starts nothing.
+# and starts nothing, and writes no manifest.
 ccy_registry_restore() {
     local dry_run=false
     if [[ "${1:-}" == "--dry-run" ]]; then
@@ -357,10 +541,13 @@ ccy_registry_restore() {
     fi
     local regdir listing name file failures=0 started=0 seen=false
     local -A live=()
-    local -a args=()
+    local -a args=() manifest=()
     regdir=$(ccy_registry_dir) || return 1
     if [[ ! -d "$regdir" ]]; then
         echo "ccy session registry: nothing to restore ($regdir does not exist)." >&2
+        if [[ "$dry_run" == false ]]; then
+            ccy_restore_manifest_write "${manifest[@]}" || return 1
+        fi
         return 0
     fi
     if ! declare -F ccy_tmux_start_detached >/dev/null; then
@@ -389,6 +576,9 @@ ccy_registry_restore() {
         fi
         if [[ -n "${live[$REC_NAME]:-}" ]]; then
             echo "skip $REC_NAME: already running." >&2
+            # Still one of the sessions that should be up, so still one to verify: a second
+            # restore in the same boot must not hide a session stuck at a prompt since the first.
+            manifest+=("$REC_NAME" "$REC_PREFIX" "$REC_DIR")
             continue
         fi
         if [[ ! -d "$REC_DIR" ]]; then
@@ -401,18 +591,23 @@ ccy_registry_restore() {
             echo "would start $REC_NAME in $REC_DIR: $REC_LAUNCHER ${args[*]}" >&2
             continue
         fi
-        if ccy_tmux_start_detached "$REC_NAME" "$REC_DIR" "$REC_LAUNCHER" "${args[@]}"; then
+        if ccy_tmux_start_detached "$REC_NAME" "$REC_DIR" env CCY_SESSION_RESTORE=1 "$REC_LAUNCHER" "${args[@]}"; then
             echo "restored $REC_NAME in $REC_DIR." >&2
             started=$((started + 1))
+            manifest+=("$REC_NAME" "$REC_PREFIX" "$REC_DIR")
         else
             print_error "could not start $REC_NAME in $REC_DIR (the record is kept at $file)."
             failures=$((failures + 1))
         fi
     done
 
+    if [[ "$dry_run" == false ]]; then
+        ccy_restore_manifest_write "${manifest[@]}" || failures=$((failures + 1))
+    fi
     if [[ "$seen" == false ]]; then
         echo "ccy session registry: nothing to restore (no records in $regdir)." >&2
-        return 0
+        [[ "$failures" -eq 0 ]]
+        return
     fi
     echo "ccy session restore: $started started, $failures failed." >&2
     [[ "$failures" -eq 0 ]]

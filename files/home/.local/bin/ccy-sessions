@@ -35,6 +35,13 @@
 #                                                   minute, then systemctl reboot
 #   ccy-sessions restore [--dry-run]                start every session recorded as running
 #                                                   at the last shutdown (the boot unit)
+#   ccy-sessions verify-restore [--wait SECONDS]    check every session this boot's restore
+#                                                   brought up, one line each on stdout:
+#                                                   "<name> OK", "<name> STARTING",
+#                                                   "<name> WAITING-AT-PROMPT <which>" or
+#                                                   "<name> DEAD <why>"; exit 0 only if all
+#                                                   are OK. --wait polls until they are, or
+#                                                   the time is up
 #   ccy-sessions -h|--help                          this text
 #
 # notify and reboot speak to each project through ITS OWN hooks-daemon CLI
@@ -50,6 +57,11 @@
 # the action, so a shutdown with restore on reads "will reboot", and a reboot with restore
 # off reads "will shut down"; what the agent is asked to do is right either way.
 #
+# A restore answers only the prompts that have one safe answer (Quick Launch, and the two
+# running-container menus); every other prompt still asks, in the pane, where a person can
+# attach and answer it. verify-restore is how nobody has to look: it names each session's
+# state from what its screen shows and whether its container runs.
+#
 # Runs on the HOST: inside a CCY container there is no server.
 set -euo pipefail
 
@@ -59,6 +71,8 @@ MAX_TRIES=3
 # A minute, in seconds. Overridable so the countdown can be driven by a test; nothing else
 # should ever set it.
 MINUTE_SECONDS="${CCY_SESSIONS_MINUTE_SECONDS:-60}"
+# How often verify-restore --wait looks again, in seconds. Overridable for the same reason.
+POLL_SECONDS="${CCY_SESSIONS_POLL_SECONDS:-5}"
 
 # The help text IS the header comment above, printed back. It stops at the first line that
 # is not a comment rather than at a hardcoded line number: the range form printed `t -euo
@@ -74,7 +88,7 @@ usage_error() {
 
 subcommand="${1:-}"
 case "${subcommand}" in
-"" | notify | reboot | restore) ;;
+"" | notify | reboot | restore | verify-restore) ;;
 -h | --help)
     usage
     exit 0
@@ -329,6 +343,107 @@ cmd_restore() {
     ccy_registry_restore "$@"
 }
 
+# restore_states — "<name> <STATE>[ <detail>]" for every session in the manifest (RM_*),
+# from one pass over the host: the live list, one screen capture per live session, one
+# process table, and one engine query per engine a session uses. A probe that fails is a
+# failure, never a state: "could not look" must not read as "dead" or as "fine".
+restore_states() {
+    local listing panes processes containers name engine container i live screen state
+    local -A is_live=() client=() running=() engines=()
+    listing="$(ccy_tmux_list)" || return 1
+    while read -r name _; do
+        [[ -n "${name}" ]] && is_live["${name}"]=1
+    done <<<"${listing}"
+
+    if ! panes="$(ccy_tmux list-panes -a -F '#{session_name} #{pane_pid}' 2>&1)"; then
+        if [[ "${panes}" != *"no server running"* && "${panes}" != *"No such file or directory"* ]]; then
+            print_error "tmux list-panes failed: ${panes}"
+            return 1
+        fi
+        panes=""
+    fi
+    if ! processes="$(ps -ww -eo pid=,ppid=,args= 2>&1)"; then
+        print_error "the process table could not be read, so no session can be matched to its container: ${processes}"
+        return 1
+    fi
+    containers="$(ccy_session_containers "${panes}" "${processes}")"
+    while read -r name engine container; do
+        [[ -n "${name}" && "${container}" != "-" ]] || continue
+        client["${name}"]="${container}"
+        engines["${engine}"]=1
+    done <<<"${containers}"
+    for engine in "${!engines[@]}"; do
+        if ! listing="$("${engine}" ps --filter label=ccy=true --format '{{.Names}}' 2>&1)"; then
+            print_error "${engine} ps failed: ${listing}"
+            return 1
+        fi
+        while read -r container; do
+            [[ -n "${container}" ]] && running["${container}"]=1
+        done <<<"${listing}"
+    done
+
+    for i in "${!RM_NAMES[@]}"; do
+        name="${RM_NAMES[i]}"
+        live=0
+        screen=""
+        container="-"
+        if [[ -n "${is_live[${name}]:-}" ]]; then
+            live=1
+            if ! screen="$(ccy_tmux capture-pane -p -t "=${name}" 2>&1)"; then
+                print_error "the screen of ${name} could not be read: ${screen}"
+                return 1
+            fi
+            if [[ -n "${client[${name}]:-}" ]]; then
+                container=starting
+                if [[ -n "${running[${client[${name}]}]:-}" ]]; then
+                    container=up
+                fi
+            fi
+        fi
+        state="$(ccy_restore_verdict "${RM_PREFIXES[i]}" "${live}" "${screen}" "${container}")"
+        printf '%s %s\n' "${name}" "${state}"
+    done
+}
+
+cmd_verify_restore() {
+    local wait=0 deadline states boot
+    while [[ $# -gt 0 ]]; do
+        case "${1}" in
+        --wait)
+            [[ "${2:-}" =~ ^[0-9]+$ ]] || usage_error "--wait needs a whole number of seconds; got '${2:-}'."
+            wait="${2}"
+            shift 2
+            ;;
+        *)
+            usage_error "unknown verify-restore option '${1}'."
+            ;;
+        esac
+    done
+    ccy_restore_manifest_read || return 1
+    boot="$(ccy_boot_id)" || return 1
+    if [[ "${RM_BOOT}" != "${boot}" ]]; then
+        print_error "the last session restore ran in an earlier boot, so it says nothing about this one; nothing restored these sessions since this machine started."
+        return 1
+    fi
+    if [[ "${#RM_NAMES[@]}" -eq 0 ]]; then
+        echo "This boot's restore brought up no sessions; nothing to verify." >&2
+        return 0
+    fi
+    deadline=$((SECONDS + wait))
+    while :; do
+        states="$(restore_states)" || return 1
+        if ! grep -qv ' OK$' <<<"${states}" || [[ "${SECONDS}" -ge "${deadline}" ]]; then
+            break
+        fi
+        sleep "${POLL_SECONDS}"
+    done
+    printf '%s\n' "${states}"
+    if grep -qv ' OK$' <<<"${states}"; then
+        echo "Not every restored session is running and past its prompts; attach with ccy-sessions to answer or look." >&2
+        return 1
+    fi
+}
+
 case "${subcommand}" in
 notify)
     cmd_notify "$@"
@@ -340,6 +455,10 @@ reboot)
     ;;
 restore)
     cmd_restore "$@"
+    exit
+    ;;
+verify-restore)
+    cmd_verify_restore "$@"
     exit
     ;;
 esac

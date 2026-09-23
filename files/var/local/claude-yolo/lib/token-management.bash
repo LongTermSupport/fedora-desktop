@@ -1243,7 +1243,7 @@ select_token() {
         # `selection` comes back empty, the branch below continues, and the loop
         # spins for ever at ~250k lines/second: errexit is suppressed in here
         # because both launchers call this function in a condition context.
-        if ! read -r -p "Select token [${prompt_hint}]: " selection; then
+        if ! read -r -p "${CCY_PROMPT_TOKEN_SELECT} [${prompt_hint}]: " selection; then
             echo "" >&2
             echo "Cancelled — no input. No token selected, nothing changed." >&2
             return 2

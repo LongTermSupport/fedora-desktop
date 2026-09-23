@@ -68,6 +68,12 @@ ccy_tmux_banner
 # option it does not know.
 mapfile -t CC_ARGS < <(ccy_registry_launch_args "$@")
 set -- "${CC_ARGS[@]}"
+# ccy-sessions restore marks the launches it makes with CCY_SESSION_RESTORE=1. cc has no
+# prompt with one safe answer to give (its token chooser is a person's choice, and
+# verify-restore reports a session waiting at it), so it only removes the marker: claude
+# must not inherit it, or a ccy started from inside this session would take itself for a
+# restore.
+unset CCY_SESSION_RESTORE
 
 # Stale-credential shadow-proofing (full rationale in the named-token branch
 # below). claude reads .credentials.json even when CLAUDE_CODE_OAUTH_TOKEN is

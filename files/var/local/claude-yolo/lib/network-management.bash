@@ -162,7 +162,7 @@ connect_to_network() {
             echo ""
 
             while true; do
-                read -rp "Select container [0-${#matching_containers[@]}] (0): " selection
+                read -rp "${CCY_PROMPT_NETWORK_CONTAINER}0-${#matching_containers[@]}] (0): " selection
                 selection=${selection:-0}  # Default to 0 if empty
                 echo ""
 
@@ -284,10 +284,10 @@ connect_to_network() {
 
         while true; do
             if [ -n "$best_match" ]; then
-                read -rp "Select network [0-${#networks[@]}] (0): " selection
+                read -rp "${CCY_PROMPT_NETWORK_SELECT}0-${#networks[@]}] (0): " selection
                 selection=${selection:-0}  # Default to 0 if empty
             else
-                read -rp "Select network [1-${#networks[@]}]: " selection
+                read -rp "${CCY_PROMPT_NETWORK_SELECT}1-${#networks[@]}]: " selection
             fi
             echo ""
 
@@ -583,7 +583,7 @@ _do_compose_start() {
 
     # Offer to start compose
     while true; do
-        read -rp "Start services with $compose_name up -d? [Y/n]: " start_choice
+        read -rp "$CCY_PROMPT_COMPOSE_START $compose_name up -d? [Y/n]: " start_choice
         start_choice=${start_choice:-Y}
         echo ""
 

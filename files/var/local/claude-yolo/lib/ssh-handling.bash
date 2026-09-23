@@ -422,7 +422,7 @@ discover_and_select_ssh_keys() {
         echo "Or log in with agent forwarding (ssh -A) and pass:"
         echo "  $tool_name --ssh-agent"
         echo ""
-        read -rp "Press Enter to continue WITHOUT SSH key, or Ctrl+C to cancel: " _unused
+        read -rp "$CCY_PROMPT_SSH_NO_KEY " _unused
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
@@ -520,7 +520,7 @@ discover_and_select_ssh_keys() {
     echo "You can also specify keys manually with: $tool_name --ssh-key <path>"
     echo ""
 
-    local prompt_text="Select SSH key [0-${#candidates[@]}]"
+    local prompt_text="${CCY_PROMPT_SSH_KEY} [0-${#candidates[@]}]"
     [ -n "$suggested_index" ] && prompt_text="$prompt_text (default: $suggested_index)"
     prompt_text="$prompt_text: "
 
@@ -669,7 +669,7 @@ _probe_agent_add_key() {
         if [ "$round" -lt 3 ]; then
             echo ""
             echo "Key not unlocked: $key"
-            read -rp "Hit return to try the passphrase again (round $round of 3), or Ctrl+C to abort: " _unused
+            read -rp "$CCY_PROMPT_SSH_PASSPHRASE_RETRY (round $round of 3), or Ctrl+C to abort: " _unused
         fi
     done
     return 1
@@ -878,7 +878,7 @@ build_ssh_mounts_and_validate() {
                     enable_443=true
                 else
                     local reply_443
-                    read -rp "Enable GitHub SSH over 443 for this session? [Y/n] " reply_443
+                    read -rp "$CCY_PROMPT_GITHUB_443 " reply_443
                     case "$reply_443" in
                         [Nn]*) enable_443=false ;;
                         *) enable_443=true ;;

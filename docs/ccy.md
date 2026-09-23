@@ -236,9 +236,19 @@ create/update/export modes, `--custom`, `--top`, `--debug`, `--headless` and `--
 (the agent socket is a different path after a reboot). Settings — `--token`, `--ssh-key`,
 `--network`, `--no-network`, `--no-ssh`, `--github-443`, `--engine`, `--no-supervise` —
 and everything after `--` are kept. A restored session starts in a real tmux pane, so the
-launcher behaves as it always does: a launch that named its token, key and network asks
-nothing and comes back unattended; one that answered prompts the first time asks them
-again, in the pane, where `ccy-sessions` will show it waiting.
+launcher behaves as it always does, with three exceptions (since CCY 3.61.0). A restored
+`ccy` accepts its project's saved Quick Launch configuration, leaves containers left over
+from before the reboot running rather than asking what to do with them, and starts
+alongside sibling sessions in the same project. Each of these is the one answer that
+cannot lose work, and each is announced on stderr. Every other prompt (token choice, SSH
+key or passphrase, GitHub-over-443, network, compose) has no safe answer, so it waits in
+the pane for a person.
+
+A launch that named its token, key and network therefore comes back unattended. Check
+with `ccy-sessions verify-restore [--wait SECONDS]`. It reads the manifest the boot's
+restore wrote (`~/.local/state/ccy/last-restore`) and prints one line per session: `OK`,
+`STARTING`, `WAITING-AT-PROMPT <prompt>` or `DEAD <reason>`. It exits non-zero unless every
+session is `OK`. `--wait` keeps polling until they all are or the time runs out.
 
 | Situation at boot                         | What restore does                                                                                                                 |
 | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |

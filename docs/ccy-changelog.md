@@ -17,6 +17,23 @@ Two version numbers move independently — see
 
 ---
 
+## 3.61.0
+
+A session brought back by `ccy-sessions restore` could sit at a prompt after an unattended
+reboot with nothing to say so. Restore now starts each pane as
+`env CCY_SESSION_RESTORE=1 <launcher> …`. `ccy` reads that marker once and unsets it, then
+answers the three prompts that have one answer which cannot lose work: it uses the saved
+Quick Launch configuration, leaves pre-reboot containers running (a restore never stops a
+container it cannot prove dead), and starts alongside sibling sessions in the same project.
+Each is announced on stderr. `cc` drops the marker so `claude` never inherits it.
+
+Every other prompt still waits in the pane. The prompt texts are now constants in
+`common-pure.bash`, used both by the code that prints them and by the new
+`ccy-sessions verify-restore [--wait SECONDS]`. That command reads the manifest restore
+writes (`~/.local/state/ccy/last-restore`, stamped with the boot id) and prints `OK`,
+`STARTING`, `WAITING-AT-PROMPT <prompt>` or `DEAD <reason>` per session. It exits non-zero
+unless every session is `OK`.
+
 ## 3.60.3
 
 `cc` failed to start after deploying only `play-claude-yolo.yml`
