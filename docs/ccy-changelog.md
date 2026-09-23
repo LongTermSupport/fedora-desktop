@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.60.3
+
+`cc` failed to start after deploying only `play-claude-yolo.yml`
+(`ccy_registry_wants_restore: command not found`). That play deployed the libraries and
+`play-claude-code.yml` deployed `cc`, so the new `tmux-session.bash` ran under an older
+`cc` that never sourced `session-registry.bash`. The two plays are now one:
+`play-claude-yolo.yml` installs the host Claude Code CLI and `cc` as well as CCY, and
+`play-claude-code.yml` is gone. The missing-curl usage note names the merged play.
+
 ## 3.60.2
 
 Review nits to 3.60.1. `ccy-sessions reboot` arms its cancellation trap before the first

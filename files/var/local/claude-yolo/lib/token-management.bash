@@ -520,9 +520,9 @@ usage_render_block() {
     _usage_note() { printf "       ${DIM}usage unavailable — %s${RESET}\n" "$1"; }
 
     # A missing tool here is an IaC gap, not a runtime condition to shrug at.
-    # curl is declared in play-claude-code.yml — name the remedy.
+    # curl is declared in play-claude-yolo.yml — name the remedy.
     if ! command -v curl > /dev/null; then
-        _usage_note "needs curl (run play-claude-code.yml)"
+        _usage_note "needs curl (run play-claude-yolo.yml)"
         return 0
     fi
 

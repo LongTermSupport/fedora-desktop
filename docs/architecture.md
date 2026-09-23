@@ -118,22 +118,19 @@ The bootstrap script:
       `play-lxc-install-config.yml`.
 19. **play-podman.yml**: Rootless Podman (default container engine)
 20. **play-python.yml**: Python/pyenv setup
-21. **play-claude-yolo.yml**: CCY (Claude container wrapper) installation
-    - **Ordering constraint**: CCY must run _before_ `play-claude-code.yml`
-      because the `cc` wrapper sources CCY lib files at runtime, and
-      `play-claude-code.yml` asserts the lib is present before deploying it.
-      See `CLAUDE/Plan/00048-cc-token-source-parity`.
-22. **play-claude-code.yml**: Claude Code CLI and `cc` wrapper
-23. **play-comms.yml**: Communication applications
-24. **play-gnome-shell.yml**: GNOME Shell configuration
-25. **play-gnome-shell-extensions.yml**: GNOME Shell extensions
-26. **play-markless.yml**: Markless tool setup
-27. **play-terminal-emulators.yml**: Terminal emulator configuration
-28. **play-tmux-sessions.yml**: Detachable tmux sessions behind a single-key menu
-29. **play-vscode.yml**: Visual Studio Code
-30. **play-vpn.yml**: VPN configuration
-31. **play-gsettings.yml**: GNOME settings
-32. **play-ZZ-repo-cleanup.yml**: Post-run repository cleanup
+21. **play-claude-yolo.yml**: Claude Code on the host (`cc`) and in a container (CCY)
+    - One play for both, because `cc` sources CCY's lib at runtime: deployed
+      separately, a new lib could run under an old `cc`.
+22. **play-comms.yml**: Communication applications
+23. **play-gnome-shell.yml**: GNOME Shell configuration
+24. **play-gnome-shell-extensions.yml**: GNOME Shell extensions
+25. **play-markless.yml**: Markless tool setup
+26. **play-terminal-emulators.yml**: Terminal emulator configuration
+27. **play-tmux-sessions.yml**: Detachable tmux sessions behind a single-key menu
+28. **play-vscode.yml**: Visual Studio Code
+29. **play-vpn.yml**: VPN configuration
+30. **play-gsettings.yml**: GNOME settings
+31. **play-ZZ-repo-cleanup.yml**: Post-run repository cleanup
 
 ### Desktop or server — the `provisioning_profile` / `scope` pair
 

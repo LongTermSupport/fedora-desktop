@@ -416,9 +416,12 @@ pipx install ruff
 
 ### play-claude-yolo.yml
 
-**Purpose**: Claude Code containerised environment (CCY)\
+**Purpose**: Claude Code on the host (`cc`) and in a container (CCY)\
 **Actions**:
 
+- **Claude Code CLI**: installs the native `claude` binary on the `latest` channel and
+  deploys the `cc` wrapper, which shares CCY's token pool and lib
+- Tightens the host `~/.claude` session store to owner-only permissions
 - **CCY (YOLO Mode)**: General-purpose development container with browser automation built in
 - Unified token management
 - Custom Dockerfile support per project
@@ -426,7 +429,8 @@ pipx install ruff
 - Uses Podman by default (rootless); Docker override available
 - See [Containerisation Guide](containerization.md) for full details
 
-> **Note**: `play-claude-yolo.yml` must run before `play-claude-code.yml` — the `cc` wrapper sources CCY lib files that the claude-code playbook asserts are present.
+> **Note**: `cc` and CCY are one play because `cc` sources CCY's lib at runtime. Deployed
+> separately, a new lib could run under an old `cc`.
 
 **What's installed**:
 
@@ -506,15 +510,6 @@ ccy --custom-docker
 # Quick template-based customisation
 ccy --custom
 ```
-
-### play-claude-code.yml
-
-**Purpose**: Claude Code CLI installation\
-**Actions**:
-
-- Downloads and installs Claude Code binary
-- Deploys the `cc` wrapper (sources CCY token-management lib)
-- Configures system-wide access
 
 ### play-comms.yml
 

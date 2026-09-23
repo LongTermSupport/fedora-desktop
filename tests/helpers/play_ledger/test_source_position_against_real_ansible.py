@@ -33,7 +33,7 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", 
 
 #: Any tracked playbook with a top-level `- hosts:` will do; the assertion is that the
 #: helper names THIS file, so the choice only has to be stable.
-PLAYBOOK = os.path.join(REPO_ROOT, "playbooks", "imports", "play-claude-code.yml")
+PLAYBOOK = os.path.join(REPO_ROOT, "playbooks", "imports", "play-claude-yolo.yml")
 
 #: Runs inside the ansible venv. Prints the helper's answer as JSON, or exits non-zero
 #: with its reason on stderr — never a bare traceback the caller cannot explain.

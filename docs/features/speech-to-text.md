@@ -838,5 +838,5 @@ Data:
 **See also:**
 
 - [NVIDIA Driver Installation](../playbooks.md#play-nvidiayml)
-- [Claude Code Setup](../playbooks.md#play-claude-codeyml)
+- [Claude Code Setup](../playbooks.md#play-claude-yoloyml)
 - [Containerization Guide](../containerization.md)

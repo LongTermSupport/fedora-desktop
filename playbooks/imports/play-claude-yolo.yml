@@ -1,11 +1,34 @@
 #!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
 ---
 - hosts: desktop
-  name: Claude Code YOLO/Browser Mode - Container-based Installation
+  # One play for both launchers. cc (host Claude Code) runs on ccy's lib, so the two cannot
+  # be deployed apart: when they were separate plays, deploying only this one left an old
+  # cc calling functions a new lib/tmux-session.bash expected it to have sourced.
+  name: Claude Code - Host cc and Container ccy
   become: false
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    # 'latest' tracks the leading-edge release train (the same one npm's `latest`
+    # dist-tag serves the ccy container), so host `cc` and container `ccy` stay on
+    # the same Claude Code version. 'stable' is the slower staged-rollout channel
+    # and lags behind — using it left the host stuck several releases back while
+    # ccy moved ahead. The native updater's channel is sticky: cc's per-launch
+    # `claude update` only ever reaches the head of whichever channel is set here.
+    claude_code_version: "latest"
+    # Desktop Claude Code's plaintext session store. Container (ccy) sessions
+    # keep their state per-project instead, so ccy's launcher repairs those.
+    #
+    # NOT ansible_facts['env']['HOME']: this play runs become: false, but
+    # ansible.cfg's `gathering = smart` + persistent `fact_caching=jsonfile`
+    # mean facts gathered by an EARLIER play in playbook-main.yml are reused
+    # here rather than re-gathered. play-AA-preflight-sanity.yml (play #1)
+    # runs become: true at the PLAY level, which elevates its own fact-
+    # gathering too, so ansible_facts['env']['HOME'] is '/root' for the whole
+    # run — see CLAUDE/Plan/00088-claude-code-state-dir-stale-home-fact. The
+    # rest of this file already avoids this trap (lines below use
+    # /home/{{ user_login }}/... directly); do the same here.
+    claude_state_dir: "/home/{{ user_login }}/.claude"
   pre_tasks:
     - name: Load container defaults
       ansible.builtin.include_vars:
@@ -352,8 +375,8 @@
     # `gathering = smart` plus jsonfile fact caching, a cached fact from an
     # elevated play makes ansible_facts['env']['HOME'] resolve to /root, so the
     # task deleted /root/.claude-tokens/ccy/usage-cache and left the user's
-    # stale cache in place. Same trap Plan 00088 fixed; play-claude-code.yml
-    # documents it in full above its claude_state_dir var.
+    # stale cache in place. Same trap Plan 00088 fixed; documented in full above
+    # this play's claude_state_dir var.
     - name: Discard Stale Token Usage Cache From Host
       ansible.builtin.file:
         path: /home/{{ user_login }}/.claude-tokens/ccy/usage-cache
@@ -409,6 +432,231 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0644"
+
+    # =========================================================================
+    # Host Claude Code CLI and the cc wrapper
+    # =========================================================================
+    # cc sources the lib installed above, so these tasks come after it.
+
+    - name: Ensure jq is available
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ensure-jq.yml"
+
+    - name: Install Claude Code Dependencies (System Level)
+      become: true
+      ansible.builtin.package:
+        name: "{{ packages }}"
+        state: present
+      vars:
+        packages:
+          - ripgrep
+          - curl
+          - wget
+          - git
+          - openssh-clients
+
+    - name: Check if Claude Code is Already Installed
+      ansible.builtin.stat:
+        path: "/home/{{ user_login }}/.local/bin/claude"
+      register: claude_installed
+
+    # Fresh host: bootstrap the native build on the chosen channel.
+    - name: Install Claude Code CLI via Official Installer
+      ansible.builtin.shell: |
+        set -euo pipefail
+        curl -fsSL https://claude.ai/install.sh | bash -s {{ claude_code_version }}
+      args:
+        executable: /bin/bash
+      environment:
+        HOME: "/home/{{ user_login }}"
+      when: not claude_installed.stat.exists
+
+    # Existing host: ensure it tracks the chosen channel. `claude install latest`
+    # switches the native updater's (sticky) channel so cc's per-launch
+    # `claude update` follows the leading edge instead of the slower `stable`
+    # rollout. Without this, retargeting claude_code_version above would never
+    # reach a host that already has claude installed (the bootstrap task is
+    # gated on absence). Reports changed only when it actually moves the version.
+    - name: Ensure Claude Code Tracks the '{{ claude_code_version }}' Channel
+      ansible.builtin.shell: |
+        set -euo pipefail
+        export PATH="$HOME/.local/bin:$PATH"
+        before="$(claude --version)"
+        claude install {{ claude_code_version }}
+        after="$(claude --version)"
+        # Surface the result for changed_when; trailing line is machine-parsed.
+        echo "CCVER before=${before} after=${after}"
+      args:
+        executable: /bin/bash
+      environment:
+        HOME: "/home/{{ user_login }}"
+      when: claude_installed.stat.exists
+      register: claude_channel_sync
+      changed_when: >-
+        ('CCVER before=' in claude_channel_sync.stdout) and
+        (claude_channel_sync.stdout
+          | regex_search('CCVER before=(.*) after=(.*)$', '\\1', '\\2')
+          | unique | length > 1)
+
+    # cc wrapper script — token-source parity with ccy. Shares the ccy
+    # token pool at ~/.claude-tokens/ccy/tokens/ and presents the same
+    # named-token chooser with an added "Desktop" pseudo-option that
+    # preserves the pre-Plan-00048 cc behaviour (host ~/.claude/ OAuth).
+    # See CLAUDE/Plan/00048-cc-token-source-parity/PLAN.md.
+    - name: Create /var/local/claude-code Directory
+      become: true
+      ansible.builtin.file:
+        path: /var/local/claude-code
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install cc Wrapper Script
+      become: true
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/var/local/claude-code/cc"
+        dest: /var/local/claude-code/cc
+        owner: root
+        group: root
+        mode: "0755"
+      tags:
+        - scripts
+        - wrapper
+
+    # Claude Code writes its session state — full conversation transcripts,
+    # verbatim pre-edit file bodies in file-history/, shell snapshots, prompt
+    # history — as plaintext under ~/.claude. Anthropic documents that this
+    # state is NOT encrypted at rest and that OS file permissions are its only
+    # protection:
+    #   https://code.claude.com/docs/en/claude-directory  ("Plaintext storage")
+    #
+    # The cc wrapper above now sets a restrictive umask, so state created from
+    # here on is owner-only. These three tasks repair the state that was written
+    # before that umask existed. Plan 00098 measured 887 of 990 files and 331 of
+    # 348 directories carrying group/other bits in a single store.
+    #
+    # See CLAUDE/Plan/00098-encrypted-claude-transcripts-at-rest/PLAN.md
+    - name: Check Whether the Claude Code State Directory Exists
+      ansible.builtin.stat:
+        path: "{{ claude_state_dir }}"
+      register: claude_state
+
+    # Probe-then-act: find's output is inspected explicitly by the tasks below,
+    # so a genuine error still stops the play.
+    - name: Find Claude Code State Entries With Group or Other Permissions
+      ansible.builtin.command:
+        # argv (list form) bypasses Ansible 2.19's split_args parser entirely,
+        # so find's parentheses need no shell quoting.
+        #
+        # -perm /077 matches any entry with ANY group or other bit set, so a
+        # re-run after the repair matches nothing — that is what makes this
+        # idempotent without a `creates:` guard.
+        #
+        # -type f/-type d deliberately EXCLUDES symlinks: chmod on a symlink
+        # applies to its target, which may live outside this tree.
+        argv:
+          - find
+          - "{{ claude_state_dir }}"
+          - (
+          - -type
+          - f
+          - -o
+          - -type
+          - d
+          - )
+          - -perm
+          - /077
+          - -print
+      register: claude_state_offenders
+      changed_when: false
+      when: claude_state.stat.exists
+
+    - name: Restrict Claude Code State to the Owner
+      ansible.builtin.command:
+        # `chmod go=` removes group/other bits and leaves OWNER bits untouched.
+        # This matters: a blanket restrictive mode would strip the execute bit
+        # from every executable in the tree (129 of them in the store Plan 00098
+        # measured — plugin and skill scripts, plus backups of executables).
+        argv:
+          - find
+          - "{{ claude_state_dir }}"
+          - (
+          - -type
+          - f
+          - -o
+          - -type
+          - d
+          - )
+          - -perm
+          - /077
+          - -exec
+          - chmod
+          - go=
+          - "{}"
+          - +
+      changed_when: true
+      when:
+        - claude_state.stat.exists
+        - claude_state_offenders.stdout_lines | length > 0
+
+    # Fail fast: a repair that silently left files exposed is worse than no
+    # repair, because the summary would report the store as protected.
+    - name: Assert No Claude Code State Entry Is Group or Other Accessible
+      ansible.builtin.command:
+        argv:
+          - find
+          - "{{ claude_state_dir }}"
+          - (
+          - -type
+          - f
+          - -o
+          - -type
+          - d
+          - )
+          - -perm
+          - /077
+          - -print
+      register: claude_state_remaining
+      changed_when: false
+      failed_when: claude_state_remaining.stdout_lines | length > 0
+      when: claude_state.stat.exists
+
+    - name: Configure Claude Code Shell Integration
+      ansible.builtin.blockinfile:
+        path: "/home/{{ user_login }}/.bashrc"
+        marker: "# {mark} ANSIBLE MANAGED: Claude Code Integration"
+        block: |
+          # Claude Code CLI alias and PATH
+          # cc is a wrapper script — see /var/local/claude-code/cc
+          export PATH="$HOME/.local/bin:$PATH"
+          alias cc='/var/local/claude-code/cc'
+        create: false
+
+    - name: Verify Claude Code Installation
+      ansible.builtin.shell: |
+        set -euo pipefail
+        export PATH="$HOME/.local/bin:$PATH"
+        # Capture each value into a variable first so a failing probe trips
+        # set -e (command substitutions inline in echo do not fail the echo).
+        claude_version=$(claude --version)
+        claude_location=$(which claude)
+        ripgrep_version=$(rg --version | head -1)
+        jq_version=$(jq --version)
+        echo "Claude Code Version: ${claude_version}"
+        echo "Claude Code Location: ${claude_location}"
+        echo "Dependencies Available:"
+        echo "  - ripgrep: ${ripgrep_version}"
+        echo "  - jq: ${jq_version}"
+      args:
+        executable: /bin/bash
+      environment:
+        HOME: "/home/{{ user_login }}"
+      register: claude_code_verification
+      changed_when: false
+
+    - name: Display Claude Code Installation
+      ansible.builtin.debug:
+        msg: "{{ claude_code_verification.stdout_lines }}"
 
     # ccy refuses every interactive launch without tmux, so it is a dependency of THIS
     # play, not only of play-tmux-sessions.yml (which runs later in playbook-main.yml and
@@ -711,8 +959,11 @@
       ansible.builtin.debug:
         msg:
           - "════════════════════════════════════════════════════════════════"
-          - "Claude Code CCY Installation Complete"
+          - "Claude Code cc + CCY Installation Complete"
           - "════════════════════════════════════════════════════════════════"
+          - ""
+          - "✅ cc — Claude Code on the host"
+          - "   • Alias: cc (host ~/.claude or a ccy token)"
           - ""
           - "✅ CCY — Claude Code YOLO Mode"
           - "   • Container: claude-yolo:latest"
