@@ -185,13 +185,46 @@ class TestPlaySource(unittest.TestCase):
             plugin_support.play_source((None, 1, 1))
 
 
+class TestNamesPlaybooks(unittest.TestCase):
+    """Whether the command line named playbook files, from `context.CLIARGS['args']`.
+
+    The shapes are ansible-core's, measured and re-asserted against the real CLIs in
+    test_source_position_against_real_ansible: `ansible-playbook` puts its playbook
+    files there as a list, `ansible` puts its host PATTERN there as a string, and
+    `ansible-console` leaves it None."""
+
+    def test_an_ansible_playbook_run_names_its_files(self) -> None:
+        self.assertIs(plugin_support.names_playbooks({"args": ["site.yml"]}), True)
+
+    def test_a_tuple_of_files_counts(self) -> None:
+        self.assertIs(plugin_support.names_playbooks({"args": ("a.yml", "b.yml")}), True)
+
+    def test_an_ad_hoc_pattern_is_not_a_playbook(self) -> None:
+        """A string is the ad-hoc host pattern, not a one-element file list."""
+        self.assertIs(plugin_support.names_playbooks({"args": "localhost"}), False)
+
+    def test_an_ansible_console_run_names_none(self) -> None:
+        self.assertIs(plugin_support.names_playbooks({"args": None, "pattern": "all"}), False)
+
+    def test_missing_or_empty_names_none(self) -> None:
+        self.assertIs(plugin_support.names_playbooks({}), False)
+        self.assertIs(plugin_support.names_playbooks({"args": []}), False)
+
+    def test_a_non_string_entry_is_not_a_playbook_file(self) -> None:
+        self.assertIs(plugin_support.names_playbooks({"args": ["site.yml", None]}), False)
+        self.assertIs(plugin_support.names_playbooks({"args": [""]}), False)
+
+
 class TestPlayToRecord(unittest.TestCase):
-    """An ad-hoc `ansible -m` play has no file, so there is nothing to ledger — and
-    treating it as a hole marked the ledger BROKEN on every ad-hoc run (Plan 00134 F2)."""
+    """A play with no file behind it is skipped — ad-hoc `ansible -m` (Plan 00134 F2) and
+    `ansible-console` — while a play from a playbook run with no position is still a
+    recorded hole."""
 
     def test_an_ad_hoc_run_is_skipped_even_with_no_position(self) -> None:
         self.assertIsNone(
-            plugin_support.play_to_record(plugin_support.ADHOC_PLAYBOOK_FILE, None)
+            plugin_support.play_to_record(
+                plugin_support.ADHOC_PLAYBOOK_FILE, None, names_playbooks=False
+            )
         )
 
     def test_an_ad_hoc_run_is_skipped_even_if_a_position_appears(self) -> None:
@@ -199,31 +232,45 @@ class TestPlayToRecord(unittest.TestCase):
         with, so a ledger row for it could never be joined to a play file."""
         self.assertIsNone(
             plugin_support.play_to_record(
-                plugin_support.ADHOC_PLAYBOOK_FILE, ("<adhoc>", 1, 1)
+                plugin_support.ADHOC_PLAYBOOK_FILE, ("<adhoc>", 1, 1), names_playbooks=False
             )
         )
 
-    def test_the_sentinel_is_the_one_ansible_cli_adhoc_sets(self) -> None:
-        self.assertEqual(plugin_support.ADHOC_PLAYBOOK_FILE, "__adhoc_playbook__")
+    def test_the_ad_hoc_marker_alone_skips(self) -> None:
+        """Each signal is enough on its own, so a change to one does not undo the fix."""
+        self.assertIsNone(
+            plugin_support.play_to_record(
+                plugin_support.ADHOC_PLAYBOOK_FILE, None, names_playbooks=True
+            )
+        )
+
+    def test_a_console_run_is_skipped(self) -> None:
+        """`ansible-console` sends no v2_playbook_on_start and names no playbook."""
+        self.assertIsNone(plugin_support.play_to_record(None, None, names_playbooks=False))
 
     def test_a_playbook_play_with_no_position_still_refuses(self) -> None:
         with self.assertRaises(ValueError):
-            plugin_support.play_to_record("/repo/playbooks/playbook-main.yml", None)
+            plugin_support.play_to_record(
+                "/repo/playbooks/playbook-main.yml", None, names_playbooks=True
+            )
 
-    def test_an_unknown_playbook_with_no_position_still_refuses(self) -> None:
-        """No v2_playbook_on_start seen is not evidence of an ad-hoc run."""
+    def test_a_playbook_run_with_no_start_event_still_refuses(self) -> None:
+        """A playbook was named, so a missing v2_playbook_on_start is not evidence of a
+        fileless run; a play with no position here must stay a hole."""
         with self.assertRaises(ValueError):
-            plugin_support.play_to_record(None, None)
+            plugin_support.play_to_record(None, None, names_playbooks=True)
 
     def test_a_play_named_like_an_ad_hoc_one_is_not_skipped(self) -> None:
         """The discriminator is the CLI's sentinel file name, not the play's name,
         which any playbook author is free to choose."""
         with self.assertRaises(ValueError):
-            plugin_support.play_to_record("Ansible Ad-Hoc", None)
+            plugin_support.play_to_record("Ansible Ad-Hoc", None, names_playbooks=True)
 
     def test_a_playbook_play_yields_its_file(self) -> None:
         self.assertEqual(
-            plugin_support.play_to_record("/repo/p.yml", ("/repo/imports/x.yml", 2, 3)),
+            plugin_support.play_to_record(
+                "/repo/p.yml", ("/repo/imports/x.yml", 2, 3), names_playbooks=True
+            ),
             "/repo/imports/x.yml",
         )
 

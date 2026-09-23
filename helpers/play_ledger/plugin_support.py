@@ -96,16 +96,36 @@ def play_source(position: Any) -> str:
 ADHOC_PLAYBOOK_FILE = "__adhoc_playbook__"
 
 
-def play_to_record(playbook_file: Any, position: Any) -> str | None:
-    """The play file to ledger, or `None` when the run is ad-hoc and has none.
+def names_playbooks(cliargs: dict[str, Any]) -> bool:
+    """Whether the command line named playbook files — `ansible-playbook` and nothing else.
 
-    The ledger's unit is a play file at a commit. An ad-hoc play has no file, so
-    it is skipped rather than recorded as a hole — otherwise any ad-hoc command
-    from the checkout marks the ledger BROKEN. Every other play keeps the refusal
-    `play_source` gives: an unknown or absent playbook name is not evidence of an
-    ad-hoc run, and a playbook play with no position must still become a hole.
+    `context.CLIARGS['args']` is where `ansible-playbook` puts its files, as a list.
+    `ansible` puts its host pattern there as a string, and `ansible-console` leaves it
+    None. So a list of non-empty strings is the positive mark of a run whose plays have
+    files behind them. The shapes are asserted against the real CLIs in
+    test_source_position_against_real_ansible, which fails if ansible-playbook stops
+    naming its files here rather than letting every run go unrecorded.
     """
-    if playbook_file == ADHOC_PLAYBOOK_FILE:
+    files = cliargs.get("args")
+    return (
+        isinstance(files, list | tuple)
+        and len(files) > 0
+        and all(isinstance(name, str) and name for name in files)
+    )
+
+
+def play_to_record(playbook_file: Any, position: Any, *, names_playbooks: bool) -> str | None:
+    """The play file to ledger, or `None` when the run has no play file at all.
+
+    The ledger's unit is a play file at a commit. A play from `ansible -m` or
+    `ansible-console` has no file, so it is skipped rather than recorded as a hole;
+    otherwise any such command from the checkout marks the ledger BROKEN. Either signal
+    is enough on its own: `ansible.cli.adhoc`'s marker file name, or a command line that
+    named no playbook (`ansible-console` sends no playbook-start event at all, so it has
+    no marker to set). A playbook run keeps the refusal `play_source` gives, and a
+    missing playbook-start event there is not evidence of a fileless run.
+    """
+    if playbook_file == ADHOC_PLAYBOOK_FILE or not names_playbooks:
         return None
     return play_source(position)
 

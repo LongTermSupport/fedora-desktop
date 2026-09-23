@@ -96,13 +96,16 @@ class CallbackModule(CallbackBase):
         self._enabled = False
         self._broken = False
         self._playbook_file: str | None = None
+        self._names_playbooks = False
         # Unlike the event methods below, an exception HERE is not swallowed —
         # Ansible instantiates callbacks outside that protection, so a bad
         # XDG_STATE_HOME would abort every playbook in the repo over a ledger
         # problem. Disable the ledger instead and say so.
         try:
             self._base = ledger.ledger_dir(os.environ, os.path.expanduser("~"))
-            self._enabled = plugin_support.should_record(dict(context.CLIARGS))
+            cliargs = dict(context.CLIARGS)
+            self._enabled = plugin_support.should_record(cliargs)
+            self._names_playbooks = plugin_support.names_playbooks(cliargs)
         except Exception as error:
             self._broken = True
             self._warn(f"{plugin_support.FAILURE_MARKER}: {type(error).__name__}: {error}")
@@ -143,7 +146,9 @@ class CallbackModule(CallbackBase):
             return
         try:
             play_path = plugin_support.play_to_record(
-                self._playbook_file, _source_position(play)
+                self._playbook_file,
+                _source_position(play),
+                names_playbooks=self._names_playbooks,
             )
             if play_path is None:
                 return
