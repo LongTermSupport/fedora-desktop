@@ -259,10 +259,13 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   - [ ] ⬜ **HOST**: the rendering itself — whether St shows the demoted lines legibly and
     whether the icon is the right thing to look at. Only a Wayland session can say, and
     the harness deliberately does not claim to
-- [ ] ⬜ **Task 4.3**: Play/task runner — plays with their ledger state, launched in a
-  visible terminal, never in the background. **Unblocked, and unwritten.** It was waiting on
-  Task 1.2's HOST run for the ledger's real contents; check [7] now has them — 18 plays, run
-  counts from 1 to 6. This is the plan's one piece of outstanding code
+- [ ] 🔄 **Task 4.3**: Play/task runner — plays with their ledger state, launched in a
+  visible terminal, never in the background. Code done — HOST run pending. Ledger-seen
+  plays via `host-status.json` `plays`; a click runs `fedora-desktop-health --run-play`.
+  Decisions: [DESIGN-panel.md](DESIGN-panel.md) §9
+  - [ ] ⬜ **HOST**: the rows read well in a live shell, a click opens the terminal via
+    `xdg-terminal-exec`, `run.bash`'s sudo prompt works there, and the next report shows
+    the play as fresh
 - [x] ✅ **Task 4.4**: Sections registered, not hardcoded — one array entry per section
 - [ ] 🔄 **Task 4.5**: ESLint clean, deployed by its own play, Wayland-correct
   - [x] ✅ ESLint and compat gate green; `play-fedora-desktop-panel.yml` deploys it
@@ -297,7 +300,8 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     unwritten.** Nothing in the repo watches lock state today, and the two viable owners
     trade off against each other rather than one being determined:
     the panel gets `ActiveChanged` for free but its own header says it *"runs no check of
-    its own, applies no fix, and launches no play"*, which this would end; a user
+    its own and applies no fix"*, and launches only a terminal a person is looking at.
+    An automatic background refresh would end that; a user
     systemd unit keeps that contract intact but costs a long-running daemon whose only
     job is to watch one signal the shell already dispatches. Reasoning and the third
     option in [DESIGN-panel.md §12](DESIGN-panel.md). Implementable and unit-testable
