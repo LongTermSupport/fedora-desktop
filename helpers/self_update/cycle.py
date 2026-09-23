@@ -254,6 +254,7 @@ class UpdateResult:
 
 class Host(Protocol):
     def check_remote(self, url: str) -> str | None: ...
+    def head_trusted(self) -> bool: ...
     def check_toolchain(self) -> str | None: ...
     def update(self, *, dry_run: bool) -> UpdateResult: ...
     def changed_plays(self, old: str, new: str) -> affected_plays.Report: ...
@@ -316,6 +317,17 @@ def run_cycle(config: Config, host: Host, state: State, *, dry_run: bool, stdout
             return EXIT_REFUSED
         return _finish(state, host, stdout, stderr, code=EXIT_REFUSED, phase="update", outcome="refused",
                        detail="the deploy clone's remote is not the configured one", announce=True)
+
+    # The gate only judges commits above HEAD, and a first cycle has no deployed record to
+    # say HEAD was ever vouched for, so it would run every allowlisted play from whatever
+    # the clone was made at.
+    if state.read_deployed() is None and not host.head_trusted():
+        stderr.write("self-update: the deploy clone's HEAD is not a commit the pinned key signed\n")
+        if dry_run:
+            return EXIT_REFUSED
+        return _finish(state, host, stdout, stderr, code=EXIT_REFUSED, phase="trust", outcome="refused",
+                       detail="the first cycle found the deploy clone on a commit the pinned key did not sign",
+                       announce=True)
 
     result = host.update(dry_run=dry_run)
     head = result.head()
@@ -603,6 +615,12 @@ class RealHost:
         if result.stdout.strip() != url:
             return f"the deploy clone's {_REMOTE} remote is not REMOTE_URL from the config"
         return None
+
+    def head_trusted(self) -> bool:
+        return update.verify_head(
+            checkout=self._clone, allowed_signers=self._allowed_signers, principal=self._config.principal,
+            stderr=sys.stderr,
+        ) == update.EXIT_OK
 
     def update(self, *, dry_run: bool) -> UpdateResult:
         out = io.StringIO()

@@ -265,6 +265,32 @@
         update: false
       when: self_update_on
 
+    # A fresh clone sits on the remote's tip, which nobody has vouched for, and the cycle's
+    # gate only judges commits above HEAD. So HEAD is moved back to the newest commit the
+    # pinned key signed, or the play fails: root must never import or run an unsigned
+    # tree. A HEAD that is already signed is left alone; moving forward is the cycle's job.
+    # The helper runs from this checkout, the one the owner is deploying from, never from
+    # the clone it is judging.
+    - name: Anchor the Deploy Clone on the Newest Signed Commit
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -m
+          - helpers.self_update.update
+          - --anchor
+          - --checkout
+          - "{{ self_update_clone }}"
+          - --branch
+          - "{{ self_update_branch }}"
+          - --allowed-signers
+          - "{{ self_update_etc_dir }}/self-update.allowed_signers"
+          - --principal
+          - "{{ self_update_signing_principal }}"
+        chdir: "{{ root_dir }}"
+      register: self_update_anchor
+      changed_when: "'SELF-UPDATE-ANCHOR-MOVED' in self_update_anchor.stdout"
+      when: self_update_on
+
     # Root-owned and world-readable (the plays read it as the user), never user-writable.
     # A clone this play did not make, or one whose modes drifted, is a refusal: the cycle
     # would otherwise run code a session could have edited.

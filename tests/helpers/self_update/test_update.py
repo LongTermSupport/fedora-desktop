@@ -405,6 +405,113 @@ class TestRefusals(UpdateCase):
         self.assertEqual(self.fx.run(principal="")[0], update.EXIT_USAGE)
 
 
+class TestAnchor(UpdateCase):
+    """A fresh clone is at whatever the remote's tip is, which nobody vouched for. The play
+    anchors it: HEAD must be a commit the pinned key signed before root runs any of it."""
+
+    def _fresh_clone(self) -> str:
+        path = os.path.join(self.fx.root, "fresh")
+        self.fx.git(self.fx.root, "clone", "-q", "-b", BRANCH, self.fx.origin, path)
+        return path
+
+    def _anchor(self, checkout: str, **overrides: object) -> tuple[int, str, str]:
+        args: dict[str, object] = {
+            "checkout": checkout, "branch": BRANCH, "allowed_signers": self.fx.allowed,
+            "principal": PRINCIPAL, "os_release": self.fx.os_release,
+        }
+        args.update(overrides)
+        out, err = io.StringIO(), io.StringIO()
+        code = update.anchor(**args, stdout=out, stderr=err, env=self.fx.env)
+        return code, out.getvalue(), err.getvalue()
+
+    def _head(self, checkout: str) -> str:
+        return self.fx.git(checkout, "rev-parse", "HEAD")
+
+    def test_a_clone_at_an_unsigned_tip_moves_back_to_the_newest_signed_commit(self) -> None:
+        signed = self.fx.commit("a.txt", "a\n", "owner", sign="owner")
+        unsigned = self.fx.commit("b.txt", "b\n", "agent on top")
+        self.fx.push()
+        fresh = self._fresh_clone()
+        self.assertEqual(self._head(fresh), unsigned)
+        code, out, err = self._anchor(fresh)
+        self.assertEqual(code, update.EXIT_OK, err)
+        self.assertEqual(self._head(fresh), signed)
+        self.assertIn(f"SELF-UPDATE-ANCHORED {signed}", out)
+        self.assertIn(f"SELF-UPDATE-ANCHOR-MOVED {unsigned}", out)
+        self.assertEqual(self.fx.git(fresh, "symbolic-ref", "--short", "HEAD"), BRANCH)
+        self.assertEqual(self.fx.git(fresh, "status", "--porcelain"), "")
+
+    def test_a_signed_head_is_left_where_it_is(self) -> None:
+        before = self.fx.deployed()
+        code, out, _ = self._anchor(self.fx.deploy)
+        self.assertEqual(code, update.EXIT_OK)
+        self.assertEqual(self.fx.deployed(), before)
+        self.assertIn(f"SELF-UPDATE-ANCHORED {before}", out)
+        self.assertNotIn("SELF-UPDATE-ANCHOR-MOVED", out)
+
+    def test_it_never_moves_forward_past_the_gate(self) -> None:
+        before = self.fx.deployed()
+        self.fx.commit("a.txt", "a\n", "owner", sign="owner")
+        self.fx.push()
+        self.fx.git(self.fx.deploy, "fetch", "-q", "origin")
+        code, _, _ = self._anchor(self.fx.deploy)
+        self.assertEqual(code, update.EXIT_OK)
+        self.assertEqual(self.fx.deployed(), before)
+
+    def test_no_trusted_commit_in_the_history_refuses_and_moves_nothing(self) -> None:
+        self.fx.commit("a.txt", "a\n", "agent")
+        self.fx.push()
+        fresh = self._fresh_clone()
+        before = self._head(fresh)
+        code, out, err = self._anchor(fresh, principal="someone-else@example.com")
+        self.assertEqual(code, update.EXIT_UNTRUSTED)
+        self.assertEqual(self._head(fresh), before)
+        self.assertEqual(out, "")
+        self.assertIn("no commit", err)
+
+    def test_the_target_must_match_the_running_fedora(self) -> None:
+        self.fx.commit("a.txt", "a\n", "agent")
+        self.fx.push()
+        fresh = self._fresh_clone()
+        before = self._head(fresh)
+        self.fx.set_running_fedora(43)
+        code, _, _ = self._anchor(fresh)
+        self.assertEqual(code, update.EXIT_FEDORA_MISMATCH)
+        self.assertEqual(self._head(fresh), before)
+
+    def test_a_dirty_clone_refuses(self) -> None:
+        with open(os.path.join(self.fx.deploy, "stray.txt"), "w", encoding="utf-8") as handle:
+            handle.write("x\n")
+        self.assertEqual(self._anchor(self.fx.deploy)[0], update.EXIT_DIRTY)
+
+
+class TestVerifyHead(UpdateCase):
+    def _verify(self, **overrides: object) -> int:
+        args: dict[str, object] = {
+            "checkout": self.fx.deploy, "allowed_signers": self.fx.allowed, "principal": PRINCIPAL,
+        }
+        args.update(overrides)
+        return update.verify_head(**args, stderr=io.StringIO(), env=self.fx.env)
+
+    def test_a_head_signed_by_the_pinned_key_is_trusted(self) -> None:
+        self.assertEqual(self._verify(), update.EXIT_OK)
+
+    def test_an_unsigned_head_is_not(self) -> None:
+        self.fx.commit("a.txt", "a\n", "agent")
+        self.fx.push()
+        self.fx.git(self.fx.deploy, "pull", "-q", "--ff-only")
+        self.assertEqual(self._verify(), update.EXIT_UNTRUSTED)
+
+    def test_a_head_signed_by_another_key_is_not(self) -> None:
+        self.fx.commit("a.txt", "a\n", "other", sign="other")
+        self.fx.push()
+        self.fx.git(self.fx.deploy, "pull", "-q", "--ff-only")
+        self.assertEqual(self._verify(), update.EXIT_UNTRUSTED)
+
+    def test_the_wrong_principal_is_not_trusted(self) -> None:
+        self.assertEqual(self._verify(principal="someone-else@example.com"), update.EXIT_UNTRUSTED)
+
+
 class TestCli(UpdateCase):
     def _cli(self, *args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
@@ -422,6 +529,27 @@ class TestCli(UpdateCase):
         )
         self.assertEqual(result.returncode, update.EXIT_OK, result.stderr)
         self.assertIn(f"SELF-UPDATE-NEW {new}", result.stdout)
+
+    def test_anchor_runs_as_a_cli(self) -> None:
+        signed = self.fx.deployed()
+        self.fx.commit("a.txt", "a\n", "agent")
+        self.fx.push()
+        fresh = os.path.join(self.fx.root, "fresh")
+        self.fx.git(self.fx.root, "clone", "-q", "-b", BRANCH, self.fx.origin, fresh)
+        result = self._cli(
+            "--anchor", "--checkout", fresh, "--branch", BRANCH,
+            "--allowed-signers", self.fx.allowed, "--principal", PRINCIPAL,
+            "--os-release", self.fx.os_release,
+        )
+        self.assertEqual(result.returncode, update.EXIT_OK, result.stderr)
+        self.assertIn(f"SELF-UPDATE-ANCHORED {signed}", result.stdout)
+
+    def test_an_update_without_a_remote_is_a_usage_error(self) -> None:
+        result = self._cli(
+            "--checkout", self.fx.deploy, "--branch", BRANCH,
+            "--allowed-signers", self.fx.allowed, "--principal", PRINCIPAL,
+        )
+        self.assertEqual(result.returncode, update.EXIT_USAGE)
 
     def test_missing_arguments_are_a_usage_error(self) -> None:
         result = self._cli("--checkout", self.fx.deploy)

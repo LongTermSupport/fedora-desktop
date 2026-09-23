@@ -41,6 +41,19 @@ stdout carries only the stable marker lines; every diagnostic goes to stderr:
     SELF-UPDATE-NOTHING <sha>  no trusted commit above the deployed one
 
 `--dry-run` runs every step, the fetch included, and stops before the fast-forward.
+
+Two more modes keep one invariant: **the deploy clone's HEAD is always a commit the pinned
+signer signed.** The gate above only judges commits ABOVE HEAD, so HEAD itself has to be
+trusted by the time root imports anything from the clone.
+
+- `--anchor` (the play, after it clones): leave a trusted HEAD where it is, otherwise
+  move the branch back to the newest trusted commit in HEAD's first-parent history. It
+  never moves forward, which is the cycle's job. No trusted commit means refusal.
+
+      SELF-UPDATE-ANCHORED <sha>       HEAD, trusted
+      SELF-UPDATE-ANCHOR-MOVED <sha>   the untrusted commit it moved away from
+
+- `verify_head` (the cycle, before a first run): EXIT_OK only if HEAD is trusted.
 """
 
 from __future__ import annotations
@@ -51,13 +64,14 @@ import shutil
 import stat
 import subprocess
 import sys
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from typing import TextIO
 
 from helpers.self_update import gate
 
 EXIT_OK = 0
 EXIT_USAGE = 2
+EXIT_UNTRUSTED = 9
 EXIT_FETCH_FAILED = 10
 EXIT_DIRTY = 11
 EXIT_DETACHED = 12
@@ -70,6 +84,8 @@ EXIT_FEDORA_MISMATCH = 18
 EXIT_GIT_FAILED = 19
 
 _FETCH_TIMEOUT_SECONDS = 120
+#: How far back `--anchor` looks for a signed commit before it refuses.
+ANCHOR_WALK_LIMIT = 1000
 _GIT_TIMEOUT_SECONDS = 60
 _FIELD_SEP = "\x1f"
 
@@ -145,6 +161,24 @@ class _Git:
         return result.returncode == 0
 
 
+def _verdict(git: _Git, sha: str, principal: str, stderr: TextIO) -> str:
+    """The gate's verdict on one commit. Only an SSH signature is ever checked."""
+    kind = gate.signature_kind(git.out("cat-file", "commit", sha))
+    if kind == gate.KIND_NONE:
+        return gate.UNTRUSTED
+    if kind == gate.KIND_OTHER:
+        stderr.write(f"self-update: {sha[:12]} carries a non-SSH signature; not trusted, never executed\n")
+        return gate.UNTRUSTED
+    status, signer = git.out("log", "-1", f"--format=%G?{_FIELD_SEP}%GS", sha).rstrip("\n").split(_FIELD_SEP, 1)
+    verdict = gate.judge(status, signer, principal)
+    if verdict == gate.UNTRUSTED:
+        stderr.write(
+            f"self-update: {sha[:12]} is signed (status {status}, signer {signer or 'none matched'}) "
+            "but not trusted: it is not the pinned principal\n"
+        )
+    return verdict
+
+
 def _candidates(git: _Git, head: str, tip: str, principal: str, stderr: TextIO) -> Iterator[tuple[str, str]]:
     """`(sha, verdict)` for the tip's first-parent commits above `head`, newest first.
 
@@ -155,22 +189,34 @@ def _candidates(git: _Git, head: str, tip: str, principal: str, stderr: TextIO) 
     for sha in git.out("rev-list", "--first-parent", f"{head}..{tip}").split():
         if not git.is_ancestor(head, sha):
             return
-        kind = gate.signature_kind(git.out("cat-file", "commit", sha))
-        if kind == gate.KIND_NONE:
-            yield sha, gate.UNTRUSTED
-            continue
-        if kind == gate.KIND_OTHER:
-            stderr.write(f"self-update: {sha[:12]} carries a non-SSH signature; not trusted, never executed\n")
-            yield sha, gate.UNTRUSTED
-            continue
-        status, signer = git.out("log", "-1", f"--format=%G?{_FIELD_SEP}%GS", sha).rstrip("\n").split(_FIELD_SEP, 1)
-        verdict = gate.judge(status, signer, principal)
-        if verdict == gate.UNTRUSTED:
-            stderr.write(
-                f"self-update: {sha[:12]} is signed (status {status}, signer {signer or 'none matched'}) "
-                "but not trusted: it is not the pinned principal\n"
-            )
-        yield sha, verdict
+        yield sha, _verdict(git, sha, principal, stderr)
+
+
+def _require_clean_branch(git: _Git, branch: str) -> None:
+    current = git.run("symbolic-ref", "--quiet", "--short", "HEAD")
+    if current.returncode != 0:
+        raise Refusal(EXIT_DETACHED, "the checkout is on a detached HEAD, not a branch")
+    if current.stdout.strip() != branch:
+        raise Refusal(EXIT_WRONG_BRANCH, f"the checkout is on {current.stdout.strip()!r}, not {branch!r}")
+    dirt = git.out("status", "--porcelain=v1", "--untracked-files=all").splitlines()
+    if dirt:
+        shown = "; ".join(dirt[:10]) + (f"; and {len(dirt) - 10} more" if len(dirt) > 10 else "")
+        raise Refusal(EXIT_DIRTY, f"the checkout has local changes or untracked files: {shown}")
+
+
+def _require_fedora_pin(git: _Git, target: str, os_release: str) -> None:
+    try:
+        pinned = gate.pinned_fedora_version(git.out("show", f"{target}:vars/fedora-version.yml"))
+        with open(os_release, encoding="utf-8") as handle:
+            running = gate.running_fedora_version(handle.read())
+    except (OSError, ValueError, Refusal) as error:
+        raise Refusal(EXIT_FEDORA_MISMATCH, f"the Fedora version pin could not be confirmed: {error}") from error
+    if pinned != running:
+        raise Refusal(
+            EXIT_FEDORA_MISMATCH,
+            f"commit {target[:12]} pins Fedora {pinned}, and this system runs Fedora {running}; "
+            "nothing was moved",
+        )
 
 
 def _update(
@@ -184,16 +230,7 @@ def _update(
     if fetched.returncode != 0:
         raise Refusal(EXIT_FETCH_FAILED, f"git fetch {remote} {branch} failed: {fetched.stderr.strip()}")
 
-    current = git.run("symbolic-ref", "--quiet", "--short", "HEAD")
-    if current.returncode != 0:
-        raise Refusal(EXIT_DETACHED, "the checkout is on a detached HEAD, not a branch")
-    if current.stdout.strip() != branch:
-        raise Refusal(EXIT_WRONG_BRANCH, f"the checkout is on {current.stdout.strip()!r}, not {branch!r}")
-
-    dirt = git.out("status", "--porcelain=v1", "--untracked-files=all").splitlines()
-    if dirt:
-        shown = "; ".join(dirt[:10]) + (f"; and {len(dirt) - 10} more" if len(dirt) > 10 else "")
-        raise Refusal(EXIT_DIRTY, f"the checkout has local changes or untracked files: {shown}")
+    _require_clean_branch(git, branch)
 
     head = git.out("rev-parse", "HEAD").strip()
     tip = git.out("rev-parse", f"refs/remotes/{remote}/{branch}").strip()
@@ -221,18 +258,7 @@ def _update(
         stdout.write(f"SELF-UPDATE-NOTHING {head}\n")
         return EXIT_OK
 
-    try:
-        pinned = gate.pinned_fedora_version(git.out("show", f"{choice.target}:vars/fedora-version.yml"))
-        with open(os_release, encoding="utf-8") as handle:
-            running = gate.running_fedora_version(handle.read())
-    except (OSError, ValueError, Refusal) as error:
-        raise Refusal(EXIT_FEDORA_MISMATCH, f"the Fedora version pin could not be confirmed: {error}") from error
-    if pinned != running:
-        raise Refusal(
-            EXIT_FEDORA_MISMATCH,
-            f"commit {choice.target[:12]} pins Fedora {pinned}, and this system runs Fedora {running}; "
-            "nothing was moved",
-        )
+    _require_fedora_pin(git, choice.target, os_release)
 
     if dry_run:
         stdout.write(f"SELF-UPDATE-OLD {head}\nSELF-UPDATE-TARGET {choice.target}\n")
@@ -243,6 +269,85 @@ def _update(
         raise Refusal(EXIT_GIT_FAILED, f"after the fast-forward HEAD is {now[:12]}, not {choice.target[:12]}")
     stdout.write(f"SELF-UPDATE-OLD {head}\nSELF-UPDATE-NEW {now}\n")
     return EXIT_OK
+
+
+def _anchor(*, git: _Git, branch: str, principal: str, os_release: str, stdout: TextIO, stderr: TextIO) -> int:
+    _require_clean_branch(git, branch)
+    head = git.out("rev-parse", "HEAD").strip()
+    history = git.out("rev-list", "--first-parent", f"--max-count={ANCHOR_WALK_LIMIT}", "HEAD").split()
+    choice = gate.choose_target((sha, _verdict(git, sha, principal, stderr)) for sha in history)
+    if choice.refused is not None:
+        raise Refusal(
+            EXIT_BAD_SIGNATURE,
+            f"commit {choice.refused[:12]} above the newest trusted commit carries a signature that "
+            "fails verification, is revoked, or cannot be checked; refusing to anchor",
+        )
+    if choice.target is None:
+        raise Refusal(
+            EXIT_UNTRUSTED,
+            f"no commit in the last {ANCHOR_WALK_LIMIT} of HEAD's history is signed by {principal}; "
+            "sign one (git sign-deploy) and push it",
+        )
+    if choice.target == head:
+        stdout.write(f"SELF-UPDATE-ANCHORED {head}\n")
+        return EXIT_OK
+    _require_fedora_pin(git, choice.target, os_release)
+    git.out("checkout", "--quiet", "-B", branch, choice.target)
+    now = git.out("rev-parse", "HEAD").strip()
+    if now != choice.target:
+        raise Refusal(EXIT_GIT_FAILED, f"after anchoring HEAD is {now[:12]}, not {choice.target[:12]}")
+    stdout.write(f"SELF-UPDATE-ANCHORED {now}\nSELF-UPDATE-ANCHOR-MOVED {head}\n")
+    return EXIT_OK
+
+
+def _guarded(stderr: TextIO, action: Callable[[], int]) -> int:
+    try:
+        return action()
+    except Refusal as refusal:
+        stderr.write(f"self-update: refused: {refusal}\n")
+        return refusal.code
+    except subprocess.TimeoutExpired as error:
+        stderr.write(f"self-update: refused: git timed out: {' '.join(str(a) for a in error.cmd)}\n")
+        return EXIT_GIT_FAILED
+
+
+def anchor(
+    *, checkout: str, branch: str, allowed_signers: str, principal: str, os_release: str = "/etc/os-release",
+    stdout: TextIO, stderr: TextIO, env: Mapping[str, str] | None = None,
+) -> int:
+    """Make the checkout's HEAD a trusted commit, moving it back if it is not."""
+    if not principal:
+        stderr.write("self-update: --principal must name the signer to trust\n")
+        return EXIT_USAGE
+
+    def act() -> int:
+        _check_signers_file(allowed_signers)
+        git = _Git(checkout, allowed_signers, env if env is not None else os.environ)
+        return _anchor(git=git, branch=branch, principal=principal, os_release=os_release,
+                       stdout=stdout, stderr=stderr)
+
+    return _guarded(stderr, act)
+
+
+def verify_head(
+    *, checkout: str, allowed_signers: str, principal: str, stderr: TextIO,
+    env: Mapping[str, str] | None = None,
+) -> int:
+    """EXIT_OK when the checkout's HEAD is signed by the pinned principal, else EXIT_UNTRUSTED."""
+    if not principal:
+        stderr.write("self-update: --principal must name the signer to trust\n")
+        return EXIT_USAGE
+
+    def act() -> int:
+        _check_signers_file(allowed_signers)
+        git = _Git(checkout, allowed_signers, env if env is not None else os.environ)
+        head = git.out("rev-parse", "HEAD").strip()
+        if _verdict(git, head, principal, stderr) == gate.TRUSTED:
+            return EXIT_OK
+        stderr.write(f"self-update: HEAD {head[:12]} is not a commit signed by {principal}\n")
+        return EXIT_UNTRUSTED
+
+    return _guarded(stderr, act)
 
 
 def run(
@@ -262,31 +367,37 @@ def run(
     if not principal:
         stderr.write("self-update: --principal must name the signer to trust\n")
         return EXIT_USAGE
-    try:
+
+    def act() -> int:
         _check_signers_file(allowed_signers)
         git = _Git(checkout, allowed_signers, env if env is not None else os.environ)
         return _update(
             git=git, remote=remote, branch=branch, principal=principal, os_release=os_release,
             dry_run=dry_run, stdout=stdout, stderr=stderr,
         )
-    except Refusal as refusal:
-        stderr.write(f"self-update: refused: {refusal}\n")
-        return refusal.code
-    except subprocess.TimeoutExpired as error:
-        stderr.write(f"self-update: refused: git timed out: {' '.join(str(a) for a in error.cmd)}\n")
-        return EXIT_GIT_FAILED
+
+    return _guarded(stderr, act)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Fast-forward the deploy clone to the newest owner-signed commit.")
     parser.add_argument("--checkout", required=True)
-    parser.add_argument("--remote", required=True)
+    parser.add_argument("--remote")
     parser.add_argument("--branch", required=True)
     parser.add_argument("--allowed-signers", required=True)
     parser.add_argument("--principal", required=True)
     parser.add_argument("--os-release", default="/etc/os-release")
-    parser.add_argument("--dry-run", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true")
+    mode.add_argument("--anchor", action="store_true", help="make HEAD a trusted commit (the play, after cloning)")
     args = parser.parse_args(argv)
+    if args.anchor:
+        return anchor(
+            checkout=args.checkout, branch=args.branch, allowed_signers=args.allowed_signers,
+            principal=args.principal, os_release=args.os_release, stdout=sys.stdout, stderr=sys.stderr,
+        )
+    if not args.remote:
+        parser.error("--remote is required to update")
     return run(
         checkout=args.checkout, remote=args.remote, branch=args.branch,
         allowed_signers=args.allowed_signers, principal=args.principal, os_release=args.os_release,

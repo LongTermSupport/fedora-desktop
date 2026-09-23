@@ -1,6 +1,9 @@
 # {{ ansible_managed }}
-# Plan 00137: the owner may start the self-update cycle by hand, and nothing else. The
-# rule names one root-owned, user-unwritable command. With no argument list, sudo allows
-# any arguments to it; the script is what refuses an unknown subcommand. This grants no
-# general root.
-{{ user_login }} ALL=(root) NOPASSWD: /usr/local/sbin/fedora-desktop-self-update
+# Plan 00137: the owner may start the self-update cycle by hand, and nothing else. Each
+# entry is one exact argument list, so sudo refuses anything else before the root-owned
+# script is even run, and no extra option can reach the helper's argument parser. This
+# grants no general root.
+{{ user_login }} ALL=(root) NOPASSWD: /usr/local/sbin/fedora-desktop-self-update run, \
+    /usr/local/sbin/fedora-desktop-self-update run --dry-run, \
+    /usr/local/sbin/fedora-desktop-self-update verify, \
+    /usr/local/sbin/fedora-desktop-self-update status

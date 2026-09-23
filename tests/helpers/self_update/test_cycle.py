@@ -51,11 +51,16 @@ class FakeHost:
         self.boot = "boot-1"
         self.cancel_on_sleep: int | None = None
         self.toolchain_error: str | None = None
+        self.trusted_head = True
         self.state: cycle.State | None = None
 
     def check_remote(self, url: str) -> str | None:
         self.calls.append("check_remote")
         return self.remote_error
+
+    def head_trusted(self) -> bool:
+        self.calls.append("head_trusted")
+        return self.trusted_head
 
     def check_toolchain(self) -> str | None:
         self.calls.append("check_toolchain")
@@ -463,6 +468,30 @@ class TestPlays(CycleCase):
         self.assertIn("allowlist", self.host.calls)
         self.assertNotIn(f"changed_plays {OLD[:1]}..{NEW[:1]}", self.host.calls)
         self.assertIn(f"play {PLAY}", self.host.calls)
+
+    def test_the_first_cycle_refuses_a_clone_whose_head_nobody_signed(self) -> None:
+        self.host.trusted_head = False
+        code, out, err = self.run_cycle()
+        self.assertEqual(code, cycle.EXIT_REFUSED)
+        self.assertEqual(self.host.calls, ["check_remote", "head_trusted"])
+        record = self.state.read_result()
+        assert record is not None
+        self.assertEqual((record["phase"], record["outcome"]), ("trust", "refused"))
+        self.assertIn("ALERT refused", err)
+        self.assertIn("SELF-UPDATE-CYCLE refused", out)
+        self.assertIsNone(self.state.read_deployed())
+
+    def test_a_dry_run_of_that_first_cycle_refuses_and_records_nothing(self) -> None:
+        self.host.trusted_head = False
+        code, _, _ = self.run_cycle(dry_run=True)
+        self.assertEqual(code, cycle.EXIT_REFUSED)
+        self.assertIsNone(self.state.read_result())
+
+    def test_a_cycle_with_a_deployed_record_does_not_ask(self) -> None:
+        self.state.write_deployed(OLD)
+        self.host.trusted_head = False
+        self.run_cycle()
+        self.assertNotIn("head_trusted", self.host.calls)
 
 
 class TestWarnAndReboot(CycleCase):

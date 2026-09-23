@@ -73,8 +73,38 @@ for dir in "${CLONE}" "${STATE}" "${PUBLISHED}"; do
     fi
 done
 
-# The helpers are imported from the deploy clone, so the code that runs as root is the
-# signed, root-owned tree and never a user's checkout.
+# The helpers are imported from the deploy clone, so nothing is imported until its HEAD is
+# proven to be a commit the pinned key signed and its tree is exactly that commit. The
+# cycle's own gate judges only commits ABOVE HEAD, so it cannot vouch for the code that
+# runs it. The signing programs are pinned on git's command line, so the clone's config
+# cannot choose what judges it, and a non-SSH signature runs `false`, never a signer.
+if [[ ! -f "${CONFIG}" ]]; then
+    echo "fedora-desktop-self-update: ${CONFIG} does not exist; deploy the self-update play first" >&2
+    exit 70
+fi
+PRINCIPAL="$(awk -F= '$1 == "PRINCIPAL" { print substr($0, length($1) + 2); exit }' "${CONFIG}")"
+if [[ -z "${PRINCIPAL}" ]]; then
+    echo "fedora-desktop-self-update: ${CONFIG} names no PRINCIPAL; re-run the self-update play" >&2
+    exit 70
+fi
+if ! SSH_KEYGEN="$(command -v ssh-keygen)"; then
+    echo "fedora-desktop-self-update: ssh-keygen is not installed, so no signature can be checked" >&2
+    exit 70
+fi
+GIT=(git -C "${CLONE}" -c core.hooksPath=/dev/null -c core.fsmonitor=false -c protocol.ext.allow=never
+    -c gpg.program=false -c gpg.openpgp.program=false -c gpg.x509.program=false
+    -c "gpg.ssh.program=${SSH_KEYGEN}" -c "gpg.ssh.allowedSignersFile=${ALLOWED_SIGNERS}")
+UNTRUSTED="re-run the self-update play: it moves the clone to the newest commit your key signed"
+if ! SIGNATURE="$("${GIT[@]}" log -1 --format='%G?:%GS' HEAD 2>&1)" ||
+    [[ "${SIGNATURE}" != "G:${PRINCIPAL}" ]]; then
+    echo "fedora-desktop-self-update: the deploy clone's HEAD is not a commit signed by ${PRINCIPAL}; nothing from it was run. ${UNTRUSTED}" >&2
+    exit 20
+fi
+if ! DIRT="$("${GIT[@]}" status --porcelain=v1 --untracked-files=all 2>&1)" || [[ -n "${DIRT}" ]]; then
+    echo "fedora-desktop-self-update: the deploy clone differs from its signed HEAD; nothing from it was run. ${UNTRUSTED}" >&2
+    exit 20
+fi
+
 cd "${CLONE}"
 exec python3 -m helpers.self_update.cycle \
     --config "${CONFIG}" --state-dir "${STATE}" --published-dir "${PUBLISHED}" --clone "${CLONE}" \

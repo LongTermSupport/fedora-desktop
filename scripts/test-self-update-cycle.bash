@@ -242,16 +242,31 @@ check "the refusal names the play to deploy" "yes" "$(says 'deploy the self-upda
 mkdir -p "$PUBLISHED"
 chmod 2750 "$PUBLISHED"
 
-cycle status
-check "status with no history exits 0" "0" "$RC"
-check "status with no history says so" "no cycle has run yet" "$(awk 'NR == 1' "$OUT")"
-
 cycle run
 check "run with no config file is a config error (70)" "70" "$RC"
+cycle status
+check "so is status: nothing is imported from the clone before its HEAD is judged" "70" "$RC"
 
 printf 'USER=%s\nBRANCH=main\nREMOTE_URL=%s\nPRINCIPAL=%s\nWARN_MINUTES=1\nALERT_SINKS=\nANSIBLE_COLLECTIONS_DIR=%s\n' \
     "$(id -un)" "$REMOTE_URL" "$PRINCIPAL" "$COLLECTIONS" >"$ETC/self-update.conf"
 chmod 600 "$ETC/self-update.conf"
+
+cycle status
+check "status with no history exits 0" "0" "$RC"
+check "status with no history says so" "no cycle has run yet" "$(awk 'NR == 1' "$OUT")"
+
+# ── arguments cannot override the fixed paths ─────────────────────────────────────────
+# sudoers allows only four exact argument lists; this proves the helper refuses the rest
+# too, so a switch to a lenient argument parser would fail here before it reached a host.
+echo "arguments cannot override the fixed paths"
+for extra in "run --ansible-playbook /bin/true" "run -- --config /dev/null" "status --config=/dev/null" \
+    "run --dry-run --clone /tmp" "verify --state-dir /tmp"; do
+    read -r -a extra_args <<<"$extra"
+    cycle "${extra_args[@]}"
+    check "'$extra' is a usage error (64)" "64" "$RC"
+    check "'$extra' calls nothing" "" "$(calls)"
+done
+
 cycle run
 check "run with no become password file is a config error (70)" "70" "$RC"
 check "nothing moved without the become password file" "$BASE" "$(git -C "$CLONE" rev-parse HEAD)"
@@ -406,6 +421,60 @@ check "a refused reboot withdraws the warning" "ccy-sessions notify going-down -
 systemctl reboot
 ccy-sessions notify reboot-cancelled" "$(calls)"
 check "a refused reboot is recorded" "reboot-failed" "$(result_key outcome)"
+
+# ── refusals through the real wrapper ─────────────────────────────────────────────────
+echo "refusals: the wrong remote, and a first cycle from a commit nobody signed"
+git -C "$CLONE" config remote.origin.url "https://example.invalid/somebody-else.git"
+cycle run
+check "a clone whose remote is not REMOTE_URL is refused (20)" "20" "$RC"
+check "and nothing is called" "" "$(calls)"
+check "and it is recorded" "refused" "$(result_key outcome)"
+git -C "$CLONE" config remote.origin.url "$REMOTE_URL"
+
+# The BLOCK the review found: a fresh clone sits on the remote's tip, which may be a
+# commit nobody signed, and the gate only judges commits ABOVE HEAD. Root must not import
+# or run anything from it.
+printf -- '- hosts: localhost\n  tasks: [] # nobody signed this\n' >"$WORK/$PLAY"
+git_work add -A
+git_work commit -q -m "an unsigned tip"
+git_work push -q origin HEAD:main
+UNSIGNED_TIP="$(git -C "$WORK" rev-parse HEAD)"
+mv "$CLONE" "$SCRATCH/clone.before"
+find "$STATE" -mindepth 1 -delete
+git clone -q -b main "$ORIGIN" "$CLONE"
+git -C "$CLONE" config remote.origin.url "$REMOTE_URL"
+git -C "$CLONE" config "url.$ORIGIN.insteadOf" "$REMOTE_URL"
+check "a fresh clone lands on the unsigned tip" "$UNSIGNED_TIP" "$(git -C "$CLONE" rev-parse HEAD)"
+cycle run
+check "a first cycle from an unsigned HEAD is refused (20)" "20" "$RC"
+check "and nothing is called" "" "$(calls)"
+check "and it says why" "yes" "$(says 'is not a commit signed by' "$ERR")"
+check "and nothing moved" "$UNSIGNED_TIP" "$(git -C "$CLONE" rev-parse HEAD)"
+check "and nothing was deployed" "no" "$(has "$STATE/deployed")"
+cycle status
+check "status is refused from that clone too (20)" "20" "$RC"
+
+# What the play does after cloning: anchor HEAD on the newest commit the pinned key signed.
+(cd "$REPO_ROOT" && python3 -m helpers.self_update.update --anchor --checkout "$CLONE" --branch main \
+    --allowed-signers "$ETC/self-update.allowed_signers" --principal "$PRINCIPAL") >"$OUT" 2>"$ERR"
+check "the anchor succeeds" "0" "$?"
+check "and moves the clone back to the newest signed commit" "$PLAY_CHANGE" "$(git -C "$CLONE" rev-parse HEAD)"
+cycle run --dry-run
+check "after anchoring, the first cycle can run" "0" "$RC"
+check "and names every allowlisted play" "yes" "$(says "^RUN $PLAY\$" "$OUT")"
+
+# A signed commit whose bytes were altered after signing: the gate refuses the whole cycle.
+echo "tampered" >"$WORK/README"
+git_work add -A
+git_work commit -q -S -m "signed, then altered"
+TAMPERED="$(git -C "$WORK" cat-file commit HEAD | awk '{ sub(/signed, then altered/, "altered after signing"); print }' |
+    git -C "$WORK" hash-object -t commit -w --stdin)"
+git_work push -q origin "$TAMPERED:refs/heads/main"
+cycle run
+check "a tampered signed commit refuses the cycle (20)" "20" "$RC"
+check "and nothing is called" "" "$(calls)"
+check "and it is recorded as refused by the gate" "update refused" "$(result_key phase) $(result_key outcome)"
+check "and nothing moved" "$PLAY_CHANGE" "$(git -C "$CLONE" rev-parse HEAD)"
 
 printf 'passed: %d failed: %d\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]
