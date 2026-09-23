@@ -83,11 +83,13 @@ containers that needs its own diagnosis (F7).
   directories, restart WirePlumber. Verify with `wpctl status` / `wpctl inspect` that
   the properties are present on the nodes. Code done (node properties now match nodes,
   not devices; other Lua left behind stops the play). HOST verify pending.
-- [ ] ⬜ **Task 2.2**: `play-browsers.yml` — resolve the duplicate `[vivaldi]` repo id:
+- [ ] 🔄 **Task 2.2**: `play-browsers.yml` — resolve the duplicate `[vivaldi]` repo id:
   keep exactly one of the two repo files (the RPM's own post-install writes
   `vivaldi.repo`; the play writes `vivaldi-fedora.repo`) and make the play remove the
   other on every run. Verify `dnf5 repolist` shows one `vivaldi` and dnf5daemon logs
-  no `Id is present more than once`.
+  no `Id is present more than once`. Code done: `vivaldi-fedora.repo` is kept, and
+  `/etc/default/vivaldi` `repo_add_once="false"` stops the scriptlet recreating the
+  other (the RPM's scriptlets are quoted in the journal, 18:35). HOST verify pending.
 - [ ] ⬜ **Task 2.3**: `files/home/.config/systemd/user/vmtest-bridge@.service` — replace
   `RuntimeMaxSec=120` with `TimeoutStartSec=120` and fix the comment. Audit every
   other `Type=oneshot` unit in `files/` for the same mistake.

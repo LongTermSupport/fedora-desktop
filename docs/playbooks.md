@@ -345,6 +345,10 @@ gh-personal issue list
 
 - Installs Google Chrome, Brave and Vivaldi from their vendor DNF repositories. Pure
   Chromium is deliberately excluded — it has no Widevine, so DRM streaming stays broken
+- Owns each vendor repository file. Chrome's and Vivaldi's packages would otherwise
+  write their own copy on every install and upgrade (`repo_add_once` in
+  `/etc/default/`), and Vivaldi's copy repeats the `[vivaldi]` id, which makes dnf refuse
+  to use either
 
 ### play-toolbox-install.yml
 
