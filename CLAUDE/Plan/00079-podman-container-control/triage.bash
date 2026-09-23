@@ -98,6 +98,23 @@ show_ps_by_each_network() {
     done < <(podman network ls --format '{{.Name}}')
 }
 
+deployed_ccy_version() {
+    # Read from the deployed file, never by running it: the launcher's `--version` is
+    # reached only after its git-repo check on the cwd and a migration prompt, so run
+    # from anywhere but a main checkout's root it exits 1 without printing a version.
+    local launcher=/var/local/claude-yolo/claude-yolo version
+    if [ ! -r "$launcher" ]; then
+        echo "no readable launcher at $launcher" >&2
+        return 1
+    fi
+    version="$(awk -F'"' '/^CCY_VERSION="[0-9.]+"/ { print $2; exit }' "$launcher")"
+    if [ -z "$version" ]; then
+        echo "no CCY_VERSION=\"x.y.z\" line in $launcher" >&2
+        return 1
+    fi
+    printf '%s\n' "$version"
+}
+
 pause_filter_support() {
     # H1/H3: pause must advertise --filter; we only read help text, never pause.
     podman pause --help
@@ -144,9 +161,7 @@ echo "###   with 'none' where an axis does not apply — never an empty value."
 probe "ps --filter label=ccy=true (identity labels)" \
     podman ps --all --filter label=ccy=true \
     --format '{{.Names}}\tproject={{index .Labels "ccy-project"}}\tgithub={{index .Labels "ccy-github"}}\ttoken={{index .Labels "ccy-token"}}\tkeys={{index .Labels "ccy-ssh-keys"}}'
-# `ccy` is an interactive-shell alias (bashrc-includes/claude-yolo.bash), which this
-# non-interactive script never sees; the launcher it names is called directly.
-probe "deployed ccy version" /var/local/claude-yolo/claude-yolo --version
+probe "deployed ccy version" deployed_ccy_version
 
 echo "### READ THIS FOR: H3 (network filter behaves per network)"
 probe "network list" podman network ls
