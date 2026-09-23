@@ -83,6 +83,9 @@ These keys have no defaults. The orchestrator refuses to run if one is missing:
 | 21   | a play failed                             |
 | 22   | a session could not be warned             |
 | 23   | the verify found a session not OK         |
+| 24   | the reboot was refused                    |
+| 77   | not run as root                           |
+| 130  | the warning countdown was cancelled       |
 
 ## Result record
 

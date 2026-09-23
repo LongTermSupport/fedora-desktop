@@ -161,15 +161,15 @@ D1–D4 are the owner's choices, made 2026-09-23.
   post-restore check: the pane is alive, the container is up, and `capture-pane` shows no
   prompt. Anything else is reported. Blocking menus include a zombie container, an
   existing container, and a token or network prompt.
-- [ ] ⬜ **Task 3.3**: The warn-then-reboot step. Reuse `reboot-with-update`'s warning and
+- [x] ✅ **Task 3.3**: The warn-then-reboot step. Reuse `reboot-with-update`'s warning and
   countdown, with its withdraw-on-failure behaviour, but skip its package updates. Apply
   D6's policy for a project without a daemon CLI.
-- [ ] ⬜ **Task 3.4**: Record the cycle's own state across the reboot: what it deployed and
+- [x] ✅ **Task 3.4**: Record the cycle's own state across the reboot: what it deployed and
   that a restore check is owed. The post-boot check then reports against it.
 
 ### Phase 4: The cycle, its units and its play
 
-- [ ] ⬜ **Task 4.1**: One orchestrator, tested under fakes: lock, update, gate, detect;
+- [x] ✅ **Task 4.1**: One orchestrator, tested under fakes: lock, update, gate, detect;
   then, only if something is to run: run the plays, warn, reboot. After boot: restore,
   verify, report. D8 decides what happens after a failed play: reboot anyway, or leave
   the sessions running and alert.
@@ -182,7 +182,7 @@ D1–D4 are the owner's choices, made 2026-09-23.
 - [ ] ⬜ **Task 4.5**: The alert sinks from D8/Task 0.4. The secret lives in vault. The
   message carries no hostname, username or path (public-repo rule), and a sink that
   fails to deliver is itself reported.
-- [ ] ⬜ **Task 4.7**: The D5 hardening in `play-self-update.yml`:
+- [x] ✅ **Task 4.7**: The D5 hardening in `play-self-update.yml`:
   - system `ansible-core` from dnf, plus the collections the plays need in a root-owned
     `ANSIBLE_COLLECTIONS_PATH`;
   - a `sysctl.d` drop-in setting `kernel.yama.ptrace_scope=1`, applied and read back;
