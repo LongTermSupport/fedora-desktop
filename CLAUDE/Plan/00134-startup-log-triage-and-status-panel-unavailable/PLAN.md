@@ -137,3 +137,5 @@ containers that needs its own diagnosis (F7).
 ## Delivery & Milestones
 
 - Triage complete; findings and reproduction recorded (this plan's first commit).
+- Phase 1 code merged; [`deploy.bash`](deploy.bash) puts it, the `cc` fix, Plan 00135
+  Task 3.7 and Plan 00109 Task 4.3 on the HOST in one run.
