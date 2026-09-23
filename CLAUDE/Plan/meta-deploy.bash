@@ -41,10 +41,10 @@ PLAN_ROOT="${scriptDir}"
 # when it does not. A plan with no deploy.bash and no acceptance.bash has nothing for this
 # script to do.
 PLANS=(
+    00134-startup-log-triage-and-status-panel-unavailable
     00063-headless-run-bash-server-cloud-provisioning
     00098-encrypted-claude-transcripts-at-rest
     00109-desktop-drift-detection-and-fedora-desktop-panel
-    00112-gnome-extensions-enabled-state-declared
     032-compression-helpers
 )
 
