@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly fedora-desktop self-update cycle (Plan 00137)
+
+[Timer]
+OnCalendar=*-*-* 03:30
+RandomizedDelaySec=30min
+# A server that was down at the scheduled time catches up at the next boot.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

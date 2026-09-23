@@ -9,9 +9,6 @@
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
   tasks:
-    # TODO: Consider adding GPG commit signing (commit.gpgsign true)
-    # Needs investigation: gpg-agent forwarding to containers (similar to SSH agent forwarding)
-    # See: gpg-agent extra-socket, GPG_AGENT_INFO env var, mounting sockets into containers
     - name: Setup Git Config - user
       ansible.builtin.shell: |
         set -euo pipefail
@@ -36,6 +33,78 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0755"
+
+    # =========================================================================
+    # Owner commit signing (Plan 00137 D3) — only where git_signing_key is set
+    # =========================================================================
+    # A server running the unattended self-update deploys only commits signed by the
+    # owner's pinned key, and the signature vouches for everything below it. So signing
+    # must be a deliberate human act, never a default an agent inherits:
+    #   - commit.gpgsign is NOT set. ccy copies ~/.gitconfig into every container and cc
+    #     agents run on the host, so a signing default would make every agent commit
+    #     either fail or be signed on the owner's behalf.
+    #   - The settings go in ~/.config/git/config, which git reads and ccy does not copy.
+    #   - The key must be passphrase-protected (asserted below): signing then asks a person,
+    #     so an agent without a terminal cannot sign. Keep it out of ssh-agent.
+    # Sign with `git sign-deploy` (an empty signed commit vouching for HEAD), or
+    # `git commit -S`. Generating the key is in docs/configuration.md.
+    - name: Check the Signing Key Exists
+      ansible.builtin.stat:
+        path: "{{ git_signing_key }}"
+      register: git_signing_key_stat
+      when: git_signing_key is defined
+
+    - name: Assert the Signing Key Exists
+      ansible.builtin.assert:
+        that:
+          - git_signing_key_stat.stat.exists
+          - git_signing_key_stat.stat.isreg
+        fail_msg: >-
+          git_signing_key is {{ git_signing_key }}, which is not a file. Generate the key
+          first (docs/configuration.md "Commit Signing"), or remove git_signing_key from
+          host_vars.
+      when: git_signing_key is defined
+
+    # Loading the key with an empty passphrase succeeds only for an unencrypted key.
+    - name: Probe Whether the Signing Key Loads Without a Passphrase
+      ansible.builtin.command:
+        argv:
+          - ssh-keygen
+          - -y
+          - -P
+          - ""
+          - -f
+          - "{{ git_signing_key }}"
+      register: git_signing_key_unlocked
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe-then-fail — the verdict is the next task
+      no_log: true
+      when: git_signing_key is defined
+
+    - name: Assert the Signing Key Is Passphrase-Protected
+      ansible.builtin.assert:
+        that:
+          - git_signing_key_unlocked.rc != 0
+        fail_msg: >-
+          {{ git_signing_key }} has no passphrase, so any process running as you, a cc
+          agent included, could sign a commit the self-updating server would then run as
+          root. Add one: `ssh-keygen -p -f {{ git_signing_key }}`.
+      when: git_signing_key is defined
+
+    - name: Configure Owner Commit Signing in the XDG Git Config
+      community.general.git_config:
+        scope: file
+        file: "/home/{{ user_login }}/.config/git/config"
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+      loop:
+        - name: gpg.format
+          value: ssh
+        - name: user.signingkey
+          value: "{{ git_signing_key }}"
+        - name: alias.sign-deploy
+          value: "commit --allow-empty --gpg-sign -m 'deploy: signed by the owner'"
+      when: git_signing_key is defined
 
     - name: Set up Global Git Ignores
       ansible.builtin.blockinfile:

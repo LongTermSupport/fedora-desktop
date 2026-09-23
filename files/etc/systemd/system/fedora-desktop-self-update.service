@@ -1,0 +1,19 @@
+[Unit]
+Description=Unattended fedora-desktop self-update cycle (Plan 00137)
+Documentation=file:///usr/local/sbin/fedora-desktop-self-update
+# The cycle fetches from the remote and ends in a reboot, so it needs the network and
+# must not start while the machine is still coming up.
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Runs as root: the entry point reads the root-only become password and hands it to the
+# plays on an inherited descriptor, and the plays themselves run as the configured user.
+ExecStart=/usr/local/sbin/fedora-desktop-self-update run
+# Stated, not inherited: systemd disables the start timeout for Type=oneshot. A cycle
+# that rebuilds the ccy image can take a long time, but not for ever.
+TimeoutStartSec=3h
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fedora-desktop-self-update

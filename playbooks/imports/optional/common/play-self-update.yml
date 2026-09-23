@@ -1,0 +1,464 @@
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
+---
+# Unattended server self-update (Plan 00137) — OPT-IN, server profile only.
+#
+# A nightly system timer runs /usr/local/sbin/fedora-desktop-self-update. The cycle
+# fast-forwards a root-owned deploy clone to the newest commit signed by the owner's
+# pinned key, runs the allowlisted plays that commit affects, warns the ccy/cc sessions,
+# and reboots. The sessions come back through Plan 00135's boot-time restore, and a
+# post-boot unit checks they did. The contract between this play and the entry point is
+# CLAUDE/Plan/00137-unattended-server-self-update/DESIGN-cycle.md.
+#
+# Off unless `self_update_enabled: true` is declared in host_vars. Off is a real off: the
+# play then removes everything it would install, so flipping the flag back is the whole
+# procedure for turning the automation off.
+#
+# This is the one place in the repo that runs plays with nobody watching. Plan 00109's
+# "re-running a play is a human decision" still holds everywhere this flag is off (D7).
+- hosts: desktop
+  name: Unattended Server Self-Update
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: server   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    self_update_etc_dir: /etc/fedora-desktop
+    self_update_lib_dir: /var/lib/fedora-desktop
+    self_update_clone: /var/lib/fedora-desktop/deploy
+    self_update_state_dir: /var/lib/fedora-desktop/self-update
+    self_update_sbin: /usr/local/sbin/fedora-desktop-self-update
+    self_update_units:
+      - fedora-desktop-self-update.service
+      - fedora-desktop-self-update.timer
+      - fedora-desktop-self-update-verify.service
+    self_update_on: "{{ self_update_enabled | default(false) | bool }}"
+  tasks:
+    - name: Scope guard — assert provisioning_profile is recognised
+      ansible.builtin.assert:
+        that:
+          - provisioning_profile in ['desktop', 'server']
+        fail_msg: |
+          provisioning_profile={{ provisioning_profile }} is not recognised.
+          Valid values: desktop, server.
+          Auto-detected from `systemctl get-default`
+          (see environment/localhost/group_vars/desktop.yml) or overridden
+          via -e provisioning_profile=desktop|server.
+
+    - name: Scope guard — end play if provisioning_profile does not match declared scope
+      ansible.builtin.meta: end_play
+      when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
+
+    # =========================================================================
+    # Enabled: validate every input before anything is written
+    # =========================================================================
+    # No defaults for these: a guessed branch, remote or signer is a cycle that runs the
+    # wrong code as root. Each has one line in host_vars (localhost.yml.dist documents it).
+    - name: Assert the Self-Update Inputs Are Declared
+      ansible.builtin.assert:
+        that:
+          - self_update_branch is defined
+          - self_update_branch is match('^[A-Za-z0-9._/-]+$')
+          - self_update_remote_url is defined
+          - self_update_remote_url is match('^https://[^\s]+$')
+          - self_update_signing_principal is defined
+          - self_update_signing_principal is match('^[^\s]+$')
+          - self_update_signing_public_key is defined
+          - self_update_signing_public_key is match('^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp[0-9]+|sk-ssh-ed25519@openssh\.com) [A-Za-z0-9+/=]+( [^\n]*)?$')
+          - (self_update_warn_minutes | default(3) | string) is match('^[1-9][0-9]*$')
+          - (self_update_alert_sinks | default('') | string) is match('^[a-z,]*$')
+        fail_msg: >-
+          self_update_enabled is true, but its inputs are incomplete or malformed. Declare
+          in host_vars: self_update_branch (e.g. F44), self_update_remote_url (HTTPS, e.g.
+          the public GitHub URL), self_update_signing_principal and
+          self_update_signing_public_key (the owner's PUBLIC SSH signing key, one line).
+          Optional: self_update_warn_minutes (default 3), self_update_alert_sinks (default
+          empty). See environment/localhost/host_vars/localhost.yml.dist.
+        quiet: true
+      when: self_update_on
+
+    # Its own task so no_log hides only the password, not the other inputs' remedy.
+    - name: Assert the Become Password Is Declared
+      ansible.builtin.assert:
+        that:
+          - self_update_become_password is defined
+          - self_update_become_password | length > 0
+          - "'\n' not in self_update_become_password"
+        fail_msg: >-
+          self_update_enabled is true, but self_update_become_password is missing, empty,
+          or spans several lines. Declare it vault-encrypted in host_vars: this user's sudo
+          password, which the unattended plays need for their become tasks.
+        quiet: true
+      no_log: true
+      when: self_update_on
+
+    - name: Resolve the Session User
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ user_login }}"
+        fail_key: false
+      when: self_update_on
+
+    - name: Assert the Session User Exists
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['getent_passwd'][user_login] is defined
+          - ansible_facts['getent_passwd'][user_login] is not none
+          - ansible_facts['getent_passwd'][user_login][1] | int > 0
+        fail_msg: >-
+          Could not resolve a uid for {{ user_login }}. The post-boot unit orders itself
+          after that user's systemd manager, and a guessed uid would order it after the
+          wrong one without failing.
+      when: self_update_on
+
+    # D4: the clone the cycle runs as root must be one the sessions cannot touch. Every
+    # ccy mount is the project directory a session was started in, or a path under the
+    # user's home; a clone outside the home is outside both.
+    - name: Assert the Deploy Clone Is Outside the User's Home
+      ansible.builtin.assert:
+        that:
+          - not (self_update_clone ~ '/').startswith(ansible_facts['getent_passwd'][user_login][4] ~ '/')
+          - not (self_update_clone ~ '/').startswith('/home/')
+        fail_msg: >-
+          The deploy clone {{ self_update_clone }} is under a home directory, where a ccy
+          or cc session could write to it. It must be a root-owned path outside every home.
+      when: self_update_on
+
+    # =========================================================================
+    # Enabled: directories, entry point, configuration, secrets
+    # =========================================================================
+    - name: Create the Self-Update Configuration Directory
+      ansible.builtin.file:
+        path: "{{ self_update_etc_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when: self_update_on
+
+    - name: Create the Self-Update Library Directory
+      ansible.builtin.file:
+        path: "{{ self_update_lib_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when: self_update_on
+
+    - name: Create the Self-Update State Directory
+      ansible.builtin.file:
+        path: "{{ self_update_state_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+      when: self_update_on
+
+    - name: Install the Self-Update Entry Point
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/usr/local/sbin/fedora-desktop-self-update"
+        dest: "{{ self_update_sbin }}"
+        owner: root
+        group: root
+        mode: "0700"
+      when: self_update_on
+
+    - name: Write the Self-Update Configuration
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/etc/fedora-desktop/self-update.conf.j2"
+        dest: "{{ self_update_etc_dir }}/self-update.conf"
+        owner: root
+        group: root
+        mode: "0600"
+      when: self_update_on
+
+    # D5: the plays run as the user and Ansible needs this user's sudo password for their
+    # become tasks. It lives root-only; the entry point opens it and hands the plays an
+    # inherited descriptor, so the user's shell and the ccy containers cannot open it.
+    - name: Provision the Become Password
+      ansible.builtin.copy:
+        content: "{{ self_update_become_password }}\n"
+        dest: "{{ self_update_etc_dir }}/self-update.become"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+      when: self_update_on
+
+    # The plays decrypt host_vars, and the deploy clone has no vault password file of its
+    # own (it is untracked). This is a root-only copy of the one ansible.cfg names in the
+    # checkout this play runs from, handed to the plays on a descriptor like the become
+    # password. The path comes from Ansible's own configuration rather than being spelled
+    # here.
+    - name: Resolve the Vault Password File
+      ansible.builtin.set_fact:
+        self_update_vault_source: >-
+          {{ (vault_cfg_path is abs) | ternary(vault_cfg_path, root_dir ~ '/' ~ vault_cfg_path) }}
+      vars:
+        vault_cfg_path: "{{ lookup('ansible.builtin.config', 'DEFAULT_VAULT_PASSWORD_FILE') }}"
+      when: self_update_on
+
+    - name: Provision the Root-Only Vault Password Copy
+      ansible.builtin.copy:
+        src: "{{ self_update_vault_source }}"
+        dest: "{{ self_update_etc_dir }}/self-update.vault"
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+      when: self_update_on
+
+    - name: Write the Allowed Signers File
+      ansible.builtin.copy:
+        content: "{{ self_update_signing_principal }} {{ self_update_signing_public_key }}\n"
+        dest: "{{ self_update_etc_dir }}/self-update.allowed_signers"
+        owner: root
+        group: root
+        mode: "0644"
+      when: self_update_on
+
+    - name: Install the Scoped Sudoers Rule
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/etc/sudoers.d/fedora-desktop-self-update.j2"
+        dest: /etc/sudoers.d/fedora-desktop-self-update
+        owner: root
+        group: root
+        mode: "0440"
+        validate: "visudo -cf %s"
+      when: self_update_on
+
+    # =========================================================================
+    # Enabled: the deploy clone (D4)
+    # =========================================================================
+    # Cloned once and never updated here: moving it is the cycle's job, through the
+    # signature gate. `update: false` leaves an existing clone exactly as it is, so a
+    # re-run of this play cannot move root's code past the gate.
+    - name: Clone the Deploy Checkout
+      ansible.builtin.git:
+        repo: "{{ self_update_remote_url }}"
+        dest: "{{ self_update_clone }}"
+        version: "{{ self_update_branch }}"
+        update: false
+      when: self_update_on
+
+    # Root-owned and world-readable (the plays read it as the user), never user-writable.
+    # A clone this play did not make, or one whose modes drifted, is a refusal: the cycle
+    # would otherwise run code a session could have edited.
+    - name: Read the Deploy Clone's Ownership
+      ansible.builtin.stat:
+        path: "{{ self_update_clone }}"
+      register: self_update_clone_stat
+      when: self_update_on
+
+    - name: Find Anything in the Deploy Clone the User Could Write
+      ansible.builtin.command:
+        argv:
+          - find
+          - "{{ self_update_clone }}"
+          - (
+          - "!"
+          - -user
+          - root
+          - -o
+          - -perm
+          - /022
+          - )
+          - "!"
+          - -type
+          - l
+          - -print
+          - -quit
+      register: self_update_clone_writable
+      changed_when: false
+      when: self_update_on
+
+    - name: Assert the Deploy Clone Is Root-Owned and User-Unwritable
+      ansible.builtin.assert:
+        that:
+          - self_update_clone_stat.stat.exists
+          - self_update_clone_stat.stat.pw_name == 'root'
+          - self_update_clone_writable.stdout == ''
+        fail_msg: >-
+          {{ self_update_clone }} is not root-owned and user-unwritable throughout (first
+          offender: {{ self_update_clone_writable.stdout | default('the directory itself') }}).
+          The cycle runs this tree with root's authority, so it must not be editable by the
+          session user. Remove it and re-run this play to re-clone.
+      when: self_update_on
+
+    # The inventory's host_vars are untracked, so a fresh clone has none. The plays need
+    # the same host_vars this checkout holds; the copy is root-owned so a session cannot
+    # change what the cycle runs with, and readable by the user the plays run as. It is
+    # refreshed only when this play runs, so a host_vars edit reaches the cycle by
+    # re-running this play.
+    - name: Copy host_vars into the Deploy Clone
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
+        dest: "{{ self_update_clone }}/environment/localhost/host_vars/localhost.yml"
+        remote_src: true
+        owner: root
+        group: "{{ user_login }}"
+        mode: "0640"
+      when: self_update_on
+
+    # The plays run as the user from a root-owned tree, and git refuses to work in a
+    # repository owned by someone else. The play ledger's callback asks git for the
+    # commit on every play, so without this every cycle's plays would go unrecorded.
+    - name: Read the User's Trusted Repositories
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - git
+          - config
+          - --global
+          - --get-all
+          - safe.directory
+      register: self_update_safe_dirs
+      changed_when: false
+      failed_when: self_update_safe_dirs.rc not in [0, 1]  # FAIL-FAST-OK: rc 1 means none set; the next task acts on the list
+      when: self_update_on
+
+    - name: Trust the Deploy Clone in the User's Git Configuration
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - git
+          - config
+          - --global
+          - --add
+          - safe.directory
+          - "{{ self_update_clone }}"
+      changed_when: true
+      when:
+        - self_update_on
+        - self_update_clone not in self_update_safe_dirs.stdout_lines
+
+    # =========================================================================
+    # Enabled: the units (D9), enabled, reloaded, then read back
+    # =========================================================================
+    - name: Deploy the Self-Update Service and Timer
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/etc/systemd/system/{{ item }}"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - fedora-desktop-self-update.service
+        - fedora-desktop-self-update.timer
+      when: self_update_on
+
+    - name: Deploy the Post-Boot Verify Service
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/etc/systemd/system/fedora-desktop-self-update-verify.service.j2"
+        dest: /etc/systemd/system/fedora-desktop-self-update-verify.service
+        owner: root
+        group: root
+        mode: "0644"
+      vars:
+        self_update_user_uid: "{{ ansible_facts['getent_passwd'][user_login][1] }}"
+      when: self_update_on
+
+    # The reload is its own task AFTER the enables: the module's `daemon_reload:` runs
+    # before it changes the enabled state, so it would re-read a unit directory that does
+    # not yet hold the symlinks the same task creates (Plan 00135 measured this).
+    - name: Enable the Self-Update Timer and the Post-Boot Verify Service
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: true
+      loop:
+        - fedora-desktop-self-update.timer
+        - fedora-desktop-self-update-verify.service
+      when: self_update_on
+
+    - name: Reload systemd So It Sees the Self-Update Units
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: self_update_on
+
+    - name: Start the Self-Update Timer
+      ansible.builtin.systemd:
+        name: fedora-desktop-self-update.timer
+        state: started
+      when: self_update_on
+
+    - name: Read Back the Live Timer Schedule
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - list-timers
+          - fedora-desktop-self-update.timer
+          - --all
+          - --no-pager
+      register: self_update_timer_readback
+      changed_when: false
+      when: self_update_on
+
+    - name: Read Back Whether the Verify Service Is Enabled
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - is-enabled
+          - fedora-desktop-self-update-verify.service
+      register: self_update_verify_readback
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe-then-fail — the verdict is the next task
+      when: self_update_on
+
+    - name: Assert the Live Manager Runs the Cycle
+      ansible.builtin.assert:
+        that:
+          - "'fedora-desktop-self-update.timer' in self_update_timer_readback.stdout"
+          - self_update_verify_readback.stdout == 'enabled'
+        fail_msg: >-
+          The units are deployed but the running system manager does not schedule the
+          timer, or does not enable the post-boot verify service
+          (is-enabled said: {{ self_update_verify_readback.stdout | default('') }}).
+          Collect: `systemctl list-timers --all --no-pager | cat` and
+          `systemctl status fedora-desktop-self-update.timer --no-pager | cat`.
+      when: self_update_on
+
+    # =========================================================================
+    # Disabled: remove everything the enabled path installs
+    # =========================================================================
+    - name: Read Which Self-Update Units Are Installed
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/{{ item }}"
+      loop: "{{ self_update_units }}"
+      register: self_update_unit_files
+      when: not self_update_on
+
+    - name: Stop and Disable the Installed Self-Update Units
+      ansible.builtin.systemd:
+        name: "{{ item.item }}"
+        enabled: false
+        state: stopped
+      loop: "{{ self_update_unit_files.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when:
+        - not self_update_on
+        - item.stat.exists
+
+    - name: Remove the Self-Update Files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/fedora-desktop-self-update.service
+        - /etc/systemd/system/fedora-desktop-self-update.timer
+        - /etc/systemd/system/fedora-desktop-self-update-verify.service
+        - /etc/sudoers.d/fedora-desktop-self-update
+        - "{{ self_update_sbin }}"
+        - "{{ self_update_etc_dir }}/self-update.conf"
+        - "{{ self_update_etc_dir }}/self-update.become"
+        - "{{ self_update_etc_dir }}/self-update.vault"
+        - "{{ self_update_etc_dir }}/self-update.allowed_signers"
+        - "{{ self_update_clone }}"
+        - "{{ self_update_state_dir }}"
+      when: not self_update_on
+
+    - name: Reload systemd After Removing the Self-Update Units
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: not self_update_on

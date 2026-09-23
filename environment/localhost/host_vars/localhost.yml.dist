@@ -30,6 +30,25 @@ user_email: "yourname@example.com"
 #   $ANSIBLE_VAULT;1.2;AES256;localhost
 #   <encrypted-value-goes-here>
 
+# Optional (desktop): sign deploy commits for a self-updating server (Plan 00137).
+# Path to a PASSPHRASE-PROTECTED SSH key used only for signing. The play refuses a key
+# without a passphrase. See docs/configuration.md "Commit Signing".
+# git_signing_key: /home/<user>/.ssh/id_ed25519_signing
+
+# Optional (server): unattended self-update (Plan 00137). Off unless enabled, and turning
+# it off removes everything it installed. See docs/configuration.md "Unattended Server
+# Self-Update".
+# self_update_enabled: true
+# self_update_branch: F44
+# self_update_remote_url: https://github.com/example/fedora-desktop.git
+# self_update_signing_principal: yourname@example.com
+# self_update_signing_public_key: "ssh-ed25519 <base64-public-key> yourname@example.com"
+# self_update_warn_minutes: 3
+# self_update_alert_sinks: ""
+# self_update_become_password: !vault |
+#   $ANSIBLE_VAULT;1.2;AES256;localhost
+#   <encrypted-value-goes-here>
+
 # Optional MOK Password for Secure Boot (DisplayLink, NVIDIA, etc.)
 # Required when installing kernel modules with Secure Boot enabled
 # mok_password: !vault |

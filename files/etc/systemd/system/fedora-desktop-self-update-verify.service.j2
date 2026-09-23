@@ -1,0 +1,27 @@
+{{ ansible_managed | comment }}
+[Unit]
+Description=Check the ccy sessions came back after a self-update reboot (Plan 00137)
+Documentation=file:///usr/local/sbin/fedora-desktop-self-update
+# The sessions are restored by ccy-sessions-restore.service in the USER's manager, and a
+# system unit cannot order itself against a user unit directly. user@UID.service is the
+# system unit that runs that manager; it reports ready once the user manager has finished
+# starting default.target, which is where the restore oneshot runs. Ordering after it
+# means the restore has at least been attempted. The panes it starts may still be
+# launching, which is what the entry point's `verify-restore --wait` is for.
+Wants=user@{{ self_update_user_uid }}.service
+After=user@{{ self_update_user_uid }}.service
+
+[Service]
+Type=oneshot
+# Runs at every boot. The entry point checks whether a cycle left a post-boot check owed
+# and exits 0 when none is, so this unit carries no condition of its own on the state
+# directory's layout.
+ExecStart=/usr/local/sbin/fedora-desktop-self-update verify
+# Stated, not inherited: systemd disables the start timeout for Type=oneshot.
+TimeoutStartSec=30min
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fedora-desktop-self-update-verify
+
+[Install]
+WantedBy=multi-user.target

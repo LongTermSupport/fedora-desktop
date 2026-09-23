@@ -183,6 +183,30 @@ Auto-reporting only covers crashes in signed Fedora packages; records from unpac
 or third-party-repo binaries can never be reported, which is why the retention timer
 exists — without it they accumulate and `abrt-applet` re-announces them at every login.
 
+### Commit Signing
+
+Optional, on the desktop you commit from. A self-updating server (below) deploys only
+commits signed by your key, so signing is a deliberate act: nothing signs by default.
+Generate a signing-only key with a passphrase, and keep it out of `ssh-agent`:
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_signing -C "git signing"
+gh ssh-key add ~/.ssh/id_ed25519_signing.pub --type signing --title "git signing"
+```
+
+Set `git_signing_key: /home/<user>/.ssh/id_ed25519_signing` in host_vars and run
+`play-git-configure-and-tools.yml`. It refuses a key without a passphrase. To release,
+run `git sign-deploy` (an empty signed commit) or `git commit -S`, then push. The
+signature vouches for every commit below it.
+
+### Unattended Server Self-Update
+
+`playbooks/imports/optional/common/play-self-update.yml` (server profile, Plan 00137).
+It is off unless `self_update_enabled: true`. The inputs are listed in
+`host_vars/localhost.yml.dist`. `self_update_signing_public_key` is the `.pub` line of
+the key above, and `self_update_become_password` is your sudo password, vault-encrypted.
+Re-run the play after changing host_vars: the cycle runs with a root-owned copy.
+
 ## Optional Features Configuration
 
 These require running their playbook explicitly.
