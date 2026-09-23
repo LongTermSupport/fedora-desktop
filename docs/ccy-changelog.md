@@ -17,6 +17,48 @@ Two version numbers move independently — see
 
 ---
 
+## 3.63.0
+
+Every line that names the token a launch will use now shows its expiry, coloured. That
+covers the `--token NAME` confirmation, the interactive selection's confirmation, and the
+Quick Launch summary. A saved token name with no matching file says so. The selection
+menu, `--list-tokens` and the export menu already coloured it.
+
+The colour bands change (token-management 1.14.0):
+
+- red: the token cannot be used, because it has expired or it expires today, which
+  `is_token_valid` already refuses;
+- yellow: 14 days or fewer left;
+- green: more than 14 days left.
+
+Before, the bands were red at 5 days or fewer, orange at 30 or fewer, and green beyond.
+This ports a change from May that was never merged (commit 304bd599). Its only
+difference was that it showed a token expiring today in yellow.
+
+## 3.62.0
+
+`ccy-sessions verify-restore` names a waiting session only by the prompts in
+`ccy_known_prompts`. Two prompts a restored launch can reach were missing, so a session
+waiting at either read as `OK` for `cc` or `STARTING` for `ccy`:
+
+- "Stop compose services?", asked after claude exits in a project with compose services;
+- the pause before the token setup container, which printed its text with `echo` above a
+  bare `read -r` (token-management 1.13.0).
+
+Both are now `CCY_PROMPT_*` constants. `scripts/test-ccy-session-registry.bash` derives every
+`read -p` in the launcher and its libraries, and fails on one that is neither registered nor
+listed with the reason a restore cannot reach it. It also fails on an interactive `read` with
+no prompt at all.
+
+The restore replay filter now reads its decisions from four named flag groups
+(`ccy_registry_flag_class`). The same test derives the launcher's flags from its parser and
+fails on any flag that is in no group, so a new one-shot flag cannot be replayed at every
+boot unnoticed. Replay behaviour is unchanged for every existing flag.
+
+A session registry path that exists but is not a readable directory now fails the restore.
+Before, it globbed to nothing and reported "nothing to restore" on a boot that restored
+nothing.
+
 ## 3.61.0
 
 A session brought back by `ccy-sessions restore` could sit at a prompt after an unattended

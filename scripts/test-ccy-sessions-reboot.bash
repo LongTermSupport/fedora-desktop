@@ -116,8 +116,12 @@ project() {
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'cli[%s] %s\n' "$(cd "$(dirname "$0")/../../.." && pwd)" "$*" >>"$TEST_LOG"
-# TEST_CLI_FAIL_MATCH: refuse any call whose arguments contain it (a warning that fails).
+# TEST_CLI_FAIL_MATCH / TEST_CLI_FAIL_MATCH_2: refuse any call whose arguments contain
+# either (a warning, or a withdrawal, that fails).
 if [ -n "${TEST_CLI_FAIL_MATCH:-}" ] && [[ "$*" == *"$TEST_CLI_FAIL_MATCH"* ]]; then
+    exit 1
+fi
+if [ -n "${TEST_CLI_FAIL_MATCH_2:-}" ] && [[ "$*" == *"$TEST_CLI_FAIL_MATCH_2"* ]]; then
     exit 1
 fi
 EOF
@@ -298,6 +302,34 @@ run reboot --in 2
 check "no sessions: nothing to warn, still reboots" "0" "$rc"
 check "with no signals" "0" "$(calls | grep -c '^cli')"
 check "and one systemctl reboot" "1" "$(calls | grep -c '^systemctl reboot$')"
+
+echo ""
+echo "=== a reboot that stops after warning anyone withdraws the warning ==="
+# Projects are signalled in listing order, so project a is warned before project b's
+# warning fails. Project a must not be left expecting a reboot that is not coming.
+printf '%s\n' "ccy-a 1 $A" "cc-b 0 $B" >"$SESSIONS"
+TEST_CLI_FAIL_MATCH="signal reboot-warning --minutes 3 --all-sessions --project-root $B" run reboot --in 3
+check "a first warning that fails part-way refuses the reboot" "1" "$rc"
+check "and reboots nothing" "0" "$(calls | grep -c '^systemctl')"
+check "the project already warned is told reboot-cancelled" "1" \
+    "$(calls | grep -cF "cli[$A] signal reboot-cancelled --all-sessions --project-root $A")"
+check "and it says the machine is staying up" "yes" "$([[ "$out" == *"staying up"* ]] && echo yes || echo no)"
+
+TEST_CLI_FAIL_MATCH="signal reboot-warning --minutes 3 --all-sessions --project-root $B" \
+    TEST_CLI_FAIL_MATCH_2="signal reboot-cancelled --all-sessions --project-root $A" run reboot --in 3
+check "a withdrawal that fails at one project still reaches the next" "1" \
+    "$(calls | grep -cF "cli[$B] signal reboot-cancelled --all-sessions --project-root $B")"
+check "and says some sessions still expect the reboot" "yes" \
+    "$([[ "$out" == *"still expect the reboot"* ]] && echo yes || echo no)"
+check "and still exits non-zero" "1" "$rc"
+
+TEST_SYSTEMCTL_RC=1 run reboot --in 1
+check "systemctl refusing the reboot is a failure" "1" "$rc"
+check "and every warned project is told reboot-cancelled" "2" \
+    "$(calls | grep -c 'signal reboot-cancelled --all-sessions --project-root')"
+
+run reboot --in 1
+check "a reboot that went ahead withdraws nothing" "0" "$(calls | grep -c 'reboot-cancelled')"
 
 echo ""
 echo "=== a session list that cannot be read is not an empty one ==="

@@ -2,7 +2,11 @@
 # Token Management Library
 # Token operations for claude-yolo (ccy)
 #
-# Version: 1.12.2 - Comment-only: plan references renumbered after the plan-tree
+# Version: 1.14.0 - Expiry colours: red when unusable (expired or expiring today),
+#                  yellow within 14 days, green beyond; token_expiry_label.
+#         1.13.0 - The token-setup pause is a registered prompt
+#                  (CCY_PROMPT_TOKEN_SETUP), so verify-restore can name it.
+#         1.12.2 - Comment-only: plan references renumbered after the plan-tree
 #                  collision fix (00073->00100, 00074->00101). No behaviour change.
 #         1.12.1 - Plan 00101: an over-limit reading is not a scale conflict.
 #                  Field sample: the API sent 5h-utilization 1.01 (fraction
@@ -74,16 +78,29 @@ colorize_expiry() {
     days_remaining=$(( (expiry_epoch - today_epoch) / 86400 ))
 
     local RED='\033[31m'
-    local ORANGE='\033[38;5;208m'
+    local YELLOW='\033[33m'
     local GREEN='\033[32m'
     local RESET='\033[0m'
 
-    if [ "$days_remaining" -le 5 ]; then
+    # Red is "cannot be used": is_token_valid refuses a token stamped today as well as an
+    # expired one. Yellow is "renew soon".
+    if [ "$days_remaining" -le 0 ]; then
         printf "${RED}%s${RESET}" "$expiry_date"
-    elif [ "$days_remaining" -le 30 ]; then
-        printf "${ORANGE}%s${RESET}" "$expiry_date"
+    elif [ "$days_remaining" -le 14 ]; then
+        printf "${YELLOW}%s${RESET}" "$expiry_date"
     else
         printf "${GREEN}%s${RESET}" "$expiry_date"
+    fi
+}
+
+# token_expiry_label <token-file> — " (expires: <coloured date>)" for a file named
+# <name>.<YYYY-MM-DD>.token, nothing for any other name. Every line that names the token a
+# launch will use carries it, so a token about to lapse is seen at every start.
+token_expiry_label() {
+    local filename
+    filename=$(basename "$1")
+    if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
+        printf ' (expires: %s)' "$(colorize_expiry "${BASH_REMATCH[1]}")"
     fi
 }
 
@@ -788,8 +805,7 @@ create_token() {
     echo "  3. Copy the token when it's displayed (starts with sk-ant-oat01-)"
     echo "  4. The process will save it automatically"
     echo ""
-    echo "Press Enter to continue..."
-    read -r
+    read -rp "$CCY_PROMPT_TOKEN_SETUP " _unused
     echo ""
 
     # Run setup-token via claude CLI entrypoint
@@ -1318,7 +1334,7 @@ select_token() {
             filename=$(basename "$SELECTED_TOKEN")
             local token_name="${filename%.*.token}"
 
-            echo "✓ Selected token: $token_name"
+            echo "✓ Selected token: $token_name$(token_expiry_label "$SELECTED_TOKEN")"
             echo ""
             echo "════════════════════════════════════════════════════════════════════════════════"
             echo ""

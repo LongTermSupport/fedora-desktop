@@ -183,6 +183,7 @@ menu_case() {
 menu_case "EOF at the prompt -> cancelled"    ''                    2 'Cancelled'
 menu_case "runaway invalid input -> gives up" $'9\n9\n9\n9\n9\n9\n' 2 'Giving up'
 menu_case "valid pick -> selects"             $'1\n'                0 'Selected token'
+menu_case "valid pick -> names its expiry"    $'1\n'                0 'Selected token: fresh (expires: '
 # The `d` keypress is the whole reason the hard stop is acceptable: it is how a
 # human reaches the Desktop account deliberately when the pool is usable. If it
 # regressed, cc would have no route to Desktop at all.
@@ -229,6 +230,35 @@ else
     echo "  FAIL  a future-stamped token was reported expired"
     FAILED=$((FAILED + 1))
 fi
+
+echo ""
+echo "=== expiry colours: red when unusable, yellow within two weeks, green beyond ==="
+# The bands follow is_token_valid: a token stamped today is already refused, so it is
+# red with the expired ones, not a "renew soon" yellow.
+RED=$'\033[31m'
+YELLOW=$'\033[33m'
+GREEN=$'\033[32m'
+RESET=$'\033[0m'
+expiry_case() {
+    local desc="$1" got="$2" want="$3"
+    if [ "$got" = "$want" ]; then
+        printf '  PASS  %s\n' "$desc"
+        PASSED=$((PASSED + 1))
+    else
+        printf '  FAIL  %s\n        want: %q\n        got:  %q\n' "$desc" "$want" "$got"
+        FAILED=$((FAILED + 1))
+    fi
+}
+IN_14="$(date -d '+14 days' +%Y-%m-%d)"
+IN_15="$(date -d '+15 days' +%Y-%m-%d)"
+expiry_case "expired is red" "$(colorize_expiry "$YESTERDAY")" "${RED}${YESTERDAY}${RESET}"
+expiry_case "expiring today is red (already refused)" "$(colorize_expiry "$TODAY")" "${RED}${TODAY}${RESET}"
+expiry_case "14 days left is yellow" "$(colorize_expiry "$IN_14")" "${YELLOW}${IN_14}${RESET}"
+expiry_case "15 days left is green" "$(colorize_expiry "$IN_15")" "${GREEN}${IN_15}${RESET}"
+expiry_case "an unparseable date is printed plain" "$(colorize_expiry not-a-date)" "not-a-date"
+expiry_case "a dated token file is labelled with its coloured expiry" \
+    "$(token_expiry_label "$WORK/has-valid/fresh.$NEXT_YEAR.token")" " (expires: ${GREEN}${NEXT_YEAR}${RESET})"
+expiry_case "an undated file gets no label" "$(token_expiry_label "$WORK/has-valid/undated.token")" ""
 
 # A separate "discrimination check" re-invoking the empty-pool and expired-only
 # calls used to sit here. It was TAUTOLOGICAL: those two fixtures are already

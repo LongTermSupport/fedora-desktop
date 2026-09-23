@@ -61,6 +61,8 @@ CCY_PROMPT_NETWORK_ENGINE_CONFLICT="Select option [1-4]:"
 CCY_PROMPT_NETWORK_PRUNE="Choose cleanup method [a/b]:"
 CCY_PROMPT_COMPOSE_START="Start services with"
 CCY_PROMPT_COMPOSE_START_SAVED="Start compose services?"
+CCY_PROMPT_COMPOSE_STOP="Stop compose services?"
+CCY_PROMPT_TOKEN_SETUP="Press Enter to start the token setup container:"
 
 # ccy_known_prompts — "<name><TAB><text>" for every prompt above, one per line. The name is
 # what verify-restore reports a session as waiting at.
@@ -88,7 +90,9 @@ ccy_known_prompts() {
         network-engine-conflict "$CCY_PROMPT_NETWORK_ENGINE_CONFLICT" \
         network-prune "$CCY_PROMPT_NETWORK_PRUNE" \
         compose-start "$CCY_PROMPT_COMPOSE_START" \
-        compose-start-saved "$CCY_PROMPT_COMPOSE_START_SAVED"
+        compose-start-saved "$CCY_PROMPT_COMPOSE_START_SAVED" \
+        compose-stop "$CCY_PROMPT_COMPOSE_STOP" \
+        token-setup "$CCY_PROMPT_TOKEN_SETUP"
 }
 
 # Decide whether SELinux will refuse this container's reads of a home-directory bind.

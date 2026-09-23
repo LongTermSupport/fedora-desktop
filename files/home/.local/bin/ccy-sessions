@@ -183,6 +183,10 @@ signal_projects() {
         cli_args+=(--minutes "${minutes}")
     fi
     cli_args+=(--all-sessions)
+    # A warning stops at the first project that refuses, so the caller can withdraw it. A
+    # withdrawal carries on past a refusal: every project it reaches is one fewer left
+    # waiting for a reboot that is not coming.
+    local failed=false
     for dir in "${projects[@]}"; do
         if [[ "${dry_run}" == true ]]; then
             echo "would signal ${kind}${minutes:+ --minutes ${minutes}} to ${dir}" >&2
@@ -190,10 +194,13 @@ signal_projects() {
         fi
         if ! "$(daemon_cli "${dir}")" "${cli_args[@]}" --project-root "${dir}"; then
             print_error "signalling ${kind} to ${dir} failed."
-            return 1
+            [[ "${kind}" == reboot-cancelled ]] || return 1
+            failed=true
+            continue
         fi
         echo "signalled ${kind}${minutes:+ (${minutes} min)} to ${dir}" >&2
     done
+    [[ "${failed}" == false ]] || return 1
     printf '%s\n' "${#projects[@]}"
 }
 
@@ -246,10 +253,23 @@ cmd_notify() {
     signal_projects "${kind}" "${minutes}" "${dry_run}" >/dev/null
 }
 
-# Ctrl-C during the countdown: the sessions were told a reboot was coming, so they are told
-# it is not. Only once a warning has actually gone out, and never on a dry run.
+# Once a warning may have gone out, any exit other than the reboot itself (Ctrl-C, a
+# project refusing a warning, systemctl refusing) tells the sessions the reboot is off.
+# Never on a dry run. The same shape as shutdown-with-update's withdraw_unless_down.
 REBOOT_WARNED=false
 COUNTDOWN_PID=""
+withdraw_unless_rebooting() {
+    local status=$?
+    trap - EXIT
+    if [[ "${status}" -ne 0 && "${REBOOT_WARNED}" == true ]]; then
+        echo "The machine is staying up; telling the sessions the reboot is off." >&2
+        if ! signal_projects reboot-cancelled "" false >/dev/null; then
+            print_error "the sessions could not all be told; some still expect the reboot."
+        fi
+    fi
+    exit "${status}"
+}
+
 cancel_reboot() {
     trap - INT TERM
     if [[ -n "${COUNTDOWN_PID}" ]] && ! kill "${COUNTDOWN_PID}"; then
@@ -257,9 +277,6 @@ cancel_reboot() {
     fi
     echo "" >&2
     echo "Reboot cancelled." >&2
-    if [[ "${REBOOT_WARNED}" == true ]]; then
-        signal_projects reboot-cancelled "" false >/dev/null
-    fi
     exit 130
 }
 
@@ -297,11 +314,12 @@ cmd_reboot() {
 
     # The one-minute warning is the last word before the reboot; with --in 1 it is also the
     # first, so it is not sent twice.
-    # Armed BEFORE the first warning goes out, so an interrupt that lands mid-loop — some
-    # projects warned, some not — still cancels. A cancellation reaching a project that was
-    # never warned is harmless; a warned project left uncancelled is not.
+    # Armed BEFORE the first warning goes out, so a failure or interrupt that lands mid-loop
+    # — some projects warned, some not — still cancels. A cancellation reaching a project
+    # that was never warned is harmless; a warned project left uncancelled is not.
     if [[ "${dry_run}" == false ]]; then
         REBOOT_WARNED=true
+        trap withdraw_unless_rebooting EXIT
         trap cancel_reboot INT TERM
     fi
     reached="$(signal_projects "${kind}" "${minutes}" "${dry_run}")" || return 1
@@ -311,13 +329,7 @@ cmd_reboot() {
             echo "would wait $((minutes - 1)) minute(s), then warn again at one minute" >&2
         else
             countdown "$(((minutes - 1) * MINUTE_SECONDS))"
-            # A failed second warning leaves every project expecting a reboot that is now
-            # not going to happen, so it is withdrawn before giving up.
-            if ! signal_projects "${kind}" 1 false >/dev/null; then
-                trap - INT TERM
-                signal_projects reboot-cancelled "" false >/dev/null
-                return 1
-            fi
+            signal_projects "${kind}" 1 false >/dev/null || return 1
             echo "Rebooting in 1 minute." >&2
         fi
     fi
@@ -326,7 +338,9 @@ cmd_reboot() {
         return 0
     fi
     countdown "${MINUTE_SECONDS}"
-    trap - INT TERM
+    # From here a signal is the shutdown reaching this process, not a cancellation, so it
+    # is ignored rather than allowed to withdraw. A refused reboot still exits non-zero.
+    trap '' INT TERM
     systemctl reboot
 }
 
