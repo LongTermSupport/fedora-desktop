@@ -97,10 +97,16 @@ esac
 EOF
 chmod 755 "$BIN/ps" "$BIN/podman"
 # systemctl: records the request and does nothing, or fails when TEST_SYSTEMCTL_RC says so.
+# TEST_SYSTEMCTL_TERM_CALLER=1 sends TERM to its caller first, as a real shutdown does to
+# every process while the power action is under way.
 cat >"$BIN/systemctl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'systemctl %s\n' "$*" >>"$TEST_LOG"
+if [ -n "${TEST_SYSTEMCTL_TERM_CALLER:-}" ]; then
+    kill -TERM "$PPID"
+    sleep 0.2
+fi
 exit "${TEST_SYSTEMCTL_RC:-0}"
 EOF
 chmod 755 "$BIN/tmux" "$BIN/systemctl"
@@ -483,6 +489,13 @@ check "a first warning that fails part-way: exits non-zero" "yes" "$([ "$rc" -ne
 check "and whatever was reached is withdrawn" "yes" \
     "$([ "$(calls | grep -c 'signal reboot-cancelled --all-sessions')" -ge 1 ] && echo yes || echo no)"
 check "and nothing shuts down" "0" "$(calls | grep -c '^shutdown -h now$')"
+
+TEST_SYSTEMCTL_TERM_CALLER=1 with_update reboot-with-update "$HOME_OFF" "" --in 1
+check "TERM while the reboot is under way: not treated as a cancel" "0" "$rc"
+check "and the sessions are not told the reboot is off" "0" "$(calls | grep -c 'reboot-cancelled')"
+
+TEST_SHUTDOWN_RC=1 TEST_SYSTEMCTL_TERM_CALLER=1 with_update shutdown-with-update "$HOME_OFF" "y" --in 1
+check "TERM while a forced poweroff is under way: not treated as a cancel" "0" "$(calls | grep -c 'reboot-cancelled')"
 
 TEST_SUDO_USER=root with_update shutdown-with-update "$HOME_OFF" "" --in 1
 check "run from a root shell (SUDO_USER=root): refused" "1" "$rc"

@@ -233,11 +233,11 @@ server, in the recorded directory, with the recorded arguments plus `--continue`
 directory offers them back.
 
 What is replayed is the launch command line **minus the one-shot arguments**: `--rebuild`,
-`--prompt "text"` and a bare opening instruction, `--prevent`, `--connect`, the token
-create/update/export modes, `--custom`, `--top`, `--debug`, `--headless` and `--ssh-agent`
-(the agent socket is a different path after a reboot). Settings — `--token`, `--ssh-key`,
-`--network`, `--no-network`, `--no-ssh`, `--github-443`, `--engine`, `--no-supervise` —
-and everything after `--` are kept. A restored session starts in a real tmux pane, so the
+`--prompt "text"` and a bare opening instruction, `--connect`, `--debug`, `--ssh-agent`
+(the agent socket is a different path after a reboot) and the like. Settings such as
+`--token`, `--ssh-key`, `--network` and `--no-supervise`, and everything after `--`, are
+kept. The full classification is `ccy_registry_flag_class` in
+`lib/session-registry.bash`, and a test fails on any launcher flag it does not classify. A restored session starts in a real tmux pane, so the
 launcher behaves as it always does, with three exceptions (since CCY 3.61.0). A restored
 `ccy` accepts its project's saved Quick Launch configuration, leaves containers left over
 from before the reboot running rather than asking what to do with them, and starts
@@ -259,6 +259,7 @@ session is `OK`. `--wait` keeps polling until they all are or the time runs out.
 | Launched with `--no-restore`              | Skips it: the record says so                                                                                                      |
 | Record's directory has since been deleted | Fails loudly, keeps the record for you, carries on with the others; the unit ends `failed`                                        |
 | Live session list cannot be read          | Starts nothing — restoring blind could double every session                                                                       |
+| Registry directory exists but is unlisted | Fails: an unreadable registry is not "nothing to restore"                                                                         |
 | Machine not opted in                      | Nothing runs. Records are still written and removed as sessions end; one left by a killed session stays until that name is reused |
 
 `ccy --no-restore` marks a one-off session as not worth bringing back. `ccy-sessions restore --dry-run` prints what a restore would start and starts nothing.
@@ -276,6 +277,11 @@ composes a message, so a reboot notice cannot become a prompt into a running age
 A live session whose project has **no** daemon CLI is a refusal, not a warning: the project
 is named, nothing is signalled, and nothing reboots. End that session or install the daemon
 there, then try again. `--dry-run` prints what would be signalled and reboots nothing.
+Once any project has been warned, a reboot that does not happen is withdrawn: a warning
+that fails part-way, a refused reboot, or Ctrl-C in the countdown sends
+`reboot-cancelled` to every warned project. `shutdown-with-update` and
+`reboot-with-update` do the same. A TERM that arrives while the reboot itself runs is the
+machine going down, so it is ignored rather than read as a cancel.
 `ccy-sessions notify going-down --minutes N` and `ccy-sessions notify reboot-cancelled`
 are the two halves on their own, for a reboot or shutdown that something else is going to
 perform.
@@ -1236,7 +1242,7 @@ absent supervisor and `--no-supervise`; both announce themselves at launch. See
 | `ccy` offers a session I do not want          | Answer `n` for a fresh one, or end the old one from `ccy-sessions` (choose it, Ctrl-X).                                                                                                                                                            |
 | "open in another terminal" when attaching     | A session can be attached from one terminal only. Detach it there first (F12, Detach), or end it from `ccy-sessions`.                                                                                                                              |
 | "tmux is not installed"                       | `play-tmux-sessions.yml` has not run on this host. It is part of `playbook-main.yml`.                                                                                                                                                              |
-| Sessions did not come back after a reboot     | Restore is opt-in: `ccy_restore_sessions: true` in `host_vars`, then the play. If it is on, \`systemctl --user status ccy-sessions-restore --no-pager                                                                                              |
+| Sessions did not come back after a reboot     | Restore is opt-in: `ccy_restore_sessions: true` in `host_vars`, then the play. If it is on, `ccy-sessions verify-restore` names each session's state, and `journalctl --user -u ccy-sessions-restore -b --no-pager` shows what the restore did.    |
 | `ccy-sessions reboot` refuses                 | A live session's project has no hooks-daemon CLI, so it cannot be warned. It is named; end it or install the daemon there. Nothing was signalled or rebooted.                                                                                      |
 | Need to see what CCY itself is doing          | `ccy --debug` for interactive debug-layer selection.                                                                                                                                                                                               |
 

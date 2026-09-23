@@ -259,8 +259,10 @@ if [ "$REBOOT_MINUTES" -gt 1 ]; then
     echo "${MODE^} in 1 minute..."
 fi
 countdown "$MINUTE_SECONDS"
-# The Ctrl-C window is over: from here an interrupt is an exit like any other.
-trap 'exit 130' INT TERM
+# The Ctrl-C window is over. While a power action runs, a TERM is the shutdown reaching this
+# process, not a cancellation, so it is ignored; letting it exit would withdraw the warning
+# from sessions that are about to go down. A refused action still exits non-zero.
+trap '' INT TERM
 
 if [ "$MODE" = "reboot" ]; then
     echo "Rebooting..."
@@ -270,6 +272,8 @@ fi
 
 echo "Attempting shutdown..."
 if ! shutdown -h now 2>&1; then
+    # Nothing is going down now, so the force prompt is interruptible again.
+    trap 'exit 130' INT TERM
     echo ""
     echo "Shutdown blocked by inhibitors or logged-in users."
     echo "Current inhibitors:"
@@ -279,6 +283,7 @@ if ! shutdown -h now 2>&1; then
     echo ""
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         echo "Forcing shutdown..."
+        trap '' INT TERM
         systemctl poweroff -i
     else
         echo "Shutdown cancelled. The machine stays up." >&2

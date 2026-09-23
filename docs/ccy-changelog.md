@@ -37,6 +37,12 @@ difference was that it showed a token expiring today in yellow.
 
 ## 3.62.0
 
+`ccy-sessions reboot` now withdraws its warning whenever it stops short. A warning that
+fails part-way, a refused reboot, or an interrupt in the countdown sends
+`reboot-cancelled` to every project already warned, as `shutdown-with-update` does. A
+TERM while the reboot itself runs is ignored, because it is the machine going down.
+`shutdown-with-update` gained the same guard in the same change.
+
 `ccy-sessions verify-restore` names a waiting session only by the prompts in
 `ccy_known_prompts`. Two prompts a restored launch can reach were missing, so a session
 waiting at either read as `OK` for `cc` or `STARTING` for `ccy`:
