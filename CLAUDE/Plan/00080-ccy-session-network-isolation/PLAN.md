@@ -146,6 +146,19 @@ the fact worth spending effort on, not H1.
 - **F23** — with `.ID` the network inventory returns `rc=0`: six bridge
   networks, of which only `podman` has members. Confirms F18's shape
 
+**From host triage, run 3** (2026-09-23 batch, passive; anonymised detail in
+`JOURNAL/00080-Journal-26-09-23.md`):
+
+- **F24** — Podman 5.8.7 / netavark 1.17.2: **below** the 2.0 / 6.0 line, so a
+  per-session network needs an explicit `--opt isolate=` (the third hypothesis, answered)
+- **F25** — the `podman` network: one `/16` bridge, `dns_enabled: false`, no isolate
+  option, and its six members are exactly the six CCY sessions (H2 confirmed on the host)
+- **F26** — 6 of 6 sessions labelled (F20's partial rollout is over). Five have no
+  listeners; one listens on loopback only, which no neighbour can reach
+- **F27** — one project network holds 9 members, a compose stack this repo does not own
+- **F28** — P13: 3 projects persist a non-default network and none the default, so
+  `--connect` is live and any bridge-removing option must keep it
+
 > **The snapshot caveat is now the whole of the remaining risk.** Six sessions
 > were sampled while none happened to be running a dev server. F22 establishes
 > the **floor is empty in normal use**, not that a listener can never appear. A
@@ -261,12 +274,11 @@ used.** If it is rare, Option 4 is free isolation and less code.
   inventory died on an invalid template field. Both fixed.
   **Run 2**: coverage 6 of 6, every session with no listeners (F22), network
   inventory clean (F23). H3 answered for the idle fleet.
-  **Still open**: (a) a passive re-run for **P13**, added after run 2 — it
-  counts CCY's persisted per-project network preferences, which are the actual
-  usage record for `--connect` and so the last input Task 2.2 lacks; (b) the
-  active probes (`--reachability`, P6–P12), which decide H1, H4 and the
-  netavark-version question — i.e. whether the *fix* works, which only matters
-  if Task 2.2 chooses to fix anything
+  **Run 3** (2026-09-23 host batch, passive, P13 included): F24–F28. The P13 re-run
+  is done. Still open: the active probes (`--reachability`, P6–P12), which decide H1
+  and H4, i.e. whether the *fix* works. That only matters if Task 2.2 chooses to fix
+  anything. The netavark-version question they were also to settle is answered
+  passively by F24.
 
 ### Phase 2: Decision gate
 
@@ -279,7 +291,9 @@ used.** If it is rare, Option 4 is free isolation and less code.
   (a) is anything exposed? — **F22 says no**, 6 of 6 sessions have zero
   listeners; (b) what is the bridge buying? — **P13 counts it** from CCY's
   per-project persisted network preferences, which are the actual usage record
-  for `--connect`. Re-run `triage.bash` to get (b)
+  for `--connect`. **Measured by run 3 (F28)**: 3 projects persist a non-default
+  network and none persists the default, so `--connect` is in real use and Option 4
+  would break it. Both inputs are in; the decision is the owner's
 
 ### Phase 3: Implement (only if Task 2.2 says so)
 
