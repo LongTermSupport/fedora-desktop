@@ -120,15 +120,18 @@ containers that needs its own diagnosis (F7).
 
 ### Phase 3: things to diagnose before changing
 
-- [ ] ⬜ **Task 3.1**: SELinux denial flood (F7) — extend `triage.bash` with probes that
+- [ ] 🔄 **Task 3.1**: SELinux denial flood (F7) — extend `triage.bash` with probes that
   list, per running container, the workspace mount options (`:z` present or not),
   and the label the host sees on each frequently-denied path; then decide whether
   the CCY relabel is skipped in some launch mode or host-created paths revert.
-- [ ] ⬜ **Task 3.2**: Docker 29 nftables backend vs `lxc-docker-user-iptables-reconcile`
+  Probes written, HOST run pending: run `triage.bash` with the denying sessions up.
+- [ ] 🔄 **Task 3.2**: Docker 29 nftables backend vs `lxc-docker-user-iptables-reconcile`
   — verify whether the `DOCKER-USER` iptables chain the reconcile script edits is
   consulted at all with the nftables backend; if not, that script's egress rules are
   dead and Plan 00127's assumptions need revisiting. Also decide whether the per-boot
   firewalld `COMMAND_FAILED`/`NAME_CONFLICT` noise is worth silencing.
+  Probes written, HOST run pending. The DOCKER-USER assumption lives in
+  `play-lxc-install-config.yml`'s header and the reconcile script; Plan 00127 has none.
 
 ### Phase 4: close
 
