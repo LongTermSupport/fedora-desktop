@@ -147,7 +147,9 @@ between the operator and a one-shot run.
   blamed an undeployed play, sending the reader to run Ansible in the one place this repo
   forbids it. Falsified both ways: refuses in the container, `--help` still works.
 
-  Not through `meta-deploy.bash`, simply because they are not in its list. (This used to
+  00079 and 00080 are now in `meta-deploy.bash`'s list (2026-09-23), which accepts a
+  triage-only plan, so one batch run discharges them. 00066 stays a direct run: its
+  affected machine is not the desktop. The history of the list: (This used to
   say it "runs once, over every In Progress plan, and these belong to closed ones". Both
   halves are false: the list is a hardcoded `PLANS=()` array of five — as Task 2.4 below
   says twelve lines on — and of these, 00080 is In Progress while 00066 and 00079 are

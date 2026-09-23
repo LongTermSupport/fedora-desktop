@@ -38,14 +38,14 @@ PLAN_ROOT="${scriptDir}"
 
 # --- the list ----------------------------------------------------------------
 # Plan folder names, run in this order. Add a line when a plan needs deploying; delete it
-# when it does not. A plan with no deploy.bash and no acceptance.bash has nothing for this
-# script to do.
+# when it does not. A plan with none of triage.bash, deploy.bash and acceptance.bash has
+# nothing for this script to do. A triage-only plan is run once, read-only.
 PLANS=(
     00134-startup-log-triage-and-status-panel-unavailable
-    00063-headless-run-bash-server-cloud-provisioning
-    00098-encrypted-claude-transcripts-at-rest
     00109-desktop-drift-detection-and-fedora-desktop-panel
     032-compression-helpers
+    00079-podman-container-control
+    00080-ccy-session-network-isolation
 )
 
 LIST_ONLY=0
@@ -72,8 +72,8 @@ for planName in "${PLANS[@]}"; do
         printf '        PLANS list at the top of this script.\n' >&2
         exit 1
     fi
-    if [[ ! -x "${planDir}/deploy.bash" && ! -x "${planDir}/acceptance.bash" ]]; then
-        printf '[FATAL] %s ships neither an executable deploy.bash nor acceptance.bash\n' "${planName}" >&2
+    if [[ ! -x "${planDir}/deploy.bash" && ! -x "${planDir}/acceptance.bash" && ! -x "${planDir}/triage.bash" ]]; then
+        printf '[FATAL] %s ships no executable triage.bash, deploy.bash or acceptance.bash\n' "${planName}" >&2
         exit 1
     fi
     PLAN_DIRS+=("${planDir}")
@@ -174,7 +174,7 @@ for planDir in "${PLAN_DIRS[@]}"; do
 
     # The second half of the bracket — and it must come BEFORE acceptance, since the
     # gates that want a pair read it from triage's own run logs.
-    if [[ -x "${planDir}/triage.bash" && "${deployOk}" == "1" ]]; then
+    if [[ -x "${planDir}/triage.bash" && -x "${planDir}/deploy.bash" && "${deployOk}" == "1" ]]; then
         printf '\n===> %s / triage.bash (after)\n' "${planName}"
         if "${planDir}/triage.bash" 2>&1 | tee "${CAPTURE_DIR}/${planName}-triage-after.log"; then
             RESULTS+=("PASS  ${planName}/triage.bash (after)")
