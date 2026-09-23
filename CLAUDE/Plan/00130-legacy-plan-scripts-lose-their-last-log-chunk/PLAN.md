@@ -229,10 +229,10 @@ between the operator and a one-shot run.
 - [x] ✅ QA passes (`./scripts/qa-all.bash`) — green. (The file count is deliberately not
   quoted: it tracks the tree, not this plan, so asserting it dates the criterion for no
   gain — Task 2.4's own lesson.)
-- [ ] 🔄 `qa-reviewer` returns PASS — round 1 FIX-BEFORE-MERGE
-  ([260917](subagent-reports/260917-qa-reviewer-opus-5.md)), all eight settled; round 2
-  FIX-BEFORE-MERGE, no BLOCK ([260923](subagent-reports/260923-qa-reviewer-opus-5.md)),
-  its should-fix findings resolved. Re-run the review for PASS.
+- [x] ✅ `qa-reviewer` returns PASS — round 1 FIX-BEFORE-MERGE
+  ([260917](subagent-reports/260917-qa-reviewer-opus-5.md)), round 2 FIX-BEFORE-MERGE
+  ([260923](subagent-reports/260923-qa-reviewer-opus-5.md)), round 3 PASS (journal
+  26-09-23, 17:45).
 
 ## Delivery & Milestones
 
