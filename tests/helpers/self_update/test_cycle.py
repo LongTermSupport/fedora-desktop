@@ -345,9 +345,27 @@ class TestSearchPathsUnderHome(unittest.TestCase):
         dump = [{"name": "DEFAULT_HOST_LIST", "origin": "env", "value": [f"{self.HOME}/inventory"]}]
         self.assertEqual(self.findings(dump), [f"DEFAULT_HOST_LIST={self.HOME}/inventory"])
 
-    def test_a_list_that_is_not_a_search_path_is_not_read_as_one(self) -> None:
-        """INVENTORY_IGNORE_EXTS really does hold "~", a file suffix, not the home."""
-        dump = [{"name": "INVENTORY_IGNORE_EXTS", "origin": "default", "value": [".pyc", "~"]}]
+    def test_a_list_whose_name_does_not_say_path_is_judged_too(self) -> None:
+        """DEFAULT_HOST_LIST already showed the naming is not a rule, so no name is trusted."""
+        dump = [{"name": "FUTURE_WIDGET_SOURCES", "origin": "default", "value": [f"{self.HOME}/.ansible/widgets"]}]
+        self.assertEqual(self.findings(dump), [f"FUTURE_WIDGET_SOURCES={self.HOME}/.ansible/widgets"])
+
+    def test_a_bare_tilde_is_a_suffix_not_the_home(self) -> None:
+        """INVENTORY_IGNORE_EXTS and MODULE_IGNORE_EXTS really do hold "~", a backup-file
+        suffix. ansible expands `~` in every path-typed setting before dumping it, so a bare
+        one that survives into the dump is never a path."""
+        dump = [{"name": "INVENTORY_IGNORE_EXTS", "origin": "default", "value": [".pyc", "~"]},
+                {"name": "MODULE_IGNORE_EXTS", "origin": "default", "value": [".bak", "~", ".rpm"]}]
+        self.assertEqual(self.findings(dump), [])
+
+    def test_lists_of_names_and_patterns_are_not_findings(self) -> None:
+        """They resolve under the clone, where the play runs, not under the home."""
+        dump = [
+            {"name": "CALLBACKS_ENABLED", "origin": "cfg", "value": ["ansible.builtin.default", "play_ledger"]},
+            {"name": "GALAXY_ROLE_SKELETON_IGNORE", "origin": "default", "value": ["^.git$", "^.*/.git_keep$"]},
+            {"name": "INTERPRETER_PYTHON_FALLBACK", "origin": "default", "value": ["python3.13"]},
+            {"name": "TAGS_RUN", "origin": "default", "value": []},
+        ]
         self.assertEqual(self.findings(dump), [])
 
     def test_the_galaxy_servers_entry_a_real_dump_ends_with_is_accepted(self) -> None:

@@ -217,22 +217,29 @@ render_verdict() {
 check 0 "sudo allows the entry point without a password, and nothing else"
 sudo -k
 grantOut=""
+grantsAllowed=0
 for grant in "run" "run --dry-run" "verify" "status"; do
     read -r -a grantArgs <<<"${grant}"
     if grantOut="$(sudo -n -l "${SBIN}" "${grantArgs[@]}" 2>&1)"; then
         ok "sudo -n -l ${SBIN} ${grant} is allowed"
+        grantsAllowed=$((grantsAllowed + 1))
     else
         bad "this user may not run ${SBIN} ${grant} without a password (${grantOut})" \
             "the sudoers drop-in is missing or invalid: re-run play-self-update.yml"
     fi
 done
-# The grant is exact argument lists: an extra option must be refused by sudo itself.
+# The grant is exact argument lists: an extra option must be refused by sudo itself. A
+# refusal only shows that when the four lists are allowed; with no grant at all, every
+# argument list is refused and the refusal proves nothing.
 extraOut=""
 if extraOut="$(sudo -n -l "${SBIN}" run --config /nonexistent 2>&1)"; then
     bad "sudo allows ${SBIN} with arguments beyond the four exact lists" \
         "the drop-in must name each argument list; re-run play-self-update.yml"
-else
+elif [[ "${grantsAllowed}" -eq 4 ]]; then
     ok "an extra argument is refused by sudo (${extraOut})"
+else
+    unknown "an extra argument is refused (${extraOut}), but so is at least one exact list, so the refusal says nothing about the grant's shape" \
+        "fix the grant failures above, then re-run this check"
 fi
 # A refusal passes only for the two reasons that prove the grant is not blanket: sudo wants a
 # password for it, or this user may not run it at all. Any other failure (a broken sudoers, a

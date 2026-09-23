@@ -109,19 +109,34 @@ GIT=(git -C "${CLONE}" -c core.hooksPath=/dev/null -c core.fsmonitor=false -c pr
     -c gpg.program=false -c gpg.openpgp.program=false -c gpg.x509.program=false
     -c "gpg.ssh.program=${SSH_KEYGEN}" -c "gpg.ssh.allowedSignersFile=${ALLOWED_SIGNERS}")
 UNTRUSTED="re-run the self-update play: it moves the clone to the newest commit your key signed"
+# The play never updates an existing clone (update: false), and its anchor refuses a dirty
+# one, so re-running it cannot clear these two. Only a fresh clone can.
+RECLONE="re-running the play cannot clear this. Run the self-update play once with self_update_enabled: false in host_vars, which removes the clone and the rest of the automation, then once more with it true, which clones and anchors afresh"
 if ! SIGNATURE="$("${GIT[@]}" log -1 --format='%G?:%GS' HEAD 2>&1)" ||
     [[ "${SIGNATURE}" != "G:${PRINCIPAL}" ]]; then
     echo "fedora-desktop-self-update: the deploy clone's HEAD is not a commit signed by ${PRINCIPAL}; nothing from it was run. ${UNTRUSTED}" >&2
     exit 20
 fi
 if ! DIRT="$("${GIT[@]}" status --porcelain=v1 --untracked-files=all 2>&1)" || [[ -n "${DIRT}" ]]; then
-    echo "fedora-desktop-self-update: the deploy clone differs from its signed HEAD; nothing from it was run. ${UNTRUSTED}" >&2
+    echo "fedora-desktop-self-update: the deploy clone differs from its signed HEAD; nothing from it was run; ${RECLONE}" >&2
     exit 20
 fi
 # Without --exclude-standard this lists ignored files too, and a nested repository as `dir/`.
-if ! STRAYS="$("${GIT[@]}" ls-files --others --exclude=/environment/localhost/host_vars/localhost.yml 2>&1)" ||
-    [[ -n "${STRAYS}" ]]; then
-    echo "fedora-desktop-self-update: the deploy clone holds files its signed commit does not, ignored ones included; nothing from it was run. ${UNTRUSTED}. They are: ${STRAYS//$'\n'/; }" >&2
+# The host_vars copy is excused by exact path, as the anchor does: a pattern would also
+# excuse a directory of that name and everything in it. NUL-separated, so no file name can
+# split into lines that each look like the excused one.
+EXCUSED=environment/localhost/host_vars/localhost.yml
+STRAYS=()
+while IFS= read -r -d '' path; do
+    [[ "${path}" == "${EXCUSED}" ]] || STRAYS+=("${path}")
+done < <("${GIT[@]}" ls-files --others -z)
+if ! wait "$!"; then
+    echo "fedora-desktop-self-update: git could not list the deploy clone's untracked files; nothing from it was run" >&2
+    exit 20
+fi
+if [[ ${#STRAYS[@]} -gt 0 ]]; then
+    SHOWN="$(printf '%s; ' "${STRAYS[@]}")"
+    echo "fedora-desktop-self-update: the deploy clone holds files its signed commit does not, ignored ones included; nothing from it was run; ${RECLONE}. They are: ${SHOWN%; }" >&2
     exit 20
 fi
 
