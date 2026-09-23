@@ -117,14 +117,10 @@ containers that needs its own diagnosis (F7).
   (`-e` or defaults) into a managed block there. Deployed (79 → 10 records).
   Desktop profile only, and the block installs `abrt` + `abrt-tui` itself (PR #50; journal
   16:40). Remaining: confirm no applet backlog notification at the next login.
-- [ ] 🚫 **Task 2.6**: Thunar — confirm no play installs it, then either own it in a play
-  or remove it; the duplicate `org.freedesktop.FileManager1` service file goes with it.
-  Confirmed: nothing in `playbooks/`, `tasks/`, `vars/` or `files/` installs it, and
-  `docs/fast-file-manager.md` records PCManFM as chosen over Thunar. **Blocked on an
-  owner decision** (journal 18:55): (A) `play-fast-file-manager.yml` removes the Thunar
-  package, and its service file goes with it; (B) a play declares Thunar as wanted and
-  the D-Bus name conflict is accepted as noise; (C) leave it unmanaged and accept the
-  line. Recommended: A, unless Thunar is in use.
+- [ ] 🔄 **Task 2.6**: Thunar — no play installed it and no package needed it; the owner
+  does not use it, so `play-basic-configs.yml` removes it (`c4b55c97`), and its
+  `org.freedesktop.FileManager1` service file goes with the package. HOST verify pending:
+  run the play, then the next boot's `journalctl -b -u dbus-broker` has no duplicate line.
 
 ### Phase 3: things to diagnose before changing
 
