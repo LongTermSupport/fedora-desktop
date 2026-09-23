@@ -30,6 +30,7 @@
 #      the other back (Task 2.2).
 #   7. play-vm-test-lab.yml — the bridge unit's drain cap is one systemd honours
 #      (Task 2.3). Only on a host that runs the VM lab; the play is optional.
+#   8. play-toolbox-install.yml — the Toolbox autostart entry kept at 0644 (Task 2.4).
 #
 # Usage: ./deploy.bash [-h|--help] [-y|--yes]
 set -euo pipefail
@@ -65,6 +66,7 @@ Deploys the 2026-09-23 fixes on the HOST, fail-fast, in this order:
   playbooks/imports/optional/common/play-hd-audio.yml          (WirePlumber 0.5 port)
   playbooks/imports/play-browsers.yml                          (one [vivaldi] repo)
   playbooks/imports/optional/common/play-vm-test-lab.yml       (bridge drain cap)
+  playbooks/imports/play-toolbox-install.yml                   (autostart entry 0644)
 
 -y/--yes is accepted; this script asks nothing, so it is a no-op here.
 --check is REFUSED: play-fedora-desktop-panel.yml reads a command task's registered
@@ -118,6 +120,9 @@ plan_deploy_leg "play-browsers.yml" \
 
 plan_deploy_leg "play-vm-test-lab.yml" \
     plan_ansible_playbook playbooks/imports/optional/common/play-vm-test-lab.yml
+
+plan_deploy_leg "play-toolbox-install.yml" \
+    plan_ansible_playbook playbooks/imports/play-toolbox-install.yml
 
 printf '\n'
 printf '==> NEXT: log out and log back in, then check:\n'

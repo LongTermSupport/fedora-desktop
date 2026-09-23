@@ -357,6 +357,8 @@ gh-personal issue list
 
 - Downloads and installs JetBrains Toolbox
 - Configures desktop integration
+- Keeps Toolbox's own autostart entry at mode 0644 on every run. Toolbox writes it
+  executable, and the autostart generator complains at every login
 
 ### play-lxc-install-config.yml
 

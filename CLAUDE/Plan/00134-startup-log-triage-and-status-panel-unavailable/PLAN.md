@@ -96,9 +96,10 @@ containers that needs its own diagnosis (F7).
   oneshot units carry no `RuntimeMaxSec` (neither do inline units in plays), and
   `systemd-analyze verify` shows the "no effect" warning for the old unit but not the new
   one. HOST verify pending (deploy leg 7).
-- [ ] ⬜ **Task 2.4**: `play-toolbox-install.yml` — ensure
+- [ ] 🔄 **Task 2.4**: `play-toolbox-install.yml` — ensure
   `~/.config/autostart/jetbrains-toolbox.desktop` is mode 0644 whenever it exists (the
   application rewrites it, so this must run every pass, not be `creates:`-guarded).
+  Code done (stat, then a mode task gated on existence). HOST verify pending.
 - [ ] 🔄 **Task 2.5**: ABRT policy as IaC — `play-basic-configs.yml` sets
   `abrt_auto_reporting` (project default on; per-host override) via
   `abrt-auto-reporting`, and installs `abrt-prune-stale.{service,timer}` running
