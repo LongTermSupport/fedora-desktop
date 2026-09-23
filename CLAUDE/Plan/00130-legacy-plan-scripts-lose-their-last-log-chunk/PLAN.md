@@ -11,7 +11,7 @@
 with `mkdir -p "$PLAN_DIR/logs"` and `exec > >(tee "$LOG") 2>&1`. Both halves are
 wrong, and `CLAUDE/PlanScriptStandards.md` R4 forbids them. The document has been
 corrected (`78fe841a`), so no NEW script will carry the pattern — but **ten scripts
-across seven still-active plans**, of 53 examined, were written from the old
+across six still-active plans**, of 53 examined, were written from the old
 instruction and still do. `triage.bash` establishes that by glob; the "nine across
 eight" this plan was filed with was hand-counted and was wrong in both figures.
 
@@ -92,7 +92,7 @@ between the operator and a one-shot run.
 
 - [x] ✅ **Task 2.1**: All ten converted. The gate written for Task 3.1 is the check:
   `PLAN-SCRIPT-LOGGING-OK: <n> plan script(s) examined, no offences` — the population
-  tracks the active tree and shrinks as plans archive (51 when this was written, 45 now),
+  tracks the active tree and shrinks as plans archive (51 when this was written),
   so "no offences" is the assertion and the count is not. Convert each script
   to `plan_start_log auto`, removing the
   `LOG=`/`mkdir -p` lines **and any consumer of `$LOG`**. That last part is not
@@ -154,13 +154,6 @@ between the operator and a one-shot run.
   Blocked. None is Complete.) A selection flag was briefly added here to reach them and then
   removed: it turned a batch runner into a longer way of typing a path, and a wrapper that
   can also run one thing is a second selection mode to reason about for no gain.
-
-  **The check-0 caveat recorded here was stale and is withdrawn.** It named 00079's
-  `acceptance.bash`; the anchored-grep defect was in its `unit-test-selection.bash`, and
-  Plan 00079 fixed it the same day — the pattern is start-anchored now, with a
-  more-than-one-match branch so dropping `$` cannot silently cut elsewhere. Re-checked
-  against the current `podfreeze`: exactly one matching line. Nothing blocks these runs.
-
   **Not done, and cannot be here**: the rest stop early by design rather than by defect —
   `plan_require_host` refuses. All five now carry that guard, the last of them
   (`00066/triage.bash`) added by this plan, so the missing-tool branches this used to also
@@ -234,14 +227,12 @@ between the operator and a one-shot run.
   both controls run in-script on every invocation, and it was additionally falsified
   against the LIVE tree during the conversion: 6 offences, then 4, then 1, then none
 - [x] ✅ QA passes (`./scripts/qa-all.bash`) — green. (The file count is deliberately not
-  quoted: it was "973 files" here and the live run reports 1,002. The count tracks the tree,
-  not this plan, so asserting it dates the criterion for no gain — Task 2.4's own lesson.)
-- [ ] 🔄 `qa-reviewer` returns PASS — **run**, verdict FIX-BEFORE-MERGE with no BLOCK
-  ([subagent-reports/260917-qa-reviewer-opus-5.md](subagent-reports/260917-qa-reviewer-opus-5.md)).
-  Seven of its eight findings are fixed. The eighth, an owner decision, is settled: the
-  plan-local `00079/unit-test-selection.bash` is deleted, because `scripts/test-podfreeze.bash`
-  covers every function and edge case it did and runs on every `qa-all.bash`. 00079's
-  `acceptance.bash` now runs that suite. Re-run the review.
+  quoted: it tracks the tree, not this plan, so asserting it dates the criterion for no
+  gain — Task 2.4's own lesson.)
+- [ ] 🔄 `qa-reviewer` returns PASS — round 1 FIX-BEFORE-MERGE
+  ([260917](subagent-reports/260917-qa-reviewer-opus-5.md)), all eight settled; round 2
+  FIX-BEFORE-MERGE, no BLOCK ([260923](subagent-reports/260923-qa-reviewer-opus-5.md)),
+  its should-fix findings resolved. Re-run the review for PASS.
 
 ## Delivery & Milestones
 

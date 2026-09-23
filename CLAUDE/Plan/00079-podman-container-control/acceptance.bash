@@ -164,7 +164,12 @@ echo "### 0. selection/labelling unit test (scripts/test-podfreeze.bash)"
 # a passing run stays short, and a failing one prints every line, so the failing cases
 # reach the terminal and this script's run log.
 if podfreeze_out="$(bash "$PODFREEZE_TEST" 2>&1)"; then
-    echo "  OK — podfreeze decision tests pass"
+    podfreeze_count="$(printf '%s\n' "$podfreeze_out" | awk '/^passed:/ {print; exit}')"
+    if [ -z "$podfreeze_count" ]; then
+        echo "ERROR: the podfreeze suite passed but printed no 'passed:' line — its output format changed." >&2
+        exit 1
+    fi
+    echo "  OK — podfreeze decision tests pass (${podfreeze_count})"
 else
     printf '%s\n' "$podfreeze_out" >&2
     echo "ERROR: the podfreeze decision tests FAILED (above) — not proceeding to containers." >&2

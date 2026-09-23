@@ -57,8 +57,7 @@ Runs ${PLAY} on the HOST:
 
 --check previews without changing anything. -y/--yes is accepted and skips any
 plan_confirm prompt, which is what CLAUDE/Plan/meta-deploy.bash passes when it runs
-this as part of a batch — but this script asks nothing, so here it is a no-op. There
-is no change gate: R8 removed plan_gate_change from the library.
+this as part of a batch. This script asks nothing, so here it is a no-op.
 
 Then run acceptance.bash, which renders the verdict and covers PLAN.md Phase 4's
 six user-testing items.
