@@ -6,18 +6,19 @@ it is a change to both sides.
 
 ## Names and paths
 
-| Thing           | Where                                                                                                                 | Owner / mode                   |
-| --------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
-| Entry point     | `/usr/local/sbin/fedora-desktop-self-update` (source: `files/usr/local/sbin/`)                                        | root:root 0700                 |
-| Config          | `/etc/fedora-desktop/self-update.conf`, `KEY=value`, read with `read`, never sourced                                  | root:root 0600                 |
-| Become password | `/etc/fedora-desktop/self-update.become` (vault-provisioned)                                                          | root:root 0600                 |
-| Vault password  | `/etc/fedora-desktop/self-update.vault` (copied from the checkout the play runs from)                                 | root:root 0600                 |
-| Allowed signers | `/etc/fedora-desktop/self-update.allowed_signers` (the owner's public key only)                                       | root:root 0644, dir 0755 root  |
-| Deploy clone    | `/var/lib/fedora-desktop/deploy` (D4), owned by root                                                                  | never mounted into a container |
-| State           | `/var/lib/fedora-desktop/self-update/` (the last result, the owed post-boot check)                                    | root:root 0700                 |
-| Cycle units     | `fedora-desktop-self-update.{service,timer}`, **system** units                                                        | timer: nightly, D9             |
-| Post-boot units | `fedora-desktop-self-update-verify.service`, **system**, `After=` the user's restore                                  | runs once per boot when owed   |
-| Sudoers         | `/etc/sudoers.d/fedora-desktop-self-update`: `<user> ALL=(root) NOPASSWD: /usr/local/sbin/fedora-desktop-self-update` | validated with `visudo -cf`    |
+| Thing           | Where                                                                                                                 | Owner / mode                    |
+| --------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| Entry point     | `/usr/local/sbin/fedora-desktop-self-update` (source: `files/usr/local/sbin/`)                                        | root:root 0700                  |
+| Config          | `/etc/fedora-desktop/self-update.conf`, `KEY=value`, read with `read`, never sourced                                  | root:root 0600                  |
+| Become password | `/etc/fedora-desktop/self-update.become` (vault-provisioned)                                                          | root:root 0600                  |
+| Vault password  | `/etc/fedora-desktop/self-update.vault` (copied from the checkout the play runs from)                                 | root:root 0600                  |
+| Allowed signers | `/etc/fedora-desktop/self-update.allowed_signers` (the owner's public key only)                                       | root:root 0644, dir 0755 root   |
+| Deploy clone    | `/var/lib/fedora-desktop/deploy` (D4), owned by root                                                                  | never mounted into a container  |
+| State           | `/var/lib/fedora-desktop/self-update/` (the last result, the owed post-boot check)                                    | root:root 0700                  |
+| Published       | `/var/lib/fedora-desktop/self-update-status/result`, the user's copy of each result (Task 4.3)                        | dir root:<user> 2750, file 0640 |
+| Cycle units     | `fedora-desktop-self-update.{service,timer}`, **system** units                                                        | timer: nightly, D9              |
+| Post-boot units | `fedora-desktop-self-update-verify.service`, **system**, `After=` the user's restore                                  | runs once per boot when owed    |
+| Sudoers         | `/etc/sudoers.d/fedora-desktop-self-update`: `<user> ALL=(root) NOPASSWD: /usr/local/sbin/fedora-desktop-self-update` | validated with `visudo -cf`     |
 
 ### Deploy clone and plays
 
@@ -90,5 +91,43 @@ These keys have no defaults. The orchestrator refuses to run if one is missing:
 ## Result record
 
 `state/last-result` holds one line per key: `at`, `phase`, `outcome`, `old`, `new`,
-`plays`, `detail`. `helpers/host_health` reads it for Task 4.3, and the alert sinks send
-it for Task 4.5. It carries no hostname, username or path.
+`plays`, `detail`. The alert sinks send it for Task 4.5. It carries no hostname, username
+or path.
+
+Outcomes, as `helpers/self_update/published.py` classifies them (a test reads the cycle's
+source and fails on one that is not classified):
+
+- ok: `nothing`, `deployed`;
+- in progress: `rebooting`;
+- failed: `refused`, `config-invalid`, `play-failed`, `unwarnable`, `cancelled`,
+  `reboot-failed`, `verify-failed`.
+
+## The published copy (Task 4.3)
+
+The host-health report runs as the user and cannot read `state/`. Loosening `state/` was
+rejected: `deployed` and `owed-verify` decide what the next root run does, so they stay
+root-only. Instead, every `write_result` also writes `self-update-status/result`, which
+holds the result keys plus `owed_boot`: the boot id an owed post-boot check was recorded
+in, or empty. The cycle never reads it back.
+
+- **Permissions.** The play creates the directory `root:<user's primary group>` mode
+  2750\. The setgid bit gives each file the user's group without a chown in the cycle.
+  The file is written atomically at 0640, so the user reads it and only root writes it.
+- **Enabled or not.** The play creates the directory when `self_update_enabled` is true
+  and removes it when false. The report treats "no directory" as "self-update is not on
+  this host" and says nothing. The entry point refuses (exit 70) when the directory is
+  missing, as it does for `state/`.
+- **What the report says** (`helpers/host_health/self_update_check.py`, section
+  `self-update`):
+  - a failed outcome is a fault, naming when, the phase and the detail;
+  - an unknown outcome, an unreadable file or stamp, or a stamp in the future is "not
+    checked";
+  - a newest result older than 3 days is a fault. Every run that reaches the update
+    records one, including "nothing", so 3 days is two whole missed nights of margin.
+    With no result yet, the age is taken from the directory's creation;
+  - `owed_boot` set to a boot other than this one is a fault once this boot is older
+    than 35 minutes: the verify unit's `TimeoutStartSec=30min` plus margin. An unknown
+    uptime does not buy the grace, and an unknown boot id is "not checked".
+- **The panel.** The section is always in the document, so the section set does not
+  depend on the host. The panel hides it while it is clean (`quietWhenOk`), because a
+  desktop never runs self-update. A missing section still renders as unavailable.

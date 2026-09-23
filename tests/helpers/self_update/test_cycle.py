@@ -16,7 +16,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from helpers.self_update import cycle
+from helpers.self_update import cycle, published
 from helpers.self_update.affected_plays import Report
 
 OLD = "a" * 40
@@ -107,7 +107,9 @@ class FakeHost:
 class CycleCase(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
-        self.state = cycle.State(self._tmp.name)
+        self.published_dir = os.path.join(self._tmp.name, "published")
+        os.mkdir(self.published_dir)
+        self.state = cycle.State(self._tmp.name, published_dir=self.published_dir)
         self.host = FakeHost()
         self.host.state = self.state
         self.config = cycle.parse_config(CONFIG_TEXT)
@@ -588,6 +590,28 @@ class TestState(CycleCase):
     def test_the_result_record_has_exactly_the_contract_keys(self) -> None:
         self.run_cycle()
         self.assertEqual(set(self.result()), {"at", "phase", "outcome", "old", "new", "plays", "detail"})
+
+    def test_every_result_is_published_with_the_owed_boot(self) -> None:
+        """The first cycle ends at the countdown, owing a check from this boot."""
+        self.run_cycle()
+        copy = published.read(self.published_dir)
+        self.assertEqual({key: copy[key] for key in cycle.RESULT_KEYS}, self.result())
+        self.assertEqual(copy["owed_boot"], self.host.boot)
+
+    def test_the_published_copy_owes_nothing_once_the_verify_has_run(self) -> None:
+        self.run_cycle()
+        self.host.boot = "boot-2"
+        self.verify()
+        copy = published.read(self.published_dir)
+        self.assertEqual(copy["outcome"], "deployed")
+        self.assertEqual(copy["owed_boot"], "")
+
+    def test_a_failed_play_is_published_owing_nothing(self) -> None:
+        self.host.play_rc[PLAY] = 2
+        self.run_cycle()
+        copy = published.read(self.published_dir)
+        self.assertEqual(copy["outcome"], "play-failed")
+        self.assertEqual(copy["owed_boot"], "")
 
     def test_a_malformed_record_is_refused_not_guessed(self) -> None:
         with open(os.path.join(self._tmp.name, "owed-verify"), "w", encoding="utf-8") as handle:

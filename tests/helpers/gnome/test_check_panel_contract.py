@@ -137,6 +137,7 @@ class TestTheKeysAreDerivedNotListed(unittest.TestCase):
                 login_report.LEDGER,
                 login_report.FRESHNESS,
                 login_report.PINS,
+                login_report.SELF_UPDATE,
             ],
         )
 

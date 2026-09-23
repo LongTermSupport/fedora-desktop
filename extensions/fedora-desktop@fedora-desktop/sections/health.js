@@ -5,9 +5,9 @@
  * registry with nothing registered cannot be exercised (DESIGN-panel.md §5).
  *
  * It renders the four checks Phase 3 built — post-boot health, ledger presence, play
- * freshness, and installed-versus-pinned — and it renders them, never re-implements
- * them. A check reimplemented in JavaScript would be a second check that drifts from
- * the one under test.
+ * freshness, and installed-versus-pinned — and Plan 00137's self-update result. It
+ * renders them, never re-implements them. A check reimplemented in JavaScript would be
+ * a second check that drifts from the one under test.
  *
  * The one rule this file exists to hold: known faults and things nobody could check are
  * shown as different kinds of thing. A list that mixes them and distinguishes neither
@@ -22,9 +22,14 @@ import {wrap} from '../labels.js';
 import * as StatusDocument from '../statusDocument.js';
 import {launchOnDemand} from '../terminal.js';
 
-/** Section ids, matching `login_report.HEALTH` / `LEDGER` / `FRESHNESS` / `PINS` — all
- * four, in the document's own order. These are the document's keys, so they are
- * interface: rename one here and the section silently reports unavailable for ever. */
+/** Section ids, matching `login_report.HEALTH` / `LEDGER` / `FRESHNESS` / `PINS` /
+ * `SELF_UPDATE`, in the document's own order. These are the document's keys, so they
+ * are interface: rename one here and the section silently reports unavailable for ever.
+ *
+ * `quietWhenOk`: rendered only when it has something to say. The self-update section is
+ * clean on every host without self-update, which is every desktop, and a header over
+ * "nothing to report" would describe a feature the machine does not have. A missing
+ * section is still `unavailable` and still rendered: quiet is for a clean answer only. */
 const CHECKS = [
     {id: 'post-boot-health', title: 'This machine now'},
     // Second, in the document's own order: an empty ledger is a fault here and now, and
@@ -33,6 +38,7 @@ const CHECKS = [
     {id: 'play-ledger', title: 'Record of what has run here'},
     {id: 'play-freshness', title: 'Plays since they last ran'},
     {id: 'installed-vs-pinned', title: 'Installed versus pinned'},
+    {id: 'self-update', title: 'Unattended self-update', quietWhenOk: true},
 ];
 
 /** One line per finding. `reactive: false`, and that is Task 3.3's answer rather than an
@@ -153,6 +159,9 @@ function appendCheck(menu, document, check, runningKernel, shown) {
     // `resolvedSection`, not `sectionOf`: the boot demotion has to be the same answer the
     // icon gets, and a copy of it here would be a second mechanism for one fact.
     const section = StatusDocument.resolvedSection(document, check.id, runningKernel);
+    if (check.quietWhenOk && section.state === StatusDocument.OK) {
+        return;
+    }
 
     const header = new PopupMenu.PopupMenuItem(check.title, {reactive: false});
     header.label.style = 'font-weight: bold;';

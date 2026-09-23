@@ -67,6 +67,7 @@ function document(sections, kernel = COLLECTED, handoff = '') {
             'play-ledger': {state: 'ok', findings: [], unchecked: []},
             'play-freshness': {state: 'ok', findings: [], unchecked: []},
             'installed-vs-pinned': {state: 'ok', findings: [], unchecked: []},
+            'self-update': {state: 'ok', findings: [], unchecked: []},
             ...sections,
         },
     };
@@ -84,6 +85,7 @@ const TITLES = new Set([
     'Record of what has run here',
     'Plays since they last ran',
     'Installed versus pinned',
+    'Unattended self-update',
 ]);
 
 /**
@@ -145,6 +147,40 @@ test('a clean document reports nothing and reads as ok', () => {
     assert.equal(StatusDocument.overallState(document({}), ALL_IDS, COLLECTED),
         StatusDocument.OK);
     assert.ok(menu.texts.includes('nothing to report'));
+});
+
+test('a clean self-update section is not rendered at all', () => {
+    // Clean on every host without self-update, which is every desktop: a header over
+    // "nothing to report" there would describe a feature the machine does not have.
+    const menu = render(document({}));
+    assert.ok(!menu.texts.includes('Unattended self-update'));
+    assert.ok(menu.texts.includes('Installed versus pinned'));
+});
+
+test('a failed self-update is a fault under its own header', () => {
+    const failure = 'the last unattended self-update, at 2026-09-15T03:30:00Z, stopped at play';
+    const doc = document({
+        'self-update': {state: 'findings', findings: [failure], unchecked: []},
+    });
+    assert.equal(groupIn(render(doc), 'Unattended self-update', failure), 'findings');
+    assert.equal(StatusDocument.overallState(doc, ALL_IDS, COLLECTED),
+        StatusDocument.FINDINGS);
+});
+
+test('a self-update section saying ok over a findings list is still rendered', () => {
+    const doc = document({
+        'self-update': {state: 'ok', findings: ['a failure the state forgot'], unchecked: []},
+    });
+    assert.equal(groupIn(render(doc), 'Unattended self-update', 'a failure the state forgot'),
+        'findings');
+});
+
+test('a document with no self-update section reports it as unavailable', () => {
+    const doc = document({});
+    delete doc.sections['self-update'];
+    assert.ok(render(doc).texts.includes('Unattended self-update'));
+    assert.equal(StatusDocument.overallState(doc, ALL_IDS, COLLECTED),
+        StatusDocument.UNAVAILABLE);
 });
 
 test('a finding collected under the running kernel is a current fault', () => {

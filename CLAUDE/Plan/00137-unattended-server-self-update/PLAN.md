@@ -177,8 +177,8 @@ D1–D4 are the owner's choices, made 2026-09-23.
   enabled only on the server profile. Follow the `play-host-health-login-report.yml`
   pattern: separate reloads, and a read-back of the live dependency graph. Its place in
   the IaC graph follows D5 and D7.
-- [ ] ⬜ **Task 4.3**: Results reach the host-health report, so a failed or skipped cycle
-  shows up in the login snippet.
+- [x] ✅ **Task 4.3**: Results reach the host-health report, so a failed or skipped cycle
+  shows up in the login snippet. Contract: DESIGN-cycle.md, "The published copy".
 - [ ] ⬜ **Task 4.5**: The alert sinks from D8/Task 0.4. The secret lives in vault. The
   message carries no hostname, username or path (public-repo rule), and a sink that
   fails to deliver is itself reported.

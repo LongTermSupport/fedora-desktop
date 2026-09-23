@@ -51,6 +51,7 @@ def run(**overrides) -> tuple[int, list[str], list[str]]:
         "ledger_present": lambda: [],
         "freshness": lambda: [],
         "pins": lambda: [],
+        "self_update": lambda: [],
         "notify": sent.append,
     }
     arguments.update(overrides)
@@ -58,7 +59,8 @@ def run(**overrides) -> tuple[int, list[str], list[str]]:
         health=arguments["health"],
         ledger_present=arguments["ledger_present"],
         freshness=arguments["freshness"],
-        pins=arguments["pins"])
+        pins=arguments["pins"],
+        self_update=arguments["self_update"])
     status = login_report.emit(findings, notify=arguments["notify"], write=lambda _: None)
     return status, findings, sent
 
@@ -429,6 +431,7 @@ class TestSectionsKeepTheirIdentity(unittest.TestCase):
             "ledger_present": lambda: [],
             "freshness": lambda: [],
             "pins": lambda: [],
+            "self_update": lambda: [],
         }
         arguments.update(overrides)
         return login_report.collect_sections(**arguments)
@@ -441,6 +444,7 @@ class TestSectionsKeepTheirIdentity(unittest.TestCase):
                 login_report.LEDGER,
                 login_report.FRESHNESS,
                 login_report.PINS,
+                login_report.SELF_UPDATE,
             ],
         )
 
@@ -475,6 +479,7 @@ class TestSectionsKeepTheirIdentity(unittest.TestCase):
             "ledger_present": lambda: found("no play run has ever been recorded here"),
             "freshness": lambda: found("playbooks/a.yml — changed since it last ran"),
             "pins": lambda: found("evdi: pinned 1.15.0, installed 1.14.0"),
+            "self_update": lambda: found("the last unattended self-update stopped at play"),
         }
         sections = login_report.collect_sections(**arguments)
         flattened = [finding.text for group in sections.values() for finding in group]
@@ -497,6 +502,7 @@ class TestTheDocumentIsWrittenWhetherOrNotAnythingIsWrong(unittest.TestCase):
             "ledger_present": lambda: [],
             "freshness": lambda: [],
             "pins": lambda: [],
+            "self_update": lambda: [],
         }
         arguments.update(overrides)
         login_report.publish(

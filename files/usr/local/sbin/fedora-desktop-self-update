@@ -42,6 +42,8 @@ ALLOWED_SIGNERS="${ETC}/self-update.allowed_signers"
 ANSIBLE_PLAYBOOK="${PREFIX}/usr/bin/ansible-playbook"
 CLONE="${PREFIX}/var/lib/fedora-desktop/deploy"
 STATE="${PREFIX}/var/lib/fedora-desktop/self-update"
+# The user-readable copy of each result, which the host-health report reads.
+PUBLISHED="${PREFIX}/var/lib/fedora-desktop/self-update-status"
 
 usage() {
     awk 'NR == 1 { next } /^#/ { print substr($0, 3); next } { exit }' "${BASH_SOURCE[0]}"
@@ -64,7 +66,7 @@ if [[ -z "${PREFIX}" && "${EUID}" -ne 0 ]]; then
     exit 77
 fi
 
-for dir in "${CLONE}" "${STATE}"; do
+for dir in "${CLONE}" "${STATE}" "${PUBLISHED}"; do
     if [[ ! -d "${dir}" ]]; then
         echo "fedora-desktop-self-update: ${dir} does not exist; deploy the self-update play first" >&2
         exit 70
@@ -75,6 +77,6 @@ done
 # signed, root-owned tree and never a user's checkout.
 cd "${CLONE}"
 exec python3 -m helpers.self_update.cycle \
-    --config "${CONFIG}" --state-dir "${STATE}" --clone "${CLONE}" \
+    --config "${CONFIG}" --state-dir "${STATE}" --published-dir "${PUBLISHED}" --clone "${CLONE}" \
     --become "${BECOME}" --vault "${VAULT}" --allowed-signers "${ALLOWED_SIGNERS}" \
     --ansible-playbook "${ANSIBLE_PLAYBOOK}" "$@"
