@@ -211,12 +211,42 @@ class TestConfig(unittest.TestCase):
 class TestPlayEnvironment(unittest.TestCase):
     """What a play is handed: the pinned system ansible, and every password on a descriptor."""
 
+    CLONE = "/var/lib/fedora-desktop/deploy"
+    # Every ansible-core 2.19 setting whose default searches ANSIBLE_HOME (~/.ansible, which
+    # the user can write) for code, by the env var that overrides it. From base.yml.
+    PLUGIN_PATH_ENV = (
+        "ANSIBLE_ACTION_PLUGINS", "ANSIBLE_BECOME_PLUGINS", "ANSIBLE_CACHE_PLUGINS", "ANSIBLE_CALLBACK_PLUGINS",
+        "ANSIBLE_CLICONF_PLUGINS", "ANSIBLE_CONNECTION_PLUGINS", "ANSIBLE_DOC_FRAGMENT_PLUGINS",
+        "ANSIBLE_FILTER_PLUGINS", "ANSIBLE_HTTPAPI_PLUGINS", "ANSIBLE_INVENTORY_PLUGINS", "ANSIBLE_LIBRARY",
+        "ANSIBLE_LOOKUP_PLUGINS", "ANSIBLE_MODULE_UTILS", "ANSIBLE_NETCONF_PLUGINS", "ANSIBLE_ROLES_PATH",
+        "ANSIBLE_STRATEGY_PLUGINS", "ANSIBLE_TERMINAL_PLUGINS", "ANSIBLE_TEST_PLUGINS", "ANSIBLE_VARS_PLUGINS",
+    )
+
     def env(self) -> dict[str, str]:
         return cycle.play_environment(
-            home="/home/<user>", user="tester", runtime="/run/user/1000",
+            home="/home/<user>", user="tester", runtime="/run/user/1000", clone=self.CLONE,
             ansible_playbook="/usr/bin/ansible-playbook", collections_dir="/usr/share/fedora-desktop/collections",
             lock_fd=5, become_fd=6, vault_fd=7,
         )
+
+    def test_no_code_is_searched_for_under_the_users_home(self) -> None:
+        env = self.env()
+        for name in self.PLUGIN_PATH_ENV:
+            with self.subTest(name=name):
+                self.assertIn(name, env)
+                for directory in env[name].split(":"):
+                    self.assertTrue(directory.startswith(("/usr/share/", "/etc/ansible/", f"{self.CLONE}/")),
+                                    f"{name} searches {directory}")
+
+    def test_the_clones_own_plugins_and_roles_still_load(self) -> None:
+        # The env beats the clone's ansible.cfg, so it must name what that file names:
+        # callback_plugins = ./callback_plugins (the play ledger) and roles_path = ./roles/vendor.
+        env = self.env()
+        self.assertIn(f"{self.CLONE}/callback_plugins", env["ANSIBLE_CALLBACK_PLUGINS"].split(":"))
+        self.assertEqual(env["ANSIBLE_ROLES_PATH"], f"{self.CLONE}/roles/vendor")
+
+    def test_the_users_python_site_packages_are_not_imported(self) -> None:
+        self.assertEqual(self.env()["PYTHONNOUSERSITE"], "1")
 
     def test_the_system_ansible_comes_before_any_user_path(self) -> None:
         path = self.env()["PATH"].split(":")
@@ -226,7 +256,7 @@ class TestPlayEnvironment(unittest.TestCase):
 
     def test_the_pinned_ansible_directory_leads_the_path(self) -> None:
         env = cycle.play_environment(
-            home="/home/<user>", user="tester", runtime="/run/user/1000",
+            home="/home/<user>", user="tester", runtime="/run/user/1000", clone=self.CLONE,
             ansible_playbook="/opt/system-ansible/bin/ansible-playbook", collections_dir="/c",
             lock_fd=5, become_fd=6, vault_fd=7,
         )
@@ -355,6 +385,45 @@ class TestTrustedPath(unittest.TestCase):
         os.chmod(self.tool, 0o777)
         with self.assertRaises(cycle.ConfigError):
             cycle.require_trusted(link, "ansible-playbook", directory=False)
+
+
+class TestPrivateFile(unittest.TestCase):
+    """The config decides the cycle, so others must not write it; a password file must not
+    even be readable by them, or the secret is already out whatever the cycle does."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self._tmp.name, "file")
+        with open(self.path, "w", encoding="utf-8") as handle:
+            handle.write("words\n")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_a_readable_config_is_accepted_and_a_writable_one_refused(self) -> None:
+        os.chmod(self.path, 0o644)
+        self.assertEqual(cycle.read_private(self.path, "config file"), "words\n")
+        for mode in (0o664, 0o646):
+            os.chmod(self.path, mode)
+            with self.subTest(mode=oct(mode)), self.assertRaises(cycle.ConfigError):
+                cycle.read_private(self.path, "config file")
+
+    def test_a_secret_only_its_owner_can_read_is_accepted(self) -> None:
+        os.chmod(self.path, 0o600)
+        self.assertEqual(cycle.read_private(self.path, "become password file", secret=True), "words\n")
+
+    def test_a_secret_the_group_or_others_can_read_is_refused(self) -> None:
+        for mode in (0o640, 0o604, 0o610):
+            os.chmod(self.path, mode)
+            with self.subTest(mode=oct(mode)), self.assertRaises(cycle.ConfigError):
+                cycle.read_private(self.path, "become password file", secret=True)
+
+    def test_a_symlink_is_refused(self) -> None:
+        os.chmod(self.path, 0o600)
+        link = os.path.join(self._tmp.name, "link")
+        os.symlink(self.path, link)
+        with self.assertRaises(cycle.ConfigError):
+            cycle.read_private(link, "vault password file", secret=True)
 
 
 class TestNothingToDo(CycleCase):

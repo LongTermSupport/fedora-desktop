@@ -10,8 +10,9 @@
 An always-on headless server hosting ccy sessions has no-one at it to notice that the
 fedora-desktop checkout has moved on and the launchers it deployed are out of date. This
 plan adds a timer-driven cycle that brings the checkout up to date safely, works out which
-plays the new commits affect, warns and stops the running ccy/cc sessions, runs those
-plays unattended, and brings the sessions back with a check that they really resumed.
+plays the new commits affect, and runs those plays unattended. Only when they all succeed
+does it warn the running ccy/cc sessions and reboot; the boot-time restore brings the
+sessions back, and a post-boot check proves they really resumed.
 `play-claude-yolo.yml` is the main candidate, since it deploys both launchers.
 
 Most of the parts exist and several do not fit as they are. The research
@@ -87,21 +88,28 @@ D1–D4 are the owner's choices, made 2026-09-23.
   runs `sudo … /bin/sh -c <python>`, which is arbitrary, and the plays cannot run as root
   outright, because their `systemctl --user` tasks need the user's own manager. So the
   script runs the plays as the user and hands Ansible the become password from a
-  root-only 0600 file, on an inherited file descriptor. The user's shell and the ccy
-  containers can never read the file, and no `NOPASSWD:ALL` exists. The file is
-  provisioned through vault, never hardcoded.
+  root-only 0600 file, on an inherited file descriptor, and `run.bash` passes it on to
+  sudo and Ansible through pipes, never a file. The user's shell and the ccy containers
+  can never read the file, and no `NOPASSWD:ALL` exists. The file is provisioned through
+  vault, never hardcoded.
   - **Amended after the IaC review:** a process running as the user can still alter the
     user's Ansible code or read the running controller's memory. The owner chose to
     treat the user account as trusted and add two cheap hardenings:
 
     - the cycle runs a root-owned system `ansible-core` with a root-owned collections
-      path, so no user-writable code is on the path;
+      path, pins every plugin and role search path to root-owned or clone paths, and
+      turns off Python's user site-packages, so Ansible loads no code from a path the
+      user can write;
     - the server sets `kernel.yama.ptrace_scope=1`, so a process can read another's
       memory only if it launched it.
 
-    ccy agents are already outside this. Rootless podman gives them their own PID
-    namespace, and they see only their project mount. Running the controller as root
-    was rejected: every play assumes it starts as the user.
+    What stays open: the plays run as the user, so a process running as the user can
+    still tamper with the files a running play writes as the user, such as the module
+    payloads in `~/.ansible/tmp` that `become` then runs as root. That is the trusted
+    account above, not a gap the hardenings claim to close. ccy agents are already
+    outside this. Rootless podman gives them their own PID namespace, and they see only
+    their project mount. Running the controller as root was rejected: every play
+    assumes it starts as the user.
 - **D6 — warning: 3 minutes, configurable.** A session can only fail to be warned when
   its project has no hooks-daemon CLI (`.claude/hooks-daemon/bin/hooks-daemon`), for
   example a project that does not use the daemon. `notify` refuses rather than reboot
@@ -197,8 +205,9 @@ D1–D4 are the owner's choices, made 2026-09-23.
 
 - [x] ✅ **Task 5.1**: Docs: what the cycle does, the trust model, how to pause it, and how
   to read its log.
-- [ ] ⬜ **Task 5.2**: `./scripts/qa-all.bash`, then the `qa-reviewer` agent over the full
-  diff, with findings resolved.
+- [ ] 🔄 **Task 5.2**: `./scripts/qa-all.bash`, then the `qa-reviewer` agent over the full
+  diff, with findings resolved. Round 1 was BLOCK, and its findings are fixed
+  (journal 18:35). A second round is owed.
 - [ ] ⬜ **Task 5.3**: HOST: one full cycle on a server with two live sessions, triggered by
   a real commit that touches `lib/`.
 

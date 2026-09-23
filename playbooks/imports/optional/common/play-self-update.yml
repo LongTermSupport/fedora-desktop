@@ -31,7 +31,8 @@
     self_update_sbin: /usr/local/sbin/fedora-desktop-self-update
     # D5 hardening: the cycle's plays run on a root-owned ansible-core and collections
     # path, never the user's pipx install in ~/.local, which any process running as the
-    # user could rewrite to capture the become password.
+    # user could rewrite to capture the become password. cycle.py also keeps Ansible's
+    # plugin and role search out of ~/.ansible.
     self_update_ansible_playbook: /usr/bin/ansible-playbook
     self_update_ansible_galaxy: /usr/bin/ansible-galaxy
     # The same floor play-AA-preflight-sanity.yml asserts for every run.

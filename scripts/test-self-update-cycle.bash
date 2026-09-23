@@ -112,6 +112,15 @@ run.bash)
     if flock -n "${given[XDG_RUNTIME_DIR]}/fedora-desktop-plays.lock" true; then held=no; fi
     echo "play $* become=$password vault=$vault lock-fd-open=$lock_open lock-held=$held" >>"$FAKE_LOG"
     echo "handed ansible=${given[RUN_BASH_ANSIBLE_PLAYBOOK]} path=${given[PATH]%%:*} cache=${given[ANSIBLE_CACHE_PLUGIN]} collections=${given[ANSIBLE_COLLECTIONS_PATH]}" >>"$FAKE_ENV_LOG"
+    home_searched=""
+    for name in "${!given[@]}"; do
+        [[ "$name" == ANSIBLE_* ]] || continue
+        IFS=: read -r -a searched <<<"${given[$name]}"
+        for directory in "${searched[@]}"; do
+            if [[ "$directory" == "${given[HOME]}" || "$directory" == "${given[HOME]}"/* ]]; then home_searched+=" $name"; fi
+        done
+    done
+    echo "searched callbacks=${given[ANSIBLE_CALLBACK_PLUGINS]} roles=${given[ANSIBLE_ROLES_PATH]} modules=${given[ANSIBLE_LIBRARY]} user-site-off=${given[PYTHONNOUSERSITE]} home:${home_searched:- none}" >>"$FAKE_ENV_LOG"
     exit "${FAKE_PLAY_RC:-0}"
     ;;
 ccy-sessions)
@@ -276,6 +285,10 @@ cycle run
 check "run with no vault password file is a config error (70)" "70" "$RC"
 check "nothing moved without the vault password file" "$BASE" "$(git -C "$CLONE" rev-parse HEAD)"
 printf 'vault words\n' >"$ETC/self-update.vault"
+chmod 640 "$ETC/self-update.vault"
+cycle run
+check "run with a vault password others can read is a config error (70)" "70" "$RC"
+check "nothing was called with a readable password" "" "$(calls)"
 chmod 600 "$ETC/self-update.vault"
 
 exec 9>"$RUNTIME/fedora-desktop-plays.lock"
@@ -330,7 +343,10 @@ check "the first cycle runs the play with both passwords and the lock held, warn
 ccy-sessions notify going-down --minutes 1
 systemctl reboot" "$(calls)"
 check "the play is pinned to the system ansible, with facts in memory and the system collections" \
-    "handed ansible=$SYSTEM_ANSIBLE path=$PREFIX/usr/bin cache=memory collections=$COLLECTIONS" "$(cat "$ENV_LOG")"
+    "handed ansible=$SYSTEM_ANSIBLE path=$PREFIX/usr/bin cache=memory collections=$COLLECTIONS" "$(awk 'NR == 1' "$ENV_LOG")"
+check "and searches for no code under the user's home, while the clone's play ledger and roles still load" \
+    "searched callbacks=$CLONE/callback_plugins:/usr/share/ansible/plugins/callback roles=$CLONE/roles/vendor modules=/usr/share/ansible/plugins/modules user-site-off=1 home: none" \
+    "$(awk 'NR == 2' "$ENV_LOG")"
 check "the clone is on the signed commit" "$FIRST" "$(git -C "$CLONE" rev-parse HEAD)"
 check "the deployed record is the signed commit" "$FIRST" "$(state_key deployed sha)"
 check "a verify is owed for the signed commit" "$FIRST" "$(state_key owed-verify new)"

@@ -6,18 +6,18 @@ it is a change to both sides.
 
 ## Names and paths
 
-| Thing           | Where                                                                                                                 | Owner / mode                    |
-| --------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| Entry point     | `/usr/local/sbin/fedora-desktop-self-update` (source: `files/usr/local/sbin/`)                                        | root:root 0700                  |
-| Config          | `/etc/fedora-desktop/self-update.conf`, `KEY=value`, read with `read`, never sourced                                  | root:root 0600                  |
-| Become password | `/etc/fedora-desktop/self-update.become` (vault-provisioned)                                                          | root:root 0600                  |
-| Vault password  | `/etc/fedora-desktop/self-update.vault` (copied from the checkout the play runs from)                                 | root:root 0600                  |
-| Allowed signers | `/etc/fedora-desktop/self-update.allowed_signers` (the owner's public key only)                                       | root:root 0644, dir 0755 root   |
-| Deploy clone    | `/var/lib/fedora-desktop/deploy` (D4), owned by root                                                                  | never mounted into a container  |
-| State           | `/var/lib/fedora-desktop/self-update/` (the last result, the owed post-boot check)                                    | root:root 0700                  |
-| Published       | `/var/lib/fedora-desktop/self-update-status/result`, the user's copy of each result (Task 4.3)                        | dir root:<user> 2750, file 0640 |
-| Cycle units     | `fedora-desktop-self-update.{service,timer}`, **system** units                                                        | timer: nightly, D9              |
-| Post-boot units | `fedora-desktop-self-update-verify.service`, **system**, `After=` the user's restore                                  | runs once per boot when owed    |
+| Thing           | Where                                                                                                                  | Owner / mode                    |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| Entry point     | `/usr/local/sbin/fedora-desktop-self-update` (source: `files/usr/local/sbin/`)                                         | root:root 0700                  |
+| Config          | `/etc/fedora-desktop/self-update.conf`, `KEY=value`, read with `read`, never sourced                                   | root:root 0600                  |
+| Become password | `/etc/fedora-desktop/self-update.become` (vault-provisioned)                                                           | root:root 0600                  |
+| Vault password  | `/etc/fedora-desktop/self-update.vault` (copied from the checkout the play runs from)                                  | root:root 0600                  |
+| Allowed signers | `/etc/fedora-desktop/self-update.allowed_signers` (the owner's public key only)                                        | root:root 0644, dir 0755 root   |
+| Deploy clone    | `/var/lib/fedora-desktop/deploy` (D4), owned by root                                                                   | never mounted into a container  |
+| State           | `/var/lib/fedora-desktop/self-update/` (the last result, the owed post-boot check)                                     | root:root 0700                  |
+| Published       | `/var/lib/fedora-desktop/self-update-status/result`, the user's copy of each result (Task 4.3)                         | dir root:<user> 2750, file 0640 |
+| Cycle units     | `fedora-desktop-self-update.{service,timer}`, **system** units                                                         | timer: nightly, D9              |
+| Post-boot units | `fedora-desktop-self-update-verify.service`, **system**, `After=` the user's restore                                   | runs once per boot when owed    |
 | Sudoers         | `/etc/sudoers.d/fedora-desktop-self-update`: the entry point with exactly `run`, `run --dry-run`, `verify` or `status` | validated with `visudo -cf`     |
 
 ### Deploy clone and plays
@@ -41,6 +41,15 @@ Settled by the IaC (`play-self-update.yml`); the orchestrator must match:
   root-owned in the clone. The orchestrator must point
   `ANSIBLE_CACHE_PLUGIN_CONNECTION` at a per-run directory the user owns, or set
   `ANSIBLE_CACHE_PLUGIN=memory`. Otherwise the plays fail writing the cache.
+- **Code search paths (orchestrator's job, D5).** Ansible's defaults look in
+  `~/.ansible` for every plugin kind, modules, module_utils and roles. The plays run as
+  the user with `become`, so code found there would run as root. The orchestrator sets
+  each of those env vars to the root-owned half of its default
+  (`/usr/share/ansible/plugins/<kind>`) and sets `PYTHONNOUSERSITE=1`. The env beats
+  `ansible.cfg`, so the two paths that file sets are named as the clone's own:
+  `ANSIBLE_CALLBACK_PLUGINS` leads with `<clone>/callback_plugins` (the play ledger) and
+  `ANSIBLE_ROLES_PATH` is `<clone>/roles/vendor`. The list is ansible-core 2.19's
+  `base.yml`; a release that adds a new search path must be added to `cycle.py`.
 - **Post-boot unit.** It runs at every boot with no condition of its own, so `verify`
   exits 0 when no check is owed.
 
@@ -74,19 +83,19 @@ These keys have no defaults. The orchestrator refuses to run if one is missing:
 
 ## Exit codes
 
-| Code | Meaning                                   |
-| ---- | ----------------------------------------- |
-| 0    | done, or nothing to do                    |
-| 64   | usage                                     |
-| 70   | config invalid                            |
-| 75   | lock held                                 |
+| Code | Meaning                                     |
+| ---- | ------------------------------------------- |
+| 0    | done, or nothing to do                      |
+| 64   | usage                                       |
+| 70   | config invalid                              |
+| 75   | lock held                                   |
 | 20   | the clone is untrusted, or the gate refused |
-| 21   | a play failed                             |
-| 22   | a session could not be warned             |
-| 23   | the verify found a session not OK         |
-| 24   | the reboot was refused                    |
-| 77   | not run as root                           |
-| 130  | the warning countdown was cancelled       |
+| 21   | a play failed                               |
+| 22   | a session could not be warned               |
+| 23   | the verify found a session not OK           |
+| 24   | the reboot was refused                      |
+| 77   | not run as root                             |
+| 130  | the warning countdown was cancelled         |
 
 ## Result record
 
