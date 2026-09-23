@@ -102,11 +102,29 @@ project "$NOCLI" without-cli
 SESSIONS="$SCRATCH/sessions"
 export TEST_SESSIONS="$SESSIONS" TEST_LOG="$LOG"
 
+# fake_home <dir> <on|off> — a user home whose ccy session restore is enabled or not, the
+# way play-claude-yolo.yml leaves it: the unit's wants-symlink present or absent. It also
+# holds the user's ccy-sessions, which is where shutdown-with-update looks for it.
+fake_home() {
+    local home="$1" restore="$2"
+    mkdir -p "$home/.config/systemd/user/default.target.wants" "$home/.local/bin"
+    ln -s "$TOOL" "$home/.local/bin/ccy-sessions"
+    if [ "$restore" = on ]; then
+        ln -s ../ccy-sessions-restore.service \
+            "$home/.config/systemd/user/default.target.wants/ccy-sessions-restore.service"
+    fi
+}
+HOME_ON="$SCRATCH/home-restore-on"
+HOME_OFF="$SCRATCH/home-restore-off"
+fake_home "$HOME_ON" on
+fake_home "$HOME_OFF" off
+
 # run <args...> — the tool under the fakes, minutes shortened to nothing so a countdown
-# completes inside a test. stdout+stderr captured; status in $rc.
+# completes inside a test. stdout+stderr captured; status in $rc. The home is one with
+# restore ON unless TEST_HOME says otherwise.
 run() {
     : >"$LOG"
-    out="$(PATH="$BIN:$PATH" CCY_LIB="$LIB_DIR" CCY_SESSIONS_MINUTE_SECONDS=0 CCY_STATE_DIR="$SCRATCH/state" "$TOOL" "$@" </dev/null 2>&1)"
+    out="$(HOME="${TEST_HOME:-$HOME_ON}" PATH="$BIN:$PATH" CCY_LIB="$LIB_DIR" CCY_SESSIONS_MINUTE_SECONDS=0 CCY_STATE_DIR="$SCRATCH/state" "$TOOL" "$@" </dev/null 2>&1)"
     rc=$?
 }
 calls() { if [ -f "$LOG" ]; then cat "$LOG"; fi; }
@@ -157,6 +175,31 @@ check "no live sessions: nothing to signal, success" "0" "$rc"
 check "and says so" "yes" "$([[ "$out" == *"No CCY or cc sessions"* ]] && echo yes || echo no)"
 
 echo ""
+echo "=== notify going-down: the kind follows the restore opt-in, not the power action ==="
+# The daemon's two warning texts differ on one thing an agent acts on: reboot-warning
+# says a session restore will follow, shutdown-warning says none will and asks for a
+# handoff. So the truthful kind is decided by whether restore is enabled here.
+printf '%s\n' "ccy-a 1 $A" "cc-b 0 $B" >"$SESSIONS"
+TEST_HOME="$HOME_ON" run notify going-down --minutes 5
+check "restore on: going-down succeeds" "0" "$rc"
+check "restore on: each project is told reboot-warning (a restore follows)" "2" \
+    "$(calls | grep -c 'signal reboot-warning --minutes 5 --all-sessions')"
+TEST_HOME="$HOME_OFF" run notify going-down --minutes 5
+check "restore off: each project is told shutdown-warning (no restore, hand off)" "2" \
+    "$(calls | grep -c 'signal shutdown-warning --minutes 5 --all-sessions')"
+check "restore off: and no reboot-warning" "0" "$(calls | grep -c 'signal reboot-warning')"
+TEST_HOME="$HOME_OFF" run notify going-down --minutes 5 --dry-run
+check "going-down --dry-run succeeds" "0" "$rc"
+check "and invokes no daemon CLI" "0" "$(calls | grep -c '^cli')"
+check "and names the kind it would send" "yes" \
+    "$([[ "$out" == *"would signal shutdown-warning --minutes 5"* ]] && echo yes || echo no)"
+run notify going-down
+check "going-down without --minutes is refused" "64" "$rc"
+run notify shutdown-warning --minutes 4
+check "an explicit shutdown-warning is still delivered" "2" \
+    "$(calls | grep -c 'signal shutdown-warning --minutes 4 --all-sessions')"
+
+echo ""
 echo "=== notify: a project with no daemon CLI is a refusal, not a skip ==="
 printf '%s\n' "ccy-a 1 $A" "ccy-x 0 $NOCLI" >"$SESSIONS"
 run notify reboot-warning --minutes 5
@@ -180,6 +223,13 @@ check "the countdown is printed" "yes" "$([[ "$out" == *"3 minute"* ]] && echo y
 run reboot --in 1
 check "--in 1 warns once (the one-minute warning IS the warning)" "2" "$(calls | grep -c 'signal reboot-warning --minutes 1 ')"
 check "and reboots" "1" "$(calls | grep -c '^systemctl reboot$')"
+
+# With restore off a reboot brings nothing back, so the agents must be told to hand off.
+TEST_HOME="$HOME_OFF" run reboot --in 3
+check "restore off: reboot warns with shutdown-warning, both times" "4" \
+    "$(calls | grep -c 'signal shutdown-warning --minutes [31] ')"
+check "restore off: never reboot-warning" "0" "$(calls | grep -c 'signal reboot-warning')"
+check "restore off: still reboots" "1" "$(calls | grep -c '^systemctl reboot$')"
 
 run reboot --in 3 --dry-run
 check "dry run succeeds" "0" "$rc"
@@ -214,19 +264,19 @@ echo "=== a session list that cannot be read is not an empty one ==="
 # unwarned, exit 0. The fake tmux fails outright here.
 printf '%s\n' "ccy-a 1 $A" >"$SESSIONS"
 : >"$LOG"
-out="$(PATH="$BIN:$PATH" TEST_TMUX_BROKEN=1 CCY_LIB="$LIB_DIR" CCY_SESSIONS_MINUTE_SECONDS=0 CCY_STATE_DIR="$SCRATCH/state" "$TOOL" reboot --in 1 </dev/null 2>&1)"
+out="$(HOME="$HOME_ON" PATH="$BIN:$PATH" TEST_TMUX_BROKEN=1 CCY_LIB="$LIB_DIR" CCY_SESSIONS_MINUTE_SECONDS=0 CCY_STATE_DIR="$SCRATCH/state" "$TOOL" reboot --in 1 </dev/null 2>&1)"
 rc=$?
 check "reboot refuses when tmux cannot list sessions" "1" "$rc"
 check "and reboots nothing" "0" "$(calls | grep -c '^systemctl')"
 check "and signals nothing" "0" "$(calls | grep -c '^cli')"
 check "and says why" "yes" "$([[ "$out" == *"could not be read"* ]] && echo yes || echo no)"
 : >"$LOG"
-out="$(PATH="$BIN:$PATH" TEST_TMUX_BROKEN=1 CCY_LIB="$LIB_DIR" CCY_STATE_DIR="$SCRATCH/state" "$TOOL" notify reboot-warning --minutes 5 </dev/null 2>&1)"
+out="$(HOME="$HOME_ON" PATH="$BIN:$PATH" TEST_TMUX_BROKEN=1 CCY_LIB="$LIB_DIR" CCY_STATE_DIR="$SCRATCH/state" "$TOOL" notify reboot-warning --minutes 5 </dev/null 2>&1)"
 rc=$?
 check "notify refuses too" "1" "$rc"
-# The rehearsal reboot-with-update relies on must refuse as well, or it protects nothing.
+# The rehearsal shutdown-with-update relies on must refuse as well, or it protects nothing.
 : >"$LOG"
-out="$(PATH="$BIN:$PATH" TEST_TMUX_BROKEN=1 CCY_LIB="$LIB_DIR" CCY_STATE_DIR="$SCRATCH/state" "$TOOL" reboot --in 2 --dry-run </dev/null 2>&1)"
+out="$(HOME="$HOME_ON" PATH="$BIN:$PATH" TEST_TMUX_BROKEN=1 CCY_LIB="$LIB_DIR" CCY_STATE_DIR="$SCRATCH/state" "$TOOL" notify going-down --minutes 2 --dry-run </dev/null 2>&1)"
 rc=$?
 check "and so does the dry run" "1" "$rc"
 
@@ -235,7 +285,7 @@ echo "=== Ctrl-C during the countdown tells the sessions the reboot is off ==="
 printf '%s\n' "ccy-a 1 $A" "cc-b 0 $B" >"$SESSIONS"
 : >"$LOG"
 # A real minute here, so the countdown is in progress when the interrupt arrives.
-PATH="$BIN:$PATH" CCY_LIB="$LIB_DIR" CCY_SESSIONS_MINUTE_SECONDS=60 CCY_STATE_DIR="$SCRATCH/state" \
+HOME="$HOME_ON" PATH="$BIN:$PATH" CCY_LIB="$LIB_DIR" CCY_SESSIONS_MINUTE_SECONDS=60 CCY_STATE_DIR="$SCRATCH/state" \
     "$TOOL" reboot --in 3 </dev/null >"$SCRATCH/cancel.out" 2>&1 &
 reboot_pid=$!
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
@@ -251,6 +301,101 @@ check "an interrupted reboot exits 130" "130" "$rc"
 check "every warned project is told reboot-cancelled" "2" "$(calls | grep -c 'signal reboot-cancelled --all-sessions --project-root')"
 check "and nothing reboots" "0" "$(calls | grep -c '^systemctl')"
 check "and it says so" "yes" "$(grep -q 'Reboot cancelled' "$SCRATCH/cancel.out" && echo yes || echo no)"
+
+echo ""
+echo "=== shutdown-with-update / reboot-with-update, driven for real under fakes ==="
+# The real script, run by both of its names, against stubs for everything that would
+# touch the machine: sudo (drops `-u USER -H` and runs the rest as this user, with the
+# fake home), getent, fwupdmgr, dnf, flatpak, shutdown and systemd-inhibit, plus the
+# systemctl above. `bash -lc` through sudo (the pipx and rustup probes) answers "not
+# installed" so no real tool upgrade can run from a test.
+WITH_UPDATE="$REPO_ROOT/files/usr/local/bin/shutdown-with-update"
+WU_DIR="$SCRATCH/with-update"
+mkdir -p "$WU_DIR"
+ln -s "$WITH_UPDATE" "$WU_DIR/shutdown-with-update"
+ln -s "$WITH_UPDATE" "$WU_DIR/reboot-with-update"
+cat >"$BIN/sudo" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[ "${1:-}" = "-u" ] && shift 2
+[ "${1:-}" = "-H" ] && shift
+if [ "${1:-}" = "bash" ]; then
+    exit 1
+fi
+HOME="$TEST_USER_HOME" exec "$@"
+EOF
+cat >"$BIN/getent" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s:x:1000:1000::%s:/bin/bash\n' "$2" "$TEST_USER_HOME"
+EOF
+for stub in fwupdmgr dnf flatpak; do
+    cat >"$BIN/$stub" <<'EOF'
+#!/usr/bin/env bash
+printf '%s %s\n' "$(basename "$0")" "$*" >>"$TEST_LOG"
+EOF
+done
+cat >"$BIN/shutdown" <<'EOF'
+#!/usr/bin/env bash
+printf 'shutdown %s\n' "$*" >>"$TEST_LOG"
+exit "${TEST_SHUTDOWN_RC:-0}"
+EOF
+cat >"$BIN/systemd-inhibit" <<'EOF'
+#!/usr/bin/env bash
+printf 'WHO WHAT\nsomeone sleep\n'
+EOF
+chmod 755 "$BIN/sudo" "$BIN/getent" "$BIN/fwupdmgr" "$BIN/dnf" "$BIN/flatpak" \
+    "$BIN/shutdown" "$BIN/systemd-inhibit"
+
+# with_update <name> <home> <stdin-text-or-empty> <args...> — status in $rc.
+with_update() {
+    local name="$1" home="$2" answer="$3"
+    shift 3
+    : >"$LOG"
+    out="$(printf '%s' "$answer" | SUDO_USER="${TEST_SUDO_USER:-tester}" TEST_USER_HOME="$home" \
+        PATH="$BIN:$PATH" CCY_LIB="$LIB_DIR" CCY_SESSIONS_MINUTE_SECONDS=0 \
+        WITH_UPDATE_MINUTE_SECONDS=0 CCY_STATE_DIR="$SCRATCH/state" \
+        bash "$WU_DIR/$name" "$@" 2>&1)"
+    rc=$?
+}
+
+printf '%s\n' "ccy-a 1 $A" "cc-b 0 $B" >"$SESSIONS"
+TEST_SHUTDOWN_RC=0 with_update shutdown-with-update "$HOME_OFF" "" --in 1
+check "shutdown, restore off: succeeds" "0" "$rc"
+check "the rehearsal signals nothing and names the real kind" "yes" \
+    "$([[ "$out" == *"would signal shutdown-warning --minutes 1"* && "$out" != *"would reboot"* ]] && echo yes || echo no)"
+check "restore off: the sessions are told shutdown-warning" "2" "$(calls | grep -c 'signal shutdown-warning --minutes 1 ')"
+check "and then the machine shuts down" "1" "$(calls | grep -c '^shutdown -h now$')"
+check "a shutdown that went ahead withdraws nothing" "0" "$(calls | grep -c 'reboot-cancelled')"
+
+TEST_SHUTDOWN_RC=0 with_update shutdown-with-update "$HOME_ON" "" --in 1
+check "shutdown, restore on: the sessions are told reboot-warning (a restore follows)" "2" \
+    "$(calls | grep -c 'signal reboot-warning --minutes 1 ')"
+
+TEST_SHUTDOWN_RC=1 with_update shutdown-with-update "$HOME_OFF" "n" --in 1
+check "shutdown refused, answer N: exits non-zero" "1" "$rc"
+check "and every warned project is told reboot-cancelled" "2" "$(calls | grep -c 'signal reboot-cancelled --all-sessions')"
+check "and nothing is forced" "0" "$(calls | grep -c '^systemctl poweroff')"
+check "and it says so" "yes" "$([[ "$out" == *"Shutdown cancelled"* ]] && echo yes || echo no)"
+
+TEST_SHUTDOWN_RC=1 with_update shutdown-with-update "$HOME_OFF" "" --in 1
+check "shutdown refused, no answer possible (no tty): exits non-zero" "yes" "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check "and the warning is still withdrawn" "2" "$(calls | grep -c 'signal reboot-cancelled --all-sessions')"
+
+TEST_SHUTDOWN_RC=1 with_update shutdown-with-update "$HOME_OFF" "y" --in 1
+check "shutdown refused, answer Y: forces the poweroff" "1" "$(calls | grep -c '^systemctl poweroff -i$')"
+check "and withdraws nothing" "0" "$(calls | grep -c 'reboot-cancelled')"
+
+with_update reboot-with-update "$HOME_OFF" "" --in 1
+check "reboot-with-update, restore off: shutdown-warning, since nothing comes back" "2" \
+    "$(calls | grep -c 'signal shutdown-warning --minutes 1 ')"
+check "and reboots" "1" "$(calls | grep -c '^systemctl reboot$')"
+
+TEST_SUDO_USER=root with_update shutdown-with-update "$HOME_OFF" "" --in 1
+check "run from a root shell (SUDO_USER=root): refused" "1" "$rc"
+check "and says to run it through sudo as the desktop user" "yes" \
+    "$([[ "$out" == *"not from a root shell"* ]] && echo yes || echo no)"
+check "and nothing was updated" "0" "$(calls | grep -c '^dnf')"
 
 echo ""
 echo "=== restore is reachable as a subcommand ==="

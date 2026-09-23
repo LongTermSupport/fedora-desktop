@@ -24,9 +24,12 @@
 #
 # Usage:
 #   ccy-sessions                                    the picker (needs a terminal)
-#   ccy-sessions notify reboot-warning --minutes N  tell every live session's project that
-#                                                   the machine reboots in N minutes
-#   ccy-sessions notify shutdown-warning --minutes N  the same, for a shutdown
+#   ccy-sessions notify going-down --minutes N [--dry-run]
+#                                                   tell every live session's project that
+#                                                   the machine goes down in N minutes, as
+#                                                   the kind below that is TRUE here
+#   ccy-sessions notify reboot-warning --minutes N  "reboot; a session restore will follow"
+#   ccy-sessions notify shutdown-warning --minutes N  "shut down; NO restore, leave a handoff"
 #   ccy-sessions notify reboot-cancelled            tell them it is not happening after all
 #   ccy-sessions reboot --in N [--dry-run]          warn, count down, warn again at one
 #                                                   minute, then systemctl reboot
@@ -39,6 +42,13 @@
 # number of minutes — never a message. A live session whose project has no daemon CLI is a
 # refusal: it is named, nothing is signalled, and reboot reboots nothing. Exit 64 for a
 # usage mistake, 1 for a refusal.
+#
+# The daemon's two warning texts differ in what an agent does next — carry on because it
+# will be restored, or wind down and hand off because it will not — so `going-down` (and
+# `reboot`) choose by whether this user's session restore is enabled, not by the power
+# action: reboot-warning when it is, shutdown-warning when it is not. The texts also name
+# the action, so a shutdown with restore on reads "will reboot", and a reboot with restore
+# off reads "will shut down"; what the agent is asked to do is right either way.
 #
 # Runs on the HOST: inside a CCY container there is no server.
 set -euo pipefail
@@ -173,17 +183,37 @@ signal_projects() {
     printf '%s\n' "${#projects[@]}"
 }
 
+# going_down_kind — the warning kind that tells this user's sessions the truth about what
+# follows: reboot-warning when their restore unit is enabled (the wants-symlink that
+# play-claude-yolo.yml manages), shutdown-warning when it is not.
+going_down_kind() {
+    local wants="${HOME}/.config/systemd/user/default.target.wants/ccy-sessions-restore.service"
+    if [[ -L "${wants}" || -e "${wants}" ]]; then
+        printf 'reboot-warning\n'
+    else
+        printf 'shutdown-warning\n'
+    fi
+}
+
 cmd_notify() {
-    local kind="${1:-}" minutes=""
+    local kind="${1:-}" minutes="" dry_run=false
     case "${kind}" in
-    reboot-warning | shutdown-warning)
+    going-down | reboot-warning | shutdown-warning)
         if [[ "${2:-}" != "--minutes" || -z "${3:-}" ]]; then
             usage_error "'notify ${kind}' needs --minutes N."
         fi
         minutes_or_die "${3}" "--minutes"
         minutes="${3}"
-        if [[ $# -gt 3 ]]; then
+        if [[ "${4:-}" == "--dry-run" ]]; then
+            dry_run=true
+        elif [[ $# -gt 3 ]]; then
             usage_error "unexpected argument '${4}'."
+        fi
+        if [[ $# -gt 4 ]]; then
+            usage_error "unexpected argument '${5}'."
+        fi
+        if [[ "${kind}" == going-down ]]; then
+            kind="$(going_down_kind)"
         fi
         ;;
     reboot-cancelled)
@@ -192,13 +222,13 @@ cmd_notify() {
         fi
         ;;
     "")
-        usage_error "'notify' needs a signal kind: reboot-warning, shutdown-warning or reboot-cancelled."
+        usage_error "'notify' needs a signal kind: going-down, reboot-warning, shutdown-warning or reboot-cancelled."
         ;;
     *)
         usage_error "unknown signal kind '${kind}'."
         ;;
     esac
-    signal_projects "${kind}" "${minutes}" false >/dev/null
+    signal_projects "${kind}" "${minutes}" "${dry_run}" >/dev/null
 }
 
 # Ctrl-C during the countdown: the sessions were told a reboot was coming, so they are told
@@ -229,7 +259,7 @@ countdown() {
 }
 
 cmd_reboot() {
-    local minutes="" dry_run=false reached
+    local minutes="" dry_run=false reached kind
     while [[ $# -gt 0 ]]; do
         case "${1}" in
         --in)
@@ -248,6 +278,7 @@ cmd_reboot() {
         esac
     done
     [[ -n "${minutes}" ]] || usage_error "'reboot' needs --in N."
+    kind="$(going_down_kind)"
 
     # The one-minute warning is the last word before the reboot; with --in 1 it is also the
     # first, so it is not sent twice.
@@ -258,7 +289,7 @@ cmd_reboot() {
         REBOOT_WARNED=true
         trap cancel_reboot INT TERM
     fi
-    reached="$(signal_projects reboot-warning "${minutes}" "${dry_run}")" || return 1
+    reached="$(signal_projects "${kind}" "${minutes}" "${dry_run}")" || return 1
     echo "Rebooting in ${minutes} minute(s); ${reached} project(s) warned." >&2
     if [[ "${minutes}" -gt 1 ]]; then
         if [[ "${dry_run}" == true ]]; then
@@ -267,7 +298,7 @@ cmd_reboot() {
             countdown "$(((minutes - 1) * MINUTE_SECONDS))"
             # A failed second warning leaves every project expecting a reboot that is now
             # not going to happen, so it is withdrawn before giving up.
-            if ! signal_projects reboot-warning 1 false >/dev/null; then
+            if ! signal_projects "${kind}" 1 false >/dev/null; then
                 trap - INT TERM
                 signal_projects reboot-cancelled "" false >/dev/null
                 return 1
