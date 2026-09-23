@@ -56,6 +56,9 @@ LOCK="$RUNTIME/fedora-desktop-plays.lock"
 LOG="$SCRATCH/calls.log"
 FAKE_HOME="$SCRATCH/home"
 mkdir -p "$FAKE_HOME/.local/bin"
+# run.bash's own temporary files land here, so the fake play can look for a password copy.
+TEST_TMP="$SCRATCH/tmp"
+mkdir -p "$TEST_TMP"
 
 # ── the fakes ────────────────────────────────────────────────────────────────────────
 BIN="$SCRATCH/bin"
@@ -74,7 +77,22 @@ cat >"$FAKE_HOME/.local/bin/ansible-playbook" <<'EOF'
     for a in "$@"; do
         if [ "$prev" = "--become-password-file" ]; then
             printf 'become-file: %s\n' "$a"
-            printf 'become: %s\n' "$(cat -- "$a")"
+            # As the real CLI does: `-` is read from stdin to EOF; any other value is
+            # realpath'd first, which turns a pipe's /dev/fd/N into a path that does not exist.
+            if [ "$a" = "-" ]; then
+                printf 'become-kind: %s\n' "$(stat -L -c %F /proc/self/fd/0)"
+                secret="$(cat)"
+            elif [ -e "$(realpath -m -- "$a")" ]; then
+                printf 'become-kind: %s\n' "$(stat -L -c %F -- "$a")"
+                secret="$(cat -- "$a")"
+            else
+                echo "ERROR! The password file $a was not found" >&2
+                exit 5
+            fi
+            printf 'become: %s\n' "$secret"
+            # Any copy of the password on disk while the play runs, where run.bash's
+            # temporary files would be: a same-uid process could read it from there.
+            printf 'tmp-copies: %s\n' "$(grep -rlF -- "$secret" "$TMPDIR" | wc -l)"
         fi
         prev="$a"
     done
@@ -82,7 +100,8 @@ cat >"$FAKE_HOME/.local/bin/ansible-playbook" <<'EOF'
 } >>"$TEST_LOG"
 exit "${FAKE_PLAY_RC:-0}"
 EOF
-# sudo: `-k -n true` is the NOPASSWD probe; `-k -A true` asks SUDO_ASKPASS for the password.
+# sudo: `-k -n true` is the NOPASSWD probe; `-k -S -p '' true` reads the password on stdin,
+# which is how an unattended single play proves it without writing it to a file.
 cat >"$BIN/sudo" <<'EOF'
 #!/usr/bin/env bash
 case "$*" in
@@ -91,8 +110,10 @@ case "$*" in
     echo "sudo: a password is required" >&2
     exit 1
     ;;
-"-k -A true")
-    if [ "$("$SUDO_ASKPASS")" = "${FAKE_SUDO_PASSWORD:-}" ]; then exit 0; fi
+"-k -S -p  true")
+    given=""
+    IFS= read -r given
+    if [ "$given" = "${FAKE_SUDO_PASSWORD:-}" ]; then exit 0; fi
     echo "sudo: 1 incorrect password attempt" >&2
     exit 1
     ;;
@@ -116,7 +137,7 @@ run_play() {
     shift
     : >"$LOG"
     out="$(printf '' | env -u RUN_BASH_HEADLESS -u FEDORA_DESKTOP_PLAY_LOCK_FD \
-        HOME="$FAKE_HOME" PATH="$BIN:/usr/bin:/bin" XDG_RUNTIME_DIR="$RUNTIME" \
+        HOME="$FAKE_HOME" PATH="$BIN:/usr/bin:/bin" XDG_RUNTIME_DIR="$RUNTIME" TMPDIR="$TEST_TMP" \
         TEST_LOG="$LOG" TEST_LOCK="$LOCK" "${assigns[@]}" \
         bash "$CHECKOUT/run.bash" "$@" 2>&1)"
     rc=$?
@@ -148,14 +169,14 @@ printf 'correct horse' >"$PW"
 chmod 600 "$PW"
 : >"$LOG"
 out="$(env -u FEDORA_DESKTOP_PLAY_LOCK_FD HOME="$FAKE_HOME" PATH="$BIN:/usr/bin:/bin" \
-    XDG_RUNTIME_DIR="$RUNTIME" TEST_LOG="$LOG" TEST_LOCK="$LOCK" \
+    XDG_RUNTIME_DIR="$RUNTIME" TMPDIR="$TEST_TMP" TEST_LOG="$LOG" TEST_LOCK="$LOCK" \
     FAKE_NOPASSWD=0 FAKE_SUDO_PASSWORD='correct horse' RUN_BASH_SUDO_PASSWORD_FILE=/dev/fd/3 \
     bash "$CHECKOUT/run.bash" --headless "$PLAY" </dev/null 3<"$PW" 2>&1)"
 rc=$?
 check "exits 0" "0" "$rc"
 check "Ansible gets the password through --become-password-file" "become: correct horse" "$(calls | grep '^become:')"
-become_file="$(calls | sed -n 's/^become-file: //p')"
-check "and that copy is gone once the run ends" "no" "$(yes_if test -e "$become_file")"
+check "through a pipe, not a file" "become-kind: fifo" "$(calls | grep '^become-kind:')"
+check "and no copy of it is on disk while the play runs" "tmp-copies: 0" "$(calls | grep '^tmp-copies:')"
 check "says the password route was proven" "yes" "$(yes_if grep -q 'sudo=password' <<<"$out")"
 
 # The descriptor must be READ, never reopened by its /dev/fd path. On the host the caller
@@ -165,7 +186,7 @@ check "says the password route was proven" "yes" "$(yes_if grep -q 'sudo=passwor
 # at all, while reading the descriptor works.
 : >"$LOG"
 out="$(env -u FEDORA_DESKTOP_PLAY_LOCK_FD HOME="$FAKE_HOME" PATH="$BIN:/usr/bin:/bin" \
-    XDG_RUNTIME_DIR="$RUNTIME" TEST_LOG="$LOG" TEST_LOCK="$LOCK" \
+    XDG_RUNTIME_DIR="$RUNTIME" TMPDIR="$TEST_TMP" TEST_LOG="$LOG" TEST_LOCK="$LOCK" \
     FAKE_NOPASSWD=0 FAKE_SUDO_PASSWORD='correct horse' RUN_BASH_SUDO_PASSWORD_FILE=/dev/fd/3 \
     python3 -c '
 import os, socket, sys

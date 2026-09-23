@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.24.0"
+RUN_BASH_VERSION="1.25.0"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -265,6 +265,18 @@ hl_sudo_probe_password() {
   fi
 }
 
+# hl_sudo_probe_password_stdin — the same proof with the password on sudo's stdin, for the
+# single-play route, which never writes the password to a file: a 0600 file is readable by
+# any process running as this user, while a variable and a pipe are not once ptrace is
+# restricted (the self-update server sets kernel.yama.ptrace_scope=1).
+hl_sudo_probe_password_stdin() {
+  local _out
+  if ! _out="$(printf '%s\n' "$HL_SUDO_PASSWORD" | sudo -k -S -p '' true 2>&1)"; then
+    headless_fail "RUN_BASH_SUDO_PASSWORD did not authenticate (sudo said: ${_out:-no reason given})." \
+      "Check the file holds THIS user's login password and that the user has ALL-scoped sudo (a command-scoped rule is not supported)."
+  fi
+}
+
 # headless_preflight — validate every precondition + resolve every RUN_BASH_* value
 # BEFORE any provisioning action, so an unattended run fails fast (never hangs) on a
 # missing/unsafe input. Populates HL_* globals (non-exported: not visible to child
@@ -423,10 +435,17 @@ hl_sudo_credential() {
   local _sudo_probe
   if _sudo_probe="$(sudo -k -n true 2>&1)"; then
     HL_SUDO_OPTS=()
+  elif [[ -n "$HL_SUDO_PASSWORD" && "${1:-}" == "single-play" ]]; then
+    # One play never calls _sudo, so it needs no askpass helper and no password file:
+    # Ansible gets the password from a pipe at the moment the play starts.
+    hl_sudo_probe_password_stdin
+    HL_SUDO_OPTS=()
+    HL_SUDO_BY_PASSWORD=true
   elif [[ -n "$HL_SUDO_PASSWORD" ]]; then
     hl_sudo_askpass_start
     hl_sudo_probe_password
     HL_SUDO_OPTS=(-A)
+    HL_SUDO_BY_PASSWORD=true
   else
     headless_fail "This user has neither passwordless sudo nor a supplied sudo password (sudo: ${_sudo_probe:-a password is required})." \
       "Either grant NOPASSWD:ALL (the default cloud user has it), or set RUN_BASH_SUDO_PASSWORD_FILE to a 0600 file holding this user's sudo password."
@@ -436,7 +455,7 @@ hl_sudo_credential() {
   # paths are indistinguishable from the outside and this is the only place the choice
   # is visible in an unattended run's log.
   HL_SUDO_CRED="NOPASSWD:ALL"
-  if [[ "${#HL_SUDO_OPTS[@]}" -gt 0 ]]; then
+  if [[ "$HL_SUDO_BY_PASSWORD" == "true" ]]; then
     HL_SUDO_CRED="password (RUN_BASH_SUDO_PASSWORD_FILE)"
   fi
 }
@@ -457,7 +476,7 @@ headless_play_preflight() {
   hl_resolve_secret SUDO_PASSWORD HL_SUDO_PASSWORD
   unset RUN_BASH_VAULT_PASSWORD RUN_BASH_GITHUB_TOKEN RUN_BASH_GITHUB_SSH_PASSPHRASE \
     RUN_BASH_SUDO_PASSWORD
-  hl_sudo_credential
+  hl_sudo_credential single-play
   echo -e "${GREEN}${CHECK} Unattended play preflight OK${NC} — sudo=${HL_SUDO_CRED}" >&2
 }
 
@@ -921,6 +940,7 @@ main() {
   # "${arr[@]:-}", which would pass an empty string as sudo's first argument.
   HL_SUDO_OPTS=()
   HL_SUDO_PW_FILE=""    # set by hl_sudo_askpass_start; also Ansible's --become-password-file
+  HL_SUDO_BY_PASSWORD=false  # true when the proven credential is a password, not NOPASSWD
   trap hl_cleanup EXIT
 
 # Flags
@@ -1906,13 +1926,18 @@ if [[ -n "$PLAY_PATH" ]]; then
     # Unattended: no BECOME prompt (the preflight chose NOPASSWD or a password file), no
     # issue-filing question after a failure, stdin closed so nothing can wait on it. The
     # play's own exit status is this run's.
-    _play_become=()
-    if [[ "${#HL_SUDO_OPTS[@]}" -gt 0 ]]; then
-      _play_become=(--become-password-file "$HL_SUDO_PW_FILE")
-    fi
     echo -e "${CYAN}${ARROW} Running unattended: $(basename "$_play_abs" .yml)${NC}" >&2
     # ansible-playbook explicitly, never the play file: its shebang re-enters run.bash.
-    ansible-playbook "$_play_abs" "${_play_become[@]}" "${PLAY_ARGS[@]}" </dev/null || _play_rc=$?
+    # A password reaches Ansible on stdin from a pipe, never through a file another process
+    # running as this user could open. `-` is the one form the CLI does not realpath: a
+    # pipe's /dev/fd/N resolves to /proc/<pid>/fd/pipe:[…], which does not exist. Ansible
+    # reads stdin to EOF before the first task, so a task sees an exhausted stdin.
+    if [[ "$HL_SUDO_BY_PASSWORD" == "true" ]]; then
+      ansible-playbook "$_play_abs" --become-password-file - "${PLAY_ARGS[@]}" \
+        < <(printf '%s' "$HL_SUDO_PASSWORD") || _play_rc=$?
+    else
+      ansible-playbook "$_play_abs" "${PLAY_ARGS[@]}" </dev/null || _play_rc=$?
+    fi
     if [[ "$_play_rc" -eq 0 ]]; then
       success "Completed: $(basename "$_play_abs" .yml)" >&2
     else
