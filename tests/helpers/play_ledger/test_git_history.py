@@ -154,5 +154,31 @@ class TestPlaySha256AtHead(unittest.TestCase):
         self.assertIn("HEAD:playbooks/a.yml", run.call_args.args[0])
 
 
+class TestPathExistsAt(unittest.TestCase):
+    def test_a_path_git_lists_at_the_commit_exists(self) -> None:
+        run = mock.Mock(return_value=_completed("playbooks/a.yml\n"))
+        self.assertTrue(git_history.path_exists_at("/repo", "abc", "playbooks/a.yml", run=run))
+
+    def test_a_path_git_does_not_list_is_absent(self) -> None:
+        run = mock.Mock(return_value=_completed(""))
+        self.assertFalse(git_history.path_exists_at("/repo", "abc", "playbooks/a.yml", run=run))
+
+    def test_an_unresolvable_commit_raises_rather_than_reading_as_absent(self) -> None:
+        """"Absent" would retire a finding on the strength of a commit git cannot even
+        find — the dead-clone trap play_sha256_at_head documents."""
+        run = mock.Mock(side_effect=subprocess.CalledProcessError(128, ["git"]))
+        with self.assertRaises(subprocess.CalledProcessError):
+            git_history.path_exists_at("/repo", "abc", "playbooks/a.yml", run=run)
+
+    def test_asks_the_tree_of_that_commit_from_the_repo_root(self) -> None:
+        run = mock.Mock(return_value=_completed(""))
+        git_history.path_exists_at("/repo", "abc", "playbooks/a.yml", run=run)
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[:4], ["git", "-C", "/repo", "ls-tree"])
+        self.assertIn("--full-tree", argv)
+        self.assertEqual(argv[-3:], ["abc", "--", "playbooks/a.yml"])
+        self.assertTrue(run.call_args.kwargs.get("check"))
+
+
 if __name__ == "__main__":
     unittest.main()

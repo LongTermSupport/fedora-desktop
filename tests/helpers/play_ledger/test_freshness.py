@@ -120,6 +120,38 @@ class TestGone(unittest.TestCase):
         )
         self.assertEqual(verdict.state, freshness.GONE)
 
+    def test_a_gone_verdict_names_no_successor_by_default(self) -> None:
+        verdict = freshness.classify(
+            record=_record("playbooks/imports/play-removed.yml"),
+            changes=[], head_sha256=None,
+        )
+        self.assertIsNone(verdict.successor)
+
+
+class TestRetire(unittest.TestCase):
+    GONE_VERDICT = freshness.Verdict("playbooks/old.yml", freshness.GONE, (("a", "x"),))
+
+    def test_retired_once_the_successor_has_run_after_the_removal(self) -> None:
+        """Everything the old play deployed is the successor's now, and it has run."""
+        self.assertIsNone(freshness.retire(
+            self.GONE_VERDICT, successor="playbooks/new.yml", successor_ran_after_removal=True,
+        ))
+
+    def test_still_reported_until_then_and_names_the_successor(self) -> None:
+        verdict = freshness.retire(
+            self.GONE_VERDICT, successor="playbooks/new.yml", successor_ran_after_removal=False,
+        )
+        self.assertIsNotNone(verdict)
+        assert verdict is not None
+        self.assertEqual(verdict.state, freshness.GONE)
+        self.assertEqual(verdict.successor, "playbooks/new.yml")
+        self.assertEqual(verdict.changes, self.GONE_VERDICT.changes)
+
+    def test_only_a_gone_verdict_can_be_retired(self) -> None:
+        stale = freshness.Verdict("playbooks/old.yml", freshness.STALE, ())
+        with self.assertRaises(ValueError):
+            freshness.retire(stale, successor="playbooks/new.yml", successor_ran_after_removal=True)
+
 
 class TestReport(unittest.TestCase):
     def test_never_mentions_a_play_the_ledger_has_not_seen(self) -> None:

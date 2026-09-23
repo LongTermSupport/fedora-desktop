@@ -808,6 +808,12 @@ anything**:
   **running** kernel and failed system and user units, whether the play ledger is there
   to read at all, plays that have changed since they were last run here, and repo pins
   that differ from what is installed
+- A play that was run here and has since been deleted is reported as "no longer exists
+  at HEAD". When a play is merged into another, add it to
+  `helpers/play_ledger/retired-plays.json` (`{"<removed play>": "<successor>"}`): the
+  finding then says to run the successor, and clears once the successor has run after
+  the removal. An entry whose play still exists, or whose successor does not, is
+  reported as an error rather than ignored
 - **Silent when clean.** Nothing is shown on a healthy login — a check that speaks every
   time gets muted
 - A check that *could not run* is reported as a finding, never as a pass. That is the

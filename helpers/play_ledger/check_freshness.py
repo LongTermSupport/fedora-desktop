@@ -32,6 +32,7 @@ from helpers.play_ledger import (
     ledger,
     plugin_support,
     repo,
+    retired,
     store,
 )
 
@@ -59,10 +60,13 @@ def run(
     fetch: Callable[[str], None] | None = None,
     changes_since: Callable[[str, str, str], list[tuple[str, str]]] | None = None,
     play_sha256_at_head: Callable[[str, str], str | None] | None = None,
+    retired_plays: Callable[[str], dict[str, str]] | None = None,
+    path_exists_at: Callable[[str, str, str], bool] | None = None,
 ) -> int:
     """Print the freshness findings and return the exit status.
 
-    The three git callables are seams for testing; unsupplied, the real ones are used.
+    The git callables and the retired-plays loader are seams for testing; unsupplied,
+    the real ones are used.
 
     `unchecked` is where findings that mean *"nothing was checked against upstream"* go
     — the refs-are-old answer, which is a real finding but not a fault anybody has
@@ -138,6 +142,22 @@ def run(
             return EXIT_UNTRUSTWORTHY
         verdicts.append(freshness.classify(record=record, changes=changes, head_sha256=head))
 
+    try:
+        verdicts = _apply_retirements(
+            verdicts,
+            latest=latest,
+            repo_root=repo_root,
+            retired_plays=retired_plays or retired.load,
+            path_exists_at=path_exists_at or (
+                lambda root, commit, path: git_history.path_exists_at(root, commit, path)
+            ),
+        )
+    except Exception as error:
+        # A map that cannot be applied would leave a GONE finding standing, or drop
+        # one, with nothing saying which. Neither is an answer.
+        stderr.write(f"play-freshness: the retired-plays map cannot be applied: {error}\n")
+        return EXIT_UNTRUSTWORTHY
+
     status = _emit(freshness.build_report(verdicts=verdicts, broken_reason=None), stdout, stderr)
     if offline is not None:
         # An offline run still judged, on the refs it had. What is reported is the
@@ -147,6 +167,50 @@ def run(
         (unchecked or stdout).write(f"{offline}\n")
         return EXIT_FINDINGS
     return status
+
+
+def _apply_retirements(
+    verdicts: list[freshness.Verdict],
+    *,
+    latest: dict[str, dict],
+    repo_root: str,
+    retired_plays: Callable[[str], dict[str, str]],
+    path_exists_at: Callable[[str, str, str], bool],
+) -> list[freshness.Verdict]:
+    """Name the successor of each mapped GONE play, and drop those it has absorbed.
+
+    The map is read only when something is GONE: it can change no other answer, so a
+    login with nothing removed costs no extra git call. When it is read it is checked
+    against HEAD in full, not just the entries this host happens to need.
+    """
+    if not any(verdict.state == freshness.GONE for verdict in verdicts):
+        return verdicts
+    mapping = retired_plays(repo_root)
+    retired.validate(mapping, exists_at_head=lambda path: path_exists_at(repo_root, "HEAD", path))
+
+    kept: list[freshness.Verdict] = []
+    for verdict in verdicts:
+        successor = mapping.get(verdict.play) if verdict.state == freshness.GONE else None
+        if successor is None:
+            kept.append(verdict)
+            continue
+        # The successor's LATEST run: if that commit lacks the old play, the run
+        # carried everything the old play used to deploy.
+        record = latest.get(successor)
+        ran_after = record is not None and not path_exists_at(repo_root, record["commit"], verdict.play)
+        remaining = freshness.retire(verdict, successor=successor, successor_ran_after_removal=ran_after)
+        if remaining is not None:
+            kept.append(remaining)
+    return kept
+
+
+def _label(verdict: freshness.Verdict) -> str:
+    if verdict.successor is not None:
+        return (
+            f"{_STATE_LABEL[verdict.state]}; merged into {verdict.successor} — "
+            f"run {verdict.successor} to retire this"
+        )
+    return _STATE_LABEL[verdict.state]
 
 
 def _emit(report: freshness.Report, stdout: TextIO, stderr: TextIO) -> int:
@@ -168,7 +232,7 @@ def _emit(report: freshness.Report, stdout: TextIO, stderr: TextIO) -> int:
         return EXIT_OK
 
     for verdict in report.stale:
-        stdout.write(f"{verdict.play} — {_STATE_LABEL[verdict.state]}\n")
+        stdout.write(f"{verdict.play} — {_label(verdict)}\n")
         for short, subject in verdict.changes:
             stdout.write(f"    {short}  {subject}\n")
     return EXIT_FINDINGS
