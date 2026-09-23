@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.21.1"
+RUN_BASH_VERSION="1.22.0"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -373,6 +373,15 @@ headless_preflight() {
   unset RUN_BASH_VAULT_PASSWORD RUN_BASH_GITHUB_TOKEN RUN_BASH_GITHUB_SSH_PASSPHRASE \
     RUN_BASH_SUDO_PASSWORD
 
+  hl_sudo_credential
+  echo -e "${GREEN}${CHECK} Headless preflight OK${NC} — user=${HL_USER_LOGIN} (${HL_USER_NAME}) email=${HL_USER_EMAIL} github=${HL_GITHUB_ACCOUNTS} sudo=${HL_SUDO_CRED}" >&2
+}
+
+# hl_sudo_credential — decide HOW this unattended run gets root, from HL_SUDO_PASSWORD
+# (already resolved by the caller), and set HL_SUDO_OPTS plus HL_SUDO_CRED, the label that
+# says which credential was proven. Shared by the full headless preflight and the
+# single-play one, so the two can never disagree about what counts as a usable credential.
+hl_sudo_credential() {
   # Sudo credential (D1): this run must hold ONE of two — NOPASSWD:ALL, or a password
   # from RUN_BASH_SUDO_PASSWORD_FILE. Asserted, not summarised. Probe with -k so a cached
   # timestamp cannot yield a false pass, and capture stderr (no error-hiding redirect) so
@@ -405,11 +414,30 @@ headless_preflight() {
   # Report WHICH sudo credential was proven, not just that preflight passed — the two
   # paths are indistinguishable from the outside and this is the only place the choice
   # is visible in an unattended run's log.
-  local _sudo_cred="NOPASSWD:ALL"
+  HL_SUDO_CRED="NOPASSWD:ALL"
   if [[ "${#HL_SUDO_OPTS[@]}" -gt 0 ]]; then
-    _sudo_cred="password (RUN_BASH_SUDO_PASSWORD_FILE)"
+    HL_SUDO_CRED="password (RUN_BASH_SUDO_PASSWORD_FILE)"
   fi
-  echo -e "${GREEN}${CHECK} Headless preflight OK${NC} — user=${HL_USER_LOGIN} (${HL_USER_NAME}) email=${HL_USER_EMAIL} github=${HL_GITHUB_ACCOUNTS} sudo=${_sudo_cred}" >&2
+}
+
+# headless_play_preflight — the preflight for ONE play run unattended (`--headless
+# <play>.yml`, Plan 00137 T2.1). A single play needs none of the provisioning contract: no
+# identity, no GitHub, no vault secret (the checkout already holds its vault password file,
+# as it does for an interactive single play), and none of the first-install steps. It needs
+# exactly one thing, a sudo credential that works without a prompt, so that is all this
+# checks. RUN_BASH_SUDO_PASSWORD_FILE may name /dev/fd/N: a root caller that opened a
+# root-only password file hands it over as an inherited descriptor, and the bytes are read
+# once, here, into the same 0600 temp copy the full headless run uses.
+headless_play_preflight() {
+  if [[ "$(whoami)" == "root" ]]; then
+    headless_fail "An unattended play is executing as root." \
+      "Run it as the user whose plays these are; a root caller drops privileges first (runuser -u <user> -- …)."
+  fi
+  hl_resolve_secret SUDO_PASSWORD HL_SUDO_PASSWORD
+  unset RUN_BASH_VAULT_PASSWORD RUN_BASH_GITHUB_TOKEN RUN_BASH_GITHUB_SSH_PASSPHRASE \
+    RUN_BASH_SUDO_PASSWORD
+  hl_sudo_credential
+  echo -e "${GREEN}${CHECK} Unattended play preflight OK${NC} — sudo=${HL_SUDO_CRED}" >&2
 }
 
 # hl_cleanup — EXIT-trap cleanup for a headless run: unlink every 0600 secret file and,
@@ -879,9 +907,12 @@ Options:
                        Run ONE play from this checkout and exit. Handles sudo for
                        you: NOPASSWD runs bare, password sudo gets Ansible's
                        BECOME prompt. Anything after the path goes to
-                       ansible-playbook (e.g. -vvv, --check). Interactive only.
-                       Every play's shebang calls this, so
+                       ansible-playbook (e.g. -vvv, --check). With --headless
+                       it runs unattended (see --help-run-headless). Every
+                       play's shebang calls this, so
                        ./playbooks/imports/play-x.yml is the same thing.
+                       One play at a time per host: a second run while one is
+                       going exits 75 and names the holder.
   --headless           Force unattended mode (no prompts); config from RUN_BASH_* env
   --interactive        Force interactive mode even with no TTY / RUN_BASH_* set
   -h, --help           Show this help message
@@ -1052,6 +1083,20 @@ CLOUD-INIT (Fedora Cloud) — fetch secrets OUT-OF-BAND, never in write_files
   /run/secrets is tmpfs (RAM-backed, wiped on reboot). Pin the run.bash source to
   a commit SHA (not HEAD) when fetching it, and inspect before running.
 
+ONE PLAY, UNATTENDED (maintenance, e.g. a timer)
+       RUN_BASH_HEADLESS=1 ./playbooks/imports/play-x.yml [ansible-playbook args…]
+       ./run.bash --headless playbooks/imports/play-x.yml [ansible-playbook args…]
+  Runs that one play from this checkout and exits with its status. None of the
+  provisioning contract above applies: no RUN_BASH_* identity, GitHub or vault input,
+  no self-update, no dnf, no main playbook. It needs only a sudo credential that works
+  without a prompt: NOPASSWD:ALL, or RUN_BASH_SUDO_PASSWORD_FILE. That file may be
+  /dev/fd/N, so a root caller can open a root-only password file and hand over the
+  descriptor (runuser -u <user> -- env RUN_BASH_SUDO_PASSWORD_FILE=/dev/fd/3 … 3<file).
+  PATH gains ~/.local/bin, stdin is closed, and a failure never asks anything.
+  Plays on one host run one at a time: a run while another holds the play lock exits
+  75. A caller holding the lock itself passes it down with FEDORA_DESKTOP_PLAY_LOCK_FD
+  and the inherited descriptor (helpers/play_lock/lock.py).
+
 FAIL-FAST GUARANTEE
   Any missing required value or unmet precondition aborts with a clear message
   naming the exact fix — a headless run never hangs waiting on a prompt, and a
@@ -1119,15 +1164,12 @@ fi
 # as the interactive path — every interactive point below has a headless branch that
 # uses the resolved HL_*/RUN_BASH_* values, and the shared prompt helpers hard-fail
 # LOUD (hl_abort) if a headless run ever reaches an un-neutralised prompt.
-# A single play is interactive-only; checked BEFORE headless_preflight so the operator sees this
-# reason rather than a missing-RUN_BASH_* abort. (Interactive-mode exclusions live at the
-# dispatch block below: the `error` helper fatal() needs there is not defined yet here.)
+# A single play run headless is an UNATTENDED PLAY, not a provisioning run: it gets the
+# sudo-only preflight and none of the provisioning contract. (The mode's other exclusions
+# live at the dispatch block below: the `error` helper fatal() needs is not defined yet here.)
 if [[ -n "$PLAY_PATH" && "$HEADLESS" == "true" ]]; then
-  fatal "single play" "a single play is interactive-only" \
-    "headless runs name plays via RUN_BASH_OPTIONAL_PLAYBOOKS — see ./run.bash --help-run-headless"
-fi
-
-if [[ "$HEADLESS" == "true" ]]; then
+  headless_play_preflight
+elif [[ "$HEADLESS" == "true" ]]; then
   headless_preflight
   echo -e "\n${YELLOW}${ARROW} run.bash v${RUN_BASH_VERSION}: headless preflight OK — provisioning unattended.${NC}" >&2
 fi
@@ -1673,6 +1715,39 @@ _Generated by fedora-desktop automated error reporting_"
   fi
 }
 
+# play_lock_take <what> — take the one lock every play run on this host shares
+# (helpers/play_lock/lock.py, Plan 00137 T1.4), or refuse with exit 75 if another run holds
+# it. Held on a descriptor this shell keeps open, so it lasts exactly as long as this run.
+# A caller that already holds it (the unattended cycle) delegates it through
+# FEDORA_DESKTOP_PLAY_LOCK_FD and an inherited descriptor; that claim is PROVEN before it is
+# trusted, and a claim that fails is an error rather than a reason to take a second lock.
+# Must run from the checkout root: the helper is `python3 -m helpers.play_lock.lock`.
+play_lock_take(){
+  local _what="$1" _path _note _self
+  _self="$(id -un)"
+  if [[ -n "${FEDORA_DESKTOP_PLAY_LOCK_FD:-}" ]]; then
+    if python3 -m helpers.play_lock.lock held --user "$_self"; then
+      return 0
+    fi
+    fatal "play lock" "FEDORA_DESKTOP_PLAY_LOCK_FD claims a held play lock and it is not one (see above)" \
+      "unset it, or run this from the process that holds the lock"
+  fi
+  if ! _path="$(python3 -m helpers.play_lock.lock path --user "$_self")"; then
+    fatal "play lock" "the shared play lock cannot be used safely (see above)" \
+      "it lives in this user's runtime directory (\$XDG_RUNTIME_DIR, else /run/user/\$UID); log in, or enable linger"
+  fi
+  exec {PLAY_LOCK_FD}<>"$_path"
+  if ! flock -n "$PLAY_LOCK_FD"; then
+    _note="$(cat -- "$_path")"
+    {
+      error "play lock: another play run is in progress on this host (${_note:-no holder recorded})"
+      echo -e "${YELLOW}${ARROW} Wait for it to finish, then run this again.${NC}"
+    } >&2
+    exit 75
+  fi
+  printf 'pid=%s what=%s since=%s\n' "$BASHPID" "$_what" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$_path"
+}
+
 # Function to run playbook with option to create issue on failure
 run_playbook_with_issue_option(){
   local playbook="$1"
@@ -1750,12 +1825,36 @@ if [[ -n "$PLAY_PATH" ]]; then
     fatal "single play" "'${PLAY_PATH}' is not a playbook under ${_play_repo}/playbooks/" \
       "name one like playbooks/imports/play-podman.yml (see docs/playbooks.md)"
   fi
+  # Unattended, PATH is whatever a timer or a root caller's runuser left, which need not
+  # include the pipx shim directory ansible lives in. Put it first rather than hope.
+  if [[ "$HEADLESS" == "true" ]]; then
+    export PATH="${HOME}/.local/bin:${PATH}"
+  fi
   if ! command -v ansible-playbook >/dev/null; then
     fatal "single play" "ansible-playbook not found on PATH" \
       "run ./run.bash once (it installs ansible via pipx), and do not run a play under sudo"
   fi
+  play_lock_take "run.bash ${PLAY_PATH#"${_play_repo}/"}"
   _play_rc=0
-  run_playbook_with_issue_option "$_play_abs" "$(basename "$_play_abs" .yml)" "${PLAY_ARGS[@]}" || _play_rc=$?
+  if [[ "$HEADLESS" == "true" ]]; then
+    # Unattended: no BECOME prompt (the preflight chose NOPASSWD or a password file), no
+    # issue-filing question after a failure, stdin closed so nothing can wait on it. The
+    # play's own exit status is this run's.
+    _play_become=()
+    if [[ "${#HL_SUDO_OPTS[@]}" -gt 0 ]]; then
+      _play_become=(--become-password-file "$HL_SUDO_PW_FILE")
+    fi
+    echo -e "${CYAN}${ARROW} Running unattended: $(basename "$_play_abs" .yml)${NC}" >&2
+    # ansible-playbook explicitly, never the play file: its shebang re-enters run.bash.
+    ansible-playbook "$_play_abs" "${_play_become[@]}" "${PLAY_ARGS[@]}" </dev/null || _play_rc=$?
+    if [[ "$_play_rc" -eq 0 ]]; then
+      success "Completed: $(basename "$_play_abs" .yml)" >&2
+    else
+      error "Failed: $(basename "$_play_abs" .yml) (exit code: ${_play_rc})" >&2
+    fi
+  else
+    run_playbook_with_issue_option "$_play_abs" "$(basename "$_play_abs" .yml)" "${PLAY_ARGS[@]}" || _play_rc=$?
+  fi
   exit "$_play_rc"
 fi
 

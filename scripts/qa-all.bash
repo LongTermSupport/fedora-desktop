@@ -591,6 +591,19 @@ fi
 ssh_agent_summary=$(qa_gate_case_count "$ssh_agent_out")
 qa_pass_line run-bash-ssh-agent-teardown "$ssh_agent_summary"
 
+# run.bash single-play mode (Plan 00137 T1.4 + T2.1): the real run.bash, in a throwaway
+# checkout, runs one play unattended (sudo-only preflight, password via an inherited
+# descriptor, stdin closed, the play's own exit status), and every single play takes the
+# host's play lock, so a second run exits 75 and a delegated descriptor is proven first.
+single_play_out=""
+if ! single_play_out="$(bash "$SCRIPT_DIR/test-run-bash-single-play.bash" 2>&1)"; then
+    qa_hard_gate_failed run-bash-single-play \
+        "run.bash single-play / play-lock tests failed" \
+        "$single_play_out"
+fi
+single_play_summary=$(qa_gate_case_count "$single_play_out")
+qa_pass_line run-bash-single-play "$single_play_summary"
+
 # The run-log secret scrubber (Plan 00121). Redaction is the easy half; what this gate exists
 # for is `scrub_verify` REFUSING an artefact where redaction missed a secret. A scrubber is
 # fail-open by nature — it writes a file it believes is clean and a miss is silent — so the

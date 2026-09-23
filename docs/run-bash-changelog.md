@@ -15,6 +15,26 @@ the index, not the record.
 
 ---
 
+## 1.22.0 — one play can run unattended, and play runs on a host take one shared lock (Plan 00137)
+
+`--headless <play>.yml` (or `RUN_BASH_HEADLESS=1` through a play's shebang) used to be
+refused: headless meant the whole provisioning contract, and a single play needs none of it.
+It now runs that one play unattended. Its preflight checks only the sudo credential (NOPASSWD,
+or `RUN_BASH_SUDO_PASSWORD_FILE`, which may be `/dev/fd/N` so a root caller can hand over a
+root-only file as an inherited descriptor). PATH gains `~/.local/bin`, stdin is closed, and a
+failure exits with the play's status instead of offering to file an issue. The auto-detected
+case changes with it: a piped single play with a `RUN_BASH_*` variable set used to be refused,
+and now runs unattended.
+
+Every single-play run, interactive or not, now takes the host's play lock
+(`helpers/play_lock/lock.py`) before it starts, so two play runs cannot overlap; the panel's
+`--run-play` goes through the same route and is covered by it. A run that finds the lock held
+exits 75 and names the holder. A holder can pass the lock to its child through
+`FEDORA_DESKTOP_PLAY_LOCK_FD`, which is proven before it is trusted.
+
+Minor: new behaviour on a path that used to refuse; an interactive single play with the lock
+free prints exactly what it did before.
+
 ## 1.21.1 — a headless run without `admin:public_key` aborts instead of waiting at a browser prompt; key titles carry the hostname (Plan 00063)
 
 Raised by a downstream headless consumer against Plan 00063's promise that every interactive
