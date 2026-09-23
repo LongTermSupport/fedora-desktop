@@ -53,6 +53,9 @@ These keys have no defaults. The orchestrator refuses to run if one is missing:
 - `PRINCIPAL`
 - `WARN_MINUTES` (default in IaC: 3)
 - `ALERT_SINKS` (for example `slack`, `github`, or empty until Task 0.4)
+- `ANSIBLE_COLLECTIONS_DIR`: the root-owned collections path for the system
+  `ansible-core` (D5 hardening, Task 4.7). The orchestrator refuses, with exit 70, when
+  the `ansible-playbook` the child would resolve is not a root-owned file.
 
 ## Subcommands
 

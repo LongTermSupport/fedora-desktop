@@ -90,6 +90,18 @@ D1–D4 are the owner's choices, made 2026-09-23.
   root-only 0600 file, on an inherited file descriptor. The user's shell and the ccy
   containers can never read the file, and no `NOPASSWD:ALL` exists. The file is
   provisioned through vault, never hardcoded.
+  - **Amended after the IaC review:** a process running as the user can still alter the
+    user's Ansible code or read the running controller's memory. The owner chose to
+    treat the user account as trusted and add two cheap hardenings:
+
+    - the cycle runs a root-owned system `ansible-core` with a root-owned collections
+      path, so no user-writable code is on the path;
+    - the server sets `kernel.yama.ptrace_scope=1`, so a process can read another's
+      memory only if it launched it.
+
+    ccy agents are already outside this. Rootless podman gives them their own PID
+    namespace, and they see only their project mount. Running the controller as root
+    was rejected: every play assumes it starts as the user.
 - **D6 — warning: 3 minutes, configurable.** A session can only fail to be warned when
   its project has no hooks-daemon CLI (`.claude/hooks-daemon/bin/hooks-daemon`), for
   example a project that does not use the daemon. `notify` refuses rather than reboot
@@ -114,7 +126,7 @@ D1–D4 are the owner's choices, made 2026-09-23.
   D7 is the stated default.
 - [ ] ⬜ **Task 0.4**: Owner picks the alert sink(s) for D8 (Slack webhook, private-repo
   GitHub issue, or both). This does not block Phases 1–3.
-- [ ] ⬜ **Task 0.3**: Signing IaC: an SSH signing key for the owner on the desktop, git
+- [x] ✅ **Task 0.3**: Signing IaC: an SSH signing key for the owner on the desktop, git
   configured to sign, and the public key published through a `host_vars` placeholder,
   never hardcoded. The deploy clone's `gpg.ssh.allowedSignersFile` holds only that key.
 
@@ -138,7 +150,7 @@ D1–D4 are the owner's choices, made 2026-09-23.
 - [x] ✅ **Task 2.1**: A headless single-play path. It runs a sudo-only preflight, supports
   `--become-password-file`, never prompts, uses an explicit PATH, and exits non-zero on
   failure. It has none of the first-install behaviour of a full headless run.
-- [ ] ⬜ **Task 2.2**: Fetch authentication that works from a timer: an HTTPS fetch URL for
+- [x] ✅ **Task 2.2**: Fetch authentication that works from a timer: an HTTPS fetch URL for
   the public repo, or a documented key route.
 
 ### Phase 3: Sessions
@@ -161,7 +173,7 @@ D1–D4 are the owner's choices, made 2026-09-23.
   then, only if something is to run: run the plays, warn, reboot. After boot: restore,
   verify, report. D8 decides what happens after a failed play: reboot anyway, or leave
   the sessions running and alert.
-- [ ] ⬜ **Task 4.2**: A systemd timer and service pair (D9 sets the cadence), deployed and
+- [x] ✅ **Task 4.2**: A systemd timer and service pair (D9 sets the cadence), deployed and
   enabled only on the server profile. Follow the `play-host-health-login-report.yml`
   pattern: separate reloads, and a read-back of the live dependency graph. Its place in
   the IaC graph follows D5 and D7.
@@ -170,7 +182,12 @@ D1–D4 are the owner's choices, made 2026-09-23.
 - [ ] ⬜ **Task 4.5**: The alert sinks from D8/Task 0.4. The secret lives in vault. The
   message carries no hostname, username or path (public-repo rule), and a sink that
   fails to deliver is itself reported.
-- [ ] ⬜ **Task 4.6**: The root sbin script, its sudoers drop-in (that one command only;
+- [ ] ⬜ **Task 4.7**: The D5 hardening in `play-self-update.yml`:
+  - system `ansible-core` from dnf, plus the collections the plays need in a root-owned
+    `ANSIBLE_COLLECTIONS_PATH`;
+  - a `sysctl.d` drop-in setting `kernel.yama.ptrace_scope=1`, applied and read back;
+  - the orchestrator uses only that `ansible-playbook` and that collections path.
+- [x] ✅ **Task 4.6**: The root sbin script, its sudoers drop-in (that one command only;
   validated with `visudo -c` before install), and the root-only become-password file
   provisioned from vault.
 - [ ] ⬜ **Task 4.4**: `deploy.bash` and `acceptance.bash` for this plan (host-only). The
