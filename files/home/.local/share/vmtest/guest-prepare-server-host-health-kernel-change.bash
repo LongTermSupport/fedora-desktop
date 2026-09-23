@@ -152,11 +152,11 @@ select_second_kernel() {
     # Both queries write here — dnf's and rpm's — so it is not named for either.
     query_errors="${EVIDENCE_DIR}/kernel-query.err"
     available=""
-    # --showduplicates, or repoquery answers with the newest build per repo only. A guest
-    # built from a current image IS running that build, so without this the one case the
-    # lab is most likely to produce — a guest already on the newest kernel — would find
-    # nothing but itself on offer and refuse.
-    if ! available="$(sudo -n dnf -q repoquery --showduplicates --queryformat '%{version}-%{release}.%{arch}\n' kernel-core 2>"${query_errors}")"; then
+    # dnf5's repoquery answers with every available version unless --latest-limit is given,
+    # and that is what this needs: a guest built from a current image IS running the newest
+    # build, so an answer of the newest only would offer nothing but itself and refuse.
+    # dnf4's --showduplicates does not exist in dnf5, which rejects it as an unknown argument.
+    if ! available="$(sudo -n dnf -q repoquery --queryformat '%{version}-%{release}.%{arch}\n' kernel-core 2>"${query_errors}")"; then
         die "asking dnf which kernel-core versions exist failed: $(cat "${query_errors}")"
     fi
     # An empty answer is a guest whose repositories are unusable, NOT a guest with no

@@ -83,9 +83,16 @@ log() { :; }
 record() { printf '%s=%s\n' "${1:?}" "${2-}" >>"$TRACE_DIR/record"; }
 sudo() { if [ "${1:-}" = "-n" ]; then shift; fi; "$@"; }
 dnf() {
-    local a showduplicates=0 newest
+    local a latest_limit="" newest
     for a in "$@"; do
-        if [ "$a" = "--showduplicates" ]; then showduplicates=1; fi
+        case "$a" in
+            # dnf5 has no --showduplicates; it refuses the call, as a real guest did.
+            --showduplicates)
+                printf 'Unknown argument "%s" for command "repoquery".\n' "$a" >&2
+                return 2
+                ;;
+            --latest-limit=*) latest_limit="${a#--latest-limit=}" ;;
+        esac
     done
     for a in "$@"; do
         case "$a" in
@@ -94,12 +101,12 @@ dnf() {
                     printf '%s\n' "${STUB_REPOQUERY_ERR:-repo metadata unreachable}" >&2
                     return "${STUB_REPOQUERY_RC}"
                 fi
-                # The flag is MODELLED, not ignored. repoquery answers with the newest
-                # build per name.arch unless asked for duplicates, so a stub returning the
-                # whole list either way makes --showduplicates unfalsifiable — and the
-                # case that matters most in the lab, a guest already on the newest kernel,
-                # rests entirely on more than one version coming back.
-                if [ "$showduplicates" = 1 ]; then
+                # dnf5's behaviour, MODELLED: every available version, unless
+                # --latest-limit=1 asks for the newest only. An earlier stub modelled dnf4
+                # (newest only unless --showduplicates), so the fixture passed here and was
+                # refused on a real guest. The case that matters most in the lab, a guest
+                # already on the newest kernel, rests on more than one version coming back.
+                if [ "$latest_limit" != 1 ]; then
                     printf '%s' "${STUB_REPOQUERY-}"
                 else
                     newest=""

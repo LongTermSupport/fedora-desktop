@@ -206,6 +206,8 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
       own `sshd` completes on both sides of the reboot
       First run 2026-09-23: `error`, the fixture exited 1 at prepare. The reason is
       in the host transcript only; the harness now returns it (needs `play-vm-test-lab.yml`).
+      Second run: the reason is dnf5 refusing dnf4's `repoquery --showduplicates`; fixed
+      with a stub that models dnf5. Needs `play-vm-test-lab.yml` again, then a re-run.
     - [x] ✅ **HOST**: check [17] — `origin` resolves non-interactively, with a recorded
       successful fetch. The freshness axis will not report "never reached the remote"
 - [x] ✅ **Task 3.3**: Claude Code handoff — file and offer done
