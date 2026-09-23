@@ -114,6 +114,21 @@ class TestTheDocument(unittest.TestCase):
             document = status_document.read(os.path.join(base, "absent.json"))
         self.assertEqual(document["handoff"], "")
 
+    def test_it_carries_the_play_runner_rows_it_is_given(self) -> None:
+        """Task 4.3: the panel lists plays from this document, its only data source."""
+        rows = [{"play": "playbooks/imports/play-a.yml", "state": "fresh"}]
+        document = status_document.build(sections={}, kernel=KERNEL, at=NOW, plays=rows)
+        self.assertEqual(document["plays"], rows)
+
+    def test_no_plays_is_the_EMPTY_LIST_not_a_missing_key(self) -> None:
+        """The same rule as `handoff`: always present, so "nothing to offer" and "a
+        document from before the runner" are different observations."""
+        document = status_document.build(sections={}, kernel=KERNEL, at=NOW)
+        self.assertEqual(document["plays"], [])
+        with tempfile.TemporaryDirectory() as base:
+            unreadable = status_document.read(os.path.join(base, "absent.json"))
+        self.assertEqual(unreadable["plays"], [])
+
     def test_it_round_trips_through_json(self) -> None:
         """It is read by JavaScript across a file, so it has to be plain JSON — a
         NamedTuple that serialises today and stops when a field is added would be a

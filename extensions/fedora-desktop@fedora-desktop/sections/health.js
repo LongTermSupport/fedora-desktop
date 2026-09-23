@@ -14,14 +14,13 @@
  * reads like a complete picture of a machine, which is how the incident happened.
  */
 
-import Gio from 'gi://Gio';
-import GLib from 'gi://GLib';
-import Pango from 'gi://Pango';
 import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
+import {wrap} from '../labels.js';
 import * as StatusDocument from '../statusDocument.js';
+import {launchOnDemand} from '../terminal.js';
 
 /** Section ids, matching `login_report.HEALTH` / `LEDGER` / `FRESHNESS` / `PINS` — all
  * four, in the document's own order. These are the document's keys, so they are
@@ -48,15 +47,6 @@ function findingItem(text, styleClass, shown) {
     wrap(item.label);
     shown.push(`  - ${text}`);
     return item;
-}
-
-/** A finding can be one long sentence carrying its diagnostic and the command that
- * clears it. Unwrapped, a menu label is as wide as its text, so the popup ran off the
- * screen as a single line. The width cap is the stylesheet's `max-width`. */
-function wrap(label) {
-    label.clutter_text.line_wrap = true;
-    label.clutter_text.line_wrap_mode = Pango.WrapMode.WORD_CHAR;
-    label.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
 }
 
 /**
@@ -133,35 +123,16 @@ function appendHandoffOffer(menu, document) {
  * not close with it. An argv, never an interpolated command string — the path carries
  * the home directory, and GLib's command-line form would word-split it.
  *
- * It launches a READER. Nothing about §8 moves: no check runs here, no play runs there.
+ * It launches a READER. Nothing about §8 moves: no check runs here, and a play runs
+ * only from the play runner's own rows, one named play per click.
  *
  * Offered for every document, unlike the handoff: a clean host, a host with findings
  * and a host nothing has checked all have a report, and the command says which.
- *
- * Two things can go wrong and both are said rather than swallowed: the command is not
- * installed (the report play has not run on this host — a terminal flashing "command
- * not found" and closing would tell the user nothing), and the terminal itself cannot
- * start. `Gio.Subprocess.new` reports only whether the TERMINAL started; what happens
- * inside it is the command's business, and it holds its own window open on an error.
  */
 function appendOpenReport(menu) {
     const item = new PopupMenu.PopupMenuItem('Open the full report in a terminal');
     item.connect('activate', () => {
-        const command = StatusDocument.onDemandCommandPath();
-        if (!GLib.file_test(command, GLib.FileTest.IS_EXECUTABLE)) {
-            Main.notify('Fedora Desktop',
-                `${StatusDocument.ON_DEMAND_COMMAND} is not installed here; ` +
-                'run play-host-health-login-report.yml');
-            return;
-        }
-        try {
-            Gio.Subprocess.new(['xdg-terminal-exec', command, '--hold'],
-                Gio.SubprocessFlags.NONE);
-        } catch (e) {
-            Main.notify('Fedora Desktop',
-                `Could not open a terminal through xdg-terminal-exec (${e.message}). ` +
-                `Run ${StatusDocument.ON_DEMAND_COMMAND} in one.`);
-        }
+        launchOnDemand(['--hold'], StatusDocument.ON_DEMAND_COMMAND);
     });
     menu.addMenuItem(item);
 }

@@ -224,8 +224,13 @@ def build(
     at: str,
     handoff: str = "",
     coverage: dict[str, str] | None = None,
+    plays: list[dict[str, str]] | None = None,
 ) -> dict:
     """The whole document. Plain JSON types throughout — JavaScript reads this.
+
+    `plays` is the panel's play runner rows, `{"play", "state"}` each, from
+    `play_runner.runnable` — always present, `[]` when there is nothing to offer, for
+    the reason `handoff` is always present.
 
     `coverage` maps a section id to that section's own statement of what it examined.
     Sections that state one carry it whether or not they found anything; a section
@@ -249,6 +254,7 @@ def build(
         "generated_at": at,
         "kernel": kernel,
         "handoff": handoff,
+        "plays": list(plays or []),
         "sections": {
             name: section(findings, coverage=stated.get(name, ""))
             for name, findings in sections.items()
@@ -317,6 +323,8 @@ def _cannot_read(reason: str) -> dict:
         # handoff file, and inventing a path here would offer a command for a file this
         # branch has just finished saying nothing is known about.
         "handoff": "",
+        # Empty for the same reason: nothing read, so no play can be offered from it.
+        "plays": [],
         "sections": {SELF_SECTION: section([probe_results.unchecked(reason)])},
     }
 

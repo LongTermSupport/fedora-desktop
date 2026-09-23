@@ -29,7 +29,8 @@
 #
 # Reporting-only, and that is a hard boundary: nothing here re-runs a play, installs
 # anything beyond the report's own runtime dependency, or moves the working tree.
-# Re-running a play is always a human decision.
+# Re-running a play is always a human decision — the one route is the on-demand
+# command's `--run-play`, which runs the single play a person named, in their terminal.
 #
 # Needs `user_login`'s systemd manager reachable, because this play ENABLES rather than
 # merely deploying — an unenabled unit never fires. That does NOT require a graphical
@@ -317,7 +318,8 @@
         group: "{{ user_login }}"
         mode: '0755'
 
-    # The command the snippet's reminder names and the panel's row launches. Templated:
+    # The command the snippet's reminder names and the panel's rows launch — the report,
+    # and `--run-play` for the play runner. Templated:
     # it names this checkout's path, exactly as the snippet does. The name is spelled
     # out in src and dest, not taken from a var: qa-deployed-drift maps every `.j2` under
     # files/home/.local/bin to a literal `dest:` so it can compare the deployed copy.

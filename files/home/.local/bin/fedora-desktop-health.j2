@@ -6,37 +6,51 @@
 # login) or host-health-collect.timer (server) and left in the host state directory;
 # the login shell prints it once a day and then a one-line reminder that names this
 # command. This is where that reminder, and the panel's "open the full report" row,
-# send a person. It reads; it never runs a check, never re-runs a play.
+# send a person. By default it reads; it never runs a check.
 #
 # Unlike the login shell it always answers: a clean host gets a sentence saying so and
 # when the status was collected, because silence is the right reply at login and the
 # wrong one to a direct question.
 #
-#   fedora-desktop-health          print the report and exit
-#   fedora-desktop-health --hold   print it, then wait for Enter — for a terminal that
-#                                  would otherwise close with its command, which is how
-#                                  the panel launches it
+# `--run-play` is the panel's play runner (Plan 00109, Task 4.3): a person clicked one
+# play in the panel, and this runs exactly that play, in the terminal they are looking
+# at, through the play's own shebang and so through run.bash. The name comes from a
+# state file, so helpers/host_health/play_runner.py judges it first and anything it
+# refuses is not run.
+#
+#   fedora-desktop-health                    print the report and exit
+#   fedora-desktop-health --hold             print it, then wait for Enter — for a
+#                                            terminal that would otherwise close with
+#                                            its command, which is how the panel
+#                                            launches it
+#   fedora-desktop-health --run-play <play>  run one ledgered play instead
 set -euo pipefail
 
 ROOT_DIR="{{ root_dir }}"
 HOLD=false
+RUN_PLAY=""
 
 usage() {
     cat <<'EOF'
-Usage: fedora-desktop-health [--hold]
+Usage: fedora-desktop-health [--hold] [--run-play <playbooks/...yml>]
 
 Prints this machine's fedora-desktop health report: what is broken now, what could not
 be checked, plays that have changed since they last ran here, and installed versions
 that differ from the repo's pins. Says so plainly when there is nothing to report.
 
 Options:
-  --hold      after printing, wait for Enter before exiting (keeps a launched
-              terminal window open)
-  -h, --help  this text
+  --hold                after it finishes, wait for Enter before exiting (keeps a
+                        launched terminal window open)
+  --run-play <play>     instead of the report, run one play this host's ledger lists,
+                        named by its path in the checkout, e.g.
+                        playbooks/imports/play-claude-yolo.yml — the panel's play
+                        runner uses this
+  -h, --help            this text
 
 Examples:
   fedora-desktop-health
   xdg-terminal-exec fedora-desktop-health --hold
+  fedora-desktop-health --run-play playbooks/imports/play-claude-yolo.yml
 EOF
 }
 
@@ -60,6 +74,14 @@ while [ $# -gt 0 ]; do
         HOLD=true
         shift
         ;;
+    --run-play)
+        if [ $# -lt 2 ] || [ -z "$2" ]; then
+            echo "fedora-desktop-health: --run-play needs a play path — see fedora-desktop-health --help" >&2
+            exit 64
+        fi
+        RUN_PLAY="$2"
+        shift 2
+        ;;
     *)
         echo "fedora-desktop-health: unknown option '$1' — see fedora-desktop-health --help" >&2
         exit 64
@@ -70,11 +92,32 @@ done
 # The checkout path was written in by Ansible. If it has moved, `python3 -m` would print
 # a multi-line ImportError traceback; the missing path is the useful sentence.
 if [ ! -r "$ROOT_DIR/helpers/host_health/login_message.py" ]; then
-    echo "fedora-desktop-health: the fedora-desktop checkout at $ROOT_DIR has gone, so there is no report to print; re-run play-host-health-login-report.yml from the checkout's new location" >&2
+    echo "fedora-desktop-health: the fedora-desktop checkout at $ROOT_DIR has gone, so there is no report to print and no play to run; re-run play-host-health-login-report.yml from the checkout's new location" >&2
     if [ "$HOLD" = true ]; then
         hold
     fi
     exit 1
+fi
+
+# The play runner. The helper prints the play's absolute path only when every rule in
+# play_runner.validate holds, and says why on stderr when one does not; nothing it
+# refuses reaches the exec below. The play runs through its own shebang, which hands it
+# to the checkout's run.bash — the same route as running it by path by hand.
+#
+# The outcome is the play's own exit status. Nothing here claims more: whether the play
+# did what it should is what the ledger records and the next report reads.
+if [ -n "$RUN_PLAY" ]; then
+    status=0
+    play_path="$(PYTHONPATH="$ROOT_DIR" /usr/bin/python3 -P -m helpers.host_health.play_runner --repo-root "$ROOT_DIR" --validate "$RUN_PLAY")" || status=$?
+    if [ "$status" -eq 0 ]; then
+        echo "fedora-desktop-health: running $RUN_PLAY" >&2
+        "$play_path" || status=$?
+        echo "fedora-desktop-health: $RUN_PLAY exited $status; the next health report reads its result from the ledger" >&2
+    fi
+    if [ "$HOLD" = true ]; then
+        hold
+    fi
+    exit "$status"
 fi
 
 # PYTHONPATH on the command only, never exported, and no `cd`: this runs in whatever

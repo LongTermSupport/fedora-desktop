@@ -1,11 +1,12 @@
 #!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
 ---
-# The `fedora-desktop` panel (Plan 00109, Task 4.5) — a read-only surface.
+# The `fedora-desktop` panel (Plan 00109, Task 4.5) — it offers; a person decides.
 #
 # Deploys the GNOME Shell extension that renders this machine's drift state from the
-# host status document. It renders; it runs no check, applies no fix and launches no
-# play. Re-running a play is always a human decision, and a clickable surface is
-# exactly where that boundary erodes.
+# host status document. It runs no check and applies no fix. Re-running a play is always
+# a human decision, and a clickable surface is exactly where that boundary erodes — so
+# the only plays it launches are ones a person clicked in its play runner, one per click,
+# in a terminal they are looking at (Task 4.3).
 #
 # **Its own play, not an addition to `play-host-health-login-report.yml`.** The panel is
 # a generic multi-section surface — Task 4.3's play runner and Task 4.4's registry add

@@ -8,8 +8,8 @@
 # `check_panel_contract.py` proves it shares a vocabulary with the producer. None of the
 # three can tell a demoted finding from a current one, and neither can a screenshot.
 #
-# The tests import `statusDocument.js`, `sections/health.js` and `extension.js`
-# themselves, with `tests/extensions/gjs-loader.mjs` answering the `gi://` and
+# The tests import `statusDocument.js`, `sections/health.js`, `sections/plays.js` and
+# `extension.js` themselves, with `tests/extensions/gjs-loader.mjs` answering the `gi://` and
 # `resource:///` imports a GNOME Shell process would provide. What runs is the shipped
 # file.
 #

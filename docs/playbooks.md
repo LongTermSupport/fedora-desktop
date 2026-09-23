@@ -794,8 +794,9 @@ is in a runaway restart loop** — the one action it is permitted to take:
 
 #### play-host-health-login-report.yml
 
-Login-time host health report — **reporting only, it never re-runs a play or installs
-anything**:
+Login-time host health report — **the report never re-runs a play or installs anything**;
+a play runs only when a person asks for one by name (`fedora-desktop-health --run-play`,
+below):
 
 - The desktop notification only counts the findings and says where to read them — the
   panel or `fedora-desktop-health`; it never carries the findings themselves
@@ -846,6 +847,11 @@ collector left at the next interactive shell, locally or over SSH, and
   when the status was collected, because silence is the right reply at login and the wrong
   one to a direct question. `--hold` waits for Enter before exiting, which is how the panel
   opens it in a terminal window that would otherwise close with it
+- **`fedora-desktop-health --run-play <playbooks/...yml>` runs one play instead**, which
+  is what the panel's play runner launches. It refuses any name that is not a
+  repo-relative play under `playbooks/` which this host's ledger lists, is present in the
+  checkout and is executable, and says why. The play runs through its own shebang, as
+  running it by path does, and the command exits with the play's status
 - The snippet prints **only for an interactive shell**. bash reads `~/.bashrc` for a
   non-interactive shell too when sshd started it, so anything printed unconditionally
   breaks `scp`, `sftp` and `rsync` to the host with a protocol error
@@ -862,12 +868,18 @@ collector left at the next interactive shell, locally or over SSH, and
 
 #### play-fedora-desktop-panel.yml
 
-The `fedora-desktop` GNOME Shell panel — **a read-only surface**:
+The `fedora-desktop` GNOME Shell panel — **it offers; a person decides**:
 
 - Deploys the panel extension that renders this machine's drift state from the host
   status document
-- It renders; it runs no check, applies no fix and launches no play. Re-running a play is
-  a human decision, and a clickable surface is where that boundary erodes
+- It runs no check and applies no fix. The only things it launches are a terminal
+  showing the full report and, from the play runner, the single play a person clicked
+- **"Plays run on this machine"** lists the plays this host's ledger has seen, each with
+  the state the freshness check judged (unchanged, changed, or differing with no commit to
+  explain it). Clicking one opens `fedora-desktop-health --run-play <play> --hold` in the
+  default terminal. The panel says what it launched, never that the play ran — the next
+  report reads the outcome from the ledger. Deleted plays are not listed, and the list does
+  not change the icon
 - **"Open the full report in a terminal"**, one row under the collection time, opens
   `fedora-desktop-health --hold` in the user's default terminal through `xdg-terminal-exec`,
   which this play installs. The panel is the indicator; the text in the terminal is the

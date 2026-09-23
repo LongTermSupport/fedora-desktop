@@ -62,11 +62,17 @@ def run(
     play_sha256_at_head: Callable[[str, str], str | None] | None = None,
     retired_plays: Callable[[str], dict[str, str]] | None = None,
     path_exists_at: Callable[[str, str, str], bool] | None = None,
+    judged: list[freshness.Verdict] | None = None,
 ) -> int:
     """Print the freshness findings and return the exit status.
 
     The git callables and the retired-plays loader are seams for testing; unsupplied,
     the real ones are used.
+
+    `judged`, when given, receives every verdict of a COMPLETE judgement, fresh ones
+    included — the panel's play runner lists each play with its state. It stays empty
+    on every path that answers untrustworthy, so a partial list is never offered as
+    the whole one.
 
     `unchecked` is where findings that mean *"nothing was checked against upstream"* go
     — the refs-are-old answer, which is a real finding but not a fault anybody has
@@ -157,6 +163,9 @@ def run(
         # one, with nothing saying which. Neither is an answer.
         stderr.write(f"play-freshness: the retired-plays map cannot be applied: {error}\n")
         return EXIT_UNTRUSTWORTHY
+
+    if judged is not None:
+        judged.extend(verdicts)
 
     status = _emit(freshness.build_report(verdicts=verdicts, broken_reason=None), stdout, stderr)
     if offline is not None:

@@ -389,6 +389,21 @@ class TestTheFreshnessSeamKeepsItsChannelsApart(unittest.TestCase):
         for finding in findings:
             self.assertNotIn("\n", finding)
 
+    def test_the_judged_verdicts_reach_the_callers_sink(self) -> None:
+        """The play runner's rows come from the same run as the findings (Task 4.3), so
+        the panel cannot list a state the freshness section did not judge."""
+        verdict = freshness.Verdict("playbooks/a.yml", freshness.FRESH, ())
+
+        def run(*, stdout, stderr, judged, **_arguments) -> int:
+            judged.append(verdict)
+            return check_freshness.EXIT_OK
+
+        judged: list = []
+        login_report.freshness_findings(
+            "/state/base", "/repo", stderr=io.StringIO(), run=run, judged=judged
+        )
+        self.assertEqual(judged, [verdict])
+
     def test_an_orphan_detail_line_is_kept_not_dropped(self) -> None:
         """The fold must not be able to lose a line. An indented line with no headline
         before it becomes its own finding rather than being swallowed."""
@@ -546,7 +561,9 @@ class TestTheDocumentNamesAHandoffThatEXISTS(unittest.TestCase):
     the result, so an optimistic path is unrepresentable rather than discouraged.
     """
 
-    def _record(self, root: str, findings: list[probe_results.Finding]) -> dict:
+    def _record(
+        self, root: str, findings: list[probe_results.Finding], plays: list | None = None
+    ) -> dict:
         self.out: list[str] = []
         self.diagnostics: list[str] = []
         ledger_base = os.path.join(root, "state", "play-ledger")
@@ -560,8 +577,15 @@ class TestTheDocumentNamesAHandoffThatEXISTS(unittest.TestCase):
             at="2026-09-14T18:00:00Z",
             out=self.out.append,
             diagnostics=self.diagnostics.append,
+            plays=plays,
         )
         return status_document.read(status_document.path(state_base))
+
+    def test_the_play_runner_rows_reach_the_document(self) -> None:
+        rows = [{"play": "playbooks/imports/play-a.yml", "state": "stale"}]
+        with tempfile.TemporaryDirectory() as root:
+            document = self._record(root, [], plays=rows)
+        self.assertEqual(document["plays"], rows)
 
     def test_the_named_handoff_file_is_ON_DISK(self) -> None:
         """The assertion that matters, and the one a path-equality check would pass

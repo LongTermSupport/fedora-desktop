@@ -236,6 +236,91 @@ case "$(cat "$WORK_DIR/gh.err")" in
 esac
 check "a missing checkout under --hold still waits for Enter" "yes" "$got"
 
+# ── --run-play: the panel's play runner (Plan 00109, Task 4.3) ───────────────────────
+# A checkout of its own, so a real play is never run: `helpers` is the repository's (a
+# symlink, so the gate under test is the shipped one), and the only play is a fixture
+# that says it ran and exits 5. The ledger lists it, so only the gate stands between a
+# requested name and that exec.
+PLAY_CHECKOUT="$WORK_DIR/play-checkout"
+FIXTURE_PLAY="playbooks/imports/play-fixture.yml"
+mkdir -p "$PLAY_CHECKOUT/playbooks/imports"
+ln -s "$REPO_ROOT/helpers" "$PLAY_CHECKOUT/helpers"
+printf '#!/usr/bin/env bash\necho "fixture play ran with: $*"\nexit 5\n' \
+    >"$PLAY_CHECKOUT/$FIXTURE_PLAY"
+chmod 0755 "$PLAY_CHECKOUT/$FIXTURE_PLAY"
+printf '#!/usr/bin/env bash\necho "unlisted play ran"\n' >"$PLAY_CHECKOUT/playbooks/imports/play-unlisted.yml"
+chmod 0755 "$PLAY_CHECKOUT/playbooks/imports/play-unlisted.yml"
+RUNNER="$WORK_DIR/fedora-desktop-health-runner"
+render "$PLAY_CHECKOUT" "$RUNNER"
+
+STATE_LEDGER="$WORK_DIR/ledger-state"
+mkdir -p "$STATE_LEDGER"
+PYTHONPATH="$REPO_ROOT" python3 - "$STATE_LEDGER" "$FIXTURE_PLAY" <<'PYEOF'
+import sys
+
+from helpers.play_ledger import ledger, store
+
+state_home, play = sys.argv[1:3]
+base = ledger.ledger_dir({"XDG_STATE_HOME": state_home}, "/nonexistent-home")
+commit, stamp = "e" * 40, "2026-09-14T09:00:00Z"
+store.ensure_ledger(base, commit=commit, at=stamp)
+store.append_record(base, ledger.build_record(
+    play=play, name=play, commit=commit, dirty=False, play_sha256="1" * 64,
+    outcome="ok", changed=0, started=stamp, finished=stamp,
+))
+PYEOF
+
+# run_play <stdout> <stderr> [args...] — the runner command's exit status.
+run_play() {
+    local out="$1" err="$2"
+    shift 2
+    XDG_STATE_HOME="$STATE_LEDGER" "$RUNNER" "$@" >"$out" 2>"$err" </dev/null
+}
+
+run_play "$WORK_DIR/rp.out" "$WORK_DIR/rp.err" --run-play "$FIXTURE_PLAY"
+check "--run-play: the play's own exit status is the command's" "5" "$?"
+case "$(cat "$WORK_DIR/rp.out")" in
+    *"fixture play ran with: "*) got=yes ;;
+    *) got="no: [$(cat "$WORK_DIR/rp.out")]" ;;
+esac
+check "--run-play: the named ledgered play ran" "yes" "$got"
+case "$(cat "$WORK_DIR/rp.err")" in
+    *"exited 5"*) got=yes ;;
+    *) got="no: [$(cat "$WORK_DIR/rp.err")]" ;;
+esac
+check "--run-play: it says what the play exited with, on stderr" "yes" "$got"
+
+run_play "$WORK_DIR/ru.out" "$WORK_DIR/ru.err" --run-play playbooks/imports/play-unlisted.yml
+check "--run-play: a play the ledger does not list is refused with 64" "64" "$?"
+check "--run-play: a refused play does not run" "" "$(cat "$WORK_DIR/ru.out")"
+case "$(cat "$WORK_DIR/ru.err")" in
+    *refused*ledger*) got=yes ;;
+    *) got="no: [$(cat "$WORK_DIR/ru.err")]" ;;
+esac
+check "--run-play: the refusal says why" "yes" "$got"
+
+run_play "$WORK_DIR/rt.out" "$WORK_DIR/rt.err" --run-play "playbooks/../playbooks/imports/play-fixture.yml"
+check "--run-play: a non-canonical path is refused with 64" "64" "$?"
+check "--run-play: a non-canonical path does not run" "" "$(cat "$WORK_DIR/rt.out")"
+
+run_play "$WORK_DIR/rn.out" "$WORK_DIR/rn.err" --run-play
+check "--run-play with no value fails fast with 64" "64" "$?"
+
+printf '\n' | XDG_STATE_HOME="$STATE_LEDGER" "$RUNNER" --run-play "$FIXTURE_PLAY" --hold \
+    >"$WORK_DIR/rh.out" 2>"$WORK_DIR/rh.err"
+check "--run-play --hold: still the play's status after Enter" "5" "$?"
+case "$(cat "$WORK_DIR/rh.err")" in
+    *"Enter"*) got=yes ;;
+    *) got="no: [$(cat "$WORK_DIR/rh.err")]" ;;
+esac
+check "--run-play --hold: waits for Enter" "yes" "$got"
+
+case "$(cat "$WORK_DIR/help.out")" in
+    *"--run-play"*) got=yes ;;
+    *) got="no: [$(cat "$WORK_DIR/help.out")]" ;;
+esac
+check "--help: lists --run-play" "yes" "$got"
+
 # ── the interpreter is the system one ────────────────────────────────────────────────
 invocation="$(awk '/helpers\.host_health\.login_message/ && $1 !~ /^#/' "$COMMAND")"
 if [ "$(printf '%s\n' "$invocation" | grep -c .)" -ne 1 ]; then

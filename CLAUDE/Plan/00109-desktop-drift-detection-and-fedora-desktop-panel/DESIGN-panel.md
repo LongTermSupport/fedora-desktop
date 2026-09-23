@@ -165,11 +165,39 @@ is explicit that the alternatives do not work.
 - **The panel is not a second implementation of any check.** It renders what the producers say. A
   check reimplemented in JavaScript would be a check that drifts from the one under test.
 
-## 9. Left open, deliberately, for the tasks that must decide them
+## 9. Settled by Task 4.3: the play runner
 
-- **Task 4.3**: which plays the runner lists. Every play is a long list with no ordering; the
-  ledger knows which have ever run here, which is a different and probably better answer. Needs
-  the ledger's real contents from a HOST run (Task 1.2) before it can be settled on evidence.
+The question left open here was which plays the runner lists. Task 1.2's HOST run supplied the
+ledger's real contents (18 plays, run counts from 1 to 6), and the decisions below rest on that.
+
+- **It lists the plays the ledger has seen here, each with its freshness state.** Every play in
+  the repository is a long list with no ordering and dozens never run on this host; the ledger's
+  set is the population a person here has actually chosen, and it is short. Plays outside
+  `playbooks/` are left out, because the runner only launches from there.
+- **The state is `check_freshness`'s, carried in the document.** `check_freshness.run` hands
+  every verdict of a complete judgement — fresh ones too — to a `judged` sink;
+  `helpers/host_health/play_runner.runnable` turns them into `{play, state}` rows; the status
+  document carries them under `plays`, always present, `[]` when there is nothing to offer. The
+  panel renders them and never re-judges (§8). A judgement that answers untrustworthy — the
+  BROKEN sentinel, an unresolvable ledgered commit, an unappliable retired-plays map — leaves
+  the sink empty, so a partial list is never offered as the whole one.
+- **A GONE play is not listed.** There is nothing to run, and the health section's freshness
+  block already reports it, naming the successor where the retired-plays map knows one.
+- **A click launches exactly that play, in a terminal, through the report's command.**
+  `fedora-desktop-health --run-play <play> --hold`, by argv through `xdg-terminal-exec` — the
+  route §9a's Plan 00136 note set up for the report. One launcher (`terminal.js`) serves both
+  rows. The command sends the name through `play_runner.validate` before anything runs: a
+  canonical repo-relative path under `playbooks/`, listed in this host's ledger, present,
+  executable, and not a symlink out of the tree. The name comes from a state file, so it is
+  judged as untrusted input. The play then runs through its own shebang, and so through
+  `run.bash`, exactly as running it by path by hand does.
+- **It says what it launched, never that the play ran** (§6). The next login's report reads the
+  outcome from the ledger.
+- **It does not move the icon.** The runner reads no check section; a stale play is already a
+  finding in the freshness block, and counting it twice would be two voices on one fact.
+
+§8 holds as restated: nothing runs unless a person clicks one named play, and nothing runs in
+the background.
 
 ### 9a. Decided: the handoff offer copies, and it is not per-finding
 
@@ -216,7 +244,7 @@ thing: `fedora-desktop-health --hold` in the user's default terminal, through
 holds, and reason 1 above does not apply to it: the command is installed by the report play
 with the checkout path written in, so the panel needs to know only the user's home
 directory. Reason 1 still applies to the handoff, which still copies. Task 4.3's play
-runner remains unwritten and will hang off the same command.
+runner hangs off the same command, as `--run-play` (§9).
 
 ## 10. As built — the deployment, and the one assertion it deliberately does not make
 
@@ -322,11 +350,11 @@ or `org.gnome.ScreenSaver`'s `ActiveChanged`), so the panel gets the signal for 
 process at all** — and Task 4.1's harness stubs GNOME imports, so the wiring would be
 unit-testable to the same standard as everything else in Phase 4.
 
-The cost is the contract. `extension.js` opens with *"A read-only surface over the host status
-document. It renders what the checks said; it runs no check of its own, applies no fix, and
-launches no play."* §8 restates it, and Technical Decision 1 in [`DECISIONS.md`](DECISIONS.md) — *detection and
+The cost is the contract. `extension.js` opens by saying the panel runs no check and applies no
+fix, and that the one thing it launches is a terminal a person is looking at — the report, or the
+single play they clicked (§9). §8 restates it, and Technical Decision 1 in [`DECISIONS.md`](DECISIONS.md) — *detection and
 handoff, never unattended repair* — is the plan's own framing. Spawning a recovery helper on
-unlock ends that, and "it is only a display refresh, not a play" is exactly the kind of
+unlock, with nobody clicking anything, ends that, and "it is only a display refresh, not a play" is exactly the kind of
 narrowing that erodes a boundary one reasonable exception at a time.
 
 **B. A user systemd unit.** `files/home/.config/systemd/user/` already holds seven units, so the
