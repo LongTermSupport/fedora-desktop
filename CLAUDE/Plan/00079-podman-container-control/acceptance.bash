@@ -435,6 +435,7 @@ echo "### 9. freeze --ccy -n resolves the live CCY group"
 # would appear in the tool's output under "Skipped — not currently running",
 # so the check would pass without the resolver having selected it — a pass
 # earned by a substring rather than by the behaviour being tested.
+ccy_dry_ran=0
 if ! ccy_live="$(podman ps --filter label=ccy=true \
     --filter status=running --format '{{.Names}}' 2>&1)"; then
     bad "could not list CCY containers: $ccy_live"
@@ -443,6 +444,7 @@ elif [ -z "$ccy_live" ]; then
          by a CCY older than 3.40.0 carry no such label; relaunch one to exercise
          this check"
 elif ccy_out="$("$TOOL" freeze --ccy --dry-run 2>&1)"; then
+    ccy_dry_ran=1
     missing=""
     while read -r name; do
         if [ -z "$name" ]; then
@@ -463,12 +465,18 @@ elif ccy_out="$("$TOOL" freeze --ccy --dry-run 2>&1)"; then
         *) ok "the non-CCY throwaway is excluded" ;;
     esac
 else
+    ccy_dry_ran=1
     bad "freeze --ccy --dry-run exited non-zero: $ccy_out"
 fi
-if [ "$(state_of "$CNAME")" = "running" ]; then
-    ok "nothing was frozen by the --ccy dry run"
-else
-    bad "the --ccy dry run changed a container state"
+# Judged only when the dry run was actually invoked: after the skip or the listing
+# failure above, the throwaway is still running because nothing ran, and an ok()
+# there would count a pass for an assertion that was never exercised.
+if [ "$ccy_dry_ran" = "1" ]; then
+    if [ "$(state_of "$CNAME")" = "running" ]; then
+        ok "nothing was frozen by the --ccy dry run"
+    else
+        bad "the --ccy dry run changed a container state"
+    fi
 fi
 
 echo "### 9b. --ccy also resolves UNLABELLED (pre-3.40.0) sessions"
