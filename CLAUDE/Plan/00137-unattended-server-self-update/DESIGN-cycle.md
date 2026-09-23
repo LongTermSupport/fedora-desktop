@@ -11,6 +11,7 @@ it is a change to both sides.
 | Entry point     | `/usr/local/sbin/fedora-desktop-self-update` (source: `files/usr/local/sbin/`)                                        | root:root 0700                 |
 | Config          | `/etc/fedora-desktop/self-update.conf`, `KEY=value`, read with `read`, never sourced                                  | root:root 0600                 |
 | Become password | `/etc/fedora-desktop/self-update.become` (vault-provisioned)                                                          | root:root 0600                 |
+| Vault password  | `/etc/fedora-desktop/self-update.vault` (copied from the checkout the play runs from)                                 | root:root 0600                 |
 | Allowed signers | `/etc/fedora-desktop/self-update.allowed_signers` (the owner's public key only)                                       | root:root 0644, dir 0755 root  |
 | Deploy clone    | `/var/lib/fedora-desktop/deploy` (D4), owned by root                                                                  | never mounted into a container |
 | State           | `/var/lib/fedora-desktop/self-update/` (the last result, the owed post-boot check)                                    | root:root 0700                 |
@@ -22,9 +23,25 @@ it is a change to both sides.
 
 The plays must run from a tree the user can read. The deploy clone is root-owned and
 world-readable (0755 dirs, 0644 files), but not writable by the user. The plays run as
-the user, from that clone. `ansible.cfg`'s vault password file must therefore resolve
-for the user. Task 4.6 settles how: a user-readable copy made per run and removed
-afterwards, or `--vault-password-file` on an inherited fd.
+the user, from that clone.
+
+Settled by the IaC (`play-self-update.yml`); the orchestrator must match:
+
+- **Vault password.** A root-only copy lives at `/etc/fedora-desktop/self-update.vault`
+  (0600). It is copied from the file `ansible.cfg` names in the checkout the play runs
+  from. The orchestrator opens it and passes it to the plays on an inherited descriptor:
+  `ANSIBLE_VAULT_PASSWORD_FILE=/dev/fd/N`. The clone's own relative path does not
+  resolve, because the file is untracked.
+- **host_vars.** The play copies `environment/localhost/host_vars/localhost.yml` into the
+  clone as `root:<user> 0640`. It is refreshed only when the play runs.
+- **git ownership.** The play adds the clone to the user's `safe.directory`. Without it,
+  git refuses a root-owned repository, and the ledger callback records nothing.
+- **Fact cache (orchestrator's job).** `ansible.cfg` writes `./untracked/facts/`, which is
+  root-owned in the clone. The orchestrator must point
+  `ANSIBLE_CACHE_PLUGIN_CONNECTION` at a per-run directory the user owns, or set
+  `ANSIBLE_CACHE_PLUGIN=memory`. Otherwise the plays fail writing the cache.
+- **Post-boot unit.** It runs at every boot with no condition of its own, so `verify`
+  exits 0 when no check is owed.
 
 ## Config keys
 

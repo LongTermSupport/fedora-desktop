@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+# Plan 00137 — the unattended self-update cycle's configuration. KEY=value, one per line.
+# Read with `read` by /usr/local/sbin/fedora-desktop-self-update and never sourced.
+# Edit host_vars and re-run playbooks/imports/optional/common/play-self-update.yml, not
+# this file.
+USER={{ user_login }}
+BRANCH={{ self_update_branch }}
+REMOTE_URL={{ self_update_remote_url }}
+PRINCIPAL={{ self_update_signing_principal }}
+WARN_MINUTES={{ self_update_warn_minutes | default(3) }}
+ALERT_SINKS={{ self_update_alert_sinks | default('') }}
