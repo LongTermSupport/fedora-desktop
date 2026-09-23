@@ -90,9 +90,10 @@ cat >"$FAKE_HOME/.local/bin/ansible-playbook" <<'EOF'
                 exit 5
             fi
             printf 'become: %s\n' "$secret"
-            # Any copy of the password on disk while the play runs, where run.bash's
-            # temporary files would be: a same-uid process could read it from there.
-            printf 'tmp-copies: %s\n' "$(grep -rlF -- "$secret" "$TMPDIR" | wc -l)"
+            # Any copy of the password while the play runs, in the three places run.bash
+            # could write one (its temporary files, the home, the runtime directory): a
+            # same-uid process could read it from there.
+            printf 'tmp-copies: %s\n' "$(grep -rlF -- "$secret" "$TMPDIR" "$HOME" "$XDG_RUNTIME_DIR" | wc -l)"
         fi
         prev="$a"
     done
@@ -176,7 +177,7 @@ rc=$?
 check "exits 0" "0" "$rc"
 check "Ansible gets the password through --become-password-file" "become: correct horse" "$(calls | grep '^become:')"
 check "through a pipe, not a file" "become-kind: fifo" "$(calls | grep '^become-kind:')"
-check "and no copy of it is on disk while the play runs" "tmp-copies: 0" "$(calls | grep '^tmp-copies:')"
+check "and no copy of it is in TMPDIR, HOME or XDG_RUNTIME_DIR while the play runs" "tmp-copies: 0" "$(calls | grep '^tmp-copies:')"
 check "says the password route was proven" "yes" "$(yes_if grep -q 'sudo=password' <<<"$out")"
 
 # The descriptor must be READ, never reopened by its /dev/fd path. On the host the caller

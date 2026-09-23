@@ -283,6 +283,85 @@ class TestPlayEnvironment(unittest.TestCase):
         self.assertEqual(env["XDG_RUNTIME_DIR"], "/run/user/1000")
 
 
+class TestSearchPathsUnderHome(unittest.TestCase):
+    """The pinned list names the search paths one ansible-core release has. A later release
+    can add one whose default is under ~/.ansible, and neither the list nor a test that
+    copies it would notice. So the cycle asks the system ansible for its effective settings,
+    and any search path under the user's home is a refusal. These dumps are fakes shaped
+    like `ansible-config dump --format json`, so the rule is tested rather than a list."""
+
+    HOME = "/home/<user>"
+    CLONE = "/var/lib/fedora-desktop/deploy"
+
+    def findings(self, dump: object) -> list[str]:
+        return cycle.home_search_paths(dump, home=self.HOME, cwd=self.CLONE)
+
+    def test_a_clean_dump_has_no_findings(self) -> None:
+        dump = [
+            {"name": "DEFAULT_ACTION_PLUGIN_PATH", "origin": "env", "value": ["/usr/share/ansible/plugins/action"]},
+            {"name": "DEFAULT_ROLES_PATH", "origin": "env", "value": [f"{self.CLONE}/roles/vendor"]},
+            {"name": "COLLECTIONS_PATHS", "origin": "env", "value": ["/usr/local/share/c"]},
+        ]
+        self.assertEqual(self.findings(dump), [])
+
+    def test_a_search_path_this_code_has_never_heard_of_is_caught(self) -> None:
+        dump = [{"name": "FUTURE_WIDGET_PLUGIN_PATH", "origin": "default",
+                 "value": [f"{self.HOME}/.ansible/plugins/widget", "/usr/share/ansible/plugins/widget"]}]
+        self.assertEqual(self.findings(dump), [f"FUTURE_WIDGET_PLUGIN_PATH={self.HOME}/.ansible/plugins/widget"])
+
+    def test_the_home_directory_itself_counts(self) -> None:
+        dump = [{"name": "DEFAULT_MODULE_PATH", "origin": "env", "value": [self.HOME]}]
+        self.assertEqual(self.findings(dump), [f"DEFAULT_MODULE_PATH={self.HOME}"])
+
+    def test_a_sibling_whose_name_starts_like_home_does_not(self) -> None:
+        dump = [{"name": "DEFAULT_MODULE_PATH", "origin": "env", "value": [f"{self.HOME}-other/x"]}]
+        self.assertEqual(self.findings(dump), [])
+
+    def test_a_relative_path_is_judged_where_ansible_would_resolve_it(self) -> None:
+        dump = [
+            {"name": "DEFAULT_ROLES_PATH", "origin": "cfg", "value": ["./roles/vendor"]},
+            {"name": "DEFAULT_LOOKUP_PLUGIN_PATH", "origin": "cfg", "value": ["../../../../home/<user>/x"]},
+        ]
+        self.assertEqual(self.findings(dump), ["DEFAULT_LOOKUP_PLUGIN_PATH=../../../../home/<user>/x"])
+
+    def test_a_tilde_is_the_users_home(self) -> None:
+        dump = [{"name": "DEFAULT_FILTER_PLUGIN_PATH", "origin": "cfg", "value": ["~/.ansible/plugins/filter"]}]
+        self.assertEqual(self.findings(dump), ["DEFAULT_FILTER_PLUGIN_PATH=~/.ansible/plugins/filter"])
+
+    def test_data_paths_that_are_not_searched_for_code_are_not_findings(self) -> None:
+        """ansible-config dumps every search path as a list. A string names one file or working
+        directory (the local tmp, the galaxy token, the persistent-connection sockets): data,
+        not a place code is looked up, and named as open in DESIGN-cycle.md."""
+        dump = [
+            {"name": "DEFAULT_LOCAL_TMP", "origin": "default", "value": f"{self.HOME}/.ansible/tmp"},
+            {"name": "GALAXY_TOKEN_PATH", "origin": "default", "value": f"{self.HOME}/.ansible/galaxy_token"},
+            {"name": "PERSISTENT_CONTROL_PATH_DIR", "origin": "default", "value": f"{self.HOME}/.ansible/pc"},
+            {"name": "DEFAULT_LOG_PATH", "origin": "default", "value": None},
+        ]
+        self.assertEqual(self.findings(dump), [])
+
+    def test_the_inventory_is_judged_as_well(self) -> None:
+        """Its host_vars choose the interpreter a root play runs."""
+        dump = [{"name": "DEFAULT_HOST_LIST", "origin": "env", "value": [f"{self.HOME}/inventory"]}]
+        self.assertEqual(self.findings(dump), [f"DEFAULT_HOST_LIST={self.HOME}/inventory"])
+
+    def test_a_list_that_is_not_a_search_path_is_not_read_as_one(self) -> None:
+        """INVENTORY_IGNORE_EXTS really does hold "~", a file suffix, not the home."""
+        dump = [{"name": "INVENTORY_IGNORE_EXTS", "origin": "default", "value": [".pyc", "~"]}]
+        self.assertEqual(self.findings(dump), [])
+
+    def test_the_galaxy_servers_entry_a_real_dump_ends_with_is_accepted(self) -> None:
+        dump = [{"name": "DEFAULT_MODULE_PATH", "origin": "env", "value": ["/usr/share/ansible/plugins/modules"]},
+                {"GALAXY_SERVERS": {}}]
+        self.assertEqual(self.findings(dump), [])
+
+    def test_a_dump_that_is_not_the_expected_shape_is_refused(self) -> None:
+        for bad in ({"not": "a list"}, [["not", "a dict"]], [{"value": ["/x"]}], [{"GALAXY_SERVERS": {}, "x": 1}]):
+            with self.subTest(dump=bad):
+                with self.assertRaises(ValueError):
+                    self.findings(bad)
+
+
 class TestPasswordPipe(unittest.TestCase):
     """ansible opens a vault password file BY PATH, and reopening /dev/fd/N re-checks the
     permissions of what the descriptor refers to: a root-only file, or a pipe root made, is

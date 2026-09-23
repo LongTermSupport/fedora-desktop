@@ -99,7 +99,7 @@ while [ $# -gt 0 ] && [[ "$1" == *=* ]]; do
 done
 command="$(basename "$1")"
 case "$command" in
-sh) exec env -i "${pairs[@]}" "$@" ;;
+sh | ansible-config) exec env -i "${pairs[@]}" "$@" ;;
 esac
 shift
 case "$command" in
@@ -147,7 +147,23 @@ SYSTEM_ANSIBLE="$PREFIX/usr/bin/ansible-playbook"
 COLLECTIONS="$SCRATCH/collections"
 mkdir -p "$PREFIX/usr/bin" "$COLLECTIONS"
 printf '#!/bin/sh\nexit 0\n' >"$SYSTEM_ANSIBLE"
-chmod 755 "$SYSTEM_ANSIBLE" "$COLLECTIONS"
+# ansible-config: the effective settings, as `dump --format json` prints them. It reports
+# the module search path the cycle handed it, so the cycle's own pinning is what it judges.
+# While $HOME_SETTING_FLAG exists it also reports a search path a later ansible-core added,
+# defaulted under the user's home, which no pinned list names.
+SYSTEM_ANSIBLE_CONFIG="$PREFIX/usr/bin/ansible-config"
+HOME_SETTING_FLAG="$SCRATCH/config-dump-adds-a-home-search-path"
+cat >"$SYSTEM_ANSIBLE_CONFIG" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+[ "\$*" = "dump --format json" ] || { echo "ansible-config stub: unexpected argv: \$*" >&2; exit 99; }
+printf '[{"name": "DEFAULT_MODULE_PATH", "origin": "env", "value": ["%s"]}' "\${ANSIBLE_LIBRARY}"
+if [ -e "$HOME_SETTING_FLAG" ]; then
+    printf ', {"name": "FUTURE_WIDGET_PLUGIN_PATH", "origin": "default", "value": ["%s/.ansible/plugins/widget"]}' "\${HOME}"
+fi
+printf ', {"name": "DEFAULT_LOCAL_TMP", "origin": "default", "value": "%s/.ansible/tmp"}]\n' "\${HOME}"
+EOF
+chmod 755 "$SYSTEM_ANSIBLE" "$SYSTEM_ANSIBLE_CONFIG" "$COLLECTIONS"
 
 # ── the signed history ─────────────────────────────────────────────────────────────────
 ssh-keygen -q -t ed25519 -N "" -C "$PRINCIPAL" -f "$SCRATCH/signing-key"
@@ -357,6 +373,8 @@ check "the published copy says rebooting" "rebooting" "$(published_key outcome)"
 check "the published copy owes a check from this boot" "$BOOT_ID" "$(published_key owed_boot)"
 check "the published copy is group-readable, writable by root only" "640" "$(stat -c %a "$PUBLISHED/result")"
 check "the published copy carries no scratch path" "no" "$(says "$SCRATCH" "$PUBLISHED/result")"
+check "root's imports left no bytecode in the clone" "" "$(find "$CLONE" -name '__pycache__' -print)"
+check "and git sees no file in it beyond the signed commit" "" "$(git -C "$CLONE" ls-files --others)"
 
 cycle run
 check "a cycle in the boot that still owes its reboot asks again" "0" "$RC"
@@ -412,6 +430,13 @@ cycle run
 check "a world-writable collections directory is refused (70)" "70" "$RC"
 check "and no play runs" "" "$(calls)"
 chmod 755 "$COLLECTIONS"
+touch "$HOME_SETTING_FLAG"
+cycle run
+check "a search path a later ansible-core defaults under the user's home is refused (70)" "70" "$RC"
+check "and no play runs" "" "$(calls)"
+check "and it names the setting" "yes" "$(says 'FUTURE_WIDGET_PLUGIN_PATH=' "$ERR")"
+check "and it is recorded" "config-invalid" "$(result_key outcome)"
+rm -f "$HOME_SETTING_FLAG"
 
 FAKE_PLAY_RC=2 cycle run
 check "a failed play exits 21" "21" "$RC"
@@ -478,6 +503,50 @@ check "and moves the clone back to the newest signed commit" "$PLAY_CHANGE" "$(g
 cycle run --dry-run
 check "after anchoring, the first cycle can run" "0" "$RC"
 check "and names every allowlisted play" "yes" "$(says "^RUN $PLAY\$" "$OUT")"
+
+# Round 2's BLOCK: git status never lists an ignored file, and python imports a pyc beside
+# its source without checking it. An unsigned tip can leave one behind (a recursive clone's
+# submodule, a planted __pycache__); root must refuse the tree before importing anything.
+PLANTED="$CLONE/helpers/self_update/__pycache__/cycle.cpython-311.pyc"
+mkdir -p "$(dirname "$PLANTED")"
+printf 'planted bytecode' >"$PLANTED"
+cycle run --dry-run
+check "an ignored bytecode file in the clone is refused before any import (20)" "20" "$RC"
+check "and nothing is called" "" "$(calls)"
+check "and it names the file" "yes" "$(says 'helpers/self_update/__pycache__/cycle.cpython-311.pyc' "$ERR")"
+cycle status
+check "status is refused too (20)" "20" "$RC"
+(cd "$REPO_ROOT" && python3 -B -m helpers.self_update.update --anchor --checkout "$CLONE" --branch main \
+    --allowed-signers "$ETC/self-update.allowed_signers" --principal "$PRINCIPAL") >"$OUT" 2>"$ERR"
+check "the anchor refuses it as well (11)" "11" "$?"
+rm -rf "$(dirname "$PLANTED")"
+mkdir -p "$CLONE/vendor-sub"
+git -C "$CLONE/vendor-sub" init -q
+printf 'x = 1\n' >"$CLONE/vendor-sub/code.py"
+printf 'vendor-sub/\n' >>"$CLONE/.git/info/exclude"
+cycle run --dry-run
+check "a leftover nested repository at an ignored path is refused (20)" "20" "$RC"
+check "and it names the directory" "yes" "$(says 'vendor-sub/' "$ERR")"
+rm -rf "$CLONE/vendor-sub"
+
+# The one file the play itself puts in the clone: the host_vars copy. It is allowed, and
+# nothing else is.
+mkdir -p "$CLONE/environment/localhost/host_vars"
+printf 'user_login: tester\n' >"$CLONE/environment/localhost/host_vars/localhost.yml"
+cycle run --dry-run
+check "the host_vars copy the play installs is allowed" "0" "$RC"
+(cd "$REPO_ROOT" && python3 -B -m helpers.self_update.update --anchor --checkout "$CLONE" --branch main \
+    --allowed-signers "$ETC/self-update.allowed_signers" --principal "$PRINCIPAL" \
+    --allow-untracked environment/localhost/host_vars/localhost.yml) >"$OUT" 2>"$ERR"
+check "and the anchor allows it when told to" "0" "$?"
+
+# The file the wrapper checks HEAD against, before any Python runs, must be one nobody else
+# can rewrite; update.py checks it too, but only after the clone's code is imported.
+chmod 666 "$ETC/self-update.allowed_signers"
+cycle status
+check "a world-writable allowed-signers file is refused before any import (70)" "70" "$RC"
+check "and it says why" "yes" "$(says 'allowed-signers' "$ERR")"
+chmod 644 "$ETC/self-update.allowed_signers"
 
 # A signed commit whose bytes were altered after signing: the gate refuses the whole cycle.
 echo "tampered" >"$WORK/README"

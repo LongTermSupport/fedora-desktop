@@ -1294,7 +1294,9 @@ everything it installed.
 - A nightly root timer fast-forwards a root-owned deploy clone under
   `/var/lib/fedora-desktop/`, only to a commit signed by the owner's pinned key. The play
   itself puts the clone on the newest signed commit, and the cycle runs nothing from a
-  clone whose HEAD is unsigned or whose files differ from it.
+  clone whose HEAD is unsigned, whose files differ from it, or that holds any file the
+  commit does not (ignored files included), other than the host_vars copy the play puts
+  there.
 - It runs the allowlisted plays that commit affects, warns the ccy/cc sessions, and
   reboots. The sessions come back through the boot-time restore, and a post-boot unit
   checks they did.
@@ -1309,7 +1311,9 @@ everything it installed.
 - The cycle's plays run on a root-owned ansible-core from dnf, with collections in a
   root-owned path under `/usr/local/share/fedora-desktop/`. They never use your pipx
   install, and Ansible's plugin and role search paths skip `~/.ansible`, so no code
-  anything running as you could modify is loaded. The plays still run as you, so the
+  anything running as you could modify is loaded. Each cycle asks `ansible-config` for
+  the settings the plays will get and refuses to run if any search path is still in
+  your home. The plays still run as you, so the
   files they write as you (such as `~/.ansible/tmp`) are not protected from you.
 - It sets `kernel.yama.ptrace_scope=1`. As your user you can no longer attach
   `gdb -p` or `strace -p` to a process you did not start. Run the tool as the parent

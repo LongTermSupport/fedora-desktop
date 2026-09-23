@@ -484,6 +484,58 @@ class TestAnchor(UpdateCase):
             handle.write("x\n")
         self.assertEqual(self._anchor(self.fx.deploy)[0], update.EXIT_DIRTY)
 
+    def _ignore(self, pattern: str) -> None:
+        """Sign a .gitignore naming `pattern`, and bring the deploy clone up to it."""
+        self.fx.commit(".gitignore", f"{pattern}\n", "ignore", sign="owner")
+        self.fx.push()
+        self.fx.git(self.fx.deploy, "pull", "-q", "--ff-only")
+
+    def test_an_ignored_bytecode_file_refuses(self) -> None:
+        """Python imports a pyc beside its source without checking it, and git status never
+        lists an ignored file. Root imports from this tree, so an ignored file is code."""
+        self._ignore("__pycache__/")
+        cache = os.path.join(self.fx.deploy, "helpers", "__pycache__")
+        os.makedirs(cache)
+        with open(os.path.join(cache, "cycle.cpython-311.pyc"), "wb") as handle:
+            handle.write(b"planted")
+        code, out, err = self._anchor(self.fx.deploy)
+        self.assertEqual(code, update.EXIT_DIRTY)
+        self.assertEqual(out, "")
+        self.assertIn("helpers/__pycache__/cycle.cpython-311.pyc", err)
+
+    def test_a_leftover_nested_repository_refuses(self) -> None:
+        """What a recursive clone of an unsigned tip's submodule leaves behind, at a path
+        the signed commit ignores, so git status says nothing about it."""
+        self._ignore("vendor-sub/")
+        nested = os.path.join(self.fx.deploy, "vendor-sub")
+        self.fx.git(self.fx.root, "init", "-q", nested)
+        with open(os.path.join(nested, "code.py"), "w", encoding="utf-8") as handle:
+            handle.write("x = 1\n")
+        code, _, err = self._anchor(self.fx.deploy)
+        self.assertEqual(code, update.EXIT_DIRTY)
+        self.assertIn("vendor-sub", err)
+
+    def test_the_allowed_file_is_the_only_exception(self) -> None:
+        self._ignore("host_vars.yml")
+        with open(os.path.join(self.fx.deploy, "host_vars.yml"), "w", encoding="utf-8") as handle:
+            handle.write("x: 1\n")
+        self.assertEqual(self._anchor(self.fx.deploy)[0], update.EXIT_DIRTY, "not allowed unless named")
+        code, _, err = self._anchor(self.fx.deploy, allow_untracked=("host_vars.yml",))
+        self.assertEqual(code, update.EXIT_OK, err)
+
+    def test_a_stray_file_is_refused_before_anything_moves(self) -> None:
+        signed = self.fx.commit("a.txt", "a\n", "owner", sign="owner")
+        self.fx.commit(".gitignore", "*.pyc\n", "agent on top")
+        self.fx.push()
+        fresh = self._fresh_clone()
+        unsigned = self._head(fresh)
+        with open(os.path.join(fresh, "planted.pyc"), "wb") as handle:
+            handle.write(b"planted")
+        code, _, _ = self._anchor(fresh)
+        self.assertEqual(code, update.EXIT_DIRTY)
+        self.assertEqual(self._head(fresh), unsigned)
+        self.assertNotEqual(unsigned, signed)
+
 
 class TestVerifyHead(UpdateCase):
     def _verify(self, **overrides: object) -> int:
@@ -543,6 +595,19 @@ class TestCli(UpdateCase):
         )
         self.assertEqual(result.returncode, update.EXIT_OK, result.stderr)
         self.assertIn(f"SELF-UPDATE-ANCHORED {signed}", result.stdout)
+
+    def test_anchor_takes_the_allowed_file_on_the_command_line(self) -> None:
+        self.fx.commit(".gitignore", "kept.yml\n", "ignore", sign="owner")
+        self.fx.push()
+        self.fx.git(self.fx.deploy, "pull", "-q", "--ff-only")
+        with open(os.path.join(self.fx.deploy, "kept.yml"), "w", encoding="utf-8") as handle:
+            handle.write("x: 1\n")
+        common = ("--anchor", "--checkout", self.fx.deploy, "--branch", BRANCH,
+                  "--allowed-signers", self.fx.allowed, "--principal", PRINCIPAL,
+                  "--os-release", self.fx.os_release)
+        self.assertEqual(self._cli(*common).returncode, update.EXIT_DIRTY)
+        result = self._cli(*common, "--allow-untracked", "kept.yml")
+        self.assertEqual(result.returncode, update.EXIT_OK, result.stderr)
 
     def test_an_update_without_a_remote_is_a_usage_error(self) -> None:
         result = self._cli(

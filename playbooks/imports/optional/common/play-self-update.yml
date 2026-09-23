@@ -257,13 +257,15 @@
     # =========================================================================
     # Cloned once and never updated here: moving it is the cycle's job, through the
     # signature gate. `update: false` leaves an existing clone exactly as it is, so a
-    # re-run of this play cannot move root's code past the gate.
+    # re-run of this play cannot move root's code past the gate. `recursive: false`: a
+    # submodule's commits are not signed by the pinned key, so none is ever fetched.
     - name: Clone the Deploy Checkout
       ansible.builtin.git:
         repo: "{{ self_update_remote_url }}"
         dest: "{{ self_update_clone }}"
         version: "{{ self_update_branch }}"
         update: false
+        recursive: false
       when: self_update_on
 
     # A fresh clone sits on the remote's tip, which nobody has vouched for, and the cycle's
@@ -271,14 +273,19 @@
     # pinned key signed, or the play fails: root must never import or run an unsigned
     # tree. A HEAD that is already signed is left alone; moving forward is the cycle's job.
     # The helper runs from this checkout, the one the owner is deploying from, never from
-    # the clone it is judging.
+    # the clone it is judging, and -B leaves no root-owned bytecode in it. The anchor also
+    # refuses a clone holding any file its commit does not, ignored ones included, except
+    # the host_vars copy the task below installs (present from the second run on).
     - name: Anchor the Deploy Clone on the Newest Signed Commit
       ansible.builtin.command:
         argv:
           - python3
+          - -B
           - -m
           - helpers.self_update.update
           - --anchor
+          - --allow-untracked
+          - environment/localhost/host_vars/localhost.yml
           - --checkout
           - "{{ self_update_clone }}"
           - --branch
