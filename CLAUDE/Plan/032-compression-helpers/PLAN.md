@@ -1,6 +1,7 @@
 # Plan 032: Compression Helpers CLI
 
-**Status**: In Progress (awaiting host deployment)
+**Status**: In Progress. Deployed and ACCEPTED on the HOST (2026-09-23 batch). Two
+success criteria are not yet exercised by `acceptance.bash` (Task 4.2).
 **Created**: 2026-04-14
 **Owner**: joseph
 **Priority**: Medium
@@ -124,15 +125,21 @@ plan closes on a run rather than on somebody being at a keyboard.
   tarbomb protection is never exercised and the check passes vacuously; and check 7
   compares the archive's checksum across the refusal, since a wrapper that deleted the
   file and *then* refused would satisfy an exit-status-only assertion.
-- [ ] ⬜ **HOST RUN**: `./CLAUDE/Plan/032-compression-helpers/deploy.bash` then
+- [x] ✅ **HOST RUN**: `./CLAUDE/Plan/032-compression-helpers/deploy.bash` then
   `acceptance.bash` — or one `./CLAUDE/Plan/meta-deploy.bash`, which now picks this plan
-  up with the rest of the batch. The six items are its checks 2-7:
-  - [ ] ⬜ compress folder → xz *(check 2)*
-  - [ ] ⬜ compress folder → zip *(check 3)*
-  - [ ] ⬜ compress single file *(check 4)*
-  - [ ] ⬜ uncompress .tar.xz lands in its own folder *(check 5)*
-  - [ ] ⬜ uncompress .zip lands in its own folder — tarbomb protection *(check 6)*
-  - [ ] ⬜ overwrite refusal, both wrappers, destroying nothing *(check 7)*
+  up with the rest of the batch. The six items are its checks 2-7. Run by the 2026-09-23
+  host batch: deploy `changed=0` on both legs, acceptance `ACCEPTED`, 11 of 11 checks,
+  14 assertions, 0 failed (journal 26-09-23):
+  - [x] ✅ compress folder → xz *(check 2)*
+  - [x] ✅ compress folder → zip *(check 3)*
+  - [x] ✅ compress single file *(check 4)*
+  - [x] ✅ uncompress .tar.xz lands in its own folder *(check 5)*
+  - [x] ✅ uncompress .zip lands in its own folder — tarbomb protection *(check 6)*
+  - [x] ✅ overwrite refusal, both wrappers, destroying nothing *(check 7)*
+- [ ] ⬜ **Task 4.2**: cover the two success criteria acceptance does not reach. Uncompress
+  the `.tar.gz` and `.7z` that check 9 already builds, plus a `.tar.zst`, each adding exactly
+  one entry to the cwd. Run `--force` on both wrappers against an existing target and assert
+  it is replaced. Then one HOST re-run of `acceptance.bash`.
 
 ## Technical Decisions
 
@@ -193,18 +200,20 @@ Per the project's #1 hard rule.
 
 ## Success Criteria
 
-- [ ] `compress myfolder` produces `myfolder.tar.xz` in CWD
-- [ ] `compress --zip myfolder` produces `myfolder.zip` in CWD
-- [ ] `compress --gz myfolder` produces `myfolder.tar.gz`
-- [ ] `compress --7z myfolder` produces `myfolder.7z`
-- [ ] `compress --xz --zip myfolder` FAILS with exit 2 and lists both flags
-- [ ] `compress myfile.txt` produces `myfile.txt.tar.xz`
+- [x] `compress myfolder` produces `myfolder.tar.xz` in CWD *(acceptance check 2, HOST)*
+- [x] `compress --zip myfolder` produces `myfolder.zip` in CWD *(check 3)*
+- [x] `compress --gz myfolder` produces `myfolder.tar.gz` *(check 9)*
+- [x] `compress --7z myfolder` produces `myfolder.7z` *(check 9)*
+- [x] `compress --xz --zip myfolder` FAILS with exit 2 and lists both flags *(check 10)*
+- [x] `compress myfile.txt` produces `myfile.txt.tar.xz` *(check 4)*
 - [ ] `uncompress anything.{tar.xz,zip,tar.gz,7z,tar.zst}` creates a single
-  new folder and extracts into it — CWD gets exactly one new entry
+  new folder and extracts into it — CWD gets exactly one new entry. `.tar.xz` and `.zip`
+  are proven (checks 5, 6); `.tar.gz`, `.7z` and `.tar.zst` are not exercised (Task 4.2)
 - [ ] Running either command twice against same target refuses to overwrite
-  unless `--force`
-- [ ] Playbook is idempotent (second run is a no-op)
-- [ ] `./scripts/qa-all.bash` passes
+  unless `--force`. The refusal is proven on both wrappers (check 7); `--force` is not
+  exercised (Task 4.2)
+- [x] Playbook is idempotent (second run is a no-op) *(deploy leg 2, `changed=0`, HOST)*
+- [x] `./scripts/qa-all.bash` passes
 
 ## Risks & Mitigations
 
