@@ -1,6 +1,6 @@
 # Plan 00112: GNOME extensions — the enabled list as declared state
 
-**Status**: In Progress
+**Status**: Complete (2026-09-23)
 **Created**: 2026-09-13
 **Owner**: Repo owner + Claude
 **Priority**: High
@@ -201,9 +201,12 @@ is the single source instead, and disk only confirms it.
   reported changed. The host's checker therefore matches this plan's version of it, which is
   the condition Task 2.2 was waiting on.
 
-- [ ] 🧑 **Task 2.2 — HOST**: `vmtest run desktop-fresh-install` against the pushed
+- [x] ✅ **Task 2.2 — HOST**: `vmtest run desktop-fresh-install` against the pushed
   commit; `deployed-extensions-active` green in the post-reboot session; run id
   recorded here; `desktop-44` certified forward by the passing run.
+  **Done**: `20260923T173406Z-desktop-fresh-install` — pass 16/16 (planned 16, 0 skipped)
+  against `bbc3f151`, run through the bridge. The deployed checker is this plan's: the
+  09-17 lab leg converged with `changed=0`, and the checker has not changed since.
   **No longer blocked** — the lab redeploy it was waiting on ran in the
   `20260917-143518` batch, so the deployed guest checker matches this plan. What
   remains is the run itself, which boots a guest and cannot be done from the
@@ -240,7 +243,7 @@ diffing the before/after triage pair rather than asserting it, and separates
 could-not-establish (exit 2) from failed (exit 1) so a missing GNOME session never reads
 as a pass. The VM-lab claims are printed as NOT ESTABLISHABLE HERE and never counted.
 
-- [ ] `vmtest run desktop-fresh-install` verdict `pass`, 16/16, in the session
+- [x] ✅ `vmtest run desktop-fresh-install` verdict `pass`, 16/16, in the session
   after the reboot.
 - [x] ✅ Re-running the play on a host with extra user-enabled extensions removes
   none of them and reports no change. Both halves, on the `20260917-143518` batch: the
