@@ -204,6 +204,8 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
       into a different kernel, the report names the boot mismatch, the previous boot's
       fault is demoted rather than repeated as current, and an `scp` through the guest's
       own `sshd` completes on both sides of the reboot
+      First run 2026-09-23: `error`, the fixture exited 1 at prepare. The reason is
+      in the host transcript only; the harness now returns it (needs `play-vm-test-lab.yml`).
     - [x] ✅ **HOST**: check [17] — `origin` resolves non-interactively, with a recorded
       successful fetch. The freshness axis will not report "never reached the remote"
 - [x] ✅ **Task 3.3**: Claude Code handoff — file and offer done

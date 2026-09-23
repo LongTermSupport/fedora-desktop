@@ -1014,6 +1014,15 @@ reboot_guest() {
     esac
 }
 
+# prepare_failure_reason <transcript> — the fixture's own last `ERROR: prepare:` line, for
+# the verdict reason. The transcript stays on the host, so without this a sandboxed caller
+# learns only "exited 1". Fixture-authored text only, never arbitrary guest output.
+prepare_failure_reason() {
+    awk '/^ERROR: prepare: / {line = $0} END {
+        if (line == "") print "the fixture printed no ERROR: prepare: line"; else print line
+    }' "${1:?}"
+}
+
 # guest_prepare <scenario-id> <transcript> — the scenario's own fixture, run in the guest
 # between run.bash and the reboot.
 #
@@ -1047,7 +1056,7 @@ guest_prepare() {
         "env TERM=dumb bash /tmp/guest-prepare.bash" \
         2>&1 | tee -a "${transcript}" >&2 || rc="${PIPESTATUS[0]}"
     [[ "${rc}" -eq 0 ]] ||
-        die "the ${scenario_id} fixture exited ${rc} (stage: prepare); nothing after it would be judging the scenario it names"
+        die "the ${scenario_id} fixture exited ${rc} (stage: prepare): $(prepare_failure_reason "${transcript}"); nothing after it would be judging the scenario it names"
     # Exit 0 is not the same as "ran to the end". A fixture that returned early — a guard
     # that decided there was nothing to do, an edit that left a `return` above the last
     # step — exits 0 having prepared part of the scenario, and the checker would then

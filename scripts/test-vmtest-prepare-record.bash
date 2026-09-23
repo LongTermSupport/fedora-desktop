@@ -458,6 +458,32 @@ else
     report fail an-absent-record-stops-the-run "rc=$CHECKER_RC"
 fi
 
+# ── 7. a failed fixture's reason reaches the verdict ──────────────────────────────────
+# The transcript is host-only, so the harness copies the fixture's own last `ERROR:
+# prepare:` line into the reason the bridge returns. Extracted from the real harness.
+awk '$0 == "prepare_failure_reason() {" {p=1} p {print} p && /^\}/ {exit}' \
+    "$REPO_ROOT/files/home/.local/bin/vmtest" > "$work/reason.bash"
+if grep -q '^prepare_failure_reason() {' "$work/reason.bash"; then
+    # shellcheck source=/dev/null
+    source "$work/reason.bash"
+    printf '==> prepare: step 1\nERROR: prepare: first\nnoise\nERROR: prepare: the last one\n' > "$work/transcript"
+    got="$(prepare_failure_reason "$work/transcript")"
+    if [ "$got" = "ERROR: prepare: the last one" ]; then
+        report pass the-fixture-reason-is-its-last-error-line
+    else
+        report fail the-fixture-reason-is-its-last-error-line "got '$got'"
+    fi
+    printf 'guest said ERROR: prepare: not at line start\n' > "$work/transcript"
+    got="$(prepare_failure_reason "$work/transcript")"
+    if [ "$got" = "the fixture printed no ERROR: prepare: line" ]; then
+        report pass no-fixture-line-is-said-not-invented
+    else
+        report fail no-fixture-line-is-said-not-invented "got '$got'"
+    fi
+else
+    report fail the-fixture-reason-is-its-last-error-line "could not extract prepare_failure_reason from vmtest"
+fi
+
 printf 'passed: %d\n' "$passed"
 if [ "$failed" -gt 0 ]; then
     printf 'failed: %d\n' "$failed" >&2
