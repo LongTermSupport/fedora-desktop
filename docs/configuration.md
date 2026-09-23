@@ -214,6 +214,23 @@ It is off unless `self_update_enabled: true`. The inputs are listed in
 the key above, and `self_update_become_password` is your sudo password, vault-encrypted.
 Re-run the play after changing host_vars: the cycle runs with a root-owned copy.
 
+The whole cycle is described in [playbooks.md](playbooks.md#play-self-updateyml). Running
+it day to day:
+
+- **Trust.** The server deploys only the newest commit your key signed. Anything pushed
+  above that waits, and a bad signature refuses the cycle. The signature vouches for every
+  commit below it, so check what you are releasing before `git sign-deploy`.
+- **Pausing.** Stop signing. Nothing new is deployed until you do. To turn the cycle off
+  entirely, set `self_update_enabled: false` and re-run the play. That removes what it
+  installed, and setting it back to true restores it.
+- **When it runs.** Nightly at 03:30, within a random 30 minutes. A night missed while
+  the server was off runs at the next boot.
+- **Reading it.** `sudo fedora-desktop-self-update status` shows the last result, and
+  `sudo fedora-desktop-self-update run --dry-run` names the plays the next cycle would run
+  while changing nothing. The log is
+  `journalctl -u fedora-desktop-self-update -u fedora-desktop-self-update-verify --no-pager | cat`.
+  A failure also appears in `fedora-desktop-health` and the login snippet.
+
 ## Optional Features Configuration
 
 These require running their playbook explicitly.

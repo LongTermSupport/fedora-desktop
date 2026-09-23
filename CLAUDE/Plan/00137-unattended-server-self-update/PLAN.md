@@ -195,7 +195,7 @@ D1–D4 are the owner's choices, made 2026-09-23.
 
 ### Phase 5: Close
 
-- [ ] ⬜ **Task 5.1**: Docs: what the cycle does, the trust model, how to pause it, and how
+- [x] ✅ **Task 5.1**: Docs: what the cycle does, the trust model, how to pause it, and how
   to read its log.
 - [ ] ⬜ **Task 5.2**: `./scripts/qa-all.bash`, then the `qa-reviewer` agent over the full
   diff, with findings resolved.
