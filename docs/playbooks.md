@@ -345,6 +345,10 @@ gh-personal issue list
 
 - Installs Google Chrome, Brave and Vivaldi from their vendor DNF repositories. Pure
   Chromium is deliberately excluded — it has no Widevine, so DRM streaming stays broken
+- Owns each vendor repository file. Chrome's and Vivaldi's packages would otherwise
+  write their own copy on every install and upgrade (`repo_add_once` in
+  `/etc/default/`), and Vivaldi's copy repeats the `[vivaldi]` id, which makes dnf refuse
+  to use either
 
 ### play-toolbox-install.yml
 
@@ -353,6 +357,8 @@ gh-personal issue list
 
 - Downloads and installs JetBrains Toolbox
 - Configures desktop integration
+- Keeps Toolbox's own autostart entry at mode 0644 on every run. Toolbox writes it
+  executable, and the autostart generator complains at every login
 
 ### play-lxc-install-config.yml
 
@@ -1002,6 +1008,10 @@ High-fidelity audio system:
 - **Bluetooth codecs**: LDAC (HQ), aptX, aptX-HD, AAC, SBC-XQ
 - **USB audio**: Special handling with larger buffers for DACs
 - **High-quality resampling**: Quality level 10
+- **WirePlumber 0.5 format**: the ALSA and Bluetooth rules are SPA-JSON in
+  `~/.config/wireplumber/wireplumber.conf.d/`. The play removes the Lua files older runs
+  wrote, which 0.5 ignores. It stops if any other Lua configuration is left in
+  `main.lua.d/` or `bluetooth.lua.d/`, and names those files so you can port or delete them
 
 **What you get**:
 

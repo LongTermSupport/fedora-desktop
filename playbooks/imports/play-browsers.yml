@@ -236,6 +236,29 @@
         executable: /bin/bash
         creates: /etc/yum.repos.d/vivaldi-fedora.repo
 
+    # Vivaldi's %post is Chromium's, as Chrome's is: while /etc/default/vivaldi reads
+    # repo_add_once="true" (it creates the file that way when absent) it writes
+    # /etc/yum.repos.d/vivaldi.repo with the same [vivaldi] id as the file above, and
+    # dnf then refuses to build either ("Id is present more than once"). Its scriptlet
+    # library also rewrites that file's baseurl to a literal x86_64 whenever the file
+    # exists, so vivaldi-fedora.repo is the one kept: the package never touches it.
+    - name: Stop Vivaldi's Scriptlet Re-Adding Its Own Repository
+      ansible.builtin.copy:
+        content: |
+          # Managed by fedora-desktop (play-browsers.yml).
+          # Vivaldi's %post writes /etc/yum.repos.d/vivaldi.repo while this reads
+          # "true", duplicating the [vivaldi] id in vivaldi-fedora.repo.
+          repo_add_once="false"
+        dest: /etc/default/vivaldi
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Remove The Duplicate Vivaldi Repository File
+      ansible.builtin.file:
+        path: /etc/yum.repos.d/vivaldi.repo
+        state: absent
+
     - name: Install Vivaldi
       ansible.builtin.package:
         name: vivaldi-stable

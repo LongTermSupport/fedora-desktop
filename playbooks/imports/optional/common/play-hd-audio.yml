@@ -259,6 +259,9 @@
           ]
       notify: pw-restart
 
+    # WirePlumber 0.5 reads only SPA-JSON under wireplumber.conf.d/. It ignores Lua, and
+    # logs "Lua configuration files are NOT supported" at every start while a *.lua.d
+    # tree exists. The 0.4 Lua this play used to write is removed below.
     - name: Create WirePlumber config directories
       ansible.builtin.file:
         path: "{{ item }}"
@@ -268,70 +271,126 @@
         mode: "0755"
       loop:
         - "{{ wireplumber_config_dir }}"
-        - "{{ wireplumber_config_dir }}/main.lua.d"
-        - "{{ wireplumber_config_dir }}/bluetooth.lua.d"
+        - "{{ wireplumber_config_dir }}/wireplumber.conf.d"
 
+    # Device rules match device.name (alsa_card.*), node rules match node.name
+    # (alsa_input.* / alsa_output.*). The rate, period and suspend settings are node
+    # properties: the 0.4 Lua matched device.name only, so they never reached a node.
     - name: Configure WirePlumber for HD Audio
       ansible.builtin.copy:
-        dest: "/home/{{ user_login }}/.config/wireplumber/main.lua.d/99-hd-audio.lua"
+        dest: "{{ wireplumber_config_dir }}/wireplumber.conf.d/51-hd-audio.conf"
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0644"
         content: |
-          -- HD Audio configuration for WirePlumber
+          # HD Audio configuration for WirePlumber 0.5 (managed by play-hd-audio.yml)
 
-          -- Enable rate switching policy
-          alsa_monitor.rules = {
+          monitor.alsa.rules = [
             {
-              matches = {
-                {
-                  { "device.name", "matches", "alsa_*" },
-                },
-              },
-              apply_properties = {
-                ["audio.rate"] = 0,  -- Allow dynamic rate
-                ["audio.allowed-rates"] = "44100,48000,88200,96000,176400,192000",
-                ["api.alsa.period-size"] = 1024,
-                ["api.alsa.headroom"] = 1024,
-                ["session.suspend-timeout-seconds"] = 0,
-              },
-            },
-          }
+              matches = [
+                { node.name = "~alsa_input.*" }
+                { node.name = "~alsa_output.*" }
+              ]
+              actions = {
+                update-props = {
+                  audio.rate = 0
+                  audio.allowed-rates = [ 44100 48000 88200 96000 176400 192000 ]
+                  api.alsa.period-size = 1024
+                  api.alsa.headroom = 1024
+                  session.suspend-timeout-seconds = 0
+                }
+              }
+            }
+          ]
       notify: wm-restart
 
+    # bluez5.headset-roles is bluez5.roles in 0.5. Codec, role and mSBC switches are
+    # monitor properties; auto-connect and LDAC quality are device properties; the
+    # idle and suspend settings are node properties.
     - name: Configure WirePlumber Bluetooth settings
       ansible.builtin.copy:
-        dest: "{{ wireplumber_config_dir }}/bluetooth.lua.d/99-bluetooth-quality.lua"
+        dest: "{{ wireplumber_config_dir }}/wireplumber.conf.d/51-bluetooth-quality.conf"
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0644"
         content: |
-          -- Bluetooth headphones quality settings for WirePlumber 0.5+
+          # Bluetooth headphones quality settings for WirePlumber 0.5 (managed by play-hd-audio.yml)
 
-          bluez_monitor.properties = {
-            ["bluez5.enable-sbc-xq"] = true,
-            ["bluez5.enable-msbc"] = true,
-            ["bluez5.enable-hw-volume"] = true,
-            ["bluez5.headset-roles"] = "[ hsp_hs hsp_ag hfp_hf hfp_ag ]",
-            ["bluez5.codecs"] = "[ sbc sbc_xq aac ldac aptx aptx_hd aptx_ll aptx_ll_duplex ]",
-            ["bluez5.default.rate"] = 48000,
-            ["bluez5.a2dp.ldac.quality"] = "hq"
+          monitor.bluez.properties = {
+            bluez5.enable-sbc-xq = true
+            bluez5.enable-msbc = true
+            bluez5.enable-hw-volume = true
+            bluez5.roles = [ hsp_hs hsp_ag hfp_hf hfp_ag ]
+            bluez5.codecs = [ sbc sbc_xq aac ldac aptx aptx_hd aptx_ll aptx_ll_duplex ]
+            bluez5.default.rate = 48000
           }
 
-          bluez_monitor.rules = {
+          monitor.bluez.rules = [
             {
-              matches = {
-                {
-                  { "device.name", "matches", "bluez_*" },
-                },
-              },
-              apply_properties = {
-                ["node.pause-on-idle"] = false,
-                ["session.suspend-timeout-seconds"] = 0,  -- Disable suspend
-                ["bluez5.auto-connect"] = "[ hfp_hf hsp_hs a2dp_sink ]",
-              },
-            },
-          }
+              matches = [
+                { device.name = "~bluez_card.*" }
+              ]
+              actions = {
+                update-props = {
+                  bluez5.auto-connect = [ hfp_hf hsp_hs a2dp_sink ]
+                  bluez5.a2dp.ldac.quality = "hq"
+                }
+              }
+            }
+            {
+              matches = [
+                { node.name = "~bluez_input.*" }
+                { node.name = "~bluez_output.*" }
+              ]
+              actions = {
+                update-props = {
+                  node.pause-on-idle = false
+                  session.suspend-timeout-seconds = 0
+                }
+              }
+            }
+          ]
+      notify: wm-restart
+
+    - name: Remove the WirePlumber 0.4 Lua Files This Play Wrote
+      ansible.builtin.file:
+        path: "{{ wireplumber_config_dir }}/{{ item }}"
+        state: absent
+      loop:
+        - main.lua.d/99-hd-audio.lua
+        - bluetooth.lua.d/99-bluetooth-quality.lua
+      notify: wm-restart
+
+    # A directory that does not exist is reported as skipped, not as an error, and
+    # contributes no files.
+    - name: List Anything Left in the Retired Lua Directories
+      ansible.builtin.find:
+        paths:
+          - "{{ wireplumber_config_dir }}/main.lua.d"
+          - "{{ wireplumber_config_dir }}/bluetooth.lua.d"
+        file_type: any
+        hidden: true
+      register: wireplumber_lua_leftovers
+
+    # Anything else in there was not written by this repo, and 0.5 ignores it too. It is
+    # not deleted. The run stops so the owner can port it or remove it.
+    - name: Assert No Other Lua Configuration Remains
+      ansible.builtin.assert:
+        that:
+          - wireplumber_lua_leftovers.files | length == 0
+        fail_msg: >-
+          WirePlumber 0.5 ignores Lua configuration, and warns at every start while any is
+          present. These files were not written by this play, so they are left for you to
+          port to {{ wireplumber_config_dir }}/wireplumber.conf.d/*.conf (SPA-JSON) or delete:
+          {{ wireplumber_lua_leftovers.files | map(attribute='path') | join(', ') }}
+
+    - name: Remove the Retired Lua Directories
+      ansible.builtin.file:
+        path: "{{ wireplumber_config_dir }}/{{ item }}"
+        state: absent
+      loop:
+        - main.lua.d
+        - bluetooth.lua.d
       notify: wm-restart
 
   handlers:

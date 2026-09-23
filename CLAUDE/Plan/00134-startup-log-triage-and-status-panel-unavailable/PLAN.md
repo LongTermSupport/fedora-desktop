@@ -77,22 +77,29 @@ containers that needs its own diagnosis (F7).
 
 ### Phase 2: defects the logs exposed
 
-- [ ] ⬜ **Task 2.1**: `play-hd-audio.yml` — port the two `.lua` files to
+- [ ] 🔄 **Task 2.1**: `play-hd-audio.yml` — port the two `.lua` files to
   `~/.config/wireplumber/wireplumber.conf.d/*.conf` (SPA-JSON `monitor.alsa.rules` /
   `monitor.bluez.properties` + `monitor.bluez.rules`), remove the `*.lua.d` files and
   directories, restart WirePlumber. Verify with `wpctl status` / `wpctl inspect` that
-  the properties are present on the nodes.
-- [ ] ⬜ **Task 2.2**: `play-browsers.yml` — resolve the duplicate `[vivaldi]` repo id:
+  the properties are present on the nodes. Code done (node properties now match nodes,
+  not devices; other Lua left behind stops the play). HOST verify pending.
+- [ ] 🔄 **Task 2.2**: `play-browsers.yml` — resolve the duplicate `[vivaldi]` repo id:
   keep exactly one of the two repo files (the RPM's own post-install writes
   `vivaldi.repo`; the play writes `vivaldi-fedora.repo`) and make the play remove the
   other on every run. Verify `dnf5 repolist` shows one `vivaldi` and dnf5daemon logs
-  no `Id is present more than once`.
-- [ ] ⬜ **Task 2.3**: `files/home/.config/systemd/user/vmtest-bridge@.service` — replace
+  no `Id is present more than once`. Code done: `vivaldi-fedora.repo` is kept, and
+  `/etc/default/vivaldi` `repo_add_once="false"` stops the scriptlet recreating the
+  other (the RPM's scriptlets are quoted in the journal, 18:35). HOST verify pending.
+- [ ] 🔄 **Task 2.3**: `files/home/.config/systemd/user/vmtest-bridge@.service` — replace
   `RuntimeMaxSec=120` with `TimeoutStartSec=120` and fix the comment. Audit every
-  other `Type=oneshot` unit in `files/` for the same mistake.
-- [ ] ⬜ **Task 2.4**: `play-toolbox-install.yml` — ensure
+  other `Type=oneshot` unit in `files/` for the same mistake. Code done: the other 12
+  oneshot units carry no `RuntimeMaxSec` (neither do inline units in plays), and
+  `systemd-analyze verify` shows the "no effect" warning for the old unit but not the new
+  one. HOST verify pending (deploy leg 7).
+- [ ] 🔄 **Task 2.4**: `play-toolbox-install.yml` — ensure
   `~/.config/autostart/jetbrains-toolbox.desktop` is mode 0644 whenever it exists (the
   application rewrites it, so this must run every pass, not be `creates:`-guarded).
+  Code done (stat, then a mode task gated on existence). HOST verify pending.
 - [ ] 🔄 **Task 2.5**: ABRT policy as IaC — `play-basic-configs.yml` sets
   `abrt_auto_reporting` (project default on; per-host override) via
   `abrt-auto-reporting`, and installs `abrt-prune-stale.{service,timer}` running
@@ -102,8 +109,14 @@ containers that needs its own diagnosis (F7).
   (`-e` or defaults) into a managed block there. Deployed (79 → 10 records).
   Desktop profile only, and the block installs `abrt` + `abrt-tui` itself (PR #50; journal
   16:40). Remaining: confirm no applet backlog notification at the next login.
-- [ ] ⬜ **Task 2.6**: Thunar — confirm no play installs it, then either own it in a play
+- [ ] 🚫 **Task 2.6**: Thunar — confirm no play installs it, then either own it in a play
   or remove it; the duplicate `org.freedesktop.FileManager1` service file goes with it.
+  Confirmed: nothing in `playbooks/`, `tasks/`, `vars/` or `files/` installs it, and
+  `docs/fast-file-manager.md` records PCManFM as chosen over Thunar. **Blocked on an
+  owner decision** (journal 18:55): (A) `play-fast-file-manager.yml` removes the Thunar
+  package, and its service file goes with it; (B) a play declares Thunar as wanted and
+  the D-Bus name conflict is accepted as noise; (C) leave it unmanaged and accept the
+  line. Recommended: A, unless Thunar is in use.
 
 ### Phase 3: things to diagnose before changing
 

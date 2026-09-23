@@ -135,3 +135,18 @@
         - st_jetbrains_toolbox.stat.exists
         - has_display
         - not st_jetbrains_symlink.stat.exists or not st_jetbrains_desktop.stat.exists
+
+    # Toolbox writes its own autostart entry with the executable bit set, and rewrites it
+    # whenever it likes. systemd-xdg-autostart-generator then logs "is marked executable"
+    # at every login. So the mode is set on every run, not once behind a creates: guard.
+    # A host where Toolbox never enabled autostart has no file, and nothing to fix.
+    - name: Check for the JetBrains Toolbox autostart entry
+      ansible.builtin.stat:
+        path: ~/.config/autostart/jetbrains-toolbox.desktop
+      register: st_jetbrains_autostart
+
+    - name: Make the JetBrains Toolbox autostart entry non-executable
+      ansible.builtin.file:
+        path: ~/.config/autostart/jetbrains-toolbox.desktop
+        mode: "0644"
+      when: st_jetbrains_autostart.stat.exists
