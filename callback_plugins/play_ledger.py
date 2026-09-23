@@ -95,6 +95,7 @@ class CallbackModule(CallbackBase):
         self._base = ""
         self._enabled = False
         self._broken = False
+        self._playbook_file: str | None = None
         # Unlike the event methods below, an exception HERE is not swallowed —
         # Ansible instantiates callbacks outside that protection, so a bad
         # XDG_STATE_HOME would abort every playbook in the repo over a ledger
@@ -132,15 +133,25 @@ class CallbackModule(CallbackBase):
             )
         return self._collector
 
+    def v2_playbook_on_start(self, playbook) -> None:
+        # `_file_name` is an Ansible internal; `ansible.cli.adhoc` sets it to
+        # ADHOC_PLAYBOOK_FILE, and plugin_support decides what that means.
+        self._playbook_file = getattr(playbook, "_file_name", None)
+
     def v2_playbook_on_play_start(self, play) -> None:
         if not self._enabled or self._broken:
             return
         try:
+            play_path = plugin_support.play_to_record(
+                self._playbook_file, _source_position(play)
+            )
+            if play_path is None:
+                return
             running = self._ensure_collector()
             if running is None:
                 return
             running.on_play_start(
-                play_path=plugin_support.play_source(_source_position(play)),
+                play_path=play_path,
                 name=play.get_name(),
                 at=repo.utc_now(),
             )

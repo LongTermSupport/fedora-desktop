@@ -86,6 +86,29 @@ def play_source(position: Any) -> str:
     return filename
 
 
+#: The file name `ansible.cli.adhoc` gives the in-memory Playbook it wraps an
+#: `ansible <pattern> -m <module>` play in, before sending it to
+#: `v2_playbook_on_start`. It is the CLI's own statement that no playbook file
+#: exists, which makes it a sturdier discriminator than the play's name
+#: ("Ansible Ad-Hoc"): a playbook author can choose any name, but only that CLI
+#: sets this file name.
+ADHOC_PLAYBOOK_FILE = "__adhoc_playbook__"
+
+
+def play_to_record(playbook_file: Any, position: Any) -> str | None:
+    """The play file to ledger, or `None` when the run is ad-hoc and has none.
+
+    The ledger's unit is a play file at a commit. An ad-hoc play has no file, so
+    it is skipped rather than recorded as a hole — otherwise any ad-hoc command
+    from the checkout marks the ledger BROKEN. Every other play keeps the refusal
+    `play_source` gives: an unknown or absent playbook name is not evidence of an
+    ad-hoc run, and a playbook play with no position must still become a hole.
+    """
+    if playbook_file == ADHOC_PLAYBOOK_FILE:
+        return None
+    return play_source(position)
+
+
 def repo_root_from(plugin_file: str) -> str:
     """The checkout root, derived from the plugin's own location.
 
