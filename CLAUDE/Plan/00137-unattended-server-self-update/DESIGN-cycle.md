@@ -51,10 +51,13 @@ Settled by the IaC (`play-self-update.yml`); the orchestrator must match:
   `ANSIBLE_ROLES_PATH` is `<clone>/roles/vendor`. The list is ansible-core 2.19's
   `base.yml`. A release that adds a search path would slip past it, so before any play
   `check_toolchain` runs the system `ansible-config dump --format json` as the user,
-  from the clone, with the same env, and refuses with exit 70 if any setting whose
-  name contains `PATH`, or the inventory (`DEFAULT_HOST_LIST`), has a list element
-  under the user's home. `~` counts as the home, and a relative element is resolved
-  from the clone. Only list values are judged. ansible reports every search path as a
+  from the clone, with the same env, and refuses with exit 70 if any list-valued
+  setting has an element under the user's home. No setting name is trusted to say which
+  lists are paths: the inventory (`DEFAULT_HOST_LIST`) is one whose name does not say
+  so. `~/…` counts as the home, and a relative element is resolved from the clone, so a
+  plugin name or a pattern lands there, not in the home. A bare `~` is not the home:
+  ansible expands it in every path it dumps, and the one that survives is the backup
+  suffix in `INVENTORY_IGNORE_EXTS` and `MODULE_IGNORE_EXTS`. Only list values are judged. ansible reports every search path as a
   list, and a string names one file or working directory (`DEFAULT_LOCAL_TMP`,
   `GALAXY_TOKEN_PATH`, `PERSISTENT_CONTROL_PATH_DIR`). That is data the plays write as
   the user, covered by the "run as you" caveat, not a place code is looked up. The
@@ -67,10 +70,19 @@ Settled by the IaC (`play-self-update.yml`); the orchestrator must match:
   entries too, and refuses (20) anything except
   `environment/localhost/host_vars/localhost.yml`. `update.py --anchor` refuses the same
   way (`--allow-untracked` names the one exception) both before and after it moves HEAD.
+  Both compare exact paths, so a directory at the host_vars path, and anything in it, is
+  refused.
   The play clones with `recursive: false`, because a submodule's commits are not signed
   by the pinned key. Root runs `python3 -E -s -B -X pycache_prefix=<state dir>/pycache`.
-  `-B` writes no bytecode into the clone, and the prefix means a pyc beside a source is
-  never read. `-I` cannot be used, because it drops the cwd that `-m` imports from.
+  `-B` writes no bytecode into the clone, and the prefix means a pyc in a `__pycache__`
+  beside a source is never read. The prefix does not stop a sourceless `.pyc` (one
+  standing where a `.py` would, with no source) from being imported: only the stray-file
+  check stops that. `-I` cannot be used, because it drops the cwd that `-m` imports from.
+- **The two dirty-clone refusals need a fresh clone.** The play clones with
+  `update: false` and never touches an existing clone, and the anchor refuses a dirty
+  one (11), so re-running the play cannot clear them. The wrapper's message says so: run
+  the play once with `self_update_enabled: false`, which removes the clone, then once
+  with it true.
 - **The child plays' Python needs nothing further.** They run as the user, who cannot
   write the root-owned clone. The wrapper has just proved it holds no stray file, and
   root, running with `-B`, writes none. So no pyc the children could read exists, and

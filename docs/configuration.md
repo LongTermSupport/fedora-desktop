@@ -230,6 +230,11 @@ it day to day:
   while changing nothing. The log is
   `journalctl -u fedora-desktop-self-update -u fedora-desktop-self-update-verify --no-pager | cat`.
   A failure also appears in `fedora-desktop-health` and the login snippet.
+- **A clone that differs from its commit.** If the cycle refuses because the deploy clone
+  has changed files, or holds files the commit does not, re-running the play will not
+  clear it: the play never touches an existing clone. Run the play once with
+  `self_update_enabled: false`, which removes the clone, then once with it true, which
+  clones and anchors it afresh.
 
 ## Optional Features Configuration
 

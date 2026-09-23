@@ -527,7 +527,14 @@ printf 'vendor-sub/\n' >>"$CLONE/.git/info/exclude"
 cycle run --dry-run
 check "a leftover nested repository at an ignored path is refused (20)" "20" "$RC"
 check "and it names the directory" "yes" "$(says 'vendor-sub/' "$ERR")"
+# The play never updates an existing clone, so "re-run the play" cannot clear this.
+check "and it names the remedy that works" "yes" "$(says 'self_update_enabled: false' "$ERR")"
 rm -rf "$CLONE/vendor-sub"
+echo "local edit" >>"$CLONE/README"
+cycle run --dry-run
+check "a local edit to a tracked file is refused (20)" "20" "$RC"
+check "and it names the remedy that works" "yes" "$(says 'self_update_enabled: false' "$ERR")"
+git -C "$CLONE" checkout -q HEAD -- README
 
 # The one file the play itself puts in the clone: the host_vars copy. It is allowed, and
 # nothing else is.
@@ -539,6 +546,17 @@ check "the host_vars copy the play installs is allowed" "0" "$RC"
     --allowed-signers "$ETC/self-update.allowed_signers" --principal "$PRINCIPAL" \
     --allow-untracked environment/localhost/host_vars/localhost.yml) >"$OUT" 2>"$ERR"
 check "and the anchor allows it when told to" "0" "$?"
+
+# The exception is that exact FILE. A directory at the same path is not it, and hides
+# whatever it holds from a pattern-based exclude.
+mv "$CLONE/environment/localhost/host_vars/localhost.yml" "$SCRATCH/localhost.yml.saved"
+mkdir "$CLONE/environment/localhost/host_vars/localhost.yml"
+printf 'x = 1\n' >"$CLONE/environment/localhost/host_vars/localhost.yml/hidden.py"
+cycle run --dry-run
+check "a directory at the host_vars path is refused (20)" "20" "$RC"
+check "and it names what is inside it" "yes" "$(says 'host_vars/localhost.yml/hidden.py' "$ERR")"
+rm -rf "$CLONE/environment/localhost/host_vars/localhost.yml"
+mv "$SCRATCH/localhost.yml.saved" "$CLONE/environment/localhost/host_vars/localhost.yml"
 
 # The file the wrapper checks HEAD against, before any Python runs, must be one nobody else
 # can rewrite; update.py checks it too, but only after the clone's code is imported.

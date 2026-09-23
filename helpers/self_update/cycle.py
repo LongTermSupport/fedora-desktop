@@ -508,12 +508,15 @@ def home_search_paths(dump: object, *, home: str, cwd: str) -> list[str]:
 
     The pinned list above is one ansible-core release's; a later release can add a search
     path defaulting under ~/.ansible that no list names. So the effective settings are asked
-    for and judged by rule: ansible-config reports every search path as a LIST named *PATH*,
-    and any element under the user's home is a finding; so is the inventory, whose host_vars
-    choose the interpreter. A string value names one file or working directory (the local
-    tmp, the galaxy token), which is data, not a place code is looked up. A relative element
-    is judged from `cwd`, where the play runs; `~` is the home. The trailing GALAXY_SERVERS
-    entry holds server URLs, not paths. Any other shape is refused rather than guessed at.
+    for and judged by rule: ansible-config reports every search path, and the inventory whose
+    host_vars choose the interpreter, as a LIST, and any list element under the user's home
+    is a finding. No setting name is trusted to say which lists are paths. A string value
+    names one file or working directory (the local tmp, the galaxy token), which is data, not
+    a place code is looked up. A relative element is judged from `cwd`, where the play runs,
+    so a plugin name or a pattern lands in the clone, not the home. `~/…` is the home; a bare
+    `~` is a backup-file suffix, since ansible expands it in every path it dumps. The
+    trailing GALAXY_SERVERS entry holds server URLs, not paths. Any other shape is refused
+    rather than guessed at.
     """
     if not isinstance(dump, list):
         raise ValueError("the ansible-config dump is not a list of settings")
@@ -525,13 +528,12 @@ def home_search_paths(dump: object, *, home: str, cwd: str) -> list[str]:
         if not isinstance(setting, dict) or not isinstance(setting.get("name"), str):
             raise ValueError(f"the ansible-config dump holds a setting with no name: {setting!r}")
         value = setting.get("value")
-        searched = "PATH" in setting["name"] or setting["name"] == "DEFAULT_HOST_LIST"
-        if not searched or not isinstance(value, list):
+        if not isinstance(value, list):
             continue
         for element in value:
             if not isinstance(element, str):
                 continue
-            expanded = root + element[1:] if element == "~" or element.startswith("~/") else element
+            expanded = root + element[1:] if element.startswith("~/") else element
             resolved = os.path.normpath(os.path.join(cwd, expanded))
             if resolved == root or resolved.startswith(root + os.sep):
                 findings.append(f"{setting['name']}={element}")
