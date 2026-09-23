@@ -129,13 +129,19 @@ between the operator and a one-shot run.
   `lib/freeze/` — so the real resolver runs unmodified against the repo's real library.
   Linting cannot find this, which is this task's whole premise.
 
-  **Still owed, all HOST**: 00066, 00079 (×3: `triage`, `deploy`, `acceptance`) and 00080.
-  00075's is moot — that plan archived on 2026-09-17. Run directly, one path each:
+  **Done on the HOST by the 2026-09-23 batch** (`_meta-deploy/20260923-194037`): 00079's
+  `triage.bash` (twice), `deploy.bash` and `acceptance.bash` (twice, once chained from the
+  deploy), and 00080's `triage.bash` (passive). Each run log is byte-identical to the
+  start of the terminal stream the batch captured. The stream goes on for exactly the five
+  post-drain `run log (UNSCRUBBED)` lines and nothing else. Each log ends on the script's own
+  last output: the closing banner, or the teardown's last line for acceptance. Per-script
+  table in `JOURNAL/00130-Journal-26-09-23.md`.
+
+  **Still owed, HOST**: 00066 only. 00075's is moot — that plan archived on 2026-09-17.
+  00066 runs on its own affected machine, not this desktop:
 
   ```bash
   ./CLAUDE/Plan/00066-ftp-camera-airbnb-wifi-and-hotspot-triage/triage.bash
-  ./CLAUDE/Plan/00080-ccy-session-network-isolation/triage.bash
-  ./CLAUDE/Plan/00079-podman-container-control/{triage,deploy,acceptance}.bash
   ```
 
   **00066's was not actually host-gated** — its header said HOST-ONLY and nothing enforced
@@ -219,8 +225,8 @@ between the operator and a one-shot run.
 - [ ] 🧑 Each converted script has been RUN and reaches its last line — **HOST** for the
   remainder. Proven in-container, drain included, for 00062's `triage.bash` and 00079's
   `unit-test-selection.bash` (since deleted); proven on the host for 00098's `triage.bash` (×2) and
-  `acceptance.bash`. The rest stop at a `plan_require_host` guard, which proves the
-  bootstrap but not the last line. See Task 2.2
+  `acceptance.bash`, and for 00079's `triage`/`deploy`/`acceptance` and 00080's `triage`
+  (2026-09-23 batch). Only 00066's `triage.bash` remains, on its own machine. See Task 2.2
 - [x] ✅ `CLAUDE/Plan/meta-deploy.bash --list` names no script the batch consent cannot
   answer — the batch is one consent, as the operator asked for. Met, and the criterion
   now tests the property rather than a proxy for it. (Path updated: the script moved out
