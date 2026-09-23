@@ -8,10 +8,10 @@
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     # Version configuration
-    displaylink_version: "v6.3.0-1"
-    evdi_version: "1.15.0"
+    displaylink_version: "v6.3.0-2"
+    evdi_version: "1.15.1"
     # RPM release suffix of the evdi package — drifts independently of the
-    # evdi version itself (e.g. v6.3.0 shipped evdi 1.14.16-2, v6.3.0-1 ships 1.15.0-1).
+    # evdi version itself (e.g. v6.3.0 shipped evdi 1.14.16-2, v6.3.0-1 1.15.0-1, v6.3.0-2 ships 1.15.1-1).
     evdi_rpm_release: "1"
     # Set to true to bypass version check (use with caution)
     force_install: false

@@ -98,7 +98,7 @@ version_pins:
     installed:
       kind: untracked
       why: >-
-        The pin is the displaylink-rpm RELEASE TAG (v6.3.0-1). The installed rpm's own
+        The pin is the displaylink-rpm RELEASE TAG (e.g. v6.3.0-2). The installed rpm's own
         version tracks evdi instead (displaylink-1.14.16-2 during the 2026-09-11
         incident), so there is no host-side value that this pin can be compared with.
         Comparing the rpm version would report a permanent false finding.
