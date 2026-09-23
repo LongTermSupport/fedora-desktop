@@ -66,22 +66,22 @@ the exact fix — a headless run never blocks waiting on a prompt that can't be 
 
 ### Non-secret configuration (plain `RUN_BASH_*`)
 
-| Variable                        | Meaning                                                                                                                                                                                                                                                                  | Required             |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------- |
-| `RUN_BASH_HEADLESS=1`           | Force headless mode.                                                                                                                                                                                                                                                     | —                    |
-| `RUN_BASH_USER_EMAIL`           | Git email.                                                                                                                                                                                                                                                               | **Yes**              |
-| `RUN_BASH_GITHUB_ACCOUNTS`      | Single GitHub username (v1). `alias:user` also accepted.                                                                                                                                                                                                                 | **Yes**              |
-| `RUN_BASH_USER_LOGIN`           | System login.                                                                                                                                                                                                                                                            | No (current user)    |
-| `RUN_BASH_USER_NAME`            | Full name.                                                                                                                                                                                                                                                               | No (= login)         |
-| `RUN_BASH_HOSTNAME`             | Hostname to set when the box is still named `fedora`.                                                                                                                                                                                                                    | No (leaves default)  |
-| `RUN_BASH_PS1_COLOUR`           | Bash prompt colour for the hostname: one of the functions `/var/local/colours` defines (`white`, `red`, `green`, `yellow`, `blue`, `purple`, `lightblue`, each also `…Bold`). A headless run cannot answer the interactive colour prompt, so this is how a box gets one. | No (`lightblueBold`) |
-| `RUN_BASH_GITHUB_SSH_443`       | `1` declares `github_ssh_over_443: true` in the fresh `localhost.yml`, so the GitHub SSH key is routed over `ssh.github.com:443` always-on (see [github-ssh-over-443.md](github-ssh-over-443.md)) — for a box whose egress blocks port 22. Refused with `RUN_BASH_GITHUB_ACCOUNTS=none`. | No (`0`) |
-| `RUN_BASH_CONFIG_SOURCE`        | `hosts/<name>.yml` to import from the private config repo, or `none`.                                                                                                                                                                                                    | No (`none` = fresh)  |
-| `RUN_BASH_GIT_REF`              | Branch name (the checkout tracks its origin tip every run) or 40-hex commit (pinned, detached) to provision from. Unset = the default branch's tip. HTTPS/no-identity path only.                                                                                         |                      |
-| `RUN_BASH_PROVISIONING_PROFILE` | Force `desktop`/`server`.                                                                                                                                                                                                                                                | No (auto-detect)     |
-| `RUN_BASH_OPTIONAL_PLAYBOOKS`   | Space/comma list of optional plays (`play-foo.yml`/`foo`), or `none`. The keyword `server-recommended` expands to a curated, generic dev/server bundle ([manifest](../playbooks/imports/optional/server-recommended.bundle)); combines with explicit plays.              | No (`none`)          |
-| `RUN_BASH_RESTORE_PROJECTS`     | `1` to restore projects from the config manifest.                                                                                                                                                                                                                        | No (off)             |
-| `RUN_BASH_REBOOT`               | `1` to reboot at the end.                                                                                                                                                                                                                                                | No (off)             |
+| Variable                        | Meaning                                                                                                                                                                                                                                                                                  | Required             |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| `RUN_BASH_HEADLESS=1`           | Force headless mode.                                                                                                                                                                                                                                                                     | —                    |
+| `RUN_BASH_USER_EMAIL`           | Git email.                                                                                                                                                                                                                                                                               | **Yes**              |
+| `RUN_BASH_GITHUB_ACCOUNTS`      | Single GitHub username (v1). `alias:user` also accepted.                                                                                                                                                                                                                                 | **Yes**              |
+| `RUN_BASH_USER_LOGIN`           | System login.                                                                                                                                                                                                                                                                            | No (current user)    |
+| `RUN_BASH_USER_NAME`            | Full name.                                                                                                                                                                                                                                                                               | No (= login)         |
+| `RUN_BASH_HOSTNAME`             | Hostname to set when the box is still named `fedora`.                                                                                                                                                                                                                                    | No (leaves default)  |
+| `RUN_BASH_PS1_COLOUR`           | Bash prompt colour for the hostname: one of the functions `/var/local/colours` defines (`white`, `red`, `green`, `yellow`, `blue`, `purple`, `lightblue`, each also `…Bold`). A headless run cannot answer the interactive colour prompt, so this is how a box gets one.                 | No (`lightblueBold`) |
+| `RUN_BASH_GITHUB_SSH_443`       | `1` declares `github_ssh_over_443: true` in the fresh `localhost.yml`, so the GitHub SSH key is routed over `ssh.github.com:443` always-on (see [github-ssh-over-443.md](github-ssh-over-443.md)) — for a box whose egress blocks port 22. Refused with `RUN_BASH_GITHUB_ACCOUNTS=none`. | No (`0`)             |
+| `RUN_BASH_CONFIG_SOURCE`        | `hosts/<name>.yml` to import from the private config repo, or `none`.                                                                                                                                                                                                                    | No (`none` = fresh)  |
+| `RUN_BASH_GIT_REF`              | Branch name (the checkout tracks its origin tip every run) or 40-hex commit (pinned, detached) to provision from. Unset = the default branch's tip. HTTPS/no-identity path only.                                                                                                         |                      |
+| `RUN_BASH_PROVISIONING_PROFILE` | Force `desktop`/`server`.                                                                                                                                                                                                                                                                | No (auto-detect)     |
+| `RUN_BASH_OPTIONAL_PLAYBOOKS`   | Space/comma list of optional plays (`play-foo.yml`/`foo`), or `none`. The keyword `server-recommended` expands to a curated, generic dev/server bundle ([manifest](../playbooks/imports/optional/server-recommended.bundle)); combines with explicit plays.                              | No (`none`)          |
+| `RUN_BASH_RESTORE_PROJECTS`     | `1` to restore projects from the config manifest.                                                                                                                                                                                                                                        | No (off)             |
+| `RUN_BASH_REBOOT`               | `1` to reboot at the end.                                                                                                                                                                                                                                                                | No (off)             |
 
 ### Secrets — prefer `0600` file pointers
 
@@ -147,6 +147,20 @@ runcmd:
 Replace `<user>` with the box's non-root distro user. When fetching `run.bash` itself,
 pin it to a commit SHA (not `HEAD`) and inspect before running — do not pipe it
 straight into a shell.
+
+## One play, unattended
+
+To re-run a single play on a box that is already provisioned, for example from a timer:
+
+```bash
+RUN_BASH_HEADLESS=1 ./playbooks/imports/play-claude-yolo.yml
+```
+
+This skips the whole provisioning contract above. It needs only a sudo credential that
+works without a prompt (NOPASSWD, or `RUN_BASH_SUDO_PASSWORD_FILE`, which may be
+`/dev/fd/N`), and it exits with the play's own status. Only one play runs on a host at a
+time. A run that finds another in progress exits 75 and says who holds the lock. Details:
+`./run.bash --help-run-headless`, section "ONE PLAY, UNATTENDED".
 
 ## Fail-fast, fail-loud guarantee
 
