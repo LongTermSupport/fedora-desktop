@@ -92,6 +92,10 @@ plan_start_log auto || exit 1
 
 TOOL="$HOME/.local/bin/podfreeze"
 REPO_TOOL="$PLAN_REPO_ROOT/files/home/.local/bin/podfreeze"
+# Half of podfreeze is this library (tasks/deploy-freeze-lib.yml deploys it), so the
+# deployed-matches-repo check covers both files, not only the entry script.
+LIB="$HOME/.local/lib/freeze/freeze-common.bash"
+REPO_LIB="$PLAN_REPO_ROOT/files/home/.local/lib/freeze/freeze-common.bash"
 NET="podfreeze-acceptance-net-$$"
 CNAME="podfreeze-acceptance-$$"
 
@@ -146,6 +150,18 @@ if ! cmp -s "$REPO_TOOL" "$TOOL"; then
     echo "  Deployed: $TOOL" >&2
     echo "  Repo:     $REPO_TOOL" >&2
     echo "  Run this plan's deploy.bash — verifying a stale binary proves nothing." >&2
+    exit 1
+fi
+if [ ! -f "$LIB" ]; then
+    echo "ERROR: the freeze library $LIB is not deployed; podfreeze cannot start without it." >&2
+    echo "  Run this plan's deploy.bash." >&2
+    exit 1
+fi
+if ! cmp -s "$REPO_LIB" "$LIB"; then
+    echo "ERROR: the deployed freeze library differs from the repo copy." >&2
+    echo "  Deployed: $LIB" >&2
+    echo "  Repo:     $REPO_LIB" >&2
+    echo "  Run this plan's deploy.bash — the tool's selection logic lives in this file." >&2
     exit 1
 fi
 
@@ -457,10 +473,9 @@ fi
 
 echo "### 9b. --ccy also resolves UNLABELLED (pre-3.40.0) sessions"
 # Check 9 builds its expected set from `label=ccy=true` alone, so it exercises
-# only the labelled path. On this host 4 of 6 live sessions predate 3.40.0 and
-# carry no label at all — the MAJORITY of the real population reaches --ccy via
-# podfreeze's name-pattern fallback, and check 9 is silent on whether that
-# fallback works. If the pattern broke, check 9 would still report OK.
+# only the labelled path. A session started before CCY 3.40.0 carries no label and
+# reaches --ccy only through podfreeze's name-pattern fallback, on which check 9 is
+# silent. If the pattern broke, check 9 would still report OK.
 #
 # That is the same defect this plan's own triage probe had (Plan 00080, P4):
 # verify the labelled path, stay quiet about the one carrying most of the load.
@@ -486,9 +501,9 @@ else
     done <<< "$all_running"
 
     if [ -z "$unlabelled" ]; then
-        # Not a skip: the labelled path IS fully covered by check 9 in this
-        # state, so there is no gap to report. Say which state we are in.
-        ok "every live session carries a label — fallback path not exercisable here"
+        # skip(), not ok(): this branch never invokes the tool, so an ok() would count
+        # a pass for an assertion that did not run (the rule checks 13 and 13b follow).
+        skip "every live session carries a label — the name fallback was not exercised"
     elif ccy_fb_out="$("$TOOL" freeze --ccy --dry-run 2>&1)"; then
         fb_missing=""
         for name in $unlabelled; do
@@ -675,11 +690,9 @@ else
 fi
 
 echo "### 15. exactly one build of this tool is installed"
-# deploy.bash removes the pre-rename `podman-freeze` and prints when it does.
-# On run 2 it printed nothing, which SHOULD mean the file was already gone —
-# but silence cannot distinguish "already clean" from "looked in the wrong
-# place", and this repo has been bitten by exactly that reading. So the end
-# state is asserted here rather than inferred from the absence of a message.
+# play-podfreeze.yml removes the pre-rename `podman-freeze`. A quiet run cannot
+# distinguish "already clean" from "looked in the wrong place", so the end state
+# is asserted here rather than inferred from the absence of a message.
 #
 # PATH, not one hardcoded directory: two builds are a problem because the one
 # you get depends on which name you type, and that is a PATH question.

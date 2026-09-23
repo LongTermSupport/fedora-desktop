@@ -204,6 +204,8 @@ See D4 and D6.
 - [x] ✅ **Task 3.3b**: **HOST ACTION, done by the 2026-09-23 batch.** It ran `deploy.bash`,
   which chains into acceptance, and a separate `acceptance.bash`. Both returned
   `VERDICT: PASS — 22 check(s) passed, 1 skipped` against the byte-checked deployed copy.
+  Restated: 21 passed and 2 skipped, because check 9b's no-unlabelled branch counted a
+  pass without running the tool (now a skip; journal 26-09-23, 20:30).
   Check 13 ran against 6 of 6 labelled sessions. Check 13b SKIPs by design when no
   unlabelled session is running. Journal 26-09-23. This closes the re-review's one
   outstanding finding: runs 3, 4 and 5 predated Task 3.3d's fix commit, so until now no
@@ -215,6 +217,16 @@ See D4 and D6.
   diff; the last verdict (Task 3.3c) was FIX-BEFORE-MERGE, and Task 3.3d's fixes have not
   been reviewed.
 
+- [ ] ⬜ **Task 3.6**: Prove `freeze --ccy` and `thaw --ccy` for real, which acceptance
+  deliberately never does to live sessions. **Human, at a HOST terminal**, in a quiet
+  moment: `podfreeze freeze --ccy`, confirm every session is paused (`podfreeze list`),
+  then `podfreeze thaw --ccy` and confirm they all resume. It interrupts every running
+  agent, which is why no script does it unattended.
+
+- [ ] ⬜ **Task 3.7**: The triage probe `deployed ccy version` called the `ccy` alias,
+  which a non-interactive script cannot see (`rc=127`). It now calls
+  `/var/local/claude-yolo/claude-yolo --version`. Confirm at the next HOST triage run.
+
 - [ ] ⬜ **Task 3.4**: Mark plan Complete, move to `Completed/`, update README
   index + statistics in the same commit
 
@@ -225,17 +237,23 @@ See D4 and D6.
 
 ## Success Criteria
 
-- [x] `podfreeze freeze --network <net>` pauses exactly the containers on
-  that network, and prints the exact set it touched *(acceptance checks 4-6, HOST 2026-09-23)*
-- [x] `podfreeze freeze --ccy` / `thaw --ccy` operates on all CCY
-  containers (labelled and legacy-named) *(check 9 against the live labelled fleet; the
-  name-pattern path in check 0's suite, and live in the Task 3.2b run)*
+- [x] `podfreeze freeze --network <net>` selects exactly the containers on that network,
+  pauses them, and prints the set it touched. *(Checks 4–6 on the HOST, 2026-09-23, show
+  the preview, the pause and the printed set, but on a one-member throwaway network.
+  Exclusivity, meaning other networks' containers are left alone, is shown by the
+  selection tests in `scripts/test-podfreeze.bash` (check 0), not by a live run.)*
+- [ ] `podfreeze freeze --ccy` / `thaw --ccy` resolves every CCY container, labelled and
+  legacy-named. *(Resolution is shown: check 9 dry-runs `--ccy` against the live labelled
+  fleet, and check 0's suite covers the name-pattern path. What is not shown: a real
+  `freeze --ccy` or any `thaw --ccy` has never run in acceptance, because the gate
+  dry-runs `--ccy` so it never pauses live sessions. Task 3.6.)*
 - [ ] Interactive picker works with and without fzf — **not exercised by any run**
   (`pick_target` needs a TTY). Human check at a HOST terminal
 - [x] Refuses to run inside a container; `--dry-run` changes nothing *(checks 2, 4, 9)*
 - [x] `acceptance.bash` renders `VERDICT: PASS` on the HOST against the
   deployed copy (it refuses to vouch for a binary that differs from the repo)
-  *(2026-09-23, twice)*
+  *(2026-09-23, twice; those runs compared the entry script only. The gate now also
+  compares the deployed freeze library, so the next run covers both files.)*
 - [x] New CCY containers carry `ccy`, `ccy-project`, `ccy-github`, `ccy-token`
   and `ccy-ssh-keys` labels, and `podfreeze --github <id>` resolves exactly the
   sessions on that account (D4, D8) *(triage H6: 6 of 6 sessions carry all five; check 13)*

@@ -144,7 +144,9 @@ echo "###   with 'none' where an axis does not apply — never an empty value."
 probe "ps --filter label=ccy=true (identity labels)" \
     podman ps --all --filter label=ccy=true \
     --format '{{.Names}}\tproject={{index .Labels "ccy-project"}}\tgithub={{index .Labels "ccy-github"}}\ttoken={{index .Labels "ccy-token"}}\tkeys={{index .Labels "ccy-ssh-keys"}}'
-probe "deployed ccy version" ccy --version
+# `ccy` is an interactive-shell alias (bashrc-includes/claude-yolo.bash), which this
+# non-interactive script never sees; the launcher it names is called directly.
+probe "deployed ccy version" /var/local/claude-yolo/claude-yolo --version
 
 echo "### READ THIS FOR: H3 (network filter behaves per network)"
 probe "network list" podman network ls
