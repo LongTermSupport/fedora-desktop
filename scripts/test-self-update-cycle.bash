@@ -1,0 +1,397 @@
+#!/usr/bin/env bash
+# Drive the real files/usr/local/sbin/fedora-desktop-self-update end to end (Plan 00137).
+#
+# WHY THIS EXISTS. The cycle's decisions are unit-tested against a fake host in
+# tests/helpers/self_update/test_cycle.py. What those tests cannot see is the real
+# wiring: the root wrapper's argument and root checks, the helpers imported from the
+# deploy clone, a real signed fetch and fast-forward, the play lock actually held while a
+# play runs, the become password reaching the play as a readable inherited descriptor, and
+# `systemctl reboot` coming last. So the wrapper runs for real under
+# FEDORA_DESKTOP_SELF_UPDATE_TEST_PREFIX, which roots every path under a scratch
+# directory and puts stub `runuser` and `systemctl` first on PATH. The stubs log what they
+# were asked; nothing is rebooted and nothing runs as another user.
+#
+# The clone is a real git repository holding a copy of the working tree's helpers, with
+# a bare origin reached through an https URL rewritten by insteadOf, and commits signed by
+# a throwaway SSH key. Its Fedora pin is this machine's os-release VERSION_ID, so the
+# updater's version gate passes wherever the test runs.
+#
+# `set -e` is deliberately NOT used: every case must run so the summary reports the full
+# picture, and each result is checked explicitly.
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+TOOL="$REPO_ROOT/files/usr/local/sbin/fedora-desktop-self-update"
+PLAY="playbooks/imports/play-claude-yolo.yml"
+REMOTE_URL="https://example.invalid/fedora-desktop.git"
+PRINCIPAL="owner@example.com"
+
+if [ ! -x "$TOOL" ]; then
+    echo "FAIL: $TOOL is missing or not executable" >&2
+    exit 1
+fi
+for tool in git ssh-keygen flock python3; do
+    if ! command -v "$tool" >/dev/null; then
+        echo "FAIL: $tool is not on PATH; this test needs it" >&2
+        exit 1
+    fi
+done
+
+passed=0
+failed=0
+check() {
+    local label="$1" want="$2" got="$3"
+    if [ "$got" = "$want" ]; then
+        passed=$((passed + 1))
+        printf '  PASS  %s\n' "$label"
+    else
+        failed=$((failed + 1))
+        printf '  FAIL  %s\n        want: %q\n        got:  %q\n' "$label" "$want" "$got" >&2
+    fi
+}
+
+mkdir -p "$REPO_ROOT/untracked/scratch"
+SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/self-update-cycle-test.XXXXXX")"
+OUTSIDE=""
+cleanup() {
+    rm -rf "$SCRATCH"
+    if [ -n "$OUTSIDE" ]; then rm -rf "$OUTSIDE"; fi
+}
+trap cleanup EXIT
+
+PREFIX="$SCRATCH/root"
+BIN="$PREFIX/bin"
+ETC="$PREFIX/etc/fedora-desktop"
+CLONE="$PREFIX/var/lib/fedora-desktop/deploy"
+STATE="$PREFIX/var/lib/fedora-desktop/self-update"
+LOG="$SCRATCH/calls.log"
+RUNTIME="$SCRATCH/runtime"
+ORIGIN="$SCRATCH/origin.git"
+WORK="$SCRATCH/work"
+mkdir -p "$BIN" "$PREFIX/etc" "$RUNTIME"
+chmod 700 "$RUNTIME"
+
+# ── the fakes ─────────────────────────────────────────────────────────────────────────
+# runuser: `runuser -u USER -- env -i K=V... cmd args`. It logs the command as the user
+# would run it. For a play it also logs the become password read from the inherited
+# descriptor the way run.bash reads it, the vault password read by REOPENING /dev/fd/N the
+# way ansible opens its vault password file, the pinned ansible and fact cache the play is
+# handed, and whether the play lock is held by someone else — the cycle — at that moment.
+# `sh -c` (the cycle asking what ansible-playbook resolves to) really runs, in the given
+# environment. FAKE_PLAY_RC / FAKE_NOTIFY_RC / FAKE_VERIFY_RC set the other answers.
+cat >"$BIN/runuser" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ "$1" != "-u" ] || [ "$3" != "--" ] || [ "$4" != "env" ] || [ "$5" != "-i" ]; then
+    echo "runuser stub: unexpected argv: $*" >&2
+    exit 99
+fi
+shift 5
+declare -a pairs=()
+declare -A given=()
+while [ $# -gt 0 ] && [[ "$1" == *=* ]]; do
+    pairs+=("$1")
+    given["${1%%=*}"]="${1#*=}"
+    shift
+done
+command="$(basename "$1")"
+case "$command" in
+sh) exec env -i "${pairs[@]}" "$@" ;;
+esac
+shift
+case "$command" in
+run.bash)
+    password="$(cat <&"${given[RUN_BASH_SUDO_PASSWORD_FILE]#/dev/fd/}")"
+    vault="$(cat "${given[ANSIBLE_VAULT_PASSWORD_FILE]}")"
+    lock_open=no
+    if [ -e "/dev/fd/${given[FEDORA_DESKTOP_PLAY_LOCK_FD]}" ]; then lock_open=yes; fi
+    held=yes
+    if flock -n "${given[XDG_RUNTIME_DIR]}/fedora-desktop-plays.lock" true; then held=no; fi
+    echo "play $* become=$password vault=$vault lock-fd-open=$lock_open lock-held=$held" >>"$FAKE_LOG"
+    echo "handed ansible=${given[RUN_BASH_ANSIBLE_PLAYBOOK]} path=${given[PATH]%%:*} cache=${given[ANSIBLE_CACHE_PLUGIN]} collections=${given[ANSIBLE_COLLECTIONS_PATH]}" >>"$FAKE_ENV_LOG"
+    exit "${FAKE_PLAY_RC:-0}"
+    ;;
+ccy-sessions)
+    echo "ccy-sessions $*" >>"$FAKE_LOG"
+    case "$1" in
+    verify-restore) exit "${FAKE_VERIFY_RC:-0}" ;;
+    *) exit "${FAKE_NOTIFY_RC:-0}" ;;
+    esac
+    ;;
+esac
+echo "runuser stub: unexpected command $command" >&2
+exit 99
+EOF
+cat >"$BIN/systemctl" <<'EOF'
+#!/usr/bin/env bash
+echo "systemctl $*" >>"$FAKE_LOG"
+exit "${FAKE_REBOOT_RC:-0}"
+EOF
+chmod 755 "$BIN/runuser" "$BIN/systemctl"
+
+# The pinned system ansible-core and its collections: only their ownership and what PATH
+# resolves to matter, because the play itself is the runuser stub above.
+SYSTEM_ANSIBLE="$PREFIX/usr/bin/ansible-playbook"
+COLLECTIONS="$SCRATCH/collections"
+mkdir -p "$PREFIX/usr/bin" "$COLLECTIONS"
+printf '#!/bin/sh\nexit 0\n' >"$SYSTEM_ANSIBLE"
+chmod 755 "$SYSTEM_ANSIBLE" "$COLLECTIONS"
+
+# ── the signed history ─────────────────────────────────────────────────────────────────
+ssh-keygen -q -t ed25519 -N "" -C "$PRINCIPAL" -f "$SCRATCH/signing-key"
+mkdir -p "$ETC"
+printf '%s namespaces="git" %s\n' "$PRINCIPAL" "$(cut -d' ' -f1,2 "$SCRATCH/signing-key.pub")" \
+    >"$ETC/self-update.allowed_signers"
+
+git_work() {
+    git -C "$WORK" -c user.name=Owner -c user.email="$PRINCIPAL" -c gpg.format=ssh \
+        -c user.signingkey="$SCRATCH/signing-key" "$@"
+}
+# commit_signed MESSAGE: commit whatever the work tree holds, signed, and push it.
+commit_signed() {
+    git_work add -A
+    git_work commit -q -S -m "$1"
+    git_work push -q origin HEAD:main
+}
+
+os_version="$(awk -F= '$1 == "VERSION_ID" { gsub(/["'\'']/, "", $2); print $2 }' /etc/os-release)"
+if [[ ! "$os_version" =~ ^[0-9]+ ]]; then
+    echo "FAIL: /etc/os-release has no numeric VERSION_ID; the updater's version gate cannot pass here" >&2
+    exit 1
+fi
+
+git init -q --bare -b main "$ORIGIN"
+git init -q -b main "$WORK"
+git_work remote add origin "$ORIGIN"
+mkdir -p "$WORK/helpers/self_update" "$WORK/helpers/play_lock" "$WORK/playbooks/imports" "$WORK/vars"
+cp "$REPO_ROOT"/helpers/self_update/*.py "$REPO_ROOT/helpers/self_update/unattended-plays.json" \
+    "$WORK/helpers/self_update/"
+cp "$REPO_ROOT/helpers/play_lock/lock.py" "$WORK/helpers/play_lock/"
+cp "$REPO_ROOT/.gitignore" "$WORK/"
+printf 'fedora_version: %s\n' "${os_version%%.*}" >"$WORK/vars/fedora-version.yml"
+printf -- '- hosts: localhost\n  tasks: []\n' >"$WORK/$PLAY"
+commit_signed "base"
+
+git clone -q -b main "$ORIGIN" "$CLONE"
+git -C "$CLONE" config remote.origin.url "$REMOTE_URL"
+git -C "$CLONE" config "url.$ORIGIN.insteadOf" "$REMOTE_URL"
+BASE="$(git -C "$CLONE" rev-parse HEAD)"
+
+echo "change one" >"$WORK/README"
+commit_signed "first signed change"
+FIRST="$(git -C "$WORK" rev-parse HEAD)"
+
+# ── helpers ────────────────────────────────────────────────────────────────────────────
+OUT="$SCRATCH/out"
+ERR="$SCRATCH/err"
+RC=0
+# cycle ARGS...: run the real wrapper under the test prefix; sets RC, OUT and ERR.
+ENV_LOG="$SCRATCH/env.log"
+cycle() {
+    : >"$LOG"
+    : >"$ENV_LOG"
+    env FEDORA_DESKTOP_SELF_UPDATE_TEST_PREFIX="$PREFIX" FEDORA_DESKTOP_SELF_UPDATE_MINUTE_SECONDS=0 \
+        FAKE_LOG="$LOG" FAKE_ENV_LOG="$ENV_LOG" XDG_RUNTIME_DIR="$RUNTIME" "$TOOL" "$@" >"$OUT" 2>"$ERR"
+    RC=$?
+}
+calls() { cat "$LOG"; }
+PLAYED="play --headless $PLAY become=correct horse vault=vault words lock-fd-open=yes lock-held=yes"
+has() { if [ -e "$1" ]; then echo yes; else echo no; fi; }
+says() { if grep -q -- "$1" "$2"; then echo yes; else echo no; fi; }
+result_key() { awk -F= -v key="$1" '$1 == key { print substr($0, length(key) + 2) }' "$STATE/last-result"; }
+state_key() { awk -F= -v key="$2" '$1 == key { print substr($0, length(key) + 2) }' "$STATE/$1"; }
+write_owed() { printf 'boot=%s\nnew=%s\nplays=%s\n' "$1" "$FIRST" "$PLAY" >"$STATE/owed-verify"; }
+BOOT_ID="$(cat /proc/sys/kernel/random/boot_id)"
+
+# ── usage and refusals ─────────────────────────────────────────────────────────────────
+echo "usage and refusals"
+cycle --help
+check "--help exits 0" "0" "$RC"
+check "--help prints the usage" "yes" "$(says '^Usage:' "$OUT")"
+cycle frobnicate
+check "an unknown subcommand is a usage error (64)" "64" "$RC"
+cycle
+check "no subcommand is a usage error (64)" "64" "$RC"
+
+if [ "$EUID" -eq 0 ]; then
+    # The refusal is only reachable as a non-root user; run a copy as nobody.
+    OUTSIDE="$(mktemp -d)"
+    chmod 755 "$OUTSIDE"
+    install -m 755 "$TOOL" "$OUTSIDE/fedora-desktop-self-update"
+    runuser -u nobody -- "$OUTSIDE/fedora-desktop-self-update" status >"$OUT" 2>"$ERR"
+    RC=$?
+else
+    env -u FEDORA_DESKTOP_SELF_UPDATE_TEST_PREFIX "$TOOL" status >"$OUT" 2>"$ERR"
+    RC=$?
+fi
+check "a non-root caller is refused (77)" "77" "$RC"
+check "the refusal says how to run it" "yes" "$(says 'must run as root' "$ERR")"
+
+cycle status
+check "a missing state directory is a config error (70)" "70" "$RC"
+mkdir -p "$STATE"
+chmod 700 "$STATE"
+
+cycle status
+check "status with no history exits 0" "0" "$RC"
+check "status with no history says so" "no cycle has run yet" "$(awk 'NR == 1' "$OUT")"
+
+cycle run
+check "run with no config file is a config error (70)" "70" "$RC"
+
+printf 'USER=%s\nBRANCH=main\nREMOTE_URL=%s\nPRINCIPAL=%s\nWARN_MINUTES=1\nALERT_SINKS=\nANSIBLE_COLLECTIONS_DIR=%s\n' \
+    "$(id -un)" "$REMOTE_URL" "$PRINCIPAL" "$COLLECTIONS" >"$ETC/self-update.conf"
+chmod 600 "$ETC/self-update.conf"
+cycle run
+check "run with no become password file is a config error (70)" "70" "$RC"
+check "nothing moved without the become password file" "$BASE" "$(git -C "$CLONE" rev-parse HEAD)"
+printf 'correct horse\n' >"$ETC/self-update.become"
+chmod 600 "$ETC/self-update.become"
+cycle run
+check "run with no vault password file is a config error (70)" "70" "$RC"
+check "nothing moved without the vault password file" "$BASE" "$(git -C "$CLONE" rev-parse HEAD)"
+printf 'vault words\n' >"$ETC/self-update.vault"
+chmod 600 "$ETC/self-update.vault"
+
+exec 9>"$RUNTIME/fedora-desktop-plays.lock"
+flock -n 9
+cycle run
+exec 9>&-
+check "run while another play run holds the lock exits 75" "75" "$RC"
+check "nothing was called while locked out" "" "$(calls)"
+check "nothing moved while locked out" "$BASE" "$(git -C "$CLONE" rev-parse HEAD)"
+
+# ── verify ─────────────────────────────────────────────────────────────────────────────
+echo "verify"
+cycle verify
+check "verify with nothing owed exits 0" "0" "$RC"
+check "verify with nothing owed calls nothing" "" "$(calls)"
+
+write_owed "$BOOT_ID"
+cycle verify
+check "verify in the boot that owes it exits 0" "0" "$RC"
+check "verify in the boot that owes it calls nothing" "" "$(calls)"
+check "and leaves the marker" "yes" "$(has "$STATE/owed-verify")"
+
+write_owed "an-earlier-boot"
+FAKE_VERIFY_RC=1 cycle verify
+check "a failed restore check exits 23" "23" "$RC"
+check "the restore check runs as the user with the contract's wait" "ccy-sessions verify-restore --wait 300" "$(calls)"
+check "a failed restore check is recorded" "verify-failed" "$(result_key outcome)"
+check "a failed restore check is alerted" "yes" "$(says 'ALERT verify-failed' "$ERR")"
+check "the marker is cleared after a failed check" "no" "$(has "$STATE/owed-verify")"
+
+write_owed "an-earlier-boot"
+cycle verify
+check "a passed restore check exits 0" "0" "$RC"
+check "a passed restore check is recorded as deployed" "deployed" "$(result_key outcome)"
+check "the record names the commit" "$FIRST" "$(result_key new)"
+check "the marker is cleared after a passed check" "no" "$(has "$STATE/owed-verify")"
+rm -f "$STATE/last-result"
+
+# ── the first cycle ────────────────────────────────────────────────────────────────────
+echo "the first cycle: every allowlisted play, then warn and reboot"
+cycle run --dry-run
+check "a dry run exits 0" "0" "$RC"
+check "a dry run names the play" "yes" "$(says "^RUN $PLAY\$" "$OUT")"
+check "a dry run calls nothing" "" "$(calls)"
+check "a dry run moves nothing" "$BASE" "$(git -C "$CLONE" rev-parse HEAD)"
+check "a dry run records nothing" "no" "$(has "$STATE/last-result")"
+
+cycle run
+check "the first cycle exits 0" "0" "$RC"
+check "the first cycle runs the play with both passwords and the lock held, warns, then reboots" \
+    "$PLAYED
+ccy-sessions notify going-down --minutes 1
+systemctl reboot" "$(calls)"
+check "the play is pinned to the system ansible, with facts in memory and the system collections" \
+    "handed ansible=$SYSTEM_ANSIBLE path=$PREFIX/usr/bin cache=memory collections=$COLLECTIONS" "$(cat "$ENV_LOG")"
+check "the clone is on the signed commit" "$FIRST" "$(git -C "$CLONE" rev-parse HEAD)"
+check "the deployed record is the signed commit" "$FIRST" "$(state_key deployed sha)"
+check "a verify is owed for the signed commit" "$FIRST" "$(state_key owed-verify new)"
+check "the owed verify names this boot" "$BOOT_ID" "$(state_key owed-verify boot)"
+check "the record says rebooting" "rebooting" "$(result_key outcome)"
+check "the record carries no scratch path" "no" "$(says "$SCRATCH" "$STATE/last-result")"
+
+cycle run
+check "a cycle in the boot that still owes its reboot asks again" "0" "$RC"
+check "and only warns and reboots" "ccy-sessions notify going-down --minutes 1
+systemctl reboot" "$(calls)"
+
+write_owed "an-earlier-boot"
+cycle verify
+check "the post-boot verify passes" "0" "$RC"
+cycle run
+check "a cycle with nothing new exits 0" "0" "$RC"
+check "a cycle with nothing new calls nothing" "" "$(calls)"
+check "a cycle with nothing new is recorded" "nothing" "$(result_key outcome)"
+
+# ── a later change ─────────────────────────────────────────────────────────────────────
+echo "a later change: only the plays it touches, and a failed play is retried"
+echo "changed" >"$WORK/README"
+commit_signed "a change no play reads"
+cycle run
+check "a change no allowlisted play reads exits 0" "0" "$RC"
+check "and runs nothing" "" "$(calls)"
+check "and still moves the deployed record" "$(git -C "$WORK" rev-parse HEAD)" "$(state_key deployed sha)"
+
+UNSIGNED_BASE="$(git -C "$WORK" rev-parse HEAD)"
+printf -- '- hosts: localhost\n  tasks: [] # changed\n' >"$WORK/$PLAY"
+git_work add -A
+git_work commit -q -m "an unsigned change to the play"
+git_work push -q origin HEAD:main
+cycle run
+check "an unsigned tip is not taken" "0" "$RC"
+check "an unsigned tip runs nothing" "" "$(calls)"
+check "an unsigned tip moves nothing" "$UNSIGNED_BASE" "$(git -C "$CLONE" rev-parse HEAD)"
+
+printf -- '- hosts: localhost\n  tasks: [] # signed\n' >"$WORK/$PLAY"
+commit_signed "a signed change to the play"
+PLAY_CHANGE="$(git -C "$WORK" rev-parse HEAD)"
+
+mv "$SYSTEM_ANSIBLE" "$SCRATCH/ansible-playbook.away"
+cycle run
+check "no system ansible-playbook is a config error (70)" "70" "$RC"
+check "and no play runs" "" "$(calls)"
+check "and it is recorded" "config-invalid" "$(result_key outcome)"
+check "and alerted" "yes" "$(says 'ALERT config-invalid' "$ERR")"
+check "and the play stays owed" "$UNSIGNED_BASE" "$(state_key deployed sha)"
+mv "$SCRATCH/ansible-playbook.away" "$SYSTEM_ANSIBLE"
+chmod 775 "$SYSTEM_ANSIBLE"
+cycle run
+check "a group-writable system ansible-playbook is refused (70)" "70" "$RC"
+check "and no play runs" "" "$(calls)"
+chmod 755 "$SYSTEM_ANSIBLE"
+chmod 777 "$COLLECTIONS"
+cycle run
+check "a world-writable collections directory is refused (70)" "70" "$RC"
+check "and no play runs" "" "$(calls)"
+chmod 755 "$COLLECTIONS"
+
+FAKE_PLAY_RC=2 cycle run
+check "a failed play exits 21" "21" "$RC"
+check "a failed play stops the cycle: no warning, no reboot" "$PLAYED" "$(calls)"
+check "a failed play is recorded" "play-failed" "$(result_key outcome)"
+check "a failed play is alerted" "yes" "$(says 'ALERT play-failed' "$ERR")"
+check "a failed play leaves the deployed record behind" "$UNSIGNED_BASE" "$(state_key deployed sha)"
+check "no verify is owed after a failed play" "no" "$(has "$STATE/owed-verify")"
+
+FAKE_NOTIFY_RC=1 cycle run
+check "a session that cannot be warned exits 22" "22" "$RC"
+check "the failed play is retried with fresh passwords, then the reboot is abandoned" \
+    "$PLAYED
+ccy-sessions notify going-down --minutes 1" "$(calls)"
+check "an unwarnable session is recorded" "unwarnable" "$(result_key outcome)"
+check "the reboot stays owed" "$PLAY_CHANGE" "$(state_key owed-verify new)"
+
+FAKE_REBOOT_RC=1 cycle run
+check "a refused reboot exits 24" "24" "$RC"
+check "a refused reboot withdraws the warning" "ccy-sessions notify going-down --minutes 1
+systemctl reboot
+ccy-sessions notify reboot-cancelled" "$(calls)"
+check "a refused reboot is recorded" "reboot-failed" "$(result_key outcome)"
+
+printf 'passed: %d failed: %d\n' "$passed" "$failed"
+[ "$failed" -eq 0 ]

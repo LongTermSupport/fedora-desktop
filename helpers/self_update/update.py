@@ -37,7 +37,10 @@ stdout carries only the stable marker lines; every diagnostic goes to stderr:
 
     SELF-UPDATE-OLD <sha>      deployed before this run
     SELF-UPDATE-NEW <sha>      deployed now
+    SELF-UPDATE-TARGET <sha>   --dry-run: the commit a real run would fast-forward to
     SELF-UPDATE-NOTHING <sha>  no trusted commit above the deployed one
+
+`--dry-run` runs every step, the fetch included, and stops before the fast-forward.
 """
 
 from __future__ import annotations
@@ -171,7 +174,7 @@ def _candidates(git: _Git, head: str, tip: str, principal: str, stderr: TextIO) 
 
 
 def _update(
-    *, git: _Git, remote: str, branch: str, principal: str, os_release: str,
+    *, git: _Git, remote: str, branch: str, principal: str, os_release: str, dry_run: bool,
     stdout: TextIO, stderr: TextIO,
 ) -> int:
     fetched = git.run(
@@ -231,6 +234,9 @@ def _update(
             "nothing was moved",
         )
 
+    if dry_run:
+        stdout.write(f"SELF-UPDATE-OLD {head}\nSELF-UPDATE-TARGET {choice.target}\n")
+        return EXIT_OK
     git.out("merge", "--ff-only", "--quiet", choice.target)
     now = git.out("rev-parse", "HEAD").strip()
     if now != choice.target:
@@ -247,6 +253,7 @@ def run(
     allowed_signers: str,
     principal: str,
     os_release: str = "/etc/os-release",
+    dry_run: bool = False,
     stdout: TextIO,
     stderr: TextIO,
     env: Mapping[str, str] | None = None,
@@ -260,7 +267,7 @@ def run(
         git = _Git(checkout, allowed_signers, env if env is not None else os.environ)
         return _update(
             git=git, remote=remote, branch=branch, principal=principal, os_release=os_release,
-            stdout=stdout, stderr=stderr,
+            dry_run=dry_run, stdout=stdout, stderr=stderr,
         )
     except Refusal as refusal:
         stderr.write(f"self-update: refused: {refusal}\n")
@@ -278,11 +285,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--allowed-signers", required=True)
     parser.add_argument("--principal", required=True)
     parser.add_argument("--os-release", default="/etc/os-release")
+    parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     return run(
         checkout=args.checkout, remote=args.remote, branch=args.branch,
         allowed_signers=args.allowed_signers, principal=args.principal, os_release=args.os_release,
-        stdout=sys.stdout, stderr=sys.stderr,
+        dry_run=args.dry_run, stdout=sys.stdout, stderr=sys.stderr,
     )
 
 
