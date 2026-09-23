@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.23.0"
+RUN_BASH_VERSION="1.24.0"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -336,6 +336,17 @@ headless_preflight() {
       "The 443 route applies to the GitHub account's SSH key; with no identity there is nothing to route — set a real RUN_BASH_GITHUB_ACCOUNTS, or drop RUN_BASH_GITHUB_SSH_443."
   fi
 
+  # RUN_BASH_CCY_RESTORE_SESSIONS: 1|0 declares `ccy_restore_sessions: true|false` in
+  # localhost.yml (hl_reconcile_ccy_restore). Persisted, not an extra-var, because the
+  # restore unit's state is re-decided by every later run of play-claude-yolo.yml,
+  # including single-play runs that never see this variable. Unset leaves the file alone.
+  HL_CCY_RESTORE_SESSIONS="${RUN_BASH_CCY_RESTORE_SESSIONS:-}"
+  case "$HL_CCY_RESTORE_SESSIONS" in
+    ''|0|1) ;;
+    *) headless_fail "RUN_BASH_CCY_RESTORE_SESSIONS='${HL_CCY_RESTORE_SESSIONS}' is not 0 or 1." \
+         "Set 1 to restart ccy/cc sessions after a reboot, 0 to turn that off, or leave it unset to keep what localhost.yml declares." ;;
+  esac
+
   # Vault password: must be PROVIDED (either form, file preferred), NEVER
   # auto-generated headless (V3.3/D6). Resolved here for both paths — ansible.cfg
   # sets vault_password_file, so ansible-playbook needs a readable vault-pass.secret
@@ -626,6 +637,30 @@ _hl_github_block_filter() {
     /^# GitHub SSH always-on over ssh\.github\.com:443/ { emit(1); next }
     { emit(0) }
   ' "$2"
+}
+
+# hl_reconcile_ccy_restore <localhost_yml> — make the file declare exactly one
+# `ccy_restore_sessions:` line matching RUN_BASH_CCY_RESTORE_SESSIONS. Unset: untouched.
+# Rewritten only when it differs, so a repeat run leaves the file byte-identical.
+hl_reconcile_ccy_restore() {
+  local yml="$1" want tmp
+  [[ -n "${HL_CCY_RESTORE_SESSIONS:-}" ]] || return 0
+  if [[ "$HL_CCY_RESTORE_SESSIONS" == "1" ]]; then
+    want="ccy_restore_sessions: true"
+  else
+    want="ccy_restore_sessions: false"
+  fi
+  if [[ "$(grep -c '^ccy_restore_sessions:' "$yml")" == "1" ]] && grep -qxF "$want" "$yml"; then
+    info "Headless: localhost.yml already declares ${want}"
+    return 0
+  fi
+  tmp=$(mktemp "${yml}.XXXXXX")
+  {
+    grep -v '^ccy_restore_sessions:' "$yml" || [[ $? -eq 1 ]]
+    printf '%s\n' "$want"
+  } > "$tmp"
+  mv "$tmp" "$yml"
+  success "Headless: localhost.yml now declares ${want}"
 }
 
 # hl_write_localhost_yml <localhost_yml> — headless replacement for the interactive
@@ -1007,6 +1042,9 @@ NON-SECRET CONFIG (plain RUN_BASH_* env)
                                    localhost.yml (always-on ssh.github.com:443; for a
                                    box whose egress blocks port 22). Requires a real
                                    RUN_BASH_GITHUB_ACCOUNTS. (default: 0)
+  RUN_BASH_CCY_RESTORE_SESSIONS=0|1  Declare ccy_restore_sessions in localhost.yml:
+                                   1 = ccy/cc sessions restart after a reboot.
+                                   (default: unset, localhost.yml is left as it is)
   RUN_BASH_GIT_REF=...             Branch name (tracks its tip) or 40-hex commit (pinned,
                                    detached) to provision from. (default: default branch)
                                    HTTPS/no-identity path only.
@@ -2590,6 +2628,7 @@ config_host_path="hosts/${config_hostname}.yml"
 # re-indenting it would bury the real change in whitespace noise.
 if [[ "$HEADLESS" == "true" ]]; then
   hl_write_localhost_yml "$localhost_yml"
+  hl_reconcile_ccy_restore "$localhost_yml"
 else
 
 # Discover config repo and find best available config for this host.

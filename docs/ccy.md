@@ -222,7 +222,9 @@ four agents resuming at login. Declare it in `host_vars`:
 ccy_restore_sessions: true
 ```
 
-and run `play-claude-yolo.yml` (part of `playbook-main.yml`). That enables
+A box provisioned headless declares it with `RUN_BASH_CCY_RESTORE_SESSIONS=1`
+([headless-provisioning.md](headless-provisioning.md)). Then run `play-claude-yolo.yml`
+(part of `playbook-main.yml`). That enables
 `ccy-sessions-restore.service` in the user manager, wanted by `default.target`, which with
 linger (also part of `playbook-main.yml`) is reached at boot before anyone logs in. It runs
 `ccy-sessions restore`: for each record it starts the session again, detached, on CCY's

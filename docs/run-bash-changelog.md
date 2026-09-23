@@ -15,6 +15,16 @@ the index, not the record.
 
 ---
 
+## 1.24.0 — `RUN_BASH_CCY_RESTORE_SESSIONS`: a headless box can opt in to session restore (Plans 00135, 00137)
+
+A box provisioned only through `RUN_BASH_*` variables had no way to set
+`ccy_restore_sessions`, because it is a host_vars key. `RUN_BASH_CCY_RESTORE_SESSIONS=1`
+or `0` now makes `localhost.yml` declare exactly one `ccy_restore_sessions: true` or
+`false` line. The file is rewritten only when it differs. Unset leaves it alone, and any
+other value is refused. It is written to the file rather than passed as an extra-var,
+because every later run of `play-claude-yolo.yml` decides the restore unit's state again,
+including single-play and self-update runs that never see the variable.
+
 ## 1.23.0 — an unattended single play can pin the ansible-playbook it runs (Plan 00137)
 
 `RUN_BASH_ANSIBLE_PLAYBOOK=/abs/path` names the exact `ansible-playbook` an unattended

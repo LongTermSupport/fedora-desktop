@@ -33,7 +33,7 @@ trap 'rm -rf "$work"' EXIT
 # The function under test and the two renderers it composes, each bounded by its own
 # `name() {` … `}` at column 0.
 : > "$work/fn.bash"
-for fn in hl_render_github_block hl_strip_github_block hl_extract_github_block _hl_github_block_filter hl_write_localhost_yml; do
+for fn in hl_render_github_block hl_strip_github_block hl_extract_github_block _hl_github_block_filter hl_write_localhost_yml hl_reconcile_ccy_restore; do
     awk -v fn="$fn" '$0 == fn "() {" {p=1} p {print} p && /^\}/ {exit}' "$RUN_BASH" >> "$work/fn.bash"
     if ! grep -q "^${fn}() {" "$work/fn.bash"; then
         echo "FAIL: could not extract ${fn} from run.bash" >&2
@@ -142,6 +142,40 @@ before=$(sha256sum "$yml" | cut -d' ' -f1)
 RUN_BASH_CONFIG_SOURCE="my-host" HL_GITHUB_ACCOUNTS="bot:example-bot" HL_GITHUB_SSH_443="1" hl_write_localhost_yml "$yml"
 after=$(sha256sum "$yml" | cut -d' ' -f1)
 check "config source set: an already-configured file is kept byte-identical" "$before" "$after"
+
+echo "=== hl_reconcile_ccy_restore (RUN_BASH_CCY_RESTORE_SESSIONS) ==="
+
+yml="$work/restore.yml"
+printf 'user_login: "kept"\ngithub_accounts:\n  bot: "example-bot"\n' > "$yml"
+before=$(sha256sum "$yml" | cut -d' ' -f1)
+HL_CCY_RESTORE_SESSIONS="" hl_reconcile_ccy_restore "$yml"
+after=$(sha256sum "$yml" | cut -d' ' -f1)
+check "restore unset: the file is untouched" "$before" "$after"
+
+HL_CCY_RESTORE_SESSIONS="1" hl_reconcile_ccy_restore "$yml"
+check "restore 1: declared true once" "1" "$(grep -c '^ccy_restore_sessions: true$' "$yml")"
+check "restore 1: the rest of the file preserved" "1" "$(grep -c '^  bot: "example-bot"$' "$yml")"
+
+before=$(sha256sum "$yml" | cut -d' ' -f1)
+HL_CCY_RESTORE_SESSIONS="1" hl_reconcile_ccy_restore "$yml"
+after=$(sha256sum "$yml" | cut -d' ' -f1)
+check "restore 1 again: byte-identical" "$before" "$after"
+
+HL_CCY_RESTORE_SESSIONS="0" hl_reconcile_ccy_restore "$yml"
+check "restore 0: exactly one key" "1" "$(grep -c '^ccy_restore_sessions:' "$yml")"
+check "restore 0: declared false" "1" "$(grep -c '^ccy_restore_sessions: false$' "$yml")"
+
+# A hand-edited file carrying the key twice (true then false) is collapsed to one line.
+printf 'ccy_restore_sessions: true\nuser_login: "kept"\nccy_restore_sessions: false\n' > "$yml"
+HL_CCY_RESTORE_SESSIONS="1" hl_reconcile_ccy_restore "$yml"
+check "duplicate keys: collapsed to one" "1" "$(grep -c '^ccy_restore_sessions:' "$yml")"
+check "duplicate keys: the declared value wins" "1" "$(grep -c '^ccy_restore_sessions: true$' "$yml")"
+check "duplicate keys: other lines preserved" "1" "$(grep -c '^user_login: "kept"$' "$yml")"
+
+# A file holding only the key, flipped: grep -v selects nothing (exit 1), which must not abort.
+printf 'ccy_restore_sessions: false\n' > "$yml"
+HL_CCY_RESTORE_SESSIONS="1" hl_reconcile_ccy_restore "$yml"
+check "key-only file: rewritten to the declared value" "ccy_restore_sessions: true" "$(cat "$yml")"
 
 echo
 echo "passed: $passed  failed: $failed"
