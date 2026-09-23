@@ -202,7 +202,7 @@ show_zombie_container_tui() {
     echo ""
 
     while true; do
-        read -rp "Choice [a/s/i/q]: " choice
+        read -rp "$CCY_PROMPT_ZOMBIE_MENU " choice
         echo ""
 
         case "$choice" in
@@ -260,9 +260,16 @@ show_zombie_container_tui() {
 
 # Quick check for zombie containers at startup
 # This is meant to be called early in ccy startup
+# Args: suffix (default: "yolo"), restoring (true when this launch is a session restore)
 # Returns: 0 to continue, 1 to abort
+#
+# A restore answers "ignore" without asking: nobody is at a restored session to answer, and
+# ignoring is the one choice that destroys nothing. A container still running after a boot
+# was started after it, by a sibling restore or by a person, and its state cannot be
+# proved dead from here. (Stopped containers are a different, provable case:
+# clean_stale_containers_startup removes those for every launch.)
 check_zombie_containers_startup() {
-    local suffix="${1:-yolo}"
+    local suffix="${1:-yolo}" restoring="${2:-false}"
 
     # Get zombie list into array, filtering empty lines
     local zombies=()
@@ -273,6 +280,10 @@ check_zombie_containers_startup() {
     local zombie_count=${#zombies[@]}
 
     if [ "$zombie_count" -gt 0 ]; then
+        if [ "$restoring" = true ]; then
+            echo "Session restore: leaving ${zombie_count} container(s) without a terminal running (${zombies[*]}); a restore never stops a container it cannot prove dead." >&2
+            return 0
+        fi
         show_zombie_container_tui "$suffix"
         return $?
     fi
@@ -495,11 +506,16 @@ show_container_top() {
 
 # Check for running containers for current project and offer to manage them
 # Called at ccy startup after git repo check
-# Args: project_name, suffix
+# Args: project_name, suffix, restoring (true when this launch is a session restore)
 # Returns: 0 to continue, 1 to abort
+#
+# A restore answers "continue alongside" without asking. Sessions that ran together in one
+# project before a reboot are restored together, so a sibling's container is expected, and
+# stopping it would kill the session the restore has just brought back.
 check_project_containers_startup() {
     local project_name="$1"
     local suffix="${2:-yolo}"
+    local restoring="${3:-false}"
 
     # Get containers for this project
     local containers=()
@@ -509,6 +525,11 @@ check_project_containers_startup() {
 
     if [ ${#containers[@]} -eq 0 ]; then
         return 0  # No containers, continue normally
+    fi
+
+    if [ "$restoring" = true ]; then
+        echo "Session restore: starting alongside ${#containers[@]} running container(s) for this project (${containers[*]})." >&2
+        return 0
     fi
 
     echo ""
@@ -546,7 +567,7 @@ check_project_containers_startup() {
     echo ""
 
     while true; do
-        read -rp "Choice [c/s/m/q]: " choice
+        read -rp "$CCY_PROMPT_EXISTING_CONTAINERS " choice
         echo ""
 
         case "$choice" in

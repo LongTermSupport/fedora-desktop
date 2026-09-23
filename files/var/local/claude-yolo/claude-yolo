@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.60.3"  # Sessions survive a reboot: every session is recorded, ccy-sessions restore brings them back (opt-in), ccy-sessions reboot warns them first. See docs/ccy-changelog.md.
+CCY_VERSION="3.61.0"  # A restored session answers only the prompts with one safe answer; ccy-sessions verify-restore reports the rest. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -139,7 +139,7 @@ if [ -d ".claude/ccy/sessions" ]; then
         echo ""
         echo "Claude Code now uses .claude/ directly (project-level state)."
         echo ""
-        read -rp "Remove old session directories? [y/N] " remove_sessions
+        read -rp "$CCY_PROMPT_MIGRATION " remove_sessions
         case "$remove_sessions" in
             y|Y|yes|Yes)
                 rm -rf .claude/ccy/sessions
@@ -911,6 +911,22 @@ if [ "$HEADLESS_MODE" != true ] && [ "$CREATE_TOKEN_MODE" != true ] && [ "$UPDAT
     ccy_tmux_banner || exit 1
 fi
 
+# Is this launch a session restore (ccy-sessions restore, after a reboot)? The restore sets
+# CCY_SESSION_RESTORE=1 on the pane's command and nothing else sets it. Read once and
+# removed from the environment, so nothing this launch starts inherits it and a ccy run by
+# hand later from inside the session is an ordinary launch. It changes only the prompts
+# that have one safe answer; see "Sessions Survive a Reboot" in docs/ccy.md.
+SESSION_RESTORE=false
+case "${CCY_SESSION_RESTORE:-}" in
+"") ;;
+1) SESSION_RESTORE=true ;;
+*)
+    print_error "CCY_SESSION_RESTORE is '${CCY_SESSION_RESTORE}'; only ccy-sessions restore sets it, and only to 1."
+    exit 1
+    ;;
+esac
+unset CCY_SESSION_RESTORE
+
 # Try to load previous launch configuration (if no flags specified).
 #
 # There is no CONFIG_LOADED flag: it was set in three places and read in none.
@@ -935,8 +951,15 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
         echo ""
 
         while true; do
-            read -rp "Use same configuration? [Y/n] " use_config
-            use_config=${use_config:-Y}
+            # A restore takes the saved configuration without asking: it is the one the
+            # person last chose in this project, and the only evidence of what they want.
+            if [ "$SESSION_RESTORE" = true ]; then
+                echo "Session restore: using the previous configuration."
+                use_config=Y
+            else
+                read -rp "$CCY_PROMPT_QUICK_LAUNCH " use_config
+                use_config=${use_config:-Y}
+            fi
             echo ""
 
             case "$use_config" in
@@ -1111,7 +1134,7 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
         echo ""
         echo "This token cannot be used. You must create a new token."
         echo ""
-        read -rp "Create a new token now? (Y/n): " create_now
+        read -rp "$CCY_PROMPT_TOKEN_EXPIRED " create_now
         if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
             create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy" "$token_name"
             post_create_token_exit
@@ -1144,7 +1167,7 @@ else
         echo ""
         echo "You need to create a token before using ccy."
         echo ""
-        read -rp "Create a token now? (Y/n): " create_now
+        read -rp "$CCY_PROMPT_TOKEN_NONE " create_now
 
         if [ "$create_now" = "n" ] || [ "$create_now" = "N" ]; then
             echo "Cancelled. Create a token later with: ccy --create-token"
@@ -1165,7 +1188,7 @@ else
             echo "All tokens are expired or expiring today."
             echo "You must create a new token."
             echo ""
-            read -rp "Create a token now? (Y/n): " create_now
+            read -rp "$CCY_PROMPT_TOKEN_NONE " create_now
             if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
                 create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy"
                 post_create_token_exit
@@ -1256,7 +1279,7 @@ if [ "$TOKEN_VALIDATION_FAILED" = true ]; then
     echo ""
 
     while true; do
-        read -rp "Select option [1-3]: " recovery_choice
+        read -rp "$CCY_PROMPT_TOKEN_RECOVERY " recovery_choice
         echo ""
 
         case "$recovery_choice" in
@@ -1273,7 +1296,7 @@ if [ "$TOKEN_VALIDATION_FAILED" = true ]; then
                     echo ""
                     echo "No other valid tokens available."
                     echo ""
-                    read -rp "Create a new token? (Y/n): " create_now
+                    read -rp "$CCY_PROMPT_TOKEN_REPLACE " create_now
                     if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
                         create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy"
                         post_create_token_exit
@@ -1367,7 +1390,7 @@ fi
 clean_stale_containers_startup "yolo"
 
 # Check for zombie containers (running but with no controlling terminal)
-if ! check_zombie_containers_startup "yolo"; then
+if ! check_zombie_containers_startup "yolo" "$SESSION_RESTORE"; then
     exit 0
 fi
 
@@ -1377,7 +1400,7 @@ fi
 
 # Check for running containers for this project before starting a new session
 # This helps users avoid accumulating containers they forgot about
-if ! check_project_containers_startup "$PROJECT_NAME" "yolo"; then
+if ! check_project_containers_startup "$PROJECT_NAME" "yolo" "$SESSION_RESTORE"; then
     # User chose to quit
     exit 0
 fi
@@ -2105,7 +2128,7 @@ if [[ -n "$SPECIFIED_NETWORK" ]]; then
                 echo ""
 
                 while true; do
-                    read -rp "Continue without network connection? [Y/n] " continue_choice
+                    read -rp "$CCY_PROMPT_NETWORK_CONTINUE " continue_choice
                     continue_choice=${continue_choice:-Y}
                     echo ""
 
@@ -2267,7 +2290,7 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
         echo ""
 
         while true; do
-            read -rp "Select option [1-4]: " cleanup_choice
+            read -rp "$CCY_PROMPT_NETWORK_ENGINE_CONFLICT " cleanup_choice
             echo ""
 
             case "$cleanup_choice" in
@@ -2286,7 +2309,7 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
                     echo ""
 
                     while true; do
-                        read -rp "Choose cleanup method [a/b]: " prune_choice
+                        read -rp "$CCY_PROMPT_NETWORK_PRUNE " prune_choice
                         echo ""
 
                         case "$prune_choice" in
@@ -2354,7 +2377,7 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
 
                         if command -v podman-compose &>/dev/null; then
                             while true; do
-                                read -rp "Start services with podman-compose up -d? [Y/n]: " start_compose
+                                read -rp "$CCY_PROMPT_COMPOSE_START podman-compose up -d? [Y/n]: " start_compose
                                 start_compose=${start_compose:-Y}
                                 echo ""
 
@@ -2490,7 +2513,7 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
         echo ""
 
         while true; do
-            read -rp "Continue without network connection? [Y/n] " mismatch_choice
+            read -rp "$CCY_PROMPT_NETWORK_CONTINUE " mismatch_choice
             mismatch_choice=${mismatch_choice:-Y}
             echo ""
 
@@ -2529,7 +2552,7 @@ if [ ${#MATCHING_NETWORKS[@]} -gt 0 ] && [ -z "$SPECIFIED_NETWORK" ]; then
         echo ""
 
         while true; do
-            read -rp "Connect to this network? (Y/n): " connect_choice
+            read -rp "$CCY_PROMPT_NETWORK_CONNECT (Y/n): " connect_choice
             connect_choice=${connect_choice:-Y}  # Default to Yes
             echo ""
 
@@ -2564,7 +2587,7 @@ if [ ${#MATCHING_NETWORKS[@]} -gt 0 ] && [ -z "$SPECIFIED_NETWORK" ]; then
         echo ""
 
         while true; do
-            read -rp "Connect to this network? (Y/n/list): " connect_choice
+            read -rp "$CCY_PROMPT_NETWORK_CONNECT (Y/n/list): " connect_choice
             connect_choice=${connect_choice:-Y}
             echo ""
 
@@ -2597,7 +2620,7 @@ if [ ${#MATCHING_NETWORKS[@]} -gt 0 ] && [ -z "$SPECIFIED_NETWORK" ]; then
                     echo ""
 
                     while true; do
-                        read -rp "Select [0-${#MATCHING_NETWORKS[@]}]: " net_choice
+                        read -rp "${CCY_PROMPT_NETWORK_PICK}${#MATCHING_NETWORKS[@]}]: " net_choice
                         echo ""
 
                         if [ "$net_choice" = "0" ]; then
@@ -2688,7 +2711,7 @@ else
 
             if [ -n "$COMPOSE_CMD" ]; then
                 while true; do
-                    read -rp "Start compose services? ($COMPOSE_CMD up -d) [y/N] " start_compose
+                    read -rp "$CCY_PROMPT_COMPOSE_START_SAVED ($COMPOSE_CMD up -d) [y/N] " start_compose
                     start_compose=${start_compose:-N}
                     echo ""
 

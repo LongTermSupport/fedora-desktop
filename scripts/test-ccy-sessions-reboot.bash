@@ -62,12 +62,40 @@ if [ -n "${TEST_TMUX_BROKEN:-}" ]; then
 fi
 case "$*" in
 *list-sessions*) cat "$TEST_SESSIONS" ;;
+# verify-restore's probes: the pane table, and one session's screen from TEST_SCREENS/<name>.
+*list-panes*) if [ -n "${TEST_PANES:-}" ]; then cat "$TEST_PANES"; fi ;;
+*capture-pane*)
+    target=""
+    while [ $# -gt 0 ]; do
+        if [ "$1" = "-t" ]; then target="${2#=}"; fi
+        shift
+    done
+    cat "$TEST_SCREENS/$target"
+    ;;
 *)
     echo "fake tmux: unexpected call: $*" >&2
     exit 97
     ;;
 esac
 EOF
+# ps and podman: the process table and the running CCY containers, from files a case writes.
+# Only verify-restore asks either of them anything in this suite.
+cat >"$BIN/ps" <<'EOF'
+#!/usr/bin/env bash
+if [ -n "${TEST_PS:-}" ]; then cat "$TEST_PS"; fi
+EOF
+cat >"$BIN/podman" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+case "$*" in
+"ps --filter label=ccy=true --format {{.Names}}") if [ -n "${TEST_PODMAN_NAMES:-}" ]; then cat "$TEST_PODMAN_NAMES"; fi ;;
+*)
+    echo "fake podman: unexpected call: $*" >&2
+    exit 97
+    ;;
+esac
+EOF
+chmod 755 "$BIN/ps" "$BIN/podman"
 # systemctl: records the request and does nothing, or fails when TEST_SYSTEMCTL_RC says so.
 cat >"$BIN/systemctl" <<'EOF'
 #!/usr/bin/env bash
@@ -440,6 +468,99 @@ check "restore --dry-run runs without a terminal" "0" "$rc"
 check "and reports an empty registry" "yes" "$([[ "$out" == *"nothing to restore"* ]] && echo yes || echo no)"
 run restore --now
 check "restore rejects an unknown flag" "64" "$rc"
+
+echo ""
+echo "=== verify-restore: every session this boot's restore brought up, named by its state ==="
+# The real tool reads the manifest the real library writes, and asks fake tmux, ps and podman.
+# The screens are made from the prompt constants, so what is looked for is what is printed.
+# shellcheck source=/dev/null
+source "$LIB_DIR/common-pure.bash"
+# shellcheck source=/dev/null
+source "$LIB_DIR/session-registry.bash"
+VR="$SCRATCH/verify"
+mkdir -p "$VR/screens"
+printf 'this-boot\n' >"$VR/boot_id"
+export TEST_SCREENS="$VR/screens" TEST_PANES="$VR/panes" TEST_PS="$VR/ps" TEST_PODMAN_NAMES="$VR/podman"
+
+# verify <args...> — verify-restore under the fakes; its stdout (the report) in $report,
+# its stderr in $why, its status in $rc. SCRATCH/state holds the manifest.
+verify() {
+    report="$(HOME="$HOME_ON" PATH="$BIN:$PATH" CCY_LIB="$LIB_DIR" CCY_STATE_DIR="$SCRATCH/state" \
+        CCY_BOOT_ID_FILE="$VR/boot_id" CCY_SESSIONS_POLL_SECONDS=0 \
+        "$TOOL" verify-restore "$@" </dev/null 2>"$VR/stderr")"
+    rc=$?
+    why="$(cat "$VR/stderr")"
+}
+# manifest <boot> [name prefix dir]... — the restore manifest as the library writes it.
+manifest() {
+    local boot="$1"
+    shift
+    printf '%s\n' "$boot" >"$VR/manifest-boot"
+    CCY_STATE_DIR="$SCRATCH/state" CCY_BOOT_ID_FILE="$VR/manifest-boot" ccy_restore_manifest_write "$@"
+}
+
+rm -rf "$SCRATCH/state"
+verify
+check "no restore recorded: refused, not reported as fine" "1" "$rc"
+check "and says so" "yes" "$([[ "$why" == *"no session restore has been recorded"* ]] && echo yes || echo no)"
+
+manifest earlier-boot ccy-a ccy "$A"
+verify
+check "a manifest from an earlier boot is refused" "1" "$rc"
+check "and names the reason" "yes" "$([[ "$why" == *"earlier boot"* ]] && echo yes || echo no)"
+
+manifest this-boot
+verify
+check "a restore that brought nothing up this boot passes" "0" "$rc"
+check "with nothing on stdout" "" "$report"
+
+# Four sessions, one of each state. ccy-a runs its container; ccy-b waits at Quick Launch;
+# cc-c waits at the token chooser; ccy-d's launcher exited and holds its window; ccy-e is gone.
+manifest this-boot ccy-a ccy "$A" ccy-b ccy "$B" cc-c cc "$A" ccy-d ccy "$B" ccy-e ccy "$A"
+printf '%s\n' "ccy-a 0 $A" "ccy-b 0 $B" "cc-c 0 $A" "ccy-d 0 $B" >"$SESSIONS"
+printf '%s\n' "ccy-a 100" "ccy-b 200" "cc-c 300" "ccy-d 400" >"$VR/panes"
+printf '%s\n' "100 1 bash -c trampoline" "101 100 /var/local/claude-yolo/claude-yolo" \
+    "102 101 podman run --rm -it --name a_yolo_1 claude-yolo:latest" \
+    "200 1 bash -c trampoline" "300 1 bash -c trampoline" "400 1 bash -c trampoline" >"$VR/ps"
+printf 'a_yolo_1\n' >"$VR/podman"
+printf 'claude is running\n' >"$VR/screens/ccy-a"
+printf 'Found previous launch configuration\n%s \n\n\n' "$CCY_PROMPT_QUICK_LAUNCH" >"$VR/screens/ccy-b"
+printf '%s [0-2]: \n' "$CCY_PROMPT_TOKEN_SELECT" >"$VR/screens/cc-c"
+printf 'ccy exited with status 1. %s\n' "$CCY_SESSION_ENDED_TEXT" >"$VR/screens/ccy-d"
+verify
+check "any session not OK fails the check" "1" "$rc"
+check "the running one is OK" "yes" "$([[ "$report" == *"ccy-a OK"* ]] && echo yes || echo no)"
+check "the one at Quick Launch is named, with the prompt" "yes" \
+    "$([[ "$report" == *"ccy-b WAITING-AT-PROMPT quick-launch"* ]] && echo yes || echo no)"
+check "cc at its token chooser is named" "yes" \
+    "$([[ "$report" == *"cc-c WAITING-AT-PROMPT token-select"* ]] && echo yes || echo no)"
+check "a launcher that exited is dead" "yes" "$([[ "$report" == *"ccy-d DEAD launcher-exited"* ]] && echo yes || echo no)"
+check "a session that is gone is dead" "yes" "$([[ "$report" == *"ccy-e DEAD session-not-running"* ]] && echo yes || echo no)"
+check "one line per restored session" "5" "$(printf '%s\n' "$report" | grep -c .)"
+check "and the reason for failing goes to stderr" "yes" "$([[ "$why" == *"Not every restored session"* ]] && echo yes || echo no)"
+
+# Once the prompts are answered and the containers run, the same sessions pass.
+manifest this-boot ccy-a ccy "$A" cc-c cc "$A"
+printf 'claude is running\n' >"$VR/screens/cc-c"
+verify
+check "everything past its prompts, containers up: passes" "0" "$rc"
+check "and reports each as OK" "ccy-a OK|cc-c OK" "$(printf '%s' "${report//$'\n'/|}")"
+
+# A ccy session whose container is not up yet is STARTING, and --wait gives up on it at the
+# deadline rather than waiting for ever.
+manifest this-boot ccy-b ccy "$B"
+printf 'Building image...\n' >"$VR/screens/ccy-b"
+verify --wait 0
+check "a container not yet up is starting, and not OK" "ccy-b STARTING:1" "$report:$rc"
+verify --wait soon
+check "--wait needs a number" "64" "$rc"
+
+# A probe that fails is a failure, not a state.
+: >"$VR/screens/.keep"
+rm -f "$VR/screens/ccy-b"
+verify
+check "an unreadable screen fails the check instead of guessing" "1" "$rc"
+check "and says whose" "yes" "$([[ "$why" == *"screen of ccy-b could not be read"* ]] && echo yes || echo no)"
 
 echo ""
 echo "──────────────────────────────────────────────────────────────"

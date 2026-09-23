@@ -26,6 +26,71 @@ print_error() {
     echo -e "${COLOR_RED}ERROR:${COLOR_RESET} $*" >&2
 }
 
+# ── prompts a launch can stop at ──────────────────────────────────────────────────────────
+#
+# Every prompt a ccy or cc launch can wait at for a person, by the text it STARTS with. The
+# code that asks prints these (`read -rp "$CCY_PROMPT_X ..."`), and `ccy-sessions
+# verify-restore` looks for them on a restored session's screen, so the text waited at and
+# the text looked for are one string and cannot drift apart. A prompt that interpolates a
+# count or a name keeps that part out of the constant, after it.
+#
+# Not here: prompts a restored launch cannot reach (the --debug layer menu, --custom, token
+# create/renew modes, `ccy --top`), and the sub-prompts of a menu that is itself listed.
+CCY_PROMPT_MIGRATION="Remove old session directories? [y/N]"
+CCY_PROMPT_QUICK_LAUNCH="Use same configuration? [Y/n]"
+CCY_PROMPT_SSH_KEY="Select SSH key"
+CCY_PROMPT_SSH_NO_KEY="Press Enter to continue WITHOUT SSH key, or Ctrl+C to cancel:"
+# ssh-add's own wording, not text ccy prints: it is the one prompt here that ccy cannot
+# supply, so it is spelled once, from what ssh-add prints.
+CCY_PROMPT_SSH_PASSPHRASE="Enter passphrase for"
+CCY_PROMPT_SSH_PASSPHRASE_RETRY="Hit return to try the passphrase again"
+CCY_PROMPT_GITHUB_443="Enable GitHub SSH over 443 for this session? [Y/n]"
+CCY_PROMPT_TOKEN_EXPIRED="Create a new token now? (Y/n):"
+CCY_PROMPT_TOKEN_NONE="Create a token now? (Y/n):"
+CCY_PROMPT_TOKEN_REPLACE="Create a new token? (Y/n):"
+CCY_PROMPT_TOKEN_SELECT="Select token"
+CCY_PROMPT_TOKEN_RECOVERY="Select option [1-3]:"
+CCY_PROMPT_ZOMBIE_MENU="Choice [a/s/i/q]:"
+CCY_PROMPT_EXISTING_CONTAINERS="Choice [c/s/m/q]:"
+CCY_PROMPT_NETWORK_CONTINUE="Continue without network connection? [Y/n]"
+CCY_PROMPT_NETWORK_CONNECT="Connect to this network?"
+CCY_PROMPT_NETWORK_PICK="Select [0-"
+CCY_PROMPT_NETWORK_SELECT="Select network ["
+CCY_PROMPT_NETWORK_CONTAINER="Select container ["
+CCY_PROMPT_NETWORK_ENGINE_CONFLICT="Select option [1-4]:"
+CCY_PROMPT_NETWORK_PRUNE="Choose cleanup method [a/b]:"
+CCY_PROMPT_COMPOSE_START="Start services with"
+CCY_PROMPT_COMPOSE_START_SAVED="Start compose services?"
+
+# ccy_known_prompts — "<name><TAB><text>" for every prompt above, one per line. The name is
+# what verify-restore reports a session as waiting at.
+ccy_known_prompts() {
+    printf '%s\t%s\n' \
+        migration "$CCY_PROMPT_MIGRATION" \
+        quick-launch "$CCY_PROMPT_QUICK_LAUNCH" \
+        ssh-key "$CCY_PROMPT_SSH_KEY" \
+        ssh-no-key "$CCY_PROMPT_SSH_NO_KEY" \
+        ssh-passphrase "$CCY_PROMPT_SSH_PASSPHRASE" \
+        ssh-passphrase-retry "$CCY_PROMPT_SSH_PASSPHRASE_RETRY" \
+        github-443 "$CCY_PROMPT_GITHUB_443" \
+        token-expired "$CCY_PROMPT_TOKEN_EXPIRED" \
+        token-none "$CCY_PROMPT_TOKEN_NONE" \
+        token-replace "$CCY_PROMPT_TOKEN_REPLACE" \
+        token-select "$CCY_PROMPT_TOKEN_SELECT" \
+        token-recovery "$CCY_PROMPT_TOKEN_RECOVERY" \
+        zombie-containers "$CCY_PROMPT_ZOMBIE_MENU" \
+        existing-containers "$CCY_PROMPT_EXISTING_CONTAINERS" \
+        network-continue "$CCY_PROMPT_NETWORK_CONTINUE" \
+        network-connect "$CCY_PROMPT_NETWORK_CONNECT" \
+        network-pick "$CCY_PROMPT_NETWORK_PICK" \
+        network-select "$CCY_PROMPT_NETWORK_SELECT" \
+        network-container "$CCY_PROMPT_NETWORK_CONTAINER" \
+        network-engine-conflict "$CCY_PROMPT_NETWORK_ENGINE_CONFLICT" \
+        network-prune "$CCY_PROMPT_NETWORK_PRUNE" \
+        compose-start "$CCY_PROMPT_COMPOSE_START" \
+        compose-start-saved "$CCY_PROMPT_COMPOSE_START_SAVED"
+}
+
 # Decide whether SELinux will refuse this container's reads of a home-directory bind.
 #
 # On an Enforcing host a ccy container runs as container_t and is denied `read`

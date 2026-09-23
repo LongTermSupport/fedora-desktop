@@ -63,6 +63,9 @@ SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/registry-test.XXXXXX")"
 cleanup() { rm -rf "$SCRATCH"; }
 trap cleanup EXIT
 export CCY_STATE_DIR="$SCRATCH/state"
+# The restore manifest is stamped with the boot id; a fixed one keeps the cases repeatable.
+printf 'boot-one\n' >"$SCRATCH/boot_id"
+export CCY_BOOT_ID_FILE="$SCRATCH/boot_id"
 
 # joined <cmd...> — the command's stdout lines joined with "|", so a list is one comparable word.
 joined() {
@@ -372,9 +375,11 @@ check "a no-restore record is skipped" "yes" \
     "$([[ "$out" == *"ccy-oneoff"* && "$out" == *"no-restore"* ]] && echo yes || echo no)"
 
 # The failure above did not stop the others: every startable record was started, with the
-# right launcher, directory and arguments, and the skipped ones were not.
-started_alpha="ccy-alpha $(printf '%q' "$KEEP") /launch/ccy --token work --supervise --continue "
-started_gamma="cc-gamma $(printf '%q' "$KEEP") /launch/cc --model opus --continue "
+# right launcher, directory and arguments, and the skipped ones were not. Each is started
+# with the restore marker on its command, which is what lets the launcher answer the prompts
+# that have one safe answer.
+started_alpha="ccy-alpha $(printf '%q' "$KEEP") env CCY_SESSION_RESTORE=1 /launch/ccy --token work --supervise --continue "
+started_gamma="cc-gamma $(printf '%q' "$KEEP") env CCY_SESSION_RESTORE=1 /launch/cc --model opus --continue "
 STARTED="$(started_log)"
 check "startable ccy record started with restore args" "yes" "$([[ "$STARTED" == *"$started_alpha"* ]] && echo yes || echo no)"
 check "startable cc record started with cc's restore args" "yes" "$([[ "$STARTED" == *"$started_gamma"* ]] && echo yes || echo no)"
@@ -392,21 +397,43 @@ else
     check "a failed record is kept for the operator" "present" "absent"
 fi
 
-# Dry run: the same decisions printed, nothing started.
+# The manifest names every session that should now be up — the two started, and the one
+# already live — for this boot, and not the skipped or failed ones.
+MANIFEST="$(ccy_registry_manifest_path)"
+check "the manifest sits beside the registry, not in it" "$SCRATCH/state/last-restore" "$MANIFEST"
+if ccy_restore_manifest_read; then
+    check "the manifest reads back" "ok" "ok"
+else
+    check "the manifest reads back" "ok" "refused"
+fi
+check "it names this boot" "boot-one" "$RM_BOOT"
+check "it lists the started and the already-live sessions, in record order" "cc-gamma|ccy-alpha|ccy-beta" \
+    "$(IFS='|' && printf '%s' "${RM_NAMES[*]}")"
+check "with each one's launcher" "cc|ccy|ccy" "$(IFS='|' && printf '%s' "${RM_PREFIXES[*]}")"
+check "and directory" "$KEEP|$KEEP|$KEEP" "$(IFS='|' && printf '%s' "${RM_DIRS[*]}")"
+
+# Dry run: the same decisions printed, nothing started, and the manifest untouched.
 rm -f "$STARTED_LOG"
+before="$(cat "$MANIFEST")"
 out="$(ccy_registry_restore --dry-run 2>&1)"
 check "dry run starts nothing" "" "$(started_log)"
 check "dry run names what it would start" "yes" \
     "$([[ "$out" == *"would start ccy-alpha"* && "$out" == *"would start cc-gamma"* ]] && echo yes || echo no)"
+check "dry run leaves the manifest alone" "$before" "$(cat "$MANIFEST")"
 
 rm -rf "$SCRATCH/state"
 out="$(ccy_registry_restore 2>&1)"
 rc=$?
 check "no registry directory at all is a clean no-op" "0" "$rc"
 check "and says nothing was recorded" "yes" "$([[ "$out" == *"nothing to restore"* ]] && echo yes || echo no)"
+# Still a restore that ran this boot, so verify-restore can tell "nothing to bring up" from
+# "the restore never ran".
+ccy_restore_manifest_read
+check "and still writes an empty manifest for this boot" "boot-one:0" "$RM_BOOT:${#RM_NAMES[@]}"
 
 # A listing failure is a failure: starting sessions on top of an unknown live set could
 # double up every one of them.
+rm -rf "$SCRATCH/state"
 mkdir -p "$SCRATCH/state/sessions"
 ccy_registry_write "ccy-alpha" "$KEEP" /launch/ccy ccy yes
 LIST_RC=1
@@ -415,6 +442,64 @@ out="$(ccy_registry_restore 2>&1)"
 rc=$?
 check "an unreadable live listing stops the restore" "1" "$rc"
 check "and starts nothing" "" "$(started_log)"
+check "and writes no manifest: a restore that did not run is not one that brought nothing up" \
+    "absent" "$([ -e "$(ccy_registry_manifest_path)" ] && echo present || echo absent)"
+
+echo ""
+echo "=== the restore manifest is read strictly ==="
+MANIFEST="$(ccy_registry_manifest_path)"
+out="$(ccy_restore_manifest_read 2>&1)"
+rc=$?
+check "no manifest at all is a refusal" "1" "$rc"
+check "that says no restore has been recorded" "yes" "$([[ "$out" == *"no session restore has been recorded"* ]] && echo yes || echo no)"
+# bad_manifest <label> <content> — each malformed shape is refused, not guessed at.
+bad_manifest() {
+    printf '%s' "$2" >"$MANIFEST"
+    if ccy_restore_manifest_read 2>/dev/null; then
+        check "$1" "refused" "accepted"
+    else
+        check "$1" "refused" "refused"
+    fi
+}
+mkdir -p "$(dirname "$MANIFEST")"
+bad_manifest "a wrong header" $'something else\nboot=b\n'
+bad_manifest "no boot" $'ccy-restore-manifest 1\nname=a\nprefix=ccy\ndir=/d\n'
+bad_manifest "an entry cut short" $'ccy-restore-manifest 1\nboot=b\nname=a\nprefix=ccy\n'
+bad_manifest "fields out of order" $'ccy-restore-manifest 1\nboot=b\nprefix=ccy\nname=a\ndir=/d\n'
+bad_manifest "an unknown key" $'ccy-restore-manifest 1\nboot=b\nname=a\nprefix=ccy\ndir=/d\nextra=x\n'
+bad_manifest "an empty file" ""
+# A directory with spaces and an equals sign survives, because only the first '=' splits.
+ccy_restore_manifest_write "ccy-odd" ccy "$SCRATCH/odd dir=x"
+ccy_restore_manifest_read
+check "a directory with spaces and '=' round-trips" "$SCRATCH/odd dir=x" "${RM_DIRS[0]}"
+
+echo ""
+echo "=== verdict: one restored session's state, from what its screen shows ==="
+# The prompts come from the same table the launchers print them from, so a case here drives
+# the constant, not a re-typed copy of it.
+check "not live is dead" "DEAD session-not-running" "$(ccy_restore_verdict ccy 0 "" up)"
+check "the trampoline's hold line is a launcher that exited" "DEAD launcher-exited" \
+    "$(ccy_restore_verdict ccy 1 $'...\nccy exited with status 1. '"$CCY_SESSION_ENDED_TEXT"$'\n\n' up)"
+check "Quick Launch waiting is named" "WAITING-AT-PROMPT quick-launch" \
+    "$(ccy_restore_verdict ccy 1 $'Found previous launch configuration\n'"$CCY_PROMPT_QUICK_LAUNCH "$'\n\n\n' -)"
+check "the token chooser, with its count after the constant" "WAITING-AT-PROMPT token-select" \
+    "$(ccy_restore_verdict cc 1 "$CCY_PROMPT_TOKEN_SELECT [0-2]: " -)"
+check "an ssh passphrase prompt, with the key after it" "WAITING-AT-PROMPT ssh-passphrase" \
+    "$(ccy_restore_verdict ccy 1 "$CCY_PROMPT_SSH_PASSPHRASE /k/id_ed25519: " -)"
+check "the running-container menu" "WAITING-AT-PROMPT existing-containers" \
+    "$(ccy_restore_verdict ccy 1 "  $CCY_PROMPT_EXISTING_CONTAINERS " starting)"
+check "a prompt text higher up the screen does not count: only the last line waits" "OK" \
+    "$(ccy_restore_verdict ccy 1 $'Select token [0-2]: 1\nclaude is running\n' up)"
+check "ccy with no container yet is starting" "STARTING" "$(ccy_restore_verdict ccy 1 "Building image..." -)"
+check "ccy with its client but no listed container is starting" "STARTING" "$(ccy_restore_verdict ccy 1 "" starting)"
+check "ccy with its container up is ok" "OK" "$(ccy_restore_verdict ccy 1 "claude" up)"
+check "cc past its prompts is ok (no container to ask about)" "OK" "$(ccy_restore_verdict cc 1 "claude" -)"
+check "an unknown launcher is not waved through" "DEAD unknown-launcher-zz" "$(ccy_restore_verdict zz 1 "" up)"
+
+# Every name in the table is distinct, and no prompt text is empty: an empty text would
+# match every screen, and a shared name would report the wrong prompt.
+check "prompt names are unique" "0" "$(ccy_known_prompts | cut -f1 | sort | uniq -d | grep -c .)"
+check "no prompt text is empty" "0" "$(ccy_known_prompts | awk -F'\t' '$2 == ""' | grep -c .)"
 
 echo ""
 echo "──────────────────────────────────────────────────────────────"
