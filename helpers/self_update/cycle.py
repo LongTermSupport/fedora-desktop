@@ -2,7 +2,7 @@
 
 Run by `/usr/local/sbin/fedora-desktop-self-update` as root:
 
-    python3 -m helpers.self_update.cycle --config C --state-dir S --clone D --become B \\
+    python3 -m helpers.self_update.cycle --config C --state-dir S --published-dir P --clone D --become B \\
         --vault V --allowed-signers A --ansible-playbook P {run [--dry-run] | verify | status}
 
 The contract (paths, keys, exit codes, the result record) is
@@ -31,8 +31,9 @@ boot means the reboot has not happened yet, so it is left alone.
 allowlisted play runs. They are idempotent, and that run is what makes the record true.
 
 **Alerts** go through one `alert` seam. Until Task 4.5 plugs in real sinks it writes to
-the journal (stderr); the result record carries the same outcome for the host-health
-report. Neither carries a hostname, username or path.
+the journal (stderr). Every result is also published to a user-readable copy
+(`published`), which the host-health report reads. Neither carries a hostname, username
+or path.
 """
 
 from __future__ import annotations
@@ -53,7 +54,7 @@ from dataclasses import dataclass
 from typing import Protocol, TextIO
 
 from helpers.play_lock import lock as play_lock
-from helpers.self_update import affected_plays, update
+from helpers.self_update import affected_plays, published, update
 
 EXIT_OK = 0
 EXIT_REFUSED = 20
@@ -80,7 +81,7 @@ _MAX_WARN_MINUTES = 60
 PIPE_MAX_BYTES = 4096
 
 _KEYS = ("USER", "BRANCH", "REMOTE_URL", "PRINCIPAL", "WARN_MINUTES", "ALERT_SINKS", "ANSIBLE_COLLECTIONS_DIR")
-_RESULT_KEYS = ("at", "phase", "outcome", "old", "new", "plays", "detail")
+RESULT_KEYS = ("at", "phase", "outcome", "old", "new", "plays", "detail")
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _NAME = re.compile(r"^[a-z_][a-z0-9_-]*$")
 _BRANCH = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
@@ -161,10 +162,16 @@ class Owed:
 
 
 class State:
-    """The cycle's files under the state directory. Each is small `key=value` text."""
+    """The cycle's files under the state directory. Each is small `key=value` text.
 
-    def __init__(self, directory: str) -> None:
+    `published_dir` receives a user-readable copy of every result (see `published`),
+    so the host-health report can see how the last cycle went without reading this
+    root-only directory.
+    """
+
+    def __init__(self, directory: str, *, published_dir: str) -> None:
         self.directory = directory
+        self.published_dir = published_dir
 
     def _path(self, name: str) -> str:
         return os.path.join(self.directory, name)
@@ -223,7 +230,12 @@ class State:
         return self._read("last-result")
 
     def write_result(self, record: dict[str, str]) -> None:
-        self._write("last-result", {key: record.get(key, "") for key in _RESULT_KEYS})
+        """Record the result, then publish it with the owed boot as of now. Every change
+        to `owed-verify` is followed by a result, so the published copy tracks both."""
+        values = {key: record.get(key, "") for key in RESULT_KEYS}
+        self._write("last-result", values)
+        owed = self.read_owed()
+        published.write(self.published_dir, values, owed_boot=owed.boot if owed is not None else "")
 
 
 @dataclass(frozen=True)
@@ -424,7 +436,7 @@ def status(state: State, *, stdout: TextIO) -> int:
     if record is None:
         stdout.write("no cycle has run yet\n")
     else:
-        for key in _RESULT_KEYS:
+        for key in RESULT_KEYS:
             stdout.write(f"{key}={record.get(key, '')}\n")
     stdout.write(f"deployed={state.read_deployed() or 'none'}\n")
     owed = state.read_owed()
@@ -693,6 +705,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="The unattended self-update cycle (Plan 00137).")
     parser.add_argument("--config", required=True)
     parser.add_argument("--state-dir", required=True)
+    parser.add_argument("--published-dir", required=True)
     parser.add_argument("--clone", required=True)
     parser.add_argument("--become", required=True)
     parser.add_argument("--vault", required=True)
@@ -708,7 +721,7 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exit_request:
         return EXIT_USAGE if exit_request.code else EXIT_OK
 
-    state = State(args.state_dir)
+    state = State(args.state_dir, published_dir=args.published_dir)
     try:
         if args.command == "status":
             return status(state, stdout=sys.stdout)

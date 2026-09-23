@@ -1,8 +1,8 @@
 """The login-time health surface (Plan 00109, Tasks 3.1 and 3.2).
 
 Runs the four checks this plan built — post-boot health, ledger presence, play
-freshness, installed-vs-pinned — merges their findings into **one** report, and
-notifies only if there is something to say.
+freshness, installed-vs-pinned — plus Plan 00137's self-update result, merges their
+findings into **one** report, and notifies only if there is something to say.
 
 It runs at the **end of a login** rather than at boot, because the point is that
 somebody is present to read it. The unit is `After=graphical-session.target`.
@@ -42,6 +42,7 @@ from helpers.host_health import (
     play_runner,
     probe,
     probe_results,
+    self_update_check,
     status_document,
 )
 from helpers.play_ledger import (
@@ -53,6 +54,7 @@ from helpers.play_ledger import (
     repo,
     store,
 )
+from helpers.self_update import published
 from helpers.version_pins import check_pins
 
 #: Clean: nothing the user must act on, and nothing shown.
@@ -77,6 +79,9 @@ HEALTH = status_document.BOOT_SCOPED_SECTION
 LEDGER = "play-ledger"
 FRESHNESS = "play-freshness"
 PINS = "installed-vs-pinned"
+#: Plan 00137: the unattended cycle's last result. Always present, and clean on a host
+#: without self-update, so the section set does not depend on the host.
+SELF_UPDATE = "self-update"
 
 _SUMMARY = "fedora-desktop: this machine needs attention"
 _TIMEOUT_SECONDS = 15
@@ -111,6 +116,7 @@ def collect_sections(
     ledger_present: Callable[[], list[probe_results.Finding]],
     freshness: Callable[[], list[probe_results.Finding]],
     pins: Callable[[], list[probe_results.Finding]],
+    self_update: Callable[[], list[probe_results.Finding]],
 ) -> dict[str, list[probe_results.Finding]]:
     """Every check's findings, kept under the id of the check that produced them.
 
@@ -135,6 +141,7 @@ def collect_sections(
             LEDGER: ledger_present,
             FRESHNESS: freshness,
             PINS: pins,
+            SELF_UPDATE: self_update,
         }
     )
 
@@ -145,6 +152,7 @@ def collect(
     ledger_present: Callable[[], list[probe_results.Finding]],
     freshness: Callable[[], list[probe_results.Finding]],
     pins: Callable[[], list[probe_results.Finding]],
+    self_update: Callable[[], list[probe_results.Finding]],
 ) -> list[probe_results.Finding]:
     """The same findings flattened, for the notification and for stdout.
 
@@ -152,7 +160,8 @@ def collect(
     and the status document cannot disagree about which checks ran.
     """
     sections = collect_sections(
-        health=health, ledger_present=ledger_present, freshness=freshness, pins=pins
+        health=health, ledger_present=ledger_present, freshness=freshness, pins=pins,
+        self_update=self_update,
     )
     return [finding for group in sections.values() for finding in group]
 
@@ -548,6 +557,12 @@ def main(
             base, arguments.repo_root, stderr=diagnostics, judged=judged
         ),
         pins=pins_findings,
+        self_update=lambda: self_update_check.findings(
+            published.DIRECTORY,
+            now=repo.utc_now(),
+            boot_id=self_update_check.read_boot_id(),
+            uptime_seconds=self_update_check.read_uptime_seconds(),
+        ),
     )
     findings = [finding for group in sections.values() for finding in group]
     notifier: Callable[[str], None] = (lambda _: None) if arguments.no_notify else _notify_send

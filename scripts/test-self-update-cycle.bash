@@ -66,6 +66,7 @@ BIN="$PREFIX/bin"
 ETC="$PREFIX/etc/fedora-desktop"
 CLONE="$PREFIX/var/lib/fedora-desktop/deploy"
 STATE="$PREFIX/var/lib/fedora-desktop/self-update"
+PUBLISHED="$PREFIX/var/lib/fedora-desktop/self-update-status"
 LOG="$SCRATCH/calls.log"
 RUNTIME="$SCRATCH/runtime"
 ORIGIN="$SCRATCH/origin.git"
@@ -201,6 +202,7 @@ PLAYED="play --headless $PLAY become=correct horse vault=vault words lock-fd-ope
 has() { if [ -e "$1" ]; then echo yes; else echo no; fi; }
 says() { if grep -q -- "$1" "$2"; then echo yes; else echo no; fi; }
 result_key() { awk -F= -v key="$1" '$1 == key { print substr($0, length(key) + 2) }' "$STATE/last-result"; }
+published_key() { awk -F= -v key="$1" '$1 == key { print substr($0, length(key) + 2) }' "$PUBLISHED/result"; }
 state_key() { awk -F= -v key="$2" '$1 == key { print substr($0, length(key) + 2) }' "$STATE/$1"; }
 write_owed() { printf 'boot=%s\nnew=%s\nplays=%s\n' "$1" "$FIRST" "$PLAY" >"$STATE/owed-verify"; }
 BOOT_ID="$(cat /proc/sys/kernel/random/boot_id)"
@@ -233,6 +235,12 @@ cycle status
 check "a missing state directory is a config error (70)" "70" "$RC"
 mkdir -p "$STATE"
 chmod 700 "$STATE"
+
+cycle status
+check "a missing published-result directory is a config error (70)" "70" "$RC"
+check "the refusal names the play to deploy" "yes" "$(says 'deploy the self-update play first' "$ERR")"
+mkdir -p "$PUBLISHED"
+chmod 2750 "$PUBLISHED"
 
 cycle status
 check "status with no history exits 0" "0" "$RC"
@@ -314,6 +322,10 @@ check "a verify is owed for the signed commit" "$FIRST" "$(state_key owed-verify
 check "the owed verify names this boot" "$BOOT_ID" "$(state_key owed-verify boot)"
 check "the record says rebooting" "rebooting" "$(result_key outcome)"
 check "the record carries no scratch path" "no" "$(says "$SCRATCH" "$STATE/last-result")"
+check "the published copy says rebooting" "rebooting" "$(published_key outcome)"
+check "the published copy owes a check from this boot" "$BOOT_ID" "$(published_key owed_boot)"
+check "the published copy is group-readable, writable by root only" "640" "$(stat -c %a "$PUBLISHED/result")"
+check "the published copy carries no scratch path" "no" "$(says "$SCRATCH" "$PUBLISHED/result")"
 
 cycle run
 check "a cycle in the boot that still owes its reboot asks again" "0" "$RC"
@@ -375,6 +387,8 @@ check "a failed play exits 21" "21" "$RC"
 check "a failed play stops the cycle: no warning, no reboot" "$PLAYED" "$(calls)"
 check "a failed play is recorded" "play-failed" "$(result_key outcome)"
 check "a failed play is alerted" "yes" "$(says 'ALERT play-failed' "$ERR")"
+check "a failed play is published" "play-failed" "$(published_key outcome)"
+check "a failed play is published owing nothing" "" "$(published_key owed_boot)"
 check "a failed play leaves the deployed record behind" "$UNSIGNED_BASE" "$(state_key deployed sha)"
 check "no verify is owed after a failed play" "no" "$(has "$STATE/owed-verify")"
 

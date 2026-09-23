@@ -806,7 +806,8 @@ below):
 - Merges four checks into **one** message: DKMS modules missing a build for the
   **running** kernel and failed system and user units, whether the play ledger is there
   to read at all, plays that have changed since they were last run here, and repo pins
-  that differ from what is installed
+  that differ from what is installed. Where `play-self-update.yml` is enabled, also the
+  unattended cycle's last result (below)
 - A play that was run here and has since been deleted is reported as "no longer exists
   at HEAD". When a play is merged into another, add it to
   `helpers/play_ledger/retired-plays.json` (`{"<removed play>": "<successor>"}`): the
@@ -1284,7 +1285,12 @@ everything it installed.
 - It runs the allowlisted plays that commit affects, warns the ccy/cc sessions, and
   reboots. The sessions come back through the boot-time restore, and a post-boot unit
   checks they did.
-- A failed play means no reboot. It installs a sudoers rule for one root-owned command
+- A failed play means no reboot. The host-health report (login snippet and
+  `fedora-desktop-health`) shows a cycle that failed, one that has recorded nothing for
+  more than three days, and a reboot whose post-boot check never ran. It reads a copy of
+  the result in `/var/lib/fedora-desktop/self-update-status/`, readable by you and
+  writable only by root.
+- It installs a sudoers rule for one root-owned command
   (`/usr/local/sbin/fedora-desktop-self-update`), and nothing broader.
 - The cycle's plays run on a root-owned ansible-core from dnf, with collections in a
   root-owned path under `/usr/local/share/fedora-desktop/`. They never use your pipx

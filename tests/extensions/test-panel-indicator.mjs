@@ -41,12 +41,13 @@ const NEUTRAL = 'emblem-ok-symbolic';
 const ATTENTION = 'dialog-warning-symbolic';
 const NOTHING_KNOWN = 'dialog-question-symbolic';
 
-/** The four section ids the health section registers, all in one state. A document
+/** The section ids the health section registers, all in one state. A document
  * missing any of them resolves that one `unavailable`, which would make every case
  * below come out `unavailable` whatever the icon logic did. */
 function document(state, findings = [], unchecked = []) {
     const ids = [
-        'post-boot-health', 'play-ledger', 'play-freshness', 'installed-vs-pinned'];
+        'post-boot-health', 'play-ledger', 'play-freshness', 'installed-vs-pinned',
+        'self-update'];
     const sections = {};
     for (const id of ids) {
         sections[id] = {state, findings, unchecked};

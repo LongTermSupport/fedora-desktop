@@ -25,6 +25,9 @@
     self_update_lib_dir: /var/lib/fedora-desktop
     self_update_clone: /var/lib/fedora-desktop/deploy
     self_update_state_dir: /var/lib/fedora-desktop/self-update
+    # The user-readable copy of each result (helpers/self_update/published.py). Its
+    # existence is also how the host-health report knows self-update is enabled here.
+    self_update_published_dir: /var/lib/fedora-desktop/self-update-status
     self_update_sbin: /usr/local/sbin/fedora-desktop-self-update
     # D5 hardening: the cycle's plays run on a root-owned ansible-core and collections
     # path, never the user's pipx install in ~/.local, which any process running as the
@@ -161,6 +164,17 @@
         owner: root
         group: root
         mode: "0700"
+      when: self_update_on
+
+    # Group-readable by the session user, writable by root only. The setgid bit gives
+    # each result file the user's group without a chown in the cycle.
+    - name: Create the Self-Update Published Result Directory
+      ansible.builtin.file:
+        path: "{{ self_update_published_dir }}"
+        state: directory
+        owner: root
+        group: "{{ ansible_facts['getent_passwd'][user_login][2] }}"
+        mode: "2750"
       when: self_update_on
 
     - name: Install the Self-Update Entry Point
@@ -661,6 +675,7 @@
         - "{{ self_update_etc_dir }}/self-update.allowed_signers"
         - "{{ self_update_clone }}"
         - "{{ self_update_state_dir }}"
+        - "{{ self_update_published_dir }}"
         - "{{ self_update_collections_dir }}"
         - "{{ self_update_collections_stamp }}"
         # The drop-in goes, but the live value is deliberately left alone: lowering a
