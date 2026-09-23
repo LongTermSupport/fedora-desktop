@@ -28,6 +28,8 @@
 #      configuration it did not write is left in main.lua.d/ or bluetooth.lua.d/.
 #   6. play-browsers.yml — one [vivaldi] repo file, and the scriptlet stopped from adding
 #      the other back (Task 2.2).
+#   7. play-vm-test-lab.yml — the bridge unit's drain cap is one systemd honours
+#      (Task 2.3). Only on a host that runs the VM lab; the play is optional.
 #
 # Usage: ./deploy.bash [-h|--help] [-y|--yes]
 set -euo pipefail
@@ -62,6 +64,7 @@ Deploys the 2026-09-23 fixes on the HOST, fail-fast, in this order:
   playbooks/imports/optional/common/play-fedora-desktop-panel.yml
   playbooks/imports/optional/common/play-hd-audio.yml          (WirePlumber 0.5 port)
   playbooks/imports/play-browsers.yml                          (one [vivaldi] repo)
+  playbooks/imports/optional/common/play-vm-test-lab.yml       (bridge drain cap)
 
 -y/--yes is accepted; this script asks nothing, so it is a no-op here.
 --check is REFUSED: play-fedora-desktop-panel.yml reads a command task's registered
@@ -112,6 +115,9 @@ plan_deploy_leg "play-hd-audio.yml" \
 
 plan_deploy_leg "play-browsers.yml" \
     plan_ansible_playbook playbooks/imports/play-browsers.yml
+
+plan_deploy_leg "play-vm-test-lab.yml" \
+    plan_ansible_playbook playbooks/imports/optional/common/play-vm-test-lab.yml
 
 printf '\n'
 printf '==> NEXT: log out and log back in, then check:\n'

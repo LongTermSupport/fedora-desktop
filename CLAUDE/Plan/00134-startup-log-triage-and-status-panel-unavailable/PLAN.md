@@ -90,9 +90,12 @@ containers that needs its own diagnosis (F7).
   no `Id is present more than once`. Code done: `vivaldi-fedora.repo` is kept, and
   `/etc/default/vivaldi` `repo_add_once="false"` stops the scriptlet recreating the
   other (the RPM's scriptlets are quoted in the journal, 18:35). HOST verify pending.
-- [ ] ⬜ **Task 2.3**: `files/home/.config/systemd/user/vmtest-bridge@.service` — replace
+- [ ] 🔄 **Task 2.3**: `files/home/.config/systemd/user/vmtest-bridge@.service` — replace
   `RuntimeMaxSec=120` with `TimeoutStartSec=120` and fix the comment. Audit every
-  other `Type=oneshot` unit in `files/` for the same mistake.
+  other `Type=oneshot` unit in `files/` for the same mistake. Code done: the other 12
+  oneshot units carry no `RuntimeMaxSec` (neither do inline units in plays), and
+  `systemd-analyze verify` shows the "no effect" warning for the old unit but not the new
+  one. HOST verify pending (deploy leg 7).
 - [ ] ⬜ **Task 2.4**: `play-toolbox-install.yml` — ensure
   `~/.config/autostart/jetbrains-toolbox.desktop` is mode 0644 whenever it exists (the
   application rewrites it, so this must run every pass, not be `creates:`-guarded).

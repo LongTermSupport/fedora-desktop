@@ -9,6 +9,8 @@ StartLimitIntervalSec=0
 [Service]
 Type=oneshot
 # Caps the drain, never the run: an accepted request is handed to a transient
-# `systemd-run --user` service that outlives this oneshot.
-RuntimeMaxSec=120
+# `systemd-run --user` service that outlives this oneshot. TimeoutStartSec, because
+# a oneshot is still starting while it runs, and systemd ignores RuntimeMaxSec
+# for Type=oneshot.
+TimeoutStartSec=120
 ExecStart=%h/.local/bin/vmtest-bridge-watcher watch %f
