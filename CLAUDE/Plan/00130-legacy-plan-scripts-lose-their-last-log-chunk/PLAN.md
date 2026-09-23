@@ -237,10 +237,10 @@ between the operator and a one-shot run.
   not this plan, so asserting it dates the criterion for no gain — Task 2.4's own lesson.)
 - [ ] 🔄 `qa-reviewer` returns PASS — **run**, verdict FIX-BEFORE-MERGE with no BLOCK
   ([subagent-reports/260917-qa-reviewer-opus-5.md](subagent-reports/260917-qa-reviewer-opus-5.md)).
-  Seven of its eight findings are fixed. The eighth is an owner decision, not a fix: the
-  plan-local `00079/unit-test-selection.bash` duplicates `scripts/test-podfreeze.bash`,
-  which covers the same 13 functions, runs on every `qa-all.bash`, and does not retire into
-  `Completed/` when 00079 does. Re-run after that is settled.
+  Seven of its eight findings are fixed. The eighth, an owner decision, is settled: the
+  plan-local `00079/unit-test-selection.bash` is deleted, because `scripts/test-podfreeze.bash`
+  covers every function and edge case it did and runs on every `qa-all.bash`. 00079's
+  `acceptance.bash` now runs that suite. Re-run the review.
 
 ## Delivery & Milestones
 

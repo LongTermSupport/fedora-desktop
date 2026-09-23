@@ -63,8 +63,8 @@ session on GitHub account X" (D8).
   naming, dropping the image label, the group/derived-verb UX, identity axes,
   drill-down): [DECISIONS.md](DECISIONS.md)
 - Plan-local scripts: `triage.bash` (Phase 0 probes), `deploy.bash` (HOST entry
-  point, chains into `acceptance.bash`), `unit-test-selection.bash` (runs in
-  the container, no podman needed)
+  point, chains into `acceptance.bash`). `acceptance.bash` runs
+  `scripts/test-podfreeze.bash` first as its unit check
 - The recurring defect class this plan kept meeting — a partial result read as a
   complete one (F18–F23) — is recorded in `CLAUDE/AgentNotes.md`
 
@@ -118,7 +118,10 @@ See D4 and D6.
 - [x] ✅ **Task 2.4**: Plan-local `unit-test-selection.bash` — sources the
   tool's function region verbatim and drives it against a synthetic inventory
   (multi-network container, half-frozen group, empty CCY group, explicit verb
-  overriding the derived one). Needs no podman; `acceptance.bash` runs it first
+  overriding the derived one). Needs no podman; `acceptance.bash` runs it first.
+  **Since superseded**: deleted in favour of `scripts/test-podfreeze.bash` (Plan 00122),
+  which covers every function it did, runs in `qa-all.bash`, and is what
+  `acceptance.bash` now runs (Plan 00130's review, decided 2026-09-23)
 
 ### Phase 3: Deploy, acceptance, review
 

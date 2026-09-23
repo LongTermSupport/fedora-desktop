@@ -151,19 +151,22 @@ fi
 
 # The selection/labelling unit test runs first: if that logic is broken there is
 # no point manufacturing containers to discover it more slowly, and its failure
-# output points at a function rather than at a symptom.
-if [ ! -x "$PLAN_SCRIPT_DIR/unit-test-selection.bash" ]; then
-    echo "ERROR: unit-test-selection.bash is missing or not executable." >&2
+# output points at a function rather than at a symptom. It is the repo's own
+# scripts/test-podfreeze.bash, the qa-all.bash gate that covers every function this
+# plan's former plan-local copy did, so there is one suite to keep current, not two.
+PODFREEZE_TEST="$PLAN_REPO_ROOT/scripts/test-podfreeze.bash"
+if [ ! -f "$PODFREEZE_TEST" ]; then
+    echo "ERROR: $PODFREEZE_TEST is missing." >&2
     exit 1
 fi
-echo "### 0. selection/labelling unit test"
-# Only its STDOUT is parked, so a passing run stays readable. Its failures and the
-# run-log path its own plan_start_log announces both come through on stderr.
-if "$PLAN_SCRIPT_DIR/unit-test-selection.bash" > /dev/null; then
-    echo "  OK — unit test passes (it opened its own run log under untracked/plan-runs/)"
+echo "### 0. selection/labelling unit test (scripts/test-podfreeze.bash)"
+# Only its STDOUT is parked, so a passing run stays readable; failures come through
+# on stderr.
+if bash "$PODFREEZE_TEST" > /dev/null; then
+    echo "  OK — podfreeze decision tests pass"
 else
-    echo "ERROR: the selection unit test FAILED — not proceeding to containers." >&2
-    echo "  Its run log is named in the '==> run log' line it printed above." >&2
+    echo "ERROR: the podfreeze decision tests FAILED — not proceeding to containers." >&2
+    echo "  Re-run: bash scripts/test-podfreeze.bash" >&2
     exit 1
 fi
 echo
