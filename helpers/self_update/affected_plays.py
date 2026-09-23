@@ -323,9 +323,9 @@ def _repo_root_default() -> str:
 
 
 def main(argv: list[str] | None = None, *, stdout: TextIO | None = None, stderr: TextIO | None = None) -> int:
-    stdout = stdout or sys.stdout
-    stderr = stderr or sys.stderr
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
+    out: TextIO = stdout if stdout is not None else sys.stdout
+    err: TextIO = stderr if stderr is not None else sys.stderr
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n", 1)[0])
     parser.add_argument("--repo-root", default=_repo_root_default())
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--changed", nargs="+", metavar="PATH")
@@ -338,17 +338,17 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None, stderr:
         changed = args.changed or changed_between(args.repo_root, args.old, args.new)
         report = decide(args.repo_root, changed)
     except ValueError as error:
-        stderr.write(f"affected-plays: {error}\n")
+        err.write(f"affected-plays: {error}\n")
         return EXIT_ERROR
     for play in report.run:
-        stdout.write(f"RUN {play}\n")
+        out.write(f"RUN {play}\n")
     for play in report.skipped:
-        stdout.write(f"SKIP-NOT-ALLOWED {play}\n")
+        out.write(f"SKIP-NOT-ALLOWED {play}\n")
     for play, where in report.unresolved:
-        stdout.write(f"UNRESOLVED {play} {where}\n")
+        out.write(f"UNRESOLVED {play} {where}\n")
     allowed = set(load_allowlist(args.repo_root))
     if any(play in allowed for play, _ in report.unresolved):
-        stderr.write(
+        err.write(
             "affected-plays: an allowlisted play has a reference this helper cannot follow, "
             "so a change to it could be missed; see the UNRESOLVED lines\n"
         )
