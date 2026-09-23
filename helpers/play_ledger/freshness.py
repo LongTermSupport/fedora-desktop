@@ -38,6 +38,8 @@ class Verdict(NamedTuple):
     state: str
     #: `(short_sha, subject)` for each commit touching this play since the run.
     changes: tuple[tuple[str, str], ...]
+    #: For a GONE play in the retired-plays map, the play that absorbed it.
+    successor: str | None = None
 
 
 class Report(NamedTuple):
@@ -97,6 +99,22 @@ def classify(
     # disagree and nothing here can say which is right. Guessing is how a check
     # starts lying, so the disagreement itself is the finding.
     return Verdict(play, UNEXPLAINED, ())
+
+
+def retire(
+    verdict: Verdict, *, successor: str, successor_ran_after_removal: bool
+) -> Verdict | None:
+    """A GONE verdict for a play the retired-plays map names (helpers/play_ledger/retired.py).
+
+    None once the successor has run at a commit without the old play: whatever the
+    old play deployed is the successor's now, and it has been applied. Until then the
+    finding stands, naming the successor, because running it is the remedy.
+    """
+    if verdict.state != GONE:
+        raise ValueError(f"only a GONE verdict can be retired, got {verdict.state!r} for {verdict.play}")
+    if successor_ran_after_removal:
+        return None
+    return verdict._replace(successor=successor)
 
 
 def build_report(

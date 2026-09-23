@@ -19,7 +19,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from helpers.play_ledger import check_freshness, fetch_clock, ledger, repo, store
+from helpers.play_ledger import check_freshness, fetch_clock, ledger, repo, retired, store
 
 FORTY_HEX = "e" * 40
 SIXTY_FOUR_HEX = "1" * 64
@@ -311,6 +311,119 @@ class TestStreams(unittest.TestCase):
             )
             self.assertEqual(out.getvalue(), "")
             self.assertNotEqual(err.getvalue(), "")
+
+
+OLD_PLAY = "playbooks/imports/play-old.yml"
+NEW_PLAY = "playbooks/imports/play-new.yml"
+REMOVAL_COMMIT = "f" * 40
+
+
+class TestRetiredPlays(unittest.TestCase):
+    """A GONE play named in the retired-plays map says which play absorbed it, and
+    stops being reported once that play has run at a commit without the old one."""
+
+    def _run(self, base: str, *, retired_plays=None, exists=None, head_plays=(NEW_PLAY,)):
+        """`exists(commit, path)` answers path_exists_at; HEAD holds `head_plays`."""
+        exists = exists or (lambda commit, path: path in head_plays)
+        out, err = io.StringIO(), io.StringIO()
+        code = check_freshness.run(
+            base=base, repo_root="/repo", stdout=out, stderr=err,
+            fetch=lambda root: None,
+            changes_since=lambda root, commit, play: [],
+            play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX if play in head_plays else None,
+            retired_plays=retired_plays or (lambda root: {OLD_PLAY: NEW_PLAY}),
+            path_exists_at=lambda root, commit, path: exists(commit, path),
+        )
+        return code, out.getvalue(), err.getvalue()
+
+    def _seed_successor(self, base: str, *, commit: str) -> None:
+        store.append_record(base, ledger.build_record(
+            play=NEW_PLAY, name=NEW_PLAY, commit=commit, dirty=False,
+            play_sha256=SIXTY_FOUR_HEX, outcome="ok", changed=0,
+            started=STAMP, finished=STAMP,
+        ))
+
+    def test_before_the_successor_has_run_it_is_reported_with_the_successor_named(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [OLD_PLAY])
+            code, out, _ = self._run(base)
+            self.assertEqual(code, check_freshness.EXIT_FINDINGS)
+            self.assertIn(OLD_PLAY, out)
+            self.assertIn(f"run {NEW_PLAY}", out)
+
+    def test_once_the_successor_ran_after_the_removal_it_is_silent(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [OLD_PLAY])
+            self._seed_successor(base, commit=REMOVAL_COMMIT)
+            code, out, _ = self._run(
+                base, exists=lambda commit, path: path == NEW_PLAY
+                or (path == OLD_PLAY and commit != REMOVAL_COMMIT and commit != "HEAD"),
+            )
+            self.assertEqual(out, "")
+            self.assertEqual(code, check_freshness.EXIT_OK)
+
+    def test_a_successor_run_from_before_the_removal_does_not_retire_it(self) -> None:
+        """That run did not yet carry what the old play deployed."""
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [OLD_PLAY])
+            self._seed_successor(base, commit=FORTY_HEX)
+            code, out, _ = self._run(
+                base, exists=lambda commit, path: path == NEW_PLAY
+                or (path == OLD_PLAY and commit == FORTY_HEX),
+            )
+            self.assertEqual(code, check_freshness.EXIT_FINDINGS)
+            self.assertIn(f"run {NEW_PLAY}", out)
+
+    def test_an_unmapped_gone_play_reads_exactly_as_before(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, ["playbooks/imports/play-other.yml"])
+            code, out, _ = self._run(base)
+            self.assertEqual(code, check_freshness.EXIT_FINDINGS)
+            self.assertEqual(out, "playbooks/imports/play-other.yml — no longer exists at HEAD\n")
+
+    def test_a_malformed_map_is_untrustworthy_not_ignored(self) -> None:
+        def broken(root):
+            raise ValueError("retired-plays map is not valid JSON")
+
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [OLD_PLAY])
+            code, out, err = self._run(base, retired_plays=broken)
+            self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
+            self.assertIn("not valid JSON", err)
+            self.assertEqual(out, "")
+
+    def test_a_map_entry_whose_play_is_still_at_head_is_untrustworthy(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, ["playbooks/imports/play-other.yml"])
+            code, _, err = self._run(base, head_plays=(OLD_PLAY, NEW_PLAY))
+            self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
+            self.assertIn(OLD_PLAY, err)
+
+    def test_the_map_is_not_read_when_nothing_is_gone(self) -> None:
+        """It can only change a GONE answer, so a login with none asks git nothing more."""
+        read = []
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [NEW_PLAY])
+            code, _, _ = self._run(base, retired_plays=lambda root: read.append(root) or {})
+            self.assertEqual(code, check_freshness.EXIT_OK)
+            self.assertEqual(read, [])
+
+    def test_the_default_map_is_the_one_in_the_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as base, tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, retired.MAP_PATH)
+            os.makedirs(os.path.dirname(path))
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(f'{{"{OLD_PLAY}": "{NEW_PLAY}"}}\n')
+            _seed(base, [OLD_PLAY])
+            out = io.StringIO()
+            check_freshness.run(
+                base=base, repo_root=root, stdout=out, stderr=io.StringIO(),
+                fetch=lambda r: None,
+                changes_since=lambda r, commit, play: [],
+                play_sha256_at_head=lambda r, play: SIXTY_FOUR_HEX if play == NEW_PLAY else None,
+                path_exists_at=lambda r, commit, p: p == NEW_PLAY,
+            )
+            self.assertIn(f"run {NEW_PLAY}", out.getvalue())
 
 
 class TestDefaultWiring(unittest.TestCase):

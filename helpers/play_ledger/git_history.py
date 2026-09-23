@@ -109,3 +109,22 @@ def play_sha256_at_head(
         # "the play was deleted".
         return None
     return hashlib.sha256(result.stdout).hexdigest()
+
+
+def path_exists_at(
+    repo_root: str, commit: str, path: str, *, run: Runner = subprocess.run
+) -> bool:
+    """Whether `path` is in the tree of `commit`.
+
+    `ls-tree` prints nothing for an absent path and exits non-zero only when the
+    commit itself cannot be read — so, unlike `play_sha256_at_head`, "absent" and
+    "git failed" are told apart here, and a failure raises. The retired-plays rule
+    retires a finding on an absent answer, so a dead clone must not produce one.
+    """
+    result = run(
+        ["git", "-C", repo_root, "ls-tree", "--full-tree", "--name-only", commit, "--", path],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return path in result.stdout.splitlines()
