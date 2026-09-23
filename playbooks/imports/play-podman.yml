@@ -12,6 +12,7 @@
       ansible.builtin.dnf:
         name:
           - podman
+          - python3-pip  # the pip module below needs it; a Cloud Base image lacks it
         state: present
 
     - name: Install podman-compose (Docker Compose compatibility)

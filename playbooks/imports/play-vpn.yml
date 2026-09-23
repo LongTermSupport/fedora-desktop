@@ -17,6 +17,8 @@
         name:
           - wireguard-tools
           - NetworkManager-openvpn
+          - firewalld         # the permanent openvpn rule below is firewalld config
+          - python3-firewall  # firewalld's Python bindings for the Ansible module
         state: present
 
     # NetworkManager-openvpn-gnome is the GNOME NetworkManager-applet
@@ -28,8 +30,12 @@
         state: present
       when: provisioning_profile != 'server'
 
+    # offline: this play only records the rule. Starting a firewall is
+    # play-lxc-install-config.yml's job, with its SSH-lockout guard, so run on its own
+    # this play writes the rule and leaves firewalld's run state alone.
     - name: Allow OpenVPN Through Firewall
       ansible.posix.firewalld:
         service: openvpn
         permanent: true
+        offline: true
         state: enabled
