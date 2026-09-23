@@ -172,6 +172,23 @@ below.
   signal kind (`shutdown-warning` or `reboot-warning`) and the last step. Both now need
   `SUDO_USER`. Open decision 3 below is thereby reversed.
 
+- [x] ✅ **Task 3.7**: review fixes to 3.6 (`subagent-reports/260923-t36-fixes-opus-5.md`):
+
+  - The warning kind follows the **restore opt-in**, not the power action. The daemon's
+    two texts encode "a restore will follow" and "NO restore, leave a handoff". So
+    `ccy-sessions notify going-down` sends `reboot-warning` when this user's restore unit
+    is enabled and `shutdown-warning` when it is not. `ccy-sessions reboot` and both
+    names of `shutdown-with-update` use it.
+  - **Known and not fixed here:** the same texts name the action. With restore on, a
+    shutdown reads "will reboot"; with restore off, a reboot reads "will shut down". What
+    the agent is asked to do is right; the verb is not. Fixing that is a hooks-daemon
+    change: a kind for "restore follows" separate from the action. It has **not** been
+    filed, because the tracker is public; that is the owner's call.
+  - A warned shutdown that does not happen (blocked and answered N, no terminal to ask
+    on, the forced poweroff failing) sends `reboot-cancelled` and exits non-zero.
+  - A root shell (`SUDO_USER=root`) is refused before anything runs.
+  - All of this is driven for real under fakes in `scripts/test-ccy-sessions-reboot.bash`.
+
 ### Phase 4: Docs
 
 - [x] ✅ **Task 4.1**: `docs/tmux-sessions.md`: the row stays "gone" for plain tmux
@@ -203,9 +220,12 @@ below.
 - [ ] 🧑 **Task 5.6**: `reboot-with-update --in 2` over SSH with two sessions open: the
   dry-run rehearsal passes, updates run, both warnings arrive, the machine reboots as root,
   the sessions come back.
-- [ ] 🧑 **Task 5.7**: `shutdown-with-update --in 1` with a session open: the
-  `shutdown-warning` arrives in the session, the machine powers off, the session is back
-  after the next boot.
+- [ ] 🧑 **Task 5.7**: `shutdown-with-update --in 1` with a session open, once per opt-in
+  state. Read the text the session actually receives, not just that a warning arrived:
+  - restore **on**: it says a session restore will follow, the machine powers off, and
+    the session is back after the next boot;
+  - restore **off**: it says NO restore will follow and asks for a handoff, the agent
+    leaves one, and nothing is restored.
 - [ ] 🧑 **Task 5.5**: Put the evidence in the PR description.
 
 ## Dependencies

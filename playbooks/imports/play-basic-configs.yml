@@ -188,9 +188,9 @@
         group: root
         mode: "0755"
 
-    # The same script under a second name: it reads its own basename and, as
-    # reboot-with-update, warns the running ccy/cc sessions and reboots instead of
-    # shutting down (Plan 00135). A symlink, so the two can never drift apart.
+    # The same script under a second name: both warn the running ccy/cc sessions
+    # first, and it reads its own basename to reboot instead of shutting down
+    # (Plan 00135). A symlink, so the two can never drift apart.
     - name: Link reboot-with-update to the same script
       ansible.builtin.file:
         src: /usr/local/bin/shutdown-with-update

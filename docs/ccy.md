@@ -264,8 +264,18 @@ composes a message, so a reboot notice cannot become a prompt into a running age
 A live session whose project has **no** daemon CLI is a refusal, not a warning: the project
 is named, nothing is signalled, and nothing reboots. End that session or install the daemon
 there, then try again. `--dry-run` prints what would be signalled and reboots nothing.
-`ccy-sessions notify reboot-warning --minutes N` and `ccy-sessions notify reboot-cancelled`
-are the two halves on their own, for a reboot that something else is going to perform.
+`ccy-sessions notify going-down --minutes N` and `ccy-sessions notify reboot-cancelled`
+are the two halves on their own, for a reboot or shutdown that something else is going to
+perform.
+
+**Which warning a session gets follows the restore opt-in, not the power action.** The
+daemon has two fixed texts: `reboot-warning` says a session restore will follow, and
+`shutdown-warning` says none will and asks the agent for a handoff. So both the helper
+and `going-down` send `reboot-warning` when this user's restore unit is enabled and
+`shutdown-warning` when it is not. The texts also name the action, so with restore on a
+shutdown reads "will reboot", and with it off a reboot reads "will shut down". What the
+agent is asked to do is right either way. `notify reboot-warning` and
+`notify shutdown-warning` still send exactly the kind named.
 
 A plain `systemctl reboot` warns nobody — only the helper does. The restore still works
 after one; the sessions simply were not told.
@@ -273,12 +283,14 @@ after one; the sessions simply were not told.
 **`reboot-with-update [--in N]`** and **`shutdown-with-update [--in N]`** are the
 patch-cycle versions: the firmware, dnf, Flatpak, pipx and Rust updates, then the warning
 and countdown above (N defaults to 2), then the reboot or the shutdown — as root, since
-either over SSH is refused to a plain user. The shutdown sends `shutdown-warning` rather
-than `reboot-warning`; to a session the two are the same event with a longer gap, and a
-session that opted in to restore comes back at the next boot either way. Both rehearse the
-warning with `--dry-run` **before** updating, so a session that cannot be warned stops
-them before twenty minutes of `dnf`, not after. One script under two names, deployed by
-`play-basic-configs.yml`.
+either over SSH is refused to a plain user. The warning is `going-down`, so its kind
+follows the restore opt-in as above. Both rehearse the warning with `--dry-run`
+**before** updating, so a session that cannot be warned stops them before twenty minutes
+of `dnf`, not after. If the machine then does not go down — the shutdown is blocked and
+you answer N, there is no terminal to ask on, or the forced poweroff fails — the
+sessions are sent `reboot-cancelled`. Run them through `sudo` from your desktop user:
+from a root shell there is no ccy-sessions to warn with, and they refuse. One script
+under two names, deployed by `play-basic-configs.yml`.
 
 ---
 

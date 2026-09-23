@@ -3,25 +3,22 @@
 #
 # Two names, one script. Installed as /usr/local/bin/shutdown-with-update and, by symlink,
 # /usr/local/bin/reboot-with-update. Both run the updates, then warn every running ccy/cc
-# session through `ccy-sessions notify`, count down N minutes (default 2, `--in N`), warn
-# again at one minute, and only then bring the machine down. The name decides the signal
-# kind the sessions are sent and the last step:
-#   shutdown-with-update [--in N]   shutdown-warning, then shutdown -h now with the
-#                                   inhibitor prompt below
-#   reboot-with-update [--in N]     reboot-warning, then systemctl reboot
-# From a session's point of view the two are the same event with a longer gap: a session
-# that opted in to restore comes back at the next boot either way.
-# Both run as root via sudo and need SUDO_USER: the sessions belong to that user and are
-# found through that user's tmux server.
+# session through `ccy-sessions notify going-down`, count down N minutes (default 2,
+# `--in N`), warn again at one minute, and only then bring the machine down. The name
+# decides only the last step:
+#   shutdown-with-update [--in N]   shutdown -h now, with the inhibitor prompt below
+#   reboot-with-update [--in N]     systemctl reboot
+# The warning kind is NOT the name's: ccy-sessions picks it by whether the user's session
+# restore is enabled, because that is what decides whether an agent should hand off.
+# Both run as root via sudo from the desktop user and need SUDO_USER: the sessions belong
+# to that user and are found through that user's tmux server.
 set -euo pipefail
 
 MODE="shutdown"
-WARNING_KIND="shutdown-warning"
 case "$(basename "$0")" in
 shutdown-with-update) ;;
 reboot-with-update)
     MODE="reboot"
-    WARNING_KIND="reboot-warning"
     ;;
 *)
     echo "Error: this script must be invoked as shutdown-with-update or reboot-with-update, not $(basename "$0")" >&2
@@ -48,6 +45,25 @@ cancel() {
     exit 130
 }
 trap cancel INT TERM
+
+# After the countdown the Ctrl-C window is over, but the sessions are still expecting the
+# machine to go down. Any exit that is not the machine going down (the shutdown refused
+# and not forced, no terminal to ask on, a forced poweroff that fails) withdraws the
+# warning. A successful power action never returns here, or returns 0.
+withdraw_unless_down() {
+    local status=$?
+    if [ "$status" -ne 0 ]; then
+        echo "The machine is staying up; telling the sessions the $MODE is off." >&2
+        if ! sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify reboot-cancelled; then
+            echo "Error: the sessions could not be told; they still expect the $MODE." >&2
+        fi
+    fi
+    exit "$status"
+}
+
+# A minute, in seconds. Overridable so the countdown can be driven by a test; nothing else
+# should ever set it.
+MINUTE_SECONDS="${WITH_UPDATE_MINUTE_SECONDS:-60}"
 
 # A sleep the trap can interrupt: bash runs a handler only after the foreground command
 # finishes, so a plain `sleep 60` would honour Ctrl-C a minute late — after the reboot.
@@ -90,11 +106,17 @@ done
 # The warnings run as the invoking user, whose ccy-sessions is the one that can see that
 # user's tmux server. Checked here, and rehearsed with --dry-run, BEFORE the updates: a live
 # session whose project has no daemon CLI is a refusal, and finding that out after twenty
-# minutes of dnf would be the wrong order. The rehearsal is `ccy-sessions reboot --dry-run`
-# in both modes: it signals nothing, and what it checks — that every session can be reached
-# — is the same question for a shutdown.
+# minutes of dnf would be the wrong order. The rehearsal is the same notify with --dry-run:
+# it signals nothing, and prints the kind the sessions will actually be sent.
 if [ -z "${SUDO_USER:-}" ]; then
     echo "Error: $(basename "$0") must be run through sudo from the user whose sessions are to be warned" >&2
+    exit 1
+fi
+# From a root shell sudo reports SUDO_USER=root, and root has no ccy-sessions: the ccy
+# sessions are the desktop user's. Refused rather than run unwarned — an agent killed
+# mid-step by an unannounced power-off is what the warning exists to prevent.
+if [ "$SUDO_USER" = root ]; then
+    echo "Error: run $(basename "$0") through sudo from the desktop user whose ccy/cc sessions are to be warned, not from a root shell" >&2
     exit 1
 fi
 # Status captured explicitly: under strict mode a failed getent would otherwise abort
@@ -109,7 +131,7 @@ if [ ! -x "$CCY_SESSIONS" ]; then
     exit 1
 fi
 echo "Checking that every running ccy/cc session can be warned..."
-if ! sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" reboot --in "$REBOOT_MINUTES" --dry-run; then
+if ! sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify going-down --minutes "$REBOOT_MINUTES" --dry-run; then
     echo "Error: not every session can be warned (see above). Nothing was updated and the machine stays up." >&2
     exit 1
 fi
@@ -229,19 +251,22 @@ fi
 # as the user is refused by polkit on a session that is not local and active, which an SSH
 # login is not, and this command is as likely to be run over SSH as not.
 echo "Warning running ccy/cc sessions: $MODE in $REBOOT_MINUTES minute(s)..."
-sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify "$WARNING_KIND" --minutes "$REBOOT_MINUTES"
+sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify going-down --minutes "$REBOOT_MINUTES"
 SESSIONS_WARNED=true
 if [ "$REBOOT_MINUTES" -gt 1 ]; then
-    countdown $(((REBOOT_MINUTES - 1) * 60))
-    sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify "$WARNING_KIND" --minutes 1
+    countdown $(((REBOOT_MINUTES - 1) * MINUTE_SECONDS))
+    sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify going-down --minutes 1
     echo "${MODE^} in 1 minute..."
 fi
-countdown 60
-trap - INT TERM
+countdown "$MINUTE_SECONDS"
+# From here an interrupt is an exit like any other, so the EXIT trap withdraws the warning.
+trap 'exit 130' INT TERM
+trap withdraw_unless_down EXIT
 
 if [ "$MODE" = "reboot" ]; then
     echo "Rebooting..."
-    exec systemctl reboot
+    systemctl reboot
+    exit 0
 fi
 
 echo "Attempting shutdown..."
@@ -257,6 +282,7 @@ if ! shutdown -h now 2>&1; then
         echo "Forcing shutdown..."
         systemctl poweroff -i
     else
-        echo "Shutdown cancelled."
+        echo "Shutdown cancelled. The machine stays up." >&2
+        exit 1
     fi
 fi
