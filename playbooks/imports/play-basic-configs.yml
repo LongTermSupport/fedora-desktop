@@ -88,6 +88,17 @@
           - p7zip
       tags: packages
 
+    # Packages found on a host that nothing here installs or needs, removed so the host is
+    # what the repo declares. Thunar (Xfce's file manager) also registers the
+    # org.freedesktop.FileManager1 D-Bus name Nautilus owns, so dbus-broker logs a duplicate
+    # at every boot and "show in folder" may open either (Plan 00134 Task 2.6).
+    - name: Remove packages this repo does not want
+      ansible.builtin.dnf:
+        name:
+          - Thunar
+        state: absent
+      tags: packages
+
     # Passwordless sudo is a workstation convenience: one human at the keyboard, and a
     # password prompt on every dnf is friction with no security payoff. A server has no such
     # human and is reached by automation, where a permanent NOPASSWD:ALL is the whole ladder

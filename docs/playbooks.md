@@ -101,7 +101,8 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
 **Purpose**: Essential system configuration\
 **Actions**:
 
-- Installs basic packages (vim, wget, bash-completion, htop, etc.)
+- Installs basic packages (vim, wget, bash-completion, htop, etc.), and removes packages
+  the repo does not want (Thunar, whose D-Bus file-manager name clashes with Nautilus)
 - Configures passwordless sudo for the user on the **desktop** profile; on the **server**
   profile it removes that grant, because a permanent `NOPASSWD:ALL` on a box reached by
   automation is a ladder to root (headless runs get their credential from the preflight
