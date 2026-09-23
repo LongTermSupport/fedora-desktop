@@ -160,13 +160,15 @@ if [ ! -f "$PODFREEZE_TEST" ]; then
     exit 1
 fi
 echo "### 0. selection/labelling unit test (scripts/test-podfreeze.bash)"
-# Only its STDOUT is parked, so a passing run stays readable; failures come through
-# on stderr.
-if bash "$PODFREEZE_TEST" > /dev/null; then
+# The suite prints PASS and FAIL alike on stdout, so its output is captured, not dropped:
+# a passing run stays short, and a failing one prints every line, so the failing cases
+# reach the terminal and this script's run log.
+if podfreeze_out="$(bash "$PODFREEZE_TEST" 2>&1)"; then
     echo "  OK — podfreeze decision tests pass"
 else
-    echo "ERROR: the podfreeze decision tests FAILED — not proceeding to containers." >&2
-    echo "  Re-run: bash scripts/test-podfreeze.bash" >&2
+    printf '%s\n' "$podfreeze_out" >&2
+    echo "ERROR: the podfreeze decision tests FAILED (above) — not proceeding to containers." >&2
+    echo "  Re-run: bash $PODFREEZE_TEST" >&2
     exit 1
 fi
 echo

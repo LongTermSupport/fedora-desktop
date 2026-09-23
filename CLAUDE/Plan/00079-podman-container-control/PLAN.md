@@ -72,8 +72,8 @@ session on GitHub account X" (D8).
 
 ### Phase 0: Host triage + decision gate
 
-- [x] ✅ **Task 0.1**: Plan-local `triage.bash` written (read-only, HOST-only,
-  logs to this plan's gitignored `logs/`)
+- [x] ✅ **Task 0.1**: Plan-local `triage.bash` written (read-only, HOST-only; its run log
+  goes under `untracked/plan-runs/`)
 - [x] ✅ **Task 0.2**: Run on the HOST. H1–H3 confirmed, H4 partly; facts
   recorded (F1–F15) and the outcome journalled
 - [x] ✅ **Task 0.3**: **Decision gate PASSED.** Rootless pause is viable

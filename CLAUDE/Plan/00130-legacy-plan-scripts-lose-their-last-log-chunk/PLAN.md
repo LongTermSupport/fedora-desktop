@@ -116,7 +116,8 @@ between the operator and a one-shot run.
   reached its end AND the log drained. Both halves, measured, on a converted script.
 
   **Done in the container on 2026-09-17**: 00079's `unit-test-selection.bash` — the one
-  script in this set that runs anywhere, by its own header. `VERDICT: PASS`, exit 0, and
+  script in this set that runs anywhere, by its own header. (Deleted since, as a duplicate
+  of `scripts/test-podfreeze.bash`; this evidence stands for the run it records.) `VERDICT: PASS`, exit 0, and
   the log drained: 5,959 bytes ending on its own last line, byte-identical to the terminal.
 
   Getting there took a fix, and the fix is the argument for this task. The script had been
@@ -222,7 +223,7 @@ between the operator and a one-shot run.
 - [x] ✅ No `logs/` directory remains under `CLAUDE/Plan/NNNNN-*/` — same gate, same run
 - [ ] 🧑 Each converted script has been RUN and reaches its last line — **HOST** for the
   remainder. Proven in-container, drain included, for 00062's `triage.bash` and 00079's
-  `unit-test-selection.bash`; proven on the host for 00098's `triage.bash` (×2) and
+  `unit-test-selection.bash` (since deleted); proven on the host for 00098's `triage.bash` (×2) and
   `acceptance.bash`. The rest stop at a `plan_require_host` guard, which proves the
   bootstrap but not the last line. See Task 2.2
 - [x] ✅ `CLAUDE/Plan/meta-deploy.bash --list` names no script the batch consent cannot
