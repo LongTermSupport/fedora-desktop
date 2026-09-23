@@ -1002,6 +1002,10 @@ High-fidelity audio system:
 - **Bluetooth codecs**: LDAC (HQ), aptX, aptX-HD, AAC, SBC-XQ
 - **USB audio**: Special handling with larger buffers for DACs
 - **High-quality resampling**: Quality level 10
+- **WirePlumber 0.5 format**: the ALSA and Bluetooth rules are SPA-JSON in
+  `~/.config/wireplumber/wireplumber.conf.d/`. The play removes the Lua files older runs
+  wrote, which 0.5 ignores. It stops if any other Lua configuration is left in
+  `main.lua.d/` or `bluetooth.lua.d/`, and names those files so you can port or delete them
 
 **What you get**:
 

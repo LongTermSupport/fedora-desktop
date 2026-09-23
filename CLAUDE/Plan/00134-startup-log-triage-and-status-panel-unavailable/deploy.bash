@@ -22,6 +22,11 @@
 #   4. play-fedora-desktop-panel.yml — the consumer, LAST because it reads what leg 3
 #      produces: wrapped findings, "Copy these findings", and the plays section.
 #
+# PHASE 2 LEGS, independent of each other and of the legs above:
+#
+#   5. play-hd-audio.yml — the WirePlumber 0.5 SPA-JSON port (Task 2.1). It stops if Lua
+#      configuration it did not write is left in main.lua.d/ or bluetooth.lua.d/.
+#
 # Usage: ./deploy.bash [-h|--help] [-y|--yes]
 set -euo pipefail
 
@@ -53,6 +58,7 @@ Deploys the 2026-09-23 fixes on the HOST, fail-fast, in this order:
   playbooks/imports/play-basic-configs.yml          (shutdown-/reboot-with-update)
   playbooks/imports/optional/common/play-host-health-login-report.yml
   playbooks/imports/optional/common/play-fedora-desktop-panel.yml
+  playbooks/imports/optional/common/play-hd-audio.yml          (WirePlumber 0.5 port)
 
 -y/--yes is accepted; this script asks nothing, so it is a no-op here.
 --check is REFUSED: play-fedora-desktop-panel.yml reads a command task's registered
@@ -97,6 +103,9 @@ plan_deploy_leg "play-host-health-login-report.yml" \
 
 plan_deploy_leg "play-fedora-desktop-panel.yml" \
     plan_ansible_playbook playbooks/imports/optional/common/play-fedora-desktop-panel.yml
+
+plan_deploy_leg "play-hd-audio.yml" \
+    plan_ansible_playbook playbooks/imports/optional/common/play-hd-audio.yml
 
 printf '\n'
 printf '==> NEXT: log out and log back in, then check:\n'

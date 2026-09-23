@@ -77,11 +77,12 @@ containers that needs its own diagnosis (F7).
 
 ### Phase 2: defects the logs exposed
 
-- [ ] ⬜ **Task 2.1**: `play-hd-audio.yml` — port the two `.lua` files to
+- [ ] 🔄 **Task 2.1**: `play-hd-audio.yml` — port the two `.lua` files to
   `~/.config/wireplumber/wireplumber.conf.d/*.conf` (SPA-JSON `monitor.alsa.rules` /
   `monitor.bluez.properties` + `monitor.bluez.rules`), remove the `*.lua.d` files and
   directories, restart WirePlumber. Verify with `wpctl status` / `wpctl inspect` that
-  the properties are present on the nodes.
+  the properties are present on the nodes. Code done (node properties now match nodes,
+  not devices; other Lua left behind stops the play). HOST verify pending.
 - [ ] ⬜ **Task 2.2**: `play-browsers.yml` — resolve the duplicate `[vivaldi]` repo id:
   keep exactly one of the two repo files (the RPM's own post-install writes
   `vivaldi.repo`; the play writes `vivaldi-fedora.repo`) and make the play remove the
