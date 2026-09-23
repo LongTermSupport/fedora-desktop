@@ -237,8 +237,9 @@ What is replayed is the launch command line **minus the one-shot arguments**: `-
 (the agent socket is a different path after a reboot) and the like. Settings such as
 `--token`, `--ssh-key`, `--network` and `--no-supervise`, and everything after `--`, are
 kept. The full classification is `ccy_registry_flag_class` in
-`lib/session-registry.bash`, and a test fails on any launcher flag it does not classify. A restored session starts in a real tmux pane, so the
-launcher behaves as it always does, with three exceptions (since CCY 3.61.0). A restored
+`lib/session-registry.bash`, and a test fails on any launcher flag it does not classify.
+A restored session starts in a real tmux pane, so the launcher behaves as it always
+does, with three exceptions (since CCY 3.61.0). A restored
 `ccy` accepts its project's saved Quick Launch configuration, leaves containers left over
 from before the reboot running rather than asking what to do with them, and starts
 alongside sibling sessions in the same project. Each of these is the one answer that
@@ -259,7 +260,7 @@ session is `OK`. `--wait` keeps polling until they all are or the time runs out.
 | Launched with `--no-restore`              | Skips it: the record says so                                                                                                      |
 | Record's directory has since been deleted | Fails loudly, keeps the record for you, carries on with the others; the unit ends `failed`                                        |
 | Live session list cannot be read          | Starts nothing — restoring blind could double every session                                                                       |
-| Registry directory exists but is unlisted | Fails: an unreadable registry is not "nothing to restore"                                                                         |
+| Registry path is not a readable directory | Fails: an unreadable registry is not "nothing to restore"                                                                         |
 | Machine not opted in                      | Nothing runs. Records are still written and removed as sessions end; one left by a killed session stays until that name is reused |
 
 `ccy --no-restore` marks a one-off session as not worth bringing back. `ccy-sessions restore --dry-run` prints what a restore would start and starts nothing.

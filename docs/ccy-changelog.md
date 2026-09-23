@@ -41,7 +41,8 @@ difference was that it showed a token expiring today in yellow.
 fails part-way, a refused reboot, or an interrupt in the countdown sends
 `reboot-cancelled` to every project already warned, as `shutdown-with-update` does. A
 TERM while the reboot itself runs is ignored, because it is the machine going down.
-`shutdown-with-update` gained the same guard in the same change.
+`shutdown-with-update` gained the same guard afterwards (it is not a launcher file, so
+no version bump; commit 263367e8).
 
 `ccy-sessions verify-restore` names a waiting session only by the prompts in
 `ccy_known_prompts`. Two prompts a restored launch can reach were missing, so a session

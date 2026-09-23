@@ -97,19 +97,26 @@ esac
 EOF
 chmod 755 "$BIN/ps" "$BIN/podman"
 # systemctl: records the request and does nothing, or fails when TEST_SYSTEMCTL_RC says so.
-# TEST_SYSTEMCTL_TERM_CALLER=1 sends TERM to its caller first, as a real shutdown does to
-# every process while the power action is under way.
+# TEST_SYSTEMCTL_TERM_CALLER=1 makes `reboot` and `poweroff` send TERM to their caller first,
+# as a real shutdown does to every process while the power action is under way.
 cat >"$BIN/systemctl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'systemctl %s\n' "$*" >>"$TEST_LOG"
-if [ -n "${TEST_SYSTEMCTL_TERM_CALLER:-}" ]; then
+if [ -n "${TEST_SYSTEMCTL_TERM_CALLER:-}" ] && [[ "$*" == reboot* || "$*" == poweroff* ]]; then
     kill -TERM "$PPID"
     sleep 0.2
 fi
 exit "${TEST_SYSTEMCTL_RC:-0}"
 EOF
-chmod 755 "$BIN/tmux" "$BIN/systemctl"
+# pgrep: shutdown-with-update's akmods probe is `pgrep -f "[a]kmods"`, which matches any
+# process whose command line mentions akmods. A real pgrep let an unrelated shell on the
+# machine running this test hold every case in the five-minute akmods wait.
+cat >"$BIN/pgrep" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod 755 "$BIN/tmux" "$BIN/systemctl" "$BIN/pgrep"
 
 # project <dir> [with-cli] — a project directory, optionally holding a daemon CLI that logs
 # its arguments and the directory it was found in.
@@ -495,6 +502,7 @@ check "TERM while the reboot is under way: not treated as a cancel" "0" "$rc"
 check "and the sessions are not told the reboot is off" "0" "$(calls | grep -c 'reboot-cancelled')"
 
 TEST_SHUTDOWN_RC=1 TEST_SYSTEMCTL_TERM_CALLER=1 with_update shutdown-with-update "$HOME_OFF" "y" --in 1
+check "TERM while a forced poweroff is under way: exits 0" "0" "$rc"
 check "TERM while a forced poweroff is under way: not treated as a cancel" "0" "$(calls | grep -c 'reboot-cancelled')"
 
 TEST_SUDO_USER=root with_update shutdown-with-update "$HOME_OFF" "" --in 1

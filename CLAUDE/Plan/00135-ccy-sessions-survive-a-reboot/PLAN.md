@@ -313,7 +313,7 @@ other rather than diverge.
 - [ ] `--dry-run` signals nothing and reboots nothing.
 - [ ] A machine with restore disabled behaves exactly as before this plan.
 - [ ] `./scripts/qa-all.bash` green.
-- [ ] `qa-reviewer` agent over the full plan diff, findings resolved.
+- [x] ✅ `qa-reviewer` agent over the full plan diff, findings resolved (round 1 FIX-BEFORE-MERGE, round 2 PASS; journal 26-09-23).
 - [ ] No hostname, address, username or private path anywhere in the diff or the PR.
 
 ## Out of Scope — tracked separately
