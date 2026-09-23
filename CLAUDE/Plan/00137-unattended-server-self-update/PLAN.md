@@ -120,14 +120,14 @@ D1–D4 are the owner's choices, made 2026-09-23.
 
 ### Phase 1: Safe update and change detection
 
-- [ ] ⬜ **Task 1.1**: A tested helper that fetches, then refuses a dirty, diverged,
+- [x] ✅ **Task 1.1**: A tested helper that fetches, then refuses a dirty, diverged,
   detached or wrong-branch checkout, then fast-forwards (`merge --ff-only`). It prints the
   old and new SHAs and re-checks the Fedora version pin.
-- [ ] ⬜ **Task 1.2**: The trust gate (D3). Fast-forward only to the newest commit on the
+- [x] ✅ **Task 1.2**: The trust gate (D3). Fast-forward only to the newest commit on the
   branch that `git verify-commit` accepts against the pinned signer. Anything unsigned
   above it waits. No signed commit beyond the deployed one means nothing to do. A bad
   signature refuses the cycle; it never warns and continues.
-- [ ] ⬜ **Task 1.3**: `git diff --name-only OLD..NEW` mapped to plays: each play's own
+- [x] ✅ **Task 1.3**: `git diff --name-only OLD..NEW` mapped to plays: each play's own
   file, its `src:` files, `import_tasks`/`include_tasks`, the `vars/` it loads, and the
   `helpers/` it calls. The ledger's `judged` verdicts are layered on for GONE and
   UNEXPLAINED plays. The result is filtered by D2. TDD against fixture repos.
