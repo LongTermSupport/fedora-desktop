@@ -1,6 +1,6 @@
 # Plan 00137: unattended server self-update
 
-**Status**: Not Started — waiting on the owner decisions below (D1–D4)
+**Status**: In Progress
 **Created**: 2026-09-23
 **Owner**: joseph
 **Priority**: Medium
@@ -57,39 +57,76 @@ Each of those is a task below.
   (`play-host-health-login-report.yml:28-31`). This plan is the first automatic play
   runner, so D5 has to settle how that statement changes.
 
-## Decisions for the owner
+## Technical Decisions
 
-The options and trade-offs are in
+The options and trade-offs for each are in
 [RESEARCH-existing-pieces.md § Decisions](RESEARCH-existing-pieces.md#decisions-the-owner-must-make).
+D1–D4 are the owner's choices, made 2026-09-23.
 
-- **D1 — restart mechanism**: restore sessions in place; or reboot through Plan 00135's
-  restore; or reboot only when needed.
-- **D2 — which plays**: `play-claude-yolo.yml` only; or an allowlist file; or everything
-  the path diff maps to.
-- **D3 — trust gate**: accept push access = root and document it; or signed commits from a
-  pinned key; or green CI; or a release ref only the owner moves.
-- **D4 — which checkout**: the shared `~/Projects/fedora-desktop`, or a deploy-only clone.
-- **D5–D9**, with defaults proposed in the research doc and settled when Phase 1 starts:
-  - D5: the sudo credential;
-  - D6: the warning policy;
-  - D7: the reporting-only boundary;
-  - D8: failure behaviour;
-  - D9: cadence and window.
+- **D1 — restart: reboot through Plan 00135.** Pull, run the plays, warn with `ccy-sessions notify going-down`, then reboot. The boot-time restore brings the sessions back. This
+  keeps one restore path instead of two, and needs no in-place stop, whose kill path is
+  unproven. The machine reboots only when there is something to run. This makes Plan
+  00135's Phase 5 a hard dependency, and `ccy_restore_sessions` must be true on the
+  server.
+- **D2 — plays: a tracked allowlist**, seeded with `play-claude-yolo.yml`. A changed play
+  that is not on the list is reported, not run.
+- **D3 — trust: the tip must be signed by the owner's pinned key.** Every commit cannot be
+  signed, because the agents write most of them and must never hold the key. The cycle
+  therefore runs a commit only if it is signed by the pinned key, and that signature
+  vouches for the whole range from the last deployed commit to it. Unsigned commits
+  above it wait for the next signed one. Signing is not set up anywhere yet (Plan
+  00035 Phase 6 was research only), so this plan sets it up: SSH signing, and on the
+  server an `allowedSignersFile` holding only the owner's key.
+- **D4 — checkout: a deploy-only clone**, never mounted into a ccy container, updated only
+  by the timer.
+- **D5 — privilege: a root-owned sbin entry point, with scoped sudo.** The owner's
+  pattern: `/usr/local/sbin/fedora-desktop-self-update` is owned by root and not writable
+  (or readable) by the user. The timer is a system unit, so it runs the script as root
+  directly. A sudoers drop-in lets the owner run that one script manually without a
+  password, and nothing else. The limit is that Ansible's `become` cannot be scoped: it
+  runs `sudo … /bin/sh -c <python>`, which is arbitrary, and the plays cannot run as root
+  outright, because their `systemctl --user` tasks need the user's own manager. So the
+  script runs the plays as the user and hands Ansible the become password from a
+  root-only 0600 file, on an inherited file descriptor. The user's shell and the ccy
+  containers can never read the file, and no `NOPASSWD:ALL` exists. The file is
+  provisioned through vault, never hardcoded.
+- **D6 — warning: 3 minutes, configurable.** A session can only fail to be warned when
+  its project has no hooks-daemon CLI (`.claude/hooks-daemon/bin/hooks-daemon`), for
+  example a project that does not use the daemon. `notify` refuses rather than reboot
+  over it. Default: skip the cycle and alert (D8's channel), then retry next run.
+- **D7 — boundary: its own opt-in play**, enabled per server by a `host_vars` flag. Plan
+  00109's "re-running a play is a human decision" still holds everywhere the flag is off.
+- **D8 — failure: no reboot, and an alert through a real channel.** Every failure alerts,
+  whether a play failed, the gate refused, or a session could not be warned, and so does
+  a completed cycle's summary. The sinks are pluggable: a Slack webhook (URL in vault)
+  and/or a GitHub issue in a **private** repo. This repo is public, so an alert here
+  could expose install details. The host-health report also carries the last result.
+- **D9 — cadence: nightly** (around 03:30, `RandomizedDelaySec` up to 30 minutes,
+  `Persistent`). There is no "someone is watching" check: the owner judged it not worth
+  including.
 
 ## Tasks
 
 ### Phase 0: Decisions
 
-- [ ] ⬜ **Task 0.1**: Record D1–D4 as Technical Decisions below, with the owner's reasons.
-- [ ] ⬜ **Task 0.2**: Settle D5–D9 (proposed defaults, owner confirms) and record them.
+- [x] ✅ **Task 0.1**: Record D1–D4 as Technical Decisions above.
+- [x] ✅ **Task 0.2**: Settle D5–D9 and record them. The owner answered D5, D6, D8 and D9;
+  D7 is the stated default.
+- [ ] ⬜ **Task 0.4**: Owner picks the alert sink(s) for D8 (Slack webhook, private-repo
+  GitHub issue, or both). This does not block Phases 1–3.
+- [ ] ⬜ **Task 0.3**: Signing IaC: an SSH signing key for the owner on the desktop, git
+  configured to sign, and the public key published through a `host_vars` placeholder,
+  never hardcoded. The deploy clone's `gpg.ssh.allowedSignersFile` holds only that key.
 
 ### Phase 1: Safe update and change detection
 
 - [ ] ⬜ **Task 1.1**: A tested helper that fetches, then refuses a dirty, diverged,
   detached or wrong-branch checkout, then fast-forwards (`merge --ff-only`). It prints the
   old and new SHAs and re-checks the Fedora version pin.
-- [ ] ⬜ **Task 1.2**: The trust gate chosen in D3, applied to the new SHA before anything
-  runs. Refuse, never warn and continue.
+- [ ] ⬜ **Task 1.2**: The trust gate (D3). Fast-forward only to the newest commit on the
+  branch that `git verify-commit` accepts against the pinned signer. Anything unsigned
+  above it waits. No signed commit beyond the deployed one means nothing to do. A bad
+  signature refuses the cycle; it never warns and continues.
 - [ ] ⬜ **Task 1.3**: `git diff --name-only OLD..NEW` mapped to plays: each play's own
   file, its `src:` files, `import_tasks`/`include_tasks`, the `vars/` it loads, and the
   `helpers/` it calls. The ledger's `judged` verdicts are layered on for GONE and
@@ -106,26 +143,36 @@ The options and trade-offs are in
 
 ### Phase 3: Sessions
 
-- [ ] ⬜ **Task 3.1**: `ccy-sessions stop`. It ends every live session without removing its
-  record, waits until no ccy container is left, and fails loudly if one survives. Add
-  tests for record survival under SIGHUP and SIGTERM (only SIGKILL is tested today).
-- [ ] ⬜ **Task 3.2**: A restore that cannot block on a prompt, plus a post-restore check:
-  the pane is alive, the container is up, and `capture-pane` shows no prompt. Anything
-  else is reported.
-- [ ] ⬜ **Task 3.3**: Wire the warning (`notify going-down`), the wait, and D6's policy for
-  a project without a daemon CLI.
+- [ ] ❌ **Task 3.1**: ~~`ccy-sessions stop` that keeps the records~~. Cancelled by D1:
+  the reboot ends the sessions, and Plan 00135 proves that path keeps their records.
+- [ ] ⬜ **Task 3.2**: A boot-time restore that cannot block on a prompt, plus a
+  post-restore check: the pane is alive, the container is up, and `capture-pane` shows no
+  prompt. Anything else is reported. Blocking menus include a zombie container, an
+  existing container, and a token or network prompt.
+- [ ] ⬜ **Task 3.3**: The warn-then-reboot step. Reuse `reboot-with-update`'s warning and
+  countdown, with its withdraw-on-failure behaviour, but skip its package updates. Apply
+  D6's policy for a project without a daemon CLI.
+- [ ] ⬜ **Task 3.4**: Record the cycle's own state across the reboot: what it deployed and
+  that a restore check is owed. The post-boot check then reports against it.
 
 ### Phase 4: The cycle, its units and its play
 
 - [ ] ⬜ **Task 4.1**: One orchestrator, tested under fakes: lock, update, gate, detect;
-  then, only if something is to run: warn, wait, stop, run, restore, verify; then report.
-  D8 decides what happens after a failed play.
+  then, only if something is to run: run the plays, warn, reboot. After boot: restore,
+  verify, report. D8 decides what happens after a failed play: reboot anyway, or leave
+  the sessions running and alert.
 - [ ] ⬜ **Task 4.2**: A systemd timer and service pair (D9 sets the cadence), deployed and
   enabled only on the server profile. Follow the `play-host-health-login-report.yml`
   pattern: separate reloads, and a read-back of the live dependency graph. Its place in
   the IaC graph follows D5 and D7.
 - [ ] ⬜ **Task 4.3**: Results reach the host-health report, so a failed or skipped cycle
   shows up in the login snippet.
+- [ ] ⬜ **Task 4.5**: The alert sinks from D8/Task 0.4. The secret lives in vault. The
+  message carries no hostname, username or path (public-repo rule), and a sink that
+  fails to deliver is itself reported.
+- [ ] ⬜ **Task 4.6**: The root sbin script, its sudoers drop-in (that one command only;
+  validated with `visudo -c` before install), and the root-only become-password file
+  provisioned from vault.
 - [ ] ⬜ **Task 4.4**: `deploy.bash` and `acceptance.bash` for this plan (host-only). The
   acceptance script prints a coverage line and names anything it cannot establish.
 
