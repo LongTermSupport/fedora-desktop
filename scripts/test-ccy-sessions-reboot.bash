@@ -68,11 +68,12 @@ case "$*" in
     ;;
 esac
 EOF
-# systemctl: records the request and does nothing.
+# systemctl: records the request and does nothing, or fails when TEST_SYSTEMCTL_RC says so.
 cat >"$BIN/systemctl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'systemctl %s\n' "$*" >>"$TEST_LOG"
+exit "${TEST_SYSTEMCTL_RC:-0}"
 EOF
 chmod 755 "$BIN/tmux" "$BIN/systemctl"
 
@@ -87,6 +88,10 @@ project() {
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'cli[%s] %s\n' "$(cd "$(dirname "$0")/../../.." && pwd)" "$*" >>"$TEST_LOG"
+# TEST_CLI_FAIL_MATCH: refuse any call whose arguments contain it (a warning that fails).
+if [ -n "${TEST_CLI_FAIL_MATCH:-}" ] && [[ "$*" == *"$TEST_CLI_FAIL_MATCH"* ]]; then
+    exit 1
+fi
 EOF
         chmod 755 "$dir/.claude/hooks-daemon/bin/hooks-daemon"
     fi
@@ -109,15 +114,21 @@ fake_home() {
     local home="$1" restore="$2"
     mkdir -p "$home/.config/systemd/user/default.target.wants" "$home/.local/bin"
     ln -s "$TOOL" "$home/.local/bin/ccy-sessions"
-    if [ "$restore" = on ]; then
+    # The link resolves only when the unit it points at exists, as on a deployed host.
+    if [ "$restore" = on ] || [ "$restore" = dangling ]; then
         ln -s ../ccy-sessions-restore.service \
             "$home/.config/systemd/user/default.target.wants/ccy-sessions-restore.service"
+    fi
+    if [ "$restore" = on ]; then
+        : >"$home/.config/systemd/user/ccy-sessions-restore.service"
     fi
 }
 HOME_ON="$SCRATCH/home-restore-on"
 HOME_OFF="$SCRATCH/home-restore-off"
+HOME_DANGLING="$SCRATCH/home-restore-dangling"
 fake_home "$HOME_ON" on
 fake_home "$HOME_OFF" off
+fake_home "$HOME_DANGLING" dangling
 
 # run <args...> — the tool under the fakes, minutes shortened to nothing so a countdown
 # completes inside a test. stdout+stderr captured; status in $rc. The home is one with
@@ -188,6 +199,9 @@ TEST_HOME="$HOME_OFF" run notify going-down --minutes 5
 check "restore off: each project is told shutdown-warning (no restore, hand off)" "2" \
     "$(calls | grep -c 'signal shutdown-warning --minutes 5 --all-sessions')"
 check "restore off: and no reboot-warning" "0" "$(calls | grep -c 'signal reboot-warning')"
+TEST_HOME="$HOME_DANGLING" run notify going-down --minutes 5
+check "a dangling wants-symlink is restore OFF: it pulls in nothing at boot" "2" \
+    "$(calls | grep -c 'signal shutdown-warning --minutes 5 --all-sessions')"
 TEST_HOME="$HOME_OFF" run notify going-down --minutes 5 --dry-run
 check "going-down --dry-run succeeds" "0" "$rc"
 check "and invokes no daemon CLI" "0" "$(calls | grep -c '^cli')"
@@ -390,6 +404,25 @@ with_update reboot-with-update "$HOME_OFF" "" --in 1
 check "reboot-with-update, restore off: shutdown-warning, since nothing comes back" "2" \
     "$(calls | grep -c 'signal shutdown-warning --minutes 1 ')"
 check "and reboots" "1" "$(calls | grep -c '^systemctl reboot$')"
+
+TEST_SYSTEMCTL_RC=1 with_update reboot-with-update "$HOME_OFF" "" --in 1
+check "a failed reboot request: exits non-zero" "yes" "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check "and every warned project is told reboot-cancelled" "2" "$(calls | grep -c 'signal reboot-cancelled --all-sessions')"
+
+TEST_SHUTDOWN_RC=1 TEST_SYSTEMCTL_RC=1 with_update shutdown-with-update "$HOME_OFF" "y" --in 1
+check "a failed forced poweroff: exits non-zero" "yes" "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check "and every warned project is told reboot-cancelled" "2" "$(calls | grep -c 'signal reboot-cancelled --all-sessions')"
+
+TEST_CLI_FAIL_MATCH="--minutes 1 " with_update reboot-with-update "$HOME_OFF" "" --in 2
+check "a failed one-minute warning: exits non-zero" "yes" "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check "and the two-minute warning is withdrawn" "2" "$(calls | grep -c 'signal reboot-cancelled --all-sessions')"
+check "and nothing reboots" "0" "$(calls | grep -c '^systemctl reboot$')"
+
+TEST_CLI_FAIL_MATCH="--minutes 1 " with_update shutdown-with-update "$HOME_OFF" "" --in 1
+check "a first warning that fails part-way: exits non-zero" "yes" "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check "and whatever was reached is withdrawn" "yes" \
+    "$([ "$(calls | grep -c 'signal reboot-cancelled --all-sessions')" -ge 1 ] && echo yes || echo no)"
+check "and nothing shuts down" "0" "$(calls | grep -c '^shutdown -h now$')"
 
 TEST_SUDO_USER=root with_update shutdown-with-update "$HOME_OFF" "" --in 1
 check "run from a root shell (SUDO_USER=root): refused" "1" "$rc"

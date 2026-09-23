@@ -188,7 +188,8 @@ signal_projects() {
 # play-claude-yolo.yml manages), shutdown-warning when it is not.
 going_down_kind() {
     local wants="${HOME}/.config/systemd/user/default.target.wants/ccy-sessions-restore.service"
-    if [[ -L "${wants}" || -e "${wants}" ]]; then
+    # -e follows the link: a dangling wants-symlink pulls in nothing at boot.
+    if [[ -e "${wants}" ]]; then
         printf 'reboot-warning\n'
     else
         printf 'shutdown-warning\n'

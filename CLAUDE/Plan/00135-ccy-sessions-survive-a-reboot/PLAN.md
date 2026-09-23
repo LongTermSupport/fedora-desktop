@@ -184,10 +184,14 @@ below.
     the agent is asked to do is right; the verb is not. Fixing that is a hooks-daemon
     change: a kind for "restore follows" separate from the action. It has **not** been
     filed, because the tracker is public; that is the owner's call.
-  - A warned shutdown that does not happen (blocked and answered N, no terminal to ask
-    on, the forced poweroff failing) sends `reboot-cancelled` and exits non-zero.
+  - From the first warning on, any exit that is not the machine going down sends
+    `reboot-cancelled` and exits non-zero. That covers a warning that fails part-way or
+    at one minute, Ctrl-C, a blocked shutdown answered N, no terminal to ask on, and a
+    forced poweroff or reboot request that fails.
   - A root shell (`SUDO_USER=root`) is refused before anything runs.
-  - All of this is driven for real under fakes in `scripts/test-ccy-sessions-reboot.bash`.
+  - A dangling wants-symlink reads as restore off.
+  - Each case above is driven under fakes in `scripts/test-ccy-sessions-reboot.bash`. A
+    real `shutdown -h now` blocked by inhibitors is left to Task 5.7.
 
 ### Phase 4: Docs
 

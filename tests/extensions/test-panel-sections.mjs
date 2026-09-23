@@ -674,7 +674,7 @@ test('the panel says what it launched, and never that the play ran', () => {
     EXECUTABLES.add(COMMAND_PATH);
     playRow(renderPlays(withPlays([{play: PLAY, state: 'stale'}])), PLAY).emit('activate');
     assert.equal(NOTIFICATIONS.length, 1);
-    assert.match(NOTIFICATIONS[0].body, /Launched/);
+    assert.match(NOTIFICATIONS[0].body, /Opened a terminal to run/);
     assert.match(NOTIFICATIONS[0].body, /play-claude-yolo\.yml/);
     assert.doesNotMatch(NOTIFICATIONS[0].body, /\b(ran|succeeded|applied|done)\b/i);
 });

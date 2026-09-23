@@ -38,21 +38,19 @@ cancel() {
     fi
     echo ""
     echo "${MODE^} cancelled by user."
-    if [ "$SESSIONS_WARNED" = true ]; then
-        sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify reboot-cancelled
-    fi
-    # 130, as ccy-sessions exits on the same event.
+    # 130, as ccy-sessions exits on the same event. The EXIT trap withdraws the warning.
     exit 130
 }
 trap cancel INT TERM
 
-# After the countdown the Ctrl-C window is over, but the sessions are still expecting the
-# machine to go down. Any exit that is not the machine going down (the shutdown refused
-# and not forced, no terminal to ask on, a forced poweroff that fails) withdraws the
-# warning. A successful power action never returns here, or returns 0.
+# Armed just BEFORE the first warning goes out, so every exit from then on that is not the
+# machine going down withdraws it: a warning that failed part-way (some projects already
+# signalled), a failed one-minute warning, Ctrl-C in the countdown, a shutdown refused and
+# not forced, no terminal to ask on, a power action that fails. A successful power action
+# never returns here, or returns 0.
 withdraw_unless_down() {
     local status=$?
-    if [ "$status" -ne 0 ]; then
+    if [ "$status" -ne 0 ] && [ "$SESSIONS_WARNED" = true ]; then
         echo "The machine is staying up; telling the sessions the $MODE is off." >&2
         if ! sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify reboot-cancelled; then
             echo "Error: the sessions could not be told; they still expect the $MODE." >&2
@@ -251,17 +249,18 @@ fi
 # as the user is refused by polkit on a session that is not local and active, which an SSH
 # login is not, and this command is as likely to be run over SSH as not.
 echo "Warning running ccy/cc sessions: $MODE in $REBOOT_MINUTES minute(s)..."
-sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify going-down --minutes "$REBOOT_MINUTES"
+# Set BEFORE the notify: one that fails part-way has already reached some projects.
 SESSIONS_WARNED=true
+trap withdraw_unless_down EXIT
+sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify going-down --minutes "$REBOOT_MINUTES"
 if [ "$REBOOT_MINUTES" -gt 1 ]; then
     countdown $(((REBOOT_MINUTES - 1) * MINUTE_SECONDS))
     sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify going-down --minutes 1
     echo "${MODE^} in 1 minute..."
 fi
 countdown "$MINUTE_SECONDS"
-# From here an interrupt is an exit like any other, so the EXIT trap withdraws the warning.
+# The Ctrl-C window is over: from here an interrupt is an exit like any other.
 trap 'exit 130' INT TERM
-trap withdraw_unless_down EXIT
 
 if [ "$MODE" = "reboot" ]; then
     echo "Rebooting..."

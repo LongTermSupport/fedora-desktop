@@ -54,7 +54,7 @@ function appendPlay(menu, {play, state}) {
     item.connect('activate', () => {
         const byHand = `${StatusDocument.ON_DEMAND_COMMAND} --run-play ${play}`;
         if (launchOnDemand(['--run-play', play, '--hold'], byHand)) {
-            Main.notify('Fedora Desktop', `Launched ${play} in a terminal`);
+            Main.notify('Fedora Desktop', `Opened a terminal to run ${play}`);
         }
     });
     menu.addMenuItem(item);
