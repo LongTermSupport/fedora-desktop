@@ -68,7 +68,7 @@ containers that needs its own diagnosis (F7).
   whose key still exists, or whose successor does not, is an error. Seeded with
   `play-claude-code.yml → play-claude-yolo.yml` (merged for the Plan 00135 `cc` break).
   Only a successful successor run retires it.
-- [ ] ⬜ **Task 1.6**: the ad-hoc skip against real Ansible — extend
+- [x] ✅ **Task 1.6**: the ad-hoc skip against real Ansible — extend
   `tests/helpers/play_ledger/test_source_position_against_real_ansible.py` so it drives
   the callback's playbook-start → play-start path with the CLI's `__adhoc_playbook__`
   marker, so an Ansible change to that marker fails a test. Then decide what
