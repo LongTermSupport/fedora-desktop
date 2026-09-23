@@ -1,8 +1,9 @@
 # Plan 00079: Podman container control — freeze/thaw by container, network, and CCY group
 
-**Status**: Blocked — Task 3.3b is HOST ACTION and Task 3.4 is gated behind it.
-Unblocks with one `deploy.bash` run on the HOST followed by `acceptance.bash`;
-no acceptance run has ever executed against the reviewed code.
+**Status**: In Progress. Task 3.3b is done: the 2026-09-23 host batch ran acceptance against
+the reviewed code, `VERDICT: PASS`. Two success criteria remain before Task 3.4, both in
+Task 3.5. One is the interactive picker, with and without fzf, which is a human check at a
+HOST terminal. The other is a confirming `qa-reviewer` PASS.
 **Created**: 2026-08-19
 **Owner**: joseph
 **Priority**: Medium
@@ -200,14 +201,19 @@ See D4 and D6.
   them. It is a repo-wide migration and wants its own plan; raising it rather than
   quietly widening this one.
 
-- [ ] 🚫 **Task 3.3b**: **Blocked — HOST ACTION.** Re-run
-  `CLAUDE/Plan/00079-podman-container-control/deploy.bash` on the HOST. Task 3.3d
-  changed `podfreeze` again, so the host binary is stale by design and
-  `acceptance.bash` will refuse to vouch for it (`acceptance.bash:134-140`). This
-  is the only outstanding review finding: **no acceptance run has ever executed
-  against the reviewed code** — runs 3, 4 and 5 all predate the fix commit, so
-  checks 13, 13b and the COVERAGE line have never run against what they were
-  written for. Every success criterion below stays unticked until it does.
+- [x] ✅ **Task 3.3b**: **HOST ACTION, done by the 2026-09-23 batch.** It ran `deploy.bash`,
+  which chains into acceptance, and a separate `acceptance.bash`. Both returned
+  `VERDICT: PASS — 22 check(s) passed, 1 skipped` against the byte-checked deployed copy.
+  Check 13 ran against 6 of 6 labelled sessions. Check 13b SKIPs by design when no
+  unlabelled session is running. Journal 26-09-23. This closes the re-review's one
+  outstanding finding: runs 3, 4 and 5 predated Task 3.3d's fix commit, so until now no
+  acceptance run had executed against the reviewed code.
+
+- [ ] ⬜ **Task 3.5**: The two open success criteria. (a) **Human, at a HOST terminal**:
+  run `podfreeze` with no target, once with `fzf` on `PATH` and once without, and in each
+  open a group, act on it and quit. (b) A confirming `qa-reviewer` run over the plan's
+  diff; the last verdict (Task 3.3c) was FIX-BEFORE-MERGE, and Task 3.3d's fixes have not
+  been reviewed.
 
 - [ ] ⬜ **Task 3.4**: Mark plan Complete, move to `Completed/`, update README
   index + statistics in the same commit
@@ -219,19 +225,23 @@ See D4 and D6.
 
 ## Success Criteria
 
-- [ ] `podfreeze freeze --network <net>` pauses exactly the containers on
-  that network, and prints the exact set it touched
-- [ ] `podfreeze freeze --ccy` / `thaw --ccy` operates on all CCY
-  containers (labelled and legacy-named)
-- [ ] Interactive picker works with and without fzf
-- [ ] Refuses to run inside a container; `--dry-run` changes nothing
-- [ ] `acceptance.bash` renders `VERDICT: PASS` on the HOST against the
+- [x] `podfreeze freeze --network <net>` pauses exactly the containers on
+  that network, and prints the exact set it touched *(acceptance checks 4-6, HOST 2026-09-23)*
+- [x] `podfreeze freeze --ccy` / `thaw --ccy` operates on all CCY
+  containers (labelled and legacy-named) *(check 9 against the live labelled fleet; the
+  name-pattern path in check 0's suite, and live in the Task 3.2b run)*
+- [ ] Interactive picker works with and without fzf — **not exercised by any run**
+  (`pick_target` needs a TTY). Human check at a HOST terminal
+- [x] Refuses to run inside a container; `--dry-run` changes nothing *(checks 2, 4, 9)*
+- [x] `acceptance.bash` renders `VERDICT: PASS` on the HOST against the
   deployed copy (it refuses to vouch for a binary that differs from the repo)
-- [ ] New CCY containers carry `ccy`, `ccy-project`, `ccy-github`, `ccy-token`
+  *(2026-09-23, twice)*
+- [x] New CCY containers carry `ccy`, `ccy-project`, `ccy-github`, `ccy-token`
   and `ccy-ssh-keys` labels, and `podfreeze --github <id>` resolves exactly the
-  sessions on that account (D4, D8)
+  sessions on that account (D4, D8) *(triage H6: 6 of 6 sessions carry all five; check 13)*
 - [ ] `./scripts/qa-all.bash` passes; `qa-reviewer` verdict is PASS (or PASS
-  WITH NITS, nits addressed or accepted)
+  WITH NITS, nits addressed or accepted) — the last verdict (Task 3.3c) was
+  FIX-BEFORE-MERGE; Task 3.3d's fixes await a confirming review
 
 ## Delivery & Milestones
 
