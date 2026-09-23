@@ -61,7 +61,7 @@ containers that needs its own diagnosis (F7).
 - [ ] ⬜ **Task 1.4**: Document in `docs/` that the BROKEN sentinel is cleared with the
   command the check prints, and that this is the operator's route (already coded in
   `check_freshness --clear-broken`).
-- [ ] 🔄 **Task 1.5**: `helpers/play_ledger` — a removed play is reported `GONE` for ever.
+- [x] ✅ **Task 1.5**: `helpers/play_ledger` — a removed play is reported `GONE` for ever.
   A tracked retired-plays map names each removed play's successor; the `GONE` finding
   names that successor and stops once the successor has run after the removal. An entry
   whose key still exists, or whose successor does not, is an error. Seeded with
