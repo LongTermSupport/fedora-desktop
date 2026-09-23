@@ -318,6 +318,59 @@ NEW_PLAY = "playbooks/imports/play-new.yml"
 REMOVAL_COMMIT = "f" * 40
 
 
+class TestJudgedSink(unittest.TestCase):
+    """`judged` receives EVERY verdict, fresh included — the panel's play runner lists
+    plays with their state, and a fresh play is the commonest row in it."""
+
+    def _run(self, base: str, judged: list, **overrides: Any) -> int:
+        arguments: dict[str, Any] = {
+            "fetch": lambda root: None,
+            "changes_since": lambda root, commit, play: (
+                [("abc1234", "x")] if "stale" in play else []
+            ),
+            "play_sha256_at_head": lambda root, play: SIXTY_FOUR_HEX,
+        }
+        arguments.update(overrides)
+        return check_freshness.run(
+            base=base, repo_root="/repo", stdout=io.StringIO(), stderr=io.StringIO(),
+            judged=judged, **arguments,
+        )
+
+    def test_fresh_and_stale_plays_both_arrive_with_their_states(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, ["playbooks/fresh.yml", "playbooks/stale.yml"])
+            judged: list = []
+            self._run(base, judged)
+            self.assertEqual(
+                [(verdict.play, verdict.state) for verdict in judged],
+                [("playbooks/fresh.yml", "fresh"), ("playbooks/stale.yml", "stale")],
+            )
+
+    def test_a_broken_ledger_judges_nothing_into_the_sink(self) -> None:
+        """No per-play state is known while the sentinel stands, so none is offered."""
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, ["playbooks/fresh.yml"])
+            store.mark_broken(base, error="a hole", at=STAMP)
+            judged: list = []
+            self._run(base, judged)
+            self.assertEqual(judged, [])
+
+    def test_an_unresolvable_commit_judges_nothing_into_the_sink(self) -> None:
+        """A partial list is not offered as the whole: the run answered untrustworthy."""
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, ["playbooks/a.yml", "playbooks/b.yml"])
+            judged: list = []
+
+            def changes(root: str, commit: str, play: str) -> list:
+                if play.endswith("b.yml"):
+                    raise RuntimeError("bad object")
+                return []
+
+            code = self._run(base, judged, changes_since=changes)
+            self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
+            self.assertEqual(judged, [])
+
+
 class TestRetiredPlays(unittest.TestCase):
     """A GONE play named in the retired-plays map says which play absorbed it, and
     stops being reported once that play has run at a commit without the old one."""

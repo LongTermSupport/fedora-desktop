@@ -18,6 +18,11 @@
     max-width: 36em;
 }
 
+.fedora-desktop-play {
+    font-size: 0.95em;
+    max-width: 36em;
+}
+
 .fedora-desktop-detail {
     font-size: 0.9em;
     color: #aaaaaa;

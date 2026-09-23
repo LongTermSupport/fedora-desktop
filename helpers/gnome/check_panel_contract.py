@@ -57,6 +57,7 @@ PANEL_JS = os.path.join(
 PANEL_SOURCES = (
     PANEL_JS,
     os.path.join("extensions", "fedora-desktop@fedora-desktop", "sections", "health.js"),
+    os.path.join("extensions", "fedora-desktop@fedora-desktop", "sections", "plays.js"),
     os.path.join("extensions", "fedora-desktop@fedora-desktop", "extension.js"),
 )
 

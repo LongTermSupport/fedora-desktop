@@ -363,6 +363,52 @@ export function handoffPath(document) {
     return typeof path === 'string' && path.startsWith('/') ? path : '';
 }
 
+/** A play path the runner may pass on: under `playbooks/`, path segments of letters,
+ * digits, `.`, `_` and `-`, ending in `.yml`, with no `.` or `..` segment. The same allowlist
+ * `helpers/host_health/play_runner.py` applies; the command re-checks it, and this copy
+ * only keeps a malformed entry from ever becoming a button. */
+const PLAY_PATH = /^playbooks\/(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.yml$/;
+
+function launchable(entry) {
+    return entry !== null && typeof entry === 'object' &&
+        typeof entry.play === 'string' && typeof entry.state === 'string' &&
+        PLAY_PATH.test(entry.play) &&
+        !entry.play.split('/').some(segment => segment === '.' || segment === '..');
+}
+
+/**
+ * The play runner's rows, `{play, state}` each, and the reasons any could not be read.
+ *
+ * The producer writes `plays` on every document, `[]` when there is nothing to offer, so
+ * an ABSENT key is a document from before the runner, not an empty list — and saying
+ * nothing would make "nothing to offer" and "could not tell" look alike. An entry that
+ * is not shaped like a play under `playbooks/` is dropped, never shown as a button, and
+ * the drop is reported: its name would become an argument to a command.
+ *
+ * `state` is carried as the producer wrote it. Freshness is judged once, in
+ * `check_freshness`, and a reader that re-judged it would be a second check.
+ */
+export function playsOf(document) {
+    const value = document?.plays;
+    if (value === undefined || value === null) {
+        return {plays: [], reasons: [
+            'the host status does not list the plays run here; the next graphical ' +
+            'login rewrites it'],
+        };
+    }
+    if (!Array.isArray(value)) {
+        return {plays: [], reasons: [
+            "the host status file's plays could not be read, so none can be offered"],
+        };
+    }
+    const plays = value.filter(launchable).map(entry => ({play: entry.play, state: entry.state}));
+    const reasons = plays.length === value.length
+        ? []
+        : ['the host status lists plays this panel cannot launch safely, so they are ' +
+           'not offered'];
+    return {plays, reasons};
+}
+
 /** Whole days since collection, or null when that cannot be known — which is NOT the
  * same as fresh, and the caller must not render it as such. */
 export function ageDays(document, nowMillis) {

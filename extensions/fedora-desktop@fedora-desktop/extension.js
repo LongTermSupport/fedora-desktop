@@ -1,10 +1,11 @@
 /**
  * The `fedora-desktop` panel (Plan 00109, Phase 4).
  *
- * A read-only surface over the host status document. It renders what the checks said; it
- * runs no check of its own, applies no fix, and launches no play. A check reimplemented
- * here would be a second check that drifts from the one under test, and a clickable
- * surface is exactly where "offer, never apply" erodes.
+ * A surface over the host status document. It renders what the checks said; it runs no
+ * check of its own and applies no fix. A check reimplemented here would be a second check
+ * that drifts from the one under test, and a clickable surface is exactly where "offer,
+ * never apply" erodes — so the one thing it launches is a terminal a person is looking at:
+ * the full report, or the single play they clicked in the play runner (Task 4.3).
  *
  * Three states, and the icon is where they matter most:
  *
@@ -18,8 +19,8 @@
  * a broken machine reported nothing and every automated check stayed green; showing
  * "nothing known" as "nothing wrong" would rebuild that in the panel.
  *
- * Sections are registered, not hardcoded (DESIGN-panel.md §5). Adding the play runner in
- * Task 4.3 means one array entry and one module.
+ * Sections are registered, not hardcoded (DESIGN-panel.md §5): each is one array entry and
+ * one module under `sections/`.
  */
 
 import Gio from 'gi://Gio';
@@ -32,13 +33,12 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 import * as StatusDocument from './statusDocument.js';
 import {section as healthSection} from './sections/health.js';
+import {section as playsSection} from './sections/plays.js';
 
 /**
- * The registry. Task 4.4's requirement, and the scaffold lands with a real consumer
- * rather than a placeholder, because a registry with nothing registered cannot be
- * exercised.
+ * The registry (Task 4.4). Health first: what is wrong outranks what can be run.
  */
-const SECTIONS = [healthSection];
+const SECTIONS = [healthSection, playsSection];
 
 /** The document is rewritten once per graphical login, so this is a backstop for a
  * rewrite that happened while the shell was already running — not a check interval.

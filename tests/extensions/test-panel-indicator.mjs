@@ -189,3 +189,26 @@ test('disable() destroys the indicator and removes the poll', () => {
     assert.equal(indicator.destroyed, true);
     assert.equal(TIMERS.size, 0);
 });
+
+/** A clean document carrying play runner rows. */
+function withPlays(rows) {
+    const contents = JSON.parse(document(StatusDocument.OK));
+    contents.plays = rows;
+    return JSON.stringify(contents);
+}
+
+const STALE_PLAY = [{play: 'playbooks/imports/play-claude-yolo.yml', state: 'stale'}];
+
+test('the play runner is registered: the enabled panel renders its rows', () => {
+    // Task 4.4's registry holding a second real section. A module that exists but is
+    // not in SECTIONS renders nothing and fails no other test.
+    const {indicator} = enabled(withPlays(STALE_PLAY));
+    const texts = indicator.menu.texts;
+    assert.ok(texts.includes('Plays run on this machine'), texts.join('\n'));
+    assert.ok(texts.some(text => text.startsWith('playbooks/imports/play-claude-yolo.yml — ')));
+});
+
+test('the play runner does not move the icon: a stale play on a clean host stays neutral', () => {
+    const {icon} = enabled(withPlays(STALE_PLAY));
+    assert.equal(icon.icon_name, NEUTRAL);
+});

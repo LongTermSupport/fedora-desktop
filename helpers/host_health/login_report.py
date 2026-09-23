@@ -39,12 +39,14 @@ from typing import TextIO
 from helpers.host_health import (
     handoff,
     login_message,
+    play_runner,
     probe,
     probe_results,
     status_document,
 )
 from helpers.play_ledger import (
     check_freshness,
+    freshness,
     ledger,
     ledger_presence,
     plugin_support,
@@ -165,6 +167,7 @@ def publish(
     # parameter of that name shadows it inside the function body.
     handoff_path: str = "",
     coverage: dict[str, str] | None = None,
+    plays: list[dict[str, str]] | None = None,
 ) -> str:
     """Write the machine-readable document, and return where it went.
 
@@ -192,7 +195,7 @@ def publish(
         path,
         status_document.build(
             sections=sections, kernel=kernel, at=at, handoff=handoff_path,
-            coverage=coverage,
+            coverage=coverage, plays=plays,
         ),
     )
     return path
@@ -209,6 +212,7 @@ def record_host_state(
     out: Callable[[str], object],
     diagnostics: Callable[[str], object],
     coverage: dict[str, str] | None = None,
+    plays: list[dict[str, str]] | None = None,
 ) -> str:
     """Write the handoff and the status document, in that order, and return the path.
 
@@ -250,6 +254,7 @@ def record_host_state(
             at=at,
             handoff_path=handoff_path,
             coverage=coverage,
+            plays=plays,
         )
     except Exception as error:
         diagnostics(f"the host status document could not be written: {error}\n")
@@ -424,8 +429,12 @@ def freshness_findings(
     *,
     stderr: TextIO,
     run: Callable[..., int] = check_freshness.run,
+    judged: list[freshness.Verdict] | None = None,
 ) -> list[probe_results.Finding]:
     """The freshness check's findings, via its real entry point.
+
+    `judged` is handed straight to the check, so the panel's play runner rows come from
+    the very run whose findings the freshness section shows.
 
     Its two channels are kept apart deliberately. Sharing one sink between them made
     every diagnostic a user-facing finding: "git fetch failed" was reported as a
@@ -447,6 +456,7 @@ def freshness_findings(
         stdout=out,
         stderr=diagnostics,
         unchecked=not_checked,
+        judged=judged,
     )
 
     # Diagnostics are not findings, and they are not discarded either — they go where
@@ -527,10 +537,16 @@ def main(
         stated_coverage[PINS] = result.coverage.sentence()
         return result.findings
 
+    # Filled by the freshness check itself, and left empty by every path on which it
+    # could not judge — so the panel's play runner offers nothing it did not judge.
+    judged: list[freshness.Verdict] = []
+
     sections = collect_sections(
         health=lambda: probe.collect(running_kernel=probe.running_kernel()),
         ledger_present=lambda: ledger_presence.findings(base),
-        freshness=lambda: freshness_findings(base, arguments.repo_root, stderr=diagnostics),
+        freshness=lambda: freshness_findings(
+            base, arguments.repo_root, stderr=diagnostics, judged=judged
+        ),
         pins=pins_findings,
     )
     findings = [finding for group in sections.values() for finding in group]
@@ -548,6 +564,7 @@ def main(
             out=out.write,
             diagnostics=diagnostics.write,
             coverage=stated_coverage,
+            plays=play_runner.runnable(judged),
         )
     return status
 

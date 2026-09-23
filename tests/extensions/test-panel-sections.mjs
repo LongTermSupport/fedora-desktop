@@ -41,6 +41,7 @@ globalThis.log = () => {};
 
 const StatusDocument = await import(`${EXTENSION}statusDocument.js`);
 const {section: health} = await import(`${EXTENSION}sections/health.js`);
+const {section: plays} = await import(`${EXTENSION}sections/plays.js`);
 const {
     RecordingMenu, GLIB_FILES, CLIPBOARD, NOTIFICATIONS, SPAWNS, SPAWN_FAILURE, EXECUTABLES,
 } = await import('./gi-stubs.mjs');
@@ -566,4 +567,145 @@ test('the copy row copies what the menu shows, fault and not-checked apart', () 
 
 test('a clean host gets no copy row', () => {
     assert.equal(copyRow(render(document({}))), undefined);
+});
+
+/**
+ * The play runner (Plan 00109, Task 4.3). It lists the plays the ledger has seen, each
+ * with the state `check_freshness` judged — carried in the document, never recomputed
+ * here — and a click launches exactly that play in a visible terminal. The panel says
+ * what it launched; whether the play ran is the ledger's answer at the next refresh.
+ */
+const PLAY = 'playbooks/imports/play-claude-yolo.yml';
+const PLAYS_HEADER = 'Plays run on this machine';
+
+function withPlays(rows) {
+    return {...document({}), plays: rows};
+}
+
+function renderPlays(doc) {
+    const menu = new RecordingMenu();
+    plays.build(menu, doc, NOW, COLLECTED);
+    return menu;
+}
+
+function playRow(menu, play) {
+    return menu.items.find(item => item?.label?.text?.startsWith(`${play} — `));
+}
+
+test('playsOf passes the producer\'s rows through untouched', () => {
+    const rows = [
+        {play: PLAY, state: 'stale'},
+        {play: 'playbooks/imports/play-comms.yml', state: 'fresh'},
+    ];
+    assert.deepEqual(StatusDocument.playsOf(withPlays(rows)), {plays: rows, reasons: []});
+});
+
+test('playsOf says so when it cannot read the list, rather than offering nothing', () => {
+    // Nothing to offer and a list that could not be read are different things; only the
+    // first is quiet.
+    const absent = StatusDocument.playsOf(document({}));
+    assert.deepEqual(absent.plays, []);
+    assert.equal(absent.reasons.length, 1);
+
+    const wrongType = StatusDocument.playsOf({...document({}), plays: 'playbooks/x.yml'});
+    assert.deepEqual(wrongType.plays, []);
+    assert.equal(wrongType.reasons.length, 1);
+});
+
+test('playsOf drops an entry it could not launch safely, and says it did', () => {
+    // The name becomes an argument to a command, so anything not shaped like a play under
+    // playbooks/ is refused here too — the command refuses it again on its own.
+    const read = StatusDocument.playsOf(withPlays([
+        {play: PLAY, state: 'fresh'},
+        {play: '/etc/passwd', state: 'fresh'},
+        {play: 'playbooks/../run.bash', state: 'fresh'},
+        {play: 7, state: 'fresh'},
+        {play: 'playbooks/imports/play-comms.yml'},
+        null,
+    ]));
+    assert.deepEqual(read.plays, [{play: PLAY, state: 'fresh'}]);
+    assert.equal(read.reasons.length, 1);
+});
+
+test('each play is one clickable row naming its path and its state', () => {
+    const menu = renderPlays(withPlays([
+        {play: PLAY, state: 'stale'},
+        {play: 'playbooks/imports/play-comms.yml', state: 'fresh'},
+        {play: 'playbooks/imports/play-vpn.yml', state: 'unexplained'},
+    ]));
+    assert.equal(menu.texts[0], PLAYS_HEADER);
+    assert.match(playRow(menu, PLAY).label.text, /changed since it last ran here/);
+    assert.match(playRow(menu, 'playbooks/imports/play-comms.yml').label.text, /unchanged/);
+    assert.match(playRow(menu, 'playbooks/imports/play-vpn.yml').label.text, /no commit/);
+    for (const play of [PLAY, 'playbooks/imports/play-comms.yml']) {
+        assert.equal(playRow(menu, play).reactive, true);
+    }
+});
+
+test('a state this panel has no words for is shown as it is, not dropped', () => {
+    const menu = renderPlays(withPlays([{play: PLAY, state: 'something-new'}]));
+    assert.match(playRow(menu, PLAY).label.text, /something-new/);
+});
+
+test('nothing to offer is said in a line that is not clickable', () => {
+    const menu = renderPlays(withPlays([]));
+    assert.equal(menu.texts.length, 2);
+    const line = menu.items.at(-1);
+    assert.equal(line.reactive, false);
+    assert.equal(SPAWNS.filter(spawn => spawn.argv.includes('--run-play')).length, 0);
+});
+
+test('a list that could not be read is rendered as not checked', () => {
+    const menu = renderPlays(document({}));
+    assert.ok(menu.texts.some(text => text.startsWith('not checked')));
+});
+
+test('activating a row launches exactly that play in a terminal, by argv, held open', () => {
+    resetLaunches();
+    EXECUTABLES.add(COMMAND_PATH);
+    playRow(renderPlays(withPlays([{play: PLAY, state: 'stale'}])), PLAY).emit('activate');
+    assert.equal(SPAWNS.length, 1);
+    assert.deepEqual(SPAWNS[0].argv,
+        ['xdg-terminal-exec', COMMAND_PATH, '--run-play', PLAY, '--hold']);
+});
+
+test('the panel says what it launched, and never that the play ran', () => {
+    resetLaunches();
+    EXECUTABLES.add(COMMAND_PATH);
+    playRow(renderPlays(withPlays([{play: PLAY, state: 'stale'}])), PLAY).emit('activate');
+    assert.equal(NOTIFICATIONS.length, 1);
+    assert.match(NOTIFICATIONS[0].body, /Launched/);
+    assert.match(NOTIFICATIONS[0].body, /play-claude-yolo\.yml/);
+    assert.doesNotMatch(NOTIFICATIONS[0].body, /\b(ran|succeeded|applied|done)\b/i);
+});
+
+test('a play row with the command not installed spawns nothing and says why', () => {
+    resetLaunches();
+    playRow(renderPlays(withPlays([{play: PLAY, state: 'stale'}])), PLAY).emit('activate');
+    assert.equal(SPAWNS.length, 0);
+    assert.equal(NOTIFICATIONS.length, 1);
+    assert.match(NOTIFICATIONS[0].body, /play-host-health-login-report\.yml/);
+});
+
+test('a play row whose terminal cannot start names the command to run by hand', () => {
+    resetLaunches();
+    EXECUTABLES.add(COMMAND_PATH);
+    SPAWN_FAILURE.message = 'Failed to execute child process "xdg-terminal-exec"';
+    playRow(renderPlays(withPlays([{play: PLAY, state: 'stale'}])), PLAY).emit('activate');
+    assert.equal(NOTIFICATIONS.length, 1);
+    assert.match(NOTIFICATIONS[0].body, /--run-play/);
+    assert.match(NOTIFICATIONS[0].body, /play-claude-yolo\.yml/);
+});
+
+test('play rows wrap instead of widening the menu', () => {
+    const menu = renderPlays(withPlays([{play: PLAY, state: 'stale'}]));
+    const text = playRow(menu, PLAY).label.clutter_text;
+    assert.equal(text.line_wrap, true);
+    assert.equal(text.ellipsize, 'none');
+});
+
+test('the runner reads no check section, so it cannot move the icon', () => {
+    // The icon is the health section's answer. The runner lists what can be run; a stale
+    // play is already a finding in the freshness section above it.
+    assert.deepEqual(plays.documentSections, []);
 });
