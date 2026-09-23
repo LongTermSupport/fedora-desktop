@@ -23,6 +23,7 @@ const GI_DEFAULTS = new Map([
     ['gi://GLib', 'GLib'],
     ['gi://Gio', 'Gio'],
     ['gi://St', 'St'],
+    ['gi://Pango', 'Pango'],
 ]);
 
 /** Shell module -> the named exports it must provide. */

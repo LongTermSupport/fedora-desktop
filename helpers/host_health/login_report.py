@@ -12,8 +12,8 @@ Four rules, each the answer to a way a health surface stops being one:
 1. **Silent when clean.** No findings, no notification, no output, exit 0. A check
    that speaks on every login gets muted, and a muted check is not a check.
 2. **One notification, not three.** A host with a stale play *and* a failed unit
-   *and* a drifted pin gets a single message listing three things. Three messages
-   is the other way this ends up ignored.
+   *and* a drifted pin gets a single message counting three things and saying where
+   to read them. Three messages is the other way this ends up ignored.
 3. **Merged, not chained.** Each check is called independently and a raising one
    becomes a finding naming itself, so one broken check can never suppress
    another's findings.
@@ -30,13 +30,27 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import subprocess
 import sys
 from collections.abc import Callable
 from typing import TextIO
 
-from helpers.host_health import handoff, probe, probe_results, status_document
-from helpers.play_ledger import check_freshness, ledger, ledger_presence, repo, store
+from helpers.host_health import (
+    handoff,
+    login_message,
+    probe,
+    probe_results,
+    status_document,
+)
+from helpers.play_ledger import (
+    check_freshness,
+    ledger,
+    ledger_presence,
+    plugin_support,
+    repo,
+    store,
+)
 from helpers.version_pins import check_pins
 
 #: Clean: nothing the user must act on, and nothing shown.
@@ -67,13 +81,26 @@ _TIMEOUT_SECONDS = 15
 
 
 def message(findings: list[probe_results.Finding]) -> str:
-    """The notification body. Raises on an empty list rather than sending nothing."""
+    """The notification body. Raises on an empty list rather than sending nothing.
+
+    A headline and where to read the rest, never the findings themselves. A
+    notification cannot be selected or copied, and one finding carrying a diagnostic
+    and its remedy made it an unreadable wall. The two kinds are counted apart for the
+    reason `login_message.item_counts` gives.
+    """
     if not findings:
         raise ValueError("no findings, so there is no notification to send")
-    count = len(findings)
-    noun = "finding" if count == 1 else "findings"
-    body = "\n".join(f"• {finding.text}" for finding in findings)
-    return f"{count} {noun}:\n{body}"
+    faults = sum(1 for finding in findings if finding.checked)
+    unchecked = len(findings) - faults
+    parts = []
+    if faults:
+        parts.append(f"{faults} {'finding' if faults == 1 else 'findings'}")
+    if unchecked:
+        parts.append(f"{unchecked} {'item' if unchecked == 1 else 'items'} not checked")
+    return (
+        f"{' and '.join(parts)}. Read them in the Fedora Desktop panel, "
+        f"or run {login_message.ON_DEMAND_COMMAND} in a terminal."
+    )
 
 
 def collect_sections(
@@ -361,6 +388,36 @@ def _fold_detail_lines(lines: list[str]) -> list[str]:
     return findings
 
 
+_FRESHNESS_TAG = "play-freshness: "
+
+
+def _diagnostic_sentence(lines: list[str], repo_root: str) -> str:
+    """`check_freshness`'s multi-line diagnostic as one readable line, remedy intact.
+
+    A finding is one line by contract (`emit`, `item_counts`), so the structure has to
+    survive as punctuation. Joining the raw lines with `"; "` kept their indentation and
+    produced `.;   reason:` and `itself:;     cd`, which is what the panel showed as an
+    unbroken wall. Each line is stripped; a line that introduces the next (ends in `:`)
+    runs on into it, the rest are separated. The first line's own `play-freshness:` tag
+    is dropped because the finding already names the check.
+
+    The clear command's checkout placeholder becomes this checkout, so the one
+    actionable part is copyable as it stands rather than a template to fill in.
+    """
+    text = ""
+    for index, raw in enumerate(lines):
+        line = raw.strip()
+        if index == 0 and line.startswith(_FRESHNESS_TAG):
+            line = line[len(_FRESHNESS_TAG):]
+        if not text:
+            text = line
+        elif text.endswith(":"):
+            text = f"{text} {line}"
+        else:
+            text = f"{text.rstrip('.')}; {line}"
+    return text.replace(plugin_support.CHECKOUT_PLACEHOLDER, shlex.quote(repo_root))
+
+
 def freshness_findings(
     base: str,
     repo_root: str,
@@ -403,7 +460,7 @@ def freshness_findings(
         # exact defect this plan exists for. It carries the REASON: the sentinel
         # exists to say why, and a finding that pointed at "its stderr output above"
         # sent the reader looking for something never shown to them.
-        reason = "; ".join(diagnostics.lines()) or "it gave no reason"
+        reason = _diagnostic_sentence(diagnostics.lines(), repo_root) or "it gave no reason"
         return [
             probe_results.unchecked(
                 f"play-freshness could not give an answer, so no play was judged: {reason}"

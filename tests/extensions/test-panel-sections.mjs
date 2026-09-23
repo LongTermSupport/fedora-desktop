@@ -519,8 +519,51 @@ test('the report row is the ONLY thing in the section that spawns', () => {
             activated += 1;
         }
     }
-    // The handoff row is the one other clickable row. A count of zero would mean the
-    // loop matched nothing and the assertion below was vouching blind.
-    assert.equal(activated, 1);
+    // The copy row and the handoff row are the two other clickable rows. A count of zero
+    // would mean the loop matched nothing and the assertion below was vouching blind.
+    assert.equal(activated, 2);
     assert.equal(SPAWNS.length, 0);
+});
+
+/**
+ * Wrapping and copying (Plan 00134, Task 1.3). One finding carrying a diagnostic and the
+ * command that clears it rendered as a single line wider than the screen, and a menu
+ * label cannot be selected, so the command in it could not be used either.
+ */
+function copyRow(menu) {
+    return menu.items.find(item => item?.label?.text === 'Copy these findings');
+}
+
+test('every finding label wraps instead of widening the menu', () => {
+    const menu = render(document({'post-boot-health': {
+        state: 'findings', findings: [BOOT_FINDING], unchecked: ['nothing looked'],
+    }}));
+    const labels = menu.items
+        .filter(item => item?.label?.text === BOOT_FINDING || item?.label?.text === 'nothing looked')
+        .map(item => item.label.clutter_text);
+    assert.equal(labels.length, 2);
+    for (const text of labels) {
+        assert.equal(text.line_wrap, true);
+        assert.equal(text.line_wrap_mode, 'word-char');
+        assert.equal(text.ellipsize, 'none');
+    }
+});
+
+test('the copy row copies what the menu shows, fault and not-checked apart', () => {
+    CLIPBOARD.text = null;
+    NOTIFICATIONS.length = 0;
+    copyRow(render(document({'post-boot-health': {
+        state: 'findings', findings: [BOOT_FINDING], unchecked: ['nothing looked'],
+    }}))).emit('activate');
+    assert.equal(CLIPBOARD.text, [
+        'This machine now',
+        `  - ${BOOT_FINDING}`,
+        '  not checked — nothing is known about these:',
+        '  - nothing looked',
+    ].join('\n'));
+    assert.equal(NOTIFICATIONS.length, 1);
+});
+
+test('a clean host gets no copy row', () => {
+    assert.equal(copyRow(render(document({}))), undefined);
 });

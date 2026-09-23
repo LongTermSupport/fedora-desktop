@@ -28,7 +28,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 from helpers.host_health import login_report, probe_results, status_document
-from helpers.play_ledger import check_freshness, ledger, store
+from helpers.play_ledger import check_freshness, freshness, ledger, plugin_support, store
 
 RUNNING_KERNEL = "7.2.4-200.fc44.x86_64"
 HEALTHY_DKMS = f"evdi/1.15.0, {RUNNING_KERNEL}, x86_64: installed"
@@ -93,15 +93,13 @@ class TestOneNotificationNotThree(unittest.TestCase):
         )
         self.assertEqual(len(sent), 1)
 
-    def test_the_one_notification_mentions_every_finding(self) -> None:
+    def test_the_one_notification_counts_every_finding(self) -> None:
         _status, _findings, sent = run(
             health=lambda: DIRTY_PROBE,
             freshness=lambda: found("playbooks/a.yml — changed"),
             pins=lambda: found("evdi_version (behind)"),
         )
-        self.assertIn("evdi", sent[0])
-        self.assertIn("playbooks/a.yml", sent[0])
-        self.assertIn("evdi_version", sent[0])
+        self.assertIn("3 findings", sent[0])
 
     def test_the_health_findings_come_first(self) -> None:
         """Something broken on this host outranks something that merely drifted."""
@@ -242,6 +240,20 @@ class TestTheNotificationText(unittest.TestCase):
     def test_several_findings_are(self) -> None:
         self.assertIn("findings", login_report.message(found("a", "b")))
 
+    def test_the_findings_themselves_are_not_in_the_body(self) -> None:
+        """A notification cannot be copied or scrolled; one long diagnostic in it was
+        the unreadable wall. It says how many and where to read them."""
+        body = login_report.message(found("evdi: pinned 1.15.0, installed 1.14.0"))
+        self.assertNotIn("evdi", body)
+        self.assertIn("fedora-desktop-health", body)
+
+    def test_not_checked_is_counted_apart_from_faults(self) -> None:
+        body = login_report.message(
+            [probe_results.broken("a"), probe_results.unchecked("b"),
+             probe_results.unchecked("c")]
+        )
+        self.assertIn("1 finding and 2 items not checked", body)
+
     def test_an_empty_list_never_produces_a_message(self) -> None:
         """Belt and braces: `emit` already refuses, and a caller that reached here
         with nothing would otherwise send an empty notification."""
@@ -318,6 +330,36 @@ class TestTheFreshnessSeamKeepsItsChannelsApart(unittest.TestCase):
         )
         self.assertEqual(len(findings), 1)
         self.assertIn("disk full", findings[0].text)
+
+    def test_the_untrustworthy_remedy_is_one_readable_line_naming_this_checkout(self) -> None:
+        """The real diagnostic, not a paraphrase. Joined raw it read `.;   reason:` and
+        `itself:;     cd`, and the placeholder left the one actionable part a template."""
+        report = freshness.Report(stale=(), broken_reason="ValueError: no position")
+        diagnostic = io.StringIO()
+        check_freshness._emit(report, io.StringIO(), diagnostic)
+        findings, _ = self._findings(
+            check_freshness.EXIT_UNTRUSTWORTHY, err=diagnostic.getvalue()
+        )
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(
+            findings[0].text,
+            "play-freshness could not give an answer, so no play was judged: the ledger "
+            "is marked BROKEN and cannot be trusted, so no play was judged; reason: "
+            "ValueError: no position; clear it deliberately once the cause is fixed; it "
+            "never clears itself: cd /repo && python3 -m "
+            "helpers.play_ledger.check_freshness --clear-broken",
+        )
+
+    def test_a_checkout_path_with_a_space_stays_one_argument(self) -> None:
+        findings = login_report.freshness_findings(
+            "/state/base",
+            "/home/me/my repo",
+            stderr=io.StringIO(),
+            run=self._fake(
+                check_freshness.EXIT_UNTRUSTWORTHY, "", f"  {plugin_support.CLEAR_COMMAND}\n"
+            ),
+        )
+        self.assertIn("cd '/home/me/my repo' && python3", findings[0].text)
 
     def test_one_stale_play_is_one_finding_carrying_its_commits(self) -> None:
         findings, _ = self._findings(

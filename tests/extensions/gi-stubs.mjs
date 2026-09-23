@@ -52,7 +52,9 @@ export class RecordingMenu {
 
 class StubMenuItem {
     constructor(text, options) {
-        this.label = {text: text ?? '', style_class: undefined, style: undefined};
+        this.label = {
+            text: text ?? '', style_class: undefined, style: undefined, clutter_text: {},
+        };
         // `reactive` defaults to true in PopupMenuItem, and the default is what the
         // handoff row relies on — so the stub has to carry it rather than leave it
         // undefined, or a test asserting a row IS clickable would pass on a row that
@@ -335,6 +337,7 @@ export const St = {
             this.text = properties?.text ?? '';
             this.style_class = properties?.style_class;
             this.style = properties?.style;
+            this.clutter_text = {};
         }
     },
     ClipboardType: {CLIPBOARD: 'clipboard', PRIMARY: 'primary'},
@@ -346,6 +349,13 @@ export const St = {
             },
         }),
     },
+};
+
+/** `Pango`, only the two enums the panel sets on a label's text. Named values rather
+ * than numbers, so a test can say which mode a label was given. */
+export const Pango = {
+    WrapMode: {WORD: 'word', CHAR: 'char', WORD_CHAR: 'word-char'},
+    EllipsizeMode: {NONE: 'none', START: 'start', MIDDLE: 'middle', END: 'end'},
 };
 
 // No default export here on purpose. The panel writes `import GLib from 'gi://GLib'`, so
