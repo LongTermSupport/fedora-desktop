@@ -1291,7 +1291,9 @@ profile, Plan 00137). **Off unless `self_update_enabled: true`**; turning it off
 everything it installed.
 
 - A nightly root timer fast-forwards a root-owned deploy clone under
-  `/var/lib/fedora-desktop/`, only to a commit signed by the owner's pinned key.
+  `/var/lib/fedora-desktop/`, only to a commit signed by the owner's pinned key. The play
+  itself puts the clone on the newest signed commit, and the cycle runs nothing from a
+  clone whose HEAD is unsigned or whose files differ from it.
 - It runs the allowlisted plays that commit affects, warns the ccy/cc sessions, and
   reboots. The sessions come back through the boot-time restore, and a post-boot unit
   checks they did.
@@ -1301,10 +1303,13 @@ everything it installed.
   the result in `/var/lib/fedora-desktop/self-update-status/`, readable by you and
   writable only by root.
 - It installs a sudoers rule for one root-owned command
-  (`/usr/local/sbin/fedora-desktop-self-update`), and nothing broader.
+  (`/usr/local/sbin/fedora-desktop-self-update`), with only its `run`, `run --dry-run`,
+  `verify` and `status` argument lists, and nothing broader.
 - The cycle's plays run on a root-owned ansible-core from dnf, with collections in a
   root-owned path under `/usr/local/share/fedora-desktop/`. They never use your pipx
-  install, which anything running as you could modify.
+  install, and Ansible's plugin and role search paths skip `~/.ansible`, so no code
+  anything running as you could modify is loaded. The plays still run as you, so the
+  files they write as you (such as `~/.ansible/tmp`) are not protected from you.
 - It sets `kernel.yama.ptrace_scope=1`. As your user you can no longer attach
   `gdb -p` or `strace -p` to a process you did not start. Run the tool as the parent
   (`strace <cmd>`), or use sudo. Turning the play off removes the drop-in but leaves

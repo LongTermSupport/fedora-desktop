@@ -217,11 +217,22 @@ render_verdict() {
 check 0 "sudo allows the entry point without a password, and nothing else"
 sudo -k
 grantOut=""
-if grantOut="$(sudo -n -l "${SBIN}" 2>&1)"; then
-    ok "sudo -n -l ${SBIN} is allowed"
+for grant in "run" "run --dry-run" "verify" "status"; do
+    read -r -a grantArgs <<<"${grant}"
+    if grantOut="$(sudo -n -l "${SBIN}" "${grantArgs[@]}" 2>&1)"; then
+        ok "sudo -n -l ${SBIN} ${grant} is allowed"
+    else
+        bad "this user may not run ${SBIN} ${grant} without a password (${grantOut})" \
+            "the sudoers drop-in is missing or invalid: re-run play-self-update.yml"
+    fi
+done
+# The grant is exact argument lists: an extra option must be refused by sudo itself.
+extraOut=""
+if extraOut="$(sudo -n -l "${SBIN}" run --config /nonexistent 2>&1)"; then
+    bad "sudo allows ${SBIN} with arguments beyond the four exact lists" \
+        "the drop-in must name each argument list; re-run play-self-update.yml"
 else
-    bad "this user may not run ${SBIN} without a password (${grantOut})" \
-        "the sudoers drop-in is missing or invalid: re-run play-self-update.yml"
+    ok "an extra argument is refused by sudo (${extraOut})"
 fi
 blanketOut=""
 if blanketOut="$(sudo -n true 2>&1)"; then

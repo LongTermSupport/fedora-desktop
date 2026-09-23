@@ -6,19 +6,19 @@ it is a change to both sides.
 
 ## Names and paths
 
-| Thing           | Where                                                                                                                 | Owner / mode                    |
-| --------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| Entry point     | `/usr/local/sbin/fedora-desktop-self-update` (source: `files/usr/local/sbin/`)                                        | root:root 0700                  |
-| Config          | `/etc/fedora-desktop/self-update.conf`, `KEY=value`, read with `read`, never sourced                                  | root:root 0600                  |
-| Become password | `/etc/fedora-desktop/self-update.become` (vault-provisioned)                                                          | root:root 0600                  |
-| Vault password  | `/etc/fedora-desktop/self-update.vault` (copied from the checkout the play runs from)                                 | root:root 0600                  |
-| Allowed signers | `/etc/fedora-desktop/self-update.allowed_signers` (the owner's public key only)                                       | root:root 0644, dir 0755 root   |
-| Deploy clone    | `/var/lib/fedora-desktop/deploy` (D4), owned by root                                                                  | never mounted into a container  |
-| State           | `/var/lib/fedora-desktop/self-update/` (the last result, the owed post-boot check)                                    | root:root 0700                  |
-| Published       | `/var/lib/fedora-desktop/self-update-status/result`, the user's copy of each result (Task 4.3)                        | dir root:<user> 2750, file 0640 |
-| Cycle units     | `fedora-desktop-self-update.{service,timer}`, **system** units                                                        | timer: nightly, D9              |
-| Post-boot units | `fedora-desktop-self-update-verify.service`, **system**, `After=` the user's restore                                  | runs once per boot when owed    |
-| Sudoers         | `/etc/sudoers.d/fedora-desktop-self-update`: `<user> ALL=(root) NOPASSWD: /usr/local/sbin/fedora-desktop-self-update` | validated with `visudo -cf`     |
+| Thing           | Where                                                                                                                  | Owner / mode                    |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| Entry point     | `/usr/local/sbin/fedora-desktop-self-update` (source: `files/usr/local/sbin/`)                                         | root:root 0700                  |
+| Config          | `/etc/fedora-desktop/self-update.conf`, `KEY=value`, read with `read`, never sourced                                   | root:root 0600                  |
+| Become password | `/etc/fedora-desktop/self-update.become` (vault-provisioned)                                                           | root:root 0600                  |
+| Vault password  | `/etc/fedora-desktop/self-update.vault` (copied from the checkout the play runs from)                                  | root:root 0600                  |
+| Allowed signers | `/etc/fedora-desktop/self-update.allowed_signers` (the owner's public key only)                                        | root:root 0644, dir 0755 root   |
+| Deploy clone    | `/var/lib/fedora-desktop/deploy` (D4), owned by root                                                                   | never mounted into a container  |
+| State           | `/var/lib/fedora-desktop/self-update/` (the last result, the owed post-boot check)                                     | root:root 0700                  |
+| Published       | `/var/lib/fedora-desktop/self-update-status/result`, the user's copy of each result (Task 4.3)                         | dir root:<user> 2750, file 0640 |
+| Cycle units     | `fedora-desktop-self-update.{service,timer}`, **system** units                                                         | timer: nightly, D9              |
+| Post-boot units | `fedora-desktop-self-update-verify.service`, **system**, `After=` the user's restore                                   | runs once per boot when owed    |
+| Sudoers         | `/etc/sudoers.d/fedora-desktop-self-update`: the entry point with exactly `run`, `run --dry-run`, `verify` or `status` | validated with `visudo -cf`     |
 
 ### Deploy clone and plays
 
@@ -41,6 +41,15 @@ Settled by the IaC (`play-self-update.yml`); the orchestrator must match:
   root-owned in the clone. The orchestrator must point
   `ANSIBLE_CACHE_PLUGIN_CONNECTION` at a per-run directory the user owns, or set
   `ANSIBLE_CACHE_PLUGIN=memory`. Otherwise the plays fail writing the cache.
+- **Code search paths (orchestrator's job, D5).** Ansible's defaults look in
+  `~/.ansible` for every plugin kind, modules, module_utils and roles. The plays run as
+  the user with `become`, so code found there would run as root. The orchestrator sets
+  each of those env vars to the root-owned half of its default
+  (`/usr/share/ansible/plugins/<kind>`) and sets `PYTHONNOUSERSITE=1`. The env beats
+  `ansible.cfg`, so the two paths that file sets are named as the clone's own:
+  `ANSIBLE_CALLBACK_PLUGINS` leads with `<clone>/callback_plugins` (the play ledger) and
+  `ANSIBLE_ROLES_PATH` is `<clone>/roles/vendor`. The list is ansible-core 2.19's
+  `base.yml`; a release that adds a new search path must be added to `cycle.py`.
 - **Post-boot unit.** It runs at every boot with no condition of its own, so `verify`
   exits 0 when no check is owed.
 
@@ -74,25 +83,26 @@ These keys have no defaults. The orchestrator refuses to run if one is missing:
 
 ## Exit codes
 
-| Code | Meaning                                   |
-| ---- | ----------------------------------------- |
-| 0    | done, or nothing to do                    |
-| 64   | usage                                     |
-| 70   | config invalid                            |
-| 75   | lock held                                 |
-| 20   | gate or update refused (reason on stderr) |
-| 21   | a play failed                             |
-| 22   | a session could not be warned             |
-| 23   | the verify found a session not OK         |
-| 24   | the reboot was refused                    |
-| 77   | not run as root                           |
-| 130  | the warning countdown was cancelled       |
+| Code | Meaning                                     |
+| ---- | ------------------------------------------- |
+| 0    | done, or nothing to do                      |
+| 64   | usage                                       |
+| 70   | config invalid                              |
+| 75   | lock held                                   |
+| 20   | the clone is untrusted, or the gate refused |
+| 21   | a play failed                               |
+| 22   | a session could not be warned               |
+| 23   | the verify found a session not OK           |
+| 24   | the reboot was refused                      |
+| 77   | not run as root                             |
+| 130  | the warning countdown was cancelled         |
 
 ## Result record
 
 `state/last-result` holds one line per key: `at`, `phase`, `outcome`, `old`, `new`,
-`plays`, `detail`. The alert sinks send it for Task 4.5. It carries no hostname, username
-or path.
+`plays`, `detail`. The alert sinks send it for Task 4.5. It carries no hostname or
+username. `plays` holds repo-relative play paths (`playbooks/imports/...`), and `detail`
+may name one; no path outside the repository appears.
 
 Outcomes, as `helpers/self_update/published.py` classifies them (a test reads the cycle's
 source and fails on one that is not classified):
@@ -131,3 +141,29 @@ in, or empty. The cycle never reads it back.
 - **The panel.** The section is always in the document, so the section set does not
   depend on the host. The panel hides it while it is clean (`quietWhenOk`), because a
   desktop never runs self-update. A missing section still renders as unavailable.
+
+## The clone's HEAD is always a signed commit
+
+The gate (`update.py`) judges only commits **above** HEAD, and root imports the cycle's own
+code from the clone. So HEAD itself must be a commit the pinned key signed. Three places
+hold that, each for a different moment:
+
+1. **The play, after cloning** (`update.py --anchor`, run from the owner's checkout, never
+   from the clone it judges). A fresh clone sits on the remote's tip, which nobody vouched
+   for. The anchor leaves a signed HEAD alone. Otherwise it moves the branch back to the
+   newest signed commit in HEAD's first-parent history, or fails the play. It never moves
+   forward: that is the cycle's job, and moving forward here would skip the plays.
+2. **The entry point, before importing anything.** It checks, in bash with git's signing
+   programs pinned on the command line, that HEAD is `G` for `PRINCIPAL` and that the
+   tree has no changes. Otherwise it exits 20 having run nothing from the clone. Nothing is
+   recorded, because recording would need the code it refused to run. The unit then
+   fails, and the host-health report's failed-units check shows it.
+3. **The cycle, on a first run** (`verify_head`). With no deployed record, it refuses
+   (exit 20, recorded and alerted) when HEAD is not signed. Layer 2 already covers the
+   same case; this one also covers a caller that bypasses the entry point, such as the
+   tests.
+
+Keeping the helpers in a separate root-owned install, verified once by the play, was
+rejected. That copy would drift from the clone the plays run from, and it would need its
+own update path through the same gate. Checking in the entry point costs two git calls
+and keeps a single tree.

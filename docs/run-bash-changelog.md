@@ -15,6 +15,18 @@ the index, not the record.
 
 ---
 
+## 1.25.0 — an unattended single play never writes the sudo password to a file (Plan 00137)
+
+`--headless <play>.yml` with password sudo used to copy the password into a 0600 `mktemp`
+file for the whole play. Any process running as that user could read it, which undid the
+self-update server's `ptrace_scope=1`. The single-play route now proves the password with
+`sudo -S` reading it from a pipe, and hands it to Ansible as `--become-password-file -`,
+with stdin a pipe that holds only the password. `-` is the one value the CLI does not
+`realpath`: a pipe's `/dev/fd/N` resolves to `/proc/<pid>/fd/pipe:[…]`, which does not
+exist, so the descriptor path cannot be used directly. Ansible reads stdin to EOF before
+the first task, so a task still sees an exhausted stdin. The full headless provisioning
+run is unchanged: it calls `sudo` throughout, through the askpass helper.
+
 ## 1.24.0 — `RUN_BASH_CCY_RESTORE_SESSIONS`: a headless box can opt in to session restore (Plans 00135, 00137)
 
 A box provisioned only through `RUN_BASH_*` variables had no way to set

@@ -36,7 +36,7 @@ Use these Unicode icons in plan documents:
 
 - [00136-host-health-report-in-a-terminal](00136-host-health-report-in-a-terminal/) - The host health report becomes a terminal-first surface on both profiles: `fedora-desktop-health` prints it on demand, the login snippet speaks in full once a day and otherwise leaves a one-line reminder, and the GNOME panel gains a row that opens the command in a terminal. Nothing re-runs a play; that remains Plan 00109 Task 4.3.
 
-- [00137-unattended-server-self-update](00137-unattended-server-self-update/) - On an always-on headless server, a timer fast-forwards the checkout behind a trust gate, maps the changed paths to the plays they affect, warns and stops the ccy/cc sessions, runs those plays unattended, then restores the sessions and verifies they resumed. Waiting on owner decisions D1–D4.
+- [00137-unattended-server-self-update](00137-unattended-server-self-update/) - On an always-on headless server, a timer fast-forwards the checkout behind a trust gate, maps the changed paths to the plays they affect and runs those plays unattended; only when they all succeed does it warn the ccy/cc sessions and reboot, and a post-boot check verifies the restored sessions resumed. Built; waiting on the qa-reviewer (Task 5.2), the alert sinks (Tasks 0.4, 4.5) and a host proof (Task 5.3).
 
 - [00135-ccy-sessions-survive-a-reboot](00135-ccy-sessions-survive-a-reboot/) - Implements issue #44: a session registry written at start and deleted at clean exit, a `systemd --user` restore service that brings back whatever was still recorded at boot, and `ccy-sessions reboot --in N` warning every live session through the hooks-daemon signal CLI. Restore is opt-in; the default keeps today's behaviour. Phase 5 needs a machine that can be rebooted.
 
@@ -65,7 +65,6 @@ Use these Unicode icons in plan documents:
 - [00114-run-bash-single-play-mode](00114-run-bash-single-play-mode/) - Running one play by hand dies on password sudo (`sudo: a password is required`) because nothing tells Ansible to prompt; expose run.bash's proven become logic as `./run.bash <playbook>` and make every doc name it.
 
 - [00113-ccy-ci-runner-implementation](00113-ccy-ci-runner-implementation/) - Build the non-interactive `ccy` Plan 00068 specified: close every prompt site on the CI path, propagate the container's exit status rather than the compose block's, and impose the per-event tool surface with four startup assertions that can each actually fail.
-
 
 - [00109-desktop-drift-detection-and-fedora-desktop-panel](00109-desktop-drift-detection-and-fedora-desktop-panel/) - A reboot into kernel 7.2.4 killed both DisplayLink monitors while every QA gate stayed green; add the missing drift axes (repo pin vs installed, play-at-last-run vs play-at-HEAD), surface breakage at login with a Claude Code handoff, and front it all with one `fedora-desktop` GNOME panel
 
@@ -178,6 +177,7 @@ Use these Unicode icons in plan documents:
 ## Completed Plans
 
 - [00112-gnome-extensions-enabled-state-declared](Completed/00112-gnome-extensions-enabled-state-declared/) - Plan 00110's desktop scenario found a fresh install leaves every deployed GNOME extension INITIALIZED and none enabled (the enable races the shell's scan and its failure is hidden); make the enabled list declared, idempotent gsettings state and let the desktop scenario certify it.
+
 - [00132-crashloop-killed-shell-then-greeter-suspended-on-ac](Completed/00132-crashloop-killed-shell-then-greeter-suspended-on-ac/) - A container crash loop exhausted the session D-Bus quota and killed `gnome-shell`, then the unmanaged GDM greeter idle-suspended the plugged-in machine. Both fixed and deployed; the watchdog now stops a runaway restart loop instead of only reporting it.
 
 - [00133-ccy-auto-compact-window-default-and-daemon-check](Completed/00133-ccy-auto-compact-window-default-and-daemon-check/) - CCY sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000` for every session. The first attempt shipped `600k`, which the variable parses as 600 and floors to 100,000 — six times tighter than intended, and survivable enough to run for a week. Three review rounds were needed because the first two corrections were each wrong in turn.

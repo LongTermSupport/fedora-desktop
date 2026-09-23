@@ -16,8 +16,8 @@ commit, not the pre-update HEAD: a cycle whose plays failed has already moved th
 and the next one must still owe those plays. Before the first play, check that the pinned
 system ansible-core and its collections are root-owned, and that the user's PATH finds
 exactly that ansible (D5). Run each play as the user, with the become and vault passwords
-on descriptors (see `password_pipe`), stopping at the
-first failure, with no reboot (D8). When every play has succeeded, record the commit as
+on descriptors (see `password_pipe`) and no code search path in the user's home (see
+`play_environment`), stopping at the first failure, with no reboot (D8). When every play has succeeded, record the commit as
 deployed and the post-boot check as owed. Only then warn the sessions, count down, warn
 again at one minute, and reboot. A warning that cannot be delivered, an interrupted
 countdown or a refused reboot withdraws the warning, and the reboot stays owed: the next
@@ -28,12 +28,13 @@ session came back, then record and announce the answer. A marker written during 
 boot means the reboot has not happened yet, so it is left alone.
 
 **The first cycle.** With no deployed record there is no basis for a diff, so every
-allowlisted play runs. They are idempotent, and that run is what makes the record true.
+allowlisted play runs, and only once the clone's HEAD is proven pinned-signed: the gate
+judges only commits above HEAD, so nothing else vouches for HEAD itself. They are idempotent, and that run is what makes the record true.
 
 **Alerts** go through one `alert` seam. Until Task 4.5 plugs in real sinks it writes to
 the journal (stderr). Every result is also published to a user-readable copy
-(`published`), which the host-health report reads. Neither carries a hostname, username
-or path.
+(`published`), which the host-health report reads. Neither carries a hostname or
+username, and the only paths in either are the plays' repo-relative ones.
 """
 
 from __future__ import annotations
@@ -254,6 +255,7 @@ class UpdateResult:
 
 class Host(Protocol):
     def check_remote(self, url: str) -> str | None: ...
+    def head_trusted(self) -> bool: ...
     def check_toolchain(self) -> str | None: ...
     def update(self, *, dry_run: bool) -> UpdateResult: ...
     def changed_plays(self, old: str, new: str) -> affected_plays.Report: ...
@@ -316,6 +318,17 @@ def run_cycle(config: Config, host: Host, state: State, *, dry_run: bool, stdout
             return EXIT_REFUSED
         return _finish(state, host, stdout, stderr, code=EXIT_REFUSED, phase="update", outcome="refused",
                        detail="the deploy clone's remote is not the configured one", announce=True)
+
+    # The gate only judges commits above HEAD, and a first cycle has no deployed record to
+    # say HEAD was ever vouched for, so it would run every allowlisted play from whatever
+    # the clone was made at.
+    if state.read_deployed() is None and not host.head_trusted():
+        stderr.write("self-update: the deploy clone's HEAD is not a commit the pinned key signed\n")
+        if dry_run:
+            return EXIT_REFUSED
+        return _finish(state, host, stdout, stderr, code=EXIT_REFUSED, phase="trust", outcome="refused",
+                       detail="the first cycle found the deploy clone on a commit the pinned key did not sign",
+                       announce=True)
 
     result = host.update(dry_run=dry_run)
     head = result.head()
@@ -464,19 +477,44 @@ def user_environment(*, home: str, user: str, runtime: str, ansible_playbook: st
     }
 
 
+# Each ansible-core setting whose default searches ~/.ansible for code, by its env var, and
+# the plugin kind named in the system half of that default (/usr/share/ansible/plugins/<kind>).
+_SYSTEM_PLUGIN_ENV = {
+    "ANSIBLE_ACTION_PLUGINS": "action", "ANSIBLE_BECOME_PLUGINS": "become", "ANSIBLE_CACHE_PLUGINS": "cache",
+    "ANSIBLE_CLICONF_PLUGINS": "cliconf", "ANSIBLE_CONNECTION_PLUGINS": "connection",
+    "ANSIBLE_DOC_FRAGMENT_PLUGINS": "doc_fragments", "ANSIBLE_FILTER_PLUGINS": "filter",
+    "ANSIBLE_HTTPAPI_PLUGINS": "httpapi", "ANSIBLE_INVENTORY_PLUGINS": "inventory", "ANSIBLE_LIBRARY": "modules",
+    "ANSIBLE_LOOKUP_PLUGINS": "lookup", "ANSIBLE_MODULE_UTILS": "module_utils", "ANSIBLE_NETCONF_PLUGINS": "netconf",
+    "ANSIBLE_STRATEGY_PLUGINS": "strategy", "ANSIBLE_TERMINAL_PLUGINS": "terminal", "ANSIBLE_TEST_PLUGINS": "test",
+    "ANSIBLE_VARS_PLUGINS": "vars",
+}
+
+
 def play_environment(
-    *, home: str, user: str, runtime: str, ansible_playbook: str, collections_dir: str,
+    *, home: str, user: str, runtime: str, clone: str, ansible_playbook: str, collections_dir: str,
     lock_fd: int, become_fd: int, vault_fd: int,
 ) -> dict[str, str]:
     """What `run.bash --headless <play>` is handed.
+
+    The play runs as the user with become, so any code ansible loads from a path the user
+    can write would run as root. Ansible's defaults search ~/.ansible for every plugin kind,
+    roles and collections, so each search path is pinned to its root-owned system half, and
+    python's user site-packages is off. The env beats the clone's ansible.cfg, so the two
+    paths that file sets, callback_plugins (the play ledger) and roles_path, are named here
+    as the clone's own. Paths beside the playbook are in the root-owned clone.
 
     Facts are cached in memory: ansible.cfg's jsonfile cache is ./untracked/facts/ in the
     root-owned clone, which the user cannot write. No play turns fact gathering off, so each
     run gathers its own, fresh after the reboot a previous cycle made, and the user never
     writes into the clone or leaves anything behind in it.
     """
+    plugin_paths = {name: f"/usr/share/ansible/plugins/{kind}" for name, kind in _SYSTEM_PLUGIN_ENV.items()}
+    plugin_paths["ANSIBLE_CALLBACK_PLUGINS"] = f"{clone}/callback_plugins:/usr/share/ansible/plugins/callback"
     return {
         **user_environment(home=home, user=user, runtime=runtime, ansible_playbook=ansible_playbook),
+        **plugin_paths,
+        "ANSIBLE_ROLES_PATH": f"{clone}/roles/vendor",
+        "PYTHONNOUSERSITE": "1",
         "RUN_BASH_ANSIBLE_PLAYBOOK": ansible_playbook,
         "ANSIBLE_COLLECTIONS_PATH": collections_dir,
         "ANSIBLE_CACHE_PLUGIN": "memory",
@@ -491,8 +529,9 @@ def password_pipe(path: str, uid: int, gid: int) -> int:
 
     ansible opens its vault password file by path, and opening /dev/fd/N re-checks the
     permissions of whatever the descriptor refers to: a root-only file, and a pipe root
-    created, are both EACCES to the user. A pipe the user owns can be reopened, and the
-    password never touches a disk. Made afresh for each play: a pipe is read once.
+    created, are both EACCES to the user. A pipe the user owns can be reopened. No file
+    holds a copy on the way: run.bash passes the become password on to sudo and ansible
+    through pipes as well. Made afresh for each play: a pipe is read once.
     """
     with open(path, "rb") as handle:
         data = handle.read(PIPE_MAX_BYTES + 1)
@@ -604,6 +643,12 @@ class RealHost:
             return f"the deploy clone's {_REMOTE} remote is not REMOTE_URL from the config"
         return None
 
+    def head_trusted(self) -> bool:
+        return update.verify_head(
+            checkout=self._clone, allowed_signers=self._allowed_signers, principal=self._config.principal,
+            stderr=sys.stderr,
+        ) == update.EXIT_OK
+
     def update(self, *, dry_run: bool) -> UpdateResult:
         out = io.StringIO()
         rc = update.run(
@@ -631,7 +676,7 @@ class RealHost:
             descriptors.callback(os.close, vault_fd)
             os.set_inheritable(self._lock_fd, True)
             env = play_environment(
-                home=self._home, user=self._config.user, runtime=self._runtime,
+                home=self._home, user=self._config.user, runtime=self._runtime, clone=self._clone,
                 ansible_playbook=self._ansible_playbook, collections_dir=self._config.ansible_collections_dir,
                 lock_fd=self._lock_fd, become_fd=become_fd, vault_fd=vault_fd,
             )
@@ -670,8 +715,12 @@ class RealHost:
         return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-def _read_private(path: str, what: str) -> str:
-    """A root-side file that decides the cycle: owned by root or the caller, and not writable by others."""
+def read_private(path: str, what: str, *, secret: bool = False) -> str:
+    """A root-side file that decides the cycle: owned by root or the caller, and not writable by others.
+
+    A `secret` must not be readable by anyone but its owner either: once others can read a
+    password, it is out, whatever the cycle then does with it.
+    """
     try:
         info = os.lstat(path)
     except OSError as error:
@@ -680,6 +729,8 @@ def _read_private(path: str, what: str) -> str:
         raise ConfigError(f"the {what} {path} is not a regular file")
     if info.st_uid not in (0, os.geteuid()) or info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
         raise ConfigError(f"the {what} {path} is not owned by root, or others can write it")
+    if secret and info.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+        raise ConfigError(f"the {what} {path} is open to others (mode {stat.S_IMODE(info.st_mode):04o}); it must be 0600")
     with open(path, encoding="utf-8") as handle:
         return handle.read()
 
@@ -725,10 +776,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "status":
             return status(state, stdout=sys.stdout)
-        config = parse_config(_read_private(args.config, "config file"))
+        config = parse_config(read_private(args.config, "config file"))
         if args.command == "run" and not args.dry_run:
-            _read_private(args.become, "become password file")
-            _read_private(args.vault, "vault password file")
+            read_private(args.become, "become password file", secret=True)
+            read_private(args.vault, "vault password file", secret=True)
     except ConfigError as error:
         sys.stderr.write(f"self-update: config invalid: {error}\n")
         return EXIT_CONFIG
