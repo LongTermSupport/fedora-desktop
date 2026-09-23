@@ -36,6 +36,8 @@ Use these Unicode icons in plan documents:
 
 - [00136-host-health-report-in-a-terminal](00136-host-health-report-in-a-terminal/) - The host health report becomes a terminal-first surface on both profiles: `fedora-desktop-health` prints it on demand, the login snippet speaks in full once a day and otherwise leaves a one-line reminder, and the GNOME panel gains a row that opens the command in a terminal. Nothing re-runs a play; that remains Plan 00109 Task 4.3.
 
+- [00137-unattended-server-self-update](00137-unattended-server-self-update/) - On an always-on headless server, a timer fast-forwards the checkout behind a trust gate, maps the changed paths to the plays they affect, warns and stops the ccy/cc sessions, runs those plays unattended, then restores the sessions and verifies they resumed. Waiting on owner decisions D1–D4.
+
 - [00135-ccy-sessions-survive-a-reboot](00135-ccy-sessions-survive-a-reboot/) - Implements issue #44: a session registry written at start and deleted at clean exit, a `systemd --user` restore service that brings back whatever was still recorded at boot, and `ccy-sessions reboot --in N` warning every live session through the hooks-daemon signal CLI. Restore is opt-in; the default keeps today's behaviour. Phase 5 needs a machine that can be rebooted.
 
 - [00134-startup-log-triage-and-status-panel-unavailable](00134-startup-log-triage-and-status-panel-unavailable/) - A post-update reboot showed "crash" notifications and the status panel's blue question-mark, yet nothing crashed: the `BROKEN` play ledger comes from any ad-hoc `ansible … -m` run (reproduced), the crash notices are ABRT re-announcing an old backlog, and the logs exposed four more silent repo-owned defects.
