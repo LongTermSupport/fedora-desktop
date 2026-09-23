@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.22.1"
+RUN_BASH_VERSION="1.23.0"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -1103,6 +1103,8 @@ ONE PLAY, UNATTENDED (maintenance, e.g. a timer)
   /dev/fd/N, so a root caller can open a root-only password file and hand over the
   descriptor (runuser -u <user> -- env RUN_BASH_SUDO_PASSWORD_FILE=/dev/fd/3 … 3<file).
   PATH gains ~/.local/bin, stdin is closed, and a failure never asks anything.
+  RUN_BASH_ANSIBLE_PLAYBOOK=/abs/path pins the ansible-playbook to run instead: PATH is
+  then left as given and must resolve to exactly that file, or the run is refused.
   Plays on one host run one at a time: a run while another holds the play lock exits
   75. A caller holding the lock itself passes it down with FEDORA_DESKTOP_PLAY_LOCK_FD
   and the inherited descriptor (helpers/play_lock/lock.py).
@@ -1177,6 +1179,10 @@ fi
 # A single play run headless is an UNATTENDED PLAY, not a provisioning run: it gets the
 # sudo-only preflight and none of the provisioning contract. (The mode's other exclusions
 # live at the dispatch block below: the `error` helper fatal() needs is not defined yet here.)
+if [[ -n "${RUN_BASH_ANSIBLE_PLAYBOOK:-}" && ! (-n "$PLAY_PATH" && "$HEADLESS" == "true") ]]; then
+  echo "RUN_BASH_ANSIBLE_PLAYBOOK applies only to an unattended single play (--headless <play>.yml); unset it." >&2
+  exit 1
+fi
 if [[ -n "$PLAY_PATH" && "$HEADLESS" == "true" ]]; then
   headless_play_preflight
 elif [[ "$HEADLESS" == "true" ]]; then
@@ -1836,8 +1842,20 @@ if [[ -n "$PLAY_PATH" ]]; then
       "name one like playbooks/imports/play-podman.yml (see docs/playbooks.md)"
   fi
   # Unattended, PATH is whatever a timer or a root caller's runuser left, which need not
-  # include the pipx shim directory ansible lives in. Put it first rather than hope.
-  if [[ "$HEADLESS" == "true" ]]; then
+  # include the pipx shim directory ansible lives in. Put it first rather than hope —
+  # unless the caller pinned the ansible it trusts (the self-update cycle pins a root-owned
+  # system ansible-core): then PATH is left as given and must resolve to exactly that file.
+  if [[ "$HEADLESS" == "true" && -n "${RUN_BASH_ANSIBLE_PLAYBOOK:-}" ]]; then
+    if [[ "$RUN_BASH_ANSIBLE_PLAYBOOK" != /* ]]; then
+      fatal "single play" "RUN_BASH_ANSIBLE_PLAYBOOK='${RUN_BASH_ANSIBLE_PLAYBOOK}' is not an absolute path" \
+        "name the exact ansible-playbook file the play must run, e.g. /usr/bin/ansible-playbook"
+    fi
+    _play_ansible="$(command -v ansible-playbook)" || _play_ansible="nothing"
+    if [[ "$_play_ansible" != "$RUN_BASH_ANSIBLE_PLAYBOOK" ]]; then
+      fatal "single play" "ansible-playbook on PATH is ${_play_ansible}, not RUN_BASH_ANSIBLE_PLAYBOOK=${RUN_BASH_ANSIBLE_PLAYBOOK}" \
+        "put the pinned file's directory first on PATH, or install the ansible it names"
+    fi
+  elif [[ "$HEADLESS" == "true" ]]; then
     export PATH="${HOME}/.local/bin:${PATH}"
   fi
   if ! command -v ansible-playbook >/dev/null; then

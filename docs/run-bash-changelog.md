@@ -15,6 +15,15 @@ the index, not the record.
 
 ---
 
+## 1.23.0 — an unattended single play can pin the ansible-playbook it runs (Plan 00137)
+
+`RUN_BASH_ANSIBLE_PLAYBOOK=/abs/path` names the exact `ansible-playbook` an unattended
+single play must run. The self-update cycle uses it to run a root-owned system
+ansible-core, never the user's pipx copy. When it is set, `~/.local/bin` is not put first
+on PATH, and the play is refused unless `command -v ansible-playbook` resolves to exactly
+that file. A relative pin is refused, and so is a pin on any other kind of run, rather
+than ignored.
+
 ## 1.22.1 — a `/dev/fd/N` secret is read from the descriptor, not reopened (Plan 00137)
 
 1.22.0 accepted `RUN_BASH_SUDO_PASSWORD_FILE=/dev/fd/N` and then opened that path. Opening

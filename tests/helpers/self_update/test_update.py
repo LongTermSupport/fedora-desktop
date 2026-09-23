@@ -165,6 +165,17 @@ class TestTheGate(UpdateCase):
         self.assertIn(f"SELF-UPDATE-NEW {new}", out)
         self.assertEqual(self.fx.deployed(), new)
 
+    def test_a_dry_run_names_the_target_and_moves_nothing(self) -> None:
+        old = self.fx.deployed()
+        new = self.fx.commit("a.txt", "a\n", "owner change", sign="owner")
+        self.fx.push()
+        code, out, _ = self.fx.run(dry_run=True)
+        self.assertEqual(code, update.EXIT_OK)
+        self.assertIn(f"SELF-UPDATE-OLD {old}", out)
+        self.assertIn(f"SELF-UPDATE-TARGET {new}", out)
+        self.assertNotIn("SELF-UPDATE-NEW", out)
+        self.assertEqual(self.fx.deployed(), old)
+
     def test_only_unsigned_commits_waits(self) -> None:
         before = self.fx.deployed()
         self.fx.commit("a.txt", "a\n", "agent change")

@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# fedora-desktop-self-update — the unattended self-update cycle on a server (Plan 00137).
+#
+# Brings the deploy-only clone up to the newest commit signed by the owner's pinned key,
+# runs the allowlisted plays whose inputs changed, then warns the ccy/cc sessions and
+# reboots so they come back through the boot-time restore. After the boot, `verify` checks
+# every restored session came back. Any failure stops the cycle with no reboot.
+#
+# Usage:
+#   fedora-desktop-self-update run [--dry-run]   the timer's cycle; --dry-run names the
+#                                                plays it would run and changes nothing
+#   fedora-desktop-self-update verify            the post-boot check, when one is owed
+#   fedora-desktop-self-update status            the last result, for a human
+#   fedora-desktop-self-update -h|--help         this text
+#
+# Exit codes: 0 done or nothing to do; 20 update or trust gate refused; 21 a play failed;
+# 22 a session could not be warned; 23 a restored session is not running; 24 the reboot
+# request was refused; 64 usage; 70 config invalid, or the system ansible-core or its
+# collections are not root-owned; 75 another play run holds the lock;
+# 77 not run as root; 130 the countdown was interrupted.
+#
+# Root only, and nothing it runs comes from the caller: PATH is fixed, every path is a
+# constant below, and the work is done by helpers/self_update/cycle.py from the root-owned
+# deploy clone. The contract is CLAUDE/Plan/00137-unattended-server-self-update/DESIGN-cycle.md.
+#
+# FEDORA_DESKTOP_SELF_UPDATE_TEST_PREFIX exists only for scripts/test-self-update-cycle.bash.
+# It roots every path below under a scratch directory and puts its stub bin/ first on PATH.
+# It cannot reach a real run: this file is root-only 0700, and sudo's env_reset drops the
+# variable for the one command the sudoers drop-in allows.
+set -euo pipefail
+
+PREFIX="${FEDORA_DESKTOP_SELF_UPDATE_TEST_PREFIX:-}"
+PATH="${PREFIX:+${PREFIX}/bin:}/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+export PATH
+
+ETC="${PREFIX}/etc/fedora-desktop"
+CONFIG="${ETC}/self-update.conf"
+BECOME="${ETC}/self-update.become"
+VAULT="${ETC}/self-update.vault"
+ALLOWED_SIGNERS="${ETC}/self-update.allowed_signers"
+# The root-owned system ansible-core the plays must run (D5), never the user's pipx copy.
+ANSIBLE_PLAYBOOK="${PREFIX}/usr/bin/ansible-playbook"
+CLONE="${PREFIX}/var/lib/fedora-desktop/deploy"
+STATE="${PREFIX}/var/lib/fedora-desktop/self-update"
+
+usage() {
+    awk 'NR == 1 { next } /^#/ { print substr($0, 3); next } { exit }' "${BASH_SOURCE[0]}"
+}
+
+case "${1:-}" in
+run | verify | status) ;;
+-h | --help)
+    usage
+    exit 0
+    ;;
+*)
+    echo "fedora-desktop-self-update: expected run, verify or status. See --help." >&2
+    exit 64
+    ;;
+esac
+
+if [[ -z "${PREFIX}" && "${EUID}" -ne 0 ]]; then
+    echo "fedora-desktop-self-update: must run as root (the timer runs it as root; by hand: sudo fedora-desktop-self-update ${1})" >&2
+    exit 77
+fi
+
+for dir in "${CLONE}" "${STATE}"; do
+    if [[ ! -d "${dir}" ]]; then
+        echo "fedora-desktop-self-update: ${dir} does not exist; deploy the self-update play first" >&2
+        exit 70
+    fi
+done
+
+# The helpers are imported from the deploy clone, so the code that runs as root is the
+# signed, root-owned tree and never a user's checkout.
+cd "${CLONE}"
+exec python3 -m helpers.self_update.cycle \
+    --config "${CONFIG}" --state-dir "${STATE}" --clone "${CLONE}" \
+    --become "${BECOME}" --vault "${VAULT}" --allowed-signers "${ALLOWED_SIGNERS}" \
+    --ansible-playbook "${ANSIBLE_PLAYBOOK}" "$@"

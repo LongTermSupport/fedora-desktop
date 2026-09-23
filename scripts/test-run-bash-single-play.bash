@@ -68,6 +68,7 @@ cat >"$FAKE_HOME/.local/bin/ansible-playbook" <<'EOF'
     printf 'argv:'
     printf ' %s' "$@"
     printf '\n'
+    printf 'binary: %s\n' "$0"
     printf 'stdin: %s\n' "$(readlink /proc/self/fd/0)"
     prev=""
     for a in "$@"; do
@@ -218,6 +219,29 @@ check "exits 0" "0" "$rc"
 check "runs the play bare on NOPASSWD" "0" "$(calls | grep -c -- '--become-password-file')"
 check "prints no unattended banner" "no" "$(yes_if grep -q 'Unattended play preflight' <<<"$out")"
 check "holds the lock while it runs" "lock: held" "$(calls | grep '^lock:')"
+
+echo "=== RUN_BASH_ANSIBLE_PLAYBOOK: a caller pins the ansible it trusts ==="
+SYSTEM_BIN="$SCRATCH/system-bin"
+mkdir -p "$SYSTEM_BIN"
+cp "$FAKE_HOME/.local/bin/ansible-playbook" "$SYSTEM_BIN/ansible-playbook"
+chmod 755 "$SYSTEM_BIN/ansible-playbook"
+run_play FAKE_NOPASSWD=1 PATH="$SYSTEM_BIN:$BIN:/usr/bin:/bin" \
+    RUN_BASH_ANSIBLE_PLAYBOOK="$SYSTEM_BIN/ansible-playbook" -- --headless "$PLAY"
+check "a pinned ansible-playbook that PATH resolves to runs" "0" "$rc"
+check "and it is the pinned one, not the pipx one in ~/.local/bin" \
+    "binary: $SYSTEM_BIN/ansible-playbook" "$(calls | grep '^binary:')"
+run_play FAKE_NOPASSWD=1 RUN_BASH_ANSIBLE_PLAYBOOK="$SYSTEM_BIN/ansible-playbook" -- --headless "$PLAY"
+check "a pinned ansible-playbook that PATH does not resolve to is refused" "1" "$rc"
+check "and runs nothing" "0" "$(ran)"
+check "and says which one it found" "yes" "$(yes_if grep -q 'RUN_BASH_ANSIBLE_PLAYBOOK' <<<"$out")"
+run_play FAKE_NOPASSWD=1 PATH="$SYSTEM_BIN:$BIN:/usr/bin:/bin" \
+    RUN_BASH_ANSIBLE_PLAYBOOK="system-bin/ansible-playbook" -- --headless "$PLAY"
+check "a relative pin is refused" "1" "$rc"
+check "and runs nothing" "0" "$(ran)"
+run_play FAKE_NOPASSWD=1 PATH="$FAKE_HOME/.local/bin:$BIN:/usr/bin:/bin" \
+    RUN_BASH_ANSIBLE_PLAYBOOK="$SYSTEM_BIN/ansible-playbook" -- --interactive "$PLAY"
+check "a pin outside an unattended single play is refused, not ignored" "1" "$rc"
+check "and runs nothing" "0" "$(ran)"
 
 echo "=== refusals ==="
 run_play FAKE_NOPASSWD=1 -- --headless /etc/passwd.yml

@@ -604,6 +604,18 @@ fi
 single_play_summary=$(qa_gate_case_count "$single_play_out")
 qa_pass_line run-bash-single-play "$single_play_summary"
 
+# The unattended self-update cycle (Plan 00137), driven through the real root wrapper
+# against a signed git fixture, with runuser and systemctl stubbed: the order of play,
+# warning and reboot, the passwords handed as descriptors, and the pinned system ansible.
+self_update_cycle_out=""
+if ! self_update_cycle_out="$(bash "$SCRIPT_DIR/test-self-update-cycle.bash" 2>&1)"; then
+    qa_hard_gate_failed self-update-cycle \
+        "fedora-desktop-self-update end-to-end tests failed" \
+        "$self_update_cycle_out"
+fi
+self_update_cycle_summary=$(qa_gate_case_count "$self_update_cycle_out")
+qa_pass_line self-update-cycle "$self_update_cycle_summary"
+
 # The run-log secret scrubber (Plan 00121). Redaction is the easy half; what this gate exists
 # for is `scrub_verify` REFUSING an artefact where redaction missed a secret. A scrubber is
 # fail-open by nature — it writes a file it believes is clean and a miss is silent — so the
