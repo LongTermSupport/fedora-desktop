@@ -101,17 +101,11 @@
 
     # shutdown-with-update runs `pipx upgrade-all`, which upgrades every venv
     # that is not pinned and so moves these off .qa-versions. A pinned venv is
-    # skipped. Read after the install above, because a reinstall drops the pin.
-    - name: Read pipx venv metadata for the QA tools
-      ansible.builtin.command:
-        cmd: pipx list --json
-      register: qa_tool_pipx
-      changed_when: false
-
+    # skipped. Runs after the install above, because a reinstall drops the pin.
     - name: Pin QA tools so pipx upgrade-all leaves them at .qa-versions
-      ansible.builtin.command:
-        argv: [pipx, pin, "{{ item }}"]
-      when: not (qa_tool_pipx.stdout | from_json).venvs[item].metadata.main_package.pinned
+      community.general.pipx:
+        name: "{{ item }}"
+        state: pin
       loop: [ruff, semgrep]
 
     # shellcheck is not a Python package, so it cannot ride pipx, and Fedora's

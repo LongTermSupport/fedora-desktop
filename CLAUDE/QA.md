@@ -707,6 +707,12 @@ or every container keeps asserting the old value and fails.
 Host and container are brought into line by `./playbooks/imports/play-python.yml`
 and `ccy --rebuild` respectively; the gate's failure output names both.
 
+On the host, `play-python.yml` also `pipx pin`s the ruff and semgrep venvs,
+because `shutdown-with-update` runs `pipx upgrade-all` and would otherwise move
+them off the pin. pipx refuses to `reinstall` a pinned venv, so a rebuild after a
+Fedora upgrade unpins first and re-runs the play to re-pin — the steps are in
+[docs/post-upgrade.md](../docs/post-upgrade.md).
+
 Suppression comments (`# noqa`, `# type: ignore`, `# shellcheck disable`) are
 blocked by the hooks daemon. Fix the code, or exempt the file in `ruff.toml`
 with a stated reason.

@@ -38,8 +38,15 @@ The most common breakage. Fedora upgrades replace the system Python (e.g. 3.13 â
 # Check what pipx thinks is broken
 pipx list
 
+# The QA tools are pinned, and pipx refuses to reinstall a pinned venv
+pipx unpin ruff
+pipx unpin semgrep
+
 # Rebuild everything against the new Python
 pipx reinstall-all
+
+# Re-pin the QA tools
+./playbooks/imports/play-python.yml
 ```
 
 Verify:
