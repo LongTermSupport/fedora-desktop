@@ -1,9 +1,13 @@
 # Plan 00080: ccy session network isolation
 
-**Status**: In Progress
+**Status**: Dormant
 **Created**: 2026-08-20
 **Owner**: joseph
-**Priority**: Medium
+**Priority**: Low
+
+> Dormant: decided (Task 2.2, a network per session) and parked at Low priority until the
+> owner schedules Phase 3. The owner's judgement is that sessions on one machine reaching
+> each other is not a significant attack vector.
 
 ## Overview
 
@@ -307,12 +311,13 @@ used.** If it is rare, Option 4 is free isolation and less code.
   "little in practice", say so rather than inflating it. **Done:
   [`THREAT-MODEL.md`](THREAT-MODEL.md)**. Little in practice today, and one bind
   flag away from a cross-project, cross-identity exposure
-- [ ] ⏸ **Task 2.2**: **DECISION — AWAITING THE OWNER**: per-session network, or keep
-  the shared default. Record it with the reasoning, including what would change the
-  answer. Options, evidence and reversal conditions are in
-  [`DECISIONS.md`](DECISIONS.md). Inputs: (a) nothing is exposed (F22, F26, F30);
-  (b) the bridge buys only the *first, mid-session* `--connect` (F31). How often that
-  happens is the one fact the repo cannot measure
+- [x] ✅ **Task 2.2**: **DECISION (owner, 2026-09-24): Option 2, a network per
+  session**, because it is the only option that keeps mid-session `--connect`. The
+  networks are named with the prefix `ccy-isolate-`, and `podfreeze` ignores that prefix
+  (D1), so the menu gains no per-session rows. **Priority: Low.** Nothing listens that a
+  neighbour could reach (F22, F26, F30), and every session runs as the same user on one
+  machine. The plan is parked until the owner schedules Phase 3. What would change the
+  answer, and the other options, are in [`DECISIONS.md`](DECISIONS.md)
 
 ### Phase 3: Implement (only if Task 2.2 says so)
 
@@ -334,7 +339,8 @@ used.** If it is rare, Option 4 is free isolation and less code.
   session that no other container can reach
 - [ ] ⬜ **Task 4.1**: Apply the D1 consequence to `podfreeze` per the outcome
   table in D1 — relabel (shared stands), suppress single-member network rows
-  (per-session), or nothing (pasta). Whichever it is, `--network <name>` stays
+  (per-session), or nothing (pasta). Decided: per-session, and `podfreeze` ignores
+  networks prefixed `ccy-isolate-`. Whichever it is, `--network <name>` stays
   accepted on the command line: this curates the *menu*, it never removes a
   capability
 - [ ] ⬜ **Task 4.2**: Update `docs/ccy.md`'s networking + security sections;

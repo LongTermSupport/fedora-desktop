@@ -1,7 +1,15 @@
 # Plan 00080: Task 2.2 decision options
 
-**Status: AWAITING THE OWNER.** The options, the evidence for each, and what would reverse
-each are laid out below. No option is chosen here. The threat model behind them is
+**Status: DECIDED by the owner, 2026-09-24: Option 2, a network per session.**
+
+- **Naming:** the networks carry the prefix `ccy-isolate-`, and `podfreeze` ignores that
+  prefix, so its menu does not fragment (D1).
+- **Priority:** Low. Sessions on one machine reaching each other is not a significant
+  attack vector, so the plan is parked until the owner schedules Phase 3.
+- **Before Phase 3:** the measured caveats under Option 2 below still apply, since
+  isolation is not the default on this host and H4 is unmeasured.
+
+The options, the evidence for each, and what would reverse each are laid out below. The threat model behind them is
 `THREAT-MODEL.md`. F-numbers are in `PLAN.md`. F29 to F38 are detailed in
 `subagent-reports/260924-triage-findings-opus-5.5.md`. Option numbers follow
 `research/findings.md` §5.
