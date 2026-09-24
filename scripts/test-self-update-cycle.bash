@@ -272,9 +272,13 @@ check "run with no config file is a config error (70)" "70" "$RC"
 cycle status
 check "so is status: nothing is imported from the clone before its HEAD is judged" "70" "$RC"
 
-printf 'USER=%s\nBRANCH=main\nREMOTE_URL=%s\nPRINCIPAL=%s\nWARN_MINUTES=1\nALERT_SINKS=\nANSIBLE_COLLECTIONS_DIR=%s\n' \
-    "$(id -un)" "$REMOTE_URL" "$PRINCIPAL" "$COLLECTIONS" >"$ETC/self-update.conf"
-chmod 600 "$ETC/self-update.conf"
+# write_config SINKS: the config the play would render, with ALERT_SINKS=SINKS.
+write_config() {
+    printf 'USER=%s\nBRANCH=main\nREMOTE_URL=%s\nPRINCIPAL=%s\nWARN_MINUTES=1\nALERT_SINKS=%s\nANSIBLE_COLLECTIONS_DIR=%s\n' \
+        "$(id -un)" "$REMOTE_URL" "$PRINCIPAL" "$1" "$COLLECTIONS" >"$ETC/self-update.conf"
+    chmod 600 "$ETC/self-update.conf"
+}
+write_config ""
 
 cycle status
 check "status with no history exits 0" "0" "$RC"
@@ -314,6 +318,92 @@ exec 9>&-
 check "run while another play run holds the lock exits 75" "75" "$RC"
 check "nothing was called while locked out" "" "$(calls)"
 check "nothing moved while locked out" "$BASE" "$(git -C "$CLONE" rev-parse HEAD)"
+
+# ── the Slack alert sink ───────────────────────────────────────────────────────────────
+# A configured sink whose webhook cannot be used is refused before anything runs; a dry
+# run and status never read the secret; and a real delivery attempt is made from the root
+# process. That attempt goes to a stub HTTPS proxy on 127.0.0.1, which logs the CONNECT
+# and refuses it, so no packet leaves the machine and the refusal is the failure the cycle
+# must journal and record.
+echo "the Slack alert sink"
+WEBHOOK_FILE="$ETC/self-update.slack-webhook"
+WEBHOOK="https://hooks.slack.com/services/EXAMPLE/EXAMPLE/EXAMPLE"
+write_config slack
+cycle run
+check "slack configured with no webhook file: run is a config error (70)" "70" "$RC"
+check "and nothing was called" "" "$(calls)"
+check "and nothing moved" "$BASE" "$(git -C "$CLONE" rev-parse HEAD)"
+cycle verify
+check "slack configured with no webhook file: verify is a config error (70)" "70" "$RC"
+cycle run --dry-run
+check "a dry run never reads the webhook, so a missing one does not stop it" "0" "$RC"
+check "and the dry run still records nothing" "no" "$(has "$STATE/last-result")"
+cycle status
+check "nor does status" "0" "$RC"
+printf '%s\n' "$WEBHOOK" >"$WEBHOOK_FILE"
+chmod 644 "$WEBHOOK_FILE"
+cycle run
+check "a webhook file others can read is a config error (70)" "70" "$RC"
+check "and nothing was called" "" "$(calls)"
+printf 'https://example.invalid/not-a-webhook\n' >"$WEBHOOK_FILE"
+chmod 600 "$WEBHOOK_FILE"
+cycle run
+check "a webhook file that holds no Slack webhook is a config error (70)" "70" "$RC"
+check "and the refusal does not echo what the file holds" "no" "$(says 'not-a-webhook' "$ERR")"
+check "and nothing was called" "" "$(calls)"
+
+printf '%s\n' "$WEBHOOK" >"$WEBHOOK_FILE"
+PROXY_LOG="$SCRATCH/proxy.log"
+PROXY_PORT_FILE="$SCRATCH/proxy.port"
+cat >"$SCRATCH/proxy.py" <<'EOF'
+import http.server
+import os
+import sys
+
+
+class Refuse(http.server.BaseHTTPRequestHandler):
+    def do_CONNECT(self):
+        with open(sys.argv[1], "a", encoding="utf-8") as log:
+            log.write(f"CONNECT {self.path}\n")
+        self.send_response(403)
+        self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+server = http.server.HTTPServer(("127.0.0.1", 0), Refuse)
+with open(sys.argv[2] + ".tmp", "w", encoding="utf-8") as port:
+    port.write(str(server.server_address[1]))
+os.replace(sys.argv[2] + ".tmp", sys.argv[2])
+server.serve_forever()
+EOF
+python3 "$SCRATCH/proxy.py" "$PROXY_LOG" "$PROXY_PORT_FILE" &
+PROXY_PID=$!
+for _ in $(seq 100); do
+    if [ -s "$PROXY_PORT_FILE" ]; then break; fi
+    sleep 0.1
+done
+if [ ! -s "$PROXY_PORT_FILE" ]; then
+    echo "FAIL: the stub proxy did not start" >&2
+    kill "$PROXY_PID"
+    exit 1
+fi
+PROXY="http://127.0.0.1:$(cat "$PROXY_PORT_FILE")"
+write_owed "an-earlier-boot"
+https_proxy="$PROXY" HTTPS_PROXY="$PROXY" no_proxy="" NO_PROXY="" FAKE_VERIFY_RC=1 cycle verify
+kill "$PROXY_PID"
+wait "$PROXY_PID" 2>/dev/null
+check "an announced result with slack configured exits as the cycle decided (23)" "23" "$RC"
+check "the root process tried to deliver it to the webhook's host" "CONNECT hooks.slack.com:443" "$(cat "$PROXY_LOG")"
+check "the failed delivery is journalled" "yes" "$(says 'the alert could not be delivered: slack: not delivered' "$ERR")"
+check "the failed delivery is recorded" "yes" "$(result_key alert | grep -q '^slack: not delivered' && echo yes || echo no)"
+check "and published for the host-health report" "$(result_key alert)" "$(published_key alert)"
+check "the outcome is still the cycle's own" "verify-failed" "$(result_key outcome)"
+check "the webhook's secret path is in no output or record" "no" \
+    "$(cat "$OUT" "$ERR" "$STATE/last-result" "$PUBLISHED/result" | grep -q 'EXAMPLE/EXAMPLE' && echo yes || echo no)"
+rm -f "$WEBHOOK_FILE" "$STATE/last-result" "$PUBLISHED/result"
+write_config ""
 
 # ── verify ─────────────────────────────────────────────────────────────────────────────
 echo "verify"

@@ -142,6 +142,18 @@
             self_update_webhook_asked: true
           no_log: true
 
+        # Not a warning: no webhook is a valid choice. This is the one line that says so,
+        # and on a run with no terminal (a headless run.bash) it names the IaC route,
+        # where Ansible alone would print only that it did not wait for the prompt.
+        - name: Say That This Server Has No Slack Alerts
+          ansible.builtin.debug:
+            msg: >-
+              No Slack alerts on this server: no webhook was given. To supply one as IaC,
+              declare self_update_slack_webhook_url vault-encrypted in host_vars (for a
+              headless install, in the host file in your config repo) and re-run this play.
+              Declare it as "" to stop being asked.
+          when: self_update_slack_webhook_url | length == 0
+
     # Not no_log: an assert's output names the expression and the message, never the value,
     # and the message is the remedy.
     - name: Assert the Slack Webhook URL Is a Slack Webhook
@@ -159,6 +171,8 @@
         - (self_update_slack_webhook_url | default('')) | length > 0
 
     # Passed on stdin, never templated into a command line, so the URL is in no argv.
+    # stdin_add_newline is off: ansible otherwise appends a newline, encrypt_string vaults
+    # it, and the saved value then fails the assert above on the next run.
     - name: Vault-Encrypt the Slack Webhook URL
       ansible.builtin.command:
         argv:
@@ -168,6 +182,7 @@
           - self_update_slack_webhook_url
         chdir: "{{ root_dir }}"
         stdin: "{{ self_update_slack_webhook_url }}"
+        stdin_add_newline: false
       become: false
       register: self_update_webhook_encrypted
       changed_when: false

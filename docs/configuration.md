@@ -234,8 +234,11 @@ it day to day:
   deploy, to a Slack incoming webhook. Declare `self_update_slack_webhook_url`
   vault-encrypted in host_vars. That is the IaC route, and for a headless install it
   comes from the host file in your config repo. Left undeclared, the play asks for it
-  when run from a terminal, then saves it encrypted in `localhost.yml`. Press ENTER to go
-  without; declaring it as `""` stops the question. The message carries the result
+  when run from a terminal, whether directly or from `run.bash`'s optional-playbook menu,
+  then saves it encrypted in `localhost.yml`. Press ENTER to go without; declaring it as
+  `""` stops the question. A run with no terminal, such as `run.bash --headless`, cannot
+  be asked: it prints one line naming `self_update_slack_webhook_url` and continues with
+  no Slack alerts. The message carries the result
   (outcome, phase, time, detail, plays, commit), never a hostname or username, so give
   each server its own webhook or channel to tell them apart. A post Slack does not
   accept is logged in the journal and reported by `fedora-desktop-health`.

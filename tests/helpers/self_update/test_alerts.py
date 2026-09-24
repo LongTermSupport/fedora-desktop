@@ -14,11 +14,15 @@ records the request it was handed. Pinned:
 from __future__ import annotations
 
 import email.message
+import http.client
+import http.server
 import json
 import os
 import sys
+import threading
 import unittest
 import urllib.error
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
@@ -100,9 +104,6 @@ class TestPost(unittest.TestCase):
         self.assertEqual(request.data, alerts.slack_payload(RECORD))
         self.assertEqual(timeout, alerts.TIMEOUT_SECONDS)
 
-    def test_a_non_2xx_answer_is_a_failure(self) -> None:
-        self.assertEqual(alerts.post_slack(WEBHOOK, RECORD, opener=RecordingOpener(status=302)), "HTTP 302")
-
     def test_an_http_error_is_a_failure_naming_the_status_not_the_url(self) -> None:
         error = urllib.error.HTTPError(WEBHOOK, 404, "Not Found", email.message.Message(), None)
         reason = alerts.post_slack(WEBHOOK, RECORD, opener=RecordingOpener(error=error))
@@ -116,6 +117,17 @@ class TestPost(unittest.TestCase):
                 self.assertIsNotNone(reason)
                 assert reason is not None
                 self.assertNotIn("EXAMPLE", reason)
+                self.assertIn("not delivered", reason)
+
+    def test_a_malformed_http_answer_is_a_failure_not_an_exception(self) -> None:
+        """http.client raises these outside OSError. Escaping, one would leave the result
+        recorded with an empty `alert`, which reads as delivered."""
+        for error in (http.client.BadStatusLine("garbage"), http.client.LineTooLong("header line"),
+                      http.client.IncompleteRead(b"partial")):
+            with self.subTest(error=type(error).__name__):
+                reason = alerts.post_slack(WEBHOOK, RECORD, opener=RecordingOpener(error=error))
+                self.assertIsNotNone(reason)
+                assert reason is not None
                 self.assertIn("not delivered", reason)
 
 
@@ -134,8 +146,81 @@ class TestSinks(unittest.TestCase):
         self.assertEqual(len(opener.requests), 1)
 
     def test_a_failed_delivery_is_named_by_its_sink(self) -> None:
-        sinks = alerts.Sinks(slack_webhook=WEBHOOK, opener=RecordingOpener(status=500))
+        error = urllib.error.HTTPError(WEBHOOK, 500, "Server Error", email.message.Message(), None)
+        sinks = alerts.Sinks(slack_webhook=WEBHOOK, opener=RecordingOpener(error=error))
         self.assertEqual(sinks.deliver(RECORD), ["slack: HTTP 500"])
+
+
+class StubSlack(http.server.BaseHTTPRequestHandler):
+    """A loopback stand-in for Slack. Each path answers one way; every request is logged."""
+
+    seen: list[tuple[str, str, bytes]] = []
+
+    def _answer(self) -> None:
+        length = int(self.headers.get("Content-Length") or 0)
+        StubSlack.seen.append((self.command, self.path, self.rfile.read(length)))
+        if self.path == "/ok":
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"ok")
+        elif self.path == "/moved":
+            self.send_response(302)
+            self.send_header("Location", "/ok")
+            self.end_headers()
+        elif self.path == "/broken":
+            self.send_response(500)
+            self.end_headers()
+        elif self.path == "/garbage":
+            self.wfile.write(b"this is not an HTTP status line\r\n\r\n")
+        self.close_connection = True
+
+    do_GET = _answer
+    do_POST = _answer
+
+    def log_message(self, format: str, *args: object) -> None:
+        return None
+
+
+class TestTheRealOpener(unittest.TestCase):
+    """Through `alerts`' own default opener, against a server on 127.0.0.1 only."""
+
+    def setUp(self) -> None:
+        StubSlack.seen = []
+        self.server = http.server.HTTPServer(("127.0.0.1", 0), StubSlack)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
+        # A proxy from the environment would take the request off the loopback.
+        self.no_proxy = mock.patch.dict(os.environ, {"no_proxy": "*", "NO_PROXY": "*"})
+        self.no_proxy.start()
+
+    def tearDown(self) -> None:
+        self.no_proxy.stop()
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join()
+
+    def post(self, path: str) -> str | None:
+        return alerts.post_slack(self.base + path, RECORD, timeout=5)
+
+    def test_an_accepted_post_is_delivered(self) -> None:
+        self.assertIsNone(self.post("/ok"))
+        self.assertEqual(StubSlack.seen, [("POST", "/ok", alerts.slack_payload(RECORD))])
+
+    def test_a_redirect_is_a_failed_delivery_and_is_not_followed(self) -> None:
+        """Followed, a 302 turns the POST into a GET with no body, and the 200 at the end
+        of it would read as delivered."""
+        self.assertEqual(self.post("/moved"), "HTTP 302")
+        self.assertEqual([(method, path) for method, path, _ in StubSlack.seen], [("POST", "/moved")])
+
+    def test_a_server_error_is_a_failed_delivery(self) -> None:
+        self.assertEqual(self.post("/broken"), "HTTP 500")
+
+    def test_an_answer_that_is_not_http_is_a_failed_delivery(self) -> None:
+        reason = self.post("/garbage")
+        self.assertIsNotNone(reason)
+        assert reason is not None
+        self.assertTrue(reason.startswith("not delivered ("), reason)
 
 
 if __name__ == "__main__":

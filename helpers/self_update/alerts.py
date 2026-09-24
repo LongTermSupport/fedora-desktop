@@ -12,6 +12,7 @@ install is how an owner with several servers tells them apart.
 
 from __future__ import annotations
 
+import http.client
 import json
 import re
 import urllib.error
@@ -27,6 +28,19 @@ _SLACK_WEBHOOK = re.compile(r"^https://hooks\.slack\.com/[A-Za-z0-9_-]+(/[A-Za-z
 TIMEOUT_SECONDS = 10.0
 
 Opener = Callable[..., Any]
+
+
+class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
+    """A followed 302 or 303 turns the POST into a GET with no body, and a 200 at the end
+    of it would read as delivered. Refused here, a 3xx reaches the caller as an HTTPError."""
+
+    def redirect_request(self, req: object, fp: object, code: int, msg: str, headers: object,
+                         newurl: str) -> None:
+        return None
+
+
+def _open(request: urllib.request.Request, *, timeout: float) -> Any:
+    return urllib.request.build_opener(_RefuseRedirects()).open(request, timeout=timeout)
 
 
 def parse_slack_webhook(text: str) -> str:
@@ -61,8 +75,7 @@ def slack_payload(record: dict[str, str]) -> bytes:
 
 
 def post_slack(
-    url: str, record: dict[str, str], *, opener: Opener = urllib.request.urlopen,
-    timeout: float = TIMEOUT_SECONDS,
+    url: str, record: dict[str, str], *, opener: Opener = _open, timeout: float = TIMEOUT_SECONDS,
 ) -> str | None:
     """Post one alert. None when Slack accepted it, else a reason that omits the URL."""
     request = urllib.request.Request(
@@ -72,11 +85,15 @@ def post_slack(
         with opener(request, timeout=timeout) as response:
             status = response.status
     except urllib.error.HTTPError as error:
+        error.close()
         return f"HTTP {error.code}"
     except urllib.error.URLError as error:
         return f"not delivered ({error.reason})"
     except OSError as error:
         return f"not delivered ({type(error).__name__}: {error})"
+    except http.client.HTTPException as error:
+        # Not an OSError: a malformed status line, an over-long header or a cut-off body.
+        return f"not delivered ({type(error).__name__})"
     if not 200 <= status < 300:
         return f"HTTP {status}"
     return None
@@ -85,7 +102,7 @@ def post_slack(
 class Sinks:
     """The configured sinks. `deliver` returns one failure per sink that did not accept."""
 
-    def __init__(self, *, slack_webhook: str | None, opener: Opener = urllib.request.urlopen) -> None:
+    def __init__(self, *, slack_webhook: str | None, opener: Opener = _open) -> None:
         self._slack = slack_webhook
         self._opener = opener
 
