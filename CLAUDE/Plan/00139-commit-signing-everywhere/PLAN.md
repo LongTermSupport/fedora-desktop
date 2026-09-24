@@ -124,3 +124,5 @@ out.
 
 - `6001a540` — signing on by default, ccy 3.66.0, the `ccy-git-signing` gate, docs
   (merged as `78d33e43`)
+- `d8a1af89` — the first review's ten findings: tests isolated from the machine's git
+  config, launcher deployed first, the signing key named in ccy's risks
