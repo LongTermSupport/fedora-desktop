@@ -819,6 +819,103 @@
                   gh auth switch --hostname github.com --user "$account" 2>/dev/null
               }
 
+              # owner/repo from a github.com URL (https, ssh://, scp-style, with or
+              # without a github.com-<alias> host) or a bare owner/repo.
+              function _gh_repo_path() {
+                  local url="$1" path
+                  if [[ "$url" =~ ^(https://github\.com/|ssh://git@github\.com(-[A-Za-z0-9_.-]+)?/|git@github\.com(-[A-Za-z0-9_.-]+)?:)(.+)$ ]]; then
+                      path="${BASH_REMATCH[4]}"
+                  elif [[ "$url" != *:* ]]; then
+                      path="$url"
+                  else
+                      return 1
+                  fi
+                  path="${path%/}"
+                  path="${path%.git}"
+                  [[ "$path" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || return 1
+                  printf '%s\n' "$path"
+              }
+
+              # Point a remote at the github.com-<alias> SSH host, so ssh and the
+              # auto-detecting git() wrapper both use that account from then on.
+              # With no repo given it reads the remote's current URL and asks first.
+              function _gh_remote_to_alias() {
+                  local alias="$1"
+                  shift
+                  local assume_yes=0 remote="" source="" count=0
+                  while (( $# )); do
+                      case "$1" in
+                          -h|--help)
+                              echo "Usage: remote-$alias [-y] [remote] [owner/repo]"
+                              echo
+                              echo "Point a git remote at the github.com-$alias SSH host."
+                              echo "  remote       remote to change (default: origin)"
+                              echo "  owner/repo   repository; default: read from the remote's current URL"
+                              echo "  -y, --yes    change it without asking"
+                              echo
+                              echo "Examples:"
+                              echo "  remote-$alias                       # convert origin, after confirming"
+                              echo "  remote-$alias upstream              # convert the upstream remote"
+                              echo "  remote-$alias origin owner/repo     # set origin to owner/repo"
+                              return 0
+                              ;;
+                          -y|--yes) assume_yes=1 ;;
+                          -*)
+                              echo "remote-$alias: unknown option '$1' (see remote-$alias --help)" >&2
+                              return 1
+                              ;;
+                          *)
+                              count=$((count + 1))
+                              case "$count" in
+                                  1) remote="$1" ;;
+                                  2) source="$1" ;;
+                                  *)
+                                      echo "remote-$alias: too many arguments (see remote-$alias --help)" >&2
+                                      return 1
+                                      ;;
+                              esac
+                              ;;
+                      esac
+                      shift
+                  done
+                  remote="${remote:-origin}"
+
+                  local current
+                  if ! current="$(command git remote get-url "$remote" 2>&1)"; then
+                      echo "remote-$alias: cannot read remote '$remote': $current" >&2
+                      return 1
+                  fi
+                  local repo_path
+                  if ! repo_path="$(_gh_repo_path "${source:-$current}")"; then
+                      echo "remote-$alias: '${source:-$current}' is not a github.com repository." >&2
+                      echo "  Pass it explicitly: remote-$alias $remote owner/repo" >&2
+                      return 1
+                  fi
+                  local target="git@github.com-${alias}:${repo_path}.git"
+                  if [[ "$current" == "$target" ]]; then
+                      echo "$remote already uses the $alias account: $target" >&2
+                      return 0
+                  fi
+
+                  echo "  $remote: $current" >&2
+                  echo "  ->  $target" >&2
+                  if (( ! assume_yes )); then
+                      local reply=""
+                      if ! read -rp "Change it? [y/N] " reply </dev/tty; then
+                          reply=""
+                      fi
+                      case "$reply" in
+                          y|Y|yes|YES) ;;
+                          *)
+                              echo "Aborted. No changes made (-y skips this prompt)." >&2
+                              return 1
+                              ;;
+                      esac
+                  fi
+                  command git remote set-url "$remote" "$target"
+                  echo "$remote now uses the $alias account." >&2
+              }
+
               # Account-specific aliases
               {% for alias, username in github_accounts.items() %}
               function gh-{{ alias }}() {
@@ -897,17 +994,7 @@
               }
 
               function remote-{{ alias }}() {
-                  # Set remote using SSH host alias
-                  local remote="${1:-origin}"
-                  local repo="$2"
-                  if [[ -z "$repo" ]]; then
-                      echo "Usage: remote-{{ alias }} [remote] <repo>"
-                      return 1
-                  fi
-                  if [[ ! "$repo" == *:* ]]; then
-                      repo="git@github.com-{{ alias }}:$repo.git"
-                  fi
-                  git remote set-url "$remote" "$repo"
+                  _gh_remote_to_alias {{ alias }} "$@"
               }
               {% endfor %}
 
@@ -1317,7 +1404,7 @@
               {% for alias in github_accounts.keys() %}
                 gh-{{ alias }} <command>           - Run gh command as {{ alias }}
                 clone-{{ alias }} <repo>           - Clone repo using {{ alias }} account
-                remote-{{ alias }} <repo>          - Set remote for {{ alias }} account
+                remote-{{ alias }} [remote] [repo] - Convert a remote to {{ alias }} (confirms)
                 gh-token-{{ alias }}               - Get token for {{ alias }} account
                 gh-{{ alias }}-token-phpstorm      - Generate PhpStorm token for {{ alias }}
               {% endfor %}

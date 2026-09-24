@@ -164,7 +164,8 @@ detected; use `git-<alias>` there.
 ```bash
 gh-oss pr list                # Run a gh command as oss
 clone-oss owner/repo          # Clone using the oss SSH key + remote
-remote-oss owner/repo         # Point the current repo's remote at oss
+remote-oss                    # Convert origin to the oss SSH host (confirms first)
+remote-oss origin owner/repo  # Point origin at owner/repo via oss (-y skips the prompt)
 gh-token-oss                  # Print a token for oss
 gh-oss-token-phpstorm         # Generate a PhpStorm token with required scopes
 git-init-with-account oss owner/repo   # git init with the oss remote
