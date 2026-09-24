@@ -630,21 +630,21 @@ are forwarded unchanged.
 
 ### Auth, SSH and network
 
-| Flag                 | Effect                                                                                   |
-| -------------------- | ---------------------------------------------------------------------------------------- |
-| `--token NAME`       | Use a specific named token                                                               |
-| `--create-token`     | Create a new named token                                                                 |
-| `--update-token=N`   | Replace an existing named token                                                          |
-| `--list-tokens`      | List tokens with expiry                                                                  |
-| `--export-token`     | Export token(s) as a portable import script                                              |
-| `--ssh-key PATH`     | Mount a specific key (repeatable)                                                        |
-| `--ssh-agent`        | Forward the session's ssh-agent (SELinux labelling off)                                  |
-| `--no-ssh`           | Mount no key (git push will not work)                                                    |
-| `--github-443`       | Route GitHub SSH over `ssh.github.com:443` when port 22 is blocked                       |
-| `--network NET`      | Auto-connect to a container network on launch                                            |
-| `--no-network`       | Skip network auto-detection                                                              |
-| `--connect [NET]`    | Connect an already-running container to a network                                        |
-| `--disconnect [NET]` | Disconnect a running container from a network, and clear the saved default that names it |
+| Flag                 | Effect                                                                       |
+| -------------------- | ---------------------------------------------------------------------------- |
+| `--token NAME`       | Use a specific named token                                                   |
+| `--create-token`     | Create a new named token                                                     |
+| `--update-token=N`   | Replace an existing named token                                              |
+| `--list-tokens`      | List tokens with expiry                                                      |
+| `--export-token`     | Export token(s) as a portable import script                                  |
+| `--ssh-key PATH`     | Mount a specific key (repeatable)                                            |
+| `--ssh-agent`        | Forward the session's ssh-agent (SELinux labelling off)                      |
+| `--no-ssh`           | Mount no key (git push will not work)                                        |
+| `--github-443`       | Route GitHub SSH over `ssh.github.com:443` when port 22 is blocked           |
+| `--network NET`      | Auto-connect to a container network on launch                                |
+| `--no-network`       | Skip network auto-detection                                                  |
+| `--connect [NET]`    | Connect an already-running container to a network                            |
+| `--disconnect [NET]` | Disconnect a running container from a network, so no later launch rejoins it |
 
 ### Engine and policy
 
@@ -1016,24 +1016,33 @@ access.
 `--connect` outlives the session: `--no-network` skips the default for one launch only,
 and `--network` at launch does not replace it.
 
+A network comes back on a later launch from three places:
+
+- the saved default, which `--connect` writes;
+- the Quick Launch configuration's `LAST_NETWORK`, written by every launch onto a network.
+  A plain `ccy` offers it, default Yes, and a session restore takes it without asking.
+- a session's restore record, which keeps `--network NET` for the restore after a reboot.
+
 `--disconnect` is the undo, run from a second terminal like `--connect`:
 
 - With no name, it lists the project networks the running container(s) are on and asks
   which to detach. The engine's default network is not offered, since detaching it cuts
   the session's own internet access.
 - It detaches the network from every running container of the project that is on it.
-- If the saved default names that network, it clears it. If the default is another
-  network, it says which, and leaves it.
+- It then clears the network from all three places, wherever it is named. A saved default
+  naming another network stays, and is named. Afterwards a plain `ccy`, or a restore, only
+  offers the network if auto-detection finds it, and asks first.
 - **It never detaches a container's last network.** A session launched with `--network NET`, or from a saved default, is on `NET` alone, so detaching it would cut the session
   off entirely, the Claude API included. That detach is refused and no container is
-  changed, but a saved default naming `NET` is still cleared. To get the session off
-  `NET`, end it and start it again: plain `ccy` now that the default is gone, or
+  changed, but `NET` is still cleared from all three places. The session stays on `NET`
+  until it ends; to get it off, end it and start it again with a plain `ccy` or
   `ccy --no-network`.
-- With no container running, `ccy --disconnect NET` clears a saved default that names
-  `NET`. A bare `ccy --disconnect` names the saved default and asks `[y/N]` on the
-  terminal before clearing it; Enter, a no, or no terminal keeps it.
-- If the container engine cannot list its containers, nothing is changed and the engine's
-  error is shown.
+- With no container running, `ccy --disconnect NET` clears `NET` wherever it is saved. A
+  bare `ccy --disconnect` names the saved default and asks `[y/N]` on the terminal before
+  clearing it. Enter, a no, or no terminal keeps it; with no terminal it says to name the
+  network instead.
+- If the container engine cannot list its containers or networks, nothing is changed and
+  the engine's error is shown. That goes for `--connect` too.
 
 ---
 
@@ -1251,29 +1260,29 @@ absent supervisor and `--no-supervise`; both announce themselves at launch. See
 
 ## Troubleshooting
 
-| Symptom                                       | Cause / fix                                                                                                                                                                                                                                                           |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ccy: command not found`                      | Shell has not picked up the bashrc include. Open a new shell, or run the playbook.                                                                                                                                                                                    |
-| Refuses to start, mentions hostname           | `.claude/ccy/allowed-hostnames` restricts this project. Add your hostname or remove the file.                                                                                                                                                                         |
-| Refuses to start, "sensitive files tracked"   | Runtime state under `.claude/ccy/` has been committed. Untrack it (`git rm --cached`) and re-launch.                                                                                                                                                                  |
-| Container image build fails                   | CCY prints an AI-assisted fix prompt. Recover with `ccy --disable-custom-docker` to get a session in the base image.                                                                                                                                                  |
-| Token expired / rejected                      | `ccy --update-token=NAME`, or `ccy --create-token` for a fresh one.                                                                                                                                                                                                   |
-| `git push` fails inside the container         | No key mounted, or the wrong one. Relaunch and select the right key, or use `--ssh-key`. A deploy key is read-only unless it was registered read/write: push from an `ssh -A` session with `--ssh-agent` instead.                                                     |
-| "No github\_ SSH key" on a box that has none  | Expected: such a box has no account. In a project whose remote is `git@<alias>:…` the alias's deploy key is used; anywhere else, `--ssh-agent` from an `ssh -A` session, and `export GH_TOKEN=…` for `gh`.                                                            |
-| Git-over-SSH hangs on a restricted network    | Port 22 blocked — use `ccy --github-443`.                                                                                                                                                                                                                             |
-| `NETWORK ERROR: '...' has no internet access` | The reachability preflight needs an `alpine` pull and plain-http egress to `google.com`. If the network is known-good by other means (e.g. a fenced CI runner that proves its own egress beforehand), skip it: `CCY_SKIP_NETWORK_PREFLIGHT=1 ccy`.                    |
-| Agent cannot reach the database               | Not on the network. `ccy --network <net>`, or `ccy --connect` from another terminal.                                                                                                                                                                                  |
-| Connected to the wrong network                | `ccy --disconnect <net>` from another terminal. It also clears the saved default, which would otherwise reconnect every later launch. If `<net>` is the session's only network it is not detached; end the session and start it again. See [Networking](#networking). |
-| `Ctrl+Z` freezes the session                  | No supervisor in this project, or launched with `--no-supervise` — it owns the ctrl+z guard since CCY 3.42.0. See [ctrl+z and the supervisor](#ctrlz-and-the-supervisor).                                                                                             |
-| Session stalls with a full context window     | Enable [the supervisor](#the-supervisor) so it compacts automatically.                                                                                                                                                                                                |
-| Stale/orphaned containers                     | `ccy --top` to list and stop them.                                                                                                                                                                                                                                    |
-| Terminal died; where is my session?           | Still running, detached. `cd` to the project and run `ccy` — it offers to re-attach. `ccy-sessions` lists them all. See [Sessions Survive the Terminal](#sessions-survive-the-terminal).                                                                              |
-| `ccy` offers a session I do not want          | Answer `n` for a fresh one, or end the old one from `ccy-sessions` (choose it, Ctrl-X).                                                                                                                                                                               |
-| "open in another terminal" when attaching     | A session can be attached from one terminal only. Detach it there first (F12, Detach), or end it from `ccy-sessions`.                                                                                                                                                 |
-| "tmux is not installed"                       | `play-tmux-sessions.yml` has not run on this host. It is part of `playbook-main.yml`.                                                                                                                                                                                 |
-| Sessions did not come back after a reboot     | Restore is opt-in: `ccy_restore_sessions: true` in `host_vars`, then the play. If it is on, `ccy-sessions verify-restore` names each session's state, and `journalctl --user -u ccy-sessions-restore -b --no-pager` shows what the restore did.                       |
-| `ccy-sessions reboot` refuses                 | A live session's project has no hooks-daemon CLI, so it cannot be warned. It is named; end it or install the daemon there. Nothing was signalled or rebooted.                                                                                                         |
-| Need to see what CCY itself is doing          | `ccy --debug` for interactive debug-layer selection.                                                                                                                                                                                                                  |
+| Symptom                                       | Cause / fix                                                                                                                                                                                                                                                                                                                |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ccy: command not found`                      | Shell has not picked up the bashrc include. Open a new shell, or run the playbook.                                                                                                                                                                                                                                         |
+| Refuses to start, mentions hostname           | `.claude/ccy/allowed-hostnames` restricts this project. Add your hostname or remove the file.                                                                                                                                                                                                                              |
+| Refuses to start, "sensitive files tracked"   | Runtime state under `.claude/ccy/` has been committed. Untrack it (`git rm --cached`) and re-launch.                                                                                                                                                                                                                       |
+| Container image build fails                   | CCY prints an AI-assisted fix prompt. Recover with `ccy --disable-custom-docker` to get a session in the base image.                                                                                                                                                                                                       |
+| Token expired / rejected                      | `ccy --update-token=NAME`, or `ccy --create-token` for a fresh one.                                                                                                                                                                                                                                                        |
+| `git push` fails inside the container         | No key mounted, or the wrong one. Relaunch and select the right key, or use `--ssh-key`. A deploy key is read-only unless it was registered read/write: push from an `ssh -A` session with `--ssh-agent` instead.                                                                                                          |
+| "No github\_ SSH key" on a box that has none  | Expected: such a box has no account. In a project whose remote is `git@<alias>:…` the alias's deploy key is used; anywhere else, `--ssh-agent` from an `ssh -A` session, and `export GH_TOKEN=…` for `gh`.                                                                                                                 |
+| Git-over-SSH hangs on a restricted network    | Port 22 blocked — use `ccy --github-443`.                                                                                                                                                                                                                                                                                  |
+| `NETWORK ERROR: '...' has no internet access` | The reachability preflight needs an `alpine` pull and plain-http egress to `google.com`. If the network is known-good by other means (e.g. a fenced CI runner that proves its own egress beforehand), skip it: `CCY_SKIP_NETWORK_PREFLIGHT=1 ccy`.                                                                         |
+| Agent cannot reach the database               | Not on the network. `ccy --network <net>`, or `ccy --connect` from another terminal.                                                                                                                                                                                                                                       |
+| Connected to the wrong network                | `ccy --disconnect <net>` from another terminal. It also clears `<net>` from the saved default, Quick Launch and restore records, any of which would otherwise rejoin it on a later launch. If `<net>` is the session's only network it is not detached; end the session and start it again. See [Networking](#networking). |
+| `Ctrl+Z` freezes the session                  | No supervisor in this project, or launched with `--no-supervise` — it owns the ctrl+z guard since CCY 3.42.0. See [ctrl+z and the supervisor](#ctrlz-and-the-supervisor).                                                                                                                                                  |
+| Session stalls with a full context window     | Enable [the supervisor](#the-supervisor) so it compacts automatically.                                                                                                                                                                                                                                                     |
+| Stale/orphaned containers                     | `ccy --top` to list and stop them.                                                                                                                                                                                                                                                                                         |
+| Terminal died; where is my session?           | Still running, detached. `cd` to the project and run `ccy` — it offers to re-attach. `ccy-sessions` lists them all. See [Sessions Survive the Terminal](#sessions-survive-the-terminal).                                                                                                                                   |
+| `ccy` offers a session I do not want          | Answer `n` for a fresh one, or end the old one from `ccy-sessions` (choose it, Ctrl-X).                                                                                                                                                                                                                                    |
+| "open in another terminal" when attaching     | A session can be attached from one terminal only. Detach it there first (F12, Detach), or end it from `ccy-sessions`.                                                                                                                                                                                                      |
+| "tmux is not installed"                       | `play-tmux-sessions.yml` has not run on this host. It is part of `playbook-main.yml`.                                                                                                                                                                                                                                      |
+| Sessions did not come back after a reboot     | Restore is opt-in: `ccy_restore_sessions: true` in `host_vars`, then the play. If it is on, `ccy-sessions verify-restore` names each session's state, and `journalctl --user -u ccy-sessions-restore -b --no-pager` shows what the restore did.                                                                            |
+| `ccy-sessions reboot` refuses                 | A live session's project has no hooks-daemon CLI, so it cannot be warned. It is named; end it or install the daemon there. Nothing was signalled or rebooted.                                                                                                                                                              |
+| Need to see what CCY itself is doing          | `ccy --debug` for interactive debug-layer selection.                                                                                                                                                                                                                                                                       |
 
 ---
 
