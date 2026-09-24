@@ -89,7 +89,8 @@ verdict() {
 
 # effective <runner...> — the history settings, prompt hooks and Ctrl+R binding a fresh
 # interactive shell ends up with after every init file, one KEY=value per line. HISTFILE is
-# unset before the child exits, so reading them writes nothing to any history file.
+# unset before the child exits, and the Ctrl+R include's EXIT trap cleared so it cannot set
+# it back, so reading them writes nothing to any history file.
 effective() {
     # shellcheck disable=SC2016
     # The markers go on lines of their own and are matched anywhere: ps1-prompt prints a
@@ -107,6 +108,7 @@ effective() {
         printf "PC=%s\n" "${PROMPT_COMMAND[*]-}"
         printf "CR=%s\n" "$(bind -m emacs-standard -X 2>&1 | grep -F "C-r" | tr "\n" " ")"
         echo @@END
+        trap - EXIT
         unset HISTFILE
     ' </dev/null 2>>"${PLAN_RUN_DIR}/effective-stderr.log" | awk '/@@BEGIN$/ { on = 1; next } /^@@END$/ { on = 0 } on'
 }

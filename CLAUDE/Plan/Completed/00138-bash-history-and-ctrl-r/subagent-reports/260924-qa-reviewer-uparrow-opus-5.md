@@ -29,3 +29,22 @@ Checked and clean:
 - **The recorder's first-prompt logic** is still correct.
 - **The `-O` false branch** is unchanged.
 - **The gate** failed on the parent snippet and exercises the rc-file path.
+
+## Round 2, on 993ae696: PASS WITH NITS
+
+All four findings are fixed.
+
+- **The EXIT trap is limited:** it saves a session whose prompt hook never ran only when
+  the session ends by `exit` or Ctrl+D. When the terminal is closed, bash saves history on
+  SIGHUP before any trap runs, so that case is still lost. It is unreachable on the managed
+  config. The comment, the QA.md row and the commit message claimed more, and are
+  corrected.
+- **Exit status is kept.** A user's own EXIT trap is never overwritten. Re-sourcing does not
+  install the trap twice. An include sourced before the snippet fails safe, to stock
+  behaviour.
+- **Nits:**
+  - The acceptance probe's "writes nothing" comment was no longer true, because the trap
+    set HISTFILE back. The probe now clears the trap too.
+  - A comment's wording.
+  - The history path is repeated in both files. If one copy changes, the split turns off
+    safely.

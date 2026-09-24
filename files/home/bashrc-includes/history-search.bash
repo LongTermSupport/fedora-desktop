@@ -81,8 +81,10 @@ if command -v fzf >/dev/null; then
     # Ctrl+R reads every terminal's from the file itself. bash loads HISTFILE after the rc
     # files, so it names nothing until the first prompt, where __history_append (the
     # history block in zz_lts-fedora-desktop.bash) points it back at the shared file.
-    # The EXIT trap does the same for a session that ends before any prompt ran it, so its
-    # commands are still saved. An EXIT trap already set is left alone. Kept only when this
+    # The EXIT trap does the same for a session whose prompt hook never ran (something
+    # replaced PROMPT_COMMAND), when it ends by `exit` or Ctrl+D. Closing the terminal is
+    # not covered: on SIGHUP bash saves history before any trap runs. An EXIT trap already
+    # set is left alone. Kept only when this
     # search is bound: without it, stock Ctrl+R searches the loaded list, and must see all.
     if [[ "${HISTFILE-}" == "${HOME}/.local/state/bash/history" ]]; then
         __history_shared_file="${HISTFILE}"
