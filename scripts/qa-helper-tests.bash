@@ -155,6 +155,12 @@ if [[ -n "$counts_token" ]]; then
     token_args=(--counts-token "$counts_token")
 fi
 
+# The machine's own git config stays out of every test, as it does in CI. A global
+# `commit.gpgsign` would otherwise make each fixture commit depend on this machine's
+# signing key, and a test that signs its own fixtures would sign with the wrong one.
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+unset GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
+
 # The runner exits non-zero on any failure; set -e propagates it (fail-fast).
 python3 -m helpers.qa_environment.unittest_counts \
     --counts-file "$counts_file" \

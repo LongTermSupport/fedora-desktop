@@ -214,9 +214,11 @@ does. `git_signing_key` in host_vars points it at a different key.
 
 Register the key with GitHub once, so your commits show as Verified. This needs the
 `admin:ssh_signing_key` scope, which the play's other scopes do not include, and it must
-go on the account whose verified email is your `user_email`:
+go on the account whose verified email is your `user_email`. `gh auth refresh` and
+`gh ssh-key add` act on gh's active account, so switch to that account first:
 
 ```bash
+gh auth switch --user <that account>
 gh auth refresh --scopes admin:ssh_signing_key
 gh ssh-key add ~/.ssh/id_ed25519_git_signing.pub --type signing --title "$(hostname) git signing"
 ```

@@ -105,7 +105,12 @@ out.
   - [x] ✅ Both scripts written
   - [ ] ⬜ **HOST**: `./deploy.bash`, then `./acceptance.bash`
   - [ ] ⬜ **HOST (owner)**: a commit inside a ccy session started after the deploy
-- [ ] ⬜ **Task 4.4**: qa-reviewer pass over the full plan diff.
+- [ ] 🔄 **Task 4.4**: qa-reviewer pass over the full plan diff.
+  - [x] ✅ First pass: FAIL, one blocking finding (the self-update-cycle test signed its
+    "unsigned" fixtures on a host that signs by default), four should-fix, five nits
+    ([report](subagent-reports/260924-qa-reviewer-opus-5.md)). All ten are fixed
+    ([fixes](subagent-reports/260924-fork-review-fixes-opus-5.md)).
+  - [ ] ⬜ A confirming pass over the fixes
 
 ## Success Criteria
 
@@ -117,4 +122,5 @@ out.
 
 ## Delivery & Milestones
 
-- <!-- delivery commit hashes -->
+- `6001a540` — signing on by default, ccy 3.66.0, the `ccy-git-signing` gate, docs
+  (merged as `78d33e43`)

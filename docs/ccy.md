@@ -364,6 +364,11 @@ The residual risks worth naming honestly:
   repository. A forwarded agent (`--ssh-agent`) is the widest: every key it holds can be
   used to sign, for as long as the session lasts, and that container also runs without
   SELinux confinement.
+- **Your commit-signing key is in there too**, read-only, in every session, `--no-ssh`
+  included, whenever your git config signs. It cannot push, but anything it signs is
+  Verified as yours. Where a self-updating server trusts that key, a signed commit is a
+  release that server will run as root once it is pushed: whoever can push and sign from
+  the container can ship to it.
 - **Your Claude and GitHub tokens are live inside the container.** Combined with
   unrestricted network access, a misled or compromised agent process could exfiltrate
   them, not merely misuse them locally.
@@ -643,7 +648,7 @@ are forwarded unchanged.
 | `--export-token`     | Export token(s) as a portable import script                                  |
 | `--ssh-key PATH`     | Mount a specific key (repeatable)                                            |
 | `--ssh-agent`        | Forward the session's ssh-agent (SELinux labelling off)                      |
-| `--no-ssh`           | Mount no key (git push will not work)                                        |
+| `--no-ssh`           | Mount no push key (git push will not work); the signing key still goes in    |
 | `--github-443`       | Route GitHub SSH over `ssh.github.com:443` when port 22 is blocked           |
 | `--network NET`      | Auto-connect to a container network on launch                                |
 | `--no-network`       | Skip network auto-detection                                                  |
@@ -1109,7 +1114,7 @@ inside the container. Three sources are offered:
 ```bash
 ccy --ssh-key ~/.ssh/<key>   # specific key file (repeatable)
 ccy --ssh-agent              # forward the session's ssh-agent
-ccy --no-ssh                 # no key at all
+ccy --no-ssh                 # no push key (the commit-signing key is still staged)
 ccy --github-443             # tunnel GitHub SSH over port 443
 ```
 

@@ -124,11 +124,19 @@ fi
 verdict "7. the .pub is the public half of this key" "$(awk '{ print $1, $2 }' <<<"${derived}")" "${pub_fields}"
 
 echo "== the opt-in settings are gone"
+# `git config --get` exits 1 for "not set" and only for that. Any other status is a file
+# git could not read, which says nothing about whether the settings are gone.
 left=""
 for name in gpg.format user.signingkey alias.sign-deploy; do
-    if [[ -f "${XDG_CONFIG}" ]] && git config --file "${XDG_CONFIG}" --get "${name}" >/dev/null; then
-        left+="${name} "
+    if [[ ! -f "${XDG_CONFIG}" ]]; then
+        break
     fi
+    git config --file "${XDG_CONFIG}" --get "${name}" >/dev/null && rc=0 || rc=$?
+    case "${rc}" in
+        0) left+="${name} " ;;
+        1) ;;
+        *) left+="${name}(unreadable: git config exit ${rc}) " ;;
+    esac
 done
 verdict "8. ${XDG_CONFIG} holds none of gpg.format, user.signingkey, alias.sign-deploy" "" "${left}"
 
@@ -155,26 +163,38 @@ rm -rf "${scratch}"
 echo "== GitHub"
 # The public users/<login>/ssh_signing_keys endpoint needs no token scope, so this reads
 # every account gh is logged in to without asking for one.
+#
+# What it proves: the key is registered as a SIGNING key on at least one of those accounts.
+# What it cannot: that GitHub will mark a commit Verified. That also needs the committer
+# email to be a verified email of the account holding the key, and reading an account's
+# emails needs a scope this gate does not ask for. The push check at the end is the owner's.
+# When no account could be read at all, the answer is "unknown", not "unregistered".
 found=""
+read_ok=0
+read_failed=""
 logins="$(gh auth status --json hosts --jq '.hosts["github.com"][].login' 2>&1)" && rc=0 || rc=$?
 if [[ "${rc}" -ne 0 ]]; then
-    bad "11. GitHub lists this key as a signing key" "gh auth status exit ${rc}: ${logins}"
+    bad "11. GitHub lists this key as a signing key" "could not ask gh which accounts it holds: gh auth status exit ${rc}: ${logins}"
 else
     for login in ${logins}; do
         listed="$(gh api "users/${login}/ssh_signing_keys" --jq '.[].key' 2>&1)" && rc=0 || rc=$?
         if [[ "${rc}" -ne 0 ]]; then
-            printf '    could not read the signing keys of %s: %s\n' "${login}" "${listed}"
+            read_failed+="${login} (gh api exit ${rc}: $(tr '\n' ' ' <<<"${listed}")); "
             continue
         fi
+        read_ok=$((read_ok + 1))
         if grep -qxF "${pub_fields}" <<<"$(awk '{ print $1, $2 }' <<<"${listed}")"; then
             found="${login}"
         fi
     done
     if [[ -n "${found}" ]]; then
         ok "11. GitHub lists this key as a signing key (account ${found})"
+    elif [[ "${read_ok}" -eq 0 ]]; then
+        bad "11. GitHub lists this key as a signing key" \
+            "UNKNOWN: no account's signing keys could be read, so registration was not checked: ${read_failed:-gh reported no github.com account}"
     else
         bad "11. GitHub lists this key as a signing key" \
-            "not on any logged-in account; see docs/configuration.md \"Commit Signing\""
+            "not on any of the ${read_ok} account(s) read; see docs/configuration.md \"Commit Signing\"${read_failed:+ (unreadable: ${read_failed})}"
     fi
 fi
 

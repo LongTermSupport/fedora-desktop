@@ -5,13 +5,16 @@
 # (CLAUDE/PlanScriptStandards.md R2) — Ansible never runs in the CCY container.
 #
 # THE LEGS, IN ORDER:
-#   1. play-git-configure-and-tools.yml — generates this machine's SSH signing key
+#   1. play-claude-yolo.yml — the ccy launcher (CCY 3.66.0) that carries the key into
+#      each container. First, because it is harmless on its own: while ~/.gitconfig does
+#      not ask for signing it stages nothing and refuses nothing.
+#   2. play-git-configure-and-tools.yml — generates this machine's SSH signing key
 #      (~/.ssh/id_ed25519_git_signing, no passphrase) unless git_signing_key names
 #      another, and sets gpg.format, user.signingkey, commit.gpgsign and tag.gpgsign in
 #      ~/.gitconfig. It removes the opt-in settings Plan 00137 wrote to the XDG config.
-#   2. play-claude-yolo.yml — the ccy launcher (CCY 3.66.0) that carries the key into
-#      each container. Second, because from leg 1 on ~/.gitconfig asks for signing, and
-#      an older launcher would start containers that cannot sign.
+#      Second, because from here on ~/.gitconfig asks for signing, and a launcher older
+#      than 3.66.0 would start containers whose every commit fails. The deploy stops at
+#      the first failing leg, so this order never leaves that state behind.
 #
 # ccy sessions already running keep the gitconfig they started with, so they do not
 # sign until they are restarted.
@@ -42,8 +45,11 @@ PLAN_USAGE="usage: deploy.bash [-h|--help] [--check]
 
 Runs, on the HOST, in this order:
 
-  playbooks/imports/play-git-configure-and-tools.yml   (the signing key, sign everything)
   playbooks/imports/play-claude-yolo.yml               (ccy carries the key into containers)
+  playbooks/imports/play-git-configure-and-tools.yml   (the signing key, sign everything)
+
+The launcher goes first: on its own it changes nothing, while signing switched on under
+an older launcher would start containers that cannot commit.
 
 --check previews without changing anything.
 
@@ -63,15 +69,17 @@ plan_require_host "it runs Ansible against this machine's git config and ccy lau
 plan_prime_sudo
 plan_start_log auto
 
-plan_deploy_leg "play-git-configure-and-tools.yml" \
-    plan_ansible_playbook playbooks/imports/play-git-configure-and-tools.yml
-
 plan_deploy_leg "play-claude-yolo.yml" \
     plan_ansible_playbook playbooks/imports/play-claude-yolo.yml
 
+plan_deploy_leg "play-git-configure-and-tools.yml" \
+    plan_ansible_playbook playbooks/imports/play-git-configure-and-tools.yml
+
 printf '\n==> NEXT:\n'
 printf '    1. If the signing key is new, register it with GitHub (docs/configuration.md\n'
-printf '       "Commit Signing"): gh auth refresh --scopes admin:ssh_signing_key, then\n'
+printf '       "Commit Signing"), on the account whose verified email your commits use:\n'
+printf '       gh auth switch --user <that account>\n'
+printf '       gh auth refresh --scopes admin:ssh_signing_key\n'
 printf '       gh ssh-key add ~/.ssh/id_ed25519_git_signing.pub --type signing\n'
 printf '    2. Restart ccy sessions; a running one keeps its old, unsigned gitconfig.\n'
 printf '    3. ./acceptance.bash\n\n'

@@ -90,7 +90,10 @@
           {{ git_signing_key_path }}.pub beside it. Remove both and re-run this play to
           generate a fresh pair.
 
-    # Loading the key with an empty passphrase succeeds only for an unencrypted key.
+    # Loading the key with an empty passphrase succeeds only for an unencrypted key. A
+    # key with a passphrase fails with "incorrect passphrase"; an empty, truncated or
+    # foreign file fails with anything else. `creates:` above accepts any file at the
+    # path, so the two failures get their own remedies.
     - name: Probe Whether the Signing Key Loads Without a Passphrase
       ansible.builtin.command:
         argv:
@@ -104,6 +107,18 @@
       changed_when: false
       failed_when: false  # FAIL-FAST-OK: probe-then-fail — the verdict is the next task
       no_log: true
+
+    - name: Assert the Signing Key Is a Private Key ssh-keygen Can Read
+      ansible.builtin.assert:
+        that:
+          - >-
+            git_signing_key_unlocked.rc == 0
+            or 'incorrect passphrase' in git_signing_key_unlocked.stderr
+        fail_msg: >-
+          {{ git_signing_key_path }} is not a private key ssh-keygen can load (it said:
+          {{ git_signing_key_unlocked.stderr | trim }}). If it is the default key, remove
+          it and {{ git_signing_key_path }}.pub and re-run this play to generate a fresh
+          pair. If git_signing_key in host_vars names it, point that at a real key.
 
     - name: Assert the Signing Key Needs No Passphrase
       ansible.builtin.assert:
