@@ -47,12 +47,9 @@ PLAN_ROOT="${scriptDir}"
 # run as one unit through its own shebang, which goes through run.bash, exactly as
 # `./playbooks/imports/<play>.yml` does by hand.
 #
-# play-claude-yolo.yml: deploys ccy 3.64.3 (`ccy --disconnect`, and restore keeping
-# --supervise before `--`). No plan owns it. First, because nothing below depends on it.
 # 00109: its acceptance must run again AFTER a logout and login, which is what regenerates
 # the status document it judges and loads the panel's new code.
 PLANS=(
-    "playbooks/imports/play-claude-yolo.yml"
     "00109-desktop-drift-detection-and-fedora-desktop-panel"
 )
 
