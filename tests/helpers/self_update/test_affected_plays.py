@@ -408,14 +408,19 @@ class TestCli(FixtureCase):
         self.assertIn("allowlist", err)
 
     def test_old_and_new_shas_come_from_git(self) -> None:
+        # The machine's own git config stays out: a global `commit.gpgsign` would make these
+        # fixture commits depend on the host's signing key.
+        env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+
         def git(*args: str) -> None:
-            subprocess.run(["git", "-C", self.fx.root, *args], check=True, capture_output=True)
+            subprocess.run(["git", "-C", self.fx.root, *args], check=True, capture_output=True,
+                           env=env)
 
         git("init", "-q")
         git("-c", "user.email=t@example.com", "-c", "user.name=t", "add", "-A")
         git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "a")
         old = subprocess.run(["git", "-C", self.fx.root, "rev-parse", "HEAD"], check=True,
-                             capture_output=True, text=True).stdout.strip()
+                             capture_output=True, text=True, env=env).stdout.strip()
         self.fx.file("files/lib/lib.bash", "changed\n")
         git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qam", "b")
         code, out, _ = self._main("--old", old, "--new", "HEAD")

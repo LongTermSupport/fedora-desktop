@@ -75,6 +75,10 @@ Python helper sidesteps that entire class of breakage.
   ignores `E402` for `tests/**`).
 - Run: **`./scripts/qa-helper-tests.bash`** (or a specific module, e.g.
   `python3 -m unittest tests.helpers.pyenv.test_resolver`).
+- A test that runs `git` passes an env with `GIT_CONFIG_GLOBAL=os.devnull` and
+  `GIT_CONFIG_NOSYSTEM=1`. Hosts sign every commit by default (Plan 00139), so a fixture
+  commit that reads the machine's config depends on its signing key. The runner exports
+  the same two variables, which covers a gate run but not a single module run by hand.
 
 > **Do NOT use `python3 -m unittest discover -s tests`.** It reports
 > `Ran 0 tests … OK` and exits **0** — a false pass. These are namespace packages

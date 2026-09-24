@@ -21,6 +21,12 @@
 
 set -uo pipefail
 
+# Every git call here, the wrapper's included, sees only the repositories' own config. A
+# machine whose global config signs every commit would otherwise sign the "unsigned"
+# fixtures with the trusted key, and the refusal cases would test nothing.
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+unset GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TOOL="$REPO_ROOT/files/usr/local/sbin/fedora-desktop-self-update"
@@ -60,6 +66,18 @@ cleanup() {
     if [ -n "$OUTSIDE" ]; then rm -rf "$OUTSIDE"; fi
 }
 trap cleanup EXIT
+
+# The isolation above is what the refusal cases stand on, so it is proven before any case
+# runs: a commit made without -S must come out unsigned.
+PROBE="$SCRATCH/isolation-probe"
+git init -q "$PROBE"
+git -C "$PROBE" -c user.name=Probe -c user.email="$PRINCIPAL" commit -q --allow-empty -m probe
+if git -C "$PROBE" cat-file commit HEAD | grep -q '^gpgsig'; then
+    echo "FAIL: a commit made without -S came out signed; this machine's git config reaches" >&2
+    echo "      the fixtures, so the unsigned-commit cases cannot be trusted" >&2
+    exit 1
+fi
+rm -rf "$PROBE"
 
 PREFIX="$SCRATCH/root"
 BIN="$PREFIX/bin"

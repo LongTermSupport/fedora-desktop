@@ -156,6 +156,40 @@ else
     fail "not staged (rc=$RC): $OUT"
 fi
 
+echo "== a real key, signing a real commit through the repointed copy"
+# The cases above use placeholder key bytes. This one stages a real key with the mount
+# point set to the stage directory itself, so the path the copy names exists here as it
+# would in the container, and git signs with nothing but that copy for its global config.
+new_case real gpg.format=ssh "user.signingkey=$WORK/real/home/.ssh/signing" \
+    commit.gpgsign=true tag.gpgsign=true user.name=Signer user.email=signer@example.com
+rm -f "$CASE/home/.ssh/signing"
+ssh-keygen -q -t ed25519 -N "" -C signer@example.com -f "$CASE/home/.ssh/signing"
+OUT="$(HOME="$CASE/home" stage_git_signing_key "$CASE/stage/gitconfig" "$CASE/stage" "$CASE/stage" 2>&1)"
+RC=$?
+if [ "$RC" -eq 0 ]; then pass "a real key is accepted"; else fail "a real key was refused (rc=$RC): $OUT"; fi
+printf 'signer@example.com namespaces="git" %s\n' "$(cut -d' ' -f1,2 "$CASE/home/.ssh/signing.pub")" \
+    >"$CASE/allowed_signers"
+# The host path is gone, as it is inside the container: only a repointed copy can sign.
+rm -f "$CASE/home/.ssh/signing"
+repo="$CASE/repo"
+git init -q "$repo"
+GIT_CONFIG_GLOBAL="$CASE/stage/gitconfig" GIT_CONFIG_NOSYSTEM=1 \
+    git -C "$repo" commit -q --allow-empty -m "signed through the copy"
+GIT_CONFIG_GLOBAL="$CASE/stage/gitconfig" GIT_CONFIG_NOSYSTEM=1 \
+    git -C "$repo" tag -m "signed tag" v1
+if GIT_CONFIG_GLOBAL="$CASE/stage/gitconfig" GIT_CONFIG_NOSYSTEM=1 \
+    git -C "$repo" -c gpg.ssh.allowedSignersFile="$CASE/allowed_signers" verify-commit HEAD 2>/dev/null; then
+    pass "a plain commit is signed, and verifies against the key's public half"
+else
+    fail "a plain commit through the copy is not signed by the staged key"
+fi
+if GIT_CONFIG_GLOBAL="$CASE/stage/gitconfig" GIT_CONFIG_NOSYSTEM=1 \
+    git -C "$repo" -c gpg.ssh.allowedSignersFile="$CASE/allowed_signers" verify-tag v1 2>/dev/null; then
+    pass "a plain annotated tag is signed, and verifies"
+else
+    fail "a plain annotated tag through the copy is not signed by the staged key"
+fi
+
 echo "== the launcher"
 # Staged after the EXIT trap is set, so a refusal still removes the directory holding the
 # gitconfig copy and any key already in it.
@@ -167,6 +201,13 @@ if [ -n "$trap_line" ] && [ -n "$stage_line" ] && [ "$stage_line" -gt "$trap_lin
     pass "after the cleanup trap is set"
 else
     fail "not after 'trap cleanup EXIT' (trap line ${trap_line:-none}, stage line ${stage_line:-none})"
+fi
+# The session's one run site. A key staged after it would reach no container.
+run_line="$(grep -n "^container_cmd run \\\$DOCKER_FLAGS --rm" "$LAUNCHER" | cut -d: -f1)"
+if [ -n "$run_line" ] && [ -n "$stage_line" ] && [ "$stage_line" -lt "$run_line" ]; then
+    pass "before the session's container run"
+else
+    fail "not before the session's container run (stage line ${stage_line:-none}, run line ${run_line:-none})"
 fi
 if grep -qF -- "-v \"\$CONFIG_TEMP:/tmp/claude-config-import:ro" "$LAUNCHER"; then
     pass "CONFIG_TEMP is mounted read-only at /tmp/claude-config-import"
