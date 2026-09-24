@@ -49,8 +49,11 @@ PLAN_ROOT="${scriptDir}"
 #
 # 00109: its acceptance must run again AFTER a logout and login, which is what regenerates
 # the status document it judges and loads the panel's new code.
+# 00134: its triage is what reads the next boot's journal for the post-boot criteria
+# (dbus-broker, dnf5daemon, WirePlumber, the ABRT applet), so it runs after a reboot.
 PLANS=(
     "00109-desktop-drift-detection-and-fedora-desktop-panel"
+    "00134-startup-log-triage-and-status-panel-unavailable"
 )
 
 LIST_ONLY=0
