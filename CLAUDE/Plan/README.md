@@ -46,8 +46,6 @@ Use these Unicode icons in plan documents:
 
 - [00131-semgrep-or-true-rule-is-blind-to-the-enclosed-form](00131-semgrep-or-true-rule-is-blind-to-the-enclosed-form/) - The `|| true` rule is anchored to end-of-line, so `$( cmd || true )` is invisible to it — which is how two instances shipped. Widening it finds 18 live sites in 8 files; four are the git hooks that gate secret scanning for this public repo, where a wrong fix fails open. Carried from Plan 00122 Task 3.7.
 
-- [00130-legacy-plan-scripts-lose-their-last-log-chunk](00130-legacy-plan-scripts-lose-their-last-log-chunk/) - `PlanWorkflow.md` taught `exec > >(tee "$LOG") 2>&1` and a plan-local `logs/` tree, both forbidden by PlanScriptStandards R4. The doc is fixed; ten scripts in six active plans, of 53 examined, were already written from it. A process substitution cannot be waited on, so a failing run can lose the chunk explaining why, and the gitignored `logs/` tree orphans on archival.
-
 - [00128-qa-tool-abort-silences-thirty-gates](00128-qa-tool-abort-silences-thirty-gates/) - `qa-all.bash` exits 2 on a fresh clone before roughly thirty gates have run, and reports nothing about any of them, because one gate's dev-only ESLint dependency is absent. Two written-down positions conflict — `CLAUDE.md`'s missing-dependency rule against `qa-js.bash`'s deliberate dev-only comment — so the remedy is an owner decision. Measured and deferred by Plan 00125.
 
 - [00127-docker-and-podman-inside-lxc](00127-docker-and-podman-inside-lxc/) - **Parked.** Docker inside this host's LXC system containers is not working and Podman inside LXC was never established. Triage against `play-docker-in-lxc-support.yml`, then fix in IaC. Distinct from issue #41, which is engine coexistence on the host.
@@ -150,8 +148,6 @@ Use these Unicode icons in plan documents:
 
 - [00065-headless-server-cloud-base-blocker-fixes](00065-headless-server-cloud-base-blocker-fixes/) - Fixes what a first live headless run hit on minimal Fedora Cloud Base: three core plays abort the whole run and two leave a container host silently wrong. Declares the missing deps in IaC. HOST test pending.
 
-- [00066-ftp-camera-airbnb-wifi-and-hotspot-triage](00066-ftp-camera-airbnb-wifi-and-hotspot-triage/) - Two `ftp-camera` failures on Airbnb WiFi — `--async-copy` stalling after the first frame (three live hypotheses; cause deliberately not asserted, `triage.bash` and `--debug-ftp` ship to discriminate them), and a `--hotspot` IaC gap where the play only tuned a profile a human had to create by hand. HOST triage pending.
-
 - [00098-encrypted-claude-transcripts-at-rest](00098-encrypted-claude-transcripts-at-rest/) - Claude Code writes plaintext transcripts at well-known paths — inside the repo working tree for CCY. Research inverted the design: blast-radius reduction first (permissions, retention, backup exclusion), live-state encryption gated on evidence that did not arrive.
 
 - [00129-semgrep-per-rule-coverage-is-invisible](00129-semgrep-per-rule-coverage-is-invisible/) - The pattern gate's `N files OK` is the union of every rule's target set and reads as per-rule coverage; one rule is blind to 67 of 157 files. Carried out of Plan 00076, which met all twelve of its own criteria without it. One owner decision left: ~4.9× scan time for measured numbers, or model the globs in-gate.
@@ -175,6 +171,8 @@ Use these Unicode icons in plan documents:
 - [00074-grub-cgroup-check-reports-absence-it-cannot-prove](00074-grub-cgroup-check-reports-absence-it-cannot-prove/) - `run.bash`'s legacy-grub cgroup step now distinguishes a failing `grubby` from a genuine negative and aborts on a proven failure instead of continuing
 
 ## Completed Plans
+
+- [00130-legacy-plan-scripts-lose-their-last-log-chunk](Completed/00130-legacy-plan-scripts-lose-their-last-log-chunk/) - `PlanWorkflow.md` taught `exec > >(tee "$LOG") 2>&1` and a plan-local `logs/` tree, both forbidden by PlanScriptStandards R4. The doc is fixed, and the ten scripts already written from it were converted and each run to its last line. The one it could not run, 00066's, was moot once that plan was cancelled.
 
 - [00112-gnome-extensions-enabled-state-declared](Completed/00112-gnome-extensions-enabled-state-declared/) - Plan 00110's desktop scenario found a fresh install leaves every deployed GNOME extension INITIALIZED and none enabled (the enable races the shell's scan and its failure is hidden); make the enabled list declared, idempotent gsettings state and let the desktop scenario certify it.
 
@@ -241,6 +239,8 @@ Use these Unicode icons in plan documents:
 keeps this index readable; the archive keeps the record whole.
 
 ## Cancelled Plans
+
+- [00066-ftp-camera-airbnb-wifi-and-hotspot-triage](Cancelled/00066-ftp-camera-airbnb-wifi-and-hotspot-triage/) - Two `ftp-camera` failures on untrusted WiFi: `--async-copy` stalling after the first frame, and a `--hotspot` IaC gap. CANCELLED by the owner with its HOST triage never run. The hotspot profile, `triage.bash` and `--debug-ftp` shipped. The retry loop has no confirmed cause.
 
 - [027-contextual-shell-history](Cancelled/027-contextual-shell-history/) - Atuin for directory-aware recall. CANCELLED: superseded by Plan 00138; Atuin can only filter by directory, not rank, and its bash hook exposes command lines in argv.
 

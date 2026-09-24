@@ -1,9 +1,15 @@
 # Plan 00066: ftp-camera on untrusted WiFi — retry-loop triage + hotspot IaC gap
 
-**Status**: Blocked (on host access — the open triage tasks all need a live run on the affected machine)
+**Status**: Cancelled
 **Created**: 2026-07-29
 **Owner**: joseph
 **Priority**: High
+
+> **Cancelled 2026-09-24 by the owner**, with its HOST triage never run. What shipped stays:
+> `triage.bash`, `ftp-camera --debug-ftp`, and the Phase 3 hotspot profile in
+> `play-ftp-camera.yml`. The `--async-copy` retry loop has no confirmed cause, and the
+> tasks left open below were not done. If the loop comes back, start a new plan from this
+> one's hypotheses and `triage.bash`.
 
 ## Overview
 

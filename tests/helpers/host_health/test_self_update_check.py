@@ -115,7 +115,9 @@ class TestSilenceIsAClaim(CheckCase):
         self.assertEqual(len(self.findings()), 2)
 
     def test_enabled_with_no_result_is_quiet_while_it_is_new(self) -> None:
-        self.assertEqual(self.findings(), [])
+        # The directory's mtime is the real clock, so `now` must be too: a fixed NOW
+        # earlier than today reads that mtime as stamped in the future.
+        self.assertEqual(self.findings(now=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())), [])
 
     def test_enabled_with_no_result_past_the_bound_is_a_fault(self) -> None:
         old = time.time() - (self_update_check.STALE_AFTER_DAYS + 1) * 86400
