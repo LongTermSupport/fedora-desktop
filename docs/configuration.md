@@ -91,8 +91,10 @@ User-specific includes in `~/.bashrc-includes/`:
 - Custom scripts and functions
 - Per-user overrides
 - `history-search.bash` (desktop user only): Ctrl+R searches the history of every terminal,
-  while up-arrow walks only the commands typed in the current one.
-  It lists commands run in the current directory first, then the current git repository, then
+  while up-arrow, `history`, `!prefix` and `fc` see only the commands typed in the current
+  one. Every command is still saved to the shared history file. Root, and a shell without
+  fzf, keep stock bash, where both see everything.
+  Ctrl+R lists commands run in the current directory first, then the current git repository, then
   everything else. The chosen command is put on the prompt for review, never run straight
   away. The directory each command ran in is kept in `~/.local/state/bash/context`, which is
   private to the user like the history file. A command removed from history with

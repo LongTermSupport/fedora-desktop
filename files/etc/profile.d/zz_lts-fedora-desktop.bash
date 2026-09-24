@@ -23,10 +23,9 @@ export LESSCHARSET=utf-8
 # -O: only a directory this user owns — root keeping a user's HOME must not write into it.
 # play-basic-configs.yml creates the directory; bash saves nothing if it is missing.
 #
-# Up-arrow walks only this terminal's commands; Ctrl+R searches every terminal's, reading
-# the shared file itself. bash loads HISTFILE into the shell after the rc files, so HISTFILE
-# names nothing until the first prompt, which points it at the shared file. Every command
-# is appended there from then on.
+# history-search.bash may start a shell with HISTFILE at /dev/null, so that up-arrow holds
+# only this terminal's commands, and leave the real file in __history_shared_file. The first
+# prompt points HISTFILE back at it, before anything is appended.
 shopt -s histappend cmdhist lithist histverify
 HISTCONTROL=ignoreboth
 export HISTFILESIZE=-1
@@ -34,8 +33,7 @@ export HISTSIZE=-1
 export HISTIGNORE="ls:[bf]g:exit"
 HISTTIMEFORMAT='%F %T  '
 if [[ -O "${HOME}/.local/state/bash" ]]; then
-    __history_shared_file="${HOME}/.local/state/bash/history"
-    HISTFILE=/dev/null
+    HISTFILE="${HOME}/.local/state/bash/history"
 elif [[ $- == *i* ]]; then
     echo "bash history: ${HOME}/.local/state/bash is missing or not owned by $(id -un); history goes to ${HISTFILE:-the default file}. Re-run play-basic-configs.yml." >&2
 fi

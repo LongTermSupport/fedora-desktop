@@ -110,9 +110,8 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
 - Sets up Vim with Deus colorscheme
 - Configures bash environment and custom PS1 prompt
 - Moves bash history (user and root) to a private `~/.local/state/bash/history`, written at
-  every prompt and never truncated. Up-arrow offers only the current terminal's commands.
-  It gives the desktop user a Ctrl+R that ranks the
-  current directory's commands first — see
+  every prompt and never truncated, and gives the desktop user a Ctrl+R that ranks the
+  current directory's commands first, with up-arrow kept to the current terminal — see
   [configuration.md](configuration.md#bash-environment)
 - Copies SSH keys to root user
 - Installs YQ binary

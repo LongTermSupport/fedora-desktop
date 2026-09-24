@@ -98,6 +98,7 @@ effective() {
     "$@" '
         printf "\n@@BEGIN\n"
         printf "HISTFILE=%s\n" "${HISTFILE-unset}"
+        printf "SHARED=%s\n" "${__history_shared_file-unset}"
         printf "HISTSIZE=%s\n" "${HISTSIZE-unset}"
         printf "HISTFILESIZE=%s\n" "${HISTFILESIZE-unset}"
         printf "HISTCONTROL=%s\n" "${HISTCONTROL-unset}"
@@ -156,9 +157,12 @@ echo "== a fresh shell, as a terminal tab and as a tmux pane"
 plain="$(effective bash -i -c)"
 login="$(effective bash -l -i -c)"
 # 6
+# A `-c` shell never reaches a prompt, so HISTFILE is still the /dev/null the Ctrl+R include
+# starts it at (up-arrow holds only this terminal's commands); the first prompt, or the
+# EXIT trap, points it at the shared file named in SHARED.
 verdict "6. history settings in a fresh shell" \
-    "HISTFILE=${USER_STATE}/history HISTSIZE=-1 HISTFILESIZE=-1 HISTCONTROL=ignoreboth HISTTIMEFORMAT=set lithist=on" \
-    "HISTFILE=$(field HISTFILE "${plain}") HISTSIZE=$(field HISTSIZE "${plain}") HISTFILESIZE=$(field HISTFILESIZE "${plain}") HISTCONTROL=$(field HISTCONTROL "${plain}") HISTTIMEFORMAT=$(field HISTTIMEFORMAT "${plain}") lithist=$(field lithist "${plain}")"
+    "HISTFILE=/dev/null SHARED=${USER_STATE}/history HISTSIZE=-1 HISTFILESIZE=-1 HISTCONTROL=ignoreboth HISTTIMEFORMAT=set lithist=on" \
+    "HISTFILE=$(field HISTFILE "${plain}") SHARED=$(field SHARED "${plain}") HISTSIZE=$(field HISTSIZE "${plain}") HISTFILESIZE=$(field HISTFILESIZE "${plain}") HISTCONTROL=$(field HISTCONTROL "${plain}") HISTTIMEFORMAT=$(field HISTTIMEFORMAT "${plain}") lithist=$(field lithist "${plain}")"
 # 7, 8
 verdict "7. each prompt hook appears exactly once (terminal tab)" "${ALL_ONCE}" "$(hook_counts "$(field PC "${plain}")")"
 verdict "8. each prompt hook appears exactly once (login shell, as tmux starts)" "${ALL_ONCE}" "$(hook_counts "$(field PC "${login}")")"
@@ -210,8 +214,9 @@ echo "== root: durable history, and no recorder or Ctrl+R search"
 verdict "12. ${ROOT_STATE} is 0700 and root's" "700 root" "$(sudo stat -c '%a %U' "${ROOT_STATE}" 2>&1)"
 root="$(effective sudo -H bash -i -c)"
 # 13
-verdict "13. root's history settings" "HISTFILE=${ROOT_STATE}/history HISTSIZE=-1 HISTFILESIZE=-1" \
-    "HISTFILE=$(field HISTFILE "${root}") HISTSIZE=$(field HISTSIZE "${root}") HISTFILESIZE=$(field HISTFILESIZE "${root}")"
+# Root has no Ctrl+R search, so its stock Ctrl+R needs the whole list loaded: no split.
+verdict "13. root's history settings" "HISTFILE=${ROOT_STATE}/history SHARED=unset HISTSIZE=-1 HISTFILESIZE=-1" \
+    "HISTFILE=$(field HISTFILE "${root}") SHARED=$(field SHARED "${root}") HISTSIZE=$(field HISTSIZE "${root}") HISTFILESIZE=$(field HISTFILESIZE "${root}")"
 # 14
 # A probe that returned nothing contains no __history_search either, so the absence only
 # counts once root's shell has demonstrably answered.

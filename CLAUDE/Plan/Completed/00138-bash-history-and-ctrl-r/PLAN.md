@@ -76,6 +76,7 @@ Supporting documents:
   - [x] ✅ `HISTFILE=~/.local/state/bash/history`, only when that directory is the current user's (`[[ -O ]]`), else a stderr warning in interactive shells
   - [x] ✅ `HISTSIZE=-1`, `HISTFILESIZE=-1`, `HISTCONTROL=ignoreboth`, `HISTTIMEFORMAT`, `lithist`, `histverify`
   - [x] ✅ `__history_append` hook (`history -a`), appended once. The space-prefixed-entry deletion was dropped: it only repaired bash-preexec, which is not installed
+  - [x] ✅ Up-arrow holds only this terminal's commands (owner's request, 2026-09-24). Where the Ctrl+R search is bound, `history-search.bash` starts the shell with HISTFILE at `/dev/null`, so nothing is loaded. The first prompt, or an EXIT trap, points it back at the shared file. Root and shells without fzf keep stock bash. Gate: `scripts/test-bash-history-session.bash`
 - [x] ✅ **Task 3.3**: `play-basic-configs.yml` — history directories and seed
   - [x] ✅ `~/.local/state/bash` `0700` for the user and root; parents created explicitly so they are the account's, not root's
   - [x] ✅ Seed `history` `0600` from `~/.bash_history` once (`force: false`), user and root

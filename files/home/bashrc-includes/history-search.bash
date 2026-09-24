@@ -40,8 +40,8 @@ __history_search_record() {
     else
         number=0
     fi
-    # The first prompt only learns where history stands: the entry it sees was loaded
-    # from the file, not run in this shell.
+    # The first prompt only learns where history stands: any entry it sees was not run
+    # in this shell.
     if [[ -n "${__history_search_number}" && "${number}" != "${__history_search_number}" && -n "${command}" ]]; then
         printf '%s\t%s\t%s\t%s\0' "${EPOCHSECONDS}" "${status}" \
             "${__history_search_dir}" "${command}" >>"${__history_search_file}"
@@ -77,6 +77,20 @@ if command -v fzf >/dev/null; then
     bind -m emacs-standard -x '"\C-r": __history_search'
     bind -m vi-insert -x '"\C-r": __history_search'
     bind -m vi-command -x '"\C-r": __history_search'
+    # Up-arrow, `history`, `!prefix` and `fc` see only this terminal's commands, since this
+    # Ctrl+R reads every terminal's from the file itself. bash loads HISTFILE after the rc
+    # files, so it names nothing until the first prompt, where __history_append (the
+    # history block in zz_lts-fedora-desktop.bash) points it back at the shared file.
+    # The EXIT trap does the same for a session that ends before any prompt ran it, so its
+    # commands are still saved. An EXIT trap already set is left alone. Kept only when this
+    # search is bound: without it, stock Ctrl+R searches the loaded list, and must see all.
+    if [[ "${HISTFILE-}" == "${HOME}/.local/state/bash/history" ]]; then
+        __history_shared_file="${HISTFILE}"
+        HISTFILE=/dev/null
+        if [[ -z "$(trap -p EXIT)" ]]; then
+            trap 'HISTFILE="${__history_shared_file}"' EXIT
+        fi
+    fi
 else
     echo "history search: fzf is not installed, so Ctrl+R is the stock search. Re-run play-basic-configs.yml." >&2
 fi
