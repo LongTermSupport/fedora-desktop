@@ -26,7 +26,11 @@ DIRECTORY = "/var/lib/fedora-desktop/self-update-status"
 FILE_NAME = "result"
 
 #: The cycle's result keys, then the boot a post-boot check is owed by ("" for none).
-KEYS = ("at", "phase", "outcome", "old", "new", "plays", "detail", "owed_boot")
+#: `alert` names each sink that did not accept this result's alert ("" when all did).
+KEYS = ("at", "phase", "outcome", "old", "new", "plays", "detail", "alert", "owed_boot")
+#: Keys a record written by an older cycle lacks, and what they mean when absent. A cycle
+#: from before alerts existed sent nothing, so nothing it sent can have failed.
+_ABSENT_MEANS = {"alert": ""}
 
 #: A cycle that finished with nothing wrong.
 OK_OUTCOMES = frozenset({"nothing", "deployed"})
@@ -78,6 +82,8 @@ def read(directory: str) -> dict[str, str] | None:
         if not sep or key not in KEYS:
             raise ValueError("it holds a line that is not one of its keys as key=value")
         values[key] = value
+    for key, meaning in _ABSENT_MEANS.items():
+        values.setdefault(key, meaning)
     missing = [key for key in KEYS if key not in values]
     if missing:
         raise ValueError(f"it has no {', '.join(missing)}")

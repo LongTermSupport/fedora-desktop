@@ -39,6 +39,8 @@ CONFIG="${ETC}/self-update.conf"
 BECOME="${ETC}/self-update.become"
 VAULT="${ETC}/self-update.vault"
 ALLOWED_SIGNERS="${ETC}/self-update.allowed_signers"
+# Present only when the install declares a Slack webhook; read only when ALERT_SINKS names slack.
+SLACK_WEBHOOK="${ETC}/self-update.slack-webhook"
 # The root-owned system ansible-core the plays must run (D5), never the user's pipx copy.
 ANSIBLE_PLAYBOOK="${PREFIX}/usr/bin/ansible-playbook"
 CLONE="${PREFIX}/var/lib/fedora-desktop/deploy"
@@ -147,4 +149,4 @@ cd "${CLONE}"
 exec python3 -E -s -B -X "pycache_prefix=${STATE}/pycache" -m helpers.self_update.cycle \
     --config "${CONFIG}" --state-dir "${STATE}" --published-dir "${PUBLISHED}" --clone "${CLONE}" \
     --become "${BECOME}" --vault "${VAULT}" --allowed-signers "${ALLOWED_SIGNERS}" \
-    --ansible-playbook "${ANSIBLE_PLAYBOOK}" "$@"
+    --ansible-playbook "${ANSIBLE_PLAYBOOK}" --slack-webhook "${SLACK_WEBHOOK}" "$@"

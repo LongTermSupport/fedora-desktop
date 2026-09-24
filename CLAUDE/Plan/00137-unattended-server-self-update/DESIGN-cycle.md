@@ -13,6 +13,7 @@ it is a change to both sides.
 | Become password | `/etc/fedora-desktop/self-update.become` (vault-provisioned)                                                           | root:root 0600                  |
 | Vault password  | `/etc/fedora-desktop/self-update.vault` (copied from the checkout the play runs from)                                  | root:root 0600                  |
 | Allowed signers | `/etc/fedora-desktop/self-update.allowed_signers` (the owner's public key only)                                        | root:root 0644, dir 0755 root   |
+| Slack webhook   | `/etc/fedora-desktop/self-update.slack-webhook` (optional, vault-provisioned; present only when declared)              | root:root 0600                  |
 | Deploy clone    | `/var/lib/fedora-desktop/deploy` (D4), owned by root                                                                   | never mounted into a container  |
 | State           | `/var/lib/fedora-desktop/self-update/` (the last result, the owed post-boot check)                                     | root:root 0700                  |
 | Published       | `/var/lib/fedora-desktop/self-update-status/result`, the user's copy of each result (Task 4.3)                         | dir root:<user> 2750, file 0640 |
@@ -102,7 +103,11 @@ These keys have no defaults. The orchestrator refuses to run if one is missing:
 - `REMOTE_URL` (HTTPS for the public repo, Task 2.2)
 - `PRINCIPAL`
 - `WARN_MINUTES` (default in IaC: 3)
-- `ALERT_SINKS` (for example `slack`, `github`, or empty until Task 0.4)
+- `ALERT_SINKS`: `slack` or empty, and anything else is refused. The play writes `slack`
+  exactly when `self_update_slack_webhook_url` is non-empty. With `slack`, `run` and
+  `verify` refuse (exit 70) unless the webhook file is 0600 root-only and holds one
+  `https://hooks.slack.com/…` URL. `run --dry-run` and `status` announce nothing and
+  never read it. The entry point always passes `--slack-webhook <path>`.
 - `ANSIBLE_COLLECTIONS_DIR`: the root-owned collections path for the system
   `ansible-core` (D5 hardening, Task 4.7). The orchestrator refuses, with exit 70, when
   the `ansible-playbook` the child would resolve, or the `ansible-config` beside it, is
@@ -141,9 +146,18 @@ These keys have no defaults. The orchestrator refuses to run if one is missing:
 ## Result record
 
 `state/last-result` holds one line per key: `at`, `phase`, `outcome`, `old`, `new`,
-`plays`, `detail`. The alert sinks send it for Task 4.5. It carries no hostname or
-username. `plays` holds repo-relative play paths (`playbooks/imports/...`), and `detail`
-may name one; no path outside the repository appears.
+`plays`, `detail`, `alert`. It carries no hostname or username. `plays` holds
+repo-relative play paths (`playbooks/imports/...`), and `detail` may name one; no path
+outside the repository appears.
+
+**Alerts (Task 4.5).** An announced result goes to the journal, then to each configured
+sink (`helpers/self_update/alerts.py`). The Slack message is built from the record's own
+fields, so it carries no more than the record does. The result is recorded before any
+sink is tried. It is recorded again only when a sink did not accept it, with `alert`
+naming each one and why (`slack: HTTP 500`, `slack: not delivered (timed out)`). The
+reason never contains the webhook. A lost alert does not change the exit code: the
+cycle did what it did, and the report is where the loss shows. `alert` is empty when
+every sink accepted, and on a result that was not announced.
 
 Outcomes, as `helpers/self_update/published.py` classifies them (a test reads the cycle's
 source and fails on one that is not classified):
@@ -171,6 +185,8 @@ in, or empty. The cycle never reads it back.
 - **What the report says** (`helpers/host_health/self_update_check.py`, section
   `self-update`):
   - a failed outcome is a fault, naming when, the phase and the detail;
+  - a non-empty `alert` is a fault whatever the outcome, since nobody heard it through the
+    sink they rely on. A record from before the key existed reads as `alert` empty;
   - an unknown outcome, an unreadable file or stamp, or a stamp in the future is "not
     checked";
   - a newest result older than 3 days is a fault. Every run that reaches the update

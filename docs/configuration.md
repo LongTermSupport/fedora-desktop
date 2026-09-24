@@ -230,6 +230,15 @@ it day to day:
   while changing nothing. The log is
   `journalctl -u fedora-desktop-self-update -u fedora-desktop-self-update-verify --no-pager | cat`.
   A failure also appears in `fedora-desktop-health` and the login snippet.
+- **Slack alerts (optional).** Each server can post its failures, and each completed
+  deploy, to a Slack incoming webhook. Declare `self_update_slack_webhook_url`
+  vault-encrypted in host_vars. That is the IaC route, and for a headless install it
+  comes from the host file in your config repo. Left undeclared, the play asks for it
+  when run from a terminal, then saves it encrypted in `localhost.yml`. Press ENTER to go
+  without; declaring it as `""` stops the question. The message carries the result
+  (outcome, phase, time, detail, plays, commit), never a hostname or username, so give
+  each server its own webhook or channel to tell them apart. A post Slack does not
+  accept is logged in the journal and reported by `fedora-desktop-health`.
 - **A clone that differs from its commit.** If the cycle refuses because the deploy clone
   has changed files, or holds files the commit does not, re-running the play will not
   clear it: the play never touches an existing clone. Run the play once with

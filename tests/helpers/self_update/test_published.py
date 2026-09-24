@@ -31,7 +31,23 @@ class TestTheFormat(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             published.write(directory, RECORD, owed_boot="boot-1")
             record = published.read(directory)
-        self.assertEqual(record, {**RECORD, "owed_boot": "boot-1"})
+        self.assertEqual(record, {**RECORD, "alert": "", "owed_boot": "boot-1"})
+
+    def test_a_failed_alert_delivery_is_published(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            published.write(directory, {**RECORD, "alert": "slack: HTTP 500"}, owed_boot="")
+            record = published.read(directory)
+        assert record is not None
+        self.assertEqual(record["alert"], "slack: HTTP 500")
+
+    def test_a_record_from_before_the_alert_key_reads_as_delivered(self) -> None:
+        """A cycle deployed before alerts existed wrote no `alert` line; its record is
+        still a complete one, and nothing was ever sent from it to fail."""
+        with tempfile.TemporaryDirectory() as directory:
+            with open(published.path(directory), "w", encoding="utf-8") as handle:
+                handle.write("".join(f"{key}={value}\n" for key, value in RECORD.items()) + "owed_boot=\n")
+            record = published.read(directory)
+        self.assertEqual(record, {**RECORD, "alert": "", "owed_boot": ""})
 
     def test_the_keys_are_the_cycles_result_keys_plus_the_owed_boot(self) -> None:
         self.assertEqual(published.KEYS, (*cycle.RESULT_KEYS, "owed_boot"))

@@ -53,6 +53,8 @@ class FakeHost:
         self.toolchain_error: str | None = None
         self.trusted_head = True
         self.state: cycle.State | None = None
+        self.alert_failures: list[str] = []
+        self.alerts_sent: list[dict[str, str]] = []
 
     def check_remote(self, url: str) -> str | None:
         self.calls.append("check_remote")
@@ -107,6 +109,11 @@ class FakeHost:
 
     def now(self) -> str:
         return "2026-09-23T03:30:00Z"
+
+    def send_alert(self, record: dict[str, str]) -> list[str]:
+        self.calls.append(f"alert {record['outcome']}")
+        self.alerts_sent.append(dict(record))
+        return list(self.alert_failures)
 
 
 class CycleCase(unittest.TestCase):
@@ -188,8 +195,12 @@ class TestConfig(unittest.TestCase):
             with self.subTest(value=bad), self.assertRaises(cycle.ConfigError):
                 cycle.parse_config(CONFIG_TEXT.replace("WARN_MINUTES=3", f"WARN_MINUTES={bad}"))
 
+    def test_slack_is_the_one_alert_sink(self) -> None:
+        config = cycle.parse_config(CONFIG_TEXT.replace("ALERT_SINKS=", "ALERT_SINKS=slack"))
+        self.assertEqual(config.alert_sinks, ("slack",))
+
     def test_an_unimplemented_alert_sink_is_refused_not_ignored(self) -> None:
-        for sinks in ("slack", "github", "carrier-pigeon"):
+        for sinks in ("github", "carrier-pigeon", "slack,github"):
             with self.subTest(sinks=sinks), self.assertRaises(cycle.ConfigError):
                 cycle.parse_config(CONFIG_TEXT.replace("ALERT_SINKS=", f"ALERT_SINKS={sinks}"))
 
@@ -523,6 +534,45 @@ class TestPrivateFile(unittest.TestCase):
             cycle.read_private(link, "vault password file", secret=True)
 
 
+class TestLoadSinks(unittest.TestCase):
+    """The webhook is a secret: read only when a sink is configured, and only from a file
+    nobody else can read. A configured sink with no usable webhook is a config error,
+    because running on would read exactly like a cycle with nothing to report."""
+
+    WEBHOOK = "https://hooks.slack.com/services/EXAMPLE/EXAMPLE/EXAMPLE"
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self._tmp.name, "self-update.slack-webhook")
+        self.slack = cycle.parse_config(CONFIG_TEXT.replace("ALERT_SINKS=", "ALERT_SINKS=slack"))
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def write(self, text: str, mode: int = 0o600) -> None:
+        with open(self.path, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        os.chmod(self.path, mode)
+
+    def test_no_sink_configured_reads_no_file(self) -> None:
+        sinks = cycle.load_sinks(cycle.parse_config(CONFIG_TEXT), self.path)
+        self.assertFalse(sinks.configured)
+
+    def test_slack_reads_the_webhook_file(self) -> None:
+        self.write(self.WEBHOOK + "\n")
+        self.assertTrue(cycle.load_sinks(self.slack, self.path).configured)
+
+    def test_a_missing_open_or_malformed_webhook_file_is_a_config_error(self) -> None:
+        with self.subTest(case="missing"), self.assertRaises(cycle.ConfigError):
+            cycle.load_sinks(self.slack, self.path)
+        for case, text, mode in (("readable by others", self.WEBHOOK + "\n", 0o644),
+                                 ("not a webhook", "https://example.com/x\n", 0o600)):
+            self.write(text, mode)
+            with self.subTest(case=case), self.assertRaises(cycle.ConfigError) as caught:
+                cycle.load_sinks(self.slack, self.path)
+            self.assertNotIn(self.WEBHOOK, str(caught.exception))
+
+
 class TestNothingToDo(CycleCase):
     def test_nothing_signed_and_nothing_owed_does_nothing(self) -> None:
         self.state.write_deployed(OLD)
@@ -639,7 +689,7 @@ class TestPlays(CycleCase):
         self.host.trusted_head = False
         code, out, err = self.run_cycle()
         self.assertEqual(code, cycle.EXIT_REFUSED)
-        self.assertEqual(self.host.calls, ["check_remote", "head_trusted"])
+        self.assertEqual(self.host.calls, ["check_remote", "head_trusted", "alert refused"])
         record = self.state.read_result()
         assert record is not None
         self.assertEqual((record["phase"], record["outcome"]), ("trust", "refused"))
@@ -722,7 +772,7 @@ class TestWarnAndReboot(CycleCase):
         self.host.reboot_rc = 1
         code, _, _ = self.run_cycle()
         self.assertEqual(code, cycle.EXIT_REBOOT_FAILED)
-        self.assertEqual(self.host.calls[-1], "notify reboot-cancelled owed=True")
+        self.assertEqual(self.host.calls[-2:], ["notify reboot-cancelled owed=True", "alert reboot-failed"])
         self.assertEqual(self.result()["outcome"], "reboot-failed")
 
     def test_a_reboot_still_owed_from_this_boot_is_retried_with_nothing_new(self) -> None:
@@ -766,7 +816,7 @@ class TestVerify(CycleCase):
         self.state.write_owed(boot="boot-0", new=NEW, plays=(PLAY,))
         code, _, err = self.verify()
         self.assertEqual(code, cycle.EXIT_OK)
-        self.assertEqual(self.host.calls, [f"verify-restore {cycle.VERIFY_WAIT_SECONDS}"])
+        self.assertEqual(self.host.calls, [f"verify-restore {cycle.VERIFY_WAIT_SECONDS}", "alert deployed"])
         self.assertIsNone(self.state.read_owed())
         self.assertEqual(self.result()["outcome"], "deployed")
         self.assertIn("ALERT", err, "a completed cycle's summary is announced too (D8)")
@@ -781,10 +831,47 @@ class TestVerify(CycleCase):
         self.assertIn("ALERT", err)
 
 
+class TestAlerts(CycleCase):
+    def test_an_announced_failure_is_sent_to_the_sinks_once_it_is_recorded(self) -> None:
+        self.host.play_rc[PLAY] = 2
+        self.run_cycle()
+        self.assertEqual(self.host.calls[-1], "alert play-failed")
+        self.assertEqual(self.host.alerts_sent[0]["detail"], self.result()["detail"])
+
+    def test_a_result_that_is_not_announced_sends_nothing(self) -> None:
+        self.host.update_result = cycle.UpdateResult(rc=0, old=None, new=None, target=None, nothing=NEW)
+        self.state.write_deployed(NEW)
+        self.run_cycle()
+        self.assertEqual(self.result()["outcome"], "nothing")
+        self.assertFalse(any(call.startswith("alert") for call in self.host.calls))
+
+    def test_a_delivered_alert_leaves_the_result_clean(self) -> None:
+        self.host.play_rc[PLAY] = 2
+        self.run_cycle()
+        self.assertEqual(self.result()["alert"], "")
+
+    def test_a_failed_delivery_is_journalled_recorded_and_published(self) -> None:
+        self.host.play_rc[PLAY] = 2
+        self.host.alert_failures = ["slack: HTTP 500"]
+        code, _, err = self.run_cycle()
+        self.assertEqual(code, cycle.EXIT_PLAY_FAILED, "a lost alert does not change what the cycle did")
+        self.assertIn("slack: HTTP 500", err)
+        self.assertEqual(self.result()["alert"], "slack: HTTP 500")
+        self.assertEqual(self.result()["outcome"], "play-failed")
+        copy = published.read(self.published_dir)
+        assert copy is not None
+        self.assertEqual(copy["alert"], "slack: HTTP 500")
+
+    def test_the_verify_summary_is_sent_too(self) -> None:
+        self.state.write_owed(boot="boot-0", new=NEW, plays=(PLAY,))
+        self.verify()
+        self.assertEqual(self.host.calls[-1], "alert deployed")
+
+
 class TestState(CycleCase):
     def test_the_result_record_has_exactly_the_contract_keys(self) -> None:
         self.run_cycle()
-        self.assertEqual(set(self.result()), {"at", "phase", "outcome", "old", "new", "plays", "detail"})
+        self.assertEqual(set(self.result()), {"at", "phase", "outcome", "old", "new", "plays", "detail", "alert"})
 
     def test_every_result_is_published_with_the_owed_boot(self) -> None:
         """The first cycle ends at the countdown, owing a check from this boot."""

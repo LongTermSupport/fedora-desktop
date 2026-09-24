@@ -41,6 +41,10 @@
     self_update_collections_dir: /usr/local/share/fedora-desktop/ansible-collections
     self_update_collections_stamp: /usr/local/share/fedora-desktop/ansible-collections.requirements-sha256
     self_update_ptrace_dropin: /etc/sysctl.d/60-fedora-desktop-ptrace.conf
+    self_update_slack_webhook_file: /etc/fedora-desktop/self-update.slack-webhook
+    # The shape helpers/self_update/alerts.py accepts, so a bad URL fails here, at deploy,
+    # rather than at 03:30 when the cycle refuses its own config.
+    self_update_slack_webhook_pattern: '^https://hooks\.slack\.com/[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)+$'
     self_update_units:
       - fedora-desktop-self-update.service
       - fedora-desktop-self-update.timer
@@ -79,14 +83,13 @@
           - self_update_signing_public_key is defined
           - self_update_signing_public_key is match('^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp[0-9]+|sk-ssh-ed25519@openssh\.com) [A-Za-z0-9+/=]+( [^\n]*)?$')
           - (self_update_warn_minutes | default(3) | string) is match('^[1-9][0-9]*$')
-          - (self_update_alert_sinks | default('') | string) is match('^[a-z,]*$')
         fail_msg: >-
           self_update_enabled is true, but its inputs are incomplete or malformed. Declare
           in host_vars: self_update_branch (e.g. F44), self_update_remote_url (HTTPS, e.g.
           the public GitHub URL), self_update_signing_principal and
           self_update_signing_public_key (the owner's PUBLIC SSH signing key, one line).
-          Optional: self_update_warn_minutes (default 3), self_update_alert_sinks (default
-          empty). See environment/localhost/host_vars/localhost.yml.dist.
+          Optional: self_update_warn_minutes (default 3) and self_update_slack_webhook_url
+          (vault-encrypted). See environment/localhost/host_vars/localhost.yml.dist.
         quiet: true
       when: self_update_on
 
@@ -104,6 +107,88 @@
         quiet: true
       no_log: true
       when: self_update_on
+
+    # D8 and Task 0.4: the one alert sink is a Slack webhook, optional and per install. It
+    # is declared vault-encrypted in host_vars, which the install's config repo supplies,
+    # or asked for here on an interactive run. A blank answer, or a run with no tty, means
+    # no Slack alerts and nothing saved, so the next interactive run asks again. Declaring
+    # self_update_slack_webhook_url as an empty string declines for good.
+    - name: Ask for the Optional Slack Alert Webhook
+      when:
+        - self_update_on
+        - self_update_slack_webhook_url is not defined
+      block:
+        - name: Prompt for the Slack Webhook URL
+          ansible.builtin.pause:
+            prompt: |2
+
+              ============================================
+              OPTIONAL: SLACK ALERTS FOR THE SELF-UPDATE CYCLE
+              ============================================
+
+              Every failed cycle, and every completed deploy, can be posted to a
+              Slack incoming webhook (https://hooks.slack.com/...). The URL is saved
+              vault-encrypted in localhost.yml. It is not echoed as you type.
+
+              Paste the webhook URL, or press ENTER for no Slack alerts. The journal
+              and the host-health report carry every result either way.
+            echo: false
+          register: self_update_webhook_prompt
+          no_log: true
+
+        - name: Use the Answer for This Run
+          ansible.builtin.set_fact:
+            self_update_slack_webhook_url: "{{ self_update_webhook_prompt.user_input | default('') | trim }}"
+            self_update_webhook_asked: true
+          no_log: true
+
+    # Not no_log: an assert's output names the expression and the message, never the value,
+    # and the message is the remedy.
+    - name: Assert the Slack Webhook URL Is a Slack Webhook
+      ansible.builtin.assert:
+        that:
+          - "'\n' not in self_update_slack_webhook_url"
+          - self_update_slack_webhook_url is match(self_update_slack_webhook_pattern)
+        fail_msg: >-
+          self_update_slack_webhook_url is not a Slack webhook URL (one line,
+          https://hooks.slack.com/ followed by its path). Fix it in host_vars, or declare
+          it as an empty string for no Slack alerts.
+        quiet: true
+      when:
+        - self_update_on
+        - (self_update_slack_webhook_url | default('')) | length > 0
+
+    # Passed on stdin, never templated into a command line, so the URL is in no argv.
+    - name: Vault-Encrypt the Slack Webhook URL
+      ansible.builtin.command:
+        argv:
+          - ansible-vault
+          - encrypt_string
+          - --stdin-name
+          - self_update_slack_webhook_url
+        chdir: "{{ root_dir }}"
+        stdin: "{{ self_update_slack_webhook_url }}"
+      become: false
+      register: self_update_webhook_encrypted
+      changed_when: false
+      no_log: true
+      when:
+        - self_update_on
+        - self_update_webhook_asked | default(false)
+        - self_update_slack_webhook_url | length > 0
+
+    - name: Save the Vault-Encrypted Slack Webhook URL to localhost.yml
+      ansible.builtin.blockinfile:
+        path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
+        marker: "# {mark} ANSIBLE MANAGED: self_update_slack_webhook_url"
+        block: "{{ self_update_webhook_encrypted.stdout }}"
+        create: false
+      become: false
+      no_log: true
+      when:
+        - self_update_on
+        - self_update_webhook_asked | default(false)
+        - self_update_slack_webhook_url | length > 0
 
     - name: Resolve the Session User
       ansible.builtin.getent:
@@ -232,6 +317,28 @@
         mode: "0600"
       no_log: true
       when: self_update_on
+
+    # The cycle reads it only when the config names slack, and refuses to run when it
+    # does and this file is missing or open to others.
+    - name: Provision the Slack Webhook
+      ansible.builtin.copy:
+        content: "{{ self_update_slack_webhook_url }}\n"
+        dest: "{{ self_update_slack_webhook_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+      when:
+        - self_update_on
+        - (self_update_slack_webhook_url | default('')) | length > 0
+
+    - name: Remove the Slack Webhook When None Is Declared
+      ansible.builtin.file:
+        path: "{{ self_update_slack_webhook_file }}"
+        state: absent
+      when:
+        - self_update_on
+        - (self_update_slack_webhook_url | default('')) | length == 0
 
     - name: Write the Allowed Signers File
       ansible.builtin.copy:
@@ -707,6 +814,7 @@
         - "{{ self_update_etc_dir }}/self-update.become"
         - "{{ self_update_etc_dir }}/self-update.vault"
         - "{{ self_update_etc_dir }}/self-update.allowed_signers"
+        - "{{ self_update_slack_webhook_file }}"
         - "{{ self_update_clone }}"
         - "{{ self_update_state_dir }}"
         - "{{ self_update_published_dir }}"

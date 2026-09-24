@@ -44,7 +44,11 @@ user_email: "yourname@example.com"
 # self_update_signing_principal: yourname@example.com
 # self_update_signing_public_key: "ssh-ed25519 <base64-public-key> yourname@example.com"
 # self_update_warn_minutes: 3
-# self_update_alert_sinks: ""
+# Optional Slack alerts: an incoming-webhook URL, vault-encrypted. Undeclared, the play
+# asks for it on an interactive run; "" means no Slack alerts and stops the question.
+# self_update_slack_webhook_url: !vault |
+#   $ANSIBLE_VAULT;1.2;AES256;localhost
+#   <encrypted-value-goes-here>
 # self_update_become_password: !vault |
 #   $ANSIBLE_VAULT;1.2;AES256;localhost
 #   <encrypted-value-goes-here>

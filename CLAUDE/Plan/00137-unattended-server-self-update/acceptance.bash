@@ -95,7 +95,8 @@ UNKNOWN=0
 NOT_ESTABLISHABLE=(
     "Task 5.3: one full cycle with two live sessions, triggered by a signed commit touching files/var/local/claude-yolo/lib/: play-claude-yolo.yml runs, the sessions are warned, the server reboots, they come back and 'fedora-desktop-self-update status' reports success."
     "An unsigned commit above the signed tip leaves the clone where it is and runs nothing."
-    "A play that fails stops the cycle with no reboot, and the result reaches the host-health report (and an alert, once Task 4.5 exists)."
+    "A play that fails stops the cycle with no reboot, and the result reaches the host-health report, and Slack when a webhook is declared."
+    "Task 4.5: with self_update_slack_webhook_url declared, a real post arrives in the channel, and a webhook Slack refuses shows in fedora-desktop-health. Posting is the cycle's act, not this read-only gate's."
 )
 
 report_line() {

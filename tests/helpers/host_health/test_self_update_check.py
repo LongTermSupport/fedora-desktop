@@ -99,6 +99,20 @@ class TestTheLastOutcome(CheckCase):
         self.assertIn("exploded", found[0].text)
 
 
+class TestTheAlertChannel(CheckCase):
+    def test_an_alert_that_could_not_be_delivered_is_a_fault(self) -> None:
+        self.publish(phase="play", outcome="play-failed", detail="x", alert="slack: HTTP 500")
+        found = self.findings()
+        self.assertEqual([f.checked for f in found], [True, True])
+        self.assertIn("slack: HTTP 500", found[1].text)
+
+    def test_a_lost_alert_is_reported_even_for_a_clean_cycle(self) -> None:
+        self.publish(phase="verify", outcome="deployed", alert="slack: not delivered (timed out)")
+        found = self.findings()
+        self.assertEqual([f.checked for f in found], [True])
+        self.assertIn("could not be delivered", found[0].text)
+
+
 class TestSilenceIsAClaim(CheckCase):
     def test_a_result_inside_the_bound_is_fresh(self) -> None:
         self.publish(at="2026-09-21T03:30:00Z")
