@@ -232,8 +232,6 @@ Use these Unicode icons in plan documents:
 
 - [00060-stderr-hygiene-coding-standard](Completed/00060-stderr-hygiene-coding-standard/) - Fixed a `gh-<alias>()` wrapper that echoed status to stdout and shipped `CLAUDE/StderrHygiene.md` as the coding standard
 
-- [00087-gitleaks-generic-key-false-positive](Completed/00087-gitleaks-generic-key-false-positive/) - Fixes a gitleaks CI false positive (`generic-api-key` on a "Medium/byteiota" source citation) by rephrasing the flagged text rather than growing `.gitleaks.toml`'s allowlist. Merged (`b15fc4d`).
-
 **Older completed plans** — everything beyond the most recent 30 — are in
 [Completed/README.md](Completed/README.md), moved there verbatim. The retention window
 keeps this index readable; the archive keeps the record whole.

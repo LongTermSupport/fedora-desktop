@@ -14,6 +14,8 @@ Newest first, continuing from [../README.md](../README.md#completed-plans).
      were read as an unrecognised section while their folders were plainly completed —
      sixteen advisories saying so. -->
 
+- [00087-gitleaks-generic-key-false-positive](00087-gitleaks-generic-key-false-positive/) - Fixes a gitleaks CI false positive (`generic-api-key` on a "Medium/byteiota" source citation) by rephrasing the flagged text rather than growing `.gitleaks.toml`'s allowlist. Merged (`b15fc4d`).
+
 - [00084-port-sudo-password-file-onto-f44](00084-port-sudo-password-file-onto-f44/) - Ports Plan 00073's `RUN_BASH_SUDO_PASSWORD_FILE` (stranded on an unmerged, diverged branch) onto `F44` so it composes with Plan 00082's `GITHUB_ACCOUNTS=none` — no single commit previously carried both. Merged (`d48fabd`). Also fixed two real VM hostnames from the downstream consumer estate that had been committed into this public repo's tracked content.
 
 - [00083-plan-index-hygiene-and-comment-handlers](00083-plan-index-hygiene-and-comment-handlers/) - Enables the three handlers the 3.54.0 daemon upgrade shipped disabled (`comment_changelog`, `comment_size`, `sensitive_content`), each after measuring its existing backlog rather than assuming it, and clears the 39 over-length rows the new `index-row-length` check found in this index.
