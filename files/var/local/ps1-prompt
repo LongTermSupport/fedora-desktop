@@ -78,7 +78,11 @@ function screenSession(){
 function ps1Prompt(){
   # account for git prompt
   lastExitCode="${GIT_PROMPT_LAST_COMMAND_STATE:-$?}"
-  echo -en "\033]0;$(whoami)@$(hostname)\a"
+  # The title escape is for a terminal. Written into a captured or piped stdout it is
+  # payload corruption, and a login shell sources this before any prompt is shown.
+  if [[ -t 1 ]]; then
+    echo -en "\033]0;$(whoami)@$(hostname)\a"
+  fi
   # to solve problems around colours confusing bash on how long the ps1 is, we just start a new empty line at the end
   export PS1='$(screenSession)$(lastCommandError)\n\D{%H:%M:%S} $(currentDirectory)\n$(currentUser)@$(currentHost)\n '
 }

@@ -213,6 +213,58 @@
         - "'SecureBoot enabled' in secure_boot_state.stdout"
         - "'is already enrolled' in mok_enrolled.stdout | default('')"
 
+    # Upgrading the displaylink RPM leaves the previous /usr/src/evdi-<version> tree
+    # behind: the package no longer owns it and DKMS no longer has it registered, so
+    # nothing else will ever remove it. A tree goes only when BOTH are true. One that
+    # rpm owns belongs to the installed package, and one DKMS still has registered is
+    # still in use, so both stay.
+    - name: Find evdi source trees under /usr/src
+      ansible.builtin.find:
+        paths: /usr/src
+        patterns: "evdi-*"
+        file_type: directory
+      register: evdi_src_trees
+
+    - name: Ask rpm which package owns each evdi source tree
+      ansible.builtin.command:
+        argv: [rpm, -qf, "{{ item.path }}"]
+      environment:
+        LC_ALL: C   # the unowned answer below is matched by its English message
+      loop: "{{ evdi_src_trees.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+      register: evdi_src_owner
+      changed_when: false
+      check_mode: false
+      # rc 1 with this message is the unowned answer; any other failure is not an answer.
+      # The message is looked for on both streams, so which one rpm uses cannot stop the play.
+      failed_when: >-
+        evdi_src_owner.rc != 0 and not
+        (evdi_src_owner.rc == 1 and 'is not owned by any package' in
+          (evdi_src_owner.stdout ~ evdi_src_owner.stderr))
+
+    - name: Check whether DKMS still has each evdi version registered
+      ansible.builtin.stat:
+        path: "/var/lib/dkms/evdi/{{ item.path | basename | regex_replace('^evdi-', '') }}"
+      loop: "{{ evdi_src_trees.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+      register: evdi_dkms_registration
+
+    - name: Remove evdi source trees no package owns and DKMS no longer registers
+      ansible.builtin.file:
+        path: "{{ item.item.path }}"
+        state: absent
+      loop: "{{ evdi_src_owner.results }}"
+      loop_control:
+        index_var: evdi_tree_index
+        label: "{{ item.item.path }}"
+      when:
+        - item.rc == 1
+        - "'is not owned by any package' in (item.stdout ~ item.stderr)"
+        - evdi_dkms_registration.results[evdi_tree_index].item.path == item.item.path
+        - not evdi_dkms_registration.results[evdi_tree_index].stat.exists
+
     # DisplayLink dock hotplug/suspend-resume recovery (Plan 00056 / issue #28).
     # EVDI recreates virtual DRM devices with new IDs on reconnect, which can
     # both wedge a video head (connected but never gets an EDID) and corrupt

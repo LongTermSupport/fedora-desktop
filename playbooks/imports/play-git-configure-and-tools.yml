@@ -132,15 +132,18 @@
         insertbefore: "# BEGIN ANSIBLE MANAGED: Git Bash Prompt"
         block: |
           # On SSH sessions without a working agent, offer to start one
-          # (must run before bash-git-prompt to avoid passphrase prompt on stdin)
-          if [[ -n "${SSH_CONNECTION:-}" && $- == *i* ]]; then
+          # (must run before bash-git-prompt to avoid passphrase prompt on stdin).
+          # Only with a terminal on stdin: without one the read hits EOF, the
+          # default answer is yes, and keys are loaded that nobody asked for.
+          # Everything it prints goes to stderr, so a captured stdout stays clean.
+          if [[ -n "${SSH_CONNECTION:-}" && $- == *i* && -t 0 ]]; then
               if ! ssh-add -l &>/dev/null; then
-                  echo "SSH session detected without a working SSH agent."
+                  echo "SSH session detected without a working SSH agent." >&2
                   read -rp "Start ssh-agent and load keys? [Y/n] " _ssh_reply
                   if [[ "${_ssh_reply:-Y}" =~ ^[Yy]?$ ]]; then
                       eval "$(ssh-agent -s)" > /dev/null
                       if command -v ssh-agent-start &>/dev/null; then
-                          ssh-agent-start --all
+                          ssh-agent-start --all >&2
                       else
                           ssh-add
                       fi

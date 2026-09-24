@@ -454,6 +454,12 @@ pins_cov=""
 if ! pins_line="$(grep -m1 -e '^STATE installed-vs-pinned ' "${STATUS_PROBE}")"; then
     bad "the document carries no installed-vs-pinned state" \
         "check [3] names what it does carry; without this section the axis is not merely quiet, it is absent"
+elif pins_cov="$(grep -m1 -e '^COVERAGE installed-vs-pinned no tracked pin applies ' "${STATUS_PROBE}")"; then
+    # The owner's decision: on a host with no DKMS subsystem a DKMS-resolved pin does
+    # not apply, and when that is every tracked pin nothing is owed. Stated in words by
+    # the producer, so it is shown rather than inferred.
+    pins_state="${pins_line#STATE installed-vs-pinned }"
+    ok "${pins_cov#COVERAGE installed-vs-pinned } (section state: ${pins_state})"
 elif ! pins_cov="$(grep -m1 -e '^COVERAGE installed-vs-pinned compared ' "${STATUS_PROBE}")"; then
     bad "the pin section states no coverage, so there is no population to assert on" \
         "check_pins states 'compared N of M tracked pins' on every run; its absence means the producer changed and this gate stopped measuring"

@@ -1377,6 +1377,8 @@ VM lifecycle acceptance-testing lab (rootless libvirt/QEMU):
 DisplayLink dock support:
 
 - Installs DisplayLink drivers
+- Removes `/usr/src/evdi-*` source trees an upgrade left behind, once no package owns
+  them and DKMS no longer registers them
 - Creates suspend/resume service
 - Configures display management
 - Deploys the `dock-recovery-on-unlock` GNOME extension, which starts the dock recovery

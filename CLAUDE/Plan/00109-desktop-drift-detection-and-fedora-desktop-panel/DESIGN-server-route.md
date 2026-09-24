@@ -120,11 +120,32 @@ tree.
   The command absent *with* trees registered is reported, and is a worse state than
   either half, since nothing will rebuild them for the next kernel. An unreadable state
   directory answers `None` and still reports: "we could not tell" is not "it is fine".
+
 - **The pin check.** On a server `dkms()` raises "command not found", so every
-  DKMS-resolved pin became *"could not be checked"* for ever. A DKMS-kind pin on a host
-  with **no DKMS subsystem** is not answerable here, and that is an answer. Both
-  consumers read one `probe.dkms_registry()` value, but they ask it different questions —
-  see §5.2, where assuming they wanted the same one was the defect.
+  DKMS-resolved pin became *"could not be checked"* for ever. The owner decided on
+  26-09-24 that on a host with no DKMS such a pin is **not applicable**. A review then
+  narrowed that to a host the pin cannot describe, so three things must hold together:
+  no DKMS state directory, a `dkms` command the OS could not find, and no ledger run of
+  the play that installs the pin's software. It then leaves the population the host is
+  held to, so the zero- and partial-coverage guard owes nothing for it and a clean
+  server login is silent. The coverage statement says so in words (*"no tracked pin
+  applies on this host"*), never as a `compared N of N` it did not make.
+
+  - **Stricter than the health probe, on purpose.** The probe is silent on an absent
+    OR empty registry, because its question is whether a module is missing a build and
+    an empty registry has none. The pin check's question is whether the pin applies,
+    and an empty directory is what a DisplayLink host whose module was removed has — the
+    `dkms` rpm owns it — so only an absent one counts.
+  - **The ledger condition** covers a desktop that ran `play-displaylink.yml` and then
+    lost dkms entirely: no directory, no command, and the probe silent too. The pin
+    stays applicable there and is reported. An unreadable ledger is read as "may have
+    run", so it keeps the pin too.
+  - **Every other state still reports:** a state directory with no command, no
+    directory with a working command, a command that failed any other way, and an
+    unreadable directory.
+
+  Both consumers read one `probe.dkms_registry()` value, but they ask it different
+  questions — see §5.2, where assuming they wanted the same one was the defect.
 
 ### 4.1a A shape the reader cannot interpret is not a healthy host
 

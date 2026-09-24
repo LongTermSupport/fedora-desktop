@@ -79,15 +79,17 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 - [x] ✅ **Task 0.1**: Restore DisplayLink on kernel 7.2.4 — diagnosed, `play-displaylink.yml`
   run on HOST, module built and signed and loaded, both heads enumerating
   ([JOURNAL/00109-Journal-26-09-11.md](JOURNAL/00109-Journal-26-09-11.md))
-- [ ] 🔄 **Task 0.2**: Remove orphaned DKMS source trees — probe written, answer pending
+- [ ] 🔄 **Task 0.2**: Remove orphaned DKMS source trees — cleanup written, deploy pending
   - [x] ✅ The probe is in `triage.bash` — every `/usr/src/evdi-*` tree, `rpm -qf` on
     each, what DKMS still has registered, and the Phase 3 login report
-  - [ ] ⬜ **HOST**: run it. The cleanup cannot be written first: the two cases need
-    opposite mechanisms — an rpm-owned tree goes by removing the package, an unowned
-    one by deleting the directory — so guessing makes the play a no-op or a fight
-    with the package manager
-  - [ ] ⬜ Add cleanup to the owning play, gated on the tree being unregistered in DKMS
-  - [ ] ⬜ Run QA, deploy on HOST, re-run `triage.bash` to confirm
+  - [x] ✅ **HOST**: answered on 2026-09-24. Five old trees are unowned and unregistered;
+    only the current one is rpm-owned and registered. So the mechanism is deleting the
+    directory, never removing a package
+  - [x] ✅ `play-displaylink.yml` removes a tree only when no package owns it AND DKMS
+    has no `/var/lib/dkms/evdi/<version>`; any other rpm failure stops the play.
+    Reviewed PASS WITH NITS, all four resolved
+    ([report](subagent-reports/260924-qa-reviewer-t02-evdi-opus-5.md))
+  - [ ] ⬜ Deploy on HOST, re-run `triage.bash` to confirm only the current tree remains
 - [ ] 🚫 **Task 0.3**: Fix group/world-readable vault password file permissions
   - **Blocked — human-only.** The path is protected by `secret_file_guard`; an agent
     cannot name it in a command, a script, or a playbook task, so this cannot be
@@ -156,9 +158,15 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
       Second run: the reason is dnf5 refusing dnf4's `repoquery --showduplicates`; fixed
       with a stub that models dnf5. Third run, 2026-09-24: dnf worked and prepare failed
       one step later. grubby read the entry it had just set back with `/boot` doubled.
-      The fixture now accepts that spelling of the same entry, and only that one. It
-      needs `play-vm-test-lab.yml`, which this plan's deploy in `meta-deploy.bash` runs,
-      and then a re-run.
+      The fixture now accepts that spelling of the same entry, and only that one. Fourth
+      run: 14 of 15 pass, including the kernel change. `clean-login-is-silent` fails on
+      three things a clean login printed on stdout. Two were this repo's shell setup and
+      are fixed: `ps1-prompt`'s title escape, and the SSH-agent block, which prompted with
+      no terminal. The third was the pin check's coverage floor, "compared 0 of 1" on a
+      server with no DKMS. The owner decided: not applicable, and silent
+      ([DESIGN-server-route.md §5](DESIGN-server-route.md)). All three are fixed in code.
+      A fifth run needs them pushed, because the guest provisions from the pushed commit
+      (the run's `repo_commit` evidence).
     - [x] ✅ **HOST**: check [17] — `origin` resolves non-interactively, with a recorded
       successful fetch. The freshness axis will not report "never reached the remote"
 - [x] ✅ **Task 3.3**: Claude Code handoff — file and offer done.
