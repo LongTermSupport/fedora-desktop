@@ -157,7 +157,30 @@ the fact worth spending effort on, not H1.
   listeners; one listens on loopback only, which no neighbour can reach
 - **F27** — one project network holds 9 members, a compose stack this repo does not own
 - **F28** — P13: 3 projects persist a non-default network and none the default, so
-  `--connect` is live and any bridge-removing option must keep it
+  `--connect` is live and any bridge-removing option must keep it (narrowed by F31)
+
+**From host triage, run 4** (2026-09-24, `--reachability`, all probes). Per-probe evidence
+and limits are in `subagent-reports/260924-triage-findings-opus-5.5.md`:
+
+- **F29** — everything on `podman` is a CCY session: 5 sessions, 5 distinct projects, two
+  GitHub identities. So the bridge crosses project boundaries, and identity boundaries too
+- **F30** — P4 coverage is 5 of 5, and nothing a neighbour can reach is listening, for the
+  third snapshot running. One session runs a database bound to loopback only
+- **F31** — preferences are written **only** by `--connect`
+  (`network-management.bash:389,417,428`) and are applied as a *launch-time* `--network`
+  (`claude-yolo:2186-2199`). 4 projects have one. So what the bridge buys is the **first,
+  mid-session** attach. Recorded projects join at launch without it
+- **F32** — P6 `REACHED`: **H1 confirmed on the host**
+- **F33** — P7 is **confounded**. The one-shot `nc -l` listener was consumed by P6, so the
+  cross-network silence cannot be read as isolation
+- **F34** — P8 rc=0: `network connect` works from a user-created bridge (U6)
+- **F35** — P9: a fresh network has egress and the host alias (H5 in part)
+- **F36** — P10: a fresh network is `dns=true`, `opts={}` (U9's premise)
+- **F37** — P11 **measured nothing**. The container had no `--rm` and was run `-d`, so there
+  was no client to kill (pkill rc=1). The only fact: `network rm` refuses (rc=2) while a
+  container is attached
+- **F38** — P12: the config paths probed were wrong (rc=2, not absence). The 3 networks with
+  no members hold no bridge interface
 
 > **The snapshot caveat is now the whole of the remaining risk.** Six sessions
 > were sampled while none happened to be running a dev server. F22 establishes
@@ -172,9 +195,8 @@ Each needs a probe before it becomes a fact. None is a decision input until it
 does.
 
 - **H1** — two containers on the shared `podman` bridge can reach each other's
-  TCP ports by IP. **Confirmed on documentation** ("within a bridge network,
-  containers can initiate communications with each other"); still needs a host
-  probe (P6) because this machine's firewall state is not derivable from docs
+  TCP ports by IP. **Confirmed on the host by P6 (F32)**, between probe
+  containers on the shared bridge
 - **H2** — name resolution does **not** work on the *default* network.
   **Confirmed twice**: Podman's docs say the default `podman` network "does not
   support dns resolution", and the repo already encodes it —
@@ -187,8 +209,11 @@ does.
   remains is not a hypothesis but a **conditional**: *if* a session runs a dev
   server on `0.0.0.0`, five neighbours can reach it
 - **H4** — a per-session network can be created and removed without leaking on
-  abnormal termination (`SIGKILL`, OOM, power loss)
-- **H5** — a per-session network reaches the internet and the host identically
+  abnormal termination (`SIGKILL`, OOM, power loss). **NOT settled**: P11 was
+  defective (F37). Matters only if Task 2.2 creates networks
+- **H5** — a per-session network reaches the internet and the host identically.
+  **Partly confirmed** (F35) for a default-option network. It is not confirmed
+  for one with `--opt isolate=` or `--disable-dns`
 
 **Two hypotheses decide this plan, and neither is H1.** H3 decides whether there
 is a problem at all: F4 established that the *path* is open by construction, so
@@ -267,39 +292,35 @@ used.** If it is rare, Option 4 is free isolation and less code.
 - [x] ✅ **Task 1.2**: `triage.bash` written from the research's probe list —
   passive by default (P1–P5), active probes behind `--reachability` (P6–P12),
   logging to this plan's `logs/`
-- [ ] 🔄 **Task 1.3**: User runs `triage.bash` on the HOST; convert confirmed
-  hypotheses into numbered facts, and record what was refuted.
-  **Run 1**: produced F18–F21, and exposed two defects in the probe itself —
-  P4 covered 1 of 5 sessions while reading as fleet-wide, and P5's network
-  inventory died on an invalid template field. Both fixed.
-  **Run 2**: coverage 6 of 6, every session with no listeners (F22), network
-  inventory clean (F23). H3 answered for the idle fleet.
-  **Run 3** (2026-09-23 host batch, passive, P13 included): F24–F28. The P13 re-run
-  is done. Still open: the active probes (`--reachability`, P6–P12), which decide H1
-  and H4, i.e. whether the *fix* works. That only matters if Task 2.2 chooses to fix
-  anything. The netavark-version question they were also to settle is answered
-  passively by F24.
+- [x] ✅ **Task 1.3**: User runs `triage.bash` on the HOST; convert confirmed
+  hypotheses into numbered facts, and record what was refuted. Runs 1 to 3
+  gave F18 to F28 (two probe defects fixed along the way; see the journal).
+  **Run 4** (`--reachability`) gave F29 to F38. H1 is confirmed and H5 is partly
+  confirmed. P7 and P11 were **defective** (F33, F37), so the per-session isolation
+  default and H4 are still open. Both matter only if Task 2.2 creates networks. They
+  are carried into Task 3.1 as a precondition, not left as findings
 
 ### Phase 2: Decision gate
 
-- [ ] ⬜ **Task 2.1**: Write the threat model from the facts — concretely what
+- [x] ✅ **Task 2.1**: Write the threat model from the facts — concretely what
   cross-session reachability gains and does not gain. If the honest answer is
-  "little in practice", say so rather than inflating it
-- [ ] ⬜ **Task 2.2**: **DECISION**: per-session network, or keep the shared
-  default. Record it with the reasoning, including what would change the answer.
-  **Two inputs, and both are now measurable rather than matters of opinion**:
-  (a) is anything exposed? — **F22 says no**, 6 of 6 sessions have zero
-  listeners; (b) what is the bridge buying? — **P13 counts it** from CCY's
-  per-project persisted network preferences, which are the actual usage record
-  for `--connect`. **Measured by run 3 (F28)**: 3 projects persist a non-default
-  network and none persists the default, so `--connect` is in real use and Option 4
-  would break it. Both inputs are in; the decision is the owner's
+  "little in practice", say so rather than inflating it. **Done:
+  [`THREAT-MODEL.md`](THREAT-MODEL.md)**. Little in practice today, and one bind
+  flag away from a cross-project, cross-identity exposure
+- [ ] ⏸ **Task 2.2**: **DECISION — AWAITING THE OWNER**: per-session network, or keep
+  the shared default. Record it with the reasoning, including what would change the
+  answer. Options, evidence and reversal conditions are in
+  [`DECISIONS.md`](DECISIONS.md). Inputs: (a) nothing is exposed (F22, F26, F30);
+  (b) the bridge buys only the *first, mid-session* `--connect` (F31). How often that
+  happens is the one fact the repo cannot measure
 
 ### Phase 3: Implement (only if Task 2.2 says so)
 
 - [ ] ⬜ **Task 3.1**: Per-session network creation + attach in the launcher,
   with a cleanup path that survives abnormal exit — the leak is the risk, not
-  the create
+  the create. **Precondition** (if Option 2 or 5 is chosen): fix P7, P10, P11 and P12
+  per the findings report's "Probe defects" list, and re-run `--reachability`, so that
+  the isolation default and H4 are measured, not assumed
 - [ ] ⬜ **Task 3.2**: Confirm `--network`, `--no-network`, `--connect` and the
   compose auto-detect still behave; `CCY_VERSION` minor bump + changelog
 - [ ] ⬜ **Task 3.3**: `deploy.bash` + `acceptance.bash` for this plan; QA;
@@ -326,8 +347,11 @@ used.** If it is rare, Option 4 is free isolation and less code.
 
 ## Success Criteria
 
-- [ ] H1–H5 are settled by a HOST `triage.bash` run, not by argument
-- [ ] A written threat model that a reader can disagree with on the evidence
+- [ ] H1–H5 are settled by a HOST `triage.bash` run, not by argument. **Not met**:
+  H1, H2 and H3 are settled. H5 is partly settled. H4 is open because P11 was
+  defective (F37)
+- [x] A written threat model that a reader can disagree with on the evidence
+  ([`THREAT-MODEL.md`](THREAT-MODEL.md))
 - [ ] A recorded decision, including the conditions that would reverse it
 - [ ] If implemented: a session network cannot outlive its session, proven by
   killing one with `SIGKILL` and re-checking `podman network ls`
@@ -352,3 +376,5 @@ used.** If it is rare, Option 4 is free isolation and less code.
      JOURNAL/00080-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
 - Plan created; research dispatched
+- Host triage runs 1 to 4 converted to F18 to F38. Threat model written. Task 2.2
+  options prepared for the owner
