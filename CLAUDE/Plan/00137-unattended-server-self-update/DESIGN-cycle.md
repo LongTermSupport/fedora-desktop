@@ -12,7 +12,7 @@ it is a change to both sides.
 | Config          | `/etc/fedora-desktop/self-update.conf`, `KEY=value`, read with `read`, never sourced                                   | root:root 0600                  |
 | Become password | `/etc/fedora-desktop/self-update.become` (vault-provisioned)                                                           | root:root 0600                  |
 | Vault password  | `/etc/fedora-desktop/self-update.vault` (copied from the checkout the play runs from)                                  | root:root 0600                  |
-| Allowed signers | `/etc/fedora-desktop/self-update.allowed_signers` (the owner's public key only)                                        | root:root 0644, dir 0755 root   |
+| Allowed signers | `/etc/fedora-desktop/self-update.allowed_signers` (the owner's machine signing key only; Plan 00139)                   | root:root 0644, dir 0755 root   |
 | Slack webhook   | `/etc/fedora-desktop/self-update.slack-webhook` (optional, vault-provisioned; present only when declared)              | root:root 0600                  |
 | Deploy clone    | `/var/lib/fedora-desktop/deploy` (D4), owned by root                                                                   | never mounted into a container  |
 | State           | `/var/lib/fedora-desktop/self-update/` (the last result, the owed post-boot check)                                     | root:root 0700                  |

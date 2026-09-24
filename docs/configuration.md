@@ -205,19 +205,24 @@ block; the play does not remove them.
 
 ### Commit Signing
 
-Optional, on the desktop you commit from. A self-updating server (below) deploys only
-commits signed by your key, so signing is a deliberate act: nothing signs by default.
-Generate a signing-only key with a passphrase, and keep it out of `ssh-agent`:
+On by default. `play-git-configure-and-tools.yml` generates this machine's SSH signing
+key at `~/.ssh/id_ed25519_git_signing` and signs every commit and tag with it: yours, a
+`cc` agent's on the host, and a ccy container's, which gets a read-only copy for the
+session. A signature says a commit came from you or your machine. Your own agents are
+meant to be able to sign, so the key has no passphrase, and the play refuses one that
+does. `git_signing_key` in host_vars points it at a different key.
+
+Register the key with GitHub once, so your commits show as Verified. This needs the
+`admin:ssh_signing_key` scope, which the play's other scopes do not include, and it must
+go on the account whose verified email is your `user_email`:
 
 ```bash
-ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_signing -C "git signing"
-gh ssh-key add ~/.ssh/id_ed25519_signing.pub --type signing --title "git signing"
+gh auth refresh --scopes admin:ssh_signing_key
+gh ssh-key add ~/.ssh/id_ed25519_git_signing.pub --type signing --title "$(hostname) git signing"
 ```
 
-Set `git_signing_key: /home/<user>/.ssh/id_ed25519_signing` in host_vars and run
-`play-git-configure-and-tools.yml`. It refuses a key without a passphrase. To release,
-run `git sign-deploy` (an empty signed commit) or `git commit -S`, then push. The
-signature vouches for every commit below it.
+A self-updating server trusts this key: give its `.pub` line to
+`self_update_signing_public_key` (below).
 
 ### Unattended Server Self-Update
 
@@ -230,11 +235,10 @@ Re-run the play after changing host_vars: the cycle runs with a root-owned copy.
 The whole cycle is described in [playbooks.md](playbooks.md#play-self-updateyml). Running
 it day to day:
 
-- **Trust.** The server deploys only the newest commit your key signed. Anything pushed
-  above that waits, and a bad signature refuses the cycle. The signature vouches for every
-  commit below it, so check what you are releasing before `git sign-deploy`.
-- **Pausing.** Stop signing. Nothing new is deployed until you do. To turn the cycle off
-  entirely, set `self_update_enabled: false` and re-run the play. That removes what it
+- **Trust.** The server deploys only the newest commit your machine's key signed, and
+  that key signs every commit made there, so a push from that machine is a release.
+  Anything signed by another key waits, and a bad signature refuses the cycle.
+- **Pausing.** Set `self_update_enabled: false` and re-run the play. That removes what it
   installed, and setting it back to true restores it.
 - **When it runs.** Nightly at 03:30, within a random 30 minutes. A night missed while
   the server was off runs at the next boot.

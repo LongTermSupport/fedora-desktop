@@ -308,7 +308,7 @@ def _anchor(
         raise Refusal(
             EXIT_UNTRUSTED,
             f"no commit in the last {ANCHOR_WALK_LIMIT} of HEAD's history is signed by {principal}; "
-            "sign one (git sign-deploy) and push it",
+            "push a commit made where that key signs every commit",
         )
     if choice.target == head:
         stdout.write(f"SELF-UPDATE-ANCHORED {head}\n")

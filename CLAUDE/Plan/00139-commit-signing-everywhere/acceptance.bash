@@ -1,0 +1,200 @@
+#!/usr/bin/env bash
+# Plan 00139 — acceptance.bash
+#
+# PURPOSE: render the VERDICT on what deploy.bash left behind (CLAUDE/PlanScriptStandards.md
+# R9): this machine's signing key needs no passphrase, git signs every commit and tag with
+# it, the opt-in settings Plan 00137 wrote are gone, a real commit and tag made with the
+# user's own config verify as good, and GitHub knows the key. HOST ONLY.
+#
+# It changes nothing outside its own run directory: the commit and tag are made in a
+# scratch repository there, which is deleted at the end.
+#
+# NOT ESTABLISHABLE by a script, named for the human at the end: a commit made inside a
+# ccy container started after the deploy, and a pushed commit shown as Verified.
+#
+# Usage: ./acceptance.bash [-h|--help]
+set -euo pipefail
+
+# ── R1 bootstrap: script-relative, filesystem-only, bounded at the repo boundary ──────────
+scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+repoRoot="${scriptDir}"
+while [[ "${repoRoot}" != "/" ]] && [[ ! -e "${repoRoot}/ansible.cfg" ]]; do
+    if [[ -e "${repoRoot}/.git" ]]; then
+        printf '[FATAL] no ansible.cfg between %s and the repo root %s\n' "${scriptDir}" "${repoRoot}" >&2
+        exit 1
+    fi
+    repoRoot="$(dirname "${repoRoot}")"
+done
+[[ -e "${repoRoot}/ansible.cfg" ]] || {
+    printf '[FATAL] no ansible.cfg above %s\n' "${scriptDir}" >&2
+    exit 1
+}
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../_planlib.inc.bash
+source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
+plan_init "${BASH_SOURCE[0]}"
+
+PLAN_USAGE="usage: acceptance.bash [-h|--help]
+
+The Plan 00139 acceptance gate. Run deploy.bash first. It checks the signing key,
+the global git config, that the old XDG settings are gone, a commit and a tag made in
+a scratch repository with your own config, and that GitHub lists the key.
+
+EXIT STATUS
+  0  ACCEPTED — every declared check ran and passed
+  1  REJECTED — a check failed, or a declared check never ran
+ 64  usage error"
+
+plan_mode gather
+plan_parse_common_flags "$@"
+
+if [[ "${#PLAN_REMAINING_ARGS[@]}" -gt 0 ]]; then
+    printf '[FATAL] unknown argument(s): %s\n' "${PLAN_REMAINING_ARGS[*]}" >&2
+    printf '%s\n' "${PLAN_USAGE}" >&2
+    exit 64
+fi
+
+plan_require_host "it checks this user's git config and signing key"
+plan_start_log auto
+
+readonly DECLARED=11
+readonly XDG_CONFIG="${XDG_CONFIG_HOME:-${HOME}/.config}/git/config"
+PASS=0
+FAIL=0
+
+ok() {
+    PASS=$((PASS + 1))
+    printf '✓ %s\n' "$1"
+}
+bad() {
+    FAIL=$((FAIL + 1))
+    printf '✗ %s\n' "$1"
+    if [[ -n "${2:-}" ]]; then
+        printf '    %s\n' "$2"
+    fi
+}
+verdict() {
+    if [[ "$2" == "$3" ]]; then
+        ok "$1"
+    else
+        bad "$1" "want: $2 | got: $3"
+    fi
+}
+# global_get <name> [--type=bool] — the value, or "unset". An unset key is an answer.
+global_get() {
+    local value rc
+    value=$(git config --global "${@:2}" --get "$1") && rc=0 || rc=$?
+    if [[ "${rc}" -eq 0 ]]; then
+        printf '%s' "${value}"
+    elif [[ "${rc}" -eq 1 ]]; then
+        printf 'unset'
+    else
+        printf 'unreadable (git config exit %s)' "${rc}"
+    fi
+}
+
+echo "== the global git config"
+key="$(global_get user.signingkey)"
+verdict "1. gpg.format is ssh" "ssh" "$(global_get gpg.format)"
+verdict "2. commit.gpgsign is on" "true" "$(global_get commit.gpgsign --type=bool)"
+verdict "3. tag.gpgsign is on" "true" "$(global_get tag.gpgsign --type=bool)"
+case "${key}" in
+    /*) ok "4. user.signingkey names a key file: ${key}" ;;
+    *) bad "4. user.signingkey names a key file" "got: ${key}" ;;
+esac
+
+echo "== the key"
+if [[ -f "${key}" && ! -L "${key}" ]] && [[ "$(stat -c '%a %U' "${key}")" == "600 ${USER}" ]] && [[ -f "${key}.pub" ]]; then
+    ok "5. the key is a 0600 file owned by ${USER}, with its .pub beside it"
+else
+    bad "5. the key is a 0600 file owned by ${USER}, with its .pub beside it" \
+        "$(stat -c '%a %U %F' "${key}" "${key}.pub" 2>&1 | tr '\n' ';')"
+fi
+derived="$(ssh-keygen -y -P "" -f "${key}" 2>&1)" && rc=0 || rc=$?
+if [[ "${rc}" -eq 0 ]]; then
+    ok "6. the key loads with no passphrase, so agents can sign"
+else
+    bad "6. the key loads with no passphrase, so agents can sign" "ssh-keygen -y exit ${rc}"
+fi
+if [[ -f "${key}.pub" ]]; then
+    pub_fields="$(awk '{ print $1, $2 }' "${key}.pub")"
+else
+    pub_fields="no ${key}.pub"
+fi
+verdict "7. the .pub is the public half of this key" "$(awk '{ print $1, $2 }' <<<"${derived}")" "${pub_fields}"
+
+echo "== the opt-in settings are gone"
+left=""
+for name in gpg.format user.signingkey alias.sign-deploy; do
+    if [[ -f "${XDG_CONFIG}" ]] && git config --file "${XDG_CONFIG}" --get "${name}" >/dev/null; then
+        left+="${name} "
+    fi
+done
+verdict "8. ${XDG_CONFIG} holds none of gpg.format, user.signingkey, alias.sign-deploy" "" "${left}"
+
+echo "== a real commit and tag, made with your own config"
+scratch="${PLAN_RUN_DIR}/scratch-repo"
+signers="${PLAN_RUN_DIR}/allowed_signers"
+printf '%s namespaces="git" %s\n' "$(global_get user.email)" "${pub_fields}" >"${signers}"
+git init -q "${scratch}"
+# A commit or tag that cannot be signed fails outright, which is itself the finding.
+if out="$(git -C "${scratch}" commit -q --allow-empty --no-verify -m "plan 00139 acceptance" 2>&1)" &&
+    out="$(git -C "${scratch}" -c gpg.ssh.allowedSignersFile="${signers}" verify-commit HEAD 2>&1)"; then
+    ok "9. a commit is signed, and verifies against this key"
+else
+    bad "9. a commit is signed, and verifies against this key" "$(tr '\n' ' ' <<<"${out}")"
+fi
+if out="$(git -C "${scratch}" tag -m "plan 00139 acceptance" acceptance 2>&1)" &&
+    out="$(git -C "${scratch}" -c gpg.ssh.allowedSignersFile="${signers}" verify-tag acceptance 2>&1)"; then
+    ok "10. a tag is signed, and verifies against this key"
+else
+    bad "10. a tag is signed, and verifies against this key" "$(tr '\n' ' ' <<<"${out}")"
+fi
+rm -rf "${scratch}"
+
+echo "== GitHub"
+# The public users/<login>/ssh_signing_keys endpoint needs no token scope, so this reads
+# every account gh is logged in to without asking for one.
+found=""
+logins="$(gh auth status --json hosts --jq '.hosts["github.com"][].login' 2>&1)" && rc=0 || rc=$?
+if [[ "${rc}" -ne 0 ]]; then
+    bad "11. GitHub lists this key as a signing key" "gh auth status exit ${rc}: ${logins}"
+else
+    for login in ${logins}; do
+        listed="$(gh api "users/${login}/ssh_signing_keys" --jq '.[].key' 2>&1)" && rc=0 || rc=$?
+        if [[ "${rc}" -ne 0 ]]; then
+            printf '    could not read the signing keys of %s: %s\n' "${login}" "${listed}"
+            continue
+        fi
+        if grep -qxF "${pub_fields}" <<<"$(awk '{ print $1, $2 }' <<<"${listed}")"; then
+            found="${login}"
+        fi
+    done
+    if [[ -n "${found}" ]]; then
+        ok "11. GitHub lists this key as a signing key (account ${found})"
+    else
+        bad "11. GitHub lists this key as a signing key" \
+            "not on any logged-in account; see docs/configuration.md \"Commit Signing\""
+    fi
+fi
+
+echo
+ran=$((PASS + FAIL))
+echo "COVERAGE: ${ran} of ${DECLARED} checks executed"
+echo "NOT ESTABLISHABLE here — for the owner:"
+echo "  - in a ccy session started AFTER the deploy, make a commit in a scratch repo and"
+echo "    check that 'git cat-file commit HEAD' carries a gpgsig header. The ccy-git-signing"
+echo "    QA gate proves the launcher stages the key; only a real container proves git there"
+echo "    signs with it."
+echo "  - push a commit and see GitHub mark it Verified. That also needs the committer email"
+echo "    to be a verified email of the account holding the key."
+if [[ "${ran}" -ne "${DECLARED}" ]]; then
+    echo "VERDICT: REJECTED — ${ran} of ${DECLARED} declared checks ran; an incomplete gate establishes nothing."
+    PLAN_FAILED_LEGS="coverage"
+elif [[ "${FAIL}" -ne 0 ]]; then
+    echo "VERDICT: REJECTED — ${FAIL} of ${ran} checks failed."
+    PLAN_FAILED_LEGS="acceptance"
+else
+    echo "VERDICT: ACCEPTED — ${PASS} of ${DECLARED} checks passed."
+fi
+plan_finish

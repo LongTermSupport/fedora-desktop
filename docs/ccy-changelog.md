@@ -17,6 +17,19 @@ Two version numbers move independently — see
 
 ---
 
+## 3.66.0
+
+- **Commits and tags made inside the container are signed** (Plan 00139).
+  `play-git-configure-and-tools.yml` now signs every commit on the host with an SSH signing
+  key. The launcher copies that key into the directory that carries the container's
+  gitconfig, which is mounted read-only, and points the copy's `user.signingkey` at it. The
+  key never leaves the session's private temporary directory, and it goes when the session
+  ends.
+- **A launch with signing switched on and no usable key is refused.** That covers a missing
+  key file, no `user.signingkey`, a format other than SSH, and a literal `key::` public key,
+  which needs an agent. The message names the play to re-run. The alternative was a
+  container in which every commit failed.
+
 ## 3.65.1
 
 - **The SELinux launch message no longer says the mounts that are not relabelled are

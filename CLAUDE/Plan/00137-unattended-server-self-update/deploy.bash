@@ -7,9 +7,8 @@
 # TWO ROLES, BECAUSE THE TRUST MODEL HAS TWO ENDS:
 #
 #   --role desktop  the machine the owner commits from. play-git-configure-and-tools.yml
-#                   configures the passphrase-protected SSH signing key
-#                   (`git_signing_key` in host_vars). Nothing signs by default; a release
-#                   is a deliberate `git sign-deploy` or `git commit -S`.
+#                   generates this machine's SSH signing key and signs every commit with
+#                   it (Plan 00139); the server trusts that key.
 #   --role server   the always-on server hosting ccy sessions, in this order:
 #                   1. play-claude-yolo.yml: `ccy-sessions` (warn, verify-restore) and the
 #                      restore unit. The cycle reboots, so `ccy_restore_sessions: true`
@@ -102,8 +101,8 @@ plan_start_log auto
 if [[ "${role}" == "desktop" ]]; then
     plan_deploy_leg "play-git-configure-and-tools.yml" \
         plan_ansible_playbook playbooks/imports/play-git-configure-and-tools.yml
-    printf '\n==> NEXT: release with "git sign-deploy" (an empty signed commit) and push.\n'
-    printf '    The server moves only to the newest commit your key signed.\n\n'
+    printf '\n==> NEXT: every commit from here on is signed; push as usual.\n'
+    printf '    The server moves only to the newest commit this machine'"'"'s key signed.\n\n'
 else
     plan_deploy_leg "play-claude-yolo.yml" \
         plan_ansible_playbook playbooks/imports/play-claude-yolo.yml

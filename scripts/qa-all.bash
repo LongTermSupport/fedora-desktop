@@ -395,6 +395,18 @@ fi
 ssh_handling_summary=$(qa_gate_case_count "$ssh_handling_out")
 qa_pass_line ccy-ssh-handling "$ssh_handling_summary"
 
+# ccy's commit signing in the container (Plan 00139, CCY 3.66.0): the signing key staged
+# beside the gitconfig copy and the copy repointed at it, and a launch refused when
+# signing is on with no usable key. Fixture keys and configs only; no container.
+git_signing_out=""
+if ! git_signing_out="$(bash "$SCRIPT_DIR/test-ccy-git-signing.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-git-signing \
+        "ccy commit-signing unit tests failed" \
+        "$git_signing_out"
+fi
+git_signing_summary=$(qa_gate_case_count "$git_signing_out")
+qa_pass_line ccy-git-signing "$git_signing_summary"
+
 # ccy's SELinux relabel decision (Plan 00118, CCY 3.55.0).
 #
 # On an Enforcing host container_t may not read user_home_t, so a ccy container
