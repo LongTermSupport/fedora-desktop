@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.65.0
+
+- **A Permissive SELinux host relabels the workspace too.** It used to be treated like a
+  Disabled one, so nothing was relabelled. Nothing is refused on a Permissive host, but every
+  `container_t` read of a `user_home_t` file was logged as an AVC denial, and the running
+  sessions produced most of the host's audit log. The verdict is now `permissive`, which
+  relabels exactly as `enforcing` does: the workspace gets `:z`, the config import gets `Z`,
+  and keys are staged into a private tmpfs. The launch prints `🔒 SELinux permissive`.
+  `Disabled`, and an engine that does not label, still relabel nothing. (Plan 00134 T3.1,
+  common 1.5.2.)
+
 ## 3.64.3
 
 Fixes from the third review of `ccy --disconnect` (network-management 1.9.3), plus one older

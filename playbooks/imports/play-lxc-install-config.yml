@@ -416,6 +416,37 @@
     # DOCKER-USER). A shared reconcile script + a systemd unit bound to
     # docker.service (PartOf=) re-apply them on every boot and every docker
     # restart — see the "Deploy DOCKER-USER iptables reconciliation" tasks below.
+    #
+    # DOCKER-USER exists only under Docker's iptables firewall backend (reported as
+    # `iptables` or `iptables+firewalld`). Under `firewall-backend: nftables` Docker
+    # creates no such chain and the reconcile has nothing to edit, so a backend
+    # change stops the play here and names the reason, rather than surfacing later
+    # as a missing chain. `check_mode: false` because this only reads.
+    - name: Read the Docker firewall backend
+      ansible.builtin.command: docker info
+      changed_when: false
+      check_mode: false
+      register: _docker_info
+      when: docker_daemon_check.stat.exists
+      tags: [lxc_iptables]
+
+    - name: Assert Docker uses its iptables firewall backend
+      vars:
+        _docker_firewall_backend: >-
+          {{ (_docker_info.stdout | regex_findall('(?m)^\s*Firewall Backend:\s*(\S+)') + ['']) | first }}
+      ansible.builtin.assert:
+        that:
+          - _docker_firewall_backend is match('iptables(\+firewalld)?$')
+        fail_msg: >-
+          Docker reports firewall backend '{{ _docker_firewall_backend }}' (empty means
+          docker info printed no Firewall Backend line). The LXC outbound-connectivity
+          reconcile edits the iptables DOCKER-USER chain, which only the iptables
+          backend creates. Put Docker back on the iptables backend, or rework
+          lxc-docker-user-iptables-reconcile.bash for nftables before re-running.
+        quiet: true
+      when: docker_daemon_check.stat.exists
+      tags: [lxc_iptables]
+
     - name: Assert DOCKER-USER iptables chain exists (Docker installed but half-configured?)
       ansible.builtin.command: iptables -n -L DOCKER-USER
       changed_when: false

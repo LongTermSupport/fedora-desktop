@@ -108,11 +108,13 @@ ccy_known_prompts() {
 #         the engine's SELinux report — podman's
 #         `info --format '{{.Host.Security.SELinuxEnabled}}'`, exactly `true`
 #         or `false` when it worked
-# Prints: enforcing | off | unknown
+# Prints: enforcing | permissive | off | unknown
 #
-# `off` needs BOTH halves to say so: Permissive/Disabled means nothing is
-# refused, and an engine that does not label (`label=false` in containers.conf)
-# runs its containers unconfined, so an Enforcing host is still `off` for them.
+# `off` means no relabel: SELinux is Disabled, or the engine does not label
+# (`label=false` in containers.conf), so its containers run unconfined.
+# `permissive` relabels too. Nothing is refused on a Permissive host, but every
+# container_t read of user_home_t is still logged, and an unrelabelled
+# workspace floods the audit log with them.
 # `unknown` is anything that cannot be read as one of those, and the caller
 # treats it as enforcing: relabelling a readable tree costs nothing, while not
 # relabelling an unreadable one costs the whole session.
@@ -122,8 +124,16 @@ selinux_enforcing_verdict() {
     report=$(printf '%s' "$2" | tr -d '[:space:]')
 
     case "$enforce" in
-        Permissive|Disabled)
+        Disabled)
             printf 'off\n'
+            return 0
+            ;;
+        Permissive)
+            case "$report" in
+                true)  printf 'permissive\n' ;;
+                false) printf 'off\n' ;;
+                *)     printf 'unknown\n' ;;
+            esac
             return 0
             ;;
         "")

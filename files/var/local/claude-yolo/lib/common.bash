@@ -2,7 +2,7 @@
 # Claude YOLO Common Library
 # Shared helpers for claude-yolo (ccy)
 #
-# Version: 1.5.1 - Whitelist CLAUDE.md/README.md in the .claude/ccy tracked-files gate
+# Version: 1.5.2 - CCY_SELINUX_MODE may be permissive, which relabels like enforcing
 
 # Host-safe helpers (print_error, is_token_valid, COLOR_RED, COLOR_RESET).
 # MUST be sourced BEFORE the podman-check block below so that the cc wrapper
@@ -59,7 +59,7 @@ export -f container_cmd
 # caller owns that, so this stays usable from a test and from `cc`.
 # Gather the two answers selinux_enforcing_verdict needs and record the verdict.
 #
-# Sets: CCY_SELINUX_MODE (enforcing|off|unknown), CCY_MOUNT_RELABEL — the mount
+# Sets: CCY_SELINUX_MODE (enforcing|permissive|off|unknown), CCY_MOUNT_RELABEL — the mount
 # option that makes a bind readable under confinement: "z" (shared relabel,
 # so a second ccy session on the same project can still read it) when the
 # verdict is not `off`, empty otherwise. Callers append it to their own
