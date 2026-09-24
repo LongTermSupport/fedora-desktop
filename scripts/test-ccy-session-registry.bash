@@ -378,6 +378,74 @@ check "ccy: --resume already names a conversation" "--resume|abc|--supervise" \
 check "cc: only --continue is appended" "--model|opus|--continue" \
     "$(joined ccy_registry_restore_args cc --model opus)"
 check "empty in: just the additions" "--supervise|--continue" "$(joined ccy_registry_restore_args ccy)"
+# After `--` every word is claude's (the launcher's parser forwards it raw), so ccy's own
+# --supervise has to land before the separator or claude receives it. --continue is claude's
+# either side of it.
+check "ccy: --supervise goes before a recorded --, claude's words stay after it" \
+    "--token|t|--supervise|--|--model|opus|--continue" \
+    "$(joined ccy_registry_restore_args ccy --token t -- --model opus)"
+check "ccy: a --supervise after -- is claude's word, not ccy's" \
+    "--supervise|--|--supervise|--continue" \
+    "$(joined ccy_registry_restore_args ccy -- --supervise)"
+check "ccy: a --continue after -- still counts as continuing" \
+    "--supervise|--|--continue" \
+    "$(joined ccy_registry_restore_args ccy -- --continue)"
+
+echo ""
+echo "=== forgetting a network: a record keeps every other word exactly ==="
+# q_args <record-name> — the record's arguments, each shell-quoted, so an empty one is visible.
+q_args() {
+    ccy_registry_read "$CCY_STATE_DIR/sessions/$1" || {
+        echo "(unreadable)"
+        return
+    }
+    printf '%q ' "${REC_ARGS[@]}"
+}
+rm -rf "$CCY_STATE_DIR"
+ccy_registry_write fnet_trailing "$SCRATCH/proj" /usr/local/bin/ccy ccy yes \
+    --network gone --token t -- --append-system-prompt ""
+ccy_registry_forget_network "$SCRATCH/proj" gone >/dev/null
+check "a trailing empty argument survives forgetting a network" \
+    "$(printf '%q ' --token t -- --append-system-prompt "")" "$(q_args fnet_trailing)"
+
+rm -rf "$CCY_STATE_DIR"
+ccy_registry_write fnet_middle "$SCRATCH/proj" /usr/local/bin/ccy ccy yes \
+    --token "" --network gone -- "" --model opus
+ccy_registry_forget_network "$SCRATCH/proj" gone >/dev/null
+check "empty arguments in the middle survive too" \
+    "$(printf '%q ' --token "" -- "" --model opus)" "$(q_args fnet_middle)"
+
+rm -rf "$CCY_STATE_DIR"
+ccy_registry_write fnet_none "$SCRATCH/proj" /usr/local/bin/ccy ccy yes \
+    --token t -- --append-system-prompt ""
+check "--check: a record that does not name the network is not listed" "" \
+    "$(ccy_registry_forget_network "$SCRATCH/proj" gone --check)"
+fnet_out="$(ccy_registry_forget_network "$SCRATCH/proj" gone)"
+check "and forgetting says nothing about it" "" "$fnet_out"
+check "and leaves it byte for byte" "$(printf '%q ' --token t -- --append-system-prompt "")" "$(q_args fnet_none)"
+
+# A session that ends while its record is being edited removes its own record. The edit must
+# not write it back: a record that is there at boot is a session the restore starts again.
+# The real reader runs, then the record vanishes, which is the one ordering that matters.
+rm -rf "$CCY_STATE_DIR"
+ccy_registry_write fnet_vanishing "$SCRATCH/proj" /usr/local/bin/ccy ccy yes --network gone
+real_read_def="$(declare -f ccy_registry_read)"
+# shellcheck source=/dev/null
+source /dev/stdin <<<"_real_ccy_registry_read${real_read_def#ccy_registry_read}"
+ccy_registry_read() {
+    _real_ccy_registry_read "$@" || return 1
+    [[ "$1" != */fnet_vanishing ]] || rm -f -- "$1"
+}
+fnet_out="$(ccy_registry_forget_network "$SCRATCH/proj" gone)"
+fnet_rc=$?
+# shellcheck source=/dev/null
+source /dev/stdin <<<"$real_read_def"
+check "a record that vanished mid-edit is not written back" "absent" \
+    "$([ -e "$CCY_STATE_DIR/sessions/fnet_vanishing" ] && echo present || echo absent)"
+check "and that is not a failure" "0" "$fnet_rc"
+check "and it does not claim to have removed anything" "no" \
+    "$(if grep -qF 'Removed --network' <<<"$fnet_out"; then echo yes; else echo no; fi)"
+rm -rf "$CCY_STATE_DIR"
 
 echo ""
 echo "=== restore: records and live sessions in, decisions out ==="

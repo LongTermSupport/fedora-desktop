@@ -2,7 +2,9 @@
 # Network Management Library
 # Shared Docker network operations for claude-yolo (ccy)
 #
-# Version: 1.9.2 - --disconnect forgets the network everywhere a later launch reads it:
+# Version: 1.9.3 - A hand-edited Quick Launch line that still names the network fails the
+#                  disconnect, naming the line, instead of being reported as cleared.
+#          1.9.2 - --disconnect forgets the network everywhere a later launch reads it:
 #                  the saved default, Quick Launch's LAST_NETWORK and this project's
 #                  restore records; --connect fails on an engine that cannot list networks.
 #          1.9.1 - An engine that cannot list its containers is a failure, not "none";
@@ -143,6 +145,17 @@ _forget_quick_launch_network() {
         ! mv -f -- "$tmp" "$file"; then
         [ ! -f "$tmp" ] || rm -f -- "$tmp"
         print_error "Could not rewrite the Quick Launch config $file, so it still names $network and accepting Quick Launch would join it again."
+        return 1
+    fi
+    # The rewrite replaces only the exact line the launcher writes. A hand-edited one (a
+    # trailing space or comment, a CR) still reads as naming the network, so it is read again.
+    if ! named=$(_quick_launch_network); then
+        print_error "Could not read the Quick Launch config $file back after rewriting it, so whether it still names $network is unknown."
+        return 1
+    fi
+    if [ "$named" = "$network" ]; then
+        print_error "$file still names $network on the line: $(awk '/^LAST_NETWORK="/ { print; exit }' "$file" | cat -A)"
+        print_error "That line is not the one ccy writes, so it was left as it is. Edit or delete it, then run the disconnect again."
         return 1
     fi
     echo "Cleared $network from the Quick Launch configuration ($file)."
