@@ -17,6 +17,23 @@ Two version numbers move independently — see
 
 ---
 
+## 3.64.1
+
+Fixes to `ccy --disconnect` from its review (network-management 1.9.1).
+
+- **An engine that cannot list its containers is now a failure.** 3.64.0 read it as "no
+  containers running", so a bare `--disconnect` cleared the saved default and exited 0.
+  Now `--connect` and `--disconnect` stop with the engine's error, and change nothing.
+- **A container's last network is never detached.** A session launched onto one network
+  is on it alone, and detaching it would cut the session off, the Claude API included.
+  The detach is refused and no container changes, but a saved default naming that
+  network is still cleared, so the next launch does not join it.
+- **A bare `--disconnect` with no container running asks first.** It names the saved
+  default and asks `[y/N]` on the terminal. Enter, a no, end of input, or no terminal
+  keeps it.
+- The network list is read with `container inspect`.
+- The `--custom` help line is aligned again.
+
 ## 3.64.0
 
 New `ccy --disconnect [NETWORK]`, the undo for a wrong `--connect` (network-management
