@@ -64,32 +64,30 @@ Supporting documents:
 
 - [x] ✅ **Task 2.1**: Owner decisions — D1 P1–P5 yes; D2 R2 (repo-owned recorder); D3 fzf as picker only
 - [x] ✅ **Task 2.2**: Owner decision D4 — Plan 027 (Atuin) cancelled, moved to `Cancelled/`
-- [x] ✅ **Task 2.3**: Prototype the ranker and time it — [`prototype-ranker.bash`](prototype-ranker.bash), [`prototype-timing.bash`](prototype-timing.bash); fixture ordering correct, 15k records ≈ 150 ms, 100k ≈ 440 ms (results in [PROPOSAL.md](PROPOSAL.md))
+- [x] ✅ **Task 2.3**: Prototype the ranker and time it — fixture ordering correct, 15k records ≈ 150–180 ms, 100k ≈ 440–700 ms ([`ranker-timing.bash`](ranker-timing.bash); results in [PROPOSAL.md](PROPOSAL.md))
 
 ### Phase 3: Implementation (IaC — edit only; deploy is Phase 4)
 
-- [ ] ⬜ **Task 3.1**: P5 — `PROMPT_COMMAND` hygiene
-  - [ ] ⬜ `files/var/local/ps1-prompt`: idempotent array append instead of the scalar assignment
-  - [ ] ⬜ `play-basic-configs.yml`: remove the tweaks `source` block from user and root `~/.bash_profile` (`state: absent`), after asserting each `~/.bash_profile` sources `~/.bashrc`
-- [ ] ⬜ **Task 3.2**: P1–P4 — replace the `#History` block of `files/etc/profile.d/zz_lts-fedora-desktop.bash`
-  - [ ] ⬜ `HISTFILE=~/.local/state/bash/history`, only when that directory is owned by the current user (`[[ -O ]]`), else a stderr warning and bash's default
-  - [ ] ⬜ `HISTSIZE=-1`, `HISTFILESIZE=-1`, `HISTCONTROL=ignoreboth`, `HISTTIMEFORMAT`, `lithist`, `histverify`
-  - [ ] ⬜ `__history_append` hook (drops a space-prefixed newest entry, then `history -a`), appended to the array once
-- [ ] ⬜ **Task 3.3**: `play-basic-configs.yml` — history directories and seed
-  - [ ] ⬜ `~/.local/state/bash` `0700` for the user and root
-  - [ ] ⬜ Seed `history` `0600` from `~/.bash_history` once (`creates:`), user and root
-  - [ ] ⬜ Assert the directory exists, is owned correctly and is writable
-- [ ] ⬜ **Task 3.4**: R2 recorder — a `~/.bashrc-includes` snippet (user only, `EUID != 0`), sourced after bash-git-prompt
-  - [ ] ⬜ Capture `$?` in a function **prepended** to the array that returns the same status, so bash-git-prompt's `setLastCommandState` still sees the command's own status
-  - [ ] ⬜ Record `epoch TAB exit TAB cwd TAB command` NUL-terminated to `~/.local/state/bash/context` (`0600`), builtins only, only when the history number advanced
-- [ ] ⬜ **Task 3.5**: Ranker and Ctrl+R binding — promote the prototype into a deployed file
-  - [ ] ⬜ `bind -x` Ctrl+R for emacs and vi modes, guarded by fzf presence and `EUID != 0`; current line as query; ctrl-r inside toggles sort; the chosen line replaces the prompt line and never runs on Enter
-  - [ ] ⬜ Decide the 100k-row behaviour: accept the latency, or compact the context file into one row per command and directory
-- [ ] ⬜ **Task 3.6**: Permanent tests under `tests/` for the recorder and ranker (the fixture cases from the prototype plus the ignorespace/`HISTIGNORE` skip), wired into `qa-all.bash`
-- [ ] ⬜ **Task 3.7**: `deploy.bash` (`play-basic-configs.yml`) and `acceptance.bash`
-  - [ ] ⬜ Acceptance: in `bash -i` and `bash -l -i`, each hook appears once in `PROMPT_COMMAND`; `HISTFILE`, modes and ownership of the directory and both files; Ctrl+R is bound to the ranker for the user and not for root; root has P1–P4
-  - [ ] ⬜ NOT ESTABLISHABLE by script, named for the human: the feel of Ctrl+R in a real terminal
-- [ ] ⬜ **Task 3.8**: Run QA (`./scripts/qa-all.bash`) and the `qa-reviewer` agent over the plan diff
+- [x] ✅ **Task 3.1**: P5 — `PROMPT_COMMAND` hygiene
+  - [x] ✅ `files/var/local/ps1-prompt`: idempotent array append instead of the scalar assignment
+  - [x] ✅ `play-basic-configs.yml`: tweaks block removed from user and root `~/.bash_profile` (`state: absent`), after asserting each sources `~/.bashrc`
+- [x] ✅ **Task 3.2**: P1–P4 — the history block of `files/etc/profile.d/zz_lts-fedora-desktop.bash`
+  - [x] ✅ `HISTFILE=~/.local/state/bash/history`, only when that directory is the current user's (`[[ -O ]]`), else a stderr warning in interactive shells
+  - [x] ✅ `HISTSIZE=-1`, `HISTFILESIZE=-1`, `HISTCONTROL=ignoreboth`, `HISTTIMEFORMAT`, `lithist`, `histverify`
+  - [x] ✅ `__history_append` hook (`history -a`), appended once. The space-prefixed-entry deletion was dropped: it only repaired bash-preexec, which is not installed
+- [x] ✅ **Task 3.3**: `play-basic-configs.yml` — history directories and seed
+  - [x] ✅ `~/.local/state/bash` `0700` for the user and root; parents created explicitly so they are the account's, not root's
+  - [x] ✅ Seed `history` `0600` from `~/.bash_history` once (`force: false`), user and root
+  - [x] ✅ Directory mode and ownership are enforced by the `file` task and asserted by `acceptance.bash` checks 3 and 11
+- [x] ✅ **Task 3.4**: R2 recorder — `files/home/bashrc-includes/history-search.bash` (user only)
+  - [x] ✅ Exit status: no capture function needed. Tested on bash 5.3: every `PROMPT_COMMAND` element receives the command's own `$?`, so the recorder reads it directly and is simply appended
+  - [x] ✅ Records `epoch TAB exit TAB cwd TAB command`, NUL-terminated, to `~/.local/state/bash/context` (created `0600`), builtins only, only when the history number advanced; the directory is the one the command started in
+- [x] ✅ **Task 3.5**: Ranker and Ctrl+R binding
+  - [x] ✅ `files/home/.local/bin/bash-history-rank`; `bind -x` Ctrl+R in emacs and both vi keymaps, warning on stderr if fzf is missing; current line as query; ctrl-r inside toggles sort; the pick replaces the line and never runs
+  - [x] ✅ 100k-row latency accepted for now; compaction is the remedy when it matters, not a compiled ranker (reasoning in [PROPOSAL.md](PROPOSAL.md))
+- [x] ✅ **Task 3.6**: `scripts/test-bash-history-search.bash`, wired into `qa-all.bash` as the `bash-history-search` gate; three mutants each turned it red
+- [x] ✅ **Task 3.7**: [`deploy.bash`](deploy.bash) and [`acceptance.bash`](acceptance.bash) (14 checks with a COVERAGE line; before the deploy it runs all 14 and rejects)
+- [ ] 🔄 **Task 3.8**: Run QA (`./scripts/qa-all.bash`) and the `qa-reviewer` agent over the plan diff
 
 ### Phase 4: Host deploy and verification
 

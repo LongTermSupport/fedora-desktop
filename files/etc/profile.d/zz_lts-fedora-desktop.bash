@@ -16,13 +16,26 @@ alias mkdir='mkdir -pv'
 # Handle UTF-8 with less
 export LESSCHARSET=utf-8
 
-#History
-shopt -s histappend
-shopt -s cmdhist
-HISTCONTROL=ignoredups
-export HISTFILESIZE=20000
-export HISTSIZE=10000
-export HISTIGNORE="&:ls:[bf]g:exit"
+# History: every command on disk at the next prompt, timestamped, never truncated.
+# The file is not ~/.bash_history, so a shell that never read this file (bash --norc,
+# sudo -E) truncates that abandoned default to 500 lines instead of the real history.
+# -O: only a directory this user owns — root keeping a user's HOME must not write into it.
+# play-basic-configs.yml creates the directory; bash saves nothing if it is missing.
+shopt -s histappend cmdhist lithist histverify
+HISTCONTROL=ignoreboth
+export HISTFILESIZE=-1
+export HISTSIZE=-1
+export HISTIGNORE="ls:[bf]g:exit"
+HISTTIMEFORMAT='%F %T  '
+if [[ -O "${HOME}/.local/state/bash" ]]; then
+    HISTFILE="${HOME}/.local/state/bash/history"
+elif [[ $- == *i* ]]; then
+    echo "bash history: ${HOME}/.local/state/bash is missing or not owned by $(id -un); history goes to ${HISTFILE:-the default file}. Re-run play-basic-configs.yml." >&2
+fi
+__history_append() { builtin history -a; }
+if [[ " ${PROMPT_COMMAND[*]-} " != *" __history_append "* ]]; then
+    PROMPT_COMMAND+=(__history_append)
+fi
 
 # User local bin
 if [[ -d ~/.local/bin ]];

@@ -77,7 +77,9 @@ max_parallel_downloads=10
 
 Custom configurations in `/etc/profile.d/zz_lts-fedora-desktop.bash`:
 
-- Enhanced history (20K file size, 10K memory)
+- History that survives many open terminals: every command is written at the next prompt,
+  timestamped and never truncated. It lives in `~/.local/state/bash/history`, so a shell that
+  never read this file cannot cut it down. Start a command with a space to keep it out.
 - Custom aliases
 - Docker helper functions
 - Error state prompt indicators
@@ -86,6 +88,12 @@ User-specific includes in `~/.bashrc-includes/`:
 
 - Custom scripts and functions
 - Per-user overrides
+- `history-search.bash` (desktop user only): Ctrl+R searches the history of every terminal.
+  It lists commands run in the current directory first, then the current git repository, then
+  everything else. The chosen command is put on the prompt for review, never run straight
+  away. The directory each command ran in is kept in `~/.local/state/bash/context`, which is
+  private to the user like the history file. A command removed from history with
+  `history -d` stays in that file until it is edited out.
 
 ### SSH Configuration
 
