@@ -118,9 +118,11 @@ D1–D4 are the owner's choices, made 2026-09-23.
   00109's "re-running a play is a human decision" still holds everywhere the flag is off.
 - **D8 — failure: no reboot, and an alert through a real channel.** Every failure alerts,
   whether a play failed, the gate refused, or a session could not be warned, and so does
-  a completed cycle's summary. The sinks are pluggable: a Slack webhook (URL in vault)
-  and/or a GitHub issue in a **private** repo. This repo is public, so an alert here
-  could expose install details. The host-health report also carries the last result.
+  a completed cycle's summary. The host-health report also carries the last result.
+  **Sink (Task 0.4, owner, 2026-09-24): a Slack webhook, optional and per install.** It
+  is vault-encrypted in host_vars, which the install's config repo supplies, or the play
+  asks for it on an interactive run. No webhook means journal and report only. There is
+  no GitHub-issue sink.
 - **D9 — cadence: nightly** (around 03:30, `RandomizedDelaySec` up to 30 minutes,
   `Persistent`). There is no "someone is watching" check: the owner judged it not worth
   including.
@@ -132,8 +134,8 @@ D1–D4 are the owner's choices, made 2026-09-23.
 - [x] ✅ **Task 0.1**: Record D1–D4 as Technical Decisions above.
 - [x] ✅ **Task 0.2**: Settle D5–D9 and record them. The owner answered D5, D6, D8 and D9;
   D7 is the stated default.
-- [ ] ⬜ **Task 0.4**: Owner picks the alert sink(s) for D8 (Slack webhook, private-repo
-  GitHub issue, or both). This does not block Phases 1–3.
+- [x] ✅ **Task 0.4**: Owner picks the alert sink(s) for D8. Chose a Slack webhook,
+  optional per install, supplied as IaC or asked for by the play (recorded in D8).
 - [x] ✅ **Task 0.3**: Signing IaC: an SSH signing key for the owner on the desktop, git
   configured to sign, and the public key published through a `host_vars` placeholder,
   never hardcoded. The deploy clone's `gpg.ssh.allowedSignersFile` holds only that key.
@@ -187,9 +189,12 @@ D1–D4 are the owner's choices, made 2026-09-23.
   the IaC graph follows D5 and D7.
 - [x] ✅ **Task 4.3**: Results reach the host-health report, so a failed or skipped cycle
   shows up in the login snippet. Contract: DESIGN-cycle.md, "The published copy".
-- [ ] ⬜ **Task 4.5**: The alert sinks from D8/Task 0.4. The secret lives in vault. The
+- [ ] 🔄 **Task 4.5**: The alert sinks from D8/Task 0.4. The secret lives in vault. The
   message carries no hostname, username or path (public-repo rule), and a sink that
-  fails to deliver is itself reported.
+  fails to deliver is itself reported. Code done: `helpers/self_update/alerts.py`, the
+  play's prompt and root-only webhook file, and the result's `alert` key, which the
+  host-health report names. Contract: DESIGN-cycle.md, "Alerts". HOST: one real post,
+  in Task 5.3's cycle.
 - [x] ✅ **Task 4.7**: The D5 hardening in `play-self-update.yml`:
   - system `ansible-core` from dnf, plus the collections the plays need in a root-owned
     `ANSIBLE_COLLECTIONS_PATH`;

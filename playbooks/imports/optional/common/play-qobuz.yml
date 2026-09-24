@@ -151,7 +151,8 @@
         # an apostrophe in the user input would otherwise break the single-quote
         # context and inject shell. encrypt_string reads the value from stdin and
         # emits the encrypted YAML block on stdout, which we capture then write
-        # idempotently with blockinfile below.
+        # idempotently with blockinfile below. stdin_add_newline is off, or ansible
+        # appends a newline that encrypt_string would vault as part of the secret.
         - name: Vault-encrypt Last.fm API Key
           ansible.builtin.command:
             argv:
@@ -161,6 +162,7 @@
               - lastfm_api_key
           args:
             stdin: "{{ lastfm_key_prompt.user_input }}"
+            stdin_add_newline: false
           register: lastfm_key_encrypted
           changed_when: false
           no_log: true
@@ -174,6 +176,7 @@
               - lastfm_api_secret
           args:
             stdin: "{{ lastfm_secret_prompt.user_input }}"
+            stdin_add_newline: false
           register: lastfm_secret_encrypted
           changed_when: false
           no_log: true

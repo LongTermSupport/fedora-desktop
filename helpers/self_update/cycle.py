@@ -3,7 +3,8 @@
 Run by `/usr/local/sbin/fedora-desktop-self-update` as root:
 
     python3 -m helpers.self_update.cycle --config C --state-dir S --published-dir P --clone D --become B \\
-        --vault V --allowed-signers A --ansible-playbook P {run [--dry-run] | verify | status}
+        --vault V --allowed-signers A --ansible-playbook P --slack-webhook W \\
+        {run [--dry-run] | verify | status}
 
 The contract (paths, keys, exit codes, the result record) is
 CLAUDE/Plan/00137-unattended-server-self-update/DESIGN-cycle.md. What lives here is the
@@ -31,10 +32,12 @@ boot means the reboot has not happened yet, so it is left alone.
 allowlisted play runs, and only once the clone's HEAD is proven pinned-signed: the gate
 judges only commits above HEAD, so nothing else vouches for HEAD itself. They are idempotent, and that run is what makes the record true.
 
-**Alerts** go through one `alert` seam. Until Task 4.5 plugs in real sinks it writes to
-the journal (stderr). Every result is also published to a user-readable copy
-(`published`), which the host-health report reads. Neither carries a hostname or
-username, and the only paths in either are the plays' repo-relative ones.
+**Alerts** go through one `alert` seam: the journal (stderr) always, then the install's
+optional sinks (`alerts`; a Slack webhook is the one there is). A sink that does not
+accept is journalled and recorded in the result's `alert` key, so the host-health report
+names it. Every result is also published to a user-readable copy (`published`), which
+the host-health report reads. None of these carries a hostname or username, and the only
+paths in them are the plays' repo-relative ones.
 """
 
 from __future__ import annotations
@@ -56,7 +59,7 @@ from dataclasses import dataclass
 from typing import Protocol, TextIO
 
 from helpers.play_lock import lock as play_lock
-from helpers.self_update import affected_plays, published, update
+from helpers.self_update import affected_plays, alerts, published, update
 
 EXIT_OK = 0
 EXIT_REFUSED = 20
@@ -83,7 +86,9 @@ _MAX_WARN_MINUTES = 60
 PIPE_MAX_BYTES = 4096
 
 _KEYS = ("USER", "BRANCH", "REMOTE_URL", "PRINCIPAL", "WARN_MINUTES", "ALERT_SINKS", "ANSIBLE_COLLECTIONS_DIR")
-RESULT_KEYS = ("at", "phase", "outcome", "old", "new", "plays", "detail")
+RESULT_KEYS = ("at", "phase", "outcome", "old", "new", "plays", "detail", "alert")
+#: The alert sinks this cycle can deliver to (Task 0.4: the owner chose Slack alone).
+SINKS = ("slack",)
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _NAME = re.compile(r"^[a-z_][a-z0-9_-]*$")
 _BRANCH = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
@@ -141,11 +146,12 @@ def parse_config(text: str) -> Config:
     minutes = values["WARN_MINUTES"]
     if not minutes.isdigit() or not 1 <= int(minutes) <= _MAX_WARN_MINUTES:
         raise ConfigError(f"WARN_MINUTES={minutes!r} is not a whole number from 1 to {_MAX_WARN_MINUTES}")
-    sinks = tuple(s for s in re.split(r"[\s,]+", values["ALERT_SINKS"]) if s and s != "none")
-    if sinks:
+    sinks = tuple(dict.fromkeys(s for s in re.split(r"[\s,]+", values["ALERT_SINKS"]) if s and s != "none"))
+    unknown = [sink for sink in sinks if sink not in SINKS]
+    if unknown:
         # Refused rather than ignored: a configured sink that silently delivers nothing
         # reads exactly like a cycle that had nothing to report.
-        raise ConfigError(f"ALERT_SINKS={values['ALERT_SINKS']!r}: no alert sink is implemented yet (Task 4.5)")
+        raise ConfigError(f"ALERT_SINKS={values['ALERT_SINKS']!r}: the only alert sink is {', '.join(SINKS)}")
     collections = values["ANSIBLE_COLLECTIONS_DIR"]
     if not os.path.isabs(collections) or os.path.normpath(collections) != collections or re.search(r"\s", collections):
         raise ConfigError(f"ANSIBLE_COLLECTIONS_DIR={collections!r} is not an absolute, normalised path")
@@ -268,11 +274,17 @@ class Host(Protocol):
     def boot_id(self) -> str: ...
     def sleep(self, seconds: float) -> None: ...
     def now(self) -> str: ...
+    def send_alert(self, record: dict[str, str]) -> list[str]: ...
 
 
-def alert(record: dict[str, str], stderr: TextIO) -> None:
-    """The one place an outcome is announced. Task 4.5 adds real sinks behind it."""
+def alert(record: dict[str, str], host: Host, stderr: TextIO) -> str:
+    """The one place an outcome is announced: the journal, then every configured sink.
+    Returns the sinks that did not accept it, as one line ("" when every one did)."""
     stderr.write(f"self-update: ALERT {record.get('outcome', '')}: {record.get('detail', '')}\n")
+    failures = host.send_alert(record)
+    for failure in failures:
+        stderr.write(f"self-update: the alert could not be delivered: {failure}\n")
+    return "; ".join(failures)
 
 
 def _finish(
@@ -281,11 +293,15 @@ def _finish(
 ) -> int:
     record = {
         "at": host.now(), "phase": phase, "outcome": outcome, "old": old, "new": new,
-        "plays": " ".join(plays), "detail": detail,
+        "plays": " ".join(plays), "detail": detail, "alert": "",
     }
+    # Recorded before the sinks are tried, so a sink that hangs or crashes cannot cost the
+    # result; recorded again only when one of them did not accept it.
     state.write_result(record)
     if announce:
-        alert(record, stderr)
+        undelivered = alert(record, host, stderr)
+        if undelivered:
+            state.write_result({**record, "alert": undelivered})
     stdout.write(f"SELF-UPDATE-CYCLE {outcome}\n")
     return code
 
@@ -631,10 +647,11 @@ class RealHost:
 
     def __init__(
         self, *, config: Config, clone: str, become: str, vault: str, allowed_signers: str,
-        ansible_playbook: str, lock_fd: int,
+        ansible_playbook: str, lock_fd: int, sinks: alerts.Sinks,
     ) -> None:
         entry = pwd.getpwnam(config.user)
         self._config = config
+        self._sinks = sinks
         self._clone = clone
         self._become = become
         self._vault = vault
@@ -778,6 +795,9 @@ class RealHost:
     def now(self) -> str:
         return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
+    def send_alert(self, record: dict[str, str]) -> list[str]:
+        return self._sinks.deliver(record)
+
 
 def read_private(path: str, what: str, *, secret: bool = False) -> str:
     """A root-side file that decides the cycle: owned by root or the caller, and not writable by others.
@@ -797,6 +817,21 @@ def read_private(path: str, what: str, *, secret: bool = False) -> str:
         raise ConfigError(f"the {what} {path} is open to others (mode {stat.S_IMODE(info.st_mode):04o}); it must be 0600")
     with open(path, encoding="utf-8") as handle:
         return handle.read()
+
+
+def load_sinks(config: Config, slack_webhook: str) -> alerts.Sinks:
+    """The configured sinks, with the webhook read only when Slack is one of them.
+
+    A configured sink with no usable webhook is refused: running on would announce into
+    nowhere, and that reads exactly like a night with nothing to report.
+    """
+    if "slack" not in config.alert_sinks:
+        return alerts.Sinks(slack_webhook=None)
+    text = read_private(slack_webhook, "Slack webhook file", secret=True)
+    try:
+        return alerts.Sinks(slack_webhook=alerts.parse_slack_webhook(text))
+    except ValueError as error:
+        raise ConfigError(f"{error}: {slack_webhook}; re-run the self-update play") from None
 
 
 @contextlib.contextmanager
@@ -826,6 +861,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--vault", required=True)
     parser.add_argument("--allowed-signers", required=True)
     parser.add_argument("--ansible-playbook", required=True)
+    # Always passed, read only when ALERT_SINKS names slack (see load_sinks).
+    parser.add_argument("--slack-webhook", required=True)
     commands = parser.add_subparsers(dest="command", required=True)
     run_parser = commands.add_parser("run")
     run_parser.add_argument("--dry-run", action="store_true")
@@ -844,6 +881,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "run" and not args.dry_run:
             read_private(args.become, "become password file", secret=True)
             read_private(args.vault, "vault password file", secret=True)
+        # A dry run announces nothing, so it is the one command that never reads the secret.
+        announces = args.command == "verify" or (args.command == "run" and not args.dry_run)
+        sinks = load_sinks(config, args.slack_webhook) if announces else alerts.Sinks(slack_webhook=None)
     except ConfigError as error:
         sys.stderr.write(f"self-update: config invalid: {error}\n")
         return EXIT_CONFIG
@@ -854,7 +894,7 @@ def main(argv: list[str] | None = None) -> int:
     def real_host(lock_fd: int) -> RealHost:
         return RealHost(config=config, clone=args.clone, become=args.become, vault=args.vault,
                         allowed_signers=args.allowed_signers, ansible_playbook=args.ansible_playbook,
-                        lock_fd=lock_fd)
+                        lock_fd=lock_fd, sinks=sinks)
 
     try:
         if args.command == "verify":

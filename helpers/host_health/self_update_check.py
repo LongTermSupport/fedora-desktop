@@ -17,6 +17,8 @@ The rules, each answering a way this check could lie:
 4. **A reboot whose post-boot check never ran is a fault**, once `VERIFY_GRACE_SECONDS`
    of this boot have passed, because the check may still be waiting for the sessions.
 5. **What this cannot read is not checked**, never clean.
+6. **An alert that did not arrive is a fault**, whatever the cycle's outcome: the sink
+   is the channel someone relies on, and a clean-looking silence there proves nothing.
 
 Contract: CLAUDE/Plan/00137-unattended-server-self-update/DESIGN-cycle.md.
 """
@@ -128,6 +130,13 @@ def findings(directory: str, *, now: str, boot_id: str, uptime_seconds: float) -
         result.append(probe_results.unchecked(
             f"the unattended self-update recorded the outcome {outcome!r}, which this report "
             "does not know, so whether it succeeded is unknown"
+        ))
+
+    if record["alert"]:
+        result.append(probe_results.broken(
+            f"the unattended self-update's alert for its {record['at']} result could not be "
+            f"delivered ({record['alert']}), so nobody was told about it through that channel "
+            "(journalctl -u fedora-desktop-self-update.service --no-pager | cat)"
         ))
 
     stamp = _parse_stamp(record["at"])
