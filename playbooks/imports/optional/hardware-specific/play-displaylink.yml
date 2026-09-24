@@ -226,6 +226,8 @@
     - name: Ask rpm which package owns each evdi source tree
       ansible.builtin.command:
         argv: [rpm, -qf, "{{ item.path }}"]
+      environment:
+        LC_ALL: C   # the unowned answer below is matched by its English message
       loop: "{{ evdi_src_trees.files }}"
       loop_control:
         label: "{{ item.path }}"
