@@ -105,6 +105,22 @@ mapfile -d '' ranked_link < <("$RANKER" "$link_context" "$history" "$WORK_DIR/vi
 check "the repository tier holds when the path goes through a symlink" \
     "cmd-repo-via-link" "${ranked_link[0]-}"
 
+# A link INTO a repository (stow-style dotfiles: <home>/.config/tool -> dotfiles/.config/tool)
+# ends in git's prefix too. Stripping it would make the whole home the repository, and every
+# command run anywhere under it would be promoted.
+stow_home="$WORK_DIR/stow-home"
+mkdir -p "$stow_home/dotfiles/.config/tool" "$stow_home/.config" "$stow_home/unrelated"
+git -C "$stow_home/dotfiles" init --quiet
+ln -s "$stow_home/dotfiles/.config/tool" "$stow_home/.config/tool"
+stow_context="$WORK_DIR/stow-context"
+{
+    printf '1\t0\t%s\t%s\0' "$stow_home/dotfiles" "cmd-in-dotfiles-repo"
+    printf '2\t0\t%s\t%s\0' "$stow_home/unrelated" "cmd-unrelated-newer"
+} >"$stow_context"
+mapfile -d '' ranked_stow < <("$RANKER" "$stow_context" "$history" "$stow_home/.config/tool")
+check "a link into a repository does not promote the directory above the link" \
+    "cmd-in-dotfiles-repo" "${ranked_stow[0]-}"
+
 # rc_and_stderr <cmd...> — "<exit status>:<whether stderr said anything>"; stdout is the
 # payload and must be empty on a refusal.
 rc_and_stderr() {
@@ -213,6 +229,10 @@ check "Esc leaves the typed line and cursor alone" \
 # local user through /proc; its environment is not, so the query must travel there.
 check "what was typed reaches fzf through its environment" "1" "$(grep -cx 'ENV:typed' "$WORK_DIR/stub-args")"
 check "what was typed appears in none of fzf's arguments" "0" "$(grep -c '^ARG:.*typed' "$WORK_DIR/stub-args")"
+# Without this bind the environment variable is set and never read: the query would
+# silently stop working while both checks above stayed green.
+check "fzf is told to load its query from that environment variable" "1" \
+    "$(grep -cxF "ARG:--bind=start:transform-query:printf %s \"${dollar}{__history_search_query}\"" "$WORK_DIR/stub-args")"
 check "Ctrl+R is bound in the emacs and both vi keymaps" "3" \
     "$(printf '%s\n' "$search_out" | awk -F: '/^PROBE-BIND:/ { print $2 }')"
 

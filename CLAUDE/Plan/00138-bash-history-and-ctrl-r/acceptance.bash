@@ -198,6 +198,11 @@ for f in "${USER_STATE}/history" "${USER_STATE}/context"; do
         leaks+="${f} "
     fi
 done
+# Absence proves something only if the shell ran and recorded: the marker it typed next
+# must have landed (check 10), or a shell that never ran would pass this.
+if [[ "${in_history}" != "with timestamp" ]]; then
+    leaks+="(the shell's marker never reached the history file, so absence proves nothing)"
+fi
 verdict "11. a command typed with a leading space reached neither file" "" "${leaks}"
 
 echo "== root: durable history, and no recorder or Ctrl+R search"

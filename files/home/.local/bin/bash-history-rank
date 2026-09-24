@@ -50,6 +50,13 @@ if repo_out="$(git -C "${directory}" rev-parse --show-toplevel --show-prefix 2>&
     if [[ -n "${prefix}" ]]; then
         repo_logical="${repo_logical%/"${prefix}"}"
     fi
+    # Stripping the prefix is only right when the link sits above the repository. A link
+    # INTO it (stow-style dotfiles: ~/.config/nvim -> dotfiles/.config/nvim) ends in the same
+    # prefix, and stripping it would name the home directory as the repository. So the
+    # logical name counts only if it resolves to the physical top level.
+    if [[ "$(cd "${repo_logical}" 2>&1 && pwd -P)" != "${repo}" ]]; then
+        repo_logical=""
+    fi
 fi
 
 # The history file becomes context-shaped records with no directory and no exit status.

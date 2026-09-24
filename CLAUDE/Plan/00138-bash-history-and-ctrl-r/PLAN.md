@@ -87,9 +87,9 @@ Supporting documents:
   - [x] ✅ 100k-row latency accepted for now; compaction is the remedy when it matters, not a compiled ranker (reasoning in [PROPOSAL.md](PROPOSAL.md))
 - [x] ✅ **Task 3.6**: `scripts/test-bash-history-search.bash`, wired into `qa-all.bash` as the `bash-history-search` gate; three mutants each turned it red
 - [x] ✅ **Task 3.7**: [`deploy.bash`](deploy.bash) (also runs `play-vm-test-lab.yml` where the lab is installed) and [`acceptance.bash`](acceptance.bash) (15 checks with a COVERAGE line; before the deploy it runs all 15 and rejects)
-- [ ] 🔄 **Task 3.8**: Run QA (`./scripts/qa-all.bash`) and the `qa-reviewer` agent over the plan diff
-  - [x] ✅ First review: BLOCK — [report](subagent-reports/260924-qa-reviewer-opus-5.md). The blocker (the typed query in fzf's argv) and all four fix-before-merge findings are fixed
-  - [ ] ⬜ Confirming review of the fixes
+- [x] ✅ **Task 3.8**: Run QA (`./scripts/qa-all.bash`) and the `qa-reviewer` agent over the plan diff
+  - [x] ✅ First review: BLOCK — [report](subagent-reports/260924-qa-reviewer-opus-5.md). The blocker (the typed query in fzf's argv) and the fix-before-merge findings fixed
+  - [x] ✅ Confirming review: blocker resolved (verified with a real fzf under a pty); one new FIX-BEFORE-MERGE (the symlink fix mis-tiered stow-style links into a repository) and one should-fix (the gate did not assert the query bind) — [report](subagent-reports/260924-qa-reviewer-confirm-opus-5.md). Both fixed, each with a test a control mutant turns red
 
 ### Phase 4: Host deploy and verification
 
