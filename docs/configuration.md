@@ -226,6 +226,11 @@ gh ssh-key add ~/.ssh/id_ed25519_git_signing.pub --type signing --title "$(hostn
 A self-updating server trusts this key: give its `.pub` line to
 `self_update_signing_public_key` (below).
 
+The play also writes the `.pub` line into `localhost.yml` as `git_signing_public_key`, so
+`run.bash`'s "Save local config to repo" option keeps it in your config repo with the
+rest of the host's configuration. It is a record only, under its own name, because
+`self_update_signing_public_key` is the key a server trusts, not its own.
+
 ### Unattended Server Self-Update
 
 `playbooks/imports/optional/common/play-self-update.yml` (server profile, Plan 00137).
