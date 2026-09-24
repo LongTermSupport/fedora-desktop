@@ -222,9 +222,9 @@ and time it at 15k and 100k rows. Neither research pass measured it.
 ### Prototype results (Task 2.3)
 
 The prototype ranker, now
-[`bash-history-rank`](../../../files/home/.local/bin/bash-history-rank), passed the fixture
+[`bash-history-rank`](../../../../files/home/.local/bin/bash-history-rank), passed the fixture
 checks now kept in
-[`scripts/test-bash-history-search.bash`](../../../scripts/test-bash-history-search.bash):
+[`scripts/test-bash-history-search.bash`](../../../../scripts/test-bash-history-search.bash):
 
 - this directory first, newest first;
 - always-failing commands sink within their tier;

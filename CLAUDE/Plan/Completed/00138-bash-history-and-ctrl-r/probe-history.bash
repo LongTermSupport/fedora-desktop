@@ -37,7 +37,7 @@ done
     exit 1
 }
 # shellcheck source-path=SCRIPTDIR
-# shellcheck source=../_planlib.inc.bash
+# shellcheck source=../../_planlib.inc.bash
 source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
 
@@ -49,7 +49,11 @@ fi
 
 plan_require_host "it reads the host user's shell init files and history file"
 
-HISTORY_FILE="${HOME}/.bash_history"
+# The file in use: the Bash Tweaks' location once deployed, bash's default before.
+HISTORY_FILE="${HOME}/.local/state/bash/history"
+if [[ ! -e "${HISTORY_FILE}" ]]; then
+    HISTORY_FILE="${HOME}/.bash_history"
+fi
 readonly HISTORY_FILE
 DEPLOYED_TWEAKS="/etc/profile.d/zz_lts-fedora-desktop.bash"
 readonly DEPLOYED_TWEAKS

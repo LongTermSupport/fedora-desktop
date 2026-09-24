@@ -102,7 +102,7 @@ it.
 
 ### F8 — An earlier plan already proposes Atuin
 
-[Plan 027](../027-contextual-shell-history/PLAN.md) (Not Started) proposes replacing
+[Plan 027](../../Cancelled/027-contextual-shell-history/PLAN.md) (Not Started) proposes replacing
 Ctrl+R with Atuin. It does not look at the underlying bash settings, so F1–F6 would
 remain for `~/.bash_history` and for any shell without Atuin. How the two plans should
 relate is a decision in [PLAN.md](PLAN.md).

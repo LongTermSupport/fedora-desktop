@@ -34,8 +34,6 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00138-bash-history-and-ctrl-r](00138-bash-history-and-ctrl-r/) - Bash history is saved only at shell exit, so open terminals hold unsaved, unsearchable history. Research and a proposal: durable timestamped history, and a Ctrl+R over every terminal's history that ranks this directory's and repo's commands first. Built and reviewed (repo-owned recorder, no Atuin); merged, waiting on the host deploy and acceptance run.
-
 - [00136-host-health-report-in-a-terminal](00136-host-health-report-in-a-terminal/) - The host health report becomes a terminal-first surface on both profiles: `fedora-desktop-health` prints it on demand, the login snippet speaks in full once a day and otherwise leaves a one-line reminder, and the GNOME panel gains a row that opens the command in a terminal. Nothing re-runs a play; that remains Plan 00109 Task 4.3.
 
 - [00137-unattended-server-self-update](00137-unattended-server-self-update/) - On an always-on headless server, a timer fast-forwards the checkout behind a trust gate, maps the changed paths to the plays they affect and runs those plays unattended; only when they all succeed does it warn the ccy/cc sessions and reboot, and a post-boot check verifies the restored sessions resumed. Built; waiting on the qa-reviewer (Task 5.2), the alert sinks (Tasks 0.4, 4.5) and a host proof (Task 5.3).
@@ -172,6 +170,8 @@ Use these Unicode icons in plan documents:
 
 ## Completed Plans
 
+- [00138-bash-history-and-ctrl-r](Completed/00138-bash-history-and-ctrl-r/) - Bash history is saved at every prompt, timestamped and unlimited in `~/.local/state/bash` (user and root), and Ctrl+R searches every terminal's history, ranking this directory's then this repo's commands first, via a builtins-only recorder (Atuin rejected). Deployed; acceptance 15/15.
+
 - [00130-legacy-plan-scripts-lose-their-last-log-chunk](Completed/00130-legacy-plan-scripts-lose-their-last-log-chunk/) - `PlanWorkflow.md` taught `exec > >(tee "$LOG") 2>&1` and a plan-local `logs/` tree, both forbidden by PlanScriptStandards R4. The doc is fixed, and the ten scripts already written from it were converted and each run to its last line. The one it could not run, 00066's, was moot once that plan was cancelled.
 
 - [00112-gnome-extensions-enabled-state-declared](Completed/00112-gnome-extensions-enabled-state-declared/) - Plan 00110's desktop scenario found a fresh install leaves every deployed GNOME extension INITIALIZED and none enabled (the enable races the shell's scan and its failure is hidden); make the enabled list declared, idempotent gsettings state and let the desktop scenario certify it.
@@ -229,8 +229,6 @@ Use these Unicode icons in plan documents:
 - [00071-qa-gate-correctness](Completed/00071-qa-gate-correctness/) - Fixed three defects that made `qa-all.bash` exit 1 on a clean tree, and pinned ruff via `/.ruff-version`
 
 - [00067-qa-gates-inert-in-nested-checkout](Completed/00067-qa-gates-inert-in-nested-checkout/) - QA gates scanned nothing in a nested checkout; exclusions are now anchored to the repo root and each gate exits 2 on an empty file set
-
-- [00060-stderr-hygiene-coding-standard](Completed/00060-stderr-hygiene-coding-standard/) - Fixed a `gh-<alias>()` wrapper that echoed status to stdout and shipped `CLAUDE/StderrHygiene.md` as the coding standard
 
 **Older completed plans** — everything beyond the most recent 30 — are in
 [Completed/README.md](Completed/README.md), moved there verbatim. The retention window

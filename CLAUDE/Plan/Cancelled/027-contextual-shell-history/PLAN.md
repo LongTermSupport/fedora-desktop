@@ -3,7 +3,7 @@
 **Status**: Cancelled
 
 > **Cancelled by the owner, superseded by
-> [Plan 00138](../../00138-bash-history-and-ctrl-r/PLAN.md).** Research there, from Atuin's
+> [Plan 00138](../../Completed/00138-bash-history-and-ctrl-r/PLAN.md).** Research there, from Atuin's
 > source, found that Atuin cannot rank by directory or git repo while searching all history
 > (it can only filter), and that its bash hook passes every command line through a child
 > process's argv. Plan 00138 instead uses a repo-owned recorder and ranker.
