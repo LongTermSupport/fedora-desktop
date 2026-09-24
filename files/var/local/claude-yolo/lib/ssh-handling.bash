@@ -2,7 +2,9 @@
 # SSH Handling Library
 # Shared SSH key operations for claude-yolo (ccy)
 #
-# Version: 1.4.0 - Two identities a box may hold besides a github_<alias> key:
+# Version: 1.5.0 - stage_git_signing_key carries commit signing into the container
+#                  (Plan 00139).
+#          1.4.0 - Two identities a box may hold besides a github_<alias> key:
 #                  the project remote's own key, reached through an ssh-config
 #                  alias that `ssh -G` resolves to GitHub (a deploy key on a
 #                  box provisioned with no GitHub account), and the session's
@@ -1158,7 +1160,78 @@ build_ssh_mounts_and_validate() {
     fi
 }
 
+# Carry commit signing into the container (Plan 00139).
+# play-git-configure-and-tools.yml signs every commit and tag with the SSH key named in
+# user.signingkey, and the container gets a copy of ~/.gitconfig, so the copy names a
+# host path. The key is staged into the directory holding that copy, which the launcher
+# mounts read-only (privately relabelled where SELinux needs it), and the copy is
+# repointed at the mounted key. Signing that is on with no usable key would fail every
+# commit made in the container, so that refuses the launch instead.
+#   $1 the gitconfig copy   $2 the host directory it is in   $3 where $2 is mounted
+stage_git_signing_key() {
+    local gitconfig="$1" stage_dir="$2" mount_dir="$3"
+    local key format name value rc signing=false
+
+    for name in commit.gpgsign tag.gpgsign; do
+        value=$(git config --file "$gitconfig" --type=bool --get "$name") && rc=0 || rc=$?
+        if [ "$rc" -gt 1 ]; then
+            print_error "Could not read $name from $gitconfig (git config exit $rc)"
+            return 1
+        fi
+        if [ "$value" = "true" ]; then
+            signing=true
+        fi
+    done
+
+    key=$(git config --file "$gitconfig" --get user.signingkey) && rc=0 || rc=$?
+    if [ "$rc" -gt 1 ]; then
+        print_error "Could not read user.signingkey from $gitconfig (git config exit $rc)"
+        return 1
+    fi
+    format=$(git config --file "$gitconfig" --get gpg.format) && rc=0 || rc=$?
+    if [ "$rc" -gt 1 ]; then
+        print_error "Could not read gpg.format from $gitconfig (git config exit $rc)"
+        return 1
+    fi
+
+    local problem=""
+    if [ -z "$key" ]; then
+        problem="user.signingkey is not set"
+    elif [ "$format" != "ssh" ]; then
+        problem="gpg.format is '${format:-openpgp}'; only SSH signing works inside the container"
+    else
+        case "$key" in
+            \~/*) key="$HOME/${key#\~/}" ;;
+        esac
+        case "$key" in
+            key::*) problem="user.signingkey is a literal public key, which needs an ssh-agent the container does not have" ;;
+            *) [ -f "$key" ] || problem="the signing key $key does not exist" ;;
+        esac
+    fi
+
+    if [ -n "$problem" ]; then
+        if [ "$signing" = true ]; then
+            print_error "Commit signing is on in ~/.gitconfig, but $problem."
+            echo "  Every commit in the container would fail. Re-run" >&2
+            echo "  playbooks/imports/play-git-configure-and-tools.yml, which generates the key" >&2
+            echo "  and sets signing up." >&2
+            return 1
+        fi
+        return 0
+    fi
+
+    if ! install -m 0600 "$key" "$stage_dir/git-signing-key"; then
+        print_error "Could not stage the signing key $key into $stage_dir"
+        return 1
+    fi
+    if ! git config --file "$gitconfig" user.signingkey "$mount_dir/git-signing-key"; then
+        print_error "Could not point user.signingkey in $gitconfig at the staged key"
+        return 1
+    fi
+}
+
 # Export functions
+export -f stage_git_signing_key
 export -f discover_and_select_ssh_keys
 export -f build_ssh_mounts_and_validate
 export -f resolve_github_ssh_alias

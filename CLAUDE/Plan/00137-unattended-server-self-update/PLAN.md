@@ -71,13 +71,15 @@ D1–D4 are the owner's choices, made 2026-09-23.
   server.
 - **D2 — plays: a tracked allowlist**, seeded with `play-claude-yolo.yml`. A changed play
   that is not on the list is reported, not run.
-- **D3 — trust: the tip must be signed by the owner's pinned key.** Every commit cannot be
-  signed, because the agents write most of them and must never hold the key. The cycle
-  therefore runs a commit only if it is signed by the pinned key, and that signature
-  vouches for the whole range from the last deployed commit to it. Unsigned commits
-  above it wait for the next signed one. Signing is not set up anywhere yet (Plan
-  00035 Phase 6 was research only), so this plan sets it up: SSH signing, and on the
-  server an `allowedSignersFile` holding only the owner's key.
+- **D3 — trust: the tip must be signed by the owner's pinned key.** The cycle runs a
+  commit only if it is signed by the pinned key, and that signature vouches for the whole
+  range from the last deployed commit to it. Unsigned commits above it wait for the next
+  signed one. On the server an `allowedSignersFile` holds only that key.
+  **Amended by the owner (Plan 00139 D4):** this decision also said agents must never hold
+  the key, so every commit could not be signed. The owner overruled that. The aim is
+  provenance, a commit from the owner or the owner's machine, and the owner's own agents
+  may sign. Plan 00139 signs every commit on the machine with a passphrase-less key, and
+  the pinned key is that machine key. `git sign-deploy` is gone.
 - **D4 — checkout: a deploy-only clone**, never mounted into a ccy container, updated only
   by the timer.
 - **D5 — privilege: a root-owned sbin entry point, with scoped sudo.** The owner's

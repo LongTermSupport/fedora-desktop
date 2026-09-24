@@ -333,6 +333,7 @@ risks are bounded and named below, not eliminated.
 | A Claude OAuth token                    | Environment variable — no credential files are mounted                                     |
 | A GitHub token for `gh`                 | Environment variable, from your existing `gh` login                                        |
 | Your git identity                       | A read-only copy of `~/.gitconfig`, to set `user.name` / `user.email`                      |
+| Your commit-signing key                 | A read-only copy beside that gitconfig, so container commits are signed (Plan 00139)       |
 | Your Wayland or X11 display socket      | Mounted read-only and auto-detected, so the agent can open browser windows on your desktop |
 | The host GPU render device              | `--device /dev/dri` — always attached, for accelerated browser rendering                   |
 | The network                             | Normal outbound; optionally a named container network                                      |

@@ -59,43 +59,52 @@ out.
 
 ### Phase 1: Host signing on by default
 
-- [ ] ⬜ **Task 1.1**: `play-git-configure-and-tools.yml` generates the machine signing
+- [x] ✅ **Task 1.1**: `play-git-configure-and-tools.yml` generates the machine signing
   key when it is absent (ed25519, no passphrase, 0600). It asserts that the key needs no
   passphrase, and fails with a remedy if it does.
-- [ ] ⬜ **Task 1.2**: Global config: `gpg.format ssh`, `user.signingkey`,
+- [x] ✅ **Task 1.2**: Global config: `gpg.format ssh`, `user.signingkey`,
   `commit.gpgsign true`, `tag.gpgsign true`. Remove the XDG copies and `alias.sign-deploy`
   that Plan 00137 wrote, so no stale setting stays live.
-- [ ] ⬜ **Task 1.3**: Register the public key with GitHub as a signing key. Decide
-  between the play doing it through `gh` and a documented owner step. Either way,
-  acceptance reads `gh api user/ssh_signing_keys` to confirm it is there.
+- [ ] 🔄 **Task 1.3**: Register the public key with GitHub as a signing key. Decided: a
+  documented owner step (`docs/configuration.md` "Commit Signing"). Adding
+  `admin:ssh_signing_key` to the shared required scopes would fail every account's scope
+  audit until each was refreshed, and the key belongs on one account only, the one whose
+  verified email is `user_email`. Acceptance check 11 confirms it through the public
+  `users/<login>/ssh_signing_keys` endpoint, which needs no scope.
+  - [ ] ⬜ **HOST (owner)**: register the key
 
 ### Phase 2: ccy signs
 
-- [ ] ⬜ **Task 2.1**: The launcher mounts the signing key read-only and sets
-  `user.signingkey` in the container's copied gitconfig to the mounted path. If config
-  asks for signing and there is no key, the launcher fails loudly, rather than start a
-  container whose every commit would fail. CCY version bump.
-- [ ] ⬜ **Task 2.2**: A QA test for the launcher's mount and config rewrite, in the style
-  of the other `ccy-*` gates.
+- [x] ✅ **Task 2.1**: The launcher stages the signing key into the gitconfig copy's
+  directory, which is already mounted read-only (and relabelled where SELinux needs it),
+  and points `user.signingkey` at the mounted copy. Signing that is on with no usable key
+  refuses the launch. `stage_git_signing_key` in `lib/ssh-handling.bash`, CCY 3.66.0.
+- [x] ✅ **Task 2.2**: `scripts/test-ccy-git-signing.bash`, gate `ccy-git-signing`. It
+  fails against the launcher from before this plan, where the function does not exist.
 
 ### Phase 3: The self-update server
 
-- [ ] ⬜ **Task 3.1**: The server's allowed signers carry the machine key
-  (`self_update_signing_public_key`). Update `localhost.yml.dist` and the docs.
-  `scripts/test-self-update-cycle.bash` keeps proving that an unsigned or wrongly signed
-  HEAD is refused.
-- [ ] ⬜ **Task 3.2**: Plan 00137's docs (`DESIGN-cycle.md`, PLAN D3) record D4 of this
-  plan.
+- [x] ✅ **Task 3.1**: The server's allowed signers carry the machine key
+  (`self_update_signing_public_key`). `localhost.yml.dist` and the docs updated. The
+  helpers needed no change beyond the refusal message's wording, and
+  `scripts/test-self-update-cycle.bash` still passes.
+  - [ ] ⬜ **HOST (owner)**: a server that already trusts the old passphrase key needs the
+    new key's `.pub` line in `self_update_signing_public_key`, then a re-run of
+    `play-self-update.yml`
+- [x] ✅ **Task 3.2**: Plan 00137's PLAN D3 and `DESIGN-cycle.md` record D4 of this plan.
 
 ### Phase 4: Docs, acceptance, review
 
-- [ ] ⬜ **Task 4.1**: `docs/configuration.md` "Commit Signing" and `docs/playbooks.md`
-  describe the new model.
+- [x] ✅ **Task 4.1**: `docs/configuration.md` "Commit Signing", `docs/playbooks.md` and
+  `docs/ccy.md` describe the new model.
 - [ ] ⬜ **Task 4.2**: Owner's call, after everything signs: a GitHub ruleset requiring
   signed commits on `F*` branches.
-- [ ] ⬜ **Task 4.3**: `deploy.bash` and `acceptance.bash`. Acceptance checks, on the host,
+- [ ] 🔄 **Task 4.3**: `deploy.bash` and `acceptance.bash`. Acceptance checks, on the host,
   that a commit made in a scratch repo carries a good signature from the machine key. The
   same check inside ccy needs a fresh ccy session, so it is an owner step.
+  - [x] ✅ Both scripts written
+  - [ ] ⬜ **HOST**: `./deploy.bash`, then `./acceptance.bash`
+  - [ ] ⬜ **HOST (owner)**: a commit inside a ccy session started after the deploy
 - [ ] ⬜ **Task 4.4**: qa-reviewer pass over the full plan diff.
 
 ## Success Criteria
