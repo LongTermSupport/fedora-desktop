@@ -24,6 +24,6 @@
 # playbooks/imports/play-python.yml on the host, and rebuild the CCY image
 # (`ccy --rebuild`) or every container keeps asserting the old value and fails.
 
-RUFF=0.16.4
+RUFF=0.16.8
 SEMGREP=1.177.0
 SHELLCHECK=0.11.0
