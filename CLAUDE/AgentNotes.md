@@ -73,6 +73,10 @@ what currently needs running, in the order it must run:
 Only what meta cannot do goes to the owner as a request: a reboot, a login, a decision,
 or a different machine.
 
+**Never tell the owner to `git pull` first.** The CCY container works in the host's own
+checkout, mounted at `/workspace`, so a commit made here is already on the host. The
+command to hand over is just `./CLAUDE/Plan/meta-deploy.bash`.
+
 ### Sub-agents are pre-authorised — dispatch them, do not ask
 
 **The user has given standing authorisation to dispatch sub-agents.** Do not

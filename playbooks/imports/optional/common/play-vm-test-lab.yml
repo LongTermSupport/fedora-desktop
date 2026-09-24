@@ -24,15 +24,17 @@
     vm_test_lab_dir: "/home/{{ user_login }}/.local/share/vmtest"
     vm_test_spool_dir: "{{ root_dir }}/untracked/vmtest-bridge"
     # Bridge policy (DESIGN.md §6.4 step 9): MODE_<verb>=auto|deny. refresh-base
-    # ships denied — an unannounced base rebuild is a surprise on a workstation;
-    # override vm_test_bridge_modes per host to enable it. lab-status and abort-run
-    # are in the verb set but not yet implemented by the scope, so they ship denied
-    # and are rejected by policy rather than answered "not implemented".
+    # ships allowed: a base past its freshness TTL refuses every run until it is
+    # rebuilt, and the agent that hit the refusal is the one placed to ask for the
+    # rebuild. It takes a named profile, never a path. Override vm_test_bridge_modes
+    # per host to deny it. lab-status and abort-run are in the verb set but not yet
+    # implemented by the scope, so they ship denied and are rejected by policy
+    # rather than answered "not implemented".
     vm_test_bridge_default_modes:
       list-scenarios: auto
       lab-status: deny
       run-scenario: auto
-      refresh-base: deny
+      refresh-base: auto
       abort-run: deny
     # The manifest in the shape helpers/vmtest/scenarios.py parses: the four
     # tracked top-level keys and nothing else.

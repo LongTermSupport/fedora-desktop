@@ -47,11 +47,15 @@ PLAN_ROOT="${scriptDir}"
 # run as one unit through its own shebang, which goes through run.bash, exactly as
 # `./playbooks/imports/<play>.yml` does by hand.
 #
+# play-vm-test-lab.yml: renders the bridge policy with refresh-base allowed, so the stale
+# server base can be rebuilt through the bridge before 00109's fifth VM run. First, and on
+# its own, because the rebuild waits on nothing else.
 # 00109: its acceptance must run again AFTER a logout and login, which is what regenerates
 # the status document it judges and loads the panel's new code.
 # 00134: its triage is what reads the next boot's journal for the post-boot criteria
 # (dbus-broker, dnf5daemon, WirePlumber, the ABRT applet), so it runs after a reboot.
 PLANS=(
+    "playbooks/imports/optional/common/play-vm-test-lab.yml"
     "00109-desktop-drift-detection-and-fedora-desktop-panel"
     "00134-startup-log-triage-and-status-panel-unavailable"
 )

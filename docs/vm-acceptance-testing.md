@@ -295,14 +295,14 @@ Five verbs and nothing else. `run-scenario <id>` (the id must be on the
 **deployed** allowlist), `list-scenarios`, `lab-status`, `refresh-base server|desktop|all`, `abort-run`. Of these, `lab-status` and `abort-run` are
 in the verb set but not yet implemented by the run scope, so the shipped
 policy denies them (a request is rejected by policy, never answered "not
-implemented"); `refresh-base` ships denied by choice. A hardcoded deny list (`exec`, `shell`,
+implemented"); `refresh-base` ships allowed, so an agent whose run is refused for a stale base can ask for the rebuild. A hardcoded deny list (`exec`, `shell`,
 `bash`, `run`, `eval`, `ansible`, …) is checked before the verb set. No verb
 takes a path, a command or free text; `run-scenario`'s argument must match
 `^[a-z][a-z0-9_-]*$` **and** be in the allowlist the playbook rendered.
 
 The host policy, `~/.config/vmtest-bridge/<slug>/policy`, holds one
 `MODE_<verb>=auto|deny` line per verb. A missing file, a missing line or an
-unrecognised value is `deny`. `refresh-base` ships denied; set
+unrecognised value is `deny`. `refresh-base` ships allowed; set
 `vm_test_bridge_modes` for the host to change the defaults and re-run the
 play.
 
