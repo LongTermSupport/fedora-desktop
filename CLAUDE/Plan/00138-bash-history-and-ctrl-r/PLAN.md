@@ -86,8 +86,10 @@ Supporting documents:
   - [x] ✅ `files/home/.local/bin/bash-history-rank`; `bind -x` Ctrl+R in emacs and both vi keymaps, warning on stderr if fzf is missing; current line as query; ctrl-r inside toggles sort; the pick replaces the line and never runs
   - [x] ✅ 100k-row latency accepted for now; compaction is the remedy when it matters, not a compiled ranker (reasoning in [PROPOSAL.md](PROPOSAL.md))
 - [x] ✅ **Task 3.6**: `scripts/test-bash-history-search.bash`, wired into `qa-all.bash` as the `bash-history-search` gate; three mutants each turned it red
-- [x] ✅ **Task 3.7**: [`deploy.bash`](deploy.bash) and [`acceptance.bash`](acceptance.bash) (14 checks with a COVERAGE line; before the deploy it runs all 14 and rejects)
+- [x] ✅ **Task 3.7**: [`deploy.bash`](deploy.bash) (also runs `play-vm-test-lab.yml` where the lab is installed) and [`acceptance.bash`](acceptance.bash) (15 checks with a COVERAGE line; before the deploy it runs all 15 and rejects)
 - [ ] 🔄 **Task 3.8**: Run QA (`./scripts/qa-all.bash`) and the `qa-reviewer` agent over the plan diff
+  - [x] ✅ First review: BLOCK — [report](subagent-reports/260924-qa-reviewer-opus-5.md). The blocker (the typed query in fzf's argv) and all four fix-before-merge findings are fixed
+  - [ ] ⬜ Confirming review of the fixes
 
 ### Phase 4: Host deploy and verification
 
@@ -111,4 +113,5 @@ Supporting documents:
      JOURNAL/00138-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
 - Research: a5950efc, 415ec978
-- Decisions recorded, prototype timed; implementation (Phase 3) not started
+- Decisions recorded, prototype timed
+- Implementation on branch `worktree-plan-00138`: f3ec93cf, then the review fixes; awaiting the confirming review, merge, and the host deploy (Phase 4)

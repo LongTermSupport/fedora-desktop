@@ -80,6 +80,8 @@ Custom configurations in `/etc/profile.d/zz_lts-fedora-desktop.bash`:
 - History that survives many open terminals: every command is written at the next prompt,
   timestamped and never truncated. It lives in `~/.local/state/bash/history`, so a shell that
   never read this file cannot cut it down. Start a command with a space to keep it out.
+  History expansions such as `!!` and `!$` are shown on the line for review before they run
+  (`histverify`).
 - Custom aliases
 - Docker helper functions
 - Error state prompt indicators

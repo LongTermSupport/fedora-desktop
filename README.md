@@ -150,7 +150,9 @@ The main playbook configures these essentials without any interaction:
 **Shell Experience**
 
 - Custom bash prompt with error state indicators
-- Enhanced history (20K lines)
+- Bash history that survives many open terminals — saved at every prompt, timestamped,
+  never truncated — and a Ctrl+R that lists the current directory's and git repository's
+  commands first ([details](docs/configuration.md#bash-environment))
 - [Kitty terminal](docs/kitty.md) with managed configuration and keybindings
 - Docker helper functions
 - Passwordless sudo for your user

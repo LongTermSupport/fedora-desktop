@@ -19,6 +19,12 @@
 #   - deploys ~/.bashrc-includes/history-search.bash and ~/.local/bin/bash-history-rank
 #     for the desktop user only
 #
+# ONLY WHERE THE VM TEST LAB IS INSTALLED: play-vm-test-lab.yml, to deploy the lab's
+# guest-cleanup.bash, which now also removes the new history files from base images. The
+# lab hashes that deployed script into every base's recipe, so existing bases will read as
+# built from an older recipe until rebuilt — which is right: they may hold a build
+# transcript in ~/.local/state/bash.
+#
 # Terminals already open keep their old settings until they are closed: whatever they hold
 # is written to ~/.bash_history when they exit, not to the new file.
 #
@@ -68,6 +74,14 @@ plan_start_log auto
 
 plan_deploy_leg "play-basic-configs.yml" \
     plan_ansible_playbook playbooks/imports/play-basic-configs.yml
+
+# The lab is optional; its deployed guest-cleanup script is the marker that it is installed.
+if [[ -e "${HOME}/.local/share/vmtest/guest-cleanup.bash" ]]; then
+    plan_deploy_leg "play-vm-test-lab.yml (the VM test lab is installed here)" \
+        plan_ansible_playbook playbooks/imports/optional/common/play-vm-test-lab.yml
+else
+    echo "==> the VM test lab is not installed here; play-vm-test-lab.yml is not needed"
+fi
 
 printf '\nOpen a NEW terminal before running acceptance.bash. Terminals opened before this\n'
 printf 'deploy keep the old settings until closed, and write to ~/.bash_history on exit.\n\n'

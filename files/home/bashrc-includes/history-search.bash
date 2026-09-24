@@ -56,12 +56,17 @@ fi
 
 __history_search() {
     local context="${__history_search_file}" picked
+    # What is typed so far becomes the query through fzf's ENVIRONMENT, which only this user
+    # can read. As a --query argument it would sit in fzf's argv, readable by every local
+    # user through /proc for as long as the list is open. The bound command is fixed text.
+    local load_query="start:transform-query:printf %s \"\${__history_search_query}\""
     if [[ ! -r "${context}" ]]; then
         context=/dev/null
     fi
     if ! picked="$(bash-history-rank "${context}" "${HISTFILE}" "${PWD}" |
-        fzf --read0 --scheme=history --tiebreak=index --height=40% --layout=reverse \
-            --bind=ctrl-r:toggle-sort --prompt='history> ' --query="${READLINE_LINE}")"; then
+        __history_search_query="${READLINE_LINE}" fzf --read0 --scheme=history --tiebreak=index \
+            --height=40% --layout=reverse --prompt='history> ' --bind=ctrl-r:toggle-sort \
+            --bind="${load_query}")"; then
         return 0
     fi
     READLINE_LINE="${picked}"

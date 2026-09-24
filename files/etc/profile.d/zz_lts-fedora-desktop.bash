@@ -17,8 +17,9 @@ alias mkdir='mkdir -pv'
 export LESSCHARSET=utf-8
 
 # History: every command on disk at the next prompt, timestamped, never truncated.
-# The file is not ~/.bash_history, so a shell that never read this file (bash --norc,
-# sudo -E) truncates that abandoned default to 500 lines instead of the real history.
+# The file is not ~/.bash_history, so an interactive shell that neither read this file nor
+# inherited the exported sizes (env -i bash, a container sharing $HOME) truncates that
+# abandoned default to 500 lines on exit instead of the real history.
 # -O: only a directory this user owns — root keeping a user's HOME must not write into it.
 # play-basic-configs.yml creates the directory; bash saves nothing if it is missing.
 shopt -s histappend cmdhist lithist histverify

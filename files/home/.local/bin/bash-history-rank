@@ -33,10 +33,23 @@ for f in "${context_file}" "${history_file}"; do
 done
 
 # Outside a repository git exits non-zero; that is an answer, and the repository tier is
-# simply empty.
+# simply empty. git names the top level by its PHYSICAL path, while the recorder stores
+# $PWD, the path as the user reached it — through a symlink the two differ. So the
+# repository is also named the logical way: the directory with git's prefix (where the
+# directory sits inside the repository) taken off the end. A record matches either.
 repo=""
-if repo_out="$(git -C "${directory}" rev-parse --show-toplevel 2>&1)"; then
-    repo="${repo_out}"
+repo_logical=""
+if repo_out="$(git -C "${directory}" rev-parse --show-toplevel --show-prefix 2>&1)"; then
+    repo="${repo_out%%$'\n'*}"
+    prefix="${repo_out#*$'\n'}"
+    if [[ "${prefix}" == "${repo_out}" ]]; then
+        prefix=""
+    fi
+    prefix="${prefix%/}"
+    repo_logical="${directory%/}"
+    if [[ -n "${prefix}" ]]; then
+        repo_logical="${repo_logical%/"${prefix}"}"
+    fi
 fi
 
 # The history file becomes context-shaped records with no directory and no exit status.
@@ -58,7 +71,8 @@ history_as_records() {
     history_as_records
     cat "${context_file}"
 } |
-    gawk -v cwd="${directory}" -v repo="${repo}" '
+    gawk -v cwd="${directory}" -v repo="${repo}" -v repo_logical="${repo_logical}" '
+        function in_repo(dir, root) { return root != "" && (dir == root || index(dir, root "/") == 1) }
         BEGIN { RS = "\0"; FS = "\t"; ORS = "\0" }
         {
             cmd = $4
@@ -69,7 +83,7 @@ history_as_records() {
             runs[cmd]++
             if ($2 == "0") ok[cmd] = 1
             if ($3 == cwd) here[cmd] = 1
-            else if (repo != "" && ($3 == repo || index($3, repo "/") == 1)) inrepo[cmd] = 1
+            else if (in_repo($3, repo) || in_repo($3, repo_logical)) inrepo[cmd] = 1
         }
         END {
             for (cmd in last) {

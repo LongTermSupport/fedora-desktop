@@ -93,6 +93,18 @@ check "outside any repository, nothing is promoted to the repository tier" \
     "cmd	with	tabs" "${ranked_outside[0]-}"
 rmdir "$outside"
 
+# Reached through a symlink, the recorder stores the logical $PWD while git names the
+# physical top level; the repository tier has to match either spelling.
+ln -s "$repo" "$WORK_DIR/via-link"
+link_context="$WORK_DIR/link-context"
+{
+    printf '1\t0\t%s\t%s\0' "$WORK_DIR/via-link" "cmd-repo-via-link"
+    printf '2\t0\t%s\t%s\0' "$WORK_DIR/elsewhere" "cmd-elsewhere-after-link"
+} >"$link_context"
+mapfile -d '' ranked_link < <("$RANKER" "$link_context" "$history" "$WORK_DIR/via-link/sub")
+check "the repository tier holds when the path goes through a symlink" \
+    "cmd-repo-via-link" "${ranked_link[0]-}"
+
 # rc_and_stderr <cmd...> — "<exit status>:<whether stderr said anything>"; stdout is the
 # payload and must be empty on a refusal.
 rc_and_stderr() {
@@ -141,7 +153,7 @@ EOF
 )"
 recorder_out="$(run_shell "$home" "$WORK_DIR/start" "$recorder_script")"
 
-check "a hook sharing the prompt still sees the command's own exit status" "1" \
+check "a hook already in the prompt keeps seeing the command's own exit status" "1" \
     "$(printf '%s\n' "$recorder_out" | awk -F: '/^PROBE-STATUS:/ { print $2 }')"
 check "sourcing twice adds the recorder once, after the hooks already there" \
     "probe_status __history_search_record" \
@@ -168,7 +180,8 @@ check "the context file is private to the user" "600" "$(stat -c %a "$state/cont
 echo "== Ctrl+R"
 cat >"$WORK_DIR/bin/fzf" <<'STUB'
 #!/usr/bin/env bash
-printf '%s\n' "$@" >"${STUB_ARGS_FILE}"
+printf 'ARG:%s\n' "$@" >"${STUB_ARGS_FILE}"
+printf 'ENV:%s\n' "${__history_search_query-unset}" >>"${STUB_ARGS_FILE}"
 if [ "${STUB_MODE:-pick}" = esc ]; then exit 130; fi
 IFS= read -r -d '' first
 printf '%s\n' "$first"
@@ -196,7 +209,10 @@ check "Ctrl+R puts this directory's command on the line, for review, cursor at t
     "cmd-for-B|9" "$(printf '%s\n' "$search_out" | awk '/^PROBE-LINE:/ { sub(/^PROBE-LINE:/, ""); print }')"
 check "Esc leaves the typed line and cursor alone" \
     "typed|5" "$(printf '%s\n' "$search_out" | awk '/^PROBE-ESC:/ { sub(/^PROBE-ESC:/, ""); print }')"
-check "what was typed becomes the search query" "1" "$(grep -cx -- '--query=typed' "$WORK_DIR/stub-args")"
+# The typed line can be half a secret (`export TOKEN=...`). fzf's argv is readable by every
+# local user through /proc; its environment is not, so the query must travel there.
+check "what was typed reaches fzf through its environment" "1" "$(grep -cx 'ENV:typed' "$WORK_DIR/stub-args")"
+check "what was typed appears in none of fzf's arguments" "0" "$(grep -c '^ARG:.*typed' "$WORK_DIR/stub-args")"
 check "Ctrl+R is bound in the emacs and both vi keymaps" "3" \
     "$(printf '%s\n' "$search_out" | awk -F: '/^PROBE-BIND:/ { print $2 }')"
 

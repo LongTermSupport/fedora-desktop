@@ -197,7 +197,7 @@
     - name: Assert each ~/.bash_profile sources ~/.bashrc
       ansible.builtin.assert:
         that:
-          - (item.content | b64decode) is search('(^|[ \t])([.]|source)[ \t]+~/[.]bashrc', multiline=true)
+          - (item.content | b64decode) is search('^[ \t]*([.]|source)[ \t]+~/[.]bashrc', multiline=true)
         fail_msg: >-
           {{ item.item.home }}/.bash_profile does not source ~/.bashrc, so removing the Bash
           Tweaks block from it would leave login shells (every tmux pane) without the tweaks.

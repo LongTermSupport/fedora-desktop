@@ -45,10 +45,11 @@ echo "==> emptying journal, logs and shell histories" >&2
 journalctl --rotate
 journalctl --vacuum-time=1s
 find /var/log -type f \( -name '*.log' -o -name '*.log.*' -o -name 'messages*' -o -name 'secure*' \) -exec truncate -s 0 {} +
-rm -f /root/.bash_history
-for home in /home/*; do
+# The Bash Tweaks keep history in ~/.local/state/bash (history, and the Ctrl+R recorder's
+# context); ~/.bash_history is what shells that never read them still write.
+for home in /root /home/*; do
     if [[ -d "${home}" ]]; then
-        rm -f "${home}/.bash_history"
+        rm -f "${home}/.bash_history" "${home}/.local/state/bash/history" "${home}/.local/state/bash/context"
     fi
 done
 
