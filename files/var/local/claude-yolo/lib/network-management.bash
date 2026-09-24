@@ -2,7 +2,9 @@
 # Network Management Library
 # Shared Docker network operations for claude-yolo (ccy)
 #
-# Version: 1.8.0 - Plan 00075: three errexit call-site fixes — `ccy --connect`
+# Version: 1.9.0 - `ccy --disconnect`: detach a network and clear the saved default
+#                  that names it; --connect says what it saved and how to undo it.
+#          1.8.0 - Plan 00075: three errexit call-site fixes — `ccy --connect`
 #                  with no argument no longer dies before listing the networks,
 #                  the "already connected" branch and its error report are no
 #                  longer dead code, and the connect-failure diagnostic survives
@@ -100,6 +102,35 @@ load_network_preference() {
     return 1
 }
 
+# Remove the project's saved default network. Fails if a file that is there cannot be removed.
+clear_network_preference() {
+    local network_file
+    network_file=$(get_network_persistence_file)
+    [ -f "$network_file" ] || return 0
+    rm -f -- "$network_file"
+}
+
+# Say what --connect saved and what it means: the default is invisible otherwise, and it
+# brings the network back on every later launch.
+# Args: $1 = network_name, $2 = tool_name, $3 = indent
+_report_saved_network_preference() {
+    echo "${3}📌 Saved as this project's default network: $1"
+    echo "${3}   every plain $2 launch in this project connects to it."
+    echo "${3}   Undo with: $2 --disconnect $1"
+}
+
+# The running containers of the current project, one name per line.
+# Args: $1 = container_suffix ("_yolo" or "_browser")
+# The project name is derived the SAME way container creation does (get_project_name
+# prefixes a non-generic parent dir); basename "$PWD" alone found no containers exactly
+# when that collision-avoidance naming applied. grep's exit 1 is "no match", which the
+# caller reads as an empty list; a real grep error (>=2) still fails.
+_project_running_containers() {
+    local base_name
+    base_name="$(get_project_name)${1}"
+    container_cmd ps --format '{{.Names}}' | grep "^${base_name}" || test $? -eq 1
+}
+
 # Function to connect running container to a Docker network
 # Args: $1 = network_name (optional), $2 = container_suffix ("_yolo" or "_browser"), $3 = tool_name (for display)
 connect_to_network() {
@@ -107,21 +138,13 @@ connect_to_network() {
     local container_suffix="$2"
     local tool_name="${3:-ccy}"
     local project_name
-    # BSH-14: derive the project name the SAME way container creation does
-    # (get_project_name prefixes a non-generic parent dir, e.g. acme-site_yolo).
-    # basename "$PWD" alone misses those, so `ccy --connect` found zero containers
-    # exactly when the collision-avoidance naming kicked in.
     project_name=$(get_project_name)
-    local base_name="${project_name}${container_suffix}"
     local container_name=""
 
-    # Find all running containers matching this project.
-    # grep exits 1 on no-match (expected — handled by the empty-array check
-    # below); a real grep error (exit >=2) still propagates.
     local matching_containers=()
     while IFS= read -r name; do
         matching_containers+=("$name")
-    done < <(container_cmd ps --format '{{.Names}}' | grep "^${base_name}" || test $? -eq 1)
+    done < <(_project_running_containers "$container_suffix")
 
     # Check if any containers are running
     if [ ${#matching_containers[@]} -eq 0 ]; then
@@ -387,7 +410,7 @@ connect_to_network() {
         # Save network preference for future sessions
         if [ $success_count -gt 0 ]; then
             save_network_preference "$network_name"
-            echo "  📌 Saved network preference: $network_name"
+            _report_saved_network_preference "$network_name" "$tool_name" "  "
             echo ""
         fi
 
@@ -415,7 +438,7 @@ connect_to_network() {
 
             # Save network preference for future sessions
             save_network_preference "$network_name"
-            echo "📌 Saved network preference: $network_name"
+            _report_saved_network_preference "$network_name" "$tool_name" ""
             echo ""
 
             echo "You can now access project containers from inside $tool_name."
@@ -426,7 +449,7 @@ connect_to_network() {
 
             # Save network preference anyway since it's correct
             save_network_preference "$network_name"
-            echo "📌 Saved network preference: $network_name"
+            _report_saved_network_preference "$network_name" "$tool_name" ""
             echo ""
         else
             echo "✗ Failed to connect container"
@@ -456,6 +479,173 @@ connect_to_network() {
     fi
 
     return 0
+}
+
+# The networks the engine attaches every container to by default. --disconnect never offers
+# them: detaching one cuts the session's own internet access, which is never what undoing a
+# wrong --connect means. Named explicitly, one is still detached.
+_is_engine_default_network() {
+    case "$1" in
+        bridge | host | none | podman) return 0 ;;
+    esac
+    return 1
+}
+
+# The networks one container is attached to, one per line. Fails, with the engine's own
+# message on stderr, when the container cannot be inspected.
+_container_networks() {
+    local out words=()
+    # \$ is a literal $ here: these are Go template variables, not shell ones.
+    out=$(container_cmd inspect "$1" --format "{{range \$k, \$v := .NetworkSettings.Networks}}{{\$k}} {{end}}") || return 1
+    read -r -a words <<<"${out//$'\n'/ }"
+    [ ${#words[@]} -eq 0 ] || printf '%s\n' "${words[@]}"
+}
+
+# After a disconnect, or in place of one: clear the saved default when it names the network,
+# and otherwise say which default stays, so what the next launch does is never a surprise.
+# Args: $1 = network_name, $2 = saved default ("" for none), $3 = tool_name
+_settle_saved_network_preference() {
+    if [ -z "$2" ]; then
+        echo "No saved default network for this project."
+    elif [ "$2" = "$1" ]; then
+        if ! clear_network_preference; then
+            print_error "Could not remove the saved default network file: $(get_network_persistence_file)"
+            return 1
+        fi
+        echo "Cleared the saved default network: $2"
+        echo "   plain $3 launches in this project will no longer connect to it."
+    else
+        echo "The saved default network stays: $2 (it is not the network disconnected)."
+    fi
+}
+
+# Detach a network from the current project's running container(s): the undo for a wrong
+# `--connect`. That also saved the network as the project's default, so the default is
+# cleared too when it names this network, or the network would return on the next launch.
+# Args: $1 = network_name (optional: pick from the attached project networks when empty),
+#       $2 = container_suffix ("_yolo" or "_browser"), $3 = tool_name (for display)
+disconnect_from_network() {
+    local network_name="$1"
+    local container_suffix="$2"
+    local tool_name="${3:-ccy}"
+    local project_name saved
+    project_name=$(get_project_name)
+    if ! saved=$(load_network_preference); then
+        saved=""
+    fi
+
+    local containers=() name
+    while IFS= read -r name; do
+        containers+=("$name")
+    done < <(_project_running_containers "$container_suffix")
+
+    # No container to detach, but the saved default is the part that outlives it.
+    if [ ${#containers[@]} -eq 0 ]; then
+        if [ -n "$saved" ] && { [ -z "$network_name" ] || [ "$network_name" = "$saved" ]; }; then
+            echo "No running container for project $project_name, so nothing was detached."
+            _settle_saved_network_preference "$saved" "$saved" "$tool_name"
+            return $?
+        fi
+        print_error "No running containers found for project: $project_name"
+        echo "Start $tool_name first, then run this in another terminal:" >&2
+        echo "  $tool_name --disconnect <network_name>" >&2
+        if [ -n "$saved" ]; then
+            echo "The saved default network is $saved; '$tool_name --disconnect $saved' clears it." >&2
+        fi
+        return 1
+    fi
+
+    local -A attached=() seen=()
+    local all_attached=() candidates=() container nets net
+    for container in "${containers[@]}"; do
+        if ! nets=$(_container_networks "$container"); then
+            print_error "Could not read the networks of $container (the engine's message is above)"
+            return 1
+        fi
+        attached[$container]="$nets"
+        while IFS= read -r net; do
+            [ -n "$net" ] || continue
+            [ -z "${seen[$net]:-}" ] || continue
+            seen[$net]=1
+            all_attached+=("$net")
+            _is_engine_default_network "$net" || candidates+=("$net")
+        done <<<"$nets"
+    done
+
+    if [ -n "$network_name" ]; then
+        if [ -z "${seen[$network_name]:-}" ]; then
+            if [ "$network_name" = "$saved" ]; then
+                echo "$network_name is not attached to any running container of $project_name, so nothing was detached."
+                _settle_saved_network_preference "$network_name" "$saved" "$tool_name"
+                return $?
+            fi
+            print_error "$network_name is not attached to any running container of project $project_name"
+            echo "Attached: ${all_attached[*]:-(none)}" >&2
+            return 1
+        fi
+    else
+        if [ ${#candidates[@]} -eq 0 ]; then
+            echo "The running container(s) of $project_name are on no project network to disconnect."
+            echo "Attached: ${all_attached[*]:-(none)}"
+            _settle_saved_network_preference "" "$saved" "$tool_name"
+            return $?
+        fi
+
+        {
+            echo ""
+            echo "════════════════════════════════════════════════════════════════════════════════"
+            echo "Disconnect YOLO Container from a Network"
+            echo "════════════════════════════════════════════════════════════════════════════════"
+            echo ""
+            echo "Networks the running container(s) of $project_name are on:"
+            echo ""
+            local i
+            for i in "${!candidates[@]}"; do
+                echo "  $((i + 1))) ${candidates[$i]}"
+            done
+            echo ""
+        } >&2
+
+        local attempt=1 max_tries=3 selection
+        while :; do
+            if ! read -rp "Select network to disconnect [1-${#candidates[@]}]: " selection; then
+                echo "" >&2
+                echo "Cancelled, no input. Nothing was disconnected." >&2
+                return 1
+            fi
+            if [[ "$selection" =~ ^[0-9]+$ ]] && [ "$selection" -ge 1 ] && [ "$selection" -le ${#candidates[@]} ]; then
+                network_name="${candidates[$((selection - 1))]}"
+                break
+            fi
+            echo "  '$selection' is not a choice. Enter a number from 1 to ${#candidates[@]}." >&2
+            attempt=$((attempt + 1))
+            if [ "$attempt" -gt "$max_tries" ]; then
+                echo "Giving up after $max_tries attempts. Nothing was disconnected." >&2
+                return 1
+            fi
+        done
+    fi
+
+    # Stop at the first refusal: the saved default is only cleared once the network is
+    # really gone from every container that had it.
+    local detached=0 error_output
+    for container in "${containers[@]}"; do
+        grep -qxF -- "$network_name" <<<"${attached[$container]}" || continue
+        echo "Disconnecting $container from $network_name..."
+        if ! error_output=$(container_cmd network disconnect "$network_name" "$container" 2>&1); then
+            print_error "$CONTAINER_ENGINE refused to disconnect $container from $network_name:"
+            echo "  ${error_output:-(no output)}" >&2
+            if [ "$detached" -gt 0 ]; then
+                echo "  $detached container(s) were disconnected before this one." >&2
+            fi
+            echo "The saved default network was left as it is." >&2
+            return 1
+        fi
+        echo "  ✓ Disconnected"
+        detached=$((detached + 1))
+    done
+    echo ""
+    _settle_saved_network_preference "$network_name" "$saved" "$tool_name"
 }
 
 # Check if a network has running containers
@@ -805,5 +995,6 @@ ensure_network_dns() {
 export -f ensure_network_dns
 export -f load_network_preference
 export -f connect_to_network
+export -f disconnect_from_network
 export -f check_and_start_compose_services
 export -f offer_compose_start

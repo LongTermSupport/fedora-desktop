@@ -233,7 +233,7 @@ server, in the recorded directory, with the recorded arguments plus `--continue`
 directory offers them back.
 
 What is replayed is the launch command line **minus the one-shot arguments**: `--rebuild`,
-`--prompt "text"` and a bare opening instruction, `--connect`, `--debug`, `--ssh-agent`
+`--prompt "text"` and a bare opening instruction, `--connect`, `--disconnect`, `--debug`, `--ssh-agent`
 (the agent socket is a different path after a reboot) and the like. Settings such as
 `--token`, `--ssh-key`, `--network` and `--no-supervise`, and everything after `--`, are
 kept. The full classification is `ccy_registry_flag_class` in
@@ -630,20 +630,21 @@ are forwarded unchanged.
 
 ### Auth, SSH and network
 
-| Flag               | Effect                                                             |
-| ------------------ | ------------------------------------------------------------------ |
-| `--token NAME`     | Use a specific named token                                         |
-| `--create-token`   | Create a new named token                                           |
-| `--update-token=N` | Replace an existing named token                                    |
-| `--list-tokens`    | List tokens with expiry                                            |
-| `--export-token`   | Export token(s) as a portable import script                        |
-| `--ssh-key PATH`   | Mount a specific key (repeatable)                                  |
-| `--ssh-agent`      | Forward the session's ssh-agent (SELinux labelling off)            |
-| `--no-ssh`         | Mount no key (git push will not work)                              |
-| `--github-443`     | Route GitHub SSH over `ssh.github.com:443` when port 22 is blocked |
-| `--network NET`    | Auto-connect to a container network on launch                      |
-| `--no-network`     | Skip network auto-detection                                        |
-| `--connect [NET]`  | Connect an already-running container to a network                  |
+| Flag                 | Effect                                                                                   |
+| -------------------- | ---------------------------------------------------------------------------------------- |
+| `--token NAME`       | Use a specific named token                                                               |
+| `--create-token`     | Create a new named token                                                                 |
+| `--update-token=N`   | Replace an existing named token                                                          |
+| `--list-tokens`      | List tokens with expiry                                                                  |
+| `--export-token`     | Export token(s) as a portable import script                                              |
+| `--ssh-key PATH`     | Mount a specific key (repeatable)                                                        |
+| `--ssh-agent`        | Forward the session's ssh-agent (SELinux labelling off)                                  |
+| `--no-ssh`           | Mount no key (git push will not work)                                                    |
+| `--github-443`       | Route GitHub SSH over `ssh.github.com:443` when port 22 is blocked                       |
+| `--network NET`      | Auto-connect to a container network on launch                                            |
+| `--no-network`       | Skip network auto-detection                                                              |
+| `--connect [NET]`    | Connect an already-running container to a network                                        |
+| `--disconnect [NET]` | Disconnect a running container from a network, and clear the saved default that names it |
 
 ### Engine and policy
 
@@ -1001,12 +1002,30 @@ ccy --network myproject_default   # attach at launch
 ccy --no-network                  # skip auto-detection entirely
 ccy --connect                     # interactive: attach an already-running container
 ccy --connect myproject_default   # attach a running container to a specific network
+ccy --disconnect                  # pick a network to detach a running container from
+ccy --disconnect myproject_default   # detach it, and stop later launches reconnecting
 ```
 
 CCY auto-detects a project compose network and offers it, and can start the compose
 services if they are not already up. `--connect` is run from a *second* terminal while a
 session is live — useful when you realise mid-session that the agent needs database
 access.
+
+`--connect` also saves the network as the project's **default**, and every later plain
+`ccy` in that project connects to it again. It says so when it saves one. So a wrong
+`--connect` outlives the session: `--no-network` skips the default for one launch only,
+and `--network` at launch does not replace it.
+
+`--disconnect` is the undo, run from a second terminal like `--connect`:
+
+- With no name, it lists the project networks the running container(s) are on and asks
+  which to detach. The engine's default network is not offered, since detaching it cuts
+  the session's own internet access.
+- It detaches the network from every running container of the project that is on it.
+- If the saved default names that network, it clears it. If the default is another
+  network, it says which, and leaves it.
+- With no container running, `ccy --disconnect NET` still clears a saved default that
+  names `NET`, and a bare `ccy --disconnect` clears whatever default is saved.
 
 ---
 
@@ -1236,6 +1255,7 @@ absent supervisor and `--no-supervise`; both announce themselves at launch. See
 | Git-over-SSH hangs on a restricted network    | Port 22 blocked — use `ccy --github-443`.                                                                                                                                                                                                          |
 | `NETWORK ERROR: '...' has no internet access` | The reachability preflight needs an `alpine` pull and plain-http egress to `google.com`. If the network is known-good by other means (e.g. a fenced CI runner that proves its own egress beforehand), skip it: `CCY_SKIP_NETWORK_PREFLIGHT=1 ccy`. |
 | Agent cannot reach the database               | Not on the network. `ccy --network <net>`, or `ccy --connect` from another terminal.                                                                                                                                                               |
+| Connected to the wrong network                | `ccy --disconnect <net>` from another terminal. It also clears the saved default, which would otherwise reconnect every later launch. See [Networking](#networking).                                                                               |
 | `Ctrl+Z` freezes the session                  | No supervisor in this project, or launched with `--no-supervise` — it owns the ctrl+z guard since CCY 3.42.0. See [ctrl+z and the supervisor](#ctrlz-and-the-supervisor).                                                                          |
 | Session stalls with a full context window     | Enable [the supervisor](#the-supervisor) so it compacts automatically.                                                                                                                                                                             |
 | Stale/orphaned containers                     | `ccy --top` to list and stop them.                                                                                                                                                                                                                 |

@@ -119,6 +119,8 @@ check "--export-token takes its value with it" "--no-ssh" \
     "$(joined ccy_registry_replay_args ccy --export-token personal --no-ssh)"
 check "--connect takes its value with it" "--no-ssh" \
     "$(joined ccy_registry_replay_args ccy --connect backend --no-ssh)"
+check "--disconnect takes its value with it" "--no-ssh" \
+    "$(joined ccy_registry_replay_args ccy --disconnect backend --no-ssh)"
 check "--prompt takes its text with it" "--token|work" \
     "$(joined ccy_registry_replay_args ccy --prompt 'fix the tests' --token work)"
 # The agent socket is a different path after a reboot, so replaying the flag would point at
@@ -585,6 +587,7 @@ UNREACHABLE_PROMPTS=(
     "token-management.bash|Token: |token creation, reached only past a listed token prompt or a dropped flag"
     "token-management.bash|Try again? (Y/n): |token creation, reached only past a listed token prompt or a dropped flag"
     "token-management.bash|Select tokens to export [1-\${#valid_tokens[@]}, space-separated, or a]: |--export-token, dropped on replay"
+    "network-management.bash|Select network to disconnect [1-\${#candidates[@]}]: |--disconnect, dropped on replay"
     "ssh-handling.bash|\$prompt_text|built from CCY_PROMPT_SSH_KEY"
 )
 unregistered=""
