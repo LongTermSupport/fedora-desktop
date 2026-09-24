@@ -158,9 +158,13 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
       Second run: the reason is dnf5 refusing dnf4's `repoquery --showduplicates`; fixed
       with a stub that models dnf5. Third run, 2026-09-24: dnf worked and prepare failed
       one step later. grubby read the entry it had just set back with `/boot` doubled.
-      The fixture now accepts that spelling of the same entry, and only that one. It
-      needs `play-vm-test-lab.yml`, which this plan's deploy in `meta-deploy.bash` runs,
-      and then a re-run.
+      The fixture now accepts that spelling of the same entry, and only that one. Fourth
+      run: 14 of 15 pass, including the kernel change. `clean-login-is-silent` fails on
+      three things a clean login printed on stdout. Two were this repo's shell setup and
+      are fixed: `ps1-prompt`'s title escape, and the SSH-agent block, which prompted with
+      no terminal. The third is **OPEN, owner's**: the pin check's coverage floor reports
+      "compared 0 of 1", because a server has no DKMS, and that contradicts "a clean
+      server login is silent".
     - [x] ✅ **HOST**: check [17] — `origin` resolves non-interactively, with a recorded
       successful fetch. The freshness axis will not report "never reached the remote"
 - [x] ✅ **Task 3.3**: Claude Code handoff — file and offer done.
