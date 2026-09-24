@@ -137,7 +137,7 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 - [ ] 🔄 **Task 3.2**: Surface findings to the user — code done, HOST run pending
   - [x] ✅ `login_report.py` — one notification, silent when clean
   - [ ] ⬜ **HOST**: confirm a real notification arrives, and a clean login is silent
-  - [ ] 🔄 **The server route.** Only the delivery was ever desktop-bound; the checks are
+  - [x] ✅ **The server route.** Only the delivery was ever desktop-bound; the checks are
     profile-agnostic. Reasoning, the cadence derivation, the mutants and the two review
     findings are in [DESIGN-server-route.md](DESIGN-server-route.md)
     - [x] ✅ Producer/renderer, delivery cadence and interactive-only guard, previous-boot
@@ -148,26 +148,16 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     - [x] ✅ **HOST**: `play-vm-test-lab.yml` run — check [16] confirms the scenario is in
       the deployed allowlist and both guest scripts are deployed executable, so the bridge
       will no longer refuse the id
-    - [ ] ⬜ **VM — nothing in this task is established until this passes**:
+    - [x] ✅ **VM — nothing in this task is established until this passes**:
       `./scripts/vmtest-request.bash run-scenario server-host-health-kernel-change`. The timer arms, a document appears, **a clean
       server login is silent**, a live fault is reported as a fault, the guest reboots
       into a different kernel, the report names the boot mismatch, the previous boot's
       fault is demoted rather than repeated as current, and an `scp` through the guest's
-      own `sshd` completes on both sides of the reboot
-      First run 2026-09-23: `error`, the fixture exited 1 at prepare. The reason is
-      in the host transcript only; the harness now returns it (needs `play-vm-test-lab.yml`).
-      Second run: the reason is dnf5 refusing dnf4's `repoquery --showduplicates`; fixed
-      with a stub that models dnf5. Third run, 2026-09-24: dnf worked and prepare failed
-      one step later. grubby read the entry it had just set back with `/boot` doubled.
-      The fixture now accepts that spelling of the same entry, and only that one. Fourth
-      run: 14 of 15 pass, including the kernel change. `clean-login-is-silent` fails on
-      three things a clean login printed on stdout. Two were this repo's shell setup and
-      are fixed: `ps1-prompt`'s title escape, and the SSH-agent block, which prompted with
-      no terminal. The third was the pin check's coverage floor, "compared 0 of 1" on a
-      server with no DKMS. The owner decided: not applicable, and silent
-      ([DESIGN-server-route.md §5](DESIGN-server-route.md)). All three are fixed in code.
-      A fifth run needs them pushed, because the guest provisions from the pushed commit
-      (the run's `repo_commit` evidence).
+      own `sshd` completes on both sides of the reboot.
+      The fifth run, 2026-09-24, passed 15 of 15 at `9f776c1d`
+      (`20260924T143446Z-server-host-health-kernel-change`). The four runs before it
+      failed, and what each one fixed is in the journal and
+      [DESIGN-server-route.md §5](DESIGN-server-route.md)
     - [x] ✅ **HOST**: check [17] — `origin` resolves non-interactively, with a recorded
       successful fetch. The freshness axis will not report "never reached the remote"
 - [x] ✅ **Task 3.3**: Claude Code handoff — file and offer done.
