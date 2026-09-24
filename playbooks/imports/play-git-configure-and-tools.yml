@@ -132,6 +132,23 @@
           with GitHub and give its public half to any self-updating server
           (docs/configuration.md "Commit Signing").
 
+    # Written to host_vars so run.bash's "Save local config to repo" keeps this machine's
+    # public key in the config repo with the rest of its configuration. It has its own
+    # name: self_update_signing_public_key is the key a SERVER trusts, and writing a
+    # machine's own key there would make a server trust its own commits.
+    - name: Read This Machine's Public Signing Key
+      ansible.builtin.slurp:
+        src: "{{ git_signing_key_path }}.pub"
+      register: git_signing_public_key_file
+
+    - name: Record the Public Signing Key in host_vars
+      ansible.builtin.blockinfile:
+        path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
+        marker: "# {mark} ANSIBLE MANAGED: Git Signing Public Key"
+        block: |
+          git_signing_public_key: "{{ git_signing_public_key_file.content | b64decode | trim }}"
+        create: false
+
     - name: Sign Every Commit and Tag With This Machine's Key
       community.general.git_config:
         scope: global
