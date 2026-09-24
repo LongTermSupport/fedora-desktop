@@ -707,6 +707,19 @@ fi
 login_snippet_summary=$(qa_gate_case_count "$login_snippet_out")
 qa_pass_line host-health-login-snippet "$login_snippet_summary"
 
+# Ctrl+R history search (Plan 00138). The recorder runs at every prompt of every terminal,
+# so a defect files commands under the wrong directory, or writes a command the user kept
+# out of history with a leading space. Driven in a real interactive bash, since history
+# numbering, HISTCONTROL and PROMPT_COMMAND only behave as on a host inside one.
+history_search_out=""
+if ! history_search_out="$(bash "$SCRIPT_DIR/test-bash-history-search.bash" 2>&1)"; then
+    qa_hard_gate_failed bash-history-search \
+        "bash history search unit tests failed" \
+        "$history_search_out"
+fi
+history_search_summary=$(qa_gate_case_count "$history_search_out")
+qa_pass_line bash-history-search "$history_search_summary"
+
 # The on-demand report command (Plan 00136). The login snippet's reminder and the panel's
 # terminal row both hand a person to it and walk away, so it has to answer on its own: a
 # sentence on a clean host, `--hold` released by Enter or EOF, and a missing checkout named

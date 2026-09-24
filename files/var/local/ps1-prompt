@@ -83,5 +83,10 @@ function ps1Prompt(){
   export PS1='$(screenSession)$(lastCommandError)\n\D{%H:%M:%S} $(currentDirectory)\n$(currentUser)@$(currentHost)\n '
 }
 
-PROMPT_COMMAND='ps1Prompt'
+# Fedora makes PROMPT_COMMAND an array and other hooks (VTE, systemd, bash-git-prompt,
+# history) sit in it, so append once rather than assign: a scalar assignment replaces
+# element 0, whichever hook that happens to be.
+if [[ " ${PROMPT_COMMAND[*]-} " != *" ps1Prompt "* ]]; then
+  PROMPT_COMMAND+=(ps1Prompt)
+fi
 ps1Prompt

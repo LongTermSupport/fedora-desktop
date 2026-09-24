@@ -210,7 +210,8 @@ The main playbook installs and configures:
 **Enhancements**
 
 - Custom bash prompt with error indicators
-- Enhanced bash history (20K lines)
+- Durable, timestamped bash history shared across terminals, and a Ctrl+R that ranks the
+  current directory's commands first
 - Microsoft fonts
 - Vim with Deus colorscheme
 

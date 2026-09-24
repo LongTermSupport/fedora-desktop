@@ -221,8 +221,10 @@ and time it at 15k and 100k rows. Neither research pass measured it.
 
 ### Prototype results (Task 2.3)
 
-[`prototype-ranker.bash`](prototype-ranker.bash) passes the fixture checks in
-[`prototype-timing.bash`](prototype-timing.bash):
+The prototype ranker, now
+[`bash-history-rank`](../../../files/home/.local/bin/bash-history-rank), passed the fixture
+checks now kept in
+[`scripts/test-bash-history-search.bash`](../../../scripts/test-bash-history-search.bash):
 
 - this directory first, newest first;
 - always-failing commands sink within their tier;
@@ -233,15 +235,21 @@ and time it at 15k and 100k rows. Neither research pass measured it.
 Timings on the host used synthetic records built from a copy of the real history. The
 copy's commands were reused, with invented directories:
 
-| Records | Rank only | Rank + `fzf --filter` |
-| ------- | --------- | --------------------- |
-| 15,000  | 153 ms    | ~140 ms               |
-| 100,000 | 435 ms    | ~440 ms               |
+Two runs of [`ranker-timing.bash`](ranker-timing.bash), the second under load from other
+work on the same host:
 
-`git rev-parse` costs 2 ms. At today's size the ranker is fast. At 100k records it is
-noticeable, which is why Task 3.5 decides between accepting that and compacting the
-context file. Compaction would leave one row per command and directory; there are only
-about 5,700 distinct commands today.
+| Records | Rank only    | Rank + `fzf --filter` |
+| ------- | ------------ | --------------------- |
+| 15,000  | 153 / 179 ms | ~140 / ~200 ms        |
+| 100,000 | 435 / 707 ms | ~440 / ~700 ms        |
+
+`git rev-parse` costs 2–4 ms. At today's size the ranker is fast; at 100k records it is
+noticeable. Task 3.5 accepts that for now (YAGNI). The remedy, when it matters, is to
+compact the context file to one row per command and directory; there are only about 5,700
+distinct commands today. A compiled ranker (Rust/Go) was considered and not chosen: it
+would add a build toolchain or pinned binary and a dependency supply chain for a speed-up
+compaction delivers without either, and the ranker's plain interface (records in, ranked
+list out) keeps a later rewrite cheap.
 
 ## Decisions (answered by the owner)
 

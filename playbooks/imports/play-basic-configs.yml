@@ -6,6 +6,12 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    # Every account the Bash Tweaks run for, and so every account whose history they move.
+    bash_history_accounts:
+      - home: /root
+        owner: root
+      - home: "/home/{{ user_login }}"
+        owner: "{{ user_login }}"
   tasks:
     # Priority 0: PS1_Colour given as an extra-var. run.bash passes RUN_BASH_PS1_COLOUR this way
     # on a headless run, where nobody can answer the prompt below; an extra-var outranks every
@@ -86,6 +92,8 @@
           - multitail
           - figlet
           - p7zip
+          - fzf    # draws the Ctrl+R history search list (history-search.bash)
+          - gawk   # bash-history-rank
       tags: packages
 
     # Packages found on a host that nothing here installs or needs, removed so the host is
@@ -172,9 +180,99 @@
         create: false
       loop:
         - /root/.bashrc
-        - /root/.bash_profile
         - /home/{{ user_login }}/.bashrc
-        - /home/{{ user_login }}/.bash_profile
+
+    # Login shells (every tmux pane) read ~/.bash_profile, which sources ~/.bashrc, so a
+    # Bash Tweaks block in ~/.bash_profile as well loaded the tweaks twice per shell. The
+    # block is removed only where ~/.bash_profile is confirmed to source ~/.bashrc: without
+    # that, a login shell would lose the tweaks altogether.
+    - name: Read each ~/.bash_profile
+      ansible.builtin.slurp:
+        src: "{{ item.home }}/.bash_profile"
+      register: bash_profiles
+      loop: "{{ bash_history_accounts }}"
+      loop_control:
+        label: "{{ item.home }}/.bash_profile"
+
+    - name: Assert each ~/.bash_profile sources ~/.bashrc
+      ansible.builtin.assert:
+        that:
+          - (item.content | b64decode) is search('^[ \t]*([.]|source)[ \t]+~/[.]bashrc', multiline=true)
+        fail_msg: >-
+          {{ item.item.home }}/.bash_profile does not source ~/.bashrc, so removing the Bash
+          Tweaks block from it would leave login shells (every tmux pane) without the tweaks.
+          Make it source ~/.bashrc, as Fedora's default does, then re-run this play.
+        quiet: true
+      loop: "{{ bash_profiles.results }}"
+      loop_control:
+        label: "{{ item.item.home }}/.bash_profile"
+
+    - name: Stop loading the Bash Tweaks from ~/.bash_profile (~/.bashrc already does)
+      ansible.builtin.blockinfile:
+        marker: "# {mark} ANSIBLE MANAGED: Bash Tweaks"
+        path: "{{ item.home }}/.bash_profile"
+        state: absent
+      loop: "{{ bash_history_accounts }}"
+      loop_control:
+        label: "{{ item.home }}/.bash_profile"
+
+    # bash does not create the directory of HISTFILE and silently saves nothing without it,
+    # so the Bash Tweaks' history directory is made here, private. Its parents are named so
+    # they are created as the account, not as root.
+    - name: Create the bash history directory's parents
+      ansible.builtin.file:
+        path: "{{ item.0.home }}/{{ item.1 }}"
+        state: directory
+        owner: "{{ item.0.owner }}"
+        group: "{{ item.0.owner }}"
+      loop: "{{ bash_history_accounts | product(['.local', '.local/state']) | list }}"
+      loop_control:
+        label: "{{ item.0.home }}/{{ item.1 }}"
+
+    - name: Create the bash history directory
+      ansible.builtin.file:
+        path: "{{ item.home }}/.local/state/bash"
+        state: directory
+        owner: "{{ item.owner }}"
+        group: "{{ item.owner }}"
+        mode: "0700"
+      loop: "{{ bash_history_accounts }}"
+      loop_control:
+        label: "{{ item.home }}/.local/state/bash"
+
+    - name: Look for an old ~/.bash_history to carry over
+      ansible.builtin.stat:
+        path: "{{ item.home }}/.bash_history"
+      register: old_bash_history
+      loop: "{{ bash_history_accounts }}"
+      loop_control:
+        label: "{{ item.home }}/.bash_history"
+
+    # Once: `force: false` never touches the new file after it exists. ~/.bash_history
+    # stays, as the file a shell that never read the tweaks writes to instead.
+    - name: Seed the history file from ~/.bash_history
+      ansible.builtin.copy:
+        remote_src: true
+        src: "{{ item.stat.path }}"
+        dest: "{{ item.item.home }}/.local/state/bash/history"
+        owner: "{{ item.item.owner }}"
+        group: "{{ item.item.owner }}"
+        mode: "0600"
+        force: false
+      loop: "{{ old_bash_history.results }}"
+      loop_control:
+        label: "{{ item.item.home }}/.local/state/bash/history"
+      when: item.stat.exists
+
+    # The desktop user only: root keeps plain history and stock Ctrl+R, since a recorder
+    # running as root adds a second copy of root's commands for no search benefit.
+    - name: Deploy the Ctrl+R history search
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/bashrc-includes/history-search.bash"
+        dest: "/home/{{ user_login }}/.bashrc-includes/history-search.bash"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
 
     - name: Add bashrc includes sourcing
       ansible.builtin.blockinfile:
@@ -255,6 +353,14 @@
       ansible.builtin.file:
         path: "/home/{{ user_login }}/.local/bin"
         state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
+    - name: Install the history ranker behind Ctrl+R
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/bash-history-rank"
+        dest: "/home/{{ user_login }}/.local/bin/bash-history-rank"
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0755"
