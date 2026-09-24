@@ -77,7 +77,9 @@ out.
   in a managed block, the way other plays record values there. It uses its own name,
   because `self_update_signing_public_key` is the key a server trusts. Merged as
   `cd50ffc1` (the desktop agent's commit, `a594063e`)
-  - [ ] ⬜ **HOST**: a deploy run, then the owner's "Save local config to repo" in `run.bash`
+  - [x] ✅ **HOST**: a deploy run. The task reported `changed`, and exactly one managed block
+    was written
+  - [ ] ⬜ **HOST (owner)**: "Save local config to repo" in `run.bash`
 
 ### Phase 2: ccy signs
 
