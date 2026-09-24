@@ -164,6 +164,10 @@ if ! cmp -s "$REPO_LIB" "$LIB"; then
     echo "  Run this plan's deploy.bash — the tool's selection logic lives in this file." >&2
     exit 1
 fi
+echo "### deployed copies"
+ok "the deployed podfreeze matches the repo copy"
+ok "the deployed freeze library matches the repo copy"
+echo
 
 # The selection/labelling unit test runs first: if that logic is broken there is
 # no point manufacturing containers to discover it more slowly, and its failure
@@ -185,7 +189,7 @@ if podfreeze_out="$(bash "$PODFREEZE_TEST" 2>&1)"; then
         echo "ERROR: the podfreeze suite passed but printed no 'passed:' line — its output format changed." >&2
         exit 1
     fi
-    echo "  OK — podfreeze decision tests pass (${podfreeze_count})"
+    ok "podfreeze decision tests pass (${podfreeze_count})"
 else
     printf '%s\n' "$podfreeze_out" >&2
     echo "ERROR: the podfreeze decision tests FAILED (above) — not proceeding to containers." >&2
