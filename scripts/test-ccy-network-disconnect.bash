@@ -514,6 +514,25 @@ check "and says which file" "yes" "$(says ".last-launch.conf" "$ERR")"
 check "and the config is unchanged" "wrong-network" "$(quick_launch_network)"
 rmdir "$QL.tmp.$$"
 
+# A hand-edited LAST_NETWORK line (trailing space, a CR from another editor, a comment) still
+# reads as naming the network, but is not the exact line the rewrite replaces. The command must
+# then fail and name the line, never report the network cleared while the config still names it.
+for variant in "space" "cr" "comment"; do
+    reset
+    save_network_preference wrong-network
+    write_quick_launch wrong-network
+    case "$variant" in
+        space) suffix=" " ;;
+        cr) suffix=$'\r' ;;
+        comment) suffix=" # hand-edited" ;;
+    esac
+    awk -v s="$suffix" '/^LAST_NETWORK=/ { print $0 s; next } { print }' "$QL" >"$QL.new" && mv "$QL.new" "$QL"
+    run_disconnect "" wrong-network
+    check "a hand-edited LAST_NETWORK line ($variant) fails the command" "1" "$RC"
+    check "and it does not claim Quick Launch was cleared ($variant)" "no" "$(says "Cleared wrong-network from the Quick Launch" "$OUT")"
+    check "and it names the file and the line ($variant)" "yes" "$(says "$QL still names wrong-network on the line" "$ERR")"
+done
+
 echo ""
 echo "=== a restore record forgets the network too ==="
 # A session started with --network NET replays it on the restore after a reboot. After

@@ -269,16 +269,19 @@ ccy_registry_write() {
     fi
 }
 
-# _ccy_registry_args_without_network <network> [args...] — the ccy replay args with every
-# `--network <network>` pair removed, one per line, walked the way ccy_registry_replay_args
-# walks them: a value-taking flag consumes the next word, and after `--` every word is claude's.
+# _ccy_registry_args_without_network <out-array> <network> [args...] — fill the named array
+# with the ccy replay args, every `--network <network>` pair removed, walked the way
+# ccy_registry_replay_args walks them: a value-taking flag consumes the next word, and after
+# `--` every word is claude's. An array, not printed lines, so an empty argument survives.
 _ccy_registry_args_without_network() {
-    local network="$1"
-    shift
+    local -n _ccy_kept_out="$1"
+    local network="$2"
+    shift 2
     local after_dd=false
+    _ccy_kept_out=()
     while [[ $# -gt 0 ]]; do
         if [[ "$after_dd" == true ]]; then
-            printf '%s\n' "$1"
+            _ccy_kept_out+=("$1")
             shift
             continue
         fi
@@ -291,14 +294,14 @@ _ccy_registry_args_without_network() {
             case "$(ccy_registry_flag_class "$1")" in
             keep-value | drop-value)
                 if [[ $# -ge 2 ]]; then
-                    printf '%s\n%s\n' "$1" "$2"
+                    _ccy_kept_out+=("$1" "$2")
                     shift 2
                     continue
                 fi
                 ;;
             esac
         fi
-        printf '%s\n' "$1"
+        _ccy_kept_out+=("$1")
         shift
     done
 }
@@ -309,12 +312,13 @@ _ccy_registry_args_without_network() {
 # changes nothing and prints the names of the records that would change. A record that
 # cannot be read may name the network too, so it fails the call, after every other record
 # has been handled. The rewrite goes through ccy_registry_write (whole, then moved into
-# place); a session whose trampoline removes its record in the instant between the read and
-# the move would get it back, which the next restore reports as a session that did not start.
+# place). A record that is gone by the time it would be rewritten belongs to a session that
+# ended meanwhile, and is not written back. A session that ends in the instant between that
+# check and the move still gets its record back, and the next restore would start it again.
 ccy_registry_forget_network() {
     local dir="${1:?ccy_registry_forget_network requires a directory}"
     local network="${2:?ccy_registry_forget_network requires a network}"
-    local check=false regdir file failures=0 walked
+    local check=false regdir file failures=0
     local -a kept=()
     [[ "${3:-}" == "--check" ]] && check=true
     regdir=$(ccy_registry_dir) || return 1
@@ -332,14 +336,14 @@ ccy_registry_forget_network() {
             continue
         fi
         [[ "$REC_PREFIX" == "ccy" && "$REC_DIR" == "$dir" ]] || continue
-        walked=$(_ccy_registry_args_without_network "$network" "${REC_ARGS[@]}") || return 1
-        kept=()
-        [[ -z "$walked" ]] || mapfile -t kept <<<"$walked"
+        _ccy_registry_args_without_network kept "$network" "${REC_ARGS[@]}"
+        # Only whole pairs are removed, so a record that names the network comes back shorter.
         [[ ${#kept[@]} -ne ${#REC_ARGS[@]} ]] || continue
         if [[ "$check" == true ]]; then
             printf '%s\n' "$REC_NAME"
             continue
         fi
+        [[ -e "$file" ]] || continue
         if ! ccy_registry_write "$REC_NAME" "$REC_DIR" "$REC_LAUNCHER" "$REC_PREFIX" "$REC_RESTORE" "${kept[@]}"; then
             failures=$((failures + 1))
             continue
@@ -440,24 +444,42 @@ ccy_registry_trampoline() {
 }
 
 # ccy_registry_restore_args <prefix> [replay-args...] — the arguments a restore starts the
-# launcher with, one per line: the recorded set, then `--supervise` for ccy unless the record
+# launcher with, one per line: the recorded set, with `--supervise` for ccy unless the record
 # already says --supervise or --no-supervise, then `--continue` unless the record already
 # continues or resumes a conversation. cc forwards every argument to claude, and --supervise
 # is ccy's flag, so cc gets --continue only.
+#
+# After a recorded `--` every word is claude's, so --supervise goes in before it, and a
+# --supervise after it is claude's word rather than ccy's. --continue is claude's flag and
+# reaches claude from either side, so it is appended.
 ccy_registry_restore_args() {
     local prefix="${1:?ccy_registry_restore_args requires a prefix}"
     shift
-    local arg has_supervise=false has_continue=false
+    local arg has_supervise=false has_continue=false after_dd=false
     for arg in "$@"; do
+        if [[ "$arg" == "--" ]]; then
+            after_dd=true
+            continue
+        fi
         case "$arg" in
-        --supervise | --no-supervise) has_supervise=true ;;
+        --supervise | --no-supervise) [[ "$after_dd" == true ]] || has_supervise=true ;;
         --continue | -c | --resume | -r) has_continue=true ;;
         esac
     done
-    if [[ $# -gt 0 ]]; then
-        printf '%s\n' "$@"
-    fi
-    if [[ "$prefix" == "ccy" && "$has_supervise" == false ]]; then
+    local add_supervise=false
+    [[ "$prefix" == "ccy" && "$has_supervise" == false ]] && add_supervise=true
+    after_dd=false
+    for arg in "$@"; do
+        if [[ "$arg" == "--" && "$after_dd" == false ]]; then
+            after_dd=true
+            if [[ "$add_supervise" == true ]]; then
+                printf '%s\n' "--supervise"
+                add_supervise=false
+            fi
+        fi
+        printf '%s\n' "$arg"
+    done
+    if [[ "$add_supervise" == true ]]; then
         printf '%s\n' "--supervise"
     fi
     if [[ "$has_continue" == false ]]; then

@@ -17,6 +17,27 @@ Two version numbers move independently — see
 
 ---
 
+## 3.64.3
+
+Fixes from the third review of `ccy --disconnect` (network-management 1.9.3), plus one older
+restore bug.
+
+- **A restore record keeps a trailing empty argument.** Forgetting a network collected the
+  kept words through a command substitution, which drops trailing newlines. A record ending
+  in `""` lost that argument while the output said only `--network NET` was removed. `--check`
+  also listed such a record as naming the network. The words are now collected into an array.
+- **A session that ends while its record is being edited is not brought back.** The record
+  is checked again just before it is rewritten. A session that ends in the instant between
+  that check and the move can still get its record back, and the next restore would start it.
+- **A hand-edited Quick Launch line fails instead of reporting success.** A `LAST_NETWORK`
+  line with a trailing space, a comment or a CR still reads as naming the network, but is not
+  the exact line the rewrite replaces. The config is now read again after the rewrite. If it
+  still names the network, the command fails and prints the line.
+- **`--help`** names all three places `--disconnect` clears.
+- **A restored ccy session no longer passes `--supervise` to claude.** A record with a `--`
+  had `--supervise` appended after it, so claude received it as an unknown option. It now goes
+  before the `--`, and a `--supervise` after it counts as claude's word, not ccy's.
+
 ## 3.64.2
 
 `ccy --disconnect` forgets the network wherever a later launch would read it

@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.64.2"  # --disconnect also clears Quick Launch and restore records naming the network. See docs/ccy-changelog.md.
+CCY_VERSION="3.64.3"  # Restore records keep empty arguments; a restored ccy gets --supervise before a recorded --. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -225,7 +225,8 @@ Options:
   --connect [NETWORK]    Connect running container to network (also saves it as the
                          project's default, which every later launch reconnects to)
   --disconnect [NETWORK] Disconnect running container from network (picker if no name),
-                         and clear the saved default when it names that network
+                         and forget that network wherever a later launch reads it: the
+                         saved default, Quick Launch, and this project's restore records
   --custom               Create/edit custom project Dockerfile interactively
   --custom-docker        AI-guided Dockerfile creation and customization
   --disable-custom-docker  Skip custom Dockerfile build, use base image (for fixing broken Dockerfiles)
