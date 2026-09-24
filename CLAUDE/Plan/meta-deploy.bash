@@ -39,10 +39,13 @@ PLAN_ROOT="${scriptDir}"
 # --- the list ----------------------------------------------------------------
 # Plan folder names, run in this order. Add a line when a plan needs deploying; delete it
 # when it does not. A plan with none of triage.bash, deploy.bash and acceptance.bash has
-# nothing for this script to do. A triage-only plan is run once, read-only.
+# nothing for this script to do. A triage-only plan is run once, read-only. Words after the
+# folder name are passed to that plan's triage.bash, both runs.
 PLANS=(
-    00079-podman-container-control
-    00109-desktop-drift-detection-and-fedora-desktop-panel
+    "00079-podman-container-control"
+    "00080-ccy-session-network-isolation --reachability"
+    "00109-desktop-drift-detection-and-fedora-desktop-panel"
+    "00134-startup-log-triage-and-status-panel-unavailable"
 )
 
 LIST_ONLY=0
@@ -61,8 +64,12 @@ done
 # a green run that deployed less than the list says. Checked before anything executes, so
 # the whole list is validated rather than failing partway through a deploy.
 PLAN_DIRS=()
-for planName in "${PLANS[@]}"; do
+declare -A TRIAGE_ARGS=()
+for planEntry in "${PLANS[@]}"; do
+    read -r -a entryWords <<<"${planEntry}"
+    planName="${entryWords[0]}"
     planDir="${PLAN_ROOT}/${planName}"
+    TRIAGE_ARGS["${planDir}"]="${entryWords[*]:1}"
     if [[ ! -d "${planDir}" ]]; then
         printf '[FATAL] no such plan folder: %s\n' "${planDir}" >&2
         printf '        It may have been archived into Completed/ or renamed. Fix the\n' >&2
@@ -83,7 +90,7 @@ fi
 
 printf '%d plan(s):\n' "${#PLAN_DIRS[@]}"
 for planDir in "${PLAN_DIRS[@]}"; do
-    printf '  %s\n' "$(basename "${planDir}")"
+    printf '  %s %s\n' "$(basename "${planDir}")" "${TRIAGE_ARGS["${planDir}"]}"
 done
 printf '\n'
 
@@ -120,6 +127,8 @@ BAD=0
 
 for planDir in "${PLAN_DIRS[@]}"; do
     planName="$(basename "${planDir}")"
+    triageArgs=()
+    read -r -a triageArgs <<<"${TRIAGE_ARGS["${planDir}"]}"
 
     # ACCEPTANCE IS SKIPPED WHEN THE DEPLOY FAILED, and this is not tidiness.
     # acceptance.bash judges the machine's CURRENT state, so after a failed deploy it
@@ -143,7 +152,7 @@ for planDir in "${PLAN_DIRS[@]}"; do
     # reason to refuse to deploy.
     if [[ -x "${planDir}/triage.bash" ]]; then
         printf '\n===> %s / triage.bash (before)\n' "${planName}"
-        if "${planDir}/triage.bash" 2>&1 | tee "${CAPTURE_DIR}/${planName}-triage-before.log"; then
+        if "${planDir}/triage.bash" "${triageArgs[@]}" 2>&1 | tee "${CAPTURE_DIR}/${planName}-triage-before.log"; then
             RESULTS+=("PASS  ${planName}/triage.bash (before)")
         else
             RESULTS+=("note  ${planName}/triage.bash (before) exit ${PIPESTATUS[0]} — read-only, does not gate the deploy")
@@ -173,7 +182,7 @@ for planDir in "${PLAN_DIRS[@]}"; do
     # gates that want a pair read it from triage's own run logs.
     if [[ -x "${planDir}/triage.bash" && -x "${planDir}/deploy.bash" && "${deployOk}" == "1" ]]; then
         printf '\n===> %s / triage.bash (after)\n' "${planName}"
-        if "${planDir}/triage.bash" 2>&1 | tee "${CAPTURE_DIR}/${planName}-triage-after.log"; then
+        if "${planDir}/triage.bash" "${triageArgs[@]}" 2>&1 | tee "${CAPTURE_DIR}/${planName}-triage-after.log"; then
             RESULTS+=("PASS  ${planName}/triage.bash (after)")
         else
             RESULTS+=("note  ${planName}/triage.bash (after) exit ${PIPESTATUS[0]} — read-only, does not gate acceptance")
