@@ -120,11 +120,24 @@ tree.
   The command absent *with* trees registered is reported, and is a worse state than
   either half, since nothing will rebuild them for the next kernel. An unreadable state
   directory answers `None` and still reports: "we could not tell" is not "it is fine".
+
 - **The pin check.** On a server `dkms()` raises "command not found", so every
   DKMS-resolved pin became *"could not be checked"* for ever. A DKMS-kind pin on a host
-  with **no DKMS subsystem** is not answerable here, and that is an answer. Both
-  consumers read one `probe.dkms_registry()` value, but they ask it different questions —
-  see §5.2, where assuming they wanted the same one was the defect.
+  with **no DKMS subsystem** — the same two-part test as the health probe: no state
+  directory, and a `dkms` command the OS could not find — is **not applicable**, the
+  owner's decision of 26-09-24. It leaves the population the host is held to, so the
+  zero- and partial-coverage guard owes nothing for it and a clean server login is
+  silent. The coverage statement says so in words (*"no tracked pin applies on this
+  host"*), never as a `compared N of N` it did not make. Every other state still
+  reports: a state directory with no command, no directory with a working command, a
+  command that failed any other way, and an unreadable directory. Both consumers read
+  one `probe.dkms_registry()` value, but they ask it different questions — see §5.2,
+  where assuming they wanted the same one was the defect.
+
+  The first answer here excluded the pin but still counted it, so the coverage guard
+  reported *"compared 0 of 1"* at every server login. The fourth run of
+  `server-host-health-kernel-change` caught it on `clean-login-is-silent`, which is this
+  section's own claim.
 
 ### 4.1a A shape the reader cannot interpret is not a healthy host
 

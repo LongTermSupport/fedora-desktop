@@ -57,6 +57,11 @@ def pin(**overrides) -> manifest.Pin:
     return manifest.parse({"version_pins": [row]}, require_installed=True)[0]
 
 
+def not_installed() -> str:
+    """`dkms status` on a host where the OS could not find the command."""
+    raise check_pins.NotInstalled("dkms: command not found")
+
+
 class TestPinnedValue(unittest.TestCase):
     def test_the_pinned_value_is_read_from_the_playbook_text(self) -> None:
         self.assertEqual(check_pins.pinned_value(PLAYBOOK, "evdi_version"), "1.15.0")
@@ -304,12 +309,13 @@ class TestWhatThisHostKnowsAboutItself(unittest.TestCase):
 
     So the two facts are scoped to what each can actually answer:
 
-    * `registry.present is False` — no DKMS state directory at all — makes a
-      DKMS-resolved pin unanswerable here. That is an answer, and it is the whole reason
-      a stock server spoke at every login. **Not** merely an empty module list: the
-      `dkms` rpm owns that directory, so a DisplayLink host whose module was removed has
-      the directory and an empty registry, and that is precisely what this axis exists
-      to report.
+    * `registry.present is False` — no DKMS state directory at all — together with a
+      `dkms` command the OS could not find is a host with no DKMS subsystem, and there a
+      DKMS-resolved pin is NOT APPLICABLE: out of the population, and silent. That is the
+      owner's decision, and the whole reason a stock server spoke at every login.
+      **Not** merely an empty module list: the `dkms` rpm owns that directory, so a
+      DisplayLink host whose module was removed has the directory and an empty
+      registry, and that is precisely what this axis exists to report.
     * `ran_plays` disambiguates the one ambiguous verdict, ABSENT. "Pinned 1.15.0,
       nothing installed" is a fault on a host that ran the play and expected on one
       that never did.
@@ -373,36 +379,40 @@ class TestWhatThisHostKnowsAboutItself(unittest.TestCase):
             dkms_status=lambda: "", ran_plays=None)
         self.assertEqual(len(findings), 1)
 
-    def test_a_host_with_no_dkms_subsystem_does_not_resolve_a_dkms_pin(self) -> None:
-        """The server case, and the probe must not even be called: it is the expensive
-        call, it raises "command not found" there, and that raise is what produced the
-        permanent "could not be checked" line at every login.
+    def test_a_host_with_no_dkms_subsystem_finds_a_dkms_pin_not_applicable(self) -> None:
+        """The server case, and the owner's decision: NOT APPLICABLE, and silent.
 
-        Not resolving the pin is right; staying silent about it is not. The skip empties
-        the compared population, so this host must say so rather than return the empty
-        list a fully matching host returns.
+        No DKMS subsystem is the health probe's own test (DESIGN-server-route.md §5): no
+        state directory, so no registered module tree, AND no `dkms` command. The pin
+        is then excluded from the population this host is held to, so the coverage
+        guard has nothing to say and a clean server login is silent. What the host
+        compared is still STATED, as "no tracked pin applies", so the document never
+        reads as a full "compared N of N" it did not do.
+
+        The command is asked exactly once, to establish that it is absent.
         """
         calls: list[int] = []
 
         def dkms() -> str:
             calls.append(1)
-            raise check_pins.ResolutionError("dkms: command not found")
+            return not_installed()
 
-        findings = check_pins.check(
+        result = check_pins.check_with_coverage(
             pins=[pin()], playbook_text=lambda _: PLAYBOOK,
             dkms_status=dkms, registry=self.NO_SUBSYSTEM)
-        self.assertEqual(len(findings), 1)
-        self.assertFalse(findings[0].checked)
-        self.assertIn("0 of 1", findings[0].text)
-        self.assertIn("no DKMS subsystem", findings[0].text)
-        self.assertEqual(calls, [])
+        self.assertEqual(result.findings, [])
+        self.assertEqual(calls, [1])
+        self.assertEqual(result.coverage.tracked, 0)
+        self.assertEqual(result.coverage.not_applicable, 1)
+        self.assertIn("no tracked pin applies on this host", result.coverage.sentence())
+        self.assertIn("no DKMS subsystem", result.coverage.sentence())
+        self.assertNotIn("compared", result.coverage.sentence())
 
-    def test_the_real_manifest_on_a_server_reports_its_zero_coverage(self) -> None:
-        """The host this plan's own Task 3.2 route built. Driven by the REAL manifest,
-        because the defect was a property of what it happens to track: its single
-        tracked pin is DKMS-resolved, so `tracked` counted 1, the loop compared 0, and
-        the guard — which ran before the loop — never fired. `0 of 9` and `0 of 1`
-        are different claims and only the second is true of this host."""
+    def test_the_real_manifest_on_a_server_is_silent_and_says_nothing_applies(self) -> None:
+        """The host this plan's own Task 3.2 route built, which the fourth VM run of
+        `server-host-health-kernel-change` caught speaking at a clean login. Driven by
+        the REAL manifest, because the state is a property of what it happens to track:
+        every tracked pin is DKMS-resolved."""
         pins = check_pins.declared_pins(REPO_ROOT)
         tracked = [candidate for candidate in pins if candidate.is_tracked]
         self.assertTrue(tracked, "the manifest tracks no pin, so this proves nothing")
@@ -411,34 +421,80 @@ class TestWhatThisHostKnowsAboutItself(unittest.TestCase):
                 and candidate.installed.kind == manifest.DKMS
                 for candidate in tracked),
             "a non-DKMS tracked pin would be compared here, so this host is no longer "
-            "zero-coverage and this test asserts the wrong thing",
+            "one where nothing applies and this test asserts the wrong thing",
         )
 
-        def never_called() -> str:
-            raise AssertionError("the DKMS probe was called on a host with no subsystem")
-
-        findings = check_pins.check(
+        result = check_pins.check_with_coverage(
             pins=pins, playbook_text=lambda _: PLAYBOOK,
-            dkms_status=never_called, registry=self.NO_SUBSYSTEM)
-        self.assertEqual(len(findings), 1)
-        self.assertFalse(findings[0].checked)
-        self.assertIn(f"0 of {len(tracked)}", findings[0].text)
+            dkms_status=not_installed, registry=self.NO_SUBSYSTEM)
+        self.assertEqual(result.findings, [])
+        self.assertEqual(result.coverage.tracked, 0)
+        self.assertEqual(result.coverage.not_applicable, len(tracked))
 
-    def test_PARTIAL_coverage_is_reported_too_not_just_zero(self) -> None:
-        """One clean answer and silence about the other renders exactly like a host that
-        compared both — the zero-coverage defect one pin further along. Not reachable
-        with today's manifest, which is why it is asserted against a built one."""
+    def test_a_pin_that_does_apply_is_still_held_on_a_host_without_dkms(self) -> None:
+        """Only the DKMS-resolved pin leaves the population. The rpm pin beside it is
+        compared, and the stated coverage names both halves."""
         rpm_pin = pin(var="displaylink_version",
                       installed={"kind": "rpm", "name": "displaylink-driver"})
-        findings = check_pins.check(
+        result = check_pins.check_with_coverage(
             pins=[pin(), rpm_pin], playbook_text=lambda _: PLAYBOOK,
-            dkms_status=lambda: DKMS_FIXED,
+            dkms_status=not_installed,
             rpm_version=lambda _: "v6.3.0-1",
             registry=self.NO_SUBSYSTEM)
+        self.assertEqual(result.findings, [])
+        self.assertEqual(
+            (result.coverage.tracked, result.coverage.compared,
+             result.coverage.not_applicable),
+            (1, 1, 1))
+        self.assertTrue(result.coverage.is_complete)
+        sentence = result.coverage.sentence()
+        self.assertTrue(sentence.startswith("compared 1 of 1 tracked pins"), sentence)
+        self.assertIn("no DKMS subsystem", sentence)
+
+    def test_the_dkms_command_absent_WITH_trees_registered_still_reports(self) -> None:
+        """The worse state §5 names: modules nothing will rebuild for the next kernel.
+        A state directory is there, so this is not a host without DKMS."""
+        findings = check_pins.check(
+            pins=[pin()], playbook_text=lambda _: PLAYBOOK,
+            dkms_status=not_installed,
+            registry=probe_results.DkmsRegistry(present=True, modules=("evdi",)))
         self.assertEqual(len(findings), 1)
         self.assertFalse(findings[0].checked)
-        self.assertIn("1 of 2", findings[0].text)
-        self.assertIn("no DKMS subsystem", findings[0].text)
+        self.assertIn("could not be checked", findings[0].text)
+
+    def test_no_state_directory_but_a_working_dkms_command_is_held_to_the_pin(self) -> None:
+        """Half of the test is not the test. With the command present the pin is
+        answerable, so it is compared: here the module is gone on a host that ran the
+        play, which is exactly a finding."""
+        findings = check_pins.check(
+            pins=[pin()], playbook_text=lambda _: PLAYBOOK,
+            dkms_status=lambda: "", registry=self.NO_SUBSYSTEM,
+            ran_plays={self.DISPLAYLINK})
+        self.assertEqual(len(findings), 1)
+        self.assertIn("nothing installed", findings[0].text)
+
+    def test_a_dkms_command_that_fails_otherwise_still_reports(self) -> None:
+        """Only the OS saying the command is not there makes a pin not applicable. A
+        command that ran and failed, or timed out, established nothing."""
+
+        def timed_out() -> str:
+            raise check_pins.ResolutionError("dkms: no answer after 20s")
+
+        findings = check_pins.check(
+            pins=[pin()], playbook_text=lambda _: PLAYBOOK,
+            dkms_status=timed_out, registry=self.NO_SUBSYSTEM)
+        self.assertEqual(len(findings), 1)
+        self.assertFalse(findings[0].checked)
+        self.assertIn("no answer", findings[0].text)
+
+    def test_an_unreadable_state_directory_with_no_command_still_reports(self) -> None:
+        """`present is None` is "could not tell", never "there is no DKMS here"."""
+        findings = check_pins.check(
+            pins=[pin()], playbook_text=lambda _: PLAYBOOK,
+            dkms_status=not_installed,
+            registry=probe_results.DkmsRegistry(present=None))
+        self.assertEqual(len(findings), 1)
+        self.assertFalse(findings[0].checked)
 
     def test_a_host_that_DOES_compare_its_pins_gets_no_coverage_finding(self) -> None:
         """The control. A guard that fires whatever the coverage was would pass every
@@ -643,7 +699,8 @@ class TestCoverageIsStatedNotInferred(unittest.TestCase):
     population, and this is the axis the 2026-09-11 incident happened on.
     """
 
-    EMPTY_REGISTRY = probe_results.DkmsRegistry(present=False)
+    NO_STATE_DIR = probe_results.DkmsRegistry(present=False)
+    WITH_EVDI = probe_results.DkmsRegistry(present=True, modules=("evdi",))
 
     def test_a_clean_host_still_states_what_it_compared(self) -> None:
         """The case that had NOTHING to assert on. A host that compares everything
@@ -674,23 +731,15 @@ class TestCoverageIsStatedNotInferred(unittest.TestCase):
         self.assertEqual(result.coverage.compared, 0)
         self.assertFalse(result.coverage.is_complete)
 
-    def test_PARTIAL_coverage_is_incomplete_even_with_a_finding_present(self) -> None:
-        """State (b). One tracked pin compared and drifted, one skipped: the findings
-        list is non-empty, so the guard stays quiet, and `compared 0 of ` never appears
-        even though half the axis is dark."""
-        result = check_pins.check_with_coverage(
-            pins=[
-                pin(),
-                pin(var="displaylink_version",
-                    installed={"kind": manifest.RPM, "name": "displaylink"}),
-            ],
-            playbook_text=lambda _: PLAYBOOK,
-            dkms_status=lambda: DKMS_FIXED,
-            rpm_version=lambda _: "0.0.1-wrong",
-            registry=self.EMPTY_REGISTRY)
-        self.assertEqual(result.coverage.tracked, 2)
-        self.assertEqual(result.coverage.compared, 1)
-        self.assertFalse(result.coverage.is_complete)
+    def test_PARTIAL_coverage_is_incomplete_and_the_guard_says_so(self) -> None:
+        """State (b), one tracked pin compared and one not. The loop cannot reach it
+        today — its only skip is the not-applicable one, which leaves the population —
+        so it is asserted on the guard's own decision: a host that compared 1 of 2
+        renders like one that compared both unless something says otherwise."""
+        coverage = check_pins.Coverage(
+            declared=2, tracked=2, compared=1, not_applicable=0)
+        self.assertFalse(coverage.is_complete)
+        self.assertIn("compared 1 of 2", check_pins.coverage_gap(coverage) or "")
 
     def test_a_manifest_tracking_nothing_is_not_complete_coverage(self) -> None:
         """`0 of 0` is vacuous, not clean. Without this, a manifest that tracks nothing
@@ -700,9 +749,18 @@ class TestCoverageIsStatedNotInferred(unittest.TestCase):
             pins=[pin(installed={"kind": manifest.UNTRACKED,
                                  "why": "nothing host-side to compare"})],
             playbook_text=lambda _: PLAYBOOK,
-            dkms_status=lambda: DKMS_FIXED, registry=self.EMPTY_REGISTRY)
+            dkms_status=lambda: DKMS_FIXED, registry=self.NO_STATE_DIR)
         self.assertEqual(result.coverage.tracked, 0)
         self.assertFalse(result.coverage.is_complete)
+        self.assertIn("0 of 1 declared", check_pins.coverage_gap(result.coverage) or "")
+
+    def test_nothing_applying_is_not_a_coverage_gap(self) -> None:
+        """The owner's decision, at the guard. Not complete — nothing was compared — and
+        not a gap either, because nothing was owed."""
+        coverage = check_pins.Coverage(
+            declared=9, tracked=0, compared=0, not_applicable=1)
+        self.assertFalse(coverage.is_complete)
+        self.assertIsNone(check_pins.coverage_gap(coverage))
 
     def test_check_returns_exactly_what_check_with_coverage_reports(self) -> None:
         """The two entry points must not drift: `check` is the old signature kept for
@@ -711,19 +769,27 @@ class TestCoverageIsStatedNotInferred(unittest.TestCase):
         self.assertEqual(
             check_pins.check(
                 pins=[pin()], playbook_text=lambda _: PLAYBOOK,
-                dkms_status=lambda: DKMS_INCIDENT, registry=self.EMPTY_REGISTRY),
+                dkms_status=lambda: DKMS_INCIDENT, registry=self.WITH_EVDI),
             check_pins.check_with_coverage(
                 pins=[pin()], playbook_text=lambda _: PLAYBOOK,
                 dkms_status=lambda: DKMS_INCIDENT,
-                registry=self.EMPTY_REGISTRY).findings,
+                registry=self.WITH_EVDI).findings,
         )
 
     def test_the_sentence_carries_both_numbers(self) -> None:
         """The consumer parses these. A wording change that drops a number breaks the
         gate silently, so the format is asserted here rather than only in prose."""
         sentence = check_pins.Coverage(
-            declared=9, tracked=2, compared=1, unanswerable_dkms=1).sentence()
-        self.assertIn("1 of 2", sentence)
+            declared=9, tracked=2, compared=1, not_applicable=1).sentence()
+        self.assertTrue(sentence.startswith("compared 1 of 2 tracked pins"), sentence)
+
+    def test_the_sentence_says_plainly_when_no_pin_applies(self) -> None:
+        """Never "compared 0 of 0", which the acceptance gate reads as a manifest that
+        tracks nothing, and never "compared 1 of 1", which is a comparison not made."""
+        sentence = check_pins.Coverage(
+            declared=9, tracked=0, compared=0, not_applicable=1).sentence()
+        self.assertTrue(sentence.startswith("no tracked pin applies on this host"), sentence)
+        self.assertIn("1 DKMS-resolved", sentence)
 
 
 class TestExitStatus(unittest.TestCase):

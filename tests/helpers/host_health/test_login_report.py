@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 from helpers.host_health import login_report, probe_results, status_document
 from helpers.play_ledger import check_freshness, freshness, ledger, plugin_support, store
+from helpers.version_pins import check_pins
 
 RUNNING_KERNEL = "7.2.4-200.fc44.x86_64"
 HEALTHY_DKMS = f"evdi/1.15.0, {RUNNING_KERNEL}, x86_64: installed"
@@ -189,6 +190,21 @@ class TestTheDkmsSeamDoesNotFabricateAnAnswer(unittest.TestCase):
         with self.assertRaises(Exception) as caught:
             login_report.dkms_text(lambda _argv: failed)
         self.assertIn("command not found", str(caught.exception))
+
+    def test_a_command_the_os_could_not_find_raises_not_installed(self) -> None:
+        """The one failure the pin check reads as an answer: with no state directory
+        as well, it is a host with no DKMS subsystem. It has to arrive as its own type,
+        because the check discriminates on structure, never on a message."""
+        missing = probe_results.ProbeOutcome(
+            ok=False, text="", error="dkms: command not found (dkms status)", missing=True)
+        with self.assertRaises(check_pins.NotInstalled):
+            login_report.dkms_text(lambda _argv: missing)
+
+    def test_any_other_failure_is_not_read_as_an_absent_command(self) -> None:
+        failed = probe_results.ProbeOutcome(ok=False, text="", error="dkms: exit status 3")
+        with self.assertRaises(check_pins.ResolutionError) as caught:
+            login_report.dkms_text(lambda _argv: failed)
+        self.assertNotIsInstance(caught.exception, check_pins.NotInstalled)
 
     def test_a_successful_probe_returns_its_text(self) -> None:
         ok = probe_results.ProbeOutcome(ok=True, text=HEALTHY_DKMS, error="")

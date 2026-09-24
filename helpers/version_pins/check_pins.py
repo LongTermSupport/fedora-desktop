@@ -194,12 +194,13 @@ class Coverage(NamedTuple):
 
     #: Every pin in the manifest, tracked or not.
     declared: int
-    #: Pins whose install state this repo says to compare.
+    #: Tracked pins that APPLY to this host: the population it is held to.
     tracked: int
     #: Pins this host actually compared. The number that can differ per host.
     compared: int
-    #: How many of the uncompared ones were DKMS pins this host cannot resolve.
-    unanswerable_dkms: int
+    #: Tracked DKMS-resolved pins left out of `tracked`, because this host has no DKMS
+    #: subsystem. Counted so the statement can say so, never folded into `compared`.
+    not_applicable: int
 
     @property
     def is_complete(self) -> bool:
@@ -211,14 +212,28 @@ class Coverage(NamedTuple):
         """
         return self.tracked > 0 and self.compared == self.tracked
 
+    @property
+    def nothing_applies(self) -> bool:
+        """The repo tracks pins, and none of them applies to this host."""
+        return self.tracked == 0 and self.not_applicable > 0
+
     def sentence(self) -> str:
         """The numbers, in a form a consumer parses and a human reads.
 
-        Both numbers are always present. A consumer keys on them, so a reworded
-        sentence that drops one breaks the gate — the test asserts this format for
-        exactly that reason.
+        Both numbers are always present when anything applies. A consumer keys on them,
+        so a reworded sentence that drops one breaks the gate — the test asserts this
+        format for exactly that reason. When nothing applies it says so in words: `0 of
+        0` is what a manifest tracking nothing looks like, and `N of N` is a comparison
+        this host did not make.
         """
-        return f"compared {self.compared} of {self.tracked} tracked pins"
+        if self.nothing_applies:
+            return (f"no tracked pin applies on this host: {self.not_applicable} "
+                    "DKMS-resolved, and this host has no DKMS subsystem")
+        text = f"compared {self.compared} of {self.tracked} tracked pins"
+        if self.not_applicable:
+            text += (f"; {self.not_applicable} DKMS-resolved do not apply, as this host "
+                     "has no DKMS subsystem")
+        return text
 
 
 class PinCheck(NamedTuple):
@@ -285,10 +300,11 @@ def check_with_coverage(
     """
     findings: list[probe_results.Finding] = []
     dkms_cache: list[str] = []
+    dkms_error: list[ResolutionError] = []
 
-    tracked = sum(1 for pin in pins if pin.is_tracked)
+    manifest_tracked = sum(1 for pin in pins if pin.is_tracked)
     compared = 0
-    unanswerable_dkms = 0
+    not_applicable = 0
 
     def ran_here(pin: manifest.Pin) -> bool:
         """Has this host a ledger record for the play that installs this pin's software?
@@ -299,29 +315,48 @@ def check_with_coverage(
         return ran_plays is None or pin.playbook in ran_plays
 
     def dkms() -> str:
+        # The failure is remembered too, so the subsystem test below and the resolver
+        # after it see one answer from one call.
+        if dkms_error:
+            raise dkms_error[0]
         if not dkms_cache:
-            dkms_cache.append(dkms_status())
+            try:
+                dkms_cache.append(dkms_status())
+            except ResolutionError as error:
+                dkms_error.append(error)
+                raise
         return dkms_cache[0]
+
+    def no_dkms_subsystem() -> bool:
+        """The health probe's own test (DESIGN-server-route.md §5), and both halves.
+
+        No state directory, so no registered module tree — `present is False`, and NOT
+        an empty module list: the `dkms` rpm owns that directory, so a DisplayLink host
+        whose module was removed has it, and that is the very state this axis reports.
+        AND the OS could not find the command. Any other failure of the command
+        establishes nothing, so it answers False and the resolver reports it.
+        """
+        if registry is None or registry.present is not False:
+            return False
+        try:
+            dkms()
+        except NotInstalled:
+            return True
+        except ResolutionError:
+            return False
+        return False
 
     for pin in pins:
         if not pin.is_tracked:
             continue
-        # NO DKMS SUBSYSTEM ON THIS HOST, so a DKMS-resolved pin is not answerable here
-        # and that is an answer, not a failure to get one. `dkms` is installed by two
-        # optional desktop-hardware plays, so on a stock server this is the whole reason
-        # the check spoke at every login: `dkms()` raises "command not found" and every
-        # DKMS pin became "could not be checked", for ever.
-        #
-        # `present is False` — no state directory at all — and NOT merely an empty
-        # module list. The `dkms` rpm owns that directory, so a DisplayLink host whose
-        # module has been removed has the directory and an empty registry, which is the
-        # very state this axis exists to report; skipping on "no modules" would silence
-        # it. `None` (could not read it) falls through and still reports.
-        if pin.installed.kind == manifest.DKMS and registry is not None \
-                and registry.present is False:
-            unanswerable_dkms += 1
-            continue
         try:
+            # NOT APPLICABLE, the owner's decision. `dkms` is installed by two optional
+            # desktop-hardware plays, so a stock server has no DKMS subsystem and a
+            # DKMS-resolved pin describes nothing on it. It leaves the population this
+            # host is held to, which is what keeps a clean server login silent.
+            if pin.installed.kind == manifest.DKMS and no_dkms_subsystem():
+                not_applicable += 1
+                continue
             pinned = pinned_value(playbook_text(pin.playbook), pin.var)
             kind = pin.installed.kind
             if kind == manifest.DKMS:
@@ -363,56 +398,43 @@ def check_with_coverage(
         if not verdict.is_clean:
             findings.append(probe_results.broken(f"{pin.var} ({verdict.state}): {verdict.detail}"))
 
-    # ZERO COVERAGE, COUNTED AFTER THE LOOP — because the manifest's number and this
-    # host's number are different facts. Counting only `tracked` up front read the
-    # repo's intent: the manifest tracks exactly one pin and it is DKMS-resolved, so on
-    # every host with no DKMS subsystem — every server, including the route this plan's
-    # own server work built — the skip above emptied the compared population while the
-    # guard, already past, had seen `tracked == 1` and stayed quiet. The check then
-    # returned no findings at all, which both consumers render as `ok`: a drift axis
-    # reporting a clean host having compared nothing, which is the exact defect this
-    # plan exists to remove.
+    # COVERAGE, COUNTED AFTER THE LOOP — because the manifest's number and this host's
+    # number are different facts. A pin that does not apply leaves the population, so
+    # `tracked` is what THIS host is held to, and a server whose every tracked pin is
+    # DKMS-resolved is held to nothing and says so in its coverage statement.
     # `not findings` is the defect's own condition, not a convenience: a pin whose probe
     # raised already carries a line naming the error, so the axis is visibly unavailable
-    # and a second sentence about coverage would only repeat it at every login. This
-    # guard is for the case where the check returned NOTHING.
-    # PARTIAL coverage counts too, not only zero. A host that compared 1 of 2 tracked
-    # pins returns one clean answer and no statement about the other, which renders `ok`
-    # exactly like a host that compared both — the same defect one pin further along.
-    # Today's manifest cannot reach that state (its only tracked pin is DKMS-resolved),
-    # and adding a non-DKMS tracked pin FAILS the suite loudly rather than arriving here
-    # silently; this is the guard for after someone does.
-    coverage = Coverage(declared=len(pins), tracked=tracked, compared=compared,
-                        unanswerable_dkms=unanswerable_dkms)
-    if pins and not findings and not coverage.is_complete:
-        findings.append(probe_results.unchecked(_coverage(
-            declared=len(pins), tracked=tracked, compared=compared,
-            unanswerable_dkms=unanswerable_dkms)))
+    # and a second sentence about coverage would only repeat it at every login. The
+    # guard is for the case where the check returned NOTHING having compared too little.
+    coverage = Coverage(declared=len(pins), tracked=manifest_tracked - not_applicable,
+                        compared=compared, not_applicable=not_applicable)
+    gap = coverage_gap(coverage)
+    if pins and not findings and gap is not None:
+        findings.append(probe_results.unchecked(gap))
     return PinCheck(findings=findings, coverage=coverage)
 
 
-def _coverage(*, declared: int, tracked: int, compared: int,
-              unanswerable_dkms: int) -> str:
-    """What this host compared, in this host's numbers.
+def coverage_gap(coverage: Coverage) -> str | None:
+    """The coverage finding a host owes, or None when it owes none.
 
-    "The repo tracks nothing" and "this host could not answer what the repo tracks" are
-    different facts and call for different actions — one is a decision to revisit in
-    `vars/version-pins.yml`, the other is a property of the machine, and only the second
-    varies between hosts sharing one manifest.
+    None when everything that applies was compared, and when nothing applies at all:
+    the owner's decision, so a clean server login is silent. Otherwise zero or PARTIAL
+    coverage is stated in this host's numbers — a host that compared 1 of 2 returns one
+    clean answer and no statement about the other, which renders `ok` exactly like one
+    that compared both.
 
-    The DKMS clause is appended only when the skip accounts for EVERY pin that went
-    uncompared, so a skip added later cannot inherit a reason that was never
-    established: the sentence is true without it.
+    "The repo tracks nothing" and "this host compared less than applies" are different
+    facts and call for different actions — one is a decision to revisit in
+    `vars/version-pins.yml`, the other a property of the machine.
     """
-    if tracked == 0:
-        return (f"the installed-vs-pinned check compared 0 of {declared} declared pins, "
-                "so nothing on this host was held against the repo's versions")
-    reason = ""
-    if unanswerable_dkms == tracked - compared:
-        which = "every tracked pin is" if compared == 0 else "the uncompared ones are"
-        reason = f" — {which} DKMS-resolved and this host has no DKMS subsystem"
-    return (f"the installed-vs-pinned check compared {compared} of {tracked} tracked "
-            f"pins on this host{reason}")
+    if coverage.is_complete or coverage.nothing_applies:
+        return None
+    if coverage.tracked == 0:
+        return (f"the installed-vs-pinned check compared 0 of {coverage.declared} "
+                "declared pins, so nothing on this host was held against the repo's "
+                "versions")
+    return (f"the installed-vs-pinned check compared {coverage.compared} of "
+            f"{coverage.tracked} tracked pins on this host")
 
 
 def declared_pins(root: str) -> list[manifest.Pin]:

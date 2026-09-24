@@ -308,9 +308,15 @@ def dkms_text(runner: Callable[[list[str]], probe_results.ProbeOutcome]) -> str:
     "pinned 1.15.0, nothing installed": a confident claim about this host that
     nothing measured. `check_pins` turns the raise into "could not be checked",
     which is the honest answer.
+
+    A command the OS could not find raises `NotInstalled`, its own type: with no DKMS
+    state directory as well, that is a host with no DKMS subsystem, and `check_pins`
+    reads it as an answer by type, never by message.
     """
     outcome = runner(["dkms", "status"])
     if not outcome.ok:
+        if outcome.missing:
+            raise check_pins.NotInstalled(outcome.error)
         raise check_pins.ResolutionError(outcome.error)
     return outcome.text
 
