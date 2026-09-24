@@ -1,17 +1,15 @@
 # Plan 00079: Podman container control — freeze/thaw by container, network, and CCY group
 
-**Status**: In Progress. Three success criteria are open, and three tasks stand before
-Task 3.4:
+**Status**: In Progress. Two success criteria are open, and both are human checks at a
+HOST terminal that stand before Task 3.4:
 
-- **Task 3.5(a)**: the interactive picker, with and without fzf. A human check at a HOST
-  terminal.
-- **Task 3.5(b)**: a confirming `qa-reviewer` PASS. Five confirming reviews have
-  returned FIX-BEFORE-MERGE, each with fewer findings. The fifth found only journal
-  times, which are corrected. A sixth review is owed.
-- **Task 3.6**: a real `freeze --ccy` and `thaw --ccy`, by a human at a quiet moment.
-  **Created**: 2026-08-19
-  **Owner**: joseph
-  **Priority**: Medium
+- **Task 3.5(a)**: the interactive picker, with and without fzf.
+- **Task 3.6**: a real `freeze --ccy` and `thaw --ccy`, at a quiet moment.
+
+Task 3.5(b), the confirming `qa-reviewer`, is done: the sixth review was PASS WITH NITS.
+**Created**: 2026-08-19
+**Owner**: joseph
+**Priority**: Medium
 
 > The full pre-slimming document, with every fact and decision inline, is kept
 > verbatim in [PLAN_archive.md](PLAN_archive.md). Facts, findings and risks now
@@ -221,7 +219,8 @@ See D4 and D6.
 - [ ] ⬜ **Task 3.5**: The two open success criteria. (a) **Human, at a HOST terminal**:
   run `podfreeze` with no target, once with `fzf` on `PATH` and once without, and in each
   open a group, act on it and quit. (b) A confirming `qa-reviewer` PASS over the plan's
-  diff. Five confirming reviews have returned FIX-BEFORE-MERGE:
+  diff — **(b) done**, 2026-09-24. Five confirming reviews returned FIX-BEFORE-MERGE, and
+  the sixth PASS WITH NITS:
 
   - [260923-qa-reviewer-confirm-opus-5.md](subagent-reports/260923-qa-reviewer-confirm-opus-5.md),
     fixed in `880154a6`;
@@ -232,9 +231,11 @@ See D4 and D6.
   - [260924-qa-reviewer-confirm4-opus-5.md](subagent-reports/260924-qa-reviewer-confirm4-opus-5.md),
     resolved likewise;
   - [260924-qa-reviewer-confirm5-opus-5.md](subagent-reports/260924-qa-reviewer-confirm5-opus-5.md),
-    resolved by the journal's 07:55 finding.
+    resolved by the journal's 07:55 finding;
+  - [260924-qa-reviewer-confirm6-opus-5.md](subagent-reports/260924-qa-reviewer-confirm6-opus-5.md),
+    PASS WITH NITS; both nits accepted.
 
-  A sixth review is owed.
+  Only (a) remains.
 
 - [ ] ⬜ **Task 3.6**: Prove `freeze --ccy` and `thaw --ccy` for real, which acceptance
   deliberately never does to live sessions. **Human, at a HOST terminal**, in a quiet
@@ -293,10 +294,9 @@ See D4 and D6.
 - [x] New CCY containers carry `ccy`, `ccy-project`, `ccy-github`, `ccy-token`
   and `ccy-ssh-keys` labels, and `podfreeze --github <id>` resolves exactly the
   sessions on that account (D4, D8) *(triage H6: 6 of 6 sessions carry all five; check 13)*
-- [ ] `./scripts/qa-all.bash` passes; `qa-reviewer` verdict is PASS (or PASS
-  WITH NITS, nits addressed or accepted). *(Task 3.5(b). The latest verdict, the fifth
-  confirming review's, is FIX-BEFORE-MERGE; its finding is resolved and a sixth review
-  is owed.)*
+- [x] `./scripts/qa-all.bash` passes; `qa-reviewer` verdict is PASS (or PASS
+  WITH NITS, nits addressed or accepted). *(Task 3.5(b): the sixth confirming review,
+  2026-09-24, was PASS WITH NITS; both nits accepted.)*
 
 ## Delivery & Milestones
 
