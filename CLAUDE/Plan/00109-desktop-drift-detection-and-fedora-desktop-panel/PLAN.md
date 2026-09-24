@@ -85,9 +85,11 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   - [x] ✅ **HOST**: answered on 2026-09-24. Five old trees are unowned and unregistered;
     only the current one is rpm-owned and registered. So the mechanism is deleting the
     directory, never removing a package
-  - [x] ✅ `play-displaylink.yml` removes a tree only when rpm owns it not AND DKMS has
-    no `/var/lib/dkms/evdi/<version>`; any other rpm failure stops the play
-  - [ ] ⬜ Run QA, deploy on HOST, re-run `triage.bash` to confirm
+  - [x] ✅ `play-displaylink.yml` removes a tree only when no package owns it AND DKMS
+    has no `/var/lib/dkms/evdi/<version>`; any other rpm failure stops the play.
+    Reviewed PASS WITH NITS, all four resolved
+    ([report](subagent-reports/260924-qa-reviewer-t02-evdi-opus-5.md))
+  - [ ] ⬜ Deploy on HOST, re-run `triage.bash` to confirm only the current tree remains
 - [ ] 🚫 **Task 0.3**: Fix group/world-readable vault password file permissions
   - **Blocked — human-only.** The path is protected by `secret_file_guard`; an agent
     cannot name it in a command, a script, or a playbook task, so this cannot be
