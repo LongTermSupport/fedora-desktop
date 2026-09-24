@@ -150,13 +150,14 @@ git-which-account          # Show which account the current repo will use
 ### Per-account git (forces a specific identity)
 
 ```bash
-git-oss push                  # Run git as oss (correct SSH key)
+git-oss push                  # Run git as oss (SSH key or HTTPS token)
 git-oss-branch-default        # Print the repo's default branch via oss
 git-oss-checkout-default      # Check out the default branch via oss
 ```
 
 Inside a repo whose remote uses a `github.com-<alias>` host, a plain `git` auto-
-detects the account — no prefix needed.
+detects the account — no prefix needed. An `https://github.com/` remote is not
+detected; use `git-<alias>` there.
 
 ### Per-account gh / clone / remote
 

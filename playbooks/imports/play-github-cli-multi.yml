@@ -1105,6 +1105,13 @@
               # value resets that list, and the replacement asks gh for this
               # account's token by name, so the active account is never switched.
               # Only `get` is answered: gh owns the token, git must not store it.
+              #
+              # The sshCommand from _gh443_sshcmd uses -F /dev/null so ssh cannot
+              # read ~/.ssh/config: its default "Host github.com" block would
+              # offer ~/.ssh/id alongside this key, and GitHub attributes to
+              # whichever matches first. -o HostName=github.com is required with
+              # it, because the github.com-<alias> host alias used by
+              # clone-<alias>/remote-<alias> remotes lives only in that config.
               function _gh_account_git() {
                   local alias="$1"
                   shift
@@ -1131,20 +1138,9 @@
                       detected_alias=""
                   fi
 
+                  # Detection reads a github.com-<alias> remote host, so a plain
+                  # https://github.com remote is not detected: use git-<alias>.
                   if [[ -n "$detected_alias" ]]; then
-                      # -F /dev/null prevents ssh from also reading ~/.ssh/config
-                      # which would otherwise pick up the default "Host github.com"
-                      # block and offer ~/.ssh/id alongside the per-account key —
-                      # GitHub then accepts whichever matched first, leading to
-                      # commits being attributed to the wrong account.
-                      #
-                      # -o HostName=github.com is REQUIRED alongside -F /dev/null:
-                      # remotes made by clone-<alias>/remote-<alias> use the
-                      # github.com-<alias> SSH host alias, whose HostName mapping
-                      # lives ONLY in ~/.ssh/config. With the config discarded ssh
-                      # would try to resolve the literal host "github.com-<alias>"
-                      # and fail ("Could not resolve hostname"). Forcing HostName
-                      # restores the real target while keeping the isolation.
                       _gh_account_git "$detected_alias" "$@"
                   else
                       # No account detected, use standard git
@@ -1152,14 +1148,7 @@
                   fi
               }
 
-              # Account-specific git commands (force specific account).
-              # -F /dev/null isolates from ~/.ssh/config: prevents the default
-              # "Host github.com" block from injecting ~/.ssh/id as a second
-              # identity, which otherwise causes commits to attribute to the
-              # wrong GitHub account. -o HostName=github.com is required because
-              # -F /dev/null also discards the github.com-<alias> host alias, so
-              # ssh must be told the real host or it fails to resolve the literal
-              # "github.com-<alias>" used by clone-<alias>/remote-<alias> remotes.
+              # Account-specific git commands (force specific account, SSH or HTTPS).
               {% for alias in github_accounts.keys() %}
               function git-{{ alias }}() {
                   _gh_account_git {{ alias }} "$@"
@@ -1170,7 +1159,7 @@
               # git-branch-default     — print the repo's default branch name
               # git-checkout-default   — check out that branch
               # Per-account variants (git-<alias>-branch-default / -checkout-default)
-              # route through the per-account git wrapper so the alias's SSH key
+              # route through the per-account git wrapper so the alias's account
               # is used for any remote operation (e.g. the ls-remote probe).
               # The shared implementation lives in _git_branch_default_impl so the
               # detection logic isn't duplicated across N aliases × 2 commands.
