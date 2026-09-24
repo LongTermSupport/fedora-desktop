@@ -5,9 +5,9 @@ Task 3.4:
 
 - **Task 3.5(a)**: the interactive picker, with and without fzf. A human check at a HOST
   terminal.
-- **Task 3.5(b)**: a confirming `qa-reviewer` PASS. Three confirming reviews have
-  returned FIX-BEFORE-MERGE, each with fewer findings; the third's are fixed, and a
-  fourth review is owed.
+- **Task 3.5(b)**: a confirming `qa-reviewer` PASS. Four confirming reviews have
+  returned FIX-BEFORE-MERGE, each with fewer findings; the fourth's are fixed, and a
+  fifth review is owed.
 - **Task 3.6**: a real `freeze --ccy` and `thaw --ccy`, by a human at a quiet moment.
   **Created**: 2026-08-19
   **Owner**: joseph
@@ -221,16 +221,18 @@ See D4 and D6.
 - [ ] ⬜ **Task 3.5**: The two open success criteria. (a) **Human, at a HOST terminal**:
   run `podfreeze` with no target, once with `fzf` on `PATH` and once without, and in each
   open a group, act on it and quit. (b) A confirming `qa-reviewer` PASS over the plan's
-  diff. Three confirming reviews have returned FIX-BEFORE-MERGE:
+  diff. Four confirming reviews have returned FIX-BEFORE-MERGE:
 
   - [260923-qa-reviewer-confirm-opus-5.md](subagent-reports/260923-qa-reviewer-confirm-opus-5.md),
     fixed in `880154a6`;
   - [260923-qa-reviewer-confirm2-opus-5.md](subagent-reports/260923-qa-reviewer-confirm2-opus-5.md),
     fixed per [260923-confirm2-fixes-opus-5.md](subagent-reports/260923-confirm2-fixes-opus-5.md);
   - [260924-qa-reviewer-confirm3-opus-5.md](subagent-reports/260924-qa-reviewer-confirm3-opus-5.md),
-    resolved as its last section records.
+    resolved as its last section records;
+  - [260924-qa-reviewer-confirm4-opus-5.md](subagent-reports/260924-qa-reviewer-confirm4-opus-5.md),
+    resolved likewise.
 
-  A fourth review is owed.
+  A fifth review is owed.
 
 - [ ] ⬜ **Task 3.6**: Prove `freeze --ccy` and `thaw --ccy` for real, which acceptance
   deliberately never does to live sessions. **Human, at a HOST terminal**, in a quiet
@@ -251,9 +253,12 @@ See D4 and D6.
   - check 9b's skip;
   - check 9's dry-run assertion, which is now counted only when the dry run ran.
 
-  Done on 2026-09-24 in two `meta-deploy.bash` runs. Both gave `VERDICT: PASS — 21 check(s) passed, 2 skipped`, against 5 running sessions that all carry `ccy=true`.
-  From the next run the verdict counts check 0 and the two deployed-copy compares, so a
-  clean run reads 24 passed.
+  Done on 2026-09-24 in two `meta-deploy.bash` runs. Both gave a PASS verdict:
+  `21 check(s) passed, 2 skipped`. That was against 5 running sessions, all of them
+  labelled `ccy=true`. From the next run the verdict also counts check 0 and the two
+  deployed-copy compares. A clean run then reads 24 passed and 2 skipped while every
+  running session is labelled, and 27 passed and 0 skipped when an unlabelled one is
+  running.
 
 - [ ] ⬜ **Task 3.4**: Mark plan Complete, move to `Completed/`, update README
   index + statistics in the same commit
@@ -287,8 +292,8 @@ See D4 and D6.
   and `ccy-ssh-keys` labels, and `podfreeze --github <id>` resolves exactly the
   sessions on that account (D4, D8) *(triage H6: 6 of 6 sessions carry all five; check 13)*
 - [ ] `./scripts/qa-all.bash` passes; `qa-reviewer` verdict is PASS (or PASS
-  WITH NITS, nits addressed or accepted). *(Task 3.5(b). The latest verdict, the third
-  confirming review's, is FIX-BEFORE-MERGE; its findings are resolved and a fourth review
+  WITH NITS, nits addressed or accepted). *(Task 3.5(b). The latest verdict, the fourth
+  confirming review's, is FIX-BEFORE-MERGE; its findings are resolved and a fifth review
   is owed.)*
 
 ## Delivery & Milestones

@@ -44,8 +44,9 @@ Plan 00079 — acceptance gate for podfreeze (HOST ONLY)
 
 Usage: acceptance.bash [--help]
 
-Runs the selection unit test first (no podman needed), then creates a throwaway
-container on a throwaway network and checks:
+First confirms the deployed podfreeze and freeze library match the repo (each a
+counted check; a mismatch stops the run). Then it runs the selection unit test (no
+podman needed), creates a throwaway container on a throwaway network, and checks:
 
    0  selection/labelling unit test passes
    1  --help works                          (exits 0, prints usage)
