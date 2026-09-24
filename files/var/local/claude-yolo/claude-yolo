@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.65.0"  # A Permissive SELinux host relabels the workspace (:z), as an Enforcing one does. See docs/ccy-changelog.md.
+CCY_VERSION="3.65.1"  # The SELinux launch message says Permissive logs the unrelabelled mounts, not blocks them. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1053,7 +1053,8 @@ if [ "${CCY_SELINUX_MODE:-off}" != "off" ]; then
     echo ""
     echo "🔒 SELinux ${CCY_SELINUX_MODE}: the workspace is mounted with a shared relabel (:z) and"
     echo "   key files are staged into a private tmpfs directory (:Z) so the container can read"
-    echo "   them. Extra project mounts and display sockets are NOT relabelled — see docs/ccy.md."
+    echo "   them. Extra project mounts and display sockets are NOT relabelled: Enforcing blocks"
+    echo "   them, Permissive logs every access — see docs/ccy.md."
 fi
 
 # Banner: make 443 mode impossible to miss. Fires whenever GitHub SSH ends up

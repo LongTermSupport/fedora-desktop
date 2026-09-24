@@ -421,7 +421,8 @@
     # `iptables` or `iptables+firewalld`). Under `firewall-backend: nftables` Docker
     # creates no such chain and the reconcile has nothing to edit, so a backend
     # change stops the play here and names the reason, rather than surfacing later
-    # as a missing chain. `check_mode: false` because this only reads.
+    # as a missing chain. `check_mode: false` because it changes no config. It can
+    # still start a stopped dockerd through the socket that play-docker.yml enables.
     - name: Read the Docker firewall backend
       ansible.builtin.command: docker info
       changed_when: false

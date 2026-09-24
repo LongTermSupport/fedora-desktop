@@ -50,10 +50,14 @@ PLAN_ROOT="${scriptDir}"
 # 00109: its acceptance must run again AFTER a logout and login, which is what regenerates
 # the status document it judges and loads the panel's new code.
 # 00134: its triage is what reads the next boot's journal for the post-boot criteria
-# (dbus-broker, dnf5daemon, WirePlumber, the ABRT applet), so it runs after a reboot.
+# (dbus-broker, dnf5daemon, WirePlumber, the ABRT applet), so it runs after a reboot. Its
+# deploy also carries ccy 3.65.1 (the SELinux relabel on a Permissive host, Task 3.1).
+# play-lxc-install-config.yml: 00134 Task 3.2's Docker firewall-backend assert, run once.
+# It is not in 00134's deploy, and nothing above depends on it.
 PLANS=(
     "00109-desktop-drift-detection-and-fedora-desktop-panel"
     "00134-startup-log-triage-and-status-panel-unavailable"
+    "playbooks/imports/play-lxc-install-config.yml"
 )
 
 LIST_ONLY=0

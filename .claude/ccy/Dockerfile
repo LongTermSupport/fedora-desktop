@@ -25,7 +25,12 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         python3-numpy \
         python3-pil \
         xz-utils \
+        gawk \
     && rm -rf /var/lib/apt/lists/*
+
+# gawk serves scripts/test-bash-history-search.bash: the bash-history ranker it tests
+# is gawk, and the base image carries only mawk. play-basic-configs.yml installs it on
+# the host.
 
 # xz-utils is not decoration: GNU tar shells out to the `xz` binary for -J, and
 # upstream shellcheck ships ONLY a .tar.xz. Without it the pinned-toolchain layer
@@ -170,4 +175,5 @@ RUN ansible --version && \
     yq --version && \
     gitleaks version && \
     rg --version && \
+    gawk --version && \
     magick --version

@@ -386,9 +386,10 @@ from `getenforce` and the engine's own report, whether that applies:
   read the container makes, which floods the audit log.
 - **Disabled, or an engine that does not label:** nothing changes.
 
-Not relabelled on such a host, and therefore unreadable inside: the tracked
-[extra project mounts](#extra-mounts) (their no-relabel rule stands) and the display sockets
-(a `connectto` to your compositor that no file label permits). A forwarded agent
+Not relabelled on such a host: the tracked [extra project mounts](#extra-mounts) (their
+no-relabel rule stands) and the display sockets (a `connectto` to your compositor that no
+file label permits). An Enforcing host makes them unreadable inside. A Permissive host still
+lets them be read, but logs a denial for each access. A forwarded agent
 (`--ssh-agent`) is the same shape and is why that flag disables labelling for its container.
 
 For projects where CCY should never run, or should only run on one machine, see

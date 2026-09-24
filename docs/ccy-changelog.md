@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.65.1
+
+- **The SELinux launch message no longer says the mounts that are not relabelled are
+  unreadable on every host.** Only an Enforcing host blocks extra project mounts and display
+  sockets. A Permissive host lets them be read and logs each access.
+
 ## 3.65.0
 
 - **A Permissive SELinux host relabels the workspace too.** It used to be treated like a
