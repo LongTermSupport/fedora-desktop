@@ -34,7 +34,7 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00138-bash-history-and-ctrl-r](00138-bash-history-and-ctrl-r/) - Bash history is saved only at shell exit, so open terminals hold unsaved, unsearchable history. Research and a proposal: durable timestamped history, and a Ctrl+R over every terminal's history that ranks this directory's and repo's commands first. Built (repo-owned recorder, no Atuin); in review, then a host deploy.
+- [00138-bash-history-and-ctrl-r](00138-bash-history-and-ctrl-r/) - Bash history is saved only at shell exit, so open terminals hold unsaved, unsearchable history. Research and a proposal: durable timestamped history, and a Ctrl+R over every terminal's history that ranks this directory's and repo's commands first. Built and reviewed (repo-owned recorder, no Atuin); merged, waiting on the host deploy and acceptance run.
 
 - [00136-host-health-report-in-a-terminal](00136-host-health-report-in-a-terminal/) - The host health report becomes a terminal-first surface on both profiles: `fedora-desktop-health` prints it on demand, the login snippet speaks in full once a day and otherwise leaves a one-line reminder, and the GNOME panel gains a row that opens the command in a terminal. Nothing re-runs a play; that remains Plan 00109 Task 4.3.
 

@@ -114,4 +114,4 @@ Supporting documents:
 
 - Research: a5950efc, 415ec978
 - Decisions recorded, prototype timed
-- Implementation on branch `worktree-plan-00138`: f3ec93cf, then the review fixes; awaiting the confirming review, merge, and the host deploy (Phase 4)
+- Implementation on branch `worktree-plan-00138`: f3ec93cf, review fixes 01f4a90a and b31e455d; merged into F44 at 5a65961e. Waiting on the host deploy (Phase 4)
