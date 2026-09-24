@@ -54,10 +54,14 @@ PLAN_ROOT="${scriptDir}"
 # the status document it judges and loads the panel's new code.
 # 00134: its triage is what reads the next boot's journal for the post-boot criteria
 # (dbus-broker, dnf5daemon, WirePlumber, the ABRT applet), so it runs after a reboot.
+# Completed/00138: deploys the up-arrow split (up-arrow local, Ctrl+R global) and its
+# acceptance checks it in fresh shells. After 00134, whose deploy runs the same
+# play-basic-configs.yml.
 PLANS=(
     "playbooks/imports/optional/common/play-vm-test-lab.yml"
     "00109-desktop-drift-detection-and-fedora-desktop-panel"
     "00134-startup-log-triage-and-status-panel-unavailable"
+    "Completed/00138-bash-history-and-ctrl-r"
 )
 
 LIST_ONLY=0
