@@ -43,15 +43,10 @@ PLAN_ROOT="${scriptDir}"
 # nothing for this script to do. A triage-only plan is run once, read-only. Words after the
 # folder name are passed to that plan's triage.bash, both runs.
 #
-# 00134 first: it deploys the broadest set, the ccy launchers and basic-configs included.
-# 00079 next: its acceptance judges the ccy launcher and podfreeze.
-# 00109 after both: its drift check should see their plays as freshly run.
-# 00080 last: read-only probes of ccy networking, judging what the deploys left.
+# 00109: its acceptance must run again AFTER a logout and login, which is what regenerates
+# the status document it judges and loads the panel's new code.
 PLANS=(
-    "00134-startup-log-triage-and-status-panel-unavailable"
-    "00079-podman-container-control"
     "00109-desktop-drift-detection-and-fedora-desktop-panel"
-    "00080-ccy-session-network-isolation --reachability"
 )
 
 LIST_ONLY=0
@@ -232,18 +227,27 @@ for planDir in "${PLAN_DIRS[@]}"; do
     fi
 done
 
-printf '\n==============================================================\n'
-printf 'Summary\n'
-printf '==============================================================\n'
-printf '%s\n' "${RESULTS[@]}"
+# The summary is written into the capture directory as well as the terminal, so the agent
+# that asked for the run reads the verdict itself instead of the owner pasting it back.
+# summary.txt appearing is also the marker that the whole batch has finished.
+if [[ "${BAD}" -gt 0 ]]; then
+    closing="$(printf '%d of %d unit(s) failed or were skipped.' "${BAD}" "${#RESULTS[@]}")"
+else
+    closing="$(printf 'all %d unit(s) passed.' "${#RESULTS[@]}")"
+fi
+{
+    printf '\n==============================================================\n'
+    printf 'Summary\n'
+    printf '==============================================================\n'
+    printf '%s\n' "${RESULTS[@]}"
+    printf '\n%s\n' "${closing}"
+} | tee "${CAPTURE_DIR}/summary.txt"
 
 # A batch is only useful if a failure anywhere is visible in the exit status. The count is
 # incremented where each failure happens, rather than re-derived by grepping the summary
 # this script printed itself — parsing your own output makes the exit status a function of
 # formatting, and a later tweak to a label would silently change what the batch reports.
 if [[ "${BAD}" -gt 0 ]]; then
-    printf '\n%d of %d unit(s) failed or were skipped.\n' "${BAD}" "${#RESULTS[@]}" >&2
     exit 1
 fi
-printf '\nall %d unit(s) passed.\n' "${#RESULTS[@]}"
 exit 0

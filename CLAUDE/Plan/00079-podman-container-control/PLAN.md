@@ -1,16 +1,13 @@
 # Plan 00079: Podman container control — freeze/thaw by container, network, and CCY group
 
-**Status**: In Progress. Four success criteria are open, and four tasks stand before Task
-3.4:
+**Status**: In Progress. Three success criteria are open, and three tasks stand before
+Task 3.4:
 
 - **Task 3.5(a)**: the interactive picker, with and without fzf. A human check at a HOST
   terminal.
 - **Task 3.5(b)**: a confirming `qa-reviewer` PASS. Two confirming reviews have returned
-  FIX-BEFORE-MERGE; the second one's fixes await a third review.
+  FIX-BEFORE-MERGE; the third, over the second one's fixes, is running.
 - **Task 3.6**: a real `freeze --ccy` and `thaw --ccy`, by a human at a quiet moment.
-- **Task 3.7**: the corrected version probe, confirmed at the next HOST triage run.
-- **Task 3.8**: a HOST acceptance run with the fixed gate. The 2026-09-23 PASS came from
-  the gate as it was before both confirming reviews.
   **Created**: 2026-08-19
   **Owner**: joseph
   **Priority**: Medium
@@ -230,7 +227,7 @@ See D4 and D6.
   - [260923-qa-reviewer-confirm2-opus-5.md](subagent-reports/260923-qa-reviewer-confirm2-opus-5.md),
     fixed per [260923-confirm2-fixes-opus-5.md](subagent-reports/260923-confirm2-fixes-opus-5.md).
 
-  A third review over the second set of fixes is owed.
+  A third review over the second set of fixes is running.
 
 - [ ] ⬜ **Task 3.6**: Prove `freeze --ccy` and `thaw --ccy` for real, which acceptance
   deliberately never does to live sessions. **Human, at a HOST terminal**, in a quiet
@@ -238,22 +235,20 @@ See D4 and D6.
   then `podfreeze thaw --ccy` and confirm they all resume. It interrupts every running
   agent, which is why no script does it unattended.
 
-- [ ] ⬜ **Task 3.7**: The triage probe `deployed ccy version` called the `ccy` alias,
+- [x] ✅ **Task 3.7**: The triage probe `deployed ccy version` called the `ccy` alias,
   which a non-interactive script cannot see (`rc=127`). It now reads `CCY_VERSION` from
   the deployed `/var/local/claude-yolo/claude-yolo`, without running it: the launcher's
-  `--version` needs the cwd to be a main checkout's root. Confirm at the next HOST triage
-  run.
+  `--version` needs the cwd to be a main checkout's root. Confirmed on the HOST on
+  2026-09-24: `rc=0`, and it printed the version.
 
-- [ ] ⬜ **Task 3.8**: **HOST ACTION.** Re-run acceptance with the fixed gate: run
-  `CLAUDE/Plan/00079-podman-container-control/deploy.bash`, which chains into
-  `acceptance.bash`, and journal the verdict. The 2026-09-23 PASS predates three gate
-  fixes:
+- [x] ✅ **Task 3.8**: **HOST ACTION.** Re-run acceptance with the fixed gate, which covers
+  three fixes the 2026-09-23 PASS predates:
 
   - the freeze-library compare;
   - check 9b's skip;
   - check 9's dry-run assertion, which is now counted only when the dry run ran.
 
-  With every session labelled, expect 21 passed and 2 skipped.
+  Done on 2026-09-24 in two `meta-deploy.bash` runs. Both gave `VERDICT: PASS — 21 check(s) passed, 2 skipped`, against 5 running sessions that all carry `ccy=true`.
 
 - [ ] ⬜ **Task 3.4**: Mark plan Complete, move to `Completed/`, update README
   index + statistics in the same commit
@@ -278,17 +273,17 @@ See D4 and D6.
 - [ ] Interactive picker works with and without fzf — **not exercised by any run**
   (`pick_target` needs a TTY). Human check at a HOST terminal
 - [x] Refuses to run inside a container; `--dry-run` changes nothing *(checks 2, 4, 9)*
-- [ ] `acceptance.bash` renders `VERDICT: PASS` on the HOST against the
+- [x] `acceptance.bash` renders `VERDICT: PASS` on the HOST against the
   deployed copy (it refuses to vouch for a binary that differs from the repo)
-  *(Task 3.8. The two 2026-09-23 PASS runs came from the gate as it was before the
-  confirming reviews: they compared the entry script only, and checks 9 and 9b counted
-  passes that nothing had run. The fixed gate has not run on the HOST yet.)*
+  *(Task 3.8: two HOST runs of the fixed gate on 2026-09-24, both PASS with 21 passed
+  and 2 skipped. The gate compares the entry script and the freeze library before any
+  check runs.)*
 - [x] New CCY containers carry `ccy`, `ccy-project`, `ccy-github`, `ccy-token`
   and `ccy-ssh-keys` labels, and `podfreeze --github <id>` resolves exactly the
   sessions on that account (D4, D8) *(triage H6: 6 of 6 sessions carry all five; check 13)*
 - [ ] `./scripts/qa-all.bash` passes; `qa-reviewer` verdict is PASS (or PASS
   WITH NITS, nits addressed or accepted). *(Task 3.5(b). The latest verdict, the second
-  confirming review's, is FIX-BEFORE-MERGE; its fixes await a third review.)*
+  confirming review's, is FIX-BEFORE-MERGE; a third review over its fixes is running.)*
 
 ## Delivery & Milestones
 

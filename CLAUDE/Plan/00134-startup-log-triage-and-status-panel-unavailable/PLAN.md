@@ -119,8 +119,9 @@ containers that needs its own diagnosis (F7).
   16:40). Remaining: confirm no applet backlog notification at the next login.
 - [ ] 🔄 **Task 2.6**: Thunar — no play installed it and no package needed it; the owner
   does not use it, so `play-basic-configs.yml` removes it (`c4b55c97`), and its
-  `org.freedesktop.FileManager1` service file goes with the package. HOST verify pending:
-  run the play, then the next boot's `journalctl -b -u dbus-broker` has no duplicate line.
+  `org.freedesktop.FileManager1` service file goes with the package. The play ran on
+  2026-09-24 in this plan's deploy, and the removal task reported `changed`. HOST verify
+  pending: the next boot's `journalctl -b -u dbus-broker` has no duplicate line.
 
 ### Phase 3: things to diagnose before changing
 
