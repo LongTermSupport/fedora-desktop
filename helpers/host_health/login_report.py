@@ -542,10 +542,11 @@ def main(
             pins=check_pins.declared_pins(arguments.repo_root),
             playbook_text=lambda relative: _read(arguments.repo_root, relative),
             dkms_status=lambda: dkms_text(probe.run_probe),
-            # The two things this host knows about itself. `registry` decides whether a
-            # DKMS-resolved pin is answerable here at all; `ran_plays` disambiguates one
-            # verdict, "nothing installed", which means something different on a host
-            # that ran the play and one that never did.
+            # The two things this host knows about itself. Together they decide whether
+            # a DKMS-resolved pin applies here at all: not on a host with no DKMS
+            # subsystem whose ledger has no run of the pin's play. `ran_plays` also
+            # disambiguates one verdict, "nothing installed", which means something
+            # different on a host that ran the play and one that never did.
             registry=probe.dkms_registry(),
             ran_plays=plays_run_here(base),
         )

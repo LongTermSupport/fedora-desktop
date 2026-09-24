@@ -310,9 +310,10 @@ class TestWhatThisHostKnowsAboutItself(unittest.TestCase):
     So the two facts are scoped to what each can actually answer:
 
     * `registry.present is False` — no DKMS state directory at all — together with a
-      `dkms` command the OS could not find is a host with no DKMS subsystem, and there a
-      DKMS-resolved pin is NOT APPLICABLE: out of the population, and silent. That is the
-      owner's decision, and the whole reason a stock server spoke at every login.
+      `dkms` command the OS could not find is a host with no DKMS subsystem. On one
+      whose ledger has no run of the pin's play, a DKMS-resolved pin is NOT APPLICABLE:
+      out of the population, and silent. That is the owner's decision, and the whole
+      reason a stock server spoke at every login.
       **Not** merely an empty module list: the `dkms` rpm owns that directory, so a
       DisplayLink host whose module was removed has the directory and an empty
       registry, and that is precisely what this axis exists to report.
@@ -382,12 +383,12 @@ class TestWhatThisHostKnowsAboutItself(unittest.TestCase):
     def test_a_host_with_no_dkms_subsystem_finds_a_dkms_pin_not_applicable(self) -> None:
         """The server case, and the owner's decision: NOT APPLICABLE, and silent.
 
-        No DKMS subsystem is the health probe's own test (DESIGN-server-route.md §5): no
-        state directory, so no registered module tree, AND no `dkms` command. The pin
-        is then excluded from the population this host is held to, so the coverage
-        guard has nothing to say and a clean server login is silent. What the host
-        compared is still STATED, as "no tracked pin applies", so the document never
-        reads as a full "compared N of N" it did not do.
+        Three facts, all required (DESIGN-server-route.md §5): no DKMS state directory,
+        no `dkms` command, and no ledger run of the play that installs the pin's
+        software. The pin is then excluded from the population this host is held to,
+        so the coverage guard has nothing to say and a clean server login is silent.
+        What the host compared is still STATED, as "no tracked pin applies", so the
+        document never reads as a full "compared N of N" it did not do.
 
         The command is asked exactly once, to establish that it is absent.
         """
@@ -399,7 +400,7 @@ class TestWhatThisHostKnowsAboutItself(unittest.TestCase):
 
         result = check_pins.check_with_coverage(
             pins=[pin()], playbook_text=lambda _: PLAYBOOK,
-            dkms_status=dkms, registry=self.NO_SUBSYSTEM)
+            dkms_status=dkms, registry=self.NO_SUBSYSTEM, ran_plays=set())
         self.assertEqual(result.findings, [])
         self.assertEqual(calls, [1])
         self.assertEqual(result.coverage.tracked, 0)
@@ -426,7 +427,7 @@ class TestWhatThisHostKnowsAboutItself(unittest.TestCase):
 
         result = check_pins.check_with_coverage(
             pins=pins, playbook_text=lambda _: PLAYBOOK,
-            dkms_status=not_installed, registry=self.NO_SUBSYSTEM)
+            dkms_status=not_installed, registry=self.NO_SUBSYSTEM, ran_plays=set())
         self.assertEqual(result.findings, [])
         self.assertEqual(result.coverage.tracked, 0)
         self.assertEqual(result.coverage.not_applicable, len(tracked))
@@ -440,7 +441,7 @@ class TestWhatThisHostKnowsAboutItself(unittest.TestCase):
             pins=[pin(), rpm_pin], playbook_text=lambda _: PLAYBOOK,
             dkms_status=not_installed,
             rpm_version=lambda _: "v6.3.0-1",
-            registry=self.NO_SUBSYSTEM)
+            registry=self.NO_SUBSYSTEM, ran_plays=set())
         self.assertEqual(result.findings, [])
         self.assertEqual(
             (result.coverage.tracked, result.coverage.compared,
@@ -450,6 +451,28 @@ class TestWhatThisHostKnowsAboutItself(unittest.TestCase):
         sentence = result.coverage.sentence()
         self.assertTrue(sentence.startswith("compared 1 of 1 tracked pins"), sentence)
         self.assertIn("no DKMS subsystem", sentence)
+
+    def test_a_host_that_RAN_the_owning_play_and_lost_dkms_still_reports(self) -> None:
+        """No DKMS subsystem is not applicability on its own. A desktop that ran
+        `play-displaylink.yml` and then lost dkms entirely — the rpm removed, the state
+        directory with it — has the pin's software missing, and the health probe is
+        silent there too, so this is the only surface left to say so."""
+        findings = check_pins.check(
+            pins=[pin()], playbook_text=lambda _: PLAYBOOK,
+            dkms_status=not_installed, registry=self.NO_SUBSYSTEM,
+            ran_plays={self.DISPLAYLINK})
+        self.assertEqual(len(findings), 1)
+        self.assertFalse(findings[0].checked)
+
+    def test_an_unreadable_ledger_keeps_the_pin_applicable(self) -> None:
+        """`None` is "may have run". An open question about the ledger must not buy
+        silence, so the pin stays in the population and the host says what it lacks."""
+        result = check_pins.check_with_coverage(
+            pins=[pin()], playbook_text=lambda _: PLAYBOOK,
+            dkms_status=not_installed, registry=self.NO_SUBSYSTEM, ran_plays=None)
+        self.assertEqual(len(result.findings), 1)
+        self.assertFalse(result.findings[0].checked)
+        self.assertEqual(result.coverage.not_applicable, 0)
 
     def test_the_dkms_command_absent_WITH_trees_registered_still_reports(self) -> None:
         """The worse state §5 names: modules nothing will rebuild for the next kernel.

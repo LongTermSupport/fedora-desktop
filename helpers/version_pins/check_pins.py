@@ -293,10 +293,12 @@ def check_with_coverage(
     two different numbers: the manifest's tracked count is the repo's intent, and a host
     can skip every one of them. See the comment at the guard.
 
-    `ran_plays` and `registry` are the two things this host knows about itself.
-    Neither narrows the population — a pin the ledger has never seen is still compared,
+    `ran_plays` and `registry` are the two things this host knows about itself. They
+    narrow the population in ONE case only, and only together: a DKMS-resolved pin is
+    not applicable when this host has no DKMS subsystem AND its ledger has no run of
+    the pin's play. Anywhere else a pin the ledger has never seen is still compared,
     because "installed 1.14.16 against a pinned 1.15.0" is drift whatever the ledger
-    says. They act on one verdict and one resolver respectively; see the comments below.
+    says, and `ran_plays` acts only on the ABSENT verdict. See the comments below.
     """
     findings: list[probe_results.Finding] = []
     dkms_cache: list[str] = []
@@ -328,13 +330,15 @@ def check_with_coverage(
         return dkms_cache[0]
 
     def no_dkms_subsystem() -> bool:
-        """The health probe's own test (DESIGN-server-route.md §5), and both halves.
+        """No DKMS state directory AND a `dkms` command the OS could not find.
 
-        No state directory, so no registered module tree — `present is False`, and NOT
-        an empty module list: the `dkms` rpm owns that directory, so a DisplayLink host
-        whose module was removed has it, and that is the very state this axis reports.
-        AND the OS could not find the command. Any other failure of the command
-        establishes nothing, so it answers False and the resolver reports it.
+        STRICTER than the health probe's silence (DESIGN-server-route.md §5), which
+        accepts an empty OR absent registry: that probe asks whether a module is
+        missing a build, and an empty registry has none. This asks whether a pin
+        applies, and an empty directory is exactly what a DisplayLink host whose module
+        was removed has — the `dkms` rpm owns it — so only `present is False` counts.
+        Any failure of the command other than the OS not finding it establishes
+        nothing, so it answers False and the resolver reports it.
         """
         if registry is None or registry.present is not False:
             return False
@@ -354,7 +358,11 @@ def check_with_coverage(
             # desktop-hardware plays, so a stock server has no DKMS subsystem and a
             # DKMS-resolved pin describes nothing on it. It leaves the population this
             # host is held to, which is what keeps a clean server login silent.
-            if pin.installed.kind == manifest.DKMS and no_dkms_subsystem():
+            # Only where the ledger has no run of the pin's play: a desktop that ran it
+            # and then lost dkms entirely is missing the software, and nothing else
+            # reports that. An unreadable ledger (`ran_here` answers True) keeps the pin.
+            if pin.installed.kind == manifest.DKMS and not ran_here(pin) \
+                    and no_dkms_subsystem():
                 not_applicable += 1
                 continue
             pinned = pinned_value(playbook_text(pin.playbook), pin.var)
