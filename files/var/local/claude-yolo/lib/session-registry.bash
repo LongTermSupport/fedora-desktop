@@ -269,6 +269,86 @@ ccy_registry_write() {
     fi
 }
 
+# _ccy_registry_args_without_network <network> [args...] — the ccy replay args with every
+# `--network <network>` pair removed, one per line, walked the way ccy_registry_replay_args
+# walks them: a value-taking flag consumes the next word, and after `--` every word is claude's.
+_ccy_registry_args_without_network() {
+    local network="$1"
+    shift
+    local after_dd=false
+    while [[ $# -gt 0 ]]; do
+        if [[ "$after_dd" == true ]]; then
+            printf '%s\n' "$1"
+            shift
+            continue
+        fi
+        if [[ "$1" == "--" ]]; then
+            after_dd=true
+        elif [[ "$1" == "--network" && $# -ge 2 && "$2" == "$network" ]]; then
+            shift 2
+            continue
+        else
+            case "$(ccy_registry_flag_class "$1")" in
+            keep-value | drop-value)
+                if [[ $# -ge 2 ]]; then
+                    printf '%s\n%s\n' "$1" "$2"
+                    shift 2
+                    continue
+                fi
+                ;;
+            esac
+        fi
+        printf '%s\n' "$1"
+        shift
+    done
+}
+
+# ccy_registry_forget_network <dir> <network> [--check] — take `--network <network>` out of
+# every ccy record for <dir>, so a restore after a reboot does not rejoin a network
+# `ccy --disconnect` was asked to drop. Prints one line per record changed; with --check it
+# changes nothing and prints the names of the records that would change. A record that
+# cannot be read may name the network too, so it fails the call, after every other record
+# has been handled. The rewrite goes through ccy_registry_write (whole, then moved into
+# place); a session whose trampoline removes its record in the instant between the read and
+# the move would get it back, which the next restore reports as a session that did not start.
+ccy_registry_forget_network() {
+    local dir="${1:?ccy_registry_forget_network requires a directory}"
+    local network="${2:?ccy_registry_forget_network requires a network}"
+    local check=false regdir file failures=0 walked
+    local -a kept=()
+    [[ "${3:-}" == "--check" ]] && check=true
+    regdir=$(ccy_registry_dir) || return 1
+    [[ -e "$regdir" ]] || return 0
+    if [[ ! (-d "$regdir" && -r "$regdir" && -x "$regdir") ]]; then
+        print_error "the session registry $regdir is not a readable directory, so its restore records cannot be checked for $network."
+        return 1
+    fi
+    for file in "$regdir"/*; do
+        [[ -e "$file" ]] || continue
+        [[ "$file" == *.tmp.* ]] && continue
+        if ! ccy_registry_read "$file"; then
+            print_error "the restore record $file could not be read, so whether it rejoins $network is unknown."
+            failures=$((failures + 1))
+            continue
+        fi
+        [[ "$REC_PREFIX" == "ccy" && "$REC_DIR" == "$dir" ]] || continue
+        walked=$(_ccy_registry_args_without_network "$network" "${REC_ARGS[@]}") || return 1
+        kept=()
+        [[ -z "$walked" ]] || mapfile -t kept <<<"$walked"
+        [[ ${#kept[@]} -ne ${#REC_ARGS[@]} ]] || continue
+        if [[ "$check" == true ]]; then
+            printf '%s\n' "$REC_NAME"
+            continue
+        fi
+        if ! ccy_registry_write "$REC_NAME" "$REC_DIR" "$REC_LAUNCHER" "$REC_PREFIX" "$REC_RESTORE" "${kept[@]}"; then
+            failures=$((failures + 1))
+            continue
+        fi
+        printf 'Removed --network %s from the restore record of session %s.\n' "$network" "$REC_NAME"
+    done
+    [[ "$failures" -eq 0 ]]
+}
+
 # ccy_registry_remove <name> — delete a session's record. An absent record is not an error:
 # the session may have been started before the registry existed.
 ccy_registry_remove() {

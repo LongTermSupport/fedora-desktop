@@ -17,6 +17,32 @@ Two version numbers move independently — see
 
 ---
 
+## 3.64.2
+
+`ccy --disconnect` forgets the network wherever a later launch would read it
+(network-management 1.9.2).
+
+- **Quick Launch no longer rejoins it.** A launch onto a network writes it into
+  `.claude/ccy/.last-launch.conf` as `LAST_NETWORK`. The next plain `ccy` offers that
+  config (default Yes) and a session restore takes it unasked, so 3.64.0 and 3.64.1 still
+  rejoined the network after saying it was forgotten. `--disconnect` now blanks
+  `LAST_NETWORK` when it names that network and keeps every other line.
+- **A restore after a reboot no longer rejoins it.** A session started with
+  `--network NET` keeps that in its restore record. `--disconnect NET` now takes the pair
+  out of this project's records. Words after `--`, other networks, other projects' and
+  `cc` records are left alone. An unreadable record fails the command, since it may still
+  name the network.
+- **The same rule for the last-network refusal.** The session keeps the network until it
+  ends, but nothing saved names it any more, so starting it again with a plain `ccy`
+  leaves it out. The refusal now says that after clearing, not before.
+- **A named `--disconnect NET` with no container running** forgets NET wherever it is
+  saved, not only when it is the saved default.
+- **No terminal to ask on** now gives a clear message and names
+  `ccy --disconnect <network>` instead of bash's redirection error.
+- **`ccy --connect` stops when the engine cannot list its networks**, with that as the
+  reason. It no longer reports "Network not found", "no longer exists" or "No
+  user-defined networks found" for an engine failure.
+
 ## 3.64.1
 
 Fixes to `ccy --disconnect` from its review (network-management 1.9.1).

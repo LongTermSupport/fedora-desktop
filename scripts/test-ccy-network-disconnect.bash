@@ -24,7 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIB_DIR="$REPO_ROOT/files/var/local/claude-yolo/lib"
 
-for lib in common-pure.bash network-management.bash; do
+for lib in common-pure.bash network-management.bash session-registry.bash; do
     if [ ! -f "$LIB_DIR/$lib" ]; then
         echo "FAIL: $lib not found at $LIB_DIR/$lib" >&2
         exit 1
@@ -35,10 +35,14 @@ done
 source "$LIB_DIR/common-pure.bash"
 # shellcheck source=/dev/null
 source "$LIB_DIR/network-management.bash"
+# shellcheck source=/dev/null
+source "$LIB_DIR/session-registry.bash"
 
 SCRATCH="$(mktemp -d)"
 trap 'rm -rf "$SCRATCH"' EXIT
 export HOME="$SCRATCH/home"
+# The session registry: a restore replays each record's arguments, --network included.
+export CCY_STATE_DIR="$SCRATCH/state"
 mkdir -p "$HOME" "$SCRATCH/projects/demo"
 # get_project_name reads the working directory: a generic parent gives the bare "demo".
 cd "$SCRATCH/projects/demo" || exit 1
@@ -64,6 +68,7 @@ says() { if grep -qF -- "$1" <<<"$2"; then echo yes; else echo no; fi; }
 # STUB_PS_FAILS    non-empty: `ps` fails, with the engine's own message on stderr
 # STUB_NETS[n]     the networks container n is attached to, space-separated
 # STUB_ALL_NETS    every network the engine knows, space-separated, for `network ls`
+# STUB_LS_FAILS    non-empty: `network ls` fails, with the engine's own message on stderr
 # STUB_FAIL_VERB   "disconnect" or "connect": that verb fails with the engine's own message
 CALLS="$SCRATCH/calls"
 declare -A STUB_NETS=()
@@ -95,6 +100,10 @@ container_cmd() {
             return 0
             ;;
         "network ls")
+            if [ -n "${STUB_LS_FAILS:-}" ]; then
+                echo "Error: cannot connect to Podman: simulated network ls failure" >&2
+                return 125
+            fi
             read -r -a words <<<"$STUB_ALL_NETS"
             printf '%s\n' "${words[@]}"
             return 0
@@ -120,8 +129,46 @@ reset() {
     STUB_ALL_NETS="podman wrong-network right-network"
     STUB_FAIL_VERB=""
     STUB_PS_FAILS=""
+    STUB_LS_FAILS=""
     : >"$TTY"
     rm -f "$(get_network_persistence_file)"
+    rm -rf .claude "$CCY_STATE_DIR"
+}
+
+# The Quick Launch config, in the shape the launcher's save_launch_config writes it. A plain
+# ccy offers it (and a session restore takes it unasked), joining LAST_NETWORK.
+QL=".claude/ccy/.last-launch.conf"
+write_quick_launch() {
+    mkdir -p .claude/ccy
+    cat >"$QL" <<EOF
+# CCY Launch Configuration
+# Config Version: 3
+SAVED_CONFIG_VERSION=3
+SAVED_CCY_VERSION="9.9.9"
+SAVED_CCY_HASH="0123abcd"
+LAST_TOKEN="demo-token"
+LAST_SSH_KEYS="key-one key-two"
+LAST_NETWORK="$1"
+LAST_LAUNCH_DATE="2026-09-24"
+EOF
+    chmod 600 "$QL"
+}
+# What the launcher reads: it sources the file, so this does too.
+quick_launch_network() {
+    # shellcheck source=/dev/null
+    (source "$QL" && printf '%s' "${LAST_NETWORK-unset}")
+}
+quick_launch_rest() { grep -v '^LAST_NETWORK=' "$QL"; }
+QL_REST_WANT="$(printf '%s\n' '# CCY Launch Configuration' '# Config Version: 3' 'SAVED_CONFIG_VERSION=3' \
+    'SAVED_CCY_VERSION="9.9.9"' 'SAVED_CCY_HASH="0123abcd"' 'LAST_TOKEN="demo-token"' \
+    'LAST_SSH_KEYS="key-one key-two"' 'LAST_LAUNCH_DATE="2026-09-24"')"
+
+# A session record, as the launcher writes it: write_record NAME DIR PREFIX [replay-args...]
+write_record() { ccy_registry_write "$1" "$2" /usr/local/bin/ccy "$3" yes "${@:4}"; }
+# The arguments a record replays, space-joined (the record must read cleanly).
+record_args() {
+    ccy_registry_read "$CCY_STATE_DIR/sessions/$1" || { echo "(unreadable)"; return; }
+    printf '%s' "${REC_ARGS[*]}"
 }
 # The y/N confirmation reads the terminal, not stdin. CCY_TTY points it at this file, which
 # a case fills with the answers typed; an empty file is end of input.
@@ -399,6 +446,176 @@ OUT="$(connect_to_network right-network "_yolo" "ccy" 2>&1)"
 check "a connect saves the default" "right-network" "$(saved)"
 check "and says every plain launch will reconnect" "yes" "$(says "every plain ccy launch in this project connects to it" "$OUT")"
 check "and names the undo" "yes" "$(says "ccy --disconnect right-network" "$OUT")"
+
+echo ""
+echo "=== the Quick Launch config forgets the network too ==="
+# A launch onto a network writes it into the Quick Launch config as LAST_NETWORK; the next
+# plain ccy offers that config (default Yes) and a session restore takes it unasked. So the
+# saved default is only one of the places a network comes back from.
+reset
+save_network_preference wrong-network
+write_quick_launch wrong-network
+run_disconnect "" wrong-network
+check "a detach clears LAST_NETWORK when it names that network" "" "$(quick_launch_network)"
+check "and every other line of the config is kept" "$QL_REST_WANT" "$(quick_launch_rest)"
+check "and the config keeps its private mode" "600" "$(stat -c %a "$QL")"
+check "and the output says Quick Launch forgot it" "yes" "$(says "Quick Launch" "$OUT")"
+
+reset
+write_quick_launch right-network
+run_disconnect "" wrong-network
+check "LAST_NETWORK naming another network is left alone" "right-network" "$(quick_launch_network)"
+
+reset
+write_quick_launch wrong-network
+run_disconnect "" wrong-network
+check "with no saved default, Quick Launch still forgets the network" "" "$(quick_launch_network)"
+check "and the detach succeeds" "0" "$RC"
+
+reset
+STUB_NETS[demo_yolo]="wrong-network"
+save_network_preference wrong-network
+write_quick_launch wrong-network
+run_disconnect "" wrong-network
+check "the last-network refusal clears LAST_NETWORK too" "" "$(quick_launch_network)"
+check "and still refuses" "1" "$RC"
+check "and no longer tells the user to wait for a default that is already gone" "no" "$(says "once no saved default" "$ERR")"
+
+reset
+write_quick_launch wrong-network
+STUB_FAIL_VERB=disconnect
+run_disconnect "" wrong-network
+check "an engine refusal leaves the Quick Launch config alone" "wrong-network" "$(quick_launch_network)"
+
+reset
+STUB_PS=""
+write_quick_launch wrong-network
+run_disconnect "" wrong-network
+check "no container, named: a network only Quick Launch remembers is forgotten" "" "$(quick_launch_network)"
+check "and that succeeds" "0" "$RC"
+
+reset
+STUB_PS=""
+write_quick_launch wrong-network
+run_disconnect "" ""
+check "no container, no name, no saved default: the refusal names the Quick Launch network" "yes" "$(says "ccy --disconnect wrong-network" "$ERR")"
+check "and changes nothing" "wrong-network" "$(quick_launch_network)"
+
+# The config is rewritten beside itself and moved into place; a rewrite that cannot be made
+# is a failure that says so, never a quiet "done". The temporary name uses $$, which is this
+# shell's pid in the function's subshell too, so a directory there makes the write fail.
+reset
+save_network_preference wrong-network
+write_quick_launch wrong-network
+mkdir "$QL.tmp.$$"
+run_disconnect "" wrong-network
+check "a Quick Launch config that cannot be rewritten fails the command" "1" "$RC"
+check "and says which file" "yes" "$(says ".last-launch.conf" "$ERR")"
+check "and the config is unchanged" "wrong-network" "$(quick_launch_network)"
+rmdir "$QL.tmp.$$"
+
+echo ""
+echo "=== a restore record forgets the network too ==="
+# A session started with --network NET replays it on the restore after a reboot. After
+# --disconnect NET, that record would bring NET back.
+reset
+STUB_NETS[demo_yolo]="podman wrong-network"
+write_record demo_yolo "$PWD" ccy --network wrong-network --token demo-token
+run_disconnect "" wrong-network
+check "a detach removes --network NET from this project's restore record" "--token demo-token" "$(record_args demo_yolo)"
+check "and the output names the record" "yes" "$(says "demo_yolo" "$OUT")"
+mapfile -t replay < <(ccy_registry_restore_args ccy --token demo-token)
+check "so a restore replays no --network at all" "no" "$(says "--network" "$(printf '%s ' "${replay[@]}")")"
+
+reset
+write_record demo_yolo "$PWD" ccy --ssh-key key-one --network wrong-network --model opus --no-ssh
+run_disconnect "" wrong-network
+check "only the --network pair goes; every other flag and value stays in order" \
+    "--ssh-key key-one --model opus --no-ssh" "$(record_args demo_yolo)"
+
+reset
+write_record demo_yolo "$PWD" ccy --network right-network
+run_disconnect "" wrong-network
+check "a record on another network is left alone" "--network right-network" "$(record_args demo_yolo)"
+
+reset
+write_record other_yolo "$SCRATCH/projects/other" ccy --network wrong-network
+run_disconnect "" wrong-network
+check "another project's record is left alone" "--network wrong-network" "$(record_args other_yolo)"
+
+reset
+write_record demo_yolo "$PWD" ccy -- --network wrong-network
+run_disconnect "" wrong-network
+check "words after -- are claude's and are left alone" "-- --network wrong-network" "$(record_args demo_yolo)"
+
+reset
+write_record demo_cc "$PWD" cc --network wrong-network
+run_disconnect "" wrong-network
+check "a cc record (every word is claude's) is left alone" "--network wrong-network" "$(record_args demo_cc)"
+
+reset
+STUB_NETS[demo_yolo]="wrong-network"
+write_record demo_yolo "$PWD" ccy --network wrong-network
+run_disconnect "" wrong-network
+check "the last-network refusal also removes it from the restore record" "" "$(record_args demo_yolo)"
+
+reset
+STUB_PS=""
+write_record demo_yolo "$PWD" ccy --network wrong-network
+run_disconnect "" wrong-network
+check "no container, named: a network only a restore record remembers is forgotten" "" "$(record_args demo_yolo)"
+check "and that succeeds" "0" "$RC"
+
+reset
+write_record demo_yolo "$PWD" ccy --network wrong-network
+mkdir -p "$CCY_STATE_DIR/sessions"
+printf 'not a record\n' >"$CCY_STATE_DIR/sessions/broken"
+run_disconnect "" wrong-network
+check "an unreadable record fails the command, since it may still name the network" "1" "$RC"
+check "and names that record" "yes" "$(says "sessions/broken" "$ERR")"
+check "but the readable one is still fixed" "" "$(record_args demo_yolo)"
+
+echo ""
+echo "=== no terminal to ask on ==="
+reset
+STUB_PS=""
+save_network_preference wrong-network
+CCY_TTY="$SCRATCH/no-such-terminal" run_disconnect "" ""
+check "no terminal: it says there was no terminal to ask on" "yes" "$(says "no terminal" "$ERR")"
+check "and says to name the network instead" "yes" "$(says "ccy --disconnect wrong-network" "$ERR")"
+check "and bash's raw redirection error is not what the user reads" "no" "$(says "no-such-terminal: No such file or directory" "$ERR")"
+check "but the reason is kept" "yes" "$(says "(No such file or directory)" "$ERR")"
+
+echo ""
+echo "=== --connect: an engine that cannot list its networks ==="
+# A `network ls` that fails is not an answer. Read as one it says "Network not found", "no
+# longer exists" or "No user-defined networks found", and none of those is the cause.
+reset
+STUB_LS_FAILS=1
+OUT="$(connect_to_network right-network "_yolo" "ccy" 2>&1)"
+RC=$?
+check "named --connect fails when network ls fails" "1" "$RC"
+check "and says the networks could not be listed" "yes" "$(says "could not list its networks" "$OUT")"
+check "and does not claim the network is missing" "no" "$(says "Network not found" "$OUT")"
+check "and connects nothing" "" "$(calls)"
+check "and saves nothing" "(none)" "$(saved)"
+
+reset
+STUB_LS_FAILS=1
+save_network_preference right-network
+OUT="$(connect_to_network "" "_yolo" "ccy" 2>&1 </dev/null)"
+RC=$?
+check "bare --connect with a saved default fails when network ls fails" "1" "$RC"
+check "and does not claim the saved network is gone" "no" "$(says "no longer exists" "$OUT")"
+check "and says the networks could not be listed" "yes" "$(says "could not list its networks" "$OUT")"
+
+reset
+STUB_LS_FAILS=1
+OUT="$(connect_to_network "" "_yolo" "ccy" 2>&1 </dev/null)"
+RC=$?
+check "bare --connect with no saved default fails when network ls fails" "1" "$RC"
+check "and does not claim there are no networks" "no" "$(says "No user-defined networks found" "$OUT")"
+check "and says the networks could not be listed" "yes" "$(says "could not list its networks" "$OUT")"
 
 echo ""
 echo "passed: $passed   failed: $failed"

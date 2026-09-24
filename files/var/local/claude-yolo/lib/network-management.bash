@@ -2,7 +2,10 @@
 # Network Management Library
 # Shared Docker network operations for claude-yolo (ccy)
 #
-# Version: 1.9.1 - An engine that cannot list its containers is a failure, not "none";
+# Version: 1.9.2 - --disconnect forgets the network everywhere a later launch reads it:
+#                  the saved default, Quick Launch's LAST_NETWORK and this project's
+#                  restore records; --connect fails on an engine that cannot list networks.
+#          1.9.1 - An engine that cannot list its containers is a failure, not "none";
 #                  a container's last network is never detached; a bare --disconnect
 #                  with no container asks before clearing the saved default.
 #          1.9.0 - `ccy --disconnect`: detach a network and clear the saved default
@@ -113,6 +116,38 @@ clear_network_preference() {
     rm -f -- "$network_file"
 }
 
+# The Quick Launch config, relative to the project directory: the launcher's save_launch_config
+# writes it after every launch and load_launch_config offers it on the next plain one (and a
+# session restore takes it unasked), joining its LAST_NETWORK.
+CCY_QUICK_LAUNCH_CONFIG=".claude/ccy/.last-launch.conf"
+
+# The network the Quick Launch config names, printed; nothing when there is no config or it
+# names none. Read with awk rather than sourced: only the one key is wanted here.
+_quick_launch_network() {
+    [ -f "$CCY_QUICK_LAUNCH_CONFIG" ] || return 0
+    awk -F'"' '/^LAST_NETWORK="/ { print $2; exit }' "$CCY_QUICK_LAUNCH_CONFIG"
+}
+
+# Blank LAST_NETWORK in the Quick Launch config when it names $1. Every other line is kept as
+# it is, and the rewrite is made beside the file (private, as the launcher makes it) and then
+# moved into place, so the launcher never reads half of one.
+_forget_quick_launch_network() {
+    local network="$1" file="$CCY_QUICK_LAUNCH_CONFIG" named tmp
+    if ! named=$(_quick_launch_network); then
+        print_error "Could not read the Quick Launch config $file, so whether it names $network is unknown."
+        return 1
+    fi
+    [ "$named" = "$network" ] || return 0
+    tmp="$file.tmp.$$"
+    if ! (umask 077 && WANT="LAST_NETWORK=\"$network\"" awk '$0 == ENVIRON["WANT"] { print "LAST_NETWORK=\"\""; next } { print }' "$file" >"$tmp") ||
+        ! mv -f -- "$tmp" "$file"; then
+        [ ! -f "$tmp" ] || rm -f -- "$tmp"
+        print_error "Could not rewrite the Quick Launch config $file, so it still names $network and accepting Quick Launch would join it again."
+        return 1
+    fi
+    echo "Cleared $network from the Quick Launch configuration ($file)."
+}
+
 # Say what --connect saved and what it means: the default is invisible otherwise, and it
 # brings the network back on every later launch.
 # Args: $1 = network_name, $2 = tool_name, $3 = indent
@@ -136,6 +171,18 @@ _project_running_containers() {
         return 1
     fi
     awk -v prefix="$base_name" 'index($0, prefix) == 1' <<<"$listing"
+}
+
+# The engine's network names, one per line. Like the container list, an engine that cannot
+# list its networks is a failure, never an empty list: read as one it becomes "not found",
+# "no longer exists" or "none", each of them a wrong cause.
+_engine_network_names() {
+    local listing
+    if ! listing=$(container_cmd network ls --format '{{.Name}}'); then
+        print_error "$CONTAINER_ENGINE could not list its networks (its message is above); nothing was changed"
+        return 1
+    fi
+    [ -z "$listing" ] || printf '%s\n' "$listing"
 }
 
 # Read _project_running_containers into the array named by $1. Fails, having printed why,
@@ -164,6 +211,9 @@ connect_to_network() {
 
     local matching_containers=()
     _read_project_running_containers matching_containers "$container_suffix" || return 1
+    # Listed once, before anything is asked: every check below is judged against this list.
+    local known_networks
+    known_networks=$(_engine_network_names) || return 1
 
     # Check if any containers are running
     if [ ${#matching_containers[@]} -eq 0 ]; then
@@ -235,7 +285,7 @@ connect_to_network() {
 
         if [ -n "$persisted_network" ]; then
             # Verify the persisted network still exists
-            if container_cmd network ls --format '{{.Name}}' | grep -q "^${persisted_network}$"; then
+            if grep -qxF -- "$persisted_network" <<<"$known_networks"; then
                 network_name="$persisted_network"
                 echo ""
                 echo "════════════════════════════════════════════════════════════════════════════════"
@@ -289,7 +339,10 @@ connect_to_network() {
             : # name still echoed; a non-zero status only means "not created yet"
         fi
 
+        local sorted_networks
+        sorted_networks=$(sort <<<"$known_networks")
         while IFS= read -r net; do
+            [ -n "$net" ] || continue
             # Skip default networks
             if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]]; then
                 networks+=("$net")
@@ -300,7 +353,7 @@ connect_to_network() {
                     best_match_index=$((${#networks[@]} - 1))
                 fi
             fi
-        done < <(container_cmd network ls --format "{{.Name}}" | sort)
+        done <<<"$sorted_networks"
 
         if [ ${#networks[@]} -eq 0 ]; then
             echo "No user-defined networks found."
@@ -368,11 +421,11 @@ connect_to_network() {
     fi
 
     # Check if network exists
-    if ! container_cmd network ls --format '{{.Name}}' | grep -q "^${network_name}$"; then
+    if ! grep -qxF -- "$network_name" <<<"$known_networks"; then
         print_error "Network not found: $network_name"
         echo ""
         echo "Available networks:"
-        container_cmd network ls --format "  {{.Name}}"
+        awk 'NF { print "  " $0 }' <<<"$known_networks"
         return 1
     fi
 
@@ -520,30 +573,65 @@ _container_networks() {
     [ ${#words[@]} -eq 0 ] || printf '%s\n' "${words[@]}"
 }
 
-# After a disconnect, or in place of one: clear the saved default when it names the network,
-# and otherwise say which default stays, so what the next launch does is never a surprise.
+# Three things bring a network back on a later launch of this project, and all three are
+# cleared when they name it: the saved default (written by --connect), the Quick Launch
+# config's LAST_NETWORK (written by a launch onto it), and the --network of this project's
+# restore records (replayed after a reboot). A saved default naming another network stays,
+# and is named. Fails, having said which, if any of them could not be cleared.
+# Needs ccy_registry_forget_network from lib/session-registry.bash.
 # Args: $1 = network_name, $2 = saved default ("" for none), $3 = tool_name
-_settle_saved_network_preference() {
-    if [ -z "$2" ]; then
-        echo "No saved default network for this project."
-    elif [ "$2" = "$1" ]; then
-        if ! clear_network_preference; then
-            print_error "Could not remove the saved default network file: $(get_network_persistence_file)"
-            return 1
-        fi
-        echo "Cleared the saved default network: $2"
-        echo "   plain $3 launches in this project will no longer connect to it."
-    else
-        echo "The saved default network stays: $2 (it is not the network disconnected)."
+_forget_network_for_later_launches() {
+    local network="$1" saved="$2" tool="$3" failed=0
+    if ! declare -F ccy_registry_forget_network >/dev/null; then
+        print_error "ccy_registry_forget_network is not defined: lib/session-registry.bash must be sourced before forgetting a network."
+        return 1
     fi
+    if [ -z "$saved" ]; then
+        echo "No saved default network for this project."
+    elif [ "$saved" = "$network" ]; then
+        if clear_network_preference; then
+            echo "Cleared the saved default network: $saved"
+        else
+            print_error "Could not remove the saved default network file: $(get_network_persistence_file)"
+            failed=1
+        fi
+    else
+        echo "The saved default network stays: $saved (it is not $network)."
+    fi
+    _forget_quick_launch_network "$network" || failed=1
+    ccy_registry_forget_network "$PWD" "$network" || failed=1
+    if [ "$failed" -ne 0 ]; then
+        print_error "A later launch of this project may still join $network: see the error above."
+        return 1
+    fi
+    echo "Nothing saved for this project names $network now: a plain $tool, and a restore after a reboot, will not join it without asking."
 }
 
-# Ask, on the terminal, whether to clear the saved default network $1. Succeeds only on a
-# yes: Enter, a no, end of input, three unreadable answers or no terminal at all keep it.
-# Reads CCY_TTY (default /dev/tty), not stdin, so a piped stdin cannot answer for the user.
+# Whether anything saved for this project would bring network $1 back ($2 = the saved default).
+# A store that cannot be read counts as naming it, so the forget that follows reports the error.
+_network_remembered() {
+    local named listing
+    [ -n "$2" ] && [ "$2" = "$1" ] && return 0
+    named=$(_quick_launch_network) || return 0
+    [ "$named" = "$1" ] && return 0
+    listing=$(ccy_registry_forget_network "$PWD" "$1" --check) || return 0
+    [ -n "$listing" ]
+}
+
+# Ask, on the terminal, whether to clear the saved default network $1 ($2 = tool name).
+# Succeeds only on a yes: Enter, a no, end of input, three unreadable answers or no terminal
+# at all keep it. Reads CCY_TTY (default /dev/tty), not stdin, so a piped stdin cannot answer
+# for the user.
 _confirm_clear_saved_network() {
-    local tty="${CCY_TTY:-/dev/tty}"
+    local tty="${CCY_TTY:-/dev/tty}" open_error
     echo "The saved default network is $1: every plain launch in this project joins it." >&2
+    # Opened once to see whether it can be: a redirection that fails prints bash's own line,
+    # which names a device path and not what to do.
+    if ! open_error=$({ : <"$tty"; } 2>&1); then
+        echo "There is no terminal to ask on (${open_error##*: }), so the saved default network was kept: $1" >&2
+        echo "To clear it without being asked, name it: ${2:-ccy} --disconnect $1" >&2
+        return 1
+    fi
     if ! _ask_clear_saved_network "$1" <"$tty"; then
         echo "Kept the saved default network: $1" >&2
         return 1
@@ -591,18 +679,18 @@ disconnect_from_network() {
     local containers=()
     _read_project_running_containers containers "$container_suffix" || return 1
 
-    # No container to detach, but the saved default is the part that outlives it. Named, the
-    # user said which network; bare, nothing did, so clearing it is asked first.
+    # No container to detach, but what is saved for later launches outlives it. Named, the
+    # user said which network; bare, nothing did, so clearing the saved default is asked first.
     if [ ${#containers[@]} -eq 0 ]; then
-        if [ -n "$saved" ] && [ "$network_name" = "$saved" ]; then
+        if [ -n "$network_name" ] && _network_remembered "$network_name" "$saved"; then
             echo "No running container for project $project_name, so nothing was detached."
-            _settle_saved_network_preference "$saved" "$saved" "$tool_name"
+            _forget_network_for_later_launches "$network_name" "$saved" "$tool_name"
             return $?
         fi
         if [ -n "$saved" ] && [ -z "$network_name" ]; then
             echo "No running container for project $project_name, so there is nothing to detach." >&2
-            _confirm_clear_saved_network "$saved" || return 1
-            _settle_saved_network_preference "$saved" "$saved" "$tool_name"
+            _confirm_clear_saved_network "$saved" "$tool_name" || return 1
+            _forget_network_for_later_launches "$saved" "$saved" "$tool_name"
             return $?
         fi
         print_error "No running containers found for project: $project_name"
@@ -610,6 +698,10 @@ disconnect_from_network() {
         echo "  $tool_name --disconnect <network_name>" >&2
         if [ -n "$saved" ]; then
             echo "The saved default network is $saved; '$tool_name --disconnect $saved' clears it." >&2
+        fi
+        local quick_launch
+        if quick_launch=$(_quick_launch_network) && [ -n "$quick_launch" ] && [ "$quick_launch" != "$saved" ]; then
+            echo "The Quick Launch configuration joins $quick_launch; '$tool_name --disconnect $quick_launch' clears it." >&2
         fi
         return 1
     fi
@@ -633,9 +725,9 @@ disconnect_from_network() {
 
     if [ -n "$network_name" ]; then
         if [ -z "${seen[$network_name]:-}" ]; then
-            if [ "$network_name" = "$saved" ]; then
+            if _network_remembered "$network_name" "$saved"; then
                 echo "$network_name is not attached to any running container of $project_name, so nothing was detached."
-                _settle_saved_network_preference "$network_name" "$saved" "$tool_name"
+                _forget_network_for_later_launches "$network_name" "$saved" "$tool_name"
                 return $?
             fi
             print_error "$network_name is not attached to any running container of project $project_name"
@@ -646,8 +738,12 @@ disconnect_from_network() {
         if [ ${#candidates[@]} -eq 0 ]; then
             echo "The running container(s) of $project_name are on no project network to disconnect."
             echo "Attached: ${all_attached[*]:-(none)}"
-            _settle_saved_network_preference "" "$saved" "$tool_name"
-            return $?
+            if [ -z "$saved" ]; then
+                echo "No saved default network for this project."
+            else
+                echo "The saved default network is $saved; '$tool_name --disconnect $saved' clears it."
+            fi
+            return 0
         fi
 
         {
@@ -688,8 +784,8 @@ disconnect_from_network() {
     # A container's LAST network is never detached. That is the usual undo: a session
     # launched with --network <saved> is on that network alone, and detaching it would cut
     # the session off from everything, the Claude API included. Checked for every container
-    # before any is touched, so a refusal changes no container. The saved default that
-    # names the network is still cleared: that is the half that brings it back.
+    # before any is touched, so a refusal changes no container. What would bring the network
+    # back on a later launch is still cleared: that is the half a relaunch depends on.
     local stranded=()
     for container in "${containers[@]}"; do
         grep -qxF -- "$network_name" <<<"${attached[$container]}" || continue
@@ -697,11 +793,9 @@ disconnect_from_network() {
     done
     if [ ${#stranded[@]} -gt 0 ]; then
         print_error "Not disconnecting from $network_name: it is the only network of ${stranded[*]}, so the session would lose all networking, the Claude API included. No container was changed."
-        {
-            echo "To take the session off $network_name, end it and start it again without that network:"
-            echo "  $tool_name --no-network, or a plain $tool_name once no saved default names $network_name."
-        } >&2
-        _settle_saved_network_preference "$network_name" "$saved" "$tool_name" || return 1
+        if _forget_network_for_later_launches "$network_name" "$saved" "$tool_name"; then
+            echo "The running session stays on $network_name until it ends. To take it off, end it and start it again: a plain $tool_name, or $tool_name --no-network." >&2
+        fi
         return 1
     fi
 
@@ -717,14 +811,14 @@ disconnect_from_network() {
             if [ "$detached" -gt 0 ]; then
                 echo "  $detached container(s) were disconnected before this one." >&2
             fi
-            echo "The saved default network was left as it is." >&2
+            echo "Nothing saved for later launches was changed: the saved default, Quick Launch and restore records are as they were." >&2
             return 1
         fi
         echo "  ✓ Disconnected"
         detached=$((detached + 1))
     done
     echo ""
-    _settle_saved_network_preference "$network_name" "$saved" "$tool_name"
+    _forget_network_for_later_launches "$network_name" "$saved" "$tool_name"
 }
 
 # Check if a network has running containers

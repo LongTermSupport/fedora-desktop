@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.64.1"  # --disconnect fails on an engine error and never detaches a container's last network. See docs/ccy-changelog.md.
+CCY_VERSION="3.64.2"  # --disconnect also clears Quick Launch and restore records naming the network. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
