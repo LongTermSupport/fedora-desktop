@@ -377,12 +377,14 @@ The container runs as `container_t`, which on an **Enforcing** host may not read
 labelled `user_home_t` (your project) or `ssh_home_t` (your keys). CCY decides once per launch,
 from `getenforce` and the engine's own report, whether that applies:
 
-- **Enforcing (or unreadable):** the workspace is mounted with the shared relabel (`:z`, so a
-  second session on the same project still reads it), the per-session config import with the
-  private one, and key files are copied into an owner-only tmpfs directory under
-  `$XDG_RUNTIME_DIR`, mounted `:Z,ro` and removed when CCY exits. Your own key file is never
-  relabelled. The launch prints a `🔒 SELinux enforcing` line.
-- **Permissive, disabled, or an engine that does not label:** nothing changes.
+- **Enforcing, Permissive (or unreadable):** the workspace is mounted with the shared relabel
+  (`:z`, so a second session on the same project still reads it), the per-session config
+  import with the private one, and key files are copied into an owner-only tmpfs directory
+  under `$XDG_RUNTIME_DIR`, mounted `:Z,ro` and removed when CCY exits. Your own key file is
+  never relabelled. The launch prints a `🔒 SELinux enforcing` (or `permissive`) line.
+  A Permissive host refuses nothing, but without the relabel it logs an AVC denial for every
+  read the container makes, which floods the audit log.
+- **Disabled, or an engine that does not label:** nothing changes.
 
 Not relabelled on such a host, and therefore unreadable inside: the tracked
 [extra project mounts](#extra-mounts) (their no-relabel rule stands) and the display sockets

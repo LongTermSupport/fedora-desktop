@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.64.3"  # Restore records keep empty arguments; a restored ccy gets --supervise before a recorded --. See docs/ccy-changelog.md.
+CCY_VERSION="3.65.0"  # A Permissive SELinux host relabels the workspace (:z), as an Enforcing one does. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -2066,9 +2066,10 @@ fi
 # Build mount arguments
 # Note: /workspace includes .claude/ directory - Claude Code uses this for ALL state
 # The entrypoint will symlink /root/.claude -> /workspace/.claude/ccy/ for session persistence
-# On an SELinux-enforcing host container_t may not read user_home_t, so the
-# workspace carries the shared relabel (`:z`) and the per-session config import
-# the private one; both are empty on a permissive host (ccy_selinux_mode).
+# On an SELinux-enforcing host container_t may not read user_home_t (a permissive
+# one logs every such read), so the workspace carries the shared relabel (`:z`)
+# and the per-session config import the private one; both are empty when the
+# verdict is off (ccy_selinux_mode).
 DOCKER_MOUNTS=(
     -v "$PWD:/workspace${CCY_MOUNT_RELABEL:+:$CCY_MOUNT_RELABEL}"
     -v "$CONFIG_TEMP:/tmp/claude-config-import:ro${CCY_MOUNT_RELABEL:+,Z}"

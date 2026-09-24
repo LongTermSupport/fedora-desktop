@@ -371,7 +371,7 @@ gh-personal issue list
 - Configures container networking
 - Sets up SSH configuration for containers
 - Configures firewall rules
-- Detects rootful Docker: on Docker hosts it reconciles the DOCKER-USER iptables chain for LXC outbound connectivity (run the optional `play-docker.yml` first); on podman-only hosts the Docker-coexistence block is skipped
+- Detects rootful Docker: on Docker hosts it reconciles the DOCKER-USER iptables chain for LXC outbound connectivity (run the optional `play-docker.yml` first), and stops if Docker is not on its iptables firewall backend, the only one that creates that chain; on podman-only hosts the Docker-coexistence block is skipped
 
 ### play-podman.yml
 

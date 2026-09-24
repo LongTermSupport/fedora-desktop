@@ -132,8 +132,12 @@ containers that needs its own diagnosis (F7).
   HOST run done (journal 26-09-23 19:10, finding). The host is Permissive, and
   `selinux_enforcing_verdict` maps Permissive to `off`, so CCY binds every workspace
   without `:z` by design. Every `container_t` access to `user_home_t` is then logged. No
-  launch mode skips the relabel, and no host path reverts. **Owner decision**: options
-  A/B/C are in the journal (recommended A: relabel whenever SELinux is not Disabled).
+  launch mode skips the relabel, and no host path reverts. **Owner chose A** on
+  2026-09-24: relabel whenever SELinux is not Disabled. Code done in CCY 3.65.0: the
+  verdict gives a Permissive host with a labelling engine `permissive`, which relabels
+  as `enforcing` does (`scripts/test-ccy-selinux-verdict.bash`, RED then GREEN). HOST
+  pending: deploy `play-claude-yolo.yml`, restart the sessions, then the next boot's
+  `ausearch` count for `container_t` falls to the unrelabelled remainder.
 - [ ] 🔄 **Task 3.2**: Docker 29 nftables backend vs `lxc-docker-user-iptables-reconcile`
   — verify whether the `DOCKER-USER` iptables chain the reconcile script edits is
   consulted at all with the nftables backend; if not, that script's egress rules are
@@ -143,9 +147,11 @@ containers that needs its own diagnosis (F7).
   reconcile script; Plan 00127 has none. HOST run done (journal 26-09-23 19:10, finding).
   Docker 29 here uses its **iptables** backend, not nftables. `FORWARD` jumps to
   `DOCKER-USER`, and its counters are live. The reconcile unit is **not installed** on this
-  host. The firewalld lines are Docker's per-boot cleanup. **Owner decision**: a backend
-  assert in the play, one re-run of that play, and leaving the noise unsilenced were
-  proposed.
+  host. The firewalld lines are Docker's per-boot cleanup. **Owner chose the proposal**
+  on 2026-09-24. Code done: `play-lxc-install-config.yml` reads `docker info` and asserts
+  the `iptables` (or `iptables+firewalld`) backend before the DOCKER-USER tasks, and the
+  firewalld noise stays unsilenced. HOST pending: one run of that play, which also shows
+  whether the reconcile unit gets installed here.
 
 ### Phase 4: close
 
@@ -162,8 +168,9 @@ containers that needs its own diagnosis (F7).
   `unavailable`, and any finding shown can be copied from the panel menu.
 - [ ] `journalctl --user -b` has no `Lua configuration files are NOT supported` line and
   `wpctl` shows the configured ALSA/Bluetooth properties.
-- [ ] `journalctl -b` has no `Id is present more than once` and no
-  `RuntimeMaxSec= has no effect` lines.
+- [ ] `journalctl -b` has no `Id is present more than once` line, and no
+  `RuntimeMaxSec= has no effect` line from a unit this repo deploys. A unit deployed by
+  another project is out of scope (owner, 2026-09-24).
 - [ ] `ausearch -m avc -ts boot` count for `container_t` is explained and bounded.
 
 ## Delivery & Milestones
