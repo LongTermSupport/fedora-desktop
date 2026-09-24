@@ -142,7 +142,16 @@ grubby() {
             if [ -n "${STUB_GRUBBY_DEFAULT-}" ]; then
                 printf '%s\n' "$STUB_GRUBBY_DEFAULT"
             elif [ -r "$TRACE_DIR/default" ]; then
-                printf '%s\n' "$(cat "$TRACE_DIR/default")"
+                # STUB_GRUBBY_DOUBLED_BOOT models the real Fedora guest where /boot is not
+                # its own partition: the entry's path already starts /boot, and grubby
+                # prefixes it again, so /boot/vmlinuz-X reads back as /boot/boot/vmlinuz-X.
+                if [ "${STUB_GRUBBY_DOUBLED_BOOT:-0}" = 1 ]; then
+                    local set_path
+                    set_path="$(cat "$TRACE_DIR/default")"
+                    printf '%s/boot/%s\n' "${set_path%/*}" "${set_path##*/}"
+                else
+                    printf '%s\n' "$(cat "$TRACE_DIR/default")"
+                fi
             fi
             ;;
     esac
@@ -492,6 +501,37 @@ else
     report fail a-disagreeing-grubby-refuses "refused for another reason: ${DIE_MESSAGE:-none}"
 fi
 
+# ── 8b. grubby reads the entry back with /boot doubled → the SAME entry, accepted ─────
+# Measured on a real guest (2026-09-24): with /boot on the root filesystem, grubby
+# --default-kernel printed /boot/boot/vmlinuz-X for the /boot/vmlinuz-X it had just been
+# given, and the fixture refused its own correct selection.
+STUB_REPOQUERY="$K_NEW
+$K_OLD" STUB_RPM="$K_NEW
+$K_OLD" STUB_GRUBBY_DOUBLED_BOOT=1 run_case "$K_OLD" "$K_NEW" "$K_OLD"
+rc=$?
+if [ "$rc" -ne 0 ]; then
+    report fail a-doubled-boot-readback-is-the-same-entry "refused: ${DIE_MESSAGE:-none}"
+elif [ "$STDOUT" != "$K_NEW" ]; then
+    report fail a-doubled-boot-readback-is-the-same-entry "returned '${STDOUT}', expected $K_NEW"
+elif [[ "$RECORD" != *"PREPARED_DEFAULT_KERNEL=$work/boot/boot/vmlinuz-$K_NEW"* ]]; then
+    report fail a-doubled-boot-readback-is-the-same-entry "record does not keep grubby's own words: ${RECORD:-none}"
+else
+    report pass a-doubled-boot-readback-is-the-same-entry
+fi
+
+# ── 8c. the doubled form still has to name the kernel that was selected ───────────────
+# Accepting the quirk must not turn into accepting any path that ends in a vmlinuz.
+if STUB_REPOQUERY="$K_NEW
+$K_OLD" STUB_RPM="$K_NEW
+$K_OLD" STUB_GRUBBY_DEFAULT="$work/boot/boot/vmlinuz-$K_OLDEST" \
+    run_case "$K_OLD" "$K_NEW" "$K_OLD"; then
+    report fail a-doubled-boot-other-kernel-refuses "it succeeded, returning '$STDOUT'"
+elif [[ "$DIE_MESSAGE" == *"grubby reports $work/boot/boot/vmlinuz-$K_OLDEST as the default"* ]]; then
+    report pass a-doubled-boot-other-kernel-refuses
+else
+    report fail a-doubled-boot-other-kernel-refuses "refused for another reason: ${DIE_MESSAGE:-none}"
+fi
+
 # ── 9. no grubby in the guest at all → refuse before anything is installed ────────────
 # Checked first in the function, so a guest that could never have its boot entry set does
 # not spend several minutes downloading a kernel to discover it. The stub is renamed
@@ -555,7 +595,7 @@ fi
 # A run that selected nothing must not be able to report success — and neither may a run
 # that quietly lost a case. `passed: N` is only evidence if something knows what N is;
 # without this, deleting a case makes the suite greener rather than louder.
-EXPECTED_CASES=15
+EXPECTED_CASES=17
 if [ "$((passed + failed))" -ne "$EXPECTED_CASES" ]; then
     printf 'FAIL: %d case(s) reported, expected %d — a case was added or lost without updating EXPECTED_CASES\n' \
         "$((passed + failed))" "$EXPECTED_CASES" >&2

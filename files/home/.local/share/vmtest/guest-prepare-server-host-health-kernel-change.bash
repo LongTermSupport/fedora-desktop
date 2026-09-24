@@ -213,8 +213,14 @@ select_second_kernel() {
     default_kernel="$(sudo -n grubby --default-kernel)" ||
         die "grubby could not name the default boot entry after being given ${target_kernel}"
     record PREPARED_DEFAULT_KERNEL "${default_kernel}"
-    [[ "${default_kernel}" == "${boot_dir}/vmlinuz-${target_kernel}" ]] ||
-        die "grubby reports ${default_kernel} as the default, not ${boot_dir}/vmlinuz-${target_kernel}"
+    # Two spellings name the same entry. Where /boot is not its own partition, the entry's
+    # path already starts /boot and grubby prefixes it again, so it reads the path it was
+    # given back as ${boot_dir}/boot/vmlinuz-… — measured on a Fedora guest. Only those two
+    # are accepted: any other path, or another kernel's, still refuses.
+    case "${default_kernel}" in
+        "${boot_dir}/vmlinuz-${target_kernel}" | "${boot_dir}/boot/vmlinuz-${target_kernel}") ;;
+        *) die "grubby reports ${default_kernel} as the default, not ${boot_dir}/vmlinuz-${target_kernel}" ;;
+    esac
 
     # The one thing a caller would capture. Every other word this function produces —
     # its own log lines, dnf's output, grubby's — is already on stderr.

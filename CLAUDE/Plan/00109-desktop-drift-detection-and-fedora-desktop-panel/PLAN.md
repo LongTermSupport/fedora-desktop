@@ -207,8 +207,11 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
       First run 2026-09-23: `error`, the fixture exited 1 at prepare. The reason is
       in the host transcript only; the harness now returns it (needs `play-vm-test-lab.yml`).
       Second run: the reason is dnf5 refusing dnf4's `repoquery --showduplicates`; fixed
-      with a stub that models dnf5. `play-vm-test-lab.yml` ran on 2026-09-24; third run
-      in progress.
+      with a stub that models dnf5. Third run, 2026-09-24: dnf worked and prepare failed
+      one step later. grubby read the entry it had just set back with `/boot` doubled.
+      The fixture now accepts that spelling of the same entry, and only that one. It
+      needs `play-vm-test-lab.yml`, which this plan's deploy in `meta-deploy.bash` runs,
+      and then a re-run.
     - [x] ✅ **HOST**: check [17] — `origin` resolves non-interactively, with a recorded
       successful fetch. The freshness axis will not report "never reached the remote"
 - [x] ✅ **Task 3.3**: Claude Code handoff — file and offer done
