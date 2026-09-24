@@ -186,9 +186,10 @@ else
     echo "flatpak not installed, skipping."
 fi
 
-# pipx CLI tools (pdm, semgrep, huggingface CLI) are installed into the invoking
-# user's ~/.local/pipx by play-python.yml — not root's — so upgrade them as that
-# user. Non-fatal for the same reason as the Flatpak block above.
+# pipx CLI tools (pdm, huggingface CLI) are installed into the invoking user's
+# ~/.local/pipx by play-python.yml — not root's — so upgrade them as that user.
+# The QA tools (ruff, semgrep) are pipx-pinned to .qa-versions, so upgrade-all
+# skips them. Non-fatal for the same reason as the Flatpak block above.
 echo "Starting pipx tool updates..."
 update_user="${SUDO_USER:-$USER}"
 if sudo -u "$update_user" -H bash -lc 'command -v pipx >/dev/null'; then

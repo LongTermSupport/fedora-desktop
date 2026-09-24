@@ -820,20 +820,32 @@
               }
 
               # owner/repo from a github.com URL (https, ssh://, scp-style, with or
-              # without a github.com-<alias> host) or a bare owner/repo.
+              # without a github.com-<alias> host). With a second argument of
+              # "bare", a plain owner/repo is accepted too; a remote's own URL is
+              # never read that way, since a bare path there is a local directory.
               function _gh_repo_path() {
-                  local url="$1" path
-                  if [[ "$url" =~ ^(https://github\.com/|ssh://git@github\.com(-[A-Za-z0-9_.-]+)?/|git@github\.com(-[A-Za-z0-9_.-]+)?:)(.+)$ ]]; then
-                      path="${BASH_REMATCH[4]}"
-                  elif [[ "$url" != *:* ]]; then
+                  local url="$1" allow_bare="${2:-}" path
+                  if [[ "$url" =~ ^(https://([^@/]+@)?github\.com/|ssh://git@github\.com(-[A-Za-z0-9_.-]+)?/|git@github\.com(-[A-Za-z0-9_.-]+)?:)(.+)$ ]]; then
+                      path="${BASH_REMATCH[5]}"
+                  elif [[ "$allow_bare" == bare ]]; then
                       path="$url"
                   else
                       return 1
                   fi
                   path="${path%/}"
                   path="${path%.git}"
-                  [[ "$path" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || return 1
+                  [[ "$path" =~ ^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_.-]+$ ]] || return 1
+                  [[ "${path#*/}" != . && "${path#*/}" != .. ]] || return 1
                   printf '%s\n' "$path"
+              }
+
+              # A URL fit to print: credentials in an https remote are masked.
+              function _gh_redact_url() {
+                  if [[ "$1" =~ ^(https?://)[^@/]+@(.*)$ ]]; then
+                      printf '%s***@%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+                  else
+                      printf '%s\n' "$1"
+                  fi
               }
 
               # Point a remote at the github.com-<alias> SSH host, so ssh and the
@@ -856,7 +868,8 @@
                               echo "Examples:"
                               echo "  remote-$alias                       # convert origin, after confirming"
                               echo "  remote-$alias upstream              # convert the upstream remote"
-                              echo "  remote-$alias origin owner/repo     # set origin to owner/repo"
+                              echo "  remote-$alias owner/repo            # set origin to owner/repo"
+                              echo "  remote-$alias upstream owner/repo   # set upstream to owner/repo"
                               return 0
                               ;;
                           -y|--yes) assume_yes=1 ;;
@@ -878,6 +891,12 @@
                       esac
                       shift
                   done
+                  # A lone owner/repo means origin, unless a remote has that name.
+                  if (( count == 1 )) && [[ "$remote" == */* ]] \
+                      && ! command git remote | grep -qxF -- "$remote"; then
+                      source="$remote"
+                      remote=""
+                  fi
                   remote="${remote:-origin}"
 
                   local current
@@ -886,9 +905,14 @@
                       return 1
                   fi
                   local repo_path
-                  if ! repo_path="$(_gh_repo_path "${source:-$current}")"; then
-                      echo "remote-$alias: '${source:-$current}' is not a github.com repository." >&2
-                      echo "  Pass it explicitly: remote-$alias $remote owner/repo" >&2
+                  if [[ -n "$source" ]]; then
+                      if ! repo_path="$(_gh_repo_path "$source" bare)"; then
+                          echo "remote-$alias: '$(_gh_redact_url "$source")' is not an owner/repo or a github.com URL." >&2
+                          return 1
+                      fi
+                  elif ! repo_path="$(_gh_repo_path "$current")"; then
+                      echo "remote-$alias: $remote ($(_gh_redact_url "$current")) is not a github.com repository." >&2
+                      echo "  Name the repository: remote-$alias $remote owner/repo" >&2
                       return 1
                   fi
                   local target="git@github.com-${alias}:${repo_path}.git"
@@ -897,7 +921,7 @@
                       return 0
                   fi
 
-                  echo "  $remote: $current" >&2
+                  echo "  $remote: $(_gh_redact_url "$current")" >&2
                   echo "  ->  $target" >&2
                   if (( ! assume_yes )); then
                       local reply=""
