@@ -15,7 +15,7 @@ set -euo pipefail
 # like. Its whole job is to print + log a report, so its stdout IS the payload
 # (the CLAUDE/StderrHygiene.md exception for report commands).
 #
-#   CLAUDE/Plan/00066-ftp-camera-airbnb-wifi-and-hotspot-triage/triage.bash
+#   CLAUDE/Plan/Cancelled/00066-ftp-camera-airbnb-wifi-and-hotspot-triage/triage.bash
 #
 # Pattern: CLAUDE/PlanWorkflow.md → "Plan-Local Scripts & Artifacts";
 # mechanics: CLAUDE/PlanScriptStandards.md.

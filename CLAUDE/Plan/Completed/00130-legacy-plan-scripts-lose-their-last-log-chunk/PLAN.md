@@ -1,7 +1,8 @@
 # Plan 00130: legacy plan scripts lose their last log chunk
 
-**Status**: In Progress
+**Status**: Complete
 **Created**: 2026-09-16
+**Completed**: 2026-09-24
 **Owner**: joseph
 **Priority**: Medium
 
@@ -101,7 +102,7 @@ between the operator and a one-shot run.
   line on every run — `shellcheck -x` CLEAN and `qa-all.bash` green throughout,
   because no gate executes plan scripts.
 
-- [ ] 🧑 **Task 2.2 — PARTLY DONE, the rest needs the HOST**: Run each converted script
+- [x] ✅ **Task 2.2**: Run each converted script
   far enough to prove it reaches its own last line. Linting is exactly what missed this
   class before, so this cannot be discharged by `shellcheck`.
 
@@ -137,12 +138,9 @@ between the operator and a one-shot run.
   last output: the closing banner, or the teardown's last line for acceptance. Per-script
   table in `JOURNAL/00130-Journal-26-09-23.md`.
 
-  **Still owed, HOST**: 00066 only. 00075's is moot — that plan archived on 2026-09-17.
-  00066 runs on its own affected machine, not this desktop:
-
-  ```bash
-  ./CLAUDE/Plan/00066-ftp-camera-airbnb-wifi-and-hotspot-triage/triage.bash
-  ```
+  **Nothing is owed.** 00075's is moot, because that plan was archived on 2026-09-17.
+  00066's is moot too: the owner cancelled that plan on 2026-09-24 without running its
+  triage on the affected machine.
 
   **00066's was not actually host-gated** — its header said HOST-ONLY and nothing enforced
   it. That matters *here* rather than only there: run in the container it would not have
@@ -222,11 +220,11 @@ between the operator and a one-shot run.
 - [x] ✅ No script under `CLAUDE/Plan/NNNNN-*/` contains `exec > >(tee` — asserted on
   every run by `scripts/qa-plan-script-logging.bash`, not by a one-off grep
 - [x] ✅ No `logs/` directory remains under `CLAUDE/Plan/NNNNN-*/` — same gate, same run
-- [ ] 🧑 Each converted script has been RUN and reaches its last line — **HOST** for the
+- [x] ✅ Each converted script has been RUN and reaches its last line — **HOST** for the
   remainder. Proven in-container, drain included, for 00062's `triage.bash` and 00079's
   `unit-test-selection.bash` (since deleted); proven on the host for 00098's `triage.bash` (×2) and
   `acceptance.bash`, and for 00079's `triage`/`deploy`/`acceptance` and 00080's `triage`
-  (2026-09-23 batch). Only 00066's `triage.bash` remains, on its own machine. See Task 2.2
+  (2026-09-23 batch). 00066's `triage.bash` was never run, because that plan was cancelled. See Task 2.2
 - [x] ✅ `CLAUDE/Plan/meta-deploy.bash --list` names no script the batch consent cannot
   answer — the batch is one consent, as the operator asked for. Met, and the criterion
   now tests the property rather than a proxy for it. (Path updated: the script moved out
