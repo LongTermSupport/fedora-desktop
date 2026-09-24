@@ -20,6 +20,9 @@ LAUNCHER="${CCY_GIT_SIGNING_LAUNCHER:-$REPO_ROOT/files/var/local/claude-yolo/cla
 LIB_DIR="$(dirname "$LAUNCHER")/lib"
 PURE_LIB="$LIB_DIR/common-pure.bash"
 SSH_LIB="$LIB_DIR/ssh-handling.bash"
+# Config set through the environment outranks GIT_CONFIG_GLOBAL, so an inherited one would
+# reach the real-key case below as if the staged gitconfig had said it.
+unset GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
 
 for f in "$LAUNCHER" "$PURE_LIB" "$SSH_LIB"; do
     if [ ! -f "$f" ]; then

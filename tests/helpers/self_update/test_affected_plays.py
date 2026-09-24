@@ -409,8 +409,11 @@ class TestCli(FixtureCase):
 
     def test_old_and_new_shas_come_from_git(self) -> None:
         # The machine's own git config stays out: a global `commit.gpgsign` would make these
-        # fixture commits depend on the host's signing key.
-        env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        # fixture commits depend on the host's signing key. Config passed through the
+        # environment outranks GIT_CONFIG_GLOBAL, so it goes too.
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS")}
+        env |= {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
 
         def git(*args: str) -> None:
             subprocess.run(["git", "-C", self.fx.root, *args], check=True, capture_output=True,

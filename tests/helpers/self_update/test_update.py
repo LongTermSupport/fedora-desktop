@@ -32,8 +32,11 @@ class Fixture:
         self.root = root
         self.home = os.path.join(root, "home")
         os.makedirs(self.home)
+        # Config passed through the environment outranks GIT_CONFIG_GLOBAL, so it goes too.
+        inherited = {k: v for k, v in os.environ.items()
+                     if k not in ("GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS")}
         self.env = {
-            **os.environ,
+            **inherited,
             "HOME": self.home,
             "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_CONFIG_SYSTEM": os.devnull,

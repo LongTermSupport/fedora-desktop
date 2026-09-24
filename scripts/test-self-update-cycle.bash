@@ -71,7 +71,14 @@ trap cleanup EXIT
 # runs: a commit made without -S must come out unsigned.
 PROBE="$SCRATCH/isolation-probe"
 git init -q "$PROBE"
-git -C "$PROBE" -c user.name=Probe -c user.email="$PRINCIPAL" commit -q --allow-empty -m probe
+# A probe that made no commit proves nothing, so that is a failure too, not a pass: git
+# config naming a missing signing key fails the commit, and an absent HEAD has no gpgsig.
+if ! git -C "$PROBE" -c user.name=Probe -c user.email="$PRINCIPAL" commit -q --allow-empty -m probe ||
+    ! git -C "$PROBE" rev-parse -q --verify HEAD >/dev/null; then
+    echo "FAIL: the isolation probe could not make a commit, so whether this machine's git" >&2
+    echo "      config reaches the fixtures is unknown (see git's error above)" >&2
+    exit 1
+fi
 if git -C "$PROBE" cat-file commit HEAD | grep -q '^gpgsig'; then
     echo "FAIL: a commit made without -S came out signed; this machine's git config reaches" >&2
     echo "      the fixtures, so the unsigned-commit cases cannot be trusted" >&2

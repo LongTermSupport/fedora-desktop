@@ -105,12 +105,14 @@ out.
   - [x] ✅ Both scripts written
   - [ ] ⬜ **HOST**: `./deploy.bash`, then `./acceptance.bash`
   - [ ] ⬜ **HOST (owner)**: a commit inside a ccy session started after the deploy
-- [ ] 🔄 **Task 4.4**: qa-reviewer pass over the full plan diff.
+- [x] ✅ **Task 4.4**: qa-reviewer pass over the full plan diff.
   - [x] ✅ First pass: FAIL, one blocking finding (the self-update-cycle test signed its
     "unsigned" fixtures on a host that signs by default), four should-fix, five nits
     ([report](subagent-reports/260924-qa-reviewer-opus-5.md)). All ten are fixed
     ([fixes](subagent-reports/260924-fork-review-fixes-opus-5.md)).
-  - [ ] ⬜ A confirming pass over the fixes
+  - [x] ✅ Confirming pass: PASS WITH NITS
+    ([report](subagent-reports/260924-qa-reviewer-round2-opus-5.md)). The should-fix and
+    all three nits are fixed
 
 ## Success Criteria
 
@@ -125,4 +127,7 @@ out.
 - `6001a540` — signing on by default, ccy 3.66.0, the `ccy-git-signing` gate, docs
   (merged as `78d33e43`)
 - `d8a1af89` — the first review's ten findings: tests isolated from the machine's git
-  config, launcher deployed first, the signing key named in ccy's risks
+  config, launcher deployed first, the signing key named in ccy's risks (merged as
+  `8003868e`)
+- The confirming review's should-fix and nits: the isolation probe fails when it makes no
+  commit, and environment-passed git config is dropped by every isolated test
