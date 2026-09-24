@@ -2,7 +2,10 @@
 # Network Management Library
 # Shared Docker network operations for claude-yolo (ccy)
 #
-# Version: 1.9.0 - `ccy --disconnect`: detach a network and clear the saved default
+# Version: 1.9.1 - An engine that cannot list its containers is a failure, not "none";
+#                  a container's last network is never detached; a bare --disconnect
+#                  with no container asks before clearing the saved default.
+#          1.9.0 - `ccy --disconnect`: detach a network and clear the saved default
 #                  that names it; --connect says what it saved and how to undo it.
 #          1.8.0 - Plan 00075: three errexit call-site fixes — `ccy --connect`
 #                  with no argument no longer dies before listing the networks,
@@ -119,16 +122,34 @@ _report_saved_network_preference() {
     echo "${3}   Undo with: $2 --disconnect $1"
 }
 
-# The running containers of the current project, one name per line.
+# The running containers of the current project, one name per line (none: no output).
 # Args: $1 = container_suffix ("_yolo" or "_browser")
 # The project name is derived the SAME way container creation does (get_project_name
 # prefixes a non-generic parent dir); basename "$PWD" alone found no containers exactly
-# when that collision-avoidance naming applied. grep's exit 1 is "no match", which the
-# caller reads as an empty list; a real grep error (>=2) still fails.
+# when that collision-avoidance naming applied. An engine that cannot list is a failure,
+# never an empty list: read as "no containers", it let --disconnect clear the saved default.
 _project_running_containers() {
-    local base_name
+    local base_name listing
     base_name="$(get_project_name)${1}"
-    container_cmd ps --format '{{.Names}}' | grep "^${base_name}" || test $? -eq 1
+    if ! listing=$(container_cmd ps --format '{{.Names}}'); then
+        print_error "$CONTAINER_ENGINE could not list the running containers (its message is above); nothing was changed"
+        return 1
+    fi
+    awk -v prefix="$base_name" 'index($0, prefix) == 1' <<<"$listing"
+}
+
+# Read _project_running_containers into the array named by $1. Fails, having printed why,
+# when the engine cannot list.
+# Args: $1 = array name, $2 = container_suffix
+_read_project_running_containers() {
+    local -n _into="$1"
+    local _listing _name
+    _listing=$(_project_running_containers "$2") || return 1
+    _into=()
+    while IFS= read -r _name; do
+        [ -n "$_name" ] && _into+=("$_name")
+    done <<<"$_listing"
+    return 0
 }
 
 # Function to connect running container to a Docker network
@@ -142,9 +163,7 @@ connect_to_network() {
     local container_name=""
 
     local matching_containers=()
-    while IFS= read -r name; do
-        matching_containers+=("$name")
-    done < <(_project_running_containers "$container_suffix")
+    _read_project_running_containers matching_containers "$container_suffix" || return 1
 
     # Check if any containers are running
     if [ ${#matching_containers[@]} -eq 0 ]; then
@@ -496,7 +515,7 @@ _is_engine_default_network() {
 _container_networks() {
     local out words=()
     # \$ is a literal $ here: these are Go template variables, not shell ones.
-    out=$(container_cmd inspect "$1" --format "{{range \$k, \$v := .NetworkSettings.Networks}}{{\$k}} {{end}}") || return 1
+    out=$(container_cmd container inspect "$1" --format "{{range \$k, \$v := .NetworkSettings.Networks}}{{\$k}} {{end}}") || return 1
     read -r -a words <<<"${out//$'\n'/ }"
     [ ${#words[@]} -eq 0 ] || printf '%s\n' "${words[@]}"
 }
@@ -519,6 +538,41 @@ _settle_saved_network_preference() {
     fi
 }
 
+# Ask, on the terminal, whether to clear the saved default network $1. Succeeds only on a
+# yes: Enter, a no, end of input, three unreadable answers or no terminal at all keep it.
+# Reads CCY_TTY (default /dev/tty), not stdin, so a piped stdin cannot answer for the user.
+_confirm_clear_saved_network() {
+    local tty="${CCY_TTY:-/dev/tty}"
+    echo "The saved default network is $1: every plain launch in this project joins it." >&2
+    if ! _ask_clear_saved_network "$1" <"$tty"; then
+        echo "Kept the saved default network: $1" >&2
+        return 1
+    fi
+}
+
+# The y/N loop itself, reading stdin, which _confirm_clear_saved_network points at the
+# terminal. A terminal that cannot be opened fails that redirection, so this never runs.
+_ask_clear_saved_network() {
+    local reply attempt=1 max_tries=3
+    while :; do
+        if ! read -rp "Clear the saved default network $1? [y/N] " reply; then
+            echo "" >&2
+            echo "No answer (end of input)." >&2
+            return 1
+        fi
+        case "$reply" in
+            y | Y | yes | YES) return 0 ;;
+            "" | n | N | no | NO) return 1 ;;
+        esac
+        echo "  '$reply' is not y or n." >&2
+        attempt=$((attempt + 1))
+        if [ "$attempt" -gt "$max_tries" ]; then
+            echo "Giving up after $max_tries attempts." >&2
+            return 1
+        fi
+    done
+}
+
 # Detach a network from the current project's running container(s): the undo for a wrong
 # `--connect`. That also saved the network as the project's default, so the default is
 # cleared too when it names this network, or the network would return on the next launch.
@@ -534,15 +588,20 @@ disconnect_from_network() {
         saved=""
     fi
 
-    local containers=() name
-    while IFS= read -r name; do
-        containers+=("$name")
-    done < <(_project_running_containers "$container_suffix")
+    local containers=()
+    _read_project_running_containers containers "$container_suffix" || return 1
 
-    # No container to detach, but the saved default is the part that outlives it.
+    # No container to detach, but the saved default is the part that outlives it. Named, the
+    # user said which network; bare, nothing did, so clearing it is asked first.
     if [ ${#containers[@]} -eq 0 ]; then
-        if [ -n "$saved" ] && { [ -z "$network_name" ] || [ "$network_name" = "$saved" ]; }; then
+        if [ -n "$saved" ] && [ "$network_name" = "$saved" ]; then
             echo "No running container for project $project_name, so nothing was detached."
+            _settle_saved_network_preference "$saved" "$saved" "$tool_name"
+            return $?
+        fi
+        if [ -n "$saved" ] && [ -z "$network_name" ]; then
+            echo "No running container for project $project_name, so there is nothing to detach." >&2
+            _confirm_clear_saved_network "$saved" || return 1
             _settle_saved_network_preference "$saved" "$saved" "$tool_name"
             return $?
         fi
@@ -624,6 +683,26 @@ disconnect_from_network() {
                 return 1
             fi
         done
+    fi
+
+    # A container's LAST network is never detached. That is the usual undo: a session
+    # launched with --network <saved> is on that network alone, and detaching it would cut
+    # the session off from everything, the Claude API included. Checked for every container
+    # before any is touched, so a refusal changes no container. The saved default that
+    # names the network is still cleared: that is the half that brings it back.
+    local stranded=()
+    for container in "${containers[@]}"; do
+        grep -qxF -- "$network_name" <<<"${attached[$container]}" || continue
+        [ "$(grep -c . <<<"${attached[$container]}")" -gt 1 ] || stranded+=("$container")
+    done
+    if [ ${#stranded[@]} -gt 0 ]; then
+        print_error "Not disconnecting from $network_name: it is the only network of ${stranded[*]}, so the session would lose all networking, the Claude API included. No container was changed."
+        {
+            echo "To take the session off $network_name, end it and start it again without that network:"
+            echo "  $tool_name --no-network, or a plain $tool_name once no saved default names $network_name."
+        } >&2
+        _settle_saved_network_preference "$network_name" "$saved" "$tool_name" || return 1
+        return 1
     fi
 
     # Stop at the first refusal: the saved default is only cleared once the network is

@@ -9,9 +9,11 @@
 # default was cleared, kept, or never there. So every case below checks the saved default as
 # well as the engine calls.
 #
-# The container engine is a stub function. It answers `ps`, `inspect` and `network ls` from
-# the fixture below, and records every `network connect`/`disconnect` it is asked for, so a
-# case can assert that a refusal made no change at all.
+# The container engine is a stub function. It answers `ps`, `container inspect` and
+# `network ls` from the fixture below, and records every `network connect`/`disconnect` it
+# is asked for, so a case can assert that a refusal made no change at all. `container
+# inspect` answers only the exact Go template the library sends, in the shape the real
+# engine prints it (one line, a space after each name), so a changed template fails here.
 #
 # `set -e` is deliberately NOT used: every case must run so the summary reports the full
 # picture, and each result is checked explicitly.
@@ -59,16 +61,37 @@ says() { if grep -qF -- "$1" <<<"$2"; then echo yes; else echo no; fi; }
 # ── the engine stub ──────────────────────────────────────────────────────────────────────
 #
 # STUB_PS          running container names, one per line
+# STUB_PS_FAILS    non-empty: `ps` fails, with the engine's own message on stderr
 # STUB_NETS[n]     the networks container n is attached to, space-separated
 # STUB_ALL_NETS    every network the engine knows, space-separated, for `network ls`
 # STUB_FAIL_VERB   "disconnect" or "connect": that verb fails with the engine's own message
 CALLS="$SCRATCH/calls"
 declare -A STUB_NETS=()
+# \$ is a literal $: these are Go template variables, not shell ones.
+INSPECT_TEMPLATE="{{range \$k, \$v := .NetworkSettings.Networks}}{{\$k}} {{end}}"
 container_cmd() {
     local words=()
     case "$1 ${2:-}" in
         "ps --format")
+            if [ -n "${STUB_PS_FAILS:-}" ]; then
+                echo "Error: cannot connect to Podman: simulated ps failure" >&2
+                return 125
+            fi
             [ -n "$STUB_PS" ] && printf '%s\n' "$STUB_PS"
+            return 0
+            ;;
+        "container inspect")
+            if [ "${4:-}" != "--format" ] || [ "${5:-}" != "$INSPECT_TEMPLATE" ]; then
+                echo "container_cmd stub: container inspect called with an unexpected template: $*" >&2
+                return 99
+            fi
+            if [ -z "${STUB_NETS[$3]+set}" ]; then
+                echo "Error: no such container $3" >&2
+                return 125
+            fi
+            read -r -a words <<<"${STUB_NETS[$3]}"
+            [ "${#words[@]}" -gt 0 ] && printf '%s ' "${words[@]}"
+            printf '\n'
             return 0
             ;;
         "network ls")
@@ -85,15 +108,6 @@ container_cmd() {
             return 0
             ;;
     esac
-    if [ "$1" = "inspect" ]; then
-        if [ -z "${STUB_NETS[$2]+set}" ]; then
-            echo "Error: no such container $2" >&2
-            return 125
-        fi
-        read -r -a words <<<"${STUB_NETS[$2]}"
-        [ "${#words[@]}" -gt 0 ] && printf '%s\n' "${words[@]}"
-        return 0
-    fi
     echo "container_cmd stub: unexpected call: $*" >&2
     return 99
 }
@@ -105,8 +119,14 @@ reset() {
     STUB_NETS=([demo_yolo]="podman wrong-network")
     STUB_ALL_NETS="podman wrong-network right-network"
     STUB_FAIL_VERB=""
+    STUB_PS_FAILS=""
+    : >"$TTY"
     rm -f "$(get_network_persistence_file)"
 }
+# The y/N confirmation reads the terminal, not stdin. CCY_TTY points it at this file, which
+# a case fills with the answers typed; an empty file is end of input.
+TTY="$SCRATCH/tty"
+export CCY_TTY="$TTY"
 saved() {
     local f
     f="$(get_network_persistence_file)"
@@ -234,11 +254,68 @@ check "with no container, the saved default it names is still cleared" "0" "$RC"
 check "and is gone" "(none)" "$(saved)"
 check "and nothing reached the engine" "" "$(calls)"
 
+# No container and no name: nothing says WHICH network was meant, so clearing the saved
+# default is confirmed on the terminal first, and anything but a yes keeps it.
+reset
+STUB_PS=""
+save_network_preference wrong-network
+printf 'y\n' >"$TTY"
+run_disconnect "" ""
+check "no container, no name: a yes clears the saved default" "(none)" "$(saved)"
+check "and succeeds" "0" "$RC"
+check "and the question names the saved network" "yes" "$(says "saved default network is wrong-network" "$ERR")"
+
+reset
+STUB_PS=""
+save_network_preference wrong-network
+printf 'n\n' >"$TTY"
+run_disconnect "" ""
+check "no container, no name: a no keeps the saved default" "wrong-network" "$(saved)"
+check "and fails, since nothing was done" "1" "$RC"
+check "and says it was kept" "yes" "$(says "Kept the saved default network: wrong-network" "$ERR")"
+
+reset
+STUB_PS=""
+save_network_preference wrong-network
+printf '\n' >"$TTY"
+run_disconnect "" ""
+check "no container, no name: a bare Enter is the default No" "wrong-network" "$(saved)"
+
 reset
 STUB_PS=""
 save_network_preference wrong-network
 run_disconnect "" ""
-check "with no container and no name, the saved default is cleared" "(none)" "$(saved)"
+check "no container, no name: end of input keeps the saved default" "wrong-network" "$(saved)"
+check "and fails" "1" "$RC"
+
+reset
+STUB_PS=""
+save_network_preference wrong-network
+printf 'maybe\ny\n' >"$TTY"
+run_disconnect "" ""
+check "no container, no name: a typo re-prompts, then a yes clears" "(none)" "$(saved)"
+check "and the typo was named" "yes" "$(says "'maybe' is not y or n" "$ERR")"
+
+reset
+STUB_PS=""
+save_network_preference wrong-network
+printf 'a\nb\nc\ny\n' >"$TTY"
+run_disconnect "" ""
+check "no container, no name: three bad answers give up and keep it" "wrong-network" "$(saved)"
+
+reset
+STUB_PS=""
+save_network_preference wrong-network
+CCY_TTY="$SCRATCH/no-such-terminal" run_disconnect "" ""
+check "no container, no name, no terminal: the saved default is kept" "wrong-network" "$(saved)"
+check "and fails" "1" "$RC"
+
+reset
+STUB_PS=""
+save_network_preference wrong-network
+printf 'y\n' >"$TTY"
+run_disconnect "" ""
+check "the answer is read from the terminal, not stdin" "(none)" "$(saved)"
 
 reset
 STUB_PS=""
@@ -246,6 +323,74 @@ save_network_preference right-network
 run_disconnect "" wrong-network
 check "with no container, a name that is not the saved default is refused" "1" "$RC"
 check "and the saved default is kept" "right-network" "$(saved)"
+
+echo ""
+echo "=== the container's last network is never detached ==="
+# The usual undo: the session was launched with --network <saved>, so that network is the
+# container's only one. Detaching it would cut the session off entirely, the Claude API
+# included, so it is refused; the saved default that names it is still cleared, so the next
+# launch does not join it again.
+reset
+STUB_NETS[demo_yolo]="wrong-network"
+save_network_preference wrong-network
+run_disconnect "" wrong-network
+check "a container's only network is not detached" "1" "$RC"
+check "and nothing reached the engine" "" "$(calls)"
+check "and the refusal says the session would lose all networking" "yes" "$(says "lose all networking" "$ERR")"
+check "and says what to do instead" "yes" "$(says "ccy --no-network" "$ERR")"
+check "but the saved default that names it is cleared" "(none)" "$(saved)"
+check "and the output says so" "yes" "$(says "Cleared the saved default network: wrong-network" "$OUT")"
+
+reset
+STUB_NETS[demo_yolo]="wrong-network"
+save_network_preference right-network
+run_disconnect "" wrong-network
+check "the last network is refused with another default saved" "1" "$RC"
+check "and that other default is kept" "right-network" "$(saved)"
+
+reset
+STUB_NETS[demo_yolo]="wrong-network"
+run_disconnect "1" ""
+check "picked from the list, a container's only network is still refused" "1" "$RC"
+check "and nothing reached the engine" "" "$(calls)"
+
+reset
+STUB_PS=$'demo_yolo\ndemo_yolo_2'
+STUB_NETS[demo_yolo_2]="wrong-network"
+run_disconnect "" wrong-network
+check "one container would be stranded: none is detached" "" "$(calls)"
+check "and the refusal names that container" "yes" "$(says "demo_yolo_2" "$ERR")"
+
+echo ""
+echo "=== the engine cannot list its containers ==="
+# An engine failure is not "no containers": read that way, a bare --disconnect would clear
+# the saved default and report success.
+reset
+STUB_PS_FAILS=1
+save_network_preference wrong-network
+printf 'y\n' >"$TTY"
+run_disconnect "" ""
+check "bare --disconnect fails when ps fails" "1" "$RC"
+check "and the saved default is untouched" "wrong-network" "$(saved)"
+check "and the engine's own message is shown" "yes" "$(says "simulated ps failure" "$ERR")"
+check "and it says the containers could not be listed" "yes" "$(says "could not list the running containers" "$ERR")"
+
+reset
+STUB_PS_FAILS=1
+save_network_preference wrong-network
+run_disconnect "" wrong-network
+check "named --disconnect fails when ps fails" "1" "$RC"
+check "and the saved default is untouched" "wrong-network" "$(saved)"
+check "and nothing reached the engine" "" "$(calls)"
+
+reset
+STUB_PS_FAILS=1
+OUT="$(connect_to_network right-network "_yolo" "ccy" 2>&1)"
+RC=$?
+check "--connect fails when ps fails" "1" "$RC"
+check "and saves no default" "(none)" "$(saved)"
+check "and says the containers could not be listed" "yes" "$(says "could not list the running containers" "$OUT")"
+check "and nothing reached the engine" "" "$(calls)"
 
 echo ""
 echo "=== --connect says what it saved, and how to undo it ==="

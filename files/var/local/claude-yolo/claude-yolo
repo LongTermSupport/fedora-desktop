@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.64.0"  # ccy --disconnect undoes a wrong --connect, saved default included. See docs/ccy-changelog.md.
+CCY_VERSION="3.64.1"  # --disconnect fails on an engine error and never detaches a container's last network. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -226,7 +226,7 @@ Options:
                          project's default, which every later launch reconnects to)
   --disconnect [NETWORK] Disconnect running container from network (picker if no name),
                          and clear the saved default when it names that network
-  --custom              Create/edit custom project Dockerfile interactively
+  --custom               Create/edit custom project Dockerfile interactively
   --custom-docker        AI-guided Dockerfile creation and customization
   --disable-custom-docker  Skip custom Dockerfile build, use base image (for fixing broken Dockerfiles)
   --prompt "text"        Start Claude Code with a preseeded prompt
