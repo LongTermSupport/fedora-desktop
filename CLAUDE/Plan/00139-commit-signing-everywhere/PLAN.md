@@ -103,7 +103,8 @@ out.
   that a commit made in a scratch repo carries a good signature from the machine key. The
   same check inside ccy needs a fresh ccy session, so it is an owner step.
   - [x] ✅ Both scripts written
-  - [ ] ⬜ **HOST**: `./deploy.bash`, then `./acceptance.bash`
+  - [x] ✅ **HOST**: `./deploy.bash`, then `./acceptance.bash`. Deploy passed; acceptance
+    passed 10 of 11. Only check 11 (key registered on GitHub) fails, which waits on Task 1.3
   - [ ] ⬜ **HOST (owner)**: a commit inside a ccy session started after the deploy
 - [x] ✅ **Task 4.4**: qa-reviewer pass over the full plan diff.
   - [x] ✅ First pass: FAIL, one blocking finding (the self-update-cycle test signed its
