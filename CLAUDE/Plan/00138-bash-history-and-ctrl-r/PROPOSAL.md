@@ -7,7 +7,9 @@ Grounded in three research documents:
 - [RESEARCH-ranking-and-security.md](RESEARCH-ranking-and-security.md) — cwd-weighted ranking
   (requirement A) and the security of each option (requirement B), from the tools' source
 
-Nothing here is implemented. Each item names the decision it needs from the owner.
+**Decided by the owner** (see the table at the end): P1–P5 adopted; recorder **R2**
+(Atuin "sounds dodgy"); fzf accepted as the picker only; Plan 027 (Atuin) cancelled.
+Implementation is tracked in [PLAN.md](PLAN.md) Phase 3.
 
 ## Owner requirements
 
@@ -217,7 +219,40 @@ and time it at 15k and 100k rows. Neither research pass measured it.
 - R1 would add packages and an IaC-owned `~/.config/atuin/config.toml`.
 - No new playbook for R2.
 
-## Decisions for the owner
+### Prototype results (Task 2.3)
+
+[`prototype-ranker.bash`](prototype-ranker.bash) passes the fixture checks in
+[`prototype-timing.bash`](prototype-timing.bash):
+
+- this directory first, newest first;
+- always-failing commands sink within their tier;
+- then the same repo, then everything else;
+- tabs, multi-line entries and pre-recorder history are all handled;
+- no duplicates.
+
+Timings on the host used synthetic records built from a copy of the real history. The
+copy's commands were reused, with invented directories:
+
+| Records | Rank only | Rank + `fzf --filter` |
+| ------- | --------- | --------------------- |
+| 15,000  | 153 ms    | ~140 ms               |
+| 100,000 | 435 ms    | ~440 ms               |
+
+`git rev-parse` costs 2 ms. At today's size the ranker is fast. At 100k records it is
+noticeable, which is why Task 3.5 decides between accepting that and compacting the
+context file. Compaction would leave one row per command and directory; there are only
+about 5,700 distinct commands today.
+
+## Decisions (answered by the owner)
+
+| #   | Answer                                                       |
+| --- | ------------------------------------------------------------ |
+| D1  | Yes: P1–P5 for the user and root                             |
+| D2  | R2, the repo-owned recorder. Atuin rejected ("sounds dodgy") |
+| D3  | Yes: fzf as the picker only                                  |
+| D4  | Plan 027 cancelled ("atuin is dead")                         |
+
+### The questions as asked
 
 | #   | Question                                                                                                                | Recommendation                                                  |
 | --- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |

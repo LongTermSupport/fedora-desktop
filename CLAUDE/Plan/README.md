@@ -34,7 +34,7 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00138-bash-history-and-ctrl-r](00138-bash-history-and-ctrl-r/) - Bash history is saved only at shell exit, so open terminals hold unsaved, unsearchable history. Research and a proposal: durable timestamped history, and a Ctrl+R over every terminal's history that ranks this directory's and repo's commands first. Awaiting owner decisions.
+- [00138-bash-history-and-ctrl-r](00138-bash-history-and-ctrl-r/) - Bash history is saved only at shell exit, so open terminals hold unsaved, unsearchable history. Research and a proposal: durable timestamped history, and a Ctrl+R over every terminal's history that ranks this directory's and repo's commands first. Decided (repo-owned recorder, no Atuin); implementation not started.
 
 - [00136-host-health-report-in-a-terminal](00136-host-health-report-in-a-terminal/) - The host health report becomes a terminal-first surface on both profiles: `fedora-desktop-health` prints it on demand, the login snippet speaks in full once a day and otherwise leaves a one-line reminder, and the GNOME panel gains a row that opens the command in a terminal. Nothing re-runs a play; that remains Plan 00109 Task 4.3.
 
@@ -95,8 +95,6 @@ Use these Unicode icons in plan documents:
 - [023-hostname-based-inventory](023-hostname-based-inventory/) - Migrate Ansible inventory from hardcoded `localhost` to machine hostname, supporting per-machine host_vars and multiple laptops
 
 - [026-repo-spring-cleaning](026-repo-spring-cleaning/) - Repository-wide spring cleaning (non-CCY): remove tracked backups, fix bash scripts (set -e, shellcheck), fix Ansible playbooks (duplicate shebangs, curl-to-bash, state:latest)
-
-- [027-contextual-shell-history](027-contextual-shell-history/) - Replace bash history with Atuin for directory/git-workspace-aware command recall
 
 - [028-fedora-screen-sharing](028-fedora-screen-sharing/) - Diagnose and fix unstable screen sharing on Fedora 43 GNOME (Slack desktop broken by `app.asar` hardcode; Meet freezes traced to mutter ScreenCast bugs fixed in 49.3/49.5)
 
@@ -243,6 +241,8 @@ Use these Unicode icons in plan documents:
 keeps this index readable; the archive keeps the record whole.
 
 ## Cancelled Plans
+
+- [027-contextual-shell-history](Cancelled/027-contextual-shell-history/) - Atuin for directory-aware recall. CANCELLED: superseded by Plan 00138; Atuin can only filter by directory, not rank, and its bash hook exposes command lines in argv.
 
 - [00042-darktable-ai-features](Cancelled/00042-darktable-ai-features/) - Enable darktable's AI features via a source-built RPM and the upstream nightly AppImage. CANCELLED: the pre-release path never worked reliably, and darktable 5.6.0+ (Fedora 44 ships 5.6.1) decodes the Sony A7V natively, so the local rebuild and cameras.xml overlay are no longer needed. The AI playbooks were removed; `play-photography.yml` now enforces the darktable version floor and cleans up the retired install.
 

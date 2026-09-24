@@ -1,10 +1,16 @@
 # Plan 027: Contextual Shell History with Atuin
 
-**Status**: Not Started
-**Created**: 2026-04-04
-**Owner**: User
-**Priority**: Medium
-**Estimated Effort**: 2-3 hours
+**Status**: Cancelled
+
+> **Cancelled by the owner, superseded by
+> [Plan 00138](../../00138-bash-history-and-ctrl-r/PLAN.md).** Research there, from Atuin's
+> source, found that Atuin cannot rank by directory or git repo while searching all history
+> (it can only filter), and that its bash hook passes every command line through a child
+> process's argv. Plan 00138 instead uses a repo-owned recorder and ranker.
+> **Created**: 2026-04-04
+> **Owner**: User
+> **Priority**: Medium
+> **Estimated Effort**: 2-3 hours
 
 ## Overview
 
@@ -67,6 +73,7 @@ See [research.md](research.md) for the full tool landscape analysis.
 
 **Context**: Atuin can be installed via cargo, binary download, or package manager.
 **Options**:
+
 1. `cargo install atuin` — requires Rust toolchain
 2. Binary from GitHub releases — same pattern as RapidRAW (pinned version + checksum)
 3. COPR/Fedora repo — if available, simplest upgrade path
@@ -78,6 +85,7 @@ See [research.md](research.md) for the full tool landscape analysis.
 
 **Context**: Bash lacks native preexec hooks. Atuin needs one.
 **Options**:
+
 1. **bash-preexec** — simpler, widely used, but `ignorespace` not fully honored
 2. **ble.sh** — recommended by Atuin, accurate timing, but heavier dependency
 
@@ -95,15 +103,16 @@ See [research.md](research.md) for the full tool landscape analysis.
 
 ## Risks & Mitigations
 
-| Risk | Impact | Probability | Mitigation |
-|------|--------|-------------|------------|
-| Atuin conflicts with existing Ctrl+R bindings | Medium | Low | Atuin replaces the binding; old history still in ~/.bash_history |
-| bash-preexec causes shell startup slowdown | Low | Low | Benchmark; switch to ble.sh if needed |
-| Atuin update breaks bash integration | Medium | Low | Pin version in playbook |
+| Risk                                          | Impact | Probability | Mitigation                                                       |
+| --------------------------------------------- | ------ | ----------- | ---------------------------------------------------------------- |
+| Atuin conflicts with existing Ctrl+R bindings | Medium | Low         | Atuin replaces the binding; old history still in ~/.bash_history |
+| bash-preexec causes shell startup slowdown    | Low    | Low         | Benchmark; switch to ble.sh if needed                            |
+| Atuin update breaks bash integration          | Medium | Low         | Pin version in playbook                                          |
 
 ## Notes & Updates
 
 ### 2026-04-04
+
 - Created plan based on tool landscape research
 - Atuin selected as clear winner over McFly, hishtory, and DIY approaches
 - Key differentiator: explicit workspace (git repo) filter mode
