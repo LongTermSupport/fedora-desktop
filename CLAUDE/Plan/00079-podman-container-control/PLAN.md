@@ -5,9 +5,9 @@ Task 3.4:
 
 - **Task 3.5(a)**: the interactive picker, with and without fzf. A human check at a HOST
   terminal.
-- **Task 3.5(b)**: a confirming `qa-reviewer` PASS. Four confirming reviews have
-  returned FIX-BEFORE-MERGE, each with fewer findings; the fourth's are fixed, and a
-  fifth review is owed.
+- **Task 3.5(b)**: a confirming `qa-reviewer` PASS. Five confirming reviews have
+  returned FIX-BEFORE-MERGE, each with fewer findings. The fifth found only journal
+  times, which are corrected. A sixth review is owed.
 - **Task 3.6**: a real `freeze --ccy` and `thaw --ccy`, by a human at a quiet moment.
   **Created**: 2026-08-19
   **Owner**: joseph
@@ -221,7 +221,7 @@ See D4 and D6.
 - [ ] ⬜ **Task 3.5**: The two open success criteria. (a) **Human, at a HOST terminal**:
   run `podfreeze` with no target, once with `fzf` on `PATH` and once without, and in each
   open a group, act on it and quit. (b) A confirming `qa-reviewer` PASS over the plan's
-  diff. Four confirming reviews have returned FIX-BEFORE-MERGE:
+  diff. Five confirming reviews have returned FIX-BEFORE-MERGE:
 
   - [260923-qa-reviewer-confirm-opus-5.md](subagent-reports/260923-qa-reviewer-confirm-opus-5.md),
     fixed in `880154a6`;
@@ -230,9 +230,11 @@ See D4 and D6.
   - [260924-qa-reviewer-confirm3-opus-5.md](subagent-reports/260924-qa-reviewer-confirm3-opus-5.md),
     resolved as its last section records;
   - [260924-qa-reviewer-confirm4-opus-5.md](subagent-reports/260924-qa-reviewer-confirm4-opus-5.md),
-    resolved likewise.
+    resolved likewise;
+  - [260924-qa-reviewer-confirm5-opus-5.md](subagent-reports/260924-qa-reviewer-confirm5-opus-5.md),
+    resolved by the journal's 07:55 finding.
 
-  A fifth review is owed.
+  A sixth review is owed.
 
 - [ ] ⬜ **Task 3.6**: Prove `freeze --ccy` and `thaw --ccy` for real, which acceptance
   deliberately never does to live sessions. **Human, at a HOST terminal**, in a quiet
@@ -292,8 +294,8 @@ See D4 and D6.
   and `ccy-ssh-keys` labels, and `podfreeze --github <id>` resolves exactly the
   sessions on that account (D4, D8) *(triage H6: 6 of 6 sessions carry all five; check 13)*
 - [ ] `./scripts/qa-all.bash` passes; `qa-reviewer` verdict is PASS (or PASS
-  WITH NITS, nits addressed or accepted). *(Task 3.5(b). The latest verdict, the fourth
-  confirming review's, is FIX-BEFORE-MERGE; its findings are resolved and a fifth review
+  WITH NITS, nits addressed or accepted). *(Task 3.5(b). The latest verdict, the fifth
+  confirming review's, is FIX-BEFORE-MERGE; its finding is resolved and a sixth review
   is owed.)*
 
 ## Delivery & Milestones
