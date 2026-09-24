@@ -37,15 +37,21 @@ done
 PLAN_ROOT="${scriptDir}"
 
 # --- the list ----------------------------------------------------------------
-# Plan folder names, run in this order. Add a line when a plan needs deploying; delete it
-# when it does not. A plan with none of triage.bash, deploy.bash and acceptance.bash has
+# Plan folder names, run in this order. STANDING RULE (CLAUDE/AgentNotes.md): a plan is
+# added the moment it needs a host run and removed the moment it does not, and the order
+# is by dependency. A plan with none of triage.bash, deploy.bash and acceptance.bash has
 # nothing for this script to do. A triage-only plan is run once, read-only. Words after the
 # folder name are passed to that plan's triage.bash, both runs.
+#
+# 00134 first: it deploys the broadest set, the ccy launchers and basic-configs included.
+# 00079 next: its acceptance judges the ccy launcher and podfreeze.
+# 00109 after both: its drift check should see their plays as freshly run.
+# 00080 last: read-only probes of ccy networking, judging what the deploys left.
 PLANS=(
-    "00079-podman-container-control"
-    "00080-ccy-session-network-isolation --reachability"
-    "00109-desktop-drift-detection-and-fedora-desktop-panel"
     "00134-startup-log-triage-and-status-panel-unavailable"
+    "00079-podman-container-control"
+    "00109-desktop-drift-detection-and-fedora-desktop-panel"
+    "00080-ccy-session-network-isolation --reachability"
 )
 
 LIST_ONLY=0

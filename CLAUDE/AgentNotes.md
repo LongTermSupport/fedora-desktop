@@ -56,6 +56,23 @@ pass/fail gate is separate — the repo's documented trio is
 (`verify.bash` is an acceptable synonym). A verdict ("store loads ✅") belongs in
 the acceptance/verify gate, **not** in triage.
 
+### `meta-deploy.bash` is how host runs reach the owner — keep its list exact
+
+**Standing rule from the owner.** `CLAUDE/Plan/meta-deploy.bash` is the one command the
+owner runs to execute plan scripts on the host. Its `PLANS` list must always be exactly
+what currently needs running, in the order it must run:
+
+- **Add a plan the moment it needs a host run**, in the right place in the order. Do not
+  hand the owner a separate command to type. If a triage needs a flag, put it on the
+  plan's line.
+- **Remove a plan the moment it no longer needs one**, for example once its acceptance
+  has passed and nothing is left to deploy.
+- **Order by dependency:** deploys that others build on come first, and read-only triage
+  that judges what the deploys left behind comes last.
+
+Only what meta cannot do goes to the owner as a request: a reboot, a login, a decision,
+or a different machine.
+
 ### Sub-agents are pre-authorised — dispatch them, do not ask
 
 **The user has given standing authorisation to dispatch sub-agents.** Do not
