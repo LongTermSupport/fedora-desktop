@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.63.0"  # The token a launch uses is shown with its expiry, coloured. See docs/ccy-changelog.md.
+CCY_VERSION="3.64.0"  # ccy --disconnect undoes a wrong --connect, saved default included. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -222,8 +222,11 @@ Options:
   --export-token [NAME]  Export token(s) as portable import script (interactive if no name)
   --network NETWORK      Auto-connect to specified container network on launch
   --no-network           Skip network auto-detection
-  --connect [NETWORK]    Connect running container to network
-  --custom               Create/edit custom project Dockerfile interactively
+  --connect [NETWORK]    Connect running container to network (also saves it as the
+                         project's default, which every later launch reconnects to)
+  --disconnect [NETWORK] Disconnect running container from network (picker if no name),
+                         and clear the saved default when it names that network
+  --custom              Create/edit custom project Dockerfile interactively
   --custom-docker        AI-guided Dockerfile creation and customization
   --disable-custom-docker  Skip custom Dockerfile build, use base image (for fixing broken Dockerfiles)
   --prompt "text"        Start Claude Code with a preseeded prompt
@@ -293,6 +296,8 @@ Custom Dockerfile (AI-guided planning):
 Network Management (run in separate terminal while ccy is running):
   ccy --connect                 # Interactive network selection
   ccy --connect myproject_default  # Connect to specific network
+  ccy --disconnect              # Pick a network to disconnect from
+  ccy --disconnect myproject_default  # Undo a wrong --connect, saved default included
 
 Token Management:
   Tokens stored in: ~/.claude-tokens/ccy/tokens/
@@ -513,6 +518,9 @@ CUSTOM_DOCKER_MODE=false
 TOP_MODE=false
 PREVENT_MODE=false
 CONNECT_NETWORK=""
+DISCONNECT_MODE=false
+NEXT_IS_DISCONNECT=false
+DISCONNECT_NETWORK=""
 NO_SSH_MODE=false
 GITHUB_443_MODE=false
 SPECIFIED_NETWORK=""
@@ -566,6 +574,9 @@ for arg in "$@"; do
     elif [ "$NEXT_IS_CONNECT" = true ]; then
         CONNECT_NETWORK="$arg"
         NEXT_IS_CONNECT=false
+    elif [ "$NEXT_IS_DISCONNECT" = true ]; then
+        DISCONNECT_NETWORK="$arg"
+        NEXT_IS_DISCONNECT=false
     elif [ "$NEXT_IS_NETWORK" = true ]; then
         SPECIFIED_NETWORK="$arg"
         NEXT_IS_NETWORK=false
@@ -637,6 +648,9 @@ for arg in "$@"; do
     elif [ "$arg" = "--connect" ]; then
         CONNECT_MODE=true
         NEXT_IS_CONNECT=true
+    elif [ "$arg" = "--disconnect" ]; then
+        DISCONNECT_MODE=true
+        NEXT_IS_DISCONNECT=true
     elif [ "$arg" = "--custom" ]; then
         CUSTOM_MODE=true
     elif [ "$arg" = "--custom-docker" ]; then
@@ -718,7 +732,7 @@ if [ ${#suspect_flags[@]} -gt 0 ]; then
             ccy_flags=(
                 --rebuild --disable-custom-docker --no-ssh --github-443 --no-network
                 --headless --supervise --no-supervise --no-restore --ssh-agent --prompt --debug --engine --ssh-key --token --create-token
-                --update-token --list-tokens --export-token --network --connect
+                --update-token --list-tokens --export-token --network --connect --disconnect
                 --custom --custom-docker --top --prevent --help
             )
             claude_known=$(grep -oE -- '--[a-zA-Z][a-zA-Z0-9-]*' <<< "$claude_help" | sort -u)
@@ -880,7 +894,16 @@ if [ "$EXPORT_TOKEN_MODE" = true ]; then
     exit $?
 fi
 
-# Handle connect mode (doesn't need SSH/GH setup)
+# Handle connect and disconnect modes (neither needs SSH/GH setup). Both at once would
+# attach and detach in one breath, so it is refused rather than one silently winning.
+if [ "$CONNECT_MODE" = true ] && [ "$DISCONNECT_MODE" = true ]; then
+    print_error "--connect and --disconnect cannot be used together"
+    exit 1
+fi
+if [ "$DISCONNECT_MODE" = true ]; then
+    disconnect_from_network "$DISCONNECT_NETWORK" "_yolo" "ccy"
+    exit $?
+fi
 if [ "$CONNECT_MODE" = true ]; then
     connect_to_network "$CONNECT_NETWORK" "_yolo" "ccy"
     exit $?

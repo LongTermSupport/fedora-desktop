@@ -451,6 +451,19 @@ fi
 session_network_summary=$(qa_gate_case_count "$session_network_out")
 qa_pass_line ccy-session-network "$session_network_summary"
 
+# `ccy --disconnect`, the undo for a wrong `--connect`. --connect also saves the network as
+# the project's default, which every later launch reconnects to, so the undo must clear
+# that default exactly when it names the network: every case checks the saved default as
+# well as the engine calls, against a stubbed engine, the picker's re-prompt included.
+network_disconnect_out=""
+if ! network_disconnect_out="$(bash "$SCRIPT_DIR/test-ccy-network-disconnect.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-network-disconnect \
+        "ccy --disconnect unit tests failed" \
+        "$network_disconnect_out"
+fi
+network_disconnect_summary=$(qa_gate_case_count "$network_disconnect_out")
+qa_pass_line ccy-network-disconnect "$network_disconnect_summary"
+
 # ssh-suspend-guard's session detection: the guard asked `ss` about port 22 and grepped for
 # sshd, so on a host whose sshd listens elsewhere it never took the inhibit lock and the
 # machine suspended mid-session — the one outcome it exists to prevent, arriving silently.

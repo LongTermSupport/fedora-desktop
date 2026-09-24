@@ -17,6 +17,26 @@ Two version numbers move independently — see
 
 ---
 
+## 3.64.0
+
+New `ccy --disconnect [NETWORK]`, the undo for a wrong `--connect` (network-management
+1.9.0).
+
+`--connect` saves the network as the project's default, and every later plain `ccy` in
+the project reconnects to it. Nothing in ccy removed that default: `--no-network` skipped
+it for one launch, and `--network` at launch never replaced it. So a mistaken
+`--connect` stuck.
+
+- `--disconnect NET` detaches `NET` from every running container of the project that is
+  on it. The engine's error is shown if it refuses, and nothing more is changed.
+- With no name, it offers the project networks the container(s) are on. The engine's
+  default network is not offered. A typo re-prompts, up to three tries.
+- The saved default is cleared when it names the network, and otherwise named and kept.
+  With no container running, a saved default can still be cleared.
+- `--connect` now says it saved a default, that later launches reconnect to it, and the
+  `--disconnect` command that undoes it.
+- A restored session never replays `--disconnect`.
+
 ## 3.63.0
 
 Every line that names the token a launch will use now shows its expiry, coloured. That
