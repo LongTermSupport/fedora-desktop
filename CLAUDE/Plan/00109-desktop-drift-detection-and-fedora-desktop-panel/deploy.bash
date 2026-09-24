@@ -76,11 +76,12 @@ acceptance.bash will then fail its DisplayLink check for a reason that has nothi
 to do with DisplayLink. Deploy that play on its own if you hit this:
   ansible-playbook playbooks/imports/optional/hardware-specific/play-displaylink.yml
 
-AFTERWARDS, in this order:
-  1. log out and log back in. On Wayland that is the only way GNOME Shell loads
-     the panel's new code, and it is also what fires the login-time health unit.
-  2. ./acceptance.bash — the verdict. deploy.bash establishes only that the
-     plays ran."
+The last leg runs the status-document collection once, without a notification, so
+acceptance judges a document made by the code and ledger this run left behind.
+
+AFTERWARDS: ./acceptance.bash — the verdict. deploy.bash establishes only that the
+plays ran. A logout and login is still what loads the panel's new code on Wayland,
+and what fires the login notification; both are for a human to look at."
 
 plan_mode deploy
 plan_parse_common_flags "$@"
@@ -139,12 +140,20 @@ plan_deploy_leg "play-vm-test-lab.yml" \
 plan_deploy_leg "play-displaylink.yml" \
     plan_ansible_playbook playbooks/imports/optional/hardware-specific/play-displaylink.yml
 
+# On a desktop the status document is otherwise written only at login, so acceptance
+# would judge whatever the last login collected, from code and a ledger that may both
+# have changed since. This is the same collection host-health.service runs, with
+# --no-notify so a deploy puts no popup on screen. Exit 3 means findings, which is a
+# successful collection.
+plan_deploy_leg "collect the status document now" \
+    env --chdir="${PLAN_REPO_ROOT}" bash -c \
+    'python3 -m helpers.host_health.login_report --no-notify || [[ $? -eq 3 ]]'
+
 printf '\n'
-printf '==> NEXT, and in this order:\n'
-printf '    1. log out and log back in — on Wayland nothing else loads the panel'"'"'s new\n'
-printf '       code, and the login is also what fires the health report unit.\n'
-printf '    2. ./acceptance.bash — the verdict. This run established only that the\n'
-printf '       four plays ran.\n'
+printf '==> NEXT: ./acceptance.bash — the verdict. This run established only that the\n'
+printf '    plays ran and the status document was collected again.\n'
+printf '    A logout and login is still what loads the panel'"'"'s new code on Wayland, and\n'
+printf '    what fires the login notification; both are for a human to look at.\n'
 printf '\n'
 
 plan_finish

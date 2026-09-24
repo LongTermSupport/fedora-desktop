@@ -1017,7 +1017,8 @@ if [[ "${FAIL}" -eq 0 ]]; then
 else
     printf 'REJECTED — %d assertion(s) failed, %d passed.\n' "${FAIL}" "${PASS}" >&2
 fi
-printf '           Fix what is named above, re-run ./deploy.bash if a play is\n' >&2
-printf '           implicated, log out and back in, then re-run this gate.\n' >&2
+printf '           Fix what is named above, re-run ./deploy.bash (it also collects the\n' >&2
+printf '           status document again), then re-run this gate. A check that names a\n' >&2
+printf '           logout needs one; no other does.\n' >&2
 printf '==============================================================\n' >&2
 exit 1

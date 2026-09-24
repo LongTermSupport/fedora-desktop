@@ -47,8 +47,9 @@ PLAN_ROOT="${scriptDir}"
 # run as one unit through its own shebang, which goes through run.bash, exactly as
 # `./playbooks/imports/<play>.yml` does by hand.
 #
-# 00109: its acceptance must run again AFTER a logout and login, which is what regenerates
-# the status document it judges and loads the panel's new code.
+# 00109: its deploy now collects the status document itself, so its acceptance can pass
+# without a logout. It stays for the human checks after one: the new panel, the login
+# notification.
 # 00134: its triage is what reads the next boot's journal for the post-boot criteria
 # (dbus-broker, dnf5daemon, WirePlumber, the ABRT applet), so it runs after a reboot.
 PLANS=(
