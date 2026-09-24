@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00138-bash-history-and-ctrl-r](00138-bash-history-and-ctrl-r/) - Bash history is written only when a shell exits, so dozens of open terminals hold unsaved, unsearchable history; no timestamps; `ps1-prompt` corrupts the `PROMPT_COMMAND` array. Read-only research and a proposal (per-prompt `history -a`, timestamps, unlimited truncation-proof file, fzf Ctrl+R over every terminal's history); awaiting owner decisions.
+
 - [00136-host-health-report-in-a-terminal](00136-host-health-report-in-a-terminal/) - The host health report becomes a terminal-first surface on both profiles: `fedora-desktop-health` prints it on demand, the login snippet speaks in full once a day and otherwise leaves a one-line reminder, and the GNOME panel gains a row that opens the command in a terminal. Nothing re-runs a play; that remains Plan 00109 Task 4.3.
 
 - [00137-unattended-server-self-update](00137-unattended-server-self-update/) - On an always-on headless server, a timer fast-forwards the checkout behind a trust gate, maps the changed paths to the plays they affect and runs those plays unattended; only when they all succeed does it warn the ccy/cc sessions and reboot, and a post-boot check verifies the restored sessions resumed. Built; waiting on the qa-reviewer (Task 5.2), the alert sinks (Tasks 0.4, 4.5) and a host proof (Task 5.3).
