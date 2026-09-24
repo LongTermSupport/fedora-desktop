@@ -335,15 +335,41 @@ Whether St renders the demoted lines legibly, whether the caveat heading reads a
 and whether the icon colour is the right thing to look at. Those need a Wayland session and
 a person, and the gate says so rather than implying its green covers them.
 
-## 12. Open for the owner: who reacts to unlock (Task 5.4a)
+## 12. Decided: a separate extension reacts to unlock (Task 5.4a)
 
 Task 5.4's recovery action `REFRESH_BACKGROUND` fires from the dock udev rule and from the
 suspend service. The suspend path is **effectively inert**: the screen is already locked when
 that service runs, so the run correctly refuses. Something in the *user* session has to react
-to **unlock**, and nothing in this repo watches lock state today.
+to **unlock**.
 
-This is not code that is merely unwritten. The two candidates trade off against each other and
-neither is determined by a fact, which is why it is here rather than done.
+**The owner chose C.** `extensions/dock-recovery-on-unlock@fedora-desktop/`, deployed by
+`play-displaylink.yml` beside the units it starts, works like this:
+
+- **Signal.** It connects to `Main.screenShield`'s `locked-changed` and acts only when
+  `locked` turns false. Its `session-modes` include `unlock-dialog`. Otherwise the shell
+  disables it at the lock and enables it after, and it would never see the unlock.
+- **Action.** It spawns the argv `systemctl start --no-block displaylink-dock-recovery.service`,
+  with no shell. That is the unit the udev rule starts, so the recovery reads the heads, the
+  lock state and the journal and picks its own action. The extension decides nothing about
+  the display, but what it sets off is not small. While docked, every unlock repaints the
+  background: `needs_background_refresh` fires whenever dock heads exist, with no attempt
+  to detect the black first. A head that looks wedged runs the root ladder instead: driver
+  restart, USB re-authorisation, evdi module reload (`recovery.decide`). With no dock heads
+  it does nothing. That rests on the DVI-I connectors going away when the dock is
+  unplugged, which is a HOST check.
+- **Permission.** `files/etc/polkit-1/rules.d/50-displaylink-dock-recovery.rules.j2` lets
+  the desktop user START that one unit, from an active local session only. It grants no
+  stop, no restart and no other unit, and nothing to an SSH session. It does grant the
+  desktop user everything that unit does as root, listed above. A sudoers entry, the
+  precedent in Plan 00137, would also cover SSH sessions, which never unlock anything.
+- **Timing.** It waits 5 s after the unlock. The shell sets logind's `LockedHint`
+  asynchronously, and the recovery skips a session whose hint still says locked. A repeat
+  signal inside that window adds no second start, and a lock inside it cancels the start.
+- **Failure.** A start that cannot be spawned, or exits non-zero, is logged to the
+  gnome-shell journal with the exit status and systemctl's stderr. It does not notify: a
+  broken rule would otherwise raise a popup at every unlock.
+
+The options as they were weighed:
 
 **A. The panel.** GNOME Shell already dispatches lock state to extensions (`Main.screenShield`,
 or `org.gnome.ScreenSaver`'s `ActiveChanged`), so the panel gets the signal for **no extra
@@ -371,6 +397,6 @@ backend.
 *session* is the natural owner, and the panel is merely the session component that already
 exists. B buys a resident daemon for a purity the other two get for free.
 
-**Whichever is chosen, the HOST item under Task 5.4 still gates it.** The unlock signal only
+**The HOST item under Task 5.4 still gates it.** The unlock signal only
 exists in a live Wayland session, and whether the refresh actually clears a black background has
 only ever been exercised on a healthy desktop.

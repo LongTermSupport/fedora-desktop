@@ -1379,6 +1379,12 @@ DisplayLink dock support:
 - Installs DisplayLink drivers
 - Creates suspend/resume service
 - Configures display management
+- Deploys the `dock-recovery-on-unlock` GNOME extension, which starts the dock recovery
+  service when the screen is unlocked. The resume service runs while the screen is still
+  locked, and the recovery never repaints a locked session, so a background left black
+  by a monitor change is repainted at the unlock instead. A polkit rule lets the desktop
+  user start that one service from the active local session. The extension loads at the
+  next login.
 
 #### play-ipu6-webcam.yml
 

@@ -29,7 +29,7 @@ const GI_DEFAULTS = new Map([
 /** Shell module -> the named exports it must provide. */
 const SHELL_NAMES = new Map([
     ['resource:///org/gnome/shell/ui/popupMenu.js', ['PopupMenuItem', 'PopupSeparatorMenuItem']],
-    ['resource:///org/gnome/shell/ui/main.js', ['notify', 'panel']],
+    ['resource:///org/gnome/shell/ui/main.js', ['notify', 'panel', 'screenShield']],
     ['resource:///org/gnome/shell/ui/panelMenu.js', ['Button']],
     ['resource:///org/gnome/shell/extensions/extension.js', ['Extension']],
 ]);

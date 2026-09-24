@@ -1,0 +1,19 @@
+{
+  "name": "Dock Recovery on Unlock",
+  "description": "Starts the DisplayLink dock recovery service when the screen is unlocked, so a desktop background left black by a monitor change while locked is repainted. It watches the lock state and starts that one service; the recovery itself decides whether anything needs doing.",
+  "uuid": "dock-recovery-on-unlock@fedora-desktop",
+  "shell-version": [
+    "45",
+    "46",
+    "47",
+    "48",
+    "49",
+    "50"
+  ],
+  "session-modes": [
+    "user",
+    "unlock-dialog"
+  ],
+  "version": 1,
+  "url": "https://github.com/LongTermSupport/fedora-desktop"
+}

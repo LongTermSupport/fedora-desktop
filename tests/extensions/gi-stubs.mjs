@@ -149,6 +149,59 @@ export const panel = {
 };
 
 /**
+ * `Main.screenShield`: a lock state and the one signal the shell emits for it.
+ *
+ * `setLocked` emits `locked-changed` only when the state actually changes, as
+ * `ScreenShield._setLocked` does, so a test cannot produce a signal the shell never would.
+ * `emit` exists for the one case a test must force: a duplicate signal.
+ */
+export const SCREEN_SHIELD = {
+    locked: false,
+    handlers: new Map(),
+    nextId: 1,
+    reset() {
+        this.locked = false;
+        this.handlers.clear();
+    },
+    connect(signal, handler) {
+        const id = this.nextId++;
+        this.handlers.set(id, {signal, handler});
+        return id;
+    },
+    disconnect(id) {
+        if (!this.handlers.delete(id)) {
+            throw new Error(`stub screenShield: no handler ${id} to disconnect`);
+        }
+    },
+    connectedCount() {
+        return this.handlers.size;
+    },
+    emit(signal) {
+        for (const connected of [...this.handlers.values()]) {
+            if (connected.signal === signal) {
+                connected.handler();
+            }
+        }
+    },
+    setLocked(locked) {
+        if (this.locked === locked) {
+            return;
+        }
+        this.locked = locked;
+        this.emit('locked-changed');
+    },
+};
+
+/** The shell's own binding is `export let`, and it is `null` on a system that cannot
+ * lock. Re-exported live by the loader, so `setScreenShield(null)` is what an extension
+ * importing `main.js` then reads. */
+export let screenShield = SCREEN_SHIELD;
+
+export function setScreenShield(value) {
+    screenShield = value;
+}
+
+/**
  * `GLib`, with only what the panel actually calls.
  *
  * `file_get_contents` answers from `GLIB_FILES`, which a test sets. Absent means absent —
@@ -180,6 +233,7 @@ export const GLib = {
     },
     PRIORITY_DEFAULT: 0,
     SOURCE_CONTINUE: true,
+    SOURCE_REMOVE: false,
     /** Records the timer; it never fires on its own. A stub clock that fired would make
      * every test's outcome depend on how long it took to run. `TIMERS` is how a test
      * drives the poll deliberately, and how `disable()` removing it becomes visible. */
@@ -242,16 +296,40 @@ export const SPAWNS = [];
  * the program is not there — the panel has to say so rather than fail silently. */
 export const SPAWN_FAILURE = {message: null};
 
+/** How a started process ends, for a caller that waits on it. The callback fires
+ * synchronously; a test sets this before the spawn and reads the outcome after. */
+export const SPAWN_OUTCOME = {successful: true, exitStatus: 0, stderr: ''};
+
+/** GLib's own values (gioenums.h: STDOUT_PIPE 1<<2, STDERR_PIPE 1<<4), so a flag a
+ * test asserts on is the number the real shell would receive. */
+const SUBPROCESS_FLAGS = {NONE: 0, STDOUT_PIPE: 1 << 2, STDERR_PIPE: 1 << 4};
+
 export const Gio = {
     IOErrorEnum: IO_ERROR_ENUM,
-    SubprocessFlags: {NONE: 0},
+    SubprocessFlags: SUBPROCESS_FLAGS,
     Subprocess: {
         new(argv, flags) {
             SPAWNS.push({argv, flags});
             if (SPAWN_FAILURE.message !== null) {
                 throw new Error(SPAWN_FAILURE.message);
             }
-            return {};
+            return {
+                communicate_utf8_async(input, cancellable, callback) {
+                    callback(this, {});
+                },
+                /** A stream that was not piped comes back null, as in GLib, so a
+                 * caller that forgot the flag gets no stderr to report. */
+                communicate_utf8_finish() {
+                    const piped = pipe => (flags & pipe) !== 0;
+                    return [
+                        true,
+                        piped(SUBPROCESS_FLAGS.STDOUT_PIPE) ? '' : null,
+                        piped(SUBPROCESS_FLAGS.STDERR_PIPE) ? SPAWN_OUTCOME.stderr : null,
+                    ];
+                },
+                get_successful: () => SPAWN_OUTCOME.successful,
+                get_exit_status: () => SPAWN_OUTCOME.exitStatus,
+            };
         },
     },
     Cancellable: class StubCancellable {

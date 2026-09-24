@@ -30,7 +30,8 @@
 #      reboot, so it is also the only one with a real chance of aborting the run. Every
 #      leg above it has already applied by the time it starts. It is here because
 #      Task 5.4's background-recovery action, its dock udev rule and its suspend
-#      service are deployed by that play and by no other.
+#      service are deployed by that play and by no other, and so is Task 5.4a's
+#      dock-recovery-on-unlock extension with its polkit rule.
 #
 # Usage: ./deploy.bash [-h|--help] [-y|--yes]
 set -euo pipefail
