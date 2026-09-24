@@ -79,7 +79,7 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 - [x] ✅ **Task 0.1**: Restore DisplayLink on kernel 7.2.4 — diagnosed, `play-displaylink.yml`
   run on HOST, module built and signed and loaded, both heads enumerating
   ([JOURNAL/00109-Journal-26-09-11.md](JOURNAL/00109-Journal-26-09-11.md))
-- [ ] 🔄 **Task 0.2**: Remove orphaned DKMS source trees — cleanup written, deploy pending
+- [x] ✅ **Task 0.2**: Remove orphaned DKMS source trees
   - [x] ✅ The probe is in `triage.bash` — every `/usr/src/evdi-*` tree, `rpm -qf` on
     each, what DKMS still has registered, and the Phase 3 login report
   - [x] ✅ **HOST**: answered on 2026-09-24. Five old trees are unowned and unregistered;
@@ -89,7 +89,8 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     has no `/var/lib/dkms/evdi/<version>`; any other rpm failure stops the play.
     Reviewed PASS WITH NITS, all four resolved
     ([report](subagent-reports/260924-qa-reviewer-t02-evdi-opus-5.md))
-  - [ ] ⬜ Deploy on HOST, re-run `triage.bash` to confirm only the current tree remains
+  - [x] ✅ Deployed on the HOST on 2026-09-24: the play removed the five old trees, and
+    triage (after) lists only the current, rpm-owned one
 - [ ] 🚫 **Task 0.3**: Fix group/world-readable vault password file permissions
   - **Blocked — human-only.** The path is protected by `secret_file_guard`; an agent
     cannot name it in a command, a script, or a playbook task, so this cannot be

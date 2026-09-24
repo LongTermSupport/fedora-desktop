@@ -138,7 +138,7 @@ containers that needs its own diagnosis (F7).
   as `enforcing` does (`scripts/test-ccy-selinux-verdict.bash`, RED then GREEN). HOST
   pending: deploy `play-claude-yolo.yml`, restart the sessions, then the next boot's
   `ausearch` count for `container_t` falls to the unrelabelled remainder.
-- [ ] 🔄 **Task 3.2**: Docker 29 nftables backend vs `lxc-docker-user-iptables-reconcile`
+- [x] ✅ **Task 3.2**: Docker 29 nftables backend vs `lxc-docker-user-iptables-reconcile`
   — verify whether the `DOCKER-USER` iptables chain the reconcile script edits is
   consulted at all with the nftables backend; if not, that script's egress rules are
   dead and Plan 00127's assumptions need revisiting. Also decide whether the per-boot
@@ -150,8 +150,8 @@ containers that needs its own diagnosis (F7).
   host. The firewalld lines are Docker's per-boot cleanup. **Owner chose the proposal**
   on 2026-09-24. Code done: `play-lxc-install-config.yml` reads `docker info` and asserts
   the `iptables` (or `iptables+firewalld`) backend before the DOCKER-USER tasks, and the
-  firewalld noise stays unsilenced. HOST pending: one run of that play, which also shows
-  whether the reconcile unit gets installed here.
+  firewalld noise stays unsilenced. HOST done on 2026-09-24: the assert passed. The run
+  also installed, applied and enabled the reconcile unit, which this host had lacked.
 
 ### Phase 4: close
 
