@@ -148,6 +148,16 @@
         disable_gpg_check: true
       register: displaylink_install
 
+    # The package ships this file group-writable (its spec installs it with `cp -a`, which
+    # keeps the build checkout's 0664), and logrotate refuses a group-writable config: it
+    # skips the file and exits 1, so logrotate.service fails every night and the DisplayLink
+    # logs are never rotated. An upgrade can bring the mode back; this task corrects it.
+    - name: Make the DisplayLink logrotate config one that logrotate will accept
+      ansible.builtin.file:
+        path: /etc/logrotate.d/displaylink
+        state: file
+        mode: "0644"
+
     - name: Check if DKMS MOK key exists
       ansible.builtin.stat:
         path: /var/lib/dkms/mok.pub

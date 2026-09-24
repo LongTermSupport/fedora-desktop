@@ -396,6 +396,9 @@ echo "### READ THIS FOR: did anything actually crash this boot?"
 probe "coredumps this boot" coredumpctl list --no-pager --since "$(uptime -s)"
 probe "failed system units" systemctl --failed --no-pager --no-legend
 probe "why each failed system unit failed (last 20 journal lines)" failed_system_unit_reasons
+# logrotate skips a config writable by group or others and exits 1, failing the whole run.
+probe "logrotate configs logrotate will refuse (group/other-writable)" \
+    find /etc/logrotate.d -type f -perm /022 -printf '%m %u:%g %p\n'
 probe "failed user units" systemctl --user --failed --no-pager --no-legend
 probe "gnome-shell JS ERROR count" bash -c 'journalctl --no-pager --user -b | grep -c "JS ERROR"'
 probe "enabled extensions and their state" extension_states
