@@ -720,6 +720,18 @@ fi
 history_search_summary=$(qa_gate_case_count "$history_search_out")
 qa_pass_line bash-history-search "$history_search_summary"
 
+# Up-arrow is this terminal's own history, while every command still reaches the shared
+# file Ctrl+R searches (Plan 00138). A shell that stopped loading the file but also stopped
+# appending to it would lose history silently, so both halves are driven in real shells.
+history_session_out=""
+if ! history_session_out="$(bash "$SCRIPT_DIR/test-bash-history-session.bash" 2>&1)"; then
+    qa_hard_gate_failed bash-history-session \
+        "bash history session unit tests failed" \
+        "$history_session_out"
+fi
+history_session_summary=$(qa_gate_case_count "$history_session_out")
+qa_pass_line bash-history-session "$history_session_summary"
+
 # The on-demand report command (Plan 00136). The login snippet's reminder and the panel's
 # terminal row both hand a person to it and walk away, so it has to answer on its own: a
 # sentence on a clean host, `--hold` released by Enter or EOF, and a missing checkout named
