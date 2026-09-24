@@ -21,14 +21,23 @@ Nothing is changed until the owner has chosen between the proposals.
 
 - Current-state review with evidence: [RESEARCH-current-config.md](RESEARCH-current-config.md)
 - Optimal settings and Ctrl+R tool comparison: [RESEARCH-optimal-config.md](RESEARCH-optimal-config.md)
+- Directory/repo-weighted ranking and the security of each option: [RESEARCH-ranking-and-security.md](RESEARCH-ranking-and-security.md)
 - Proposed changes and the decisions they need: [PROPOSAL.md](PROPOSAL.md)
+
+Owner requirements (2026-09-24): fzf's stock in-memory Ctrl+R is rejected; Ctrl+R must
+search **all** history but **rank** commands from the current directory, then the current
+git repo, above the rest (weighting, not filtering); no new security holes.
 
 ## Goals
 
 - Every command is in `~/.bash_history` within one prompt of running, across every
   terminal, tmux pane and login/non-login shell
 - Every history entry carries a timestamp
-- Ctrl+R searches the whole history, fuzzily, as a list, without duplicates
+- Ctrl+R searches the whole history of every terminal, fuzzily, as a list, without
+  duplicates, ranking this directory's and this repo's commands first — even before a
+  character is typed
+- No new security exposure: nothing leaves the machine, no command line appears in another
+  process's argv, the leading-space escape hatch keeps working
 - `PROMPT_COMMAND` holds each hook exactly once in every kind of shell
 - A stray unconfigured shell can no longer truncate the history file
 
@@ -46,11 +55,13 @@ Nothing is changed until the owner has chosen between the proposals.
 - [x] ✅ **Task 1.2**: Review the configuration — [RESEARCH-current-config.md](RESEARCH-current-config.md)
 - [x] ✅ **Task 1.3**: Research optimal settings and Ctrl+R tools — [RESEARCH-optimal-config.md](RESEARCH-optimal-config.md)
 - [x] ✅ **Task 1.4**: Write the proposal with decisions for the owner — [PROPOSAL.md](PROPOSAL.md)
+- [x] ✅ **Task 1.5**: Research directory/repo weighting and security after the owner rejected fzf — [RESEARCH-ranking-and-security.md](RESEARCH-ranking-and-security.md); proposal revised
 
 ### Phase 2: Owner decisions
 
-- [ ] ⬜ **Task 2.1**: Owner decides D1–D3 in [PROPOSAL.md](PROPOSAL.md) (which of P1–P7 to adopt)
-- [ ] ⬜ **Task 2.2**: Owner decides D4 — the relationship with Plan 027 (cancel, or keep as the Atuin follow-up)
+- [ ] ⬜ **Task 2.1**: Owner decides D1–D3 in [PROPOSAL.md](PROPOSAL.md) (P1–P5; recorder R1 Atuin vs R2 repo-owned; fzf as picker only)
+- [ ] ⬜ **Task 2.2**: Owner decides D4 — the relationship with Plan 027 (cancel, or keep as a later add-on)
+- [ ] ⬜ **Task 2.3**: Prototype the ranker against a copy of real history and time it at 15k and 100k rows
 
 Implementation phases are added once Phase 2 is settled.
 
