@@ -31,6 +31,7 @@ cd "$ROOT_DIR"
 TEST_FILES=(
     tests/extensions/test-panel-sections.mjs
     tests/extensions/test-panel-indicator.mjs
+    tests/extensions/test-dock-recovery-on-unlock.mjs
 )
 
 if ! command -v node >/dev/null; then

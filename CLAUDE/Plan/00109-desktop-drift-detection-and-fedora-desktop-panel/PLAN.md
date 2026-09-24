@@ -210,16 +210,18 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   rule and the suspend service, after the wedge ladder and never while locked
   - ⚠️ **Known limitation — the resume path is effectively inert**: the screen is already
     locked when the suspend service runs, so the run correctly refuses. Dock/udev works
-  - [ ] 🚫 **T5.4a**: Cover the unlock case — **OWNER'S CALL, not code that is merely
-    unwritten.** Nothing in the repo watches lock state today, and the two viable owners
-    trade off against each other rather than one being determined:
-    the panel gets `ActiveChanged` for free but its own header says it *"runs no check of
-    its own and applies no fix"*, and launches only a terminal a person is looking at.
-    An automatic background refresh would end that; a user
-    systemd unit keeps that contract intact but costs a long-running daemon whose only
-    job is to watch one signal the shell already dispatches. Reasoning and the third
-    option in [DESIGN-panel.md §12](DESIGN-panel.md). Implementable and unit-testable
-    here once chosen; the HOST item below gates shipping it either way
+  - [ ] 🔄 **T5.4a**: Cover the unlock case. The owner chose option C of
+    [DESIGN-panel.md §12](DESIGN-panel.md): a separate small extension, so the panel stays
+    detect-only.
+    - [x] ✅ `extensions/dock-recovery-on-unlock@fedora-desktop/`: on each unlock it
+      waits 5 s, then starts `displaylink-dock-recovery.service`. The recovery decides
+      whether to repaint. A failed start is logged
+    - [x] ✅ Tests: `tests/extensions/test-dock-recovery-on-unlock.mjs`
+    - [x] ✅ `play-displaylink.yml` deploys it, enables it, and deploys the polkit rule
+      that lets the desktop user start that one unit
+    - [ ] ⬜ **HOST**: deploy, log out and in, lock and unlock. The recovery's journal
+      shows a run started at the unlock, and the gnome-shell log shows no failure from
+      the extension
   - [x] ✅ **HOST**: deployed and armed — check \[18\]: recovery tree, udev rule and dock
     unit deployed, `displaylink-suspend.service` enabled
   - [ ] ⬜ **HOST**: that the refresh actually clears a black background. Needs the symptom

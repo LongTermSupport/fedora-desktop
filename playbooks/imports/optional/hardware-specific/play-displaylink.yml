@@ -15,6 +15,8 @@
     evdi_rpm_release: "1"
     # Set to true to bypass version check (use with caution)
     force_install: false
+    unlock_extension_name: dock-recovery-on-unlock@fedora-desktop
+    unlock_extension_dest: "/home/{{ user_login }}/.local/share/gnome-shell/extensions/{{ unlock_extension_name }}"
   vars_files:
     - "{{ root_dir }}/vars/fedora-version.yml"
   tasks:
@@ -297,6 +299,59 @@
         name: displaylink-suspend.service
         enabled: true
         daemon_reload: "{{ suspend_service.changed }}"
+
+    # The resume service above runs while the screen is still locked, so the recovery
+    # rightly refuses to repaint and the black background stays. The unlock is the moment
+    # that matters, and only the user session sees it: the dock-recovery-on-unlock
+    # extension starts displaylink-dock-recovery.service there, and the recovery decides
+    # what, if anything, to do. It lives in this play because it is useless without the
+    # units above. It is its own extension because the fedora-desktop panel is detect-only
+    # (Plan 00109 DESIGN-panel.md section 12).
+    - name: Allow The Desktop User To Start The Dock Recovery Service
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/etc/polkit-1/rules.d/50-displaylink-dock-recovery.rules.j2"
+        dest: /etc/polkit-1/rules.d/50-displaylink-dock-recovery.rules
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Ensure The Dock Recovery On Unlock Extension Directory Exists
+      ansible.builtin.file:
+        path: "{{ unlock_extension_dest }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
+    - name: Deploy The Dock Recovery On Unlock Extension
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/extensions/{{ unlock_extension_name }}/"
+        dest: "{{ unlock_extension_dest }}/"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+        directory_mode: "0755"
+
+    # Declared in the gsettings key rather than asked of the running shell, which loses
+    # the request for an extension it has not scanned yet. The helper merges without
+    # removing and re-reads the key, so it is its own probe. New extension code loads
+    # only at the next login on Wayland.
+    - name: Declare The Dock Recovery On Unlock Extension Enabled
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -m
+          - helpers.gnome.apply_enabled_extensions
+          - --extensions-dir
+          - "{{ unlock_extension_dest | dirname }}"
+          - --extensions-dir
+          - /usr/share/gnome-shell/extensions
+          - "--uuid={{ unlock_extension_name }}"
+        chdir: "{{ root_dir }}"   # repo root on sys.path so the helpers package imports
+      register: unlock_extension_enabled
+      changed_when: "'GNOME-EXT-ENABLED-CHANGED' in unlock_extension_enabled.stdout"
 
     - name: Remove obsolete DisplayLink resume-check bash script
       ansible.builtin.file:
