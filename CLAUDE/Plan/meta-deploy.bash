@@ -43,9 +43,15 @@ PLAN_ROOT="${scriptDir}"
 # nothing for this script to do. A triage-only plan is run once, read-only. Words after the
 # folder name are passed to that plan's triage.bash, both runs.
 #
+# An entry may instead be a playbook path under playbooks/, for a change no plan owns. It is
+# run as one unit through its own shebang, which goes through run.bash, exactly as
+# `./playbooks/imports/<play>.yml` does by hand.
+#
+# play-claude-yolo.yml: deploys ccy 3.64.0 (`ccy --disconnect`). No plan owns it.
 # 00109: its acceptance must run again AFTER a logout and login, which is what regenerates
 # the status document it judges and loads the panel's new code.
 PLANS=(
+    "playbooks/imports/play-claude-yolo.yml"
     "00109-desktop-drift-detection-and-fedora-desktop-panel"
 )
 
@@ -69,6 +75,15 @@ declare -A TRIAGE_ARGS=()
 for planEntry in "${PLANS[@]}"; do
     read -r -a entryWords <<<"${planEntry}"
     planName="${entryWords[0]}"
+    if [[ "${planName}" == playbooks/*.yml ]]; then
+        if [[ ! -x "${repoRoot}/${planName}" ]]; then
+            printf '[FATAL] no executable playbook at %s\n' "${repoRoot}/${planName}" >&2
+            exit 1
+        fi
+        PLAN_DIRS+=("${repoRoot}/${planName}")
+        TRIAGE_ARGS["${repoRoot}/${planName}"]=""
+        continue
+    fi
     planDir="${PLAN_ROOT}/${planName}"
     TRIAGE_ARGS["${planDir}"]="${entryWords[*]:1}"
     if [[ ! -d "${planDir}" ]]; then
@@ -128,6 +143,23 @@ BAD=0
 
 for planDir in "${PLAN_DIRS[@]}"; do
     planName="$(basename "${planDir}")"
+
+    if [[ "${planDir}" == *.yml ]]; then
+        printf '\n===> %s\n' "${planName}"
+        if "${planDir}" 2>&1 | tee "${CAPTURE_DIR}/${planName}.log"; then
+            status="${PIPESTATUS[0]}"
+        else
+            status="${PIPESTATUS[0]}"
+        fi
+        if [[ "${status}" == "0" ]]; then
+            RESULTS+=("PASS  ${planName}")
+        else
+            RESULTS+=("FAIL  ${planName} (exit ${status})")
+            BAD=$((BAD + 1))
+        fi
+        continue
+    fi
+
     triageArgs=()
     read -r -a triageArgs <<<"${TRIAGE_ARGS["${planDir}"]}"
 
