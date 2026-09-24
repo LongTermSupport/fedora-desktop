@@ -72,6 +72,12 @@ out.
   verified email is `user_email`. Acceptance check 11 confirms it through the public
   `users/<login>/ssh_signing_keys` endpoint, which needs no scope.
   - [ ] ⬜ **HOST (owner)**: register the key
+- [ ] 🔄 **Task 1.4**: The owner asked for this machine's public key to be kept in the
+  private config repo. The play writes it into `localhost.yml` as `git_signing_public_key`,
+  in a managed block, the way other plays record values there. It uses its own name,
+  because `self_update_signing_public_key` is the key a server trusts. Merged as
+  `cd50ffc1` (the desktop agent's commit, `a594063e`)
+  - [ ] ⬜ **HOST**: a deploy run, then the owner's "Save local config to repo" in `run.bash`
 
 ### Phase 2: ccy signs
 
