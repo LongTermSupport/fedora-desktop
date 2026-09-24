@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Run the panel's decision tests against the shipped extension (Plan 00109 Task 4.2).
+# Run the GNOME extension decision tests against the shipped extensions (Plan 00109 Task
+# 4.2): the panel's, and the dock-recovery-on-unlock extension's (Task 5.4a). The name is
+# the panel's because that suite came first; every suite in tests/extensions/ runs here.
 #
 #   ./scripts/test-panel-sections.bash
 #
@@ -8,8 +10,8 @@
 # `check_panel_contract.py` proves it shares a vocabulary with the producer. None of the
 # three can tell a demoted finding from a current one, and neither can a screenshot.
 #
-# The tests import `statusDocument.js`, `sections/health.js`, `sections/plays.js` and
-# `extension.js` themselves, with `tests/extensions/gjs-loader.mjs` answering the `gi://` and
+# The tests import `statusDocument.js`, `sections/health.js`, `sections/plays.js`, both
+# extensions' `extension.js` themselves, with `tests/extensions/gjs-loader.mjs` answering the `gi://` and
 # `resource:///` imports a GNOME Shell process would provide. What runs is the shipped
 # file.
 #

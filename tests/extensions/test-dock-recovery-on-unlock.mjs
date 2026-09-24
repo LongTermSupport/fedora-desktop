@@ -16,6 +16,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {register} from 'node:module';
 import test from 'node:test';
+import vm from 'node:vm';
 
 register(new URL('./gjs-loader.mjs', import.meta.url).href);
 
@@ -28,7 +29,7 @@ globalThis.log = message => LOGGED.push(message);
 const Unlock = await import(new URL('extension.js', EXTENSION_DIR).href);
 const {default: DockRecoveryOnUnlockExtension} = Unlock;
 const {
-    SCREEN_SHIELD, SPAWNS, SPAWN_FAILURE, SPAWN_OUTCOME, TIMERS, setScreenShield,
+    Gio, SCREEN_SHIELD, SPAWNS, SPAWN_FAILURE, SPAWN_OUTCOME, TIMERS, setScreenShield,
 } = await import('./gi-stubs.mjs');
 
 const METADATA = JSON.parse(readFileSync(new URL('metadata.json', EXTENSION_DIR), 'utf8'));
@@ -71,14 +72,12 @@ test('an unlock starts the recovery service once, after the settle delay', () =>
     ]);
 });
 
-test('the start is an argv, never a shell command line', () => {
+test('the start pipes stderr, or a failure would be logged with nothing said', () => {
     enabled();
     SCREEN_SHIELD.setLocked(true);
     SCREEN_SHIELD.setLocked(false);
     elapse();
-    const [argv] = SPAWNS.map(spawn => spawn.argv);
-    assert.ok(!['sh', 'bash', '/bin/sh', '/bin/bash'].includes(argv[0]));
-    assert.equal(argv[0], 'systemctl');
+    assert.equal(SPAWNS[0].flags, Gio.SubprocessFlags.STDERR_PIPE);
 });
 
 test('locking starts nothing', () => {
@@ -178,6 +177,53 @@ test('a session with no lock screen says so and does nothing', () => {
     assert.doesNotThrow(() => extension.disable());
     assert.equal(SPAWNS.length, 0);
     setScreenShield(SCREEN_SHIELD);
+});
+
+/**
+ * The polkit rule the extension depends on, rendered the way the play renders it and run
+ * against a stand-in `polkit`. A syntax error there fails only at polkitd's load, as a
+ * journal line nobody reads, and every unlock would then log "Access denied".
+ */
+function polkitRule() {
+    const template = readFileSync(new URL(
+        '../../files/etc/polkit-1/rules.d/50-displaylink-dock-recovery.rules.j2',
+        import.meta.url), 'utf8');
+    const rendered = template
+        .replaceAll('{{ ansible_managed }}', 'managed')
+        .replaceAll('{{ user_login }}', 'desk-user');
+    assert.doesNotMatch(rendered, /\{\{|\}\}/, 'a template variable was left unrendered');
+    const rules = [];
+    const Result = {YES: 'yes', NOT_HANDLED: 'not-handled'};
+    vm.runInNewContext(rendered, {polkit: {addRule: rule => rules.push(rule), Result}});
+    assert.equal(rules.length, 1);
+    return (action, subject) => rules[0](
+        {id: action.id, lookup: key => action[key]},
+        {user: 'desk-user', local: true, active: true, ...subject});
+}
+
+const START = {
+    id: 'org.freedesktop.systemd1.manage-units',
+    unit: 'displaylink-dock-recovery.service',
+    verb: 'start',
+};
+
+test('the polkit rule lets the desktop user start the recovery from the active local session', () => {
+    assert.equal(polkitRule()(START, {}), 'yes');
+});
+
+test('the polkit rule grants nothing else', () => {
+    const decide = polkitRule();
+    for (const [what, action, subject] of [
+        ['restart', {...START, verb: 'restart'}, {}],
+        ['stop', {...START, verb: 'stop'}, {}],
+        ['another unit', {...START, unit: 'sshd.service'}, {}],
+        ['another action', {...START, id: 'org.freedesktop.login1.reboot'}, {}],
+        ['another user', START, {user: 'someone-else'}],
+        ['a remote session', START, {local: false}],
+        ['an inactive session', START, {active: false}],
+    ]) {
+        assert.equal(decide(action, subject), 'not-handled', what);
+    }
 });
 
 test('the extension stays enabled while locked, or it could never see the unlock', () => {

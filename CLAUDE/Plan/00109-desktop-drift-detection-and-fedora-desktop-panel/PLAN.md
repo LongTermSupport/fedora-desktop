@@ -214,14 +214,18 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     [DESIGN-panel.md §12](DESIGN-panel.md): a separate small extension, so the panel stays
     detect-only.
     - [x] ✅ `extensions/dock-recovery-on-unlock@fedora-desktop/`: on each unlock it
-      waits 5 s, then starts `displaylink-dock-recovery.service`. The recovery decides
-      whether to repaint. A failed start is logged
+      waits 5 s, then starts `displaylink-dock-recovery.service`. A failed start is
+      logged. While docked, every unlock repaints, and a wedged-looking head runs the
+      root ladder
     - [x] ✅ Tests: `tests/extensions/test-dock-recovery-on-unlock.mjs`
     - [x] ✅ `play-displaylink.yml` deploys it, enables it, and deploys the polkit rule
       that lets the desktop user start that one unit
-    - [ ] ⬜ **HOST**: deploy, log out and in, lock and unlock. The recovery's journal
-      shows a run started at the unlock, and the gnome-shell log shows no failure from
-      the extension
+    - [ ] ⬜ **HOST, docked**: deploy, log out and in, lock and unlock.
+      `journalctl -t displaylink-dock-recovery` shows `action=refresh_background` and
+      `RECOVERY-BACKGROUND: refreshed` after the unlock. A run that logs only
+      `action=none` is the refusal, not a pass. No failure line from the extension
+    - [ ] ⬜ **HOST, undocked**: `ls /sys/class/drm/ | grep DVI-I` prints nothing with the
+      dock unplugged, so an undocked unlock is a no-op
   - [x] ✅ **HOST**: deployed and armed — check \[18\]: recovery tree, udev rule and dock
     unit deployed, `displaylink-suspend.service` enabled
   - [ ] ⬜ **HOST**: that the refresh actually clears a black background. Needs the symptom

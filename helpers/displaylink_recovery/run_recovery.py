@@ -6,8 +6,9 @@ what to do, executes it, and loops (bounded) until the head recovers or every
 safe option is exhausted. All decision logic lives in recovery.py and is unit
 tested; this module only shells out / touches the filesystem.
 
-Invoked either by udev (on dock USB add) or by the suspend/resume watchdog, as
-a module from the deployed helpers tree:
+Invoked by udev (on dock USB add), by the suspend/resume watchdog, or by the
+dock-recovery-on-unlock GNOME extension starting displaylink-dock-recovery.service
+at each screen unlock, as a module from the deployed helpers tree:
 
     python3 -m helpers.displaylink_recovery.run_recovery
 

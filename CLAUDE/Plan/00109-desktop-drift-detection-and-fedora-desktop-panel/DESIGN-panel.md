@@ -351,10 +351,16 @@ to **unlock**.
 - **Action.** It spawns the argv `systemctl start --no-block displaylink-dock-recovery.service`,
   with no shell. That is the unit the udev rule starts, so the recovery reads the heads, the
   lock state and the journal and picks its own action. The extension decides nothing about
-  the display.
+  the display, but what it sets off is not small. While docked, every unlock repaints the
+  background: `needs_background_refresh` fires whenever dock heads exist, with no attempt
+  to detect the black first. A head that looks wedged runs the root ladder instead: driver
+  restart, USB re-authorisation, evdi module reload (`recovery.decide`). With no dock heads
+  it does nothing. That rests on the DVI-I connectors going away when the dock is
+  unplugged, which is a HOST check.
 - **Permission.** `files/etc/polkit-1/rules.d/50-displaylink-dock-recovery.rules.j2` lets
   the desktop user START that one unit, from an active local session only. It grants no
-  stop, no restart and no other unit, and nothing to an SSH session. A sudoers entry, the
+  stop, no restart and no other unit, and nothing to an SSH session. It does grant the
+  desktop user everything that unit does as root, listed above. A sudoers entry, the
   precedent in Plan 00137, would also cover SSH sessions, which never unlock anything.
 - **Timing.** It waits 5 s after the unlock. The shell sets logind's `LockedHint`
   asynchronously, and the recovery skips a session whose hint still says locked. A repeat

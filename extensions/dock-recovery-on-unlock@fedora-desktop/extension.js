@@ -9,9 +9,13 @@
  *
  * It decides nothing about the display. On each unlock it starts
  * `displaylink-dock-recovery.service`, the same unit the udev rule starts, and that run
- * reads the heads, the lock state and the journal and picks its own action, which is
- * usually none. A polkit rule deployed with it lets the desktop user start that one unit
- * from the active local session without a password prompt.
+ * reads the heads, the lock state and the journal and picks its own action. While docked
+ * that means EVERY unlock repaints the background, since the recovery speculatively
+ * refreshes whenever dock heads exist. A head that looks wedged sends it up the root
+ * ladder instead: driver restart, USB re-authorisation, evdi module reload. With no dock
+ * heads it does nothing. A polkit rule deployed with it lets the desktop user start that
+ * unit from the active local session without a password prompt, so the desktop user can
+ * now set off all of the above.
  *
  * Why a separate extension: the `fedora-desktop` panel is detect-only. It applies no fix
  * and launches only what a person clicked. Starting a recovery with nobody clicking would

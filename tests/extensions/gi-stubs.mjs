@@ -300,9 +300,13 @@ export const SPAWN_FAILURE = {message: null};
  * synchronously; a test sets this before the spawn and reads the outcome after. */
 export const SPAWN_OUTCOME = {successful: true, exitStatus: 0, stderr: ''};
 
+/** GLib's own values (gioenums.h: STDOUT_PIPE 1<<2, STDERR_PIPE 1<<4), so a flag a
+ * test asserts on is the number the real shell would receive. */
+const SUBPROCESS_FLAGS = {NONE: 0, STDOUT_PIPE: 1 << 2, STDERR_PIPE: 1 << 4};
+
 export const Gio = {
     IOErrorEnum: IO_ERROR_ENUM,
-    SubprocessFlags: {NONE: 0, STDOUT_PIPE: 1, STDERR_PIPE: 2},
+    SubprocessFlags: SUBPROCESS_FLAGS,
     Subprocess: {
         new(argv, flags) {
             SPAWNS.push({argv, flags});
@@ -313,8 +317,15 @@ export const Gio = {
                 communicate_utf8_async(input, cancellable, callback) {
                     callback(this, {});
                 },
+                /** A stream that was not piped comes back null, as in GLib, so a
+                 * caller that forgot the flag gets no stderr to report. */
                 communicate_utf8_finish() {
-                    return [true, '', SPAWN_OUTCOME.stderr];
+                    const piped = pipe => (flags & pipe) !== 0;
+                    return [
+                        true,
+                        piped(SUBPROCESS_FLAGS.STDOUT_PIPE) ? '' : null,
+                        piped(SUBPROCESS_FLAGS.STDERR_PIPE) ? SPAWN_OUTCOME.stderr : null,
+                    ];
                 },
                 get_successful: () => SPAWN_OUTCOME.successful,
                 get_exit_status: () => SPAWN_OUTCOME.exitStatus,

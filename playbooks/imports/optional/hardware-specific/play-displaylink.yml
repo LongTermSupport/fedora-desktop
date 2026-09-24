@@ -331,6 +331,7 @@
         group: "{{ user_login }}"
         mode: "0644"
         directory_mode: "0755"
+      register: unlock_extension_deploy
 
     # Declared in the gsettings key rather than asked of the running shell, which loses
     # the request for an extension it has not scanned yet. The helper merges without
@@ -392,6 +393,11 @@
           ✅ MOK key is already enrolled. DisplayLink is configured and verified.
           {% else %}
           ✅ Secure Boot is disabled. DisplayLink is configured and verified.
+          {% endif %}
+          {% if unlock_extension_deploy is changed %}
+
+          LOG OUT AND BACK IN: the dock-recovery-on-unlock extension changed. On
+          Wayland a login is the only thing that loads new extension code.
           {% endif %}
 
           Press ENTER to continue...
