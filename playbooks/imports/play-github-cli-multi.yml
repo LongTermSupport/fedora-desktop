@@ -1092,6 +1092,41 @@
               # ==================== GIT ACCOUNT AUTO-DETECTION ====================
               # Smart git wrapper that auto-detects account from repository remote
 
+              declare -gA _GH_ACCOUNT_USERS=(
+              {% for alias, username in github_accounts.items() %}
+                  [{{ alias }}]="{{ username }}"
+              {% endfor %}
+              )
+
+              # Run git as one account over BOTH transports. core.sshCommand only
+              # covers SSH remotes; an HTTPS remote authenticates through the
+              # credential helper, which by default is `gh auth git-credential`
+              # and answers with whichever gh account is ACTIVE. The empty helper
+              # value resets that list, and the replacement asks gh for this
+              # account's token by name, so the active account is never switched.
+              # Only `get` is answered: gh owns the token, git must not store it.
+              #
+              # The sshCommand from _gh443_sshcmd uses -F /dev/null so ssh cannot
+              # read ~/.ssh/config: its default "Host github.com" block would
+              # offer ~/.ssh/id alongside this key, and GitHub attributes to
+              # whichever matches first. -o HostName=github.com is required with
+              # it, because the github.com-<alias> host alias used by
+              # clone-<alias>/remote-<alias> remotes lives only in that config.
+              function _gh_account_git() {
+                  local alias="$1"
+                  shift
+                  local user="${_GH_ACCOUNT_USERS[$alias]-}"
+                  if [[ -z "$user" ]]; then
+                      echo "ERROR: unknown GitHub account alias: $alias" >&2
+                      return 1
+                  fi
+                  command git \
+                      -c "core.sshCommand=$(_gh443_sshcmd ~/.ssh/github_${alias})" \
+                      -c credential.https://github.com.helper= \
+                      -c "credential.https://github.com.helper=!f() { test \"\$1\" = get || exit 0; tok=\$(gh auth token --hostname github.com --user ${user}) || exit 1; echo username=${user}; echo \"password=\$tok\"; }; f" \
+                      "$@"
+              }
+
               function git() {
                   # Detect account from repository.
                   # git-account-helper exits non-zero when no alias matches the current
@@ -1103,38 +1138,20 @@
                       detected_alias=""
                   fi
 
+                  # Detection reads a github.com-<alias> remote host, so a plain
+                  # https://github.com remote is not detected: use git-<alias>.
                   if [[ -n "$detected_alias" ]]; then
-                      # -F /dev/null prevents ssh from also reading ~/.ssh/config
-                      # which would otherwise pick up the default "Host github.com"
-                      # block and offer ~/.ssh/id alongside the per-account key —
-                      # GitHub then accepts whichever matched first, leading to
-                      # commits being attributed to the wrong account.
-                      #
-                      # -o HostName=github.com is REQUIRED alongside -F /dev/null:
-                      # remotes made by clone-<alias>/remote-<alias> use the
-                      # github.com-<alias> SSH host alias, whose HostName mapping
-                      # lives ONLY in ~/.ssh/config. With the config discarded ssh
-                      # would try to resolve the literal host "github.com-<alias>"
-                      # and fail ("Could not resolve hostname"). Forcing HostName
-                      # restores the real target while keeping the isolation.
-                      command git -c "core.sshCommand=$(_gh443_sshcmd ~/.ssh/github_${detected_alias})" "$@"
+                      _gh_account_git "$detected_alias" "$@"
                   else
                       # No account detected, use standard git
                       command git "$@"
                   fi
               }
 
-              # Account-specific git commands (force specific account).
-              # -F /dev/null isolates from ~/.ssh/config: prevents the default
-              # "Host github.com" block from injecting ~/.ssh/id as a second
-              # identity, which otherwise causes commits to attribute to the
-              # wrong GitHub account. -o HostName=github.com is required because
-              # -F /dev/null also discards the github.com-<alias> host alias, so
-              # ssh must be told the real host or it fails to resolve the literal
-              # "github.com-<alias>" used by clone-<alias>/remote-<alias> remotes.
+              # Account-specific git commands (force specific account, SSH or HTTPS).
               {% for alias in github_accounts.keys() %}
               function git-{{ alias }}() {
-                  command git -c "core.sshCommand=$(_gh443_sshcmd ~/.ssh/github_{{ alias }})" "$@"
+                  _gh_account_git {{ alias }} "$@"
               }
               {% endfor %}
 
@@ -1142,7 +1159,7 @@
               # git-branch-default     — print the repo's default branch name
               # git-checkout-default   — check out that branch
               # Per-account variants (git-<alias>-branch-default / -checkout-default)
-              # route through the per-account git wrapper so the alias's SSH key
+              # route through the per-account git wrapper so the alias's account
               # is used for any remote operation (e.g. the ls-remote probe).
               # The shared implementation lives in _git_branch_default_impl so the
               # detection logic isn't duplicated across N aliases × 2 commands.

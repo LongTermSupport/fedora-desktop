@@ -150,13 +150,14 @@ git-which-account          # Show which account the current repo will use
 ### Per-account git (forces a specific identity)
 
 ```bash
-git-oss push                  # Run git as oss (correct SSH key)
+git-oss push                  # Run git as oss (SSH key or HTTPS token)
 git-oss-branch-default        # Print the repo's default branch via oss
 git-oss-checkout-default      # Check out the default branch via oss
 ```
 
 Inside a repo whose remote uses a `github.com-<alias>` host, a plain `git` auto-
-detects the account — no prefix needed.
+detects the account — no prefix needed. An `https://github.com/` remote is not
+detected; use `git-<alias>` there.
 
 ### Per-account gh / clone / remote
 
@@ -226,5 +227,6 @@ github-ssh-443 auto && eval "$(github-ssh-443 env)"
 | Playbook fails: *"vault passphrase does not unlock"* | The existing `~/.ssh/github_<alias>` has a different passphrase. Delete it and re-run: `rm ~/.ssh/github_<alias>*`.                                                   |
 | SSH verify fails despite key installed on GitHub     | Almost always passphrase-related. Diagnose: `ssh-keygen -y -P "$(cat /tmp/.github_ssh_pp)" -f ~/.ssh/github_<alias>`.                                                 |
 | Commits attributed to the wrong account              | Run `git-which-account` in the repo; use `git-<alias>` to force the right identity, or fix the remote to `git@github.com-<alias>:owner/repo.git`.                     |
+| HTTPS push 403: *"denied to <other-account>"*        | Plain `git` over an `https://` remote uses the **active** gh account. `git-<alias>` covers HTTPS too: it asks gh for that account's token without switching accounts. |
 | `gh auth login` opened the wrong browser profile     | Open a **new** terminal (sources `/etc/profile.d/gh-multi-profile.sh`, which prints the device-code URL instead of guessing a browser), then re-run the setup script. |
 | SSH hangs / times out on `git@github.com` (port 22)  | Network firewalls port 22. Enable SSH over 443 — see [GitHub SSH over Port 443](github-ssh-over-443.md).                                                              |
