@@ -95,6 +95,17 @@ boot_error_lines_by_unit() {
     journalctl --no-pager -b -p 4 -o short-iso | awk '{print $3}' | sort | uniq -c | sort -rn
 }
 
+# The failed list names a unit but not why. Its own journal lines say, and a failed unit
+# keeps that state only for the boot it failed in.
+failed_system_unit_reasons() {
+    local unit
+    for unit in $(systemctl --failed --no-pager --no-legend --plain | awk '{print $1}'); do
+        echo "--- ${unit}:"
+        systemctl status --no-pager --lines=0 "$unit" | awk 'NR<=6'
+        journalctl --no-pager -b -u "$unit" -o short-iso | awk '{l[NR]=$0} END{for(i=NR-19;i<=NR;i++) if(i>0) print l[i]}'
+    done
+}
+
 extension_states() {
     local ext
     for ext in $(gnome-extensions list --enabled); do
@@ -384,6 +395,7 @@ echo "================================================================"
 echo "### READ THIS FOR: did anything actually crash this boot?"
 probe "coredumps this boot" coredumpctl list --no-pager --since "$(uptime -s)"
 probe "failed system units" systemctl --failed --no-pager --no-legend
+probe "why each failed system unit failed (last 20 journal lines)" failed_system_unit_reasons
 probe "failed user units" systemctl --user --failed --no-pager --no-legend
 probe "gnome-shell JS ERROR count" bash -c 'journalctl --no-pager --user -b | grep -c "JS ERROR"'
 probe "enabled extensions and their state" extension_states
