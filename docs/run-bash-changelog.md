@@ -15,6 +15,18 @@ the index, not the record.
 
 ---
 
+## 1.26.0 — every required GitHub scope in one authorisation (Plan 00139)
+
+The first `gh auth login` was a bare login, and a separate `auth refresh -s admin:public_key` followed it. Every other scope in `vars/github-required-scopes.yml` then
+surfaced later, as a third browser flow in `gh-account-setup.bash`, or as a failed scope
+audit in `play-github-cli-multi.yml`. Now the login asks for every scope in the file, and an
+existing login gets every missing scope in ONE `auth refresh`. Headless names every missing
+scope at once. The list is read from the checkout run.bash runs from. A streamed run.bash
+first clones the public repository over HTTPS, and the repository step moves origin to SSH
+as before. What a token's scopes satisfy is decided by `helpers/github_scopes`, which is also
+what `gh-account-setup.bash` and the play use. `ghCheckTokenPermission` and its private copy
+of the scope hierarchy are gone.
+
 ## 1.25.0 — an unattended single play never writes the sudo password to a file (Plan 00137)
 
 `--headless <play>.yml` with password sudo used to copy the password into a 0600 `mktemp`

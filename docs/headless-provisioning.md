@@ -104,8 +104,8 @@ Literal equivalents (`RUN_BASH_GITHUB_TOKEN`, `RUN_BASH_GITHUB_SSH_PASSPHRASE`,
 - **Warned loudly** otherwise, and setting **both** a literal and its `*_FILE` is an
   error.
 
-**GitHub token scope:** the full `vars/github-required-scopes.yml` set **plus**
-`admin:public_key`. The login SSH key stays passphrase-protected (it is loaded
+**GitHub token scope:** every scope in `vars/github-required-scopes.yml`, the one
+list. A token short of any is refused with all of them named. The login SSH key stays passphrase-protected (it is loaded
 non-interactively via `ssh-agent` + a transient `SSH_ASKPASS` helper), which is why
 the passphrase file is required.
 

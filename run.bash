@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.25.0"
+RUN_BASH_VERSION="1.26.0"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -383,7 +383,7 @@ headless_preflight() {
     # Scoped token is required for non-interactive gh auth (`gh auth login --with-token`).
     hl_resolve_secret GITHUB_TOKEN HL_GITHUB_TOKEN
     [[ -n "$HL_GITHUB_TOKEN" ]] || headless_fail "RUN_BASH_GITHUB_TOKEN_FILE is required when RUN_BASH_GITHUB_ACCOUNTS is not 'none'." \
-      "Provide a 0600 file holding a scoped PAT (scopes: vars/github-required-scopes.yml + admin:public_key), or set RUN_BASH_GITHUB_ACCOUNTS=none."
+      "Provide a 0600 file holding a PAT carrying every scope in vars/github-required-scopes.yml, or set RUN_BASH_GITHUB_ACCOUNTS=none."
     hl_resolve_secret GITHUB_SSH_PASSPHRASE HL_GITHUB_SSH_PASSPHRASE
     # Decision 6: the login SSH key stays passphrase-protected (this mirrors the
     # interactive flow, which forbids an empty passphrase — run.bash:1278-1284).
@@ -1106,7 +1106,8 @@ SECRETS — prefer 0600 FILE POINTERS (recommended), literal env supported but r
     * warned loudly otherwise; setting BOTH a literal and its *_FILE is an error.
   The *_FILE form is best: the secret bytes never enter the environment,
   process listings, or cloud-init user-data.
-  GitHub token scope: the full vars/github-required-scopes.yml set + admin:public_key.
+  GitHub token scope: every scope in vars/github-required-scopes.yml (the one list;
+    a run that finds any missing names them all at once).
 
 GITHUB EMPTY vs. CONFIGURED
   RUN_BASH_GITHUB_ACCOUNTS=none  -> clone the PUBLIC repo over HTTPS, skip ALL
@@ -2414,50 +2415,73 @@ if ! grep -q 'export GH_HOST="github.com"' ~/.bashrc; then
   echo 'export GH_HOST="github.com"' >> ~/.bashrc
 fi
 
-# Check the active gh token carries a required OAuth scope.
-# Honours GitHub's scope hierarchy: admin:* implies write:* implies read:*,
-# and `user` implies user:email/read:user/user:follow. A token granted
-# admin:org therefore satisfies a read:org requirement.
-# Anchored grep on '^X-Oauth-Scopes:' avoids matching the unrelated
-# Access-Control-Expose-Headers line whose value lists the header name.
-function ghCheckTokenPermission(){
-  local permission="$1"
-  local failSilent="${2:-false}"
-  local gh_cmd="${GH_REPO:-gh}"
-  local scopes_csv
-  scopes_csv=",$($gh_cmd api -i user 2>/dev/null \
-    | grep -i '^X-Oauth-Scopes:' \
-    | sed 's/^[^:]*: //' \
-    | tr -d ' \r' \
-    | tr '\n' ','),"
-  # Array, not space-separated string: this file sets IFS=$'\n\t' at the top
-  # so unquoted $string would not word-split on spaces.
-  local satisfiers=("$permission")
-  case "$permission" in
-    read:org)         satisfiers=("$permission" write:org admin:org) ;;
-    write:org)        satisfiers=("$permission" admin:org) ;;
-    read:public_key)  satisfiers=("$permission" write:public_key admin:public_key) ;;
-    write:public_key) satisfiers=("$permission" admin:public_key) ;;
-    read:repo_hook)   satisfiers=("$permission" write:repo_hook admin:repo_hook) ;;
-    write:repo_hook)  satisfiers=("$permission" admin:repo_hook) ;;
-    read:gpg_key)     satisfiers=("$permission" write:gpg_key admin:gpg_key) ;;
-    write:gpg_key)    satisfiers=("$permission" admin:gpg_key) ;;
-    read:user|user:email|user:follow) satisfiers=("$permission" user) ;;
-  esac
-  local s
-  for s in "${satisfiers[@]}"; do
-    if [[ "$scopes_csv" == *",${s},"* ]]; then
-      echo " - found $permission permission"
+# The GitHub scopes a token needs: vars/github-required-scopes.yml is the one list, and
+# helpers/github_scopes the one judge of what a token's scopes satisfy. run.bash,
+# scripts/gh-account-setup.bash and play-github-cli-multi.yml all ask that helper, so a
+# scope added to the file is asked for everywhere at once, in a single browser flow.
+#
+# gh_scopes_repo — print the checkout that holds the list and the helper. Run from a
+# checkout, that is this script's own directory, so the list is the one this run.bash
+# shipped with. Streamed (the README curl install), there is no checkout yet: the
+# repository is public, so it is cloned over HTTPS here, and the repository step below
+# moves its origin to SSH once the key is on GitHub. stdout is the path; chatter is stderr.
+gh_scopes_repo() {
+  local self="${BASH_SOURCE[0]:-}" dir
+  if [[ -f "$self" ]]; then
+    dir="$(cd "$(dirname "$self")" && pwd -P)"
+    if [[ -f "$dir/vars/github-required-scopes.yml" ]]; then
+      printf '%s\n' "$dir"
       return 0
     fi
-  done
-  if [[ "$failSilent" == "true" ]]; then
+  fi
+  dir="$HOME/Projects/fedora-desktop"
+  if [[ ! -d "$dir" ]]; then
+    mkdir -p "$HOME/Projects"
+    info "Cloning fedora-desktop over HTTPS (public) for its GitHub scope list" >&2
+    if ! git clone "https://github.com/LongTermSupport/fedora-desktop.git" "$dir" >&2; then
+      error "Could not clone fedora-desktop over HTTPS" >&2
+      return 1
+    fi
+  fi
+  if [[ ! -f "$dir/vars/github-required-scopes.yml" ]]; then
+    error "$dir has no vars/github-required-scopes.yml" >&2
     return 1
   fi
-  echo " - missing $permission permission"
-  echo "Please run this command ON THE MACHINE ITSELF, NOT REMOTELY"
-  echo "    $gh_cmd auth refresh -h github.com -s '$permission'"
-  return 1
+  printf '%s\n' "$dir"
+}
+
+# gh_request_missing_scopes <repo> <gh command> — make the token that <gh command> uses
+# carry every required scope, asking for all that are missing in ONE `auth refresh`, so
+# a person authorises in the browser once. Headless cannot open a browser, so it aborts,
+# naming every missing scope at once.
+gh_request_missing_scopes() {
+  local repo="$1" gh_cmd="$2" response missing
+  if ! response="$($gh_cmd api -i user 2>&1)"; then
+    fatal "GitHub token scopes" "could not read the token's scopes" "gh said: ${response}"
+  fi
+  if ! missing="$(printf '%s' "$response" | (cd "$repo" && python3 -m helpers.github_scopes.cli missing))"; then
+    fatal "GitHub token scopes" "could not judge the token's scopes" "see the helpers.github_scopes error above"
+  fi
+  if [[ -z "$missing" ]]; then
+    success "GitHub token carries every required scope"
+    return 0
+  fi
+  if [[ "${HEADLESS:-}" == "true" ]]; then
+    hl_abort "GitHub token scopes" \
+      "the GitHub token lacks ${missing}, and gh auth refresh needs a browser a headless run does not have" \
+      "provide a PAT carrying every scope in vars/github-required-scopes.yml in RUN_BASH_GITHUB_TOKEN_FILE, or set RUN_BASH_GITHUB_ACCOUNTS=none"
+  fi
+  warning "The GitHub token lacks ${missing}: asking for all of them in one authorisation"
+  $gh_cmd auth refresh -h github.com --scopes "$missing"
+  if ! response="$($gh_cmd api -i user 2>&1)"; then
+    fatal "GitHub token scopes" "could not read the token's scopes after the refresh" "gh said: ${response}"
+  fi
+  missing="$(printf '%s' "$response" | (cd "$repo" && python3 -m helpers.github_scopes.cli missing))"
+  if [[ -n "$missing" ]]; then
+    fatal "GitHub token scopes" "the refresh still left ${missing} missing" \
+      "authorise every scope the browser asks for, then re-run"
+  fi
+  success "GitHub token now carries every required scope"
 }
 
 # Headless: authenticate to GitHub non-interactively with the provided token BEFORE the
@@ -2471,7 +2495,7 @@ if [[ "$HEADLESS" == "true" ]]; then
     info "Headless: authenticating to GitHub with the provided token"
     if ! _gh_login_out="$(printf '%s' "$HL_GITHUB_TOKEN" | gh auth login --with-token 2>&1)"; then
       hl_abort "GitHub token auth" \
-        "gh auth login --with-token was rejected — check the PAT in RUN_BASH_GITHUB_TOKEN_FILE (needs scopes: vars/github-required-scopes.yml + admin:public_key)" \
+        "gh auth login --with-token was rejected — check the PAT in RUN_BASH_GITHUB_TOKEN_FILE (it needs every scope in vars/github-required-scopes.yml)" \
         "gh said: ${_gh_login_out}"
     fi
     unset _gh_login_out
@@ -2482,6 +2506,11 @@ if [[ "$HEADLESS" == "true" ]]; then
     hl_abort "set gh git protocol" "could not set gh git_protocol=ssh (needed for the SSH clone)" "gh said: ${_gh_proto_out}"
   fi
   unset _gh_proto_out
+fi
+
+if ! gh_scopes_dir="$(gh_scopes_repo)"; then
+  fatal "GitHub token scopes" "no checkout holds vars/github-required-scopes.yml" \
+    "run.bash reads the required GitHub scopes from the fedora-desktop repository; check network access to github.com"
 fi
 
 if ! gh auth status > /dev/null 2>&1; then
@@ -2497,7 +2526,11 @@ if ! gh auth status > /dev/null 2>&1; then
     echo -e "${YELLOW}${ARROW} SSH is required for this setup — let's confirm again.${NC}"
   done
 
-  if ! gh auth login; then
+  # Every required scope in this first login, so no second browser flow is needed.
+  if ! gh_login_scopes="$(cd "$gh_scopes_dir" && python3 -m helpers.github_scopes.cli required)"; then
+    fatal "GitHub login" "could not read the required scopes" "see the helpers.github_scopes error above"
+  fi
+  if ! gh auth login --scopes "$gh_login_scopes"; then
     error "Failed to login to GitHub"
     echo -e "${YELLOW}${ARROW} Please try running 'gh auth login' manually${NC}"
     exit 1
@@ -2529,16 +2562,9 @@ fi
 export GH_REPO
 
 title "Configuring GitHub SSH Access"
-# Check if we have the required permission
-if ! ghCheckTokenPermission "admin:public_key" > /dev/null 2>&1; then
-  # `gh auth refresh` opens a browser device-code flow, which a headless box cannot
-  # complete: without this guard the run waits at that prompt with no human to answer it.
-  [[ "${HEADLESS:-}" == "true" ]] && hl_abort "GitHub SSH access" \
-    "the GitHub token lacks admin:public_key, and gh auth refresh needs a browser a headless run does not have" \
-    "provide a PAT carrying vars/github-required-scopes.yml + admin:public_key in RUN_BASH_GITHUB_TOKEN_FILE, or set RUN_BASH_GITHUB_ACCOUNTS=none"
-  warning "Missing admin:public_key permission - requesting it now"
-  $GH_REPO auth refresh -h github.com -s admin:public_key
-fi
+# Every required scope, all missing ones in one refresh, for the account the key upload
+# below uses. The key upload itself needs admin:public_key, which is in the list.
+gh_request_missing_scopes "$gh_scopes_dir" "$GH_REPO"
 
 # H1: idempotency must compare KEY MATERIAL, not a fingerprint. `gh api user/keys`
 # returns the raw key blob (the base64 body of the public key), never a SHA256
