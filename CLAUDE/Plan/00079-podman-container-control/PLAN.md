@@ -1,10 +1,9 @@
 # Plan 00079: Podman container control — freeze/thaw by container, network, and CCY group
 
-**Status**: In Progress. Two success criteria are open, and both are human checks at a
-HOST terminal that stand before Task 3.4:
+**Status**: In Progress. One success criterion is open, a human check at a HOST
+terminal that stands before Task 3.4:
 
 - **Task 3.5(a)**: the interactive picker, with and without fzf.
-- **Task 3.6**: a real `freeze --ccy` and `thaw --ccy`, at a quiet moment.
 
 Task 3.5(b), the confirming `qa-reviewer`, is done: the sixth review was PASS WITH NITS.
 **Created**: 2026-08-19
@@ -237,11 +236,13 @@ See D4 and D6.
 
   Only (a) remains.
 
-- [ ] ⬜ **Task 3.6**: Prove `freeze --ccy` and `thaw --ccy` for real, which acceptance
+- [x] ✅ **Task 3.6**: Prove `freeze --ccy` and `thaw --ccy` for real, which acceptance
   deliberately never does to live sessions. **Human, at a HOST terminal**, in a quiet
   moment: `podfreeze freeze --ccy`, confirm every session is paused (`podfreeze list`),
   then `podfreeze thaw --ccy` and confirm they all resume. It interrupts every running
-  agent, which is why no script does it unattended.
+  agent, which is why no script does it unattended. Done by the owner: 3 of 3 ccy
+  sessions paused (`list`: 3 frozen, 0 running), then 3 of 3 running after the thaw;
+  the session that was paused mid-turn carried on (journal 26-09-25).
 
 - [x] ✅ **Task 3.7**: The triage probe `deployed ccy version` called the `ccy` alias,
   which a non-interactive script cannot see (`rc=127`). It now reads `CCY_VERSION` from
@@ -278,11 +279,10 @@ See D4 and D6.
   the preview, the pause and the printed set, but on a one-member throwaway network.
   Exclusivity, meaning other networks' containers are left alone, is shown by the
   selection tests in `scripts/test-podfreeze.bash` (check 0), not by a live run.)*
-- [ ] `podfreeze freeze --ccy` pauses, and `thaw --ccy` resumes, every CCY container,
-  labelled and legacy-named. *(Task 3.6. Only the selection is shown so far: check 9
-  dry-runs `--ccy` against the live labelled fleet, and check 0's suite covers the
-  name-pattern path. Acceptance never pauses live sessions, so no real `freeze --ccy`
-  or `thaw --ccy` has run.)*
+- [x] `podfreeze freeze --ccy` pauses, and `thaw --ccy` resumes, every CCY container,
+  labelled and legacy-named. *(Task 3.6: a real run by the owner paused all three live
+  sessions and resumed all three. All three were labelled; the legacy-name path is shown
+  by check 0's suite, as no legacy-named session was running.)*
 - [ ] Interactive picker works with and without fzf — **not exercised by any run**
   (`pick_target` needs a TTY). Human check at a HOST terminal
 - [x] Refuses to run inside a container; `--dry-run` changes nothing *(checks 2, 4, 9)*
