@@ -630,8 +630,8 @@
               {{ git_signing_key_path }} does not exist. play-git-configure-and-tools.yml
               generates it; run that play, then this one.
 
-        # Checks every key (0600, no passphrase, .pub matches) and reads every account
-        # before it adds anything, so a refusal leaves GitHub as it was.
+        # Checks every key (non-empty, 0600, no passphrase, .pub matches) and reads every
+        # account before it adds anything, so a refusal from those checks adds nothing.
         - name: Register Every Signing Key With GitHub
           ansible.builtin.command:
             argv:
@@ -820,7 +820,7 @@
                       {% for alias, username in github_accounts.items() %}
                       {{ alias }})
                           echo "Switching to {{ alias }} ({{ username }})..."
-                          gh auth switch --hostname github.com --user "{{ username }}"
+                          gh auth switch --hostname github.com --user "{{ username }}" || return 1
 
                           # Optional: Update git config for this account
                           if [[ "$2" == "--update-git" ]]; then
@@ -836,28 +836,32 @@
                   esac
               }
 
-              # Update git config based on GitHub account
+              # Set this repository's git identity to a GitHub account's.
               function gh-update-git-config() {
-                  local account="$1"
+                  local account="$1" login token email id
                   case "$account" in
                       {% for alias, username in github_accounts.items() %}
-                      {{ alias }})
-                          # The account's public email, else its noreply address. Either
-                          # is verified on the account, so a commit it signs is Verified,
-                          # and a private address would trip GitHub's email push protection.
-                          local email id
-                          email=$(gh api user --jq '.email // empty') || return 1
-                          if [[ -z "$email" ]]; then
-                              id=$(gh api user --jq .id) || return 1
-                              email="${id}+{{ username }}@users.noreply.github.com"
-                          fi
-                          git config user.email "$email"
-                          echo "Updated git user.email to: $email"
-                          git config user.name "{{ username }}"
-                          echo "Updated git user.name to: {{ username }}"
-                          ;;
+                      {{ alias }}) login="{{ username }}" ;;
                       {% endfor %}
+                      *)
+                          echo "Unknown account: $account" >&2
+                          return 1
+                          ;;
                   esac
+                  # Read as that account, whatever gh has active.
+                  token=$(gh auth token --hostname github.com --user "$login") || return 1
+                  # The account's public email, else its noreply address. Either is verified
+                  # on the account, so a commit its signing key signs is Verified, and the
+                  # noreply address also passes GitHub's push protection for private emails.
+                  email=$(GH_TOKEN="$token" gh api user --jq '.email // empty') || return 1
+                  if [[ -z "$email" ]]; then
+                      id=$(GH_TOKEN="$token" gh api user --jq .id) || return 1
+                      email="${id}+${login}@users.noreply.github.com"
+                  fi
+                  git config user.email "$email" || return 1
+                  git config user.name "$login" || return 1
+                  echo "Updated git user.email to: $email"
+                  echo "Updated git user.name to: $login"
               }
 
               # Get or set the default GitHub account

@@ -16,6 +16,11 @@ from typing import NamedTuple
 
 _KEY_TYPES = ("ssh-", "ecdsa-", "sk-")
 _ALIAS = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+# GitHub's noreply address, <id>+<login>@ or the older <login>@. user/emails need not list it.
+_NOREPLY = re.compile(
+    r"^(?:[0-9]+\+)?(?P<login>[A-Za-z0-9-]+)@users\.noreply\.github\.com$",
+    re.IGNORECASE,
+)
 
 
 class Wanted(NamedTuple):
@@ -57,12 +62,20 @@ def blobs(listing: str) -> set[str]:
 
 
 def owner_of_email(email: str, verified: dict[str, set[str]]) -> str:
-    """The one account whose verified emails include this one, compared without case."""
+    """The one account whose verified emails include this one, compared without case.
+
+    A noreply address belongs to the login it names.
+    """
     wanted = email.casefold()
+    noreply = _NOREPLY.match(email)
     owners = sorted(
         login
         for login, emails in verified.items()
         if wanted in {e.casefold() for e in emails}
+        or (
+            noreply is not None
+            and noreply.group("login").casefold() == login.casefold()
+        )
     )
     if not owners:
         raise ValueError(

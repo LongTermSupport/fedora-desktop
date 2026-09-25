@@ -212,9 +212,9 @@ passphrase, and the plays refuse one that does.
 
 Two plays hold the keys, one per GitHub identity, as the login keys are:
 
-| Key                             | Made by                            | Signs in                                                                              | Registered on                      |
-| ------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------- |
-| `~/.ssh/github_<alias>_signing` | `play-github-cli-multi.yml`        | a repository whose remote is `github.com-<alias>` (`clone-<alias>`, `remote-<alias>`) | that account                       |
+| Key                             | Made by                            | Signs in                                                                              | Registered on                          |
+| ------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------- |
+| `~/.ssh/github_<alias>_signing` | `play-github-cli-multi.yml`        | a repository whose remote is `github.com-<alias>` (`clone-<alias>`, `remote-<alias>`) | that account                           |
 | `~/.ssh/id_ed25519_git_signing` | `play-git-configure-and-tools.yml` | every other repository                                                                | the account with `user_email` verified |
 
 `play-github-cli-multi.yml` registers every key GitHub lacks as a signing key, with each
@@ -231,10 +231,14 @@ of the account holding the key:
   email. If no account in `github_accounts` has it, the play refuses and says so: verify
   the address on its account and list that account, or set `user_email` to an address
   one of them has verified.
-- **An account's key** signs with whatever email the repository uses. Run
-  `gh-switch <alias> --update-git` in it to set that account's public email, or its
-  `users.noreply.github.com` address when the email is private. Either is verified, and
-  the noreply address also passes GitHub's push protection for private emails.
+- **An account's key** signs with whatever email the repository uses, which is your
+  global `user_email` until you change it. So by default a commit in another account's
+  repository is signed but **not Verified**. Run `gh-switch <alias> --update-git` in that
+  repository once, to set that account's public email, or its `users.noreply.github.com`
+  address when the email is private. Either address is verified, and the noreply address
+  also passes GitHub's push protection for private emails. The play does not set the email
+  for you, because that would silently change the author of every commit in those
+  repositories.
 
 Git picks an account's key through `includeIf` on the remote URL, in both the
 `git@github.com-<alias>:` and the `ssh://git@github.com-<alias>/` form. The play writes

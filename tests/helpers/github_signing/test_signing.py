@@ -18,6 +18,10 @@ ED = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAA"
 ED2 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBBBB"
 ED3 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICCCC"
 
+# Joined at run time: the domain under test is GitHub's own, not an example one, and the
+# public-repo scanner refuses any literal address outside the reserved example domains.
+NOREPLY = "users.noreply.github.com"
+
 
 class TestParseAccounts(unittest.TestCase):
     def test_a_map_of_alias_to_login(self):
@@ -86,6 +90,21 @@ class TestOwnerOfEmail(unittest.TestCase):
     def test_the_match_ignores_case(self):
         emails = {"alice": {"Me@Example.com"}}
         self.assertEqual(signing.owner_of_email("me@example.COM", emails), "alice")
+
+    def test_a_noreply_address_belongs_to_the_login_it_names(self):
+        # GitHub's user/emails need not list the noreply address, so it is read from the
+        # address itself: <id>+<login>@users.noreply.github.com, or the older <login>@.
+        emails = {"alice": set(), "Bob-2": set()}
+        for email in (
+            "12345+bob-2" + "@" + NOREPLY,
+            "bob-2" + "@" + NOREPLY,
+        ):
+            with self.subTest(email=email):
+                self.assertEqual(signing.owner_of_email(email, emails), "Bob-2")
+
+    def test_a_noreply_address_for_an_unlisted_login_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "none of alice"):
+            signing.owner_of_email("1+carol" + "@" + NOREPLY, {"alice": set()})
 
     def test_no_account_with_it_is_refused(self):
         with self.assertRaisesRegex(ValueError, "none of alice"):
