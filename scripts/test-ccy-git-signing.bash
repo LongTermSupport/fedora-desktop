@@ -179,13 +179,60 @@ refused_by() {
         *) fail "$1: the refusal does not name $2: $OUT" ;;
     esac
 }
+# remedy_clears <label> <config file>: run the command the refusal printed, as the user
+# would paste it, and expect it to remove the key from that file. Matching the text alone
+# passed a remedy that pointed at the wrong file.
+remedy_clears() {
+    local remedy remedy_out
+    remedy="$(printf '%s\n' "$OUT" | awk '/^    git config --file /')"
+    if [ -z "$remedy" ]; then
+        fail "$1: the refusal prints no git config --file remedy: $OUT"
+        return
+    fi
+    if ! remedy_out="$(case_git bash -c "$remedy" 2>&1)"; then
+        fail "$1: the printed remedy failed: $remedy: $remedy_out"
+        return
+    fi
+    if git config --file "$2" --get user.signingkey >/dev/null; then
+        fail "$1: the printed remedy left the key in $2: $remedy"
+    else
+        pass "$1: the printed remedy removes the key"
+    fi
+}
+
 new_case via-include gpg.format=ssh "user.signingkey=$WORK/via-include/home/.ssh/signing" commit.gpgsign=true
 printf 'NOT-A-SIGNING-KEY\n' >"$CASE/home/.ssh/id"
 git init -q "$CASE/project"
 printf '[user]\n\tsigningkey = %s\n' "$CASE/home/.ssh/id" >"$CASE/project/planted.gitconfig"
 git -C "$CASE/project" config include.path "$CASE/project/planted.gitconfig"
 run_stage
-refused_by "an [include] in .git/config" "git config --file '$CASE/project/planted.gitconfig' --unset user.signingkey"
+refused_by "an [include] in .git/config" "planted.gitconfig"
+remedy_clears "an [include] in .git/config" "$CASE/project/planted.gitconfig"
+
+# git names the repository's own config relative to its top level, not to the directory
+# ccy was started in.
+new_case in-subdir gpg.format=ssh "user.signingkey=$WORK/in-subdir/home/.ssh/signing" commit.gpgsign=true
+printf 'NOT-A-SIGNING-KEY\n' >"$CASE/home/.ssh/id"
+git init -q "$CASE/repo"
+mkdir -p "$CASE/repo/sub dir"
+git -C "$CASE/repo" config user.signingkey "$CASE/home/.ssh/id"
+OUT="$(case_git stage_git_signing_key "$CASE/stage/gitconfig" "$CASE/stage" "$MOUNT" "$CASE/repo/sub dir" 2>&1)"
+RC=$?
+refused_by "a project in a subdirectory" "local git config"
+remedy_clears "a project in a subdirectory" "$CASE/repo/.git/config"
+
+# git quotes a path like this one in its plain output, so the remedy must not take it
+# from there.
+new_case odd-path gpg.format=ssh "user.signingkey=$WORK/odd-path/home/.ssh/signing" commit.gpgsign=true
+printf 'NOT-A-SIGNING-KEY\n' >"$CASE/home/.ssh/id"
+ODD="$CASE/project/café it's"
+mkdir -p "$ODD"
+printf '[user]\n\tsigningkey = %s\n' "$CASE/home/.ssh/id" >"$ODD/planted.gitconfig"
+git init -q "$CASE/project"
+git -C "$CASE/project" config include.path "$ODD/planted.gitconfig"
+run_stage
+refused_by "an include path git would quote" "planted.gitconfig"
+remedy_clears "an include path git would quote" "$ODD/planted.gitconfig"
 
 new_case via-worktree gpg.format=ssh "user.signingkey=$WORK/via-worktree/home/.ssh/signing" commit.gpgsign=true
 printf 'NOT-A-SIGNING-KEY\n' >"$CASE/home/.ssh/id"

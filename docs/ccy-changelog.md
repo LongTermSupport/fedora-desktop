@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.67.3
+
+- **The refusal's remedy works from a subdirectory, and for any path.** git names the
+  repository's own config relative to its top level, so a project opened in a
+  subdirectory was told to edit a file that does not exist. A path git would quote, such
+  as one with an accent or an apostrophe, produced a command that would not run. The
+  path is now read NUL-separated and printed shell-quoted, and the test runs each
+  printed remedy to prove it removes the key.
+
 ## 3.67.2
 
 - **Every launch names the signing key it staged** (`✓ Commit signing: …`). Which key

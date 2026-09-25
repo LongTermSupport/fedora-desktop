@@ -2,7 +2,7 @@
 # SSH Handling Library
 # Shared SSH key operations for claude-yolo (ccy)
 #
-# Version: 1.6.2 - stage_git_signing_key names the key it staged, and the file to fix
+# Version: 1.6.3 - stage_git_signing_key names the key it staged, and a remedy that runs
 #                  (Plan 00139).
 #          1.4.0 - Two identities a box may hold besides a github_<alias> key:
 #                  the project remote's own key, reached through an ssh-config
@@ -1178,7 +1178,7 @@ build_ssh_mounts_and_validate() {
 #   $4 the project directory
 stage_git_signing_key() {
     local gitconfig="$1" stage_dir="$2" mount_dir="$3" project="$4"
-    local key scoped scope origin format name value rc signing=false
+    local key scope origin format name value rc signing=false
 
     for name in commit.gpgsign tag.gpgsign; do
         value=$(git config --file "$gitconfig" --type=bool --get "$name") && rc=0 || rc=$?
@@ -1191,23 +1191,34 @@ stage_git_signing_key() {
         fi
     done
 
-    # "<scope>\t<origin>\t<value>"; an include reports the scope of the file including it.
-    scoped=$(git -C "$project" config --show-scope --show-origin --get user.signingkey) && rc=0 || rc=$?
+    # Scope, origin and value, NUL-separated: the plain output quotes an unusual path. An
+    # include reports the scope of the file including it.
+    local fields=() probe config_file top
+    probe=$(mktemp) || { print_error "Could not create a temporary file"; return 1; }
+    git -C "$project" config -z --show-scope --show-origin --get user.signingkey >"$probe" && rc=0 || rc=$?
+    mapfile -d '' -t fields <"$probe"
+    rm -f "$probe"
     if [ "$rc" -gt 1 ]; then
         print_error "Could not read the signing key git uses in $project (git config exit $rc)"
         return 1
     fi
-    scope="${scoped%%$'\t'*}"
-    origin="${scoped#*$'\t'}"
-    key="${origin#*$'\t'}"
-    origin="${origin%%$'\t'*}"
-    if [ -n "$scoped" ] && [ "$scope" != global ] && [ "$scope" != system ]; then
+    scope="${fields[0]:-}"
+    origin="${fields[1]:-}"
+    key="${fields[2]:-}"
+    if [ "$rc" -eq 0 ] && [ "$scope" != global ] && [ "$scope" != system ]; then
         print_error "user.signingkey for $project is set in its $scope git config, which the container can write."
         echo "  ccy copies the signing key into the container, so it takes the key only from" >&2
         echo "  ~/.gitconfig and the system config. Remove the setting:" >&2
         case "$origin" in
-            file:/*) echo "    git config --file '${origin#file:}' --unset user.signingkey" >&2 ;;
-            file:*) echo "    git config --file '$project/${origin#file:}' --unset user.signingkey" >&2 ;;
+            file:*)
+                config_file="${origin#file:}"
+                # A relative origin is relative to the repository's top level.
+                if [ "${config_file#/}" = "$config_file" ] &&
+                    top=$(git -C "$project" rev-parse --show-toplevel); then
+                    config_file="$top/$config_file"
+                fi
+                printf '    git config --file %q --unset user.signingkey\n' "$config_file" >&2
+                ;;
             *) echo "    it comes from GIT_CONFIG_COUNT or GIT_CONFIG_PARAMETERS in this environment ($origin)" >&2 ;;
         esac
         return 1
