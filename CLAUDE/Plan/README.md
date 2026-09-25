@@ -152,8 +152,6 @@ Use these Unicode icons in plan documents:
 
 - [00129-semgrep-per-rule-coverage-is-invisible](00129-semgrep-per-rule-coverage-is-invisible/) - The pattern gate's `N files OK` is the union of every rule's target set and reads as per-rule coverage; one rule is blind to 67 of 157 files. Carried out of Plan 00076, which met all twelve of its own criteria without it. One owner decision left: ~4.9× scan time for measured numbers, or model the globs in-gate.
 
-- [00079-podman-container-control](00079-podman-container-control/) - `podfreeze`: freeze and unfreeze Podman containers individually, as a CCY group, or by network, via `podman pause` — the one mechanism that works rootless. Renumbered from 00078 after two clones each handed out that number from a `--local` counter.
-
 - [00080-ccy-session-network-isolation](00080-ccy-session-network-isolation/) - Every CCY session launched without `--network` joins the same Podman bridge. Research-gated into whether that matters, with five hypotheses of which H4 (can a per-session network be cleaned up after SIGKILL?) decides feasibility. 💤 Dormant — decided on a network per session (named `ccy-isolate-…`, and ignored by `podfreeze`); Low priority, parked until the owner schedules Phase 3.
 
 - [00086-kernel-modules-absent-enumeration](00086-kernel-modules-absent-enumeration/) - A downstream live proof of `play-AB-dnf-upgrade.yml` on a guest lacking the `kernel-modules` package (present only `kernel-core`/`kernel-modules-core`) found the half-installed-kernel enumeration hard-failed instead of treating "not installed" as zero versions. Fixed with a probe-then-fail `assert`, not a blanket `failed_when: false`.
@@ -171,6 +169,8 @@ Use these Unicode icons in plan documents:
 - [00074-grub-cgroup-check-reports-absence-it-cannot-prove](00074-grub-cgroup-check-reports-absence-it-cannot-prove/) - `run.bash`'s legacy-grub cgroup step now distinguishes a failing `grubby` from a genuine negative and aborts on a proven failure instead of continuing
 
 ## Completed Plans
+
+- [00079-podman-container-control](Completed/00079-podman-container-control/) - `podfreeze`: freeze and unfreeze Podman containers individually, as a CCY group, or by network, via `podman pause` — the one mechanism that works rootless. Renumbered from 00078 after two clones each handed out that number from a `--local` counter.
 
 - [00140-agent-browser-sessions-leak](Completed/00140-agent-browser-sessions-leak/) - Agents leave browser sessions running and open new ones, and every session name is its own Chromium. Upstream's skill tells them to make one per task, and bare `close` shuts only one. A guard in the three browser commands refuses a new session while one is live (`CCY_BROWSER_MAX_SESSIONS`, default 1) and names the one to reuse or close.
 
@@ -229,8 +229,6 @@ Use these Unicode icons in plan documents:
 - [00085-headless-path-local-bin](Completed/00085-headless-path-local-bin/) - A downstream live proof of the composed PR #33/#34 headless mechanisms found a third, unrelated blocker: `ansible-galaxy: command not found` under a non-interactive `sudo -u` invocation, since pipx's `~/.local/bin` shims are never put on PATH there. Exports PATH right after the pipx install block. Merged (`dac4f7c`).
 
 - [00070-documentation-drift-audit](Completed/00070-documentation-drift-audit/) - Fixed 23 confirmed documentation-drift defects and shipped `scripts/qa-docs.bash` as a permanent link and catalogue gate
-
-- [00071-qa-gate-correctness](Completed/00071-qa-gate-correctness/) - Fixed three defects that made `qa-all.bash` exit 1 on a clean tree, and pinned ruff via `/.ruff-version`
 
 **Older completed plans** — everything beyond the most recent 30 — are in
 [Completed/README.md](Completed/README.md), moved there verbatim. The retention window

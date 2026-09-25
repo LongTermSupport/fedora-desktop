@@ -1,11 +1,8 @@
 # Plan 00079: Podman container control — freeze/thaw by container, network, and CCY group
 
-**Status**: In Progress. One success criterion is open, a human check at a HOST
-terminal that stands before Task 3.4:
-
-- **Task 3.5(a)**: the interactive picker, with and without fzf.
-
-Task 3.5(b), the confirming `qa-reviewer`, is done: the sixth review was PASS WITH NITS.
+**Status**: Complete. The owner confirmed the interactive picker at a HOST terminal and
+closed the plan; a real `freeze --ccy` / `thaw --ccy` passed; the sixth confirming
+`qa-reviewer` was PASS WITH NITS.
 **Created**: 2026-08-19
 **Owner**: joseph
 **Priority**: Medium
@@ -215,7 +212,7 @@ See D4 and D6.
   outstanding finding: runs 3, 4 and 5 predated Task 3.3d's fix commit, so until now no
   acceptance run had executed against the reviewed code.
 
-- [ ] ⬜ **Task 3.5**: The two open success criteria. (a) **Human, at a HOST terminal**:
+- [x] ✅ **Task 3.5**: The two open success criteria. (a) **Human, at a HOST terminal**:
   run `podfreeze` with no target, once with `fzf` on `PATH` and once without, and in each
   open a group, act on it and quit. (b) A confirming `qa-reviewer` PASS over the plan's
   diff — **(b) done**, 2026-09-24. Five confirming reviews returned FIX-BEFORE-MERGE, and
@@ -234,7 +231,10 @@ See D4 and D6.
   - [260924-qa-reviewer-confirm6-opus-5.md](subagent-reports/260924-qa-reviewer-confirm6-opus-5.md),
     PASS WITH NITS; both nits accepted.
 
-  Only (a) remains.
+  (a) done by the owner at a HOST terminal, who reported the picker working and closed
+  the plan. The fallback menu without fzf was not run separately: fzf shares `/usr/bin`
+  with podman, so it cannot be dropped from `PATH` alone, and the owner accepted the
+  picker as it stands (journal 26-09-25).
 
 - [x] ✅ **Task 3.6**: Prove `freeze --ccy` and `thaw --ccy` for real, which acceptance
   deliberately never does to live sessions. **Human, at a HOST terminal**, in a quiet
@@ -264,7 +264,7 @@ See D4 and D6.
   running session is labelled, and 27 passed and 0 skipped when an unlabelled one is
   running.
 
-- [ ] ⬜ **Task 3.4**: Mark plan Complete, move to `Completed/`, update README
+- [x] ✅ **Task 3.4**: Mark plan Complete, move to `Completed/`, update README
   index + statistics in the same commit
 
 ## Dependencies
@@ -283,8 +283,9 @@ See D4 and D6.
   labelled and legacy-named. *(Task 3.6: a real run by the owner paused all three live
   sessions and resumed all three. All three were labelled; the legacy-name path is shown
   by check 0's suite, as no legacy-named session was running.)*
-- [ ] Interactive picker works with and without fzf — **not exercised by any run**
-  (`pick_target` needs a TTY). Human check at a HOST terminal
+- [x] Interactive picker works with and without fzf. *(Task 3.5(a): the owner's check at
+  a HOST terminal, with fzf. The fallback without fzf was accepted by the owner without
+  a separate run; no automated test covers it, since `pick_target` needs a TTY.)*
 - [x] Refuses to run inside a container; `--dry-run` changes nothing *(checks 2, 4, 9)*
 - [x] `acceptance.bash` renders `VERDICT: PASS` on the HOST against the
   deployed copy (it refuses to vouch for a binary that differs from the repo)
