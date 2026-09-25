@@ -35,43 +35,27 @@ if ! command -v node >/dev/null; then
     exit 2
 fi
 
-# Discover repo-owned .js files. Exclude vendored/upstream/runtime trees.
+# Discover repo-owned .js files, excluding the trees every other gate excludes.
 #
-# Every entry below is anchored to REPO_ROOT (`$REPO_ROOT/name/*`) EXCEPT
-# node_modules, which legitimately nests at multiple depths under a JS project
-# and so stays anywhere-in-tree. A plain `*/name/*` matches anywhere in the
-# ABSOLUTE path — including an ANCESTOR of REPO_ROOT — so a checkout at a path
-# like .../untracked/repos/fedora-desktop excluded every file in the repo when
-# only `untracked` was anchored this way (see qa-discovery.bash's
-# qa_discover_shell_files() for the same bug, found and fixed the same way,
-# Plan 00082). None of the other names here nest below REPO_ROOT at more than
-# one location, so all of them are anchored too rather than leaving the same
-# latent defect in entries nobody happened to hit yet.
-#
-# The WHOLE .ansible tree, not just roles/ — the same answer qa-discovery.bash
-# reached for the shell and Python stages, and for the same reason: it is
-# gitignored Galaxy output, and `ansible-galaxy collection install` populates
-# .ansible/collections/ with third-party files. This stage kept its own find and
-# so kept the narrower exclusion, which made its file count depend on whether
-# galaxy content had landed on that machine — 10 files here against 8 on a
-# runner, both reported as a pass over "repo-owned" JavaScript.
-JS_FILES=()
+# The exclusions are qa-discovery.bash's, not a list of this stage's own. A second
+# copy drifted twice: it kept only .ansible/roles when the shell and Python stages
+# excluded the whole .ansible tree, so its count depended on whether Galaxy content
+# had landed on the machine; and it lacked .claude/worktrees, so a stale worktree's
+# JavaScript was counted as this repository's. qa_is_excluded tests the path relative
+# to REPO_ROOT, so an excluded name among REPO_ROOT's ancestors cannot exclude the
+# whole checkout.
 #
 # `.mjs` as well as `.js`: the extension-test harness under tests/extensions/ is ESM, it
 # is executed by the panel-sections gate, and it sits outside the extensions/ ESLint
 # project — so without this the "repo-owned JavaScript" claim was narrower than it read.
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=qa-discovery.bash
+source "$REPO_ROOT/scripts/qa-discovery.bash"
+JS_FILES=()
 while IFS= read -r -d '' file; do
+    qa_is_excluded "${file#"$REPO_ROOT"/}" && continue
     JS_FILES+=("$file")
-done < <(find "$REPO_ROOT" -type f \( -name "*.js" -o -name "*.mjs" \) \
-    ! -path "$REPO_ROOT/.git/*" \
-    ! -path "*/node_modules/*" \
-    ! -path "$REPO_ROOT/.ansible/*" \
-    ! -path "$REPO_ROOT/roles/vendor/*" \
-    ! -path "$REPO_ROOT/.claude/hooks-daemon/*" \
-    ! -path "$REPO_ROOT/.claude/ccy/*" \
-    ! -path "$REPO_ROOT/.claude/worktrees/*" \
-    ! -path "$REPO_ROOT/untracked/*" \
-    -print0)
+done < <(find "$REPO_ROOT" -type f \( -name "*.js" -o -name "*.mjs" \) -print0)
 
 TOTAL=${#JS_FILES[@]}
 
