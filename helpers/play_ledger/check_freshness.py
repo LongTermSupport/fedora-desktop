@@ -148,15 +148,26 @@ def run(
             return EXIT_UNTRUSTWORTHY
         verdicts.append(freshness.classify(record=record, changes=changes, head_sha256=head))
 
+    path_exists_at = path_exists_at or (
+        lambda root, commit, path: git_history.path_exists_at(root, commit, path)
+    )
+    try:
+        verdicts = _drop_never_tracked(
+            verdicts, latest=latest, repo_root=repo_root, path_exists_at=path_exists_at
+        )
+    except Exception as error:
+        # Unanswered, a scratch play would be reported as removed, or a removed play
+        # dropped as never tracked, with nothing saying which.
+        stderr.write(f"play-freshness: cannot tell whether a removed play was ever tracked: {error}\n")
+        return EXIT_UNTRUSTWORTHY
+
     try:
         verdicts = _apply_retirements(
             verdicts,
             latest=latest,
             repo_root=repo_root,
             retired_plays=retired_plays or retired.load,
-            path_exists_at=path_exists_at or (
-                lambda root, commit, path: git_history.path_exists_at(root, commit, path)
-            ),
+            path_exists_at=path_exists_at,
         )
     except Exception as error:
         # A map that cannot be applied would leave a GONE finding standing, or drop
@@ -176,6 +187,27 @@ def run(
         (unchecked or stdout).write(f"{offline}\n")
         return EXIT_FINDINGS
     return status
+
+
+def _drop_never_tracked(
+    verdicts: list[freshness.Verdict],
+    *,
+    latest: dict[str, dict],
+    repo_root: str,
+    path_exists_at: Callable[[str, str, str], bool],
+) -> list[freshness.Verdict]:
+    """Drop each GONE play that was not in the tree of the commit it ran from.
+
+    Such a play was run from outside the repo's history, a probe under untracked/ for
+    instance. It is GONE at HEAD only because it was never there, and it is not the
+    repo's to report. Only GONE plays are asked about, so a login with nothing removed
+    costs no extra git call.
+    """
+    return [
+        verdict for verdict in verdicts
+        if verdict.state != freshness.GONE
+        or path_exists_at(repo_root, latest[verdict.play]["commit"], verdict.play)
+    ]
 
 
 def _apply_retirements(

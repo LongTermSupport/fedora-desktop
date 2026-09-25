@@ -376,8 +376,12 @@ class TestRetiredPlays(unittest.TestCase):
     stops being reported once that play has run at a commit without the old one."""
 
     def _run(self, base: str, *, retired_plays=None, exists=None, head_plays=(NEW_PLAY,)):
-        """`exists(commit, path)` answers path_exists_at; HEAD holds `head_plays`."""
-        exists = exists or (lambda commit, path: path in head_plays)
+        """`exists(commit, path)` answers path_exists_at; HEAD holds `head_plays`.
+
+        By default every seeded play was tracked at the commit it ran from
+        (FORTY_HEX), as a real play is: one that was not is TestNeverTrackedPlays'.
+        """
+        exists = exists or (lambda commit, path: path in head_plays or commit == FORTY_HEX)
         out, err = io.StringIO(), io.StringIO()
         code = check_freshness.run(
             base=base, repo_root="/repo", stdout=out, stderr=err,
@@ -487,9 +491,75 @@ class TestRetiredPlays(unittest.TestCase):
                 fetch=lambda r: None,
                 changes_since=lambda r, commit, play: [],
                 play_sha256_at_head=lambda r, play: SIXTY_FOUR_HEX if play == NEW_PLAY else None,
-                path_exists_at=lambda r, commit, p: p == NEW_PLAY,
+                path_exists_at=lambda r, commit, p: p == NEW_PLAY or commit == FORTY_HEX,
             )
             self.assertIn(f"run {NEW_PLAY}", out.getvalue())
+
+
+class TestNeverTrackedPlays(unittest.TestCase):
+    """A play run from outside the repo's history (a scratch probe under untracked/) is
+    GONE at HEAD because it was never there. It is not the repo's play, so it is not a
+    finding. A tracked play that was deleted still is."""
+
+    SCRATCH_PLAY = "untracked/scratch/probe.yml"
+    REMOVED_PLAY = "playbooks/imports/play-removed.yml"
+
+    def _run(self, base: str, *, tracked_at_run: set, exists_error: Exception | None = None):
+        calls: list[tuple[str, str]] = []
+
+        def exists(root: str, commit: str, path: str) -> bool:
+            calls.append((commit, path))
+            if exists_error is not None:
+                raise exists_error
+            return commit == FORTY_HEX and path in tracked_at_run
+
+        out, err = io.StringIO(), io.StringIO()
+        code = check_freshness.run(
+            base=base, repo_root="/repo", stdout=out, stderr=err,
+            fetch=lambda root: None,
+            changes_since=lambda root, commit, play: [],
+            play_sha256_at_head=lambda root, play: None if play in (
+                self.SCRATCH_PLAY, self.REMOVED_PLAY) else SIXTY_FOUR_HEX,
+            retired_plays=lambda root: {},
+            path_exists_at=exists,
+        )
+        return code, out.getvalue(), err.getvalue(), calls
+
+    def test_a_play_never_tracked_at_its_run_is_not_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [self.SCRATCH_PLAY])
+            code, out, _, _ = self._run(base, tracked_at_run=set())
+            self.assertEqual(out, "")
+            self.assertEqual(code, check_freshness.EXIT_OK)
+
+    def test_a_tracked_play_that_was_deleted_is_still_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [self.SCRATCH_PLAY, self.REMOVED_PLAY])
+            code, out, _, _ = self._run(base, tracked_at_run={self.REMOVED_PLAY})
+            self.assertEqual(code, check_freshness.EXIT_FINDINGS)
+            self.assertEqual(out, f"{self.REMOVED_PLAY} — no longer exists at HEAD\n")
+
+    def test_the_question_is_asked_of_the_commit_the_play_ran_from(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [self.SCRATCH_PLAY])
+            _, _, _, calls = self._run(base, tracked_at_run=set())
+            self.assertIn((FORTY_HEX, self.SCRATCH_PLAY), calls)
+
+    def test_git_failing_on_the_question_is_untrustworthy_not_silent(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [self.SCRATCH_PLAY])
+            code, out, err, _ = self._run(base, tracked_at_run=set(),
+                                          exists_error=RuntimeError("bad object"))
+            self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
+            self.assertIn("bad object", err)
+            self.assertEqual(out, "")
+
+    def test_nothing_gone_asks_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, ["playbooks/a.yml"])
+            code, _, _, calls = self._run(base, tracked_at_run=set())
+            self.assertEqual(code, check_freshness.EXIT_OK)
+            self.assertEqual(calls, [])
 
 
 class TestDefaultWiring(unittest.TestCase):
