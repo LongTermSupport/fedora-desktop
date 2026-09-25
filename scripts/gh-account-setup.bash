@@ -17,10 +17,16 @@ IFS=$'\n\t'
 # The SSH test's passphrase-free copy of an account key. It is removed however the script
 # ends, short of SIGKILL, and it lives on the per-user tmpfs, which is emptied at logout.
 # An interrupt still ends the script by that signal, so a caller sees how it ended.
+#
+# The per-account steps switch gh to each account in turn, and run.bash takes gh's active
+# account as the primary one, whose config repo it reads. So the account active when this
+# started is switched back to however it ends, too (restore_active_account). main does it
+# on the way out of a normal run; these do it on every other way out.
 SSH_TEST_KEY=""
-trap 'rm -f -- ${SSH_TEST_KEY:+"$SSH_TEST_KEY"}' EXIT
-trap 'rm -f -- ${SSH_TEST_KEY:+"$SSH_TEST_KEY"}; trap - INT; kill -INT $$' INT
-trap 'rm -f -- ${SSH_TEST_KEY:+"$SSH_TEST_KEY"}; trap - TERM; kill -TERM $$' TERM
+ORIGINAL_ACTIVE_ACCOUNT=""
+trap 'rc=$?; rm -f -- ${SSH_TEST_KEY:+"$SSH_TEST_KEY"}; if ! restore_active_account && [[ "$rc" -eq 0 ]]; then rc=1; fi; exit "$rc"' EXIT
+trap 'rm -f -- ${SSH_TEST_KEY:+"$SSH_TEST_KEY"}; restore_active_account; trap - INT; kill -INT $$' INT
+trap 'rm -f -- ${SSH_TEST_KEY:+"$SSH_TEST_KEY"}; restore_active_account; trap - TERM; kill -TERM $$' TERM
 
 # ─── Paths (overridable via env) ───────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -143,6 +149,29 @@ switch_to_account() {
       warning "Could not switch to ${username}: ${switch_output}"
     fi
   fi
+}
+
+# ─── gh's active account, and putting it back ─────────────────────────────────
+# Prints the active account's login, or nothing when no account is logged in.
+active_gh_account() {
+  local login
+  if login=$(gh api user --jq '.login' 2>/dev/null); then
+    printf '%s' "$login"
+  fi
+}
+
+# Switches gh back to ORIGINAL_ACTIVE_ACCOUNT when another account is active now. Returns 1,
+# naming the command to run by hand, if the switch fails.
+restore_active_account() {
+  [[ -n "$ORIGINAL_ACTIVE_ACCOUNT" ]] || return 0
+  [[ "$(active_gh_account)" != "$ORIGINAL_ACTIVE_ACCOUNT" ]] || return 0
+  local switch_output
+  if ! switch_output=$(gh auth switch --hostname github.com --user "$ORIGINAL_ACTIVE_ACCOUNT" 2>&1); then
+    echo -e "${RED}✗${NC} Could not switch gh back to ${ORIGINAL_ACTIVE_ACCOUNT}, the account active when this started: ${switch_output}" >&2
+    echo -e "   ${YELLOW}➜${NC} run.bash reads the active account as the primary one. Run: gh auth switch --hostname github.com --user ${ORIGINAL_ACTIVE_ACCOUNT}" >&2
+    return 1
+  fi
+  echo -e "${CYAN}i${NC} gh is back on ${ORIGINAL_ACTIVE_ACCOUNT}, the account active when this started" >&2
 }
 
 # ─── Missing OAuth scopes for the currently-active gh account ─────────────────
@@ -605,6 +634,8 @@ main() {
     exit 1
   fi
 
+  ORIGINAL_ACTIVE_ACCOUNT="$(active_gh_account)"
+
   case "$mode" in
     add)
       echo -e "\n${BOLD}Adding GitHub account: ${add_alias} (${add_username})${NC}"
@@ -684,6 +715,13 @@ main() {
       fi
       ;;
   esac
+
+  # Cleared either way, so the EXIT trap does not try a failed switch a second time.
+  if ! restore_active_account; then
+    ORIGINAL_ACTIVE_ACCOUNT=""
+    exit 1
+  fi
+  ORIGINAL_ACTIVE_ACCOUNT=""
 }
 
 # One line, so bash has parsed the exit before main runs. bash reads a script as it goes,

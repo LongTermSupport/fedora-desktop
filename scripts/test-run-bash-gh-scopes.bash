@@ -39,7 +39,7 @@ for fn in info success warning error hl_abort fatal gh_scopes_repo_complete gh_s
 done
 cp "$work/fn.bash" "$work/run-fn.bash"
 : >"$work/fn.bash"
-for fn in scopes_cli audit_all_accounts_headless; do
+for fn in scopes_cli audit_all_accounts_headless active_gh_account restore_active_account; do
     extract "$SETUP" "$fn"
 done
 mv "$work/fn.bash" "$work/setup-fn.bash"
@@ -68,6 +68,15 @@ case "$1 $2" in
     "auth token")
         for arg; do last="$arg"; done
         if [ -f "$STUB_DIR/granted-tok-$last" ]; then echo "tok-$last"; else exit 1; fi
+        ;;
+    "api user")
+        if [ -s "$STUB_DIR/active" ]; then cat "$STUB_DIR/active"; else echo "not logged in" >&2; exit 1; fi
+        ;;
+    "auth switch")
+        for arg; do last="$arg"; done
+        printf '%s\n' "$*" >>"$STUB_DIR/switch.log"
+        if [ -f "$STUB_DIR/switch-fails" ]; then echo "switch refused" >&2; exit 1; fi
+        printf '%s\n' "$last" >"$STUB_DIR/active"
         ;;
     *) echo "unexpected gh $*" >&2; exit 99 ;;
 esac
@@ -212,6 +221,55 @@ check "refused" 1 "$RC"
 contains "names the first short account and its scopes" "MISSING bob repo,workflow" "$OUT"
 contains "and the next one, in the same failure" "MISSING carol" "$OUT"
 check "a healthy account is not listed" "" "$(printf '%s\n' "$OUT" | grep 'alice')"
+
+# run.bash takes gh's active account as the primary one, the owner of the config repo, so
+# gh-account-setup.bash, which switches to each account in turn, must leave it as it was.
+echo "== gh-account-setup.bash: gh's active account is put back"
+# restore_case [account] [fail]: record the active account, switch to <account> if given,
+# make the switch back fail if asked, then restore. SWITCHES holds only the restore's own.
+restore_case() {
+    rm -f "$STUB_DIR/switch.log" "$STUB_DIR/switch-fails"
+    OUT="$(bash -c '
+        source "$1"
+        ORIGINAL_ACTIVE_ACCOUNT="$(active_gh_account)"
+        if [ -n "$2" ]; then gh auth switch --hostname github.com --user "$2" >/dev/null; fi
+        if [ "$3" = fail ]; then touch "$STUB_DIR/switch-fails"; fi
+        rm -f "$STUB_DIR/switch.log"
+        restore_active_account' _ "$work/setup-fn.bash" "${1:-}" "${2:-}" 2>&1)"
+    RC=$?
+    SWITCHES=""
+    if [ -f "$STUB_DIR/switch.log" ]; then
+        SWITCHES="$(cat "$STUB_DIR/switch.log")"
+    fi
+    rm -f "$STUB_DIR/switch-fails"
+}
+printf 'alice\n' >"$STUB_DIR/active"
+restore_case carol
+check "after switching to another account, it switches back" 0 "$RC"
+check "  and the one it started on is active again" "alice" "$(cat "$STUB_DIR/active")"
+contains "  by switching to it" "--user alice" "$SWITCHES"
+printf 'alice\n' >"$STUB_DIR/active"
+restore_case
+check "an account still active is left alone" "" "$SWITCHES"
+: >"$STUB_DIR/active"
+restore_case
+check "with no account logged in at the start, nothing is switched" "" "$SWITCHES"
+check "  and that is not an error" 0 "$RC"
+printf 'alice\n' >"$STUB_DIR/active"
+restore_case carol fail
+check "a switch back that fails is an error" 1 "$RC"
+contains "  naming the account to switch to by hand" "gh auth switch --hostname github.com --user alice" "$OUT"
+
+echo "== gh-account-setup.bash: the wiring"
+main_body="$(awk '/^main\(\) \{/ {p=1} p {print} p && /^\}/ {exit}' "$SETUP")"
+record_line="$(printf '%s\n' "$main_body" | awk '/ORIGINAL_ACTIVE_ACCOUNT="\$\(active_gh_account\)"/ {print NR; exit}')"
+case_line="$(printf '%s\n' "$main_body" | awk '/case "\$mode" in/ {print NR; exit}')"
+check "main records the active account before any mode runs" "yes" \
+    "$([ -n "$record_line" ] && [ -n "$case_line" ] && [ "$record_line" -lt "$case_line" ] && echo yes || echo no)"
+for sig in EXIT INT TERM; do
+    check "the ${sig} trap puts it back" "yes" \
+        "$(awk -v s="$sig" '/^trap / && $NF == s && /restore_active_account|on_exit/ {f=1} END {print f ? "yes" : "no"}' "$SETUP")"
+done
 
 echo ""
 echo "RESULT: passed: $passed failed: $failed"
