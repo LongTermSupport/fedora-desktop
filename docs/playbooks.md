@@ -510,7 +510,9 @@ agent-browser-headless open https://example.com && agent-browser-headless screen
 
 A forgotten session is reaped by the image's idle timeout after five minutes, down from
 upstream's hour; see `AGENT_BROWSER_IDLE_TIMEOUT_MS` in [ccy.md](ccy.md#per-project-configuration).
-That is the safety net for a crashed agent, not a substitute for closing.
+That is the safety net for a crashed agent, not a substitute for closing. Each command also
+allows only one open session at a time and refuses a second; see
+[One open session per browser command](ccy.md#one-open-session-per-browser-command).
 
 **Token efficiency example**:
 

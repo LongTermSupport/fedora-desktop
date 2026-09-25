@@ -99,6 +99,12 @@ BROWSER AUTOMATION:
   but a page opened in one is not open in another, so re-`open` after
   switching. Close every mode you used: `<command> close --all`.
 
+  One session per command at a time: every session name is its own browser.
+  A command that would start a second exits 3 ("refused") and names the open
+  one. Reuse it (--session <name>) or close it; do not close one you did not
+  open. Use the default session; an `export AGENT_BROWSER_SESSION=...` does
+  not survive to your next Bash call.
+
   Command reference (always matched to the installed version):
     agent-browser-headless skills get core --full
   Its examples are written as `agent-browser ...`; substitute the command you

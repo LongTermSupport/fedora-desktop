@@ -60,29 +60,31 @@ Root cause, measured in-container (full evidence in the journal, 26-09-25):
 
 ### Phase 2: Enforce (test first)
 
-- [ ] 🔄 **Task 2.1**: `scripts/test-agent-browser-session-guard.bash` against a fake
+- [x] ✅ **Task 2.1**: `scripts/test-agent-browser-session-guard.bash` against a fake
   agent-browser binary: the RED run, before the guard exists.
-- [ ] ⬜ **Task 2.2**: `files/var/local/claude-yolo/agent-browser-session-guard`. It
+- [x] ✅ **Task 2.2**: `files/var/local/claude-yolo/agent-browser-session-guard`. It
   refuses a command that would start a new session while this browser command already
   has `CCY_BROWSER_MAX_SESSIONS` (default 1) live, names the live session(s) and says
   how to reuse or close them. It waits out the ~160 ms a just-closed session stays
   listed, and fails loudly if it cannot read the session list.
-- [ ] ⬜ **Task 2.3**: Route the three wrappers through the guard (Dockerfile), stage the
+- [x] ✅ **Task 2.3**: Route the three wrappers through the guard (Dockerfile), stage the
   guard into the build context (`play-claude-yolo.yml`), bump the container version
   and `CCY_VERSION`, add a changelog entry.
-- [ ] ⬜ **Task 2.4**: Wire the suite into `qa-all.bash`.
-- [ ] ⬜ **Task 2.5**: Run the checked-out guard against the real binary in this
-  container, repeating the leaking patterns from Task 1.1 through it.
+- [x] ✅ **Task 2.4**: Wire the suite into `qa-all.bash`.
+- [x] ✅ **Task 2.5**: Run the checked-out guard against the real binary in this
+  container, repeating the leaking patterns from Task 1.1 through it:
+  `./acceptance.bash --checkout`.
 
 ### Phase 3: Docs and review
 
-- [ ] ⬜ **Task 3.1**: Update the browsing skill: one session per command, why
+- [x] ✅ **Task 3.1**: Update the browsing skill: one session per command, why
   upstream's "always use your own session" advice does not apply here, what a refusal
-  means. Update `docs/ccy.md`.
-- [ ] ⬜ **Task 3.2**: `./scripts/qa-all.bash`; `qa-reviewer` over the branch diff;
+  means. Update `docs/ccy.md`, `CCY-GUIDE.txt` and `docs/playbooks.md`.
+- [ ] 🔄 **Task 3.2**: `./scripts/qa-all.bash`; `qa-reviewer` over the branch diff;
   resolve findings.
-- [ ] ⬜ **Task 3.3**: Host deploy (`play-claude-yolo.yml`, image rebuild), then
-  `acceptance.bash` in a fresh ccy container.
+- [ ] ⬜ **Task 3.3**: On the HOST, `./deploy.bash` (`play-claude-yolo.yml`, image
+  rebuild). Then, inside a NEW ccy session, `./acceptance.bash`. On the host it reports
+  COULD NOT ESTABLISH (exit 2), because the browsers exist only in the image.
 
 ## Technical Decisions
 
@@ -118,11 +120,13 @@ not to be enough.
 
 ## Success Criteria
 
-- [ ] Through the guard, the leaking patterns from Task 1.1 leave at most one browser
-  root per browser command (real binary, in-container).
-- [ ] Reuse, `close`, `close --all`, `session list`, `skills` and `--version` are never
+- [x] Through the guard, the leaking patterns from Task 1.1 leave at most one browser
+  root per browser command (real binary, in-container; checkout mode, before deploy).
+- [x] Reuse, `close`, `close --all`, `session list`, `skills` and `--version` are never
   refused.
-- [ ] `scripts/test-agent-browser-session-guard.bash` passes and runs in `qa-all.bash`.
+- [x] `scripts/test-agent-browser-session-guard.bash` passes and runs in `qa-all.bash`.
+- [ ] After the host deploy, `./acceptance.bash` (installed mode) in a fresh ccy
+  container: ACCEPTED with full coverage.
 - [ ] QA passes (`./scripts/qa-all.bash`), apart from stages that fail for a documented
   worktree-only reason; `qa-reviewer` findings resolved.
 

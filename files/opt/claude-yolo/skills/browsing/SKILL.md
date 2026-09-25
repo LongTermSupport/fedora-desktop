@@ -79,6 +79,27 @@ finished, run `agent-browser-headed session list`, `agent-browser-headless sessi
 and `agent-browser-lite-headless session list` for every mode you used; if any names a
 session, you are not finished.
 
+## One session per command, and a second is refused
+
+Every session name is a separate browser, about 14 Chromium processes each. So CCY lets
+each of the three commands have **one session open at a time**. A command that would
+start a second exits 3 with `refused`, and names the session that is already open:
+
+- **It is yours and you still need it:** reuse it. Add `--session <that name>` to the
+  command, or drop `--session` if the open one is `default`.
+- **It is yours and you are done with it:** `<command> close --all`, then re-run.
+- **You did not open it:** another agent working in parallel probably did. Do not close
+  it. Wait for it, or use a different mode if the task allows.
+
+**Do not follow the upstream core skill's "Always use your own session" step here.** It
+has you `export AGENT_BROWSER_SESSION="$(agent-browser session id ...)"`. In Claude Code
+that export is gone by your next Bash call, so the calls after it use `default` and would
+start a second browser. Use the default session. If you do name one, pass
+`--session <name>` on every command.
+
+A project that genuinely needs two sessions side by side, such as a two-user flow, sets
+`CCY_BROWSER_MAX_SESSIONS` in its `.claude/ccy/ccy.env`. Close each one when done.
+
 ## Get the command reference from the CLI itself
 
 Do **not** learn the commands from a copy in this repo. `agent-browser` ships its own
@@ -145,7 +166,7 @@ agent-browser-lite-headless close --all
 - All three are passthrough wrappers around the same binary. `agent-browser-headed` and
   `agent-browser-headless` differ only in the headed flag; `agent-browser-lite-headless`
   selects the Lightpanda engine via a dedicated config file. Every subcommand and flag
-  behaves the same.
+  behaves the same. The one addition is the session cap above.
 - Each wrapper runs on its own daemon namespace, so the three keep **separate browser
   sessions**. Interleave them in any order without closing anything — but a page you
   opened with one is not open in the other, so re-`open` the URL after switching.

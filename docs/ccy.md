@@ -876,6 +876,22 @@ every session it opens in the same command chain that finishes the task, and to 
 `<command> session list` is empty for every mode it used before reporting done. Which
 command that is: [Browser mode is always an explicit choice](#browser-mode-is-always-an-explicit-choice).
 
+The timer is per session, so it cannot stop an agent that keeps starting new ones. That
+is what the [session cap](#one-open-session-per-browser-command) is for.
+
+#### `CCY_BROWSER_MAX_SESSIONS` — how many browser sessions may be open at once
+
+Default `1`, per browser command. Raise it only for work that genuinely needs two
+browsers side by side, such as a two-user flow:
+
+```bash
+# .claude/ccy/ccy.env
+export CCY_BROWSER_MAX_SESSIONS=2
+```
+
+It must be a whole number of at least 1. Any other value, empty included, makes every
+browser command fail until it is fixed.
+
 ### 3. `allowed-hostnames` — restricting where CCY can run
 
 Optional. If the file does not exist, CCY runs anywhere. If it exists, the current
@@ -1334,6 +1350,22 @@ hits the same stub. The `browsing` skill tells the agent that when it is unsure 
 you want to watch, the answer is no, and that a site which misbehaves under lite is rerun
 on `agent-browser-headless`. A project Dockerfile must not reinstall the `agent-browser`
 npm package: that recreates the bare symlink and removes the choice.
+
+### One open session per browser command
+
+Every agent-browser session name is a separate browser, about 14 Chromium processes
+each. Agents tended to start a new one per task and leave the old ones running, so
+browsers piled up until the idle timer caught them. Each of the three commands now
+refuses, with exit 3, a command that would start another session while one is already
+open. The message names the open session and says to reuse it (`--session <name>`) or
+close it (`close --all`). Reusing a session, and commands that start no browser
+(`close`, `session list`, `skills`, `--help`), are never refused.
+
+The three commands count separately, so at most one headed Chromium, one headless
+Chromium and one Lightpanda run at once. To allow more, see
+[`CCY_BROWSER_MAX_SESSIONS`](#ccy_browser_max_sessions--how-many-browser-sessions-may-be-open-at-once).
+The guard is `files/var/local/claude-yolo/agent-browser-session-guard`. The measurements
+behind it are in Plan 00140; find it by number under `CLAUDE/Plan/`.
 
 ---
 
