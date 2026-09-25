@@ -407,6 +407,20 @@ fi
 git_signing_summary=$(qa_gate_case_count "$git_signing_out")
 qa_pass_line ccy-git-signing "$git_signing_summary"
 
+# The browser session cap behind the three ccy browser commands (Plan 00140, CCY 3.69.0).
+# Every agent-browser session name is its own browser, and agents started a new one per
+# task, so the guard refuses to start another while one is open. A fake agent-browser
+# stands in for the real one: no browser, no daemon. The suite also checks that the
+# Dockerfile routes all three wrappers through the guard and that the play stages it.
+browser_guard_out=""
+if ! browser_guard_out="$(bash "$SCRIPT_DIR/test-agent-browser-session-guard.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-browser-session-guard \
+        "ccy browser session guard unit tests failed" \
+        "$browser_guard_out"
+fi
+browser_guard_summary=$(qa_gate_case_count "$browser_guard_out")
+qa_pass_line ccy-browser-session-guard "$browser_guard_summary"
+
 # gh-scope-outside-ssot (Defence Before Fix; CLAUDE/QA.md). A GitHub OAuth scope named
 # anywhere but vars/github-required-scopes.yml and helpers/github_scopes/ is a second copy
 # that drifts, and the owner then authorises GitHub more than once.

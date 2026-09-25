@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00140-agent-browser-sessions-leak](00140-agent-browser-sessions-leak/) - Agents leave browser sessions running and open new ones, and every session name is its own Chromium. Upstream's skill tells them to make one per task, and bare `close` shuts only one. A guard in the three browser commands refuses a new session while one is live (`CCY_BROWSER_MAX_SESSIONS`, default 1) and names the one to reuse or close.
+
 - [00139-commit-signing-everywhere](00139-commit-signing-everywhere/) - Every commit and tag made on the owner's machine is signed by default, on the host, in `cc` sessions and inside ccy, with one passphrase-less SSH signing key per machine, so GitHub marks them Verified and consumers can require it. The owner overruled Plan 00137's "agents must not sign" design; the self-update gate trusts the machine key. Addresses #4.
 
 - [00136-host-health-report-in-a-terminal](00136-host-health-report-in-a-terminal/) - The host health report becomes a terminal-first surface on both profiles: `fedora-desktop-health` prints it on demand, the login snippet speaks in full once a day and otherwise leaves a one-line reminder, and the GNOME panel gains a row that opens the command in a terminal. Nothing re-runs a play; that remains Plan 00109 Task 4.3.

@@ -17,6 +17,25 @@ Two version numbers move independently — see
 
 ---
 
+## 3.69.0 — container 2.38
+
+- **Each browser command allows one open session at a time** (Plan 00140). Every
+  agent-browser session name is a separate browser: four names gave four Chromiums,
+  about 14 processes each. Agents followed upstream's advice to start a named session
+  per task, and bare `close` shut only one, so browsers piled up. The idle reaper could
+  not stop this, because each new session starts its own timer. The three wrappers now
+  go through `agent-browser-session-guard`. It refuses (exit 3) a command that would
+  start another session while one is open, and names the open session to reuse or
+  close. Reusing a session and commands that start no browser (`close`, `session`,
+  `skills`, `--help`, ...) are never refused. A project that needs two at once sets
+  `CCY_BROWSER_MAX_SESSIONS` in its `ccy.env`.
+- **`agent-browser-headless --headed true` no longer opens a window.** The CLI takes the
+  last copy of a repeated flag (measured for `--session`, `--namespace` and `--headed`),
+  so a caller's own copy overrode the wrapper's. The Dockerfile said the opposite. The
+  commands now refuse (exit 2) a copy of any flag they set themselves.
+- **The browsing skill has agents name their session on every command** and close it by
+  name, rather than `close --all`, which also closed other agents' sessions.
+
 ## 3.68.0
 
 - **A project podman cannot relabel is explained, and a fix is offered.** Since 3.65.0 a

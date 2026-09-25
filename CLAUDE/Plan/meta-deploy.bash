@@ -49,9 +49,10 @@ PLAN_ROOT="${scriptDir}"
 # run as one unit through its own shebang, which goes through run.bash, exactly as
 # `./playbooks/imports/<play>.yml` does by hand.
 PLANS=(
-    # CCY 3.68.0: ccy stops failing with exit 126 in a project podman cannot relabel. It
-    # explains the entries instead and offers the fix (Plan 00134 T3.1).
-    "playbooks/imports/play-claude-yolo.yml"
+    # Its deploy runs play-claude-yolo.yml, which delivers CCY 3.69.0 and rebuilds the image.
+    # That carries this plan's browser session cap and CCY 3.68.0's relabel preflight: ccy no
+    # longer fails with exit 126 in a project podman cannot relabel (Plan 00134 T3.1).
+    "00140-agent-browser-sessions-leak"
 )
 
 LIST_ONLY=0

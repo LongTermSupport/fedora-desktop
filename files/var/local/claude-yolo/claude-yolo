@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.68.0"  # A project podman cannot relabel is explained, with a fix offered. See docs/ccy-changelog.md.
+CCY_VERSION="3.69.0"  # One open browser session per browser command. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,7 +70,7 @@ source "$SCRIPT_DIR/lib/tmux-session.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.37"
+REQUIRED_CONTAINER_VERSION="2.38"
 
 set -e
 
