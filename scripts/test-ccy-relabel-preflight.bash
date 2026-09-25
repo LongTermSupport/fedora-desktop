@@ -325,6 +325,11 @@ else
     check "the walk fails: the launch stops rather than guess" "rc=1" "$(last_rc "$out")"
     contains "  and says so" "could not look through all of $p" "$out"
 
+    if [ "$ME" -eq 0 ]; then
+        # root can open a mode-000 directory, so the two cases below pass without reaching
+        # the skip. Said, not hidden: CI and the host run this as an ordinary user.
+        echo "  NOTE: running as root: the unreadable-directory cases do not exercise the skip"
+    fi
     p="$(fresh_project closed)"
     mkdir -p "$p/db-data/base"
     touch "$p/db-data/base/table"
