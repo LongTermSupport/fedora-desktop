@@ -49,6 +49,13 @@ password sudo, which is every server profile and any desktop without NOPASSWD, a
 Anything after the path (`-vvv`, `--check`, `-e …`) passes straight through.
 `./run.bash <playbook>` is the same thing spelled out.
 
+**To catch up after a pull, run `./run.bash --changed`.** It lists every play that has run
+on this machine and needs to run again, asks once, then runs them in order and stops at
+the first failure. A play needs to run again when its own file, or any file it deploys, has
+changed since the commit it last ran from, or when its last run failed. It also names any
+play it cannot judge (one holding a reference it cannot follow), and any play that is no
+longer in the checkout. It runs neither.
+
 ```bash
 # Zero-flag default — auto-detects desktop vs. server:
 ./playbooks/playbook-main.yml

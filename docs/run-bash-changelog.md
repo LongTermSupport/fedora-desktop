@@ -15,6 +15,17 @@ the index, not the record.
 
 ---
 
+## 1.28.0 — `--changed` runs every play whose inputs changed since it ran here (Plan 00141)
+
+`./run.bash --changed` lists each play that has run on this machine and has to run again,
+asks once, then runs them in order through the single-play runner under one play lock. It
+stops at the first failure with that play's exit status. A play has to run again when any
+of its inputs changed between the commit it last ran from and the working tree, or when
+its last run did not succeed. The inputs are its own file and every checkout file it
+deploys, read by Plan 00137's path-to-play mapper. A play whose references cannot be
+followed is named as one it cannot judge, and a play no longer in the checkout is named
+as gone; neither is run. The helper is `helpers/play_ledger/changed_plays.py`.
+
 ## 1.27.1 — the primary-account list reads each login whole (Plan 00139)
 
 1.27.0 split each account line on a space, but `main` sets `IFS` to newline and tab, so a

@@ -141,17 +141,32 @@
             path: /etc/vimrc.local
             create: true
 
-    - name: Basic Bash Tweaks Files
+    # One task per file, each naming its source in full: a source built from a loop item
+    # reads, to helpers/self_update/affected_plays.py, as the whole of files/, and would
+    # make this play re-run for any change there.
+    - name: Basic Bash Tweaks Profile Script
       ansible.builtin.copy:
-        src: "{{ root_dir }}/files{{ item }}"
-        dest: "{{ item }}"
+        src: "{{ root_dir }}/files/etc/profile.d/zz_lts-fedora-desktop.bash"
+        dest: /etc/profile.d/zz_lts-fedora-desktop.bash
         owner: root
         group: root
         mode: "0644"
-      loop:
-        - /etc/profile.d/zz_lts-fedora-desktop.bash
-        - /var/local/colours
-        - /var/local/ps1-prompt
+
+    - name: Basic Bash Tweaks Colours File
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/var/local/colours"
+        dest: /var/local/colours
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Basic Bash Tweaks Prompt File
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/var/local/ps1-prompt"
+        dest: /var/local/ps1-prompt
+        owner: root
+        group: root
+        mode: "0644"
 
     - name: Prompt Colour File
       ansible.builtin.copy:

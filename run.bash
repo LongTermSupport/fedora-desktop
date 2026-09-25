@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.27.1"
+RUN_BASH_VERSION="1.28.0"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -956,6 +956,8 @@ HEADLESS=""
 # rest of the command line, so parsing is a shift loop rather than a `for` over "$@".
 PLAY_PATH=""
 PLAY_ARGS=()
+# --changed (Plan 00141): run every play whose inputs changed since it last ran here.
+CHANGED_PLAYS=false
 while (( $# > 0 )); do
   _arg="$1"
   shift
@@ -968,6 +970,10 @@ Fedora Desktop / Server / Cloud Configuration Installer
 
 Options:
   --optional-only      Skip core setup, jump straight to optional playbook menu
+  --changed            Run every play that has run here and whose inputs (its own
+                       file, or anything it deploys) changed since, after one
+                       confirmation. Stops at the first failure. Names any play it
+                       cannot judge, and any that is gone, rather than skip it.
   <playbook>.yml [ansible-playbook args…]
                        Run ONE play from this checkout and exit. Handles sudo for
                        you: NOPASSWD runs bare, password sudo gets Ansible's
@@ -1183,6 +1189,9 @@ USAGE
       ;;
     --optional-only)
       OPTIONAL_ONLY=true
+      ;;
+    --changed)
+      CHANGED_PLAYS=true
       ;;
     *.yml)
       # A playbook path is the only positional run.bash takes; everything after it is
@@ -1875,6 +1884,83 @@ run_playbook_with_issue_option(){
     return $exit_code
   fi
 }
+
+# ── changed plays: every play whose inputs changed since it ran here, then exit ───────
+# Plan 00141. helpers/play_ledger/changed_plays.py decides which plays: its marker lines
+# are the whole answer, and one it cannot give (exit 2) runs nothing. Each play then runs
+# through the same runner as a single play, under one play lock, in the judge's order.
+if [[ "$CHANGED_PLAYS" == "true" ]]; then
+  if [[ -n "$PLAY_PATH" || "$OPTIONAL_ONLY" == "true" ]]; then
+    fatal "changed plays" "--changed takes no playbook path and no --optional-only" \
+      "run ./run.bash --changed on its own"
+  fi
+  if [[ "$HEADLESS" == "true" ]]; then
+    fatal "changed plays" "--changed asks before it runs anything, so it cannot run unattended" \
+      "run it from a terminal; on a server the self-update timer is the unattended path"
+  fi
+  if [[ -z "${BASH_SOURCE[0]:-}" || ! -f "${BASH_SOURCE[0]}" ]]; then
+    fatal "changed plays" "run.bash is being streamed, not run from a checkout" \
+      "cd into the fedora-desktop checkout and run ./run.bash --changed"
+  fi
+  _play_repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+  cd "$_play_repo" || fatal "changed plays" "cannot cd into ${_play_repo}" "check the checkout"
+  if ! command -v ansible-playbook >/dev/null; then
+    fatal "changed plays" "ansible-playbook not found on PATH" \
+      "run ./run.bash once (it installs ansible via pipx), and do not run it under sudo"
+  fi
+  if ! _changed_out="$(python3 -m helpers.play_ledger.changed_plays --repo-root "$_play_repo")"; then
+    fatal "changed plays" "could not work out which plays changed, so none is run (see above)" \
+      "fix what the message above names, then run ./run.bash --changed again"
+  fi
+  _changed_run=()
+  _changed_blind=()
+  _changed_gone=()
+  while IFS= read -r _changed_line; do
+    [[ -n "$_changed_line" ]] || continue
+    case "$_changed_line" in
+      "RUN "*) _changed_run+=("${_changed_line#RUN }") ;;
+      "UNRESOLVED "*) _changed_blind+=("${_changed_line#UNRESOLVED }") ;;
+      "GONE "*) _changed_gone+=("${_changed_line#GONE }") ;;
+      *)
+        fatal "changed plays" "the changed-plays helper printed a line run.bash does not know: ${_changed_line}" \
+          "run.bash and helpers/play_ledger/changed_plays.py disagree; update the checkout"
+        ;;
+    esac
+  done <<<"$_changed_out"
+  if [[ ${#_changed_blind[@]} -gt 0 ]]; then
+    warning "Cannot tell whether these changed: each holds a reference that cannot be followed."
+    printf '     %s\n' "${_changed_blind[@]}"
+    echo -e "   Run one by name if you have changed what it references: ./run.bash <playbook>.yml"
+  fi
+  if [[ ${#_changed_gone[@]} -gt 0 ]]; then
+    warning "These plays ran here and are no longer in the checkout, so they are not run:"
+    printf '     %s\n' "${_changed_gone[@]}"
+  fi
+  if [[ ${#_changed_run[@]} -eq 0 ]]; then
+    success "No play has changed since it last ran here"
+    exit 0
+  fi
+  echo -e "\n${CYAN}${ARROW}${NC} ${#_changed_run[@]} play(s) changed since they last ran here:"
+  printf '     %s\n' "${_changed_run[@]}"
+  if ! confirm "Run them now, in this order?" n; then
+    exit 0
+  fi
+  play_lock_take "run.bash --changed"
+  for _i in "${!_changed_run[@]}"; do
+    _changed_play="${_changed_run[$_i]}"
+    _play_rc=0
+    run_playbook_with_issue_option "$_play_repo/$_changed_play" "$(basename "$_changed_play" .yml)" || _play_rc=$?
+    if [[ "$_play_rc" -ne 0 ]]; then
+      error "Stopped: ${_changed_play} failed (exit code: ${_play_rc})"
+      if [[ $((_i + 1)) -lt ${#_changed_run[@]} ]]; then
+        printf '     Not run: %s\n' "${_changed_run[@]:$((_i + 1))}"
+      fi
+      exit "$_play_rc"
+    fi
+  done
+  success "All ${#_changed_run[@]} changed play(s) ran"
+  exit 0
+fi
 
 # ── single play: run ONE play through the become-aware runner above, then exit ─────
 # The runner is the only thing that knows whether this box wants --ask-become-pass,

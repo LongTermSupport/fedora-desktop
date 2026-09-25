@@ -42,7 +42,7 @@ and the working tree, and asks whether any of them is one of that play's inputs.
 
 ### Phase 1: which plays changed
 
-- [ ] ⬜ **Task 1.1**: `helpers/play_ledger/changed_plays.py`. It reads the ledger's latest
+- [x] ✅ **Task 1.1**: `helpers/play_ledger/changed_plays.py`. It reads the ledger's latest
   record per play, and diffs each record's commit against the working tree (one
   `git diff` per distinct commit). It matches the changed paths against
   `affected_plays.play_inputs` and prints marker lines:
@@ -56,11 +56,11 @@ and the working tree, and asks whether any of them is one of that play's inputs.
 
 ### Phase 2: the command
 
-- [ ] ⬜ **Task 2.1**: `run.bash --changed`. It uses the checkout (never a streamed
+- [x] ✅ **Task 2.1**: `run.bash --changed`. It uses the checkout (never a streamed
   run.bash), and refuses to combine with a playbook path or `--optional-only`. It shows
   the plan, confirms y/N, runs each play through the single-play runner, and stops at the
   first failure. Bump `RUN_BASH_VERSION`, add a changelog entry, and update `--help`.
-- [ ] ⬜ **Task 2.2**: A test for the flag, against a stubbed helper and runner. It covers:
+- [x] ✅ **Task 2.2**: A test for the flag, against a stubbed helper and runner. It covers:
   - the order of the plays;
   - a stop at the first failure;
   - nothing to run;
@@ -69,7 +69,7 @@ and the working tree, and asks whether any of them is one of that play's inputs.
 
 ### Phase 3: finish
 
-- [ ] ⬜ **Task 3.1**: Docs (`docs/playbooks.md` or the run.bash doc), `qa-all.bash`, and
+- [ ] 🔄 **Task 3.1**: Docs (`docs/playbooks.md` or the run.bash doc), `qa-all.bash`, and
   the `qa-reviewer` agent.
 - [ ] ⬜ **Task 3.2**: **HOST**: run `./run.bash --changed` for real, and read what it ran.
 
@@ -87,3 +87,4 @@ and the working tree, and asks whether any of them is one of that play's inputs.
      JOURNAL/00141-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
 - Plan written
+- `changed_plays.py` helper and `run.bash --changed` (1.28.0)
