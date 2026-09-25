@@ -1,0 +1,44 @@
+# Fixture for .semgrep/gh-scopes.yml (semgrep --test). Each "ruleid" line marks the line
+# below it as a finding; each "ok" line marks the line below it as clean.
+
+# ruleid: gh-scope-outside-ssot
+gh auth refresh -h github.com -s admin:public_key
+
+# ruleid: gh-scope-outside-ssot
+$GH_REPO auth refresh -h github.com -s 'admin:public_key'
+
+# ruleid: gh-scope-outside-ssot
+gh auth login --hostname github.com --scopes repo,gist,workflow
+
+# ruleid: gh-scope-outside-ssot
+echo "needs scopes: vars/github-required-scopes.yml + admin:public_key"
+
+# ruleid: gh-scope-outside-ssot
+    read:org)         satisfiers=("$permission" write:org admin:org) ;;
+
+# ruleid: gh-scope-outside-ssot
+    read:user|user:email|user:follow) satisfiers=("$permission" user) ;;
+
+# ruleid: gh-scope-outside-ssot
+- `admin:ssh_signing_key` lets the play upload a signing key
+
+# ruleid: gh-scope-outside-ssot
+  - public_repo
+
+# ok: gh-scope-outside-ssot
+gh auth refresh -h github.com --scopes "$scope_csv"
+
+# ok: gh-scope-outside-ssot
+gh auth login --hostname github.com --scopes "$(missing_scopes_csv)"
+
+# ok: gh-scope-outside-ssot
+echo "the token needs every scope in vars/github-required-scopes.yml"
+
+# ok: gh-scope-outside-ssot
+gh ssh-key add ~/.ssh/key.pub --type signing --title "git signing"
+
+# ok: gh-scope-outside-ssot
+scopes_raw=$(gh auth status --json hosts | jq -r '.hosts["github.com"][] | .scopes')
+
+# ok: gh-scope-outside-ssot
+git clone --depth 1 https://github.com/example/repo.git

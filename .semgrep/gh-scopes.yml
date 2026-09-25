@@ -1,0 +1,54 @@
+rules:
+  # Rule: GitHub OAuth scopes live in ONE place (Defence Before Fix; CLAUDE/QA.md
+  # "gh-scope-outside-ssot").
+  #
+  # vars/github-required-scopes.yml says which scopes a gh token must carry, and the
+  # helpers/github_scopes/ package is the one implementation of how GitHub scopes imply one
+  # another. A scope named anywhere else is a second copy of one of those two facts. Copies
+  # drift: a consumer asks for, or checks, a different set from the rest of the project, and
+  # the owner is sent through GitHub's authorisation more than once.
+  #
+  # WRONG: gh auth refresh -h github.com -s admin:public_key
+  # WRONG: echo "needs scopes: vars/github-required-scopes.yml + admin:public_key"
+  # WRONG: case "$scope" in read:org) satisfiers=(read:org admin:org) ;; esac
+  # RIGHT: read the list from vars/github-required-scopes.yml, ask the helper what is
+  #        missing, and name the file (not its contents) in any message.
+  #
+  # Two forms, one hazard:
+  #   - a scope that can only be a GitHub OAuth scope (prefix:name, or an underscore name);
+  #   - a literal list given to `gh auth login|refresh --scopes/-s`, which is where the bare
+  #     names (repo, gist, workflow, project, user) appear; they are ordinary words elsewhere.
+  - id: gh-scope-outside-ssot
+    pattern-either:
+      - pattern-regex: '\b(?:admin|write|read):(?:repo_hook|org_hook|org|public_key|gpg_key|ssh_signing_key|packages|project|user|discussion|enterprise|audit_log)\b'
+      - pattern-regex: '\buser:(?:email|follow)\b'
+      - pattern-regex: '\brepo:(?:status|invite)\b'
+      - pattern-regex: '\b(?:repo_deployment|public_repo|security_events|delete_repo|delete:packages)\b'
+      - pattern-regex: 'gh[a-z-]*\s+auth\s+(?:login|refresh)\b[^\n]*?\s(?:--scopes|-s)[ =]+[''"]?[a-z]'
+    message: >
+      gh-scope-outside-ssot: a GitHub OAuth scope named outside
+      vars/github-required-scopes.yml. Read the list from that file and ask
+      helpers/github_scopes what is missing; name the file, not its contents.
+      See CLAUDE/QA.md "gh-scope-outside-ssot".
+    paths:
+      exclude:
+        # The single source, and the single implementation of the hierarchy.
+        - 'vars/github-required-scopes.yml'
+        - 'helpers/github_scopes/**'
+        - 'tests/helpers/github_scopes/**'
+        # This rule and its fixture.
+        - '.semgrep/gh-scopes.*'
+        # Records, not consumers: nothing reads a plan's prose, a journal, a review or a
+        # changelog to decide what to ask GitHub for. Plan SCRIPTS are code and stay in.
+        - 'CLAUDE/Plan/**/*.md'
+        - 'docs/*changelog*.md'
+        # Upstream hooks-daemon files, replaced wholesale on every upgrade.
+        - '.claude/hooks-daemon/**'
+        - '.claude/skills/**'
+        - 'untracked/**'
+    languages: [generic]
+    severity: ERROR
+    metadata:
+      category: correctness
+      confidence: HIGH
+      dbf-class: GitHub OAuth scope requirements stated outside their single source
