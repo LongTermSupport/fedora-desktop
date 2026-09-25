@@ -65,13 +65,18 @@ out.
 - [x] ✅ **Task 1.2**: Global config: `gpg.format ssh`, `user.signingkey`,
   `commit.gpgsign true`, `tag.gpgsign true`. Remove the XDG copies and `alias.sign-deploy`
   that Plan 00137 wrote, so no stale setting stays live.
-- [ ] 🔄 **Task 1.3**: Register the public key with GitHub as a signing key. Decided: a
-  documented owner step (`docs/configuration.md` "Commit Signing"). Adding
-  `admin:ssh_signing_key` to the shared required scopes would fail every account's scope
-  audit until each was refreshed, and the key belongs on one account only, the one whose
-  verified email is `user_email`. Acceptance check 11 confirms it through the public
-  `users/<login>/ssh_signing_keys` endpoint, which needs no scope.
-  - [ ] ⬜ **HOST (owner)**: register the key
+- [ ] 🔄 **Task 1.3**: Signing keys per GitHub account, registered by IaC. The owner
+  overruled the earlier "owner registers one key by hand" decision: signing covers every
+  repo on the machine, not just this one, and commits go out under each account's email
+  (`gh-switch <alias> --update-git`). So it follows the pattern the auth keys already use:
+  - `play-github-cli-multi.yml` generates `~/.ssh/github_<alias>_signing` per account (no
+    passphrase, D2) and uploads it with `gh ssh-key add --type signing`, idempotently;
+  - git picks the key through `includeIf` on the repo's `github.com-<alias>` remote, and
+    falls back to the machine key for other repos;
+  - ccy stages the key for the project's account;
+  - `admin:ssh_signing_key` joins the scope audit, with its refresh command.
+  - [ ] ⬜ Implementation
+  - [ ] ⬜ **HOST (owner)**: the one-off `gh auth refresh` for the new scope, then a deploy
 - [ ] 🔄 **Task 1.4**: The owner asked for this machine's public key to be kept in the
   private config repo. The play writes it into `localhost.yml` as `git_signing_public_key`,
   in a managed block, the way other plays record values there. It uses its own name,
