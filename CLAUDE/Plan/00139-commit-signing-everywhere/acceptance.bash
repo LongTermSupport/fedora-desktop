@@ -2,9 +2,11 @@
 # Plan 00139 — acceptance.bash
 #
 # PURPOSE: render the VERDICT on what deploy.bash left behind (CLAUDE/PlanScriptStandards.md
-# R9): this machine's signing key needs no passphrase, git signs every commit and tag with
-# it, the opt-in settings Plan 00137 wrote are gone, a real commit and tag made with the
-# user's own config verify as good, and GitHub knows the key. HOST ONLY.
+# R9): git signs every commit and tag with this machine's login key, through the ssh-agent
+# that holds it (D5), the opt-in settings Plan 00137 wrote are gone, a real commit and tag
+# made with the user's own config verify as good, GitHub knows every login key as a
+# signing key, and the passphrase-free signing keys D5 retired are gone from disk and from
+# GitHub. HOST ONLY.
 #
 # It changes nothing outside its own run directory: the commit and tag are made in a
 # scratch repository there, which is deleted at the end.
@@ -58,7 +60,7 @@ fi
 plan_require_host "it checks this user's git config and signing key"
 plan_start_log auto
 
-readonly DECLARED=13
+readonly DECLARED=14
 readonly XDG_CONFIG="${XDG_CONFIG_HOME:-${HOME}/.config}/git/config"
 PASS=0
 FAIL=0
@@ -111,18 +113,64 @@ else
     bad "5. the key is a 0600 file owned by ${USER}, with its .pub beside it" \
         "$(stat -c '%a %U %F' "${key}" "${key}.pub" 2>&1 | tr '\n' ';')"
 fi
-derived="$(ssh-keygen -y -P "" -f "${key}" 2>&1)" && rc=0 || rc=$?
-if [[ "${rc}" -eq 0 ]]; then
-    ok "6. the key loads with no passphrase, so agents can sign"
-else
-    bad "6. the key loads with no passphrase, so agents can sign" "ssh-keygen -y exit ${rc}"
-fi
 if [[ -f "${key}.pub" ]]; then
     pub_fields="$(awk '{ print $1, $2 }' "${key}.pub")"
 else
     pub_fields="no ${key}.pub"
 fi
-verdict "7. the .pub is the public half of this key" "$(awk '{ print $1, $2 }' <<<"${derived}")" "${pub_fields}"
+# git signs through the agent, so the agent must hold every key git signs with: this one,
+# and each account's github_<alias> (accounts.json, as checks 12-14 read it). Checks 9 and
+# 10 then sign with the machine key for real, which also proves the .pub is its public
+# half. ssh-add -L exits 1 when the agent holds nothing or is locked, 2 when there is none.
+agent_keys="$(ssh-add -L 2>&1)" && rc=0 || rc=$?
+signing_keys=("${key}")
+accounts_read=""
+if account_aliases="$(jq -r 'keys[]' "${HOME}/.config/git-account-helper/accounts.json" 2>&1)"; then
+    while read -r alias; do
+        if [[ -n "${alias}" ]]; then
+            signing_keys+=("${HOME}/.ssh/github_${alias}")
+        fi
+    done <<<"${account_aliases}"
+else
+    accounts_read="could not read accounts.json: ${account_aliases}; "
+fi
+agent_fields=""
+if [[ "${rc}" -eq 0 ]]; then
+    agent_fields="$(awk '{ print $1, $2 }' <<<"${agent_keys}")"
+fi
+missing="${accounts_read}"
+held=0
+for signing_key in "${signing_keys[@]}"; do
+    if [[ ! -f "${signing_key}.pub" ]]; then
+        missing+="$(basename "${signing_key}") (no .pub); "
+    elif grep -qxF "$(awk '{ print $1, $2 }' "${signing_key}.pub")" <<<"${agent_fields}"; then
+        held=$((held + 1))
+    else
+        missing+="$(basename "${signing_key}"); "
+    fi
+done
+label="6. the ssh-agent holds every key git signs with (${held} of ${#signing_keys[@]}), so a commit needs no passphrase"
+if [[ -z "${missing}" ]]; then
+    ok "${label}"
+else
+    case "${rc}" in
+        0) why="it does not hold: ${missing}load each with: ssh-add <key>" ;;
+        1) why="it holds no keys, or is locked (ssh-add -L exit 1); missing: ${missing}" ;;
+        *) why="no agent answered (ssh-add -L exit ${rc}: $(tr '\n' ' ' <<<"${agent_keys}"))" ;;
+    esac
+    bad "${label}" "${why}"
+fi
+# D5 retired these; play-github-cli-multi.yml deletes them after the login keys are in use.
+# A ccy session started before CCY 3.70.0 holds a staged copy in /tmp/claude-yolo-* while it
+# runs; the play refuses to retire while one does, so none should be left either.
+left_on_disk="$(find "${HOME}/.ssh" -maxdepth 1 \( -name 'github_*_signing*' -o -name 'id_ed25519_git_signing*' \) -printf '%f ' 2>&1)"
+shopt -s nullglob
+staged=(/tmp/claude-yolo-*/git-signing-key)
+shopt -u nullglob
+if [[ "${#staged[@]}" -gt 0 ]]; then
+    left_on_disk+="staged by a running pre-3.70 ccy session: ${staged[*]}"
+fi
+verdict "7. no retired passphrase-free signing key is left in ~/.ssh or staged by a ccy session" "" "${left_on_disk}"
 
 echo "== the opt-in settings are gone"
 # `git config --get` exits 1 for "not set" and only for that. Any other status is a file
@@ -231,16 +279,26 @@ else
 fi
 
 echo "== each GitHub account's own key"
-# play-github-cli-multi.yml writes github_accounts (alias to login) to accounts.json.
-# The registration read uses the same public endpoint as check 11. The pick is read in a
-# scratch repository whose remote is the account's github.com-<alias> host.
+# play-github-cli-multi.yml writes github_accounts (alias to login) to accounts.json. Each
+# account signs with its login key, github_<alias>. The registration read uses the same
+# public endpoint as check 11. The pick is read in a scratch repository whose remote is
+# the account's github.com-<alias> host. Check 14 reads each account's own signing keys
+# with its token, for their titles: the retired keys' files are gone, so the titles the
+# play gave them are what is left to recognise them by.
 accounts_file="${HOME}/.config/git-account-helper/accounts.json"
+# The play titles each registration "<hostname> <key name>", with Ansible's hostname fact:
+# the first label of the node name. Only this machine's are this deploy's to retire; another
+# machine's go when that machine is deployed.
+this_host="$(uname -n)"
+this_host="${this_host%%.*}"
 if ! accounts="$(jq -r 'to_entries[] | "\(.key) \(.value)"' "${accounts_file}" 2>&1)"; then
     bad "12. every account's own key is a signing key on that account" "could not read ${accounts_file}: ${accounts}"
     bad "13. git signs with each account's key in that account's repositories" "could not read ${accounts_file}: ${accounts}"
+    bad "14. no account still has a retired signing key registered" "could not read ${accounts_file}: ${accounts}"
 else
     unregistered=""
     wrong_pick=""
+    still_registered=""
     checked=0
     pick_repo="${PLAN_RUN_DIR}/pick-repo"
     git init -q "${pick_repo}"
@@ -250,7 +308,7 @@ else
             continue
         fi
         checked=$((checked + 1))
-        account_key="${HOME}/.ssh/github_${alias}_signing"
+        account_key="${HOME}/.ssh/github_${alias}"
         if [[ -f "${account_key}.pub" ]]; then
             account_fields="$(awk '{ print $1, $2 }' "${account_key}.pub")"
         else
@@ -262,6 +320,13 @@ else
         elif ! grep -qxF "${account_fields}" <<<"$(awk '{ print $1, $2 }' <<<"${listed}")"; then
             unregistered+="${alias} (not on ${login}); "
         fi
+        if ! token="$(gh auth token --hostname github.com --user "${login}" 2>&1)"; then
+            still_registered+="${alias} (UNKNOWN: no token); "
+        elif ! titles="$(GH_TOKEN="${token}" gh api --paginate user/ssh_signing_keys --jq '.[].title' 2>&1)"; then
+            still_registered+="${alias} (UNKNOWN: user/ssh_signing_keys: $(tr '\n' ' ' <<<"${titles}")); "
+        elif retired="$(grep -E "^${this_host} (github_.+_signing|id_ed25519_git_signing)\$" <<<"${titles}")"; then
+            still_registered+="${alias}: $(tr '\n' ',' <<<"${retired}") "
+        fi
         git -C "${pick_repo}" remote set-url origin "git@github.com-${alias}:example/example.git"
         picked="$(git -C "${pick_repo}" config --get user.signingkey 2>&1)" || picked="unset"
         if [[ "${picked}" != "${account_key}" ]]; then
@@ -272,9 +337,11 @@ else
     if [[ "${checked}" -eq 0 ]]; then
         bad "12. every account's own key is a signing key on that account" "${accounts_file} names no account"
         bad "13. git signs with each account's key in that account's repositories" "${accounts_file} names no account"
+        bad "14. no account still has a retired signing key registered" "${accounts_file} names no account"
     else
         verdict "12. every account's own key is a signing key on that account (${checked} checked)" "" "${unregistered}"
         verdict "13. git signs with each account's key in that account's repositories" "" "${wrong_pick}"
+        verdict "14. no account still has a retired signing key of this machine (${this_host}) registered" "" "${still_registered}"
     fi
 fi
 
@@ -284,8 +351,8 @@ echo "COVERAGE: ${ran} of ${DECLARED} checks executed"
 echo "NOT ESTABLISHABLE here — for the owner:"
 echo "  - in a ccy session started AFTER the deploy, make a commit in a scratch repo and"
 echo "    check that 'git cat-file commit HEAD' carries a gpgsig header. The ccy-git-signing"
-echo "    QA gate proves the launcher stages the key; only a real container proves git there"
-echo "    signs with it."
+echo "    QA gate proves the launcher names the session's key; only a real container proves"
+echo "    git there signs with it through the container's agent."
 echo "  - push a commit and see GitHub mark it Verified. That also needs the committer email"
 echo "    to be a verified email of the account holding the key."
 if [[ "${ran}" -ne "${DECLARED}" ]]; then

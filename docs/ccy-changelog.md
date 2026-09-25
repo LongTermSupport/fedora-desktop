@@ -17,6 +17,24 @@ Two version numbers move independently — see
 
 ---
 
+## 3.70.1
+
+- **A forwarded agent that is empty or locked is named as such**, with how to unlock it,
+  rather than reported as not holding the key.
+- **A host key given as a `key::` literal is named by its type**, and the refusal no
+  longer tells you to `ssh-add` the literal.
+
+## 3.70.0
+
+- **The container signs with the session's own SSH key, through an ssh-agent** (Plan 00139
+  D5). The login keys now sign, so no private key is copied in for signing any more. A
+  key chosen at launch signs through the container's agent. A session given only a
+  forwarded agent signs with the key git on the host picks for the project, as its
+  public half, provided that agent holds it. A launch that would sign with a key no agent
+  holds is refused, and the refusal says how to load it.
+- **`--no-ssh` with signing on is refused.** The session has no key to sign with, and
+  every commit it made would fail.
+
 ## 3.69.1
 
 - **The relabel check no longer stops launches that podman would have started.**

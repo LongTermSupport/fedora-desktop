@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.69.1"  # The relabel check walks what podman walks, and passes over what it can relabel. See docs/ccy-changelog.md.
+CCY_VERSION="3.70.1"  # An empty or locked forwarded agent is named as such. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -2013,9 +2013,17 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Commit signing (Plan 00139): the signing key is staged beside the gitconfig copy and the
-# copy repointed at it. After the trap, so a refusal still removes the staged files.
-if ! stage_git_signing_key "$CONFIG_TEMP/gitconfig" "$CONFIG_TEMP" /tmp/claude-config-import "$PWD"; then
+# Commit signing (Plan 00139 D5): the container signs through an ssh-agent holding the
+# session's primary identity, and the gitconfig copy names it. SSH_KEY_PATHS gains an
+# entry only for a key file, so a key-file primary is always its first. After the trap,
+# so a refusal still removes the staged files.
+signing_primary="${SSH_KEYS[0]:-}"
+signing_in_container=""
+if [ -n "$signing_primary" ] && [ "$signing_primary" != "$SSH_AGENT_SENTINEL" ]; then
+    signing_in_container="${SSH_KEY_PATHS[0]}"
+fi
+if ! configure_git_signing "$CONFIG_TEMP/gitconfig" "$PWD" "$signing_primary" \
+    "$signing_in_container" "${SSH_AGENT_FORWARDED:-0}"; then
     exit 1
 fi
 

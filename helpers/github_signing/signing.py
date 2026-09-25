@@ -1,9 +1,11 @@
 """Which commit-signing keys GitHub still needs, and on which account.
 
-Every account in github_accounts has its own signing key, registered on that account, and
-used in that account's repositories. The machine key signs everything else, with the
-global user_email, and GitHub marks such a commit Verified only on the account whose
-verified emails include that address, so that is the account it goes on.
+Commits are signed with the login keys, through the ssh-agent (Plan 00139 D5). Each
+account in github_accounts signs its repositories with its login key, github_<alias>,
+registered again on that account as a signing key. The machine's login key, ~/.ssh/id,
+signs everything else, with the global user_email, and GitHub marks such a commit Verified
+only on the account whose verified emails include that address, so that is the account
+it goes on.
 
 Pure: no I/O. Keys are compared by their base64 body, which is what GitHub lists.
 """
@@ -44,8 +46,8 @@ def parse_accounts(text: str) -> dict[str, str]:
 
 
 def account_key_name(alias: str) -> str:
-    """The file name of an account's signing key in ~/.ssh."""
-    return f"github_{alias}_signing"
+    """The file name in ~/.ssh of an account's login key, which also signs."""
+    return f"github_{alias}"
 
 
 def key_blob(line: str) -> str:
@@ -93,3 +95,19 @@ def missing_registrations(
 ) -> list[Wanted]:
     """The wanted keys not yet a signing key on their own account, in the order given."""
     return [w for w in wanted if w.blob not in signing_blobs.get(w.login, set())]
+
+
+def retirements(
+    retired: dict[str, str], held: dict[str, list[tuple[int, str]]]
+) -> list[tuple[str, int, str]]:
+    """(login, key id, key name) for each registration of a retired key.
+
+    retired maps a retired key's blob to its file name; held maps each login to the
+    (id, blob) of its signing keys.
+    """
+    return [
+        (login, key_id, retired[blob])
+        for login, keys in held.items()
+        for key_id, blob in keys
+        if blob in retired
+    ]

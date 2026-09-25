@@ -31,27 +31,40 @@ def _done(args, rc=0, out="", err=""):
     return subprocess.CompletedProcess(args, rc, stdout=out, stderr=err)
 
 
-class FakeGitHub:
-    """gh and ssh-keygen as the CLI sees them. Accounts hold auth and signing key lines."""
+RETIRED_PUB = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIRETIRED retired"
 
-    def __init__(self, keys):
+
+class FakeGitHub:
+    """gh and ssh-keygen as the CLI sees them. Accounts hold signing keys, with ids.
+
+    The keys are login keys, so by default each has a passphrase: ssh-keygen -y -P ""
+    fails with "incorrect passphrase", as it does for ~/.ssh/id and github_<alias>.
+    """
+
+    def __init__(self):
         self.emails = {
             "alice": ["me@example.com", "a@example.com"],
             "bob": ["b@example.com"],
         }
-        self.signing = {"alice": [], "bob": []}
+        self.signing = {"alice": [], "bob": []}  # login -> [(id, public line)]
         self.tokens = {"alice": "tok-alice", "bob": "tok-bob"}
-        self.keys = keys  # private path -> public line ssh-keygen -y derives
+        self.unlocked = {}  # private path -> public line, for a key with no passphrase
+        self.not_keys = set()  # private paths ssh-keygen cannot read as a key at all
         self.added = []
+        self.deleted = []
+        self.delete_error = ""
+        self._next_id = 100
 
     def __call__(self, argv, **kwargs):
         env = kwargs.get("env") or {}
         if argv[0] == "ssh-keygen":
             path = argv[-1]
-            if path in self.keys:
-                return _done(argv, out=self.keys[path] + "\n")
+            if path in self.not_keys:
+                return _done(argv, rc=255, err=f'Load key "{path}": invalid format')
+            if path in self.unlocked:
+                return _done(argv, out=self.unlocked[path] + "\n")
             return _done(
-                argv, rc=1, err="incorrect passphrase supplied to decrypt private key"
+                argv, rc=255, err="incorrect passphrase supplied to decrypt private key"
             )
         if argv[:3] == ["gh", "auth", "token"]:
             login = argv[argv.index("--user") + 1]
@@ -63,35 +76,42 @@ class FakeGitHub:
         )
         if argv[:2] == ["gh", "api"] and "user/emails" in argv:
             return _done(argv, out="".join(e + "\n" for e in self.emails[login]))
+        if argv[:4] == ["gh", "api", "-X", "DELETE"]:
+            if self.delete_error:
+                return _done(argv, rc=1, err=self.delete_error)
+            key_id = int(argv[4].rsplit("/", 1)[1])
+            self.signing[login] = [k for k in self.signing[login] if k[0] != key_id]
+            self.deleted.append((login, key_id))
+            return _done(argv)
         if argv[:2] == ["gh", "api"] and "user/ssh_signing_keys" in argv:
-            return _done(argv, out="".join(line + "\n" for line in self.signing[login]))
+            jq = argv[argv.index("--jq") + 1]
+            rows = (
+                f"{key_id} {line}" if ".id" in jq else line
+                for key_id, line in self.signing[login]
+            )
+            return _done(argv, out="".join(row + "\n" for row in rows))
         if argv[:3] == ["gh", "ssh-key", "add"]:
-            line = pathlib.Path(argv[3]).read_text(encoding="utf-8").strip()
-            self.signing[login].append(line)
+            self.hold(login, pathlib.Path(argv[3]).read_text(encoding="utf-8"))
             self.added.append(
                 (login, argv[argv.index("--title") + 1], argv[argv.index("--type") + 1])
             )
             return _done(argv)
         raise AssertionError(f"unexpected command {argv}")
 
+    def hold(self, login, line):
+        self._next_id += 1
+        self.signing[login].append((self._next_id, line.strip()))
+        return self._next_id
+
 
 class _Case(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.dir = pathlib.Path(self._tmp.name)
-        self.machine = self._key("id_ed25519_git_signing", MACHINE_PUB)
-        self.alice = self._key("github_a_signing", ALICE_PUB)
-        self.bob = self._key("github_b_signing", BOB_PUB)
-        self.gh = FakeGitHub(
-            {
-                str(p): pub
-                for p, pub in (
-                    (self.machine, MACHINE_PUB),
-                    (self.alice, ALICE_PUB),
-                    (self.bob, BOB_PUB),
-                )
-            }
-        )
+        self.machine = self._key("id", MACHINE_PUB)
+        self.alice = self._key("github_a", ALICE_PUB)
+        self.bob = self._key("github_b", BOB_PUB)
+        self.gh = FakeGitHub()
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -134,19 +154,19 @@ class TestRegister(_Case):
         self.assertEqual(
             sorted(self.gh.added),
             [
-                ("alice", "box github_a_signing", "signing"),
-                ("alice", "box id_ed25519_git_signing", "signing"),
-                ("bob", "box github_b_signing", "signing"),
+                ("alice", "box github_a", "signing"),
+                ("alice", "box id", "signing"),
+                ("bob", "box github_b", "signing"),
             ],
         )
-        self.assertIn("SIGNING-ADDED alice github_a_signing", out)
-        self.assertIn("SIGNING-ADDED alice id_ed25519_git_signing", out)
+        self.assertIn("SIGNING-ADDED alice github_a", out)
+        self.assertIn("SIGNING-ADDED alice id", out)
 
     def test_the_machine_key_goes_on_the_account_with_the_commit_email(self):
         self.gh.emails = {"alice": ["a@example.com"], "bob": ["me@example.com"]}
         rc, _, _ = self.register()
         self.assertEqual(rc, 0)
-        self.assertIn(("bob", "box id_ed25519_git_signing", "signing"), self.gh.added)
+        self.assertIn(("bob", "box id", "signing"), self.gh.added)
 
     def test_a_second_run_adds_nothing(self):
         self.register()
@@ -154,7 +174,7 @@ class TestRegister(_Case):
         rc, out, _ = self.register()
         self.assertEqual((rc, self.gh.added), (0, []))
         self.assertNotIn("SIGNING-ADDED", out)
-        self.assertIn("SIGNING-PRESENT bob github_b_signing", out)
+        self.assertIn("SIGNING-PRESENT bob github_b", out)
 
     def test_an_account_gh_holds_no_token_for_is_refused_before_anything_is_added(self):
         del self.gh.tokens["bob"]
@@ -176,11 +196,17 @@ class TestRegister(_Case):
         self.assertIn("is empty", err)
         self.assertNotIn("passphrase", err)
 
-    def test_a_key_with_a_passphrase_is_refused(self):
-        del self.gh.keys[str(self.bob)]
+    def test_a_login_key_with_a_passphrase_is_registered(self):
+        # The signer's agent holds the unlocked key, so a passphrase is no obstacle.
+        rc, out, err = self.register()
+        self.assertEqual(rc, 0, err)
+        self.assertIn("SIGNING-ADDED bob github_b", out)
+
+    def test_a_file_that_is_not_a_private_key_is_refused(self):
+        self.gh.not_keys.add(str(self.bob))
         rc, _, err = self.register()
         self.assertEqual((rc, self.gh.added), (1, []))
-        self.assertIn("passphrase", err)
+        self.assertIn("not a private key", err)
 
     def test_a_private_key_readable_by_others_is_refused(self):
         self.alice.chmod(0o644)
@@ -189,16 +215,19 @@ class TestRegister(_Case):
         self.assertIn("0600", err)
 
     def test_a_public_half_that_does_not_match_is_refused(self):
-        (self.dir / "github_a_signing.pub").write_text(BOB_PUB + "\n", encoding="utf-8")
+        # Checkable only for a key with no passphrase; with one, the agent's signature
+        # fails to verify instead, which acceptance catches.
+        self.gh.unlocked[str(self.alice)] = ALICE_PUB
+        (self.dir / "github_a.pub").write_text(BOB_PUB + "\n", encoding="utf-8")
         rc, _, err = self.register()
         self.assertEqual((rc, self.gh.added), (1, []))
         self.assertIn("does not match", err)
 
     def test_a_missing_public_half_is_refused(self):
-        (self.dir / "github_b_signing.pub").unlink()
+        (self.dir / "github_b.pub").unlink()
         rc, _, err = self.register()
         self.assertEqual((rc, self.gh.added), (1, []))
-        self.assertIn("github_b_signing.pub", err)
+        self.assertIn("github_b.pub", err)
 
     def test_accounts_that_are_not_a_map_of_alias_to_login_are_refused(self):
         for bad in ("[]", "{}", '{"a": ""}', '{"-x": "alice"}', "not json"):
@@ -237,6 +266,91 @@ class TestRegister(_Case):
         self.assertIn("already in use", err.getvalue())
 
 
+class TestRetire(_Case):
+    """The passphrase-free signing keys D5 withdraws come off GitHub, and nothing else."""
+
+    def setUp(self):
+        super().setUp()
+        self.old_key = self._key("github_a_signing", RETIRED_PUB)
+        self.gh.hold("alice", RETIRED_PUB)
+        self.gh.hold("bob", RETIRED_PUB)
+        self.kept = self.gh.hold("alice", ALICE_PUB)
+
+    def retire(self, paths=None):
+        argv = [
+            "retire",
+            "--ssh-dir",
+            str(self.dir),
+            "--accounts",
+            '{"a": "alice", "b": "bob"}',
+            "--machine-key",
+            str(self.machine),
+        ]
+        for path in paths or [self.old_key]:
+            argv += ["--retired", str(path)]
+        out, err = io.StringIO(), io.StringIO()
+        with (
+            mock.patch("subprocess.run", self.gh),
+            mock.patch("sys.stdout", out),
+            mock.patch("sys.stderr", err),
+        ):
+            rc = cli.main(argv)
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_a_retired_key_is_deleted_from_every_account_holding_it(self):
+        rc, out, err = self.retire()
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(
+            sorted(login for login, _ in self.gh.deleted), ["alice", "bob"]
+        )
+        self.assertIn("SIGNING-RETIRED alice github_a_signing", out)
+        self.assertIn("SIGNING-RETIRED bob github_a_signing", out)
+
+    def test_the_keys_in_use_are_left_registered(self):
+        self.retire()
+        self.assertNotIn(("alice", self.kept), self.gh.deleted)
+        self.assertEqual([line for _, line in self.gh.signing["alice"]], [ALICE_PUB])
+
+    def test_a_second_run_deletes_nothing(self):
+        self.retire()
+        self.gh.deleted.clear()
+        rc, out, _ = self.retire()
+        self.assertEqual((rc, self.gh.deleted), (0, []))
+        self.assertNotIn("SIGNING-RETIRED", out)
+
+    def test_a_retired_file_that_is_already_gone_is_nothing_to_do(self):
+        rc, _, err = self.retire([self.dir / "github_zz_signing"])
+        self.assertEqual((rc, self.gh.deleted), (0, []), err)
+
+    def test_a_retired_key_whose_pub_is_gone_is_matched_by_its_derived_public_half(self):
+        (self.dir / "github_a_signing.pub").unlink()
+        self.gh.unlocked[str(self.old_key)] = RETIRED_PUB
+        rc, out, err = self.retire()
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(sorted(login for login, _ in self.gh.deleted), ["alice", "bob"])
+        self.assertIn("SIGNING-RETIRED alice github_a_signing", out)
+
+    def test_a_retired_key_with_no_pub_and_no_readable_public_half_is_refused(self):
+        (self.dir / "github_a_signing.pub").unlink()
+        self.gh.not_keys.add(str(self.old_key))
+        rc, _, err = self.retire()
+        self.assertEqual((rc, self.gh.deleted), (1, []))
+        self.assertIn("github_a_signing", err)
+        self.assertIn("public half", err)
+
+    def test_retiring_a_key_still_in_use_is_refused_before_anything_is_deleted(self):
+        rc, _, err = self.retire([self.old_key, self.alice])
+        self.assertEqual((rc, self.gh.deleted), (1, []))
+        self.assertIn("github_a", err)
+        self.assertIn("in use", err)
+
+    def test_a_failed_delete_fails_the_run(self):
+        self.gh.delete_error = "HTTP 404: Not Found"
+        rc, _, err = self.retire()
+        self.assertEqual(rc, 1)
+        self.assertIn("404", err)
+
+
 class TestCheckSelection(unittest.TestCase):
     """The real git, reading a throwaway global config, picks the key for each remote."""
 
@@ -244,7 +358,7 @@ class TestCheckSelection(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         home = pathlib.Path(self._tmp.name)
         (home / "work.gitconfig").write_text(
-            "[user]\n\tsigningkey = /keys/github_work_signing\n", encoding="utf-8"
+            "[user]\n\tsigningkey = /keys/github_work\n", encoding="utf-8"
         )
         self.accounts = home / "accounts.gitconfig"
         self.accounts.write_text(
@@ -285,7 +399,7 @@ class TestCheckSelection(unittest.TestCase):
         # repository, or the account listed last in github_accounts signs.
         home = self.gitconfig.parent
         (home / "home.gitconfig").write_text(
-            "[user]\n\tsigningkey = /keys/github_home_signing\n", encoding="utf-8"
+            "[user]\n\tsigningkey = /keys/github_home\n", encoding="utf-8"
         )
         with self.accounts.open("a", encoding="utf-8") as handle:
             handle.write(
@@ -322,7 +436,7 @@ class TestCheckSelection(unittest.TestCase):
             capture_output=True,
             text=True,
         ).stdout.strip()
-        self.assertEqual(picked, "/keys/github_home_signing")
+        self.assertEqual(picked, "/keys/github_home")
 
     def test_an_alias_whose_ssh_url_form_is_not_picked_is_refused(self):
         text = self.accounts.read_text(encoding="utf-8")

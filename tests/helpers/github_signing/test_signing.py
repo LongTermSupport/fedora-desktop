@@ -45,8 +45,24 @@ class TestParseAccounts(unittest.TestCase):
 
 
 class TestAccountKeyName(unittest.TestCase):
-    def test_it_sits_beside_the_account_login_key(self):
-        self.assertEqual(signing.account_key_name("work"), "github_work_signing")
+    def test_it_is_the_account_login_key(self):
+        self.assertEqual(signing.account_key_name("work"), "github_work")
+
+
+class TestRetirements(unittest.TestCase):
+    def test_a_retired_key_is_deleted_from_every_account_that_holds_it(self):
+        held = {"alice": [(11, "old"), (12, "keep")], "bob": [(21, "old")]}
+        self.assertEqual(
+            signing.retirements({"old": "github_a_signing"}, held),
+            [("alice", 11, "github_a_signing"), ("bob", 21, "github_a_signing")],
+        )
+
+    def test_keys_not_retired_are_left(self):
+        held = {"alice": [(12, "keep")]}
+        self.assertEqual(signing.retirements({"old": "x_signing"}, held), [])
+
+    def test_nothing_retired_deletes_nothing(self):
+        self.assertEqual(signing.retirements({}, {"alice": [(1, "b")]}), [])
 
 
 class TestKeyBlob(unittest.TestCase):
@@ -138,7 +154,7 @@ class TestMissingRegistrations(unittest.TestCase):
             wanted,
         )
 
-    def test_one_account_can_want_two_keys(self):
+    def test_one_account_can_want_two_keys(self):  # its login key and ~/.ssh/id
         wanted = [
             signing.Wanted("alice", "k1", "b1"),
             signing.Wanted("alice", "machine", "b3"),

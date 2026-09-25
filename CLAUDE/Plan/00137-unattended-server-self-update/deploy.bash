@@ -7,8 +7,8 @@
 # TWO ROLES, BECAUSE THE TRUST MODEL HAS TWO ENDS:
 #
 #   --role desktop  the machine the owner commits from. play-git-configure-and-tools.yml
-#                   generates this machine's SSH signing key and signs every commit with
-#                   it (Plan 00139); the server trusts that key.
+#                   signs every commit with this machine's login key through the ssh-agent
+#                   (Plan 00139); the server trusts the key that signs this checkout.
 #   --role server   the always-on server hosting ccy sessions, in this order:
 #                   1. play-claude-yolo.yml: `ccy-sessions` (warn, verify-restore) and the
 #                      restore unit. The cycle reboots, so `ccy_restore_sessions: true`

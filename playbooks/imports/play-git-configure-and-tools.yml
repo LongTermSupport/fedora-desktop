@@ -39,38 +39,16 @@
     # =========================================================================
     # Commit signing, on by default (Plan 00139)
     # =========================================================================
-    # Every commit and tag made on this machine is signed with this machine's SSH
-    # signing key: by a person, by a cc agent on the host, and inside ccy, which copies
-    # ~/.gitconfig and mounts the key read-only. What a signature proves is that the
-    # commit came from the owner or the owner's machine; the owner's own agents are
-    # meant to be able to sign. That is why the key has no passphrase (asserted
-    # below): nothing that commits unattended has a terminal to type one into.
+    # Every commit and tag made on this machine is signed, by a person, by a cc agent on
+    # the host, and inside ccy. What a signature proves is that the commit came from the
+    # owner or the owner's machine; the owner's own agents are meant to be able to sign.
+    # The key is this machine's login key, ~/.ssh/id, which run.bash generates with a
+    # passphrase. git signs through the ssh-agent that holds it unlocked, so nothing that
+    # commits unattended needs a terminal (Plan 00139 D5). A signer whose agent does not
+    # hold it cannot sign: a person is asked for the passphrase, an unattended one fails.
     # A self-updating server trusts this key through self_update_signing_public_key.
-    # play-github-cli-multi.yml registers it on GitHub, and gives each account its own
-    # key for that account's repositories: docs/configuration.md "Commit Signing".
-    - name: Ensure ~/.ssh Exists
-      ansible.builtin.file:
-        path: "/home/{{ user_login }}/.ssh"
-        state: directory
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0700"
-
-    - name: Generate This Machine's Git Signing Key
-      ansible.builtin.command:
-        argv:
-          - ssh-keygen
-          - -q
-          - -t
-          - ed25519
-          - -N
-          - ""
-          - -C
-          - "{{ user_email }} git signing"
-          - -f
-          - "{{ git_signing_key_path }}"
-        creates: "{{ git_signing_key_path }}"
-
+    # play-github-cli-multi.yml registers it on GitHub, and signs each account's
+    # repositories with that account's login key: docs/configuration.md "Commit Signing".
     - name: Check the Signing Key and Its Public Half
       ansible.builtin.stat:
         path: "{{ item }}"
@@ -87,14 +65,14 @@
           - git_signing_key_stat.results[1].stat.isreg | default(false)
         fail_msg: >-
           {{ git_signing_key_path }} must be a regular file at mode 0600, with
-          {{ git_signing_key_path }}.pub beside it. Remove both and re-run this play to
-          generate a fresh pair.
+          {{ git_signing_key_path }}.pub beside it. run.bash generates ~/.ssh/id; if
+          git_signing_key in host_vars names another key, point it at one that exists.
 
-    # Loading the key with an empty passphrase succeeds only for an unencrypted key. A
-    # key with a passphrase fails with "incorrect passphrase"; an empty, truncated or
-    # foreign file fails with anything else. `creates:` above accepts any file at the
-    # path, so the two failures get their own remedies.
-    - name: Probe Whether the Signing Key Loads Without a Passphrase
+    # Loading the key with an empty passphrase succeeds for an unencrypted key and fails
+    # with "incorrect passphrase" for an encrypted one, which is what run.bash makes.
+    # Either is a private key. An empty, truncated or foreign file fails with anything
+    # else.
+    - name: Probe Whether the Signing Key Is a Private Key
       ansible.builtin.command:
         argv:
           - ssh-keygen
@@ -116,21 +94,8 @@
             or 'incorrect passphrase' in git_signing_key_unlocked.stderr
         fail_msg: >-
           {{ git_signing_key_path }} is not a private key ssh-keygen can load (it said:
-          {{ git_signing_key_unlocked.stderr | trim }}). If it is the default key, remove
-          it and {{ git_signing_key_path }}.pub and re-run this play to generate a fresh
-          pair. If git_signing_key in host_vars names it, point that at a real key.
-
-    - name: Assert the Signing Key Needs No Passphrase
-      ansible.builtin.assert:
-        that:
-          - git_signing_key_unlocked.rc == 0
-        fail_msg: >-
-          {{ git_signing_key_path }} has a passphrase. Signing is on for every commit,
-          and cc agents and ccy containers commit with no terminal to type it into, so
-          every one of their commits would fail. Remove git_signing_key from host_vars
-          so this play generates a key at the default path, then register the new key
-          with GitHub and give its public half to any self-updating server
-          (docs/configuration.md "Commit Signing").
+          {{ git_signing_key_unlocked.stderr | trim }}). If git_signing_key in host_vars
+          names it, point that at a real key; ~/.ssh/id is the one run.bash generates.
 
     # Written to host_vars so run.bash's "Save local config to repo" keeps this machine's
     # public key in the config repo with the rest of its configuration. It has its own
@@ -178,6 +143,30 @@
         - gpg.format
         - user.signingkey
         - alias.sign-deploy
+
+    # Where GitHub accounts are configured, play-github-cli-multi.yml deletes this key from
+    # GitHub and then its files, and it needs the files to find the registration, so they
+    # are left for it. Without accounts the key was never registered: only that play
+    # registers keys, and it ends early when there are none. So its files go here.
+    - name: Delete the Passphrase-Free Machine Signing Key Where No GitHub Account Is Configured
+      when: github_accounts is not defined or github_accounts | length == 0
+      block:
+        - name: Refuse to Delete the Key This Machine Signs With
+          ansible.builtin.assert:
+            that: git_signing_key_path != git_signing_retired_machine_key
+            fail_msg: >-
+              git_signing_key names {{ git_signing_retired_machine_key }}, the passphrase-free
+              key this play retires. Remove git_signing_key from host_vars to sign with
+              ~/.ssh/id through the agent, or point it at another key, then re-run.
+            quiet: true
+
+        - name: Delete the Passphrase-Free Machine Signing Key Files
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - "{{ git_signing_retired_machine_key }}"
+            - "{{ git_signing_retired_machine_key }}.pub"
 
     - name: Set up Global Git Ignores
       ansible.builtin.blockinfile:

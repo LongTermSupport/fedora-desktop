@@ -207,27 +207,38 @@ block; the play does not remove them.
 
 On by default. Every commit and tag made on this machine is signed: yours, a `cc`
 agent's on the host, and a ccy container's. A signature says a commit came from you or
-your machine. Your own agents are meant to be able to sign, so no signing key has a
-passphrase, and the plays refuse one that does.
+your machine. Your own agents are meant to be able to sign.
 
-Two plays hold the keys, one per GitHub identity, as the login keys are:
+The signing keys are your SSH login keys. git signs through the ssh-agent that holds a
+key unlocked, so a key's passphrase is no obstacle: once the agent holds it, a commit
+asks for nothing. There are no separate signing keys.
 
-| Key                             | Made by                            | Signs in                                                                              | Registered on                          |
-| ------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------- |
-| `~/.ssh/github_<alias>_signing` | `play-github-cli-multi.yml`        | a repository whose remote is `github.com-<alias>` (`clone-<alias>`, `remote-<alias>`) | that account                           |
-| `~/.ssh/id_ed25519_git_signing` | `play-git-configure-and-tools.yml` | every other repository                                                                | the account with `user_email` verified |
+| Key                     | Signs in                                                                              | Registered as a signing key on         |
+| ----------------------- | ------------------------------------------------------------------------------------- | -------------------------------------- |
+| `~/.ssh/github_<alias>` | a repository whose remote is `github.com-<alias>` (`clone-<alias>`, `remote-<alias>`) | that account                           |
+| `~/.ssh/id`             | every other repository                                                                | the account with `user_email` verified |
+
+**The agent must hold the key.** On the desktop it unlocks a key the first time you use
+it. If it does not hold the key yet, a commit asks you for the passphrase, and a `cc` agent
+on the host cannot commit until you have unlocked the key in your session (a `git fetch`
+or `ssh-add` does it).
 
 `play-github-cli-multi.yml` registers every key GitHub lacks as a signing key, with each
 account's own token, so nothing is registered by hand and gh's active account is never
 switched. It then checks, in a scratch repository, that git picks each account's key and
-the machine key elsewhere. The token needs every scope in
+`~/.ssh/id` elsewhere. The token needs every scope in
 `vars/github-required-scopes.yml`; `run.bash` and `scripts/gh-account-setup.bash` ask for
 all the missing ones in one browser authorisation per account.
+
+A machine set up before this used passphrase-free keys made only for signing,
+`~/.ssh/github_<alias>_signing` and `~/.ssh/id_ed25519_git_signing`. The play deletes them
+from GitHub and from disk once the login keys are registered and in use. GitHub keeps the
+Verified mark it gave commits pushed while they were registered.
 
 GitHub marks a signed commit Verified only when the commit's email is a verified address
 of the account holding the key:
 
-- **The machine key** goes on the account that has your `user_email` as a verified
+- **`~/.ssh/id`** goes on the account that has your `user_email` as a verified
   email. If no account in `github_accounts` has it, the play refuses and says so: verify
   the address on its account and list that account, or set `user_email` to an address
   one of them has verified.
@@ -246,13 +257,14 @@ Git picks an account's key through `includeIf` on the remote URL, in both the
 Keep to one account per repository. A repository with remotes on two accounts signs with
 the account listed last in `github_accounts`.
 
-ccy asks git on the host which key the project gets, and stages that one for the session.
-It takes the key only from `~/.gitconfig`, what that includes, and the system config. A
-`user.signingkey` in the project's own `.git/config` refuses the launch, because the
-container can write that file. `git_signing_key` in host_vars points the machine key at a
-different key.
+A ccy session signs with the SSH key you chose for it at launch, through the container's
+own agent, so no private key is copied in for signing. A session given only a forwarded
+agent (`--ssh-agent`) signs with the key git on the host picks for the project, and only
+if that agent holds it. See [ccy.md](ccy.md).
 
-A self-updating server trusts the machine key: give its `.pub` line to
+`git_signing_key` in host_vars points the default at a different key.
+
+A self-updating server trusts `~/.ssh/id`: give its `.pub` line to
 `self_update_signing_public_key` (below).
 
 The play also writes the `.pub` line into `localhost.yml` as `git_signing_public_key`, so
