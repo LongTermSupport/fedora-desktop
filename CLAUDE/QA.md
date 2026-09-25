@@ -39,6 +39,7 @@ fresher hand-written list.
 | `qa-bash.bash`           | `bash -n` (always) + shellcheck (**required** — exits 2 if absent, Plan 00075). Exits 2 if discovery finds **0 files**, and (Plan 00076) if it misses **any tracked shell script**. **shellcheck `error` AND `warning` findings GATE** (raised in Plan 00075 — SC2155 is this repo's own defect class); `info`/`style` advisory.                                                                                                                                                        | Repo-owned bash (excludes `roles/vendor`, `.claude/hooks-daemon`, `.claude/ccy`, `.claude/skills`)                                                    |
 | `qa-python.bash`         | `python3 -m py_compile` + ruff (ruff exit ≥ 2 = hard fail; no `--fix` mutation in the check path). Exits 2 if discovery finds **0 files**, and (Plan 00081) if it misses **any tracked Python file**. A `.j2` with a Python shebang is **rendered then compiled** — `{{ … }}` → `None`; a `{% … %}` statement is a hard failure, never a skip                                                                                                                                           | Repo-owned Python files — discovered by extension **or shebang, regardless of file mode**; plus Python `.j2` templates, syntax-checked but not linted |
 | `qa-patterns.bash`       | Semgrep rules from `.semgrep/bash-conventions.yml` (`\|\| echo` and other error-hiding patterns). Scans a temp mirror so coverage does not depend on file mode, and exits 2 if any discovered file is absent from `.paths.scanned` (Plan 00076)                                                                                                                                                                                                                                         | Repo-owned bash                                                                                                                                       |
+| `qa-gh-scopes.bash`      | Semgrep rule `gh-scope-outside-ssot` (`.semgrep/gh-scopes.yml`, proven against `.semgrep/gh-scopes.fixture` every run): a GitHub OAuth scope named anywhere but its single source. Hands semgrep every tracked file by name and exits 2 if one it should have read is absent from `.paths.scanned`. See [gh-scope-outside-ssot](#gh-scope-outside-ssot)                                                                                                                                 | Every tracked regular file, any language, minus the rule's excludes                                                                                   |
 | `qa-ansible.bash`        | Fail-fast grep (`failed_when: false`/`ignore_errors` without same-line `# FAIL-FAST-OK:`, case-insensitive), **self-default vars** (`x: "{{ x \| default(…) }}"` — the 2.19 recursive-loop footgun `--syntax-check` can't see), **deprecated fact vars** (both `ansible_<fact>` and the un-prefixed injected names like `getent_passwd`, which no `ansible_`-anchored pattern can reach), **a guessed uid in a `/run/user/{{ … }}` path**, **plus** playbook shebang + exec-bit hygiene | `playbooks/ tasks/ vars/ environment/ roles/` (excludes `roles/vendor`), `*.yml`/`*.yaml`                                                             |
 | `qa-ansible-syntax.bash` | `ansible-playbook --syntax-check` on every playbook — a file with a top-level `- hosts:` **or `- import_playbook:`** (Plan 00081 F9/F14: deriving from `hosts:` alone dropped `playbook-main.yml`). Parse-only — safe in the CCY container. The pass line states the breakdown, so a coverage change is visible                                                                                                                                                                         | **Repo-wide**, not a fixed path list; excludes vendor/upstream trees. Includes playbooks under `CLAUDE/Plan/**`                                       |
 | `qa-js.bash`             | `node --check` on repo JS + `eslint .` in `extensions/`                                                                                                                                                                                                                                                                                                                                                                                                                                 | Repo-owned `.js` (excludes vendor/node_modules) + `extensions/`                                                                                       |
@@ -630,6 +631,41 @@ Run it alone with:
 ```bash
 ./scripts/qa-deployed-drift.bash
 ```
+
+### gh-scope-outside-ssot
+
+**What it is.** The single-source rule for GitHub OAuth scopes. There are two facts about
+scopes, and each has exactly one home:
+
+- **Which scopes a gh token must carry** lives in `vars/github-required-scopes.yml`.
+- **How GitHub scopes imply one another** lives in `helpers/github_scopes/`. For example,
+  an `admin:` scope covers the `read:` scope of the same name.
+
+The rule (`.semgrep/gh-scopes.yml`) reports any other tracked file that names a scope, in
+any language, docs and messages included. It reports two shapes:
+
+- a name that can only be a GitHub scope: `prefix:name` with a GitHub prefix, or one of
+  the underscore names;
+- a literal list passed to `gh auth login` or `gh auth refresh` with `--scopes` or `-s`.
+  That is where the bare names (`repo`, `gist`, `workflow`) turn up, and those are ordinary
+  words anywhere else.
+
+**Why it exists.** Copies drift. `run.bash` once logged in with no scopes, then made a
+separate refresh for one named scope, while the play's audit checked the full list. The
+owner therefore went through GitHub's authorisation more than once. The scope hierarchy was
+also written out three times, once each in `run.bash`, `gh-account-setup.bash` and the
+play. Found and defended under Defence Before Fix (Plan 00139).
+
+**How to fix a finding.**
+
+- **Code that needs the list:** read it from the file.
+- **Code that needs to know what a token is missing:** ask the helper.
+- **Messages and docs:** name the file, for example "every scope in
+  `vars/github-required-scopes.yml`", and leave the scopes themselves out. The file is the
+  place to read what each one is for.
+- **Never** add an exclude to the rule to clear a finding. Excludes are only for files that
+  cannot carry the hazard, such as a plan's prose or a changelog. Adding one is the
+  owner's decision.
 
 ---
 

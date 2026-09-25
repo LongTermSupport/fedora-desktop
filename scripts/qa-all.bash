@@ -407,6 +407,18 @@ fi
 git_signing_summary=$(qa_gate_case_count "$git_signing_out")
 qa_pass_line ccy-git-signing "$git_signing_summary"
 
+# gh-scope-outside-ssot (Defence Before Fix; CLAUDE/QA.md). A GitHub OAuth scope named
+# anywhere but vars/github-required-scopes.yml and helpers/github_scopes/ is a second copy
+# that drifts, and the owner then authorises GitHub more than once.
+gh_scopes_out=""
+if ! gh_scopes_out="$(bash "$SCRIPT_DIR/qa-gh-scopes.bash" 2>&1)"; then
+    qa_hard_gate_failed gh-scope-outside-ssot \
+        "GitHub scopes named outside vars/github-required-scopes.yml" \
+        "$gh_scopes_out"
+fi
+gh_scopes_summary=$(qa_gate_case_count "$gh_scopes_out")
+qa_pass_line gh-scope-outside-ssot "$gh_scopes_summary"
+
 # ccy's SELinux relabel decision (Plan 00118, CCY 3.55.0).
 #
 # On an Enforcing host container_t may not read user_home_t, so a ccy container
