@@ -14,6 +14,14 @@ set -u
 set -o pipefail
 IFS=$'\n\t'
 
+# The SSH test's passphrase-free copy of an account key. It is removed however the script
+# ends, short of SIGKILL, and it lives on the per-user tmpfs, which is emptied at logout.
+# An interrupt still ends the script by that signal, so a caller sees how it ended.
+SSH_TEST_KEY=""
+trap 'rm -f -- ${SSH_TEST_KEY:+"$SSH_TEST_KEY"}' EXIT
+trap 'rm -f -- ${SSH_TEST_KEY:+"$SSH_TEST_KEY"}; trap - INT; kill -INT $$' INT
+trap 'rm -f -- ${SSH_TEST_KEY:+"$SSH_TEST_KEY"}; trap - TERM; kill -TERM $$' TERM
+
 # ─── Paths (overridable via env) ───────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -187,7 +195,8 @@ verify_ssh() {
 
   info "Testing SSH: github_${alias}..."
   local tmp_key
-  tmp_key=$(mktemp)
+  tmp_key=$(mktemp -p "${XDG_RUNTIME_DIR:-/tmp}" github-ssh-test.XXXXXX)
+  SSH_TEST_KEY="$tmp_key"
   cp "$key_private" "$tmp_key"
   chmod 600 "$tmp_key"
   if [[ -n "$passphrase" ]]; then
@@ -205,14 +214,17 @@ verify_ssh() {
   # stdin is /dev/null, and --foreground keeps ssh in the terminal's process group. ssh
   # reads stdin, and plain timeout runs it in a background group of its own: at a
   # terminal it was stopped (SIGTTIN), GitHub's reply was lost, and Ctrl-C could not
-  # reach it, so an interactive --setup-all hung on this test.
+  # reach it, so an interactive --setup-all hung on this test. --kill-after, because
+  # ssh catches SIGTERM and only exits once its loop notices, which a stopped or wedged
+  # ssh never does.
   local ssh_output=""
-  if ssh_output=$(timeout --foreground 15 ssh -F /dev/null -o IdentityAgent=none -o IdentitiesOnly=yes \
+  if ssh_output=$(timeout --foreground --kill-after=5 15 ssh -F /dev/null -o IdentityAgent=none -o IdentitiesOnly=yes \
     -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
     -i "$tmp_key" -T git@github.com 2>&1 </dev/null); then
     : # rc=0 unexpected from GitHub SSH, but not an error — parse output below
   fi
   rm -f "$tmp_key"
+  SSH_TEST_KEY=""
 
   local actual_user
   actual_user=$(echo "$ssh_output" | grep -oP 'Hi \K[^!]+') || actual_user=""
@@ -674,4 +686,7 @@ main() {
   esac
 }
 
-main "$@"
+# One line, so bash has parsed the exit before main runs. bash reads a script as it goes,
+# and a copy still running when this file is edited would otherwise go on reading at its
+# old end-of-file offset in the new text.
+main "$@"; exit
