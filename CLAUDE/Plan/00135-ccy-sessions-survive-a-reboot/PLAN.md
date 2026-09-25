@@ -152,7 +152,9 @@ below.
 
 - [x] ✅ **Task 3.2**: `notify reboot-warning --minutes N`, `notify shutdown-warning`,
   `notify reboot-cancelled`. Every live project is checked for a daemon CLI **before** any
-  is signalled, so a refusal leaves no project half-warned.
+  is signalled, so a refusal leaves no project half-warned. The CLI is run inside the
+  container for a project with a ccy session, and asked for `signal --help` first
+  (journal 26-09-25: a ccy-only project's host CLI had no venv).
 
 - [x] ✅ **Task 3.3**: `reboot --in N [--dry-run]`: warn N, wait, warn 1, wait, `systemctl reboot`. `--in 1` warns once. Minutes are a positive integer or a usage error.
 

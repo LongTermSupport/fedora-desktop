@@ -46,8 +46,10 @@
 #
 # notify and reboot speak to each project through ITS OWN hooks-daemon CLI
 # (.claude/hooks-daemon/bin/hooks-daemon signal ...), naming only a signal kind and a
-# number of minutes — never a message. A live session whose project has no daemon CLI is a
-# refusal: it is named, nothing is signalled, and reboot reboots nothing. Exit 64 for a
+# number of minutes — never a message. It runs inside the container for a project with a
+# ccy session, on the host otherwise (set_route). A live session whose project has no
+# daemon CLI, or one that cannot run, is a refusal: it is named, nothing is signalled, and
+# reboot reboots nothing. Exit 64 for a
 # usage mistake, 1 for a refusal.
 #
 # The daemon's two warning texts differ in what an agent does next — carry on because it
@@ -141,6 +143,74 @@ daemon_cli() {
     printf '%s/.claude/hooks-daemon/bin/hooks-daemon' "${1}"
 }
 
+# Where ccy mounts the project inside its container.
+CCY_CONTAINER_WORKSPACE=/workspace
+
+# session_containers — "<session> <engine> <container>" for every tmux session, from the
+# live pane and process tables (ccy_session_containers; "- -" for one with no container).
+session_containers() {
+    local panes processes
+    if ! panes="$(ccy_tmux list-panes -a -F '#{session_name} #{pane_pid}' 2>&1)"; then
+        if [[ "${panes}" != *"no server running"* && "${panes}" != *"No such file or directory"* ]]; then
+            print_error "tmux list-panes failed: ${panes}"
+            return 1
+        fi
+        panes=""
+    fi
+    if ! processes="$(ps -ww -eo pid=,ppid=,args= 2>&1)"; then
+        print_error "the process table could not be read, so no session can be matched to its container: ${processes}"
+        return 1
+    fi
+    ccy_session_containers "${panes}" "${processes}"
+}
+
+# project_containers — "<dir>\t<engine>\t<container>" for each live project that has a ccy
+# session with a container, the first such session's.
+project_containers() {
+    local listing containers name attached dir engine container
+    local -A dir_of=() taken=()
+    listing="$(ccy_tmux_list)" || return 1
+    while read -r name attached dir; do
+        [[ -n "${name}" && -n "${dir}" ]] && dir_of["${name}"]="${dir}"
+    done <<<"${listing}"
+    if ! containers="$(session_containers)"; then
+        return 1
+    fi
+    while read -r name engine container; do
+        [[ -n "${name}" && "${container}" != "-" && -n "${dir_of[${name}]:-}" ]] || continue
+        dir="${dir_of[${name}]}"
+        [[ -z "${taken[${dir}]:-}" ]] || continue
+        taken["${dir}"]=1
+        printf '%s\t%s\t%s\n' "${dir}" "${engine}" "${container}"
+    done <<<"${containers}"
+}
+
+# A project's daemon is reached where its venv is. For a project with a ccy session that is
+# inside the container: most projects run only ccy, and their daemon has no venv on the
+# host at all. A project with only cc sessions is reached on the host. A signal is a file in
+# the project's own tree, which the container and the host share, so one delivery per
+# project reaches every session in it, ccy and cc alike.
+#
+# set_route <dir> — sets ROUTE_CMD (the daemon CLI command), ROUTE_ROOT (its project root)
+# and ROUTE_VIA (text naming the container, or empty), from ROUTE_ENGINE / ROUTE_CONTAINER.
+declare -A ROUTE_ENGINE=() ROUTE_CONTAINER=()
+ROUTE_CMD=()
+ROUTE_ROOT=""
+ROUTE_VIA=""
+set_route() {
+    local dir="${1}"
+    if [[ -n "${ROUTE_CONTAINER[${dir}]:-}" ]]; then
+        ROUTE_CMD=("${ROUTE_ENGINE[${dir}]}" exec "${ROUTE_CONTAINER[${dir}]}"
+            "$(daemon_cli "${CCY_CONTAINER_WORKSPACE}")")
+        ROUTE_ROOT="${CCY_CONTAINER_WORKSPACE}"
+        ROUTE_VIA=" (in container ${ROUTE_CONTAINER[${dir}]})"
+    else
+        ROUTE_CMD=("$(daemon_cli "${dir}")")
+        ROUTE_ROOT="${dir}"
+        ROUTE_VIA=""
+    fi
+}
+
 # signal_projects <kind> <minutes-or-empty> <dry-run> — invoke each live project's daemon
 # CLI once. Every project is checked for a CLI BEFORE any is signalled, so a refusal leaves
 # no project half-warned about a reboot that is then not going to happen. Prints the count
@@ -178,6 +248,39 @@ signal_projects() {
         echo "Install the daemon there (the hooks-daemon skill, 'install'), or end that session first." >&2
         return 1
     fi
+    local routes route_dir route_engine route_container
+    if ! routes="$(project_containers)"; then
+        print_error "the live sessions could not be matched to their containers, so nothing is signalled and nothing may reboot."
+        return 1
+    fi
+    ROUTE_ENGINE=()
+    ROUTE_CONTAINER=()
+    while IFS=$'\t' read -r route_dir route_engine route_container; do
+        [[ -n "${route_dir}" ]] || continue
+        ROUTE_ENGINE["${route_dir}"]="${route_engine}"
+        ROUTE_CONTAINER["${route_dir}"]="${route_container}"
+    done <<<"${routes}"
+    # An executable CLI can still be unable to run, as the host's is for a project whose
+    # daemon has no venv there. So a warning first asks each route for `signal --help`,
+    # which changes nothing but must start the daemon's python, and refuses before any
+    # project is warned. A withdrawal skips this: it reaches every project it can.
+    if [[ "${kind}" != reboot-cancelled ]]; then
+        local probe_out
+        local -a broken=()
+        for dir in "${projects[@]}"; do
+            set_route "${dir}"
+            if ! probe_out="$("${ROUTE_CMD[@]}" signal --help 2>&1)"; then
+                broken+=("${dir}")
+                echo "  ${dir}${ROUTE_VIA}: its hooks-daemon CLI cannot run:" >&2
+                printf '%s\n' "${probe_out}" | awk '{ print "      " $0 }' >&2
+            fi
+        done
+        if [[ "${#broken[@]}" -gt 0 ]]; then
+            print_error "a live session's hooks-daemon CLI cannot run, so its session cannot be warned. Nothing was signalled."
+            echo "Repair the daemon in that project (the hooks-daemon skill, 'install'), or end that session first." >&2
+            return 1
+        fi
+    fi
     cli_args=(signal "${kind}")
     if [[ -n "${minutes}" ]]; then
         cli_args+=(--minutes "${minutes}")
@@ -188,17 +291,18 @@ signal_projects() {
     # waiting for a reboot that is not coming.
     local failed=false
     for dir in "${projects[@]}"; do
+        set_route "${dir}"
         if [[ "${dry_run}" == true ]]; then
-            echo "would signal ${kind}${minutes:+ --minutes ${minutes}} to ${dir}" >&2
+            echo "would signal ${kind}${minutes:+ --minutes ${minutes}} to ${dir}${ROUTE_VIA}" >&2
             continue
         fi
-        if ! "$(daemon_cli "${dir}")" "${cli_args[@]}" --project-root "${dir}"; then
-            print_error "signalling ${kind} to ${dir} failed."
+        if ! "${ROUTE_CMD[@]}" "${cli_args[@]}" --project-root "${ROUTE_ROOT}"; then
+            print_error "signalling ${kind} to ${dir}${ROUTE_VIA} failed."
             [[ "${kind}" == reboot-cancelled ]] || return 1
             failed=true
             continue
         fi
-        echo "signalled ${kind}${minutes:+ (${minutes} min)} to ${dir}" >&2
+        echo "signalled ${kind}${minutes:+ (${minutes} min)} to ${dir}${ROUTE_VIA}" >&2
     done
     [[ "${failed}" == false ]] || return 1
     printf '%s\n' "${#projects[@]}"
@@ -362,25 +466,16 @@ cmd_restore() {
 # process table, and one engine query per engine a session uses. A probe that fails is a
 # failure, never a state: "could not look" must not read as "dead" or as "fine".
 restore_states() {
-    local listing panes processes containers name engine container i live screen state
+    local listing containers name engine container i live screen state
     local -A is_live=() client=() running=() engines=()
     listing="$(ccy_tmux_list)" || return 1
     while read -r name _; do
         [[ -n "${name}" ]] && is_live["${name}"]=1
     done <<<"${listing}"
 
-    if ! panes="$(ccy_tmux list-panes -a -F '#{session_name} #{pane_pid}' 2>&1)"; then
-        if [[ "${panes}" != *"no server running"* && "${panes}" != *"No such file or directory"* ]]; then
-            print_error "tmux list-panes failed: ${panes}"
-            return 1
-        fi
-        panes=""
-    fi
-    if ! processes="$(ps -ww -eo pid=,ppid=,args= 2>&1)"; then
-        print_error "the process table could not be read, so no session can be matched to its container: ${processes}"
+    if ! containers="$(session_containers)"; then
         return 1
     fi
-    containers="$(ccy_session_containers "${panes}" "${processes}")"
     while read -r name engine container; do
         [[ -n "${name}" && "${container}" != "-" ]] || continue
         client["${name}"]="${container}"

@@ -275,9 +275,16 @@ telling goes through each project's own hooks-daemon CLI
 which needs daemon 3.65.0 or later; the helper names a signal kind and a number and never
 composes a message, so a reboot notice cannot become a prompt into a running agent.
 
-A live session whose project has **no** daemon CLI is a refusal, not a warning: the project
-is named, nothing is signalled, and nothing reboots. End that session or install the daemon
-there, then try again. `--dry-run` prints what would be signalled and reboots nothing.
+The CLI is run where the project's daemon has its venv. For a project with a ccy session,
+that is inside the session's container (`podman exec`, against `/workspace`): most projects
+run only ccy, and their daemon has no venv on the host. A project with only `cc` sessions
+is reached on the host. The signal is a file in the project's own tree, so one delivery
+reaches every session of that project.
+
+A live session whose project has **no** daemon CLI, or one that cannot run (each is asked
+for `signal --help` first), is a refusal, not a warning: the project is named, nothing is
+signalled, and nothing reboots. End that session or repair the daemon there, then try
+again. `--dry-run` prints what would be signalled and reboots nothing.
 Once any project has been warned, a reboot that does not happen is withdrawn: a warning
 that fails part-way, a refused reboot, or Ctrl-C in the countdown sends
 `reboot-cancelled` to every warned project. `shutdown-with-update` and
@@ -1328,7 +1335,7 @@ absent supervisor and `--no-supervise`; both announce themselves at launch. See
 | "open in another terminal" when attaching     | A session can be attached from one terminal only. Detach it there first (F12, Detach), or end it from `ccy-sessions`.                                                                                                                                                                                                      |
 | "tmux is not installed"                       | `play-tmux-sessions.yml` has not run on this host. It is part of `playbook-main.yml`.                                                                                                                                                                                                                                      |
 | Sessions did not come back after a reboot     | Restore is opt-in: `ccy_restore_sessions: true` in `host_vars`, then the play. If it is on, `ccy-sessions verify-restore` names each session's state, and `journalctl --user -u ccy-sessions-restore -b --no-pager` shows what the restore did.                                                                            |
-| `ccy-sessions reboot` refuses                 | A live session's project has no hooks-daemon CLI, so it cannot be warned. It is named; end it or install the daemon there. Nothing was signalled or rebooted.                                                                                                                                                              |
+| `ccy-sessions reboot` refuses                 | A live session's project has no hooks-daemon CLI, or its CLI cannot run where it is reached (in the container for ccy, on the host for cc). It is named with the CLI's own error; end it or repair the daemon there. Nothing was signalled or rebooted.                                                                                                                                                              |
 | Need to see what CCY itself is doing          | `ccy --debug` for interactive debug-layer selection.                                                                                                                                                                                                                                                                       |
 
 ---

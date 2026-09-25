@@ -84,9 +84,25 @@ cat >"$BIN/ps" <<'EOF'
 #!/usr/bin/env bash
 if [ -n "${TEST_PS:-}" ]; then cat "$TEST_PS"; fi
 EOF
+# `podman exec <container> <cli> <args>` runs a ccy project's daemon CLI inside its container:
+# logged as exec[<container>] <cli> <args>, and failing for a container named in
+# TEST_EXEC_BROKEN (its CLI cannot run) or for arguments matching TEST_EXEC_FAIL_MATCH.
 cat >"$BIN/podman" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [ "${1:-}" = exec ]; then
+    container="$2"
+    shift 2
+    printf 'exec[%s] %s\n' "$container" "$*" >>"$TEST_LOG"
+    if [ -n "${TEST_EXEC_BROKEN:-}" ] && [ "$container" = "$TEST_EXEC_BROKEN" ]; then
+        echo "exec: no usable venv in the container" >&2
+        exit 1
+    fi
+    if [ -n "${TEST_EXEC_FAIL_MATCH:-}" ] && [[ "$*" == *"$TEST_EXEC_FAIL_MATCH"* ]]; then
+        exit 1
+    fi
+    exit 0
+fi
 case "$*" in
 "ps --filter label=ccy=true --format {{.Names}}") if [ -n "${TEST_PODMAN_NAMES:-}" ]; then cat "$TEST_PODMAN_NAMES"; fi ;;
 *)
@@ -118,11 +134,22 @@ exit 1
 EOF
 chmod 755 "$BIN/tmux" "$BIN/systemctl" "$BIN/pgrep"
 
-# project <dir> [with-cli] — a project directory, optionally holding a daemon CLI that logs
-# its arguments and the directory it was found in.
+# project <dir> [with-cli|without-cli|broken-cli] — a project directory, optionally holding
+# a daemon CLI that logs its arguments and the directory it was found in. A broken CLI is
+# executable but cannot run at all, the way one without its venv fails on the host.
 project() {
     local dir="$1" with_cli="${2:-with-cli}"
     mkdir -p "$dir"
+    if [ "$with_cli" = "broken-cli" ]; then
+        mkdir -p "$dir/.claude/hooks-daemon/bin"
+        cat >"$dir/.claude/hooks-daemon/bin/hooks-daemon" <<'EOF'
+#!/usr/bin/env bash
+printf 'cli[%s] %s\n' "$(cd "$(dirname "$0")/../../.." && pwd)" "$*" >>"$TEST_LOG"
+echo "resolve_venv: no usable venv found" >&2
+exit 1
+EOF
+        chmod 755 "$dir/.claude/hooks-daemon/bin/hooks-daemon"
+    fi
     if [ "$with_cli" = "with-cli" ]; then
         mkdir -p "$dir/.claude/hooks-daemon/bin"
         cat >"$dir/.claude/hooks-daemon/bin/hooks-daemon" <<'EOF'
@@ -145,9 +172,11 @@ EOF
 A="$SCRATCH/project a"
 B="$SCRATCH/project-b"
 NOCLI="$SCRATCH/project-without-daemon"
+BROKEN="$SCRATCH/project-with-broken-daemon"
 project "$A"
 project "$B"
 project "$NOCLI" without-cli
+project "$BROKEN" broken-cli
 
 SESSIONS="$SCRATCH/sessions"
 export TEST_SESSIONS="$SESSIONS" TEST_LOG="$LOG"
@@ -204,7 +233,7 @@ echo "=== notify: every live project, exactly once ==="
 printf '%s\n' "ccy-a 1 $A" "ccy-a-2 0 $A" "cc-b 0 $B" >"$SESSIONS"
 run notify reboot-warning --minutes 5
 check "notify succeeds" "0" "$rc"
-check "each project signalled exactly once" "2" "$(calls | grep -c '^cli')"
+check "each project signalled exactly once" "2" "$(calls | grep -c '^cli.* signal reboot-warning')"
 check "project a signalled with its own root, all sessions, the minutes" "yes" \
     "$([[ "$(calls)" == *"cli[$A] signal reboot-warning --minutes 5 --all-sessions --project-root $A"* ]] && echo yes || echo no)"
 check "project b too" "yes" \
@@ -249,7 +278,7 @@ check "a dangling wants-symlink is restore OFF: it pulls in nothing at boot" "2"
     "$(calls | grep -c 'signal shutdown-warning --minutes 5 --all-sessions')"
 TEST_HOME="$HOME_OFF" run notify going-down --minutes 5 --dry-run
 check "going-down --dry-run succeeds" "0" "$rc"
-check "and invokes no daemon CLI" "0" "$(calls | grep -c '^cli')"
+check "and signals no daemon" "0" "$(calls | grep -c '^cli.* signal [a-z-]*\(warning\|cancelled\)')"
 check "and names the kind it would send" "yes" \
     "$([[ "$out" == *"would signal shutdown-warning --minutes 5"* ]] && echo yes || echo no)"
 run notify going-down
@@ -292,7 +321,7 @@ check "restore off: still reboots" "1" "$(calls | grep -c '^systemctl reboot$')"
 
 run reboot --in 3 --dry-run
 check "dry run succeeds" "0" "$rc"
-check "dry run invokes no daemon CLI" "0" "$(calls | grep -c '^cli')"
+check "dry run signals no daemon" "0" "$(calls | grep -c '^cli.* signal [a-z-]*\(warning\|cancelled\)')"
 check "dry run invokes no systemctl" "0" "$(calls | grep -c '^systemctl')"
 check "dry run says what it would signal, per project" "yes" \
     "$([[ "$out" == *"would signal"* && "$out" == *"$A"* && "$out" == *"$B"* ]] && echo yes || echo no)"
@@ -309,6 +338,63 @@ run reboot --in 2
 check "a missing daemon CLI refuses the reboot" "1" "$rc"
 check "and REBOOTS NOTHING" "0" "$(calls | grep -c '^systemctl')"
 check "and signals nothing" "0" "$(calls | grep -c '^cli')"
+
+# The CLI is there but cannot run (on the host, a project whose daemon has no venv). Found
+# only when signalling, the first project had already been warned; it must refuse first.
+printf '%s\n' "ccy-a 1 $A" "ccy-y 0 $BROKEN" >"$SESSIONS"
+run reboot --in 2
+check "a daemon CLI that cannot run refuses the reboot" "1" "$rc"
+check "  and REBOOTS NOTHING" "0" "$(calls | grep -c '^systemctl')"
+check "  and warns no project, not even the one before it" "0" \
+    "$(calls | grep -c '^cli.* signal [a-z-]*warning')"
+check "  naming the project" "yes" "$([[ "$out" == *"$BROKEN"* ]] && echo yes || echo no)"
+check "  and what its CLI said" "yes" "$([[ "$out" == *"no usable venv"* ]] && echo yes || echo no)"
+run reboot --in 2 --dry-run
+check "the dry run finds it too" "1" "$rc"
+check "  and signals nothing" "0" "$(calls | grep -c '^cli.* signal [a-z-]*\(warning\|cancelled\)')"
+
+echo ""
+echo "=== a ccy project's daemon is reached inside its container ==="
+# Most projects run only ccy, so their daemon has a venv only inside the container; the
+# host CLI is the broken one above. The session's container is found as verify-restore
+# finds it: the engine client in its pane's process tree.
+CT="$SCRATCH/container-route"
+mkdir -p "$CT"
+CCYONLY="$SCRATCH/project-ccy-only"
+project "$CCYONLY" broken-cli
+IN_CT="/workspace/.claude/hooks-daemon/bin/hooks-daemon"
+printf '%s\n' "ccy-a 1 $A" "ccy-c 0 $CCYONLY" >"$SESSIONS"
+printf '%s\n' "ccy-c 500" >"$CT/panes"
+printf '%s\n' "500 1 bash" "600 500 podman run --rm --name c_yolo claude-yolo:latest" >"$CT/ps"
+TEST_PANES="$CT/panes" TEST_PS="$CT/ps" run reboot --in 2
+check "a ccy-only project with no host venv: the reboot goes ahead" "0" "$rc"
+check "  its warning is sent inside its container, to its /workspace" "1" \
+    "$(calls | grep -cF "exec[c_yolo] $IN_CT signal reboot-warning --minutes 2 --all-sessions --project-root /workspace")"
+check "  and again at one minute" "1" \
+    "$(calls | grep -cF "exec[c_yolo] $IN_CT signal reboot-warning --minutes 1 --all-sessions --project-root /workspace")"
+check "  its host CLI is never asked to signal" "0" "$(calls | grep -cF "cli[$CCYONLY] signal reboot")"
+check "  a project with no container is still reached on the host" "1" \
+    "$(calls | grep -cF "cli[$A] signal reboot-warning --minutes 2 --all-sessions --project-root $A")"
+check "  the output names the container" "yes" "$([[ "$out" == *"(in container c_yolo)"* ]] && echo yes || echo no)"
+check "  and the machine reboots" "1" "$(calls | grep -c '^systemctl reboot$')"
+
+TEST_EXEC_BROKEN=c_yolo TEST_PANES="$CT/panes" TEST_PS="$CT/ps" run reboot --in 2
+check "a daemon that cannot run inside the container refuses the reboot" "1" "$rc"
+check "  warning no project" "0" "$(calls | grep -c 'signal [a-z-]*warning')"
+check "  and rebooting nothing" "0" "$(calls | grep -c '^systemctl')"
+check "  naming the container" "yes" "$([[ "$out" == *"(in container c_yolo)"* ]] && echo yes || echo no)"
+
+TEST_EXEC_FAIL_MATCH="signal reboot-warning" TEST_PANES="$CT/panes" TEST_PS="$CT/ps" run reboot --in 2
+check "a warning that fails inside the container refuses the reboot" "1" "$rc"
+check "  the project warned before it is told reboot-cancelled" "1" \
+    "$(calls | grep -cF "cli[$A] signal reboot-cancelled --all-sessions --project-root $A")"
+check "  and so is the container, inside it" "1" \
+    "$(calls | grep -cF "exec[c_yolo] $IN_CT signal reboot-cancelled --all-sessions --project-root /workspace")"
+
+TEST_PANES="$CT/panes" TEST_PS="$CT/ps" run reboot --in 2 --dry-run
+check "the dry run says it would signal inside the container" "yes" \
+    "$([[ "$out" == *"would signal reboot-warning --minutes 2 to $CCYONLY (in container c_yolo)"* ]] && echo yes || echo no)"
+check "  and signals nothing" "0" "$(calls | grep -c 'signal [a-z-]*\(warning\|cancelled\)')"
 
 : >"$SESSIONS"
 run reboot --in 2
