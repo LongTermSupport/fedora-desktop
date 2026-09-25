@@ -158,13 +158,15 @@ out.
   `docs/ccy.md` describe the new model.
 - [ ] ⬜ **Task 4.2**: Owner's call, after everything signs: a GitHub ruleset requiring
   signed commits on `F*` branches.
-- [ ] 🔄 **Task 4.3**: `deploy.bash` and `acceptance.bash`. Acceptance checks, on the host,
+- [x] ✅ **Task 4.3**: `deploy.bash` and `acceptance.bash`. Acceptance checks, on the host,
   that a commit made in a scratch repo carries a good signature from the machine key. The
   same check inside ccy needs a fresh ccy session, so it is an owner step.
   - [x] ✅ Both scripts written
   - [x] ✅ **HOST**: `./deploy.bash`, then `./acceptance.bash`. Deploy passed; acceptance
     passed 10 of 11. Only check 11 (key registered on GitHub) fails, which waits on Task 1.3
-  - [ ] ⬜ **HOST (owner)**: a commit inside a ccy session started after the deploy
+  - [x] ✅ **HOST (owner)**: a commit inside a ccy session started after the deploy.
+    It carries a `gpgsig` header, and GitHub reports the pushed commit `verified: true`
+    (`907704f6`)
 - [x] ✅ **Task 4.4**: qa-reviewer pass over the full plan diff.
   - [x] ✅ First pass: FAIL, one blocking finding (the self-update-cycle test signed its
     "unsigned" fixtures on a host that signs by default), four should-fix, five nits
@@ -190,11 +192,13 @@ out.
   `helpers/github_signing` deletes the `github_<alias>_signing` and
   `id_ed25519_git_signing` registrations on GitHub; the play removes the files. It refuses
   to delete a key that is still in use (`TestRetire`).
-- [ ] 🔄 **Task 5.4**: Acceptance, docs, the self-update server key (now `id.pub`), CCY
+- [x] ✅ **Task 5.4**: Acceptance, docs, the self-update server key (now `id.pub`), CCY
   version, tests, `qa-all.bash`, then the `qa-reviewer` agent. First review:
   FIX-BEFORE-MERGE, nothing blocking; every should-fix is fixed (journal 26-09-25).
-  Confirming review: PASS WITH NITS; the nits are handled. Merges into F44 next.
-- [ ] ⬜ **HOST (owner, at a desk)**: `./CLAUDE/Plan/meta-deploy.bash`
+  Confirming review: PASS WITH NITS; the nits are handled. Merged into F44.
+- [x] ✅ **HOST (owner, at a desk)**: `./CLAUDE/Plan/meta-deploy.bash`. Every leg passed
+  (`failed=0`). Six old signing keys are deleted from GitHub, and their twelve files from
+  `~/.ssh`. Acceptance: 14 of 14 (`_meta-deploy/20260925-142901`)
 
 ## Success Criteria
 
