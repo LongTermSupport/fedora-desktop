@@ -58,8 +58,18 @@ check() {
     fi
 }
 
-mkdir -p "$REPO_ROOT/untracked/scratch"
-SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/self-update-cycle-test.XXXXXX")"
+# The fixture's deploy clone stands in for /var/lib/fedora-desktop/deploy, which is outside
+# every home, and the cycle refuses code search paths under the user's home. So the scratch
+# tree must be outside the home too. A checkout under ~/ (a desktop, a CI runner) would put
+# it there, so it lives in the system temp directory instead.
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/self-update-cycle-test.XXXXXX")"
+case "$SCRATCH/" in
+    "$(getent passwd "$(id -un)" | cut -d: -f6)"/*)
+        echo "FAIL: the scratch tree $SCRATCH is under this user's home; set TMPDIR outside it" >&2
+        rm -rf "$SCRATCH"
+        exit 1
+        ;;
+esac
 OUTSIDE=""
 cleanup() {
     rm -rf "$SCRATCH"
