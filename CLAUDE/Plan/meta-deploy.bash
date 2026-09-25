@@ -49,11 +49,6 @@ PLAN_ROOT="${scriptDir}"
 # run as one unit through its own shebang, which goes through run.bash, exactly as
 # `./playbooks/imports/<play>.yml` does by hand.
 PLANS=(
-    # Plan 00135: deploys ccy-sessions, which now warns a ccy-only project inside its
-    # container, so reboot-with-update no longer refuses on a project whose daemon has no
-    # host venv. Restore is already enabled (the previous run), so the sessions come back
-    # after the reboot-with-update that follows (Tasks 5.2 and 5.3).
-    "playbooks/imports/play-claude-yolo.yml"
 )
 
 LIST_ONLY=0
