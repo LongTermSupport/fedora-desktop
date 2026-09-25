@@ -1,9 +1,9 @@
 """Which commit-signing keys GitHub still needs, and on which account.
 
-Every account in github_accounts has its own signing key, registered on that account, so
-a commit it signs shows as Verified there. The machine key signs everything else, the
-repos whose remote is plain github.com, which ~/.ssh/id reaches; it belongs on whichever
-account holds ~/.ssh/id as an authentication key.
+Every account in github_accounts has its own signing key, registered on that account, and
+used in that account's repositories. The machine key signs everything else, with the
+global user_email, and GitHub marks such a commit Verified only on the account whose
+verified emails include that address, so that is the account it goes on.
 
 Pure: no I/O. Keys are compared by their base64 body, which is what GitHub lists.
 """
@@ -56,16 +56,21 @@ def blobs(listing: str) -> set[str]:
     return {key_blob(line) for line in listing.splitlines() if line.strip()}
 
 
-def owner_of_login_key(login_blob: str, auth_blobs: dict[str, set[str]]) -> str:
-    """The one account that holds the login key as an authentication key."""
-    owners = sorted(login for login, held in auth_blobs.items() if login_blob in held)
+def owner_of_email(email: str, verified: dict[str, set[str]]) -> str:
+    """The one account whose verified emails include this one, compared without case."""
+    wanted = email.casefold()
+    owners = sorted(
+        login
+        for login, emails in verified.items()
+        if wanted in {e.casefold() for e in emails}
+    )
     if not owners:
         raise ValueError(
-            f"none of {', '.join(sorted(auth_blobs))} holds the login key as an authentication key"
+            f"none of {', '.join(sorted(verified))} has {email} as a verified email"
         )
     if len(owners) > 1:
         raise ValueError(
-            f"the login key is an authentication key on more than one account: {', '.join(owners)}"
+            f"{email} is a verified email of more than one account: {', '.join(owners)}"
         )
     return owners[0]
 

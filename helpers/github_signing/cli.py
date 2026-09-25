@@ -2,20 +2,22 @@
 """Register commit-signing keys on GitHub, and prove git picks the right one.
 
 ACCOUNTS is github_accounts as JSON, {"alias": "login", ...}. Each account's key is
-SSH_DIR/github_<alias>_signing, and SSH_DIR/id.pub is the key plain github.com logs in with.
+SSH_DIR/github_<alias>_signing.
 
     python3 -m helpers.github_signing.cli register --title TITLE \\
-            --ssh-dir SSH_DIR --accounts ACCOUNTS --machine-key KEY
-        Adds each account's key as a signing key on that account, and the machine key
-        on the account holding id.pub. Each account is read and written with its own
-        token, so gh's active account is never switched. Every key is checked (0600, no
-        passphrase, its .pub matches) and every account read before anything is added.
-        Prints SIGNING-ADDED or SIGNING-PRESENT <login> <key name> per key.
+            --ssh-dir SSH_DIR --accounts ACCOUNTS --machine-key KEY --email EMAIL
+        Adds each account's key as a signing key on that account, and the machine key on
+        the account with EMAIL (the global user_email) as a verified email. Each account
+        is read and written with its own token, so gh's active account is never switched.
+        Every key is checked (non-empty, 0600, no passphrase, its .pub matches) and every
+        account read before anything is added, so a refusal from those checks adds
+        nothing. Prints SIGNING-ADDED or SIGNING-PRESENT <login> <key name> per key.
 
     python3 -m helpers.github_signing.cli check-selection \\
             --ssh-dir SSH_DIR --accounts ACCOUNTS --fallback KEY
         In a scratch repository, git signs with each account's key for a
-        github.com-<alias> remote, and with the fallback for a plain github.com one.
+        github.com-<alias> remote, in scp and ssh:// form, and with the fallback for a
+        plain github.com one.
         Prints SELECTION-OK.
 
 Run from the repository root, so the package imports. Diagnostics go to stderr; stdout is
@@ -59,6 +61,11 @@ def _check_key(private: pathlib.Path) -> str:
         raise Refusal(f"{private}: {exc.strerror}") from exc
     if not stat.S_ISREG(mode.st_mode) or stat.S_IMODE(mode.st_mode) != 0o600:
         raise Refusal(f"{private} must be a regular file at mode 0600")
+    if mode.st_size == 0:
+        raise Refusal(
+            f"{private} is empty, most likely a write that was cut short. Remove it and "
+            f"{public}, and re-run the play to generate a new pair"
+        )
     try:
         recorded = signing.key_blob(public.read_text(encoding="utf-8"))
     except OSError as exc:
@@ -95,6 +102,23 @@ def _listed(login: str, token: str, endpoint: str) -> set[str]:
         raise Refusal(f"{endpoint} for {login}: {exc}") from exc
 
 
+def _verified_emails(login: str, token: str) -> set[str]:
+    done = _run(
+        [
+            "gh",
+            "api",
+            "--paginate",
+            "user/emails",
+            "--jq",
+            ".[] | select(.verified) | .email",
+        ],
+        token,
+    )
+    if done.returncode != 0:
+        raise Refusal(f"could not read the verified emails of {login}: {_why(done)}")
+    return {line.strip() for line in done.stdout.splitlines() if line.strip()}
+
+
 def _accounts(args: argparse.Namespace) -> list[tuple[str, str, str]]:
     """(alias, login, private key path) for each account in --accounts."""
     try:
@@ -114,13 +138,6 @@ def _accounts(args: argparse.Namespace) -> list[tuple[str, str, str]]:
 def _register(args: argparse.Namespace) -> None:
     accounts = [(login, key) for _, login, key in _accounts(args)]
     machine = pathlib.Path(args.machine_key)
-    login_key = pathlib.Path(args.ssh_dir) / "id.pub"
-    try:
-        login_blob = signing.key_blob(login_key.read_text(encoding="utf-8"))
-    except OSError as exc:
-        raise Refusal(f"{login_key}: {exc.strerror}") from exc
-    except ValueError as exc:
-        raise Refusal(f"{login_key}: {exc}") from exc
 
     keys = {
         path: _check_key(pathlib.Path(path))
@@ -128,17 +145,20 @@ def _register(args: argparse.Namespace) -> None:
     }
     logins = list(dict.fromkeys(login for login, _ in accounts))
     tokens = {login: _token(login) for login in logins}
-    auth = {login: _listed(login, tokens[login], "user/keys") for login in logins}
+    verified = {login: _verified_emails(login, tokens[login]) for login in logins}
     held = {
         login: _listed(login, tokens[login], "user/ssh_signing_keys")
         for login in logins
     }
     try:
-        owner = signing.owner_of_login_key(login_blob, auth)
+        owner = signing.owner_of_email(args.email, verified)
     except ValueError as exc:
         raise Refusal(
-            f"the machine signing key has no account to go on: {exc}. Add the account "
-            f"{login_key} logs in as to github_accounts"
+            f"the machine signing key has no account to go on: {exc}. Commits signed with "
+            f"it carry user_email, and GitHub marks them Verified only on the account that "
+            f"has it as a verified email. Verify {args.email} on the account it belongs "
+            f"to and add that account to github_accounts, or set user_email to an address "
+            f"one of them has verified"
         ) from exc
 
     wanted = [
@@ -184,9 +204,14 @@ def _signing_key_for(repo: pathlib.Path, url: str) -> str:
 
 
 def _check_selection(args: argparse.Namespace) -> None:
+    # Both URL forms a github.com-<alias> remote can take (clone-<alias>, remote-<alias>).
     expected = [
-        (f"git@{HOST}-{alias}:example/example.git", key)
+        (url, key)
         for alias, _, key in _accounts(args)
+        for url in (
+            f"git@{HOST}-{alias}:example/example.git",
+            f"ssh://git@{HOST}-{alias}/example/example.git",
+        )
     ]
     expected.append((f"git@{HOST}:example/example.git", args.fallback))
     wrong = []
@@ -218,6 +243,7 @@ def main(argv: list[str] | None = None) -> int:
     register = sub.add_parser("register")
     register.add_argument("--title", required=True)
     register.add_argument("--machine-key", required=True)
+    register.add_argument("--email", required=True)
     select = sub.add_parser("check-selection")
     select.add_argument("--fallback", required=True)
     for cmd in (register, select):

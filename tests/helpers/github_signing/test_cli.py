@@ -22,7 +22,6 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from helpers.github_signing import cli
 
-LOGIN_PUB = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILOGIN id"
 MACHINE_PUB = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMACHINE machine"
 ALICE_PUB = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIALICE alice"
 BOB_PUB = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBOB bob"
@@ -36,7 +35,10 @@ class FakeGitHub:
     """gh and ssh-keygen as the CLI sees them. Accounts hold auth and signing key lines."""
 
     def __init__(self, keys):
-        self.auth = {"alice": [LOGIN_PUB], "bob": []}
+        self.emails = {
+            "alice": ["me@example.com", "a@example.com"],
+            "bob": ["b@example.com"],
+        }
         self.signing = {"alice": [], "bob": []}
         self.tokens = {"alice": "tok-alice", "bob": "tok-bob"}
         self.keys = keys  # private path -> public line ssh-keygen -y derives
@@ -59,9 +61,10 @@ class FakeGitHub:
         login = next(
             user for user, tok in self.tokens.items() if tok == env.get("GH_TOKEN")
         )
-        if argv[:2] == ["gh", "api"]:
-            store = self.auth if "user/keys" in argv else self.signing
-            return _done(argv, out="".join(line + "\n" for line in store[login]))
+        if argv[:2] == ["gh", "api"] and "user/emails" in argv:
+            return _done(argv, out="".join(e + "\n" for e in self.emails[login]))
+        if argv[:2] == ["gh", "api"] and "user/ssh_signing_keys" in argv:
+            return _done(argv, out="".join(line + "\n" for line in self.signing[login]))
         if argv[:3] == ["gh", "ssh-key", "add"]:
             line = pathlib.Path(argv[3]).read_text(encoding="utf-8").strip()
             self.signing[login].append(line)
@@ -76,7 +79,6 @@ class _Case(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.dir = pathlib.Path(self._tmp.name)
-        self.login = self._key("id", LOGIN_PUB)
         self.machine = self._key("id_ed25519_git_signing", MACHINE_PUB)
         self.alice = self._key("github_a_signing", ALICE_PUB)
         self.bob = self._key("github_b_signing", BOB_PUB)
@@ -112,6 +114,8 @@ class _Case(unittest.TestCase):
             accounts,
             "--machine-key",
             str(self.machine),
+            "--email",
+            "me@example.com",
         ]
         out, err = io.StringIO(), io.StringIO()
         with (
@@ -138,8 +142,8 @@ class TestRegister(_Case):
         self.assertIn("SIGNING-ADDED alice github_a_signing", out)
         self.assertIn("SIGNING-ADDED alice id_ed25519_git_signing", out)
 
-    def test_the_machine_key_goes_on_the_account_holding_the_login_key(self):
-        self.gh.auth = {"alice": [], "bob": [LOGIN_PUB]}
+    def test_the_machine_key_goes_on_the_account_with_the_commit_email(self):
+        self.gh.emails = {"alice": ["a@example.com"], "bob": ["me@example.com"]}
         rc, _, _ = self.register()
         self.assertEqual(rc, 0)
         self.assertIn(("bob", "box id_ed25519_git_signing", "signing"), self.gh.added)
@@ -158,11 +162,19 @@ class TestRegister(_Case):
         self.assertEqual((rc, self.gh.added), (1, []))
         self.assertIn("bob", err)
 
-    def test_a_login_key_on_no_account_is_refused_before_anything_is_added(self):
-        self.gh.auth = {"alice": [], "bob": []}
+    def test_a_commit_email_on_no_account_is_refused_before_anything_is_added(self):
+        self.gh.emails = {"alice": ["a@example.com"], "bob": []}
         rc, _, err = self.register()
         self.assertEqual((rc, self.gh.added), (1, []))
+        self.assertIn("me@example.com", err)
         self.assertIn("none of", err)
+
+    def test_an_empty_key_is_refused_as_empty_not_as_a_passphrase(self):
+        self.bob.write_text("", encoding="utf-8")
+        rc, _, err = self.register()
+        self.assertEqual((rc, self.gh.added), (1, []))
+        self.assertIn("is empty", err)
+        self.assertNotIn("passphrase", err)
 
     def test_a_key_with_a_passphrase_is_refused(self):
         del self.gh.keys[str(self.bob)]
@@ -217,6 +229,8 @@ class TestRegister(_Case):
                         '{"a": "alice"}',
                         "--machine-key",
                         str(self.machine),
+                        "--email",
+                        "me@example.com",
                     ]
                 )
         self.assertEqual(rc, 1)
@@ -232,8 +246,10 @@ class TestCheckSelection(unittest.TestCase):
         (home / "work.gitconfig").write_text(
             "[user]\n\tsigningkey = /keys/github_work_signing\n", encoding="utf-8"
         )
-        (home / "accounts.gitconfig").write_text(
-            f'[includeIf "hasconfig:remote.*.url:git@github.com-work:*/**"]\n\tpath = {home}/work.gitconfig\n',
+        self.accounts = home / "accounts.gitconfig"
+        self.accounts.write_text(
+            f'[includeIf "hasconfig:remote.*.url:git@github.com-work:*/**"]\n\tpath = {home}/work.gitconfig\n'
+            f'[includeIf "hasconfig:remote.*.url:ssh://git@github.com-work/**"]\n\tpath = {home}/work.gitconfig\n',
             encoding="utf-8",
         )
         self.gitconfig = home / "gitconfig"
@@ -263,6 +279,59 @@ class TestCheckSelection(unittest.TestCase):
     def test_each_alias_remote_gets_its_key_and_any_other_the_fallback(self):
         rc, out, err = self.check('{"work": "w"}', "/keys/machine")
         self.assertEqual((rc, out.strip()), (0, "SELECTION-OK"), err)
+
+    def test_a_repo_with_remotes_on_two_accounts_signs_as_the_one_included_last(self):
+        # What docs/configuration.md "Commit Signing" tells the owner: one account per
+        # repository, or the account listed last in github_accounts signs.
+        home = self.gitconfig.parent
+        (home / "home.gitconfig").write_text(
+            "[user]\n\tsigningkey = /keys/github_home_signing\n", encoding="utf-8"
+        )
+        with self.accounts.open("a", encoding="utf-8") as handle:
+            handle.write(
+                f'[includeIf "hasconfig:remote.*.url:git@github.com-home:*/**"]\n'
+                f"\tpath = {home}/home.gitconfig\n"
+            )
+        repo = home / "repo"
+        for argv in (
+            ["git", "init", "-q", str(repo)],
+            [
+                "git",
+                "-C",
+                str(repo),
+                "remote",
+                "add",
+                "origin",
+                "git@github.com-work:o/r.git",
+            ],
+            [
+                "git",
+                "-C",
+                str(repo),
+                "remote",
+                "add",
+                "fork",
+                "git@github.com-home:o/r.git",
+            ],
+        ):
+            subprocess.run(argv, check=True, env=self.env, capture_output=True)
+        picked = subprocess.run(
+            ["git", "-C", str(repo), "config", "--get", "user.signingkey"],
+            check=True,
+            env=self.env,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        self.assertEqual(picked, "/keys/github_home_signing")
+
+    def test_an_alias_whose_ssh_url_form_is_not_picked_is_refused(self):
+        text = self.accounts.read_text(encoding="utf-8")
+        self.accounts.write_text(
+            text.split("[includeIf", 2)[1].join(["[includeIf", ""]), encoding="utf-8"
+        )
+        rc, _, err = self.check('{"work": "w"}', "/keys/machine")
+        self.assertEqual(rc, 1)
+        self.assertIn("ssh://git@github.com-work/", err)
 
     def test_an_alias_whose_key_git_does_not_pick_is_refused(self):
         rc, _, err = self.check('{"work": "w", "home": "h"}', "/keys/machine")

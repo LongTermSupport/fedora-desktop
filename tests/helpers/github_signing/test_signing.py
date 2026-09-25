@@ -75,18 +75,26 @@ class TestBlobs(unittest.TestCase):
             signing.blobs(f"{ED}\ngarbage\n")
 
 
-class TestOwnerOfLoginKey(unittest.TestCase):
-    def test_the_one_account_holding_the_login_key(self):
-        auth = {"alice": {"b1"}, "bob": {"login", "b2"}}
-        self.assertEqual(signing.owner_of_login_key("login", auth), "bob")
+class TestOwnerOfEmail(unittest.TestCase):
+    def test_the_one_account_with_that_verified_email(self):
+        emails = {
+            "alice": {"a@example.com"},
+            "bob": {"me@example.com", "b@example.com"},
+        }
+        self.assertEqual(signing.owner_of_email("me@example.com", emails), "bob")
 
-    def test_no_account_holding_it_is_refused(self):
-        with self.assertRaisesRegex(ValueError, "none of"):
-            signing.owner_of_login_key("login", {"alice": {"b1"}})
+    def test_the_match_ignores_case(self):
+        emails = {"alice": {"Me@Example.com"}}
+        self.assertEqual(signing.owner_of_email("me@example.COM", emails), "alice")
 
-    def test_two_accounts_holding_it_is_refused(self):
+    def test_no_account_with_it_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "none of alice"):
+            signing.owner_of_email("me@example.com", {"alice": {"a@example.com"}})
+
+    def test_two_accounts_with_it_is_refused(self):
+        emails = {"alice": {"me@example.com"}, "bob": {"me@example.com"}}
         with self.assertRaisesRegex(ValueError, "alice, bob"):
-            signing.owner_of_login_key("login", {"alice": {"login"}, "bob": {"login"}})
+            signing.owner_of_email("me@example.com", emails)
 
 
 class TestMissingRegistrations(unittest.TestCase):

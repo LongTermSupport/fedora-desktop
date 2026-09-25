@@ -164,8 +164,10 @@
         - name: tag.gpgsign
           value: "true"
 
-    # A host that ran the earlier opt-in signing wrote these to the XDG config, which git
-    # reads after ~/.gitconfig, so a stale user.signingkey there would win.
+    # A host that ran the earlier opt-in signing wrote these to the XDG config. Git reads
+    # it before ~/.gitconfig, so the keys set above override it, but alias.sign-deploy is
+    # set nowhere else and would linger, and so would the rest if signing moved out of
+    # ~/.gitconfig.
     - name: Remove the Opt-In Signing Settings From the XDG Git Config
       community.general.git_config:
         scope: file

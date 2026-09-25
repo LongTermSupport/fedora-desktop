@@ -591,10 +591,11 @@
     # play-git-configure-and-tools.yml signs every commit with the machine key. Here each
     # account gets a signing key of its own, ~/.ssh/github_<alias>_signing, which git uses
     # in any repository whose remote is github.com-<alias> (clone-<alias>, remote-<alias>).
-    # The machine key stays for every other repository, and goes on the account that
-    # ~/.ssh/id logs in as. helpers/github_signing registers what GitHub lacks, with each
-    # account's own token, then proves git picks each key. No passphrase, as for the
-    # machine key: agents commit unattended.
+    # The machine key stays for every other repository, and goes on the account that has
+    # user_email as a verified email: GitHub marks a signed commit Verified only there.
+    # helpers/github_signing registers what GitHub lacks, with each account's own token,
+    # then proves git picks each key. No passphrase, as for the machine key: agents
+    # commit unattended.
     - name: Sign Each GitHub Account's Repositories With That Account's Own Key
       when: github_accounts_configured
       block:
@@ -646,6 +647,8 @@
               - "{{ github_accounts | to_json }}"
               - --machine-key
               - "{{ git_signing_key_path }}"
+              - --email
+              - "{{ user_email }}"
             chdir: "{{ root_dir }}"   # repo root on sys.path so the helpers package imports
           register: signing_registration
           changed_when: "'SIGNING-ADDED' in signing_registration.stdout"
@@ -839,12 +842,17 @@
                   case "$account" in
                       {% for alias, username in github_accounts.items() %}
                       {{ alias }})
-                          # Get email from gh api if available
-                          local email=$(gh api user --jq .email 2>/dev/null)
-                          if [[ -n "$email" && "$email" != "null" ]]; then
-                              git config user.email "$email"
-                              echo "Updated git user.email to: $email"
+                          # The account's public email, else its noreply address. Either
+                          # is verified on the account, so a commit it signs is Verified,
+                          # and a private address would trip GitHub's email push protection.
+                          local email id
+                          email=$(gh api user --jq '.email // empty') || return 1
+                          if [[ -z "$email" ]]; then
+                              id=$(gh api user --jq .id) || return 1
+                              email="${id}+{{ username }}@users.noreply.github.com"
                           fi
+                          git config user.email "$email"
+                          echo "Updated git user.email to: $email"
                           git config user.name "{{ username }}"
                           echo "Updated git user.name to: {{ username }}"
                           ;;

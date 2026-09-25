@@ -366,8 +366,8 @@ The residual risks worth naming honestly:
   SELinux confinement.
 - **Your commit-signing key is in there too**, read-only, in every session, `--no-ssh`
   included, whenever your git config signs. It is the key git picks for the project: its
-  GitHub account's own key, or the machine key for any other repository. It cannot push, but anything it signs is
-  Verified as yours. Where a self-updating server trusts that key, a signed commit is a
+  GitHub account's own key, or the machine key for any other repository. It cannot push,
+  but anything it signs is Verified as yours. Where a self-updating server trusts that key, a signed commit is a
   release that server will run as root once it is pushed: whoever can push and sign from
   the container can ship to it.
 - **Your Claude and GitHub tokens are live inside the container.** Combined with
