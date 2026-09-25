@@ -71,7 +71,9 @@ and the working tree, and asks whether any of them is one of that play's inputs.
 
 - [x] ✅ **Task 3.1**: Docs (`docs/playbooks.md` or the run.bash doc), `qa-all.bash`, and
   the `qa-reviewer` agent.
-- [ ] ⬜ **Task 3.2**: **HOST**: run `./run.bash --changed` for real, and read what it ran.
+- [ ] 🚫 **Task 3.2**: **HOST**: run `./run.bash --changed` for real, and read what it ran.
+  Blocked on the owner: it runs Ansible, which never runs in the ccy container, and it
+  asks before it runs, so meta-deploy cannot carry it.
 
 ## Success Criteria
 
