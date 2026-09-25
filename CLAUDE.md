@@ -207,6 +207,7 @@ Each of these is the single source of truth for its subject. Follow the row you 
 | [Worktree.md](CLAUDE/Worktree.md)                           | Git worktree discipline (extends `CLAUDE/core/Worktree.core.md`)            |
 | [DocumentationStrategy.md](CLAUDE/DocumentationStrategy.md) | Doc-tree roles (extends `CLAUDE/core/DocumentationStrategy.core.md`)        |
 | [AgentNotes.md](CLAUDE/AgentNotes.md)                       | Working practices and project gotchas (feedback + project knowledge)        |
+| [AgentMailbox.md](CLAUDE/AgentMailbox.md)                   | Dormant ccy ⇄ desktop-agent file mailbox: protocol, watcher, teardown       |
 
 Anything under `CLAUDE/core/` is daemon-owned and replaced wholesale on every
 hooks-daemon upgrade — never edit it; put project-specific content in the

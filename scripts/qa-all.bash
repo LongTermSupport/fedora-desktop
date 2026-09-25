@@ -460,6 +460,17 @@ fi
 relabel_preflight_summary=$(qa_gate_case_count "$relabel_preflight_out")
 qa_pass_line ccy-relabel-preflight "$relabel_preflight_summary"
 
+# The agent mailbox watcher (CLAUDE/AgentMailbox.md): which files wake which side, once
+# each, and that a missing mailbox is made private. Scratch mailboxes, one probe per case.
+agent_mailbox_out=""
+if ! agent_mailbox_out="$(bash "$SCRIPT_DIR/test-agent-mailbox-watch.bash" 2>&1)"; then
+    qa_hard_gate_failed agent-mailbox-watch \
+        "agent mailbox watcher tests failed" \
+        "$agent_mailbox_out"
+fi
+agent_mailbox_summary=$(qa_gate_case_count "$agent_mailbox_out")
+qa_pass_line agent-mailbox-watch "$agent_mailbox_summary"
+
 # gpu_device_flags (Plan 00120): the GPU device is handed to the container only where the host
 # has /dev/dri; a headless server used to abort the run. Driven with a present directory, an
 # absent path and a plain file, plus a check that the launcher consumes the array.
