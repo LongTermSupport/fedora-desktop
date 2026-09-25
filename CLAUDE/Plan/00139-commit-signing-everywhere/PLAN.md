@@ -192,8 +192,8 @@ out.
   to delete a key that is still in use (`TestRetire`).
 - [ ] 🔄 **Task 5.4**: Acceptance, docs, the self-update server key (now `id.pub`), CCY
   version, tests, `qa-all.bash`, then the `qa-reviewer` agent. First review:
-  FIX-BEFORE-MERGE, nothing blocking; every should-fix is fixed (journal 26-09-25). A
-  confirming review is next.
+  FIX-BEFORE-MERGE, nothing blocking; every should-fix is fixed (journal 26-09-25).
+  Confirming review: PASS WITH NITS; the nits are handled. Merges into F44 next.
 - [ ] ⬜ **HOST (owner, at a desk)**: `./CLAUDE/Plan/meta-deploy.bash`
 
 ## Success Criteria

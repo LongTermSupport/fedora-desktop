@@ -127,6 +127,8 @@ if [[ "${PLAN_CHECK}" != "1" ]]; then
     printf '    2. A self-update server (Plan 00137) verifies commits to this checkout, which now\n'
     printf '       sign with %s. Set the server'"'"'s self_update_signing_public_key to the\n' "${signer}"
     printf '       contents of %s.pub, then run the server'"'"'s deploy.\n' "${signer}"
+    printf '       A ccy session here started with another key file signs with that key, which\n'
+    printf '       the server would refuse: start it with the key above.\n'
 fi
 printf '\n'
 

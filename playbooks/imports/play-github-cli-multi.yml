@@ -759,12 +759,21 @@
         # A ccy session started before CCY 3.70.0 signs with a copy of a passphrase-free key,
         # staged in its /tmp/claude-yolo-* directory for as long as it runs. Its pushes after
         # the key leaves GitHub would show Unverified, so nothing is retired while one runs.
-        - name: Find ccy Sessions Still Signing With a Passphrase-Free Key
+        # The ccy directories first, then a stat in each: walking /tmp itself would warn
+        # on every root-only directory in it.
+        - name: Find ccy Session Directories
           ansible.builtin.find:
             paths: /tmp
-            patterns: git-signing-key
-            recurse: true
-            depth: 2
+            patterns: claude-yolo-*
+            file_type: directory
+          register: ccy_session_dirs
+
+        - name: Check Each ccy Session Directory for a Staged Signing Key
+          ansible.builtin.stat:
+            path: "{{ item.path }}/git-signing-key"
+          loop: "{{ ccy_session_dirs.files }}"
+          loop_control:
+            label: "{{ item.path }}"
           register: ccy_signing_stages
 
         - name: Refuse to Retire Keys a Running ccy Session Signs With
@@ -779,8 +788,8 @@
             quiet: true
           vars:
             old_signing_stages: >-
-              {{ ccy_signing_stages.files | map(attribute='path')
-                 | select('match', '^/tmp/claude-yolo-[^/]+/git-signing-key$') | list }}
+              {{ ccy_signing_stages.results | selectattr('stat.exists')
+                 | map(attribute='stat.path') | list }}
 
         # Only after the login keys are registered and git is proven to pick them. The
         # helper refuses to retire a key that is also one in use, before deleting any.
