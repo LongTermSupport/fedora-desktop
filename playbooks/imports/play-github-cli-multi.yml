@@ -631,36 +631,25 @@
             state: absent
       when: github_accounts_configured
 
-    # COMMIT SIGNING KEYS, ONE PER ACCOUNT (Plan 00139)
-    # play-git-configure-and-tools.yml signs every commit with the machine key. Here each
-    # account gets a signing key of its own, ~/.ssh/github_<alias>_signing, which git uses
-    # in any repository whose remote is github.com-<alias> (clone-<alias>, remote-<alias>).
-    # The machine key stays for every other repository, and goes on the account that has
-    # user_email as a verified email: GitHub marks a signed commit Verified only there.
-    # helpers/github_signing registers what GitHub lacks, with each account's own token,
-    # then proves git picks each key. No passphrase, as for the machine key: agents
-    # commit unattended.
-    - name: Sign Each GitHub Account's Repositories With That Account's Own Key
+    # COMMIT SIGNING WITH THE LOGIN KEYS (Plan 00139 D5)
+    # play-git-configure-and-tools.yml signs every commit with the machine's login key,
+    # ~/.ssh/id. Here each account's login key, ~/.ssh/github_<alias>, also signs, in any
+    # repository whose remote is github.com-<alias> (clone-<alias>, remote-<alias>). Both
+    # sign through the ssh-agent that holds them unlocked. GitHub takes a login key again
+    # as a signing key; ~/.ssh/id goes on the account that has user_email as a verified
+    # email, since GitHub marks a signed commit Verified only there. helpers/github_signing
+    # registers what GitHub lacks, with each account's own token, proves git picks each
+    # key, then deletes the passphrase-free signing keys this machine had before D5.
+    - name: Sign Each GitHub Account's Repositories With That Account's Login Key
       when: github_accounts_configured
+      vars:
+        # The passphrase-free signing keys D5 retires: the old machine key, and one per account.
+        retired_signing_keys: >-
+          {{ [git_signing_retired_machine_key]
+             + (github_accounts.keys()
+                | map('regex_replace', '^', '/home/' ~ user_login ~ '/.ssh/github_')
+                | map('regex_replace', '$', '_signing') | list) }}
       block:
-        - name: Generate a Signing Key for Each GitHub Account
-          ansible.builtin.command:
-            argv:
-              - ssh-keygen
-              - -q
-              - -t
-              - ed25519
-              - -N
-              - ""
-              - -C
-              - "{{ item.value }} git signing"
-              - -f
-              - "/home/{{ user_login }}/.ssh/github_{{ item.key }}_signing"
-            creates: "/home/{{ user_login }}/.ssh/github_{{ item.key }}_signing"
-          loop: "{{ github_accounts | dict2items }}"
-          loop_control:
-            label: "{{ item.key }}"
-
         - name: Check for This Machine's Signing Key
           ansible.builtin.stat:
             path: "{{ git_signing_key_path }}"
@@ -671,10 +660,10 @@
             that:
               - machine_signing_key.stat.exists
             fail_msg: |
-              {{ git_signing_key_path }} does not exist. play-git-configure-and-tools.yml
-              generates it; run that play, then this one.
+              {{ git_signing_key_path }} does not exist. run.bash generates ~/.ssh/id, the
+              login key that signs by default; git_signing_key in host_vars names another.
 
-        # Checks every key (non-empty, 0600, no passphrase, .pub matches) and reads every
+        # Checks every key (a non-empty private key at 0600 with its .pub) and reads every
         # account before it adds anything, so a refusal from those checks adds nothing.
         - name: Register Every Signing Key With GitHub
           ansible.builtin.command:
@@ -715,7 +704,7 @@
             content: |
               # ANSIBLE MANAGED by play-github-cli-multi.yml
               [user]
-              	signingkey = /home/{{ user_login }}/.ssh/github_{{ item.key }}_signing
+              	signingkey = /home/{{ user_login }}/.ssh/github_{{ item.key }}
             owner: "{{ user_login }}"
             group: "{{ user_login }}"
             mode: "0644"
@@ -766,6 +755,31 @@
               - "{{ git_signing_key_path }}"
             chdir: "{{ root_dir }}"   # repo root on sys.path so the helpers package imports
           changed_when: false
+
+        # Only after the login keys are registered and git is proven to pick them. The
+        # helper refuses to retire a key that is also one in use, before deleting any.
+        # GitHub keeps the Verified mark it gave commits pushed while a key was registered.
+        - name: Delete the Passphrase-Free Signing Keys From GitHub
+          ansible.builtin.command:
+            argv: >-
+              {{ ['python3', '-m', 'helpers.github_signing.cli', 'retire',
+                  '--ssh-dir', '/home/' ~ user_login ~ '/.ssh',
+                  '--accounts', github_accounts | to_json,
+                  '--machine-key', git_signing_key_path]
+                 + (retired_signing_keys | map('regex_replace', '^', '--retired=') | list) }}
+            chdir: "{{ root_dir }}"   # repo root on sys.path so the helpers package imports
+          register: signing_retirement
+          changed_when: "'SIGNING-RETIRED' in signing_retirement.stdout"
+
+        - name: Display Signing Key Retirement
+          ansible.builtin.debug:
+            msg: "{{ signing_retirement.stdout_lines | default(['nothing registered to delete'], true) }}"
+
+        - name: Delete the Passphrase-Free Signing Key Files
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop: "{{ retired_signing_keys | product(['', '.pub']) | map('join') | list }}"
 
     # GIT ACCOUNT HELPER SETUP
     - block:
@@ -895,7 +909,7 @@
                   # Read as that account, whatever gh has active.
                   token=$(gh auth token --hostname github.com --user "$login") || return 1
                   # The account's public email, else its noreply address. Either is verified
-                  # on the account, so a commit its signing key signs is Verified, and the
+                  # on the account, so a commit its login key signs is Verified, and the
                   # noreply address also passes GitHub's push protection for private emails.
                   email=$(GH_TOKEN="$token" gh api user --jq '.email // empty') || return 1
                   if [[ -z "$email" ]]; then

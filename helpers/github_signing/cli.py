@@ -1,17 +1,25 @@
 #!/usr/bin/env python3
 """Register commit-signing keys on GitHub, and prove git picks the right one.
 
-ACCOUNTS is github_accounts as JSON, {"alias": "login", ...}. Each account's key is
-SSH_DIR/github_<alias>_signing.
+ACCOUNTS is github_accounts as JSON, {"alias": "login", ...}. Each account's key is its
+login key, SSH_DIR/github_<alias>, which signs through the ssh-agent (Plan 00139 D5).
 
     python3 -m helpers.github_signing.cli register --title TITLE \\
             --ssh-dir SSH_DIR --accounts ACCOUNTS --machine-key KEY --email EMAIL
         Adds each account's key as a signing key on that account, and the machine key on
         the account with EMAIL (the global user_email) as a verified email. Each account
         is read and written with its own token, so gh's active account is never switched.
-        Every key is checked (non-empty, 0600, no passphrase, its .pub matches) and every
-        account read before anything is added, so a refusal from those checks adds
-        nothing. Prints SIGNING-ADDED or SIGNING-PRESENT <login> <key name> per key.
+        Every key is checked (a non-empty private key at 0600, with a .pub, which must
+        match when the key has no passphrase) and every account read before anything is
+        added, so a refusal from those checks adds nothing. Prints SIGNING-ADDED or
+        SIGNING-PRESENT <login> <key name> per key.
+
+    python3 -m helpers.github_signing.cli retire \\
+            --ssh-dir SSH_DIR --accounts ACCOUNTS --machine-key KEY --retired KEY ...
+        Deletes every registration, on any account in ACCOUNTS, of a retired key's .pub.
+        A retired key that is also one in use is refused before anything is deleted; one
+        whose .pub is already gone is nothing to do. Prints SIGNING-RETIRED <login> <key
+        name> per deletion.
 
     python3 -m helpers.github_signing.cli check-selection \\
             --ssh-dir SSH_DIR --accounts ACCOUNTS --fallback KEY
@@ -52,8 +60,22 @@ def _why(done: subprocess.CompletedProcess[str]) -> str:
     return " ".join((done.stderr or done.stdout).split()) or f"exit {done.returncode}"
 
 
+def _public_blob(private: pathlib.Path) -> str:
+    public = pathlib.Path(f"{private}.pub")
+    try:
+        return signing.key_blob(public.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise Refusal(f"{public}: {exc.strerror}") from exc
+    except ValueError as exc:
+        raise Refusal(f"{public}: {exc}") from exc
+
+
 def _check_key(private: pathlib.Path) -> str:
-    """The key's blob, once it is a 0600 file with no passphrase and a matching .pub."""
+    """The key's blob, once it is a private key at 0600 with a .pub beside it.
+
+    A login key has a passphrase, and the agent that holds it unlocked does the signing,
+    so a passphrase is accepted. Without one, the .pub is also checked against the key.
+    """
     public = pathlib.Path(f"{private}.pub")
     try:
         mode = private.stat()
@@ -66,17 +88,13 @@ def _check_key(private: pathlib.Path) -> str:
             f"{private} is empty, most likely a write that was cut short. Remove it and "
             f"{public}, and re-run the play to generate a new pair"
         )
-    try:
-        recorded = signing.key_blob(public.read_text(encoding="utf-8"))
-    except OSError as exc:
-        raise Refusal(f"{public}: {exc.strerror}") from exc
-    except ValueError as exc:
-        raise Refusal(f"{public}: {exc}") from exc
+    recorded = _public_blob(private)
     derived = _run(["ssh-keygen", "-y", "-P", "", "-f", str(private)])
     if derived.returncode != 0:
+        if "incorrect passphrase" in derived.stderr:
+            return recorded
         raise Refusal(
-            f"{private} does not load without a passphrase ({_why(derived)}); a signing key "
-            "must not have one, or every commit an agent makes would fail"
+            f"{private} is not a private key ssh-keygen can read ({_why(derived)})"
         )
     if signing.key_blob(derived.stdout) != recorded:
         raise Refusal(f"{public} does not match {private}")
@@ -192,6 +210,57 @@ def _register(args: argparse.Namespace) -> None:
         print(f"SIGNING-ADDED {want.login} {want.name}")
 
 
+def _held_with_ids(login: str, token: str) -> list[tuple[int, str]]:
+    endpoint = "user/ssh_signing_keys"
+    done = _run(
+        ["gh", "api", "--paginate", endpoint, "--jq", '.[] | "\\(.id) \\(.key)"'], token
+    )
+    if done.returncode != 0:
+        raise Refusal(f"could not read {endpoint} for {login}: {_why(done)}")
+    held = []
+    for line in done.stdout.splitlines():
+        if not line.strip():
+            continue
+        key_id, _, key = line.partition(" ")
+        try:
+            held.append((int(key_id), signing.key_blob(key)))
+        except ValueError as exc:
+            raise Refusal(f"{endpoint} for {login}: {line[:60]!r}: {exc}") from exc
+    return held
+
+
+def _retire(args: argparse.Namespace) -> None:
+    accounts = _accounts(args)
+    in_use = {
+        _public_blob(pathlib.Path(key)): pathlib.Path(key).name
+        for key in [args.machine_key, *(k for _, _, k in accounts)]
+    }
+    retired = {}
+    for path in map(pathlib.Path, args.retired):
+        if not pathlib.Path(f"{path}.pub").exists():
+            continue
+        blob = _public_blob(path)
+        if blob in in_use:
+            raise Refusal(
+                f"{path.name} is the same key as {in_use[blob]}, which is in use; "
+                "not retiring it"
+            )
+        retired[blob] = path.name
+    if not retired:
+        return
+    logins = list(dict.fromkeys(login for _, login, _ in accounts))
+    tokens = {login: _token(login) for login in logins}
+    held = {login: _held_with_ids(login, tokens[login]) for login in logins}
+    for login, key_id, name in signing.retirements(retired, held):
+        done = _run(
+            ["gh", "api", "-X", "DELETE", f"user/ssh_signing_keys/{key_id}"],
+            tokens[login],
+        )
+        if done.returncode != 0:
+            raise Refusal(f"could not delete {name} from {login}: {_why(done)}")
+        print(f"SIGNING-RETIRED {login} {name}")
+
+
 def _signing_key_for(repo: pathlib.Path, url: str) -> str:
     for argv in (
         ["git", "-C", str(repo), "remote", "set-url", "origin", url],
@@ -244,9 +313,12 @@ def main(argv: list[str] | None = None) -> int:
     register.add_argument("--title", required=True)
     register.add_argument("--machine-key", required=True)
     register.add_argument("--email", required=True)
+    retire = sub.add_parser("retire")
+    retire.add_argument("--machine-key", required=True)
+    retire.add_argument("--retired", action="append", required=True)
     select = sub.add_parser("check-selection")
     select.add_argument("--fallback", required=True)
-    for cmd in (register, select):
+    for cmd in (register, retire, select):
         cmd.add_argument("--ssh-dir", required=True)
         cmd.add_argument("--accounts", required=True)
     args = parser.parse_args(argv)
@@ -254,6 +326,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "register":
             _register(args)
+        elif args.command == "retire":
+            _retire(args)
         else:
             _check_selection(args)
     except Refusal as exc:

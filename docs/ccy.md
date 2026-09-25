@@ -326,19 +326,19 @@ risks are bounded and named below, not eliminated.
 
 ### What the container CAN reach
 
-| Exposed                                 | How                                                                                        |
-| --------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Your project directory                  | Bind-mounted read/write at `/workspace`                                                    |
-| One or more SSH private keys            | Mounted **read-only** at `/root/.ssh/key_N` (individual keys, not all of `~/.ssh`)         |
-| A Claude OAuth token                    | Environment variable — no credential files are mounted                                     |
-| A GitHub token for `gh`                 | Environment variable, from your existing `gh` login                                        |
-| Your git identity                       | A read-only copy of `~/.gitconfig`, to set `user.name` / `user.email`                      |
-| Your commit-signing key                 | A read-only copy of the key git picks for the project, beside that gitconfig (Plan 00139)  |
-| Your Wayland or X11 display socket      | Mounted read-only and auto-detected, so the agent can open browser windows on your desktop |
-| The host GPU render device              | `--device /dev/dri` — always attached, for accelerated browser rendering                   |
-| The network                             | Normal outbound; optionally a named container network                                      |
-| The host machine's name                 | `CCY_HOST_HOSTNAME` — the container's own `HOSTNAME` is its container id, not the machine  |
-| Anything you add via `CCY_EXTRA_MOUNTS` | Explicit opt-in — see [debug mounts](ccy-debug-mounts.md)                                  |
+| Exposed                                 | How                                                                                         |
+| --------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Your project directory                  | Bind-mounted read/write at `/workspace`                                                     |
+| One or more SSH private keys            | Mounted **read-only** at `/root/.ssh/key_N` (individual keys, not all of `~/.ssh`)          |
+| A Claude OAuth token                    | Environment variable — no credential files are mounted                                      |
+| A GitHub token for `gh`                 | Environment variable, from your existing `gh` login                                         |
+| Your git identity                       | A read-only copy of `~/.gitconfig`, to set `user.name` / `user.email`                       |
+| Commit signing                          | Through an ssh-agent holding the session's SSH key; no key is copied in for it (Plan 00139) |
+| Your Wayland or X11 display socket      | Mounted read-only and auto-detected, so the agent can open browser windows on your desktop  |
+| The host GPU render device              | `--device /dev/dri` — always attached, for accelerated browser rendering                    |
+| The network                             | Normal outbound; optionally a named container network                                       |
+| The host machine's name                 | `CCY_HOST_HOSTNAME` — the container's own `HOSTNAME` is its container id, not the machine   |
+| Anything you add via `CCY_EXTRA_MOUNTS` | Explicit opt-in — see [debug mounts](ccy-debug-mounts.md)                                   |
 
 ### What it CANNOT reach
 
@@ -364,19 +364,21 @@ The residual risks worth naming honestly:
   repository. A forwarded agent (`--ssh-agent`) is the widest: every key it holds can be
   used to sign, for as long as the session lasts, and that container also runs without
   SELinux confinement.
-- **Your commit-signing key is in there too**, read-only, in every session, `--no-ssh`
-  included, whenever your git config signs. It is the key git picks for the project: its
-  GitHub account's own key, or the machine key for any other repository. It cannot push,
-  but anything it signs is Verified as yours. Where a self-updating server trusts that
-  key, a signed commit is a release that server will run as root once it is pushed:
-  whoever can push and sign from the container can ship to it.
-- **The container can choose which of your signing keys the next session gets.** The
-  choice follows the project's remotes, and the project is writable from inside, so an
-  agent that adds a `github.com-<alias>` remote gets that account's key at the next
-  launch. Every launch prints the key it staged (`✓ Commit signing: …`). All of them are
-  your own keys, which is the trust this design accepts: a signature proves the commit
-  came from you or your machine, not which of your agents made it. A `user.signingkey`
-  set in the project's own config is refused outright, because that could name any file.
+- **The session's SSH key also signs commits**, whenever your git config signs. The
+  container signs through the agent that holds it: the container's own, for a key you
+  chose at launch, or your forwarded one. So anything it signs is Verified as the account
+  that key belongs to. Where a self-updating server trusts that key, a signed commit is a
+  release that server will run as root once it is pushed: whoever can push and sign from
+  the container can ship to it. Every launch prints the key it signs with
+  (`✓ Commit signing: …`). A session with no SSH identity cannot sign, so with signing on
+  it refuses to start.
+- **With only a forwarded agent, the key follows the project's remotes.** The session
+  signs with the key git on the host picks for the project, if the agent holds it. The
+  project is writable from inside, so an agent that adds a `github.com-<alias>` remote gets
+  that account's key at the next launch. All of them are your own keys, which is the trust
+  this design accepts: a signature proves the commit came from you or your machine, not
+  which of your agents made it. A `user.signingkey` set in the project's own config is
+  refused outright.
 - **Your Claude and GitHub tokens are live inside the container.** Combined with
   unrestricted network access, a misled or compromised agent process could exfiltrate
   them, not merely misuse them locally.
@@ -656,7 +658,7 @@ are forwarded unchanged.
 | `--export-token`     | Export token(s) as a portable import script                                  |
 | `--ssh-key PATH`     | Mount a specific key (repeatable)                                            |
 | `--ssh-agent`        | Forward the session's ssh-agent (SELinux labelling off)                      |
-| `--no-ssh`           | Mount no push key (git push will not work); the signing key still goes in    |
+| `--no-ssh`           | Mount no key (git push will not work; with signing on, the launch refuses)   |
 | `--github-443`       | Route GitHub SSH over `ssh.github.com:443` when port 22 is blocked           |
 | `--network NET`      | Auto-connect to a container network on launch                                |
 | `--no-network`       | Skip network auto-detection                                                  |
@@ -1122,7 +1124,7 @@ inside the container. Three sources are offered:
 ```bash
 ccy --ssh-key ~/.ssh/<key>   # specific key file (repeatable)
 ccy --ssh-agent              # forward the session's ssh-agent
-ccy --no-ssh                 # no push key (the commit-signing key is still staged)
+ccy --no-ssh                 # no key: no push, and no signing (refused while signing is on)
 ccy --github-443             # tunnel GitHub SSH over port 443
 ```
 

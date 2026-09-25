@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.68.0
+
+- **The container signs with the session's own SSH key, through an ssh-agent** (Plan 00139
+  D5). The login keys now sign, so no private key is copied in for signing any more. A
+  key chosen at launch signs through the container's agent. A session given only a
+  forwarded agent signs with the key git on the host picks for the project, as its
+  public half, provided that agent holds it. A launch that would sign with a key no agent
+  holds is refused, and the refusal says how to load it.
+- **`--no-ssh` with signing on is refused.** The session has no key to sign with, and
+  every commit it made would fail.
+
 ## 3.67.4
 
 - **The refusal's remedy works in a bare repository, and when ccy starts inside `.git`.**

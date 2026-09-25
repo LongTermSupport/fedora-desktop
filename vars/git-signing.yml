@@ -1,6 +1,11 @@
 ---
-# This machine's commit-signing key. play-git-configure-and-tools.yml generates it and
-# signs with it by default; play-github-cli-multi.yml registers it on GitHub and gives
-# each account in github_accounts a key of its own, which git uses in that account's
-# repositories. git_signing_key in host_vars points it at a different key.
-git_signing_key_path: "{{ git_signing_key | default('/home/' + user_login + '/.ssh/id_ed25519_git_signing') }}"
+# This machine's commit-signing key: its login key, ~/.ssh/id, which run.bash generates.
+# It signs through the ssh-agent, so its passphrase is no obstacle (Plan 00139 D5).
+# play-git-configure-and-tools.yml signs with it by default; play-github-cli-multi.yml
+# registers it on GitHub, and signs each account's repositories with that account's
+# login key, github_<alias>. git_signing_key in host_vars points it at a different key.
+git_signing_key_path: "{{ git_signing_key | default('/home/' + user_login + '/.ssh/id') }}"
+
+# The passphrase-free signing key this machine had before D5. play-github-cli-multi.yml
+# deletes it from GitHub and from disk, with each account's github_<alias>_signing.
+git_signing_retired_machine_key: "/home/{{ user_login }}/.ssh/id_ed25519_git_signing"
