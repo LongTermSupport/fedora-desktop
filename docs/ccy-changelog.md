@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.68.0
+
+- **A project podman cannot relabel is explained, and a fix is offered.** Since 3.65.0 a
+  Permissive host relabels the workspace (`:z`). Rootless podman then fails on the first
+  entry owned outside your user namespace, often a root-owned leftover of a `sudo` run.
+  It exited 126 with only `lsetxattr … operation not permitted`, so ccy could not start in
+  that project. The launch now finds those entries first and names each with its owner.
+  It prints the command that lists them and the `sudo chown` that fixes them, and asks
+  (y/N) whether to run that fix now. See
+  [SELinux-enforcing hosts](ccy.md#selinux-enforcing-hosts).
+
 ## 3.67.4
 
 - **The refusal's remedy works in a bare repository, and when ccy starts inside `.git`.**

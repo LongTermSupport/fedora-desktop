@@ -406,6 +406,13 @@ file label permits). An Enforcing host makes them unreadable inside. A Permissiv
 lets them be read, but logs a denial for each access. A forwarded agent
 (`--ssh-agent`) is the same shape and is why that flag disables labelling for its container.
 
+**Entries podman cannot relabel.** Rootless podman may relabel only what you and your
+container uids own. One entry owned by anyone else, typically root after something ran in the
+project under `sudo`, fails the container on start (`lsetxattr … operation not permitted`). CCY
+checks first. It names those entries and prints two commands: one lists them, and one gives
+them to you with `sudo chown`. It then asks whether to run that fix now (`y/N`). Answering no,
+or launching with no terminal to answer on, stops the launch without changing anything.
+
 For projects where CCY should never run, or should only run on one machine, see
 [allowed-hostnames](#3-allowed-hostnames--restricting-where-ccy-can-run).
 

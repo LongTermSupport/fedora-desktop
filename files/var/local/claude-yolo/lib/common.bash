@@ -2,7 +2,7 @@
 # Claude YOLO Common Library
 # Shared helpers for claude-yolo (ccy)
 #
-# Version: 1.5.2 - CCY_SELINUX_MODE may be permissive, which relabels like enforcing
+# Version: 1.6.0 - workspace_relabel_preflight finds entries podman cannot relabel
 
 # Host-safe helpers (print_error, is_token_valid, COLOR_RED, COLOR_RESET).
 # MUST be sourced BEFORE the podman-check block below so that the cc wrapper
@@ -98,6 +98,137 @@ ccy_selinux_mode() {
     fi
     export CCY_SELINUX_MODE CCY_MOUNT_RELABEL
     debug "selinux: getenforce='$enforce' engine='$report' → $CCY_SELINUX_MODE (relabel='${CCY_MOUNT_RELABEL}')"
+    return 0
+}
+
+# The label podman's shared relabel (`:z`) gives every entry under a bind.
+readonly CCY_SHARED_FILE_LABEL="system_u:object_r:container_file_t:s0"
+
+# An entry's SELinux label, or stat's error text: either way, a string to compare.
+file_selinux_label() {
+    stat -c '%C' -- "$1" 2>&1
+}
+
+# Stop podman failing on a workspace it cannot relabel, and offer the fix.
+#
+# Rootless podman relabels every entry under a `:z` bind, and may relabel only entries
+# owned by a uid its user namespace maps (relabel_foreign_owner_args). One root-owned
+# entry — left by something run in the project under sudo — makes it refuse the
+# container: `lsetxattr(label=…) <path>: operation not permitted`, exit 126, nothing
+# said about why. It walks as SELinux's own relabel does: when the top of the bind
+# already carries the shared label it skips every entry that does too, and otherwise it
+# sets every one. So an entry blocks when its owner is foreign and it, or the top, lacks
+# the label.
+#
+# When any entry blocks, this names them, prints the command that lists them and the
+# one that gives them to you, and asks (y/N) whether to run that fix now with sudo.
+# Declined, unanswerable or failed, the launch stops.
+#
+# Returns 0 when the bind can be relabelled or needs no relabel, 1 when the launch must
+# stop. Prints to stderr only.
+workspace_relabel_preflight() {
+    local dir="$1"
+    [ -n "$CCY_MOUNT_RELABEL" ] || return 0
+    # A rootful engine relabels as root, which may relabel anything.
+    [ "$CONTAINER_ENGINE" = podman ] || return 0
+
+    local uid_map owner_text
+    if ! uid_map=$(container_cmd unshare cat /proc/self/uid_map 2>&1) \
+        || ! owner_text=$(relabel_foreign_owner_args "$uid_map"); then
+        print_error "ccy cannot read the uid map of podman's user namespace, so it cannot tell"
+        echo "  which entries in $dir podman may relabel. podman said:" >&2
+        printf '%s\n' "$uid_map" | awk '{ print "    " $0 }' >&2
+        return 1
+    fi
+    local -a owner_args
+    mapfile -t owner_args <<<"$owner_text"
+
+    local -a foreign=()
+    local listing rc=0
+    listing=$(find "$dir" "${owner_args[@]}" -print) || rc=$?
+    [ -z "$listing" ] || mapfile -t foreign <<<"$listing"
+    if [ "${#foreign[@]}" -eq 0 ]; then
+        [ "$rc" -ne 0 ] || return 0
+        print_error "ccy could not look through $dir for entries podman cannot relabel"
+        echo "  (find exited $rc; its errors are above)." >&2
+        return 1
+    fi
+
+    local top_label entry blocking=0
+    top_label=$(file_selinux_label "$dir")
+    for entry in "${foreign[@]}"; do
+        if [ "$top_label" != "$CCY_SHARED_FILE_LABEL" ] \
+            || [ "$(file_selinux_label "$entry")" != "$CCY_SHARED_FILE_LABEL" ]; then
+            blocking=$((blocking + 1))
+        fi
+    done
+    [ "$blocking" -gt 0 ] || return 0
+
+    local me mygroup quoted_find look fix shown=0 owner
+    me=$(id -u)
+    mygroup=$(id -g)
+    quoted_find="find $(printf '%q ' "$dir" "${owner_args[@]}")"
+    look="${quoted_find}-printf '%U:%G  %p\\n'"
+    fix="sudo ${quoted_find}-exec chown -h $me:$mygroup {} +"
+
+    {
+        echo ""
+        echo -e "${COLOR_YELLOW}⚠️  podman cannot relabel ${#foreign[@]} entries in this project, so the container would not start.${COLOR_RESET}"
+        echo "   ccy mounts the project with SELinux's shared relabel (:z), and podman relabels every"
+        echo "   entry under it. Rootless podman may relabel only what you and your container uids own."
+        echo "   These belong to someone else (root, typically, after something ran here under sudo):"
+        echo ""
+        for entry in "${foreign[@]}"; do
+            if [ "$shown" -ge 20 ]; then
+                echo "     … and $(( ${#foreign[@]} - shown )) more"
+                break
+            fi
+            owner=$(stat -c '%U:%G (%u:%g)' -- "$entry" 2>&1)
+            echo "     $owner  $entry"
+            shown=$((shown + 1))
+        done
+        echo ""
+        echo "   To look for yourself:"
+        echo "     $look"
+        echo "   The fix gives them to you, so podman can relabel them:"
+        echo "     $fix"
+        echo ""
+    } >&2
+
+    if [ ! -t 0 ]; then
+        print_error "ccy did not start: there is no terminal to ask on. Run the fix above, then start ccy again."
+        return 1
+    fi
+    local reply="" tries=0 answer=""
+    while [ "$tries" -lt 3 ] && [ -z "$answer" ]; do
+        tries=$((tries + 1))
+        if ! read -rp "$CCY_PROMPT_RELABEL_FIX " reply; then
+            echo "" >&2
+            answer=no
+            break
+        fi
+        case "$reply" in
+            y|Y|yes|Yes|YES) answer=yes ;;
+            ""|n|N|no|No|NO) answer=no ;;
+            *) echo "   Answer y or n." >&2 ;;
+        esac
+    done
+    if [ "$answer" != yes ]; then
+        print_error "ccy did not start: podman cannot relabel the entries above. Run the fix, or answer y next time."
+        return 1
+    fi
+
+    if ! sudo find "$dir" "${owner_args[@]}" -exec chown -h "$me:$mygroup" {} +; then
+        print_error "the fix failed (its errors are above); ccy did not start."
+        return 1
+    fi
+    listing=$(find "$dir" "${owner_args[@]}" -print) || rc=$?
+    if [ -n "$listing" ]; then
+        print_error "entries in $dir are still not yours after the fix; ccy did not start:"
+        printf '%s\n' "$listing" | awk '{ print "    " $0 }' >&2
+        return 1
+    fi
+    echo -e "${COLOR_GREEN}✓ The ${#foreign[@]} entries are now yours; podman can relabel them.${COLOR_RESET}" >&2
     return 0
 }
 

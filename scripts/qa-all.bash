@@ -434,6 +434,18 @@ fi
 selinux_verdict_summary=$(qa_gate_case_count "$selinux_verdict_out")
 qa_pass_line ccy-selinux-verdict "$selinux_verdict_summary"
 
+# workspace_relabel_preflight (CCY 3.68.0): one root-owned entry in a project made rootless
+# podman refuse the container while relabelling it (lsetxattr, exit 126). Driven with files
+# chowned outside a stub uid map, on a pseudo-terminal that answers the fix prompt.
+relabel_preflight_out=""
+if ! relabel_preflight_out="$(bash "$SCRIPT_DIR/test-ccy-relabel-preflight.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-relabel-preflight \
+        "ccy relabel-preflight tests failed" \
+        "$relabel_preflight_out"
+fi
+relabel_preflight_summary=$(qa_gate_case_count "$relabel_preflight_out")
+qa_pass_line ccy-relabel-preflight "$relabel_preflight_summary"
+
 # gpu_device_flags (Plan 00120): the GPU device is handed to the container only where the host
 # has /dev/dri; a headless server used to abort the run. Driven with a present directory, an
 # absent path and a plain file, plus a check that the launcher consumes the array.

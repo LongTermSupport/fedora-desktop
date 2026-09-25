@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.67.4"  # The signing-key refusal prints a remedy that runs. See docs/ccy-changelog.md.
+CCY_VERSION="3.68.0"  # A project podman cannot relabel is explained, with a fix offered. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -2076,7 +2076,9 @@ fi
 # On an SELinux-enforcing host container_t may not read user_home_t (a permissive
 # one logs every such read), so the workspace carries the shared relabel (`:z`)
 # and the per-session config import the private one; both are empty when the
-# verdict is off (ccy_selinux_mode).
+# verdict is off (ccy_selinux_mode). An entry podman may not relabel would fail the
+# container on start, so it is found, explained and offered a fix first.
+workspace_relabel_preflight "$PWD" || exit 1
 DOCKER_MOUNTS=(
     -v "$PWD:/workspace${CCY_MOUNT_RELABEL:+:$CCY_MOUNT_RELABEL}"
     -v "$CONFIG_TEMP:/tmp/claude-config-import:ro${CCY_MOUNT_RELABEL:+,Z}"
