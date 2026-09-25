@@ -34,7 +34,7 @@ extract() {
 }
 
 : >"$work/fn.bash"
-for fn in info success warning error hl_abort fatal gh_scopes_repo_complete gh_scopes_repo gh_request_missing_scopes; do
+for fn in info success warning error hl_abort fatal promptChoice gh_scopes_repo_complete gh_scopes_repo gh_request_missing_scopes choose_primary_gh_account; do
     extract "$RUN_BASH" "$fn"
 done
 cp "$work/fn.bash" "$work/run-fn.bash"
@@ -68,6 +68,19 @@ case "$1 $2" in
     "auth token")
         for arg; do last="$arg"; done
         if [ -f "$STUB_DIR/granted-tok-$last" ]; then echo "tok-$last"; else exit 1; fi
+        ;;
+    "auth status")
+        cat "$STUB_DIR/status.json"
+        ;;
+    "api repos/"*)
+        owner="${2#repos/}"
+        owner="${owner%%/*}"
+        if [ -f "$STUB_DIR/owns-$owner" ] && [ "${GH_TOKEN:-}" = "tok-$owner" ]; then
+            echo "fedora-desktop-config"
+        else
+            echo "Not Found" >&2
+            exit 1
+        fi
         ;;
     "api user")
         if [ -s "$STUB_DIR/active" ]; then cat "$STUB_DIR/active"; else echo "not logged in" >&2; exit 1; fi
@@ -222,7 +235,91 @@ contains "names the first short account and its scopes" "MISSING bob repo,workfl
 contains "and the next one, in the same failure" "MISSING carol" "$OUT"
 check "a healthy account is not listed" "" "$(printf '%s\n' "$OUT" | grep 'alice')"
 
-# run.bash takes gh's active account as the primary one, the owner of the config repo, so
+# The primary account owns the config repo run.bash reads (<primary>/fedora-desktop-config).
+echo "== run.bash: the primary GitHub account"
+# status_json <active> <login>... : what `gh auth status --json hosts` reports.
+status_json() {
+    local active="$1" login sep=""
+    shift
+    printf '{"hosts":{"github.com":['
+    for login; do
+        printf '%s{"login":"%s","active":%s,"state":"success"}' "$sep" "$login" \
+            "$([ "$login" = "$active" ] && echo true || echo false)"
+        sep=","
+    done
+    printf ']}}\n'
+}
+# primary_case <stdin> [headless]: run the chooser; PRIMARY, RC, OUT and SWITCHES result.
+primary_home="$work/primary-home"
+mkdir -p "$primary_home"
+primary_case() {
+    rm -f "$STUB_DIR/switch.log"
+    OUT="$(printf '%b' "$1" | HOME="$primary_home" HEADLESS="${2:-false}" bash -c '
+        source "$1"
+        choose_primary_gh_account
+        printf "PRIMARY=%s\n" "$primary_gh_username"' _ "$work/run-fn.bash" 2>&1)"
+    RC=$?
+    PRIMARY="$(printf '%s\n' "$OUT" | awk -F= '/^PRIMARY=/ {print $2}')"
+    SWITCHES=""
+    if [ -f "$STUB_DIR/switch.log" ]; then
+        SWITCHES="$(cat "$STUB_DIR/switch.log")"
+    fi
+}
+for u in alice bob carol; do printf '%s' "$ALL" >"$STUB_DIR/granted-tok-$u"; done
+
+status_json alice alice >"$STUB_DIR/status.json"
+printf 'alice\n' >"$STUB_DIR/active"
+primary_case ''
+check "one account logged in: it is the primary" "alice" "$PRIMARY"
+check "  without a question" "" "$(printf '%s\n' "$OUT" | grep -i 'which github account')"
+check "  and gh is not switched" "" "$SWITCHES"
+
+status_json bob alice bob carol >"$STUB_DIR/status.json"
+printf 'bob\n' >"$STUB_DIR/active"
+touch "$STUB_DIR/owns-alice"
+primary_case '\n'
+contains "several accounts: the owner is asked" "Which GitHub account is your primary one" "$OUT"
+contains "  the account owning the config repo is marked" "alice  ✓ owns alice/fedora-desktop-config" "$OUT"
+check "  and Enter takes it, not the active account" "alice" "$PRIMARY"
+contains "  and gh is switched to it" "--user alice" "$SWITCHES"
+primary_case '3\n'
+check "a typed choice is taken" "carol" "$PRIMARY"
+primary_case 'x\n9\n2\n'
+check "a typo is asked again, not fatal" "bob" "$PRIMARY"
+check "  and choosing the active account switches nothing" "" "$SWITCHES"
+contains "  the typo is named" "Invalid choice 'x'" "$OUT"
+
+rm -f "$STUB_DIR/owns-alice"
+mkdir -p "$primary_home/.config/gh"
+printf 'carol\n' >"$primary_home/.config/gh/default-account"
+primary_case '\n'
+check "no config repo: the default is the saved default account" "carol" "$PRIMARY"
+rm -f "$primary_home/.config/gh/default-account"
+primary_case '\n'
+check "no config repo, no saved default: the default is the active account" "bob" "$PRIMARY"
+
+touch "$STUB_DIR/owns-alice" "$STUB_DIR/owns-carol"
+primary_case '\n'
+check "two accounts own a config repo: no default, so Enter is not taken" "1" "$RC"
+primary_case '1\n'
+check "  and a typed choice is" "alice" "$PRIMARY"
+rm -f "$STUB_DIR/owns-alice" "$STUB_DIR/owns-carol"
+
+primary_case '' true
+check "headless keeps the active account" "bob" "$PRIMARY"
+check "  without a question" "" "$(printf '%s\n' "$OUT" | grep -i 'which github account')"
+
+status_json '' >"$STUB_DIR/status.json"
+primary_case ''
+check "no account logged in is fatal" "1" "$RC"
+contains "  and says so" "no GitHub account is logged in" "$OUT"
+
+check "run.bash sets the primary account with the chooser" "1" \
+    "$(awk '/^choose_primary_gh_account$/ {n++} END {print n + 0}' "$RUN_BASH")"
+check "  and no longer takes whichever account gh has active" "0" \
+    "$(awk '/^primary_gh_username="\$\(gh api user/ {n++} END {print n + 0}' "$RUN_BASH")"
+
+# Plain gh calls act as the active account, which run.bash makes the primary one, so
 # gh-account-setup.bash, which switches to each account in turn, must leave it as it was.
 echo "== gh-account-setup.bash: gh's active account is put back"
 # restore_case [account] [fail]: record the active account, switch to <account> if given,

@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.26.2"
+RUN_BASH_VERSION="1.27.0"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -2505,6 +2505,107 @@ gh_request_missing_scopes() {
   success "GitHub token now carries every required scope"
 }
 
+# choose_primary_gh_account — sets primary_gh_username, the account whose
+# <login>/fedora-desktop-config holds this machine's saved config, and makes it gh's
+# active account, since every plain `gh` call below acts as the primary.
+#
+# One logged-in account is the primary. With several, the owner picks, as ccy asks for a
+# key: each account owning a fedora-desktop-config repo is marked, and Enter takes the one
+# such account, else ~/.config/gh/default-account (gh-set-default), else the active one.
+# gh's active account alone is not trusted: any tool that switches accounts and does not
+# switch back leaves another one active. Headless logs in with one token, so it keeps the
+# active account.
+choose_primary_gh_account(){
+  local status_json accounts
+  if ! status_json="$(gh auth status --hostname github.com --json hosts 2>&1)"; then
+    fatal "GitHub accounts" "could not list the logged-in GitHub accounts" "gh said: ${status_json}"
+  fi
+  if ! accounts="$(printf '%s' "$status_json" | python3 -c '
+import json, sys
+for account in json.load(sys.stdin).get("hosts", {}).get("github.com", []):
+    if account.get("state") == "success":
+        print(account["login"], "active" if account.get("active") else "-")
+' 2>&1)"; then
+    fatal "GitHub accounts" "could not read gh auth status" "python said: ${accounts}"
+  fi
+
+  local -a logins=()
+  local login flag active=""
+  while read -r login flag; do
+    [[ -n "$login" ]] || continue
+    logins+=("$login")
+    if [[ "$flag" == "active" ]]; then
+      active="$login"
+    fi
+  done <<<"$accounts"
+  if [[ ${#logins[@]} -eq 0 ]]; then
+    fatal "GitHub accounts" "no GitHub account is logged in" \
+      "gh auth status --hostname github.com shows none in a working state; run gh auth login"
+  fi
+
+  if [[ ${#logins[@]} -eq 1 || "${HEADLESS:-}" == "true" ]]; then
+    primary_gh_username="${active:-${logins[0]}}"
+  else
+    local -a labels=()
+    local i token probe owners=0 owner_index="" saved_default="" saved_index="" active_index=""
+    if [[ -f "$HOME/.config/gh/default-account" ]]; then
+      saved_default="$(<"$HOME/.config/gh/default-account")"
+    fi
+    for i in "${!logins[@]}"; do
+      login="${logins[$i]}"
+      labels+=("$login")
+      # Each account is asked with its own token: another account cannot see a private
+      # repo. A failed probe only leaves the mark off; the privacy gate below still checks.
+      if token="$(gh auth token --hostname github.com --user "$login" 2>&1)" \
+          && probe="$(GH_TOKEN="$token" gh api "repos/${login}/fedora-desktop-config" --jq '.name' 2>&1)" \
+          && [[ "$probe" == "fedora-desktop-config" ]]; then
+        labels[i]="${login}  ✓ owns ${login}/fedora-desktop-config"
+        owners=$((owners + 1))
+        owner_index=$((i + 1))
+      fi
+      if [[ "$login" == "$saved_default" ]]; then
+        saved_index=$((i + 1))
+      fi
+      if [[ "$login" == "$active" ]]; then
+        active_index=$((i + 1))
+      fi
+    done
+    unset token probe
+    local default_index=""
+    if [[ "$owners" -eq 1 ]]; then
+      default_index="$owner_index"
+    elif [[ "$owners" -eq 0 ]]; then
+      default_index="${saved_index:-$active_index}"
+    fi
+
+    echo -e "\n${CYAN}${ARROW}${NC} Which GitHub account is your primary one?"
+    echo -e "   Its <account>/fedora-desktop-config repo holds this machine's saved config."
+    for i in "${!labels[@]}"; do
+      local suffix=""
+      if [[ "$((i + 1))" == "$default_index" ]]; then
+        suffix=" ← default"
+      fi
+      echo -e "   $((i + 1))) ${labels[$i]}${suffix}"
+    done
+    local choice prompt="   Choice [1-${#logins[@]}]"
+    if [[ -n "$default_index" ]]; then
+      prompt+=" (Enter for [${default_index}])"
+    fi
+    if ! choice="$(promptChoice "${prompt}: " "${#logins[@]}" "$default_index")"; then
+      fatal "GitHub accounts" "no primary GitHub account was chosen" "re-run and pick one by number"
+    fi
+    primary_gh_username="${logins[$((choice - 1))]}"
+  fi
+
+  if [[ "$primary_gh_username" != "$active" ]]; then
+    local switch_out
+    if ! switch_out="$(gh auth switch --hostname github.com --user "$primary_gh_username" 2>&1)"; then
+      fatal "GitHub accounts" "could not make ${primary_gh_username} gh's active account" "gh said: ${switch_out}"
+    fi
+    info "gh is now on ${primary_gh_username}"
+  fi
+}
+
 # Headless: authenticate to GitHub non-interactively with the provided token BEFORE the
 # interactive block below — which then sees an authenticated gh and no-ops into its
 # "Already authenticated" branch. `gh auth login --with-token` reads the PAT from STDIN
@@ -2560,7 +2661,7 @@ if ! gh auth status > /dev/null 2>&1; then
 else
   success "Already authenticated with GitHub"
 fi
-primary_gh_username="$(gh api user --jq '.login')"
+choose_primary_gh_account
 success "Primary GitHub account: $primary_gh_username"
 completed
 

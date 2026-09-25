@@ -18,10 +18,10 @@ IFS=$'\n\t'
 # ends, short of SIGKILL, and it lives on the per-user tmpfs, which is emptied at logout.
 # An interrupt still ends the script by that signal, so a caller sees how it ended.
 #
-# The per-account steps switch gh to each account in turn, and run.bash takes gh's active
-# account as the primary one, whose config repo it reads. So the account active when this
-# started is switched back to however it ends, too (restore_active_account). main does it
-# on the way out of a normal run; these do it on every other way out.
+# The per-account steps switch gh to each account in turn. Every plain `gh` call acts as
+# the active account, which run.bash makes the primary one. So the account active when
+# this started is switched back to however it ends, too (restore_active_account). main
+# does it on the way out of a normal run; these do it on every other way out.
 SSH_TEST_KEY=""
 ORIGINAL_ACTIVE_ACCOUNT=""
 trap 'rc=$?; rm -f -- ${SSH_TEST_KEY:+"$SSH_TEST_KEY"}; if ! restore_active_account && [[ "$rc" -eq 0 ]]; then rc=1; fi; exit "$rc"' EXIT
@@ -168,7 +168,7 @@ restore_active_account() {
   local switch_output
   if ! switch_output=$(gh auth switch --hostname github.com --user "$ORIGINAL_ACTIVE_ACCOUNT" 2>&1); then
     echo -e "${RED}✗${NC} Could not switch gh back to ${ORIGINAL_ACTIVE_ACCOUNT}, the account active when this started: ${switch_output}" >&2
-    echo -e "   ${YELLOW}➜${NC} run.bash reads the active account as the primary one. Run: gh auth switch --hostname github.com --user ${ORIGINAL_ACTIVE_ACCOUNT}" >&2
+    echo -e "   ${YELLOW}➜${NC} Plain gh calls act as the active account. Run: gh auth switch --hostname github.com --user ${ORIGINAL_ACTIVE_ACCOUNT}" >&2
     return 1
   fi
   echo -e "${CYAN}i${NC} gh is back on ${ORIGINAL_ACTIVE_ACCOUNT}, the account active when this started" >&2

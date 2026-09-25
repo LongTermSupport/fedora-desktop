@@ -15,6 +15,17 @@ the index, not the record.
 
 ---
 
+## 1.27.0 — with several GitHub accounts logged in, the owner picks the primary one (Plan 00139)
+
+The primary account, whose `<account>/fedora-desktop-config` holds the machine's saved
+config, was simply gh's active account. Any tool that switched accounts and did not switch
+back left run.bash looking for the config repo under the wrong account. With one account
+logged in, that account is still the primary. With several, run.bash lists them and marks
+each that owns a `fedora-desktop-config` repo. Enter takes that account when exactly one
+owns a repo; failing that, the saved default (`gh-set-default`), then the active account.
+gh is then switched to the choice. Headless keeps the active account, since it logs in
+with one token.
+
 ## 1.26.2 — the scope-list failure names both files it needs (Plan 00139)
 
 When no checkout holds the scopes list and its helper, the abort says so, naming both,
