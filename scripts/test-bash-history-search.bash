@@ -143,12 +143,20 @@ chmod 0700 "$state"
 # The include calls the ranker by name, as ~/.local/bin puts it on PATH on a host.
 ln -s "$RANKER" "$WORK_DIR/bin/bash-history-rank"
 
+# The include does nothing for root, which keeps stock Ctrl+R, and a ccy container runs
+# this gate as root. There the shell runs in a user namespace as uid 1000, which is root
+# outside it, so it owns the fixtures and the include sees a desktop user.
+as_desktop_user=()
+if [ "$(id -u)" -eq 0 ]; then
+    as_desktop_user=(unshare --user --map-user=1000 --map-group=1000)
+fi
+
 # run_shell <home> <cwd> <script> — an interactive bash reading the script from a pipe,
 # with none of the harness's own dotfiles. Its stdout, where the PROBE lines go.
 run_shell() {
     local shell_home="$1" cwd="$2" script="$3"
     (cd "$cwd" && printf '%s\n' "$script" |
-        HOME="$shell_home" PATH="$WORK_DIR/bin:$PATH" bash --norc --noprofile -i 2>/dev/null)
+        HOME="$shell_home" PATH="$WORK_DIR/bin:$PATH" "${as_desktop_user[@]}" bash --norc --noprofile -i 2>/dev/null)
 }
 
 # probe_status stands in for bash-git-prompt's setLastCommandState, which sits in the
