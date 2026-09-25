@@ -15,6 +15,15 @@ the index, not the record.
 
 ---
 
+## 1.28.1 — `--changed` warns before a run from a dirty checkout; retired plays (Plan 00141)
+
+A run from a checkout with uncommitted changes is recorded as dirty, and `--changed`
+offers it again. It now says so before it asks, so the repeat is expected rather than a
+surprise. A `git status` that fails stops it. A play the retired-plays map names is no
+longer reported as gone on every run: its successor runs until it has taken the old
+play over, which is the rule the login report already uses. `--help` names every reason
+a play runs again, and the order.
+
 ## 1.28.0 — `--changed` runs every play whose inputs changed since it ran here (Plan 00141)
 
 `./run.bash --changed` lists each play that has run on this machine and has to run again,

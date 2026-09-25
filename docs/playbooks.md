@@ -55,9 +55,11 @@ the order `playbook-main.yml` imports them (optional plays last) and stops at th
 failure. If sudo needs a password, each play asks for it, as it does when run on its own. A
 play needs to run again when its own file, or any file it deploys, has changed since the
 commit it last ran from. It also runs again when its last run failed, or when that run
-came from a checkout with uncommitted changes. It also names any play it cannot judge
-(one holding a reference it cannot follow), and any play that is no longer in the
-checkout. It runs neither.
+came from a checkout with uncommitted changes, so while the checkout stays dirty it
+offers the same plays each time, and it warns about this before it asks. A removed play
+that has a successor in `helpers/play_ledger/retired-plays.json` runs that successor
+instead. It also names any play it cannot judge (one holding a reference it cannot
+follow), and any other play that is no longer in the checkout. It runs neither.
 
 ```bash
 # Zero-flag default — auto-detects desktop vs. server:

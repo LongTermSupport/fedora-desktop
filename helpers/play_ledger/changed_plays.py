@@ -20,6 +20,9 @@ stdout carries only marker lines, in the order the plays should run: the order
                                 the mapper cannot follow, so a change there would be missed
     GONE <play>                 it ran here, and the checkout no longer has it
 
+A removed play that `retired-plays.json` maps to a successor is not GONE: the successor
+is RUN until its own run has taken the old play over, as `check_freshness` decides.
+
 Only host plays count, the ones under `playbooks/imports/`. A probe under untracked/ or a
 play under `playbooks/dev/`, which works on the repo, is never mentioned. Nor is a play
 the repo never tracked at the commit it ran from. Exit 0 is an answer, empty or not.
@@ -39,30 +42,37 @@ import sys
 from collections.abc import Callable
 from typing import TextIO
 
-from helpers.play_ledger import git_history, ledger, store
+from helpers.play_ledger import git_history, ledger, retired, store
 from helpers.self_update import affected_plays
 
 EXIT_OK = 0
 EXIT_NO_ANSWER = 2
 
 MAIN_PLAYBOOK = "playbooks/playbook-main.yml"
-_IMPORT = re.compile(r"^-\s*import_playbook:\s*(\S+)\s*$")
+_IMPORT_KEY = re.compile(r"^\s*-\s*(?:ansible\.builtin\.)?import_playbook:")
+_IMPORT = re.compile(r"^\s*-\s*(?:ansible\.builtin\.)?import_playbook:\s*([\w./-]+\.ya?ml)\s*(?:#.*)?$")
 
 
 def main_order(repo_root: str) -> list[str]:
     """The plays `playbook-main.yml` imports, in its order, as repo-relative paths.
 
     That order carries real dependencies (play-ZZ-repo-cleanup runs after the plays that
-    add COPRs), so a catch-up run follows it. A missing file raises.
+    add COPRs), so a catch-up run follows it. An import line it cannot read raises,
+    because the play it names would drop to the end of the run without a word. A missing
+    file raises.
     """
     with open(os.path.join(repo_root, MAIN_PLAYBOOK), encoding="utf-8") as handle:
         text = handle.read()
     here = posixpath.dirname(MAIN_PLAYBOOK)
-    return [
-        posixpath.normpath(posixpath.join(here, match.group(1)))
-        for match in map(_IMPORT.match, text.splitlines())
-        if match
-    ]
+    order = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        if not _IMPORT_KEY.match(line):
+            continue
+        match = _IMPORT.match(line)
+        if match is None:
+            raise ValueError(f"{MAIN_PLAYBOOK}:{number}: cannot read the play this imports: {line.strip()}")
+        order.append(posixpath.normpath(posixpath.join(here, match.group(1))))
+    return order
 
 
 def changed_since(repo_root: str, commit: str) -> list[str]:
@@ -95,6 +105,7 @@ def run(
     tracked_at: Callable[[str, str, str], bool] | None = None,
     inputs_of: Callable[[str, str], affected_plays.Inputs] | None = None,
     main_order: Callable[[str], list[str]] = main_order,
+    retired_plays: Callable[[str], dict[str, str]] = retired.load,
 ) -> int:
     """Print the marker lines and return the exit status. The callables are test seams."""
     exists_now = exists_now or (lambda root, play: os.path.isfile(os.path.join(root, play)))
@@ -115,13 +126,21 @@ def run(
 
     try:
         position = {play: index for index, play in enumerate(main_order(repo_root))}
-    except OSError as error:
+    except (OSError, ValueError) as error:
         stderr.write(f"changed-plays: cannot read the play order from {MAIN_PLAYBOOK}: {error}\n")
         return EXIT_NO_ANSWER
-    host_plays = [play for play in latest if play.startswith(affected_plays.CANDIDATE_DIR + "/")]
-    host_plays.sort(key=lambda play: (play not in position, position.get(play, 0), play))
 
-    lines: list[str] = []
+    def run_order(play: str) -> tuple[bool, int, str]:
+        return (play not in position, position.get(play, 0), play)
+
+    host_plays = sorted(
+        (play for play in latest if play.startswith(affected_plays.CANDIDATE_DIR + "/")),
+        key=run_order,
+    )
+
+    runs: set[str] = set()
+    gone: list[str] = []
+    unresolved: dict[str, list[str]] = {}
     diffs: dict[str, list[str]] = {}
     for play in host_plays:
         record = latest[play]
@@ -129,7 +148,7 @@ def run(
         try:
             if not exists_now(repo_root, play):
                 if tracked_at(repo_root, commit, play):
-                    lines.append(f"GONE {play}")
+                    gone.append(play)
                 continue
             if commit not in diffs:
                 diffs[commit] = changed_since(repo_root, commit)
@@ -145,13 +164,64 @@ def run(
             or record["dirty"]
             or any(affected_plays.affects(inputs, path) for path in diffs[commit])
         ):
-            lines.append(f"RUN {play}")
+            runs.add(play)
             continue
-        lines.extend(f"UNRESOLVED {play} {where}" for where in inputs.unresolved)
+        if inputs.unresolved:
+            unresolved[play] = list(inputs.unresolved)
 
-    for line in lines:
-        stdout.write(f"{line}\n")
+    try:
+        gone, successors = _retire(gone, latest=latest, repo_root=repo_root,
+                                   retired_plays=retired_plays, tracked_at=tracked_at)
+    except Exception as error:
+        stderr.write(f"changed-plays: cannot judge the removed plays against the retired-plays map: {error}\n")
+        return EXIT_NO_ANSWER
+    runs |= successors
+
+    for play in sorted(runs | set(gone) | set(unresolved), key=run_order):
+        if play in runs:
+            stdout.write(f"RUN {play}\n")
+        elif play in gone:
+            stdout.write(f"GONE {play}\n")
+        else:
+            stdout.writelines(f"UNRESOLVED {play} {where}\n" for where in unresolved[play])
     return EXIT_OK
+
+
+def _retire(
+    gone: list[str],
+    *,
+    latest: dict[str, dict],
+    repo_root: str,
+    retired_plays: Callable[[str], dict[str, str]],
+    tracked_at: Callable[[str, str, str], bool],
+) -> tuple[list[str], set[str]]:
+    """The GONE plays left once the retired-plays map is applied, and the successors to run.
+
+    A removed play the map names is not GONE: its successor took it over. It needs nothing
+    once the successor's latest run succeeded at a commit without the old play, which is
+    the rule `check_freshness` applies. Until then, running the successor is the catch-up.
+    The map is read only when something is gone, and checked against HEAD in full.
+    """
+    if not gone:
+        return gone, set()
+    mapping = retired_plays(repo_root)
+    retired.validate(mapping, exists_at_head=lambda path: tracked_at(repo_root, "HEAD", path))
+    left: list[str] = []
+    successors: set[str] = set()
+    for play in gone:
+        successor = mapping.get(play)
+        if successor is None:
+            left.append(play)
+            continue
+        record = latest.get(successor)
+        absorbed = (
+            record is not None
+            and record["outcome"] == "ok"
+            and not tracked_at(repo_root, record["commit"], play)
+        )
+        if not absorbed:
+            successors.add(successor)
+    return left, successors
 
 
 def _repo_root_default() -> str:

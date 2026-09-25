@@ -94,7 +94,18 @@ echo "fake sudo: unexpected call: $*" >&2
 exit 97
 EOF
 printf '#!/usr/bin/env bash\necho tester\n' >"$BIN/whoami"
-chmod 755 "$BIN/ansible-playbook" "$BIN/sudo" "$BIN/whoami"
+# git answers `status --porcelain` for the checkout from TEST_DIRTY (empty = clean), and
+# refuses anything else, so a new git call in the --changed path shows up here.
+cat >"$BIN/git" <<'EOF'
+#!/usr/bin/env bash
+if [ "$*" = "-C $TEST_CHECKOUT status --porcelain" ]; then
+    printf '%s' "${TEST_DIRTY:-}"
+    exit "${TEST_GIT_RC:-0}"
+fi
+echo "fake git: unexpected call: $*" >&2
+exit 97
+EOF
+chmod 755 "$BIN/ansible-playbook" "$BIN/sudo" "$BIN/whoami" "$BIN/git"
 
 # run_changed <stdin text> [env assignments...] -- <run.bash args...>
 run_changed() {
@@ -109,7 +120,7 @@ run_changed() {
     : >"$LOG"
     out="$(printf '%b' "$input" | env -u RUN_BASH_HEADLESS -u FEDORA_DESKTOP_PLAY_LOCK_FD \
         HOME="$FAKE_HOME" PATH="$BIN:/usr/bin:/bin" XDG_RUNTIME_DIR="$RUNTIME" \
-        TEST_LOG="$LOG" TEST_LOCK="$LOCK" TEST_MARKERS="$MARKERS" "${assigns[@]}" \
+        TEST_LOG="$LOG" TEST_LOCK="$LOCK" TEST_MARKERS="$MARKERS" TEST_CHECKOUT="$CHECKOUT" "${assigns[@]}" \
         bash "$CHECKOUT/run.bash" "$@" 2>&1)"
     rc=$?
 }
@@ -125,6 +136,17 @@ check "runs both, in the judge's order" "play-a.yml play-b.yml " "$(plays_run)"
 check "each under the play lock" "2" "$(calls | grep -c 'lock=held')"
 check "lists them before asking" "yes" "$(yes_if grep -q "$A" <<<"$out")"
 check "and says it finished" "yes" "$(yes_if grep -q 'All 2 changed play(s) ran' <<<"$out")"
+check "a clean checkout draws no dirty-checkout warning" "no" "$(yes_if grep -q 'uncommitted changes' <<<"$out")"
+
+echo "=== a dirty checkout ==="
+run_changed 'y\n' TEST_DIRTY=" M docs/x.md" -- --changed
+check "exits 0" "0" "$rc"
+check "still runs them" "play-a.yml play-b.yml " "$(plays_run)"
+check "says the checkout has uncommitted changes" "yes" "$(yes_if grep -q 'uncommitted changes' <<<"$out")"
+check "and that these plays will be offered again" "yes" "$(yes_if grep -q 'offer them again' <<<"$out")"
+run_changed 'y\n' TEST_GIT_RC=128 -- --changed
+check "git status failing: refused" "1" "$rc"
+check "and runs nothing" "" "$(plays_run)"
 
 echo "=== declined ==="
 run_changed 'n\n' -- --changed

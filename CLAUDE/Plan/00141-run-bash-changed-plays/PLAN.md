@@ -69,7 +69,7 @@ and the working tree, and asks whether any of them is one of that play's inputs.
 
 ### Phase 3: finish
 
-- [ ] 🔄 **Task 3.1**: Docs (`docs/playbooks.md` or the run.bash doc), `qa-all.bash`, and
+- [x] ✅ **Task 3.1**: Docs (`docs/playbooks.md` or the run.bash doc), `qa-all.bash`, and
   the `qa-reviewer` agent.
 - [ ] ⬜ **Task 3.2**: **HOST**: run `./run.bash --changed` for real, and read what it ran.
 
@@ -78,7 +78,7 @@ and the working tree, and asks whether any of them is one of that play's inputs.
 - [ ] After a commit that changes only a file a play deploys, `--changed` runs that play.
 - [ ] A play whose inputs did not change is not run.
 - [ ] A failed play stops the run, and the exit status is that play's.
-- [ ] `qa-all.bash` passes, and `qa-reviewer` findings are resolved.
+- [x] `qa-all.bash` passes, and `qa-reviewer` findings are resolved.
 
 ## Delivery & Milestones
 
@@ -88,3 +88,4 @@ and the working tree, and asks whether any of them is one of that play's inputs.
 
 - Plan written
 - `changed_plays.py` helper and `run.bash --changed` (1.28.0)
+- Two `qa-reviewer` rounds resolved (eeae9b29, then run.bash 1.28.1)

@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.28.0"
+RUN_BASH_VERSION="1.28.1"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -970,10 +970,13 @@ Fedora Desktop / Server / Cloud Configuration Installer
 
 Options:
   --optional-only      Skip core setup, jump straight to optional playbook menu
-  --changed            Run every play that has run here and whose inputs (its own
-                       file, or anything it deploys) changed since, after one
-                       confirmation. Stops at the first failure. Names any play it
-                       cannot judge, and any that is gone, rather than skip it.
+  --changed            Run every play that has run here and has to run again: its
+                       inputs (its own file, or anything it deploys) changed since,
+                       its last run failed, or that run was from a checkout with
+                       uncommitted changes. Asks once, then runs them in
+                       playbook-main.yml order, optional plays last, and stops at
+                       the first failure. Names any play it cannot judge, and any
+                       that is gone, rather than skip it.
   <playbook>.yml [ansible-playbook args…]
                        Run ONE play from this checkout and exit. Handles sudo for
                        you: NOPASSWD runs bare, password sudo gets Ansible's
@@ -1942,6 +1945,15 @@ if [[ "$CHANGED_PLAYS" == "true" ]]; then
   fi
   echo -e "\n${CYAN}${ARROW}${NC} ${#_changed_run[@]} play(s) changed since they last ran here:"
   printf '     %s\n' "${_changed_run[@]}"
+  # A run from a dirty checkout is recorded as dirty, and the helper offers a dirty run
+  # again because no diff can show what it deployed. Say so now, not on the next run.
+  if ! _changed_dirty="$(git -C "$_play_repo" status --porcelain)"; then
+    fatal "changed plays" "git status failed in ${_play_repo}, so it cannot tell whether this run is from a clean checkout" \
+      "fix the checkout, then run ./run.bash --changed again"
+  fi
+  if [[ -n "$_changed_dirty" ]]; then
+    warning "The checkout has uncommitted changes. These plays will be recorded as run from a dirty checkout, and --changed will offer them again until they run from a clean one."
+  fi
   if ! confirm "Run them now, in this order?" n; then
     exit 0
   fi

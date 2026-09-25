@@ -35,8 +35,17 @@ OPT_A = "playbooks/imports/optional/common/play-a-optional.yml"
 SCRATCH = "untracked/scratch/probe.yml"
 DEV = "playbooks/dev/play-repo-tool.yml"
 
+OLD = "playbooks/imports/play-claude-code.yml"
+
 #: The order playbook-main.yml imports the core plays in, for the stubbed cases.
 MAIN_ORDER = [BASIC, GIT, YOLO]
+
+
+def _retired_history(root: str, commit: str, play: str) -> bool:
+    """OLD was in the tree at COMMIT_A and removed by COMMIT_B; every other play is always there."""
+    if play == OLD:
+        return commit == COMMIT_A
+    return play in INPUTS
 
 
 def _seed(base: str, runs: list[tuple[str, str, str]], *, dirty: frozenset[str] = frozenset()) -> None:
@@ -89,11 +98,14 @@ def _write(root: str, path: str, text: str) -> None:
 
 class _Case(unittest.TestCase):
     def _run(self, base: str, *, changed: dict[str, list[str]], present=None, tracked=None,
-             diff_error: Exception | None = None, main_order: list[str] | None = None):
+             diff_error: Exception | None = None, main_order: list[str] | None = None,
+             tracked_at=None, retired: dict[str, str] | None = None):
         """changed: commit -> paths changed from it to the working tree."""
         present = set(INPUTS) if present is None else present
         tracked = set(INPUTS) if tracked is None else tracked
         order = MAIN_ORDER if main_order is None else main_order
+        tracked_at = tracked_at or (lambda root, commit, play: play in tracked)
+        retired_map = {} if retired is None else retired
         self.diffs: list[str] = []
 
         def changed_since(root: str, commit: str) -> list[str]:
@@ -107,9 +119,10 @@ class _Case(unittest.TestCase):
             base=base, repo_root="/repo", stdout=out, stderr=err,
             changed_since=changed_since,
             exists_now=lambda root, play: play in present,
-            tracked_at=lambda root, commit, play: play in tracked,
+            tracked_at=tracked_at,
             inputs_of=lambda root, play: INPUTS[play],
             main_order=lambda root: order,
+            retired_plays=lambda root: retired_map,
         )
         return code, out.getvalue(), err.getvalue()
 
@@ -215,6 +228,37 @@ class TestNamedNotRun(_Case):
             code, out, _ = self._run(base, changed={COMMIT_A: [SCRATCH]}, present={SCRATCH})
             self.assertEqual((code, out), (changed_plays.EXIT_OK, ""))
 
+    def test_a_retired_play_its_successor_has_absorbed_is_not_mentioned(self) -> None:
+        """The successor ran, successfully, at a commit that no longer has the old play."""
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(OLD, COMMIT_A, "ok"), (YOLO, COMMIT_B, "ok")])
+            code, out, _ = self._run(base, changed={COMMIT_B: []}, present=set(INPUTS),
+                                     tracked_at=_retired_history, retired={OLD: YOLO})
+            self.assertEqual((code, out), (changed_plays.EXIT_OK, ""))
+
+    def test_a_retired_play_runs_its_successor_until_absorbed(self) -> None:
+        """Not GONE on every run for ever: the successor is what takes it over."""
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(OLD, COMMIT_A, "ok"), (YOLO, COMMIT_A, "ok")])
+            _, out, _ = self._run(base, changed={COMMIT_A: []}, present=set(INPUTS),
+                                  tracked_at=_retired_history, retired={OLD: YOLO})
+            self.assertEqual(out, f"RUN {YOLO}\n")
+
+    def test_a_retired_play_whose_successor_never_ran_here_runs_the_successor(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(OLD, COMMIT_A, "ok"), (BASIC, COMMIT_A, "ok")])
+            _, out, _ = self._run(base, changed={COMMIT_A: []}, present=set(INPUTS),
+                                  tracked_at=_retired_history, retired={OLD: YOLO})
+            self.assertEqual(out, f"RUN {YOLO}\n")
+
+    def test_a_retired_map_that_disagrees_with_head_answers_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(OLD, COMMIT_A, "ok")])
+            code, out, err = self._run(base, changed={}, present=set(INPUTS),
+                                       tracked_at=_retired_history, retired={OLD: "playbooks/imports/play-nope.yml"})
+            self.assertEqual((code, out), (changed_plays.EXIT_NO_ANSWER, ""))
+            self.assertIn("play-nope.yml", err)
+
     def test_a_dev_play_is_not_offered(self) -> None:
         """playbooks/dev/ works on the repo, not the host, so it is never a host catch-up."""
         with tempfile.TemporaryDirectory() as base:
@@ -272,9 +316,38 @@ class TestMainOrder(unittest.TestCase):
             self.assertEqual(changed_plays.main_order(root),
                              ["playbooks/imports/play-b.yml", "playbooks/imports/play-a.yml"])
 
+    def test_a_trailing_comment_and_the_long_module_name_are_read(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            _write(root, changed_plays.MAIN_PLAYBOOK,
+                   "- import_playbook: imports/play-b.yml  # why it is here\n"
+                   "- ansible.builtin.import_playbook: imports/play-a.yml\n")
+            self.assertEqual(changed_plays.main_order(root),
+                             ["playbooks/imports/play-b.yml", "playbooks/imports/play-a.yml"])
+
+    def test_an_import_line_it_cannot_read_raises_rather_than_reorder(self) -> None:
+        """A play dropped from the order would run after play-ZZ-repo-cleanup, silently."""
+        with tempfile.TemporaryDirectory() as root:
+            _write(root, changed_plays.MAIN_PLAYBOOK,
+                   "- import_playbook: imports/play-b.yml\n"
+                   "- import_playbook: \"{{ somewhere }}/play-a.yml\" extra\n")
+            with self.assertRaises(ValueError) as caught:
+                changed_plays.main_order(root)
+            self.assertIn("play-a.yml", str(caught.exception))
+
     def test_a_missing_main_playbook_raises(self) -> None:
         with tempfile.TemporaryDirectory() as root, self.assertRaises(OSError):
             changed_plays.main_order(root)
+
+    def test_the_real_main_playbook_is_read_whole(self) -> None:
+        """Every import line in this checkout's playbook-main.yml, each naming a real play."""
+        repo_root = os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        with open(os.path.join(repo_root, changed_plays.MAIN_PLAYBOOK), encoding="utf-8") as handle:
+            imports = [line for line in handle if "import_playbook" in line.split("#", 1)[0]]
+        order = changed_plays.main_order(repo_root)
+        self.assertEqual(len(order), len(imports))
+        self.assertEqual(order[-1], "playbooks/imports/play-ZZ-repo-cleanup.yml")
+        for play in order:
+            self.assertTrue(os.path.isfile(os.path.join(repo_root, play)), play)
 
 
 class TestRealGit(unittest.TestCase):
@@ -327,6 +400,17 @@ class TestRealGit(unittest.TestCase):
             with mock.patch.dict(os.environ, env, clear=True), contextlib.redirect_stdout(out):
                 code = changed_plays.main(["--repo-root", root])
             self.assertEqual((code, out.getvalue()), (changed_plays.EXIT_OK, "RUN playbooks/imports/play-one.yml\n"))
+
+            # Both changed: they come out in playbook-main.yml's order, not by name.
+            _write(root, "files/home/two.conf", "v2\n")
+            out = io.StringIO()
+            with mock.patch.dict(os.environ, env, clear=True), contextlib.redirect_stdout(out):
+                code = changed_plays.main(["--repo-root", root])
+            self.assertEqual(
+                (code, out.getvalue()),
+                (changed_plays.EXIT_OK,
+                 "RUN playbooks/imports/play-two.yml\nRUN playbooks/imports/play-one.yml\n"),
+            )
 
 
 if __name__ == "__main__":
