@@ -172,19 +172,21 @@ out.
 
 ### Phase 5: sign with the login keys (D5)
 
-- [ ] 🔄 **Task 5.1**: The desktop signs with `~/.ssh/id` by default and with
+- [x] ✅ **Task 5.1**: The desktop signs with `~/.ssh/id` by default and with
   `github_<alias>` in each account's repositories. `play-git-configure-and-tools.yml`
   generates no key and asserts `~/.ssh/id` is there. `helpers/github_signing` registers
   the login keys' public halves as signing keys: each account's on that account, `id.pub`
-  on the account that has `user_email` verified.
-- [ ] ⬜ **Task 5.2**: ccy signs with the session's primary SSH identity, through the
+  on the account that has `user_email` verified. Helper suite red, then green.
+- [x] ✅ **Task 5.2**: ccy signs with the session's primary SSH identity, through the
   container's agent. With a forwarded agent only, it uses the public half of the key git
   picks for the project, provided the agent holds it. Signing that is on with no usable
-  key still refuses the launch. No private key is staged.
-- [ ] ⬜ **Task 5.3**: Retire the old keys, after the new ones are registered and picked.
+  key still refuses the launch. No private key is staged. `scripts/test-ccy-git-signing.bash`
+  red against the old launcher, then green, with a real passphrase key in a test agent.
+- [x] ✅ **Task 5.3**: Retire the old keys, after the new ones are registered and picked.
   `helpers/github_signing` deletes the `github_<alias>_signing` and
-  `id_ed25519_git_signing` registrations on GitHub; the play removes the files.
-- [ ] ⬜ **Task 5.4**: Acceptance, docs, the self-update server key (now `id.pub`), CCY
+  `id_ed25519_git_signing` registrations on GitHub; the play removes the files. It refuses
+  to delete a key that is still in use (`TestRetire`).
+- [ ] 🔄 **Task 5.4**: Acceptance, docs, the self-update server key (now `id.pub`), CCY
   version, tests, `qa-all.bash`, then the `qa-reviewer` agent.
 - [ ] ⬜ **HOST (owner, at a desk)**: `./CLAUDE/Plan/meta-deploy.bash`
 
