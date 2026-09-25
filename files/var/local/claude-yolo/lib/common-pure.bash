@@ -58,6 +58,7 @@ CCY_PROMPT_NETWORK_PICK="Select [0-"
 CCY_PROMPT_NETWORK_SELECT="Select network ["
 CCY_PROMPT_NETWORK_CONTAINER="Select container ["
 CCY_PROMPT_NETWORK_ENGINE_CONFLICT="Select option [1-4]:"
+CCY_PROMPT_RELABEL_FIX="Give them to you now? sudo asks for your password. [y/N]"
 CCY_PROMPT_NETWORK_PRUNE="Choose cleanup method [a/b]:"
 CCY_PROMPT_COMPOSE_START="Start services with"
 CCY_PROMPT_COMPOSE_START_SAVED="Start compose services?"
@@ -88,6 +89,7 @@ ccy_known_prompts() {
         network-select "$CCY_PROMPT_NETWORK_SELECT" \
         network-container "$CCY_PROMPT_NETWORK_CONTAINER" \
         network-engine-conflict "$CCY_PROMPT_NETWORK_ENGINE_CONFLICT" \
+        relabel-fix "$CCY_PROMPT_RELABEL_FIX" \
         network-prune "$CCY_PROMPT_NETWORK_PRUNE" \
         compose-start "$CCY_PROMPT_COMPOSE_START" \
         compose-start-saved "$CCY_PROMPT_COMPOSE_START_SAVED" \
@@ -159,6 +161,43 @@ selinux_enforcing_verdict() {
         *)     printf 'unknown\n' ;;
     esac
     return 0
+}
+
+# Print, one per line, the find(1) predicates that select an entry whose owner is outside
+# every range of a user-namespace uid map: the entries rootless podman cannot relabel.
+#
+# Rootless podman relabels a `:z` bind inside its user namespace, where it holds
+# CAP_FOWNER only over the uids the namespace maps: yours and your subordinate range. Any
+# other owner (root, typically) makes the relabel fail with EPERM and the container never
+# starts. PURE: the map arrives as text, `/proc/self/uid_map` as read inside
+# `podman unshare`, so every shape is testable (scripts/test-ccy-relabel-preflight.bash).
+#
+# Args:   the uid map, one "<inside> <outside> <count>" line per range
+# Prints: `! ( <range> -o <range> … )`, a range being `-uid N` or `( -uid +LO -uid -HI )`
+# Returns 1, printing nothing, when the map has no range or a line that is not three
+# numbers: an unreadable map must never read as "everyone is foreign".
+relabel_foreign_owner_args() {
+    local line outside count ranges=0
+    local -a preds=('!' '(')
+    while IFS= read -r line; do
+        [ -n "${line//[[:space:]]/}" ] || continue
+        read -r _ outside count _ <<<"$line"
+        if ! [[ "$line" =~ ^[[:space:]]*[0-9]+[[:space:]]+[0-9]+[[:space:]]+[0-9]+[[:space:]]*$ ]]; then
+            return 1
+        fi
+        [ "$ranges" -eq 0 ] || preds+=('-o')
+        if [ "$count" -eq 1 ]; then
+            preds+=('-uid' "$outside")
+        elif [ "$outside" -eq 0 ]; then
+            preds+=('-uid' "-$count")
+        else
+            preds+=('(' '-uid' "+$((outside - 1))" '-uid' "-$((outside + count))" ')')
+        fi
+        ranges=$((ranges + 1))
+    done <<<"$1"
+    [ "$ranges" -gt 0 ] || return 1
+    preds+=(')')
+    printf '%s\n' "${preds[@]}"
 }
 
 # Emit the `--device` flags that hand the container the host's GPU render nodes, or nothing.

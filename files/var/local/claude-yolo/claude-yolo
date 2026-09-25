@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.68.0"  # The container signs through an ssh-agent with the session's key. See docs/ccy-changelog.md.
+CCY_VERSION="3.70.0"  # The container signs through an ssh-agent with the session's key. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,7 +70,7 @@ source "$SCRIPT_DIR/lib/tmux-session.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.37"
+REQUIRED_CONTAINER_VERSION="2.38"
 
 set -e
 
@@ -1049,7 +1049,13 @@ ccy_selinux_mode
 # This sets: SSH_MOUNTS, SSH_KEY_PATHS, GITHUB_USERNAME, GH_TOKEN
 build_ssh_mounts_and_validate "ccy" || exit 1
 
-if [ "${CCY_SELINUX_MODE:-off}" != "off" ]; then
+# A forwarded agent runs the container with SELinux labelling disabled, so it is
+# unconfined: nothing it reads needs a relabel, and none is asked for.
+if [ "${SSH_AGENT_FORWARDED:-0}" = "1" ]; then
+    CCY_MOUNT_RELABEL=""
+fi
+
+if [ -n "$CCY_MOUNT_RELABEL" ]; then
     echo ""
     echo "🔒 SELinux ${CCY_SELINUX_MODE}: the workspace is mounted with a shared relabel (:z) and"
     echo "   key files are staged into a private tmpfs directory (:Z) so the container can read"
@@ -2084,7 +2090,9 @@ fi
 # On an SELinux-enforcing host container_t may not read user_home_t (a permissive
 # one logs every such read), so the workspace carries the shared relabel (`:z`)
 # and the per-session config import the private one; both are empty when the
-# verdict is off (ccy_selinux_mode).
+# verdict is off (ccy_selinux_mode). An entry podman may not relabel would fail the
+# container on start, so it is found, explained and offered a fix first.
+workspace_relabel_preflight "$PWD" || exit 1
 DOCKER_MOUNTS=(
     -v "$PWD:/workspace${CCY_MOUNT_RELABEL:+:$CCY_MOUNT_RELABEL}"
     -v "$CONFIG_TEMP:/tmp/claude-config-import:ro${CCY_MOUNT_RELABEL:+,Z}"

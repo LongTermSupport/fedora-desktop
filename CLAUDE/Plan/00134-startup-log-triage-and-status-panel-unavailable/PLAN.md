@@ -138,6 +138,10 @@ containers that needs its own diagnosis (F7).
   as `enforcing` does (`scripts/test-ccy-selinux-verdict.bash`, RED then GREEN). HOST
   pending: deploy `play-claude-yolo.yml`, restart the sessions, then the next boot's
   `ausearch` count for `container_t` falls to the unrelabelled remainder.
+  The relabel stopped ccy starting in a project with a root-owned entry (journal 26-09-25
+  12:02). CCY 3.68.0 finds such entries before podman does, explains them, and offers the
+  fix (y/N). HOST pending: deploy `play-claude-yolo.yml` (in meta-deploy), then start
+  ccy in that project.
 - [x] ✅ **Task 3.2**: Docker 29 nftables backend vs `lxc-docker-user-iptables-reconcile`
   — verify whether the `DOCKER-USER` iptables chain the reconcile script edits is
   consulted at all with the nftables backend; if not, that script's egress rules are

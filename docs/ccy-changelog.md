@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.68.0
+## 3.70.0
 
 - **The container signs with the session's own SSH key, through an ssh-agent** (Plan 00139
   D5). The login keys now sign, so no private key is copied in for signing any more. A
@@ -27,6 +27,53 @@ Two version numbers move independently — see
   holds is refused, and the refusal says how to load it.
 - **`--no-ssh` with signing on is refused.** The session has no key to sign with, and
   every commit it made would fail.
+
+## 3.69.1
+
+- **The relabel check no longer stops launches that podman would have started.**
+  - A directory you cannot open, owned by one of your container uids (a container's data
+    directory, say), made `find` fail and the launch stop. Such a directory is now passed
+    over, because podman can open it from inside its user namespace. One owned by anyone
+    else is still listed.
+  - A warning podman printed was read as part of its uid map, which then looked unreadable.
+    Only podman's output is parsed now; its warnings reach the terminal.
+- **A walk that did not finish now stops the launch**, before the fix as well as after it.
+  Previously an incomplete walk was counted as complete, and could be followed by "now
+  yours".
+- **A session with a forwarded agent is not relabelled.** It runs with SELinux labelling
+  disabled, so nothing it reads needs the label, and the relabel check does not run.
+- **The test runs as any user.** It no longer chowns fixtures, which needed root and turned CI
+  red. A stub uid map decides which entries count as foreign.
+
+## 3.69.0 — container 2.38
+
+- **Each browser command allows one open session at a time** (Plan 00140). Every
+  agent-browser session name is a separate browser: four names gave four Chromiums,
+  about 14 processes each. Agents followed upstream's advice to start a named session
+  per task, and bare `close` shut only one, so browsers piled up. The idle reaper could
+  not stop this, because each new session starts its own timer. The three wrappers now
+  go through `agent-browser-session-guard`. It refuses (exit 3) a command that would
+  start another session while one is open, and names the open session to reuse or
+  close. Reusing a session and commands that start no browser (`close`, `session`,
+  `skills`, `--help`, ...) are never refused. A project that needs two at once sets
+  `CCY_BROWSER_MAX_SESSIONS` in its `ccy.env`.
+- **`agent-browser-headless --headed true` no longer opens a window.** The CLI takes the
+  last copy of a repeated flag (measured for `--session`, `--namespace` and `--headed`),
+  so a caller's own copy overrode the wrapper's. The Dockerfile said the opposite. The
+  commands now refuse (exit 2) a copy of any flag they set themselves.
+- **The browsing skill has agents name their session on every command** and close it by
+  name, rather than `close --all`, which also closed other agents' sessions.
+
+## 3.68.0
+
+- **A project podman cannot relabel is explained, and a fix is offered.** Since 3.65.0 a
+  Permissive host relabels the workspace (`:z`). Rootless podman then fails on the first
+  entry owned outside your user namespace, often a root-owned leftover of a `sudo` run.
+  It exited 126 with only `lsetxattr … operation not permitted`, so ccy could not start in
+  that project. The launch now finds those entries first and names each with its owner.
+  It prints the command that lists them and the `sudo chown` that fixes them, and asks
+  (y/N) whether to run that fix now. See
+  [SELinux-enforcing hosts](ccy.md#selinux-enforcing-hosts).
 
 ## 3.67.4
 

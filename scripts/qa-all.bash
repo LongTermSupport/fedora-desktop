@@ -407,6 +407,20 @@ fi
 git_signing_summary=$(qa_gate_case_count "$git_signing_out")
 qa_pass_line ccy-git-signing "$git_signing_summary"
 
+# The browser session cap behind the three ccy browser commands (Plan 00140, CCY 3.69.0).
+# Every agent-browser session name is its own browser, and agents started a new one per
+# task, so the guard refuses to start another while one is open. A fake agent-browser
+# stands in for the real one: no browser, no daemon. The suite also checks that the
+# Dockerfile routes all three wrappers through the guard and that the play stages it.
+browser_guard_out=""
+if ! browser_guard_out="$(bash "$SCRIPT_DIR/test-agent-browser-session-guard.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-browser-session-guard \
+        "ccy browser session guard unit tests failed" \
+        "$browser_guard_out"
+fi
+browser_guard_summary=$(qa_gate_case_count "$browser_guard_out")
+qa_pass_line ccy-browser-session-guard "$browser_guard_summary"
+
 # gh-scope-outside-ssot (Defence Before Fix; CLAUDE/QA.md). A GitHub OAuth scope named
 # anywhere but vars/github-required-scopes.yml and helpers/github_scopes/ is a second copy
 # that drifts, and the owner then authorises GitHub more than once.
@@ -433,6 +447,18 @@ if ! selinux_verdict_out="$(bash "$SCRIPT_DIR/test-ccy-selinux-verdict.bash" 2>&
 fi
 selinux_verdict_summary=$(qa_gate_case_count "$selinux_verdict_out")
 qa_pass_line ccy-selinux-verdict "$selinux_verdict_summary"
+
+# workspace_relabel_preflight (CCY 3.68.0): one root-owned entry in a project made rootless
+# podman refuse the container while relabelling it (lsetxattr, exit 126). Driven with files
+# chowned outside a stub uid map, on a pseudo-terminal that answers the fix prompt.
+relabel_preflight_out=""
+if ! relabel_preflight_out="$(bash "$SCRIPT_DIR/test-ccy-relabel-preflight.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-relabel-preflight \
+        "ccy relabel-preflight tests failed" \
+        "$relabel_preflight_out"
+fi
+relabel_preflight_summary=$(qa_gate_case_count "$relabel_preflight_out")
+qa_pass_line ccy-relabel-preflight "$relabel_preflight_summary"
 
 # gpu_device_flags (Plan 00120): the GPU device is handed to the container only where the host
 # has /dev/dri; a headless server used to abort the run. Driven with a present directory, an

@@ -489,29 +489,33 @@ ccy --create-token
 cd ~/Projects/my-project
 ccy
 
-# Inside CCY — cheap engine for content. Close in the same chain: the daemon
-# persists between calls, so a session you do not close outlives the task.
-agent-browser-lite-headless open https://example.com \
-  && agent-browser-lite-headless get text body \
-  && agent-browser-lite-headless close --all
+# Inside CCY — cheap engine for content. Name the session on every command and
+# close it in the same chain: the daemon persists between calls, so a session
+# you do not close outlives the task.
+agent-browser-lite-headless --session docs open https://example.com \
+  && agent-browser-lite-headless --session docs get text body \
+  && agent-browser-lite-headless --session docs close
 
 # Full Chromium while you watch — a headed session is a real window on the
 # desktop, so the close is not optional.
-agent-browser-headed open https://example.com
-agent-browser-headed snapshot -i         # Get @refs for elements
-agent-browser-headed click @e5           # Click using reference
-agent-browser-headed fill @e3 "test"     # Fill form fields
-agent-browser-headed screenshot /tmp/page.png
-agent-browser-headed close --all         # Every session, every time
+agent-browser-headed --session ui open https://example.com
+agent-browser-headed --session ui snapshot -i        # Get @refs for elements
+agent-browser-headed --session ui click @e5          # Click using reference
+agent-browser-headed --session ui fill @e3 "test"    # Fill form fields
+agent-browser-headed --session ui screenshot /tmp/page.png
+agent-browser-headed --session ui close              # Close what you opened, every time
 
 # Same Chromium, no window, for unattended visual work
-agent-browser-headless open https://example.com && agent-browser-headless screenshot /tmp/page.png \
-  && agent-browser-headless close --all
+agent-browser-headless --session shot open https://example.com \
+  && agent-browser-headless --session shot screenshot /tmp/page.png \
+  && agent-browser-headless --session shot close
 ```
 
 A forgotten session is reaped by the image's idle timeout after five minutes, down from
 upstream's hour; see `AGENT_BROWSER_IDLE_TIMEOUT_MS` in [ccy.md](ccy.md#per-project-configuration).
-That is the safety net for a crashed agent, not a substitute for closing.
+That is the safety net for a crashed agent, not a substitute for closing. Each command also
+allows only one open session at a time and refuses a second; see
+[One open session per browser command](ccy.md#one-open-session-per-browser-command).
 
 **Token efficiency example**:
 
