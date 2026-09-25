@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.27.0"
+RUN_BASH_VERSION="1.27.1"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -2524,14 +2524,15 @@ choose_primary_gh_account(){
 import json, sys
 for account in json.load(sys.stdin).get("hosts", {}).get("github.com", []):
     if account.get("state") == "success":
-        print(account["login"], "active" if account.get("active") else "-")
+        print(account["login"], "active" if account.get("active") else "-", sep="\t")
 ' 2>&1)"; then
     fatal "GitHub accounts" "could not read gh auth status" "python said: ${accounts}"
   fi
 
   local -a logins=()
   local login flag active=""
-  while read -r login flag; do
+  # IFS set here: main's IFS ($'\n\t') has no space, and a login cannot hold a tab.
+  while IFS=$'\t' read -r login flag; do
     [[ -n "$login" ]] || continue
     logins+=("$login")
     if [[ "$flag" == "active" ]]; then

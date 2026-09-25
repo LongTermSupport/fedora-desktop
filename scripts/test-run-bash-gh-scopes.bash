@@ -250,12 +250,14 @@ status_json() {
     printf ']}}\n'
 }
 # primary_case <stdin> [headless]: run the chooser; PRIMARY, RC, OUT and SWITCHES result.
+# With main's IFS ($'\n\t'), under which a read split on spaces took "alice -" as one login.
 primary_home="$work/primary-home"
 mkdir -p "$primary_home"
 primary_case() {
     rm -f "$STUB_DIR/switch.log"
     OUT="$(printf '%b' "$1" | HOME="$primary_home" HEADLESS="${2:-false}" bash -c '
         source "$1"
+        IFS=$'"'"'\n\t'"'"'
         choose_primary_gh_account
         printf "PRIMARY=%s\n" "$primary_gh_username"' _ "$work/run-fn.bash" 2>&1)"
     RC=$?

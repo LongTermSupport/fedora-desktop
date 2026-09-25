@@ -15,6 +15,12 @@ the index, not the record.
 
 ---
 
+## 1.27.1 — the primary-account list reads each login whole (Plan 00139)
+
+1.27.0 split each account line on a space, but `main` sets `IFS` to newline and tab, so a
+login was read as `<login> -` and switching to it failed. The lines are now tab-separated
+and read with an explicit tab `IFS`. The test runs the chooser under `main`'s `IFS`.
+
 ## 1.27.0 — with several GitHub accounts logged in, the owner picks the primary one (Plan 00139)
 
 The primary account, whose `<account>/fedora-desktop-config` holds the machine's saved
