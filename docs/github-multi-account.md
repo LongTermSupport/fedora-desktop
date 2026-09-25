@@ -15,9 +15,9 @@ correct identity automatically per repository.
 There are two moving parts and they have **distinct jobs**. Understanding the
 split is the key to not getting confused:
 
-| Component                                     | Responsibility                                                                                                                                                                                                        |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `scripts/gh-account-setup.bash`               | **Authentication.** Logs each account into `gh` **with the required OAuth scopes**, generates the SSH key, uploads the public key to GitHub, and verifies SSH access.                                                 |
+| Component                                     | Responsibility                                                                                                                                                                                                                                                                                                                      |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scripts/gh-account-setup.bash`               | **Authentication.** Logs each account into `gh` **with the required OAuth scopes**, generates the SSH key, uploads the public key to GitHub, and verifies SSH access.                                                                                                                                                               |
 | `playbooks/imports/play-github-cli-multi.yml` | **Deployment.** Audits scopes, ensures SSH keys exist, gives each account a commit-signing key and registers it ([Commit Signing](configuration.md#commit-signing)), writes the `~/.ssh/config` host-alias blocks, and regenerates the `git-<alias>` / `gh-<alias>` / `clone-<alias>` shell helper functions from the account list. |
 
 The `github_accounts` dict in `localhost.yml` is the **single source of truth**.
@@ -178,16 +178,16 @@ Verify every configured account is authenticated, scoped, keyed, and reachable
 
 ## Configuration Files
 
-| Purpose         | Path                                                                     |
-| --------------- | ------------------------------------------------------------------------ |
-| Account list    | `environment/localhost/host_vars/localhost.yml` → `github_accounts`      |
-| SSH private key | `~/.ssh/github_<alias>`                                                  |
-| SSH public key  | `~/.ssh/github_<alias>.pub`                                              |
-| SSH host alias  | `~/.ssh/config` (one `Host github.com-<alias>` block each)               |
+| Purpose         | Path                                                                       |
+| --------------- | -------------------------------------------------------------------------- |
+| Account list    | `environment/localhost/host_vars/localhost.yml` → `github_accounts`        |
+| SSH private key | `~/.ssh/github_<alias>`                                                    |
+| SSH public key  | `~/.ssh/github_<alias>.pub`                                                |
+| SSH host alias  | `~/.ssh/config` (one `Host github.com-<alias>` block each)                 |
 | Signing key     | `~/.ssh/github_<alias>_signing` (no passphrase; registered on the account) |
-| Signing choice  | `~/.config/git/github-signing.gitconfig`, included from `~/.gitconfig`   |
-| Shell functions | `~/.bashrc-includes/gh-aliases.inc.bash` (regenerated each playbook run) |
-| Helper config   | `~/.config/git-account-helper/accounts.json`                             |
+| Signing choice  | `~/.config/git/github-signing.gitconfig`, included from `~/.gitconfig`     |
+| Shell functions | `~/.bashrc-includes/gh-aliases.inc.bash` (regenerated each playbook run)   |
+| Helper config   | `~/.config/git-account-helper/accounts.json`                               |
 
 ## Removing an Account
 
@@ -220,12 +220,13 @@ github-ssh-443 auto && eval "$(github-ssh-443 env)"
 
 ## Troubleshooting
 
-| Symptom                                              | Cause / Fix                                                                                                                                                           |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Playbook fails: *"missing required OAuth scopes"*    | Account was logged in without the right scopes. Re-run `./scripts/gh-account-setup.bash --add=<alias>:<user>` (or `--setup-all`).                                     |
-| Playbook fails: *"vault passphrase does not unlock"* | The existing `~/.ssh/github_<alias>` has a different passphrase. Delete it and re-run: `rm ~/.ssh/github_<alias>*`.                                                   |
-| SSH verify fails despite key installed on GitHub     | Almost always passphrase-related. Diagnose: `ssh-keygen -y -P "$(cat /tmp/.github_ssh_pp)" -f ~/.ssh/github_<alias>`.                                                 |
-| Commits attributed to the wrong account              | Run `git-which-account` in the repo; use `git-<alias>` to force the right identity, or fix the remote to `git@github.com-<alias>:owner/repo.git`.                     |
-| HTTPS push 403: *"denied to <other-account>"*        | Plain `git` over an `https://` remote uses the **active** gh account. `git-<alias>` covers HTTPS too: it asks gh for that account's token without switching accounts. |
-| `gh auth login` opened the wrong browser profile     | Open a **new** terminal (sources `/etc/profile.d/gh-multi-profile.sh`, which prints the device-code URL instead of guessing a browser), then re-run the setup script. |
-| SSH hangs / times out on `git@github.com` (port 22)  | Network firewalls port 22. Enable SSH over 443 — see [GitHub SSH over Port 443](github-ssh-over-443.md).                                                              |
+| Symptom                                              | Cause / Fix                                                                                                                                                                                                        |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Playbook fails: *"missing required OAuth scopes"*    | Account was logged in without the right scopes. Re-run `./scripts/gh-account-setup.bash --add=<alias>:<user>` (or `--setup-all`).                                                                                  |
+| Playbook fails: *"vault passphrase does not unlock"* | The existing `~/.ssh/github_<alias>` has a different passphrase. Delete it and re-run: `rm ~/.ssh/github_<alias>*`.                                                                                                |
+| SSH verify fails despite key installed on GitHub     | Almost always passphrase-related. Diagnose: `ssh-keygen -y -P "$(cat /tmp/.github_ssh_pp)" -f ~/.ssh/github_<alias>`.                                                                                              |
+| `ssh -T github.com-<alias>` greets another account   | Another block in `~/.ssh/config` or `/etc/ssh/ssh_config.d/` also matches the alias and adds its key; agent keys are offered first. `ssh -G github.com-<alias>` lists every `identityfile`. The play refuses this. |
+| Commits attributed to the wrong account              | Run `git-which-account` in the repo; use `git-<alias>` to force the right identity, or fix the remote to `git@github.com-<alias>:owner/repo.git`.                                                                  |
+| HTTPS push 403: *"denied to <other-account>"*        | Plain `git` over an `https://` remote uses the **active** gh account. `git-<alias>` covers HTTPS too: it asks gh for that account's token without switching accounts.                                              |
+| `gh auth login` opened the wrong browser profile     | Open a **new** terminal (sources `/etc/profile.d/gh-multi-profile.sh`, which prints the device-code URL instead of guessing a browser), then re-run the setup script.                                              |
+| SSH hangs / times out on `git@github.com` (port 22)  | Network firewalls port 22. Enable SSH over 443 — see [GitHub SSH over Port 443](github-ssh-over-443.md).                                                                                                           |

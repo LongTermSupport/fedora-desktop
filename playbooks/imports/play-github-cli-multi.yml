@@ -415,8 +415,16 @@
             marker: "# {mark} ANSIBLE MANAGED: GitHub default"
             # HostName/Port stay github.com:22; the github443 override block at the
             # top of the file reroutes to ssh.github.com:443 when 443 is enabled.
+            #
+            # Match originalhost, not Host: it matches only when github.com is the name
+            # given to ssh. Fedora's ssh_config.d/50-redhat.conf holds `Match final all`,
+            # which makes OpenSSH read the config again after resolving the host name, and
+            # every github.com-<alias> resolves to github.com. A `Host github.com` block
+            # then matched on that second pass, and because IdentityFile accumulates it
+            # added ~/.ssh/id to every alias. Held in the agent, ~/.ssh/id was offered
+            # first, so every alias authenticated as the account owning ~/.ssh/id.
             block: |
-              Host github.com
+              Match originalhost github.com
                   HostName github.com
                   Port 22
                   User git
@@ -571,6 +579,42 @@
                 # then re-run this playbook
             success_msg: "{{ item.item.key }} -> {{ item.item.value }} OK"
           loop: "{{ ssh_test.results }}"
+          loop_control:
+            label: "{{ item.item.key }}"
+
+        # The test above bypasses ~/.ssh/config, so it proves each key is on the right
+        # account but not that git, which reads the config, uses that key. OpenSSH adds
+        # the IdentityFile of every block that matches, and the agent's keys go first,
+        # so any other block matching an alias can make it authenticate as someone else.
+        # `ssh -G` prints what the real config resolves to, with no network.
+        - name: Read the keys the real SSH config offers for each account alias
+          ansible.builtin.command:
+            argv: [ssh, -G, "github.com-{{ item.key }}"]
+          register: ssh_alias_config
+          changed_when: false
+          loop: "{{ github_accounts | default({}) | dict2items }}"
+          loop_control:
+            label: "{{ item.key }}"
+
+        - name: Assert each account alias offers only its own key
+          vars:
+            offered: >-
+              {{ item.stdout_lines | select('match', '^identityfile ')
+                 | map('regex_replace', '^identityfile ', '')
+                 | map('regex_replace', '^/home/' ~ user_login ~ '/', '~/') | list }}
+          ansible.builtin.assert:
+            that:
+              - offered == ['~/.ssh/github_' ~ item.item.key]
+            fail_msg: |
+              github.com-{{ item.item.key }} offers {{ offered | join(', ') }}, not only
+              ~/.ssh/github_{{ item.item.key }}. ssh tries them in turn, agent keys first,
+              and GitHub answers as the owner of the first it accepts, so git through this
+              alias may act as another account. Another block in ~/.ssh/config, or in
+              /etc/ssh/ssh_config.d/, matches this alias: `ssh -G github.com-{{ item.item.key }}`
+              shows what it resolves to. Remove that block's IdentityFile, or narrow its
+              pattern so it does not match github.com-{{ item.item.key }}.
+            success_msg: "github.com-{{ item.item.key }} offers only ~/.ssh/github_{{ item.item.key }}"
+          loop: "{{ ssh_alias_config.results }}"
           loop_control:
             label: "{{ item.item.key }}"
 
@@ -1245,9 +1289,9 @@
               # Only `get` is answered: gh owns the token, git must not store it.
               #
               # The sshCommand from _gh443_sshcmd uses -F /dev/null so ssh cannot
-              # read ~/.ssh/config: its default "Host github.com" block would
-              # offer ~/.ssh/id alongside this key, and GitHub attributes to
-              # whichever matches first. -o HostName=github.com is required with
+              # read ~/.ssh/config: this key is then the only one it offers,
+              # whatever other blocks there match, and GitHub attributes to
+              # whichever key matches first. -o HostName=github.com is required with
               # it, because the github.com-<alias> host alias used by
               # clone-<alias>/remote-<alias> remotes lives only in that config.
               function _gh_account_git() {
