@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.26.0"
+RUN_BASH_VERSION="1.26.1"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -2335,6 +2335,10 @@ if [[ "$(hostname)" == "fedora" ]]; then
   fi
 fi
 
+# The repository is public: every bootstrap that runs before an SSH key is on GitHub
+# clones it over this URL.
+fedora_desktop_https_url="https://github.com/LongTermSupport/fedora-desktop.git"
+
 if [[ "$HEADLESS" == "true" && "$HL_GITHUB_ACCOUNTS" == "none" ]]; then
   # Headless empty-GitHub path (Plan 00082): no GitHub identity is configured, so
   # skip gh install/auth entirely, skip uploading an SSH key (none was generated —
@@ -2347,7 +2351,6 @@ if [[ "$HEADLESS" == "true" && "$HL_GITHUB_ACCOUNTS" == "none" ]]; then
 
   title "Setting up Project Directory and Repository (HTTPS — no GitHub identity)"
   mkdir -p ~/Projects
-  fedora_desktop_https_url="https://github.com/LongTermSupport/fedora-desktop.git"
   if [[ ! -d ~/Projects/fedora-desktop ]]; then
     info "Headless: cloning fedora-desktop over HTTPS (no GitHub identity configured)"
     if ! _clone_out="$(git clone "$fedora_desktop_https_url" ~/Projects/fedora-desktop 2>&1)"; then
@@ -2420,16 +2423,22 @@ fi
 # scripts/gh-account-setup.bash and play-github-cli-multi.yml all ask that helper, so a
 # scope added to the file is asked for everywhere at once, in a single browser flow.
 #
-# gh_scopes_repo — print the checkout that holds the list and the helper. Run from a
+# gh_scopes_repo — print a checkout that holds both the list and the helper. Run from a
 # checkout, that is this script's own directory, so the list is the one this run.bash
-# shipped with. Streamed (the README curl install), there is no checkout yet: the
-# repository is public, so it is cloned over HTTPS here, and the repository step below
-# moves its origin to SSH once the key is on GitHub. stdout is the path; chatter is stderr.
+# shipped with. Streamed (the README curl install), it is ~/Projects/fedora-desktop,
+# cloned over HTTPS if absent; the repository step below moves its origin to SSH once
+# the key is on GitHub. An existing checkout from before the helper existed cannot be
+# pulled yet (that also needs the key), so a shallow HTTPS clone in the cache answers
+# instead, and the repository step brings the checkout up to date. stdout is the path;
+# chatter is stderr.
+gh_scopes_repo_complete() {
+  [[ -f "$1/vars/github-required-scopes.yml" && -f "$1/helpers/github_scopes/cli.py" ]]
+}
 gh_scopes_repo() {
-  local self="${BASH_SOURCE[0]:-}" dir
+  local self="${BASH_SOURCE[0]:-}" dir cache
   if [[ -f "$self" ]]; then
     dir="$(cd "$(dirname "$self")" && pwd -P)"
-    if [[ -f "$dir/vars/github-required-scopes.yml" ]]; then
+    if gh_scopes_repo_complete "$dir"; then
       printf '%s\n' "$dir"
       return 0
     fi
@@ -2438,16 +2447,28 @@ gh_scopes_repo() {
   if [[ ! -d "$dir" ]]; then
     mkdir -p "$HOME/Projects"
     info "Cloning fedora-desktop over HTTPS (public) for its GitHub scope list" >&2
-    if ! git clone "https://github.com/LongTermSupport/fedora-desktop.git" "$dir" >&2; then
+    if ! git clone "$fedora_desktop_https_url" "$dir" >&2; then
       error "Could not clone fedora-desktop over HTTPS" >&2
       return 1
     fi
   fi
-  if [[ ! -f "$dir/vars/github-required-scopes.yml" ]]; then
-    error "$dir has no vars/github-required-scopes.yml" >&2
+  if gh_scopes_repo_complete "$dir"; then
+    printf '%s\n' "$dir"
+    return 0
+  fi
+  cache="${XDG_CACHE_HOME:-$HOME/.cache}/fedora-desktop-scopes"
+  info "$dir predates the GitHub scopes helper; reading the scope list from a fresh clone" >&2
+  rm -rf "$cache"
+  mkdir -p "$(dirname "$cache")"
+  if ! git clone --depth 1 "$fedora_desktop_https_url" "$cache" >&2; then
+    error "Could not clone fedora-desktop over HTTPS" >&2
     return 1
   fi
-  printf '%s\n' "$dir"
+  if ! gh_scopes_repo_complete "$cache"; then
+    error "$cache has no vars/github-required-scopes.yml and helpers/github_scopes" >&2
+    return 1
+  fi
+  printf '%s\n' "$cache"
 }
 
 # gh_request_missing_scopes <repo> <gh command> — make the token that <gh command> uses
@@ -2603,11 +2624,11 @@ completed
 
 title "Setting up Project Directory and Repository"
 mkdir -p ~/Projects
-# Clone via SSH (not HTTPS) so push works without a PAT and so the user's
-# already-configured SSH auth (set up above) is the single auth path. By
-# this point we have: (a) the user's SSH key uploaded to GitHub, and (b)
-# github.com's host keys in ~/.ssh/known_hosts — so `git@github.com:` is
-# guaranteed to work non-interactively.
+# The checkout's origin is SSH (not HTTPS) so push works without a PAT and the user's
+# SSH auth (set up above) is the single auth path. By this point the SSH key is on
+# GitHub and github.com's host keys are in ~/.ssh/known_hosts, so `git@github.com:`
+# works non-interactively. A checkout may already exist, cloned over HTTPS for the scope
+# list or the 443 bootstrap; the pull below moves its origin to SSH.
 fedora_desktop_ssh_url="git@github.com:LongTermSupport/fedora-desktop.git"
 # Headless with RUN_BASH_GITHUB_SSH_443=1: the box cannot reach github.com:22, and the
 # always-on 443 override is normally written by play-github-cli-multi.yml — which runs
@@ -2618,7 +2639,7 @@ fedora_desktop_ssh_url="git@github.com:LongTermSupport/fedora-desktop.git"
 if [[ "$HEADLESS" == "true" && "$HL_GITHUB_SSH_443" == "1" ]]; then
   if [[ ! -d ~/Projects/fedora-desktop ]]; then
     info "Headless 443: bootstrapping the repository over HTTPS (port 22 is not assumed reachable)"
-    git clone "https://github.com/LongTermSupport/fedora-desktop.git" ~/Projects/fedora-desktop
+    git clone "$fedora_desktop_https_url" ~/Projects/fedora-desktop
   fi
   info "Headless 443: applying the ssh.github.com:443 override before any SSH use of GitHub"
   (cd ~/Projects/fedora-desktop && python3 -m helpers.github443.cli on --ssh-dir ~/.ssh --no-teardown)

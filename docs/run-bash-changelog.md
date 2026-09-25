@@ -15,6 +15,14 @@ the index, not the record.
 
 ---
 
+## 1.26.1 — a streamed run on a box with an older checkout still finds the scopes helper (Plan 00139)
+
+A streamed run.bash used `~/Projects/fedora-desktop` when it held the scopes list, even if
+it predated `helpers/github_scopes`, so the run stopped before the pull that would have
+brought the helper in. A checkout now counts only when it holds both. An older one gets
+a shallow HTTPS clone in `~/.cache/fedora-desktop-scopes` for the scope check, and the
+repository step pulls the checkout up to date as before. The HTTPS URL is defined once.
+
 ## 1.26.0 — every required GitHub scope in one authorisation (Plan 00139)
 
 The first `gh auth login` was a bare login, and a separate `auth refresh -s admin:public_key` followed it. Every other scope in `vars/github-required-scopes.yml` then

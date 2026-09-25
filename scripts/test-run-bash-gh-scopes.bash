@@ -34,7 +34,7 @@ extract() {
 }
 
 : >"$work/fn.bash"
-for fn in info success warning error hl_abort fatal gh_scopes_repo gh_request_missing_scopes; do
+for fn in info success warning error hl_abort fatal gh_scopes_repo_complete gh_scopes_repo gh_request_missing_scopes; do
     extract "$RUN_BASH" "$fn"
 done
 cp "$work/fn.bash" "$work/run-fn.bash"
@@ -46,7 +46,8 @@ mv "$work/fn.bash" "$work/setup-fn.bash"
 
 RED='' ; GREEN='' ; YELLOW='' ; CYAN='' ; BOLD='' ; NC='' ; CROSS='x' ; CHECK='v' ; ARROW='>' ; INFO='i' ; WARN='!'
 RUN_BASH_VERSION='test'
-export RED GREEN YELLOW CYAN BOLD NC CROSS CHECK ARROW INFO WARN RUN_BASH_VERSION
+fedora_desktop_https_url="$(awk -F'"' '/^fedora_desktop_https_url=/ { print $2; exit }' "$RUN_BASH")"
+export RED GREEN YELLOW CYAN BOLD NC CROSS CHECK ARROW INFO WARN RUN_BASH_VERSION fedora_desktop_https_url
 
 # ── stubs ─────────────────────────────────────────────────────────────────────
 # gh: `api -i user` answers with the scopes in $STUB_DIR/granted (or, with GH_TOKEN set, in
@@ -73,10 +74,13 @@ esac
 STUB
 cat >"$work/bin/git" <<'STUB'
 #!/usr/bin/env bash
-# `git clone <url> <dir>`: a stand-in checkout holding the real scopes file and helper.
+# `git clone [--depth N] <url> <dir>`: a stand-in checkout holding the real scopes file
+# and helper.
 [ "$1" = clone ] || { echo "unexpected git $*" >&2; exit 99; }
-mkdir -p "$3/vars" && cp -r "$REAL_REPO/vars/github-required-scopes.yml" "$3/vars/" && cp -r "$REAL_REPO/helpers" "$3/"
-printf 'cloned %s\n' "$2" >>"$STUB_DIR/clone.log"
+args=("$@")
+url="${args[-2]}" dir="${args[-1]}"
+mkdir -p "$dir/vars" && cp -r "$REAL_REPO/vars/github-required-scopes.yml" "$dir/vars/" && cp -r "$REAL_REPO/helpers" "$dir/"
+printf 'cloned %s into %s\n' "$url" "$dir" >>"$STUB_DIR/clone.log"
 STUB
 chmod +x "$work/bin/gh" "$work/bin/git"
 STUB_DIR="$work/stub"
@@ -174,9 +178,22 @@ check "no private scope table remains (ghCheckTokenPermission)" "" "$(grep -n 'g
 
 echo "== run.bash: where the scope list comes from"
 fake_home="$work/home-with-checkout"
-mkdir -p "$fake_home/Projects/fedora-desktop/vars"
+mkdir -p "$fake_home/Projects/fedora-desktop/vars" "$fake_home/Projects/fedora-desktop/helpers"
 cp "$REPO_ROOT/vars/github-required-scopes.yml" "$fake_home/Projects/fedora-desktop/vars/"
-check "an existing checkout is used" "$fake_home/Projects/fedora-desktop" "$(scopes_repo_for "$fake_home")"
+cp -r "$REPO_ROOT/helpers/github_scopes" "$fake_home/Projects/fedora-desktop/helpers/"
+rm -f "$STUB_DIR/clone.log"
+check "an existing checkout with the helper is used" "$fake_home/Projects/fedora-desktop" "$(scopes_repo_for "$fake_home")"
+check "and nothing is cloned" "" "$(cat "$STUB_DIR/clone.log" 2>/dev/null)"
+old_home="$work/home-with-old-checkout"
+mkdir -p "$old_home/Projects/fedora-desktop/vars"
+cp "$REPO_ROOT/vars/github-required-scopes.yml" "$old_home/Projects/fedora-desktop/vars/"
+check "a checkout from before the helper is not used; a fresh clone in the cache is" \
+    "$old_home/.cache/fedora-desktop-scopes" "$(XDG_CACHE_HOME="" scopes_repo_for "$old_home")"
+contains "that clone is the public HTTPS URL, into the cache" \
+    "cloned https://github.com/LongTermSupport/fedora-desktop.git into $old_home/.cache/fedora-desktop-scopes" \
+    "$(cat "$STUB_DIR/clone.log" 2>/dev/null)"
+check "and the old checkout is left for the repository step to pull" "absent" \
+    "$([ -e "$old_home/Projects/fedora-desktop/helpers" ] && echo present || echo absent)"
 empty_home="$work/home-empty"
 mkdir -p "$empty_home"
 rm -f "$STUB_DIR/clone.log"
