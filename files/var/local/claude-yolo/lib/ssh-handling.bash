@@ -2,7 +2,7 @@
 # SSH Handling Library
 # Shared SSH key operations for claude-yolo (ccy)
 #
-# Version: 1.6.3 - stage_git_signing_key names the key it staged, and a remedy that runs
+# Version: 1.6.4 - stage_git_signing_key names the key it staged, and a remedy that runs
 #                  (Plan 00139).
 #          1.4.0 - Two identities a box may hold besides a github_<alias> key:
 #                  the project remote's own key, reached through an ssh-config
@@ -1212,10 +1212,17 @@ stage_git_signing_key() {
         case "$origin" in
             file:*)
                 config_file="${origin#file:}"
-                # A relative origin is relative to the repository's top level.
-                if [ "${config_file#/}" = "$config_file" ] &&
-                    top=$(git -C "$project" rev-parse --show-toplevel); then
-                    config_file="$top/$config_file"
+                # A relative origin is relative to the repository's top level or, with no
+                # work tree (a bare repository, or ccy started inside .git), to the git
+                # directory. The failed probe's message is replaced by the next one's.
+                if [ "${config_file#/}" = "$config_file" ]; then
+                    if top=$(git -C "$project" rev-parse --show-toplevel 2>&1); then
+                        config_file="$top/$config_file"
+                    elif top=$(git -C "$project" rev-parse --absolute-git-dir 2>&1); then
+                        config_file="$top/$config_file"
+                    else
+                        echo "    (relative to the git directory of $project: $top)" >&2
+                    fi
                 fi
                 printf '    git config --file %q --unset user.signingkey\n' "$config_file" >&2
                 ;;

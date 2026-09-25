@@ -221,6 +221,17 @@ RC=$?
 refused_by "a project in a subdirectory" "local git config"
 remedy_clears "a project in a subdirectory" "$CASE/repo/.git/config"
 
+# With no work tree (a bare repository, or ccy started inside .git) git names the config
+# relative to the git directory instead.
+new_case bare gpg.format=ssh "user.signingkey=$WORK/bare/home/.ssh/signing" commit.gpgsign=true
+printf 'NOT-A-SIGNING-KEY\n' >"$CASE/home/.ssh/id"
+git init -q --bare "$CASE/repo.git"
+git -C "$CASE/repo.git" config user.signingkey "$CASE/home/.ssh/id"
+OUT="$(case_git stage_git_signing_key "$CASE/stage/gitconfig" "$CASE/stage" "$MOUNT" "$CASE/repo.git" 2>&1)"
+RC=$?
+refused_by "a bare repository" "local git config"
+remedy_clears "a bare repository" "$CASE/repo.git/config"
+
 # git quotes a path like this one in its plain output, so the remedy must not take it
 # from there.
 new_case odd-path gpg.format=ssh "user.signingkey=$WORK/odd-path/home/.ssh/signing" commit.gpgsign=true

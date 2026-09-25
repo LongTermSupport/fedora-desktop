@@ -94,6 +94,9 @@ out.
     ([report](subagent-reports/260925-qa-reviewer-per-account-signing-round3-opus-5.md)).
     All fixed or answered in the journal. The refusal's remedy now runs from a
     subdirectory and for any path (CCY 3.67.3)
+  - [x] ✅ QA review, round 4: PASS, one nit
+    ([report](subagent-reports/260925-qa-reviewer-per-account-signing-round4-opus-5.md)),
+    fixed: the remedy also runs in a bare repository and inside `.git` (CCY 3.67.4)
   - [ ] ⬜ **HOST**: meta-deploy (`CLAUDE/Plan/meta-deploy.bash`, which runs this plan's
     deploy and acceptance). If the token audit stops it, the one command it names
     (`scripts/gh-account-setup.bash --setup-all`) asks each account for everything it

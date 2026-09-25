@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.67.4
+
+- **The refusal's remedy works in a bare repository, and when ccy starts inside `.git`.**
+  With no work tree, git names the config relative to the git directory, so the command
+  named a bare `config` and left the key in place.
+
 ## 3.67.3
 
 - **The refusal's remedy works from a subdirectory, and for any path.** git names the
