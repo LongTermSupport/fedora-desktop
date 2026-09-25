@@ -1,6 +1,6 @@
 # Plan 00140: agent browser sessions leak
 
-**Status**: In Progress
+**Status**: Complete
 **Created**: 2026-09-25
 **Owner**: joseph
 **Priority**: High
@@ -83,9 +83,10 @@ Root cause, measured in-container (full evidence in the journal, 26-09-25):
 - [x] ✅ **Task 3.2**: `./scripts/qa-all.bash`; `qa-reviewer` over the branch diff;
   resolve findings. Round 1 was FIX-BEFORE-MERGE (fixed, Decision 3); round 2 was
   PASS WITH NITS (the nits were fixed).
-- [ ] ⬜ **Task 3.3**: On the HOST, `./deploy.bash` (`play-claude-yolo.yml`, image
+- [x] ✅ **Task 3.3**: On the HOST, `./deploy.bash` (`play-claude-yolo.yml`, image
   rebuild). Then, inside a NEW ccy session, `./acceptance.bash`. On the host it reports
-  COULD NOT ESTABLISH (exit 2), because the browsers exist only in the image.
+  COULD NOT ESTABLISH (exit 2), because the browsers exist only in the image. Deploy
+  passed (`failed=0`); installed-mode acceptance in a new session: 20 of 20, ACCEPTED.
 
 ## Technical Decisions
 
@@ -140,7 +141,7 @@ would share one browser without noticing, and `close --all` closes other agents'
 - [x] A caller cannot override a wrapper-owned flag (`--namespace`, `--headed`, lite's
   `--config`), and a repeated `--session` resolves as the CLI resolves it.
 - [x] `scripts/test-agent-browser-session-guard.bash` passes and runs in `qa-all.bash`.
-- [ ] After the host deploy, `./acceptance.bash` (installed mode) in a fresh ccy
+- [x] After the host deploy, `./acceptance.bash` (installed mode) in a fresh ccy
   container: ACCEPTED with full coverage.
 - [x] QA passes (`./scripts/qa-all.bash`), apart from stages that fail for a documented
   worktree-only reason; `qa-reviewer` findings resolved.
@@ -165,4 +166,4 @@ would share one browser without noticing, and `close --all` closes other agents'
 - `0e0ab5f8` guard, suite, image wiring, CCY 3.67.5 / container 2.38 (renumbered 3.69.0 at the merge into F44, after 3.68.0)
 - `416f81d4` skill and docs
 - `707b2bef` review round 1: wrapper-owned flags refused, named sessions
-- Host deploy passed (Task 3.3); waiting on `./acceptance.bash` inside a new ccy session
+- Host deploy passed and installed-mode acceptance ACCEPTED, 20 of 20 (Task 3.3)

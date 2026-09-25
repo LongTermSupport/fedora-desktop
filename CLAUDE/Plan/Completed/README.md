@@ -14,6 +14,8 @@ Newest first, continuing from [../README.md](../README.md#completed-plans).
      were read as an unrecognised section while their folders were plainly completed —
      sixteen advisories saying so. -->
 
+- [00067-qa-gates-inert-in-nested-checkout](00067-qa-gates-inert-in-nested-checkout/) - QA gates scanned nothing in a nested checkout; exclusions are now anchored to the repo root and each gate exits 2 on an empty file set
+
 - [00060-stderr-hygiene-coding-standard](00060-stderr-hygiene-coding-standard/) - Fixed a `gh-<alias>()` wrapper that echoed status to stdout and shipped `CLAUDE/StderrHygiene.md` as the coding standard
 
 - [00087-gitleaks-generic-key-false-positive](00087-gitleaks-generic-key-false-positive/) - Fixes a gitleaks CI false positive (`generic-api-key` on a "Medium/byteiota" source citation) by rephrasing the flagged text rather than growing `.gitleaks.toml`'s allowlist. Merged (`b15fc4d`).

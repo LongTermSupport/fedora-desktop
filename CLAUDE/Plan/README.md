@@ -34,8 +34,6 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00140-agent-browser-sessions-leak](00140-agent-browser-sessions-leak/) - Agents leave browser sessions running and open new ones, and every session name is its own Chromium. Upstream's skill tells them to make one per task, and bare `close` shuts only one. A guard in the three browser commands refuses a new session while one is live (`CCY_BROWSER_MAX_SESSIONS`, default 1) and names the one to reuse or close.
-
 - [00139-commit-signing-everywhere](00139-commit-signing-everywhere/) - Every commit and tag made on the owner's machine is signed by default, on the host, in `cc` sessions and inside ccy, with one passphrase-less SSH signing key per machine, so GitHub marks them Verified and consumers can require it. The owner overruled Plan 00137's "agents must not sign" design; the self-update gate trusts the machine key. Addresses #4.
 
 - [00136-host-health-report-in-a-terminal](00136-host-health-report-in-a-terminal/) - The host health report becomes a terminal-first surface on both profiles: `fedora-desktop-health` prints it on demand, the login snippet speaks in full once a day and otherwise leaves a one-line reminder, and the GNOME panel gains a row that opens the command in a terminal. Nothing re-runs a play; that remains Plan 00109 Task 4.3.
@@ -174,6 +172,8 @@ Use these Unicode icons in plan documents:
 
 ## Completed Plans
 
+- [00140-agent-browser-sessions-leak](Completed/00140-agent-browser-sessions-leak/) - Agents leave browser sessions running and open new ones, and every session name is its own Chromium. Upstream's skill tells them to make one per task, and bare `close` shuts only one. A guard in the three browser commands refuses a new session while one is live (`CCY_BROWSER_MAX_SESSIONS`, default 1) and names the one to reuse or close.
+
 - [00138-bash-history-and-ctrl-r](Completed/00138-bash-history-and-ctrl-r/) - Bash history is saved at every prompt, timestamped and unlimited in `~/.local/state/bash` (user and root), and Ctrl+R searches every terminal's history, ranking this directory's then this repo's commands first, via a builtins-only recorder (Atuin rejected). Deployed; acceptance 15/15.
 
 - [00130-legacy-plan-scripts-lose-their-last-log-chunk](Completed/00130-legacy-plan-scripts-lose-their-last-log-chunk/) - `PlanWorkflow.md` taught `exec > >(tee "$LOG") 2>&1` and a plan-local `logs/` tree, both forbidden by PlanScriptStandards R4. The doc is fixed, and the ten scripts already written from it were converted and each run to its last line. The one it could not run, 00066's, was moot once that plan was cancelled.
@@ -231,8 +231,6 @@ Use these Unicode icons in plan documents:
 - [00070-documentation-drift-audit](Completed/00070-documentation-drift-audit/) - Fixed 23 confirmed documentation-drift defects and shipped `scripts/qa-docs.bash` as a permanent link and catalogue gate
 
 - [00071-qa-gate-correctness](Completed/00071-qa-gate-correctness/) - Fixed three defects that made `qa-all.bash` exit 1 on a clean tree, and pinned ruff via `/.ruff-version`
-
-- [00067-qa-gates-inert-in-nested-checkout](Completed/00067-qa-gates-inert-in-nested-checkout/) - QA gates scanned nothing in a nested checkout; exclusions are now anchored to the repo root and each gate exits 2 on an empty file set
 
 **Older completed plans** — everything beyond the most recent 30 — are in
 [Completed/README.md](Completed/README.md), moved there verbatim. The retention window
