@@ -165,4 +165,4 @@ would share one browser without noticing, and `close --all` closes other agents'
 - `0e0ab5f8` guard, suite, image wiring, CCY 3.67.5 / container 2.38 (renumbered 3.69.0 at the merge into F44, after 3.68.0)
 - `416f81d4` skill and docs
 - `707b2bef` review round 1: wrapper-owned flags refused, named sessions
-- Waiting on the host deploy (Task 3.3)
+- Host deploy passed (Task 3.3); waiting on `./acceptance.bash` inside a new ccy session
