@@ -50,11 +50,14 @@ Anything after the path (`-vvv`, `--check`, `-e …`) passes straight through.
 `./run.bash <playbook>` is the same thing spelled out.
 
 **To catch up after a pull, run `./run.bash --changed`.** It lists every play that has run
-on this machine and needs to run again, asks once, then runs them in order and stops at
-the first failure. A play needs to run again when its own file, or any file it deploys, has
-changed since the commit it last ran from, or when its last run failed. It also names any
-play it cannot judge (one holding a reference it cannot follow), and any play that is no
-longer in the checkout. It runs neither.
+on this machine and needs to run again, asks once whether to go ahead, then runs them in
+the order `playbook-main.yml` imports them (optional plays last) and stops at the first
+failure. If sudo needs a password, each play asks for it, as it does when run on its own. A
+play needs to run again when its own file, or any file it deploys, has changed since the
+commit it last ran from. It also runs again when its last run failed, or when that run
+came from a checkout with uncommitted changes. It also names any play it cannot judge
+(one holding a reference it cannot follow), and any play that is no longer in the
+checkout. It runs neither.
 
 ```bash
 # Zero-flag default — auto-detects desktop vs. server:

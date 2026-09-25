@@ -18,11 +18,13 @@ the index, not the record.
 ## 1.28.0 — `--changed` runs every play whose inputs changed since it ran here (Plan 00141)
 
 `./run.bash --changed` lists each play that has run on this machine and has to run again,
-asks once, then runs them in order through the single-play runner under one play lock. It
-stops at the first failure with that play's exit status. A play has to run again when any
-of its inputs changed between the commit it last ran from and the working tree, or when
-its last run did not succeed. The inputs are its own file and every checkout file it
-deploys, read by Plan 00137's path-to-play mapper. A play whose references cannot be
+asks once, then runs them through the single-play runner under one play lock. They run in
+the order `playbook-main.yml` imports them, then the optional plays by path. It stops at
+the first failure with that play's exit status. A play has to run again when any of its
+inputs changed between the commit it last ran from and the working tree, when its last
+run did not succeed, or when it ran from a checkout with uncommitted changes. The inputs
+are its own file and every checkout file it deploys, read by Plan 00137's path-to-play
+mapper. Only plays under `playbooks/imports/` count. A play whose references cannot be
 followed is named as one it cannot judge, and a play no longer in the checkout is named
 as gone; neither is run. The helper is `helpers/play_ledger/changed_plays.py`.
 
