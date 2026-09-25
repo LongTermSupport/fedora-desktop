@@ -17,6 +17,23 @@ Two version numbers move independently — see
 
 ---
 
+## 3.69.1
+
+- **The relabel check no longer stops launches that podman would have started.**
+  - A directory you cannot open, owned by one of your container uids (a container's data
+    directory, say), made `find` fail and the launch stop. Such a directory is now passed
+    over, because podman can open it from inside its user namespace. One owned by anyone
+    else is still listed.
+  - A warning podman printed was read as part of its uid map, which then looked unreadable.
+    Only podman's output is parsed now; its warnings reach the terminal.
+- **A walk that did not finish now stops the launch**, before the fix as well as after it.
+  Previously an incomplete walk was counted as complete, and could be followed by "now
+  yours".
+- **A session with a forwarded agent is not relabelled.** It runs with SELinux labelling
+  disabled, so nothing it reads needs the label, and the relabel check does not run.
+- **The test runs as any user.** It no longer chowns fixtures, which needed root and turned CI
+  red. A stub uid map decides which entries count as foreign.
+
 ## 3.69.0 — container 2.38
 
 - **Each browser command allows one open session at a time** (Plan 00140). Every

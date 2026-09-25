@@ -2,7 +2,7 @@
 # Claude YOLO Common Library
 # Shared helpers for claude-yolo (ccy)
 #
-# Version: 1.6.0 - workspace_relabel_preflight finds entries podman cannot relabel
+# Version: 1.6.1 - the relabel check walks what podman walks, and reads stdout only
 
 # Host-safe helpers (print_error, is_token_valid, COLOR_RED, COLOR_RESET).
 # MUST be sourced BEFORE the podman-check block below so that the cc wrapper
@@ -109,6 +109,22 @@ file_selinux_label() {
     stat -c '%C' -- "$1" 2>&1
 }
 
+# The entries under <dir> owned outside the uid map, one per line, as podman's relabel
+# walk would meet them. A directory this user cannot read or enter is not descended:
+# podman walks it from inside its user namespace, where a mapped owner's directory is
+# open to it, and a foreign one is listed like any other foreign entry. So a
+# subordinate-owned 0700 directory (a container's data directory, say) is passed over,
+# and a foreign entry inside one is the only kind this cannot see.
+#
+# Args: <dir> <find predicates from relabel_foreign_owner_args...>
+# Returns find's own status; any failure means the walk is incomplete.
+_relabel_foreign_entries() {
+    local dir="$1"
+    shift
+    find "$dir" \( -type d \( ! -readable -o ! -executable \) -prune \( "$@" -print -o -true \) \) \
+        -o "$@" -print
+}
+
 # Stop podman failing on a workspace it cannot relabel, and offer the fix.
 #
 # Rootless podman relabels every entry under a `:z` bind, and may relabel only entries
@@ -120,23 +136,25 @@ file_selinux_label() {
 # sets every one. So an entry blocks when its owner is foreign and it, or the top, lacks
 # the label.
 #
-# When any entry blocks, this names them, prints the command that lists them and the
-# one that gives them to you, and asks (y/N) whether to run that fix now with sudo.
-# Declined, unanswerable or failed, the launch stops.
+# When any entry blocks, this names the foreign entries, prints the command that lists
+# them and the one that gives them to you, and asks (y/N) whether to run that fix now
+# with sudo. Declined, unanswered, failed or incomplete, the launch stops.
 #
 # Returns 0 when the bind can be relabelled or needs no relabel, 1 when the launch must
 # stop. Prints to stderr only.
 workspace_relabel_preflight() {
     local dir="$1"
     [ -n "$CCY_MOUNT_RELABEL" ] || return 0
-    # A rootful engine relabels as root, which may relabel anything.
+    # The uid map comes from `podman unshare`, which docker has no counterpart for, so
+    # this check covers podman only.
     [ "$CONTAINER_ENGINE" = podman ] || return 0
 
-    local uid_map owner_text
-    if ! uid_map=$(container_cmd unshare cat /proc/self/uid_map 2>&1) \
+    # stdout only: a warning podman prints goes to the terminal, not into the map.
+    local uid_map="" owner_text
+    if ! uid_map=$(container_cmd unshare cat /proc/self/uid_map) \
         || ! owner_text=$(relabel_foreign_owner_args "$uid_map"); then
         print_error "ccy cannot read the uid map of podman's user namespace, so it cannot tell"
-        echo "  which entries in $dir podman may relabel. podman said:" >&2
+        echo "  which entries in $dir podman may relabel. podman's errors are above; it printed:" >&2
         printf '%s\n' "$uid_map" | awk '{ print "    " $0 }' >&2
         return 1
     fi
@@ -145,24 +163,25 @@ workspace_relabel_preflight() {
 
     local -a foreign=()
     local listing rc=0
-    listing=$(find "$dir" "${owner_args[@]}" -print) || rc=$?
-    [ -z "$listing" ] || mapfile -t foreign <<<"$listing"
-    if [ "${#foreign[@]}" -eq 0 ]; then
-        [ "$rc" -ne 0 ] || return 0
-        print_error "ccy could not look through $dir for entries podman cannot relabel"
-        echo "  (find exited $rc; its errors are above)." >&2
+    listing=$(_relabel_foreign_entries "$dir" "${owner_args[@]}") || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        print_error "ccy could not look through all of $dir for entries podman cannot relabel"
+        echo "  (find exited $rc; its errors are above), so it cannot say the container would start." >&2
         return 1
     fi
+    [ -n "$listing" ] || return 0
+    mapfile -t foreign <<<"$listing"
 
-    local top_label entry blocking=0
+    local top_label entry blocked=no
     top_label=$(file_selinux_label "$dir")
     for entry in "${foreign[@]}"; do
         if [ "$top_label" != "$CCY_SHARED_FILE_LABEL" ] \
             || [ "$(file_selinux_label "$entry")" != "$CCY_SHARED_FILE_LABEL" ]; then
-            blocking=$((blocking + 1))
+            blocked=yes
+            break
         fi
     done
-    [ "$blocking" -gt 0 ] || return 0
+    [ "$blocked" = yes ] || return 0
 
     local me mygroup quoted_find look fix shown=0 owner
     me=$(id -u)
@@ -173,10 +192,10 @@ workspace_relabel_preflight() {
 
     {
         echo ""
-        echo -e "${COLOR_YELLOW}⚠️  podman cannot relabel ${#foreign[@]} entries in this project, so the container would not start.${COLOR_RESET}"
+        echo -e "${COLOR_YELLOW}⚠️  podman cannot relabel this project, so the container would not start.${COLOR_RESET}"
         echo "   ccy mounts the project with SELinux's shared relabel (:z), and podman relabels every"
         echo "   entry under it. Rootless podman may relabel only what you and your container uids own."
-        echo "   These belong to someone else (root, typically, after something ran here under sudo):"
+        echo "   ${#foreign[@]} entries belong to someone else (root, typically, after something ran here under sudo):"
         echo ""
         for entry in "${foreign[@]}"; do
             if [ "$shown" -ge 20 ]; then
@@ -213,16 +232,28 @@ workspace_relabel_preflight() {
             *) echo "   Answer y or n." >&2 ;;
         esac
     done
-    if [ "$answer" != yes ]; then
-        print_error "ccy did not start: podman cannot relabel the entries above. Run the fix, or answer y next time."
-        return 1
-    fi
+    case "$answer" in
+        yes) ;;
+        no)
+            print_error "ccy did not start: podman cannot relabel the entries above. Run the fix, or answer y next time."
+            return 1
+            ;;
+        *)
+            print_error "ccy did not start: no y or n after $tries answers. Nothing was changed."
+            return 1
+            ;;
+    esac
 
     if ! sudo find "$dir" "${owner_args[@]}" -exec chown -h "$me:$mygroup" {} +; then
         print_error "the fix failed (its errors are above); ccy did not start."
         return 1
     fi
-    listing=$(find "$dir" "${owner_args[@]}" -print) || rc=$?
+    rc=0
+    listing=$(_relabel_foreign_entries "$dir" "${owner_args[@]}") || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        print_error "ccy could not look through $dir again after the fix (find exited $rc); ccy did not start."
+        return 1
+    fi
     if [ -n "$listing" ]; then
         print_error "entries in $dir are still not yours after the fix; ccy did not start:"
         printf '%s\n' "$listing" | awk '{ print "    " $0 }' >&2

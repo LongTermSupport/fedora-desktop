@@ -411,7 +411,10 @@ container uids own. One entry owned by anyone else, typically root after somethi
 project under `sudo`, fails the container on start (`lsetxattr … operation not permitted`). CCY
 checks first. It names those entries and prints two commands: one lists them, and one gives
 them to you with `sudo chown`. It then asks whether to run that fix now (`y/N`). Answering no,
-or launching with no terminal to answer on, stops the launch without changing anything.
+or launching with no terminal to answer on, stops the launch without changing anything. A
+directory you cannot open but your container uids own, such as a container's data directory, is
+passed over, because podman can open it. A session with a forwarded agent (`--ssh-agent`) runs
+unlabelled, so its workspace is not relabelled or checked.
 
 For projects where CCY should never run, or should only run on one machine, see
 [allowed-hostnames](#3-allowed-hostnames--restricting-where-ccy-can-run).

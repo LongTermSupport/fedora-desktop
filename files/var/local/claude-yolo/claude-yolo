@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.69.0"  # One open browser session per browser command. See docs/ccy-changelog.md.
+CCY_VERSION="3.69.1"  # The relabel check walks what podman walks, and passes over what it can relabel. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1049,7 +1049,13 @@ ccy_selinux_mode
 # This sets: SSH_MOUNTS, SSH_KEY_PATHS, GITHUB_USERNAME, GH_TOKEN
 build_ssh_mounts_and_validate "ccy" || exit 1
 
-if [ "${CCY_SELINUX_MODE:-off}" != "off" ]; then
+# A forwarded agent runs the container with SELinux labelling disabled, so it is
+# unconfined: nothing it reads needs a relabel, and none is asked for.
+if [ "${SSH_AGENT_FORWARDED:-0}" = "1" ]; then
+    CCY_MOUNT_RELABEL=""
+fi
+
+if [ -n "$CCY_MOUNT_RELABEL" ]; then
     echo ""
     echo "🔒 SELinux ${CCY_SELINUX_MODE}: the workspace is mounted with a shared relabel (:z) and"
     echo "   key files are staged into a private tmpfs directory (:Z) so the container can read"
