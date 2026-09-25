@@ -245,6 +245,23 @@ below.
     leaves one, and nothing is restored.
 - [ ] 🧑 **Task 5.5**: Put the evidence in the PR description.
 
+### Phase 6: a restored session stops at the SSH key passphrase
+
+The reboot on 2026-09-25 restored the session, and it stopped at ccy's key selection and
+passphrase prompt. That is acceptable on the desktop, where the owner logs in anyway.
+It is not acceptable on the server, where nobody is present. Four independent
+brainstorms are in [`brainstorm-ssh-key-restore/`](brainstorm-ssh-key-restore/BRIEF.md).
+
+- [ ] 🚫 **Task 6.1**: **Owner decision.** Choose how a restored session on the server
+  unlocks its key. Every brainstorm ranks the same answer first: a restore-only
+  `SSH_ASKPASS` fed from the vault's `github_ssh_passphrase`, the same way
+  `run.bash --headless` already unlocks it. The trade-off is that anyone who can read
+  both the key and the vault password file on that disk can use the key. Two options add
+  to it rather than replace it:
+  - seal the passphrase to the TPM with `systemd-creds`;
+  - leave the session's key locked until its first push, and report it as pending.
+- [ ] ⬜ **Task 6.2**: Implement the decision, tests first.
+
 ## Dependencies
 
 - `claude-code-hooks-daemon` ≥ 3.65.0 for `hooks-daemon signal` (their #39, closed).
