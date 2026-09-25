@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.26.1"
+RUN_BASH_VERSION="1.26.2"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -2530,8 +2530,8 @@ if [[ "$HEADLESS" == "true" ]]; then
 fi
 
 if ! gh_scopes_dir="$(gh_scopes_repo)"; then
-  fatal "GitHub token scopes" "no checkout holds vars/github-required-scopes.yml" \
-    "run.bash reads the required GitHub scopes from the fedora-desktop repository; check network access to github.com"
+  fatal "GitHub token scopes" "no checkout holds both vars/github-required-scopes.yml and helpers/github_scopes" \
+    "run.bash reads the required GitHub scopes from the fedora-desktop repository; see the error above, and check network access to github.com"
 fi
 
 if ! gh auth status > /dev/null 2>&1; then

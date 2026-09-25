@@ -15,6 +15,11 @@ the index, not the record.
 
 ---
 
+## 1.26.2 — the scope-list failure names both files it needs (Plan 00139)
+
+When no checkout holds the scopes list and its helper, the abort says so, naming both,
+and points at the error printed above it.
+
 ## 1.26.1 — a streamed run on a box with an older checkout still finds the scopes helper (Plan 00139)
 
 A streamed run.bash used `~/Projects/fedora-desktop` when it held the scopes list, even if
