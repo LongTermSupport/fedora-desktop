@@ -2,7 +2,7 @@
 # SSH Handling Library
 # Shared SSH key operations for claude-yolo (ccy)
 #
-# Version: 1.6.0 - stage_git_signing_key stages the key git picks for the project
+# Version: 1.6.1 - stage_git_signing_key trusts only ~/.gitconfig and the system config
 #                  (Plan 00139).
 #          1.4.0 - Two identities a box may hold besides a github_<alias> key:
 #                  the project remote's own key, reached through an ssh-config
@@ -1171,11 +1171,14 @@ build_ssh_mounts_and_validate() {
 # so it overrides the machine key and every account include, whose host paths the
 # container cannot read. Signing that is on with no usable key would fail every commit
 # made in the container, so that refuses the launch instead.
+# The key is taken only from ~/.gitconfig, what it includes, and the system config. The
+# project's own .git/config is writable from inside the container, so a key named there
+# could be any file this user can read, copied in on the next launch: that refuses too.
 #   $1 the gitconfig copy   $2 the host directory it is in   $3 where $2 is mounted
 #   $4 the project directory
 stage_git_signing_key() {
     local gitconfig="$1" stage_dir="$2" mount_dir="$3" project="$4"
-    local key format name value rc signing=false
+    local key scoped scope format name value rc signing=false
 
     for name in commit.gpgsign tag.gpgsign; do
         value=$(git config --file "$gitconfig" --type=bool --get "$name") && rc=0 || rc=$?
@@ -1188,9 +1191,22 @@ stage_git_signing_key() {
         fi
     done
 
-    key=$(git -C "$project" config --get user.signingkey) && rc=0 || rc=$?
+    scoped=$(git -C "$project" config --show-scope --get user.signingkey) && rc=0 || rc=$?
     if [ "$rc" -gt 1 ]; then
         print_error "Could not read the signing key git uses in $project (git config exit $rc)"
+        return 1
+    fi
+    scope="${scoped%%$'\t'*}"
+    key="${scoped#*$'\t'}"
+    if [ -n "$scoped" ] && [ "$scope" != global ] && [ "$scope" != system ]; then
+        print_error "user.signingkey for $project is set in its $scope git config, which the container can write."
+        echo "  ccy copies the signing key into the container, so it takes the key only from" >&2
+        echo "  ~/.gitconfig and the system config. Remove the $scope setting:" >&2
+        if [ "$scope" = command ]; then
+            echo "    it comes from GIT_CONFIG_COUNT or GIT_CONFIG_PARAMETERS in this environment" >&2
+        else
+            echo "    git -C '$project' config --$scope --unset user.signingkey" >&2
+        fi
         return 1
     fi
     format=$(git config --file "$gitconfig" --get gpg.format) && rc=0 || rc=$?
@@ -1230,7 +1246,8 @@ stage_git_signing_key() {
         print_error "Could not stage the signing key $key into $stage_dir"
         return 1
     fi
-    if ! printf '[user]\n\tsigningkey = %s\n' "$mount_dir/git-signing-key" >>"$gitconfig"; then
+    # The leading newline ends a last line the copy may have left unterminated.
+    if ! printf '\n[user]\n\tsigningkey = %s\n' "$mount_dir/git-signing-key" >>"$gitconfig"; then
         print_error "Could not point user.signingkey in $gitconfig at the staged key"
         return 1
     fi

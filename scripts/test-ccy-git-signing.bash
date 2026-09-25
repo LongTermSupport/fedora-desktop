@@ -146,6 +146,39 @@ else
     fail "a plain github.com repository did not get the machine key (rc=$RC): $OUT"
 fi
 
+echo "== a key named in the project's own git config, which the container can write"
+for signing_setting in commit.gpgsign=true user.name=someone; do
+    new_case "project-local-${signing_setting%%=*}" gpg.format=ssh \
+        "user.signingkey=$WORK/project-local-${signing_setting%%=*}/home/.ssh/signing" "$signing_setting"
+    printf 'NOT-A-SIGNING-KEY\n' >"$CASE/home/.ssh/id"
+    git init -q "$CASE/project"
+    git -C "$CASE/project" config user.signingkey "$CASE/home/.ssh/id"
+    run_stage
+    if [ "$RC" -ne 0 ] && [ ! -e "$CASE/stage/git-signing-key" ]; then
+        pass "refused and nothing staged (${signing_setting%%=*} set)"
+    else
+        fail "a project-local key was accepted (${signing_setting%%=*} set, rc=$RC)"
+    fi
+    case "$OUT" in
+        *"local git config"*) pass "the refusal names the project's local config (${signing_setting%%=*} set)" ;;
+        *) fail "the refusal does not name the local config: $OUT" ;;
+    esac
+done
+
+echo "== a ~/.gitconfig whose last line has no newline"
+new_case no-final-newline gpg.format=ssh "user.signingkey=$WORK/no-final-newline/home/.ssh/signing" \
+    commit.gpgsign=true
+printf '[commit]\n\tgpgsign = true' >>"$CASE/home/.gitconfig"
+cp "$CASE/home/.gitconfig" "$CASE/stage/gitconfig"
+run_stage
+if [ "$RC" -eq 0 ] &&
+    [ "$(git config --file "$CASE/stage/gitconfig" --type=bool --get-all commit.gpgsign | sort -u)" = "true" ] &&
+    [ "$(signingkey_in_copy)" = "$MOUNT/git-signing-key" ]; then
+    pass "the appended section leaves the last line intact and names the mounted key"
+else
+    fail "the copy is broken after the append (rc=$RC): $(git config --file "$CASE/stage/gitconfig" --list 2>&1 | tr '\n' ' ')"
+fi
+
 echo "== a key path written with ~/"
 new_case tilde gpg.format=ssh "user.signingkey=~/.ssh/signing" commit.gpgsign=true
 run_stage

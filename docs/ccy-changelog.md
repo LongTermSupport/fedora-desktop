@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.67.1
+
+- **The signing key is taken only from `~/.gitconfig`, what it includes, and the system
+  config.** A `user.signingkey` in the project's own `.git/config`, which the container
+  can write, named a file the launcher then copied in on the next launch: any file the
+  user can read. That now refuses the launch, whether signing is on or off, and names
+  the command that removes the setting.
+- **A `~/.gitconfig` whose last line has no newline is no longer broken by the appended
+  `[user]` section.** The section starts on a line of its own.
+
 ## 3.67.0
 
 - **The container signs with the key git picks for the project** (Plan 00139).
