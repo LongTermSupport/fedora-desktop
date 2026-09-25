@@ -202,10 +202,14 @@ verify_ssh() {
   # ignores ssh-agent, -o IdentitiesOnly=yes forces only the specified key.
   # GitHub's SSH server returns rc=1 on successful auth (no shell access), so
   # non-zero is expected — we parse the output text to determine the result.
+  # stdin is /dev/null, and --foreground keeps ssh in the terminal's process group. ssh
+  # reads stdin, and plain timeout runs it in a background group of its own: at a
+  # terminal it was stopped (SIGTTIN), GitHub's reply was lost, and Ctrl-C could not
+  # reach it, so an interactive --setup-all hung on this test.
   local ssh_output=""
-  if ssh_output=$(timeout 15 ssh -F /dev/null -o IdentityAgent=none -o IdentitiesOnly=yes \
+  if ssh_output=$(timeout --foreground 15 ssh -F /dev/null -o IdentityAgent=none -o IdentitiesOnly=yes \
     -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
-    -i "$tmp_key" -T git@github.com 2>&1); then
+    -i "$tmp_key" -T git@github.com 2>&1 </dev/null); then
     : # rc=0 unexpected from GitHub SSH, but not an error — parse output below
   fi
   rm -f "$tmp_key"
