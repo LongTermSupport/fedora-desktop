@@ -149,6 +149,12 @@ ln -s "$RANKER" "$WORK_DIR/bin/bash-history-rank"
 as_desktop_user=()
 if [ "$(id -u)" -eq 0 ]; then
     as_desktop_user=(unshare --user --map-user=1000 --map-group=1000)
+    # The shells' stderr is discarded below, so a namespace that cannot be made would
+    # otherwise show only as a column of unexplained failures.
+    if ! unshare_err="$("${as_desktop_user[@]}" true 2>&1)"; then
+        echo "FAIL: running as root, and a user namespace for uid 1000 cannot be made: $unshare_err" >&2
+        exit 1
+    fi
 fi
 
 # run_shell <home> <cwd> <script> — an interactive bash reading the script from a pipe,
