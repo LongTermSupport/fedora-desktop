@@ -48,13 +48,7 @@ PLAN_ROOT="${scriptDir}"
 # An entry may instead be a playbook path under playbooks/, for a change no plan owns. It is
 # run as one unit through its own shebang, which goes through run.bash, exactly as
 # `./playbooks/imports/<play>.yml` does by hand.
-#
-# 00139: the per-account signing keys and ccy 3.67.4. Its deploy first asks each GitHub
-# account for any scope it lacks, one browser authorisation per account, then runs the
-# launcher, git and GitHub CLI plays. Its acceptance checks each account's key is
-# registered and picked.
 PLANS=(
-    "00139-commit-signing-everywhere"
 )
 
 LIST_ONLY=0

@@ -65,7 +65,7 @@ out.
 - [x] ✅ **Task 1.2**: Global config: `gpg.format ssh`, `user.signingkey`,
   `commit.gpgsign true`, `tag.gpgsign true`. Remove the XDG copies and `alias.sign-deploy`
   that Plan 00137 wrote, so no stale setting stays live.
-- [ ] 🔄 **Task 1.3**: Signing keys per GitHub account, registered by IaC. The owner
+- [x] ✅ **Task 1.3**: Signing keys per GitHub account, registered by IaC. The owner
   overruled the earlier "owner registers one key by hand" decision: signing covers every
   repo on the machine, not just this one, and commits go out under each account's email
   (`gh-switch <alias> --update-git`). So it follows the pattern the auth keys already use:
@@ -101,8 +101,9 @@ out.
     deploys call `ansible-playbook` directly, so run.bash's own run of it never happens
     for them. Each account lacking a scope is asked for all of them in one browser
     authorisation, and meta-deploy is the only command the owner is handed
-  - [ ] ⬜ **HOST (owner, at a desk)**: `./CLAUDE/Plan/meta-deploy.bash`, which runs this
-    plan's deploy and acceptance
+  - [x] ✅ **HOST (owner, at a desk)**: `./CLAUDE/Plan/meta-deploy.bash`, which runs this
+    plan's deploy and acceptance. Deploy passed, with every play at `failed=0`, and each
+    account alias offers only its own key. Acceptance 13 of 13 (`_meta-deploy/20260925-113855`)
 - [ ] 🔄 **Task 1.4**: The owner asked for this machine's public key to be kept in the
   private config repo. The play writes it into `localhost.yml` as `git_signing_public_key`,
   in a managed block, the way other plays record values there. It uses its own name,
@@ -158,9 +159,13 @@ out.
 
 - [ ] A commit made by the owner, a host `cc` agent and a ccy agent each shows
   `git log --format=%G?` = `G` and is Verified on GitHub.
-- [ ] The self-update gate still refuses an unsigned HEAD, and accepts a HEAD the machine
-  key signed.
-- [ ] No doc still says signing is deliberate or opt-in.
+- [x] The self-update gate still refuses an unsigned HEAD, and accepts a HEAD the machine
+  key signed. `test-self-update-cycle.bash`, a hard gate in `qa-all.bash`, 163 checks: an
+  unsigned tip is not taken, a first cycle from an unsigned HEAD is refused (20) saying
+  why, a signed commit is deployed, a tampered one is refused. That a real server trusts
+  this machine's key is Task 3.1's owner step.
+- [x] No doc still says signing is deliberate or opt-in. A search of `docs/` and `CLAUDE/`
+  outside the plans finds none.
 
 ## Delivery & Milestones
 
