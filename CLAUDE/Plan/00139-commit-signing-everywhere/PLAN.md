@@ -97,10 +97,12 @@ out.
   - [x] ✅ QA review, round 4: PASS, one nit
     ([report](subagent-reports/260925-qa-reviewer-per-account-signing-round4-opus-5.md)),
     fixed: the remedy also runs in a bare repository and inside `.git` (CCY 3.67.4)
-  - [ ] ⬜ **HOST**: meta-deploy (`CLAUDE/Plan/meta-deploy.bash`, which runs this plan's
-    deploy and acceptance). If the token audit stops it, the one command it names
-    (`scripts/gh-account-setup.bash --setup-all`) asks each account for everything it
-    lacks in one authorisation; then meta-deploy again
+  - [x] ✅ The deploy's first leg is `scripts/gh-account-setup.bash --setup-all`. Plan
+    deploys call `ansible-playbook` directly, so run.bash's own run of it never happens
+    for them. Each account lacking a scope is asked for all of them in one browser
+    authorisation, and meta-deploy is the only command the owner is handed
+  - [ ] ⬜ **HOST (owner, at a desk)**: `./CLAUDE/Plan/meta-deploy.bash`, which runs this
+    plan's deploy and acceptance
 - [ ] 🔄 **Task 1.4**: The owner asked for this machine's public key to be kept in the
   private config repo. The play writes it into `localhost.yml` as `git_signing_public_key`,
   in a managed block, the way other plays record values there. It uses its own name,

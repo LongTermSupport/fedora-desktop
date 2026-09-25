@@ -5,6 +5,12 @@
 # (CLAUDE/PlanScriptStandards.md R2) — Ansible never runs in the CCY container.
 #
 # THE LEGS, IN ORDER:
+#   0. scripts/gh-account-setup.bash --setup-all — every GitHub account gets every scope in
+#      vars/github-required-scopes.yml, the signing-key scope included, or leg 3's token
+#      audit stops the deploy. Each account that lacks any is asked for all of them in one
+#      browser authorisation; an account that has them all is left as it is. First, so the
+#      only interactive step comes before anything changes, and a run at a desk needs no
+#      second pass. A --check preview runs its read-only --check instead.
 #   1. play-claude-yolo.yml — the ccy launcher (CCY 3.66.0 or later) that carries the key into
 #      each container. First, because it is harmless on its own: while ~/.gitconfig does
 #      not ask for signing it stages nothing and refuses nothing.
@@ -17,9 +23,8 @@
 #      the first failing leg, so this order never leaves that state behind.
 #   3. play-github-cli-multi.yml — a signing key per GitHub account
 #      (~/.ssh/github_<alias>_signing), picked by git in that account's repositories, and
-#      every signing key GitHub lacks registered, the machine key included. Its token
-#      audit asks for the scope that needs first. Last, because it registers the key
-#      leg 2 makes.
+#      every signing key GitHub lacks registered, the machine key included. Last, because
+#      it registers the key leg 2 makes.
 #
 # ccy sessions already running keep the gitconfig they started with, so they do not
 # sign until they are restarted.
@@ -50,6 +55,8 @@ PLAN_USAGE="usage: deploy.bash [-h|--help] [--check]
 
 Runs, on the HOST, in this order:
 
+  scripts/gh-account-setup.bash --setup-all            (every account's scopes; a browser
+                                                        authorisation per account lacking any)
   playbooks/imports/play-claude-yolo.yml               (ccy carries the key into containers)
   playbooks/imports/play-git-configure-and-tools.yml   (the signing key, sign everything)
   playbooks/imports/play-github-cli-multi.yml          (a key per account, all registered)
@@ -57,11 +64,10 @@ Runs, on the HOST, in this order:
 The launcher goes first: on its own it changes nothing, while signing switched on under
 an older launcher would start containers that cannot commit.
 
---check previews without changing anything.
+--check previews without changing anything; the account step runs its read-only --check.
 
-If the GitHub token audit stops the run, scripts/gh-account-setup.bash --setup-all asks
-each account for everything it lacks in one authorisation; then run this again. Restart
-any ccy sessions, and run acceptance.bash."
+Run it at a desk: an account lacking a scope needs its browser authorisation. Then
+restart any ccy sessions, and run acceptance.bash."
 
 plan_mode deploy
 plan_parse_common_flags "$@"
@@ -75,6 +81,14 @@ fi
 plan_require_host "it runs Ansible against this machine's git config and ccy launcher"
 plan_prime_sudo
 plan_start_log auto
+
+if [[ "${PLAN_CHECK}" == "1" ]]; then
+    gh_setup_mode="--check"
+else
+    gh_setup_mode="--setup-all"
+fi
+plan_deploy_leg "gh-account-setup.bash ${gh_setup_mode}" \
+    bash "${repoRoot}/scripts/gh-account-setup.bash" "${gh_setup_mode}"
 
 plan_deploy_leg "play-claude-yolo.yml" \
     plan_ansible_playbook playbooks/imports/play-claude-yolo.yml
