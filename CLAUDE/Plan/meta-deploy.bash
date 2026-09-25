@@ -47,7 +47,7 @@ PLAN_ROOT="${scriptDir}"
 # run as one unit through its own shebang, which goes through run.bash, exactly as
 # `./playbooks/imports/<play>.yml` does by hand.
 #
-# 00139: the per-account signing keys and ccy 3.67.1. Its deploy runs the launcher, git
+# 00139: the per-account signing keys and ccy 3.67.2. Its deploy runs the launcher, git
 # and GitHub CLI plays; its acceptance checks each account's key is registered and picked.
 # If the play's token audit stops it, scripts/gh-account-setup.bash --setup-all fixes
 # every account in one authorisation each.

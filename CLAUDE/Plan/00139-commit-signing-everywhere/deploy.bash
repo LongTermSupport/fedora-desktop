@@ -5,7 +5,7 @@
 # (CLAUDE/PlanScriptStandards.md R2) — Ansible never runs in the CCY container.
 #
 # THE LEGS, IN ORDER:
-#   1. play-claude-yolo.yml — the ccy launcher (CCY 3.66.0) that carries the key into
+#   1. play-claude-yolo.yml — the ccy launcher (CCY 3.66.0 or later) that carries the key into
 #      each container. First, because it is harmless on its own: while ~/.gitconfig does
 #      not ask for signing it stages nothing and refuses nothing.
 #   2. play-git-configure-and-tools.yml — generates this machine's SSH signing key

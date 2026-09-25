@@ -85,6 +85,11 @@ out.
     `user.signingkey` named), seven to fix, eight nits
     ([report](subagent-reports/260925-qa-reviewer-per-account-signing-opus-5.md)). All fixed
     or answered in the journal
+  - [x] ✅ QA review, round 2: FIX-BEFORE-MERGE, nothing blocking, six to fix, seven nits
+    ([report](subagent-reports/260925-qa-reviewer-per-account-signing-round2-opus-5.md)).
+    All fixed or answered in the journal. The launch now names the key it staged (CCY
+    3.67.2), and acceptance check 11 asserts the machine key is on the account that owns
+    `user_email`
   - [ ] ⬜ **HOST**: meta-deploy (`CLAUDE/Plan/meta-deploy.bash`, which runs this plan's
     deploy and acceptance). If the token audit stops it, the one command it names
     (`scripts/gh-account-setup.bash --setup-all`) asks each account for everything it

@@ -162,40 +162,53 @@ fi
 rm -rf "${scratch}"
 
 echo "== GitHub"
-# The public users/<login>/ssh_signing_keys endpoint needs no token scope, so this reads
-# every account gh is logged in to without asking for one.
-#
-# What it proves: the key is registered as a SIGNING key on at least one of those accounts.
-# What it cannot: that GitHub will mark a commit Verified. That also needs the committer
-# email to be a verified email of the account holding the key, and reading an account's
-# emails needs a scope this gate does not ask for. The push check at the end is the owner's.
+# GitHub marks a commit the machine key signs Verified only on the account that has the
+# commit's email, user.email, as a verified address, so that is the account the key must
+# be on. Each account's verified emails are read with its own token, which carries every
+# scope in vars/github-required-scopes.yml; a noreply address belongs to the login it names. The signing keys
+# are read from the public users/<login>/ssh_signing_keys endpoint.
 # When no account could be read at all, the answer is "unknown", not "unregistered".
-found=""
-read_ok=0
+commit_email="$(global_get user.email)"
+owner=""
 read_failed=""
 logins="$(gh auth status --json hosts --jq '.hosts["github.com"][].login' 2>&1)" && rc=0 || rc=$?
 if [[ "${rc}" -ne 0 ]]; then
-    bad "11. GitHub lists this key as a signing key" "could not ask gh which accounts it holds: gh auth status exit ${rc}: ${logins}"
+    bad "11. the machine key is a signing key on the account with ${commit_email} verified" \
+        "could not ask gh which accounts it holds: gh auth status exit ${rc}: ${logins}"
 else
+    shopt -s nocasematch
     for login in ${logins}; do
-        listed="$(gh api "users/${login}/ssh_signing_keys" --jq '.[].key' 2>&1)" && rc=0 || rc=$?
-        if [[ "${rc}" -ne 0 ]]; then
-            read_failed+="${login} (gh api exit ${rc}: $(tr '\n' ' ' <<<"${listed}")); "
+        if [[ "${commit_email}" =~ ^([0-9]+\+)?${login}@users\.noreply\.github\.com$ ]]; then
+            owner="${login}"
             continue
         fi
-        read_ok=$((read_ok + 1))
-        if grep -qxF "${pub_fields}" <<<"$(awk '{ print $1, $2 }' <<<"${listed}")"; then
-            found="${login}"
+        if ! token="$(gh auth token --hostname github.com --user "${login}" 2>&1)"; then
+            read_failed+="${login} (no token: $(tr '\n' ' ' <<<"${token}")); "
+            continue
         fi
+        emails="$(GH_TOKEN="${token}" gh api user/emails --jq '.[] | select(.verified) | .email' 2>&1)" && rc=0 || rc=$?
+        if [[ "${rc}" -ne 0 ]]; then
+            read_failed+="${login} (user/emails exit ${rc}: $(tr '\n' ' ' <<<"${emails}")); "
+            continue
+        fi
+        while read -r email; do
+            if [[ -n "${email}" && "${email}" == "${commit_email}" ]]; then
+                owner="${login}"
+            fi
+        done <<<"${emails}"
     done
-    if [[ -n "${found}" ]]; then
-        ok "11. GitHub lists this key as a signing key (account ${found})"
-    elif [[ "${read_ok}" -eq 0 ]]; then
-        bad "11. GitHub lists this key as a signing key" \
-            "UNKNOWN: no account's signing keys could be read, so registration was not checked: ${read_failed:-gh reported no github.com account}"
+    shopt -u nocasematch
+    if [[ -z "${owner}" ]]; then
+        bad "11. the machine key is a signing key on the account with ${commit_email} verified" \
+            "no account gh holds has ${commit_email} verified${read_failed:+ (unreadable: ${read_failed})}"
+    elif ! listed="$(gh api "users/${owner}/ssh_signing_keys" --jq '.[].key' 2>&1)"; then
+        bad "11. the machine key is a signing key on the account with ${commit_email} verified" \
+            "UNKNOWN: could not read ${owner}'s signing keys: $(tr '\n' ' ' <<<"${listed}")"
+    elif grep -qxF "${pub_fields}" <<<"$(awk '{ print $1, $2 }' <<<"${listed}")"; then
+        ok "11. the machine key is a signing key on the account with ${commit_email} verified (${owner})"
     else
-        bad "11. GitHub lists this key as a signing key" \
-            "not on any of the ${read_ok} account(s) read; see docs/configuration.md \"Commit Signing\"${read_failed:+ (unreadable: ${read_failed})}"
+        bad "11. the machine key is a signing key on the account with ${commit_email} verified" \
+            "not on ${owner}; the play-github-cli-multi.yml leg registers it"
     fi
 fi
 
