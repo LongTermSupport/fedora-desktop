@@ -16,6 +16,7 @@
 # admin:public_key -> read:public_key).
 github_required_scopes:
   - admin:public_key  # programmatic SSH pubkey upload (gh ssh-key add)
+  - admin:ssh_signing_key  # commit-signing key upload (helpers/github_signing)
   - gist              # gh gist commands
   - project           # GitHub Projects v2 (implies read:project)
   - read:org          # read org membership / list teams

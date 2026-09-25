@@ -3,6 +3,8 @@
 # GitHub CLI Multi-Account Setup - Leverages native gh multi-account support (v2.40.0+)
 - hosts: desktop
   name: GitHub CLI Multi-Account Configuration
+  vars_files:
+    - "{{ root_dir }}/vars/git-signing.yml"   # git_signing_key_path
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
@@ -584,6 +586,139 @@
             path: "/tmp/.github_ssh_pp"
             state: absent
       when: github_accounts_configured
+
+    # COMMIT SIGNING KEYS, ONE PER ACCOUNT (Plan 00139)
+    # play-git-configure-and-tools.yml signs every commit with the machine key. Here each
+    # account gets a signing key of its own, ~/.ssh/github_<alias>_signing, which git uses
+    # in any repository whose remote is github.com-<alias> (clone-<alias>, remote-<alias>).
+    # The machine key stays for every other repository, and goes on the account that
+    # ~/.ssh/id logs in as. helpers/github_signing registers what GitHub lacks, with each
+    # account's own token, then proves git picks each key. No passphrase, as for the
+    # machine key: agents commit unattended.
+    - name: Sign Each GitHub Account's Repositories With That Account's Own Key
+      when: github_accounts_configured
+      block:
+        - name: Generate a Signing Key for Each GitHub Account
+          ansible.builtin.command:
+            argv:
+              - ssh-keygen
+              - -q
+              - -t
+              - ed25519
+              - -N
+              - ""
+              - -C
+              - "{{ item.value }} git signing"
+              - -f
+              - "/home/{{ user_login }}/.ssh/github_{{ item.key }}_signing"
+            creates: "/home/{{ user_login }}/.ssh/github_{{ item.key }}_signing"
+          loop: "{{ github_accounts | dict2items }}"
+          loop_control:
+            label: "{{ item.key }}"
+
+        - name: Check for This Machine's Signing Key
+          ansible.builtin.stat:
+            path: "{{ git_signing_key_path }}"
+          register: machine_signing_key
+
+        - name: Assert This Machine's Signing Key Exists
+          ansible.builtin.assert:
+            that:
+              - machine_signing_key.stat.exists
+            fail_msg: |
+              {{ git_signing_key_path }} does not exist. play-git-configure-and-tools.yml
+              generates it; run that play, then this one.
+
+        # Checks every key (0600, no passphrase, .pub matches) and reads every account
+        # before it adds anything, so a refusal leaves GitHub as it was.
+        - name: Register Every Signing Key With GitHub
+          ansible.builtin.command:
+            argv:
+              - python3
+              - -m
+              - helpers.github_signing.cli
+              - register
+              - --title
+              - "{{ ansible_facts['hostname'] }}"
+              - --ssh-dir
+              - "/home/{{ user_login }}/.ssh"
+              - --accounts
+              - "{{ github_accounts | to_json }}"
+              - --machine-key
+              - "{{ git_signing_key_path }}"
+            chdir: "{{ root_dir }}"   # repo root on sys.path so the helpers package imports
+          register: signing_registration
+          changed_when: "'SIGNING-ADDED' in signing_registration.stdout"
+
+        - name: Display Signing Key Registration
+          ansible.builtin.debug:
+            msg: "{{ signing_registration.stdout_lines }}"
+
+        - name: Ensure ~/.config/git Exists
+          ansible.builtin.file:
+            path: "/home/{{ user_login }}/.config/git"
+            state: directory
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: "0755"
+
+        - name: Name Each Account's Signing Key in a File of Its Own
+          ansible.builtin.copy:
+            dest: "/home/{{ user_login }}/.config/git/github-signing-{{ item.key }}.gitconfig"
+            content: |
+              # ANSIBLE MANAGED by play-github-cli-multi.yml
+              [user]
+              	signingkey = /home/{{ user_login }}/.ssh/github_{{ item.key }}_signing
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: "0644"
+          loop: "{{ github_accounts | dict2items }}"
+          loop_control:
+            label: "{{ item.key }}"
+
+        # scp-style remotes need `:*/**`: a `**` not beside a slash matches no `/`.
+        - name: Select Each Account's Key by the Repository's Remote
+          ansible.builtin.copy:
+            dest: "/home/{{ user_login }}/.config/git/github-signing.gitconfig"
+            content: |
+              # ANSIBLE MANAGED by play-github-cli-multi.yml
+              {% for alias in github_accounts %}
+              [includeIf "hasconfig:remote.*.url:git@github.com-{{ alias }}:*/**"]
+              	path = /home/{{ user_login }}/.config/git/github-signing-{{ alias }}.gitconfig
+              [includeIf "hasconfig:remote.*.url:ssh://git@github.com-{{ alias }}/**"]
+              	path = /home/{{ user_login }}/.config/git/github-signing-{{ alias }}.gitconfig
+              {% endfor %}
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: "0644"
+
+        # At the end of ~/.gitconfig, after the machine key in [user], so an account's key
+        # wins in that account's repositories. The check below fails if anything overrides it.
+        - name: Include the Account Key Selection From ~/.gitconfig
+          ansible.builtin.blockinfile:
+            path: "/home/{{ user_login }}/.gitconfig"
+            marker: "# {mark} ANSIBLE MANAGED: GitHub Account Signing Keys"
+            insertafter: EOF
+            block: |
+              [include]
+              	path = /home/{{ user_login }}/.config/git/github-signing.gitconfig
+            create: false
+
+        - name: Prove Git Picks Each Account's Key and the Machine Key Elsewhere
+          ansible.builtin.command:
+            argv:
+              - python3
+              - -m
+              - helpers.github_signing.cli
+              - check-selection
+              - --ssh-dir
+              - "/home/{{ user_login }}/.ssh"
+              - --accounts
+              - "{{ github_accounts | to_json }}"
+              - --fallback
+              - "{{ git_signing_key_path }}"
+            chdir: "{{ root_dir }}"   # repo root on sys.path so the helpers package imports
+          changed_when: false
 
     # GIT ACCOUNT HELPER SETUP
     - block:

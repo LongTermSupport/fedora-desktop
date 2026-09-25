@@ -8,8 +8,8 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
-    # git_signing_key in host_vars overrides the path; otherwise the play generates one.
-    git_signing_key_path: "{{ git_signing_key | default('/home/' + user_login + '/.ssh/id_ed25519_git_signing') }}"
+  vars_files:
+    - "{{ root_dir }}/vars/git-signing.yml"   # git_signing_key_path
   tasks:
     - name: Setup Git Config - user
       ansible.builtin.shell: |
@@ -46,8 +46,8 @@
     # meant to be able to sign. That is why the key has no passphrase (asserted
     # below): nothing that commits unattended has a terminal to type one into.
     # A self-updating server trusts this key through self_update_signing_public_key.
-    # Registering the key with GitHub, so commits show as Verified, is an owner step:
-    # docs/configuration.md "Commit Signing".
+    # play-github-cli-multi.yml registers it on GitHub, and gives each account its own
+    # key for that account's repositories: docs/configuration.md "Commit Signing".
     - name: Ensure ~/.ssh Exists
       ansible.builtin.file:
         path: "/home/{{ user_login }}/.ssh"
