@@ -229,6 +229,30 @@ def _held_with_ids(login: str, token: str) -> list[tuple[int, str]]:
     return held
 
 
+def _retired_blob(path: pathlib.Path) -> str | None:
+    """A retired key's public half, or None once both of its files are gone.
+
+    The .pub is read when it is there. Without it the half is derived from the private
+    key, which has no passphrase. The play deletes both files after this, so a key whose
+    half cannot be had either way is refused: its registration could never be matched
+    again.
+    """
+    if pathlib.Path(f"{path}.pub").exists():
+        return _public_blob(path)
+    if not path.exists():
+        return None
+    derived = _run(["ssh-keygen", "-y", "-P", "", "-f", str(path)])
+    if derived.returncode != 0:
+        raise Refusal(
+            f"{path.name} has no .pub, and its public half cannot be derived "
+            f"({_why(derived)}); not retiring it, so its GitHub registration stays matchable"
+        )
+    try:
+        return signing.key_blob(derived.stdout)
+    except ValueError as exc:
+        raise Refusal(f"{path.name}: the derived public half is not a key: {exc}") from exc
+
+
 def _retire(args: argparse.Namespace) -> None:
     accounts = _accounts(args)
     in_use = {
@@ -237,13 +261,14 @@ def _retire(args: argparse.Namespace) -> None:
     }
     retired = {}
     for path in map(pathlib.Path, args.retired):
-        if not pathlib.Path(f"{path}.pub").exists():
+        blob = _retired_blob(path)
+        if blob is None:
             continue
-        blob = _public_blob(path)
         if blob in in_use:
             raise Refusal(
                 f"{path.name} is the same key as {in_use[blob]}, which is in use; "
-                "not retiring it"
+                "not retiring it. If git_signing_key in host_vars names it, remove that "
+                "line so ~/.ssh/id signs through the agent, then re-run"
             )
         retired[blob] = path.name
     if not retired:

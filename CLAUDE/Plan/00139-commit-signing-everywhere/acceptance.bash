@@ -118,18 +118,59 @@ if [[ -f "${key}.pub" ]]; then
 else
     pub_fields="no ${key}.pub"
 fi
-# git signs through the agent, so it is the agent that must hold the key; checks 9 and 10
-# then sign with it for real, which also proves the .pub is its public half.
+# git signs through the agent, so the agent must hold every key git signs with: this one,
+# and each account's github_<alias> (accounts.json, as checks 12-14 read it). Checks 9 and
+# 10 then sign with the machine key for real, which also proves the .pub is its public
+# half. ssh-add -L exits 1 when the agent holds nothing or is locked, 2 when there is none.
 agent_keys="$(ssh-add -L 2>&1)" && rc=0 || rc=$?
-if [[ "${rc}" -eq 0 ]] && grep -qxF "${pub_fields}" <<<"$(awk '{ print $1, $2 }' <<<"${agent_keys}")"; then
-    ok "6. the ssh-agent holds the key, so a commit needs no passphrase"
+signing_keys=("${key}")
+accounts_read=""
+if account_aliases="$(jq -r 'keys[]' "${HOME}/.config/git-account-helper/accounts.json" 2>&1)"; then
+    while read -r alias; do
+        if [[ -n "${alias}" ]]; then
+            signing_keys+=("${HOME}/.ssh/github_${alias}")
+        fi
+    done <<<"${account_aliases}"
 else
-    bad "6. the ssh-agent holds the key, so a commit needs no passphrase" \
-        "ssh-add -L exit ${rc}; load it with: ssh-add ${key}"
+    accounts_read="could not read accounts.json: ${account_aliases}; "
+fi
+agent_fields=""
+if [[ "${rc}" -eq 0 ]]; then
+    agent_fields="$(awk '{ print $1, $2 }' <<<"${agent_keys}")"
+fi
+missing="${accounts_read}"
+held=0
+for signing_key in "${signing_keys[@]}"; do
+    if [[ ! -f "${signing_key}.pub" ]]; then
+        missing+="$(basename "${signing_key}") (no .pub); "
+    elif grep -qxF "$(awk '{ print $1, $2 }' "${signing_key}.pub")" <<<"${agent_fields}"; then
+        held=$((held + 1))
+    else
+        missing+="$(basename "${signing_key}"); "
+    fi
+done
+label="6. the ssh-agent holds every key git signs with (${held} of ${#signing_keys[@]}), so a commit needs no passphrase"
+if [[ -z "${missing}" ]]; then
+    ok "${label}"
+else
+    case "${rc}" in
+        0) why="it does not hold: ${missing}load each with: ssh-add <key>" ;;
+        1) why="it holds no keys, or is locked (ssh-add -L exit 1); missing: ${missing}" ;;
+        *) why="no agent answered (ssh-add -L exit ${rc}: $(tr '\n' ' ' <<<"${agent_keys}"))" ;;
+    esac
+    bad "${label}" "${why}"
 fi
 # D5 retired these; play-github-cli-multi.yml deletes them after the login keys are in use.
+# A ccy session started before CCY 3.70.0 holds a staged copy in /tmp/claude-yolo-* while it
+# runs; the play refuses to retire while one does, so none should be left either.
 left_on_disk="$(find "${HOME}/.ssh" -maxdepth 1 \( -name 'github_*_signing*' -o -name 'id_ed25519_git_signing*' \) -printf '%f ' 2>&1)"
-verdict "7. no retired passphrase-free signing key is left in ~/.ssh" "" "${left_on_disk}"
+shopt -s nullglob
+staged=(/tmp/claude-yolo-*/git-signing-key)
+shopt -u nullglob
+if [[ "${#staged[@]}" -gt 0 ]]; then
+    left_on_disk+="staged by a running pre-3.70 ccy session: ${staged[*]}"
+fi
+verdict "7. no retired passphrase-free signing key is left in ~/.ssh or staged by a ccy session" "" "${left_on_disk}"
 
 echo "== the opt-in settings are gone"
 # `git config --get` exits 1 for "not set" and only for that. Any other status is a file
@@ -245,6 +286,11 @@ echo "== each GitHub account's own key"
 # with its token, for their titles: the retired keys' files are gone, so the titles the
 # play gave them are what is left to recognise them by.
 accounts_file="${HOME}/.config/git-account-helper/accounts.json"
+# The play titles each registration "<hostname> <key name>", with Ansible's hostname fact:
+# the first label of the node name. Only this machine's are this deploy's to retire; another
+# machine's go when that machine is deployed.
+this_host="$(uname -n)"
+this_host="${this_host%%.*}"
 if ! accounts="$(jq -r 'to_entries[] | "\(.key) \(.value)"' "${accounts_file}" 2>&1)"; then
     bad "12. every account's own key is a signing key on that account" "could not read ${accounts_file}: ${accounts}"
     bad "13. git signs with each account's key in that account's repositories" "could not read ${accounts_file}: ${accounts}"
@@ -278,7 +324,7 @@ else
             still_registered+="${alias} (UNKNOWN: no token); "
         elif ! titles="$(GH_TOKEN="${token}" gh api --paginate user/ssh_signing_keys --jq '.[].title' 2>&1)"; then
             still_registered+="${alias} (UNKNOWN: user/ssh_signing_keys: $(tr '\n' ' ' <<<"${titles}")); "
-        elif retired="$(grep -E '(_signing|id_ed25519_git_signing)$' <<<"${titles}")"; then
+        elif retired="$(grep -E "^${this_host} (github_.+_signing|id_ed25519_git_signing)\$" <<<"${titles}")"; then
             still_registered+="${alias}: $(tr '\n' ',' <<<"${retired}") "
         fi
         git -C "${pick_repo}" remote set-url origin "git@github.com-${alias}:example/example.git"
@@ -295,7 +341,7 @@ else
     else
         verdict "12. every account's own key is a signing key on that account (${checked} checked)" "" "${unregistered}"
         verdict "13. git signs with each account's key in that account's repositories" "" "${wrong_pick}"
-        verdict "14. no account still has a retired signing key registered" "" "${still_registered}"
+        verdict "14. no account still has a retired signing key of this machine (${this_host}) registered" "" "${still_registered}"
     fi
 fi
 

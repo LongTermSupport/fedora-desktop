@@ -78,8 +78,9 @@ D1–D4 are the owner's choices, made 2026-09-23.
   **Amended by the owner (Plan 00139 D4):** this decision also said agents must never hold
   the key, so every commit could not be signed. The owner overruled that. The aim is
   provenance, a commit from the owner or the owner's machine, and the owner's own agents
-  may sign. Plan 00139 signs every commit on the machine with a passphrase-less key, and
-  the pinned key is that machine key. `git sign-deploy` is gone.
+  may sign. Plan 00139 signs every commit on the machine with its login key through the
+  ssh-agent (its D5), and the pinned key is the one that signs this repository's checkout.
+  `git sign-deploy` is gone.
 - **D4 — checkout: a deploy-only clone**, never mounted into a ccy container, updated only
   by the timer.
 - **D5 — privilege: a root-owned sbin entry point, with scoped sudo.** The owner's

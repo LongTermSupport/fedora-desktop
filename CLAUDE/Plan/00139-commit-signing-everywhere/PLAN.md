@@ -49,8 +49,9 @@ out.
   to type one into. The only other way to sign unattended is a forwarded ssh-agent, which
   ccy supports only with SELinux labelling disabled. The key is 0600 in `~/.ssh`, the same
   trust level as the push keys ccy already mounts, and it is mounted read-only.
-- **D3 — Signing config moves to `~/.gitconfig`,** which ccy copies. The launcher mounts
-  the key and repoints `user.signingkey` in its private copy.
+- **D3 — Signing config moves to `~/.gitconfig`,** which ccy copies. The launcher repoints
+  `user.signingkey` in its private copy; since D5 at the session's own identity, so no key
+  is mounted for signing.
 - **D4 — Plan 00137's D3 is overruled by the owner.** The play's "must have a passphrase"
   assert inverts to "must not have one", and `git sign-deploy` goes. Every commit is signed,
   so the server gate's check of HEAD needs no special commit.
@@ -62,13 +63,14 @@ out.
   - a ccy container ssh-adds the identity chosen at launch into its own agent, or uses the
     forwarded one;
   - the desktop agent unlocks a key on first use.
-    So `~/.ssh/id` signs by default, and each `github_<alias>` key in that account's
-    repositories. ccy signs with the session's own identity and copies no private key in. The
-    per-account `github_<alias>_signing` keys and `id_ed25519_git_signing` are retired, from
-    GitHub and from disk. They were six passphrase-free private keys in `~/.ssh`, and they
-    crowded the ccy key picker and the desktop agent. Cost: a signer whose agent does not
-    hold the key cannot sign. A person gets a passphrase prompt; an unattended host `cc`
-    agent fails loudly until the key is unlocked in the session.
+
+  So `~/.ssh/id` signs by default, and each `github_<alias>` key in that account's
+  repositories. ccy signs with the session's own identity and copies no private key in. The
+  per-account `github_<alias>_signing` keys and `id_ed25519_git_signing` are retired, from
+  GitHub and from disk. They were six passphrase-free private keys in `~/.ssh`, and they
+  crowded the ccy key picker, which lists every key pair there. Cost: a signer whose agent
+  does not hold the key cannot sign. A person gets a passphrase prompt; an unattended host
+  `cc` agent fails loudly until the key is unlocked in the session.
 
 ## Tasks
 
@@ -143,8 +145,10 @@ out.
   (`self_update_signing_public_key`). `localhost.yml.dist` and the docs updated. The
   helpers needed no change beyond the refusal message's wording, and
   `scripts/test-self-update-cycle.bash` still passes.
-  - [ ] ⬜ **HOST (owner)**: a server that already trusts the old passphrase key needs the
-    new key's `.pub` line in `self_update_signing_public_key`, then a re-run of
+  - [ ] ⬜ **HOST (owner)**: a server that already trusts the old passphrase-free key needs,
+    in `self_update_signing_public_key`, the `.pub` line of the key that now signs this
+    checkout (`~/.ssh/id.pub`, or `~/.ssh/github_<alias>.pub` when the checkout's remote is
+    an account's alias; `deploy.bash` prints which), then a re-run of
     `play-self-update.yml`
 - [x] ✅ **Task 3.2**: Plan 00137's PLAN D3 and `DESIGN-cycle.md` record D4 of this plan.
 
@@ -187,7 +191,9 @@ out.
   `id_ed25519_git_signing` registrations on GitHub; the play removes the files. It refuses
   to delete a key that is still in use (`TestRetire`).
 - [ ] 🔄 **Task 5.4**: Acceptance, docs, the self-update server key (now `id.pub`), CCY
-  version, tests, `qa-all.bash`, then the `qa-reviewer` agent.
+  version, tests, `qa-all.bash`, then the `qa-reviewer` agent. First review:
+  FIX-BEFORE-MERGE, nothing blocking; every should-fix is fixed (journal 26-09-25). A
+  confirming review is next.
 - [ ] ⬜ **HOST (owner, at a desk)**: `./CLAUDE/Plan/meta-deploy.bash`
 
 ## Success Criteria

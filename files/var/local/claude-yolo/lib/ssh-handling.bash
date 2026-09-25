@@ -1222,6 +1222,19 @@ _git_signing_refusal() {
     return 1
 }
 
+# How a refusal or the launch line names a signing key: a path by its file name, a key::
+# literal by its type, since its base64 is no name.
+_signing_key_name() {
+    case "$1" in
+        key::*)
+            local type
+            read -r type _ <<<"${1#key::}"
+            printf 'the literal %s key in user.signingkey' "$type"
+            ;;
+        *) basename "$1" ;;
+    esac
+}
+
 # Commit signing in the container (Plan 00139 D5).
 # play-git-configure-and-tools.yml signs every commit and tag with the machine's login key,
 # and play-github-cli-multi.yml each account's repositories with that account's login key,
@@ -1277,7 +1290,7 @@ configure_git_signing() {
                 "Re-run playbooks/imports/play-git-configure-and-tools.yml, which sets it."
             return 1
         fi
-        label="$(basename "${key#key::}"), the key git picks for this project, from the forwarded agent"
+        label="$(_signing_key_name "$key"), the key git picks for this project, from the forwarded agent"
     else
         _git_signing_refusal "the session has no SSH identity to sign with" \
             "Choose an SSH key at launch, or pass --ssh-agent with an agent holding one."
@@ -1306,8 +1319,16 @@ configure_git_signing() {
             return 1
         fi
         if ! awk -v blob="$public" '$2 == blob { found = 1 } END { exit !found }' <<<"$listed"; then
-            _git_signing_refusal "the forwarded ssh-agent does not hold $(basename "${key#key::}")" \
-                "Load it with: ssh-add ${key#key::}"
+            local load="Load it with: ssh-add $key"
+            case "$key" in
+                key::*) load="Load the private key whose public half user.signingkey names." ;;
+            esac
+            if [ "$rc" -eq 1 ]; then
+                _git_signing_refusal "the forwarded ssh-agent holds no keys, or is locked, so it cannot sign with $(_signing_key_name "$key")" \
+                    "Unlock it with: ssh-add -X. Or: $load"
+            else
+                _git_signing_refusal "the forwarded ssh-agent does not hold $(_signing_key_name "$key")" "$load"
+            fi
             return 1
         fi
         if [ "$primary" = "$SSH_AGENT_SENTINEL" ]; then
@@ -1326,6 +1347,7 @@ configure_git_signing() {
 # Export functions
 export -f _host_signing_key_for
 export -f _git_signing_refusal
+export -f _signing_key_name
 export -f configure_git_signing
 export -f discover_and_select_ssh_keys
 export -f build_ssh_mounts_and_validate

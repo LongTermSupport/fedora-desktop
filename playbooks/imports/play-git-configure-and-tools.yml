@@ -144,6 +144,30 @@
         - user.signingkey
         - alias.sign-deploy
 
+    # Where GitHub accounts are configured, play-github-cli-multi.yml deletes this key from
+    # GitHub and then its files, and it needs the files to find the registration, so they
+    # are left for it. Without accounts the key was never registered: only that play
+    # registers keys, and it ends early when there are none. So its files go here.
+    - name: Delete the Passphrase-Free Machine Signing Key Where No GitHub Account Is Configured
+      when: github_accounts is not defined or github_accounts | length == 0
+      block:
+        - name: Refuse to Delete the Key This Machine Signs With
+          ansible.builtin.assert:
+            that: git_signing_key_path != git_signing_retired_machine_key
+            fail_msg: >-
+              git_signing_key names {{ git_signing_retired_machine_key }}, the passphrase-free
+              key this play retires. Remove git_signing_key from host_vars to sign with
+              ~/.ssh/id through the agent, or point it at another key, then re-run.
+            quiet: true
+
+        - name: Delete the Passphrase-Free Machine Signing Key Files
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - "{{ git_signing_retired_machine_key }}"
+            - "{{ git_signing_retired_machine_key }}.pub"
+
     - name: Set up Global Git Ignores
       ansible.builtin.blockinfile:
         create: true

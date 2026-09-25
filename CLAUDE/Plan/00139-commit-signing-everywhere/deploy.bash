@@ -11,9 +11,12 @@
 #      browser authorisation; an account that has them all is left as it is. First, so the
 #      only interactive step comes before anything changes, and a run at a desk needs no
 #      second pass. A --check preview runs its read-only --check instead.
-#   1. play-claude-yolo.yml — the ccy launcher (CCY 3.70.0 or later) whose containers sign
-#      through the session's ssh-agent with the session's key. First, because it is
-#      harmless on its own: while ~/.gitconfig does not ask for signing it refuses nothing.
+#   1. play-claude-yolo.yml — the ccy launcher (CCY 3.70.1 or later) whose containers sign
+#      through the session's ssh-agent with the session's key. First, because a launcher
+#      older than 3.70.0 cannot sign with a passphrase-protected login key, which is what
+#      leg 2 switches to. Until leg 2 has run, a launch that has only a forwarded agent,
+#      or --no-ssh, is refused: the host still names the passphrase-free key, which the
+#      agent does not hold. A launch with a key file signs with that key throughout.
 #   2. play-git-configure-and-tools.yml — signs with the login key ~/.ssh/id (or the key
 #      git_signing_key names) through the ssh-agent, and sets gpg.format, user.signingkey,
 #      commit.gpgsign and tag.gpgsign in ~/.gitconfig. It generates no key: it refuses
@@ -27,8 +30,10 @@
 #      signing keys earlier deploys made, from GitHub and from ~/.ssh. Last, because it
 #      registers the key leg 2 signs with.
 #
-# ccy sessions already running keep the gitconfig they started with, so they do not
-# sign until they are restarted.
+# A ccy session started before CCY 3.70.0 signs with a staged copy of a passphrase-free
+# key (/tmp/claude-yolo-*/git-signing-key), and leg 3 deletes that key from GitHub, which
+# would leave the session's later pushes Unverified. So the deploy refuses to start while
+# any such session runs; stop them first. play-github-cli-multi.yml refuses the same.
 #
 # Usage: ./deploy.bash [-h|--help] [--check]
 set -euo pipefail
@@ -68,8 +73,9 @@ an older launcher would start containers that cannot commit.
 
 --check previews without changing anything; the account step runs its read-only --check.
 
-Run it at a desk: an account lacking a scope needs its browser authorisation. Then
-restart any ccy sessions, and run acceptance.bash."
+Run it at a desk: an account lacking a scope needs its browser authorisation. Stop every
+ccy session started before CCY 3.70.0 first; it refuses while one runs. Then run
+acceptance.bash."
 
 plan_mode deploy
 plan_parse_common_flags "$@"
@@ -81,6 +87,19 @@ if [[ "${#PLAN_REMAINING_ARGS[@]}" -gt 0 ]]; then
 fi
 
 plan_require_host "it runs Ansible against this machine's git config and ccy launcher"
+
+# Refused before anything changes, rather than at leg 3 after two legs have run.
+shopt -s nullglob
+old_sessions=(/tmp/claude-yolo-*/git-signing-key)
+shopt -u nullglob
+if [[ "${#old_sessions[@]}" -gt 0 ]]; then
+    printf '[FATAL] ccy sessions started before CCY 3.70.0 are still running; each signs with\n' >&2
+    printf '        a passphrase-free key this deploy deletes from GitHub:\n' >&2
+    printf '          %s\n' "${old_sessions[@]}" >&2
+    printf '        Stop those sessions, then run this again. A directory left by a session\n' >&2
+    printf '        that is no longer running goes at the next reboot, or can be removed.\n' >&2
+    exit 1
+fi
 plan_prime_sudo
 plan_start_log auto
 
@@ -102,7 +121,13 @@ plan_deploy_leg "play-github-cli-multi.yml" \
     plan_ansible_playbook playbooks/imports/play-github-cli-multi.yml
 
 printf '\n==> NEXT:\n'
-printf '    1. Restart ccy sessions; a running one keeps the gitconfig it started with.\n'
-printf '    2. ./acceptance.bash\n\n'
+printf '    1. ./acceptance.bash\n'
+if [[ "${PLAN_CHECK}" != "1" ]]; then
+    signer="$(git -C "${repoRoot}" config --get user.signingkey)"
+    printf '    2. A self-update server (Plan 00137) verifies commits to this checkout, which now\n'
+    printf '       sign with %s. Set the server'"'"'s self_update_signing_public_key to the\n' "${signer}"
+    printf '       contents of %s.pub, then run the server'"'"'s deploy.\n' "${signer}"
+fi
+printf '\n'
 
 plan_finish

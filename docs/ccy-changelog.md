@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.70.1
+
+- **A forwarded agent that is empty or locked is named as such**, with how to unlock it,
+  rather than reported as not holding the key.
+- **A host key given as a `key::` literal is named by its type**, and the refusal no
+  longer tells you to `ssh-add` the literal.
+
 ## 3.70.0
 
 - **The container signs with the session's own SSH key, through an ssh-agent** (Plan 00139

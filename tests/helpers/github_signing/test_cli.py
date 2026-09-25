@@ -322,6 +322,22 @@ class TestRetire(_Case):
         rc, _, err = self.retire([self.dir / "github_zz_signing"])
         self.assertEqual((rc, self.gh.deleted), (0, []), err)
 
+    def test_a_retired_key_whose_pub_is_gone_is_matched_by_its_derived_public_half(self):
+        (self.dir / "github_a_signing.pub").unlink()
+        self.gh.unlocked[str(self.old_key)] = RETIRED_PUB
+        rc, out, err = self.retire()
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(sorted(login for login, _ in self.gh.deleted), ["alice", "bob"])
+        self.assertIn("SIGNING-RETIRED alice github_a_signing", out)
+
+    def test_a_retired_key_with_no_pub_and_no_readable_public_half_is_refused(self):
+        (self.dir / "github_a_signing.pub").unlink()
+        self.gh.not_keys.add(str(self.old_key))
+        rc, _, err = self.retire()
+        self.assertEqual((rc, self.gh.deleted), (1, []))
+        self.assertIn("github_a_signing", err)
+        self.assertIn("public half", err)
+
     def test_retiring_a_key_still_in_use_is_refused_before_anything_is_deleted(self):
         rc, _, err = self.retire([self.old_key, self.alice])
         self.assertEqual((rc, self.gh.deleted), (1, []))

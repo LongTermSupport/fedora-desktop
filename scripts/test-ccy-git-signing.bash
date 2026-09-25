@@ -373,6 +373,35 @@ else
     fail "the copy is broken after the append (rc=$RC): $(git config --file "$CASE/stage/gitconfig" --list 2>&1 | tr '\n' ' ')"
 fi
 
+echo "== a forwarded agent that holds nothing, or is locked"
+# ssh-add -L exits 1 for both, and says only that there are no identities.
+new_case agent-empty "${SIGNING_ON[@]}"
+STUB_AGENT_KEYS="The agent has no identities.
+" STUB_AGENT_RC=1 run_cfg "$SSH_AGENT_SENTINEL" 1
+if [ "$RC" -ne 0 ] && [[ "$OUT" == *"holds no keys, or is locked"* ]] && [[ "$OUT" == *"ssh-add -X"* ]]; then
+    pass "refused, saying the agent is empty or locked, with how to unlock it"
+else
+    fail "rc=$RC, or the refusal does not name an empty or locked agent: $OUT"
+fi
+
+echo "== the host names its signing key as a key:: literal"
+new_case literal gpg.format=ssh "user.signingkey=key::$ED_A host-literal" commit.gpgsign=true
+STUB_AGENT_KEYS="$ED_A agent-comment
+" run_cfg "$SSH_AGENT_SENTINEL" 1
+if [ "$RC" -eq 0 ] && [ "$(signingkey_in_copy)" = "key::$ED_A" ] &&
+    [[ "$OUT" == *"the literal ssh-ed25519 key in user.signingkey"* ]]; then
+    pass "the copy carries the literal, and the launch line names it by its type"
+else
+    fail "rc=$RC, copy '$(signingkey_in_copy)': $OUT"
+fi
+STUB_AGENT_KEYS="$ED_B other
+" run_cfg "$SSH_AGENT_SENTINEL" 1
+if [ "$RC" -ne 0 ] && [[ "$OUT" == *"Load the private key whose public half"* ]] && [[ "$OUT" != *"ssh-add key::"* ]]; then
+    pass "an agent without it is refused, with a remedy that is not an ssh-add of a literal"
+else
+    fail "rc=$RC, or the remedy asks to ssh-add the literal: $OUT"
+fi
+
 echo "== a real passphrase-protected key, signing a real commit and tag through an agent"
 # The cases above use placeholder keys. This one uses a real key with a passphrase, as
 # ~/.ssh/id is, loaded into an agent of the test's own. The copy names the key's path as
@@ -423,6 +452,42 @@ if in_copy_git tag -m "signed tag" v1 &&
     pass "a plain annotated tag is signed, and verifies"
 else
     fail "a plain annotated tag through the copy is not signed by the key"
+fi
+
+echo "== a forwarded agent, for real: the copy names the key as a key:: literal"
+# The session has only the forwarded agent, so the copy carries the public half of the key
+# git on the host picks, and the agent signs with it.
+REAL_CASE="$CASE"
+new_case real-forwarded gpg.format=ssh "user.signingkey=$REAL_CASE/home/.ssh/key_0" commit.gpgsign=true \
+    user.name=Signer user.email=signer@example.com
+OUT="$(HOME="$CASE/home" GIT_CONFIG_GLOBAL="$CASE/home/.gitconfig" GIT_CONFIG_NOSYSTEM=1 \
+    SSH_AUTH_SOCK="$REAL_AGENT_SOCK" configure_git_signing "$CASE/stage/gitconfig" "$CASE/project" \
+    "$SSH_AGENT_SENTINEL" "" 1 2>&1)"
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(signingkey_in_copy)" = "key::$(cut -d' ' -f1,2 "$REAL_CASE/home/.ssh/key_0.pub")" ]; then
+    pass "the real agent holds the key, and the copy names its public half"
+else
+    fail "rc=$RC, copy '$(signingkey_in_copy)': $OUT"
+fi
+repo="$CASE/repo"
+git init -q "$repo"
+if in_copy_git commit -q --allow-empty -m "signed by the forwarded agent" &&
+    in_copy_git -c gpg.ssh.allowedSignersFile="$REAL_CASE/allowed_signers" verify-commit HEAD 2>/dev/null; then
+    pass "a commit through the literal is signed by the agent, and verifies"
+else
+    fail "a commit through the key:: literal is not signed by the key"
+fi
+
+echo "== the key file alone, as the container mounts it"
+# The launcher mounts only the private key; its .pub is not beside it in the container.
+CASE="$REAL_CASE"
+repo="$CASE/repo"
+rm -f "$CASE/home/.ssh/key_0.pub"
+if in_copy_git commit -q --allow-empty -m "no .pub beside the key" &&
+    in_copy_git -c gpg.ssh.allowedSignersFile="$CASE/allowed_signers" verify-commit HEAD 2>/dev/null; then
+    pass "with no .pub beside the key, a commit still signs through the agent, and verifies"
+else
+    fail "with no .pub beside the key, the commit is not signed"
 fi
 
 echo "== the launcher"

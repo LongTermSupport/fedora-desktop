@@ -756,6 +756,32 @@
             chdir: "{{ root_dir }}"   # repo root on sys.path so the helpers package imports
           changed_when: false
 
+        # A ccy session started before CCY 3.70.0 signs with a copy of a passphrase-free key,
+        # staged in its /tmp/claude-yolo-* directory for as long as it runs. Its pushes after
+        # the key leaves GitHub would show Unverified, so nothing is retired while one runs.
+        - name: Find ccy Sessions Still Signing With a Passphrase-Free Key
+          ansible.builtin.find:
+            paths: /tmp
+            patterns: git-signing-key
+            recurse: true
+            depth: 2
+          register: ccy_signing_stages
+
+        - name: Refuse to Retire Keys a Running ccy Session Signs With
+          ansible.builtin.assert:
+            that: old_signing_stages | length == 0
+            fail_msg: >-
+              ccy sessions started before CCY 3.70.0 are still running, and each signs with a
+              passphrase-free key this play is about to delete from GitHub:
+              {{ old_signing_stages | join(', ') }}. Stop those sessions, then re-run. A directory
+              left by a session that is no longer running goes at the next reboot, or can be
+              removed.
+            quiet: true
+          vars:
+            old_signing_stages: >-
+              {{ ccy_signing_stages.files | map(attribute='path')
+                 | select('match', '^/tmp/claude-yolo-[^/]+/git-signing-key$') | list }}
+
         # Only after the login keys are registered and git is proven to pick them. The
         # helper refuses to retire a key that is also one in use, before deleting any.
         # GitHub keeps the Verified mark it gave commits pushed while a key was registered.
