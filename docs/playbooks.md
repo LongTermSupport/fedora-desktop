@@ -502,7 +502,7 @@ agent-browser-headed --session ui snapshot -i        # Get @refs for elements
 agent-browser-headed --session ui click @e5          # Click using reference
 agent-browser-headed --session ui fill @e3 "test"    # Fill form fields
 agent-browser-headed --session ui screenshot /tmp/page.png
-agent-browser-headed --session ui close              # Every session, every time
+agent-browser-headed --session ui close              # Close what you opened, every time
 
 # Same Chromium, no window, for unattended visual work
 agent-browser-headless --session shot open https://example.com \

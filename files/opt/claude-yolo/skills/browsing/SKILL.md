@@ -91,8 +91,8 @@ Every session name is a separate browser, about 14 Chromium processes each. So C
 each of the three commands have **one session open at a time**. A command that would
 start a second exits 3 with `refused`, and names the session that is already open:
 
-- **It is yours and you still need it:** reuse it with `--session <that name>`. This
-  is also what happens if you forget `--session` on one command.
+- **It is yours and you still need it:** reuse it with `--session <that name>`. A
+  command you forgot to give `--session` targets `default` and is refused this way too.
 - **It is yours and you are done with it:** `<command> --session <that name> close`,
   then re-run.
 - **You did not open it:** another agent working in parallel did. Do not close it. Wait

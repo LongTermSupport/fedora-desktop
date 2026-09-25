@@ -80,8 +80,9 @@ Root cause, measured in-container (full evidence in the journal, 26-09-25):
 - [x] ✅ **Task 3.1**: Update the browsing skill: one session per command, why
   upstream's "always use your own session" advice does not apply here, what a refusal
   means. Update `docs/ccy.md`, `CCY-GUIDE.txt` and `docs/playbooks.md`.
-- [ ] 🔄 **Task 3.2**: `./scripts/qa-all.bash`; `qa-reviewer` over the branch diff;
-  resolve findings.
+- [x] ✅ **Task 3.2**: `./scripts/qa-all.bash`; `qa-reviewer` over the branch diff;
+  resolve findings. Round 1 was FIX-BEFORE-MERGE (fixed, Decision 3); round 2 was
+  PASS WITH NITS (the nits were fixed).
 - [ ] ⬜ **Task 3.3**: On the HOST, `./deploy.bash` (`play-claude-yolo.yml`, image
   rebuild). Then, inside a NEW ccy session, `./acceptance.bash`. On the host it reports
   COULD NOT ESTABLISH (exit 2), because the browsers exist only in the image.
@@ -141,18 +142,18 @@ would share one browser without noticing, and `close --all` closes other agents'
 - [x] `scripts/test-agent-browser-session-guard.bash` passes and runs in `qa-all.bash`.
 - [ ] After the host deploy, `./acceptance.bash` (installed mode) in a fresh ccy
   container: ACCEPTED with full coverage.
-- [ ] QA passes (`./scripts/qa-all.bash`), apart from stages that fail for a documented
+- [x] QA passes (`./scripts/qa-all.bash`), apart from stages that fail for a documented
   worktree-only reason; `qa-reviewer` findings resolved.
 
 ## Risks & Mitigations
 
-| Risk                                                                                | Impact | Probability | Mitigation                                                                                   |
-| ----------------------------------------------------------------------------------- | ------ | ----------- | -------------------------------------------------------------------------------------------- |
-| Two parallel agents both start a first session at once and both pass the check      | L      | L           | Bound exceeded by the racers only; each still reuses its own. No lock, deliberately (YAGNI). |
-| A refused agent closes a parallel agent's browser                                   | M      | L           | Refusal and skill say close `--session <yours>`, never `close --all`, never one not yours.   |
-| A non-launching command outside the pass list (`auth list`, `dashboard`) is refused | L      | L           | Loud, not a leak; widen the list if it happens.                                              |
-| Command-word detection misreads an unusual flag layout                              | L      | L           | Misreads fall on the guarded side; a false refusal is loud, not a leak.                      |
-| Upstream changes `session list --json` output                                       | M      | L           | The guard fails loudly on unparseable output; the suite pins the format it expects.          |
+| Risk                                                                                | Impact | Probability | Mitigation                                                                                    |
+| ----------------------------------------------------------------------------------- | ------ | ----------- | --------------------------------------------------------------------------------------------- |
+| Two parallel agents both start a first session at once and both pass the check      | L      | L           | Bound exceeded by the racers only; each still reuses its own. No lock, deliberately (YAGNI).  |
+| A refused agent closes a parallel agent's browser                                   | M      | L           | Refusal and skill say close `--session <yours>`, never `close --all`, never one not yours.    |
+| A non-launching command outside the pass list (`auth list`, `dashboard`) is refused | L      | L           | Loud, not a leak; widen the list if it happens.                                               |
+| Command-word detection misreads an unusual flag layout                              | L      | L           | Mostly guarded; an unlisted value flag whose value is a pass word (`-s close open`) slips by. |
+| Upstream changes `session list --json` output                                       | M      | L           | The guard fails loudly on unparseable output; the suite pins the format it expects.           |
 
 ## Delivery & Milestones
 
@@ -161,3 +162,7 @@ would share one browser without noticing, and `close --all` closes other agents'
      JOURNAL/00140-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
 - Root cause measured (Phase 1)
+- `0e0ab5f8` guard, suite, image wiring, CCY 3.67.5 / container 2.38
+- `416f81d4` skill and docs
+- `707b2bef` review round 1: wrapper-owned flags refused, named sessions
+- Waiting on the host deploy (Task 3.3)

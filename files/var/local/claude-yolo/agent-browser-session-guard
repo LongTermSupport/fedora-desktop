@@ -56,8 +56,9 @@ pass_through() {
 (( ${#args[@]} )) || pass_through
 
 # Find the command word, every --session and any --config, as the CLI reads them. A flag
-# that takes a value has it skipped; a boolean flag may be followed by true/false. A
-# misread lands on the guarded side, so an unfamiliar layout is checked, never waved past.
+# that takes a value has it skipped; a boolean flag may be followed by true/false. The
+# value of a value flag missing from the list below is read as the command word, which is
+# checked unless that value happens to be a word on the pass-through list.
 command_word=""
 session_args=()
 config_args=()

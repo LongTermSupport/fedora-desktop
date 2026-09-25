@@ -890,8 +890,8 @@ export CCY_BROWSER_MAX_SESSIONS=2
 ```
 
 It must be a whole number of at least 1. With any other value, empty included, every
-command that would start a session fails until it is fixed. `close` and `session list`
-still work.
+browser command fails until it is fixed, even one reusing an open session. `close`,
+`session list` and `skills` still work.
 
 ### 3. `allowed-hostnames` — restricting where CCY can run
 
