@@ -88,17 +88,93 @@ fi
 
 plan_require_host "it runs Ansible against this machine's git config and ccy launcher"
 
-# Refused before anything changes, rather than at leg 3 after two legs have run.
+# Refused before anything changes, rather than at leg 3 after two legs have run. A staged
+# key's directory is live while a running container mounts it, or while it is younger than
+# CCY_STARTING_GRACE_SECONDS (a session still starting has no container yet). Any other
+# is left by a session that has ended, and is offered for removal.
+CCY_STARTING_GRACE_SECONDS=300
 shopt -s nullglob
-old_sessions=(/tmp/claude-yolo-*/git-signing-key)
+staged_keys=(/tmp/claude-yolo-*/git-signing-key)
 shopt -u nullglob
-if [[ "${#old_sessions[@]}" -gt 0 ]]; then
-    printf '[FATAL] ccy sessions started before CCY 3.70.0 are still running; each signs with\n' >&2
-    printf '        a passphrase-free key this deploy deletes from GitHub:\n' >&2
-    printf '          %s\n' "${old_sessions[@]}" >&2
-    printf '        Stop those sessions, then run this again. A directory left by a session\n' >&2
-    printf '        that is no longer running goes at the next reboot, or can be removed.\n' >&2
-    exit 1
+if [[ "${#staged_keys[@]}" -gt 0 ]]; then
+    declare -A mounted_by=()
+    running_ids="$(podman ps -q)"
+    if [[ -n "${running_ids}" ]]; then
+        mapfile -t running_id_list <<<"${running_ids}"
+        container_mounts="$(podman inspect --format '{{.Name}}{{range .Mounts}} {{.Source}}{{end}}' "${running_id_list[@]}")"
+        while read -r container_name mount_sources; do
+            for mount_source in ${mount_sources}; do
+                mounted_by["${mount_source}"]="${container_name}"
+            done
+        done <<<"${container_mounts}"
+    fi
+    now="$(date +%s)"
+    live_sessions=()
+    ended_sessions=()
+    for staged_key in "${staged_keys[@]}"; do
+        session_dir="${staged_key%/git-signing-key}"
+        if [[ ! "${session_dir}" =~ ^/tmp/claude-yolo-[A-Za-z0-9]+$ ]]; then
+            printf '[FATAL] unexpected staged key path: %s\n' "${staged_key}" >&2
+            exit 1
+        fi
+        session_age=$((now - $(stat -c %Y "${session_dir}")))
+        if [[ -n "${mounted_by[${session_dir}]:-}" ]]; then
+            live_sessions+=("${session_dir}  (container ${mounted_by[${session_dir}]})")
+        elif [[ "${session_age}" -lt "${CCY_STARTING_GRACE_SECONDS}" ]]; then
+            live_sessions+=("${session_dir}  (no container yet: made ${session_age}s ago, may be starting)")
+        else
+            ended_sessions+=("${session_dir}")
+        fi
+    done
+
+    if [[ "${#ended_sessions[@]}" -gt 0 ]]; then
+        printf '==> %d ccy session(s) that have ended left a staged signing key behind:\n' \
+            "${#ended_sessions[@]}" >&2
+        printf '      %s\n' "${ended_sessions[@]}" >&2
+        printf '    No running container mounts them. To remove them yourself:\n' >&2
+        printf '      rm -rf --%s\n' "$(printf ' %q' "${ended_sessions[@]}")" >&2
+        if [[ "${PLAN_CHECK}" == "1" ]]; then
+            printf '    --check: left in place; a real run offers to remove them.\n' >&2
+        else
+            remove_ended=""
+            if [[ "${PLAN_ASSUME_YES}" == "1" ]]; then
+                remove_ended="y"
+            else
+                for attempt in 1 2 3; do
+                    printf 'Remove them now? [y/N] ' >&2
+                    if ! IFS= read -r remove_ended </dev/tty; then
+                        remove_ended="n"
+                        break
+                    fi
+                    case "${remove_ended}" in
+                        y | Y) remove_ended="y"; break ;;
+                        n | N | "") remove_ended="n"; break ;;
+                        *) printf 'Answer y or n (attempt %d of 3).\n' "${attempt}" >&2; remove_ended="" ;;
+                    esac
+                done
+            fi
+            if [[ "${remove_ended}" != "y" ]]; then
+                printf '[FATAL] left in place, so the deploy cannot go on. Remove them, then run this again.\n' >&2
+                exit 1
+            fi
+            rm -rf -- "${ended_sessions[@]}"
+            printf '==> removed %d directory(ies)\n' "${#ended_sessions[@]}" >&2
+        fi
+    fi
+
+    if [[ "${#live_sessions[@]}" -gt 0 ]]; then
+        printf '[FATAL] %d ccy session(s) started before CCY 3.70.0 are still running. Each signs\n' \
+            "${#live_sessions[@]}" >&2
+        printf '        with a passphrase-free key this deploy deletes from GitHub:\n' >&2
+        printf '          %s\n' "${live_sessions[@]}" >&2
+        printf '        Exit Claude in each of them (a session started by --ssh-agent or any\n' >&2
+        printf '        other ccy is the same), then run this again.\n' >&2
+        exit 1
+    fi
+    if [[ "${PLAN_CHECK}" == "1" && "${#ended_sessions[@]}" -gt 0 ]]; then
+        printf '[FATAL] --check: the directories above would stop leg 3 until removed.\n' >&2
+        exit 1
+    fi
 fi
 plan_prime_sudo
 plan_start_log auto
