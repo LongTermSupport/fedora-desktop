@@ -136,7 +136,9 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   [COMPLETED-TASKS-detail.md#task-31-post-boot-health-probe](COMPLETED-TASKS-detail.md#task-31-post-boot-health-probe)
 - [ ] 🔄 **Task 3.2**: Surface findings to the user — code done, HOST run pending
   - [x] ✅ `login_report.py` — one notification, silent when clean
-  - [ ] ⬜ **HOST**: confirm a real notification arrives, and a clean login is silent
+  - [x] ✅ **HOST**: a real notification arrives. The owner, 2026-09-25: "panel
+    notifications are working fine now"
+  - [ ] ⬜ **HOST**: a clean login is silent
   - [x] ✅ **The server route.** Only the delivery was ever desktop-bound; the checks are
     profile-agnostic. Reasoning, the cadence derivation, the mutants and the two review
     findings are in [DESIGN-server-route.md](DESIGN-server-route.md)
@@ -191,8 +193,8 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 - [ ] 🔄 **Task 4.5**: ESLint clean, deployed by its own play, Wayland-correct
   - [x] ✅ ESLint clean, contract gate green, HOST play run confirmed. Detail:
     [COMPLETED-TASKS-detail.md#task-45-eslint-clean-deployed-by-its-own-play-wayland-correct](COMPLETED-TASKS-detail.md#task-45-eslint-clean-deployed-by-its-own-play-wayland-correct)
-  - [ ] ⬜ **HOST — eyes only**: that the icon is *visibly* in the top bar. [13]–[15] are
-    everything short of seeing it, and a gate cannot close that last step
+  - [x] ✅ **HOST — eyes only**: that the icon is *visibly* in the top bar. The owner,
+    2026-09-25, has the panel and its notifications working
 
 ### Phase 5: Recover the desktop background after a monitor change
 
