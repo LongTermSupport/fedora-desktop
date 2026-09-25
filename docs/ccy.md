@@ -367,9 +367,16 @@ The residual risks worth naming honestly:
 - **Your commit-signing key is in there too**, read-only, in every session, `--no-ssh`
   included, whenever your git config signs. It is the key git picks for the project: its
   GitHub account's own key, or the machine key for any other repository. It cannot push,
-  but anything it signs is Verified as yours. Where a self-updating server trusts that key, a signed commit is a
-  release that server will run as root once it is pushed: whoever can push and sign from
-  the container can ship to it.
+  but anything it signs is Verified as yours. Where a self-updating server trusts that
+  key, a signed commit is a release that server will run as root once it is pushed:
+  whoever can push and sign from the container can ship to it.
+- **The container can choose which of your signing keys the next session gets.** The
+  choice follows the project's remotes, and the project is writable from inside, so an
+  agent that adds a `github.com-<alias>` remote gets that account's key at the next
+  launch. Every launch prints the key it staged (`✓ Commit signing: …`). All of them are
+  your own keys, which is the trust this design accepts: a signature proves the commit
+  came from you or your machine, not which of your agents made it. A `user.signingkey`
+  set in the project's own config is refused outright, because that could name any file.
 - **Your Claude and GitHub tokens are live inside the container.** Combined with
   unrestricted network access, a misled or compromised agent process could exfiltrate
   them, not merely misuse them locally.

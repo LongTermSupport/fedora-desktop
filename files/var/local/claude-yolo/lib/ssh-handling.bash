@@ -2,7 +2,7 @@
 # SSH Handling Library
 # Shared SSH key operations for claude-yolo (ccy)
 #
-# Version: 1.6.1 - stage_git_signing_key trusts only ~/.gitconfig and the system config
+# Version: 1.6.2 - stage_git_signing_key names the key it staged, and the file to fix
 #                  (Plan 00139).
 #          1.4.0 - Two identities a box may hold besides a github_<alias> key:
 #                  the project remote's own key, reached through an ssh-config
@@ -1178,7 +1178,7 @@ build_ssh_mounts_and_validate() {
 #   $4 the project directory
 stage_git_signing_key() {
     local gitconfig="$1" stage_dir="$2" mount_dir="$3" project="$4"
-    local key scoped scope format name value rc signing=false
+    local key scoped scope origin format name value rc signing=false
 
     for name in commit.gpgsign tag.gpgsign; do
         value=$(git config --file "$gitconfig" --type=bool --get "$name") && rc=0 || rc=$?
@@ -1191,22 +1191,25 @@ stage_git_signing_key() {
         fi
     done
 
-    scoped=$(git -C "$project" config --show-scope --get user.signingkey) && rc=0 || rc=$?
+    # "<scope>\t<origin>\t<value>"; an include reports the scope of the file including it.
+    scoped=$(git -C "$project" config --show-scope --show-origin --get user.signingkey) && rc=0 || rc=$?
     if [ "$rc" -gt 1 ]; then
         print_error "Could not read the signing key git uses in $project (git config exit $rc)"
         return 1
     fi
     scope="${scoped%%$'\t'*}"
-    key="${scoped#*$'\t'}"
+    origin="${scoped#*$'\t'}"
+    key="${origin#*$'\t'}"
+    origin="${origin%%$'\t'*}"
     if [ -n "$scoped" ] && [ "$scope" != global ] && [ "$scope" != system ]; then
         print_error "user.signingkey for $project is set in its $scope git config, which the container can write."
         echo "  ccy copies the signing key into the container, so it takes the key only from" >&2
-        echo "  ~/.gitconfig and the system config. Remove the $scope setting:" >&2
-        if [ "$scope" = command ]; then
-            echo "    it comes from GIT_CONFIG_COUNT or GIT_CONFIG_PARAMETERS in this environment" >&2
-        else
-            echo "    git -C '$project' config --$scope --unset user.signingkey" >&2
-        fi
+        echo "  ~/.gitconfig and the system config. Remove the setting:" >&2
+        case "$origin" in
+            file:/*) echo "    git config --file '${origin#file:}' --unset user.signingkey" >&2 ;;
+            file:*) echo "    git config --file '$project/${origin#file:}' --unset user.signingkey" >&2 ;;
+            *) echo "    it comes from GIT_CONFIG_COUNT or GIT_CONFIG_PARAMETERS in this environment ($origin)" >&2 ;;
+        esac
         return 1
     fi
     format=$(git config --file "$gitconfig" --get gpg.format) && rc=0 || rc=$?
@@ -1251,6 +1254,9 @@ stage_git_signing_key() {
         print_error "Could not point user.signingkey in $gitconfig at the staged key"
         return 1
     fi
+    # Which key it is follows the project's remotes, which the container can change, so
+    # every launch says which one it staged.
+    echo "✓ Commit signing: $(basename "$key") (the key git picks for this project)"
 }
 
 # Export functions

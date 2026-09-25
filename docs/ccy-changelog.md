@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.67.2
+
+- **Every launch names the signing key it staged** (`✓ Commit signing: …`). Which key
+  a project gets follows its remotes, which the container can change, so the choice is
+  shown rather than silent. [ccy.md](ccy.md) names the risk.
+- **A refusal names the file that holds the untrusted `user.signingkey`.** For an
+  `[include]` in the project's config, the old `--local --unset` remedy left the value in
+  place.
+
 ## 3.67.1
 
 - **The signing key is taken only from `~/.gitconfig`, what it includes, and the system

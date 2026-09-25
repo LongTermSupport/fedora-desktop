@@ -165,6 +165,51 @@ for signing_setting in commit.gpgsign=true user.name=someone; do
     esac
 done
 
+echo "== a key reaching the project by the other routes the container controls"
+# refused_by <label> <text the refusal must carry>: run the stage, expect a refusal that
+# stages nothing and names where the setting lives.
+refused_by() {
+    if [ "$RC" -ne 0 ] && [ ! -e "$CASE/stage/git-signing-key" ]; then
+        pass "$1: refused and nothing staged"
+    else
+        fail "$1: accepted (rc=$RC)"
+    fi
+    case "$OUT" in
+        *"$2"*) pass "$1: the refusal names $2" ;;
+        *) fail "$1: the refusal does not name $2: $OUT" ;;
+    esac
+}
+new_case via-include gpg.format=ssh "user.signingkey=$WORK/via-include/home/.ssh/signing" commit.gpgsign=true
+printf 'NOT-A-SIGNING-KEY\n' >"$CASE/home/.ssh/id"
+git init -q "$CASE/project"
+printf '[user]\n\tsigningkey = %s\n' "$CASE/home/.ssh/id" >"$CASE/project/planted.gitconfig"
+git -C "$CASE/project" config include.path "$CASE/project/planted.gitconfig"
+run_stage
+refused_by "an [include] in .git/config" "git config --file '$CASE/project/planted.gitconfig' --unset user.signingkey"
+
+new_case via-worktree gpg.format=ssh "user.signingkey=$WORK/via-worktree/home/.ssh/signing" commit.gpgsign=true
+printf 'NOT-A-SIGNING-KEY\n' >"$CASE/home/.ssh/id"
+git init -q "$CASE/project"
+git -C "$CASE/project" config extensions.worktreeConfig true
+git -C "$CASE/project" config --worktree user.signingkey "$CASE/home/.ssh/id"
+run_stage
+refused_by "a worktree config" "config.worktree"
+
+new_case via-env gpg.format=ssh "user.signingkey=$WORK/via-env/home/.ssh/signing" commit.gpgsign=true
+printf 'NOT-A-SIGNING-KEY\n' >"$CASE/home/.ssh/id"
+OUT="$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.signingkey GIT_CONFIG_VALUE_0="$CASE/home/.ssh/id" \
+    case_git stage_git_signing_key "$CASE/stage/gitconfig" "$CASE/stage" "$MOUNT" "$CASE/project" 2>&1)"
+RC=$?
+refused_by "GIT_CONFIG_COUNT in the environment" "GIT_CONFIG_COUNT"
+
+echo "== the launch says which key it staged"
+new_case names-key gpg.format=ssh "user.signingkey=$WORK/names-key/home/.ssh/signing" commit.gpgsign=true
+run_stage
+case "$OUT" in
+    *"Commit signing: signing"*) pass "the staged key is named on the launch output" ;;
+    *) fail "the staged key is not named: $OUT" ;;
+esac
+
 echo "== a ~/.gitconfig whose last line has no newline"
 new_case no-final-newline gpg.format=ssh "user.signingkey=$WORK/no-final-newline/home/.ssh/signing" \
     commit.gpgsign=true
