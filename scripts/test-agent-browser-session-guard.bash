@@ -31,6 +31,9 @@ trap 'rm -rf "$WORK"' EXIT
 # The fake binary. It understands the handful of flags the wrappers and the guard
 # pass, answers `session` and `session list` from $FAKE_STATE, and treats every other
 # command as one that starts (or reuses) the target session, as the real CLI does.
+# Behaviour copied from agent-browser 0.38.1, measured: a repeated flag is LAST-wins,
+# `--session=NAME` is rejected as an unknown command, and the session comes from the
+# flag, else AGENT_BROWSER_SESSION, else the config file's "session", else default.
 FAKE="$WORK/fake-agent-browser"
 cat > "$FAKE" <<'FAKE_EOF'
 #!/usr/bin/env bash
@@ -38,24 +41,28 @@ set -euo pipefail
 printf '%q ' "$@" >> "$FAKE_LOG"
 echo >> "$FAKE_LOG"
 json=0
-session="${AGENT_BROWSER_SESSION:-default}"
-session_set=0
+flag_session=""
+config=""
 rest=()
 while (( $# )); do
     case "$1" in
-        --namespace|--headed|--config) shift 2 ;;
+        --namespace|--headed) shift 2 ;;
+        --config) config="$2"; shift 2 ;;
         --json) json=1; shift ;;
-        --session)
-            if (( ! session_set )); then session="$2"; session_set=1; fi
-            shift 2 ;;
-        --session=*)
-            if (( ! session_set )); then session="${1#--session=}"; session_set=1; fi
-            shift ;;
+        --session) flag_session="$2"; shift 2 ;;
+        --session=*) echo "Unknown command: $1" >&2; exit 1 ;;
         *) rest+=("$1"); shift ;;
     esac
 done
+session="default"
+if [[ -n "$config" ]] && grep -q '^session=' "$config"; then
+    session="$(grep '^session=' "$config" | cut -d= -f2)"
+fi
+session="${AGENT_BROWSER_SESSION:-$session}"
+session="${flag_session:-$session}"
 if [[ "${rest[*]:-}" == "session list" ]]; then
-    if [[ -n "${FAKE_LIST_FAIL:-}" ]]; then echo "daemon socket dir unreadable" >&2; exit 1; fi
+    # With --json the real CLI puts its error on STDOUT, so the guard must show it.
+    if [[ -n "${FAKE_LIST_FAIL:-}" ]]; then echo '{"success":false,"error":"daemon socket dir unreadable"}'; exit 1; fi
     if [[ -n "${FAKE_LIST_GARBAGE:-}" ]]; then echo "Active sessions:"; exit 0; fi
     # A just-closed session stays listed for FAKE_LINGER more list calls.
     lingering=()
@@ -166,13 +173,26 @@ echo ""
 echo "=== THE leak: a new session while one is live is refused ==="
 reset task-a
 run_guard -- open https://example.com
-refused "export lost, command falls back to default" "task-a" "agent-browser-headless --session task-a" "agent-browser-headless close --all"
+refused "export lost, command falls back to default" "task-a" \
+    "agent-browser-headless --session task-a <command>" "agent-browser-headless --session task-a close"
 reset default
 run_guard -- --session task-b open https://example.com
 refused "a new --session name" "default"
-reset default
+reset task-a
+run_guard -- --session task-a --session task-b open https://example.com
+refused "a repeated --session: the last one wins, as in the CLI" "task-a"
+reset task-a
+run_guard -- --session task-b --session task-a open https://example.com
+ran "a repeated --session whose last value is the open one is reuse" "open https://example.com"
+reset task-a
+echo "session=task-a" > "$WORK/cfg"
+run_guard -- --config "$WORK/cfg" open https://example.com
+ran "a --config naming the open session is reuse (the probes see it too)" "open https://example.com"
+reset task-a
 run_guard -- --session=task-b open https://example.com
-refused "a new --session=name" "default"
+if [[ "$RC" != 0 ]] && ! launched; then pass "--session=name starts nothing (the CLI rejects that form)"; else
+    fail "--session=name starts nothing (the CLI rejects that form)"
+fi
 reset default
 run_guard -- open https://example.com --session task-b
 refused "--session after the command" "default"
@@ -246,6 +266,45 @@ for bad in 0 -1 abc 1.5 ""; do
     fi
 done
 
+reset
+run_guard CCY_BROWSER_MAX_SESSIONS=abc -- close --all
+ran "an invalid cap does not stop close --all" "close --all"
+
+echo ""
+echo "=== a caller's copy of a flag the wrapper sets is refused (the CLI is last-wins) ==="
+# owned <description> <caller args>... : exit 2, nothing launched, nothing on stdout.
+owned() {
+    local desc="$1"
+    if [[ "$RC" == 2 && -z "$OUT" && "$ERR" == *"set by agent-browser-headless itself"* ]] && ! launched; then
+        pass "$desc"
+    else
+        fail "$desc"
+    fi
+}
+reset
+run_guard -- --namespace escaped --session task-a open https://example.com
+owned "--namespace would take the browser out of the counted namespace"
+reset
+run_guard -- --namespace=escaped open https://example.com
+owned "--namespace=value too"
+reset
+run_guard -- --headed true open https://example.com
+owned "--headed true would open a window from agent-browser-headless"
+reset
+run_guard -- open https://example.com --headed
+owned "--headed after the command"
+reset
+OUT="$(env FAKE_STATE="$WORK/state" FAKE_LOG="$WORK/log" \
+    bash "$GUARD" agent-browser-lite-headless "$FAKE" --namespace lightpanda --config /dev/null \
+    -- --config /tmp/other.json open https://example.com 2> "$WORK/stderr")"
+RC=$?
+ERR="$(cat "$WORK/stderr")"
+if [[ "$RC" == 2 && "$ERR" == *"--config is set by agent-browser-lite-headless itself"* ]] && ! launched; then
+    pass "the lite wrapper owns --config (a second one would swap the engine's config)"
+else
+    fail "the lite wrapper owns --config (a second one would swap the engine's config)"
+fi
+
 echo ""
 echo "=== a just-closed session still listed for a moment is waited out ==="
 reset
@@ -261,7 +320,8 @@ echo ""
 echo "=== probe failures fail loudly, and run nothing ==="
 reset
 run_guard FAKE_LIST_FAIL=1 -- open https://example.com
-if [[ "$RC" != 0 && "$RC" != 3 && -z "$OUT" && "$ERR" == *"session list"* ]] && ! launched; then
+if [[ "$RC" != 0 && "$RC" != 3 && -z "$OUT" && "$ERR" == *"session list"* && "$ERR" == *"socket dir unreadable"* ]] \
+    && ! launched; then
     pass "session list failing"
 else
     fail "session list failing"

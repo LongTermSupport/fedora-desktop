@@ -889,8 +889,9 @@ browsers side by side, such as a two-user flow:
 export CCY_BROWSER_MAX_SESSIONS=2
 ```
 
-It must be a whole number of at least 1. Any other value, empty included, makes every
-browser command fail until it is fixed.
+It must be a whole number of at least 1. With any other value, empty included, every
+command that would start a session fails until it is fixed. `close` and `session list`
+still work.
 
 ### 3. `allowed-hostnames` — restricting where CCY can run
 
@@ -1354,15 +1355,22 @@ npm package: that recreates the bare symlink and removes the choice.
 ### One open session per browser command
 
 Every agent-browser session name is a separate browser, about 14 Chromium processes
-each. Agents tended to start a new one per task and leave the old ones running, so
-browsers piled up until the idle timer caught them. Each of the three commands now
-refuses, with exit 3, a command that would start another session while one is already
-open. The message names the open session and says to reuse it (`--session <name>`) or
-close it (`close --all`). Reusing a session, and commands that start no browser
-(`close`, `session list`, `skills`, `--help`), are never refused.
+each. Without a cap, an agent that starts a new session per task and leaves the old ones
+running piles browsers up until the idle timer catches them. So each of the three
+commands refuses, with exit 3, a command that would start another session while one is
+already open. The message names the open session and says to reuse it
+(`--session <name>`) or close it (`--session <name> close`). Reusing a session, and
+commands that start no browser (`close`, `session list`, `skills`, `--help`), are never
+refused.
+
+The CLI takes the last copy of a repeated flag. So the commands also refuse, with exit 2,
+a caller's own copy of a flag they set (`--namespace`, `--headed`, and `--config` for
+lite). Otherwise, for example, `agent-browser-headless --headed true` would open a window.
 
 The three commands count separately, so at most one headed Chromium, one headless
-Chromium and one Lightpanda run at once. To allow more, see
+Chromium and one Lightpanda run at once. The exception is two agents starting their first
+session in the same instant, since the check and the start are not locked. To allow more,
+see
 [`CCY_BROWSER_MAX_SESSIONS`](#ccy_browser_max_sessions--how-many-browser-sessions-may-be-open-at-once).
 The guard is `files/var/local/claude-yolo/agent-browser-session-guard`. The measurements
 behind it are in Plan 00140; find it by number under `CLAUDE/Plan/`.

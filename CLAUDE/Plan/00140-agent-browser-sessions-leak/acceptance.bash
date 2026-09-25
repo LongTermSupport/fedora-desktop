@@ -120,7 +120,7 @@ close_everything() {
 
 # The two shapes an agent types that expect_rc cannot express as one argv.
 hl_env_session() { AGENT_BROWSER_SESSION=task-c hl "$@"; }
-close_then_open() { hl close --all > /dev/null && hl --session task-b open "$PAGE"; }
+close_then_open() { hl --session task-a close > /dev/null && hl --session task-b open "$PAGE"; }
 
 echo "== mode: $MODE"
 for listing in "$(hl --json session list)" "$(lite --json session list)"; do
@@ -132,7 +132,7 @@ for listing in "$(hl --json session list)" "$(lite --json session list)"; do
 done
 plan_on_cleanup close_everything
 
-TOTAL=14
+TOTAL=16
 [[ "$MODE" == installed ]] && TOTAL=$((TOTAL + 4))
 
 if [[ "$MODE" == installed ]]; then
@@ -153,6 +153,8 @@ echo "== headless: the leaking patterns"
 expect_rc "first session (--session task-a) opens" 0 hl --session task-a open "$PAGE"
 expect_rc "the default session is refused while task-a is open" 3 hl open "$PAGE"
 expect_rc "AGENT_BROWSER_SESSION=task-c is refused" 3 hl_env_session open "$PAGE"
+expect_rc "a repeated --session ending in a new name is refused" 3 hl --session task-a --session task-z open "$PAGE"
+expect_rc "a caller --namespace is refused" 2 hl --namespace escaped --session task-y open "$PAGE"
 expect_rc "reusing task-a works" 0 hl --session task-a get url
 check "exactly one Chromium root after all that (have $(browser_roots chrome))" "$([[ "$(browser_roots chrome)" == 1 ]] && echo 1 || echo 0)"
 
@@ -162,7 +164,7 @@ expect_rc "skills list" 0 hl skills list
 expect_rc "--version" 0 hl --version
 
 echo "== headless: close then open a new session in one chain"
-expect_rc "close --all && --session task-b open" 0 close_then_open
+expect_rc "--session task-a close && --session task-b open" 0 close_then_open
 check "still exactly one Chromium root (have $(browser_roots chrome))" "$([[ "$(browser_roots chrome)" == 1 ]] && echo 1 || echo 0)"
 
 echo "== lite: the same leak"

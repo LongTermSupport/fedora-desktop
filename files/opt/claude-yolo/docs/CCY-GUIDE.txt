@@ -97,13 +97,15 @@ BROWSER AUTOMATION:
   Each command runs on its own daemon namespace, so the three keep separate
   browser sessions. Interleave them in any order without closing anything —
   but a page opened in one is not open in another, so re-`open` after
-  switching. Close every mode you used: `<command> close --all`.
+  switching. Close what you opened in every mode you used:
+  `<command> --session <name> close`.
 
+  Name your session and pass --session <name> on EVERY command; an
+  `export AGENT_BROWSER_SESSION=...` does not survive to your next Bash call.
   One session per command at a time: every session name is its own browser.
   A command that would start a second exits 3 ("refused") and names the open
-  one. Reuse it (--session <name>) or close it; do not close one you did not
-  open. Use the default session; an `export AGENT_BROWSER_SESSION=...` does
-  not survive to your next Bash call.
+  one. Reuse it or close it. Do not close one you did not open, and do not
+  use `close --all`: both close other agents' sessions too.
 
   Command reference (always matched to the installed version):
     agent-browser-headless skills get core --full

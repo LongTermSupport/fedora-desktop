@@ -64,20 +64,26 @@ littered with abandoned Chrome windows from agents that finished and moved on.
 
 The timeout is a safety net for the case where you crash. It is not your cleanup. **The
 same Bash call that finishes the task ends the session**, chained with `&&`, so there is no
-"later" in which to forget:
+"later" in which to forget.
+
+**Name your session, and pass `--session <name>` on every command.** Pick a short name
+for the task (`docs`, `pricing-check`). With a name, a parallel agent cannot silently
+drive your page, and you close exactly what you opened:
 
 ```bash
-agent-browser-lite-headless open https://example.com \
-  && agent-browser-lite-headless get text body \
-  && agent-browser-lite-headless close --all
+agent-browser-lite-headless --session docs open https://example.com \
+  && agent-browser-lite-headless --session docs get text body \
+  && agent-browser-lite-headless --session docs close
 ```
 
-Use `close --all` rather than a bare `close`: it reaps every session, including one a
-previous command of yours left behind. **Each of the three commands has its own daemon**,
-so `close --all` only closes the mode it was invoked as. Before you report a task
-finished, run `agent-browser-headed session list`, `agent-browser-headless session list`
-and `agent-browser-lite-headless session list` for every mode you used; if any names a
-session, you are not finished.
+Do not use `export AGENT_BROWSER_SESSION=...`, which the upstream core skill suggests.
+In Claude Code the export is gone by your next Bash call, and the calls after it would
+land on another session. Put `--session` on the command itself. Do not use
+`close --all` either: it also closes sessions other agents are using.
+
+**Each of the three commands has its own daemon**, so close in every mode you used.
+Before you report a task finished, run `<command> session list` for every mode you used.
+If one still lists your session, you are not finished.
 
 ## One session per command, and a second is refused
 
@@ -85,17 +91,15 @@ Every session name is a separate browser, about 14 Chromium processes each. So C
 each of the three commands have **one session open at a time**. A command that would
 start a second exits 3 with `refused`, and names the session that is already open:
 
-- **It is yours and you still need it:** reuse it. Add `--session <that name>` to the
-  command, or drop `--session` if the open one is `default`.
-- **It is yours and you are done with it:** `<command> close --all`, then re-run.
-- **You did not open it:** another agent working in parallel probably did. Do not close
-  it. Wait for it, or use a different mode if the task allows.
+- **It is yours and you still need it:** reuse it with `--session <that name>`. This
+  is also what happens if you forget `--session` on one command.
+- **It is yours and you are done with it:** `<command> --session <that name> close`,
+  then re-run.
+- **You did not open it:** another agent working in parallel did. Do not close it. Wait
+  for it, or use a different mode if the task allows.
 
-**Do not follow the upstream core skill's "Always use your own session" step here.** It
-has you `export AGENT_BROWSER_SESSION="$(agent-browser session id ...)"`. In Claude Code
-that export is gone by your next Bash call, so the calls after it use `default` and would
-start a second browser. Use the default session. If you do name one, pass
-`--session <name>` on every command.
+The browser commands also refuse (exit 2) a copy of a flag they set themselves, such as
+`--headed` or `--namespace`: a second copy would override the mode you chose.
 
 A project that genuinely needs two sessions side by side, such as a two-user flow, sets
 `CCY_BROWSER_MAX_SESSIONS` in its `.claude/ccy/ccy.env`. Close each one when done.
@@ -137,28 +141,30 @@ Chromium command up front — do not check the return code and assume it worked.
 ## Quick reference
 
 Identical for all three commands. The browser persists between invocations via a daemon,
-so chain with `&&`:
+so chain with `&&`, and name the session on every command:
 
 ```bash
 # Read a page's rendered content (cheap engine, no window)
-agent-browser-lite-headless open https://example.com && agent-browser-lite-headless get text body
+agent-browser-lite-headless --session docs open https://example.com \
+  && agent-browser-lite-headless --session docs get text body
 
 # NOTE: `read <url>` does NOT render — it is an HTTP fetch plus text extraction.
 # For anything JavaScript-dependent, use `open` then `get text`.
-agent-browser-lite-headless read https://example.com    # fine for static/markdown docs only
+agent-browser-lite-headless --session docs read https://example.com  # static/markdown only
 
 # Inspect and interact while the user watches
-agent-browser-headed open https://example.com && agent-browser-headed snapshot -i
-agent-browser-headed click @e2
-agent-browser-headed fill @e3 "user@example.com"
+agent-browser-headed --session ui open https://example.com && agent-browser-headed --session ui snapshot -i
+agent-browser-headed --session ui click @e2
+agent-browser-headed --session ui fill @e3 "user@example.com"
 
 # Screenshot with nobody watching — Chromium, no window
-agent-browser-headless open https://example.com && agent-browser-headless screenshot /tmp/page.png
+agent-browser-headless --session shot open https://example.com \
+  && agent-browser-headless --session shot screenshot /tmp/page.png
 
-# Finish up — one close per mode you used
-agent-browser-headed close --all
-agent-browser-headless close --all
-agent-browser-lite-headless close --all
+# Finish up — close each session you opened, in its own mode
+agent-browser-headed --session ui close
+agent-browser-headless --session shot close
+agent-browser-lite-headless --session docs close
 ```
 
 ## Notes
@@ -166,7 +172,8 @@ agent-browser-lite-headless close --all
 - All three are passthrough wrappers around the same binary. `agent-browser-headed` and
   `agent-browser-headless` differ only in the headed flag; `agent-browser-lite-headless`
   selects the Lightpanda engine via a dedicated config file. Every subcommand and flag
-  behaves the same. The one addition is the session cap above.
+  behaves the same. The additions are the session cap and the refused duplicate flags
+  above.
 - Each wrapper runs on its own daemon namespace, so the three keep **separate browser
   sessions**. Interleave them in any order without closing anything — but a page you
   opened with one is not open in the other, so re-`open` the URL after switching.

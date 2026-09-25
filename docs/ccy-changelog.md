@@ -29,6 +29,12 @@ Two version numbers move independently — see
   close. Reusing a session and commands that start no browser (`close`, `session`,
   `skills`, `--help`, ...) are never refused. A project that needs two at once sets
   `CCY_BROWSER_MAX_SESSIONS` in its `ccy.env`.
+- **`agent-browser-headless --headed true` no longer opens a window.** The CLI takes the
+  last copy of a repeated flag (measured for `--session`, `--namespace` and `--headed`),
+  so a caller's own copy overrode the wrapper's. The Dockerfile said the opposite. The
+  commands now refuse (exit 2) a copy of any flag they set themselves.
+- **The browsing skill has agents name their session on every command** and close it by
+  name, rather than `close --all`, which also closed other agents' sessions.
 
 ## 3.67.4
 

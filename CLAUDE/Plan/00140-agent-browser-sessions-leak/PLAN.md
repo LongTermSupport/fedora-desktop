@@ -118,12 +118,26 @@ subagents, scripts) with no Claude configuration. Once the count is capped, the 
 reaper handles the one browser per command left open. Revisit only if that proves
 not to be enough.
 
+### Decision 3: refuse a caller's copy of a wrapper-owned flag; agents name their session
+
+**Context**: the first review measured that the CLI is last-wins for a repeated flag, and
+this plan then measured `--headed` too. A caller's `--namespace` escaped the count, a
+repeated `--session` fooled reuse, and `agent-browser-headless --headed true` would open
+a desktop window. The Dockerfile's "first-wins" comment was wrong.
+**Decision**: the guard refuses (exit 2) any flag its own wrapper sets, derived from the
+wrapper's argv rather than listed. It forwards every `--session` and a caller's
+`--config` to its probes, so they resolve what the command will. The skill has agents pass
+`--session <name>` on every command and close by name. On `default`, parallel agents
+would share one browser without noticing, and `close --all` closes other agents' sessions.
+
 ## Success Criteria
 
 - [x] Through the guard, the leaking patterns from Task 1.1 leave at most one browser
   root per browser command (real binary, in-container; checkout mode, before deploy).
 - [x] Reuse, `close`, `close --all`, `session list`, `skills` and `--version` are never
   refused.
+- [x] A caller cannot override a wrapper-owned flag (`--namespace`, `--headed`, lite's
+  `--config`), and a repeated `--session` resolves as the CLI resolves it.
 - [x] `scripts/test-agent-browser-session-guard.bash` passes and runs in `qa-all.bash`.
 - [ ] After the host deploy, `./acceptance.bash` (installed mode) in a fresh ccy
   container: ACCEPTED with full coverage.
@@ -132,12 +146,13 @@ not to be enough.
 
 ## Risks & Mitigations
 
-| Risk                                                                           | Impact | Probability | Mitigation                                                                                   |
-| ------------------------------------------------------------------------------ | ------ | ----------- | -------------------------------------------------------------------------------------------- |
-| Two parallel agents both start a first session at once and both pass the check | L      | L           | Bound exceeded by the racers only; each still reuses its own. No lock, deliberately (YAGNI). |
-| A refused agent runs `close --all` and closes a parallel agent's browser       | M      | M           | Refusal text and skill say not to close a session you did not open.                          |
-| Command-word detection misreads an unusual flag layout                         | L      | L           | Misreads fall on the guarded side; a false refusal is loud, not a leak.                      |
-| Upstream changes `session list --json` output                                  | M      | L           | The guard fails loudly on unparseable output; the suite pins the format it expects.          |
+| Risk                                                                                | Impact | Probability | Mitigation                                                                                   |
+| ----------------------------------------------------------------------------------- | ------ | ----------- | -------------------------------------------------------------------------------------------- |
+| Two parallel agents both start a first session at once and both pass the check      | L      | L           | Bound exceeded by the racers only; each still reuses its own. No lock, deliberately (YAGNI). |
+| A refused agent closes a parallel agent's browser                                   | M      | L           | Refusal and skill say close `--session <yours>`, never `close --all`, never one not yours.   |
+| A non-launching command outside the pass list (`auth list`, `dashboard`) is refused | L      | L           | Loud, not a leak; widen the list if it happens.                                              |
+| Command-word detection misreads an unusual flag layout                              | L      | L           | Misreads fall on the guarded side; a false refusal is loud, not a leak.                      |
+| Upstream changes `session list --json` output                                       | M      | L           | The guard fails loudly on unparseable output; the suite pins the format it expects.          |
 
 ## Delivery & Milestones
 
