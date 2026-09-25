@@ -138,8 +138,9 @@ sudo install -d -m 0700 -o "$(whoami)" -g "$(whoami)" /run/secrets
 
 Create a **classic PAT** on github.com (Settings → Developer settings → Personal
 access tokens → Tokens (classic)) carrying every scope listed in
-`vars/github-required-scopes.yml` in the repo. That file is the only list; it
-includes `admin:public_key`, which `run.bash` needs to upload your SSH key.
+`vars/github-required-scopes.yml` in the repo. That file is the only list, and it
+covers everything `run.bash` and the plays do with the token, uploading your SSH keys
+included.
 
 The token must be **fully scoped up front** — headless cannot run the interactive
 scope-refresh flow. An under-scoped token fails loud, naming every missing scope at once.

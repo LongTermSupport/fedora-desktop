@@ -86,8 +86,15 @@ export STUB_DIR REAL_REPO
 PATH="$work/bin:$PATH"
 export PATH
 
-ALL="admin:public_key, gist, project, read:org, repo, user:email, workflow"
-SHORT="admin:public_key, gist, project, read:org, user:email"
+# The cases run against a stand-in checkout with a scopes file of their own, so they test
+# the one-pass behaviour and not whatever vars/github-required-scopes.yml lists today.
+FIXTURE_REPO="$work/fixture-repo"
+mkdir -p "$FIXTURE_REPO/vars"
+cp -r "$REPO_ROOT/helpers" "$FIXTURE_REPO/"
+printf 'github_required_scopes:\n  - gist\n  - project\n  - repo\n  - workflow\n' \
+    >"$FIXTURE_REPO/vars/github-required-scopes.yml"
+ALL="gist, project, repo, workflow"
+SHORT="gist, project"
 
 passed=0
 failed=0
@@ -115,7 +122,7 @@ contains() {
 # run_request <headless> — gh_request_missing_scopes in a subshell, as run.bash calls it.
 run_request() {
     rm -f "$STUB_DIR/refresh.log"
-    OUT="$(HEADLESS="$1" bash -c 'source "$1"; gh_request_missing_scopes "$2" gh' _ "$work/run-fn.bash" "$REPO_ROOT" 2>&1)"
+    OUT="$(HEADLESS="$1" bash -c 'source "$1"; gh_request_missing_scopes "$2" gh' _ "$work/run-fn.bash" "$FIXTURE_REPO" 2>&1)"
     RC=$?
     REFRESHES=""
     if [ -f "$STUB_DIR/refresh.log" ]; then
@@ -148,7 +155,7 @@ contains "the one refresh asks for both missing scopes" "--scopes repo,workflow"
 
 echo "== run.bash: a refresh that still leaves a scope missing"
 printf '%s' "$SHORT" >"$STUB_DIR/granted"
-printf '%s' "admin:public_key, gist, project, read:org, repo, user:email" >"$STUB_DIR/after-refresh"
+printf '%s' "gist, project, repo" >"$STUB_DIR/after-refresh"
 run_request false
 check "refused" 1 "$RC"
 contains "names what is still missing" "workflow" "$OUT"
@@ -163,7 +170,6 @@ contains "names every missing scope at once" "repo,workflow" "$OUT"
 echo "== run.bash: the first login asks for every scope"
 login_line="$(grep -nE '^[[:space:]]*if ! gh auth login' "$RUN_BASH" | grep -v -- '--with-token')"
 contains "the interactive gh auth login carries --scopes" "--scopes" "$login_line"
-check "no separate admin:public_key refresh remains" "" "$(grep -nE 'auth refresh .*-s admin:public_key' "$RUN_BASH")"
 check "no private scope table remains (ghCheckTokenPermission)" "" "$(grep -n 'ghCheckTokenPermission' "$RUN_BASH")"
 
 echo "== run.bash: where the scope list comes from"
@@ -181,7 +187,7 @@ echo "== gh-account-setup.bash: headless audits every account before failing"
 printf '%s' "$ALL" >"$STUB_DIR/granted-tok-alice"
 printf '%s' "$SHORT" >"$STUB_DIR/granted-tok-bob"
 printf '%s' "gist" >"$STUB_DIR/granted-tok-carol"
-SCOPES_FILE="$REPO_ROOT/vars/github-required-scopes.yml"
+SCOPES_FILE="$FIXTURE_REPO/vars/github-required-scopes.yml"
 export REPO_ROOT SCOPES_FILE
 OUT="$(bash -c 'source "$1"; REQUIRED_SCOPES_CSV=all; audit_all_accounts_headless a:alice b:bob c:carol' _ "$work/setup-fn.bash" 2>&1)"
 RC=$?

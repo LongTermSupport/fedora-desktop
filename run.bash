@@ -2563,7 +2563,7 @@ export GH_REPO
 
 title "Configuring GitHub SSH Access"
 # Every required scope, all missing ones in one refresh, for the account the key upload
-# below uses. The key upload itself needs admin:public_key, which is in the list.
+# below uses. The key upload needs one of them, so this comes first.
 gh_request_missing_scopes "$gh_scopes_dir" "$GH_REPO"
 
 # H1: idempotency must compare KEY MATERIAL, not a fingerprint. `gh api user/keys`
