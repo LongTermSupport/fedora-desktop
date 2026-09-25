@@ -49,11 +49,6 @@ PLAN_ROOT="${scriptDir}"
 # run as one unit through its own shebang, which goes through run.bash, exactly as
 # `./playbooks/imports/<play>.yml` does by hand.
 PLANS=(
-    # Commits sign with the login keys through the agent (~/.ssh/id, github_<alias> per
-    # account), and the passphrase-free signing keys earlier deploys made are deleted from
-    # GitHub and ~/.ssh. Its deploy refuses while a ccy session started before CCY 3.70.0
-    # runs, because those sessions sign with a key it deletes.
-    "00139-commit-signing-everywhere"
 )
 
 LIST_ONLY=0
