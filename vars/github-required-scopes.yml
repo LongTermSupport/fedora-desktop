@@ -1,20 +1,22 @@
 ---
-# Single source of truth for the OAuth scopes every gh token must carry.
+# THE list of OAuth scopes every gh token must carry. Nothing else restates it.
 #
-# Consumed by BOTH:
-#   - playbooks/imports/play-github-cli-multi.yml  (var: github_required_scopes)
-#   - scripts/gh-account-setup.bash                (array: REQUIRED_SCOPES)
+# helpers/github_scopes reads this file and is also the one place that knows what a
+# token's scopes satisfy (admin:X covers write:X and read:X, `user` covers user:email, and
+# so on). Everything that asks about scopes goes through that helper:
+#   - run.bash                                     first login and its one scope refresh
+#   - scripts/gh-account-setup.bash                per-account login and refresh
+#   - playbooks/imports/play-github-cli-multi.yml  the scope audit, gh-<alias>-token-phpstorm
+# Adding a scope here makes all of them ask for it, in the same single authorisation as
+# every other missing scope.
 #
-# Keeping the list in one place means the playbook's scope audit and the setup
-# script's login/refresh can never request different scopes. Drift here was the
-# cause of tokens silently missing `workflow`: the script's hardcoded list had
-# fallen behind the playbook's.
-#
-# Parent scopes imply their read: children in GitHub's hierarchy, so only the
-# top-level grant is listed (project -> read:project, admin:public_key ->
-# read:public_key).
+# The helper parses a plain block list, one `  - scope` per line with an optional
+# comment, and refuses any other shape rather than lose a scope silently. Parent scopes
+# imply their children, so list only the top-level grant (project -> read:project,
+# admin:public_key -> read:public_key).
 github_required_scopes:
   - admin:public_key  # programmatic SSH pubkey upload (gh ssh-key add)
+  - admin:ssh_signing_key  # commit-signing key upload (helpers/github_signing)
   - gist              # gh gist commands
   - project           # GitHub Projects v2 (implies read:project)
   - read:org          # read org membership / list teams

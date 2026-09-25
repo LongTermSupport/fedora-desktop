@@ -38,7 +38,8 @@ PLAN_USAGE="usage: acceptance.bash [-h|--help]
 
 The Plan 00139 acceptance gate. Run deploy.bash first. It checks the signing key,
 the global git config, that the old XDG settings are gone, a commit and a tag made in
-a scratch repository with your own config, and that GitHub lists the key.
+a scratch repository with your own config, that GitHub lists the key, and that each
+GitHub account's own key is registered on that account and picked in its repositories.
 
 EXIT STATUS
   0  ACCEPTED — every declared check ran and passed
@@ -57,7 +58,7 @@ fi
 plan_require_host "it checks this user's git config and signing key"
 plan_start_log auto
 
-readonly DECLARED=11
+readonly DECLARED=13
 readonly XDG_CONFIG="${XDG_CONFIG_HOME:-${HOME}/.config}/git/config"
 PASS=0
 FAIL=0
@@ -195,6 +196,54 @@ else
     else
         bad "11. GitHub lists this key as a signing key" \
             "not on any of the ${read_ok} account(s) read; see docs/configuration.md \"Commit Signing\"${read_failed:+ (unreadable: ${read_failed})}"
+    fi
+fi
+
+echo "== each GitHub account's own key"
+# play-github-cli-multi.yml writes github_accounts (alias to login) to accounts.json.
+# The registration read uses the same public endpoint as check 11. The pick is read in a
+# scratch repository whose remote is the account's github.com-<alias> host.
+accounts_file="${HOME}/.config/git-account-helper/accounts.json"
+if ! accounts="$(jq -r 'to_entries[] | "\(.key) \(.value)"' "${accounts_file}" 2>&1)"; then
+    bad "12. every account's own key is a signing key on that account" "could not read ${accounts_file}: ${accounts}"
+    bad "13. git signs with each account's key in that account's repositories" "could not read ${accounts_file}: ${accounts}"
+else
+    unregistered=""
+    wrong_pick=""
+    checked=0
+    pick_repo="${PLAN_RUN_DIR}/pick-repo"
+    git init -q "${pick_repo}"
+    git -C "${pick_repo}" remote add origin git@github.com:example/example.git
+    while read -r -u 3 alias login; do
+        if [[ -z "${alias}" ]]; then
+            continue
+        fi
+        checked=$((checked + 1))
+        account_key="${HOME}/.ssh/github_${alias}_signing"
+        if [[ -f "${account_key}.pub" ]]; then
+            account_fields="$(awk '{ print $1, $2 }' "${account_key}.pub")"
+        else
+            account_fields="no ${account_key}.pub"
+        fi
+        listed="$(gh api "users/${login}/ssh_signing_keys" --jq '.[].key' 2>&1)" && rc=0 || rc=$?
+        if [[ "${rc}" -ne 0 ]]; then
+            unregistered+="${alias} (unreadable: gh api exit ${rc}); "
+        elif ! grep -qxF "${account_fields}" <<<"$(awk '{ print $1, $2 }' <<<"${listed}")"; then
+            unregistered+="${alias} (not on ${login}); "
+        fi
+        git -C "${pick_repo}" remote set-url origin "git@github.com-${alias}:example/example.git"
+        picked="$(git -C "${pick_repo}" config --get user.signingkey 2>&1)" || picked="unset"
+        if [[ "${picked}" != "${account_key}" ]]; then
+            wrong_pick+="${alias} signs with ${picked}; "
+        fi
+    done 3<<<"${accounts}"
+    rm -rf "${pick_repo}"
+    if [[ "${checked}" -eq 0 ]]; then
+        bad "12. every account's own key is a signing key on that account" "${accounts_file} names no account"
+        bad "13. git signs with each account's key in that account's repositories" "${accounts_file} names no account"
+    else
+        verdict "12. every account's own key is a signing key on that account (${checked} checked)" "" "${unregistered}"
+        verdict "13. git signs with each account's key in that account's repositories" "" "${wrong_pick}"
     fi
 fi
 

@@ -3,6 +3,8 @@
 # GitHub CLI Multi-Account Setup - Leverages native gh multi-account support (v2.40.0+)
 - hosts: desktop
   name: GitHub CLI Multi-Account Configuration
+  vars_files:
+    - "{{ root_dir }}/vars/git-signing.yml"   # git_signing_key_path
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
@@ -34,10 +36,6 @@
     # they are safe under 2.19.
     github_ssh_hostname: "{{ 'ssh.github.com' if (github_ssh_over_443 | default(false) | bool) else 'github.com' }}"
     github_ssh_port: "{{ '443' if (github_ssh_over_443 | default(false) | bool) else '22' }}"
-  vars_files:
-    # Single source of truth for github_required_scopes — shared with
-    # scripts/gh-account-setup.bash so the two lists can never drift.
-    - "{{ root_dir }}/vars/github-required-scopes.yml"
   tasks:
     - name: Check gh version for multi-account support
       ansible.builtin.shell: gh --version | grep -oP '\d+\.\d+\.\d+' | head -1
@@ -196,11 +194,11 @@
       when: github_accounts_configured
 
     # PER-ACCOUNT OAUTH SCOPE AUDIT
-    # Every gh token must carry the scopes in github_required_scopes (defined in vars).
-    # We loop each authenticated account, switch to it, read its scopes, and record
-    # any missing. After the audit we restore the originally-active account, then
-    # fail-fast with a remediation command if any account is short on scopes.
-    - name: Capture currently active GitHub account (to restore after scope audit)
+    # Every gh token must carry the scopes in vars/github-required-scopes.yml.
+    # helpers/github_scopes reads each account with its own token (no account switch)
+    # and is the only judge of what a token's scopes satisfy: run.bash and
+    # scripts/gh-account-setup.bash ask the same helper, so none keeps its own copy.
+    - name: Capture currently active GitHub account (to restore after the SSH key audit)
       ansible.builtin.shell: |
         set -euo pipefail
         gh auth status --json hosts 2>/dev/null | \
@@ -211,113 +209,39 @@
       changed_when: false
       when: github_accounts_configured
 
-    - name: Audit OAuth scopes for each authenticated GitHub account
-      ansible.builtin.shell: |
-        set -e
-        if ! gh auth switch --hostname github.com --user "{{ item.value }}" 2>/dev/null; then
-          echo "NOT_AUTHENTICATED"
-          exit 0
-        fi
-        scopes_raw=$(gh auth status --json hosts 2>/dev/null | jq -r '.hosts["github.com"][] | select(.active == true) | .scopes')
-        if [ -z "$scopes_raw" ] || [ "$scopes_raw" = "null" ]; then
-          echo "ERR_NO_SCOPES"
-          exit 0
-        fi
-        current=",$(echo "$scopes_raw" | tr -d ' \r' | tr '\n' ','),"
-        # Honours the GitHub OAuth scope hierarchy: admin:* implies write:*
-        # implies read:*, and user implies user:email / read:user / user:follow.
-        # A token granted admin:org therefore satisfies a read:org requirement.
-        scope_satisfied() {
-          local required="$1"
-          local satisfiers=("$required")
-          case "$required" in
-            read:org)         satisfiers=("$required" write:org admin:org) ;;
-            write:org)        satisfiers=("$required" admin:org) ;;
-            read:public_key)  satisfiers=("$required" write:public_key admin:public_key) ;;
-            write:public_key) satisfiers=("$required" admin:public_key) ;;
-            read:repo_hook)   satisfiers=("$required" write:repo_hook admin:repo_hook) ;;
-            write:repo_hook)  satisfiers=("$required" admin:repo_hook) ;;
-            read:gpg_key)     satisfiers=("$required" write:gpg_key admin:gpg_key) ;;
-            write:gpg_key)    satisfiers=("$required" admin:gpg_key) ;;
-            read:user|user:email|user:follow) satisfiers=("$required" user) ;;
-          esac
-          local s
-          for s in "${satisfiers[@]}"; do
-            case "$current" in
-              *",${s},"*) return 0 ;;
-            esac
-          done
-          return 1
-        }
-        missing=""
-        required_scopes=({{ github_required_scopes | join(' ') }})
-        for scope in "${required_scopes[@]}"; do
-          if ! scope_satisfied "$scope"; then
-            if [ -z "$missing" ]; then
-              missing="$scope"
-            else
-              missing="$missing,$scope"
-            fi
-          fi
-        done
-        if [ -z "$missing" ]; then
-          echo "OK"
-        else
-          echo "MISSING:$missing"
-        fi
-      args:
-        executable: /bin/bash
+    - name: Audit OAuth scopes for every configured GitHub account
+      ansible.builtin.command:
+        argv: "{{ ['python3', '-m', 'helpers.github_scopes.cli', 'audit'] + (github_accounts | dict2items | map(attribute='value') | map('regex_replace', '^', '--user=') | list) }}"
+        chdir: "{{ root_dir }}"   # repo root on sys.path so the helpers package imports
       register: scope_audit
-      loop: "{{ github_accounts | default({}) | dict2items }}"
-      loop_control:
-        label: "{{ item.key }}"
       changed_when: false
       when: github_accounts_configured
 
     - name: Display scope audit results per account
       ansible.builtin.debug:
-        msg: "{{ item.item.key }} ({{ item.item.value }}): {{ item.stdout }}"
-      loop: "{{ scope_audit.results | default([]) }}"
-      loop_control:
-        label: "{{ item.item.key }}"
+        msg: "{{ scope_audit.stdout_lines }}"
       when: github_accounts_configured
 
-    - name: Restore originally-active GitHub account after audit
-      ansible.builtin.shell: |
-        gh auth switch --hostname github.com --user "{{ original_active_account.stdout }}" 2>/dev/null
-      changed_when: false
-      when:
-        - github_accounts_configured
-        - original_active_account.stdout | default('') | length > 0
-
+    # One remedy for every account at once: gh-account-setup.bash asks each account for
+    # everything it lacks in a single browser authorisation. run.bash runs the same thing
+    # before any play, so a normal run.bash never reaches this.
     - name: Fail-fast if any account is missing required OAuth scopes
       ansible.builtin.fail:
         msg: |
-          One or more GitHub accounts are missing required OAuth scopes.
+          These GitHub accounts cannot be used as they are:
+          {% for line in scope_audit.stdout_lines if not line.startswith('SCOPES-OK ') %}
+            {{ line | regex_replace('^SCOPES-', '') }}
+          {% endfor %}
 
-          ── Option A (one-shot, works in this terminal) ─────────────────
-          Re-run setup. Idempotent: already-authed accounts and existing
-          SSH keys are skipped; only the missing-scope refresh actually runs.
+          One command fixes every account, one browser authorisation each, asking for
+          everything that account lacks (vars/github-required-scopes.yml):
 
             bash {{ root_dir }}/scripts/gh-account-setup.bash --setup-all
-
-          ── Option B (per-account, requires a NEW terminal) ─────────────
-          Open a NEW terminal so /etc/profile.d/gh-multi-profile.sh is
-          sourced (defines a gh() wrapper that prints the device-code URL
-          via /usr/local/bin/gh-print-auth-url instead of opening a random
-          browser profile), then run:
-          {% for r in scope_audit.results %}
-          {% if r.stdout is defined and r.stdout.startswith('MISSING:') %}
-
-            gh auth switch --user {{ r.item.value }} && \
-              gh auth refresh --scopes {{ r.stdout | regex_replace('^MISSING:', '') }}
-          {% endif %}
-          {% endfor %}
 
           Then re-run this playbook.
       when:
         - github_accounts_configured
-        - scope_audit.results | default([]) | selectattr('stdout', 'defined') | selectattr('stdout', 'match', '^MISSING:') | list | length > 0
+        - scope_audit.stdout_lines | reject('match', '^SCOPES-OK ') | list | length > 0
 
     # SSH KEY GENERATION AND SETUP
     - name: Assert github_ssh_passphrase is set in vault
@@ -662,6 +586,139 @@
             path: "/tmp/.github_ssh_pp"
             state: absent
       when: github_accounts_configured
+
+    # COMMIT SIGNING KEYS, ONE PER ACCOUNT (Plan 00139)
+    # play-git-configure-and-tools.yml signs every commit with the machine key. Here each
+    # account gets a signing key of its own, ~/.ssh/github_<alias>_signing, which git uses
+    # in any repository whose remote is github.com-<alias> (clone-<alias>, remote-<alias>).
+    # The machine key stays for every other repository, and goes on the account that
+    # ~/.ssh/id logs in as. helpers/github_signing registers what GitHub lacks, with each
+    # account's own token, then proves git picks each key. No passphrase, as for the
+    # machine key: agents commit unattended.
+    - name: Sign Each GitHub Account's Repositories With That Account's Own Key
+      when: github_accounts_configured
+      block:
+        - name: Generate a Signing Key for Each GitHub Account
+          ansible.builtin.command:
+            argv:
+              - ssh-keygen
+              - -q
+              - -t
+              - ed25519
+              - -N
+              - ""
+              - -C
+              - "{{ item.value }} git signing"
+              - -f
+              - "/home/{{ user_login }}/.ssh/github_{{ item.key }}_signing"
+            creates: "/home/{{ user_login }}/.ssh/github_{{ item.key }}_signing"
+          loop: "{{ github_accounts | dict2items }}"
+          loop_control:
+            label: "{{ item.key }}"
+
+        - name: Check for This Machine's Signing Key
+          ansible.builtin.stat:
+            path: "{{ git_signing_key_path }}"
+          register: machine_signing_key
+
+        - name: Assert This Machine's Signing Key Exists
+          ansible.builtin.assert:
+            that:
+              - machine_signing_key.stat.exists
+            fail_msg: |
+              {{ git_signing_key_path }} does not exist. play-git-configure-and-tools.yml
+              generates it; run that play, then this one.
+
+        # Checks every key (0600, no passphrase, .pub matches) and reads every account
+        # before it adds anything, so a refusal leaves GitHub as it was.
+        - name: Register Every Signing Key With GitHub
+          ansible.builtin.command:
+            argv:
+              - python3
+              - -m
+              - helpers.github_signing.cli
+              - register
+              - --title
+              - "{{ ansible_facts['hostname'] }}"
+              - --ssh-dir
+              - "/home/{{ user_login }}/.ssh"
+              - --accounts
+              - "{{ github_accounts | to_json }}"
+              - --machine-key
+              - "{{ git_signing_key_path }}"
+            chdir: "{{ root_dir }}"   # repo root on sys.path so the helpers package imports
+          register: signing_registration
+          changed_when: "'SIGNING-ADDED' in signing_registration.stdout"
+
+        - name: Display Signing Key Registration
+          ansible.builtin.debug:
+            msg: "{{ signing_registration.stdout_lines }}"
+
+        - name: Ensure ~/.config/git Exists
+          ansible.builtin.file:
+            path: "/home/{{ user_login }}/.config/git"
+            state: directory
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: "0755"
+
+        - name: Name Each Account's Signing Key in a File of Its Own
+          ansible.builtin.copy:
+            dest: "/home/{{ user_login }}/.config/git/github-signing-{{ item.key }}.gitconfig"
+            content: |
+              # ANSIBLE MANAGED by play-github-cli-multi.yml
+              [user]
+              	signingkey = /home/{{ user_login }}/.ssh/github_{{ item.key }}_signing
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: "0644"
+          loop: "{{ github_accounts | dict2items }}"
+          loop_control:
+            label: "{{ item.key }}"
+
+        # scp-style remotes need `:*/**`: a `**` not beside a slash matches no `/`.
+        - name: Select Each Account's Key by the Repository's Remote
+          ansible.builtin.copy:
+            dest: "/home/{{ user_login }}/.config/git/github-signing.gitconfig"
+            content: |
+              # ANSIBLE MANAGED by play-github-cli-multi.yml
+              {% for alias in github_accounts %}
+              [includeIf "hasconfig:remote.*.url:git@github.com-{{ alias }}:*/**"]
+              	path = /home/{{ user_login }}/.config/git/github-signing-{{ alias }}.gitconfig
+              [includeIf "hasconfig:remote.*.url:ssh://git@github.com-{{ alias }}/**"]
+              	path = /home/{{ user_login }}/.config/git/github-signing-{{ alias }}.gitconfig
+              {% endfor %}
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: "0644"
+
+        # At the end of ~/.gitconfig, after the machine key in [user], so an account's key
+        # wins in that account's repositories. The check below fails if anything overrides it.
+        - name: Include the Account Key Selection From ~/.gitconfig
+          ansible.builtin.blockinfile:
+            path: "/home/{{ user_login }}/.gitconfig"
+            marker: "# {mark} ANSIBLE MANAGED: GitHub Account Signing Keys"
+            insertafter: EOF
+            block: |
+              [include]
+              	path = /home/{{ user_login }}/.config/git/github-signing.gitconfig
+            create: false
+
+        - name: Prove Git Picks Each Account's Key and the Machine Key Elsewhere
+          ansible.builtin.command:
+            argv:
+              - python3
+              - -m
+              - helpers.github_signing.cli
+              - check-selection
+              - --ssh-dir
+              - "/home/{{ user_login }}/.ssh"
+              - --accounts
+              - "{{ github_accounts | to_json }}"
+              - --fallback
+              - "{{ git_signing_key_path }}"
+            chdir: "{{ root_dir }}"   # repo root on sys.path so the helpers package imports
+          changed_when: false
 
     # GIT ACCOUNT HELPER SETUP
     - block:
@@ -1091,74 +1148,32 @@
                       return 1
                   fi
 
-                  # Get scopes from the active account using JSON API
-                  # Structure: .hosts["github.com"] is an array of accounts
-                  # Find the one with "active": true and extract "scopes" (comma-separated string)
-                  local scopes_raw
-                  scopes_raw=$(gh auth status --json hosts 2>/dev/null | \
-                      jq -r '.hosts["github.com"][] | select(.active == true) | .scopes')
-
-                  if [ -z "$scopes_raw" ] || [ "$scopes_raw" = "null" ]; then
-                      echo "ERROR: Could not retrieve scopes for active account"
-                      echo ""
-                      echo "Current status:"
-                      gh auth status
+                  # Which required scopes this token lacks: helpers/github_scopes, the one
+                  # judge run.bash, gh-account-setup.bash and the play all use, reading
+                  # vars/github-required-scopes.yml from the checkout that deployed this.
+                  local response missing_scopes
+                  if ! response=$(gh api -i user 2>&1); then
+                      echo "ERROR: Could not read this account's token scopes: $response"
+                      return 1
+                  fi
+                  if ! missing_scopes=$(printf '%s' "$response" | (cd "{{ root_dir }}" && python3 -m helpers.github_scopes.cli missing)); then
+                      echo "ERROR: Could not judge this account's token scopes"
                       return 1
                   fi
 
-                  # Parse comma-separated scope string into clean list
-                  # Input: "admin:org, gist, project, repo"
-                  # Output: "admin:org,gist,project,repo"
-                  local current_scopes
-                  current_scopes=$(echo "$scopes_raw" | \
-                      tr ',' '\n' | \
-                      sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | \
-                      sort -u | \
-                      tr '\n' ',' | \
-                      sed 's/,$//')
-
-                  # Required scopes — sourced from playbook var github_required_scopes
-                  # so all gh tokens (PhpStorm, IDE, scripts) share one canonical list.
-                  local required_scopes=({% for s in github_required_scopes %}"{{ s }}" {% endfor %})
-
-                  # Check if all required scopes are present
-                  local missing_scopes=()
-
-                  for scope in "${required_scopes[@]}"; do
-                      if ! echo ",$current_scopes," | grep -q ",$scope,"; then
-                          missing_scopes+=("$scope")
-                      fi
-                  done
-
-                  if [ {{ '${#' }}missing_scopes[@]} -gt 0 ]; then
-                      echo "Current token scopes: $(echo "$current_scopes" | tr ',' ', ')"
+                  if [ -n "$missing_scopes" ]; then
+                      echo "Missing required scopes: $missing_scopes"
+                      echo "Adding them in one authorisation (existing scopes are kept)..."
                       echo ""
-                      echo "Missing required scopes:"
-                      for scope in "${missing_scopes[@]}"; do
-                          echo "  - $scope"
-                      done
-                      echo ""
-                      echo "Adding missing scopes (existing scopes will be preserved)..."
-                      echo "You may need to re-authenticate in your browser..."
-                      echo ""
-
-                      # Join missing scopes with commas (no spaces)
-                      local missing_scopes_str=$(IFS=,; echo "${missing_scopes[*]}")
-
-                      # Use --scopes flag which is ADDITIVE (adds to existing scopes)
-                      gh auth refresh --hostname github.com --scopes "$missing_scopes_str"
-
-                      if [ $? -ne 0 ]; then
+                      if ! gh auth refresh --hostname github.com --scopes "$missing_scopes"; then
                           echo ""
                           echo "ERROR: Failed to refresh token"
                           return 1
                       fi
-
                       echo ""
                       echo "✓ Token refreshed successfully!"
                   else
                       echo "✓ Token already has all required scopes"
-                      echo "  Current scopes: $(echo "$current_scopes" | tr ',' ', ')"
                   fi
 
                   echo ""

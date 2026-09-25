@@ -219,7 +219,7 @@ host_only_preflight() {
     fi
 
     if [[ -z "${token_file}" ]]; then
-        die "${scenario_id} needs --github-token-file: a 0600 file holding a scoped PAT for a THROWAWAY account (scopes: vars/github-required-scopes.yml plus admin:public_key)"
+        die "${scenario_id} needs --github-token-file: a 0600 file holding a PAT for a THROWAWAY account, carrying every scope in vars/github-required-scopes.yml"
     fi
     if [[ -z "${pp_file}" ]]; then
         die "${scenario_id} needs --github-ssh-passphrase-file: a 0600 file holding the passphrase run.bash will protect the generated login key with"

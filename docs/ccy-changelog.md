@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.67.0
+
+- **The container signs with the key git picks for the project** (Plan 00139).
+  `play-github-cli-multi.yml` now gives each GitHub account a signing key of its own,
+  which git uses in a repository whose remote is that account's `github.com-<alias>`
+  host; other repositories keep the machine key. The launcher asks git on the host
+  which key the project gets, stages that one, and appends a `[user]` section naming
+  it to the gitconfig copy. The last value wins, so the copy's machine key and the
+  account includes, whose host paths the container cannot read, are overridden.
+
 ## 3.66.0
 
 - **Commits and tags made inside the container are signed** (Plan 00139).

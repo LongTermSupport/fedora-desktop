@@ -2,11 +2,14 @@
 # Unit-test how ccy carries commit signing into the container (Plan 00139).
 #
 # play-git-configure-and-tools.yml signs every commit and tag with an SSH key named in
-# user.signingkey. ccy copies ~/.gitconfig into the container, so the copy names a HOST
-# path the container cannot see. stage_git_signing_key (lib/ssh-handling.bash) copies the
-# key into the directory that carries the gitconfig copy, which ccy mounts read-only, and
-# repoints the copy at it. When signing is on but there is no usable key, it refuses the
-# launch: a container that started anyway would fail every commit it tried to make.
+# user.signingkey, and play-github-cli-multi.yml includes a key per GitHub account for a
+# repository whose remote is that account's github.com-<alias> host. ccy copies
+# ~/.gitconfig into the container, so the copy names HOST paths the container cannot see.
+# stage_git_signing_key (lib/ssh-handling.bash) asks git which key the project gets,
+# copies it into the directory that carries the gitconfig copy, which ccy mounts
+# read-only, and appends a section to the copy naming it. When signing is on but there is
+# no usable key, it refuses the launch: a container that started anyway would fail every
+# commit it tried to make.
 #
 # Sources the library from THIS repo, so a change is verified before the play runs.
 #
@@ -53,28 +56,37 @@ fail() { FAIL=$((FAIL + 1)); echo "  ✗ $1" >&2; }
 
 MOUNT=/tmp/claude-config-import
 
-# One case directory: a fake HOME holding a key, a stage dir, and a gitconfig copy
-# written from the config lines given.
+# One case directory: a fake HOME holding a key and a ~/.gitconfig written from the config
+# lines given, a project directory, and a stage dir holding a copy of that ~/.gitconfig, as
+# the launcher makes it.
 new_case() {
     CASE="$WORK/$1"
-    mkdir -p "$CASE/home/.ssh" "$CASE/stage"
+    mkdir -p "$CASE/home/.ssh" "$CASE/stage" "$CASE/project"
     printf 'PRIVATE-KEY-BYTES-%s\n' "$1" >"$CASE/home/.ssh/signing"
     chmod 600 "$CASE/home/.ssh/signing"
-    : >"$CASE/stage/gitconfig"
+    : >"$CASE/home/.gitconfig"
     shift
     local line
     for line in "$@"; do
-        git config --file "$CASE/stage/gitconfig" "${line%%=*}" "${line#*=}"
+        git config --file "$CASE/home/.gitconfig" "${line%%=*}" "${line#*=}"
     done
+    cp "$CASE/home/.gitconfig" "$CASE/stage/gitconfig"
+}
+
+# git as the launcher's host user sees it: the case's ~/.gitconfig and nothing else.
+case_git() {
+    HOME="$CASE/home" GIT_CONFIG_GLOBAL="$CASE/home/.gitconfig" GIT_CONFIG_NOSYSTEM=1 "$@"
 }
 
 run_stage() {
-    OUT="$(HOME="$CASE/home" stage_git_signing_key "$CASE/stage/gitconfig" "$CASE/stage" "$MOUNT" 2>&1)"
+    OUT="$(case_git stage_git_signing_key "$CASE/stage/gitconfig" "$CASE/stage" "$MOUNT" "$CASE/project" 2>&1)"
     RC=$?
 }
 
+# The key git signs with in the container: the copy is its global config there.
 signingkey_in_copy() {
-    git config --file "$CASE/stage/gitconfig" --get user.signingkey
+    GIT_CONFIG_GLOBAL="$CASE/stage/gitconfig" GIT_CONFIG_NOSYSTEM=1 \
+        git -C "$CASE/project" config --get user.signingkey
 }
 
 echo "== signing on, SSH key present"
@@ -100,6 +112,40 @@ else
     fail "commit.gpgsign was changed"
 fi
 
+echo "== a repository on a GitHub account's host gets that account's key"
+new_case account gpg.format=ssh "user.signingkey=$WORK/account/home/.ssh/signing" commit.gpgsign=true
+printf 'ACCOUNT-KEY-BYTES\n' >"$CASE/home/.ssh/github_work_signing"
+chmod 600 "$CASE/home/.ssh/github_work_signing"
+mkdir -p "$CASE/home/.config/git"
+printf '[user]\n\tsigningkey = %s\n' "$CASE/home/.ssh/github_work_signing" >"$CASE/home/.config/git/work.gitconfig"
+printf '[includeIf "hasconfig:remote.*.url:git@github.com-work:*/**"]\n\tpath = %s\n' \
+    "$CASE/home/.config/git/work.gitconfig" >"$CASE/home/.config/git/accounts.gitconfig"
+printf '[include]\n\tpath = %s\n' "$CASE/home/.config/git/accounts.gitconfig" >>"$CASE/home/.gitconfig"
+cp "$CASE/home/.gitconfig" "$CASE/stage/gitconfig"
+git init -q "$CASE/project"
+git -C "$CASE/project" remote add origin git@github.com-work:example/example.git
+run_stage
+if [ "$RC" -eq 0 ] && cmp -s "$CASE/home/.ssh/github_work_signing" "$CASE/stage/git-signing-key"; then
+    pass "the account's key is staged, not the machine's"
+else
+    fail "the account's key was not staged (rc=$RC): $OUT"
+fi
+# The include files are readable here, as they would not be in the container; the
+# appended section must win over them anyway.
+if [ "$(signingkey_in_copy)" = "$MOUNT/git-signing-key" ]; then
+    pass "the copy signs with the mounted key, even where the account include resolves"
+else
+    fail "the copy signs with '$(signingkey_in_copy)', not $MOUNT/git-signing-key"
+fi
+git -C "$CASE/project" remote set-url origin git@github.com:example/example.git
+cp "$CASE/home/.gitconfig" "$CASE/stage/gitconfig"   # a fresh copy, as every launch makes
+run_stage
+if [ "$RC" -eq 0 ] && cmp -s "$CASE/home/.ssh/signing" "$CASE/stage/git-signing-key"; then
+    pass "a repository on plain github.com gets the machine key"
+else
+    fail "a plain github.com repository did not get the machine key (rc=$RC): $OUT"
+fi
+
 echo "== a key path written with ~/"
 new_case tilde gpg.format=ssh "user.signingkey=~/.ssh/signing" commit.gpgsign=true
 run_stage
@@ -114,7 +160,7 @@ new_case on-missing gpg.format=ssh "user.signingkey=$WORK/on-missing/home/.ssh/a
 run_stage
 if [ "$RC" -ne 0 ]; then pass "refused"; else fail "accepted a missing key"; fi
 case "$OUT" in
-    *play-git-configure-and-tools.yml*) pass "the refusal names the play that generates the key" ;;
+    *play-git-configure-and-tools.yml*play-github-cli-multi.yml*) pass "the refusal names the plays that generate the keys" ;;
     *) fail "the refusal does not name the play: $OUT" ;;
 esac
 if [ ! -e "$CASE/stage/git-signing-key" ]; then pass "nothing staged"; else fail "a key was staged"; fi
@@ -167,7 +213,7 @@ new_case real gpg.format=ssh "user.signingkey=$WORK/real/home/.ssh/signing" \
     commit.gpgsign=true tag.gpgsign=true user.name=Signer user.email=signer@example.com
 rm -f "$CASE/home/.ssh/signing"
 ssh-keygen -q -t ed25519 -N "" -C signer@example.com -f "$CASE/home/.ssh/signing"
-OUT="$(HOME="$CASE/home" stage_git_signing_key "$CASE/stage/gitconfig" "$CASE/stage" "$CASE/stage" 2>&1)"
+OUT="$(case_git stage_git_signing_key "$CASE/stage/gitconfig" "$CASE/stage" "$CASE/stage" "$CASE/project" 2>&1)"
 RC=$?
 if [ "$RC" -eq 0 ]; then pass "a real key is accepted"; else fail "a real key was refused (rc=$RC): $OUT"; fi
 printf 'signer@example.com namespaces="git" %s\n' "$(cut -d' ' -f1,2 "$CASE/home/.ssh/signing.pub")" \
@@ -197,9 +243,9 @@ echo "== the launcher"
 # Staged after the EXIT trap is set, so a refusal still removes the directory holding the
 # gitconfig copy and any key already in it.
 trap_line="$(grep -n '^trap cleanup EXIT' "$LAUNCHER" | cut -d: -f1)"
-stage_call="stage_git_signing_key \"\$CONFIG_TEMP/gitconfig\" \"\$CONFIG_TEMP\" /tmp/claude-config-import"
+stage_call="stage_git_signing_key \"\$CONFIG_TEMP/gitconfig\" \"\$CONFIG_TEMP\" /tmp/claude-config-import \"\$PWD\""
 stage_line="$(grep -nF "$stage_call" "$LAUNCHER" | cut -d: -f1)"
-if [ -n "$stage_line" ]; then pass "stages the key into CONFIG_TEMP"; else fail "never calls stage_git_signing_key on CONFIG_TEMP"; fi
+if [ -n "$stage_line" ]; then pass "stages the project's key into CONFIG_TEMP"; else fail "never calls stage_git_signing_key on CONFIG_TEMP for the project"; fi
 if [ -n "$trap_line" ] && [ -n "$stage_line" ] && [ "$stage_line" -gt "$trap_line" ]; then
     pass "after the cleanup trap is set"
 else

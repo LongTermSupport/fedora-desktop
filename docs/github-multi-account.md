@@ -18,7 +18,7 @@ split is the key to not getting confused:
 | Component                                     | Responsibility                                                                                                                                                                                                        |
 | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `scripts/gh-account-setup.bash`               | **Authentication.** Logs each account into `gh` **with the required OAuth scopes**, generates the SSH key, uploads the public key to GitHub, and verifies SSH access.                                                 |
-| `playbooks/imports/play-github-cli-multi.yml` | **Deployment.** Audits scopes, ensures SSH keys exist, writes the `~/.ssh/config` host-alias blocks, and regenerates the `git-<alias>` / `gh-<alias>` / `clone-<alias>` shell helper functions from the account list. |
+| `playbooks/imports/play-github-cli-multi.yml` | **Deployment.** Audits scopes, ensures SSH keys exist, gives each account a commit-signing key and registers it ([Commit Signing](configuration.md#commit-signing)), writes the `~/.ssh/config` host-alias blocks, and regenerates the `git-<alias>` / `gh-<alias>` / `clone-<alias>` shell helper functions from the account list. |
 
 The `github_accounts` dict in `localhost.yml` is the **single source of truth**.
 Everything — SSH key names, SSH config host aliases, and every generated shell
@@ -27,7 +27,7 @@ function — derives from it.
 ### Do NOT authenticate with a bare `gh auth login`
 
 ⚠️ Running `gh auth login` by hand logs the account in **without the OAuth scopes
-this project requires** (`admin:public_key`, `repo`, `workflow`, and others). The
+this project requires** (the list in `vars/github-required-scopes.yml`). The
 playbook's scope audit will then **fail-fast** and send you back to the setup
 script anyway.
 
@@ -112,23 +112,19 @@ You now have `git-oss`, `gh-oss`, `clone-oss`,
 
 ## Required OAuth Scopes
 
-Every account's `gh` token must carry these scopes. The canonical list lives in
-a single source of truth — **`vars/github-required-scopes.yml`** — which both the
-playbook (`github_required_scopes`) and the setup script (`REQUIRED_SCOPES`) read,
-so the login/refresh and the audit can never request different scopes:
+Every account's `gh` token must carry every scope in
+**`vars/github-required-scopes.yml`**, which lists each one with the reason it is needed.
+That file is the only list, and `helpers/github_scopes` is the only code that judges
+whether a token's scopes cover it. `run.bash`, `scripts/gh-account-setup.bash` and the
+playbook all use that helper, so the logins, the refreshes and the audit always agree.
 
-| Scope              | Why                                                   |
-| ------------------ | ----------------------------------------------------- |
-| `admin:public_key` | Programmatic SSH public-key upload (`gh ssh-key add`) |
-| `gist`             | `gh gist` commands                                    |
-| `project`          | GitHub Projects v2 (implies `read:project`)           |
-| `read:org`         | Read org membership / list teams                      |
-| `repo`             | Full repo access (clone, push, PRs, issues)           |
-| `user:email`       | Read `user.email` for git config                      |
-| `workflow`         | Push commits that modify `.github/workflows/*.yml`    |
-
-The setup script grants these at login. The playbook audits them and
-**fail-fasts** with a remediation command if any account is short.
+**One authorisation per account.** A new login asks for every scope. An account that
+is short gets every missing scope in a single `gh auth refresh`, so its browser flow runs
+once. `run.bash` runs `gh-account-setup.bash --setup-all` before any play, so the
+playbook's audit normally finds nothing. If it does, it fails fast, lists each account
+and what it lacks, and names the one command that fixes them all:
+`scripts/gh-account-setup.bash --setup-all`. Headless runs cannot open a browser. They
+fail once, naming every account and every scope it lacks.
 
 ## Available Commands
 
@@ -188,6 +184,8 @@ Verify every configured account is authenticated, scoped, keyed, and reachable
 | SSH private key | `~/.ssh/github_<alias>`                                                  |
 | SSH public key  | `~/.ssh/github_<alias>.pub`                                              |
 | SSH host alias  | `~/.ssh/config` (one `Host github.com-<alias>` block each)               |
+| Signing key     | `~/.ssh/github_<alias>_signing` (no passphrase; registered on the account) |
+| Signing choice  | `~/.config/git/github-signing.gitconfig`, included from `~/.gitconfig`   |
 | Shell functions | `~/.bashrc-includes/gh-aliases.inc.bash` (regenerated each playbook run) |
 | Helper config   | `~/.config/git-account-helper/accounts.json`                             |
 

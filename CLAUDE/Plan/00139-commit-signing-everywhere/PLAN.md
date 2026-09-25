@@ -74,9 +74,15 @@ out.
   - git picks the key through `includeIf` on the repo's `github.com-<alias>` remote, and
     falls back to the machine key for other repos;
   - ccy stages the key for the project's account;
-  - `admin:ssh_signing_key` joins the scope audit, with its refresh command.
-  - [ ] ⬜ Implementation
-  - [ ] ⬜ **HOST (owner)**: the one-off `gh auth refresh` for the new scope, then a deploy
+  - the new scope joins `vars/github-required-scopes.yml`, which every login, refresh and
+    audit reads.
+  - [x] ✅ Implementation. `helpers/github_signing` registers every key GitHub lacks, with
+    each account's own token, and the machine key on the account `~/.ssh/id` logs in as;
+    then proves git picks each key in a scratch repository. CCY 3.67.0 stages the key git
+    picks for the project. Acceptance gains checks 12 and 13
+  - [ ] ⬜ **HOST**: `./deploy.bash`. If its token audit stops it, the one command it names
+    (`scripts/gh-account-setup.bash --setup-all`) asks each account for everything it
+    lacks in one authorisation; then deploy again, and `./acceptance.bash`
 - [ ] 🔄 **Task 1.4**: The owner asked for this machine's public key to be kept in the
   private config repo. The play writes it into `localhost.yml` as `git_signing_public_key`,
   in a managed block, the way other plays record values there. It uses its own name,
@@ -145,3 +151,6 @@ out.
   `8003868e`)
 - The confirming review's should-fix and nits: the isolation probe fails when it makes no
   commit, and environment-passed git config is dropped by every isolated test
+- Branch `per-account-signing-keys`: the GitHub scopes in one file and one helper
+  (`helpers/github_scopes`, the DBF remediation of `gh-scope-outside-ssot`), run.bash
+  asking for every missing scope in one pass, and a signing key per account (CCY 3.67.0)

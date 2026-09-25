@@ -20,25 +20,20 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOCALHOST_YML="${LOCALHOST_YML:-$REPO_ROOT/environment/localhost/host_vars/localhost.yml}"
 VAULT_PASS_FILE="${VAULT_PASS_FILE:-$REPO_ROOT/vault-pass.secret}"
 
-# Required OAuth scopes — loaded from the single source of truth shared with
-# the playbook so the two consumers can never drift (the gap that previously
-# left tokens missing `workflow`).
-# @see vars/github-required-scopes.yml
-# @see playbooks/imports/play-github-cli-multi.yml
+# Required OAuth scopes: vars/github-required-scopes.yml is the single list, and
+# helpers/github_scopes is the single judge of what a token's scopes satisfy. This
+# script, run.bash and play-github-cli-multi.yml all call that helper; none keeps a copy.
 SCOPES_FILE="${SCOPES_FILE:-$REPO_ROOT/vars/github-required-scopes.yml}"
-load_required_scopes() {
-  [[ -f "$SCOPES_FILE" ]] || { error "Scopes file not found: $SCOPES_FILE"; exit 1; }
-  mapfile -t REQUIRED_SCOPES < <(python3 - "$SCOPES_FILE" <<'PYEOF'
-import sys, yaml
-with open(sys.argv[1]) as f:
-    data = yaml.safe_load(f) or {}
-for scope in (data.get('github_required_scopes') or []):
-    print(scope)
-PYEOF
-  )
-  [[ ${#REQUIRED_SCOPES[@]} -gt 0 ]] || { error "No scopes loaded from $SCOPES_FILE"; exit 1; }
+
+# scopes_cli <subcommand> [args] — the helper, run from the repo root so it imports.
+scopes_cli() {
+  (cd "$REPO_ROOT" && python3 -m helpers.github_scopes.cli "$@" --scopes-file "$SCOPES_FILE")
 }
-load_required_scopes
+
+if ! REQUIRED_SCOPES_CSV=$(scopes_cli required); then
+  echo "✗ Could not read the required scopes from $SCOPES_FILE" >&2
+  exit 1
+fi
 
 # ─── Formatting ────────────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -142,59 +137,43 @@ switch_to_account() {
   fi
 }
 
-# ─── Check if a required scope is satisfied by a granted scope set ────────────
-# Honours GitHub's OAuth scope hierarchy: admin:* implies write:* implies read:*,
-# and `user` implies its `user:email` / `read:user` / `user:follow` children.
-# A token granted `admin:org` therefore satisfies a `read:org` requirement.
-# $1 = required scope; $2 = comma-separated granted scopes. Whitespace (spaces,
-# CR, LF) is normalised and any embedded newlines are converted to commas so
-# multi-line HTTP header captures don't break comma-bounded matching.
-_scope_satisfied() {
-  local required="$1"
-  local current
-  current=",$(echo "$2" | tr -d ' \r' | tr '\n' ','),"
-  # Array, not space-separated string: this file sets IFS=$'\n\t' at the top
-  # so unquoted $string would not word-split on spaces.
-  local satisfiers=("$required")
-  case "$required" in
-    read:org)         satisfiers=("$required" write:org admin:org) ;;
-    write:org)        satisfiers=("$required" admin:org) ;;
-    read:public_key)  satisfiers=("$required" write:public_key admin:public_key) ;;
-    write:public_key) satisfiers=("$required" admin:public_key) ;;
-    read:repo_hook)   satisfiers=("$required" write:repo_hook admin:repo_hook) ;;
-    write:repo_hook)  satisfiers=("$required" admin:repo_hook) ;;
-    read:gpg_key)     satisfiers=("$required" write:gpg_key admin:gpg_key) ;;
-    write:gpg_key)    satisfiers=("$required" admin:gpg_key) ;;
-    read:user|user:email|user:follow) satisfiers=("$required" user) ;;
-  esac
-  local s
-  for s in "${satisfiers[@]}"; do
-    case "$current" in
-      *",${s},"*) return 0 ;;
-    esac
-  done
-  return 1
+# ─── Missing OAuth scopes for the currently-active gh account ─────────────────
+# Comma-joined, ready for ONE `gh auth refresh --scopes`; empty when none are missing.
+# A token whose scopes cannot be read is a failure, not "nothing missing".
+get_missing_scopes() {
+  local api_output
+  if ! api_output=$(gh api -i user 2>&1); then
+    error "Could not read this account's token scopes: ${api_output}"
+    return 1
+  fi
+  printf '%s' "$api_output" | scopes_cli missing
 }
 
-# ─── Get missing OAuth scopes for the currently-active gh account ─────────────
-get_missing_scopes() {
-  local api_output scopes_header=""
-  if api_output=$(gh api -i user 2>&1); then
-    # Anchor on '^X-Oauth-Scopes:' so we only match the real response header,
-    # not the Access-Control-Expose-Headers line whose value happens to list
-    # 'X-OAuth-Scopes' as one of the exposed header names.
-    scopes_header=$(echo "$api_output" | grep -i '^X-Oauth-Scopes:' | sed 's/^[^:]*: //') || scopes_header=""
-  else
-    warning "Could not query API for scope check"
-  fi
-  local missing=()
-  for scope in "${REQUIRED_SCOPES[@]}"; do
-    if ! _scope_satisfied "$scope" "$scopes_header"; then
-      missing+=("$scope")
-    fi
+# ─── Every configured account's scopes, before anything asks for a browser ────
+# Headless cannot run a browser flow, so the whole set of accounts is judged first and
+# the run fails ONCE, naming every account and every scope it lacks, rather than
+# stopping at the first account and leaving the next one to fail on the re-run.
+audit_all_accounts_headless() {
+  local pairs=("$@") users=() pair report problems=""
+  for pair in "${pairs[@]}"; do
+    users+=(--user "${pair#*:}")
   done
-  if [[ ${#missing[@]} -gt 0 ]]; then
-    printf '%s\n' "${missing[@]}"
+  if ! report=$(scopes_cli audit "${users[@]}"); then
+    error "Headless: could not audit the GitHub accounts' scopes"
+    exit 1
+  fi
+  local line
+  while IFS= read -r line; do
+    case "$line" in
+      "SCOPES-OK "*) ;;
+      *) problems+="     ${line#SCOPES-}"$'\n' ;;
+    esac
+  done <<<"$report"
+  if [[ -n "$problems" ]]; then
+    error "Headless: these GitHub accounts cannot be used as they are, and headless cannot run the browser flow that would fix them:"
+    printf '%s' "$problems" >&2
+    echo -e "   ${YELLOW}➜${NC} Give each account a token carrying every scope in vars/github-required-scopes.yml: ${REQUIRED_SCOPES_CSV}" >&2
+    exit 1
   fi
 }
 
@@ -299,10 +278,7 @@ setup_account() {
     # GH_BROWSER=browser_helper displays the URL instead of opening a browser.
     # --skip-ssh-key because we upload keys ourselves.
     # --scopes requests all required scopes upfront so a second device-code flow is not needed.
-    local scope_csv
-    scope_csv=$(printf '%s,' "${REQUIRED_SCOPES[@]}")
-    scope_csv="${scope_csv%,}"
-    if ! GH_BROWSER="$browser_helper" gh auth login --hostname github.com --git-protocol ssh --web --skip-ssh-key --scopes "$scope_csv"; then
+    if ! GH_BROWSER="$browser_helper" gh auth login --hostname github.com --git-protocol ssh --web --skip-ssh-key --scopes "$REQUIRED_SCOPES_CSV"; then
       error "Authentication failed for ${username}"
       exit 1
     fi
@@ -324,24 +300,32 @@ setup_account() {
   switch_to_account "$username"
 
   local missing_scopes
-  missing_scopes=$(get_missing_scopes)
+  if ! missing_scopes=$(get_missing_scopes); then
+    exit 1
+  fi
   if [[ -n "$missing_scopes" ]]; then
     # Headless (Plan 00063): the interactive scope-refresh (gh auth refresh --web)
     # cannot run unattended. The provided PAT must already carry every required scope.
     if [[ "${RUN_BASH_HEADLESS:-}" == "true" ]]; then
-      error "Headless: GitHub account '${username}' is missing scopes ($(echo "$missing_scopes" | tr '\n' ' ')) and headless cannot run the interactive scope refresh."
-      echo -e "   ${YELLOW}➜${NC} Provide a PAT that already has all required scopes (vars/github-required-scopes.yml + admin:public_key)." >&2
+      error "Headless: GitHub account '${username}' is missing scopes (${missing_scopes}) and headless cannot run the interactive scope refresh."
+      echo -e "   ${YELLOW}➜${NC} Provide a PAT carrying every scope in vars/github-required-scopes.yml: ${REQUIRED_SCOPES_CSV}" >&2
       exit 1
     fi
-    warning "Missing scopes: $(echo "$missing_scopes" | tr '\n' ' ')"
+    # Every missing scope in one refresh, so this account needs one browser flow at most.
+    warning "Missing scopes: ${missing_scopes}"
     echo -e ""
     echo -e "   Press Enter when prompted — the URL will be displayed (browser will NOT open)"
     echo -e "   Open the URL in the browser profile for ${BOLD}${username}${NC}"
     echo -e ""
-    local scope_csv
-    scope_csv=$(echo "$missing_scopes" | tr '\n' ',' | sed 's/,$//')
-    if ! GH_BROWSER="$browser_helper" gh auth refresh --hostname github.com --scopes "$scope_csv"; then
+    if ! GH_BROWSER="$browser_helper" gh auth refresh --hostname github.com --scopes "$missing_scopes"; then
       error "Failed to update scopes for ${username}"
+      exit 1
+    fi
+    if ! missing_scopes=$(get_missing_scopes); then
+      exit 1
+    fi
+    if [[ -n "$missing_scopes" ]]; then
+      error "The refresh for ${username} still left these scopes missing: ${missing_scopes}"
       exit 1
     fi
     success "Scopes updated: ${username}"
@@ -412,9 +396,11 @@ check_account() {
   if is_gh_authed "$username"; then
     switch_to_account "$username"
     local missing_scopes
-    missing_scopes=$(get_missing_scopes)
-    if [[ -n "$missing_scopes" ]]; then
-      error "Scopes: missing $(echo "$missing_scopes" | tr '\n' ' ')"
+    if ! missing_scopes=$(get_missing_scopes); then
+      error "Scopes: could not be read"
+      all_ok=false
+    elif [[ -n "$missing_scopes" ]]; then
+      error "Scopes: missing ${missing_scopes}"
       all_ok=false
     else
       success "Scopes: OK"
@@ -549,7 +535,7 @@ Examples:
   $(basename "$0") --setup-all
   $(basename "$0") --check
 
-Required scopes per account: ${REQUIRED_SCOPES[*]}
+Required scopes per account (vars/github-required-scopes.yml): ${REQUIRED_SCOPES_CSV}
 Config file: \$LOCALHOST_YML (default: environment/localhost/host_vars/localhost.yml)
 EOF
 }
@@ -629,7 +615,10 @@ main() {
       fi
 
       echo -e "\n${BOLD}Setting up ${#pairs[@]} GitHub account(s)${NC}"
-      echo -e "${CYAN}i${NC} Each account may need browser authentication — log in as the correct user when prompted"
+      if [[ "${RUN_BASH_HEADLESS:-}" == "true" ]]; then
+        audit_all_accounts_headless "${pairs[@]}"
+      fi
+      echo -e "${CYAN}i${NC} Each account needs at most one browser authorisation, asking for every scope it lacks — log in as the correct user when prompted"
 
       local passphrase=""
       if ! passphrase=$(decrypt_passphrase); then

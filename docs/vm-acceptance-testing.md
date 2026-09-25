@@ -245,8 +245,8 @@ vmtest run server-github-token \
 ```
 
 Use a **dedicated throwaway GitHub account**, never a real one. The PAT needs
-the scopes in `vars/github-required-scopes.yml` plus `admin:public_key`,
-because the run uploads the login key it generates. Both files must be `0600`
+every scope in `vars/github-required-scopes.yml`; that list already covers the
+login-key upload the run makes. Both files must be `0600`
 or `0400` and non-empty; the CLI refuses otherwise, since a secret that cannot
 be read cannot be redacted from the transcript afterwards either. Revoke the
 PAT when the run is done.

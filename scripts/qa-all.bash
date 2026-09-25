@@ -641,6 +641,19 @@ fi
 single_play_summary=$(qa_gate_case_count "$single_play_out")
 qa_pass_line run-bash-single-play "$single_play_summary"
 
+# GitHub scopes in one pass (Plan 00139 Task 1.3): run.bash's first login asks for every
+# scope in vars/github-required-scopes.yml, a short token gets ONE refresh carrying all it
+# lacks, and a headless run - run.bash's or gh-account-setup.bash's - fails once naming
+# every account and every scope, against a stubbed gh and the real helper.
+gh_scopes_out=""
+if ! gh_scopes_out="$(bash "$SCRIPT_DIR/test-run-bash-gh-scopes.bash" 2>&1)"; then
+    qa_hard_gate_failed run-bash-gh-scopes \
+        "run.bash / gh-account-setup.bash single-pass scope tests failed" \
+        "$gh_scopes_out"
+fi
+gh_scopes_summary=$(qa_gate_case_count "$gh_scopes_out")
+qa_pass_line run-bash-gh-scopes "$gh_scopes_summary"
+
 # The unattended self-update cycle (Plan 00137), driven through the real root wrapper
 # against a signed git fixture, with runuser and systemctl stubbed: the order of play,
 # warning and reboot, the passwords handed as descriptors, and the pinned system ansible.

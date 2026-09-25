@@ -205,25 +205,33 @@ block; the play does not remove them.
 
 ### Commit Signing
 
-On by default. `play-git-configure-and-tools.yml` generates this machine's SSH signing
-key at `~/.ssh/id_ed25519_git_signing` and signs every commit and tag with it: yours, a
-`cc` agent's on the host, and a ccy container's, which gets a read-only copy for the
-session. A signature says a commit came from you or your machine. Your own agents are
-meant to be able to sign, so the key has no passphrase, and the play refuses one that
-does. `git_signing_key` in host_vars points it at a different key.
+On by default. Every commit and tag made on this machine is signed: yours, a `cc`
+agent's on the host, and a ccy container's. A signature says a commit came from you or
+your machine. Your own agents are meant to be able to sign, so no signing key has a
+passphrase, and the plays refuse one that does.
 
-Register the key with GitHub once, so your commits show as Verified. This needs the
-`admin:ssh_signing_key` scope, which the play's other scopes do not include, and it must
-go on the account whose verified email is your `user_email`. `gh auth refresh` and
-`gh ssh-key add` act on gh's active account, so switch to that account first:
+Two plays hold the keys, one per GitHub identity, as the login keys are:
 
-```bash
-gh auth switch --user <that account>
-gh auth refresh --scopes admin:ssh_signing_key
-gh ssh-key add ~/.ssh/id_ed25519_git_signing.pub --type signing --title "$(hostname) git signing"
-```
+| Key                             | Made by                            | Signs in                                                                              | Registered on                      |
+| ------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------- |
+| `~/.ssh/github_<alias>_signing` | `play-github-cli-multi.yml`        | a repository whose remote is `github.com-<alias>` (`clone-<alias>`, `remote-<alias>`) | that account                       |
+| `~/.ssh/id_ed25519_git_signing` | `play-git-configure-and-tools.yml` | every other repository                                                                | the account `~/.ssh/id` logs in as |
 
-A self-updating server trusts this key: give its `.pub` line to
+`play-github-cli-multi.yml` registers every key GitHub lacks as a signing key, with each
+account's own token, so nothing is registered by hand and gh's active account is never
+switched. It then checks, in a scratch repository, that git picks each account's key and
+the machine key elsewhere. The token needs every scope in
+`vars/github-required-scopes.yml`; `run.bash` and `scripts/gh-account-setup.bash` ask for
+all the missing ones in one browser authorisation per account. A commit shows as Verified
+when its email is a verified address of the account the key is on, so use each account's
+email in its repositories (`gh-switch <alias> --update-git`).
+
+Git picks an account's key through `includeIf` on the remote URL: the plays write
+`~/.config/git/github-signing.gitconfig`, included at the end of `~/.gitconfig`. ccy asks
+git on the host which key the project gets and stages that one for the session.
+`git_signing_key` in host_vars points the machine key at a different key.
+
+A self-updating server trusts the machine key: give its `.pub` line to
 `self_update_signing_public_key` (below).
 
 The play also writes the `.pub` line into `localhost.yml` as `git_signing_public_key`, so
