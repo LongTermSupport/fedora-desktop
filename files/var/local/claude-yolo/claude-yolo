@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.66.0"  # Commits made in the container are signed with the host's signing key. See docs/ccy-changelog.md.
+CCY_VERSION="3.67.0"  # The container signs with the key git picks for the project: its GitHub account's, or the machine's. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -2009,7 +2009,7 @@ trap cleanup EXIT
 
 # Commit signing (Plan 00139): the signing key is staged beside the gitconfig copy and the
 # copy repointed at it. After the trap, so a refusal still removes the staged files.
-if ! stage_git_signing_key "$CONFIG_TEMP/gitconfig" "$CONFIG_TEMP" /tmp/claude-config-import; then
+if ! stage_git_signing_key "$CONFIG_TEMP/gitconfig" "$CONFIG_TEMP" /tmp/claude-config-import "$PWD"; then
     exit 1
 fi
 

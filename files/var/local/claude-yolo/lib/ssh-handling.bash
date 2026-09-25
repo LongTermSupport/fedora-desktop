@@ -2,7 +2,7 @@
 # SSH Handling Library
 # Shared SSH key operations for claude-yolo (ccy)
 #
-# Version: 1.5.0 - stage_git_signing_key carries commit signing into the container
+# Version: 1.6.0 - stage_git_signing_key stages the key git picks for the project
 #                  (Plan 00139).
 #          1.4.0 - Two identities a box may hold besides a github_<alias> key:
 #                  the project remote's own key, reached through an ssh-config
@@ -1161,15 +1161,20 @@ build_ssh_mounts_and_validate() {
 }
 
 # Carry commit signing into the container (Plan 00139).
-# play-git-configure-and-tools.yml signs every commit and tag with the SSH key named in
-# user.signingkey, and the container gets a copy of ~/.gitconfig, so the copy names a
-# host path. The key is staged into the directory holding that copy, which the launcher
-# mounts read-only (privately relabelled where SELinux needs it), and the copy is
-# repointed at the mounted key. Signing that is on with no usable key would fail every
-# commit made in the container, so that refuses the launch instead.
+# play-git-configure-and-tools.yml signs every commit and tag with the machine's SSH key,
+# and play-github-cli-multi.yml includes a key per GitHub account, which git picks in a
+# repository whose remote is that account's github.com-<alias> host. The key is the one
+# git on the host picks for the project, so a commit made in the container is signed as
+# it would be outside. It is staged into the directory holding the ~/.gitconfig copy,
+# which the launcher mounts read-only (privately relabelled where SELinux needs it), and
+# a [user] section naming the mounted key is appended to the copy: the last value wins,
+# so it overrides the machine key and every account include, whose host paths the
+# container cannot read. Signing that is on with no usable key would fail every commit
+# made in the container, so that refuses the launch instead.
 #   $1 the gitconfig copy   $2 the host directory it is in   $3 where $2 is mounted
+#   $4 the project directory
 stage_git_signing_key() {
-    local gitconfig="$1" stage_dir="$2" mount_dir="$3"
+    local gitconfig="$1" stage_dir="$2" mount_dir="$3" project="$4"
     local key format name value rc signing=false
 
     for name in commit.gpgsign tag.gpgsign; do
@@ -1183,9 +1188,9 @@ stage_git_signing_key() {
         fi
     done
 
-    key=$(git config --file "$gitconfig" --get user.signingkey) && rc=0 || rc=$?
+    key=$(git -C "$project" config --get user.signingkey) && rc=0 || rc=$?
     if [ "$rc" -gt 1 ]; then
-        print_error "Could not read user.signingkey from $gitconfig (git config exit $rc)"
+        print_error "Could not read the signing key git uses in $project (git config exit $rc)"
         return 1
     fi
     format=$(git config --file "$gitconfig" --get gpg.format) && rc=0 || rc=$?
@@ -1213,8 +1218,9 @@ stage_git_signing_key() {
         if [ "$signing" = true ]; then
             print_error "Commit signing is on in ~/.gitconfig, but $problem."
             echo "  Every commit in the container would fail. Re-run" >&2
-            echo "  playbooks/imports/play-git-configure-and-tools.yml, which generates the key" >&2
-            echo "  and sets signing up." >&2
+            echo "  playbooks/imports/play-git-configure-and-tools.yml, then" >&2
+            echo "  playbooks/imports/play-github-cli-multi.yml: they generate the machine's key" >&2
+            echo "  and each GitHub account's, and set signing up." >&2
             return 1
         fi
         return 0
@@ -1224,7 +1230,7 @@ stage_git_signing_key() {
         print_error "Could not stage the signing key $key into $stage_dir"
         return 1
     fi
-    if ! git config --file "$gitconfig" user.signingkey "$mount_dir/git-signing-key"; then
+    if ! printf '[user]\n\tsigningkey = %s\n' "$mount_dir/git-signing-key" >>"$gitconfig"; then
         print_error "Could not point user.signingkey in $gitconfig at the staged key"
         return 1
     fi
