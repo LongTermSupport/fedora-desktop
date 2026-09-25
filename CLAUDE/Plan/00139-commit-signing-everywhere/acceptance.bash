@@ -165,12 +165,15 @@ echo "== GitHub"
 # GitHub marks a commit the machine key signs Verified only on the account that has the
 # commit's email, user.email, as a verified address, so that is the account the key must
 # be on. Each account's verified emails are read with its own token, which carries every
-# scope in vars/github-required-scopes.yml; a noreply address belongs to the login it names. The signing keys
-# are read from the public users/<login>/ssh_signing_keys endpoint.
-# When no account could be read at all, the answer is "unknown", not "unregistered".
+# scope in vars/github-required-scopes.yml. A noreply address belongs to the login it
+# names, provided its <id>+ prefix, when it has one, is that account's id: GitHub
+# attributes the address by the id, so a wrong one is Verified on no account. The signing
+# keys are read from the public users/<login>/ssh_signing_keys endpoint.
+# When an account could not be read, the answer is "unknown", not "not verified".
 commit_email="$(global_get user.email)"
 owner=""
 read_failed=""
+id_mismatch=""
 logins="$(gh auth status --json hosts --jq '.hosts["github.com"][].login' 2>&1)" && rc=0 || rc=$?
 if [[ "${rc}" -ne 0 ]]; then
     bad "11. the machine key is a signing key on the account with ${commit_email} verified" \
@@ -178,8 +181,17 @@ if [[ "${rc}" -ne 0 ]]; then
 else
     shopt -s nocasematch
     for login in ${logins}; do
-        if [[ "${commit_email}" =~ ^([0-9]+\+)?${login}@users\.noreply\.github\.com$ ]]; then
-            owner="${login}"
+        if [[ "${commit_email}" =~ ^(([0-9]+)\+)?${login}@users\.noreply\.github\.com$ ]]; then
+            noreply_id="${BASH_REMATCH[2]}"
+            if [[ -z "${noreply_id}" ]]; then
+                owner="${login}"
+            elif ! account_id="$(gh api "users/${login}" --jq '.id' 2>&1)"; then
+                read_failed+="${login} (users/${login}: $(tr '\n' ' ' <<<"${account_id}")); "
+            elif [[ "${account_id}" == "${noreply_id}" ]]; then
+                owner="${login}"
+            else
+                id_mismatch="${commit_email} carries id ${noreply_id}, but ${login}'s id is ${account_id}"
+            fi
             continue
         fi
         if ! token="$(gh auth token --hostname github.com --user "${login}" 2>&1)"; then
@@ -198,9 +210,15 @@ else
         done <<<"${emails}"
     done
     shopt -u nocasematch
-    if [[ -z "${owner}" ]]; then
+    if [[ -z "${owner}" && -n "${id_mismatch}" ]]; then
         bad "11. the machine key is a signing key on the account with ${commit_email} verified" \
-            "no account gh holds has ${commit_email} verified${read_failed:+ (unreadable: ${read_failed})}"
+            "${id_mismatch}, so GitHub verifies commits with that email on no account; fix user.email"
+    elif [[ -z "${owner}" && -n "${read_failed}" ]]; then
+        bad "11. the machine key is a signing key on the account with ${commit_email} verified" \
+            "UNKNOWN: could not read ${read_failed}and no readable account has ${commit_email} verified"
+    elif [[ -z "${owner}" ]]; then
+        bad "11. the machine key is a signing key on the account with ${commit_email} verified" \
+            "no account gh holds has ${commit_email} verified"
     elif ! listed="$(gh api "users/${owner}/ssh_signing_keys" --jq '.[].key' 2>&1)"; then
         bad "11. the machine key is a signing key on the account with ${commit_email} verified" \
             "UNKNOWN: could not read ${owner}'s signing keys: $(tr '\n' ' ' <<<"${listed}")"

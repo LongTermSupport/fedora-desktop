@@ -90,6 +90,10 @@ out.
     All fixed or answered in the journal. The launch now names the key it staged (CCY
     3.67.2), and acceptance check 11 asserts the machine key is on the account that owns
     `user_email`
+  - [x] ✅ QA review, round 3: FIX-BEFORE-MERGE, nothing blocking, four to fix, three nits
+    ([report](subagent-reports/260925-qa-reviewer-per-account-signing-round3-opus-5.md)).
+    All fixed or answered in the journal. The refusal's remedy now runs from a
+    subdirectory and for any path (CCY 3.67.3)
   - [ ] ⬜ **HOST**: meta-deploy (`CLAUDE/Plan/meta-deploy.bash`, which runs this plan's
     deploy and acceptance). If the token audit stops it, the one command it names
     (`scripts/gh-account-setup.bash --setup-all`) asks each account for everything it
