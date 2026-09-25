@@ -54,6 +54,21 @@ out.
 - **D4 — Plan 00137's D3 is overruled by the owner.** The play's "must have a passphrase"
   assert inverts to "must not have one", and `git sign-deploy` goes. Every commit is signed,
   so the server gate's check of HEAD needs no special commit.
+- **D5 — Sign with the login keys, through the ssh-agent; D2 and the separate signing keys
+  are withdrawn.** The owner asked whether the idea was not simply to sign with the normal
+  SSH key. It is: GitHub takes the same public key again as a signing key. D2's premise was
+  wrong. `ssh-keygen -Y sign` signs through the agent for a passphrase-protected key, with
+  no terminal (measured), and every signer already has an agent holding the key:
+  - a ccy container ssh-adds the identity chosen at launch into its own agent, or uses the
+    forwarded one;
+  - the desktop agent unlocks a key on first use.
+    So `~/.ssh/id` signs by default, and each `github_<alias>` key in that account's
+    repositories. ccy signs with the session's own identity and copies no private key in. The
+    per-account `github_<alias>_signing` keys and `id_ed25519_git_signing` are retired, from
+    GitHub and from disk. They were six passphrase-free private keys in `~/.ssh`, and they
+    crowded the ccy key picker and the desktop agent. Cost: a signer whose agent does not
+    hold the key cannot sign. A person gets a passphrase prompt; an unattended host `cc`
+    agent fails loudly until the key is unlocked in the session.
 
 ## Tasks
 
@@ -154,6 +169,24 @@ out.
   - [x] ✅ Confirming pass: PASS WITH NITS
     ([report](subagent-reports/260924-qa-reviewer-round2-opus-5.md)). The should-fix and
     all three nits are fixed
+
+### Phase 5: sign with the login keys (D5)
+
+- [ ] 🔄 **Task 5.1**: The desktop signs with `~/.ssh/id` by default and with
+  `github_<alias>` in each account's repositories. `play-git-configure-and-tools.yml`
+  generates no key and asserts `~/.ssh/id` is there. `helpers/github_signing` registers
+  the login keys' public halves as signing keys: each account's on that account, `id.pub`
+  on the account that has `user_email` verified.
+- [ ] ⬜ **Task 5.2**: ccy signs with the session's primary SSH identity, through the
+  container's agent. With a forwarded agent only, it uses the public half of the key git
+  picks for the project, provided the agent holds it. Signing that is on with no usable
+  key still refuses the launch. No private key is staged.
+- [ ] ⬜ **Task 5.3**: Retire the old keys, after the new ones are registered and picked.
+  `helpers/github_signing` deletes the `github_<alias>_signing` and
+  `id_ed25519_git_signing` registrations on GitHub; the play removes the files.
+- [ ] ⬜ **Task 5.4**: Acceptance, docs, the self-update server key (now `id.pub`), CCY
+  version, tests, `qa-all.bash`, then the `qa-reviewer` agent.
+- [ ] ⬜ **HOST (owner, at a desk)**: `./CLAUDE/Plan/meta-deploy.bash`
 
 ## Success Criteria
 
