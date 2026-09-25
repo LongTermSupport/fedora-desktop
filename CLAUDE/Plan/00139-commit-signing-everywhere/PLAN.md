@@ -77,12 +77,18 @@ out.
   - the new scope joins `vars/github-required-scopes.yml`, which every login, refresh and
     audit reads.
   - [x] ✅ Implementation. `helpers/github_signing` registers every key GitHub lacks, with
-    each account's own token, and the machine key on the account `~/.ssh/id` logs in as;
-    then proves git picks each key in a scratch repository. CCY 3.67.0 stages the key git
-    picks for the project. Acceptance gains checks 12 and 13
-  - [ ] ⬜ **HOST**: `./deploy.bash`. If its token audit stops it, the one command it names
+    each account's own token, and the machine key on the account that has `user_email`
+    verified; then proves git picks each key in a scratch repository. CCY 3.67.1 stages
+    the key git picks for the project, taken only from `~/.gitconfig` and the system
+    config. Acceptance gains checks 12 and 13
+  - [x] ✅ QA review: BLOCK, one blocking finding (ccy copied in whatever a project-local
+    `user.signingkey` named), seven to fix, eight nits
+    ([report](subagent-reports/260925-qa-reviewer-per-account-signing-opus-5.md)). All fixed
+    or answered in the journal
+  - [ ] ⬜ **HOST**: meta-deploy (`CLAUDE/Plan/meta-deploy.bash`, which runs this plan's
+    deploy and acceptance). If the token audit stops it, the one command it names
     (`scripts/gh-account-setup.bash --setup-all`) asks each account for everything it
-    lacks in one authorisation; then deploy again, and `./acceptance.bash`
+    lacks in one authorisation; then meta-deploy again
 - [ ] 🔄 **Task 1.4**: The owner asked for this machine's public key to be kept in the
   private config repo. The play writes it into `localhost.yml` as `git_signing_public_key`,
   in a managed block, the way other plays record values there. It uses its own name,

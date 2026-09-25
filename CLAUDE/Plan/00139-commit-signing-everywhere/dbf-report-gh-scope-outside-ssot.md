@@ -41,6 +41,9 @@ handed but did not scan.
 - **Hazard.** The copies drift. One consumer asks for, or accepts, a different set from the
   others, and the owner is sent through GitHub's browser authorisation more than once, or a
   token one part accepts is refused by another.
+- **Is the reported behaviour pinned by a check the Runner executes?** It was not before
+  this run. It is now: `scripts/test-run-bash-gh-scopes.bash`, gate `run-bash-gh-scopes`
+  in `qa-all.bash`, described under "The original defect" below.
 
 ## Rule
 
@@ -64,7 +67,11 @@ handed but did not scan.
   - records nobody reads to decide what to ask GitHub for: plan prose
     (`CLAUDE/Plan/**/*.md`) and changelogs (`docs/*changelog*.md`). Plan scripts stay in;
   - upstream hooks-daemon files replaced wholesale on upgrade (`.claude/hooks-daemon/**`,
-    `.claude/skills/**`), and `untracked/**`.
+    `.claude/skills/**`), and `untracked/**`. Both upstream trees were searched at
+    `27aee075` for any scope form the rule matches, and are clean:
+    `.claude/hooks-daemon/**` has no tracked files, and `.claude/skills/**` has no hit
+    (`git grep` over the prefixed families, `user:email` and `--scopes`). Its only "scope"
+    words are plan and task scope. `untracked/**` is not in the repository.
 - **Next wider rule considered:** flagging every bare word a scope can be (repo, gist,
   workflow, project, user) anywhere. It was not built because those are ordinary words
   in this codebase, so it would match code that does not carry the hazard.
@@ -81,7 +88,7 @@ handed but did not scan.
   an unrelated clone. `semgrep --test` passes. A mutant with the `gh auth` pattern removed
   fails it with `missed lines: [11]`.
 - **The red run.** `./scripts/qa-gh-scopes.bash` at `27aee075` exits 1: 56 lines in 10
-  files, of 806 scanned. The files: `run.bash`, `playbooks/imports/play-github-cli-multi.yml`,
+  files, of 807 scanned. The files: `run.bash`, `playbooks/imports/play-github-cli-multi.yml`,
   `scripts/gh-account-setup.bash`, `docs/github-multi-account.md`, `docs/configuration.md`,
   `docs/headless-provisioning.md`, `docs/headless-server-install.md`,
   `docs/vm-acceptance-testing.md`, `files/home/.local/bin/vmtest` and
