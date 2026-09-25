@@ -37,26 +37,24 @@ done
 PLAN_ROOT="${scriptDir}"
 
 # --- the list ----------------------------------------------------------------
-# Plan folder names, run in this order. STANDING RULE (CLAUDE/AgentNotes.md): a plan is
-# added the moment it needs a host run and removed the moment it does not, and the order
-# is by dependency. A plan with none of triage.bash, deploy.bash and acceptance.bash has
-# nothing for this script to do. A triage-only plan is run once, read-only. Words after the
+# Plan folder names, run in this order. STANDING RULE (CLAUDE/AgentNotes.md): this list
+# is exactly what needs running NOW. Add a run when it is pending, remove it once it has
+# run and is done, leave out what cannot usefully run yet, then ask the owner to run this
+# script. Every step a run needs lives in the plan's own scripts, so this is the only
+# command the owner is handed. The order is by dependency. A plan with none of
+# triage.bash, deploy.bash and acceptance.bash has nothing for this script to do. A triage-only plan is run once, read-only. Words after the
 # folder name are passed to that plan's triage.bash, both runs.
 #
 # An entry may instead be a playbook path under playbooks/, for a change no plan owns. It is
 # run as one unit through its own shebang, which goes through run.bash, exactly as
 # `./playbooks/imports/<play>.yml` does by hand.
 #
-# 00139: the per-account signing keys and ccy 3.67.4. Its deploy runs the launcher, git
-# and GitHub CLI plays; its acceptance checks each account's key is registered and picked.
-# If the play's token audit stops it, scripts/gh-account-setup.bash --setup-all fixes
-# every account in one authorisation each.
-#
-# 00134: its triage is what reads the next boot's journal for the post-boot criteria
-# (dbus-broker, dnf5daemon, WirePlumber, the ABRT applet), so it runs after a reboot.
+# 00139: the per-account signing keys and ccy 3.67.4. Its deploy first asks each GitHub
+# account for any scope it lacks, one browser authorisation per account, then runs the
+# launcher, git and GitHub CLI plays. Its acceptance checks each account's key is
+# registered and picked.
 PLANS=(
     "00139-commit-signing-everywhere"
-    "00134-startup-log-triage-and-status-panel-unavailable"
 )
 
 LIST_ONLY=0

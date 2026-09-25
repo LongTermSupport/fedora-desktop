@@ -58,20 +58,28 @@ the acceptance/verify gate, **not** in triage.
 
 ### `meta-deploy.bash` is how host runs reach the owner — keep its list exact
 
-**Standing rule from the owner.** `CLAUDE/Plan/meta-deploy.bash` is the one command the
-owner runs to execute plan scripts on the host. Its `PLANS` list must always be exactly
-what currently needs running, in the order it must run:
+**Standing rule from the owner:** "META DEPLOY IS PERMANENTLY AND CONTINUOUSLY UPDATED TO
+TRACK PENDING RUNS THAT NEED RUNNING". `CLAUDE/Plan/meta-deploy.bash` is the one command
+the owner runs to execute plan scripts on the host, and "META IS YOUR WAY TO GET ME TO RUN
+STUFF". Its `PLANS` list is, at every commit, exactly what needs running **now**:
 
-- **Add a plan the moment it needs a host run**, in the right place in the order. Do not
-  hand the owner a separate command to type. If a triage needs a flag, put it on the
-  plan's line.
-- **Remove a plan the moment it no longer needs one**, for example once its acceptance
-  has passed and nothing is left to deploy.
+- **Something needs running: add it,** in dependency order. If a triage needs a flag, put
+  it on the plan's line.
+- **It has run and is done: remove it,** in the commit that records the result.
+- **It cannot usefully run yet: leave it out.** A triage that reads the next boot's journal
+  goes in once the reboot has happened, not before. A run that would only repeat one
+  already passed is not pending.
+- **Then ask the owner to run it.** Say "run `./CLAUDE/Plan/meta-deploy.bash`", with what it
+  will do and anything it will ask of them (a browser authorisation, say). Ask whenever the
+  list holds something; do not route the run through another agent instead.
+- **Never hand over a second command.** A step a plan's run needs, even an interactive one
+  such as a GitHub scope refresh, belongs in that plan's `deploy.bash`, not in a message
+  telling the owner to type it before or after meta.
 - **Order by dependency:** deploys that others build on come first, and read-only triage
   that judges what the deploys left behind comes last.
 
-Only what meta cannot do goes to the owner as a request: a reboot, a login, a decision,
-or a different machine.
+Only what meta cannot do goes to the owner as a separate request: a reboot, a login, a
+look at the screen, a decision, or a different machine.
 
 **Never tell the owner to `git pull` first.** The CCY container works in the host's own
 checkout, mounted at `/workspace`, so a commit made here is already on the host. The
