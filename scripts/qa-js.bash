@@ -69,6 +69,7 @@ done < <(find "$REPO_ROOT" -type f \( -name "*.js" -o -name "*.mjs" \) \
     ! -path "$REPO_ROOT/roles/vendor/*" \
     ! -path "$REPO_ROOT/.claude/hooks-daemon/*" \
     ! -path "$REPO_ROOT/.claude/ccy/*" \
+    ! -path "$REPO_ROOT/.claude/worktrees/*" \
     ! -path "$REPO_ROOT/untracked/*" \
     -print0)
 
