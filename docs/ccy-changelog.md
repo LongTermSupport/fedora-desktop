@@ -17,6 +17,19 @@ Two version numbers move independently — see
 
 ---
 
+## 3.67.5 — container 2.38
+
+- **Each browser command allows one open session at a time** (Plan 00140). Every
+  agent-browser session name is a separate browser: four names gave four Chromiums,
+  about 14 processes each. Agents followed upstream's advice to start a named session
+  per task, and bare `close` shut only one, so browsers piled up. The idle reaper could
+  not stop this, because each new session starts its own timer. The three wrappers now
+  go through `agent-browser-session-guard`. It refuses (exit 3) a command that would
+  start another session while one is open, and names the open session to reuse or
+  close. Reusing a session and commands that start no browser (`close`, `session`,
+  `skills`, `--help`, ...) are never refused. A project that needs two at once sets
+  `CCY_BROWSER_MAX_SESSIONS` in its `ccy.env`.
+
 ## 3.67.4
 
 - **The refusal's remedy works in a bare repository, and when ccy starts inside `.git`.**

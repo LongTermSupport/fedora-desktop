@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# Session cap behind agent-browser-headed, agent-browser-headless and
+# agent-browser-lite-headless inside a CCY container (Plan 00140).
+#
+# Every agent-browser session name is its own daemon and its own browser. Measured: four
+# names, four Chromium roots, ~14 processes each. Agents start a new name per task (the
+# upstream core skill tells them to) and leave the old ones running, so without a cap
+# Chromium piles up for as long as they keep working. The idle reaper cannot bound
+# that, because each new session starts its own timer.
+#
+# So a command that would START a session is refused while this browser command already
+# has CCY_BROWSER_MAX_SESSIONS (default 1) sessions open. The refusal names the open
+# session and how to reuse or close it. Reusing an open session, and commands that start
+# no browser (close, session, skills, --help, ...), always pass straight through.
+#
+# Usage (from the generated wrappers only):
+#   agent-browser-session-guard <command-name> <agent-browser-binary> [wrapper-flag...] -- [arg...]
+# Exit: the binary's own status when passed through; 3 when refused; 1 when the guard
+# cannot establish what is open (it never guesses, and never runs the command then).
+set -euo pipefail
+
+name="agent-browser-session-guard"
+
+guard_fail() {
+    printf '%s: %s\n' "$name" "$1" >&2
+    exit 1
+}
+
+(( $# >= 2 )) || guard_fail "usage: $name <command-name> <binary> [wrapper-flag...] -- [arg...]"
+name="$1"
+real="$2"
+shift 2
+base=()
+while (( $# )) && [[ "$1" != -- ]]; do
+    base+=("$1")
+    shift
+done
+(( $# )) || guard_fail "internal: no -- between the wrapper flags and the caller's arguments"
+shift
+args=("$@")
+
+pass_through() {
+    exec "$real" "${base[@]}" "${args[@]}"
+}
+
+max="${CCY_BROWSER_MAX_SESSIONS-1}"
+[[ "$max" =~ ^[1-9][0-9]*$ ]] \
+    || guard_fail "CCY_BROWSER_MAX_SESSIONS must be a whole number of at least 1, got '${max}'"
+
+(( ${#args[@]} )) || pass_through
+
+# Find the command word and any --session, as the CLI reads them. A flag that takes a
+# value has it skipped; a boolean flag may be followed by true/false. A misread lands on
+# the guarded side, so an unfamiliar layout is checked, never waved past.
+command_word=""
+session_args=()
+i=0
+while (( i < ${#args[@]} )); do
+    arg="${args[i]}"
+    next="${args[i + 1]-}"
+    case "$arg" in
+        --help | -h | --version | -V)
+            pass_through
+            ;;
+        --session=*)
+            (( ${#session_args[@]} )) || session_args=("$arg")
+            ;;
+        --session)
+            (( ${#session_args[@]} )) || session_args=(--session "$next")
+            i=$((i + 1))
+            ;;
+        --profile | --state | --headers | --namespace | --executable-path | --extension \
+            | --init-script | --enable | --args | --user-agent | --proxy | --proxy-bypass \
+            | --ca-cert | -p | --provider | --device | --screenshot-dir | --screenshot-quality \
+            | --screenshot-format | --input-mode | --hide-scrollbars | --color-scheme \
+            | --download-path | --max-output | --allowed-domains | --action-policy \
+            | --confirm-actions | --cdp | --engine | --idle-timeout | --model | --config \
+            | --restore-save | --restore-check-url | --restore-check-text | --restore-check-fn \
+            | --session-name)
+            i=$((i + 1))
+            ;;
+        -*)
+            if [[ "$next" == true || "$next" == false ]]; then
+                i=$((i + 1))
+            fi
+            ;;
+        *)
+            [[ -n "$command_word" ]] || command_word="$arg"
+            ;;
+    esac
+    i=$((i + 1))
+done
+
+case "$command_word" in
+    close | session | skills | install | upgrade | doctor | profiles) pass_through ;;
+esac
+
+command -v jq >/dev/null \
+    || guard_fail "jq is not installed, so the open sessions cannot be read (the image installs it)"
+
+target_json="$("$real" "${base[@]}" "${session_args[@]}" --json session)" \
+    || guard_fail "could not ask agent-browser which session this command targets"
+target="$(jq -r 'if (.data.session | type) == "string" and .data.session != ""
+                 then .data.session else error("no session name") end' <<< "$target_json")" \
+    || guard_fail "unexpected answer naming the target session: ${target_json}"
+
+# A session closed a moment ago stays listed for ~160 ms (measured 3 of 3), so a
+# `close --all && ... open` chain would be refused on a session that is already going.
+# Poll for up to 2 s before deciding.
+live=()
+for (( attempt = 0; attempt < 20; attempt++ )); do
+    list_json="$("$real" "${base[@]}" --json session list)" \
+        || guard_fail "could not run 'session list' to see which sessions are open"
+    listing="$(jq -r 'if .success == true and (.data.sessions | type) == "array"
+                      then .data.sessions[] else error("not a session list") end' <<< "$list_json")" \
+        || guard_fail "unexpected 'session list' output: ${list_json}"
+    live=()
+    [[ -z "$listing" ]] || mapfile -t live <<< "$listing"
+    for s in "${live[@]}"; do
+        [[ "$s" != "$target" ]] || pass_through
+    done
+    (( ${#live[@]} >= max )) || pass_through
+    sleep 0.1
+done
+
+if (( ${#live[@]} == 1 )); then
+    reuse="${name} --session ${live[0]} <command>"
+    count="1 session is"
+else
+    reuse="${name} --session <one of the above> <command>"
+    count="${#live[@]} sessions are"
+fi
+cat >&2 <<EOF
+${name}: refused. This would start browser session '${target}', but ${count} already
+open in ${name}, and each session is a separate browser. CCY allows ${max} at a time
+(CCY_BROWSER_MAX_SESSIONS).
+
+  Open now:   ${live[*]}
+
+  Still using it?  Reuse it:   ${reuse}
+  Finished?        Close it:   ${name} close --all
+                   and then re-run this command.
+
+A session you did not open may belong to another agent working in parallel. Do not
+close that one; wait for it instead.
+EOF
+exit 3

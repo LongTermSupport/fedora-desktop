@@ -33,7 +33,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.37"
+LABEL claude-yolo-version="2.38"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -175,7 +175,8 @@ RUN mkdir -p /root/.agent-browser && \
 # within 7s of its last command.
 #
 # This is the safety net, not the cleanup: the browsing skill requires the agent to close
-# what it opened in the same command chain. A project that genuinely needs a longer window
+# what it opened in the same command chain. The timer is per session, so it cannot bound
+# an agent that keeps starting new ones; agent-browser-session-guard (below) does. A project that genuinely needs a longer window
 # — say the user is watching a headed session — overrides this in its ccy.env, which is
 # sourced after image ENV and wins. Applies to all three browser commands; each daemon
 # reads it.
@@ -235,7 +236,11 @@ RUN printf '%s\n' \
 #   agent-browser-lite-headless   Lightpanda: DOM/text only, no renderer, ~50x cheaper
 #
 # Each wrapper is a passthrough: every agent-browser subcommand, flag and exit code
-# behaves identically, and stdout stays the wrapped command's alone. The wrappers exec
+# behaves identically, and stdout stays the wrapped command's alone. The one exception is
+# the session cap: every session name is a separate browser, so each wrapper goes through
+# agent-browser-session-guard, which refuses a command that would START a session while
+# CCY_BROWSER_MAX_SESSIONS (default 1) of that mode are already open (Plan 00140). The
+# wrappers exec
 # the platform binary by its resolved path, so removing the `agent-browser` symlink from
 # PATH does not affect them; the daemon does not re-invoke itself by PATH name either
 # (verified: headless open/get/screenshot/close and lite open/get/close both succeeded
@@ -244,10 +249,10 @@ RUN printf '%s\n' \
 # (measured: `agent-browser-headless --headed open` still launched HeadlessChrome on the
 # headless ozone platform).
 #
-# The stub itself is a tracked file, files/var/local/claude-yolo/agent-browser-mode-required,
-# staged into the build context by play-claude-yolo.yml like entrypoint.sh, so it is
-# shellchecked by qa-all.bash. Only the three exec wrappers are generated here, because
-# they need the build-time $REAL.
+# The stub and the guard are tracked files (files/var/local/claude-yolo/), staged into the
+# build context by play-claude-yolo.yml like entrypoint.sh, so qa-all.bash shellchecks
+# them and scripts/test-agent-browser-session-guard.bash tests the guard. Only the three
+# exec wrappers are generated here, because they need the build-time $REAL.
 #
 # --namespace is NOT cosmetic, it is what lets the modes coexist. agent-browser keeps a
 # per-namespace daemon, and a daemon is bound to the engine AND headed state it was
@@ -257,6 +262,7 @@ RUN printf '%s\n' \
 # A dedicated namespace per wrapper gives each its own daemon socket, so the three
 # interleave in any order with no closes at all.
 COPY agent-browser-mode-required /opt/claude-yolo/agent-browser-mode-required
+COPY agent-browser-session-guard /opt/claude-yolo/agent-browser-session-guard
 RUN set -eu \
     && REAL="$(readlink -f "$(command -v agent-browser)")" \
     && test -x "$REAL" \
@@ -267,13 +273,13 @@ RUN set -eu \
     '# Chromium with a REAL WINDOW on the host desktop (Wayland forwarding).' \
     '# Use only when a human wants to watch. Close what you open, in the same' \
     '# command chain:  agent-browser-headed close --all' \
-    "exec $REAL --namespace headed --headed true \"\$@\"" \
+    "exec /opt/claude-yolo/agent-browser-session-guard agent-browser-headed $REAL --namespace headed --headed true -- \"\$@\"" \
     > /usr/local/bin/agent-browser-headed \
     && printf '%s\n' \
     '#!/bin/sh' \
     '# Chromium with NO window: screenshots, PDFs, element geometry, visual checks' \
     '# that nobody is watching. Close what you open:  agent-browser-headless close --all' \
-    "exec $REAL --namespace headless --headed false \"\$@\"" \
+    "exec /opt/claude-yolo/agent-browser-session-guard agent-browser-headless $REAL --namespace headless --headed false -- \"\$@\"" \
     > /usr/local/bin/agent-browser-headless \
     && printf '%s\n' \
     '#!/bin/sh' \
@@ -282,10 +288,13 @@ RUN set -eu \
     '# Lightpanda has no layout/paint pipeline and fails SILENTLY (exit 0 plus a' \
     '# placeholder image or fabricated coordinates). Use agent-browser-headless there.' \
     '# Close what you open:  agent-browser-lite-headless close --all' \
-    "exec $REAL --namespace lightpanda --config /root/.agent-browser/lightpanda.json \"\$@\"" \
+    "exec /opt/claude-yolo/agent-browser-session-guard agent-browser-lite-headless $REAL --namespace lightpanda --config /root/.agent-browser/lightpanda.json -- \"\$@\"" \
     > /usr/local/bin/agent-browser-lite-headless \
     && chmod 755 /usr/local/bin/agent-browser-headed /usr/local/bin/agent-browser-headless \
        /usr/local/bin/agent-browser-lite-headless /opt/claude-yolo/agent-browser-mode-required \
+       /opt/claude-yolo/agent-browser-session-guard \
+    && bash -n /opt/claude-yolo/agent-browser-session-guard \
+    && command -v jq >/dev/null \
     && sh -n /usr/local/bin/agent-browser-headed \
     && sh -n /usr/local/bin/agent-browser-headless \
     && sh -n /usr/local/bin/agent-browser-lite-headless \
