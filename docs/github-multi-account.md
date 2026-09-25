@@ -18,7 +18,7 @@ split is the key to not getting confused:
 | Component                                     | Responsibility                                                                                                                                                                                                        |
 | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `scripts/gh-account-setup.bash`               | **Authentication.** Logs each account into `gh` **with the required OAuth scopes**, generates the SSH key, uploads the public key to GitHub, and verifies SSH access.                                                 |
-| `playbooks/imports/play-github-cli-multi.yml` | **Deployment.** Audits scopes, ensures SSH keys exist, writes the `~/.ssh/config` host-alias blocks, and regenerates the `git-<alias>` / `gh-<alias>` / `clone-<alias>` shell helper functions from the account list. |
+| `playbooks/imports/play-github-cli-multi.yml` | **Deployment.** Audits scopes, ensures SSH keys exist, gives each account a commit-signing key and registers it ([Commit Signing](configuration.md#commit-signing)), writes the `~/.ssh/config` host-alias blocks, and regenerates the `git-<alias>` / `gh-<alias>` / `clone-<alias>` shell helper functions from the account list. |
 
 The `github_accounts` dict in `localhost.yml` is the **single source of truth**.
 Everything — SSH key names, SSH config host aliases, and every generated shell
@@ -184,6 +184,8 @@ Verify every configured account is authenticated, scoped, keyed, and reachable
 | SSH private key | `~/.ssh/github_<alias>`                                                  |
 | SSH public key  | `~/.ssh/github_<alias>.pub`                                              |
 | SSH host alias  | `~/.ssh/config` (one `Host github.com-<alias>` block each)               |
+| Signing key     | `~/.ssh/github_<alias>_signing` (no passphrase; registered on the account) |
+| Signing choice  | `~/.config/git/github-signing.gitconfig`, included from `~/.gitconfig`   |
 | Shell functions | `~/.bashrc-includes/gh-aliases.inc.bash` (regenerated each playbook run) |
 | Helper config   | `~/.config/git-account-helper/accounts.json`                             |
 

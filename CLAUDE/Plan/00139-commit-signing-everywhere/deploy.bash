@@ -15,6 +15,11 @@
 #      Second, because from here on ~/.gitconfig asks for signing, and a launcher older
 #      than 3.66.0 would start containers whose every commit fails. The deploy stops at
 #      the first failing leg, so this order never leaves that state behind.
+#   3. play-github-cli-multi.yml — a signing key per GitHub account
+#      (~/.ssh/github_<alias>_signing), picked by git in that account's repositories, and
+#      every signing key GitHub lacks registered, the machine key included. Its token
+#      audit asks for the scope that needs first. Last, because it registers the key
+#      leg 2 makes.
 #
 # ccy sessions already running keep the gitconfig they started with, so they do not
 # sign until they are restarted.
@@ -47,14 +52,16 @@ Runs, on the HOST, in this order:
 
   playbooks/imports/play-claude-yolo.yml               (ccy carries the key into containers)
   playbooks/imports/play-git-configure-and-tools.yml   (the signing key, sign everything)
+  playbooks/imports/play-github-cli-multi.yml          (a key per account, all registered)
 
 The launcher goes first: on its own it changes nothing, while signing switched on under
 an older launcher would start containers that cannot commit.
 
 --check previews without changing anything.
 
-Then register the key with GitHub if it is new (docs/configuration.md \"Commit
-Signing\"), restart any ccy sessions, and run acceptance.bash."
+If the GitHub token audit stops the run, scripts/gh-account-setup.bash --setup-all asks
+each account for everything it lacks in one authorisation; then run this again. Restart
+any ccy sessions, and run acceptance.bash."
 
 plan_mode deploy
 plan_parse_common_flags "$@"
@@ -75,13 +82,11 @@ plan_deploy_leg "play-claude-yolo.yml" \
 plan_deploy_leg "play-git-configure-and-tools.yml" \
     plan_ansible_playbook playbooks/imports/play-git-configure-and-tools.yml
 
+plan_deploy_leg "play-github-cli-multi.yml" \
+    plan_ansible_playbook playbooks/imports/play-github-cli-multi.yml
+
 printf '\n==> NEXT:\n'
-printf '    1. If the signing key is new, register it with GitHub (docs/configuration.md\n'
-printf '       "Commit Signing"), on the account whose verified email your commits use:\n'
-printf '       gh auth switch --user <that account>\n'
-printf '       gh auth refresh --scopes admin:ssh_signing_key\n'
-printf '       gh ssh-key add ~/.ssh/id_ed25519_git_signing.pub --type signing\n'
-printf '    2. Restart ccy sessions; a running one keeps its old, unsigned gitconfig.\n'
-printf '    3. ./acceptance.bash\n\n'
+printf '    1. Restart ccy sessions; a running one keeps the gitconfig it started with.\n'
+printf '    2. ./acceptance.bash\n\n'
 
 plan_finish
