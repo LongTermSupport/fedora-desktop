@@ -49,6 +49,10 @@ PLAN_ROOT="${scriptDir}"
 # run as one unit through its own shebang, which goes through run.bash, exactly as
 # `./playbooks/imports/<play>.yml` does by hand.
 PLANS=(
+    # Plan 00135: enables the ccy session restore unit, once localhost.yml declares
+    # ccy_restore_sessions: true, so the sessions running now come back after the
+    # reboot-with-update that follows (Tasks 5.2 and 5.3).
+    "playbooks/imports/play-claude-yolo.yml"
 )
 
 LIST_ONLY=0
