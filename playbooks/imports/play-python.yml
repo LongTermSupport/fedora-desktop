@@ -74,8 +74,8 @@
 
     # Probed rather than reinstalled unconditionally: community.general.pipx
     # treats an already-present app as satisfied regardless of its version, so a
-    # pin change would otherwise never be applied — and `force: true` alone would
-    # reinstall on every run and report changed for ever.
+    # pin change would otherwise never be applied, and reinstalling every run
+    # would report changed for ever.
     - name: Check installed QA tool versions
       ansible.builtin.command:
         cmd: "{{ item.cmd }} --version"
@@ -88,12 +88,25 @@
       loop_control:
         label: "{{ item.cmd }}"
 
+    # A tool that is not at its pin is removed and then installed fresh. pipx
+    # cannot replace a venv in place under its uv backend: `install --force`
+    # re-runs `uv venv` on the existing directory, which uv refuses ("A virtual
+    # environment already exists"). Removal ignores the pin, and removing a tool
+    # that is not installed is a no-op.
+    - name: Remove QA tools that are not at their pinned versions
+      community.general.pipx:
+        name: "{{ item.item.pkg }}"
+        state: absent
+      when: item.rc != 0 or item.item.version not in item.stdout
+      loop: "{{ qa_tool_installed.results }}"
+      loop_control:
+        label: "{{ item.item.cmd }}"
+
     - name: Install QA tools at their pinned versions
       community.general.pipx:
         name: "{{ item.item.pkg }}"
         source: "{{ item.item.pkg }}=={{ item.item.version }}"
         state: install
-        force: true
       when: item.rc != 0 or item.item.version not in item.stdout
       loop: "{{ qa_tool_installed.results }}"
       loop_control:
@@ -101,7 +114,8 @@
 
     # shutdown-with-update runs `pipx upgrade-all`, which upgrades every venv
     # that is not pinned and so moves these off .qa-versions. A pinned venv is
-    # skipped. Runs after the install above, because a reinstall drops the pin.
+    # skipped. Runs after the removal and install above, because a venv made
+    # afresh is unpinned.
     - name: Pin QA tools so pipx upgrade-all leaves them at .qa-versions
       community.general.pipx:
         name: "{{ item }}"

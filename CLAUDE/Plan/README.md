@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00142-qa-tool-pin-does-not-converge-under-pipx-uv](00142-qa-tool-pin-does-not-converge-under-pipx-uv/) - `play-python.yml` could not move a QA tool at the wrong version onto its pin: under pipx's uv backend `install --force` re-runs `uv venv` on the existing venv, which uv refuses. An off-pin tool is now removed, installed fresh and re-pinned. Reproduced against a real pipx 1.15.0 and uv, and gated in `qa-all.bash`. Waiting on a host run.
+
 - [00141-run-bash-changed-plays](00141-run-bash-changed-plays/) - `./run.bash --changed` runs, after one confirmation, every play whose inputs changed since it last ran here. The inputs come from Plan 00137's path-to-play mapper, not just each play's own file, so a change to a ccy lib or a template counts. A play whose references cannot be followed is named, never skipped silently.
 
 - [00139-commit-signing-everywhere](00139-commit-signing-everywhere/) - Every commit and tag made on the owner's machine is signed by default, on the host, in `cc` sessions and inside ccy, with one passphrase-less SSH signing key per machine, so GitHub marks them Verified and consumers can require it. The owner overruled Plan 00137's "agents must not sign" design; the self-update gate trusts the machine key. Addresses #4.
