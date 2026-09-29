@@ -208,6 +208,9 @@ out.
   - [x] ✅ Gate, block, docs, and `scripts/test-git-signing-declared.bash` (gate
     `git-signing-declared`), red against the old play and green after. Branch
     `fix-headless-none-commit-signing`, opened as a PR against F44
+  - [x] ✅ QA review: FIX-BEFORE-MERGE, nothing blocking, three to fix, three nits
+    ([report](subagent-reports/260929-qa-reviewer-headless-none-opus-5-5.md)). All three
+    fixed, two nits handled, the third answered in the journal
   - [ ] ⬜ **Owner**: review and merge; decide whether a box with no identity should sign
     at all (the PR's question)
   - [ ] ⬜ A headless `none` provisioning passes `playbook-main.yml` (the

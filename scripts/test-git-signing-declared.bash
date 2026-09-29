@@ -194,6 +194,8 @@ import json
 import sys
 
 GATE = "git_signing_declared"
+# A signing task is one naming these. A new task that hard-codes the key's path or sets
+# user.signingkey directly is not seen here: part 3 only catches it if it breaks a none run.
 SIGNING = ("git_signing_key_path", "git_signing_public_key", "gpgsign")
 # The retire block compares the two paths so it cannot delete the key in use. It reads no
 # file and configures nothing, so it is the one reference allowed outside the gate.

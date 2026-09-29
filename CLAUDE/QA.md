@@ -16,14 +16,14 @@
 
 ## What qa-all.bash Runs
 
-`qa-all.bash` runs **forty-four** gates. Seven merge their JSON into
-`/tmp/qa-results.json` through a positional `.[0]..[6]` merge; the other thirty-seven
-run separately (see below). Those seven emit **eight** named verdict lines — `qa-bash.bash`
-prints `bash` and `shellcheck` — so a run shows 45 stage names for 44 gates.
+`qa-all.bash` runs every gate in the two tables below. Seven merge their JSON into
+`/tmp/qa-results.json` through a positional `.[0]..[6]` merge; the rest run separately
+(see below). Those seven emit **eight** named verdict lines — `qa-bash.bash` prints `bash`
+and `shellcheck` — so a run shows one more stage name than it has gates.
 
-Counted from a run's own verdict lines rather than kept by hand, because a number in a
-document is the first thing to go stale: `./scripts/qa-all.bash` and count the distinct
-`name:` prefixes on the `✓`/`✗`/`⚠` lines. A missing **required** tool makes a stage (and the whole
+This page states no gate count, because a number in a document is the first thing to go
+stale. For the count, run `./scripts/qa-all.bash` and count the distinct `name:` prefixes
+on the `✓`/`✗`/`⚠` lines. A missing **required** tool makes a stage (and the whole
 run) exit `2`; a real analyser crash (e.g. ruff/shellcheck exit ≥ 2) is a hard failure,
 never silently treated as "0 issues".
 
@@ -46,7 +46,7 @@ fresher hand-written list.
 | `qa-docs.bash`           | Link targets exist; every `#anchor` matches a real heading; every play imported by `playbook-main.yml` is named in both `docs/playbooks.md` and `docs/architecture.md`; every `CLAUDE/*.md` has an index row (Plan 00070)                                                                                                                                                                                                                                                               | Core docs only — `docs/`, `CLAUDE/*.md`, `README.md`, `*/CLAUDE.md`, `.claude/rules/`. **Not** `CLAUDE/Plan/**`                                       |
 | `qa-toolchain.bash`      | Runs FIRST, as a hard gate: every tool a gate runs (ruff, semgrep, shellcheck) is installed at the version `/.qa-versions` pins. A mismatch or absence fails this gate and lets the rest run — never exit 2, which would abort the suite (see "The QA Toolchain Is Pinned")                                                                                                                                                                                                             | The machine, not any file                                                                                                                             |
 
-Thirty-seven further gates run inside `qa-all.bash` as **hard, non-structural** checks —
+The further gates below run inside `qa-all.bash` as **hard, non-structural** checks —
 they are deliberately not jq-merged stages, so they cannot disturb the positional
 `.[0]..[6]` JSON merge. Any one of them fails the whole run immediately:
 
@@ -267,16 +267,16 @@ prose — the stage line prints the live one on every run.)
 ### The stage-line readers are shared, and tested against the gates they read
 
 `scripts/lib/qa-helper-summary.bash` holds all three, and between them they produce the
-summary in **every** stage line `qa-all.bash` composes — 29 of them. `qa_pass_line` prints
+summary in **every** stage line `qa-all.bash` composes. `qa_pass_line` prints
 it, and prints nothing when that gate has already failed, so a gate cannot report both
 outcomes. Only `deployed-drift` builds its own line, because there the line IS the gate's
 output rather than a summary of it.
 
-| Function                  | Used by                              | Degrades to                       |
-| ------------------------- | ------------------------------------ | --------------------------------- |
-| `helper_counts_summary()` | `helper-tests`                       | **nothing — it fails the gate**   |
-| `qa_gate_case_count()`    | 22 gates that print `passed: <n>`    | the word `passed`, never a number |
-| `qa_gate_detail()`        | 6 gates whose summary is not a count | the literal `summary unreadable`  |
+| Function                  | Used by                                | Degrades to                       |
+| ------------------------- | -------------------------------------- | --------------------------------- |
+| `helper_counts_summary()` | `helper-tests`                         | **nothing — it fails the gate**   |
+| `qa_gate_case_count()`    | the gates that print `passed: <n>`     | the word `passed`, never a number |
+| `qa_gate_detail()`        | the gates whose summary is not a count | the literal `summary unreadable`  |
 
 (The `()` is load-bearing, not decoration: `check_qa_gate_inventory` reads any row whose
 first cell is a backticked bare name as a **gate this document claims**, so writing them

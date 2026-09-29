@@ -37,7 +37,7 @@
         mode: "0755"
 
     # =========================================================================
-    # Commit signing, on by default (Plan 00139)
+    # Commit signing, on by default (Plan 00139), off with no GitHub identity (see below)
     # =========================================================================
     # Every commit and tag made on this machine is signed, by a person, by a cc agent on
     # the host, and inside ccy. What a signature proves is that the commit came from the
