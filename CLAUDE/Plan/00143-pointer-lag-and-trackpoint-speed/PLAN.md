@@ -1,4 +1,4 @@
-# Plan 00142: pointer lag and trackpoint speed
+# Plan 00143: pointer lag and trackpoint speed
 
 **Status**: In Progress
 **Created**: 2026-09-29
@@ -124,6 +124,6 @@ None yet. Task 2.1 records the first one here.
 
 <!-- Curated milestones + delivery commit hashes only (git is the SSoT for
      "when" — do not add dates). The blow-by-blow activity log lives in
-     JOURNAL/00142-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
+     JOURNAL/00143-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
 - Plan opened with the live-episode findings

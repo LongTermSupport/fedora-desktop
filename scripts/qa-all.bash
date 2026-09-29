@@ -421,6 +421,19 @@ fi
 signing_declared_summary=$(qa_gate_case_count "$signing_declared_out")
 qa_pass_line git-signing-declared "$signing_declared_summary"
 
+# A QA tool at the wrong version is removed, then installed, then pinned by play-python.yml
+# (Plan 00142): pipx cannot replace a venv in place under its uv backend, so `install --force`
+# onto an off-pin tool failed the play. The task order and the removal's selection, read
+# from the real play.
+qa_pin_out=""
+if ! qa_pin_out="$(bash "$SCRIPT_DIR/test-qa-tool-pin-converges.bash" 2>&1)"; then
+    qa_hard_gate_failed qa-tool-pin-converges \
+        "QA tool pin convergence tests failed" \
+        "$qa_pin_out"
+fi
+qa_pin_summary=$(qa_gate_case_count "$qa_pin_out")
+qa_pass_line qa-tool-pin-converges "$qa_pin_summary"
+
 # The browser session cap behind the three ccy browser commands (Plan 00140, CCY 3.69.0).
 # Every agent-browser session name is its own browser, and agents started a new one per
 # task, so the guard refuses to start another while one is open. A fake agent-browser
