@@ -205,8 +205,8 @@ block; the play does not remove them.
 
 ### Commit Signing
 
-On by default. Every commit and tag made on this machine is signed: yours, a `cc`
-agent's on the host, and a ccy container's. A signature says a commit came from you or
+On by default, except on a box with no GitHub identity (below). Every commit and tag made
+on this machine is signed: yours, a `cc` agent's on the host, and a ccy container's. A signature says a commit came from you or
 your machine. Your own agents are meant to be able to sign.
 
 The signing keys are your SSH login keys. git signs through the ssh-agent that holds a
@@ -263,6 +263,14 @@ agent (`--ssh-agent`) signs with the key git on the host picks for the project, 
 if that agent holds it. See [ccy.md](ccy.md).
 
 `git_signing_key` in host_vars points the default at a different key.
+
+A box with no GitHub identity does not sign. Headless provisioning with
+`RUN_BASH_GITHUB_ACCOUNTS=none` writes `github_accounts: {}` and generates no `~/.ssh/id`,
+so the play sets no signing config there. Naming a key in `git_signing_key` turns signing
+back on. Only that explicit empty map opts out: with `github_accounts` absent, the play
+still signs, and fails if the key is missing. So does a none box that later gains an
+account through `scripts/gh-account-setup.bash --add`, which creates no `~/.ssh/id`:
+generate one (or name another key in `git_signing_key`) before the next run.
 
 A self-updating server trusts `~/.ssh/id`: give its `.pub` line to
 `self_update_signing_public_key` (below).

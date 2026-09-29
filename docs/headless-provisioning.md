@@ -55,9 +55,11 @@ Force it **off** with `--interactive` (useful for piped-stdin smoke tests).
 - **GitHub: a single account + scoped token, or `none`.** Set `RUN_BASH_GITHUB_ACCOUNTS`
   to a single GitHub username (then also provide a scoped token and SSH passphrase, see
   below) **or** to `none` to provision with no GitHub identity at all — an HTTPS-only
-  clone, no token or SSH key needed. `none` is incompatible with `RUN_BASH_CONFIG_SOURCE`
-  (non-`none`) and `RUN_BASH_RESTORE_PROJECTS=1`, since both need a GitHub identity to
-  pull from. Unset fails fast either way.
+  clone, no token or SSH key needed, and no commit signing, since there is no login key
+  to sign with ([configuration.md](configuration.md#commit-signing)). `none` is
+  incompatible with `RUN_BASH_CONFIG_SOURCE` (non-`none`) and
+  `RUN_BASH_RESTORE_PROJECTS=1`, since both need a GitHub identity to pull from. Unset
+  fails fast either way.
 
 Any missing or unsafe input aborts immediately with a **big, specific error** naming
 the exact fix — a headless run never blocks waiting on a prompt that can't be answered.

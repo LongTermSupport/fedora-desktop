@@ -37,7 +37,7 @@
         mode: "0755"
 
     # =========================================================================
-    # Commit signing, on by default (Plan 00139)
+    # Commit signing, on by default (Plan 00139), off with no GitHub identity (see below)
     # =========================================================================
     # Every commit and tag made on this machine is signed, by a person, by a cc agent on
     # the host, and inside ccy. What a signature proves is that the commit came from the
@@ -49,85 +49,90 @@
     # A self-updating server trusts this key through self_update_signing_public_key.
     # play-github-cli-multi.yml registers it on GitHub, and signs each account's
     # repositories with that account's login key: docs/configuration.md "Commit Signing".
-    - name: Check the Signing Key and Its Public Half
-      ansible.builtin.stat:
-        path: "{{ item }}"
-      loop:
-        - "{{ git_signing_key_path }}"
-        - "{{ git_signing_key_path }}.pub"
-      register: git_signing_key_stat
+    # A headless box with `github_accounts: {}` and no git_signing_key has no login key
+    # and does not sign: git_signing_declared in vars/git-signing.yml.
+    - name: Sign With This Machine's Key Where It Declares One
+      when: git_signing_declared
+      block:
+        - name: Check the Signing Key and Its Public Half
+          ansible.builtin.stat:
+            path: "{{ item }}"
+          loop:
+            - "{{ git_signing_key_path }}"
+            - "{{ git_signing_key_path }}.pub"
+          register: git_signing_key_stat
 
-    - name: Assert the Signing Key Is a Private File With Its Public Half Beside It
-      ansible.builtin.assert:
-        that:
-          - git_signing_key_stat.results[0].stat.isreg | default(false)
-          - git_signing_key_stat.results[0].stat.mode == '0600'
-          - git_signing_key_stat.results[1].stat.isreg | default(false)
-        fail_msg: >-
-          {{ git_signing_key_path }} must be a regular file at mode 0600, with
-          {{ git_signing_key_path }}.pub beside it. run.bash generates ~/.ssh/id; if
-          git_signing_key in host_vars names another key, point it at one that exists.
+        - name: Assert the Signing Key Is a Private File With Its Public Half Beside It
+          ansible.builtin.assert:
+            that:
+              - git_signing_key_stat.results[0].stat.isreg | default(false)
+              - git_signing_key_stat.results[0].stat.mode == '0600'
+              - git_signing_key_stat.results[1].stat.isreg | default(false)
+            fail_msg: >-
+              {{ git_signing_key_path }} must be a regular file at mode 0600, with
+              {{ git_signing_key_path }}.pub beside it. run.bash generates ~/.ssh/id; if
+              git_signing_key in host_vars names another key, point it at one that exists.
 
-    # Loading the key with an empty passphrase succeeds for an unencrypted key and fails
-    # with "incorrect passphrase" for an encrypted one, which is what run.bash makes.
-    # Either is a private key. An empty, truncated or foreign file fails with anything
-    # else.
-    - name: Probe Whether the Signing Key Is a Private Key
-      ansible.builtin.command:
-        argv:
-          - ssh-keygen
-          - -y
-          - -P
-          - ""
-          - -f
-          - "{{ git_signing_key_path }}"
-      register: git_signing_key_unlocked
-      changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe-then-fail — the verdict is the next task
-      no_log: true
+        # Loading the key with an empty passphrase succeeds for an unencrypted key and
+        # fails with "incorrect passphrase" for an encrypted one, which is what run.bash
+        # makes. Either is a private key. An empty, truncated or foreign file fails with
+        # anything else.
+        - name: Probe Whether the Signing Key Is a Private Key
+          ansible.builtin.command:
+            argv:
+              - ssh-keygen
+              - -y
+              - -P
+              - ""
+              - -f
+              - "{{ git_signing_key_path }}"
+          register: git_signing_key_unlocked
+          changed_when: false
+          failed_when: false  # FAIL-FAST-OK: probe-then-fail — the verdict is the next task
+          no_log: true
 
-    - name: Assert the Signing Key Is a Private Key ssh-keygen Can Read
-      ansible.builtin.assert:
-        that:
-          - >-
-            git_signing_key_unlocked.rc == 0
-            or 'incorrect passphrase' in git_signing_key_unlocked.stderr
-        fail_msg: >-
-          {{ git_signing_key_path }} is not a private key ssh-keygen can load (it said:
-          {{ git_signing_key_unlocked.stderr | trim }}). If git_signing_key in host_vars
-          names it, point that at a real key; ~/.ssh/id is the one run.bash generates.
+        - name: Assert the Signing Key Is a Private Key ssh-keygen Can Read
+          ansible.builtin.assert:
+            that:
+              - >-
+                git_signing_key_unlocked.rc == 0
+                or 'incorrect passphrase' in git_signing_key_unlocked.stderr
+            fail_msg: >-
+              {{ git_signing_key_path }} is not a private key ssh-keygen can load (it said:
+              {{ git_signing_key_unlocked.stderr | trim }}). If git_signing_key in host_vars
+              names it, point that at a real key; ~/.ssh/id is the one run.bash generates.
 
-    # Written to host_vars so run.bash's "Save local config to repo" keeps this machine's
-    # public key in the config repo with the rest of its configuration. It has its own
-    # name: self_update_signing_public_key is the key a SERVER trusts, and writing a
-    # machine's own key there would make a server trust its own commits.
-    - name: Read This Machine's Public Signing Key
-      ansible.builtin.slurp:
-        src: "{{ git_signing_key_path }}.pub"
-      register: git_signing_public_key_file
+        # Written to host_vars so run.bash's "Save local config to repo" keeps this
+        # machine's public key in the config repo with the rest of its configuration. It
+        # has its own name: self_update_signing_public_key is the key a SERVER trusts, and
+        # writing a machine's own key there would make a server trust its own commits.
+        - name: Read This Machine's Public Signing Key
+          ansible.builtin.slurp:
+            src: "{{ git_signing_key_path }}.pub"
+          register: git_signing_public_key_file
 
-    - name: Record the Public Signing Key in host_vars
-      ansible.builtin.blockinfile:
-        path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
-        marker: "# {mark} ANSIBLE MANAGED: Git Signing Public Key"
-        block: |
-          git_signing_public_key: "{{ git_signing_public_key_file.content | b64decode | trim }}"
-        create: false
+        - name: Record the Public Signing Key in host_vars
+          ansible.builtin.blockinfile:
+            path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
+            marker: "# {mark} ANSIBLE MANAGED: Git Signing Public Key"
+            block: |
+              git_signing_public_key: "{{ git_signing_public_key_file.content | b64decode | trim }}"
+            create: false
 
-    - name: Sign Every Commit and Tag With This Machine's Key
-      community.general.git_config:
-        scope: global
-        name: "{{ item.name }}"
-        value: "{{ item.value }}"
-      loop:
-        - name: gpg.format
-          value: ssh
-        - name: user.signingkey
-          value: "{{ git_signing_key_path }}"
-        - name: commit.gpgsign
-          value: "true"
-        - name: tag.gpgsign
-          value: "true"
+        - name: Sign Every Commit and Tag With This Machine's Key
+          community.general.git_config:
+            scope: global
+            name: "{{ item.name }}"
+            value: "{{ item.value }}"
+          loop:
+            - name: gpg.format
+              value: ssh
+            - name: user.signingkey
+              value: "{{ git_signing_key_path }}"
+            - name: commit.gpgsign
+              value: "true"
+            - name: tag.gpgsign
+              value: "true"
 
     # A host that ran the earlier opt-in signing wrote these to the XDG config. Git reads
     # it before ~/.gitconfig, so the keys set above override it, but alias.sign-deploy is

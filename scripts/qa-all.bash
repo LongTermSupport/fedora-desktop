@@ -407,6 +407,20 @@ fi
 git_signing_summary=$(qa_gate_case_count "$git_signing_out")
 qa_pass_line ccy-git-signing "$git_signing_summary"
 
+# Commit signing configured only where the machine declares an identity (Plan 00139 Task
+# 5.5): the gate in vars/git-signing.yml under each declared state, every signing task in
+# play-git-configure-and-tools.yml inside it, and that block run against a temp HOME. A
+# headless RUN_BASH_GITHUB_ACCOUNTS=none box has no login key, and asserting one failed
+# its whole provisioning run.
+signing_declared_out=""
+if ! signing_declared_out="$(bash "$SCRIPT_DIR/test-git-signing-declared.bash" 2>&1)"; then
+    qa_hard_gate_failed git-signing-declared \
+        "git signing gate tests failed" \
+        "$signing_declared_out"
+fi
+signing_declared_summary=$(qa_gate_case_count "$signing_declared_out")
+qa_pass_line git-signing-declared "$signing_declared_summary"
+
 # The browser session cap behind the three ccy browser commands (Plan 00140, CCY 3.69.0).
 # Every agent-browser session name is its own browser, and agents started a new one per
 # task, so the guard refuses to start another while one is open. A fake agent-browser
