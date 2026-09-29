@@ -6,6 +6,16 @@
 # login key, github_<alias>. git_signing_key in host_vars points it at a different key.
 git_signing_key_path: "{{ git_signing_key | default('/home/' + user_login + '/.ssh/id') }}"
 
+# Whether this machine signs, from what it declares, never from whether a key file exists.
+# Only `github_accounts: {}` with no git_signing_key opts out: that is the headless
+# RUN_BASH_GITHUB_ACCOUNTS=none box, for which run.bash generates no login key. Undeclared
+# accounts still sign, so a missing key fails loudly rather than leaving commits unsigned.
+# Derived, not a setting: host_vars cannot override a play's vars_files.
+git_signing_declared: >-
+  {{ git_signing_key is defined
+     or github_accounts is not defined
+     or github_accounts | length > 0 }}
+
 # The passphrase-free signing key this machine had before D5. play-github-cli-multi.yml
 # deletes it from GitHub and from disk, with each account's github_<alias>_signing.
 git_signing_retired_machine_key: "/home/{{ user_login }}/.ssh/id_ed25519_git_signing"

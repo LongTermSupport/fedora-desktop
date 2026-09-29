@@ -199,6 +199,19 @@ out.
 - [x] ✅ **HOST (owner, at a desk)**: `./CLAUDE/Plan/meta-deploy.bash`. Every leg passed
   (`failed=0`). Six old signing keys are deleted from GitHub, and their twelve files from
   `~/.ssh`. Acceptance: 14 of 14 (`_meta-deploy/20260925-142901`)
+- [ ] 🔄 **Task 5.5**: A box with no GitHub identity does not sign. Headless
+  `RUN_BASH_GITHUB_ACCOUNTS=none` (Plan 00082) generates no `~/.ssh/id` and writes
+  `github_accounts: {}`, and Task 5.1's unconditional key assert fails that whole
+  provisioning run. The signing tasks sit in one block gated on `git_signing_declared`
+  (`vars/git-signing.yml`): a declared identity or a declared `git_signing_key`, never
+  whether the key file exists. Undeclared `github_accounts` still signs and still asserts.
+  - [x] ✅ Gate, block, docs, and `scripts/test-git-signing-declared.bash` (gate
+    `git-signing-declared`), red against the old play and green after. Branch
+    `fix-headless-none-commit-signing`, opened as a PR against F44
+  - [ ] ⬜ **Owner**: review and merge; decide whether a box with no identity should sign
+    at all (the PR's question)
+  - [ ] ⬜ A headless `none` provisioning passes `playbook-main.yml` (the
+    `server-fast-provision` VM scenario provisions exactly this path)
 
 ## Success Criteria
 

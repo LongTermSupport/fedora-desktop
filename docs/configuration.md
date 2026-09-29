@@ -264,6 +264,12 @@ if that agent holds it. See [ccy.md](ccy.md).
 
 `git_signing_key` in host_vars points the default at a different key.
 
+A box with no GitHub identity does not sign. Headless provisioning with
+`RUN_BASH_GITHUB_ACCOUNTS=none` writes `github_accounts: {}` and generates no `~/.ssh/id`,
+so the play sets no signing config there. Naming a key in `git_signing_key` turns signing
+back on. Only that explicit empty map opts out: with `github_accounts` absent, the play
+still signs, and fails if the key is missing.
+
 A self-updating server trusts `~/.ssh/id`: give its `.pub` line to
 `self_update_signing_public_key` (below).
 
