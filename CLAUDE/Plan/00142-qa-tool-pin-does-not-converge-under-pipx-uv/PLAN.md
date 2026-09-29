@@ -50,7 +50,7 @@ pin task already runs after the install; a venv made afresh is unpinned, so it r
 - [x] ✅ **Task 1.2**: Remove off-pin tools before installing; drop `force: true`
 - [x] ✅ **Task 1.3**: `scripts/test-qa-tool-pin-converges.bash`, hard gate
   `qa-tool-pin-converges` in `qa-all.bash`; row in `CLAUDE/QA.md`
-- [ ] 🔄 **Task 1.4**: `./scripts/qa-all.bash`, the qa-reviewer, and a PR to `F44`
+- [x] ✅ **Task 1.4**: `./scripts/qa-all.bash`, the qa-reviewer, and a PR to `F44`
 - [ ] ⬜ **Task 1.5**: On a host with an off-pin QA tool, `./playbooks/imports/play-python.yml`
   converges it, and a second run reports no change for the QA-tool tasks
 
@@ -59,7 +59,7 @@ pin task already runs after the install; a venv made afresh is unpinned, so it r
 - [x] `reproduce-pipx-uv.bash`: the off-pin cases fail before the change and pass after it;
   every case's second run reports `changed=0`
 - [x] `test-qa-tool-pin-converges.bash` passes on the change and fails against `fadc1eca`
-- [ ] QA passes (`./scripts/qa-all.bash`)
+- [x] QA passes (`./scripts/qa-all.bash`)
 - [ ] A real host run converges an off-pin tool (Task 1.5)
 
 ## Delivery & Milestones
