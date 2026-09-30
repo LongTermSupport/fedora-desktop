@@ -12,7 +12,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 UNTRACKED_DIR="$REPO_ROOT/untracked/gnome-shell"
 
-GRESOURCE_FILE="/usr/lib64/gnome-shell/libshell-16.so"
+# The soname number changes between GNOME majors, so resolve it rather than pin it.
+shopt -s nullglob
+GRESOURCE_CANDIDATES=(/usr/lib64/gnome-shell/libshell-*.so)
+shopt -u nullglob
+if [ "${#GRESOURCE_CANDIDATES[@]}" -ne 1 ]; then
+    echo "ERROR: expected exactly one /usr/lib64/gnome-shell/libshell-*.so, found ${#GRESOURCE_CANDIDATES[@]}" >&2
+    exit 1
+fi
+GRESOURCE_FILE="${GRESOURCE_CANDIDATES[0]}"
 
 # Get precise GNOME Shell version
 get_version() {
@@ -84,11 +92,9 @@ main() {
         exit 0
     fi
 
-    # Clean up old versions before extracting new
-    cleanup_old_versions "$version"
-
-    # Extract current version
+    # Extract first: a failed extraction must not cost the previous version's copy.
     extract_js "$version"
+    cleanup_old_versions "$version"
 
     echo ""
     echo "Key files for extension development:"
