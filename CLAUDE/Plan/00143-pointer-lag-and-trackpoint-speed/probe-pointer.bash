@@ -333,7 +333,9 @@ summarise_events() {
     awk '
         $3 == "POINTER_MOTION" {
             for (i = 4; i <= NF; i++) if ($i ~ /^\+[0-9.]+s$/) { t = substr($i, 2) + 0; break }
+            # libinput marks a device change with a leading "-"; it is the same device.
             dev = $2
+            sub(/^-/, "", dev)
             n[dev]++
             if (dev in last) {
                 g = (t - last[dev]) * 1000
