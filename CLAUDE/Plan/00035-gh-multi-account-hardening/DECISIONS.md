@@ -106,8 +106,8 @@ preference: "gh working first, then SSH keys become easy".
 **Context**: Adding a new GitHub account required the user to know three
 separate manual steps in the right order: (1) run `gh auth login` (which shows
 a confusing SSH key upload prompt), (2) edit `localhost.yml`, (3) run the
-playbook (which pauses for manual SSH key paste). The user wants a single
-command: add the account to config, run one script, done.
+playbook (which pauses for manual SSH key paste). This plan's design goal is a
+single command: add the account to config, run one script, done.
 
 **Options**:
 

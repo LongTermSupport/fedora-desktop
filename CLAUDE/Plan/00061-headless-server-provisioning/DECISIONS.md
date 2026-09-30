@@ -78,14 +78,15 @@ comment [Fable]; (B) native play-level `tags:` + `--skip-tags` [Sonnet];
 `qa-all.bash` surgery. Graft Fable's file-split rule and dual-command discipline.
 **Date**: 2026-07-20. *Selection layer later superseded by Decisions 4 and 5.*
 
-## Decision 2: Ambiguous classifications resolved by the owner
+## Decision 2: Ambiguous classifications
 
-- `play-rpm-fusion` → **general**: it only enables RPM Fusion repositories,
-  foundational plumbing many later plays depend on; omitting it on a server risks
-  breaking downstream installs. (Fable's read; overrides Sonnet's gnome.)
+- `play-rpm-fusion` → **general**, by owner ruling (`JOURNAL/00061-Journal-26-07-20.md:79`):
+  it only enables RPM Fusion repositories, foundational plumbing many later plays
+  depend on; omitting it on a server risks breaking downstream installs. (Fable's
+  read; overrides Sonnet's gnome.)
 - `play-ms-fonts` → gnome, `play-terminal-emulators` → gnome,
-  `play-systemd-user-tweaks` → general, `play-python` → general — settled in
-  the Phase 2 exhaustive sweep (`PROPOSAL.md` §1).
+  `play-systemd-user-tweaks` → general, `play-python` → general — settled by this
+  plan's Phase 2 exhaustive sweep (`PROPOSAL.md` §1), not by the owner.
 
 **Date**: 2026-07-20
 
@@ -153,7 +154,7 @@ uniform per-play check, and the standalone-typo gap is closed by the guard's own
 assert.
 **Date**: 2026-07-20
 
-## Open owner calls made during implementation (owner may revisit)
+## Owner-level calls made by the implementing agent, pending owner review
 
 - `play-virtualbox-windows.yml` split: engine install scoped **general**
   (VirtualBox is headless-capable via `VBoxHeadless`/`VBoxManage`); the split-off

@@ -62,7 +62,9 @@ Each of those is a task below.
 
 The options and trade-offs for each are in
 [RESEARCH-existing-pieces.md § Decisions](RESEARCH-existing-pieces.md#decisions-the-owner-must-make).
-D1–D4 are the owner's choices, made 2026-09-23.
+D1–D4 are recorded as the owner's picks from those options, 2026-09-23. No verbatim
+record of the answers is kept; the only contemporaneous trace is commit `921e6642`'s
+subject.
 
 - **D1 — restart: reboot through Plan 00135.** Pull, run the plays, warn with `ccy-sessions notify going-down`, then reboot. The boot-time restore brings the sessions back. This
   keeps one restore path instead of two, and needs no in-place stop, whose kill path is
@@ -75,16 +77,17 @@ D1–D4 are the owner's choices, made 2026-09-23.
   commit only if it is signed by the pinned key, and that signature vouches for the whole
   range from the last deployed commit to it. Unsigned commits above it wait for the next
   signed one. On the server an `allowedSignersFile` holds only that key.
-  **Amended by the owner (Plan 00139 D4):** this decision also said agents must never hold
-  the key, so every commit could not be signed. The owner overruled that. The aim is
-  provenance, a commit from the owner or the owner's machine, and the owner's own agents
+  **Amended (Plan 00139 D4):** the first version of this decision added a premise of this
+  plan's own, that agents must never hold the key, so every commit could not be signed.
+  The owner rejected that premise (00139 `JOURNAL/00139-Journal-26-09-24.md:41-43`). The
+  aim is provenance, a commit from the owner or the owner's machine, and the owner's own agents
   may sign. Plan 00139 signs every commit on the machine with its login key through the
   ssh-agent (its D5), and the pinned key is the one that signs this repository's checkout.
   `git sign-deploy` is gone.
 - **D4 — checkout: a deploy-only clone**, never mounted into a ccy container, updated only
   by the timer.
-- **D5 — privilege: a root-owned sbin entry point, with scoped sudo.** The owner's
-  pattern: `/usr/local/sbin/fedora-desktop-self-update` is owned by root and not writable
+- **D5 — privilege: a root-owned sbin entry point, with scoped sudo.** Recorded as
+  the owner's pattern (no verbatim record): `/usr/local/sbin/fedora-desktop-self-update` is owned by root and not writable
   (or readable) by the user. The timer is a system unit, so it runs the script as root
   directly. A sudoers drop-in lets the owner run that one script manually without a
   password, and nothing else. The limit is that Ansible's `become` cannot be scoped: it
@@ -127,16 +130,17 @@ D1–D4 are the owner's choices, made 2026-09-23.
   asks for it on an interactive run. No webhook means journal and report only. There is
   no GitHub-issue sink.
 - **D9 — cadence: nightly** (around 03:30, `RandomizedDelaySec` up to 30 minutes,
-  `Persistent`). There is no "someone is watching" check: the owner judged it not worth
-  including.
+  `Persistent`). There is no "someone is watching" check; that is recorded as the owner's
+  judgement, with no verbatim record.
 
 ## Tasks
 
 ### Phase 0: Decisions
 
 - [x] ✅ **Task 0.1**: Record D1–D4 as Technical Decisions above.
-- [x] ✅ **Task 0.2**: Settle D5–D9 and record them. The owner answered D5, D6, D8 and D9;
-  D7 is the stated default.
+- [x] ✅ **Task 0.2**: Settle D5–D9 and record them. D5, D6, D8 and D9 are
+  recorded as the owner's answers; only D8's sink has the owner's words
+  (`JOURNAL/00137-Journal-26-09-24.md:35-38`). D7 is the stated default.
 - [x] ✅ **Task 0.4**: Owner picks the alert sink(s) for D8. Chose a Slack webhook,
   optional per install, supplied as IaC or asked for by the play (recorded in D8).
 - [x] ✅ **Task 0.3**: Signing IaC: an SSH signing key for the owner on the desktop, git

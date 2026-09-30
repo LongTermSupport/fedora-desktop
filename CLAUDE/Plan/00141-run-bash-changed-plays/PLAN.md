@@ -77,8 +77,9 @@ and the working tree, and asks whether any of them is one of that play's inputs.
 
 ### Phase 4: `--rerun` and the one-row panel
 
-The owner's call: a per-play listing in the panel drop-down is bloated and almost never
-clicked. Instead one row opens a menu of the plays, where a person picks.
+Design choice: one row opens a menu of the plays, where a person picks, instead of a
+per-play listing in the panel drop-down, which is bloated and almost never clicked. No
+record of an owner decision on it is kept.
 
 - [x] ✅ **Task 4.1**: `changed_plays.py --all` prints every play run here as
   `PLAY <state> <play>` (states `stale`, `failed`, `unresolved`, `current`), from the same

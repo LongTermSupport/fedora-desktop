@@ -5,6 +5,29 @@
 **Owner**: joseph
 **Priority**: High
 
+> **Attribution corrections.** This plan is archived and its text stays as written. These
+> lines credit the owner with more than the record shows:
+>
+> - `DECISIONS.md:30-32` — the threat model is the plan's reading of the runner design it
+>   was given (`JOURNAL/00068-Journal-26-07-31.md:869-873`). No owner statement of it is
+>   recorded here.
+> - `DECISIONS.md:113` and `PLAN_archive.md:109` — the owner's words are a question: *"maybe
+>   ccy can opt to be token first, specially in CI mode?"* (`JOURNAL/00068-Journal-26-08-01.md:101`).
+>   "Opt-in and CI-default" is this plan's proposed shape.
+> - `DECISIONS.md:127-129` and `PLAN.md:77` — the owner raised the token exposure and called
+>   it *"a global weakness not ci specific"* (`26-08-01.md:101-102`). Recording it as
+>   accepted was this plan's own step (`26-08-01.md:121-122`); no owner acceptance is
+>   recorded. Whether to accept it or require a dedicated CI token is undecided — open.
+> - `DECISIONS.md:216-227` — the first two bullets match the owner's reason as the journal
+>   paraphrases it (`26-08-01.md:53-55`, no quote). The third bullet (660 denied CONNECTs,
+>   212 refusals) is this plan's measurement, not the owner's reason.
+> - `reports/mcp-and-egress.md:54` — the owner's words are *"it needs either adhoc or full
+>   blown customisation"* (`26-07-30.md:272-275`). "Both routes" is the plan's reading of
+>   that steer (`26-07-30.md:306`), not a request for both.
+> - `PLAN_archive.md:20` — "Stated by the owner" has no record in this plan's journals. The
+>   architecture is owned by the consuming runner design; `DECISIONS.md:15` states it
+>   without the attribution.
+
 > This is the lean plan. The full pre-slimming prose, kept verbatim, is in
 > [PLAN_archive.md](PLAN_archive.md). Durable decisions, requirements, evidence and the risk
 > table are in [DECISIONS.md](DECISIONS.md). Dated narrative is in [JOURNAL/](JOURNAL/).

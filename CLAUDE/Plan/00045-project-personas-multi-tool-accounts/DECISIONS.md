@@ -126,7 +126,7 @@ the user's need *"we will need to have something that explicitly exports vars eg
 the bash functions"* and matches what `gh-<alias>` does conceptually. Subject to
 Phase 1 confirming wrangler has no undocumented per-config-dir mode.
 
-## Decision 4: Secret storage — GNOME Keyring via `secret-tool`
+## Decision 4: Secret storage — GNOME Keyring via `secret-tool` (recommended, undecided)
 
 Options considered:
 
@@ -142,7 +142,8 @@ Options considered:
    `github_ssh_passphrase`, but `vault-pass.secret` sits on disk and decrypting
    at bash-function call time would spawn `ansible-vault` per call.
 
-Decided: Option 2. Fast per-call lookup, no unlock prompt, encrypted at rest,
+Recommended by this plan, pending the Phase 1 decision gate (the owner asked for a
+proposal; no choice by the owner is recorded): Option 2. Fast per-call lookup, no unlock prompt, encrypted at rest,
 free per-tool/per-persona attribute scoping via `secret-tool` key-value
 attributes. Keyring attribute scheme:
 `persona=<alias> platform=<platform> attr=<attr-name>`.
