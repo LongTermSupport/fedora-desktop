@@ -142,6 +142,12 @@ access tokens → Tokens (classic)) carrying every scope listed in
 covers everything `run.bash` and the plays do with the token, uploading your SSH keys
 included.
 
+It must be a classic token because the scope check reads the classic OAuth scopes
+GitHub reports for a token (`helpers/github_scopes`); GitHub reports no such scopes for a
+fine-grained token, so it cannot pass. This puts a full-scope token for that account on the server. A box
+that only needs to pull this repo does not need one: set `RUN_BASH_GITHUB_ACCOUNTS=none`
+instead.
+
 The token must be **fully scoped up front** — headless cannot run the interactive
 scope-refresh flow. An under-scoped token fails loud, naming every missing scope at once.
 
