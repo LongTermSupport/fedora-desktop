@@ -68,13 +68,32 @@ extract_js() {
     echo "Extracting GNOME Shell $version JS source..."
     mkdir -p "$extract_dir"
 
+    # Capture the list first: inside a process substitution a failing `gresource list`
+    # would be invisible and the loop would simply see no input.
+    local listing
+    listing=$(gresource list "$GRESOURCE_FILE")
+    local js_resources
+    js_resources=$(grep '\.js$' <<< "$listing") || {
+        echo "ERROR: no .js resources in $GRESOURCE_FILE" >&2
+        exit 1
+    }
+
     local count=0
     while IFS= read -r resource; do
         local dest_path="${extract_dir}${resource}"
         mkdir -p "$(dirname "$dest_path")"
         gresource extract "$GRESOURCE_FILE" "$resource" > "$dest_path"
         count=$((count + 1))
-    done < <(gresource list "$GRESOURCE_FILE" | grep '\.js$')
+    done <<< "$js_resources"
+
+    if [ "$count" -eq 0 ]; then
+        echo "ERROR: extracted 0 JS files from $GRESOURCE_FILE" >&2
+        exit 1
+    fi
+    if [ ! -f "$extract_dir/org/gnome/shell/ui/main.js" ]; then
+        echo "ERROR: main.js missing from the extract in $extract_dir" >&2
+        exit 1
+    fi
 
     echo "Extracted $count JS files to: $extract_dir"
 }
