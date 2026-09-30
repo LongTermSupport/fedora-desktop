@@ -3,7 +3,8 @@
 #
 # Fact-finding only: appends to the report file given as $2 and renders no verdict
 # (PlanScriptStandards R9). READ-ONLY: changes no setting, service or file outside the report
-# and the run directory.
+# and the run directory. The one transient exception is capture's private kernel tracing
+# instance, which exists only for the capture and is removed however the script ends.
 #
 # Normally invoked as a leg of triage.bash. Runnable standalone:
 #   ./probe-pointer.bash snapshot <report-file>
@@ -11,8 +12,9 @@
 #
 # capture records libinput events for the POINTER devices only (touchpad, its mouse node and
 # the TrackPoint). The keyboard is never opened, so no keystroke can reach the capture file.
-# It needs root to read /dev/input; the sudo timestamp must already be primed (triage.bash
-# does that before its log opens), so this script only ever calls `sudo -n`.
+# It needs root to read /dev/input and the kernel tracing filesystem; the sudo timestamp must
+# already be primed (triage.bash does that before its log opens), so this script only ever
+# calls `sudo -n`.
 #
 # EXIT CODES:
 #   0  every probe reached a definite answer
@@ -353,8 +355,172 @@ summarise_events() {
         }' "$1"
 }
 
+# ── background recorders and their teardown ──────────────────────────────────────────────
+# A Ctrl-C at the terminal reaches none of capture's recorders on its own: a non-interactive
+# bash starts every background job with SIGINT and SIGQUIT ignored, `timeout` moves itself
+# into its own process group, and sudo runs its command on a separate pty. Left alone they
+# outlive the run, and because they inherited the run log's pipe as stderr, triage.bash's
+# log drain then waits on them for the rest of the capture, so the run appears to ignore the
+# Ctrl-C. They are therefore stopped here, explicitly, however this script ends.
+#
+# This script opens no run log, so the library's trap and plan_on_cleanup are not armed in
+# this process (PlanScriptStandards R4 concerns scripts that do); it owns its traps instead.
+BG_STOP_PIDS=() # producers, sent SIGTERM on teardown
+BG_WAIT_PIDS=() # every background job, reaped on teardown (readers end on EOF)
+BG_TRACE_PIDS=() # the display trace's reader and aggregator, reaped before its instance goes
+TRACE_INSTANCE=""
+FIFOS=()
+
+stop_background() {
+    local pid rc ok=0 f
+    for pid in "${BG_STOP_PIDS[@]+"${BG_STOP_PIDS[@]}"}"; do
+        # Fails only for a job already reaped by capture's own wait, which is then finished.
+        if ! kill -TERM "${pid}" 2>/dev/null; then
+            printf '[teardown] background job %s had already ended\n' "${pid}" >&2
+        fi
+    done
+    for pid in "${BG_WAIT_PIDS[@]+"${BG_WAIT_PIDS[@]}"}"; do
+        if wait "${pid}"; then rc=0; else rc=$?; fi
+        printf '[teardown] background job %s ended (rc=%s)\n' "${pid}" "${rc}" >&2
+    done
+    BG_STOP_PIDS=()
+    BG_WAIT_PIDS=()
+    # Checked, not assumed: set-up records the instance before creating it, so a set-up that
+    # failed part-way is still torn down.
+    if [[ -n "${TRACE_INSTANCE}" ]] && sudo -n test -d "${TRACE_INSTANCE}"; then
+        if sudo -n rmdir "${TRACE_INSTANCE}"; then
+            TRACE_INSTANCE=""
+        else
+            printf '[TEARDOWN FAILED] kernel tracing instance %s is still present\n' "${TRACE_INSTANCE}" >&2
+            ok=1
+        fi
+    fi
+    for f in "${FIFOS[@]+"${FIFOS[@]}"}"; do rm -f "${f}"; done
+    FIFOS=()
+    return "${ok}"
+}
+
+# On a signal: note it in the report, tear down, then re-raise it with the default
+# disposition, so triage.bash sees this leg die of the signal and runs its own handler instead
+# of carrying on to the next leg. A signal usually lands inside sample_rates, whose output is
+# redirected into the report, so teardown's messages go to the stderr saved here instead.
+arm_teardown() {
+    exec {TEARDOWN_FD}>&2
+    trap 'stop_background 2>&"${TEARDOWN_FD}"' EXIT
+    trap 'trap - EXIT INT; out "**CAPTURE INTERRUPTED** (SIGINT): recorders stopped, nothing below was analysed"; if ! stop_background 2>&"${TEARDOWN_FD}"; then echo "[WARN] teardown incomplete" >&"${TEARDOWN_FD}"; fi; kill -INT "$$"' INT
+    trap 'trap - EXIT TERM; out "**CAPTURE INTERRUPTED** (SIGTERM): recorders stopped, nothing below was analysed"; if ! stop_background 2>&"${TEARDOWN_FD}"; then echo "[WARN] teardown incomplete" >&"${TEARDOWN_FD}"; fi; kill -TERM "$$"' TERM
+    trap 'trap - EXIT HUP; out "**CAPTURE INTERRUPTED** (SIGHUP): recorders stopped, nothing below was analysed"; if ! stop_background 2>&"${TEARDOWN_FD}"; then echo "[WARN] teardown incomplete" >&"${TEARDOWN_FD}"; fi; kill -HUP "$$"' HUP
+}
+
+# start_display_trace <seconds> <out-file> — record, per second, what the display engine did
+# with the cursor: pointer-device interrupts, hardware-cursor plane moves, primary-plane
+# updates, from kernel tracepoints in a private tracing instance. This is the
+# layer libinput cannot see: whether the compositor turned input into cursor movement on the
+# panel's pipe. Returns non-zero when the instance cannot be set up.
+start_display_trace() {
+    local secs="$1" out="$2" tpIrq inst fifo wall up
+    tpIrq="$(awk '$0 ~ /ELAN/ { sub(":", "", $1); print $1; exit }' /proc/interrupts)"
+    [[ -n "${tpIrq}" ]] || return 1
+    inst="/sys/kernel/tracing/instances/plan00143-$$"
+    # boot clock, so /proc/uptime converts trace time to wall time; buffer_percent 0 hands
+    # events to the reader as they arrive instead of when the buffer is half full.
+    TRACE_INSTANCE="${inst}"
+    sudo -n sh -c '
+        set -e
+        d="$1"
+        mkdir "$d"
+        echo boot >"$d/trace_clock"
+        echo 0 >"$d/buffer_percent"
+        echo 4096 >"$d/buffer_size_kb"
+        echo "irq == $2 || irq == 12" >"$d/events/irq/irq_handler_entry/filter"
+        echo 1 >"$d/events/irq/irq_handler_entry/enable"
+        echo 1 >"$d/events/i915/intel_plane_update_arm/enable"
+        echo 1 >"$d/tracing_on"' sh "${inst}" "${tpIrq}" || return 1
+    read -r wall < <(date +%s.%N)
+    read -r up _ </proc/uptime
+    fifo="${out}.fifo"
+    mkfifo "${fifo}"
+    FIFOS+=("${fifo}")
+    aggregate_display_trace "$(awk -v w="${wall}" -v u="${up}" 'BEGIN { printf "%.3f", w - u }')" \
+        "${tpIrq}" <"${fifo}" >"${out}" &
+    BG_WAIT_PIDS+=("$!")
+    BG_TRACE_PIDS+=("$!")
+    timeout "${secs}" sudo -n cat "${inst}/trace_pipe" >"${fifo}" &
+    BG_STOP_PIDS+=("$!")
+    BG_WAIT_PIDS+=("$!")
+    BG_TRACE_PIDS+=("$!")
+}
+
+# aggregate_display_trace <wall-offset> <touchpad-irq> — one row per second of trace:
+# interrupts from each pointer device, cursor-plane moves (a change of on-screen position),
+# primary-plane updates, the longest gap between consecutive cursor moves ending in that
+# second while input kept arriving (3+ interrupts in the gap), and the longest wait from a
+# TrackPoint interrupt to the next cursor move. The TrackPoint only reports while pressed, so
+# its latency is not inflated by a finger resting on the touchpad, which reports continuously
+# without moving anything; the gap column is, so read it only in seconds with motion.
+aggregate_display_trace() {
+    awk -v off="$1" -v tpIrq="$2" '
+        function flush() {
+            if (sec == "") return
+            printf "%s %6d %6d %6d %7d %8d %8d\n", strftime("%T", sec + off), tp, tk, mv, pri, gap, lat
+            tp = tk = mv = pri = gap = lat = 0
+            fflush()
+        }
+        BEGIN {
+            print "time     tp-irq tk-irq cursor primary maxgapms tklatms"
+            sec = ""
+        }
+        {
+            ts = ""
+            for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]+\.[0-9]+:$/) { ts = substr($i, 1, length($i) - 1) + 0; ev = $(i + 1); break }
+            if (ts == "") next
+            s = int(ts)
+            if (sec != "" && s != sec) flush()
+            sec = s
+            if (ev == "irq_handler_entry:") {
+                inputs++
+                if ($0 ~ (" irq=" tpIrq " ")) tp++
+                else { tk++; if (tkPend == "") tkPend = ts }
+            } else if (ev == "intel_plane_update_arm:" && $0 ~ /, cursor [A-Z],/) {
+                if ($NF != lastPos) {
+                    mv++
+                    lastPos = $NF
+                    if (lastMove != "" && inputs >= 3 && (ts - lastMove) * 1000 > gap) gap = int((ts - lastMove) * 1000)
+                    lastMove = ts
+                    inputs = 0
+                    if (tkPend != "") { if ((ts - tkPend) * 1000 > lat) lat = int((ts - tkPend) * 1000); tkPend = "" }
+                }
+            } else if (ev == "intel_plane_update_arm:" && $0 ~ /, plane 1[A-Z],/) {
+                pri++
+            }
+        }
+        END { flush() }'
+}
+
+# cursor_join <events> <display-trace> — for every second with real finger or stick motion
+# (>=40 libinput motions), how many times the hardware cursor actually moved on the panel.
+cursor_join() {
+    awk '
+        FNR == NR {
+            if ($3 == "POINTER_MOTION" && $2 ~ /^-?event/) m[$1]++
+            next
+        }
+        /^time / { next }
+        { mv[$1] = $4; pri[$1] = $5; gap[$1] = $6; lat[$1] = $7; seen += $4 }
+        END {
+            for (t in m) if (m[t] >= 40) {
+                moving++
+                if (mv[t] + 0 < m[t] / 4) { few++; rows = rows sprintf("%s  motions=%d  cursor-moves=%d  primary=%d  maxgap=%sms  tklat=%sms\n", t, m[t], mv[t], pri[t], gap[t] + 0, lat[t] + 0) }
+            }
+            printf "hardware-cursor moves in the whole trace: %d\n", seen
+            printf "seconds with pointer motion: %d; of those with cursor moves < motions/4: %d\n", moving, few
+            printf "%s", rows | "sort"
+        }' "$1" "$2"
+}
+
 capture() {
-    local secs="$1" runDir="$2" rc touchpad mousenode trackpoint events pid gpu watchPid="" transitions
+    local secs="$1" runDir="$2" rc touchpad mousenode trackpoint events pid readerPid gpu watchPid="" transitions
+    local display eventsFifo
     out ""
     out "## Timed capture, ${secs}s, starting $(date '+%F %T %Z')"
 
@@ -371,38 +537,72 @@ capture() {
         return 0
     fi
 
+    arm_teardown
     events="${runDir}/libinput-pointer-events.txt"
     printf '==> MOVE THE TOUCHPAD, then the TrackPoint, for the next %ss\n' "${secs}"
     # Each event line is prefixed with the wall-clock second, so it joins the per-second table
-    # exactly; libinput's own timestamps are relative to an unrecorded start.
-    (
-        set -o pipefail
-        timeout "${secs}" sudo -n libinput debug-events \
-            --device "${touchpad}" --device "${mousenode}" --device "${trackpoint}" 2>&1 |
-            awk '{ print strftime("%T"), $0; fflush() }'
-    ) >"${events}" &
+    # exactly; libinput's own timestamps are relative to an unrecorded start. A named pipe, not
+    # a pipeline, so that timeout's own PID is known and teardown can stop it.
+    eventsFifo="${events}.fifo"
+    mkfifo "${eventsFifo}"
+    FIFOS+=("${eventsFifo}")
+    awk '{ print strftime("%T"), $0; fflush() }' <"${eventsFifo}" >"${events}" &
+    readerPid=$!
+    BG_WAIT_PIDS+=("${readerPid}")
+    timeout "${secs}" sudo -n libinput debug-events \
+        --device "${touchpad}" --device "${mousenode}" --device "${trackpoint}" >"${eventsFifo}" 2>&1 &
     pid=$!
+    BG_STOP_PIDS+=("${pid}")
+    BG_WAIT_PIDS+=("${pid}")
     transitions="${runDir}/dgpu-transitions.txt"
     if gpu="$(dgpu_dir)"; then
         watch_dgpu "${secs}" "${gpu}" >"${transitions}" 2>&1 &
         watchPid=$!
+        BG_STOP_PIDS+=("${watchPid}")
+        BG_WAIT_PIDS+=("${watchPid}")
+    fi
+    display="${runDir}/display-trace.txt"
+    local traceOk=1
+    if ! start_display_trace "${secs}" "${display}"; then
+        traceOk=0
+        failed "could not set up the kernel tracing instance for the display trace" 1
     fi
 
     sec "per-second rates during the capture" \
         "touchpad/s near 0 while moving = the pad stopped reporting; acpi-sci/s or throttle+ spikes at onset = H3; dgpu flipping state = H3"
     if sample_rates "${secs}" >>"${REPORT}" 2>&1; then :; else rc=$?; failed "rate sampling" "${rc}"; fi
 
+    # Every recorder is bounded by the same duration, so these waits end with the capture.
     if wait "${pid}"; then rc=0; else rc=$?; fi
+    local libinputRc="${rc}" watchRc=0
+    if wait "${readerPid}"; then :; else rc=$?; failed "libinput event reader" "${rc}"; fi
+    if [[ -n "${watchPid}" ]]; then
+        if wait "${watchPid}"; then watchRc=0; else watchRc=$?; fi
+    fi
+    # Everything capture started is reaped; teardown now only removes the tracing instance
+    # and the named pipes, after the trace reader it waits for has ended on schedule.
+    BG_STOP_PIDS=()
+    BG_WAIT_PIDS=("${BG_TRACE_PIDS[@]+"${BG_TRACE_PIDS[@]}"}")
+    if stop_background; then :; else rc=$?; failed "display-trace teardown" "${rc}"; fi
+
     # 124 is timeout ending the capture on schedule, which is the expected outcome.
-    if [[ "${rc}" -ne 0 && "${rc}" -ne 124 ]]; then
-        failed "libinput debug-events exited unexpectedly; see ${events}" "${rc}"
+    if [[ "${libinputRc}" -ne 0 && "${libinputRc}" -ne 124 ]]; then
+        failed "libinput debug-events exited unexpectedly; see ${events}" "${libinputRc}"
         return 0
     fi
 
     if [[ -n "${watchPid}" ]]; then
         sec "dGPU runtime-PM transitions (100ms resolution)" \
             "a resuming->active span is a wake; one that overlaps the lag, lasting about as long as the freeze, supports H5"
-        if wait "${watchPid}"; then cat "${transitions}" >>"${REPORT}"; else rc=$?; failed "dGPU watcher" "${rc}"; fi
+        if [[ "${watchRc}" -eq 0 ]]; then cat "${transitions}" >>"${REPORT}"; else failed "dGPU watcher" "${watchRc}"; fi
+    fi
+
+    if [[ "${traceOk}" -eq 1 ]]; then
+        sec "cursor on the panel: display-engine trace joined with libinput motion" \
+            "seconds listed here had pointer motion but the hardware cursor barely moved = the delay is in the compositor or display commit path (H1/H5/H6); motion with the cursor moving normally while it looked laggy = after the plane update (panel self-refresh, H6). 'hardware-cursor moves ... 0' means the cursor is composited, so read the primary column in ${display} instead"
+        local cursorRows
+        if cursorRows="$(cursor_join "${events}" "${display}")"; then out "${cursorRows}"; else rc=$?; failed "cursor join" "${rc}"; fi
+        out "Per-second display trace: ${display}"
     fi
 
     sec "libinput motion-event timing per device (${touchpad} touchpad, ${mousenode} touchpad mouse node, ${trackpoint} TrackPoint)" \
