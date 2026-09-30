@@ -135,8 +135,8 @@ the pure function, and fails loud with a remediation naming what to do.
 Found while answering the owner's challenge to a Plan 00068 line citing `/root/.claude`. The
 answer was that `ccy` already refuses to run as root (`claude-yolo:1178`) and podman here is
 rootless, so `/root` is the in-container HOME of a userns-mapped unprivileged identity — **not**
-host root. The owner then asked for a fail-fast if a rootful run is ever attempted; this plan is
-that. No recovery cron — the owner asked for crons to be stopped.
+host root. This plan adds the missing engine check that the answer showed was absent: a
+fail-fast if a rootful run is ever attempted. No recovery cron was created for this plan.
 
 ## Delivery & Milestones
 

@@ -52,7 +52,8 @@ three mechanisms — see [DECISIONS.md](DECISIONS.md) for the rationale and
 ## Supporting documents
 
 - [DECISIONS.md](DECISIONS.md) — context, design axes, the Fable-vs-Sonnet
-  decision gate, Decisions 1–5, and the owner calls made during implementation.
+  decision gate, Decisions 1–5, and the owner-level calls the implementing agent
+  made, pending owner review.
 - [PROPOSAL.md](PROPOSAL.md) — round-6 implementation-ready spec (classification,
   detection layer, guard, QA Check 4, mixed-play edits, verification procedure).
 - [brainstorm-fable.md](brainstorm-fable.md), [brainstorm-sonnet.md](brainstorm-sonnet.md)
@@ -87,7 +88,7 @@ three mechanisms — see [DECISIONS.md](DECISIONS.md) for the rationale and
 - [x] ✅ **Task 3.2**: Added `vars: {scope: …}` to every play (73 plays: 31 core + 41 optional + `dev/play-collect-diagnostics.yml`) per `PROPOSAL.md` §1; added the exact 2-task self-guard as the first two tasks of every gnome play. The byte-exact Check 4 gate verified every one.
 - [x] ✅ **Task 3.3**: Applied the mixed-play task-level `when:` edits + the container-watch list-form `when:` override (`PROPOSAL.md` §6); split `play-virtualbox-windows.yml` into engine install (`general`) + `play-virtualbox-windows-vm-setup.yml` (`gnome`). Two further mixed plays found and handled: `play-nordvpn-openvpn.yml` and `play-rclone.yml`; `play-qobuz.yml` kept `general` with its GUI-Flatpak tasks gated.
 - [x] ✅ **Task 3.4**: Added the uniform Check 4 to `scripts/qa-ansible.bash` (`PROPOSAL.md` §5); zero `qa-all.bash` changes; `playbook-main.yml` untouched.
-- [x] ✅ **Task 3.5**: Read every Medium/Low-confidence optional row and classified from real task lists — corrections recorded in [DECISIONS.md](DECISIONS.md) ("Open owner calls").
+- [x] ✅ **Task 3.5**: Read every Medium/Low-confidence optional row and classified from real task lists — corrections recorded in [DECISIONS.md](DECISIONS.md) ("Owner-level calls made by the implementing agent").
 - [x] ✅ **Task 3.6**: Documented the zero-flag + standalone + `-e` override in `docs/playbooks.md` ("Desktop vs. Headless Server Provisioning") and the `scope:`/guard grammar in `CLAUDE/AnsibleStyle.md` ("Provisioning Profile Self-Guard").
 - [x] ✅ **Task 3.7**: `./scripts/qa-all.bash` → PASS: every playbook scope+guard OK, every `--syntax-check` OK, all six stages green.
 - [ ] ⬜ **Task 3.8**: (On HOST) verify gating end-to-end via the plan-local [acceptance.bash](acceptance.bash) — server-path guard proof (no `--check` needed because `meta: end_play` ends each gnome play before its first real task), desktop path via `-e provisioning_profile=desktop --check`, read-only detection + typo checks. It refuses to run in the CCY container. Run on the laptop host: `./CLAUDE/Plan/00061-headless-server-provisioning/acceptance.bash`.

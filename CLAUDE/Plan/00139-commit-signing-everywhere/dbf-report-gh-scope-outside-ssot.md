@@ -31,8 +31,8 @@ handed but did not scan.
 
 - **Originating instance.** `run.bash`, the GitHub authentication step: a bare
   `gh auth login`, then a separate `auth refresh -s admin:public_key` behind a private
-  scope table (`ghCheckTokenPermission`). The owner asked for every permission in one pass
-  of the `run.bash` flow, with one source for which ones are needed. Commit signing then
+  scope table (`ghCheckTokenPermission`). The owner asked for a Defence-Before-Fix run on
+  the rule that GitHub OAuth scopes live in one place (JOURNAL 26-09-25, 39). Commit signing then
   needed a further scope, which existed only in `docs/configuration.md` and the plan's
   deploy message.
 - **Class.** GitHub OAuth scope requirements stated outside `vars/github-required-scopes.yml`,
