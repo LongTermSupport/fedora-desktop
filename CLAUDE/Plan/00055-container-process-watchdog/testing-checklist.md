@@ -17,6 +17,13 @@ react, and was the guidance usable?* Everything else is covered by L0/L1/L2.
 
 ---
 
+> **Surface moved ([Plan 00144](../00144-single-fedora-desktop-panel-icon/PLAN.md)):** the
+> Container Watch extension this checklist drives no longer exists. Its panel is the
+> **Containers** section of the single Fedora Desktop panel
+> (`play-fedora-desktop-panel.yml`), so the visual pass below should target that section
+> and its icon, not a `container-watch@fedora-desktop` extension. The steps are kept as
+> written; read "the extension" as that section.
+
 ## Conventions
 
 - Tick each box `[x]` only after **visually confirming** the stated outcome.

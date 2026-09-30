@@ -287,6 +287,59 @@ class TestResolveDeclared(unittest.TestCase):
 
 
 
+class TestRetire(unittest.TestCase):
+    """`retire` removes NAMED uuids and nothing else — never a user's own extension."""
+
+    def test_removes_only_the_named_uuid(self):
+        result = ee.retire([STOCK, CUSTOM, "a@x"], [CUSTOM])
+        self.assertEqual(result.values, [STOCK, "a@x"])
+        self.assertEqual(result.removed, [CUSTOM])
+        self.assertTrue(result.changed)
+
+    def test_nothing_else_is_ever_removed(self):
+        current = [STOCK, "a@x", "b@x", CUSTOM]
+        result = ee.retire(current, [CUSTOM])
+        self.assertEqual(set(current) - set(result.values), {CUSTOM})
+
+    def test_a_retired_uuid_not_in_the_list_is_unchanged(self):
+        result = ee.retire([STOCK], [CUSTOM])
+        self.assertEqual(result.values, [STOCK])
+        self.assertEqual(result.removed, [])
+        self.assertFalse(result.changed)
+
+    def test_order_of_the_survivors_is_kept(self):
+        result = ee.retire(["c@x", CUSTOM, "a@x", "b@x"], [CUSTOM])
+        self.assertEqual(result.values, ["c@x", "a@x", "b@x"])
+
+    def test_every_occurrence_of_a_duplicated_retired_uuid_goes(self):
+        result = ee.retire([CUSTOM, STOCK, CUSTOM], [CUSTOM])
+        self.assertEqual(result.values, [STOCK])
+        self.assertEqual(result.removed, [CUSTOM])
+
+    def test_removed_is_reported_in_the_order_retired(self):
+        result = ee.retire(["a@x", "b@x", "c@x"], ["c@x", "a@x"])
+        self.assertEqual(result.removed, ["c@x", "a@x"])
+
+    def test_retiring_from_an_empty_list_is_unchanged(self):
+        result = ee.retire([], [CUSTOM])
+        self.assertEqual(result.values, [])
+        self.assertFalse(result.changed)
+
+    def test_an_empty_retired_set_removes_nothing(self):
+        result = ee.retire([STOCK], [])
+        self.assertEqual(result.values, [STOCK])
+        self.assertFalse(result.changed)
+
+    def test_a_uuid_both_declared_and_retired_is_an_error(self):
+        with self.assertRaises(ValueError) as caught:
+            ee.retire([CUSTOM], [CUSTOM], declared=[CUSTOM, "a@x"])
+        self.assertIn(CUSTOM, str(caught.exception))
+
+    def test_an_invalid_retired_uuid_is_rejected(self):
+        with self.assertRaises(ValueError):
+            ee.retire([STOCK], ["a,b@x"])
+
+
 class TestMissingRequired(unittest.TestCase):
     """`missing_required` is the read-back check in the applier.
 

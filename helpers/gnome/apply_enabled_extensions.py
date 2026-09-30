@@ -2,9 +2,9 @@
 """Declare the play's extensions in `org.gnome.shell enabled-extensions`.
 
 The side-effecting half of `enabled_extensions.py`. It confirms every UUID the
-play DECLARES is on disk, merges them into the current gsettings value without
-removing anything, writes the result back, and re-reads it to prove the write
-took.
+play DECLARES is on disk, merges them into the current gsettings value, removes
+only the UUIDs the play explicitly RETIRES, writes the result back, and re-reads
+it to prove the write took. Nothing else is ever removed.
 
 Why this exists rather than `gnome-extensions enable`: that command asks the
 *running shell* to enable a UUID, and on a fresh install the shell has not
@@ -20,17 +20,24 @@ they deliberately disabled and hand the play's verify loop extensions this repo
 never installed, while still missing a partial install. The play passes `--uuid`
 per extension it deploys and this confirms each against the search path.
 
+**Retirement is declared the same way.** `--retire-uuid` names an extension this
+repo no longer deploys; it is taken out of the list in the same write (GNOME Shell
+watches the key and disables a loaded extension that leaves it), and the read-back
+proves it is gone. A retired UUID need not be on disk. `--uuid` and `--retire-uuid`
+naming the same UUID is refused.
+
 Invoked from the play as a module from the repo root:
 
     python3 -m helpers.gnome.apply_enabled_extensions \\
         --extensions-dir ~/.local/share/gnome-shell/extensions \\
         --extensions-dir /usr/share/gnome-shell/extensions \\
-        --uuid blur-my-shell@aunetx --uuid ...
+        --uuid blur-my-shell@aunetx --uuid ... [--retire-uuid old-one@example.com]
 
 Marker lines on stdout (the payload the play keys `changed_when` on):
 
     GNOME-EXT-DEPLOYED <uuid>,<uuid>,...
     GNOME-EXT-ENABLED-CHANGED added=<uuid>,<uuid>,...
+    GNOME-EXT-RETIRED removed=<uuid>,<uuid>,...
     GNOME-EXT-ENABLED-UNCHANGED
     GNOME-EXT-FAIL <reason>
 
@@ -81,9 +88,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--uuid",
         action="append",
-        required=True,
+        default=[],
         metavar="UUID",
         help="A UUID the play deploys; repeatable. This IS the declared set.",
+    )
+    parser.add_argument(
+        "--retire-uuid",
+        action="append",
+        default=[],
+        metavar="UUID",
+        help="A UUID to remove from the list; repeatable. Named, never discovered.",
     )
     parser.add_argument("--schema", default=DEFAULT_SCHEMA, help="GSettings schema.")
     parser.add_argument("--key", default=DEFAULT_KEY, help="GSettings key holding the list.")
@@ -93,6 +107,13 @@ def main(argv: list[str] | None = None) -> int:
         help="The master switch that defeats every user extension when true.",
     )
     args = parser.parse_args(argv)
+    if not args.uuid and not args.retire_uuid:
+        parser.error("give at least one --uuid to declare or --retire-uuid to retire")
+
+    try:
+        enabled_extensions.retire([], args.retire_uuid, declared=args.uuid)
+    except ValueError as error:
+        return _fail("bad-retirement", str(error))
 
     try:
         resolution = enabled_extensions.resolve_declared(args.extensions_dir, args.uuid)
@@ -108,7 +129,8 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     deployed = resolution.found
-    print(f"GNOME-EXT-DEPLOYED {','.join(deployed)}")
+    if deployed:
+        print(f"GNOME-EXT-DEPLOYED {','.join(deployed)}")
 
     bus = session_bus.current()
     print(f"reaching dconf via {bus.source}", file=sys.stderr)
@@ -136,14 +158,19 @@ def main(argv: list[str] | None = None) -> int:
             "value that could not be read, which would drop the user's own extensions.",
         )
 
-    merged = enabled_extensions.merge(current, deployed)
-    if not merged.changed:
+    # A retire-only call is not a repair pass: merging would dedupe the user's list and
+    # report a change the caller never asked for.
+    if deployed:
+        merged = enabled_extensions.merge(current, deployed)
+    else:
+        merged = enabled_extensions.MergeResult(values=list(current), changed=False, added=[])
+    retirement = enabled_extensions.retire(merged.values, args.retire_uuid, declared=deployed)
+    final = retirement.values
+    if final == current:
         print("GNOME-EXT-ENABLED-UNCHANGED")
         return 0
 
-    _gsettings(
-        bus, "set", args.schema, args.key, enabled_extensions.format_string_list(merged.values)
-    )
+    _gsettings(bus, "set", args.schema, args.key, enabled_extensions.format_string_list(final))
 
     # dconf can accept a write and keep the old value (locked or read-only
     # database). Read it back, or this task reports ok while the session comes up
@@ -162,7 +189,21 @@ def main(argv: list[str] | None = None) -> int:
             f"write (via {bus.source}). The dconf database may be locked or read-only.",
         )
 
-    print(f"GNOME-EXT-ENABLED-CHANGED added={','.join(merged.added)}")
+    still_present = [uuid for uuid in retirement.removed if uuid in readback]
+    if still_present:
+        return _fail(
+            "retirement-did-not-take",
+            f"{args.schema} {args.key} still holds {', '.join(still_present)} after the "
+            f"write (via {bus.source}). The dconf database may be locked or read-only.",
+        )
+
+    if merged.added:
+        print(f"GNOME-EXT-ENABLED-CHANGED added={','.join(merged.added)}")
+    if retirement.removed:
+        print(f"GNOME-EXT-RETIRED removed={','.join(retirement.removed)}")
+    if not merged.added and not retirement.removed:
+        # Only a duplicate collapse changed the list: still a write the play reports.
+        print("GNOME-EXT-ENABLED-CHANGED added=")
     return 0
 
 

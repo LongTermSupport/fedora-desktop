@@ -334,5 +334,119 @@ class TestMain(unittest.TestCase):
         self.assertEqual([argv for argv in calls if "set" in argv], [])
 
 
+    # `--retire-uuid`: take a NAMED uuid out of the list, in the same write as any add.
+    def _retire_argv(self, retired: list[str], declared: tuple = ()) -> list[str]:
+        argv = self._argv(*declared)
+        for uuid in retired:
+            argv += ["--retire-uuid", uuid]
+        return argv
+
+    def test_retire_only_needs_no_declared_uuid_and_removes_just_that_one(self):
+        calls: list[list[str]] = []
+        reads = [f"['{STOCK}', '{CUSTOM}', '{THEIRS}']", f"['{STOCK}', '{THEIRS}']"]
+
+        code, out, _err = self._run(self._retire_argv([CUSTOM]), self._responder(reads, calls))
+
+        self.assertEqual(code, 0)
+        self.assertIn(f"GNOME-EXT-RETIRED removed={CUSTOM}", out)
+        self.assertNotIn("GNOME-EXT-DEPLOYED", out)
+        written = [argv for argv in calls if "set" in argv]
+        self.assertEqual(len(written), 1)
+        self.assertEqual(written[0][-1], f"['{STOCK}', '{THEIRS}']")
+
+    def test_retire_of_an_absent_uuid_writes_nothing_and_reports_unchanged(self):
+        calls: list[list[str]] = []
+
+        code, out, _err = self._run(
+            self._retire_argv([CUSTOM]), self._responder([f"['{STOCK}']"], calls)
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn("GNOME-EXT-ENABLED-UNCHANGED", out)
+        self.assertNotIn("GNOME-EXT-RETIRED", out)
+        self.assertEqual([argv for argv in calls if "set" in argv], [])
+
+    def test_retire_only_is_not_a_dedupe_pass(self):
+        # A duplicate the user already had is not ours to repair on a retire-only call.
+        calls: list[list[str]] = []
+        current = f"['{STOCK}', '{THEIRS}', '{STOCK}']"
+
+        code, out, _err = self._run(
+            self._retire_argv([CUSTOM]), self._responder([current], calls)
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn("GNOME-EXT-ENABLED-UNCHANGED", out)
+        self.assertNotIn("GNOME-EXT-ENABLED-CHANGED", out)
+        self.assertEqual([argv for argv in calls if "set" in argv], [])
+
+    def test_retire_only_keeps_unrelated_duplicates_when_it_does_write(self):
+        calls: list[list[str]] = []
+        reads = [
+            f"['{STOCK}', '{CUSTOM}', '{STOCK}']",
+            f"['{STOCK}', '{STOCK}']",
+        ]
+
+        code, out, _err = self._run(self._retire_argv([CUSTOM]), self._responder(reads, calls))
+
+        self.assertEqual(code, 0)
+        self.assertNotIn("GNOME-EXT-ENABLED-CHANGED", out)
+        written = [argv for argv in calls if "set" in argv]
+        self.assertEqual(written[0][-1], f"['{STOCK}', '{STOCK}']")
+
+    def test_retire_can_be_combined_with_a_declared_uuid_in_one_write(self):
+        self._deploy(self.user_dir, BLUR)
+        calls: list[list[str]] = []
+        reads = [f"['{STOCK}', '{CUSTOM}']", f"['{STOCK}', '{BLUR}']"]
+
+        code, out, _err = self._run(
+            self._retire_argv([CUSTOM], declared=(BLUR,)), self._responder(reads, calls)
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn(f"GNOME-EXT-ENABLED-CHANGED added={BLUR}", out)
+        self.assertIn(f"GNOME-EXT-RETIRED removed={CUSTOM}", out)
+        self.assertEqual(len([argv for argv in calls if "set" in argv]), 1)
+
+    def test_a_retired_uuid_still_present_after_the_write_is_a_failure(self):
+        # Same dconf-keeps-the-old-value hole as the additive read-back.
+        reads = [f"['{STOCK}', '{CUSTOM}']", f"['{STOCK}', '{CUSTOM}']"]
+
+        code, out, err = self._run(self._retire_argv([CUSTOM]), self._responder(reads))
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("GNOME-EXT-FAIL", out)
+        self.assertNotIn("GNOME-EXT-RETIRED", out)
+        self.assertIn(CUSTOM, err)
+
+    def test_a_uuid_both_declared_and_retired_fails_before_any_gsettings_call(self):
+        self._deploy(self.user_dir, CUSTOM)
+        calls: list[list[str]] = []
+
+        code, out, err = self._run(
+            self._retire_argv([CUSTOM], declared=(CUSTOM,)), self._responder([], calls)
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("GNOME-EXT-FAIL", out)
+        self.assertIn(CUSTOM, err)
+        self.assertEqual(calls, [])
+
+    def test_neither_a_declared_nor_a_retired_uuid_is_a_usage_error(self):
+        with self.assertRaises(SystemExit):
+            self._run(self._argv(), self._responder([]))
+
+    def test_retire_refuses_while_user_extensions_are_disabled(self):
+        def fake_run(argv, **kwargs):
+            if "disable-user-extensions" in argv:
+                return _completed(stdout="true\n")
+            return _completed(stdout=f"['{CUSTOM}']\n")
+
+        code, out, _err = self._run(self._retire_argv([CUSTOM]), fake_run)
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("GNOME-EXT-FAIL", out)
+
+
 if __name__ == "__main__":
     unittest.main()

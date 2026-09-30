@@ -86,7 +86,7 @@ function appendCopyFindings(menu, shown) {
  *    playbooks. The panel does not know where the checkout is and the status document
  *    does not carry it, so a launch would start Claude Code in the compositor's working
  *    directory — where it cannot see the thing it is being asked about.
- * 2. `container-watch` already copies its inspect hint and notifies, on this same
+ * 2. The containers section already copies its inspect hint and notifies, on this same
  *    surface. A second idiom for "here is a command, you run it" would be one to learn
  *    for no gain.
  * 3. DESIGN-panel.md §8: the panel offers, a human decides — and a clickable surface is

@@ -5,8 +5,8 @@ Thin side-effecting wrapper around the pure logic in core.py. It enumerates the
 real `/proc`, samples per-core CPU over a short interval (PID-reuse-guarded),
 resolves container ids → friendly names by shelling out to the owning engine
 (`podman`/`docker` inspect, lxc by name), writes `report.json` atomically to the
-per-user runtime dir, and emits a `gdbus` DBus signal so the GNOME Shell
-extension can react. The same `report.json` backs both the panel and the CLI —
+per-user runtime dir, and emits a `gdbus` DBus signal so the fedora-desktop
+panel's containers section can react. The same `report.json` backs both the panel and the CLI —
 one data source, two front-ends.
 
 REPORTING-ONLY: there is no process-termination path in this module or anywhere

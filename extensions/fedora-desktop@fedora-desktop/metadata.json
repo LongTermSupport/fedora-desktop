@@ -1,6 +1,6 @@
 {
   "name": "Fedora Desktop",
-  "description": "Panel indicator for this machine's drift state, read from the host status document written by the host-health checks. Reports three states, because a host nothing has checked must not look like a healthy one.",
+  "description": "Panel indicator for this machine's drift state, read from the host status document written by the host-health checks, plus the container watchdog's findings. Reports three states, because a host nothing has checked must not look like a healthy one.",
   "uuid": "fedora-desktop@fedora-desktop",
   "shell-version": [
     "45",

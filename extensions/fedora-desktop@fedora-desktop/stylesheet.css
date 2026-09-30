@@ -18,6 +18,10 @@
     max-width: 36em;
 }
 
+.fedora-desktop-heading {
+    font-weight: bold;
+}
+
 .fedora-desktop-play {
     font-size: 0.95em;
     max-width: 36em;

@@ -217,6 +217,7 @@ export const EXECUTABLES = new Set();
 
 export const GLib = {
     get_user_state_dir: () => '/stub/state',
+    get_user_runtime_dir: () => '/stub/runtime',
     get_home_dir: () => '/stub/home',
     build_filenamev: parts => parts.join('/'),
     FileTest: {IS_EXECUTABLE: 'is-executable'},
@@ -304,7 +305,52 @@ export const SPAWN_OUTCOME = {successful: true, exitStatus: 0, stderr: ''};
  * test asserts on is the number the real shell would receive. */
 const SUBPROCESS_FLAGS = {NONE: 0, STDOUT_PIPE: 1 << 2, STDERR_PIPE: 1 << 4};
 
+/**
+ * `Gio.DBus.session`: only `signal_subscribe` and `signal_unsubscribe`, recording what was
+ * subscribed. `emit` delivers a signal to every matching live subscription, the way the bus
+ * would, so a test can fire `FindingsChanged` and see whether a re-read followed — and
+ * `live()` makes an unsubscribe visible, since a surviving subscription calls into a
+ * destroyed indicator and raises nothing.
+ */
+export const DBUS = {
+    subscriptions: new Map(),
+    nextId: 1,
+    reset() {
+        this.subscriptions.clear();
+    },
+    live() {
+        return [...this.subscriptions.values()];
+    },
+    emit(iface, member, path) {
+        for (const sub of [...this.subscriptions.values()]) {
+            const matches = (sub.iface === null || sub.iface === iface) &&
+                (sub.member === null || sub.member === member) &&
+                (sub.path === null || sub.path === path);
+            if (matches) {
+                sub.handler();
+            }
+        }
+    },
+};
+
+const DBUS_SIGNAL_FLAGS = {NONE: 0};
+
+const SESSION_BUS = {
+    signal_subscribe(sender, iface, member, path, arg0, flags, handler) {
+        const id = DBUS.nextId++;
+        DBUS.subscriptions.set(id, {sender, iface, member, path, arg0, flags, handler});
+        return id;
+    },
+    signal_unsubscribe(id) {
+        if (!DBUS.subscriptions.delete(id)) {
+            throw new Error(`stub Gio.DBus: no subscription ${id} to unsubscribe`);
+        }
+    },
+};
+
 export const Gio = {
+    DBus: {session: SESSION_BUS},
+    DBusSignalFlags: DBUS_SIGNAL_FLAGS,
     IOErrorEnum: IO_ERROR_ENUM,
     SubprocessFlags: SUBPROCESS_FLAGS,
     Subprocess: {

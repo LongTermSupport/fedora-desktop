@@ -101,6 +101,12 @@ The registry carries one rule of its own: **a section whose id is absent from th
 renders `unavailable`**, saying that the document has no section for it. A registered section that
 silently renders nothing is a check that cannot fail, wearing a different hat again.
 
+> **Extended by [Plan 00144](../00144-single-fedora-desktop-panel-icon/PLAN.md).** A section
+> may also export optional hooks — `source` (start/stop its own data feed), `state()` (its
+> contribution to the icon, folded worst-of with the document's), `hidden()` and `leads()` —
+> for data that does not come from the status document. The containers section uses them.
+> The rule above is unchanged for sections that read the document.
+
 ## 6. Actions: a visible terminal, an argv, and no claim about the outcome
 
 Task 4.3's constraint is that a play never runs silently in the background. The precedent is
@@ -124,6 +130,12 @@ terminal the user is looking at, so the strict-IaC boundary is where it already 
 plays, and watches them.
 
 ## 7. Deployment
+
+> **Update ([Plan 00144](../00144-single-fedora-desktop-panel-icon/PLAN.md)):** wherever this
+> document describes container-watch as a separate panel extension, that extension has been
+> folded into this panel as the containers section and `container-watch@fedora-desktop` is
+> retired. The panel play deploys the section and retires the old uuid; the container-watch
+> play now deploys only the backend.
 
 **Its own play**, `play-fedora-desktop-panel.yml`, not an addition to
 `play-host-health-login-report.yml`.

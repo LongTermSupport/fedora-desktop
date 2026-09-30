@@ -29,7 +29,25 @@ globalThis.log = () => {};
 
 const StatusDocument = await import(`${EXTENSION}statusDocument.js`);
 const {default: FedoraDesktopExtension} = await import(`${EXTENSION}extension.js`);
-const {GLIB_FILES, STATUS_AREA, TIMERS, DEFERRED_READS} = await import('./gi-stubs.mjs');
+const {
+    GLIB_FILES, STATUS_AREA, TIMERS, DEFERRED_READS, EXECUTABLES, DBUS, NOTIFICATIONS,
+} = await import('./gi-stubs.mjs');
+const ContainerReport = await import(`${EXTENSION}containerReport.js`);
+
+/** The extension a previous test left enabled. Its containers source is module state, so
+ * without this one test's report and dedupe set would leak into the next. */
+let previous = null;
+
+function resetStage() {
+    previous?.disable();
+    previous = null;
+    GLIB_FILES.clear();
+    STATUS_AREA.clear();
+    TIMERS.clear();
+    EXECUTABLES.clear();
+    DBUS.reset();
+    NOTIFICATIONS.length = 0;
+}
 
 const OSRELEASE = '/proc/sys/kernel/osrelease';
 const KERNEL = '6.17.0-63.fc44.x86_64';
@@ -66,9 +84,7 @@ function document(state, findings = [], unchecked = []) {
 
 /** A host with the given document on disk, enabled. Returns the live icon. */
 function enabled(contents) {
-    GLIB_FILES.clear();
-    STATUS_AREA.clear();
-    TIMERS.clear();
+    resetStage();
     DEFERRED_READS.enabled = false;
     DEFERRED_READS.pending = [];
     GLIB_FILES.set(OSRELEASE, `${KERNEL}\n`);
@@ -76,6 +92,7 @@ function enabled(contents) {
         GLIB_FILES.set(DOCUMENT_PATH, contents);
     }
     const extension = new FedoraDesktopExtension({uuid: 'fedora-desktop@fedora-desktop'});
+    previous = extension;
     extension.enable();
     const indicator = STATUS_AREA.get('fedora-desktop');
     assert.ok(indicator, 'the indicator was never added to the status area');
@@ -129,14 +146,13 @@ test('a host with no document at all says so, and does not render as clean', () 
  * between `enable()` returning and the document arriving. `deliver()` releases it. */
 function enabledWithHeldRead(contents) {
     const live = (() => {
+        resetStage();
         DEFERRED_READS.enabled = true;
         DEFERRED_READS.pending = [];
-        GLIB_FILES.clear();
-        STATUS_AREA.clear();
-        TIMERS.clear();
         GLIB_FILES.set(OSRELEASE, `${KERNEL}\n`);
         GLIB_FILES.set(DOCUMENT_PATH, contents);
         const extension = new FedoraDesktopExtension({uuid: 'fedora-desktop@fedora-desktop'});
+        previous = extension;
         extension.enable();
         const indicator = STATUS_AREA.get('fedora-desktop');
         assert.ok(indicator, 'the indicator was never added to the status area');
@@ -185,10 +201,153 @@ test('disable() destroys the indicator and removes the poll', () => {
     // A surviving timer fires into a destroyed indicator on every interval, and a
     // surviving indicator is a second icon after the next enable — neither raises.
     const {extension, indicator} = enabled(document(StatusDocument.OK));
-    assert.equal(TIMERS.size, 1);
+    // The panel's own poll, plus the containers section's.
+    assert.equal(TIMERS.size, 2);
+    assert.equal(DBUS.live().length, 1);
     extension.disable();
     assert.equal(indicator.destroyed, true);
     assert.equal(TIMERS.size, 0);
+    assert.equal(DBUS.live().length, 0, 'disable() left the FindingsChanged subscription');
+});
+
+// ---- the combined icon: drift state x container state (Plan 00144, D1) ---------------
+
+const REPORT_PATH = ContainerReport.reportPath();
+const FINDING = {
+    kind: 'process', container_id: 'aaa111', container_name: 'web', host_pid: 4242,
+    cpu_pct: 95, age_s: 125, cmd: 'worker', exec_hint: 'podman exec -it web ps',
+};
+
+/** The container report as it stands on disk: `absent` (installed, no report), `clean`,
+ * `findings`, `unreadable`, or `not-installed` (the backend is not on this host). */
+function containerCase(name) {
+    resetStage();
+    const cases = {
+        'not-installed': () => {},
+        absent: () => EXECUTABLES.add(ContainerReport.commandPath()),
+        clean: () => {
+            EXECUTABLES.add(ContainerReport.commandPath());
+            GLIB_FILES.set(REPORT_PATH, JSON.stringify({schema: 1, findings: []}));
+        },
+        findings: () => {
+            EXECUTABLES.add(ContainerReport.commandPath());
+            GLIB_FILES.set(REPORT_PATH, JSON.stringify({schema: 1, findings: [FINDING]}));
+        },
+        unreadable: () => {
+            EXECUTABLES.add(ContainerReport.commandPath());
+            GLIB_FILES.set(REPORT_PATH, '{not json');
+        },
+    };
+    cases[name]();
+}
+
+function combined(drift, container) {
+    const stage = {drift, container};
+    resetStage();
+    containerCase(container);
+    GLIB_FILES.set(OSRELEASE, `${KERNEL}\n`);
+    if (drift !== null) {
+        GLIB_FILES.set(DOCUMENT_PATH, drift);
+    }
+    const extension = new FedoraDesktopExtension({uuid: 'fedora-desktop@fedora-desktop'});
+    previous = extension;
+    extension.enable();
+    const indicator = STATUS_AREA.get('fedora-desktop');
+    return {...stage, extension, indicator, icon: indicator.children[0]};
+}
+
+const DRIFT = {
+    ok: () => document(StatusDocument.OK),
+    findings: () => document(StatusDocument.FINDINGS, ['evdi: no module']),
+    unavailable: () => document(StatusDocument.UNAVAILABLE, [], ['nothing known']),
+};
+
+// The expected icon for every pairing. Worst-of: findings > unavailable > ok, and a
+// container finding is a finding like any other, so it neither outranks nor is hidden by
+// standing drift.
+const MATRIX = [
+    ['ok', 'not-installed', NEUTRAL],
+    ['ok', 'absent', NEUTRAL],
+    ['ok', 'clean', NEUTRAL],
+    ['ok', 'findings', ATTENTION],
+    ['ok', 'unreadable', NOTHING_KNOWN],
+    ['findings', 'not-installed', ATTENTION],
+    ['findings', 'absent', ATTENTION],
+    ['findings', 'clean', ATTENTION],
+    ['findings', 'findings', ATTENTION],
+    ['findings', 'unreadable', ATTENTION],
+    ['unavailable', 'not-installed', NOTHING_KNOWN],
+    ['unavailable', 'absent', NOTHING_KNOWN],
+    ['unavailable', 'clean', NOTHING_KNOWN],
+    ['unavailable', 'findings', ATTENTION],
+    ['unavailable', 'unreadable', NOTHING_KNOWN],
+];
+
+for (const [drift, container, expected] of MATRIX) {
+    test(`icon matrix: drift ${drift} x containers ${container} -> ${expected}`, () => {
+        const {icon} = combined(DRIFT[drift](), container);
+        assert.equal(icon.icon_name, expected);
+    });
+}
+
+test('icon matrix: a host with no status document at all still shows a container finding', () => {
+    const {icon} = combined(null, 'findings');
+    assert.equal(icon.icon_name, ATTENTION);
+});
+
+test('a container finding reaches the icon only as findings: no fourth state, no new colour', () => {
+    const drift = combined(DRIFT.findings(), 'not-installed').icon;
+    const container = combined(DRIFT.ok(), 'findings').icon;
+    assert.equal(container.icon_name, drift.icon_name);
+    assert.equal(container.style, drift.style);
+});
+
+test('the containers section is listed first when it has findings, after health otherwise', () => {
+    const withFindings = combined(DRIFT.findings(), 'findings').indicator.menu.texts;
+    assert.ok(withFindings.indexOf('Containers') < withFindings.indexOf('This machine now'),
+        withFindings.join('\n'));
+
+    const clean = combined(DRIFT.findings(), 'clean').indicator.menu.texts;
+    assert.ok(clean.indexOf('Containers') > clean.indexOf('This machine now'),
+        clean.join('\n'));
+});
+
+test('a host without the backend has no containers section and no stray separator', () => {
+    const {indicator} = combined(DRIFT.ok(), 'not-installed');
+    assert.ok(!indicator.menu.texts.includes('Containers'));
+    const items = indicator.menu.items;
+    for (let i = 1; i < items.length; i++) {
+        assert.ok(!(items[i] !== null && items[i].label === undefined &&
+            items[i - 1] !== null && items[i - 1].label === undefined),
+        'two separators in a row');
+    }
+});
+
+test('a container finding raises one notification, and the icon change needs no click', () => {
+    const {icon} = combined(DRIFT.ok(), 'findings');
+    assert.equal(icon.icon_name, ATTENTION);
+    assert.deepEqual(NOTIFICATIONS, [{title: 'Container Watch', body: 'Flagged: web'}]);
+});
+
+test('a container change re-renders the menu and icon without re-reading the drift document', () => {
+    const live = combined(DRIFT.ok(), 'clean');
+    assert.equal(live.icon.icon_name, NEUTRAL);
+    GLIB_FILES.set(REPORT_PATH, JSON.stringify({schema: 1, findings: [FINDING]}));
+    DBUS.emit(ContainerReport.DBUS_INTERFACE, ContainerReport.DBUS_SIGNAL,
+        ContainerReport.DBUS_PATH);
+    assert.equal(live.icon.icon_name, ATTENTION);
+    assert.ok(live.indicator.menu.texts.includes('1 flagged container'));
+});
+
+test('disable() removes the container poll and subscription and forgets its report', () => {
+    const live = combined(DRIFT.ok(), 'findings');
+    live.extension.disable();
+    assert.equal(TIMERS.size, 0);
+    assert.equal(DBUS.live().length, 0);
+    assert.equal(live.indicator.destroyed, true);
+    // A late signal has nobody to call.
+    DBUS.emit(ContainerReport.DBUS_INTERFACE, ContainerReport.DBUS_SIGNAL,
+        ContainerReport.DBUS_PATH);
 });
 
 /** A clean document carrying play runner rows. */

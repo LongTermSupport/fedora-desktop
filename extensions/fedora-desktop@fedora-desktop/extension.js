@@ -20,7 +20,15 @@
  * "nothing known" as "nothing wrong" would rebuild that in the panel.
  *
  * Sections are registered, not hardcoded (DESIGN-panel.md §5): each is one array entry and
- * one module under `sections/`.
+ * one module under `sections/`. A section that reads its own data rather than the status
+ * document (the containers section, Plan 00144) adds optional hooks — `source`, `state`,
+ * `hidden`, `leads` — and this file calls them without knowing what they are for.
+ *
+ * The icon is the worst of the document's sections and of every section `state()`. A
+ * container finding is live and a drift finding is standing, but both are `findings` and
+ * the icon does not rank one above the other: the section with findings is listed first
+ * instead, and the containers section raises a notification for a newly appeared finding,
+ * so "which subsystem" is answered without a second icon or a new colour.
  */
 
 import Gio from 'gi://Gio';
@@ -34,11 +42,13 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as StatusDocument from './statusDocument.js';
 import {section as healthSection} from './sections/health.js';
 import {section as playsSection} from './sections/plays.js';
+import {section as containersSection} from './sections/containers.js';
 
 /**
- * The registry (Task 4.4). Health first: what is wrong outranks what can be run.
+ * The registry (Task 4.4). Health first: what is wrong outranks what can be run. The
+ * containers section sits second, and is moved to the front while it has findings.
  */
-const SECTIONS = [healthSection, playsSection];
+const SECTIONS = [healthSection, containersSection, playsSection];
 
 /** The document is rewritten once per graphical login, so this is a backstop for a
  * rewrite that happened while the shell was already running — not a check interval.
@@ -59,6 +69,7 @@ export default class FedoraDesktopExtension extends Extension {
         this._pollSourceId = null;
         this._readCancellable = null;
         this._runningKernel = '';
+        this._document = null;
     }
 
     enable() {
@@ -91,10 +102,19 @@ export default class FedoraDesktopExtension extends Extension {
             }
         );
 
+        // A section's own source re-renders with the document as last read: it moved its
+        // own data, not the document.
+        for (const entry of SECTIONS) {
+            entry.source?.start(() => this._render(this._document));
+        }
+
         this._refresh();
     }
 
     disable() {
+        for (const entry of SECTIONS) {
+            entry.source?.stop();
+        }
         if (this._pollSourceId !== null) {
             GLib.source_remove(this._pollSourceId);
             this._pollSourceId = null;
@@ -111,6 +131,7 @@ export default class FedoraDesktopExtension extends Extension {
         // Back to "could not tell" rather than a stale value: a re-enable reads it again,
         // and an empty answer suppresses the boot claim instead of inventing one.
         this._runningKernel = '';
+        this._document = null;
     }
 
     _refresh() {
@@ -131,10 +152,19 @@ export default class FedoraDesktopExtension extends Extension {
             return;
         }
 
+        this._document = document;
+
         const ids = SECTIONS.flatMap(entry => entry.documentSections);
-        const state = document === null
+        const documentState = document === null
             ? StatusDocument.UNAVAILABLE
             : StatusDocument.overallState(document, ids, this._runningKernel);
+        // Folded in even before the document has been read: a live container finding must
+        // not wait for the drift document to arrive.
+        const state = StatusDocument.worstOf([
+            documentState,
+            ...SECTIONS.filter(entry => entry.state).map(
+                entry => entry.state(document, this._runningKernel)),
+        ]);
 
         this._icon.icon_name = ICONS[state] ?? ICONS[StatusDocument.UNAVAILABLE];
         // `unavailable` gets its own colour rather than sharing the attention amber. It
@@ -159,7 +189,13 @@ export default class FedoraDesktopExtension extends Extension {
             return;
         }
 
-        SECTIONS.forEach((entry, index) => {
+        // Stable: a section that `leads` moves ahead, the rest keep the registry's order.
+        const shown = SECTIONS.filter(entry => !entry.hidden?.());
+        const ordered = [
+            ...shown.filter(entry => entry.leads?.()),
+            ...shown.filter(entry => !entry.leads?.()),
+        ];
+        ordered.forEach((entry, index) => {
             if (index > 0) {
                 menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
             }

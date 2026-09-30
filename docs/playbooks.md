@@ -820,7 +820,9 @@ is in a runaway restart loop** — the one action it is permitted to take:
 - **The allowlist caveat**: an allowlist entry exempts a container from containment only if it
   names the container and carries **no** `cmd_pattern`. An entry with a `cmd_pattern` is a
   statement about processes, and does not exempt the container from being stopped
-- Installs a GNOME Shell panel extension that surfaces the findings
+- Installs no panel extension of its own: on a desktop the findings appear as the
+  **Containers** section of the single Fedora Desktop panel, deployed by
+  `play-fedora-desktop-panel.yml`
 - Writes a `report.json` and emits a DBus signal
 - **Works on a server**, where it matters most: the helper, CLI and user timer are not
   desktop-gated, and with no panel to read the journal line is the whole notification
@@ -938,6 +940,23 @@ The `fedora-desktop` GNOME Shell panel — **it offers; a person decides**:
 - **An absent document reads as `unavailable`, never as healthy.** "Nothing is known
   about this host" is a third state, distinct from "nothing is wrong" — conflating them is
   the failure this plan exists for
+- **"Containers"** is the container watchdog's surface (`play-container-watch.yml` runs the
+  backend). It lists process and crash-loop findings and the restart-policy advisories;
+  activating a finding copies its inspect command, an advisory its remedy. It reads the
+  watchdog's own report and never starts a scan or touches a container. A newly appeared
+  finding raises one desktop notification, deduped. The section is hidden on a host without
+  the watchdog; with no report yet it says "no scan recorded since this boot" and counts
+  as fine (the subject is live); an unreadable report reads as `unavailable`
+- **One icon, worst of everything.** A container finding counts as a finding like any
+  other: the icon takes the worst of the host-health sections and the containers section,
+  using the same three states and no extra colour. The section with findings is listed
+  first, and the notification names the container, so a new crash loop is visible even
+  while standing drift already has the icon amber. Advisories never move the icon
+- **Retires the old Container Watch extension**: removes `container-watch@fedora-desktop`
+  from the declared enabled-extensions key and deletes its deployed directory, so the
+  top bar carries one icon. The old icon goes at once but the containers section loads only
+  at the next login, so container alerts are absent until then. Transitional; it can go once
+  no managed host could still carry the old extension
 - Enables the extension by **declaring the gsettings key**, not by asking the running
   shell: a fresh deploy has not been scanned yet, so `gnome-extensions enable` is silently
   lost

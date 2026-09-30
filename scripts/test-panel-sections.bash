@@ -10,8 +10,9 @@
 # `check_panel_contract.py` proves it shares a vocabulary with the producer. None of the
 # three can tell a demoted finding from a current one, and neither can a screenshot.
 #
-# The tests import `statusDocument.js`, `sections/health.js`, `sections/plays.js`, both
-# extensions' `extension.js` themselves, with `tests/extensions/gjs-loader.mjs` answering the `gi://` and
+# The tests import `statusDocument.js`, `containerReport.js`, `sections/health.js`,
+# `sections/plays.js`, `sections/containers.js` and the extensions' `extension.js`
+# themselves, with `tests/extensions/gjs-loader.mjs` answering the `gi://` and
 # `resource:///` imports a GNOME Shell process would provide. What runs is the shipped
 # file.
 #
@@ -33,6 +34,7 @@ cd "$ROOT_DIR"
 TEST_FILES=(
     tests/extensions/test-panel-sections.mjs
     tests/extensions/test-panel-indicator.mjs
+    tests/extensions/test-panel-containers.mjs
     tests/extensions/test-dock-recovery-on-unlock.mjs
 )
 

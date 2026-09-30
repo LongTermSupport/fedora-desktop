@@ -14,9 +14,13 @@
 # sections arrive and leave independently of the health document, so its lifecycle is its
 # own and does not depend on any one producer.
 #
-# `play-container-watch.yml` deploys a backend and its extension together, which is right
-# there because that extension is that backend's only surface. This one fronts several,
-# so it is tied to none of them. DESIGN-panel.md §7.
+# This panel fronts several backends, so it is tied to none of them. The container
+# watchdog is one: its findings are a section of this panel (read from the watchdog's own
+# report), and `play-container-watch.yml` deploys only that backend. The standalone
+# container-watch extension that play used to install is retired here, in the run that
+# deploys its replacement, so no host ends up with two icons. The old icon goes at once
+# (GNOME disables it live) but the new section loads only at the next login, so container
+# alerts are absent between this run and that logout. DESIGN-panel.md §7.
 #
 # **The producer is a separate play and this does not deploy it.** The document comes
 # from `play-host-health-login-report.yml`. Missing it is not an error here: the panel
@@ -43,6 +47,9 @@
     extension_src: "{{ root_dir }}/extensions/{{ extension_name }}"
     user_extensions_dir: "/home/{{ user_login }}/.local/share/gnome-shell/extensions"
     extension_dest: "{{ user_extensions_dir }}/{{ extension_name }}"
+    # Transitional: the standalone extension this panel absorbed. Drop the two retire
+    # tasks and this var once no managed host could still carry it.
+    retired_extension_name: container-watch@fedora-desktop
   tasks:
     - name: Scope guard — assert provisioning_profile is recognised
       ansible.builtin.assert:
@@ -69,8 +76,8 @@
         name: xdg-terminal-exec
         state: present
 
-    # A whole-directory copy, the `play-container-watch.yml` form. The extension is
-    # several files including `sections/`, and an explicit per-file loop is one more
+    # A whole-directory copy. The extension is several files including `sections/`, and
+    # an explicit per-file loop is one more
     # place to forget a new one — a file that exists in the repo and never deploys
     # fails silently at runtime, which extensions/CLAUDE.md records as having happened.
     - name: Deploy The fedora-desktop Panel Extension
@@ -131,6 +138,47 @@
           {{ extension_name }} is deployed and declared enabled; the shell reads that
           key at session start
 
+    # Transitional retirement of the standalone container-watch extension, whose panel
+    # section now lives in this extension. The uuid leaves the key FIRST (GNOME Shell
+    # watches it and disables a loaded extension that leaves it, live), then the files
+    # go, so the shell is never left holding an enabled uuid whose directory vanished.
+    # Only the named uuid is ever removed; the user's own extensions are untouched.
+    # Like the enable above, the helper re-reads the key, so a removal that did not take
+    # fails the task itself and carries no `failed_when`.
+    - name: Retire The Standalone container-watch Extension From enabled-extensions
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -m
+          - helpers.gnome.apply_enabled_extensions
+          - --extensions-dir
+          - "{{ user_extensions_dir }}"
+          - --retire-uuid
+          - "{{ retired_extension_name }}"
+        chdir: "{{ root_dir }}"   # repo root on sys.path so the helpers package imports
+      register: panel_retired
+      changed_when: "'GNOME-EXT-RETIRED' in panel_retired.stdout"
+
+    - name: Assert The Standalone container-watch Extension Is Retired
+      ansible.builtin.assert:
+        that:
+          - "'GNOME-EXT-FAIL' not in panel_retired.stdout"
+          - "'GNOME-EXT-RETIRED' in panel_retired.stdout or 'GNOME-EXT-ENABLED-UNCHANGED' in panel_retired.stdout"
+        fail_msg: |
+          {{ retired_extension_name }} could not be removed from enabled-extensions:
+
+          {{ panel_retired.stdout }}
+
+          Its files are deliberately left in place until the uuid is out of the key.
+        success_msg: "{{ retired_extension_name }} is not in enabled-extensions"
+
+    - name: Remove The Standalone container-watch Extension Files
+      ansible.builtin.file:
+        path: "{{ user_extensions_dir }}/{{ retired_extension_name }}"
+        state: absent
+
     # Every deploy ends with this, because on Wayland nothing else reloads extension
     # JavaScript. `Alt+F2 r` is X11-only and toggling the extension only restarts code
     # already loaded, so an operator who skips this is testing the previous version and
@@ -140,5 +188,7 @@
         msg: >-
           Log out and log back in. On Wayland that is the ONLY way to load the new
           extension code — Alt+F2 r is X11-only, and disabling and re-enabling the
-          extension just restarts the code already in memory. Until then the panel
-          shows the previous version, or nothing.
+          extension just restarts the code already in memory. Until you log back in
+          the panel shows the previous version, or nothing, and container alerts are
+          absent: the old Container Watch icon is already gone and the panel's
+          containers section has not loaded yet.

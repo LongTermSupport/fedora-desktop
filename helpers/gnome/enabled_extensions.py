@@ -15,7 +15,8 @@ handed. The side-effecting half is `apply_enabled_extensions.py`.
 
 Merging is additive on purpose: a user's own enabled extensions are not ours to
 revoke, so the play is idempotent and never surprises anyone by turning
-something off.
+something off. The one removal route is `retire`, which takes out UUIDs the play
+NAMES (an extension this repo used to deploy and no longer does) and nothing else.
 """
 
 from __future__ import annotations
@@ -126,6 +127,53 @@ def merge(current: Iterable[str], deployed: Iterable[str]) -> MergeResult:
             added.append(uuid)
 
     return MergeResult(values=values, changed=values != current_list, added=added)
+
+
+@dataclasses.dataclass(frozen=True)
+class RetireResult:
+    """The list without the retired UUIDs, whether it differs, and what was removed."""
+
+    values: list[str]
+    changed: bool
+    removed: list[str]
+
+
+def retire(
+    current: Iterable[str],
+    retired: Iterable[str],
+    declared: Iterable[str] = (),
+) -> RetireResult:
+    """Remove the NAMED `retired` UUIDs from `current`; nothing else is ever removed.
+
+    Retirement is declared, never discovered — the same rule `merge` applies to
+    additions — so a user's own extensions are untouched. Every occurrence of a
+    retired UUID goes; survivors keep their order and any duplicates they already
+    had (this is not a repair pass). A retired UUID that is not in the list is not
+    an error: that is the idempotent re-run.
+
+    A UUID that is both declared and retired in one call is a contradiction the
+    caller has to resolve, so it raises rather than picking a winner.
+    """
+    retired_list: list[str] = []
+    for uuid in retired:
+        validate_uuid(uuid)
+        if uuid not in retired_list:
+            retired_list.append(uuid)
+
+    declared_set = set(declared)
+    contradictory = [uuid for uuid in retired_list if uuid in declared_set]
+    if contradictory:
+        raise ValueError(
+            f"declared and retired in the same call: {', '.join(contradictory)}; "
+            "an extension cannot be both"
+        )
+
+    current_list = list(current)
+    retired_set = set(retired_list)
+    values = [uuid for uuid in current_list if uuid not in retired_set]
+    present = set(current_list)
+    removed = [uuid for uuid in retired_list if uuid in present]
+    return RetireResult(values=values, changed=values != current_list, removed=removed)
 
 
 # The executor reports the declared set on a marker line the play splits: first on

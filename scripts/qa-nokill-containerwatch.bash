@@ -85,16 +85,35 @@ LIFECYCLE_PATTERNS=(
 
 FORBIDDEN_PATTERNS=("${SIGNAL_PATTERNS[@]}" "${LIFECYCLE_PATTERNS[@]}")
 
-# Collect target files. The JS extension dir is created by a sibling task and may
-# not exist yet — glob it without failing (nullglob), and gate whatever exists.
+# The container-watch panel code lives in the Fedora Desktop panel extension (Plan 00144):
+# the report reader and the containers section. They are NAMED, not globbed — a glob over a
+# directory that has moved or been emptied matches nothing and the gate goes on printing a
+# pass while scanning no JavaScript, which is exactly what deleting the old extension's
+# directory would have done.
+JS_TARGETS=(
+    extensions/fedora-desktop@fedora-desktop/containerReport.js
+    extensions/fedora-desktop@fedora-desktop/sections/containers.js
+)
+
+# Collect target files into the array named by $2. Returns 1, naming each, when a declared
+# JavaScript target is missing: a missing target is a gate that has stopped judging it.
 collect_targets() {
     local root="$1"
     local -n _out="$2"
     _out=()
+    local missing=0 f
+    for f in "${JS_TARGETS[@]}"; do
+        if [[ ! -f "$root/$f" ]]; then
+            echo "ERROR: declared container-watch JavaScript target is missing: $f" >&2
+            missing=1
+        fi
+    done
     shopt -s nullglob
-    local f
     for f in "$root"/helpers/containerwatch/*.py \
-             "$root"/extensions/container-watch@fedora-desktop/*.js; do
+             "${JS_TARGETS[@]/#/$root/}"; do
+        # A declared target that is missing was already reported above; it must not be
+        # handed to the scanner as a path that does not exist.
+        [[ -f "$f" ]] || continue
         # containment.py is the one audited exception and is checked separately by
         # assert_containment_stops_only, against a STRICTER list. Skipping it here
         # is not a hole: it is the only file in the tree that may not name kill,
@@ -103,6 +122,7 @@ collect_targets() {
         _out+=("$f")
     done
     shopt -u nullglob
+    return "$missing"
 }
 
 # Scan a set of files for forbidden call sites. Echoes each "file:line: text"
@@ -327,6 +347,38 @@ PYEOF
         self_test_ok=0
     fi
 
+    # (h) A JavaScript target that is gone must FAIL collection, not be globbed away. A
+    # root holding the Python watchdog but none of the declared panel files is exactly the
+    # state deleting the old extension directory left behind.
+    local bare_root="$tmp/bare_root"
+    mkdir -p "$bare_root/helpers/containerwatch"
+    : > "$bare_root/helpers/containerwatch/core.py"
+    local bare_targets bare_rc=0
+    collect_targets "$bare_root" bare_targets 2> /dev/null || bare_rc=$?
+    if [[ $bare_rc -ne 0 && ${#bare_targets[@]} -eq 1 ]]; then
+        echo "  self-test (h) PASS: missing JavaScript target fails collection"
+    else
+        echo "  self-test (h) FAIL: missing JavaScript target was silently skipped" >&2
+        self_test_ok=0
+    fi
+
+    # (i) A JavaScript kill call site in a declared target must be DETECTED, proving the
+    # JS patterns reach the panel files and not only Python.
+    local js_fixture="$tmp/containers.js"
+    cat > "$js_fixture" <<'JSEOF'
+function reap(proc) {
+    proc.force_exit();
+}
+JSEOF
+    local js_rc=0
+    scan_targets "$js_fixture" > /dev/null || js_rc=$?
+    if [[ $js_rc -eq 1 ]]; then
+        echo "  self-test (i) PASS: JavaScript force_exit( detected"
+    else
+        echo "  self-test (i) FAIL: JavaScript force_exit( NOT detected (rc=$js_rc)" >&2
+        self_test_ok=0
+    fi
+
     rm -rf "$tmp"
 
     if [[ $self_test_ok -eq 1 ]]; then
@@ -363,8 +415,13 @@ main() {
         fi
     fi
 
-    local targets
-    collect_targets "$REPO_ROOT" targets
+    local targets collect_rc=0
+    collect_targets "$REPO_ROOT" targets || collect_rc=$?
+    if [[ $collect_rc -ne 0 ]]; then
+        echo "✗ no-kill gate: a declared target is missing (see above); refusing to pass" >&2
+        echo "  on a scan that did not cover it. Re-point JS_TARGETS if the file moved." >&2
+        exit 2
+    fi
     if [[ ${#targets[@]} -eq 0 ]]; then
         echo "ERROR: no container-watch targets found under $REPO_ROOT — expected" >&2
         echo "       helpers/containerwatch/*.py (the watchdog must exist)." >&2

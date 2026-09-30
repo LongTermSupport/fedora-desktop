@@ -2,9 +2,11 @@
 ---
 # Container Watchdog
 #
-# Deploys the containerwatch helper, its CLI wrapper, the systemd --user timer
-# that runs periodic scans, and the GNOME Shell panel extension that surfaces the
-# findings report.
+# Deploys the containerwatch helper, its CLI wrapper and the systemd --user timer
+# that runs periodic scans. It is the backend only: the desktop surface for the
+# findings report is a section of the Fedora Desktop panel, deployed by
+# `play-fedora-desktop-panel.yml`, which also retires the standalone
+# container-watch extension this play used to install.
 #
 # It NEVER signals a process — that guarantee is unchanged and gated by
 # scripts/qa-nokill-containerwatch.bash. It has exactly one action it may take: a
@@ -21,9 +23,6 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
-    extension_name: container-watch@fedora-desktop
-    extension_src: "{{ root_dir }}/extensions/{{ extension_name }}"
-    extension_dest: "/home/{{ user_login }}/.local/share/gnome-shell/extensions/{{ extension_name }}"
   tasks:
     # =========================================================================
     # Helper library (ccy-helpers shared lib, imported as helpers.containerwatch)
@@ -99,31 +98,6 @@
         - container-watch.timer
 
     # =========================================================================
-    # GNOME Extension (recursive directory copy — auto-includes every file)
-    # =========================================================================
-    # The general watchdog daemon (helper lib, CLI, systemd --user timer) above
-    # runs on any profile; the GNOME Shell panel extension below is desktop-only,
-    # so every extension task is gated off on a server (Plan 00061 §6.4).
-    - name: Ensure extension destination directory exists
-      ansible.builtin.file:
-        path: "{{ extension_dest }}"
-        state: directory
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0755"
-      when: provisioning_profile != 'server'
-
-    - name: Deploy container-watch GNOME extension
-      ansible.builtin.copy:
-        src: "{{ extension_src }}/"
-        dest: "{{ extension_dest }}/"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0644"
-        directory_mode: "0755"
-      when: provisioning_profile != 'server'
-
-    # =========================================================================
     # Enable the user TIMER (not the service)
     # =========================================================================
     # Resolved, never defaulted. `user_login_uid` is assigned nowhere in this repo,
@@ -180,44 +154,3 @@
         daemon_reload: true
       environment:
         XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
-
-    # =========================================================================
-    # Enable the GNOME extension — declared state, not a request to the shell
-    # =========================================================================
-    # `gnome-extensions enable` asks the RUNNING shell to enable a UUID, and on a
-    # fresh install the shell has not scanned the new directory yet, so the request
-    # is silently lost. Plan 00110's desktop acceptance run found eight extensions
-    # installed, compiled, loaded and NONE enabled. The gsettings key is read at
-    # session start and watched live, so declaring it works whether or not a shell
-    # has loaded the extension yet — Plan 00112 built this route for that reason and
-    # `play-gnome-shell-extensions.yml` already uses it.
-    #
-    # It merges without removing, so extensions the user enabled themselves survive,
-    # and it re-reads the key to prove the write took. That self-check is why this
-    # needs no `failed_when`: the operation is its own probe and fails loudly.
-    #
-    # What was here before: a probe, a disable, a two-second pause and an enable,
-    # each with `failed_when: false`, then a `debug` saying the extension "will be
-    # enabled on next GNOME session start". Three prohibited suppressions and a
-    # false statement — nothing enabled it later, because a failed `enable` never
-    # wrote the key. The dance's stated purpose was forcing a reload, which on
-    # Wayland cannot work at all: only a logout reloads extension JavaScript
-    # (extensions/CLAUDE.md), so it bought nothing and hid the one thing that
-    # mattered.
-    - name: Declare The container-watch Extension Enabled
-      become: true
-      become_user: "{{ user_login }}"
-      ansible.builtin.command:
-        argv:
-          - python3
-          - -m
-          - helpers.gnome.apply_enabled_extensions
-          - --extensions-dir
-          - "{{ extension_dest | dirname }}"
-          - --extensions-dir
-          - /usr/share/gnome-shell/extensions
-          - "--uuid={{ extension_name }}"
-        chdir: "{{ root_dir }}"   # repo root on sys.path so the helpers package imports
-      register: cw_enabled
-      changed_when: "'GNOME-EXT-ENABLED-CHANGED' in cw_enabled.stdout"
-      when: provisioning_profile != 'server'

@@ -1,13 +1,15 @@
 # Plan 00144 — Decisions
 
-Open decisions carry a **recommendation** and are marked **DECISION FOR THE OWNER**. The
-facts they rest on are in [RESEARCH-current-state.md](RESEARCH-current-state.md).
+D1, D2 and D3 were **settled by the owner**, each as the recommended option; the options
+and reasoning are kept below as the record of what was weighed. The facts they rest on are
+in [RESEARCH-current-state.md](RESEARCH-current-state.md).
 
 ---
 
 ## D1. How the container-watch alert combines with the drift state on the one icon
 
-**DECISION FOR THE OWNER.**
+**SETTLED by the owner: Option A** — fold into the three states, worst-of; the container
+section renders first when it has findings; the new-finding notification is kept.
 
 **Context.** Today there are two icons and both use the same amber `dialog-warning-symbolic`
 for their alert. The panel's icon has three states (`ok` / `findings` / `unavailable`),
@@ -59,7 +61,9 @@ owner judges "new crash loop hidden behind standing drift" unacceptable.
 
 ## D2. What an absent or unreadable container-watch report means
 
-**DECISION FOR THE OWNER** (sub-decision of D1; affects the icon only under Option A/B).
+**SETTLED by the owner: the recommended rendering in the table below** (not installed →
+hidden; no report yet → stated in words, `ok`; unreadable → `unavailable`). Sub-decision
+of D1.
 
 Three cases, which today's container-watch collapses into "no flagged containers":
 
@@ -89,12 +93,13 @@ worth doing, but they are new behaviour; see PLAN.md Non-Goals.
 
 ## D3. Which play retires `container-watch@fedora-desktop`
 
-**DECISION FOR THE OWNER.**
+**SETTLED by the owner: Option A** — `play-fedora-desktop-panel.yml` retires it.
 
 - **Option A — `play-fedora-desktop-panel.yml` retires it (recommended).** The panel play
   deploys the replacement surface, so the old icon leaves in the same run that the new
-  section arrives. The two facts cannot come apart: no host ever has both icons, and no
-  host loses the container surface without gaining the section.
+  section arrives. The two facts cannot come apart: no host ever has both icons. The
+  cost is a gap: the old extension is disabled live but the new section loads only at
+  logout, so container alerts are absent between the run and the next login.
 - **Option B — `play-container-watch.yml` retires it** (the play that deployed it). Cleaner
   ownership, but a host that re-runs only the container-watch play loses its GUI surface
   if the panel play has not run, and a host that runs only the panel play keeps both
@@ -145,6 +150,10 @@ than a second hardcoded path in `extension.js`:
 - A section may export `state(document, runningKernel)` returning one of the three state
   constants. `overallState` folds the status-document ids as now, then the `state()` of
   every section that has one. `health` and `plays` need no change.
+- The build added two more optional per-section hooks, both read generically by
+  `extension.js`: `hidden()` (the section draws nothing, no header and no separator, when
+  the feature is not installed or nothing has been read yet) and `leads()` (the section is
+  listed first while it has findings). Neither is specific to containers.
 - The container report reader lives in its own module (`containerReport.js`), mirroring
   `statusDocument.js`, so parsing and the D2 rules are unit-testable without widgets.
 

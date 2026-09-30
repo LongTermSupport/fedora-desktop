@@ -13,12 +13,12 @@
  * producer look like; collapsing those is the incident this plan exists for, rebuilt in
  * the UI layer.
  *
- * `container-watch` is the template for the async read below, but NOT for the error
- * handling. Every one of its failure paths ends in an empty findings array, which is
- * right for it — its subject is live container processes, so "the scanner has not run"
- * genuinely means nothing is flagged right now. These facts are not live: a dead DKMS
- * module for the running kernel stays dead. So absence here is ignorance and reads as
- * such.
+ * The container section (`containerReport.js`) is the template for the async read below,
+ * but NOT for the error handling of its absent case. A container report that has not been
+ * written yet genuinely means nothing is flagged right now: its subject is live container
+ * processes and the scanner has simply not run this boot. These facts are not live: a dead
+ * DKMS module for the running kernel stays dead. So absence here is ignorance and reads as
+ * such. (An UNREADABLE container report is ignorance too, and reads as `unavailable`.)
  *
  * Design: CLAUDE/Plan/00109-desktop-drift-detection-and-fedora-desktop-panel/DESIGN-panel.md
  */
@@ -75,7 +75,7 @@ export function onDemandCommandPath() {
 }
 
 /** `GLib.get_user_state_dir()` applies the same XDG rule as `ledger.state_dir`. The
- * runtime dir that `container-watch` uses would be wrong here: it is cleared at boot,
+ * runtime dir the container report lives in would be wrong here: it is cleared at boot,
  * and a post-boot health verdict that vanishes at boot has no reader. */
 export function documentPath() {
     return GLib.build_filenamev([GLib.get_user_state_dir(), STATE_DIR_NAME, FILE_NAME]);
@@ -283,6 +283,22 @@ export function overallState(document, ids, running) {
     let sawUnavailable = documentReasons(document).length > 0;
     for (const id of ids) {
         const state = resolvedSection(document, id, running).state;
+        if (state === FINDINGS) {
+            return FINDINGS;
+        }
+        if (state !== OK) {
+            sawUnavailable = true;
+        }
+    }
+    return sawUnavailable ? UNAVAILABLE : OK;
+}
+
+/** The worst of several states: any `findings` wins, then any `unavailable`, else `ok`.
+ * The same ordering `overallState` applies across document sections, for a caller folding
+ * in a state that does not come from the status document (Plan 00144). */
+export function worstOf(states) {
+    let sawUnavailable = false;
+    for (const state of states) {
         if (state === FINDINGS) {
             return FINDINGS;
         }
