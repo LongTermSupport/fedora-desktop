@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.28.1"
+RUN_BASH_VERSION="1.29.0"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -958,6 +958,8 @@ PLAY_PATH=""
 PLAY_ARGS=()
 # --changed (Plan 00141): run every play whose inputs changed since it last ran here.
 CHANGED_PLAYS=false
+# --rerun (Plan 00141): list the plays that have run here and run the ones the operator picks.
+RERUN_PLAYS=false
 while (( $# > 0 )); do
   _arg="$1"
   shift
@@ -977,6 +979,11 @@ Options:
                        playbook-main.yml order, optional plays last, and stops at
                        the first failure. Names any play it cannot judge, and any
                        that is gone, rather than skip it.
+  --rerun              List every play that has run here as a numbered menu, the
+                       ones that have to run again marked * (changed since, or
+                       last run failed). Pick one or more ("3", "1 4"), "a" for
+                       every play marked *, "q" to quit. The pick runs at once, in
+                       playbook-main.yml order, and stops at the first failure.
   <playbook>.yml [ansible-playbook args…]
                        Run ONE play from this checkout and exit. Handles sudo for
                        you: NOPASSWD runs bare, password sudo gets Ansible's
@@ -1195,6 +1202,9 @@ USAGE
       ;;
     --changed)
       CHANGED_PLAYS=true
+      ;;
+    --rerun)
+      RERUN_PLAYS=true
       ;;
     *.yml)
       # A playbook path is the only positional run.bash takes; everything after it is
@@ -1892,25 +1902,78 @@ run_playbook_with_issue_option(){
 # Plan 00141. helpers/play_ledger/changed_plays.py decides which plays: its marker lines
 # are the whole answer, and one it cannot give (exit 2) runs nothing. Each play then runs
 # through the same runner as a single play, under one play lock, in the judge's order.
-if [[ "$CHANGED_PLAYS" == "true" ]]; then
+#
+# --rerun (Plan 00141) shares the preflight, the judge call, the dirty-checkout warning and
+# the run loop below; it differs only in who picks the plays (the operator, from a menu).
+
+# play_batch_preflight <flag> — the refusals --changed and --rerun share.
+play_batch_preflight(){
+  local _flag="$1"
   if [[ -n "$PLAY_PATH" || "$OPTIONAL_ONLY" == "true" ]]; then
-    fatal "changed plays" "--changed takes no playbook path and no --optional-only" \
-      "run ./run.bash --changed on its own"
+    fatal "${_flag#--} plays" "${_flag} takes no playbook path and no --optional-only" \
+      "run ./run.bash ${_flag} on its own"
   fi
   if [[ "$HEADLESS" == "true" ]]; then
-    fatal "changed plays" "--changed asks before it runs anything, so it cannot run unattended" \
+    fatal "${_flag#--} plays" "${_flag} asks before it runs anything, so it cannot run unattended" \
       "run it from a terminal; on a server the self-update timer is the unattended path"
   fi
   if [[ -z "${BASH_SOURCE[0]:-}" || ! -f "${BASH_SOURCE[0]}" ]]; then
-    fatal "changed plays" "run.bash is being streamed, not run from a checkout" \
-      "cd into the fedora-desktop checkout and run ./run.bash --changed"
+    fatal "${_flag#--} plays" "run.bash is being streamed, not run from a checkout" \
+      "cd into the fedora-desktop checkout and run ./run.bash ${_flag}"
   fi
   _play_repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-  cd "$_play_repo" || fatal "changed plays" "cannot cd into ${_play_repo}" "check the checkout"
+  cd "$_play_repo" || fatal "${_flag#--} plays" "cannot cd into ${_play_repo}" "check the checkout"
   if ! command -v ansible-playbook >/dev/null; then
-    fatal "changed plays" "ansible-playbook not found on PATH" \
+    fatal "${_flag#--} plays" "ansible-playbook not found on PATH" \
       "run ./run.bash once (it installs ansible via pipx), and do not run it under sudo"
   fi
+}
+
+# play_batch_warn_dirty <flag> — a run from a dirty checkout is recorded as dirty, and the
+# helper offers a dirty run again because no diff can show what it deployed. Say so now,
+# not on the next run.
+play_batch_warn_dirty(){
+  local _flag="$1" _dirty
+  if ! _dirty="$(git -C "$_play_repo" status --porcelain)"; then
+    fatal "${_flag#--} plays" "git status failed in ${_play_repo}, so it cannot tell whether this run is from a clean checkout" \
+      "fix the checkout, then run ./run.bash ${_flag} again"
+  fi
+  if [[ -n "$_dirty" ]]; then
+    warning "The checkout has uncommitted changes. These plays will be recorded as run from a dirty checkout, and --changed will offer them again until they run from a clean one."
+  fi
+}
+
+# play_batch_run <what> <adjective> <play>… — under one play lock, each play through the
+# single-play runner in the order given; the first failure stops the run and is its exit
+# status. Always exits.
+play_batch_run(){
+  local _what="$1" _adjective="$2"
+  shift 2
+  local -a _plays=("$@")
+  local _i _play _rc
+  play_lock_take "$_what"
+  for _i in "${!_plays[@]}"; do
+    _play="${_plays[$_i]}"
+    _rc=0
+    run_playbook_with_issue_option "$_play_repo/$_play" "$(basename "$_play" .yml)" || _rc=$?
+    if [[ "$_rc" -ne 0 ]]; then
+      error "Stopped: ${_play} failed (exit code: ${_rc})"
+      if [[ $((_i + 1)) -lt ${#_plays[@]} ]]; then
+        printf '     Not run: %s\n' "${_plays[@]:$((_i + 1))}"
+      fi
+      exit "$_rc"
+    fi
+  done
+  success "All ${#_plays[@]} ${_adjective} play(s) ran"
+  exit 0
+}
+
+if [[ "$CHANGED_PLAYS" == "true" ]]; then
+  if [[ "$RERUN_PLAYS" == "true" ]]; then
+    fatal "changed plays" "--changed and --rerun are mutually exclusive" \
+      "--rerun lists every play and lets you pick; --changed runs the changed ones"
+  fi
+  play_batch_preflight --changed
   if ! _changed_out="$(python3 -m helpers.play_ledger.changed_plays --repo-root "$_play_repo")"; then
     fatal "changed plays" "could not work out which plays changed, so none is run (see above)" \
       "fix what the message above names, then run ./run.bash --changed again"
@@ -1945,33 +2008,130 @@ if [[ "$CHANGED_PLAYS" == "true" ]]; then
   fi
   echo -e "\n${CYAN}${ARROW}${NC} ${#_changed_run[@]} play(s) changed since they last ran here:"
   printf '     %s\n' "${_changed_run[@]}"
-  # A run from a dirty checkout is recorded as dirty, and the helper offers a dirty run
-  # again because no diff can show what it deployed. Say so now, not on the next run.
-  if ! _changed_dirty="$(git -C "$_play_repo" status --porcelain)"; then
-    fatal "changed plays" "git status failed in ${_play_repo}, so it cannot tell whether this run is from a clean checkout" \
-      "fix the checkout, then run ./run.bash --changed again"
-  fi
-  if [[ -n "$_changed_dirty" ]]; then
-    warning "The checkout has uncommitted changes. These plays will be recorded as run from a dirty checkout, and --changed will offer them again until they run from a clean one."
-  fi
+  play_batch_warn_dirty --changed
   if ! confirm "Run them now, in this order?" n; then
     exit 0
   fi
-  play_lock_take "run.bash --changed"
-  for _i in "${!_changed_run[@]}"; do
-    _changed_play="${_changed_run[$_i]}"
-    _play_rc=0
-    run_playbook_with_issue_option "$_play_repo/$_changed_play" "$(basename "$_changed_play" .yml)" || _play_rc=$?
-    if [[ "$_play_rc" -ne 0 ]]; then
-      error "Stopped: ${_changed_play} failed (exit code: ${_play_rc})"
-      if [[ $((_i + 1)) -lt ${#_changed_run[@]} ]]; then
-        printf '     Not run: %s\n' "${_changed_run[@]:$((_i + 1))}"
+  play_batch_run "run.bash --changed" changed "${_changed_run[@]}"
+fi
+
+# ── rerun: list every play run here, let the operator pick, run the pick, then exit ───
+# Plan 00141. The same ledger and judgement as --changed (helpers/play_ledger/changed_plays.py
+# --all), shown as a numbered menu with the plays that need to run again marked. The pick
+# is the confirmation: nothing runs until the operator names it, and the plays run in menu
+# order (playbook-main.yml order, optional plays last), stopping at the first failure.
+if [[ "$RERUN_PLAYS" == "true" ]]; then
+  play_batch_preflight --rerun
+  if ! _rerun_out="$(python3 -m helpers.play_ledger.changed_plays --repo-root "$_play_repo" --all)"; then
+    fatal "rerun plays" "could not read which plays have run here, so none is offered (see above)" \
+      "fix what the message above names, then run ./run.bash --rerun again"
+  fi
+  _rerun_plays=()
+  _rerun_states=()
+  _rerun_gone=()
+  while IFS= read -r _rerun_line; do
+    [[ -n "$_rerun_line" ]] || continue
+    case "$_rerun_line" in
+      "PLAY "*)
+        _rerun_rest="${_rerun_line#PLAY }"
+        _rerun_states+=("${_rerun_rest%% *}")
+        _rerun_plays+=("${_rerun_rest#* }")
+        ;;
+      "GONE "*) _rerun_gone+=("${_rerun_line#GONE }") ;;
+      *)
+        fatal "rerun plays" "the changed-plays helper printed a line run.bash does not know: ${_rerun_line}" \
+          "run.bash and helpers/play_ledger/changed_plays.py disagree; update the checkout"
+        ;;
+    esac
+  done <<<"$_rerun_out"
+  if [[ ${#_rerun_gone[@]} -gt 0 ]]; then
+    warning "These plays ran here and are no longer in the checkout, so they are not offered:"
+    printf '     %s\n' "${_rerun_gone[@]}"
+  fi
+  if [[ ${#_rerun_plays[@]} -eq 0 ]]; then
+    success "No play has run on this machine yet, so there is nothing to re-run"
+    exit 0
+  fi
+  _rerun_stale=()
+  echo -e "\n${CYAN}${ARROW}${NC} Plays that have run on this machine (${YELLOW}*${NC} = has to run again):"
+  for _i in "${!_rerun_plays[@]}"; do
+    case "${_rerun_states[$_i]}" in
+      stale)      _rerun_mark="*"; _rerun_word="changed since it last ran here" ;;
+      failed)     _rerun_mark="*"; _rerun_word="its last run failed" ;;
+      unresolved) _rerun_mark=" "; _rerun_word="cannot tell whether it changed" ;;
+      current)    _rerun_mark=" "; _rerun_word="unchanged since it last ran here" ;;
+      *)
+        fatal "rerun plays" "the changed-plays helper printed a state run.bash does not know: ${_rerun_states[$_i]}" \
+          "run.bash and helpers/play_ledger/changed_plays.py disagree; update the checkout"
+        ;;
+    esac
+    [[ "$_rerun_mark" == "*" ]] && _rerun_stale+=("$_i")
+    printf '  %s %2d) %s — %s\n' "$_rerun_mark" "$((_i + 1))" "${_rerun_plays[$_i]}" "$_rerun_word"
+  done
+  echo -e "\n   Pick plays by number, e.g. ${BOLD}3${NC} or ${BOLD}1 4${NC}; ${BOLD}a${NC} = every play marked *; ${BOLD}q${NC} = quit."
+  _rerun_tries=0
+  _rerun_max_tries=3
+  while true; do
+    if ! read -rp "   Your choice: " _rerun_answer; then
+      echo >&2
+      error "No input — nothing was run."
+      exit 1
+    fi
+    _rerun_picked=()
+    _rerun_bad=""
+    # IFS is narrowed for the whole script; an answer is split on blanks, whatever it is.
+    IFS=$' \t' read -ra _rerun_words <<<"${_rerun_answer//,/ }"
+    if [[ ${#_rerun_words[@]} -eq 0 ]]; then
+      _rerun_bad="Type a number, several numbers, a or q."
+    elif [[ "${_rerun_words[0],,}" == "q" || "${_rerun_words[0],,}" == "quit" ]]; then
+      if [[ ${#_rerun_words[@]} -gt 1 ]]; then
+        _rerun_bad="q quits on its own; it cannot be combined with a number."
+      else
+        echo -e "${YELLOW}${INFO} Nothing was run${NC}"
+        exit 0
       fi
-      exit "$_play_rc"
+    elif [[ "${_rerun_words[0],,}" == "a" || "${_rerun_words[0],,}" == "all" ]]; then
+      if [[ ${#_rerun_words[@]} -gt 1 ]]; then
+        _rerun_bad="a means every play marked *; it cannot be combined with a number."
+      elif [[ ${#_rerun_stale[@]} -eq 0 ]]; then
+        _rerun_bad="No play is marked *, so a has nothing to pick. Type a number, or q."
+      else
+        _rerun_picked=("${_rerun_stale[@]}")
+      fi
+    else
+      declare -A _rerun_seen=()
+      for _rerun_word in "${_rerun_words[@]}"; do
+        if [[ ! "$_rerun_word" =~ ^[0-9]+$ ]] || (( 10#$_rerun_word < 1 || 10#$_rerun_word > ${#_rerun_plays[@]} )); then
+          _rerun_bad="'${_rerun_word}' is not a choice: use numbers from 1 to ${#_rerun_plays[@]}, a or q."
+          break
+        fi
+        _rerun_seen[$((10#$_rerun_word - 1))]=1
+      done
+      if [[ -z "$_rerun_bad" ]]; then
+        for _i in "${!_rerun_plays[@]}"; do
+          [[ -n "${_rerun_seen[$_i]:-}" ]] && _rerun_picked+=("$_i")
+        done
+      fi
+      unset _rerun_seen
+    fi
+    if [[ -z "$_rerun_bad" ]]; then
+      break
+    fi
+    _rerun_tries=$((_rerun_tries + 1))
+    echo -e "   ${RED}${CROSS} ${_rerun_bad}${NC}" >&2
+    if [[ "$_rerun_tries" -ge "$_rerun_max_tries" ]]; then
+      error "Giving up after ${_rerun_max_tries} unusable answers — nothing was run."
+      exit 1
     fi
   done
-  success "All ${#_changed_run[@]} changed play(s) ran"
-  exit 0
+  _rerun_run=()
+  for _i in "${_rerun_picked[@]}"; do
+    _rerun_run+=("${_rerun_plays[$_i]}")
+  done
+  echo -e "\n${CYAN}${ARROW}${NC} Running ${#_rerun_run[@]} play(s), in this order:"
+  printf '     %s\n' "${_rerun_run[@]}"
+  play_batch_warn_dirty --rerun
+  play_batch_run "run.bash --rerun" selected "${_rerun_run[@]}"
 fi
 
 # ── single play: run ONE play through the become-aware runner above, then exit ─────

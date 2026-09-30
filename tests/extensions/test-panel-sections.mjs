@@ -606,13 +606,14 @@ test('a clean host gets no copy row', () => {
 });
 
 /**
- * The play runner (Plan 00109, Task 4.3). It lists the plays the ledger has seen, each
- * with the state `check_freshness` judged — carried in the document, never recomputed
- * here — and a click launches exactly that play in a visible terminal. The panel says
- * what it launched; whether the play ran is the ledger's answer at the next refresh.
+ * The play re-runner (Plan 00109, Task 4.3; Plan 00141). ONE row, "Re-run a play…",
+ * opens `run.bash --rerun` in a visible terminal; the label carries the count of plays the
+ * document marks as not fresh (carried from `check_freshness`, never recomputed here). The
+ * panel says what it launched; whether a play ran is the ledger's answer at the next
+ * refresh.
  */
 const PLAY = 'playbooks/imports/play-claude-yolo.yml';
-const PLAYS_HEADER = 'Plays run on this machine';
+const RERUN_ROW = 'Re-run a play…';
 
 function withPlays(rows) {
     return {...document({}), plays: rows};
@@ -624,8 +625,8 @@ function renderPlays(doc) {
     return menu;
 }
 
-function playRow(menu, play) {
-    return menu.items.find(item => item?.label?.text?.startsWith(`${play} — `));
+function rerunRow(menu) {
+    return menu.items.find(item => item?.label?.text?.startsWith(RERUN_ROW));
 }
 
 test('playsOf passes the producer\'s rows through untouched', () => {
@@ -663,79 +664,92 @@ test('playsOf drops an entry it could not launch safely, and says it did', () =>
     assert.equal(read.reasons.length, 1);
 });
 
-test('each play is one clickable row naming its path and its state', () => {
+test('however many plays there are, the section is ONE clickable row', () => {
     const menu = renderPlays(withPlays([
         {play: PLAY, state: 'stale'},
         {play: 'playbooks/imports/play-comms.yml', state: 'fresh'},
         {play: 'playbooks/imports/play-vpn.yml', state: 'unexplained'},
     ]));
-    assert.equal(menu.texts[0], PLAYS_HEADER);
-    assert.match(playRow(menu, PLAY).label.text, /changed since it last ran here/);
-    assert.match(playRow(menu, 'playbooks/imports/play-comms.yml').label.text, /unchanged/);
-    assert.match(playRow(menu, 'playbooks/imports/play-vpn.yml').label.text, /no commit/);
-    for (const play of [PLAY, 'playbooks/imports/play-comms.yml']) {
-        assert.equal(playRow(menu, play).reactive, true);
+    assert.equal(menu.items.length, 1);
+    assert.equal(rerunRow(menu).reactive, true);
+    assert.ok(!menu.texts.some(text => text.includes('playbooks/')), 'no play is listed');
+});
+
+test('the label counts the plays that are not fresh', () => {
+    const menu = renderPlays(withPlays([
+        {play: PLAY, state: 'stale'},
+        {play: 'playbooks/imports/play-comms.yml', state: 'fresh'},
+        {play: 'playbooks/imports/play-vpn.yml', state: 'unexplained'},
+    ]));
+    assert.equal(rerunRow(menu).label.text, 'Re-run a play… (2 changed)');
+});
+
+test('a state this panel has no words for still counts, it is not dropped', () => {
+    const menu = renderPlays(withPlays([{play: PLAY, state: 'something-new'}]));
+    assert.equal(rerunRow(menu).label.text, 'Re-run a play… (1 changed)');
+});
+
+test('with nothing changed the label carries no count, and the row is still there', () => {
+    for (const rows of [[], [{play: PLAY, state: 'fresh'}]]) {
+        const menu = renderPlays(withPlays(rows));
+        assert.equal(rerunRow(menu).label.text, RERUN_ROW);
+        assert.equal(rerunRow(menu).reactive, true);
+        assert.equal(menu.items.length, 1);
     }
 });
 
-test('a state this panel has no words for is shown as it is, not dropped', () => {
-    const menu = renderPlays(withPlays([{play: PLAY, state: 'something-new'}]));
-    assert.match(playRow(menu, PLAY).label.text, /something-new/);
-});
-
-test('nothing to offer is said in a line that is not clickable', () => {
-    const menu = renderPlays(withPlays([]));
-    assert.equal(menu.texts.length, 2);
-    const line = menu.items.at(-1);
-    assert.equal(line.reactive, false);
-    assert.equal(SPAWNS.filter(spawn => spawn.argv.includes('--run-play')).length, 0);
-});
-
-test('a list that could not be read is rendered as not checked', () => {
+test('a list that could not be read keeps the row, and says the count is not known', () => {
     const menu = renderPlays(document({}));
-    assert.ok(menu.texts.some(text => text.startsWith('not checked')));
+    assert.equal(rerunRow(menu).label.text, RERUN_ROW);
+    assert.ok(menu.texts.some(text => text.includes('count is not known')));
 });
 
-test('activating a row launches exactly that play in a terminal, by argv, held open', () => {
+test('activating the row opens run.bash --rerun in a terminal, by argv, held open', () => {
     resetLaunches();
     EXECUTABLES.add(COMMAND_PATH);
-    playRow(renderPlays(withPlays([{play: PLAY, state: 'stale'}])), PLAY).emit('activate');
+    rerunRow(renderPlays(withPlays([{play: PLAY, state: 'stale'}]))).emit('activate');
     assert.equal(SPAWNS.length, 1);
     assert.deepEqual(SPAWNS[0].argv,
-        ['xdg-terminal-exec', COMMAND_PATH, '--run-play', PLAY, '--hold']);
+        ['xdg-terminal-exec', COMMAND_PATH, '--rerun', '--hold']);
 });
 
-test('the panel says what it launched, and never that the play ran', () => {
+test('nothing is launched until the row is activated', () => {
     resetLaunches();
     EXECUTABLES.add(COMMAND_PATH);
-    playRow(renderPlays(withPlays([{play: PLAY, state: 'stale'}])), PLAY).emit('activate');
+    renderPlays(withPlays([{play: PLAY, state: 'stale'}]));
+    assert.equal(SPAWNS.length, 0);
+    assert.equal(NOTIFICATIONS.length, 0);
+});
+
+test('the panel says what it launched, and never that a play ran', () => {
+    resetLaunches();
+    EXECUTABLES.add(COMMAND_PATH);
+    rerunRow(renderPlays(withPlays([{play: PLAY, state: 'stale'}]))).emit('activate');
     assert.equal(NOTIFICATIONS.length, 1);
-    assert.match(NOTIFICATIONS[0].body, /Opened a terminal to run/);
-    assert.match(NOTIFICATIONS[0].body, /play-claude-yolo\.yml/);
+    assert.match(NOTIFICATIONS[0].body, /Opened a terminal to re-run plays/);
     assert.doesNotMatch(NOTIFICATIONS[0].body, /\b(ran|succeeded|applied|done)\b/i);
 });
 
-test('a play row with the command not installed spawns nothing and says why', () => {
+test('the row with the command not installed spawns nothing and says why', () => {
     resetLaunches();
-    playRow(renderPlays(withPlays([{play: PLAY, state: 'stale'}])), PLAY).emit('activate');
+    rerunRow(renderPlays(withPlays([{play: PLAY, state: 'stale'}]))).emit('activate');
     assert.equal(SPAWNS.length, 0);
     assert.equal(NOTIFICATIONS.length, 1);
     assert.match(NOTIFICATIONS[0].body, /play-host-health-login-report\.yml/);
 });
 
-test('a play row whose terminal cannot start names the command to run by hand', () => {
+test('the row whose terminal cannot start names the command to run by hand', () => {
     resetLaunches();
     EXECUTABLES.add(COMMAND_PATH);
     SPAWN_FAILURE.message = 'Failed to execute child process "xdg-terminal-exec"';
-    playRow(renderPlays(withPlays([{play: PLAY, state: 'stale'}])), PLAY).emit('activate');
+    rerunRow(renderPlays(withPlays([{play: PLAY, state: 'stale'}]))).emit('activate');
     assert.equal(NOTIFICATIONS.length, 1);
-    assert.match(NOTIFICATIONS[0].body, /--run-play/);
-    assert.match(NOTIFICATIONS[0].body, /play-claude-yolo\.yml/);
+    assert.match(NOTIFICATIONS[0].body, /fedora-desktop-health --rerun/);
 });
 
-test('play rows wrap instead of widening the menu', () => {
+test('the row wraps instead of widening the menu', () => {
     const menu = renderPlays(withPlays([{play: PLAY, state: 'stale'}]));
-    const text = playRow(menu, PLAY).label.clutter_text;
+    const text = rerunRow(menu).label.clutter_text;
     assert.equal(text.line_wrap, true);
     assert.equal(text.ellipsize, 'none');
 });

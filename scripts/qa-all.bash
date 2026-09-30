@@ -718,6 +718,18 @@ fi
 changed_plays_summary=$(qa_gate_case_count "$changed_plays_out")
 qa_pass_line run-bash-changed "$changed_plays_summary"
 
+# run.bash --rerun (Plan 00141): the menu of plays run here, the operator's pick read from
+# stdin with strict validation and a bounded re-prompt, the pick run in menu order under one
+# play lock and stopped at the first failure. The judge is stubbed, as for --changed.
+rerun_plays_out=""
+if ! rerun_plays_out="$(bash "$SCRIPT_DIR/test-run-bash-rerun.bash" 2>&1)"; then
+    qa_hard_gate_failed run-bash-rerun \
+        "run.bash --rerun tests failed" \
+        "$rerun_plays_out"
+fi
+rerun_plays_summary=$(qa_gate_case_count "$rerun_plays_out")
+qa_pass_line run-bash-rerun "$rerun_plays_summary"
+
 # GitHub scopes in one pass (Plan 00139 Task 1.3): run.bash's first login asks for every
 # scope in vars/github-required-scopes.yml, a short token gets ONE refresh carrying all it
 # lacks, and a headless run - run.bash's or gh-account-setup.bash's - fails once naming

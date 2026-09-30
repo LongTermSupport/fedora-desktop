@@ -15,6 +15,16 @@ the index, not the record.
 
 ---
 
+## 1.29.0 — `--rerun` picks plays to run again from a menu (Plan 00141)
+
+`./run.bash --rerun` lists every play that has run on this machine as a numbered menu, the
+ones that have to run again marked `*` (inputs changed since, or the last run failed). The
+operator types numbers (`3`, `1 4`), `a` for every marked play, or `q`. A mistyped answer
+names what was wrong and asks again, up to three times. The pick runs at once, in
+`playbook-main.yml` order, under one play lock, and stops at the first failure. It reads the
+same ledger and judgement as `--changed` (`changed_plays.py --all`), and shares its
+preflight, dirty-checkout warning and run loop. The panel's "Re-run a play…" row opens it.
+
 ## 1.28.1 — `--changed` warns before a run from a dirty checkout; retired plays (Plan 00141)
 
 A run from a checkout with uncommitted changes is recorded as dirty, and `--changed`

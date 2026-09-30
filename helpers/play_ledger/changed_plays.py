@@ -48,7 +48,14 @@ from helpers.self_update import affected_plays
 EXIT_OK = 0
 EXIT_NO_ANSWER = 2
 
-MAIN_PLAYBOOK = "playbooks/playbook-main.yml"
+#: The states `--all` prints. STALE is changed inputs or a dirty run; FAILED a last run that
+#: did not succeed; UNRESOLVED has a reference the mapper cannot follow; CURRENT is none.
+STATE_STALE = "stale"
+STATE_FAILED = "failed"
+STATE_UNRESOLVED = "unresolved"
+STATE_CURRENT = "current"
+
+MAIN_PLAYBOOK ="playbooks/playbook-main.yml"
 _IMPORT_KEY = re.compile(r"^\s*-\s*(?:ansible\.builtin\.)?import_playbook:")
 _IMPORT = re.compile(r"^\s*-\s*(?:ansible\.builtin\.)?import_playbook:\s*([\w./-]+\.ya?ml)\s*(?:#.*)?$")
 
@@ -106,8 +113,13 @@ def run(
     inputs_of: Callable[[str, str], affected_plays.Inputs] | None = None,
     main_order: Callable[[str], list[str]] = main_order,
     retired_plays: Callable[[str], dict[str, str]] = retired.load,
+    list_all: bool = False,
 ) -> int:
-    """Print the marker lines and return the exit status. The callables are test seams."""
+    """Print the marker lines and return the exit status. The callables are test seams.
+
+    `list_all` prints every play run here instead, as `PLAY <state> <play>` (the judgement
+    above, for the menu of `run.bash --rerun`), with GONE plays named and never offered.
+    """
     exists_now = exists_now or (lambda root, play: os.path.isfile(os.path.join(root, play)))
     tracked_at = tracked_at or (
         lambda root, commit, play: git_history.path_exists_at(root, commit, play)
@@ -142,6 +154,7 @@ def run(
     gone: list[str] = []
     unresolved: dict[str, list[str]] = {}
     diffs: dict[str, list[str]] = {}
+    states: dict[str, str] = {}
     for play in host_plays:
         record = latest[play]
         commit = record["commit"]
@@ -159,15 +172,19 @@ def run(
                 f"changed-plays: run it by name instead: ./run.bash {play}\n"
             )
             return EXIT_NO_ANSWER
-        if (
-            record["outcome"] != "ok"
-            or record["dirty"]
-            or any(affected_plays.affects(inputs, path) for path in diffs[commit])
-        ):
+        if record["outcome"] != "ok":
+            states[play] = STATE_FAILED
+            runs.add(play)
+            continue
+        if record["dirty"] or any(affected_plays.affects(inputs, path) for path in diffs[commit]):
+            states[play] = STATE_STALE
             runs.add(play)
             continue
         if inputs.unresolved:
             unresolved[play] = list(inputs.unresolved)
+            states[play] = STATE_UNRESOLVED
+        else:
+            states[play] = STATE_CURRENT
 
     try:
         gone, successors = _retire(gone, latest=latest, repo_root=repo_root,
@@ -176,6 +193,18 @@ def run(
         stderr.write(f"changed-plays: cannot judge the removed plays against the retired-plays map: {error}\n")
         return EXIT_NO_ANSWER
     runs |= successors
+    for successor in successors:
+        states.setdefault(successor, STATE_STALE)
+        if states[successor] in (STATE_CURRENT, STATE_UNRESOLVED):
+            states[successor] = STATE_STALE
+
+    if list_all:
+        for play in sorted(set(states) | set(gone), key=run_order):
+            if play in gone:
+                stdout.write(f"GONE {play}\n")
+            else:
+                stdout.write(f"PLAY {states[play]} {play}\n")
+        return EXIT_OK
 
     for play in sorted(runs | set(gone) | set(unresolved), key=run_order):
         if play in runs:
@@ -234,9 +263,12 @@ def main(argv: list[str] | None = None) -> int:
         description="List the plays run here whose inputs changed since (run.bash --changed)."
     )
     parser.add_argument("--repo-root", default=_repo_root_default())
+    parser.add_argument("--all", action="store_true",
+                        help="list every play run here with its state (run.bash --rerun)")
     arguments = parser.parse_args(argv)
     base = ledger.ledger_dir(os.environ, os.path.expanduser("~"))
-    return run(base=base, repo_root=arguments.repo_root, stdout=sys.stdout, stderr=sys.stderr)
+    return run(base=base, repo_root=arguments.repo_root, stdout=sys.stdout, stderr=sys.stderr,
+               list_all=arguments.all)
 
 
 if __name__ == "__main__":

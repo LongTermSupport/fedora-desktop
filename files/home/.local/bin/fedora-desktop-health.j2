@@ -24,15 +24,20 @@
 #                                            its command, which is how the panel
 #                                            launches it
 #   fedora-desktop-health --run-play <play>  run one ledgered play instead
+#   fedora-desktop-health --rerun            the checkout's `run.bash --rerun` menu
+#
+# `--rerun` is the panel's single "Re-run a play…" row: the panel does not know where the
+# checkout is, this command does, and run.bash owns the menu, the pick and the run.
 set -euo pipefail
 
 ROOT_DIR="{{ root_dir }}"
 HOLD=false
 RUN_PLAY=""
+RERUN=false
 
 usage() {
     cat <<'EOF'
-Usage: fedora-desktop-health [--hold] [--run-play <playbooks/...yml>]
+Usage: fedora-desktop-health [--hold] [--run-play <playbooks/...yml> | --rerun]
 
 Prints this machine's fedora-desktop health report: what is broken now, what could not
 be checked, plays that have changed since they last ran here, and installed versions
@@ -43,8 +48,11 @@ Options:
                         launched terminal window open)
   --run-play <play>     instead of the report, run one play this host's ledger lists,
                         named by its path in the checkout, e.g.
-                        playbooks/imports/play-claude-yolo.yml — the panel's play
-                        runner uses this
+                        playbooks/imports/play-claude-yolo.yml
+  --rerun               instead of the report, run the checkout's `run.bash --rerun`:
+                        a menu of the plays that have run here, changed or failed
+                        ones marked, to pick from and run — the panel's
+                        "Re-run a play…" row uses this
   -h, --help            this text
 
 Examples:
@@ -74,6 +82,10 @@ while [ $# -gt 0 ]; do
         HOLD=true
         shift
         ;;
+    --rerun)
+        RERUN=true
+        shift
+        ;;
     --run-play)
         if [ $# -lt 2 ] || [ -z "$2" ]; then
             echo "fedora-desktop-health: --run-play needs a play path — see fedora-desktop-health --help" >&2
@@ -97,6 +109,28 @@ if [ ! -r "$ROOT_DIR/helpers/host_health/login_message.py" ]; then
         hold
     fi
     exit 1
+fi
+
+# The re-run menu. run.bash finds its own checkout and judges every choice itself; this
+# only points at it. The outcome is run.bash's own exit status.
+if [ "$RERUN" = true ]; then
+    if [ -n "$RUN_PLAY" ]; then
+        echo "fedora-desktop-health: --rerun and --run-play are mutually exclusive — see fedora-desktop-health --help" >&2
+        exit 64
+    fi
+    if [ ! -x "$ROOT_DIR/run.bash" ]; then
+        echo "fedora-desktop-health: $ROOT_DIR/run.bash is missing or not executable, so there is no re-run menu; re-run play-host-health-login-report.yml from the checkout's new location" >&2
+        if [ "$HOLD" = true ]; then
+            hold
+        fi
+        exit 1
+    fi
+    status=0
+    "$ROOT_DIR/run.bash" --rerun || status=$?
+    if [ "$HOLD" = true ]; then
+        hold
+    fi
+    exit "$status"
 fi
 
 # The play runner. The helper prints the play's absolute path only when every rule in
