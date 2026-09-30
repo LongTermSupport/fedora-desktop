@@ -99,7 +99,7 @@ def _write(root: str, path: str, text: str) -> None:
 class _Case(unittest.TestCase):
     def _run(self, base: str, *, changed: dict[str, list[str]], present=None, tracked=None,
              diff_error: Exception | None = None, main_order: list[str] | None = None,
-             tracked_at=None, retired: dict[str, str] | None = None):
+             tracked_at=None, retired: dict[str, str] | None = None, list_all: bool = False):
         """changed: commit -> paths changed from it to the working tree."""
         present = set(INPUTS) if present is None else present
         tracked = set(INPUTS) if tracked is None else tracked
@@ -123,6 +123,7 @@ class _Case(unittest.TestCase):
             inputs_of=lambda root, play: INPUTS[play],
             main_order=lambda root: order,
             retired_plays=lambda root: retired_map,
+            list_all=list_all,
         )
         return code, out.getvalue(), err.getvalue()
 
@@ -192,6 +193,65 @@ class TestWhatRuns(_Case):
             _seed(base, [(YOLO, COMMIT_A, "ok"), (BASIC, COMMIT_A, "ok")], dirty=frozenset({YOLO}))
             _, out, _ = self._run(base, changed={})
             self.assertEqual(out, f"RUN {YOLO}\n")
+
+
+class TestListAll(_Case):
+    """`--all` (run.bash --rerun): every play run here with the state --changed judged for it."""
+
+    def test_every_play_is_listed_with_its_state_in_run_order(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(BASIC, COMMIT_A, "failed"), (YOLO, COMMIT_A, "ok"), (OPT_A, COMMIT_A, "ok")],
+                  dirty=frozenset({OPT_A}))
+            code, out, _ = self._run(base, changed={COMMIT_A: ["files/home/.local/bin/ccy-sessions"]},
+                                     list_all=True)
+            self.assertEqual(code, changed_plays.EXIT_OK)
+            self.assertEqual(out, f"PLAY failed {BASIC}\nPLAY stale {YOLO}\nPLAY stale {OPT_A}\n")
+
+    def test_an_unchanged_successful_play_is_current(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(BASIC, COMMIT_A, "ok")])
+            _, out, _ = self._run(base, changed={}, list_all=True)
+            self.assertEqual(out, f"PLAY current {BASIC}\n")
+
+    def test_a_play_that_cannot_be_judged_is_listed_as_such(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(GIT, COMMIT_A, "ok")])
+            _, out, _ = self._run(base, changed={}, list_all=True)
+            self.assertEqual(out, f"PLAY unresolved {GIT}\n")
+
+    def test_a_gone_play_is_named_not_offered_as_a_play(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(BASIC, COMMIT_A, "ok"), (YOLO, COMMIT_A, "ok")])
+            _, out, _ = self._run(base, changed={}, present={BASIC})
+            self.assertEqual(out, f"GONE {YOLO}\n")
+            _, out, _ = self._run(base, changed={}, present={BASIC}, list_all=True)
+            self.assertEqual(out, f"PLAY current {BASIC}\nGONE {YOLO}\n")
+
+    def test_a_retired_plays_successor_is_listed_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(OLD, COMMIT_A, "ok")])
+            _, out, _ = self._run(base, changed={}, present={YOLO}, retired={OLD: YOLO},
+                                  tracked_at=_retired_history, list_all=True)
+            self.assertEqual(out, f"PLAY stale {YOLO}\n")
+
+    def test_nothing_ever_run_is_a_clean_empty_answer(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [])
+            code, out, _ = self._run(base, changed={}, list_all=True)
+            self.assertEqual((code, out), (changed_plays.EXIT_OK, ""))
+
+    def test_a_broken_ledger_still_answers_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(BASIC, COMMIT_A, "ok")])
+            store.mark_broken(base, error="a run could not be recorded", at=STAMP)
+            code, out, err = self._run(base, changed={}, list_all=True)
+            self.assertEqual((code, out), (changed_plays.EXIT_NO_ANSWER, ""))
+            self.assertIn("could not be recorded", err)
+
+    def test_main_accepts_all(self) -> None:
+        with mock.patch.object(changed_plays, "run", return_value=0) as run:
+            changed_plays.main(["--repo-root", "/repo", "--all"])
+        self.assertTrue(run.call_args.kwargs["list_all"])
 
 
 class TestNamedNotRun(_Case):

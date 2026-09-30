@@ -321,6 +321,45 @@ case "$(cat "$WORK_DIR/help.out")" in
 esac
 check "--help: lists --run-play" "yes" "$got"
 
+# ── --rerun: the panel's one "Re-run a play…" row ────────────────────────────────────
+# The command only points at the checkout's run.bash, so a stub that records its argv and
+# exits 6 stands in for it.
+printf '#!/usr/bin/env bash\necho "run.bash ran with: $*"\nexit 6\n' >"$PLAY_CHECKOUT/run.bash"
+chmod 0755 "$PLAY_CHECKOUT/run.bash"
+
+run_play "$WORK_DIR/rr.out" "$WORK_DIR/rr.err" --rerun
+check "--rerun: run.bash's own exit status is the command's" "6" "$?"
+check "--rerun: it runs the checkout's run.bash --rerun, and nothing else" \
+    "run.bash ran with: --rerun" "$(cat "$WORK_DIR/rr.out")"
+
+printf '\n' | XDG_STATE_HOME="$STATE_LEDGER" "$RUNNER" --rerun --hold \
+    >"$WORK_DIR/rrh.out" 2>"$WORK_DIR/rrh.err"
+check "--rerun --hold: still run.bash's status after Enter" "6" "$?"
+case "$(cat "$WORK_DIR/rrh.err")" in
+    *"Enter"*) got=yes ;;
+    *) got="no: [$(cat "$WORK_DIR/rrh.err")]" ;;
+esac
+check "--rerun --hold: waits for Enter" "yes" "$got"
+
+run_play "$WORK_DIR/rrx.out" "$WORK_DIR/rrx.err" --rerun --run-play "$FIXTURE_PLAY"
+check "--rerun with --run-play fails fast with 64" "64" "$?"
+check "--rerun with --run-play runs nothing" "" "$(cat "$WORK_DIR/rrx.out")"
+
+chmod 0644 "$PLAY_CHECKOUT/run.bash"
+run_play "$WORK_DIR/rrm.out" "$WORK_DIR/rrm.err" --rerun
+check "--rerun with no runnable run.bash exits 1" "1" "$?"
+case "$(cat "$WORK_DIR/rrm.err")" in
+    *"run.bash is missing or not executable"*) got=yes ;;
+    *) got="no: [$(cat "$WORK_DIR/rrm.err")]" ;;
+esac
+check "--rerun with no runnable run.bash says why" "yes" "$got"
+
+case "$(cat "$WORK_DIR/help.out")" in
+    *"--rerun"*) got=yes ;;
+    *) got="no: [$(cat "$WORK_DIR/help.out")]" ;;
+esac
+check "--help: lists --rerun" "yes" "$got"
+
 # ── the interpreter is the system one ────────────────────────────────────────────────
 invocation="$(awk '/helpers\.host_health\.login_message/ && $1 !~ /^#/' "$COMMAND")"
 if [ "$(printf '%s\n' "$invocation" | grep -c .)" -ne 1 ]; then

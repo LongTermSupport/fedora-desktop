@@ -211,6 +211,15 @@ ledger's real contents (18 plays, run counts from 1 to 6), and the decisions bel
 §8 holds as restated: nothing runs unless a person clicks one named play, and nothing runs in
 the background.
 
+> **Superseded in part (Plan 00141).** The per-play list above proved too bloated for a row
+> nobody needs often. The panel now shows ONE row, "Re-run a play…" (with a count of plays
+> marked not fresh), which opens `run.bash --rerun` through `fedora-desktop-health --rerun`;
+> that menu lists the plays and runs the pick. The rules that still hold: the state is
+> `check_freshness`'s and carried in the document, the panel says what it launched and
+> never that a play ran, and the section does not move the icon. The per-play click and
+> `--run-play` from the panel no longer apply (the command keeps `--run-play`). Current
+> behaviour: `docs/playbooks.md`.
+
 ### 9a. Decided: the handoff offer copies, and it is not per-finding
 
 The question was whether the health section's per-finding entries do anything when activated, and

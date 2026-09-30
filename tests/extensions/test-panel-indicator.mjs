@@ -359,13 +359,13 @@ function withPlays(rows) {
 
 const STALE_PLAY = [{play: 'playbooks/imports/play-claude-yolo.yml', state: 'stale'}];
 
-test('the play runner is registered: the enabled panel renders its rows', () => {
+test('the play re-runner is registered: the enabled panel renders its one row', () => {
     // Task 4.4's registry holding a second real section. A module that exists but is
     // not in SECTIONS renders nothing and fails no other test.
     const {indicator} = enabled(withPlays(STALE_PLAY));
     const texts = indicator.menu.texts;
-    assert.ok(texts.includes('Plays run on this machine'), texts.join('\n'));
-    assert.ok(texts.some(text => text.startsWith('playbooks/imports/play-claude-yolo.yml — ')));
+    assert.ok(texts.includes('Re-run a play… (1 changed)'), texts.join('\n'));
+    assert.ok(!texts.some(text => text.startsWith('playbooks/imports/')), 'no play is listed');
 });
 
 test('the play runner does not move the icon: a stale play on a clean host stays neutral', () => {

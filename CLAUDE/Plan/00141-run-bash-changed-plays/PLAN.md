@@ -75,6 +75,27 @@ and the working tree, and asks whether any of them is one of that play's inputs.
   Blocked on the owner: it runs Ansible, which never runs in the ccy container, and it
   asks before it runs, so meta-deploy cannot carry it.
 
+### Phase 4: `--rerun` and the one-row panel
+
+The owner's call: a per-play listing in the panel drop-down is bloated and almost never
+clicked. Instead one row opens a menu of the plays, where a person picks.
+
+- [x] ✅ **Task 4.1**: `changed_plays.py --all` prints every play run here as
+  `PLAY <state> <play>` (states `stale`, `failed`, `unresolved`, `current`), from the same
+  judgement `--changed` uses. `run.bash --rerun` (1.29.0) shows it as a numbered menu, reads
+  the pick from stdin (numbers, `a`, `q`) with strict validation and a three-try re-prompt,
+  and runs the pick through the shared run loop. Tests: `test_changed_plays.py`,
+  `scripts/test-run-bash-rerun.bash` (gate `run-bash-rerun`).
+- [x] ✅ **Task 4.2**: The panel's plays section is one row, "Re-run a play…" (with
+  "(N changed)" when any play is not fresh), launching `fedora-desktop-health --rerun --hold`, which runs the checkout's `run.bash --rerun`. The icon is unchanged: the
+  section reads no check section. Tests: `tests/extensions/`.
+- [x] ✅ **Task 4.3**: Docs (`docs/playbooks.md`, changelog, `QA.md`) and a pointer note in
+  Plan 00109's `DESIGN-panel.md`.
+- [ ] 🚫 **Task 4.4**: **HOST**: deploy `play-fedora-desktop-panel.yml` (the panel row) and
+  `play-host-health-login-report.yml` (`fedora-desktop-health --rerun`), log out and in,
+  open the row, and pick a play. Blocked on the owner: Ansible never runs in the ccy
+  container, and the menu needs a person.
+
 ## Success Criteria
 
 - [ ] After a commit that changes only a file a play deploys, `--changed` runs that play.

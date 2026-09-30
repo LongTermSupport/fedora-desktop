@@ -61,6 +61,16 @@ that has a successor in `helpers/play_ledger/retired-plays.json` runs that succe
 instead. It also names any play it cannot judge (one holding a reference it cannot
 follow), and any other play that is no longer in the checkout. It runs neither.
 
+**To pick the plays yourself, run `./run.bash --rerun`.** It lists every play that has run
+on this machine as a numbered menu, in the same order, and marks with `*` the ones that
+have to run again: changed since they last ran, or their last run failed. Type a number
+(`3`), several (`1 4` or `1,4`), `a` for every play marked `*`, or `q` to quit. A mistyped
+answer says what was wrong and asks again, up to three times, and end of input cancels
+without running anything. The pick runs at once, in menu order, under the same play lock
+as `--changed`, and stops at the first failure. It uses the ledger and the judgement
+`--changed` uses, and the same refusals (no playbook path, no `--optional-only`, no
+`--headless`). The panel's "Re-run a play…" row opens it.
+
 ```bash
 # Zero-flag default — auto-detects desktop vs. server:
 ./playbooks/playbook-main.yml
@@ -897,6 +907,9 @@ collector left at the next interactive shell, locally or over SSH, and
   repo-relative play under `playbooks/` which this host's ledger lists, is present in the
   checkout and is executable, and says why. The play runs through its own shebang, as
   running it by path does, and the command exits with the play's status
+- **`fedora-desktop-health --rerun` runs the checkout's `./run.bash --rerun` instead**, the
+  play menu, and exits with its status. It is what the panel's "Re-run a play…" row
+  launches: the panel does not know where the checkout is, and this command does
 - The snippet prints **only for an interactive shell**. bash reads `~/.bashrc` for a
   non-interactive shell too when sshd started it, so anything printed unconditionally
   breaks `scp`, `sftp` and `rsync` to the host with a protocol error
@@ -918,13 +931,14 @@ The `fedora-desktop` GNOME Shell panel — **it offers; a person decides**:
 - Deploys the panel extension that renders this machine's drift state from the host
   status document
 - It runs no check and applies no fix. The only things it launches are a terminal
-  showing the full report and, from the play runner, the single play a person clicked
-- **"Plays run on this machine"** lists the plays this host's ledger has seen, each with
-  the state the freshness check judged (unchanged, changed, or differing with no commit to
-  explain it). Clicking one opens `fedora-desktop-health --run-play <play> --hold` in the
-  default terminal. The panel says what it launched, never that the play ran — the next
-  report reads the outcome from the ledger. Deleted plays are not listed, and the list does
-  not change the icon
+  showing the full report and a terminal showing the play menu, where a person picks
+- **"Re-run a play…"** is one row, not a list of plays. It opens
+  `fedora-desktop-health --rerun --hold` in the default terminal, which runs
+  `./run.bash --rerun`: a numbered menu of the plays that have run here, changed or failed
+  ones marked, to pick from. The label carries a count when the freshness check has
+  marked any play not fresh, for example "Re-run a play… (2 changed)". The panel says what
+  it launched, never that a play ran — the next report reads the outcome from the ledger.
+  The row does not change the icon
 - **"Open the full report in a terminal"**, one row under the collection time, opens
   `fedora-desktop-health --hold` in the user's default terminal through `xdg-terminal-exec`,
   which this play installs. The panel is the indicator; the text in the terminal is the
