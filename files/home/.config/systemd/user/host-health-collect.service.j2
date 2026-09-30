@@ -1,14 +1,17 @@
 {{ ansible_managed | comment }}
 [Unit]
-Description=fedora-desktop host health collection (server route, reporting-only)
+Description=fedora-desktop host health collection (silent refresh, reporting-only)
 Documentation=https://github.com/LongTermSupport/fedora-desktop
-# The PRODUCER half of the server route. host-health.service does the same collection on
-# a desktop, at the end of a graphical login, and delivers it with notify-send. A server
-# has no session bus and graphical-session.target never activates there, so the checks
-# need their own trigger and the delivery moves to the login shell — see
+# The silent refresh of the status document, on both profiles. host-health.service does
+# the same collection at the end of a graphical login and notifies; this one never does.
+# On a desktop it keeps the panel icon current: the timer covers drift no play announces,
+# and the play-ledger callback restarts it after each play run so a fixed finding clears
+# without a login. On a server it is the only collector, because graphical-session.target
+# never activates there and the delivery is the login shell — see
 # ~/.bashrc-includes/host-health-report.bash, which only prints what this leaves behind.
-# Both deliveries come from play-host-health-login-report.yml, branching on the
-# provisioning profile: only the delivery ever differed, never the checks.
+# Both units come from play-host-health-login-report.yml. Every section is a statement
+# about the host NOW (failed units are the currently failed ones, DKMS is judged against
+# the running kernel), so none is login-only and repeating the run changes no meaning.
 
 [Service]
 Type=oneshot
@@ -23,8 +26,8 @@ WorkingDirectory={{ root_dir }}
 # consequence is permanent rather than intermittent. The play-freshness check runs
 # `git fetch`, and helpers/play_ledger/git_history.py sets GIT_TERMINAL_PROMPT=0 and
 # GIT_ASKPASS="" so nothing can block on a prompt no login shell could answer. A timer
-# has no ssh-agent — the desktop route only ever worked because it runs inside a session
-# that has one — so a checkout with an SSH remote and a passphrase-protected key cannot
+# on a server has no ssh-agent (a desktop's user manager inherits its session's, which
+# is how this unit gets one there), so a checkout with an SSH remote and a passphrase-protected key cannot
 # authenticate here, and every run reports "play-freshness has never successfully reached
 # the remote on this host". That is a true finding, not noise, and the remedy is the
 # operator's: give this checkout a remote it can fetch anonymously (HTTPS), or a key the

@@ -78,14 +78,44 @@ Three consequences that are easy to get wrong and are therefore requirements:
 
 ## 4. Staleness is shown, not assumed away
 
-The document carries `generated_at`. The health producer runs **once per graphical login** rather
-than on a timer, so by mid-afternoon a panel presenting login-time findings as current is stating
-something it did not measure — the same defect one more time.
+The document carries `generated_at`, and the panel displays the collection time.
 
-So: the panel displays the collection time, and offers **re-check now**, which spawns the
-producer, which rewrites the document and emits the signal. A timer is deliberately not added;
-the login run plus an explicit re-check covers it, and a periodic `git fetch` from a panel is a
-cost with no reader.
+> **Superseded, and the original reasoning was wrong.** This section first said the producer
+> runs once per graphical login and "a timer is deliberately not added". The owner reported the
+> icon stuck at its login answer: re-running a stale play, which is exactly what the
+> play-freshness section tells you to do, never cleared it. A periodic `git fetch` has a reader
+> after all: the icon. The decision is now below.
+
+The document is refreshed by three triggers, one producer:
+
+1. **Login** — `host-health.service`, the only one that notifies.
+2. **After any ledgered play run** — the play-ledger callback, once the records are written,
+   restarts `host-health-collect.service` (`helpers/play_ledger/health_refresh.py`). `restart`,
+   not `start`, because a collection the timer began before the ledger write has read the old
+   ledger and `start` on a running unit does nothing. After the write, because the collector
+   reads the ledger: a trigger sent earlier races it. A path unit on the ledger file was
+   rejected for that reason: it fires on the first append of a burst, before the last record.
+3. **Periodically** — `host-health-collect.timer`, deployed on both profiles. Hourly on a
+   desktop (`OnStartupSec=15min`, `OnUnitActiveSec=1h`), for drift no play announces, a
+   `git pull` above all. Daily on a server, derived from the 14 day stale bound.
+
+**A failed trigger never fails a play, and is never silent.** Ansible discards an exception
+raised in a callback, so raising would be silence, not a failed run; and the producer is
+reporting-only, so a missed trigger costs bounded staleness (the timer's next run, with
+`generated_at` showing the age) rather than a wrong answer. The fail-fast rule is met by making
+the failure loud and named instead: `health_refresh.request` returns a `HEALTH-REFRESH-FAILED`
+line which the plugin prints to stderr. It does not write the ledger's BROKEN sentinel, since
+the ledger is fine. A host without the unit (the report is an optional play) is skipped
+silently: there is no document there for the run to have left stale.
+
+**No section is login-only, so repeating the run changes no meaning.** Post-boot health judges
+DKMS against the running kernel and lists the units failed now, both true at any time;
+`is_boot_stale` compares the document's kernel with the running one, which a fresher document
+only improves; the self-update section reads `boot_id` and uptime at call time. The one
+boot-sensitive hazard is DKMS still building just after boot, which is why the desktop timer
+starts 15 minutes after the manager rather than immediately.
+
+The panel's explicit **re-check now** is unchanged in intent and remains available.
 
 ## 5. Sections are registered, not hardcoded
 

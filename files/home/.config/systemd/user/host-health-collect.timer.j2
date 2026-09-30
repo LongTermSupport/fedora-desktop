@@ -1,10 +1,11 @@
 {{ ansible_managed | comment }}
 [Unit]
-Description=Schedule for the fedora-desktop host health collection (server route)
+Description=Schedule for the fedora-desktop host health collection
 Documentation=https://github.com/LongTermSupport/fedora-desktop
 
 [Timer]
-# DAILY, and the cadence is derived rather than picked. The consumer,
+{% if is_server | bool %}
+# SERVER: DAILY, and the cadence is derived rather than picked. The consumer,
 # helpers/host_health/login_message.py, reports the document's own age as a finding once
 # it passes STALE_AFTER_DAYS = 14 — silence is a claim, and a clean document nobody has
 # refreshed for a fortnight describes the host as it was a fortnight ago. Daily gives
@@ -26,6 +27,22 @@ OnStartupSec=5min
 RandomizedDelaySec=30min
 # A host that was powered off through 06:15 catches up rather than skipping the day.
 Persistent=true
+{% else %}
+# DESKTOP: HOURLY, because the reader is a panel icon somebody glances at, not a fortnight
+# staleness bound. Drift a `git pull` introduces (a moved pin, a play now behind HEAD)
+# announces itself to nothing, so this is what makes it reach the icon without a login.
+# The cost is one `git fetch` and three cheap local probes per hour. A play run does not
+# wait for this: the play-ledger callback restarts the collector when the run ends.
+#
+# OnStartupSec is not the boot check — the login unit does that, at the end of login. It
+# is the arming event OnUnitActiveSec needs, and 15 minutes keeps it clear of the window
+# in which DKMS is still building for a new kernel, where a run would report a transient
+# as a finding. A desktop that was off simply starts the cycle again at boot; there is no
+# Persistent= catch-up because the login unit already covers "first thing after power-on".
+OnStartupSec=15min
+OnUnitActiveSec=1h
+RandomizedDelaySec=5min
+{% endif %}
 Unit=host-health-collect.service
 
 [Install]

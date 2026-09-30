@@ -195,6 +195,14 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     [COMPLETED-TASKS-detail.md#task-45-eslint-clean-deployed-by-its-own-play-wayland-correct](COMPLETED-TASKS-detail.md#task-45-eslint-clean-deployed-by-its-own-play-wayland-correct)
   - [x] ✅ **HOST — eyes only**: that the icon is *visibly* in the top bar. The owner,
     2026-09-25, has the panel and its notifications working
+- [ ] 🔄 **Task 4.6**: The icon must not stay stuck at its login answer. Code done — deploy
+  and HOST check pending. The status document is refreshed (a) by the play-ledger callback
+  restarting `host-health-collect.service` after every ledgered play run
+  (`helpers/play_ledger/health_refresh.py`), and (b) hourly on a desktop by
+  `host-health-collect.timer`, now deployed on both profiles. Decisions:
+  [DESIGN-panel.md](DESIGN-panel.md) §4
+  - [ ] ⬜ **HOST**: run `play-host-health-login-report.yml`; confirm the timer is armed;
+    re-run a stale play and watch `generated_at` move and the icon clear without a login
 
 ### Phase 5: Recover the desktop background after a monitor change
 

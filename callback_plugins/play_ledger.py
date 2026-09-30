@@ -39,7 +39,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from helpers.play_ledger import collector, ledger, plugin_support, repo
+from helpers.play_ledger import collector, health_refresh, ledger, plugin_support, repo
 
 DOCUMENTATION = """
     name: play_ledger
@@ -51,6 +51,9 @@ DOCUMENTATION = """
         executed, the outcome and the task-level changed count.
       - Records nothing for --check, --syntax-check or any --list-* run, none of which
         apply anything to the host.
+      - After the records are written, asks host-health-collect.service to run again so the
+        Fedora Desktop panel stops describing the host as it was before the run. A failure
+        to ask prints HEALTH-REFRESH-FAILED to stderr and never fails the run.
       - On any write failure, writes a BROKEN sentinel and prints LEDGER-WRITE-FAILED to
         stderr rather than raising, because Ansible discards exceptions raised in a callback.
     requirements:
@@ -195,3 +198,14 @@ class CallbackModule(CallbackBase):
             )
         except Exception as error:
             self._fail(error)
+            return
+        # Only after the records are on disk: the collector reads the ledger, so a
+        # trigger sent earlier races the write. `request` returns a failure line
+        # instead of raising; it is diagnostics, so stderr, and never the ledger's
+        # BROKEN sentinel — the ledger is fine, only the refresh was missed.
+        try:
+            failure = health_refresh.request()
+        except Exception as error:  # a callback may not raise; see the module docstring
+            failure = f"{health_refresh.FAILURE_MARKER}: {type(error).__name__}: {error}"
+        if failure:
+            self._warn(failure)

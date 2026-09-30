@@ -21,6 +21,12 @@
 #             the same collection runs on `host-health-collect.timer`. A git fetch at
 #             every SSH login would slow every login and can hang.
 #
+# BOTH also run the silent collector (`host-health-collect.service`) on that timer, and the
+# play-ledger callback restarts it after every play run. The status document is the panel
+# icon's only input, so one written only at login stays stuck on the login's answer —
+# fixing a finding by re-running a play would never clear it. Hourly on a desktop, daily
+# on a server; see the timer template for why each.
+#
 # THE TERMINAL READS IT ON BOTH (Plan 00136). A ~/.bashrc-includes snippet prints what
 # the collector left at the next interactive shell — in full once a day per message,
 # then a one-line reminder — and `~/.local/bin/fedora-desktop-health` prints the whole
@@ -161,25 +167,9 @@
     # 1 too. Guarding on it skipped the enable on precisely the host this plan
     # exists to detect. An unreachable user bus fails this task, loudly, which is
     # the answer that probe was reaching for.
-    # A profile is not immutable: a mis-set `-e provisioning_profile` corrected on the
-    # next run would otherwise leave BOTH deliveries installed, collecting twice and
-    # reporting twice. Removing the unit file alone is not a disable — `enable` writes a
-    # `.wants/` symlink that outlives it — so the symlink goes too. `state: absent` is
-    # idempotent and cannot fail on a host that never had them, which `systemctl
-    # disable` would.
-    #
-    # The login snippet is NOT in this list: since Plan 00136 it is a delivery on both
-    # profiles and is deployed unconditionally below.
-    - name: Remove The Server Collector
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - "{{ user_units_dir }}/{{ collect_service }}"
-        - "{{ user_units_dir }}/{{ collect_timer }}"
-        - "{{ user_units_dir }}/timers.target.wants/{{ collect_timer }}"
-      when: not is_server | bool
-
+    # The collection service and timer are deployed on BOTH profiles (below): the desktop
+    # used to have only the login unit, so the document went stale the moment it was
+    # written. The login unit stays the only one that notifies.
     - name: Enable The Login-Time Health Report
       become: true
       become_user: "{{ user_login }}"
@@ -254,7 +244,15 @@
         - hh_wants_readback.rc == 0
         - unit_name not in hh_wants_readback.stdout
 
-    # ── Server collector: a timer, because no graphical login ever ends there ────────
+    # ── The collector and its timer, both profiles ───────────────────────────────────
+    #
+    # A server has no graphical login to end, so its timer is the only trigger. A desktop
+    # has the login unit above, but that runs once: the status document it writes is what
+    # the panel icon shows, and a document written only at login stays stuck on whatever
+    # it said then. On a desktop the same collector therefore also runs on a timer
+    # (periodic, for drift no play announces — a `git pull`) and is restarted by the play
+    # ledger callback after each play run (`helpers/play_ledger/health_refresh.py`,
+    # which names `collect_service` and is pinned to it by a test).
     - name: Deploy The Host Health Collection Unit
       ansible.builtin.template:
         src: "{{ root_dir }}/files/home/.config/systemd/user/{{ collect_service }}.j2"
@@ -262,7 +260,6 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: '0644'
-      when: is_server | bool
 
     - name: Deploy The Host Health Collection Timer
       ansible.builtin.template:
@@ -271,7 +268,6 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: '0644'
-      when: is_server | bool
 
     # ── The terminal delivery, both profiles (Plan 00136) ─────────────────────────────
     #
@@ -335,9 +331,10 @@
     # leaves the timer unarmed until the next boot, and a report that begins a reboot
     # later is one nobody connects to the play they just ran. The unit is a timer, so
     # starting it arms the schedule — it does not run the collection now.
-    # The mirror of the desktop branch's cleanup, for the same reason: correcting a
-    # mis-set profile must not leave a notify-send unit installed on a box with no
-    # session bus, wanted by a target that never activates.
+    # A profile is not immutable: correcting a mis-set profile must not leave a
+    # notify-send unit installed on a box with no session bus, wanted by a target that
+    # never activates. The symlink goes too — removing the unit file alone is not a
+    # disable. `state: absent` cannot fail on a host that never had them.
     - name: Remove The Desktop Collector
       ansible.builtin.file:
         path: "{{ item }}"
@@ -347,10 +344,10 @@
         - "{{ user_units_dir }}/graphical-session.target.wants/{{ unit_name }}"
       when: is_server | bool
 
-    # Reload BEFORE enable+start here, unlike the desktop branch above, and for a different
-    # reason: this task also STARTS the timer, and a start must act on a manager that has
-    # already read the new unit files. The desktop branch only enables, so its reload has to
-    # come after the symlink exists. Both orderings are deliberate; neither is the module's
+    # Reload BEFORE enable+start here, unlike the login unit's enable above, and for a
+    # different reason: this task also STARTS the timer, and a start must act on a manager
+    # that has already read the new unit files. The login unit only enables, so its reload
+    # has to come after the symlink exists. Both orderings are deliberate; neither is the module's
     # `daemon_reload:` parameter, which always reloads first and so can only ever serve the
     # second case.
     - name: Reload The User Manager Before Starting The Collection Timer
@@ -361,7 +358,6 @@
         daemon_reload: true
       environment:
         XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
-      when: is_server | bool
 
     - name: Enable And Start The Host Health Collection Timer
       become: true
@@ -373,10 +369,9 @@
         state: started
       environment:
         XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
-      when: is_server | bool
 
     # And again AFTER the enable, so the timers.target wants-symlink this task just created
-    # is in the manager's graph too — the same defect the desktop branch has.
+    # is in the manager's graph too — the same defect the login unit's enable has.
     - name: Reload The User Manager So It Sees The Timer Wants-Symlink
       become: true
       become_user: "{{ user_login }}"
@@ -385,4 +380,3 @@
         daemon_reload: true
       environment:
         XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
-      when: is_server | bool
