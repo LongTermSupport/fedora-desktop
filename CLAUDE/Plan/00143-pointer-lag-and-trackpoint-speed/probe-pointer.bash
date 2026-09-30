@@ -302,14 +302,38 @@ watch_dgpu() {
     done
 }
 
+# stall_seconds <events> <report> — join the wall-clock-prefixed motion events with the
+# per-second table. A second with real finger motion (>=40 libinput motions) but few i915
+# interrupts is a second the compositor was not presenting while the cursor should move. A
+# resting finger keeps the touchpad IRQ rate high with no motions, so it is excluded.
+stall_seconds() {
+    awk '
+        FNR == NR {
+            if ($3 == "POINTER_MOTION" && $2 ~ /^-?event/) m[$1]++
+            next
+        }
+        /^time / { inTable = 1; next }
+        inTable && !/^[0-9][0-9]:/ { inTable = 0 }
+        inTable {
+            if (m[$1] >= 40) {
+                moving++
+                if ($5 < 40) { stalls++; rows = rows sprintf("%s  motions=%d  touchpad/s=%d  i915/s=%d  dgpu=%s\n", $1, m[$1], $3, $5, $NF) }
+            }
+        }
+        END {
+            printf "seconds with finger motion: %d; of those with i915/s < 40: %d\n", moving, stalls
+            printf "%s", rows
+        }' "$1" "$2"
+}
+
 # summarise_events <file> — per device: a histogram of gaps between consecutive motion events.
 # A healthy touchpad reports every ~7ms, so moving smoothly lands in "<20ms". Finger lifts and
 # pauses land in ">=300ms". The 20-300ms buckets are the stutter band.
 summarise_events() {
     awk '
-        $2 == "POINTER_MOTION" {
-            for (i = 3; i <= NF; i++) if ($i ~ /^\+[0-9.]+s$/) { t = substr($i, 2) + 0; break }
-            dev = $1
+        $3 == "POINTER_MOTION" {
+            for (i = 4; i <= NF; i++) if ($i ~ /^\+[0-9.]+s$/) { t = substr($i, 2) + 0; break }
+            dev = $2
             n[dev]++
             if (dev in last) {
                 g = (t - last[dev]) * 1000
@@ -347,8 +371,14 @@ capture() {
 
     events="${runDir}/libinput-pointer-events.txt"
     printf '==> MOVE THE TOUCHPAD, then the TrackPoint, for the next %ss\n' "${secs}"
-    timeout "${secs}" sudo -n libinput debug-events \
-        --device "${touchpad}" --device "${mousenode}" --device "${trackpoint}" >"${events}" 2>&1 &
+    # Each event line is prefixed with the wall-clock second, so it joins the per-second table
+    # exactly; libinput's own timestamps are relative to an unrecorded start.
+    (
+        set -o pipefail
+        timeout "${secs}" sudo -n libinput debug-events \
+            --device "${touchpad}" --device "${mousenode}" --device "${trackpoint}" 2>&1 |
+            awk '{ print strftime("%T"), $0; fflush() }'
+    ) >"${events}" &
     pid=$!
     transitions="${runDir}/dgpu-transitions.txt"
     if gpu="$(dgpu_dir)"; then
@@ -376,6 +406,16 @@ capture() {
     sec "libinput motion-event timing per device (${touchpad} touchpad, ${mousenode} touchpad mouse node, ${trackpoint} TrackPoint)" \
         "counts in the 20-300ms stutter band while the cursor lagged = the device or kernel path (H2); nearly all <20ms while it lagged = the delay is AFTER libinput (compositor, H1/H5)"
     if summarise_events "${events}" >>"${REPORT}" 2>&1; then :; else rc=$?; failed "event summary" "${rc}"; fi
+
+    local stalls
+    if stalls="$(stall_seconds "${events}" "${REPORT}")"; then
+        sec "compositor stall seconds (finger moving, screen not presenting)" \
+            "the lag signature for H1/H5; a run of these rows is an episode, and the dgpu column says whether a wake coincided"
+        out "${stalls}"
+    else
+        rc=$?
+        failed "stall join" "${rc}"
+    fi
     out ""
     out "Raw pointer events: ${events}"
 }
