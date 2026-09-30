@@ -36,6 +36,8 @@ Use these Unicode icons in plan documents:
 
 - [00142-qa-tool-pin-does-not-converge-under-pipx-uv](00142-qa-tool-pin-does-not-converge-under-pipx-uv/) - `play-python.yml` could not move a QA tool at the wrong version onto its pin: under pipx's uv backend `install --force` re-runs `uv venv` on the existing venv, which uv refuses. An off-pin tool is now removed, installed fresh and re-pinned. Reproduced against a real pipx 1.15.0 and uv, and gated in `qa-all.bash`. Waiting on a host run.
 
+- [00144-single-fedora-desktop-panel-icon](00144-single-fedora-desktop-panel-icon/) - Container Watch becomes a section of the one Fedora Desktop panel icon, feeding its alert state, and the old extension is retired by playbook. Not Started: three decisions wait on the owner.
+
 - [00143-pointer-lag-and-trackpoint-speed](00143-pointer-lag-and-trackpoint-speed/) - Intermittent touchpad lag on the laptop. A live episode ruled out CPU, memory, GPU, display, thermals and touchpad interrupts, so the lagging layer is still unknown and a mid-episode `triage.bash --capture` is next. Separately, the TrackPoint is far too fast because libinput ships no speed quirk for this ThinkPad model; it gets fixed through IaC.
 
 - [00141-run-bash-changed-plays](00141-run-bash-changed-plays/) - `./run.bash --changed` runs, after one confirmation, every play whose inputs changed since it last ran here. The inputs come from Plan 00137's path-to-play mapper, not just each play's own file, so a change to a ccy lib or a template counts. A play whose references cannot be followed is named, never skipped silently.
