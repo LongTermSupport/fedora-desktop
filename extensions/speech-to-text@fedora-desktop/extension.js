@@ -15,6 +15,7 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
+import Pango from 'gi://Pango';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
@@ -626,6 +627,16 @@ export default class SpeechToTextExtension extends Extension {
         }
     }
 
+    _countdownText() {
+        // Just the seconds: the coloured badge already says "recording", and panel
+        // space is tight. Claude modes keep an emoji so the style is still visible.
+        if (this._isClaudeMode) {
+            const emoji = this._claudeStyle === 'natural' ? '💬' : '🤖';
+            return `${emoji} ${this._remainingSeconds}`;
+        }
+        return `${this._remainingSeconds}`;
+    }
+
     _startCountdown() {
         // Stop any existing countdown
         this._stopCountdown();
@@ -642,17 +653,14 @@ export default class SpeechToTextExtension extends Extension {
 
         // Start with green background, white text
         // Note: Don't use 'system-status-icon' style_class - it has max-width that
-        // truncates "REC 117" to "REC 1..." in streaming mode
-        // Use different prefix for Claude mode based on style
-        let modePrefix = 'REC';
-        if (this._isClaudeMode) {
-            modePrefix = this._claudeStyle === 'natural' ? '💬 REC' : '🤖 REC';
-        }
+        // truncates the label. Ellipsizing is disabled too: on a crowded panel the
+        // label is squeezed, and "RE…" hides the one thing it exists to show.
         this._countdownLabel = new St.Label({
-            text: `${modePrefix} ${this._remainingSeconds}`,
+            text: this._countdownText(),
             y_align: 2,  // Clutter.ActorAlign.CENTER
             style: 'color: white; font-weight: bold; font-size: 13px; background-color: #44ff44; padding: 2px 4px; border-radius: 3px;'
         });
+        this._countdownLabel.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
         this._indicator.add_child(this._countdownLabel);
 
         const limit = this._streamingMode ? 120 : 30;
@@ -663,12 +671,7 @@ export default class SpeechToTextExtension extends Extension {
             this._remainingSeconds--;
 
             if (this._countdownLabel) {
-                // Update text with mode prefix based on Claude style
-                let modePrefix = 'REC';
-                if (this._isClaudeMode) {
-                    modePrefix = this._claudeStyle === 'natural' ? '💬 REC' : '🤖 REC';
-                }
-                this._countdownLabel.text = `${modePrefix} ${this._remainingSeconds}`;
+                this._countdownLabel.text = this._countdownText();
 
                 // Update color/style based on time remaining
                 if (this._remainingSeconds > 10) {
@@ -1055,35 +1058,64 @@ export default class SpeechToTextExtension extends Extension {
         return useShift ? 1 : 0;
     }
 
+    _killRecorders(signalName) {
+        // `wsi-stream( |$)` is anchored so it never matches the warm wsi-stream-server:
+        // killing that throws away the loaded model and forces a cold start next time.
+        const binDir = GLib.get_home_dir() + '/.local/bin';
+        GLib.spawn_command_line_async(`pkill --signal ${signalName} -f "pw-record.*wfile"`);
+        GLib.spawn_command_line_async(`pkill --signal ${signalName} -f "${binDir}/wsi-stream( |$)"`);
+        GLib.spawn_command_line_async(`pkill --signal ${signalName} -f "${binDir}/wsi --"`);
+    }
+
+    _resetToIdle() {
+        this._currentState = 'IDLE';
+        this._clearLaunchDebounce();
+        this._stopCountdown();
+        this._updateIconState('IDLE');
+    }
+
+    _readLiveRecorderPid(pidFile) {
+        // Returns the recorder PID if the PID file names a live process, else null
+        const file = Gio.File.new_for_path(pidFile);
+        if (!file.query_exists(null)) {
+            return null;
+        }
+        const [, contents] = file.load_contents(null);
+        const pid = new TextDecoder().decode(contents).trim();
+        if (!/^[0-9]+$/.test(pid)) {
+            this._log(`PID file holds a non-numeric value: "${pid}"`);
+            return null;
+        }
+        if (!Gio.File.new_for_path(`/proc/${pid}`).query_exists(null)) {
+            this._log(`PID file is stale (PID ${pid} not running)`);
+            return null;
+        }
+        return pid;
+    }
+
     _stopRecording() {
         const pidFile = '/dev/shm/stt-recording-' + GLib.get_user_name() + '.pid';
         this._log(`Stopping recording via PID file: ${pidFile}`);
 
+        let pid = null;
         try {
-            const file = Gio.File.new_for_path(pidFile);
-            if (file.query_exists(null)) {
-                const [success, contents] = file.load_contents(null);
-                if (success) {
-                    const pid = new TextDecoder().decode(contents).trim();
-                    this._log(`Killing PID: ${pid}`);
-                    GLib.spawn_command_line_async(`kill ${pid}`);
-                }
-            } else {
-                this._log('PID file not found, trying pkill fallback');
-                const binDir = GLib.get_home_dir() + '/.local/bin';
-                // Kill both batch mode and streaming mode processes
-                GLib.spawn_command_line_async('pkill -f "pw-record.*wfile"');
-                GLib.spawn_command_line_async(`pkill -f "${binDir}/wsi-stream"`);
-                GLib.spawn_command_line_async(`pkill -f "${binDir}/wsi --"`);
-            }
+            pid = this._readLiveRecorderPid(pidFile);
         } catch (e) {
-            this._log(`Stop error: ${e.message}`);
-            const binDir = GLib.get_home_dir() + '/.local/bin';
-            // Fallback to pkill - kill both batch and streaming
-            GLib.spawn_command_line_async('pkill -f "pw-record.*wfile"');
-            GLib.spawn_command_line_async(`pkill -f "${binDir}/wsi-stream"`);
-            GLib.spawn_command_line_async(`pkill -f "${binDir}/wsi --"`);
+            this._log(`Stop error reading PID file: ${e.message}`);
         }
+
+        if (pid) {
+            this._log(`Killing PID: ${pid}`);
+            GLib.spawn_command_line_async(`kill ${pid}`);
+            return;
+        }
+
+        // No live recorder owns the state, so no process will ever emit IDLE for it.
+        // Sweep any stragglers and reset here, otherwise the indicator stays wedged
+        // and every later Insert press lands back in this branch.
+        this._log('No live recorder PID; pkill fallback and reset to IDLE');
+        this._killRecorders('TERM');
+        this._resetToIdle();
     }
 
     _abortRecording() {
@@ -1095,16 +1127,22 @@ export default class SpeechToTextExtension extends Extension {
 
         this._log('Aborting recording (Escape pressed)');
 
-        // Kill the process tree forcefully with SIGKILL to prevent transcription
+        const pidFile = '/dev/shm/stt-recording-' + GLib.get_user_name() + '.pid';
         try {
-            // Kill wsi/wsi-stream and any child processes
-            const binDir = GLib.get_home_dir() + '/.local/bin';
-            GLib.spawn_command_line_async(`pkill -9 -f "${binDir}/wsi-stream"`);
-            GLib.spawn_command_line_async(`pkill -9 -f "${binDir}/wsi --"`);
-            GLib.spawn_command_line_async('pkill -9 -f "pw-record.*wfile"');
+            // Server mode: the audio lives in the warm server, so the client must send it
+            // STOP. SIGUSR1 asks the client to do that and discard the text.
+            const pid = this._readLiveRecorderPid(pidFile);
+            if (pid && this._streamingMode && this._streamingStartupMode === 'server') {
+                this._log(`Discarding server-mode recording: SIGUSR1 to ${pid}`);
+                GLib.spawn_command_line_async(`kill -USR1 ${pid}`);
+                this._resetToIdle();
+                return;
+            }
+
+            // Other modes own their audio: SIGKILL the process tree to prevent transcription
+            this._killRecorders('KILL');
 
             // Clean up PID file
-            const pidFile = '/dev/shm/stt-recording-' + GLib.get_user_name() + '.pid';
             const file = Gio.File.new_for_path(pidFile);
             if (file.query_exists(null)) {
                 file.delete(null);
@@ -1114,10 +1152,7 @@ export default class SpeechToTextExtension extends Extension {
         }
 
         // Reset UI immediately
-        this._currentState = 'IDLE';
-        this._clearLaunchDebounce();
-        this._stopCountdown();
-        this._updateIconState('IDLE');
+        this._resetToIdle();
         this._log('Recording aborted');
     }
 

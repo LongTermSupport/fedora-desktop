@@ -447,7 +447,21 @@ def run_server_mode(args):
     model_size = os.environ.get("WHISPER_MODEL", "base")
     language = args.language or os.environ.get("WHISPER_LANGUAGE", "en") or "en"
 
-    # Start server if not running
+    # Write the PID file before a cold server start (20-30s). Without it, an Insert press
+    # during PREPARING falls through to the extension's pkill fallback, and the default
+    # SIGTERM disposition kills this process without atexit — no IDLE is ever emitted,
+    # leaving the extension wedged in PREPARING until logout.
+    PID_FILE.write_text(str(os.getpid()))
+
+    def abort_startup(signum, frame):
+        log(f"Signal {signum} received during server startup, aborting")
+        raise SystemExit(1)  # runs atexit cleanup: PID file removed, IDLE emitted
+
+    signal.signal(signal.SIGINT, abort_startup)
+    signal.signal(signal.SIGTERM, abort_startup)
+    signal.signal(signal.SIGUSR1, abort_startup)
+
+    # Start server if not running (detached: it keeps loading if we are aborted)
     if not is_server_running():
         notify("PREPARING", "Starting server...")
         if not start_server(model_size, language):
@@ -456,8 +470,25 @@ def run_server_mode(args):
 
     log("Server ready - instant recording startup!")
 
-    # Write PID file so extension can stop us
-    PID_FILE.write_text(str(os.getpid()))
+    # From here a stop is a graceful request: the wait loop below sends STOP.
+    # SIGUSR1 is the extension's abort (Escape): STOP the server so it releases the
+    # mic, but discard the text. SIGKILLing this client instead would leave the server
+    # recording until its watchdog fires, refusing every START in the meantime.
+    stop_requested = False
+    discard_requested = False
+
+    def handle_signal(signum, frame):
+        nonlocal stop_requested, discard_requested, recording_active
+        log(f"Signal {signum} received, requesting stop")
+        stop_requested = True
+        if signum == signal.SIGUSR1:
+            discard_requested = True
+        # Mark as inactive so atexit doesn't try to send STOP again
+        recording_active = False
+
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
+    signal.signal(signal.SIGUSR1, handle_signal)
 
     # Clear buffer file
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -477,19 +508,6 @@ def run_server_mode(args):
 
     log("Recording active (server mode)")
     recording_active = True  # Mark as active for cleanup
-
-    # Wait for user to press Insert again (or timeout)
-    stop_requested = False
-
-    def handle_signal(signum, frame):
-        nonlocal stop_requested, recording_active
-        log(f"Signal {signum} received, requesting stop")
-        stop_requested = True
-        # Mark as inactive so atexit doesn't try to send STOP again
-        recording_active = False
-
-    signal.signal(signal.SIGINT, handle_signal)
-    signal.signal(signal.SIGTERM, handle_signal)
 
     # Wait for stop signal (extension will kill this process)
     # Use short sleep intervals so signal can interrupt quickly
@@ -519,8 +537,12 @@ def run_server_mode(args):
     # This prevents atexit handler from trying to send STOP again
     recording_active = False
 
-    if PID_FILE.exists():
-        PID_FILE.unlink()
+    # The PID file stays until exit (atexit removes it): the extension treats a missing
+    # PID file as "no recorder", and transcription + paste are still to come.
+
+    if discard_requested:
+        log("Recording discarded (abort) - not transcribing or pasting")
+        return 0
 
     if response.get("status") != "stopped":
         log(f"Server STOP failed: {response}", "ERROR")
