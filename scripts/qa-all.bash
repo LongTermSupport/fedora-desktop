@@ -769,6 +769,17 @@ fi
 config_repo_summary=$(qa_gate_case_count "$config_repo_out")
 qa_pass_line run-bash-config-repo "$config_repo_summary"
 
+# Headless SSH unlock (scripts/test-run-bash-ssh-agent-start.bash): the login key is loaded
+# through askpass with the real ssh-agent, and a wrong passphrase stops the run, not hangs it.
+ssh_agent_start_out=""
+if ! ssh_agent_start_out="$(bash "$SCRIPT_DIR/test-run-bash-ssh-agent-start.bash" 2>&1)"; then
+    qa_hard_gate_failed run-bash-ssh-agent-start \
+        "run.bash headless SSH unlock tests failed" \
+        "$ssh_agent_start_out"
+fi
+ssh_agent_start_summary=$(qa_gate_case_count "$ssh_agent_start_out")
+qa_pass_line run-bash-ssh-agent-start "$ssh_agent_start_summary"
+
 # gh-<alias> wrappers (scripts/test-gh-alias-wrappers.bash): the generated gh-<alias> and
 # clone-<alias> functions put gh's active account back to the one that was active, not to
 # the saved default.

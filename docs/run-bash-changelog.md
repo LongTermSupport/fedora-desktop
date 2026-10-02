@@ -15,6 +15,15 @@ the index, not the record.
 
 ---
 
+## 1.29.3 — a wrong headless SSH passphrase fails instead of hanging (found in Plan 00135 T6.2)
+
+`run.bash --headless` unlocks the login key through a transient `SSH_ASKPASS`. The helper
+answered every question ssh-add asked, and ssh-add asks a wrong answer "Bad passphrase, try
+again" for ever, so a wrong `RUN_BASH_GITHUB_SSH_PASSPHRASE` hung the run. The helper now
+answers only the first question for the key, so ssh-add fails at once and the run stops
+saying the passphrase is wrong. New gate: `scripts/test-run-bash-ssh-agent-start.bash`,
+with the real ssh-agent and ssh-add.
+
 ## 1.29.2 — every config-repo read tells a 404 from a failure; the save keeps the config off argv
 
 1.29.1 fixed the existence check but left the other config-repo reads treating any failure

@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.29.2"
+RUN_BASH_VERSION="1.29.3"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -520,9 +520,16 @@ hl_ssh_agent_start() {
   # Quoted heredoc: the helper body is written VERBATIM (the $HL_SSH_PP_FILE reference
   # is resolved at askpass RUNTIME from the inherited env, not expanded here) — so the
   # passphrase never enters the helper's own text, only the non-secret path does.
+  # It answers ONLY ssh-add's first question for the key. ssh-add asks a wrong answer
+  # "Bad passphrase, try again" for ever, so answering that too turns a wrong passphrase
+  # into a run that never ends; refusing it makes ssh-add fail at once.
   cat > "$HL_ASKPASS" <<'HL_ASKPASS_BODY'
 #!/usr/bin/env bash
-cat "$HL_SSH_PP_FILE"
+case "$1" in
+"Enter passphrase for "*) exec cat -- "$HL_SSH_PP_FILE" ;;
+esac
+echo "run.bash askpass: not answering: $1" >&2
+exit 1
 HL_ASKPASS_BODY
   HL_SECRET_FILES+=("$HL_SSH_PP_FILE" "$HL_ASKPASS")
   export HL_SSH_PP_FILE
