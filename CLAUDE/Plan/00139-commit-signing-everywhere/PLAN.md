@@ -126,19 +126,20 @@ out.
   - [x] ✅ **HOST (owner, at a desk)**: `./CLAUDE/Plan/meta-deploy.bash`, which runs this
     plan's deploy and acceptance. Deploy passed, with every play at `failed=0`, and each
     account alias offers only its own key. Acceptance 13 of 13 (`_meta-deploy/20260925-113855`)
-- [ ] 🚫 **Task 1.4**: The owner asked for this machine's public key to be kept in the
+- [x] ✅ **Task 1.4**: The owner asked for this machine's public key to be kept in the
   private config repo. The play writes it into `localhost.yml` as `git_signing_public_key`,
   in a managed block, the way other plays record values there. It uses its own name,
   because `self_update_signing_public_key` is the key a server trusts. Merged as
   `cd50ffc1` (the desktop agent's commit, `a594063e`)
   - [x] ✅ **HOST**: a deploy run. The task reported `changed`, and exactly one managed block
     was written
-  - [ ] ⬜ **HOST (owner)**: "Save local config to repo" in `run.bash`. The first attempt
+  - [x] ✅ **HOST (owner)**: "Save local config to repo" in `run.bash`. The first attempt
     reported "No config repo found" for a repo that exists: the calls rode on gh's active
     account, which a `gh-<alias>` wrapper had left on another account. Fixed in `run.bash`
     1.29.1 and 1.29.2, which read the repo with the primary's own token and tell a 404
     from a failure (review: `subagent-reports/261002-qa-reviewer-config-repo-primary-opus.md`);
-    pull and run it again
+    pull and run it again. The re-run saved this machine as its own host: the config repo
+    now lists it under `hosts/` (checked by name only)
 
 ### Phase 2: ccy signs
 
@@ -155,7 +156,7 @@ out.
   (`self_update_signing_public_key`). `localhost.yml.dist` and the docs updated. The
   helpers needed no change beyond the refusal message's wording, and
   `scripts/test-self-update-cycle.bash` still passes.
-  - [ ] ⬜ **HOST (owner)**: a server that already trusts the old passphrase-free key needs,
+  - [ ] 🚫 **HOST (owner)**: a server that already trusts the old passphrase-free key needs,
     in the list `self_update_signing_public_keys` (Plan 00137 Task 4.8), the `.pub` line of
     every key that now signs this repository: `~/.ssh/id.pub` for host commits and each
     `~/.ssh/github_<alias>.pub` ccy sessions sign with (`deploy.bash` prints them all),
@@ -226,8 +227,9 @@ out.
     fixed, two nits handled, the third answered in the journal
   - [x] ✅ **Owner**: review and merge; decide whether a box with no identity should sign
     at all (the PR's question). Merged as PR #56, so a box with no identity does not sign
-  - [ ] ⬜ A headless `none` provisioning passes `playbook-main.yml` (the
-    `server-fast-provision` VM scenario provisions exactly this path)
+  - [ ] 🚫 **HOST (owner)**: a headless `none` provisioning passes `playbook-main.yml` (the
+    `server-fast-provision` VM scenario provisions exactly this path). A VM run, so not
+    from the container
 
 ## Success Criteria
 
