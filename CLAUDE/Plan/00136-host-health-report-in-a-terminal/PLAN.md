@@ -74,7 +74,8 @@ them is still Plan 00109 Task 4.3, and the command built here is where it will h
   the panel design notes that the terminal launch for the report is settled here
 - [ ] 🚫 **HOST**: run both plays, log out and back in, open a terminal and confirm the
   full report then the one-line reminder; click the panel row and confirm a terminal opens
-  and stays open; confirm over SSH
+  and stays open; confirm over SSH. Both plays ran in meta-deploy `20261002-094803`,
+  `failed=0`; the logout and the checks remain
 
 ## Success Criteria
 

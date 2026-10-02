@@ -216,8 +216,8 @@ out.
   - [x] ✅ QA review: FIX-BEFORE-MERGE, nothing blocking, three to fix, three nits
     ([report](subagent-reports/260929-qa-reviewer-headless-none-opus-5-5.md)). All three
     fixed, two nits handled, the third answered in the journal
-  - [ ] ⬜ **Owner**: review and merge; decide whether a box with no identity should sign
-    at all (the PR's question)
+  - [x] ✅ **Owner**: review and merge; decide whether a box with no identity should sign
+    at all (the PR's question). Merged as PR #56, so a box with no identity does not sign
   - [ ] ⬜ A headless `none` provisioning passes `playbook-main.yml` (the
     `server-fast-provision` VM scenario provisions exactly this path)
 
