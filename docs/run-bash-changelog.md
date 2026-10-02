@@ -15,6 +15,16 @@ the index, not the record.
 
 ---
 
+## 1.29.2 — every config-repo read tells a 404 from a failure; the save keeps the config off argv
+
+1.29.1 fixed the existence check but left the other config-repo reads treating any failure
+as "not there". Every read now goes through `config_repo_read`: a 404 is "not there", and
+an expired token, a network fault or anything else stops the run with gh's words. A saved
+config that was listed but can no longer be read stops the run rather than quietly
+dropping the pull option. "No config repo found" now also says that a token short of the
+required scopes gets the same 404. The save sends `localhost.yml` to gh as a request body
+file rather than a `--field` argument, where any user on the machine could read it.
+
 ## 1.29.1 — the config repo is read as the primary account (found running Plan 00139 Task 1.4)
 
 The config step reported "No config repo found" for a `fedora-desktop-config` repo that

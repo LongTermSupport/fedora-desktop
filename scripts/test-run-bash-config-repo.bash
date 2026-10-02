@@ -34,7 +34,7 @@ extract() {
 }
 
 : >"$work/fn.bash"
-for fn in info success warning error hl_abort fatal gh_primary config_repo_exists push_config_to_repo; do
+for fn in info success warning error hl_abort fatal gh_primary config_repo_read config_repo_exists push_config_to_repo hl_pull_config_source; do
     extract "$RUN_BASH" "$fn"
 done
 
@@ -45,8 +45,9 @@ export RED GREEN YELLOW CYAN BOLD NC CROSS CHECK ARROW INFO WARN
 # gh: `auth token --user X` hands out "tok-X" unless $STUB_DIR/no-token exists. `api repos/O/…`
 # answers only when GH_TOKEN is "tok-O" (the repo is private to its owner); any other caller
 # gets gh's real 404 wording. $STUB_DIR/api-error makes every api call fail with its content
-# instead, as an expired token or a network fault does. Every api call is logged with the
-# token it carried.
+# instead, as an expired token or a network fault does. $STUB_DIR/missing names one path that
+# answers 404. Every api call is logged with the token it carried, and a PUT's --input body is
+# kept in $STUB_DIR/put-body. A read answers by its --jq filter.
 mkdir -p "$work/bin"
 cat >"$work/bin/gh" <<'STUB'
 #!/usr/bin/env bash
@@ -65,10 +66,22 @@ case "$1 $2" in
             echo "gh: Not Found (HTTP 404)" >&2
             exit 1
         fi
-        case "$*" in
-            *"--method PUT"*) ;;
-            *"/contents/"*) echo "sha-1" ;;
-            *) echo "fedora-desktop-config" ;;
+        if [ -f "$STUB_DIR/missing" ] && [ "$2" = "$(cat "$STUB_DIR/missing")" ] && [ "$3" != "--method" ]; then
+            echo "gh: Not Found (HTTP 404)" >&2
+            exit 1
+        fi
+        prev=""
+        for arg; do
+            if [ "$prev" = "--input" ]; then cp "$arg" "$STUB_DIR/put-body"; fi
+            if [ "$prev" = "--jq" ]; then filter="$arg"; fi
+            prev="$arg"
+        done
+        case "${filter:-}" in
+            .name) echo "fedora-desktop-config" ;;
+            .private) echo "true" ;;
+            .sha) echo "sha-1" ;;
+            .content) printf 'x: 1\n' | base64 ;;
+            ".[].name") printf 'h.yml\nother.yml\n' ;;
         esac
         ;;
     *) echo "unexpected gh $*" >&2; exit 99 ;;
@@ -105,7 +118,7 @@ contains() {
 }
 
 reset_stub() {
-    rm -f "$STUB_DIR/api.log" "$STUB_DIR/api-error" "$STUB_DIR/no-token"
+    rm -f "$STUB_DIR/api.log" "$STUB_DIR/api-error" "$STUB_DIR/no-token" "$STUB_DIR/missing" "$STUB_DIR/put-body"
 }
 
 # exists <primary> <repo> — config_repo_exists in a subshell; prints "ok" or "failed", then its
@@ -143,21 +156,71 @@ touch "$STUB_DIR/no-token"
 OUT="$(exists alice alice/fedora-desktop-config)"
 check "a primary with no token stops the run" "failed" "$(first_line "$OUT")"
 check "  rather than reading as absent" "no" "$(printf '%s\n' "$OUT" | grep -qxE 'found|absent' && echo yes || echo no)"
-contains "  saying whose token is missing" "no oauth token found for alice" "$OUT"
+contains "  saying whose token is missing" "could not read alice's gh token" "$OUT"
 check "  and never calls the API with someone else's token" "no" \
     "$([ -s "$STUB_DIR/api.log" ] && echo yes || echo no)"
 
-echo "== push_config_to_repo"
+echo "== config_repo_read"
+# read_path <path> <jq> — config_repo_read as alice, in the main shell as run.bash calls it.
+# Prints "read:<value>" or "absent", and nothing of its own when it stopped the run.
+read_path() {
+    GH_TOKEN=tok-someone-else primary_gh_username=alice bash -c 'source "$1"; if config_repo_read alice/fedora-desktop-config "$2" "$3"; then echo "read:${config_repo_value}"; else echo absent; fi' _ "$work/fn.bash" "$1" "$2" 2>&1
+}
 reset_stub
-printf 'x: 1\n' >"$work/local.yml"
-push_verdict=pushed
-GH_TOKEN=tok-someone-else primary_gh_username=alice bash -c 'source "$1"; push_config_to_repo "$2" alice/fedora-desktop-config hosts/h.yml h' _ "$work/fn.bash" "$work/local.yml" >"$work/push.out" 2>&1 || push_verdict=failed
-check "the push succeeds" "pushed" "$push_verdict"
+check "a file's field is read into config_repo_value" "read:sha-1" "$(read_path hosts/h.yml .sha)"
+contains "  from its contents endpoint" "repos/alice/fedora-desktop-config/contents/hosts/h.yml" "$(cat "$STUB_DIR/api.log")"
+reset_stub
+echo "repos/alice/fedora-desktop-config/contents/hosts/h.yml" >"$STUB_DIR/missing"
+check "a 404 leaves it empty and reads as absent" "absent" "$(read_path hosts/h.yml .sha)"
+reset_stub
+echo "gh: connection reset" >"$STUB_DIR/api-error"
+OUT="$(read_path hosts/h.yml .content)"
+check "a network fault stops the run" "no" "$(echo "$OUT" | grep -qE '^(read:|absent)' && echo yes || echo no)"
+contains "  with gh's words" "connection reset" "$OUT"
+
+echo "== push_config_to_repo"
+# push — push_config_to_repo as alice; its last line is "pushed" when it returned.
+push() {
+    GH_TOKEN=tok-someone-else primary_gh_username=alice bash -c 'source "$1"; push_config_to_repo "$2" alice/fedora-desktop-config hosts/h.yml h && echo pushed' _ "$work/fn.bash" "$work/local.yml" 2>&1
+}
+body_field() {
+    python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get(sys.argv[2], "-"))' "$STUB_DIR/put-body" "$1" 2>&1
+}
+echo "x: 1" >"$work/local.yml"
+local_b64="$(base64 -w0 "$work/local.yml")"
+reset_stub
+OUT="$(push)"
+check "the push succeeds" "pushed" "$(last_line "$OUT")"
 check "  every call carries the primary's token" "0" "$(awk '$1 != "tok-alice"' "$STUB_DIR/api.log" | wc -l | tr -d ' ')"
-contains "  and it updates the existing file by its sha" "sha=sha-1" "$(cat "$STUB_DIR/api.log")"
+check "  the config is not on gh's command line" "no" "$(grep -qF "$local_b64" "$STUB_DIR/api.log" && echo yes || echo no)"
+check "  it travels in the request body" "$local_b64" "$(body_field content)"
+check "  updating the existing file by its sha" "sha-1" "$(body_field sha)"
+check "  with the commit message" "Update config from h" "$(body_field message)"
+reset_stub
+echo "repos/alice/fedora-desktop-config/contents/hosts/h.yml" >"$STUB_DIR/missing"
+OUT="$(push)"
+check "a first save creates the file" "pushed" "$(last_line "$OUT")"
+check "  with no sha" "-" "$(body_field sha)"
+reset_stub
+echo "gh: Bad credentials (HTTP 401)" >"$STUB_DIR/api-error"
+OUT="$(push)"
+check "a failed sha lookup stops the save" "no" "$(echo "$OUT" | grep -qx pushed && echo yes || echo no)"
+check "  before anything is uploaded" "no" "$([ -e "$STUB_DIR/put-body" ] && echo yes || echo no)"
+
+echo "== hl_pull_config_source (headless)"
+reset_stub
+pull_out="$(GH_TOKEN=tok-someone-else primary_gh_username=alice HEADLESS=true bash -c 'source "$1"; hl_pull_config_source "$2" hosts/h.yml' _ "$work/fn.bash" "$work/pulled.yml" 2>&1)"
+check "the headless pull writes the saved config" "x: 1" "$(cat "$work/pulled.yml" 2>&1)"
+check "  reading as the primary" "0" "$(awk '$1 != "tok-alice"' "$STUB_DIR/api.log" | wc -l | tr -d ' ')"
+contains "  and says so" "pulled config hosts/h.yml" "$pull_out"
 
 echo "== run.bash: the wiring"
-check "no config-repo call rides on gh's active account" "" "$(grep -nE 'gh api "repos/[$][{](config_)?repo[}]' "$RUN_BASH")"
+# Turned round, so a new spelling cannot slip past: EVERY `api … repos/` line, whatever runs it,
+# whatever flags come first and however the repo is quoted, must be gh_primary, or the
+# account-choice probe that hands each account its own token.
+check "every repos/ API call carries a named account's token" "" "$(grep -nE '(^|[^[:alnum:]_])api([[:space:]]|$).*repos/' "$RUN_BASH" | grep -vE 'gh_primary api |GH_TOKEN="[$]token" gh api ')"
+check "no gh repo subcommand runs outside a printed hint" "" "$(awk '{ line = $0; gsub(/"[^"]*"/, "", line); if (line ~ /(^|[^[:alnum:]_-])(gh|GH_REPO[}]?|gh-[a-z]+)[[:space:]]+repo[[:space:]]/) print NR ": " $0 }' "$RUN_BASH")"
+check "no file content is passed to gh as an argument" "" "$(grep -nE -- '--(field|raw-field|f|F)[[:space:]]+"?content=' "$RUN_BASH")"
 check "the config step asks config_repo_exists" "yes" "$(grep -qE '^if config_repo_exists "[$]config_repo"; then' "$RUN_BASH" && echo yes || echo no)"
 
 echo ""
