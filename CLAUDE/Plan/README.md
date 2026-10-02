@@ -184,7 +184,7 @@ Use these Unicode icons in plan documents:
 
 ## Completed Plans
 
-- [00142-qa-tool-pin-does-not-converge-under-pipx-uv](Completed/00142-qa-tool-pin-does-not-converge-under-pipx-uv/) - `play-python.yml` could not move a QA tool at the wrong version onto its pin: under pipx's uv backend `install --force` re-runs `uv venv` on the existing venv, which uv refuses. An off-pin tool is now removed, installed fresh and re-pinned. Reproduced against a real pipx 1.15.0 and uv, and gated in `qa-all.bash`. Closed by the owner without a real-host converge run. Search: "A virtual environment already exists".
+- [00142-qa-tool-pin-does-not-converge-under-pipx-uv](Completed/00142-qa-tool-pin-does-not-converge-under-pipx-uv/) - `play-python.yml` could not move a QA tool at the wrong version onto its pin: under pipx's uv backend `install --force` re-runs `uv venv` on the existing venv, which uv refuses. An off-pin tool is now removed, installed fresh and re-pinned; reproduced offline and gated. Search: "A virtual environment already exists".
 
 - [00145-ccy-key-menu-steers-away-from-keys-that-cannot-push](Completed/00145-ccy-key-menu-steers-away-from-keys-that-cannot-push/) - Bug fix: ccy's launch-time SSH key menu accepted a key its own push probe had just found cannot push. When any key can push, the menu now offers only those; the full list is behind `a`, and a key there that cannot push needs a `y`. CCY 3.71.0. Host-confirmed by the owner.
 
