@@ -96,6 +96,20 @@ See logs for details: .claude/hooks-daemon/bin/hooks-daemon logs
 2. Fix handler issues
 3. Restart daemon
 
+### Handler Options Not Applied
+
+```
+Handler options:
+  🚨 DEGRADED — 1 handler(s) running on defaults:
+  - PreToolUse.destructive_git: RuntimeError: ...
+```
+
+The daemon could not collect that handler's configured options, so the
+handler runs on its defaults and `health` exits non-zero. Each session also
+opens with a `HANDLER OPTIONS NOT APPLIED` advisory naming it. This is a daemon
+defect rather than a config mistake. Report it with the traceback from
+`.claude/hooks-daemon/bin/hooks-daemon logs`.
+
 ### Configuration Errors
 
 ```

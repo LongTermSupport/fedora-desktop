@@ -46,9 +46,13 @@ edit will not produce churn diffs.
 | `restart`         | `CLAUDE.md` block ONLY   | Yes             | Applying config/handler changes to the daemon |
 
 A `restart` regenerates **only** the `<hooksdaemon>` block in `CLAUDE.md`; it
-never rewrites `.claude/HOOKS-DAEMON.md`. So a handler added in-repo refreshes
-one artefact and leaves the other stale, and no test detects that — Plan 00402
-carries the fix.
+never rewrites `.claude/HOOKS-DAEMON.md`. That is deliberate: the file's
+`> Generated on … (vX.Y.Z)` line records the version the project's tracked
+assets were deployed from, and the upgrade reads it, so a restart must not
+restamp it. The cost is that a handler added in-repo refreshes one artefact and
+leaves the other stale. The daemon's own repository catches that with a QA
+check (`scripts/qa/check_generated_doc_drift.py`); a client project has no such
+check.
 
 `regenerate-docs` is the only command that refreshes BOTH, which makes it the
 one to run after adding or removing a handler — not just after a merge

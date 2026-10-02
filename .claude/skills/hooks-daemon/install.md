@@ -6,7 +6,7 @@ Install the Claude Code Hooks Daemon into this project.
 
 ```claude-code
 /hooks-daemon install           # Install daemon
-/hooks-daemon install --force   # Force reinstall (overwrites existing)
+/hooks-daemon install --force   # Force reinstall (re-clones; every venv is kept)
 ```
 
 ## When to Use
@@ -41,13 +41,33 @@ Then verify:
 
 ## If Already Installed
 
-If the daemon is already installed, the command will tell you and suggest upgrade instead:
+If the daemon is already installed and healthy, the command will tell you and suggest upgrade instead:
 
 ```claude-code
 /hooks-daemon upgrade
 ```
 
-Use `--force` to reinstall over an existing installation (backs up config first).
+Without `--force`, install never deletes an existing daemon directory on its own:
+
+- **A clone with no working venv for this project path** (for example, the
+  second view of a bind-mounted project) is repaired IN PLACE. The clone's own
+  `bin/hooks-daemon repair` builds this path's venv, and nothing else changes.
+  If that fails, install stops, and names the repair and the same-version
+  upgrade as the next steps.
+- **A directory that holds only the runtime folder hooks create** (no clone, no
+  venv) is removed, and a normal install runs.
+- **Anything else** (a damaged clone, a leftover venv with no clone) stops with
+  an explanation. Nothing is changed.
+
+Use `--force` to reinstall over an existing installation deliberately (it backs
+up config first). The daemon directory is re-cloned, but every environment's
+`untracked/venv-*` is moved aside first (into `.claude/.hooks-daemon-venvs.*`,
+which git ignores) and put back afterwards. They only go back into a daemon
+directory that holds a clone. If the install failed after removing the clone,
+they stay aside and the output says where. If the run is killed outright,
+the next `install` finds that directory once its run is gone (never while it
+still runs) and puts the venvs back. A newer copy already in place is kept.
+So another view's venv survives a forced reinstall.
 
 ## Troubleshooting
 

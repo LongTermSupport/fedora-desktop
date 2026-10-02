@@ -22,7 +22,10 @@ full picture on demand:
   and for anything sub-optimal: why it matters, how to fix it, where to set it,
   and a docs link. Covers:
   - Agent Teams (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`)
-  - Effort Level (`effortLevel` / `CLAUDE_CODE_EFFORT_LEVEL`)
+  - Effort Source — `[WARN]` when `CLAUDE_CODE_EFFORT_LEVEL`, or a top-level
+    `effortLevel` in the project or local settings file, pins one level on
+    every model and overrides the per-model `modelSettings` levels. It never
+    recommends a level: effort is settings.json's call.
   - Extended Thinking (`alwaysThinkingEnabled`)
   - Max Output Tokens (`CLAUDE_CODE_MAX_OUTPUT_TOKENS`)
   - Auto Memory (`CLAUDE_CODE_DISABLE_AUTO_MEMORY`)
@@ -40,7 +43,7 @@ Hooks Daemon — Environment Check
 
 Claude Code configuration: 4/6 optimal
   [OK  ] Agent Teams: CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS='1'
-  [OK  ] Effort Level: effortLevel='high'
+  [OK  ] Effort Source: per-model levels come from settings.json modelSettings
   [OK  ] Extended Thinking: alwaysThinkingEnabled=True
   [MISS] Max Output Tokens: Not set (default: 32000)
          Why:   ...

@@ -199,12 +199,47 @@ what looks like a complete report while content is missing. The
 `dispatch_declaration` handler (PreToolUse on the `Task` tool) injects this
 contract at dispatch time when a prompt does not already declare it; the
 `subagent_report_size_blocker` handler (SubagentStop) blocks an oversized
-final message until it is re-routed through a file. Work that is NOT plan
-work should instead declare an explicit destination (falling back to
-`untracked/agent-reports/` when none is given).
+final message until it is re-routed through a file.
+
+**The plan folder is the default destination because it is tracked.** Commit
+`subagent-reports/` with the plan: a report nothing commits is evidence that
+lasts only until the container restarts. Work that is NOT plan work declares
+an explicit destination instead, falling back to `untracked/agent-reports/`.
+That directory is gitignored, so it is right only when no plan applies.
+`dispatch_declaration` advises a dispatch that names a plan folder but sends
+its report there.
 
 `subagent-reports/` is a recognised plan-folder member for plan QA purposes —
 its presence never triggers a stray-file or unexpected-content finding.
+
+### Journal entries: `mkplan.bash --journal` is the only way
+
+A `JOURNAL/` entry is appended with the scaffolder, never by hand. It reads the
+real UTC clock and writes the `## HH:MM · category · REF` heading itself:
+
+```bash
+# 1. Write the entry BODY (no heading) with the Write tool to a FRESH file, e.g.
+#    untracked/scratch/journal-<plan-number>-<yymmdd-hhmmss>.md
+# 2. Append it:
+CLAUDE/Plan/mkplan.bash --journal <plan-number> <category> untracked/scratch/journal-<plan-number>-<yymmdd-hhmmss>.md --title "short title"
+```
+
+`<category>` is one of `action`, `finding`, `decision`, `thought`, `blocker`,
+`handoff`; add `--ref T1.2` for a task reference. The script creates today's
+day-file from the template when there is none. Use a new body-file name for
+every entry (a reused one is refused by the clobber guard), your configured
+plan directory if it is not `CLAUDE/Plan/`, and, in a worktree, that
+worktree's own `mkplan.bash`.
+
+Hand-typed timestamps have landed 40 minutes in the future, and an
+append-only journal cannot correct one until the clock passes it. So the
+`plan_journal_guard` handler DENIES, in every checkout, an `Edit`/`Write` that
+adds any line to a day-file, a `Write` that creates one, and a Bash command
+that writes into one by any route (a redirect, `tee`, a heredoc, a copy or
+link, an in-place editor, a patch, an interpreter program, a wrapper, or a name
+the shell builds at run time). **A coordinator's dispatch brief that asks for
+journalling must carry this two-step pattern**, not "append with Edit and
+`date -u`".
 
 ### Plan Numbering
 
@@ -375,9 +410,13 @@ a `PLAN.md` is linted against single-file rules on the content the file *would*
 have. New material with a missing/invalid `**Status**:` line, a header that
 contradicts an all-ticked body, or ad-hoc task markers is **blocked** with the
 exact fix (mode `edit_mode`, default `block`). The plan-index `README.md` is
-linted too, against one rule — `index-row-length`: keep every line under 500
+linted too — for example `index-row-length` keeps every line under 500
 characters, because a row is a pointer (link, status, one clause), not a
 summary copied from the linked plan.
+
+`plan-qa --list-checks` prints every check and the stages it runs on. That
+listing comes from the check registry itself, so it is the catalogue; this page
+names checks only as examples.
 
 **Stage 2 — commit gate** (`plan_qa_commit_gate`, PreToolUse on `git commit`):
 checks the **staged** tree against cross-file invariants -- index-at-birth (a
@@ -407,6 +446,7 @@ recount.
 .claude/hooks-daemon/bin/hooks-daemon plan-qa --sweep          # whole tree; exit 1 on findings (CI-able)
 .claude/hooks-daemon/bin/hooks-daemon plan-qa --check-staged   # staged-tree commit-gate checks
 .claude/hooks-daemon/bin/hooks-daemon plan-qa --lint <PLAN.md> # single-file edit-stage checks
+.claude/hooks-daemon/bin/hooks-daemon plan-qa --list-checks    # every check and its stages
 ```
 
 Add `--json` to any of these for machine-readable output.
@@ -933,7 +973,8 @@ Use this template when improving existing code without changing behaviour.
 3. **After completing**: Mark ✅, run QA, commit with reference
 4. **Regularly**: Review the plan and edit it IN PLACE so it states current
    truth. Append the narrative of what happened to the plan's `JOURNAL/`
-   day-file — never to `PLAN.md`. See [CLAUDE/PlanJournalling.md](../PlanJournalling.md).
+   day-file with `mkplan.bash --journal` (see "Journal entries" above) —
+   never to `PLAN.md`. See [CLAUDE/PlanJournalling.md](../PlanJournalling.md).
 
 ### Handling Changes
 
@@ -941,8 +982,9 @@ When requirements change mid-plan:
 
 1. **Document Change**: Edit `PLAN.md` in place to state the new truth
    (revise Goals/Tasks, record the reasoning under Technical Decisions), and
-   append a dated entry to the plan's `JOURNAL/` recording what changed and
-   why. Do NOT append a change-log section to `PLAN.md`.
+   append an entry to the plan's `JOURNAL/` with `mkplan.bash --journal`
+   recording what changed and why. Do NOT append a change-log section to
+   `PLAN.md`.
 2. **Update Tasks**: Revise task list as needed
 3. **Assess Impact**: Update estimates, dependencies
 4. **Communicate**: Ensure stakeholders are aware
@@ -1098,7 +1140,7 @@ Agent:
    - Implement handler
    - Run this project's QA suite
 8. Commits with "Plan 00001: Add changelog-reminder project handler"
-9. Ticks the task in PLAN.md and appends the narrative to the plan's JOURNAL/
+9. Ticks the task in PLAN.md and appends the narrative to the plan's JOURNAL/ with `mkplan.bash --journal`
 10. Marks complete when all QA passes
 ```
 

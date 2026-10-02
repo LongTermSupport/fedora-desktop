@@ -73,7 +73,13 @@ readonly JOURNAL_TEMPLATE_BASENAME="_JOURNAL_TEMPLATE_.md"
 # The grammar's legal category set (Plan 00427 D5), mirrored from
 # _JOURNAL_TEMPLATE_.md's "Entry grammar" line -- the template is the prose
 # SSoT, this array is the enforcement copy. Keep them in sync by hand.
-readonly JOURNAL_CATEGORIES=(action finding decision thought blocker handoff)
+readonly JOURNAL_CATEGORIES=(action finding decision thought blocker handoff correction)
+
+# A `correction` entry (ledger 00422 N3) names the entry it corrects in its
+# REF: HH:MM for an entry in today's day-file, or YY-MM-DD/HH:MM for one in an
+# earlier day-file of the same plan. The entry must exist when it is named.
+readonly JOURNAL_CORRECTION_CATEGORY="correction"
+readonly JOURNAL_CORRECTION_REF_PATTERN='^(([0-9]{2}-[0-9]{2}-[0-9]{2})/)?([0-9]{2}:[0-9]{2})$'
 
 # Populated once the lock is held, so the EXIT trap only ever removes a lock
 # this process actually owns (never another runner's lock on a timeout-die).
@@ -89,6 +95,7 @@ die() {
 usage() {
     cat >&2 <<'USAGE'
 Usage: mkplan.bash "descriptive-kebab-name"
+       mkplan.bash --journal <plan-number> <category> <body-file> [--ref R] [--title T]
 
 Creates the next sequentially-numbered plan folder (in this script's own
 directory, or $MKPLAN_PLAN_DIR if set) and scaffolds its PLAN.md.
@@ -106,7 +113,9 @@ Environment:
 Examples:
   mkplan.bash "wsdl-patch-pipeline-hardening"
   mkplan.bash "Order despatch retries"   # -> 000NN-Order-despatch-retries
+
 USAGE
+    journal_usage
 }
 
 # Release the plan-dir lock. Only removes the lock if THIS process took it
@@ -217,17 +226,52 @@ script reads the clock itself (UTC) -- it never accepts a time from the
 caller. Never rewrites: the day-file is created from _JOURNAL_TEMPLATE_.md
 when absent, then the entry is appended.
 
+This is THE way to add a journal entry. The hooks daemon denies an entry
+written by hand (Edit, Write, a heredoc or a redirect into a day-file),
+because a hand-typed time can be wrong and an append-only journal cannot
+correct it until the clock has passed the wrong time.
+
 Arguments:
   plan-number  Required. The plan's number, e.g. 427 or 00427.
   category     Required. One of: action, finding, decision, thought,
-               blocker, handoff.
+               blocker, handoff, correction.
   body-file    Required. Path to a file holding the entry body (markdown).
 
 Options:
   --ref R      Optional task/phase reference (e.g. T2.1, P1). Defaults to
-               the grammar's "no ref" marker (an em dash).
+               the grammar's "no ref" marker (an em dash). REQUIRED for a
+               correction, where it names the entry being corrected: HH:MM
+               for an entry in today's day-file, or YY-MM-DD/HH:MM for one
+               in an earlier day-file. That entry must exist. The corrected
+               entry is never edited or moved.
   --title T    Optional short title appended to the heading.
+
+Example (write the BODY first, e.g. with the Write tool; the script writes
+the "## HH:MM · category · REF" heading itself):
+  mkplan.bash --journal 427 finding untracked/scratch/entry.md --title "short title"
+  mkplan.bash --journal 427 correction untracked/scratch/fix.md --ref 09:50
 USAGE
+}
+
+# True (0) iff $1 holds an entry heading "## $2 " outside a fenced block --
+# the same rule the daemon's journal parser applies, so a heading quoted in a
+# fenced log is never mistaken for the entry a correction names.
+_journal_has_entry_at() {
+    local dayfile="$1" entry_time="$2"
+    [[ -f "$dayfile" ]] || return 1
+    awk -v heading="## $entry_time" '
+        match($0, /^[[:space:]]*(```|~~~)/) {
+            marker = substr($0, RSTART + RLENGTH - 3, 3)
+            if (!in_fence) { in_fence = 1; fence = marker }
+            else if (marker == fence) { in_fence = 0 }
+            next
+        }
+        !in_fence && (substr($0, 1, length(heading)) == heading) {
+            rest = substr($0, length(heading) + 1)
+            if (rest == "" || rest ~ /^[^0-9A-Za-z_]/) { found = 1; exit }
+        }
+        END { exit found ? 0 : 1 }
+    ' "$dayfile"
 }
 
 # Append one journal entry to an existing plan's JOURNAL/, per Plan 00427
@@ -277,6 +321,15 @@ run_journal_mode() {
         die "invalid category '$category' -- must be one of: ${JOURNAL_CATEGORIES[*]}"
     fi
 
+    local corrected_day="" corrected_time=""
+    if [[ "$category" == "$JOURNAL_CORRECTION_CATEGORY" ]]; then
+        if [[ ! "$ref" =~ $JOURNAL_CORRECTION_REF_PATTERN ]]; then
+            die "a correction needs --ref naming the entry it corrects: HH:MM in today's day-file, or YY-MM-DD/HH:MM in an earlier one (got '$ref')"
+        fi
+        corrected_day="${BASH_REMATCH[2]}"
+        corrected_time="${BASH_REMATCH[3]}"
+    fi
+
     if [[ ! -f "$body_file" ]]; then
         die "body file not found: $body_file"
     fi
@@ -318,10 +371,7 @@ run_journal_mode() {
         die "no $JOURNAL_TEMPLATE_BASENAME in $plan_dir -- journalling is not enabled for this project"
     fi
 
-    # --- validation complete; every mutation below this line -----------
-
     local journal_dir="$plan_folder/$JOURNAL_DIR_BASENAME"
-    mkdir -p "$journal_dir" || die "could not create journal folder: $journal_dir"
 
     # Read the clock ITSELF, normalised to UTC (D2, D3) -- the caller never
     # supplies a time, so a two-writer cross-zone pair stays consistent. A
@@ -336,6 +386,19 @@ run_journal_mode() {
 
     local journal_file="$journal_dir/$padded_number-Journal-$journal_day.md"
 
+    # A correction's named entry is checked before anything is written, so a
+    # dangling reference writes nothing (D5).
+    if [[ -n "$corrected_time" ]]; then
+        local corrected_file="$journal_dir/$padded_number-Journal-${corrected_day:-$journal_day}.md"
+        if ! _journal_has_entry_at "$corrected_file" "$corrected_time"; then
+            die "--ref $ref names no entry: there is no '## $corrected_time' entry in ${corrected_file#"$repo_root"/}"
+        fi
+    fi
+
+    # --- validation complete; every mutation below this line -----------
+
+    mkdir -p "$journal_dir" || die "could not create journal folder: $journal_dir"
+
     if [[ ! -f "$journal_file" ]]; then
         local folder_name plan_title owner journal_body
         folder_name="$(basename "$plan_folder")"
@@ -347,6 +410,11 @@ run_journal_mode() {
         if ! journal_body="$(cat "$journal_template_file")"; then
             die "could not read journal template '$journal_template_file'"
         fi
+        # The template ends with a seeded `## {{TIME}} · action` entry that
+        # records plan CREATION. A day-file opened here is not a creation, so
+        # only the preamble above that entry is kept (Plan 00461).
+        journal_body="${journal_body%%$'\n'"## {{TIME}}"*}"
+        journal_body="${journal_body%$'\n'}"
         journal_body="${journal_body//\{\{PLAN_NUMBER\}\}/$padded_number}"
         journal_body="${journal_body//\{\{PLAN_TITLE\}\}/$plan_title}"
         journal_body="${journal_body//\{\{DATE\}\}/$journal_day}"
