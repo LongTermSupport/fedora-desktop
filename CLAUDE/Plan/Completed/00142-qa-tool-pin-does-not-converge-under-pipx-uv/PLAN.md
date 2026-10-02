@@ -1,6 +1,7 @@
 # Plan 00142: QA tool pin does not converge under pipx's uv backend
 
-**Status**: In Progress
+**Status**: Complete (2026-10-02; closed by the owner without the real-host converge run,
+Task 1.5)
 **Created**: 2026-09-29
 **Owner**: joseph
 **Priority**: High
@@ -22,6 +23,12 @@ to converge the version, and in exactly that case it cannot.
 
 The fix removes an off-pin tool (`state: absent`) and then installs it without `force`. The
 pin task already runs after the install; a venv made afresh is unpinned, so it re-pins.
+
+Search terms, if this comes back: `A virtual environment already exists`, `uv venv`,
+`pipx install --force`, `pipx pin`, `pipx upgrade-all`, pipx uv backend, `UV_VENV_CLEAR`,
+`community.general.pipx`, `state: absent`, ruff, semgrep, `.qa-versions`, off-pin, QA tool
+version drift, `qa-toolchain.bash`, `play-python.yml`, "Remove QA tools that are not at
+their pinned versions". Start with `reproduce-pipx-uv.bash` in this folder.
 
 ## Goals
 
@@ -51,12 +58,12 @@ pin task already runs after the install; a venv made afresh is unpinned, so it r
 - [x] ✅ **Task 1.3**: `scripts/test-qa-tool-pin-converges.bash`, hard gate
   `qa-tool-pin-converges` in `qa-all.bash`; row in `CLAUDE/QA.md`
 - [x] ✅ **Task 1.4**: `./scripts/qa-all.bash`, the qa-reviewer, and a PR to `F44`
-- [ ] 🚫 **Task 1.5**: On a host with an off-pin QA tool, `./playbooks/imports/play-python.yml`
+- [ ] ❌ **Task 1.5**: On a host with an off-pin QA tool, `./playbooks/imports/play-python.yml`
   converges it, and a second run reports no change for the QA-tool tasks. The owner's
   meta-deploy run passed with ruff and semgrep already on their pins: the remove and
   install tasks skipped and the verify task passed, so the no-change half holds. The
-  converge half needs a host whose tools have drifted, and none has. Blocked until one
-  does; the container reproduction (`reproduce-pipx-uv.bash`) covers the path meanwhile.
+  converge half needs a host whose tools have drifted, and none has. Cancelled: the owner
+  closed the plan on the container reproduction (`reproduce-pipx-uv.bash`) and the gate.
 
 ## Success Criteria
 
@@ -64,7 +71,7 @@ pin task already runs after the install; a venv made afresh is unpinned, so it r
   every case's second run reports `changed=0`
 - [x] `test-qa-tool-pin-converges.bash` passes on the change and fails against `fadc1eca`
 - [x] QA passes (`./scripts/qa-all.bash`)
-- [ ] A real host run converges an off-pin tool (Task 1.5)
+- [ ] A real host run converges an off-pin tool (Task 1.5; not run, the owner closed the plan)
 
 ## Delivery & Milestones
 

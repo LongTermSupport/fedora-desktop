@@ -764,8 +764,13 @@ Fedora upgrade unpins first and re-runs the play to re-pin — the steps are in
 
 A tool the play finds at another version is **removed, then installed**, never
 `install --force`d: under pipx's uv backend `--force` re-runs `uv venv` on the
-existing venv, which uv refuses, and the play would fail instead of converging.
-`test-qa-tool-pin-converges.bash` holds the play to that shape.
+existing venv, which uv refuses ("A virtual environment already exists"), and pipx
+then will not remove a venv it did not create, so the play would fail instead of
+converging. `test-qa-tool-pin-converges.bash` holds the play to that shape. If that
+error comes back, start from Plan 00142
+([Completed/00142-qa-tool-pin-does-not-converge-under-pipx-uv](Plan/Completed/00142-qa-tool-pin-does-not-converge-under-pipx-uv/)):
+its `reproduce-pipx-uv.bash` replays the play's tasks against a real pipx and uv
+offline.
 
 Suppression comments (`# noqa`, `# type: ignore`, `# shellcheck disable`) are
 blocked by the hooks daemon. Fix the code, or exempt the file in `ruff.toml`

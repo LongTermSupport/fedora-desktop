@@ -42,8 +42,6 @@ Use these Unicode icons in plan documents:
 
 - [00146-ccy-token-switch-through-the-supervisor](00146-ccy-token-switch-through-the-supervisor/) - Feature: switch a running ccy session to another token without losing the container, by having the supervisor respawn `claude --resume` with the new token. Needs an upstream hooks-daemon feature (request drafted, not filed); the container relaunch is the fallback. Waiting on the owner's decision to file.
 
-- [00142-qa-tool-pin-does-not-converge-under-pipx-uv](00142-qa-tool-pin-does-not-converge-under-pipx-uv/) - `play-python.yml` could not move a QA tool at the wrong version onto its pin: under pipx's uv backend `install --force` re-runs `uv venv` on the existing venv, which uv refuses. An off-pin tool is now removed, installed fresh and re-pinned. Reproduced against a real pipx 1.15.0 and uv, and gated in `qa-all.bash`. Waiting on a host run.
-
 - [00144-single-fedora-desktop-panel-icon](00144-single-fedora-desktop-panel-icon/) - Container Watch becomes a section of the one Fedora Desktop panel icon, feeding its alert state, and the old extension is retired by playbook. In Progress: decisions settled; deployed (second run idempotent, acceptance passed), awaiting logout and the visual check.
 
 - [00143-pointer-lag-and-trackpoint-speed](00143-pointer-lag-and-trackpoint-speed/) - Intermittent touchpad lag on the laptop. A live episode ruled out CPU, memory, GPU, display, thermals and touchpad interrupts, so the lagging layer is still unknown and a mid-episode `triage.bash --capture` is next. Separately, the TrackPoint is far too fast because libinput ships no speed quirk for this ThinkPad model; it gets fixed through IaC.
@@ -186,6 +184,8 @@ Use these Unicode icons in plan documents:
 
 ## Completed Plans
 
+- [00142-qa-tool-pin-does-not-converge-under-pipx-uv](Completed/00142-qa-tool-pin-does-not-converge-under-pipx-uv/) - `play-python.yml` could not move a QA tool at the wrong version onto its pin: under pipx's uv backend `install --force` re-runs `uv venv` on the existing venv, which uv refuses. An off-pin tool is now removed, installed fresh and re-pinned. Reproduced against a real pipx 1.15.0 and uv, and gated in `qa-all.bash`. Closed by the owner without a real-host converge run. Search: "A virtual environment already exists".
+
 - [00145-ccy-key-menu-steers-away-from-keys-that-cannot-push](Completed/00145-ccy-key-menu-steers-away-from-keys-that-cannot-push/) - Bug fix: ccy's launch-time SSH key menu accepted a key its own push probe had just found cannot push. When any key can push, the menu now offers only those; the full list is behind `a`, and a key there that cannot push needs a `y`. CCY 3.71.0. Host-confirmed by the owner.
 
 - [00079-podman-container-control](Completed/00079-podman-container-control/) - `podfreeze`: freeze and unfreeze Podman containers individually, as a CCY group, or by network, via `podman pause` — the one mechanism that works rootless. Renumbered from 00078 after two clones each handed out that number from a `--local` counter.
@@ -243,8 +243,6 @@ Use these Unicode icons in plan documents:
 - [00091-podman-first-docker-optional](Completed/00091-podman-first-docker-optional/) - Demoted rootful Docker from core to an optional playbook (podman-first); merged via PR #42
 
 - [00090-resync-ccy-ci-runner-branch-onto-f44](Completed/00090-resync-ccy-ci-runner-branch-onto-f44/) - Resynced the diverged Plan 00068 branch onto `F44` and landed it via [PR #39](https://github.com/LongTermSupport/fedora-desktop/pull/39)
-
-- [00085-headless-path-local-bin](Completed/00085-headless-path-local-bin/) - A downstream live proof of the composed PR #33/#34 headless mechanisms found a third, unrelated blocker: `ansible-galaxy: command not found` under a non-interactive `sudo -u` invocation, since pipx's `~/.local/bin` shims are never put on PATH there. Exports PATH right after the pipx install block. Merged (`dac4f7c`).
 
 **Older completed plans** — everything beyond the most recent 30 — are in
 [Completed/README.md](Completed/README.md), moved there verbatim. The retention window

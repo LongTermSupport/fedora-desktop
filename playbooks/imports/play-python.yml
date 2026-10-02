@@ -92,7 +92,8 @@
     # cannot replace a venv in place under its uv backend: `install --force`
     # re-runs `uv venv` on the existing directory, which uv refuses ("A virtual
     # environment already exists"). Removal ignores the pin, and removing a tool
-    # that is not installed is a no-op.
+    # that is not installed is a no-op. Cause and offline reproduction:
+    # CLAUDE/Plan/Completed/00142-qa-tool-pin-does-not-converge-under-pipx-uv/.
     - name: Remove QA tools that are not at their pinned versions
       community.general.pipx:
         name: "{{ item.item.pkg }}"
