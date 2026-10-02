@@ -262,14 +262,18 @@ brainstorms are in [`brainstorm-ssh-key-restore/`](brainstorm-ssh-key-restore/BR
   to it rather than replace it:
   - seal the passphrase to the TPM with `systemd-creds`;
   - leave the session's key locked until its first push, and report it as pending.
-- [x] ✅ **Task 6.2**: Implement the decision, tests first. CCY 3.72.0, container 2.39.
+- [x] ✅ **Task 6.2**: Implement the decision, tests first. CCY 3.72.1, container 2.40.
   Applies where `provisioning_profile` is `server`, restore is on, and `github_accounts` is
-  not empty. `play-claude-yolo.yml` writes the passphrase to a 0600 file and adds a drop-in
+  not empty. `play-claude-yolo.yml` writes the passphrase to a 0600 file, then adds a drop-in
   that names it to the restore unit. `ccy-sessions restore` checks the file before it starts
-  anything, then hands its path to each `ccy` session. The host probe and the container
-  entrypoint each `ssh-add` through their own askpass copy, and each copy is removed once its
-  key is added. `scripts/test-ccy-restore-askpass.bash` tests this with the real ssh-agent.
-  Choices and the ssh-add retry-loop finding: journal 26-10-02.
+  anything, drops it from its environment so tmux never holds it, then hands its path to each
+  `ccy` session's command. The host probe and the container entrypoint each `ssh-add` through
+  their own askpass copy, and each copy is removed once its key is added, or by a trap if the
+  launcher is killed mid-probe. The container gets only the stage's mount; the entrypoint sets
+  `SSH_ASKPASS` for its own `ssh-add`, so `podman exec` never sees it.
+  `scripts/test-ccy-restore-askpass.bash` tests this with the real ssh-agent. Choices, the
+  ssh-add retry-loop finding and the review fixes: journal 26-10-02; the review is
+  [`subagent-reports/261002-qa-reviewer-t62-opus.md`](subagent-reports/261002-qa-reviewer-t62-opus.md).
 - [ ] 🚫 **Task 6.3**: 🧑 HOST, owner only: on the server, run `CLAUDE/Plan/meta-deploy.bash`,
   which runs `play-claude-yolo.yml`. Then open a `ccy` session that names its key, and reboot
   with `ccy-sessions reboot --in 2`. Without logging in, `ccy-sessions verify-restore --wait 300`
