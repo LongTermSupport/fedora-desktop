@@ -87,7 +87,8 @@ Each entry is a heading with a fixed grammar followed by a free markdown body:
   which clock to judge a file's timestamps by, so do not reword it.
 
 - **`CATEGORY`** — one of a small fixed core set:
-  `action` · `finding` · `decision` · `thought` · `blocker` · `handoff`.
+  `action` · `finding` · `decision` · `thought` · `blocker` · `handoff` ·
+  `correction`.
   (Clients may extend this set — that is *convention*, not enforced.)
 
 - **`REF`** — optional task/phase reference (`T2.1`, `P2`, or `—` for none).
@@ -101,7 +102,10 @@ Bodies may embed fenced logs, diffs, or code snippets — put a one-line takeawa
 
 A journal is **append-only**. New entries go at the **bottom**; earlier entries
 are never edited. **Corrections are new entries**, not rewrites — if you got
-something wrong at 09:00, add an 11:00 `finding` entry that corrects it. This
+something wrong at 09:00, add an 11:00 `correction` entry that names it:
+`mkplan.bash --journal <plan-number> correction <body-file> --ref 09:00` (or
+`--ref <YY-MM-DD/HH:MM>` for an entry in an earlier day-file; the `--ref` is required
+and must name an existing entry, otherwise the script writes nothing). This
 keeps the log an honest record of what was believed when, and lets the daemon's
 `journal-append-only` check confirm each edit only adds.
 
@@ -109,8 +113,10 @@ keeps the log an honest record of what was believed when, and lets the daemon's
 the conflict is real.** That advisory tells you to *"move the out-of-order entry back
 to its chronological slot, keeping its text unchanged"*. Do not: moving an entry is an
 edit to an earlier entry, which is the one thing this section forbids, and the append-
-only check exists precisely to stop it. Disclose the misordering in a new bottom entry
-instead and leave the advisory standing. An advisory that stays red is a smaller cost
+only check exists precisely to stop it. Disclose the misordering in a new bottom
+`correction` entry whose `--ref` names the misordered entry instead: an entry named by a
+`correction` in the same day-file no longer counts for `journal-entry-ordering`, so the
+advisory clears without any move. An advisory that stays red is a smaller cost
 than a log that can be rearranged, because the whole value of the log is that nobody
 can go back and tidy what they believed at the time.
 
