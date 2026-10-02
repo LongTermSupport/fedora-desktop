@@ -15,6 +15,16 @@ the index, not the record.
 
 ---
 
+## 1.29.1 — the config repo is read as the primary account (found running Plan 00139 Task 1.4)
+
+The config step reported "No config repo found" for a `fedora-desktop-config` repo that
+exists. The repo is private to the primary account, but the calls rode on gh's active
+account, and by then a `gh-<alias>` wrapper had switched that to its own account and then
+to the saved default rather than back. Every config-repo call now carries the primary's own
+token (`gh_primary`), whichever account gh has active. The existence check tells a 404 from
+any other failure: an expired token, a missing token or a network fault stops the run with
+gh's words instead of reading as "no repo".
+
 ## 1.29.0 — `--rerun` picks plays to run again from a menu (Plan 00141)
 
 `./run.bash --rerun` lists every play that has run on this machine as a numbered menu, the

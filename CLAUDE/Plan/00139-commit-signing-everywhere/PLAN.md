@@ -133,7 +133,10 @@ out.
   `cd50ffc1` (the desktop agent's commit, `a594063e`)
   - [x] ✅ **HOST**: a deploy run. The task reported `changed`, and exactly one managed block
     was written
-  - [ ] ⬜ **HOST (owner)**: "Save local config to repo" in `run.bash`
+  - [ ] ⬜ **HOST (owner)**: "Save local config to repo" in `run.bash`. The first attempt
+    reported "No config repo found" for a repo that exists: the calls rode on gh's active
+    account, which a `gh-<alias>` wrapper had left on another account. Fixed in `run.bash`
+    1.29.1, which reads the repo with the primary's own token; pull and run it again
 
 ### Phase 2: ccy signs
 

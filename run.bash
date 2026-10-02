@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.29.0"
+RUN_BASH_VERSION="1.29.1"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -578,7 +578,7 @@ hl_ssh_agent_stop() {
 hl_pull_config_source() {
   local yml="$1" path="$2"
   local repo="${primary_gh_username}/fedora-desktop-config" _priv _content
-  if ! _priv="$(gh api "repos/${repo}" --jq '.private' 2>&1)"; then
+  if ! _priv="$(gh_primary api "repos/${repo}" --jq '.private' 2>&1)"; then
     hl_abort "pull config source" \
       "config repo github.com/${repo} not found or not accessible" \
       "gh said: ${_priv}; set RUN_BASH_CONFIG_SOURCE=none to configure fresh from RUN_BASH_* instead"
@@ -588,7 +588,7 @@ hl_pull_config_source() {
       "config repo github.com/${repo} is NOT private (.private='${_priv}') — it would hold PII + your Ansible vault" \
       "make it private (gh repo edit ${repo} --visibility private), or use RUN_BASH_CONFIG_SOURCE=none"
   fi
-  if ! _content="$(gh api "repos/${repo}/contents/${path}" --jq '.content' 2>&1)"; then
+  if ! _content="$(gh_primary api "repos/${repo}/contents/${path}" --jq '.content' 2>&1)"; then
     hl_abort "pull config source" \
       "config file '${path}' not found in github.com/${repo}" \
       "gh said: ${_content}; set RUN_BASH_CONFIG_SOURCE to a valid hosts/<name>.yml or 'none'"
@@ -1476,6 +1476,32 @@ merge_config_import(){
   rm -f "$temp_remote"
 }
 
+# gh as the primary account, whichever account gh has active. The config repo is private to
+# the primary, and the active account is not trusted to still be it: a gh-<alias> wrapper
+# switches to its account and then to the SAVED default, not back to what was active.
+gh_primary(){
+  local token
+  if ! token="$(gh auth token --hostname github.com --user "$primary_gh_username" 2>&1)"; then
+    echo "could not read ${primary_gh_username}'s gh token: ${token}" >&2
+    return 1
+  fi
+  GH_TOKEN="$token" gh "$@"
+}
+
+# Succeeds when the primary can see the repo, fails quietly when GitHub answers 404, and
+# stops the run on anything else, so an expired token or a network fault is never reported
+# as "no config repo".
+config_repo_exists(){
+  local repo="$1" out
+  if out="$(gh_primary api "repos/${repo}" --jq '.name' 2>&1)"; then
+    return 0
+  fi
+  if [[ "$out" == *"HTTP 404"* ]]; then
+    return 1
+  fi
+  fatal "Config repo" "could not check github.com/${repo} as ${primary_gh_username}" "gh said: ${out}"
+}
+
 # Push local config to the per-host path in the config repo.
 # Uses GitHub Contents API (create or update).
 push_config_to_repo(){
@@ -1489,7 +1515,7 @@ push_config_to_repo(){
 
   # Get existing file SHA if updating (not needed for first create)
   local existing_sha=""
-  if existing_sha=$(gh api "repos/${repo}/contents/${path}" --jq '.sha' 2>/dev/null); then
+  if existing_sha=$(gh_primary api "repos/${repo}/contents/${path}" --jq '.sha' 2>/dev/null); then
     :  # SHA retrieved for update
   else
     existing_sha=""  # File doesn't exist yet — will create
@@ -1504,7 +1530,7 @@ push_config_to_repo(){
     api_args+=(--field "sha=${existing_sha}")
   fi
 
-  gh api "repos/${repo}/contents/${path}" "${api_args[@]}" --silent
+  gh_primary api "repos/${repo}/contents/${path}" "${api_args[@]}" --silent
 }
 
 # Prompt for GitHub username(s) and write github_accounts YAML block to stdout.
@@ -3065,13 +3091,14 @@ else
 
 # Discover config repo and find best available config for this host.
 # gh api returns non-zero when a resource doesn't exist — that's expected
-# for probe-then-act checks, not an error to propagate.
+# for probe-then-act checks, not an error to propagate. Every call here is
+# gh_primary: the repo is private to the primary account.
 has_config_repo=false
 has_remote_config=false
 raw_content=""
 config_source_label=""
 
-if gh api "repos/${config_repo}" --jq '.name' > /dev/null 2>/dev/null; then
+if config_repo_exists "$config_repo"; then
   has_config_repo=true
 
   # PRIVACY GATE (FUP-22): localhost.yml carries PII + the Ansible vault. It must
@@ -3079,10 +3106,10 @@ if gh api "repos/${config_repo}" --jq '.name' > /dev/null 2>/dev/null; then
   # before any pull or push touches it. A non-private (or unreadable .private)
   # repo aborts the flow — there is no safe automatic downgrade here.
   # H2: the config repo (${primary_gh_username}/fedora-desktop-config) is owned by
-  # the PRIMARY account, and every other read here uses plain `gh` (the primary).
-  # Using $GH_REPO (gh-lts) would query as the LTS account, which cannot see the
-  # primary's PRIVATE config repo, yielding a false "NOT private" abort. Use plain gh.
-  config_repo_private=$(gh api "repos/${config_repo}" --jq '.private' 2>/dev/null)
+  # the PRIMARY account. Neither $GH_REPO (gh-lts) nor plain gh is guaranteed to be
+  # it, and another account cannot see the primary's PRIVATE config repo, yielding a
+  # false "NOT private" abort. Use gh_primary.
+  config_repo_private=$(gh_primary api "repos/${config_repo}" --jq '.private' 2>/dev/null)
   if [[ "$config_repo_private" != "true" ]]; then
     error "Config repo github.com/${config_repo} is NOT private (.private='${config_repo_private:-unknown}')."
     error "localhost.yml contains PII and your Ansible vault and must never be synced to a public repo."
@@ -3091,7 +3118,7 @@ if gh api "repos/${config_repo}" --jq '.name' > /dev/null 2>/dev/null; then
   fi
 
   # Try host-specific config first
-  if raw_content=$(gh api "repos/${config_repo}/contents/${config_host_path}" --jq '.content' 2>/dev/null); then
+  if raw_content=$(gh_primary api "repos/${config_repo}/contents/${config_host_path}" --jq '.content' 2>/dev/null); then
     has_remote_config=true
     config_source_label="${config_hostname}"
     info "Config found for this host (${config_hostname})"
@@ -3102,7 +3129,7 @@ if gh api "repos/${config_repo}" --jq '.name' > /dev/null 2>/dev/null; then
     declare -a _available_labels=()
 
     # Collect host-specific configs
-    _host_list=$(gh api "repos/${config_repo}/contents/hosts" --jq '.[].name' 2>/dev/null) || _host_list=""
+    _host_list=$(gh_primary api "repos/${config_repo}/contents/hosts" --jq '.[].name' 2>/dev/null) || _host_list=""
     if [[ -n "$_host_list" ]]; then
       while IFS= read -r _hfile; do
         _hname="${_hfile%.yml}"
@@ -3112,7 +3139,7 @@ if gh api "repos/${config_repo}" --jq '.name' > /dev/null 2>/dev/null; then
     fi
 
     # Check for legacy localhost.yml
-    if gh api "repos/${config_repo}/contents/localhost.yml" --jq '.sha' > /dev/null 2>/dev/null; then
+    if gh_primary api "repos/${config_repo}/contents/localhost.yml" --jq '.sha' > /dev/null 2>/dev/null; then
       _available_sources+=("localhost.yml")
       _available_labels+=("localhost.yml (legacy)")
     fi
@@ -3129,7 +3156,7 @@ if gh api "repos/${config_repo}" --jq '.name' > /dev/null 2>/dev/null; then
       if (( _src_choice >= 1 && _src_choice <= ${#_available_sources[@]} )); then
         _src_idx=$(( _src_choice - 1 ))
         _chosen_path="${_available_sources[$_src_idx]}"
-        if raw_content=$(gh api "repos/${config_repo}/contents/${_chosen_path}" --jq '.content' 2>/dev/null); then
+        if raw_content=$(gh_primary api "repos/${config_repo}/contents/${_chosen_path}" --jq '.content' 2>/dev/null); then
           has_remote_config=true
           config_source_label="${_available_labels[$_src_idx]}"
           info "Using config from ${config_source_label}"
@@ -3140,7 +3167,7 @@ if gh api "repos/${config_repo}" --jq '.name' > /dev/null 2>/dev/null; then
     fi
   fi
 else
-  info "No config repo found at github.com/${config_repo}"
+  info "No config repo found at github.com/${config_repo} (GitHub answered 404 to ${primary_gh_username})"
 fi
 
 # Present configuration source choice

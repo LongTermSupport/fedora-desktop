@@ -743,6 +743,18 @@ fi
 gh_scopes_summary=$(qa_gate_case_count "$gh_scopes_out")
 qa_pass_line run-bash-gh-scopes "$gh_scopes_summary"
 
+# Config repo as the primary (scripts/test-run-bash-config-repo.bash): every call to the
+# private <primary>/fedora-desktop-config carries the primary's own token, whichever account
+# gh has active, and only a 404 reads as "no config repo".
+config_repo_out=""
+if ! config_repo_out="$(bash "$SCRIPT_DIR/test-run-bash-config-repo.bash" 2>&1)"; then
+    qa_hard_gate_failed run-bash-config-repo \
+        "run.bash config-repo tests failed" \
+        "$config_repo_out"
+fi
+config_repo_summary=$(qa_gate_case_count "$config_repo_out")
+qa_pass_line run-bash-config-repo "$config_repo_summary"
+
 # The unattended self-update cycle (Plan 00137), driven through the real root wrapper
 # against a signed git fixture, with runuser and systemctl stubbed: the order of play,
 # warning and reboot, the passwords handed as descriptors, and the pinned system ansible.
