@@ -44,9 +44,19 @@ the terminal. The triage script measures which.
   files and this checkout, every startup line that touches history, prompts, traps or
   bindings, and the up-arrow probe (`probe-uparrow.py`) run twice: with the full startup and
   with only this repo's two history files.
-- [ ] 🚫 **Task 1.3**: **HOST (owner)**: run `CLAUDE/Plan/meta-deploy.bash`, which runs the
-  triage, as the desktop user in a local terminal. Blocked on the owner.
-- [ ] ⬜ **Task 1.4**: Read the report and record the cause in the journal.
+- [x] ✅ **Task 1.3**: **HOST (owner)**: run `CLAUDE/Plan/meta-deploy.bash`, which runs the
+  triage, as the desktop user in a local terminal.
+- [x] ✅ **Task 1.4**: Read the report and record the cause in the journal. **Not
+  reproduced on the host either** (bash 5.3.9, deployed files identical to the checkout).
+  With only this repo's history files, all three cases recall the right line. With the full
+  startup, up-arrow recalled the right line in all three too: after Ctrl+A the shell moved
+  the cursor back exactly the expected command's length (20, 26, 26 characters). The probe
+  then printed nothing for those runs because its output filter ran past systemd's
+  `ESC \`-terminated OSC 3008 sequence to the next BEL, swallowing the command output. The
+  filter is fixed.
+- [ ] 🚫 **Task 1.5**: **Owner**: the exact steps that lose the line: which command, which
+  terminal app or tab, whether up-arrow is pressed in the same tab, and whether it happens
+  every time. Blocked on the owner.
 
 ### Phase 2: Fix
 

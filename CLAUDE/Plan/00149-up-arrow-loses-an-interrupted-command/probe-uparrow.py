@@ -36,7 +36,10 @@ STATE = (
     "echo \"in-memory history entries: $(HISTTIMEFORMAT= builtin history | wc -l)\"; "
     "printf 'STATE-END\\n'"
 )
-ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07|\r")
+# An OSC sequence ends with BEL or with ESC \ (systemd's OSC 3008 context uses the second),
+# and must never run past either: a BEL-only pattern swallowed every command's output from
+# systemd's sequence to the next window-title one.
+ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z@]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\r")
 
 
 def read_for(fd: int, seconds: float) -> bytes:

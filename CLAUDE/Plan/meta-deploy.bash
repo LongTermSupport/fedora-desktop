@@ -49,9 +49,6 @@ PLAN_ROOT="${scriptDir}"
 # run as one unit through its own shebang, which goes through run.bash, exactly as
 # `./playbooks/imports/<play>.yml` does by hand.
 PLANS=(
-    # Plan 00149: what up-arrow brings back after Ctrl+C, in your real shell and with only
-    # this repo's history files (triage only, read-only)
-    00149-up-arrow-loses-an-interrupted-command
 )
 
 LIST_ONLY=0

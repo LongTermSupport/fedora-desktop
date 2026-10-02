@@ -15,6 +15,16 @@ the index, not the record.
 
 ---
 
+## 1.30.0 — a machine new to the config repo is offered "Add new host" first (found running Plan 00139 Task 1.4)
+
+When the config repo has no saved config for this machine, the config step listed the other
+machines' configs and a Skip, and saving this one as its own host was buried in the next
+menu. Now, when this machine has a usable local config, the first choice, and the Enter
+default, is "Add new host '<hostname>'": it saves the local config as
+`hosts/<hostname>.yml` and uses it, with no second menu. The other machines' entries say
+that choosing one copies that machine's settings here, the legacy file is named as such,
+and Skip says what it leaves for the next menu.
+
 ## 1.29.3 — a wrong headless SSH passphrase fails instead of hanging (found in Plan 00135 T6.2)
 
 `run.bash --headless` unlocks the login key through a transient `SSH_ASKPASS`. The helper

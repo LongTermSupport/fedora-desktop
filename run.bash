@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.29.3"
+RUN_BASH_VERSION="1.30.0"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -3177,17 +3177,41 @@ if config_repo_exists "$config_repo"; then
       _available_labels+=("localhost.yml (legacy)")
     fi
 
-    if [[ ${#_available_sources[@]} -gt 0 ]]; then
-      echo -e "\n   Available configs in repo:"
+    # A machine with a usable local config is most likely new to the repo: offer to add it
+    # as its own host first, and make it the default. The others copy ANOTHER machine's
+    # settings here, so they say so.
+    _has_local_config=false
+    if [[ -f "$localhost_yml" ]] && grep -qE '(!vault|github_accounts)' "$localhost_yml"; then
+      _has_local_config=true
+    fi
+    if [[ ${#_available_sources[@]} -gt 0 || "$_has_local_config" == "true" ]]; then
+      _offset=0
+      echo -e "\n   This machine (${config_hostname}) has no saved config in the repo yet."
+      if [[ "$_has_local_config" == "true" ]]; then
+        _offset=1
+        echo -e "     1) Add new host '${config_hostname}': save this machine's current local config to the repo, and use it"
+      fi
       for _i in "${!_available_labels[@]}"; do
-        echo -e "     $(( _i + 1 ))) ${_available_labels[$_i]}"
+        if [[ "${_available_sources[$_i]}" == "localhost.yml" ]]; then
+          echo -e "     $(( _i + 1 + _offset ))) Start from the legacy shared localhost.yml (copies its settings here)"
+        else
+          echo -e "     $(( _i + 1 + _offset ))) Start from ${_available_labels[$_i]}'s saved config (copies that machine's settings here)"
+        fi
       done
-      _skip_opt=$(( ${#_available_sources[@]} + 1 ))
-      echo -e "     ${_skip_opt}) Skip — none of these (configure manually later)"
-      # promptChoice never exits on a typo; default = the Skip option so Enter skips.
-      _src_choice=$(promptChoice "   Choose a config to use (number) [${_skip_opt}=skip] (Enter to skip): " "$_skip_opt" "$_skip_opt")
-      if (( _src_choice >= 1 && _src_choice <= ${#_available_sources[@]} )); then
-        _src_idx=$(( _src_choice - 1 ))
+      _skip_opt=$(( ${#_available_sources[@]} + 1 + _offset ))
+      echo -e "     ${_skip_opt}) Skip: save nothing now, and choose what to do with this machine's config below"
+      _src_default="$_skip_opt"
+      if [[ "$_has_local_config" == "true" ]]; then
+        _src_default=1
+      fi
+      # promptChoice never exits on a typo.
+      _src_choice=$(promptChoice "   Choice [1-${_skip_opt}] (Enter for [${_src_default}]): " "$_skip_opt" "$_src_default")
+      if [[ "$_has_local_config" == "true" ]] && (( _src_choice == 1 )); then
+        push_config_to_repo "$localhost_yml" "$config_repo" "$config_host_path" "$config_hostname"
+        success "Added new host '${config_hostname}': saved to github.com/${config_repo} (${config_host_path}); using this machine's local config"
+        _config_settled=true
+      elif (( _src_choice > _offset && _src_choice <= ${#_available_sources[@]} + _offset )); then
+        _src_idx=$(( _src_choice - 1 - _offset ))
         _chosen_path="${_available_sources[$_src_idx]}"
         if ! config_repo_read "$config_repo" "$_chosen_path" '.content'; then
           fatal "Config repo" "${_chosen_path} was listed in github.com/${config_repo} but GitHub now answers 404" \
@@ -3207,7 +3231,10 @@ else
   info "If the repo does exist, ${primary_gh_username}'s gh token cannot see it: check that token carries every scope in vars/github-required-scopes.yml"
 fi
 
-# Present configuration source choice
+# Present configuration source choice, unless this machine was just added as a new host
+# above, which has already settled it. The block keeps its indentation so the diff shows
+# only the guard.
+if [[ "${_config_settled:-false}" != "true" ]]; then
 echo -e "\n${CYAN}${ARROW}${NC} How would you like to configure this system?"
 _option=1
 if [[ "$has_remote_config" == "true" ]]; then
@@ -3312,6 +3339,7 @@ else
   error "Invalid choice: ${_config_choice}"
   exit 1
 fi
+fi  # end: the configuration menu, skipped for a machine just added as a new host
 
 fi  # end: interactive config import (headless wrote localhost.yml via hl_write_localhost_yml above)
 completed

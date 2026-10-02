@@ -214,6 +214,51 @@ check "the headless pull writes the saved config" "x: 1" "$(cat "$work/pulled.ym
 check "  reading as the primary" "0" "$(awk '$1 != "tok-alice"' "$STUB_DIR/api.log" | wc -l | tr -d ' ')"
 contains "  and says so" "pulled config hosts/h.yml" "$pull_out"
 
+echo "== the config step's menus, on a machine with no saved config"
+# The real block from run.bash: from the existence check to the end of the configuration
+# menu. Answers come on stdin; promptChoice takes its default at end of input.
+awk '/^if config_repo_exists "[$]config_repo"; then$/ {p = 1} p {print} /^fi  # end: the configuration menu/ {exit}' "$RUN_BASH" >"$work/menu.bash"
+check "the menu block is found in run.bash" "yes" "$([ -s "$work/menu.bash" ] && grep -q 'end: the configuration menu' "$work/menu.bash" && echo yes || echo no)"
+: >"$work/menu-fn.bash"
+for fn in promptChoice backup_config; do
+    awk -v fn="$fn" '$0 ~ "^" fn "\\(\\) ?\\{" {p=1} p {print} p && /^\}/ {exit}' "$RUN_BASH" >>"$work/menu-fn.bash"
+done
+# menu <answers> <local config: yes|no> — runs the block as alice on host "thisbox", whose
+# hosts/thisbox.yml does not exist; the repo also holds hosts/h.yml and hosts/other.yml.
+menu() {
+    local home="$work/menu-home"
+    rm -rf "$home"
+    mkdir -p "$home"
+    if [ "$2" = yes ]; then
+        printf 'github_accounts:\n  a: alice\n' >"$home/localhost.yml"
+    fi
+    reset_stub
+    echo "repos/alice/fedora-desktop-config/contents/hosts/thisbox.yml" >"$STUB_DIR/missing"
+    printf '%b' "$1" | (cd "$home" && GH_TOKEN=tok-someone-else primary_gh_username=alice bash -c '
+        source "$1"; source "$2"
+        localhost_yml="$PWD/localhost.yml" config_repo=alice/fedora-desktop-config
+        config_hostname=thisbox config_host_path=hosts/thisbox.yml
+        has_config_repo=false has_remote_config=false raw_content="" config_source_label=""
+        source "$3"
+        echo "settled=${_config_settled:-false}"
+    ' _ "$work/fn.bash" "$work/menu-fn.bash" "$work/menu.bash" 2>&1)
+}
+OUT="$(menu '' yes)"
+check "with a local config, Enter adds this machine as a new host" "yes" "$(echo "$OUT" | grep -qF "Added new host 'thisbox'" && echo yes || echo no)"
+check "  offering it first, by name" "yes" "$(echo "$OUT" | grep -qF "1) Add new host 'thisbox'" && echo yes || echo no)"
+check "  saving the local config as hosts/thisbox.yml" "$(base64 -w0 "$work/menu-home/localhost.yml")" "$(body_field content)"
+check "  and the second menu does not ask again" "no" "$(echo "$OUT" | grep -qF 'How would you like to configure this system?' && echo yes || echo no)"
+OUT="$(menu '2\n' yes)"
+check "choosing another machine starts from its config" "yes" "$(echo "$OUT" | grep -qF 'Using config from h' && echo yes || echo no)"
+check "  saying it copies that machine's settings" "yes" "$(echo "$OUT" | grep -qF "Start from h's saved config (copies that machine's settings here)" && echo yes || echo no)"
+check "  without saving anything" "no" "$([ -e "$STUB_DIR/put-body" ] && echo yes || echo no)"
+check "  and the second menu still runs" "yes" "$(echo "$OUT" | grep -qF 'How would you like to configure this system?' && echo yes || echo no)"
+OUT="$(menu '' no)"
+check "with no local config, there is nothing to add" "no" "$(echo "$OUT" | grep -qF 'Add new host' && echo yes || echo no)"
+check "  the legacy file is named as such" "yes" "$(echo "$OUT" | grep -qF '3) Start from the legacy shared localhost.yml' && echo yes || echo no)"
+check "  and Enter skips (option 4)" "yes" "$(echo "$OUT" | grep -qF '4) Skip' && echo "$OUT" | grep -qF 'Skipping saved config' && echo yes || echo no)"
+check "  saving nothing" "no" "$([ -e "$STUB_DIR/put-body" ] && echo yes || echo no)"
+
 echo "== run.bash: the wiring"
 # Turned round, so a new spelling cannot slip past: EVERY `api … repos/` line, whatever runs it,
 # whatever flags come first and however the repo is quoted, must be gh_primary, or the
