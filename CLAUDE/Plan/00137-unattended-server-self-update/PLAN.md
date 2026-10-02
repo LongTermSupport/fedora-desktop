@@ -220,8 +220,15 @@ D1–D4 are the owner's choices, made 2026-09-23.
   `test_signers.py`, `test_update.py` (a commit the second key signed deploys) and
   `scripts/test-self-update-cycle.bash` (the same, through the real wrapper). Plan 00139's
   `deploy.bash` prints every key to list.
-  - [ ] ⬜ **HOST (owner)**: on each server, put every `.pub` line `deploy.bash` prints
-    into `self_update_signing_public_keys`, then re-run `play-self-update.yml`
+  - [x] ✅ Review (`subagent-reports/261002-qa-reviewer-trusted-keys-opus.md`): no way
+    to widen trust found; three fixes made. `deploy.bash` labels each key with its account
+    and asks for only the accounts that push the server's repository; `acceptance.bash`
+    checks every allowed-signers line has the plain `<principal> <key>` shape and prints
+    each trusted key's fingerprint; `gate.py`'s docstring no longer says agents never hold
+    the key.
+  - [ ] 🚫 **HOST (owner)**: on each server, put the `.pub` lines `deploy.bash` prints
+    (this machine's, and each account whose ccy sessions push the repository) into
+    `self_update_signing_public_keys`, then re-run `play-self-update.yml`
 
 ### Phase 5: Close
 

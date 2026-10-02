@@ -266,6 +266,28 @@ expect_stat "${ETC}/self-update.conf" root:root 600
 expect_stat "${ETC}/self-update.become" root:root 600
 expect_stat "${ETC}/self-update.vault" root:root 600
 expect_stat "${ETC}/self-update.allowed_signers" root:root 644
+# What the gate trusts, not just who owns the file: every line is `<principal> <key-type>
+# <base64> [comment]`, with no options field (cert-authority, namespaces=) to widen it. The
+# fingerprints are printed so they can be matched against the keys Plan 00139's deploy.bash
+# named; this script cannot read host_vars, so that comparison is the owner's.
+signersFile="${ETC}/self-update.allowed_signers"
+if [[ ! -r "${signersFile}" ]]; then
+    bad "${signersFile} cannot be read, so what the gate trusts is unknown" "re-run play-self-update.yml"
+else
+    signerCount="$(awk 'NF' "${signersFile}" | wc -l)"
+    badLines="$(awk 'NF && !($2 ~ /^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp[0-9]+|sk-ssh-ed25519@openssh\.com)$/ && $3 ~ /^[A-Za-z0-9+\/=]+$/) {print NR}' "${signersFile}")"
+    if [[ "${signerCount}" -eq 0 ]]; then
+        bad "${signersFile} lists no key, so no commit can be deployed" "declare self_update_signing_public_keys, then re-run play-self-update.yml"
+    elif [[ -n "${badLines}" ]]; then
+        bad "${signersFile} line(s) $(tr '\n' ' ' <<<"${badLines}")are not '<principal> <key-type> <key>'" "re-run play-self-update.yml; its signers helper writes only that shape"
+    else
+        ok "${signersFile} trusts ${signerCount} key(s), each a plain '<principal> <key>' line"
+        while read -r _principal keyType keyBlob _comment; do
+            [[ -n "${keyType}" ]] || continue
+            printf '        trusted: %s\n' "$(ssh-keygen -lf - <<<"${keyType} ${keyBlob}")"
+        done <"${signersFile}"
+    fi
+fi
 
 # --- 2. the toolchain the plays run ---------------------------------------------------------
 check 2 "the system ansible-playbook and its collections are root-owned, not writable by others"

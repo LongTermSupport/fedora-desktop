@@ -1,11 +1,12 @@
 """The signed-tip trust gate's decisions (Plan 00137 Task 1.2, decision D3).
 
 The server runs whatever this gate lets through as root, so push access to the branch
-must not be enough. The owner's signature is the credential: the cycle deploys the
-newest commit on the branch that carries a good signature from a pinned key, and that
-signature vouches for everything between the deployed commit and it. The agents write
-most commits and never hold the key, so their unsigned commits wait above it until the
-owner signs a commit on top.
+must not be enough. A signature from one of the owner's listed keys is the credential:
+the cycle deploys the newest commit on the branch that carries a good signature from a
+listed key, and that signature vouches for everything between the deployed commit and
+it. The owner's own ccy sessions sign with the session's account key (Plan 00139 D4,
+D5), so a listed account key lets their commits through; a commit signed by any other
+key, or unsigned, waits above it until a listed key signs a commit on top.
 
 What each signature state means, as git 2.39 reports it for SSH signatures (measured,
 not assumed — the probe is recorded in the plan's subagent report):

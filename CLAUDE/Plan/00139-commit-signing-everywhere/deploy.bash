@@ -203,10 +203,16 @@ if [[ "${PLAN_CHECK}" != "1" ]]; then
     # GitHub account's key, which a ccy session started with that account signs with. A
     # self-update server must trust them all (Plan 00137 Task 4.8). `git config --get`
     # exits 1 only for "not set", which is a box with no GitHub identity: it signs nothing.
+    # signers[i] is a key path; signer_labels[i] says whose it is, so the owner lists only the
+    # accounts whose ccy sessions push to the server's repository, not every account here.
     signers=()
+    signer_labels=()
     machine_key="$(git config --global --get user.signingkey)" && rc=0 || rc=$?
     case "${rc}" in
-        0) signers+=("${machine_key}") ;;
+        0)
+            signers+=("${machine_key}")
+            signer_labels+=("this machine (commits made on the host)")
+            ;;
         1) ;;
         *)
             printf '[FATAL] git could not read user.signingkey from ~/.gitconfig (exit %d)\n' "${rc}" >&2
@@ -215,9 +221,15 @@ if [[ "${PLAN_CHECK}" != "1" ]]; then
     esac
     shopt -s nullglob
     for account_config in "${HOME}"/.config/git/github-signing-*.gitconfig; do
-        account_key="$(git config --file "${account_config}" --get user.signingkey)"
+        account_alias="${account_config##*/github-signing-}"
+        account_alias="${account_alias%.gitconfig}"
+        if ! account_key="$(git config --file "${account_config}" --get user.signingkey)"; then
+            printf '[FATAL] %s names no user.signingkey; re-run play-git-configure-and-tools.yml\n' "${account_config}" >&2
+            exit 1
+        fi
         if [[ " ${signers[*]} " != *" ${account_key} "* ]]; then
             signers+=("${account_key}")
+            signer_labels+=("GitHub account ${account_alias} (ccy sessions started with it)")
         fi
     done
     shopt -u nullglob
@@ -234,10 +246,13 @@ if [[ "${PLAN_CHECK}" != "1" ]]; then
             exit 1
         fi
         printf '    2. A self-update server (Plan 00137) deploys only commits signed by a key it\n'
-        printf '       lists. Your commits here are signed by these keys, so put the contents of\n'
-        printf '       every one in the server'"'"'s self_update_signing_public_keys, then run the\n'
-        printf '       server'"'"'s deploy:\n'
-        printf '         %s.pub\n' "${signers[@]}"
+        printf '       lists. These keys sign commits here. Put in the server'"'"'s\n'
+        printf '       self_update_signing_public_keys the contents of this machine'"'"'s key and of\n'
+        printf '       each account whose ccy sessions push to the repository the server deploys\n'
+        printf '       (not every account), then run the server'"'"'s deploy:\n'
+        for i in "${!signers[@]}"; do
+            printf '         %s.pub  — %s\n' "${signers[$i]}" "${signer_labels[$i]}"
+        done
         printf '       A ccy session started with a key file not listed here signs with that key,\n'
         printf '       which the server would refuse.\n'
     fi
