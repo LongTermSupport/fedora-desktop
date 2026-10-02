@@ -1,0 +1,135 @@
+# Plan 00148: speech-to-text: unlimited dictation by loop and buffer
+
+**Status**: Not Started (decision gate: Task 1.1, loop-and-buffer or a raised cap)
+**Created**: 2026-10-02
+**Owner**: joseph
+**Priority**: Medium
+
+## Overview
+
+Streaming dictation stops at 120 seconds. Nothing was measured to arrive at that number: it
+was set to four times the earlier 30 s cap "since transcription is real-time", and a 125 s
+server watchdog and article mode's flush interval were later built on it. The pasted text
+is not in fact produced in real time, and simply raising the cap makes the stop latency,
+silent fallbacks and server-mode truncation worse as recordings get longer.
+
+This plan builds continuous dictation once, in the warm server (`wsi-stream-server`), as a
+loop and a buffer. faster-whisper's bundled Silero VAD (already installed, no new
+dependency) cuts the audio into segments of at most 28 s at natural pauses, so every
+segment is a single Whisper window. One worker transcribes them in order with the
+user-selected model. The text builds up in memory and in a journal file in
+`$XDG_RUNTIME_DIR`, and is pasted once at stop. If any segment fails, the session stops
+loudly and copies the text so far to the clipboard; no segment is ever silently dropped. The
+fixed 125 s watchdog is replaced by a client heartbeat, a no-speech auto-stop and a large
+configurable cap.
+
+The same research found several unrelated defects, recorded here as their own tasks.
+Lineage of the 120, failure analysis, the full pipeline and the IaC file list:
+[RESEARCH-120s-limit.md](RESEARCH-120s-limit.md).
+
+## Goals
+
+- A dictation runs until the user stops it (or a safety stop fires), with no 120 s cap.
+- Every segment's text reaches the result, in order, or the session fails loudly with the
+  text so far on the clipboard and the failed audio kept.
+- A stuck or forgotten microphone is still stopped, by heartbeat loss, no-speech timeout or
+  the absolute cap.
+- The recording limits live in one place.
+
+## Non-Goals
+
+- Typing text into the focused window during recording (paste once at stop).
+- Changing batch `wsi` (30 s) or standard/pre-buffer streaming beyond pointing their help
+  and docs at continuous mode.
+- Moving article mode onto the server session in this plan's first delivery (Phase 5 is a
+  follow-on inside the plan, not a prerequisite).
+
+## Tasks
+
+### Phase 1: Decision and measurements
+
+- [ ] 🚫 **Task 1.1**: Owner decision: loop-and-buffer or a raised cap. Options: (a)
+  loop-and-buffer in the warm server as above; (b) raise the cap (e.g. to 300 s) in all six
+  places, grow the stop-wait budget and move the watchdog in the same commit. Recommendation:
+  (a); (b) worsens stop latency, the silent fallback to `tiny` text and server-mode
+  truncation, all of which grow with length (research section 2). Blocked on the owner.
+- [ ] ⬜ **Task 1.2**: `triage.bash` (HOST, read-only) for the research's section 3.6
+  probes: installed RealtimeSTT and faster-whisper versions, real-time factor of the chosen
+  model per 20 s segment, hard-cut frequency at 20 s soft / 28 s hard max, and word loss at
+  phrase boundaries in article mode.
+
+### Phase 2: Continuous dictation in the server
+
+- [ ] ⬜ **Task 2.1**: Tests first: unit tests under `tests/` for the segmenter as a pure
+  function on synthetic arrays (silence cut, soft max, hard cut at the energy minimum, pure
+  silence never queued) and for ordered commit.
+- [ ] ⬜ **Task 2.2**: `wsi-stream-server`: VAD segmenter, one ordered transcription worker
+  (main model, `condition_on_previous_text=False`, a short `initial_prompt` from committed
+  text), in-memory buffer plus append-only JSONL journal in `$XDG_RUNTIME_DIR`, commands
+  `START {continuous:true}`, `PROGRESS`, `KEEPALIVE`, `ABORT`, and a STOP that drains under a
+  backlog-scaled deadline. Any failure (segment error, `pw-record` exit, backlog ceiling,
+  drain deadline, journal write) marks the session FAILED, keeps the audio, copies the text
+  so far.
+- [ ] ⬜ **Task 2.3**: Replace `WATCHDOG_TIMEOUT = 125` with the heartbeat (stop after 15 s
+  without `KEEPALIVE`), the no-speech auto-stop, and the large configurable absolute cap.
+- [ ] ⬜ **Task 2.4**: `wsi-stream` server-mode client: no fixed `--timeout`, sends
+  keepalives, relays progress, exits non-zero on FAILED with the partial text on the
+  clipboard. Diagnostics to stderr (`CLAUDE/StderrHygiene.md`).
+
+### Phase 3: Panel extension and settings
+
+- [ ] ⬜ **Task 3.1**: GSettings keys `continuous-dictation` (default off until verified),
+  `max-recording-minutes`, `silence-autostop-seconds`, with `prefs.js` controls.
+- [ ] ⬜ **Task 3.2**: `extension.js`: elapsed time and backlog instead of the 117/27
+  countdown (a countdown only in the absolute cap's last minute), limits read from
+  GSettings, the `117`/`120` literals removed. ESLint green.
+
+### Phase 4: Side findings
+
+- [ ] ⬜ **Task 4.1**: Server mode pastes the `tiny` realtime-preview model's text whatever
+  model is selected (`wsi-stream-server` never calls `text()`). Continuous mode uses the
+  main model; fix or retire the old server-mode path so it cannot paste preview text.
+- [ ] ⬜ **Task 4.2**: Remove the silent fallback to buffered `tiny` text in standard
+  streaming (`wsi-stream`, `run_standard_streaming`), or make it a loud warning.
+- [ ] ⬜ **Task 4.3**: Plan/code drift: completed Plan 015 says a `Shift+Insert` article-mode
+  binding shipped; no such binding exists (article mode is menu-only). Correct the record
+  without rewriting the completed plan's history.
+- [ ] ⬜ **Task 4.4**: Docs drift: `docs/features/speech-to-text.md` says 30 s only; the
+  `streaming-mode` schema description claims it auto-stops on silence, which it does not.
+  Document the real per-mode limits and continuous mode.
+- [ ] ⬜ **Task 4.5**: The 120 is held in six places (`extension.js` twice, `wsi-stream`,
+  `wsi-stream-server`, `wsi`, `wsi-article`) with nothing keeping them in step. After Phase 3
+  each limit has one source, and a QA check fails if a literal copy reappears.
+- [ ] ⬜ **Task 4.6**: Pin `RealtimeSTT` and `faster-whisper` in
+  `play-speech-to-text.yml`'s existing pip task, to the versions Task 1.2 finds; fix the
+  play's stale header comment on the default model.
+
+### Phase 5: Article mode on the server session
+
+- [ ] ⬜ **Task 5.1**: Point `wsi-article` at the server session and journal; remove its own
+  loop, its swallowed exceptions and the window's 3 s SIGKILL on Stop.
+
+### Phase 6: Verification
+
+- [ ] ⬜ **Task 6.1**: `deploy.bash` and `acceptance.bash` in this folder;
+  `./scripts/qa-all.bash` green; `qa-reviewer` agent over the full diff.
+- [ ] 🚫 **Task 6.2**: **HOST**: run `deploy.bash` and `acceptance.bash`, log out and in for
+  the extension, and dictate past five minutes with a forced segment failure. Blocked on the
+  owner: Ansible never runs in the ccy container, and dictation needs a person.
+
+## Success Criteria
+
+- [ ] A dictation of several minutes pastes complete, ordered text once at stop.
+- [ ] A forced segment failure stops the session, copies the text so far, keeps the audio,
+  and says so.
+- [ ] Heartbeat loss and long silence each stop the microphone.
+- [ ] No recording limit exists as more than one literal.
+- [ ] RealtimeSTT and faster-whisper are pinned.
+
+## Delivery & Milestones
+
+<!-- Curated milestones + delivery commit hashes only (git is the SSoT for
+     "when" — do not add dates). The blow-by-blow activity log lives in
+     JOURNAL/00148-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
+
+- (none yet)
