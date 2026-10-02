@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.72.0"  # A server's restored session unlocks its SSH key unattended. See docs/ccy-changelog.md.
+CCY_VERSION="3.72.1"  # The restore's passphrase file stays out of tmux and podman exec. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,7 +70,7 @@ source "$SCRIPT_DIR/lib/tmux-session.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.39"
+REQUIRED_CONTAINER_VERSION="2.40"
 
 set -e
 
@@ -1048,6 +1048,12 @@ fi
 # getenforce and the engine's own report; every mount below reads the answer.
 ccy_selinux_mode
 
+# Until cleanup's trap replaces it below: a launcher killed during the probe (a reboot's
+# SIGTERM, a SIGHUP; bash runs the EXIT trap for both) must not leave the probe agent holding
+# unlocked keys, nor a restore's passphrase copy on XDG_RUNTIME_DIR. The probe's own RETURN
+# trap covers only a normal return.
+trap _probe_agent_stop EXIT
+
 # Build SSH mounts and validate GitHub access
 # This sets: SSH_MOUNTS, SSH_KEY_PATHS, GITHUB_USERNAME, GH_TOKEN
 build_ssh_mounts_and_validate "ccy" || exit 1
@@ -2008,6 +2014,8 @@ cleanup() {
     if [ -n "${CCY_RESTORE_ASKPASS_DIR:-}" ]; then
         rm -rf "$CCY_RESTORE_ASKPASS_DIR"
     fi
+    # The duty of the probe's trap this one replaces; a no-op once the probe has returned.
+    _probe_agent_stop
 
     # Show debug log if CCY debugging is enabled
     if [ "$DEBUG_CCY" = true ] && [ -n "$DEBUG_LOG" ]; then

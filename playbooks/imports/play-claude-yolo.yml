@@ -802,9 +802,10 @@
       when: not (ccy_restore_sessions | default(false) | bool)
 
     # Unattended unlock on a server (see ccy_restore_ssh_unlock in vars). The drop-in names
-    # the passphrase file to the restore; the file itself is written below, once its
-    # directory exists. Both go where the unlock does not apply, so a box that leaves the
-    # server profile or the opt-in keeps no plaintext copy of the passphrase.
+    # the passphrase file to the restore. The file is written first and removed last, so a
+    # run that fails part-way never leaves a drop-in naming a file that is not there (the
+    # next boot would restore nothing). Both go where the unlock does not apply, so a box
+    # that leaves the server profile or the opt-in keeps no plaintext copy of the passphrase.
     - name: Assert The Vault Holds The SSH Key Passphrase For Unattended Restore
       ansible.builtin.assert:
         that:
@@ -818,6 +819,26 @@
           lines. Set it with ./vault.bash set github_ssh_passphrase (the passphrase of the
           ~/.ssh/github_* keys), or set ccy_restore_sessions: false.
         quiet: true
+      no_log: true
+      when: ccy_restore_ssh_unlock | bool
+
+    - name: Create Claude YOLO Root Directory
+      ansible.builtin.file:
+        path: /home/{{ user_login }}/.claude-tokens/ccy
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0700"
+
+    # In the owner-only directory above, beside the Claude tokens, readable by this user alone:
+    # the same boundary as the vault password file and the key itself.
+    - name: Write The SSH Key Passphrase For Unattended Session Restore
+      ansible.builtin.copy:
+        content: "{{ github_ssh_passphrase }}"
+        dest: "{{ ccy_restore_ssh_passphrase_file }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0600"
       no_log: true
       when: ccy_restore_ssh_unlock | bool
 
@@ -842,6 +863,12 @@
     - name: Remove The Restore Unit's SSH Unlock Drop-In Where It Does Not Apply
       ansible.builtin.file:
         path: "/home/{{ user_login }}/.config/systemd/user/ccy-sessions-restore.service.d/ssh-unlock.conf"
+        state: absent
+      when: not (ccy_restore_ssh_unlock | bool)
+
+    - name: Remove The Session Restore SSH Key Passphrase Where It Does Not Apply
+      ansible.builtin.file:
+        path: "{{ ccy_restore_ssh_passphrase_file }}"
         state: absent
       when: not (ccy_restore_ssh_unlock | bool)
 
@@ -891,32 +918,6 @@
         ccy_restore_readback.rc != 0
         or (('ccy-sessions-restore.service' in ccy_restore_readback.stdout)
             != (ccy_restore_sessions | default(false) | bool))
-
-    - name: Create Claude YOLO Root Directory
-      ansible.builtin.file:
-        path: /home/{{ user_login }}/.claude-tokens/ccy
-        state: directory
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0700"
-
-    # In the owner-only directory above, beside the Claude tokens, readable by this user alone:
-    # the same boundary as the vault password file and the key itself.
-    - name: Write The SSH Key Passphrase For Unattended Session Restore
-      ansible.builtin.copy:
-        content: "{{ github_ssh_passphrase }}"
-        dest: "{{ ccy_restore_ssh_passphrase_file }}"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0600"
-      no_log: true
-      when: ccy_restore_ssh_unlock | bool
-
-    - name: Remove The Session Restore SSH Key Passphrase Where It Does Not Apply
-      ansible.builtin.file:
-        path: "{{ ccy_restore_ssh_passphrase_file }}"
-        state: absent
-      when: not (ccy_restore_ssh_unlock | bool)
 
     - name: Create Claude YOLO Tokens Directory
       ansible.builtin.file:

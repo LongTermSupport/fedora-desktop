@@ -727,7 +727,8 @@ ccy_restore_passphrase_take() {
 #
 # On a headless server the unit's drop-in also sets CCY_RESTORE_SSH_PASSPHRASE_FILE. It is
 # checked before anything starts, and a bad one starts nothing: every ccy session would only
-# stop at a passphrase prompt. Each ccy session is given its path (never its contents); a cc
+# stop at a passphrase prompt. It is then dropped from the environment, so tmux never holds
+# it. Each ccy session is given its path on its own command (never its contents); a cc
 # session starts no container and loads no key, so it is not.
 #
 # Reports go to stderr, which under systemd is the journal. --dry-run prints the decisions
@@ -742,6 +743,10 @@ ccy_registry_restore() {
     fi
     local regdir listing name file failures=0 started=0 seen=false
     local passphrase_file="${CCY_RESTORE_SSH_PASSPHRASE_FILE:-}"
+    # Out of the environment before tmux runs: the first session started here starts ccy's
+    # tmux server, whose global environment every later pane inherits, and an ordinary ccy
+    # given the file refuses it and exits. Only the restored commands below get the path.
+    unset CCY_RESTORE_SSH_PASSPHRASE_FILE
     local -A live=()
     local -a args=() manifest=() marker=()
     if [[ -n "$passphrase_file" ]] && ! ccy_restore_passphrase_check "$passphrase_file"; then
