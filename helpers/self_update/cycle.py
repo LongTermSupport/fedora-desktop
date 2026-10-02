@@ -340,11 +340,11 @@ def run_cycle(config: Config, host: Host, state: State, *, dry_run: bool, stdout
     # say HEAD was ever vouched for, so it would run every allowlisted play from whatever
     # the clone was made at.
     if state.read_deployed() is None and not host.head_trusted():
-        stderr.write("self-update: the deploy clone's HEAD is not a commit the pinned key signed\n")
+        stderr.write("self-update: the deploy clone's HEAD is not a commit any pinned key signed\n")
         if dry_run:
             return EXIT_REFUSED
         return _finish(state, host, stdout, stderr, code=EXIT_REFUSED, phase="trust", outcome="refused",
-                       detail="the first cycle found the deploy clone on a commit the pinned key did not sign",
+                       detail="the first cycle found the deploy clone on a commit no pinned key signed",
                        announce=True)
 
     result = host.update(dry_run=dry_run)

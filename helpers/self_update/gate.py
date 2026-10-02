@@ -2,7 +2,7 @@
 
 The server runs whatever this gate lets through as root, so push access to the branch
 must not be enough. The owner's signature is the credential: the cycle deploys the
-newest commit on the branch that carries a good signature from the pinned key, and that
+newest commit on the branch that carries a good signature from a pinned key, and that
 signature vouches for everything between the deployed commit and it. The agents write
 most commits and never hold the key, so their unsigned commits wait above it until the
 owner signs a commit on top.

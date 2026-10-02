@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # fedora-desktop-self-update — the unattended self-update cycle on a server (Plan 00137).
 #
-# Brings the deploy-only clone up to the newest commit signed by the owner's pinned key,
+# Brings the deploy-only clone up to the newest commit signed by one of the owner's keys,
 # runs the allowlisted plays whose inputs changed, then warns the ccy/cc sessions and
 # reboots so they come back through the boot-time restore. After the boot, `verify` checks
 # every restored session came back. Any failure stops the cycle with no reboot.
@@ -77,7 +77,7 @@ for dir in "${CLONE}" "${STATE}" "${PUBLISHED}"; do
 done
 
 # The helpers are imported from the deploy clone, so nothing is imported until its HEAD is
-# proven to be a commit the pinned key signed and the clone holds no file that commit does
+# proven to be a commit a listed key signed and the clone holds no file that commit does
 # not, ignored ones included: Python would import a stray .pyc or a stray module as readily
 # as a signed one. The only exception is the host_vars copy the play installs, which is
 # data. The cycle's own gate judges only commits ABOVE HEAD, so it cannot vouch for the
@@ -110,7 +110,7 @@ fi
 GIT=(git -C "${CLONE}" -c core.hooksPath=/dev/null -c core.fsmonitor=false -c protocol.ext.allow=never
     -c gpg.program=false -c gpg.openpgp.program=false -c gpg.x509.program=false
     -c "gpg.ssh.program=${SSH_KEYGEN}" -c "gpg.ssh.allowedSignersFile=${ALLOWED_SIGNERS}")
-UNTRUSTED="re-run the self-update play: it moves the clone to the newest commit your key signed"
+UNTRUSTED="re-run the self-update play: it moves the clone to the newest commit one of your listed keys signed"
 # The play never updates an existing clone (update: false), and its anchor refuses a dirty
 # one, so re-running it cannot clear these two. Only a fresh clone can.
 RECLONE="re-running the play cannot clear this. Run the self-update play once with self_update_enabled: false in host_vars, which removes the clone and the rest of the automation, then once more with it true, which clones and anchors afresh"

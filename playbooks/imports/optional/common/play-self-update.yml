@@ -3,8 +3,8 @@
 # Unattended server self-update (Plan 00137) — OPT-IN, server profile only.
 #
 # A nightly system timer runs /usr/local/sbin/fedora-desktop-self-update. The cycle
-# fast-forwards a root-owned deploy clone to the newest commit signed by the owner's
-# pinned key, runs the allowlisted plays that commit affects, warns the ccy/cc sessions,
+# fast-forwards a root-owned deploy clone to the newest commit signed by one of the
+# owner's pinned keys, runs the allowlisted plays that commit affects, warns the ccy/cc sessions,
 # and reboots. The sessions come back through Plan 00135's boot-time restore, and a
 # post-boot unit checks they did. The contract between this play and the entry point is
 # CLAUDE/Plan/00137-unattended-server-self-update/DESIGN-cycle.md.
@@ -80,17 +80,37 @@
           - self_update_remote_url is match('^https://[^\s]+$')
           - self_update_signing_principal is defined
           - self_update_signing_principal is match('^[^\s]+$')
-          - self_update_signing_public_key is defined
-          - self_update_signing_public_key is match('^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp[0-9]+|sk-ssh-ed25519@openssh\.com) [A-Za-z0-9+/=]+( [^\n]*)?$')
           - (self_update_warn_minutes | default(3) | string) is match('^[1-9][0-9]*$')
         fail_msg: >-
           self_update_enabled is true, but its inputs are incomplete or malformed. Declare
           in host_vars: self_update_branch (e.g. F44), self_update_remote_url (HTTPS, e.g.
           the public GitHub URL), self_update_signing_principal and
-          self_update_signing_public_key (the owner's PUBLIC SSH signing key, one line).
-          Optional: self_update_warn_minutes (default 3) and self_update_slack_webhook_url
-          (vault-encrypted). See environment/localhost/host_vars/localhost.yml.dist.
+          self_update_signing_public_keys (the owner's PUBLIC SSH signing keys, one .pub
+          line each). Optional: self_update_warn_minutes (default 3) and
+          self_update_slack_webhook_url (vault-encrypted). See
+          environment/localhost/host_vars/localhost.yml.dist.
         quiet: true
+      when: self_update_on
+
+    # The owner's commits are signed by more than one key: the desktop's ~/.ssh/id on the
+    # host, and a GitHub account key in each ccy session (Plan 00139 D5). The server trusts
+    # every key in self_update_signing_public_keys, plus the older single
+    # self_update_signing_public_key where a server still declares it. The helper validates
+    # each, drops repeats, refuses an empty list, and prints the allowed-signers file.
+    - name: Build the Allowed Signers List From the Owner's Keys
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -B
+          - -m
+          - helpers.self_update.signers
+        chdir: "{{ root_dir }}"
+        stdin: >-
+          {{ {'principal': self_update_signing_principal,
+              'keys': self_update_signing_public_keys | default(none),
+              'key': self_update_signing_public_key | default(none)} | to_json }}
+      register: self_update_allowed_signers
+      changed_when: false
       when: self_update_on
 
     # Its own task so no_log hides only the password, not the other inputs' remedy.
@@ -357,7 +377,7 @@
 
     - name: Write the Allowed Signers File
       ansible.builtin.copy:
-        content: "{{ self_update_signing_principal }} {{ self_update_signing_public_key }}\n"
+        content: "{{ self_update_allowed_signers.stdout }}\n"
         dest: "{{ self_update_etc_dir }}/self-update.allowed_signers"
         owner: root
         group: root
@@ -380,7 +400,7 @@
     # Cloned once and never updated here: moving it is the cycle's job, through the
     # signature gate. `update: false` leaves an existing clone exactly as it is, so a
     # re-run of this play cannot move root's code past the gate. `recursive: false`: a
-    # submodule's commits are not signed by the pinned key, so none is ever fetched.
+    # submodule's commits are not signed by a pinned key, so none is ever fetched.
     - name: Clone the Deploy Checkout
       ansible.builtin.git:
         repo: "{{ self_update_remote_url }}"
@@ -392,7 +412,7 @@
 
     # A fresh clone sits on the remote's tip, which nobody has vouched for, and the cycle's
     # gate only judges commits above HEAD. So HEAD is moved back to the newest commit the
-    # pinned key signed, or the play fails: root must never import or run an unsigned
+    # pinned keys signed, or the play fails: root must never import or run an unsigned
     # tree. A HEAD that is already signed is left alone; moving forward is the cycle's job.
     # The helper runs from this checkout, the one the owner is deploying from, never from
     # the clone it is judging, and -B leaves no root-owned bytecode in it. The anchor also

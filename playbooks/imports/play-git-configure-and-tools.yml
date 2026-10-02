@@ -46,7 +46,8 @@
     # passphrase. git signs through the ssh-agent that holds it unlocked, so nothing that
     # commits unattended needs a terminal (Plan 00139 D5). A signer whose agent does not
     # hold it cannot sign: a person is asked for the passphrase, an unattended one fails.
-    # A self-updating server trusts this key through self_update_signing_public_key.
+    # A self-updating server trusts this key, and each account key ccy sessions sign with,
+    # through self_update_signing_public_keys.
     # play-github-cli-multi.yml registers it on GitHub, and signs each account's
     # repositories with that account's login key: docs/configuration.md "Commit Signing".
     # A headless box with `github_accounts: {}` and no git_signing_key has no login key
@@ -104,7 +105,7 @@
 
         # Written to host_vars so run.bash's "Save local config to repo" keeps this
         # machine's public key in the config repo with the rest of its configuration. It
-        # has its own name: self_update_signing_public_key is the key a SERVER trusts, and
+        # has its own name: self_update_signing_public_keys are the keys a SERVER trusts, and
         # writing a machine's own key there would make a server trust its own commits.
         - name: Read This Machine's Public Signing Key
           ansible.builtin.slurp:

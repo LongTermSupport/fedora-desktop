@@ -18,7 +18,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from helpers.self_update import update
+from helpers.self_update import signers, update
 
 PRINCIPAL = "owner@example.com"
 BRANCH = "F44"
@@ -45,6 +45,7 @@ class Fixture:
         }
         self.owner_key = self._key("owner")
         self.other_key = self._key("other")
+        self.account_key = self._key("account")
         self.allowed = os.path.join(root, "allowed_signers")
         with open(self.owner_key + ".pub", encoding="utf-8") as handle:
             kind, blob = handle.read().split()[:2]
@@ -95,7 +96,7 @@ class Fixture:
         self.git(self.author, "add", path)
         args = ["commit", "-q", "-m", message]
         if sign is not None:
-            key = self.owner_key if sign == "owner" else self.other_key
+            key = {"owner": self.owner_key, "account": self.account_key}.get(sign, self.other_key)
             args = ["-c", f"user.signingkey={key}", *args, "-S"]
         self.git(self.author, *args)
         return self.git(self.author, "rev-parse", "HEAD")
@@ -406,6 +407,66 @@ class TestRefusals(UpdateCase):
 
     def test_an_empty_principal_is_a_usage_error(self) -> None:
         self.assertEqual(self.fx.run(principal="")[0], update.EXIT_USAGE)
+
+
+class TestSeveralTrustedKeys(UpdateCase):
+    """Plan 00137 Task 4.8: the owner signs with more than one key. The desktop's `~/.ssh/id`
+    signs on the host, and a ccy session signs with its GitHub account's key (Plan 00139 D5).
+    A server trusting only the first never deploys a ccy commit, so the play writes every
+    listed key, through helpers.self_update.signers, and either key deploys."""
+
+    def _pub(self, key: str) -> str:
+        with open(key + ".pub", encoding="utf-8") as handle:
+            return handle.read().strip()
+
+    def _trust(self, *keys: str) -> None:
+        listed = signers.effective_keys([self._pub(key) for key in keys], None)
+        with open(self.fx.allowed, "w", encoding="utf-8") as handle:
+            handle.write(signers.render(PRINCIPAL, listed))
+
+    def test_a_commit_signed_by_the_second_listed_key_is_deployed(self) -> None:
+        self._trust(self.fx.owner_key, self.fx.account_key)
+        new = self.fx.commit("a.txt", "a\n", "made in a ccy session", sign="account")
+        self.fx.push()
+        code, out, err = self.fx.run()
+        self.assertEqual(code, update.EXIT_OK, err)
+        self.assertIn(f"SELF-UPDATE-NEW {new}", out)
+        self.assertEqual(self.fx.deployed(), new)
+
+    def test_the_first_listed_key_still_deploys(self) -> None:
+        self._trust(self.fx.owner_key, self.fx.account_key)
+        new = self.fx.commit("a.txt", "a\n", "made on the host", sign="owner")
+        self.fx.push()
+        self.assertEqual(self.fx.run()[0], update.EXIT_OK)
+        self.assertEqual(self.fx.deployed(), new)
+
+    def test_a_list_of_one_does_not_deploy_the_other_key(self) -> None:
+        self._trust(self.fx.owner_key)
+        before = self.fx.deployed()
+        self.fx.commit("a.txt", "a\n", "made in a ccy session", sign="account")
+        self.fx.push()
+        code, out, _ = self.fx.run()
+        self.assertEqual(code, update.EXIT_OK)
+        self.assertIn("SELF-UPDATE-NOTHING", out)
+        self.assertEqual(self.fx.deployed(), before)
+
+    def test_a_key_outside_the_list_still_waits(self) -> None:
+        self._trust(self.fx.owner_key, self.fx.account_key)
+        before = self.fx.deployed()
+        self.fx.commit("a.txt", "a\n", "someone else", sign="other")
+        self.fx.push()
+        self.assertEqual(self.fx.run()[0], update.EXIT_OK)
+        self.assertEqual(self.fx.deployed(), before)
+
+    def test_verify_head_accepts_a_head_the_second_key_signed(self) -> None:
+        self._trust(self.fx.owner_key, self.fx.account_key)
+        self.fx.commit("a.txt", "a\n", "made in a ccy session", sign="account")
+        self.fx.push()
+        self.assertEqual(self.fx.run()[0], update.EXIT_OK)
+        err = io.StringIO()
+        code = update.verify_head(checkout=self.fx.deploy, allowed_signers=self.fx.allowed,
+                                  principal=PRINCIPAL, stderr=err, env=self.fx.env)
+        self.assertEqual(code, update.EXIT_OK, err.getvalue())
 
 
 class TestAnchor(UpdateCase):

@@ -1351,7 +1351,8 @@ profile, Plan 00137). **Off unless `self_update_enabled: true`**; turning it off
 everything it installed.
 
 - A nightly root timer fast-forwards a root-owned deploy clone under
-  `/var/lib/fedora-desktop/`, only to a commit signed by the owner's pinned key. The play
+  `/var/lib/fedora-desktop/`, only to a commit signed by one of the owner's pinned keys
+  (the desktop's `~/.ssh/id` and the GitHub account keys its ccy sessions sign with). The play
   itself puts the clone on the newest signed commit, and the cycle runs nothing from a
   clone whose HEAD is unsigned, whose files differ from it, or that holds any file the
   commit does not (ignored files included), other than the host_vars copy the play puts
@@ -1379,7 +1380,7 @@ everything it installed.
   `gdb -p` or `strace -p` to a process you did not start. Run the tool as the parent
   (`strace <cmd>`), or use sudo. Turning the play off removes the drop-in but leaves
   the live value alone until the next boot.
-- Inputs, and the desktop-side signing key: [configuration.md](configuration.md#unattended-server-self-update).
+- Inputs, and the desktop-side signing keys: [configuration.md](configuration.md#unattended-server-self-update).
 
 #### play-speech-to-text.yml
 

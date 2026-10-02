@@ -199,12 +199,48 @@ plan_deploy_leg "play-github-cli-multi.yml" \
 printf '\n==> NEXT:\n'
 printf '    1. ./acceptance.bash\n'
 if [[ "${PLAN_CHECK}" != "1" ]]; then
-    signer="$(git -C "${repoRoot}" config --get user.signingkey)"
-    printf '    2. A self-update server (Plan 00137) verifies commits to this checkout, which now\n'
-    printf '       sign with %s. Set the server'"'"'s self_update_signing_public_key to the\n' "${signer}"
-    printf '       contents of %s.pub, then run the server'"'"'s deploy.\n' "${signer}"
-    printf '       A ccy session here started with another key file signs with that key, which\n'
-    printf '       the server would refuse: start it with the key above.\n'
+    # Every key that signs this repository's commits: the machine key on the host, and each
+    # GitHub account's key, which a ccy session started with that account signs with. A
+    # self-update server must trust them all (Plan 00137 Task 4.8). `git config --get`
+    # exits 1 only for "not set", which is a box with no GitHub identity: it signs nothing.
+    signers=()
+    machine_key="$(git config --global --get user.signingkey)" && rc=0 || rc=$?
+    case "${rc}" in
+        0) signers+=("${machine_key}") ;;
+        1) ;;
+        *)
+            printf '[FATAL] git could not read user.signingkey from ~/.gitconfig (exit %d)\n' "${rc}" >&2
+            exit 1
+            ;;
+    esac
+    shopt -s nullglob
+    for account_config in "${HOME}"/.config/git/github-signing-*.gitconfig; do
+        account_key="$(git config --file "${account_config}" --get user.signingkey)"
+        if [[ " ${signers[*]} " != *" ${account_key} "* ]]; then
+            signers+=("${account_key}")
+        fi
+    done
+    shopt -u nullglob
+    if [[ "${#signers[@]}" -eq 0 ]]; then
+        printf '    2. No key signs commits here, so a self-update server (Plan 00137) has nothing\n'
+        printf '       to trust from this machine.\n'
+    else
+        missing=()
+        for key in "${signers[@]}"; do
+            [[ -f "${key}.pub" ]] || missing+=("${key}.pub")
+        done
+        if [[ "${#missing[@]}" -gt 0 ]]; then
+            printf '[FATAL] a signing key has no public half beside it: %s\n' "${missing[*]}" >&2
+            exit 1
+        fi
+        printf '    2. A self-update server (Plan 00137) deploys only commits signed by a key it\n'
+        printf '       lists. Your commits here are signed by these keys, so put the contents of\n'
+        printf '       every one in the server'"'"'s self_update_signing_public_keys, then run the\n'
+        printf '       server'"'"'s deploy:\n'
+        printf '         %s.pub\n' "${signers[@]}"
+        printf '       A ccy session started with a key file not listed here signs with that key,\n'
+        printf '       which the server would refuse.\n'
+    fi
 fi
 printf '\n'
 
