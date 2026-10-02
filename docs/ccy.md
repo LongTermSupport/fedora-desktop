@@ -247,7 +247,7 @@ cannot lose work, and each is announced on stderr. Every other prompt (token cho
 key or passphrase, GitHub-over-443, network, compose) has no safe answer, so it waits in
 the pane for a person — except the SSH key passphrase on a headless server, below.
 
-**On a headless server the SSH key unlocks unattended** (since CCY 3.72.0). Where the
+**On a headless server the SSH key unlocks unattended** (since CCY 3.72.1). Where the
 provisioning profile is `server`, `ccy_restore_sessions: true` is declared and a GitHub
 identity is configured, `play-claude-yolo.yml` writes the vault's `github_ssh_passphrase` to
 `~/.claude-tokens/ccy/restore-ssh-passphrase` (mode 0600). It also adds the drop-in

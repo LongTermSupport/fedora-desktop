@@ -17,6 +17,21 @@ Two version numbers move independently — see
 
 ---
 
+## 3.72.1 — container 2.40
+
+Fixes to 3.72.0's unattended unlock, found in review before it reached any host.
+
+- **A ccy you start yourself on a server after a reboot works again.** The restore left
+  `CCY_RESTORE_SSH_PASSPHRASE_FILE` in its environment. It starts ccy's tmux server, so
+  every later pane inherited the variable, and a ccy started there refused it and exited.
+  The restore now drops it before tmux runs. Only the restored commands get the path.
+- **A launcher killed during its SSH key probe leaves nothing behind.** A reboot's SIGTERM
+  could leave the probe's passphrase copy, and its ssh-agent with the unlocked key. A trap
+  set before the probe now removes both.
+- **`podman exec` into a restored container no longer inherits `SSH_ASKPASS`.** The
+  launcher only mounts the askpass stage. The entrypoint sets the askpass variables for its
+  own `ssh-add` alone, which is why the image moves to 2.40.
+
 ## 3.72.0 — container 2.39
 
 - **A session restored on a headless server unlocks its SSH key with nobody at the

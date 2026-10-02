@@ -117,6 +117,33 @@ fi
 # IdentityFile (github_key_directives, folded into the github.com stanza below)
 # rather than ssh-add — adding to a forwarded agent would load keys into the
 # person's agent on the far side, which is theirs, not this container's.
+#
+# A server's session restore (Plan 00135) mounts a passphrase copy and an askpass helper at
+# RESTORE_ASKPASS_MOUNT; on any other launch nothing is there. ssh-add is pointed at the
+# helper for its own run only, so nothing else in the container, a `podman exec` included,
+# ever sees SSH_ASKPASS. Once the keys are added both files are removed, before Claude starts.
+RESTORE_ASKPASS_MOUNT=/run/ccy/restore-askpass
+
+# restore_askpass_ssh_add <askpass-dir> <key>
+restore_askpass_ssh_add() {
+    local dir="$1" key="$2"
+    if [ ! -e "$dir/askpass" ]; then
+        ssh-add "$key"
+        return
+    fi
+    SSH_ASKPASS="$dir/askpass" SSH_ASKPASS_REQUIRE=force CCY_RESTORE_PP_FILE="$dir/pp" \
+        ssh-add "$key" </dev/null
+}
+
+# restore_askpass_finish <askpass-dir>
+restore_askpass_finish() {
+    local dir="$1"
+    if ! rm -f -- "$dir/pp" "$dir/askpass"; then
+        echo "ERROR: could not remove the session-restore passphrase copy in $dir" >&2
+        exit 1
+    fi
+}
+
 github_key_directives=()
 if [ "${SSH_AGENT_FORWARDED:-0}" = "1" ]; then
     if ! ssh-add -l >/tmp/ccy-agent-probe.out 2>&1; then
@@ -136,7 +163,7 @@ elif [ -n "$SSH_KEY_PATHS" ]; then
 
     IFS=: read -ra KEYS <<< "$SSH_KEY_PATHS"
     for key in "${KEYS[@]}"; do
-        if ! ssh-add "$key" 2>&1; then
+        if ! restore_askpass_ssh_add "$RESTORE_ASKPASS_MOUNT" "$key" 2>&1; then
             echo "ERROR: Failed to add SSH key: $key" >&2
             exit 1
         fi
@@ -163,19 +190,7 @@ else
     echo ""
 fi
 
-# A server's session restore (Plan 00135) mounts a passphrase copy and an askpass helper at
-# /run/ccy/restore-askpass and sets SSH_ASKPASS for it, so the ssh-add above needed nobody
-# at the keyboard. Once the keys are added the copy and the helper are removed and the
-# variables dropped, before anything else runs: Claude must not inherit either.
-restore_askpass_finish() {
-    [ -n "${CCY_RESTORE_PP_FILE:-}" ] || return 0
-    if ! rm -f -- "$CCY_RESTORE_PP_FILE" "${SSH_ASKPASS:-}"; then
-        echo "ERROR: could not remove the session-restore passphrase copy $CCY_RESTORE_PP_FILE" >&2
-        exit 1
-    fi
-    unset SSH_ASKPASS SSH_ASKPASS_REQUIRE CCY_RESTORE_PP_FILE
-}
-restore_askpass_finish
+restore_askpass_finish "$RESTORE_ASKPASS_MOUNT"
 
 # Add GitHub host keys to avoid SSH verification prompts on in-container git ops.
 # CCY-08/BSH-16: capture the fetch explicitly instead of piping straight into

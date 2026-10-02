@@ -843,26 +843,21 @@ ccy_restore_askpass_discard_probe() {
     CCY_PROBE_ASKPASS_DIR=""
 }
 
-# ccy_restore_askpass_container <passphrase-file> — stage the container's copy, export
-# CCY_RESTORE_ASKPASS_DIR (the launcher's cleanup removes it), and append to SSH_RUN_OPTS the
-# mount and the environment that make the entrypoint's own ssh-add use the helper. Paths
-# only; the passphrase never reaches the engine's argv. Call after
-# build_ssh_mounts_and_validate, which resets SSH_RUN_OPTS.
+# ccy_restore_askpass_container <passphrase-file> — stage the container's copy, record it in
+# CCY_RESTORE_ASKPASS_DIR (the launcher's cleanup removes it), and append its mount to
+# SSH_RUN_OPTS. The mount alone is the signal: the entrypoint finds the helper there and
+# sets SSH_ASKPASS for its own ssh-add only. No variable goes into the container's
+# configuration, which every later `podman exec` would inherit. Paths only; the passphrase
+# never reaches the engine's argv. Call after build_ssh_mounts_and_validate, which resets
+# SSH_RUN_OPTS.
 ccy_restore_askpass_container() {
-    local dir relabel=""
-    dir=$(ccy_restore_askpass_stage "$1") || return 1
-    CCY_RESTORE_ASKPASS_DIR="$dir"
-    export CCY_RESTORE_ASKPASS_DIR
+    local relabel=""
+    CCY_RESTORE_ASKPASS_DIR=$(ccy_restore_askpass_stage "$1") || return 1
     # Read-write: the entrypoint removes the copy and the helper once its keys are added.
     if [ "${CCY_SELINUX_MODE:-off}" != "off" ]; then
         relabel=":Z"
     fi
-    SSH_RUN_OPTS+=(
-        -v "$dir:$CCY_RESTORE_ASKPASS_MOUNT$relabel"
-        -e "SSH_ASKPASS=$CCY_RESTORE_ASKPASS_MOUNT/askpass"
-        -e "SSH_ASKPASS_REQUIRE=force"
-        -e "CCY_RESTORE_PP_FILE=$CCY_RESTORE_ASKPASS_MOUNT/pp"
-    )
+    SSH_RUN_OPTS+=(-v "$CCY_RESTORE_ASKPASS_DIR:$CCY_RESTORE_ASKPASS_MOUNT$relabel")
 }
 
 # _probe_unlock_keys <tool_name> — unlock every selected key file into the private probe

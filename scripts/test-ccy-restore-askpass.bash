@@ -14,7 +14,11 @@
 #   - the passphrase reaches ssh-add and nothing else: not argv, not a log, not the terminal;
 #   - a missing or wrong passphrase on a server fails loudly and at once, rather than leaving
 #     a session waiting at a prompt (real ssh-add asks a wrong askpass again for ever);
-#   - every transient copy of the passphrase is gone once its key is added.
+#   - every transient copy of the passphrase is gone once its key is added, or once the
+#     launcher is killed mid-probe;
+#   - the file's path reaches only the restored commands: not tmux (whose server every later
+#     pane inherits from), and no askpass variable reaches the container's configuration
+#     (which every `podman exec` inherits).
 #
 # The REAL ssh-keygen, ssh-agent and ssh-add are used, with a throwaway encrypted key, so the
 # askpass protocol is OpenSSH's own and not a stub's idea of it. A recording shim sits in
@@ -84,9 +88,14 @@ BIN="$SCRATCH/bin"
 mkdir -p "$BIN"
 cat >"$BIN/ssh-add" <<'EOF'
 #!/usr/bin/env bash
-printf 'argv=%s|SSH_ASKPASS=%s|SSH_ASKPASS_REQUIRE=%s\n' "$*" "${SSH_ASKPASS:-unset}" \
-    "${SSH_ASKPASS_REQUIRE:-unset}" >>"$SHIM_LOG"
+printf 'argv=%s|SSH_ASKPASS=%s|SSH_ASKPASS_REQUIRE=%s|SOCK=%s\n' "$*" "${SSH_ASKPASS:-unset}" \
+    "${SSH_ASKPASS_REQUIRE:-unset}" "${SSH_AUTH_SOCK:-unset}" >>"$SHIM_LOG"
 if [ -n "${SHIM_RECORD_ONLY:-}" ]; then exit 0; fi
+# SHIM_KILL_PARENT=<signal>: the launcher is killed while ssh-add runs (a reboot's SIGTERM).
+if [ -n "${SHIM_KILL_PARENT:-}" ]; then
+    kill "-$SHIM_KILL_PARENT" "$PPID"
+    exit 1
+fi
 exec "$REAL_SSH_ADD" "$@"
 EOF
 chmod 755 "$BIN/ssh-add"
@@ -119,6 +128,21 @@ probe-unlock)
     _probe_agent_stop >/dev/null
     exit "$rc"
     ;;
+probe-killed)
+    # The launcher's guard for its probe, installed as the launcher installs it (the wiring
+    # section checks the launcher holds this very line, before its probe); then the probe,
+    # with the shim killing this shell from inside ssh-add.
+    RESTORE_SSH_PASSPHRASE_FILE="${TEST_RESTORE_FILE:-}"
+    SSH_KEYS=("$@")
+    if [ "${PROBE_GUARD:-1}" = 1 ]; then
+        trap _probe_agent_stop EXIT
+    else
+        # Unguarded: only note the agent's pid, so the suite can stop what is left.
+        trap 'printf "%s\n" "$CCY_PROBE_AGENT_PID" >"$AGENT_LIST"' EXIT
+    fi
+    _probe_unlock_keys ccy
+    echo "the probe returned: the kill did not land"
+    ;;
 add-key-interactive)
     _probe_agent_add_key "$1"
     ;;
@@ -131,6 +155,8 @@ container)
     ccy_restore_askpass_container "$1" || exit 1
     printf 'DIR=%s\n' "$CCY_RESTORE_ASKPASS_DIR"
     printf 'OPT=%s\n' "${SSH_RUN_OPTS[@]}"
+    # What every process the launcher starts from here on would inherit.
+    printf 'CHILD=%s\n' "$(bash -c 'printf %s "${CCY_RESTORE_ASKPASS_DIR-unset}"')"
     ;;
 take)
     # $1 = the launch's SESSION_RESTORE; CCY_RESTORE_SSH_PASSPHRASE_FILE from the environment.
@@ -216,6 +242,28 @@ check "a passphrase file gone by launch time fails loudly, not at a prompt" "1" 
 check "and names the file" "yes" "$(yes_if grep -qF "$SCRATCH/no-such-file" "$OUT")"
 check "ssh-add was never asked" "0" "$(grep -c . "$SHIM_LOG")"
 
+# Killed mid-probe: the probe's own RETURN trap never runs, so the launcher's guard must.
+# First without the guard, to show the hazard is real and this check can see it.
+DRIVE_ENV=(TEST_RESTORE_FILE="$PPFILE" SHIM_KILL_PARENT=TERM PROBE_GUARD=0)
+drive probe-killed "$KEYS/github_fixture"
+check "unguarded, a killed probe leaves its passphrase copy behind" "1" "$(staged_left)"
+find "$RUNTIME" -mindepth 1 -maxdepth 1 -name 'ccy-askpass.*' -exec rm -rf {} +
+unguarded_pid="$(cat "$AGENT_LIST")"
+check "and its probe agent still running" "yes" "$(yes_if kill -0 "$unguarded_pid")"
+if ! kill "$unguarded_pid"; then
+    echo "  (the unguarded probe agent $unguarded_pid was already gone)" >&2
+fi
+for sig in TERM HUP; do
+    DRIVE_ENV=(TEST_RESTORE_FILE="$PPFILE" SHIM_KILL_PARENT="$sig")
+    drive probe-killed "$KEYS/github_fixture"
+    check "SIG$sig during the probe's ssh-add: the launcher is killed" "no" \
+        "$(yes_if grep -q 'the kill did not land' "$OUT")"
+    check "and its passphrase copy is removed" "0" "$(staged_left)"
+    killed_sock="$(grep -oP '\|SOCK=\K.*' "$SHIM_LOG")"
+    check "and so is the probe agent holding the unlocked key" "yes:absent" \
+        "$(yes_if test -n "$killed_sock"):$(test -e "$killed_sock" && echo present || echo absent)"
+done
+
 echo ""
 echo "=== an ordinary launch never uses askpass ==="
 DRIVE_ENV=(SHIM_RECORD_ONLY=1)
@@ -263,49 +311,67 @@ CDIR="$(grep '^DIR=' "$OUT" | cut -d= -f2-)"
 OPTS="$(grep '^OPT=' "$OUT" | cut -d= -f2- | tr '\n' ' ')"
 check "it mounts the stage at /run/ccy/restore-askpass" "yes" \
     "$(yes_if grep -qF -- "-v $CDIR:/run/ccy/restore-askpass" <<<"$OPTS")"
-check "and points ssh-add in the container at the helper, forced" "yes" \
-    "$(yes_if grep -qF -- "-e SSH_ASKPASS=/run/ccy/restore-askpass/askpass -e SSH_ASKPASS_REQUIRE=force -e CCY_RESTORE_PP_FILE=/run/ccy/restore-askpass/pp" <<<"$OPTS")"
+# The container's configuration is what every later `podman exec` starts from, so the
+# askpass variables must not be in it: the entrypoint sets them for its own ssh-add only.
+check "no askpass variable is put in the container's configuration" "no" \
+    "$(yes_if grep -qE -- '-e (SSH_ASKPASS|SSH_ASKPASS_REQUIRE|CCY_RESTORE_PP_FILE)=' <<<"$OPTS")"
 check "the options already in SSH_RUN_OPTS are kept" "yes" "$(yes_if grep -qF -- "-e EARLIER=1 -v" <<<"$OPTS")"
 check "the passphrase is not in the engine's argv" "no" "$(leaks <<<"$OPTS")"
-# The entrypoint's own steps, against the stage: its ssh-add with the environment the run
-# options give it, then its finishing function, extracted from entrypoint.sh as written.
-finish_def="$(awk '/^restore_askpass_finish\(\) \{/,/^\}/' "$ENTRYPOINT")"
-check "entrypoint.sh defines restore_askpass_finish" "yes" "$(yes_if test -n "$finish_def")"
+check "the stage's path is not exported to what the launcher starts" "unset" \
+    "$(grep '^CHILD=' "$OUT" | cut -d= -f2-)"
+check "the entrypoint looks for the stage where the launcher mounts it" "/run/ccy/restore-askpass" \
+    "$(grep -oP '^RESTORE_ASKPASS_MOUNT=\K.*' "$ENTRYPOINT")"
+# The entrypoint's own steps, extracted from entrypoint.sh as written and run in a strict
+# shell as it runs them: its ssh-add against the stage, then its finish.
+ep_defs="$(awk '/^restore_askpass_(ssh_add|finish)\(\) \{/,/^\}/' "$ENTRYPOINT")"
+check "entrypoint.sh defines restore_askpass_ssh_add and restore_askpass_finish" "2" \
+    "$(grep -cE '^restore_askpass_(ssh_add|finish)\(\) \{' <<<"$ep_defs")"
+printf '%s\n' "$ep_defs" >"$SCRATCH/ep-defs.bash"
+EP_RUN="$SCRATCH/ep-run.bash"
+cat >"$EP_RUN" <<'EOF'
+set -euo pipefail
+source "$EP_DEFS"
+step="$1"
+shift
+"restore_askpass_$step" "$@"
+printf 'LEFT=%s|%s|%s\n' "${SSH_ASKPASS:-unset}" "${SSH_ASKPASS_REQUIRE:-unset}" "${CCY_RESTORE_PP_FILE:-unset}"
+EOF
+ep_run() {
+    : >"$SHIM_LOG"
+    env -u SSH_ASKPASS -u SSH_ASKPASS_REQUIRE -u CCY_RESTORE_PP_FILE -u DISPLAY \
+        PATH="$BIN:$PATH" EP_DEFS="$SCRATCH/ep-defs.bash" REAL_SSH_ADD="$REAL_SSH_ADD" \
+        SHIM_LOG="$SHIM_LOG" "${DRIVE_ENV[@]}" timeout 30 bash "$EP_RUN" "$@" </dev/null >"$OUT" 2>&1
+}
 CAGENT="$(ssh-agent -s)"
 csock="$(printf '%s' "$CAGENT" | grep -oP 'SSH_AUTH_SOCK=\K[^;]+')"
 cpid="$(printf '%s' "$CAGENT" | grep -oP 'SSH_AGENT_PID=\K[0-9]+')"
-SSH_AUTH_SOCK="$csock" SSH_ASKPASS="$CDIR/askpass" SSH_ASKPASS_REQUIRE=force CCY_RESTORE_PP_FILE="$CDIR/pp" \
-    timeout 30 "$REAL_SSH_ADD" "$KEYS/github_fixture" </dev/null >"$SCRATCH/c-add.out" 2>&1
+DRIVE_ENV=(SSH_AUTH_SOCK="$csock")
+ep_run ssh_add "$CDIR" "$KEYS/github_fixture"
 check "the container's ssh-add unlocks the key unattended" "0" "$?"
-check "and prints no passphrase" "no" "$(leaks "$SCRATCH/c-add.out")"
+check "through the stage's helper, forced" "1" "$(grep -c "SSH_ASKPASS=$CDIR/askpass|SSH_ASKPASS_REQUIRE=force" "$SHIM_LOG")"
+check "and leaves no askpass variable behind it" "LEFT=unset|unset|unset" "$(grep '^LEFT=' "$OUT")"
+check "and prints no passphrase" "no" "$(leaks "$OUT")"
 if ! kill "$cpid"; then
     echo "  (the fixture agent $cpid was already gone)" >&2
 fi
-# finish-runner: the extracted function in a strict shell, as the entrypoint runs it, then
-# what is left of the askpass environment.
-FINISH="$SCRATCH/finish.bash"
-printf '%s\n' "$finish_def" >"$SCRATCH/finish-def.bash"
-cat >"$FINISH" <<'EOF'
-set -euo pipefail
-source "$FINISH_DEF"
-restore_askpass_finish
-printf '%s|%s|%s' "${SSH_ASKPASS:-unset}" "${SSH_ASKPASS_REQUIRE:-unset}" "${CCY_RESTORE_PP_FILE:-unset}"
-EOF
-fin="$(FINISH_DEF="$SCRATCH/finish-def.bash" SSH_ASKPASS="$CDIR/askpass" SSH_ASKPASS_REQUIRE=force \
-    CCY_RESTORE_PP_FILE="$CDIR/pp" bash "$FINISH" 2>&1)"
-check "finishing leaves no askpass in the environment the agent inherits" "unset|unset|unset" "$fin"
+DRIVE_ENV=(SHIM_RECORD_ONLY=1)
+ep_run ssh_add "$SCRATCH/no-stage" "$KEYS/github_fixture"
+check "an ordinary container start's ssh-add uses no askpass" "1" "$(grep -c 'SSH_ASKPASS=unset|SSH_ASKPASS_REQUIRE=unset|' "$SHIM_LOG")"
+DRIVE_ENV=()
+ep_run finish "$CDIR"
+check "finishing succeeds" "0" "$?"
 check "the passphrase copy is gone once the key is added" "absent" "$(test -e "$CDIR/pp" && echo present || echo absent)"
 check "and so is the helper" "absent" "$(test -e "$CDIR/askpass" && echo present || echo absent)"
-fin="$(env -u SSH_ASKPASS -u SSH_ASKPASS_REQUIRE -u CCY_RESTORE_PP_FILE \
-    FINISH_DEF="$SCRATCH/finish-def.bash" bash "$FINISH" 2>&1)"
-check "an ordinary container start passes through finishing untouched" "unset|unset|unset" "$fin"
+ep_run finish "$SCRATCH/no-stage"
+check "an ordinary container start passes through finishing untouched" "0" "$?"
 rm -rf "$CDIR"
 
 echo ""
 echo "=== the wiring: each piece is called where the production path runs ==="
 # Order inside entrypoint.sh: the finish comes after the key loop and before Claude starts.
-add_line="$(grep -nF "ssh-add \"\$key\"" "$ENTRYPOINT" | cut -d: -f1 | sort -n | tail -n 1)"
-fin_line="$(grep -nx 'restore_askpass_finish' "$ENTRYPOINT" | cut -d: -f1)"
+add_line="$(grep -nF "restore_askpass_ssh_add \"\$RESTORE_ASKPASS_MOUNT\" \"\$key\"" "$ENTRYPOINT" | cut -d: -f1)"
+check "the entrypoint's key loop adds each key through restore_askpass_ssh_add" "yes" "$(yes_if test -n "$add_line")"
+fin_line="$(grep -nxF "restore_askpass_finish \"\$RESTORE_ASKPASS_MOUNT\"" "$ENTRYPOINT" | cut -d: -f1)"
 exec_line="$(grep -nxF "exec \"\$@\"" "$ENTRYPOINT" | cut -d: -f1)"
 check "entrypoint finishes after its ssh-add and before exec" "yes" \
     "$(yes_if test -n "$add_line" -a -n "$fin_line" -a -n "$exec_line" -a "${fin_line:-0}" -gt "${add_line:-0}" -a "${fin_line:-0}" -lt "${exec_line:-0}")"
@@ -315,8 +381,17 @@ check "the launcher stages the container's askpass on a restore" "1" \
     "$(grep -cF "ccy_restore_askpass_container \"\$RESTORE_SSH_PASSPHRASE_FILE\" || exit 1" "$LAUNCHER")"
 check "the engine is given SSH_RUN_OPTS, which carries those options" "1" \
     "$(grep -cF "\"\${SSH_RUN_OPTS[@]}\"" "$LAUNCHER")"
+cleanup_def="$(awk '/^cleanup\(\) \{/,/^\}/' "$LAUNCHER")"
 check "the launcher's cleanup removes the container stage" "yes" \
-    "$(yes_if grep -q 'CCY_RESTORE_ASKPASS_DIR' <<<"$(awk '/^cleanup\(\) \{/,/^\}/' "$LAUNCHER")")"
+    "$(yes_if grep -q 'CCY_RESTORE_ASKPASS_DIR' <<<"$cleanup_def")"
+check "and stops the probe agent, which removes the probe's copy" "yes" \
+    "$(yes_if grep -qx '    _probe_agent_stop' <<<"$cleanup_def")"
+# The guard driven above (probe-killed) is installed before the probe runs, since the
+# launcher's cleanup trap is set only after it.
+guard_line="$(grep -nx 'trap _probe_agent_stop EXIT' "$LAUNCHER" | cut -d: -f1)"
+probe_line="$(grep -nx 'build_ssh_mounts_and_validate "ccy" || exit 1' "$LAUNCHER" | cut -d: -f1)"
+check "the launcher guards its probe against being killed, before running it" "yes" \
+    "$(yes_if test -n "$guard_line" -a -n "$probe_line" -a "${guard_line:-0}" -lt "${probe_line:-0}")"
 # The drop-in names the file the play writes: one path, written in two places.
 check "the restore unit's drop-in exists" "yes" "$(yes_if test -f "$DROPIN")"
 dropin_path="$(grep -oP '^Environment=CCY_RESTORE_SSH_PASSPHRASE_FILE=\K.*' "$DROPIN" 2>&1)"
@@ -329,15 +404,40 @@ echo "=== ccy-sessions restore: the server's passphrase file reaches ccy session
 source "$LIB_DIR/common-pure.bash"
 # shellcheck source=/dev/null
 source "$LIB_DIR/session-registry.bash"
+# The REAL ccy_tmux_start_detached, so what tmux is started with is what production starts
+# it with. At boot the restore is what starts ccy's tmux server, and tmux copies the
+# server's starting environment into its global environment, which every pane created
+# later inherits: an ordinary ccy started in one of those panes would see whatever the
+# restore leaves exported. tmux and systemd are not here, so recording shims stand in.
+# shellcheck source=/dev/null
+source "$LIB_DIR/tmux-session.bash"
 export CCY_STATE_DIR="$SCRATCH/state"
 printf 'boot-one\n' >"$SCRATCH/boot_id"
 export CCY_BOOT_ID_FILE="$SCRATCH/boot_id"
 ccy_tmux_list() { printf ''; }
 STARTED_LOG="$SCRATCH/started"
-ccy_tmux_start_detached() {
-    printf '%q ' "$@" >>"$STARTED_LOG"
-    printf '\n' >>"$STARTED_LOG"
-}
+TMUX_ENV_LOG="$SCRATCH/tmux-env"
+export STARTED_LOG TMUX_ENV_LOG
+RBIN="$SCRATCH/restore-bin"
+mkdir -p "$RBIN"
+cat >"$RBIN/systemd-run" <<'EOF'
+#!/usr/bin/env bash
+while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
+shift
+exec "$@"
+EOF
+cat >"$RBIN/systemd-escape" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "${!#}"
+EOF
+cat >"$RBIN/tmux" <<'EOF'
+#!/usr/bin/env bash
+printf '%q ' "$@" >>"$STARTED_LOG"
+printf '\n' >>"$STARTED_LOG"
+printf '%s\n' "${CCY_RESTORE_SSH_PASSPHRASE_FILE-unset}" >>"$TMUX_ENV_LOG"
+EOF
+chmod 755 "$RBIN/systemd-run" "$RBIN/systemd-escape" "$RBIN/tmux"
+PATH="$RBIN:$PATH"
 PROJ="$SCRATCH/project"
 mkdir -p "$PROJ"
 ccy_registry_write "ccy-proj" "$PROJ" /launch/ccy ccy yes --ssh-key "$KEYS/github_fixture"
@@ -349,14 +449,19 @@ out="$(ccy_registry_restore 2>&1)"
 check "desktop (no drop-in): the restore succeeds" "0" "$?"
 check "and no session is given a passphrase file" "0" "$(grep -c CCY_RESTORE_SSH_PASSPHRASE_FILE "$STARTED_LOG")"
 
-rm -f "$STARTED_LOG"
-out="$(CCY_RESTORE_SSH_PASSPHRASE_FILE="$PPFILE" ccy_registry_restore 2>&1)"
+rm -f "$STARTED_LOG" "$TMUX_ENV_LOG"
+# Exported, as the unit's drop-in gives it to the whole ccy-sessions process.
+out="$(export CCY_RESTORE_SSH_PASSPHRASE_FILE="$PPFILE" && ccy_registry_restore 2>&1)"
 check "server: the restore succeeds" "0" "$?"
-check "the ccy session gets the file on its command" "1" \
-    "$(grep -cF "ccy-proj $(printf '%q' "$PROJ") env CCY_SESSION_RESTORE=1 CCY_RESTORE_SSH_PASSPHRASE_FILE=$(printf '%q' "$PPFILE") /launch/ccy " "$STARTED_LOG")"
+check "the ccy session gets the file on its pane's command" "1" \
+    "$(grep -F -- "-s ccy-proj -c $(printf '%q' "$PROJ") " "$STARTED_LOG" \
+        | grep -cF " ccy-tmux env CCY_SESSION_RESTORE=1 CCY_RESTORE_SSH_PASSPHRASE_FILE=$(printf '%q' "$PPFILE") /launch/ccy ")"
 check "the cc session does not (it starts no container and loads no key)" "1" \
-    "$(grep -cF "cc-proj $(printf '%q' "$PROJ") env CCY_SESSION_RESTORE=1 /launch/cc " "$STARTED_LOG")"
+    "$(grep -F -- "-s cc-proj -c $(printf '%q' "$PROJ") " "$STARTED_LOG" \
+        | grep -cF " ccy-tmux env CCY_SESSION_RESTORE=1 /launch/cc ")"
 check "the path is passed, never the passphrase" "no" "$(leaks "$STARTED_LOG")"
+check "tmux, and so its server and every later pane, does not inherit the file" "unset unset" \
+    "$(tr '\n' ' ' <"$TMUX_ENV_LOG" | xargs)"
 
 rm -f "$STARTED_LOG"
 out="$(CCY_RESTORE_SSH_PASSPHRASE_FILE="$SCRATCH/no-such-file" ccy_registry_restore 2>&1)"
