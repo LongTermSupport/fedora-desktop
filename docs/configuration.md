@@ -272,28 +272,39 @@ still signs, and fails if the key is missing. So does a none box that later gain
 account through `scripts/gh-account-setup.bash --add`, which creates no `~/.ssh/id`:
 generate one (or name another key in `git_signing_key`) before the next run.
 
-A self-updating server trusts `~/.ssh/id`: give its `.pub` line to
-`self_update_signing_public_key` (below).
+Your commits to this repository are signed by more than one key: `~/.ssh/id` for a commit
+made on the host, and the session's GitHub account key (`~/.ssh/github_<alias>`) for a
+commit made in a ccy session. A self-updating server must trust all of them, so list
+the desktop's `~/.ssh/id.pub` and the `.pub` of every GitHub account key ccy sessions
+push this repository with in `self_update_signing_public_keys` (below). A server that
+trusts only one of them never deploys the commits the others sign.
 
-The play also writes the `.pub` line into `localhost.yml` as `git_signing_public_key`, so
-`run.bash`'s "Save local config to repo" option keeps it in your config repo with the
-rest of the host's configuration. It is a record only, under its own name, because
-`self_update_signing_public_key` is the key a server trusts, not its own.
+The play also writes the `.pub` line of `~/.ssh/id` into `localhost.yml` as
+`git_signing_public_key`, so `run.bash`'s "Save local config to repo" option keeps it in
+your config repo with the rest of the host's configuration. It is a record only, under
+its own name, because `self_update_signing_public_keys` are the keys a server trusts, not
+its own.
 
 ### Unattended Server Self-Update
 
 `playbooks/imports/optional/common/play-self-update.yml` (server profile, Plan 00137).
 It is off unless `self_update_enabled: true`. The inputs are listed in
-`host_vars/localhost.yml.dist`. `self_update_signing_public_key` is the `.pub` line of
-the key above, and `self_update_become_password` is your sudo password, vault-encrypted.
-Re-run the play after changing host_vars: the cycle runs with a root-owned copy.
+`host_vars/localhost.yml.dist`. `self_update_signing_public_keys` is a list of `.pub`
+lines: the desktop's `~/.ssh/id.pub`, and the `.pub` of every GitHub account key ccy
+sessions push this repository with (`~/.ssh/github_<alias>.pub`). Plan 00139's
+`deploy.bash` prints each one. A server that still declares the older single
+`self_update_signing_public_key` keeps working: that key is added to the list. The play
+refuses an empty list and any line that is not one public key.
+`self_update_become_password` is your sudo password, vault-encrypted. Re-run the play
+after changing host_vars: the cycle runs with a root-owned copy.
 
 The whole cycle is described in [playbooks.md](playbooks.md#play-self-updateyml). Running
 it day to day:
 
-- **Trust.** The server deploys only the newest commit your machine's key signed, and
-  that key signs every commit made there, so a push from that machine is a release.
-  Anything signed by another key waits, and a bad signature refuses the cycle.
+- **Trust.** The server deploys only the newest commit signed by a key in
+  `self_update_signing_public_keys`. Those keys sign every commit made on the desktop and
+  in its ccy sessions, so a push from there is a release. Anything signed by a key not on
+  the list waits, and a bad signature refuses the cycle.
 - **Pausing.** Set `self_update_enabled: false` and re-run the play. That removes what it
   installed, and setting it back to true restores it.
 - **When it runs.** Nightly at 03:30, within a random 30 minutes. A night missed while

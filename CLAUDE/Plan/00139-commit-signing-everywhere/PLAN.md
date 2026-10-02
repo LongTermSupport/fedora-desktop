@@ -151,10 +151,10 @@ out.
   helpers needed no change beyond the refusal message's wording, and
   `scripts/test-self-update-cycle.bash` still passes.
   - [ ] ⬜ **HOST (owner)**: a server that already trusts the old passphrase-free key needs,
-    in `self_update_signing_public_key`, the `.pub` line of the key that now signs this
-    checkout (`~/.ssh/id.pub`, or `~/.ssh/github_<alias>.pub` when the checkout's remote is
-    an account's alias; `deploy.bash` prints which), then a re-run of
-    `play-self-update.yml`
+    in the list `self_update_signing_public_keys` (Plan 00137 Task 4.8), the `.pub` line of
+    every key that now signs this repository: `~/.ssh/id.pub` for host commits and each
+    `~/.ssh/github_<alias>.pub` ccy sessions sign with (`deploy.bash` prints them all),
+    then a re-run of `play-self-update.yml`
 - [x] ✅ **Task 3.2**: Plan 00137's PLAN D3 and `DESIGN-cycle.md` record D4 of this plan.
 
 ### Phase 4: Docs, acceptance, review

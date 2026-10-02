@@ -201,19 +201,33 @@ EOF
 chmod 755 "$SYSTEM_ANSIBLE" "$SYSTEM_ANSIBLE_CONFIG" "$COLLECTIONS"
 
 # ── the signed history ─────────────────────────────────────────────────────────────────
+# Two of the owner's keys, as on a real server (Plan 00137 Task 4.8): the desktop's machine
+# key signs on the host, and a ccy session signs with its GitHub account's key. The list is
+# written by the helper the play uses, so a one-key list fails the account-key case below.
 ssh-keygen -q -t ed25519 -N "" -C "$PRINCIPAL" -f "$SCRATCH/signing-key"
+ssh-keygen -q -t ed25519 -N "" -C "account" -f "$SCRATCH/account-key"
 mkdir -p "$ETC"
-printf '%s namespaces="git" %s\n' "$PRINCIPAL" "$(cut -d' ' -f1,2 "$SCRATCH/signing-key.pub")" \
-    >"$ETC/self-update.allowed_signers"
+printf '{"principal": "%s", "keys": ["%s", "%s"], "key": null}\n' "$PRINCIPAL" \
+    "$(<"$SCRATCH/signing-key.pub")" "$(<"$SCRATCH/account-key.pub")" >"$SCRATCH/signers.json"
+if ! (cd "$REPO_ROOT" && python3 -B -m helpers.self_update.signers) \
+    <"$SCRATCH/signers.json" >"$ETC/self-update.allowed_signers"; then
+    echo "FAIL: the allowed-signers helper refused the fixture keys" >&2
+    exit 1
+fi
+if [[ "$(wc -l <"$ETC/self-update.allowed_signers")" -ne 2 ]]; then
+    echo "FAIL: the allowed-signers helper did not write one line per key" >&2
+    exit 1
+fi
 
 git_work() {
     git -C "$WORK" -c user.name=Owner -c user.email="$PRINCIPAL" -c gpg.format=ssh \
         -c user.signingkey="$SCRATCH/signing-key" "$@"
 }
-# commit_signed MESSAGE: commit whatever the work tree holds, signed, and push it.
+# commit_signed MESSAGE [KEY]: commit whatever the work tree holds, signed by the machine
+# key unless KEY names another, and push it.
 commit_signed() {
     git_work add -A
-    git_work commit -q -S -m "$1"
+    git_work -c user.signingkey="${2:-$SCRATCH/signing-key}" commit -q -S -m "$1"
     git_work push -q origin HEAD:main
 }
 
@@ -517,10 +531,12 @@ check "a cycle with nothing new is recorded" "nothing" "$(result_key outcome)"
 # ── a later change ─────────────────────────────────────────────────────────────────────
 echo "a later change: only the plays it touches, and a failed play is retried"
 echo "changed" >"$WORK/README"
-commit_signed "a change no play reads"
+commit_signed "a change no play reads, made in a ccy session" "$SCRATCH/account-key"
 cycle run
 check "a change no allowlisted play reads exits 0" "0" "$RC"
 check "and runs nothing" "" "$(calls)"
+check "a commit the second listed key (a ccy account key) signed is deployed" \
+    "$(git -C "$WORK" rev-parse HEAD)" "$(git -C "$CLONE" rev-parse HEAD)"
 check "and still moves the deployed record" "$(git -C "$WORK" rev-parse HEAD)" "$(state_key deployed sha)"
 
 UNSIGNED_BASE="$(git -C "$WORK" rev-parse HEAD)"
@@ -620,7 +636,7 @@ check "and nothing was deployed" "no" "$(has "$STATE/deployed")"
 cycle status
 check "status is refused from that clone too (20)" "20" "$RC"
 
-# What the play does after cloning: anchor HEAD on the newest commit the pinned key signed.
+# What the play does after cloning: anchor HEAD on the newest commit a pinned key signed.
 (cd "$REPO_ROOT" && python3 -m helpers.self_update.update --anchor --checkout "$CLONE" --branch main \
     --allowed-signers "$ETC/self-update.allowed_signers" --principal "$PRINCIPAL") >"$OUT" 2>"$ERR"
 check "the anchor succeeds" "0" "$?"

@@ -80,6 +80,8 @@ D1–D4 are the owner's choices, made 2026-09-23.
   provenance, a commit from the owner or the owner's machine, and the owner's own agents
   may sign. Plan 00139 signs every commit on the machine with its login key through the
   ssh-agent (its D5), and the pinned key is the one that signs this repository's checkout.
+  **Amended by Task 4.8:** that is more than one key (the machine key on the host, an
+  account key in ccy), so the `allowedSignersFile` holds a list of the owner's keys.
   `git sign-deploy` is gone.
 - **D4 — checkout: a deploy-only clone**, never mounted into a ccy container, updated only
   by the timer.
@@ -208,6 +210,18 @@ D1–D4 are the owner's choices, made 2026-09-23.
   provisioned from vault.
 - [x] ✅ **Task 4.4**: `deploy.bash` and `acceptance.bash` for this plan (host-only). The
   acceptance script prints a coverage line and names anything it cannot establish.
+- [x] ✅ **Task 4.8**: The server trusts a list of the owner's keys, not one. Since Plan
+  00139 D5 a ccy commit is signed by the session's GitHub account key
+  (`~/.ssh/github_<alias>`) and a host commit by `~/.ssh/id`, so a server pinned to
+  either never deployed the other's commits. `self_update_signing_public_keys` is the
+  list, plus the older single `self_update_signing_public_key` where a server still
+  declares it, de-duplicated. `helpers/self_update/signers.py` validates the keys,
+  refuses an empty list, and writes one allowed-signers line per key. Tested in
+  `test_signers.py`, `test_update.py` (a commit the second key signed deploys) and
+  `scripts/test-self-update-cycle.bash` (the same, through the real wrapper). Plan 00139's
+  `deploy.bash` prints every key to list.
+  - [ ] ⬜ **HOST (owner)**: on each server, put every `.pub` line `deploy.bash` prints
+    into `self_update_signing_public_keys`, then re-run `play-self-update.yml`
 
 ### Phase 5: Close
 

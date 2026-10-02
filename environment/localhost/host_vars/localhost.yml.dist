@@ -42,7 +42,12 @@ user_email: "yourname@example.com"
 # self_update_branch: F44
 # self_update_remote_url: https://github.com/example/fedora-desktop.git
 # self_update_signing_principal: yourname@example.com
-# self_update_signing_public_key: "ssh-ed25519 <base64-public-key> yourname@example.com"
+# Every key that signs your commits, one .pub line each: the desktop's ~/.ssh/id.pub, and
+# ~/.ssh/github_<alias>.pub for each GitHub account ccy sessions push this repo with. The
+# older single self_update_signing_public_key is still accepted and added to the list.
+# self_update_signing_public_keys:
+#   - "ssh-ed25519 <base64-public-key> yourname@example.com"
+#   - "ssh-ed25519 <base64-public-key> github-account"
 # self_update_warn_minutes: 3
 # Optional Slack alerts: an incoming-webhook URL, vault-encrypted. Undeclared, the play
 # asks for it on an interactive run; "" means no Slack alerts and stops the question.
