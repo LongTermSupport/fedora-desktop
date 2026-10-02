@@ -51,7 +51,7 @@ PLAN_ROOT="${scriptDir}"
 PLANS=(
     # gh-<alias> wrappers put gh back on the account that was active (found running Plan 00139 T1.4)
     playbooks/imports/play-github-cli-multi.yml
-    # Plan 00135 Task 6.2: CCY 3.72.0 and the restore unit's SSH unlock drop-in.
+    # Plan 00135 Task 6.2: CCY 3.72.1 and the restore unit's SSH unlock drop-in.
     playbooks/imports/play-claude-yolo.yml
 )
 
