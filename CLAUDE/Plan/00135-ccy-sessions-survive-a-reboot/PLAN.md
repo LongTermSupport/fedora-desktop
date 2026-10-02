@@ -277,9 +277,11 @@ brainstorms are in [`brainstorm-ssh-key-restore/`](brainstorm-ssh-key-restore/BR
 - [ ] 🚫 **Task 6.3**: 🧑 HOST, owner only: on the server, run `CLAUDE/Plan/meta-deploy.bash`,
   which runs `play-claude-yolo.yml`. Then open a `ccy` session that names its key, and reboot
   with `ccy-sessions reboot --in 2`. Without logging in, `ccy-sessions verify-restore --wait 300`
-  must report `OK` with no `WAITING-AT-PROMPT ssh-passphrase`. On the desktop, run the same play
-  and confirm `~/.claude-tokens/ccy/restore-ssh-passphrase` does not exist. Blocked until the
-  owner has a reboot window on the server.
+  must report `OK` with no `WAITING-AT-PROMPT ssh-passphrase`. Blocked until the owner has a
+  reboot window on the server.
+  - [x] ✅ The desktop half: the owner's meta-deploy run of `play-claude-yolo.yml` (CCY 3.72.1)
+    passed. Both write tasks skipped and both "where it does not apply" removals reported
+    `ok`, so no passphrase file or drop-in exists there.
 
 ## Dependencies
 
