@@ -29,6 +29,17 @@
     # rest of this file already avoids this trap (lines below use
     # /home/{{ user_login }}/... directly); do the same here.
     claude_state_dir: "/home/{{ user_login }}/.claude"
+    # A headless server's restored ccy sessions unlock their SSH key with nobody at the
+    # keyboard (Plan 00135 Task 6.2): the vault's github_ssh_passphrase is written here and
+    # fed to ssh-add through a restore-only SSH_ASKPASS, the way `run.bash --headless` loads
+    # the same key. Only where a restore runs unattended (server profile, restore opted in)
+    # and a GitHub identity exists to hold a key; the desktop's owner logs in and types it.
+    # The path is also in ccy-sessions-restore.service.d/ssh-unlock.conf, which names it.
+    ccy_restore_ssh_passphrase_file: "/home/{{ user_login }}/.claude-tokens/ccy/restore-ssh-passphrase"
+    ccy_restore_ssh_unlock: >-
+      {{ provisioning_profile == 'server'
+         and (ccy_restore_sessions | default(false) | bool)
+         and (github_accounts | default({}) | length > 0) }}
   pre_tasks:
     - name: Load container defaults
       ansible.builtin.include_vars:
@@ -790,6 +801,50 @@
         state: absent
       when: not (ccy_restore_sessions | default(false) | bool)
 
+    # Unattended unlock on a server (see ccy_restore_ssh_unlock in vars). The drop-in names
+    # the passphrase file to the restore; the file itself is written below, once its
+    # directory exists. Both go where the unlock does not apply, so a box that leaves the
+    # server profile or the opt-in keeps no plaintext copy of the passphrase.
+    - name: Assert The Vault Holds The SSH Key Passphrase For Unattended Restore
+      ansible.builtin.assert:
+        that:
+          - github_ssh_passphrase is defined
+          - github_ssh_passphrase | length > 0
+          - "'\n' not in github_ssh_passphrase"
+        fail_msg: >-
+          This server restores ccy sessions after a reboot (ccy_restore_sessions: true) and
+          has a GitHub identity, so each restored session must unlock its SSH key with nobody
+          at the keyboard, from github_ssh_passphrase. It is missing, empty or spans several
+          lines. Set it with ./vault.bash set github_ssh_passphrase (the passphrase of the
+          ~/.ssh/github_* keys), or set ccy_restore_sessions: false.
+        quiet: true
+      no_log: true
+      when: ccy_restore_ssh_unlock | bool
+
+    - name: Ensure The Restore Unit's Drop-In Directory Exists
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/systemd/user/ccy-sessions-restore.service.d"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      when: ccy_restore_ssh_unlock | bool
+
+    - name: Deploy The Restore Unit's SSH Unlock Drop-In
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.config/systemd/user/ccy-sessions-restore.service.d/ssh-unlock.conf"
+        dest: "/home/{{ user_login }}/.config/systemd/user/ccy-sessions-restore.service.d/ssh-unlock.conf"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+      when: ccy_restore_ssh_unlock | bool
+
+    - name: Remove The Restore Unit's SSH Unlock Drop-In Where It Does Not Apply
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/systemd/user/ccy-sessions-restore.service.d/ssh-unlock.conf"
+        state: absent
+      when: not (ccy_restore_ssh_unlock | bool)
+
     - name: Reload The User Manager So It Sees The Restore Unit's Enabled State
       ansible.builtin.systemd:
         scope: user
@@ -844,6 +899,24 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0700"
+
+    # In the owner-only directory above, beside the Claude tokens, readable by this user alone:
+    # the same boundary as the vault password file and the key itself.
+    - name: Write The SSH Key Passphrase For Unattended Session Restore
+      ansible.builtin.copy:
+        content: "{{ github_ssh_passphrase }}"
+        dest: "{{ ccy_restore_ssh_passphrase_file }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0600"
+      no_log: true
+      when: ccy_restore_ssh_unlock | bool
+
+    - name: Remove The Session Restore SSH Key Passphrase Where It Does Not Apply
+      ansible.builtin.file:
+        path: "{{ ccy_restore_ssh_passphrase_file }}"
+        state: absent
+      when: not (ccy_restore_ssh_unlock | bool)
 
     - name: Create Claude YOLO Tokens Directory
       ansible.builtin.file:

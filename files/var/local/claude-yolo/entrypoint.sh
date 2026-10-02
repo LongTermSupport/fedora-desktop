@@ -163,6 +163,20 @@ else
     echo ""
 fi
 
+# A server's session restore (Plan 00135) mounts a passphrase copy and an askpass helper at
+# /run/ccy/restore-askpass and sets SSH_ASKPASS for it, so the ssh-add above needed nobody
+# at the keyboard. Once the keys are added the copy and the helper are removed and the
+# variables dropped, before anything else runs: Claude must not inherit either.
+restore_askpass_finish() {
+    [ -n "${CCY_RESTORE_PP_FILE:-}" ] || return 0
+    if ! rm -f -- "$CCY_RESTORE_PP_FILE" "${SSH_ASKPASS:-}"; then
+        echo "ERROR: could not remove the session-restore passphrase copy $CCY_RESTORE_PP_FILE" >&2
+        exit 1
+    fi
+    unset SSH_ASKPASS SSH_ASKPASS_REQUIRE CCY_RESTORE_PP_FILE
+}
+restore_askpass_finish
+
 # Add GitHub host keys to avoid SSH verification prompts on in-container git ops.
 # CCY-08/BSH-16: capture the fetch explicitly instead of piping straight into
 # known_hosts. If it fails (offline build-cache reuse, API hiccup), an empty

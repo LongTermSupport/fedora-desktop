@@ -662,6 +662,56 @@ ccy_restore_verdict() {
     esac
 }
 
+# ccy_restore_passphrase_check <file> — is this a usable SSH key passphrase file for a
+# restore? On a headless server play-claude-yolo.yml writes the vault's github_ssh_passphrase
+# to it, and names it to ccy-sessions-restore.service through a drop-in, so a restored ccy
+# session can unlock its key with nobody at the keyboard. A regular file, owned by this user,
+# readable by nobody else, not empty. Says why not on stderr and returns 1; a session that
+# went ahead without it would stop at ssh-add's passphrase prompt with nobody to answer.
+ccy_restore_passphrase_check() {
+    local file="$1" owner mode
+    local fix="Re-run play-claude-yolo.yml on this server (it writes the file from github_ssh_passphrase in host_vars)."
+    if [[ ! -f "$file" ]]; then
+        print_error "the SSH key passphrase file for session restore is missing: $file. $fix"
+        return 1
+    fi
+    if ! owner=$(stat -c %u -- "$file") || ! mode=$(stat -c %a -- "$file"); then
+        print_error "could not read the owner and mode of the session-restore passphrase file $file."
+        return 1
+    fi
+    if [[ "$owner" != "$(id -u)" ]]; then
+        print_error "the session-restore passphrase file $file is owned by uid $owner, not by you. $fix"
+        return 1
+    fi
+    if [[ "$mode" != 600 && "$mode" != 400 ]]; then
+        print_error "the session-restore passphrase file $file has mode $mode; it must be readable by you alone (600). $fix"
+        return 1
+    fi
+    if [[ ! -r "$file" || ! -s "$file" ]]; then
+        print_error "the session-restore passphrase file $file is unreadable or empty. $fix"
+        return 1
+    fi
+}
+
+# ccy_restore_passphrase_take <session-restore true|false> — the launcher's half. Moves
+# CCY_RESTORE_SSH_PASSPHRASE_FILE out of the environment into RESTORE_SSH_PASSPHRASE_FILE, so
+# nothing this launch starts inherits it. Only ccy-sessions restore sets it, and only beside
+# CCY_SESSION_RESTORE=1: on any other launch it is refused, so an ordinary launch can never
+# unlock a key through askpass. On a restore the file is checked before anything else runs.
+RESTORE_SSH_PASSPHRASE_FILE=""
+ccy_restore_passphrase_take() {
+    local session_restore="$1"
+    RESTORE_SSH_PASSPHRASE_FILE="${CCY_RESTORE_SSH_PASSPHRASE_FILE:-}"
+    unset CCY_RESTORE_SSH_PASSPHRASE_FILE
+    [[ -n "$RESTORE_SSH_PASSPHRASE_FILE" ]] || return 0
+    if [[ "$session_restore" != true ]]; then
+        print_error "CCY_RESTORE_SSH_PASSPHRASE_FILE is set on a launch that is not a session restore; only ccy-sessions restore sets it."
+        RESTORE_SSH_PASSPHRASE_FILE=""
+        return 1
+    fi
+    ccy_restore_passphrase_check "$RESTORE_SSH_PASSPHRASE_FILE"
+}
+
 # ccy_registry_restore [--dry-run] — start every recorded session that is not running.
 #
 # Per record: marked no-restore → skipped; its session name already live → skipped (a
@@ -675,6 +725,11 @@ ccy_restore_verdict() {
 # answer the prompts that have one safe answer. The rest still ask, in the pane, and
 # `ccy-sessions verify-restore` names them from the manifest written at the end.
 #
+# On a headless server the unit's drop-in also sets CCY_RESTORE_SSH_PASSPHRASE_FILE. It is
+# checked before anything starts, and a bad one starts nothing: every ccy session would only
+# stop at a passphrase prompt. Each ccy session is given its path (never its contents); a cc
+# session starts no container and loads no key, so it is not.
+#
 # Reports go to stderr, which under systemd is the journal. --dry-run prints the decisions
 # and starts nothing, and writes no manifest.
 ccy_registry_restore() {
@@ -686,8 +741,13 @@ ccy_registry_restore() {
         return 1
     fi
     local regdir listing name file failures=0 started=0 seen=false
+    local passphrase_file="${CCY_RESTORE_SSH_PASSPHRASE_FILE:-}"
     local -A live=()
-    local -a args=() manifest=()
+    local -a args=() manifest=() marker=()
+    if [[ -n "$passphrase_file" ]] && ! ccy_restore_passphrase_check "$passphrase_file"; then
+        print_error "nothing is restored: every ccy session would stop at its SSH key passphrase prompt."
+        return 1
+    fi
     regdir=$(ccy_registry_dir) || return 1
     # Only an ABSENT registry is an empty one. A path that is there but cannot be listed
     # would glob to nothing and read as "nothing to restore" on a boot that restored nothing.
@@ -743,7 +803,11 @@ ccy_registry_restore() {
             echo "would start $REC_NAME in $REC_DIR: $REC_LAUNCHER ${args[*]}" >&2
             continue
         fi
-        if ccy_tmux_start_detached "$REC_NAME" "$REC_DIR" env CCY_SESSION_RESTORE=1 "$REC_LAUNCHER" "${args[@]}"; then
+        marker=(CCY_SESSION_RESTORE=1)
+        if [[ -n "$passphrase_file" && "$REC_PREFIX" == ccy ]]; then
+            marker+=("CCY_RESTORE_SSH_PASSPHRASE_FILE=$passphrase_file")
+        fi
+        if ccy_tmux_start_detached "$REC_NAME" "$REC_DIR" env "${marker[@]}" "$REC_LAUNCHER" "${args[@]}"; then
             echo "restored $REC_NAME in $REC_DIR." >&2
             started=$((started + 1))
             manifest+=("$REC_NAME" "$REC_PREFIX" "$REC_DIR")

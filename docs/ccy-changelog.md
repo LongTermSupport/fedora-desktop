@@ -17,6 +17,25 @@ Two version numbers move independently — see
 
 ---
 
+## 3.72.0 — container 2.39
+
+- **A session restored on a headless server unlocks its SSH key with nobody at the
+  keyboard** (Plan 00135). It used to stop at the passphrase prompt, on the host and again
+  in the container. On a server with `ccy_restore_sessions: true` and a GitHub identity,
+  `play-claude-yolo.yml` now writes the vault's `github_ssh_passphrase` to an owner-only
+  file. It also adds a drop-in that names that file to `ccy-sessions-restore.service`. The
+  restore feeds it to `ssh-add` through `SSH_ASKPASS`, the way `run.bash --headless`
+  loads the same key. Interactive launches, and every desktop, prompt as before.
+- **Only the restore path uses it.** `CCY_RESTORE_SSH_PASSPHRASE_FILE` on any other launch
+  is refused. The passphrase goes only to `ssh-add`: never into argv, a log or the pane.
+- **A missing or wrong passphrase fails at once.** A missing, empty or other-readable
+  passphrase file stops the restore before any session starts. A key the passphrase does
+  not open fails that launch. The askpass helper refuses ssh-add's "try again", which
+  real ssh-add would otherwise repeat for ever.
+- **Each passphrase copy is removed once its key is added.** The host's copy goes after
+  the probe unlock. The container's copy and helper are removed by the entrypoint before
+  Claude starts, which is why the image moves to 2.39.
+
 ## 3.71.0
 
 - **The SSH key menu offers only the keys that can push to the project's remote**, when

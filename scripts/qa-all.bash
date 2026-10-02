@@ -600,6 +600,20 @@ fi
 sessions_reboot_summary=$(qa_gate_case_count "$sessions_reboot_out")
 qa_pass_line ccy-sessions-reboot "$sessions_reboot_summary"
 
+# The restore-only SSH_ASKPASS (Plan 00135 Task 6.2), with the REAL ssh-keygen, ssh-agent and
+# ssh-add: a server's restored session unlocks its key unattended on the host and in the
+# container's entrypoint, an ordinary launch never uses askpass, the passphrase reaches no
+# argv or output, a missing or wrong one fails at once instead of at a prompt (ssh-add asks a
+# wrong askpass for ever), and every passphrase copy is gone once its key is added.
+restore_askpass_out=""
+if ! restore_askpass_out="$(bash "$SCRIPT_DIR/test-ccy-restore-askpass.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-restore-askpass \
+        "ccy restore-askpass unit tests failed" \
+        "$restore_askpass_out"
+fi
+restore_askpass_summary=$(qa_gate_case_count "$restore_askpass_out")
+qa_pass_line ccy-restore-askpass "$restore_askpass_summary"
+
 # host_only_preflight (Plan 00121): the host-CLI gate on a scenario that puts a real GitHub
 # PAT into a guest. One of three independent gates — the other two are the bridge allowlist
 # and bridge_run's manifest refusal — and the one a human types past. Driven through the
