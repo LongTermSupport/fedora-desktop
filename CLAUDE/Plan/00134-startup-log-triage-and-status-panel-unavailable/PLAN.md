@@ -77,7 +77,7 @@ containers that needs its own diagnosis (F7).
 
 ### Phase 2: defects the logs exposed
 
-- [ ] 🔄 **Task 2.1**: `play-hd-audio.yml` — port the two `.lua` files to
+- [ ] 🚫 **Task 2.1**: `play-hd-audio.yml` — port the two `.lua` files to
   `~/.config/wireplumber/wireplumber.conf.d/*.conf` (SPA-JSON `monitor.alsa.rules` /
   `monitor.bluez.properties` + `monitor.bluez.rules`), remove the `*.lua.d` files and
   directories, restart WirePlumber. Verify with `wpctl status` / `wpctl inspect` that
@@ -85,7 +85,7 @@ containers that needs its own diagnosis (F7).
   not devices; other Lua left behind stops the play). Deployed by the host batch (journal
   26-09-23 19:10): only the two `.conf` files remain, and there has been no Lua warning since
   the restart. Remaining: `wpctl inspect` on the HOST.
-- [ ] 🔄 **Task 2.2**: `play-browsers.yml` — resolve the duplicate `[vivaldi]` repo id:
+- [ ] 🚫 **Task 2.2**: `play-browsers.yml` — resolve the duplicate `[vivaldi]` repo id:
   keep exactly one of the two repo files (the RPM's own post-install writes
   `vivaldi.repo`; the play writes `vivaldi-fedora.repo`) and make the play remove the
   other on every run. Verify `dnf5 repolist` shows one `vivaldi` and dnf5daemon logs
@@ -108,7 +108,7 @@ containers that needs its own diagnosis (F7).
   Code done (stat, then a mode task gated on existence). HOST verified by the batch: the
   mode task changed the entry. Triage (before) found it executable; triage (after) finds
   no executable autostart entry.
-- [ ] 🔄 **Task 2.5**: ABRT policy as IaC — `play-basic-configs.yml` sets
+- [ ] 🚫 **Task 2.5**: ABRT policy as IaC — `play-basic-configs.yml` sets
   `abrt_auto_reporting` (project default on; per-host override) via
   `abrt-auto-reporting`, and installs `abrt-prune-stale.{service,timer}` running
   `files/usr/local/bin/abrt-prune-stale.bash` daily with `abrt_retention_days`
@@ -117,7 +117,7 @@ containers that needs its own diagnosis (F7).
   (`-e` or defaults) into a managed block there. Deployed (79 → 10 records).
   Desktop profile only, and the block installs `abrt` + `abrt-tui` itself (PR #50; journal
   16:40). Remaining: confirm no applet backlog notification at the next login.
-- [ ] 🔄 **Task 2.6**: Thunar — no play installed it and no package needed it; the owner
+- [ ] 🚫 **Task 2.6**: Thunar — no play installed it and no package needed it; the owner
   does not use it, so `play-basic-configs.yml` removes it (`c4b55c97`), and its
   `org.freedesktop.FileManager1` service file goes with the package. The play ran on
   2026-09-24 in this plan's deploy, and the removal task reported `changed`. HOST verify
@@ -125,7 +125,7 @@ containers that needs its own diagnosis (F7).
 
 ### Phase 3: things to diagnose before changing
 
-- [ ] 🔄 **Task 3.1**: SELinux denial flood (F7) — extend `triage.bash` with probes that
+- [ ] 🚫 **Task 3.1**: SELinux denial flood (F7) — extend `triage.bash` with probes that
   list, per running container, the workspace mount options (`:z` present or not),
   and the label the host sees on each frequently-denied path; then decide whether
   the CCY relabel is skipped in some launch mode or host-created paths revert.
@@ -159,9 +159,15 @@ containers that needs its own diagnosis (F7).
 
 ### Phase 4: close
 
-- [ ] ⬜ **Task 4.1**: Run `./scripts/qa-all.bash` and ESLint for the extension change.
-- [ ] ⬜ **Task 4.2**: Run the `qa-reviewer` agent over the plan's full diff; resolve every
-  BLOCK / FIX-BEFORE-MERGE finding.
+- [x] ✅ **Task 4.1**: Run `./scripts/qa-all.bash` and ESLint for the extension change.
+  `qa-all.bash` green on F44 with this plan's code in; the review below ran ESLint on the
+  panel (clean) and the panel section tests.
+- [x] ✅ **Task 4.2**: Run the `qa-reviewer` agent over the plan's full diff; resolve every
+  BLOCK / FIX-BEFORE-MERGE finding. Verdict FIX-BEFORE-MERGE, no BLOCK
+  (`subagent-reports/261002-qa-reviewer-opus.md`). The one code finding is fixed:
+  `triage.bash`'s AVC capture read a refused `sudo -n` as "0 AVC records", the same as a
+  clean boot, and Task 3.1's host check relies on that count. It now reports the failure
+  with no count, and says to run `sudo -v` first. The advisories are recorded in the review.
 
 ## Success Criteria
 

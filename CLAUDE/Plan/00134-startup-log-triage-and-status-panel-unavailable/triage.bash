@@ -253,9 +253,20 @@ capture_avc_boot() {
     # The file is this user's; only the read needs root.
     sudo -n ausearch -m avc -ts boot 2>&1 | tee "$avcRaw" >/dev/null
     local rc="${PIPESTATUS[0]}"
-    echo "ausearch rc=${rc} (1 with '<no matches>' means no AVC this boot)"
+    # rc 1 means either "no matches" or a failure (sudo refused, ausearch error), and only
+    # the text tells them apart. A failure must never read as a clean boot's zero.
+    if [ "$rc" -eq 1 ] && grep -qF '<no matches>' "$avcRaw"; then
+        echo "AVC records this boot: 0 (ausearch: <no matches>)"
+        return 0
+    fi
+    if [ "$rc" -ne 0 ]; then
+        echo "ausearch FAILED (rc=${rc}), so there is NO count; what it said:"
+        cat "$avcRaw"
+        echo "(sudo -n refuses without a cached password: run 'sudo -v' first, then re-run this script)"
+        : >"$avcRaw"
+        return "$rc"
+    fi
     echo "AVC records this boot: $(grep -c 'avc: *denied' "$avcRaw")"
-    return "$rc"
 }
 
 # awk field extractor shared by the aggregations: k=value up to the next space.
