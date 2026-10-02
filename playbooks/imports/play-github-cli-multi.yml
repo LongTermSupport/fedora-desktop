@@ -1115,8 +1115,10 @@
               function _gh_as_account() {
                   local login="$1" previous exit_code=0
                   shift
-                  if ! previous=$(_gh_active_account); then
-                      echo "Error: could not read gh's active account" >&2
+                  # Empty with no exit code when nobody is logged in, or when GH_TOKEN is set:
+                  # then there is nothing to put back, so refuse rather than switch for good.
+                  if ! previous=$(_gh_active_account) || [[ -z "$previous" ]]; then
+                      echo "Error: could not read gh's active account (is GH_TOKEN set, or nobody logged in?)" >&2
                       return 1
                   fi
                   if [[ "$previous" != "$login" ]]; then
@@ -1128,7 +1130,7 @@
                       fi
                   fi
                   "$@" || exit_code=$?
-                  if [[ -n "$previous" && "$previous" != "$login" ]]; then
+                  if [[ "$previous" != "$login" ]]; then
                       if ! gh auth switch --hostname github.com --user "$previous" >/dev/null 2>&1; then
                           echo "Error: could not switch gh back to ${previous}; it is still on ${login}" >&2
                           return 1
@@ -1210,8 +1212,7 @@
               # Helper to get token for specific account
               {% for alias, username in github_accounts.items() %}
               function gh-token-{{ alias }}() {
-                  gh auth switch --hostname github.com --user "{{ username }}" 2>/dev/null
-                  gh auth token
+                  gh auth token --hostname github.com --user "{{ username }}"
               }
               {% endfor %}
 
@@ -1231,12 +1232,15 @@
                       return 1
                   fi
 
-                  # Switch to the account
-                  gh auth switch --hostname github.com --user "{{ username }}" 2>/dev/null || {
-                      echo "ERROR: Failed to switch to account {{ username }}"
-                      echo "Run: gh auth login --hostname github.com --git-protocol ssh"
-                      return 1
-                  }
+                  # The rest runs as that account; gh is put back afterwards.
+                  _gh_as_account "{{ username }}" _gh_phpstorm_token_report "{{ username }}"
+              }
+              {% endfor %}
+
+              # The scope check, refresh and token for gh-<alias>-token-phpstorm, run while
+              # <login> is gh's active account (gh auth refresh acts on the active one).
+              function _gh_phpstorm_token_report() {
+                  local login="$1"
 
                   # Get current token scopes using JSON output for reliable parsing
                   # First check if we can get auth status at all
@@ -1244,7 +1248,7 @@
                   auth_json=$(gh auth status 2>&1)
 
                   if ! echo "$auth_json" | grep -q "Logged in to github.com"; then
-                      echo "ERROR: Not authenticated to github.com as {{ username }}"
+                      echo "ERROR: Not authenticated to github.com as ${login}"
                       echo ""
                       echo "Current status:"
                       echo "$auth_json"
@@ -1295,7 +1299,6 @@
                   echo "  4. Paste the token above"
                   echo "=================================================="
               }
-              {% endfor %}
 
               # Clone helper that properly configures remotes
               function github-clone() {

@@ -40,9 +40,13 @@ extract() {
 }
 
 : >"$work/fn.bash"
-for fn in _gh_active_account _gh_as_account "gh-{{ alias }}"; do
+for fn in _gh_active_account _gh_as_account "gh-{{ alias }}" "clone-{{ alias }}" "gh-token-{{ alias }}"; do
     extract "$fn"
 done
+# clone-<alias> builds an ssh command with this play helper; its shape is not under test.
+cat >>"$work/fn.bash" <<'FN'
+_gh443_sshcmd() { echo "ssh -i $1"; }
+FN
 
 # ── stubs ─────────────────────────────────────────────────────────────────────
 # gh: `auth status --json hosts --jq …` prints the active login from $STUB_DIR/active;
@@ -54,7 +58,16 @@ cat >"$work/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$1 $2" in
     "auth status")
-        cat "$STUB_DIR/active"
+        # gh's own --json hosts shape, replayed through real jq with the caller's query, so a
+        # broken query fails here as it would on the host. With $STUB_DIR/token-env (GH_TOKEN
+        # set) gh reports one active row with an empty login and exits 0.
+        if [ "$*" != "auth status --hostname github.com --json hosts --jq ${8:-}" ] || [ "$#" -ne 8 ]; then
+            echo "unexpected gh $*" >&2
+            exit 99
+        fi
+        active="$(cat "$STUB_DIR/active")"
+        if [ -f "$STUB_DIR/token-env" ]; then active=""; fi
+        printf '{"hosts":{"github.com":[{"login":"other","active":false,"state":"success"},{"login":"%s","active":true,"state":"success"}]}}' "$active" | jq -r "$8"
         ;;
     "auth switch")
         for arg; do last="$arg"; done
@@ -95,19 +108,21 @@ check() {
 # start <active account> — a fresh stub state; the saved default is deliberately a THIRD
 # account, so a wrapper that restores the default instead of the active one is caught.
 start() {
-    rm -f "$STUB_DIR/unknown" "$STUB_DIR/command-fails"
+    rm -f "$STUB_DIR/unknown" "$STUB_DIR/command-fails" "$STUB_DIR/token-env"
     : >"$STUB_DIR/calls.log"
     echo "$1" >"$STUB_DIR/active"
     mkdir -p "$work/home/.config/gh"
     echo "saved-default" >"$work/home/.config/gh/default-account"
 }
 
-# wrap <args…> — gh-lts in a fresh shell; prints its stdout, then "rc=<code>".
-wrap() {
-    local out code=0
-    out="$(HOME="$work/home" bash -c 'source "$1"; shift; gh-lts "$@"' _ "$work/fn.bash" "$@" 2>"$work/stderr")" || code=$?
+# wrap <function> <args…> — one wrapper in a fresh shell; prints its stdout, then "rc=<code>".
+run_fn() {
+    local fn="$1" out code=0
+    shift
+    out="$(cd "$work" && HOME="$work/home" bash -c 'source "$1"; shift; "$@"' _ "$work/fn.bash" "$fn" "$@" 2>"$work/stderr")" || code=$?
     printf '%s\nrc=%s' "$out" "$code"
 }
+wrap() { run_fn gh-lts "$@"; }
 
 echo "== gh-lts from another account"
 start primary
@@ -148,9 +163,39 @@ OUT="$(wrap api user)"
 check "the wrapper fails" "rc=1" "$(printf '%s\n' "$OUT" | awk 'END {print}')"
 check "  naming both accounts" "yes" "$(grep -qF 'could not switch gh back to primary; it is still on lts-user' "$work/stderr" && echo yes || echo no)"
 
+echo "== no account to put back (GH_TOKEN set, so gh reports an empty login)"
+start primary
+touch "$STUB_DIR/token-env"
+OUT="$(wrap api user)"
+check "the wrapper refuses" "rc=1" "$(printf '%s\n' "$OUT" | awk 'END {print}')"
+check "  before switching anything" "" "$(cat "$STUB_DIR/calls.log")"
+
+echo "== clone-lts"
+start primary
+OUT="$(run_fn clone-lts owner/repo)"
+check "the clone runs as the alias's account" "run as lts-user: repo clone owner/repo -- --config core.sshCommand=ssh -i $work/home/.ssh/github_lts" "$(grep '^run as' "$STUB_DIR/calls.log")"
+check "  and gh is put back" "primary" "$(cat "$STUB_DIR/active")"
+start primary
+touch "$STUB_DIR/command-fails"
+OUT="$(run_fn clone-lts owner/repo)"
+check "a failed clone passes its exit code through" "rc=3" "$(printf '%s\n' "$OUT" | awk 'END {print}')"
+check "  and gh is still put back" "primary" "$(cat "$STUB_DIR/active")"
+
+echo "== gh-token-lts"
+start primary
+OUT="$(run_fn gh-token-lts)"
+check "it reads the alias's token by name" "run as primary: auth token --hostname github.com --user lts-user" "$(grep '^run as' "$STUB_DIR/calls.log")"
+check "  without switching gh" "" "$(grep '^switch' "$STUB_DIR/calls.log")"
+
 echo "== the play's wiring"
-check "no wrapper restores the saved default" "" "$(grep -nE 'auth switch .*default_account' "$PLAY")"
-check "clone-<alias> goes through _gh_as_account" "yes" "$(awk '/function clone-\{\{ alias \}\}\(\) \{/ {p = 1} p && /_gh_as_account "\{\{ username \}\}" gh repo clone/ {f = 1} p && /^ *\}$/ {p = 0} END {print f ? "yes" : "no"}' "$PLAY")"
+# Every account switch in the gh-aliases block sits in a function whose job is to switch
+# (gh-switch, gh-set-default) or in _gh_as_account, which puts the account back.
+switchers="$(awk '
+    /^ *function [^ ]+\(\) \{/ { fn = $2; sub(/\(\).*/, "", fn) }
+    /gh auth switch/ && fn != "" { print fn }
+' "$PLAY" | sort -u | tr '\n' ' ')"
+check "only gh-switch, gh-set-default and _gh_as_account switch accounts" "_gh_as_account gh-set-default gh-switch " "$switchers"
+check "gh-<alias>-token-phpstorm goes through _gh_as_account" "yes" "$(grep -qE '^ *_gh_as_account "\{\{ username \}\}" _gh_phpstorm_token_report ' "$PLAY" && echo yes || echo no)"
 
 echo ""
 echo "RESULT: passed: $passed failed: $failed"
