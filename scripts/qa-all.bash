@@ -755,6 +755,18 @@ fi
 config_repo_summary=$(qa_gate_case_count "$config_repo_out")
 qa_pass_line run-bash-config-repo "$config_repo_summary"
 
+# gh-<alias> wrappers (scripts/test-gh-alias-wrappers.bash): the generated gh-<alias> and
+# clone-<alias> functions put gh's active account back to the one that was active, not to
+# the saved default.
+gh_alias_out=""
+if ! gh_alias_out="$(bash "$SCRIPT_DIR/test-gh-alias-wrappers.bash" 2>&1)"; then
+    qa_hard_gate_failed gh-alias-wrappers \
+        "gh-<alias> wrapper tests failed" \
+        "$gh_alias_out"
+fi
+gh_alias_summary=$(qa_gate_case_count "$gh_alias_out")
+qa_pass_line gh-alias-wrappers "$gh_alias_summary"
+
 # The unattended self-update cycle (Plan 00137), driven through the real root wrapper
 # against a signed git fixture, with runuser and systemctl stubbed: the order of play,
 # warning and reboot, the passwords handed as descriptors, and the pinned system ansible.

@@ -49,6 +49,8 @@ PLAN_ROOT="${scriptDir}"
 # run as one unit through its own shebang, which goes through run.bash, exactly as
 # `./playbooks/imports/<play>.yml` does by hand.
 PLANS=(
+    # gh-<alias> wrappers put gh back on the account that was active (found running Plan 00139 T1.4)
+    playbooks/imports/play-github-cli-multi.yml
 )
 
 LIST_ONLY=0

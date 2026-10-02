@@ -1102,35 +1102,45 @@
                   echo "$remote now uses the $alias account." >&2
               }
 
+              # The login gh has active now.
+              function _gh_active_account() {
+                  gh auth status --hostname github.com --json hosts --jq '.hosts["github.com"][] | select(.active) | .login'
+              }
+
+              # _gh_as_account <login> <command...> runs the command with <login> as gh's
+              # active account, then puts back the account that was active before. That is
+              # not always the saved default: run.bash makes its primary account active and
+              # calls gh-<alias> in between. Messages go to stderr, so $(gh-<alias> ... --json)
+              # captures only the command's own output.
+              function _gh_as_account() {
+                  local login="$1" previous exit_code=0
+                  shift
+                  if ! previous=$(_gh_active_account); then
+                      echo "Error: could not read gh's active account" >&2
+                      return 1
+                  fi
+                  if [[ "$previous" != "$login" ]]; then
+                      echo "Switching to ${login}..." >&2
+                      if ! gh auth switch --hostname github.com --user "$login" >/dev/null 2>&1; then
+                          echo "Error: Account ${login} not authenticated. Run:" >&2
+                          echo "  gh auth login --hostname github.com --git-protocol ssh" >&2
+                          return 1
+                      fi
+                  fi
+                  "$@" || exit_code=$?
+                  if [[ -n "$previous" && "$previous" != "$login" ]]; then
+                      if ! gh auth switch --hostname github.com --user "$previous" >/dev/null 2>&1; then
+                          echo "Error: could not switch gh back to ${previous}; it is still on ${login}" >&2
+                          return 1
+                      fi
+                  fi
+                  return "$exit_code"
+              }
+
               # Account-specific aliases
               {% for alias, username in github_accounts.items() %}
               function gh-{{ alias }}() {
-                  # Get the default account to restore later
-                  local default_account=$(gh-get-default)
-
-                  # First ensure we're switched to the right account for github.com
-                  local current_active=$(gh auth status 2>&1 | grep -A1 "account {{ username }}" | grep "Active account" | grep -c "true")
-                  if [ "$current_active" -eq 0 ]; then
-                      # >&2: keep the gh-{{ alias }} wrapper's stdout pure so
-                      # $(gh-{{ alias }} ... --json) captures unpolluted JSON for jq.
-                      echo "Switching to {{ username }}..." >&2
-                      gh auth switch --hostname github.com --user "{{ username }}" 2>/dev/null || {
-                          echo "Error: Account {{ username }} not authenticated. Run:"
-                          echo "  gh auth login --hostname github.com --git-protocol ssh"
-                          return 1
-                      }
-                  fi
-
-                  # Run the gh command with all arguments
-                  gh "$@"
-                  local exit_code=$?
-
-                  # Switch back to default account if different
-                  if [[ -n "$default_account" && "$default_account" != "{{ username }}" ]]; then
-                      gh auth switch --hostname github.com --user "$default_account" 2>/dev/null
-                  fi
-
-                  return $exit_code
+                  _gh_as_account "{{ username }}" gh "$@"
               }
 
               function gh-{{ alias }}-make-default() {
@@ -1139,9 +1149,6 @@
               }
 
               function clone-{{ alias }}() {
-                  # Get the default account to restore later
-                  local default_account=$(gh-get-default)
-
                   # Clone using specific account's SSH key
                   local repo="$1"
                   local repo_path=""
@@ -1156,10 +1163,9 @@
                       repo_path="${repo_path%.git}"
                   fi
 
-                  # Switch to the right account and clone
-                  gh auth switch --hostname github.com --user "{{ username }}" 2>/dev/null
-                  gh repo clone "$repo_path" -- --config core.sshCommand="$(_gh443_sshcmd ~/.ssh/github_{{ alias }})"
-                  local exit_code=$?
+                  # Clone as the right account; gh is put back where it was afterwards
+                  local exit_code=0
+                  _gh_as_account "{{ username }}" gh repo clone "$repo_path" -- --config core.sshCommand="$(_gh443_sshcmd ~/.ssh/github_{{ alias }})" || exit_code=$?
 
                   # Set the remote to use the specific SSH key
                   if [[ -n "$repo_path" ]]; then
@@ -1169,11 +1175,6 @@
                           git remote set-url origin "git@github.com-{{ alias }}:${repo_path}.git"
                           cd - > /dev/null
                       fi
-                  fi
-
-                  # Switch back to default account if different
-                  if [[ -n "$default_account" && "$default_account" != "{{ username }}" ]]; then
-                      gh auth switch --hostname github.com --user "$default_account" 2>/dev/null
                   fi
 
                   return $exit_code
