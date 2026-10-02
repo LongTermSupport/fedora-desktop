@@ -263,7 +263,7 @@ handlers:
     model_context: {enabled: true, priority: 10}    # Model name and context %
     git_branch: {enabled: true, priority: 20}       # Current git branch
     startup_cleanup: {enabled: true, priority: 28}  # Stale file cleanup indicator
-    daemon_stats: {enabled: true, priority: 30}     # Daemon health metrics
+    daemon_stats: {enabled: false, priority: 30}    # Daemon health metrics (owner removed it from the bar)
 
   # WorktreeCreate - seed a fresh worktree with the gitignored local config an
   # agent needs to behave like the session that spawned it. symlink, because the
