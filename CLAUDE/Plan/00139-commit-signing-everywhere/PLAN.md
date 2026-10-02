@@ -166,8 +166,11 @@ out.
 
 - [x] ✅ **Task 4.1**: `docs/configuration.md` "Commit Signing", `docs/playbooks.md` and
   `docs/ccy.md` describe the new model.
-- [ ] 🚫 **Task 4.2**: Owner's call, after everything signs: a GitHub ruleset requiring
-  signed commits on `F*` branches.
+- [x] ✅ **Task 4.2**: Owner's call, after everything signs: a GitHub ruleset requiring
+  signed commits on `F*` branches. The owner chose to enable it now, with no bypass
+  actors: ruleset 24366758, "Require signed commits on F-version branches". A box with no
+  GitHub signing identity cannot land commits on `F*` until it has one. The first push
+  under it (`36b56d78`) was accepted and is Verified.
 - [x] ✅ **Task 4.3**: `deploy.bash` and `acceptance.bash`. Acceptance checks, on the host,
   that a commit made in a scratch repo carries a good signature from the machine key. The
   same check inside ccy needs a fresh ccy session, so it is an owner step.
