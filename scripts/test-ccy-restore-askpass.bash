@@ -392,6 +392,18 @@ guard_line="$(grep -nx 'trap _probe_agent_stop EXIT' "$LAUNCHER" | cut -d: -f1)"
 probe_line="$(grep -nx 'build_ssh_mounts_and_validate "ccy" || exit 1' "$LAUNCHER" | cut -d: -f1)"
 check "the launcher guards its probe against being killed, before running it" "yes" \
     "$(yes_if test -n "$guard_line" -a -n "$probe_line" -a "${guard_line:-0}" -lt "${probe_line:-0}")"
+# A run that fails part-way must never leave a drop-in naming a file not yet written (the
+# next boot would then restore nothing): the file is written before the drop-in is
+# deployed, and the drop-in removed before the file.
+play_line() { grep -nxF -- "    - name: $1" "$PLAY" | cut -d: -f1; }
+write_pp="$(play_line "Write The SSH Key Passphrase For Unattended Session Restore")"
+deploy_dropin="$(play_line "Deploy The Restore Unit's SSH Unlock Drop-In")"
+remove_dropin="$(play_line "Remove The Restore Unit's SSH Unlock Drop-In Where It Does Not Apply")"
+remove_pp="$(play_line "Remove The Session Restore SSH Key Passphrase Where It Does Not Apply")"
+check "the play writes the passphrase file before it deploys the drop-in" "yes" \
+    "$(yes_if test -n "$write_pp" -a -n "$deploy_dropin" -a "${write_pp:-0}" -lt "${deploy_dropin:-0}")"
+check "and removes the drop-in before the file" "yes" \
+    "$(yes_if test -n "$remove_dropin" -a -n "$remove_pp" -a "${remove_dropin:-0}" -lt "${remove_pp:-0}")"
 # The drop-in names the file the play writes: one path, written in two places.
 check "the restore unit's drop-in exists" "yes" "$(yes_if test -f "$DROPIN")"
 dropin_path="$(grep -oP '^Environment=CCY_RESTORE_SSH_PASSPHRASE_FILE=\K.*' "$DROPIN" 2>&1)"
