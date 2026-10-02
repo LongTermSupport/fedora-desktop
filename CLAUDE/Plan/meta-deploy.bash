@@ -49,6 +49,9 @@ PLAN_ROOT="${scriptDir}"
 # run as one unit through its own shebang, which goes through run.bash, exactly as
 # `./playbooks/imports/<play>.yml` does by hand.
 PLANS=(
+    # Plan 00141 Task 4.4: the panel's "Re-run a play…" row and fedora-desktop-health --rerun
+    playbooks/imports/optional/common/play-host-health-login-report.yml
+    playbooks/imports/optional/common/play-fedora-desktop-panel.yml
 )
 
 LIST_ONLY=0
