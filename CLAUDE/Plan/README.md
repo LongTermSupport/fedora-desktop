@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00145-ccy-key-menu-steers-away-from-keys-that-cannot-push](00145-ccy-key-menu-steers-away-from-keys-that-cannot-push/) - Bug fix: ccy's launch-time SSH key menu accepted a key its own push probe had just found cannot push. When any key can push, the menu now offers only those; the full list is behind `a`, and a key there that cannot push needs a `y`. CCY 3.71.0. Waiting on a host run.
+
 - [00142-qa-tool-pin-does-not-converge-under-pipx-uv](00142-qa-tool-pin-does-not-converge-under-pipx-uv/) - `play-python.yml` could not move a QA tool at the wrong version onto its pin: under pipx's uv backend `install --force` re-runs `uv venv` on the existing venv, which uv refuses. An off-pin tool is now removed, installed fresh and re-pinned. Reproduced against a real pipx 1.15.0 and uv, and gated in `qa-all.bash`. Waiting on a host run.
 
 - [00144-single-fedora-desktop-panel-icon](00144-single-fedora-desktop-panel-icon/) - Container Watch becomes a section of the one Fedora Desktop panel icon, feeding its alert state, and the old extension is retired by playbook. In Progress: decisions settled; deployed (second run idempotent, acceptance passed), awaiting logout and the visual check.

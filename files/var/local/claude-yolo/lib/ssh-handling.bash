@@ -357,6 +357,35 @@ probe_gh_keys_for_remote() {
     return 0
 }
 
+# Print the key menu's current list. Called only from discover_and_select_ssh_keys,
+# whose locals it reads through bash's dynamic scope: short_list, shown, labels,
+# candidates, pushers, default_pick, tool_name.
+_ssh_key_menu_list() {
+    local i suffix
+    echo ""
+    if [ "$short_list" = true ]; then
+        echo "Identities with push access to this remote:"
+    else
+        echo "Available identities:"
+    fi
+    echo ""
+    echo "  0) Continue without SSH key (git push will NOT work)"
+    echo ""
+    for i in "${!shown[@]}"; do
+        suffix=""
+        [ "$((i+1))" = "$default_pick" ] && suffix=" ← default"
+        echo "  $((i+1))) ${labels[${shown[$i]}]}${suffix}"
+    done
+    if [ "$short_list" = true ]; then
+        echo ""
+        echo "  a) Show every identity ($((${#candidates[@]} - ${#pushers[@]})) more, not confirmed to push here)"
+    fi
+    echo ""
+    [ -n "$default_pick" ] && echo "Press ENTER to accept the default ($default_pick)."
+    echo "You can also specify keys manually with: $tool_name --ssh-key <path>"
+    echo ""
+}
+
 # Function to discover and interactively select SSH keys
 #
 # Three sources, in the order they are offered:
@@ -431,11 +460,10 @@ discover_and_select_ssh_keys() {
         return 0
     fi
 
-    # Probe every account key against the project's remote so we can default
-    # the selection to the key(s) that actually have access. Picking the wrong
-    # key here silently mis-routes git push to the wrong account, so steering
-    # the user toward a verified-working key is the primary purpose of this
-    # prompt.
+    # Probe every account key against the project's remote, so the menu can steer
+    # towards the key(s) that actually have push access. Picking the wrong key here
+    # mis-routes git push to an account that is refused, so steering the user toward
+    # a verified-working key is the primary purpose of this prompt.
     local working_keys=""
     local probe_status="skipped (not a git repo or no remote)"
     local suggested_key=""
@@ -455,7 +483,7 @@ discover_and_select_ssh_keys() {
             0)  probe_status="no account keys have push access to this remote (logs: $PROBE_LOG_DIR/)" ;;
             1)  suggested_key=$(echo "$working_keys" | head -1)
                 probe_status="1 account key has push access" ;;
-            *)  probe_status="$match_count account keys have push access — pick manually" ;;
+            *)  probe_status="$match_count account keys have push access" ;;
         esac
     elif [ ${#GITHUB_KEYS[@]} -eq 0 ]; then
         probe_status="no github_ account keys to probe"
@@ -465,10 +493,13 @@ discover_and_select_ssh_keys() {
         suggested_key="$GITHUB_ALIAS_KEY"
     fi
 
-    local -a candidates=() labels=()
+    # probed[i] says whether the push probe checked candidates[i]: only the github_
+    # account keys are; the remote's own key and the agent are offered unchecked.
+    local -a candidates=() labels=() probed=()
     if [ "$alias_rc" -eq 0 ]; then
         candidates+=("$GITHUB_ALIAS_KEY")
         labels+=("$GITHUB_ALIAS_KEY  — the project remote's key (alias $GITHUB_ALIAS_HOST → $GITHUB_ALIAS_HOSTNAME:$GITHUB_ALIAS_PORT)")
+        probed+=(no)
     fi
     local i
     for i in "${!GITHUB_KEYS[@]}"; do
@@ -478,20 +509,34 @@ discover_and_select_ssh_keys() {
         fi
         candidates+=("${GITHUB_KEYS[$i]}")
         labels+=("${GITHUB_KEYS[$i]}${marker}")
+        if [ -n "$remote_url" ]; then probed+=(yes); else probed+=(no); fi
     done
     if [ "$agent_ok" = true ]; then
         candidates+=("$SSH_AGENT_SENTINEL")
         labels+=("the session's ssh-agent ($agent_key_count key(s)) — pushes as whoever it signs as; runs the container with SELinux labelling off")
+        probed+=(no)
     fi
 
-    local suggested_index=""
-    if [ -n "$suggested_key" ]; then
-        for i in "${!candidates[@]}"; do
-            if [ "${candidates[$i]}" = "$suggested_key" ]; then
-                suggested_index=$((i+1))
-                break
-            fi
-        done
+    # The candidates the probe found push access for. When there are any, the first
+    # menu offers only them: a key that cannot push, picked by mistake, shows up only
+    # at the session's first refused push. The full list is one keystroke (a) away,
+    # and a key in it that cannot push needs an explicit yes. With none, there is
+    # nothing better to steer towards, so the full list is the menu.
+    local -a pushers=() shown=()
+    for i in "${!candidates[@]}"; do
+        if [ -n "$working_keys" ] && grep -qxF "${candidates[$i]}" <<< "$working_keys"; then
+            pushers+=("$i")
+        fi
+    done
+    local short_list=false
+    if [ ${#pushers[@]} -gt 0 ]; then
+        short_list=true
+        shown=("${pushers[@]}")
+        # The default in both lists is the first key that can push, so ENTER after `a`
+        # never lands on a key that needs the "use it anyway" question.
+        suggested_key="${candidates[${pushers[0]}]}"
+    else
+        shown=("${!candidates[@]}")
     fi
 
     echo ""
@@ -501,60 +546,100 @@ discover_and_select_ssh_keys() {
     echo ""
     echo "No SSH key was specified with --ssh-key flag."
     echo "Probe result: $probe_status"
-    echo ""
-    echo "Available identities:"
-    echo ""
-    echo "  0) Continue without SSH key (git push will NOT work)"
-    echo ""
 
-    for i in "${!candidates[@]}"; do
-        local suffix=""
-        if [ -n "$suggested_index" ] && [ "$((i+1))" = "$suggested_index" ]; then
-            suffix=" ← default"
-        fi
-        echo "  $((i+1))) ${labels[$i]}${suffix}"
-    done
-
-    echo ""
-    if [ -n "$suggested_index" ]; then
-        echo "Press ENTER to accept the default ($suggested_index)."
-    fi
-    echo "You can also specify keys manually with: $tool_name --ssh-key <path>"
-    echo ""
-
-    local prompt_text="${CCY_PROMPT_SSH_KEY} [0-${#candidates[@]}]"
-    [ -n "$suggested_index" ] && prompt_text="$prompt_text (default: $suggested_index)"
-    prompt_text="$prompt_text: "
-
+    local list_pending=true default_pick="" selection confirm picked p is_pusher
+    local -r max_tries=3
+    local mistakes=0
     while true; do
-        read -rp "$prompt_text" selection
+        if [ "$mistakes" -ge "$max_tries" ]; then
+            echo "✗ Giving up after $max_tries invalid selections; no SSH key chosen." >&2
+            return 1
+        fi
+        if [ "$list_pending" = true ]; then
+            list_pending=false
+            default_pick=""
+            if [ -n "$suggested_key" ]; then
+                for i in "${!shown[@]}"; do
+                    if [ "${candidates[${shown[$i]}]}" = "$suggested_key" ]; then
+                        default_pick=$((i+1))
+                        break
+                    fi
+                done
+            fi
+            _ssh_key_menu_list
+        fi
+
+        local prompt_text="${CCY_PROMPT_SSH_KEY} [0-${#shown[@]}"
+        [ "$short_list" = true ] && prompt_text="$prompt_text, a"
+        prompt_text="$prompt_text]"
+        [ -n "$default_pick" ] && prompt_text="$prompt_text (default: $default_pick)"
+        prompt_text="$prompt_text: "
+        if ! read -rp "$prompt_text" selection; then
+            echo "✗ Input closed before an SSH key was chosen." >&2
+            return 1
+        fi
         echo ""
 
-        # Empty input → accept the default if we have one
         if [ -z "$selection" ]; then
-            if [ -n "$suggested_index" ]; then
-                selection="$suggested_index"
-            else
-                echo "No default available — please enter a number between 0 and ${#candidates[@]}"
+            if [ -z "$default_pick" ]; then
+                echo "No default available — please enter a number between 0 and ${#shown[@]}"
                 echo ""
+                mistakes=$((mistakes + 1))
                 continue
             fi
+            selection="$default_pick"
+        fi
+
+        if [ "$short_list" = true ] && { [ "$selection" = "a" ] || [ "$selection" = "A" ]; }; then
+            short_list=false
+            shown=("${!candidates[@]}")
+            list_pending=true
+            continue
         fi
 
         if [ "$selection" = "0" ]; then
             echo "⚠  Continuing WITHOUT SSH key - git push operations will fail"
             echo ""
             break
-        elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#candidates[@]} ] 2>/dev/null; then
-            SSH_KEYS+=("${candidates[$((selection-1))]}")
-            echo "✓ Selected: ${labels[$((selection-1))]}"
-            echo ""
-            break
-        else
-            echo "Invalid selection: $selection"
-            echo "Please enter a number between 0 and ${#candidates[@]}"
-            echo ""
         fi
+
+        # At most three digits, so the range test never meets a number bash overflows.
+        if [[ ! "$selection" =~ ^[1-9][0-9]{0,2}$ ]] || [ "$selection" -gt ${#shown[@]} ]; then
+            echo "Invalid selection: $selection"
+            echo "Please enter a number between 0 and ${#shown[@]}"
+            echo ""
+            mistakes=$((mistakes + 1))
+            continue
+        fi
+
+        picked="${shown[$((selection-1))]}"
+        is_pusher=false
+        for p in "${pushers[@]}"; do
+            [ "$p" = "$picked" ] && is_pusher=true
+        done
+        if [ ${#pushers[@]} -gt 0 ] && [ "$is_pusher" = false ]; then
+            if [ "${probed[$picked]}" = yes ]; then
+                echo "⚠  ${candidates[$picked]} cannot push to this remote ($remote_url):"
+                echo "   the probe found no push access for it, so git push from this session will be refused."
+            else
+                echo "⚠  ${candidates[$picked]} was not checked for push access to this remote ($remote_url);"
+                echo "   only github_ account keys are probed, and the probe found others that can push."
+            fi
+            if ! read -rp "Use it anyway? [y/N] " confirm; then
+                echo "✗ Input closed before an SSH key was chosen." >&2
+                return 1
+            fi
+            echo ""
+            if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
+                echo "Not using it — choose again."
+                echo ""
+                continue
+            fi
+        fi
+        SSH_KEYS+=("${candidates[$picked]}")
+        echo "✓ Selected: ${labels[$picked]}"
+        echo ""
+        break
     done
 
     echo "════════════════════════════════════════════════════════════════════════════════"

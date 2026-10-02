@@ -1139,8 +1139,11 @@ at `/root/.ssh/key_N`, and CCY resolves the matching GitHub account and token so
 inside the container. Three sources are offered:
 
 - **`~/.ssh/github_<alias>` account keys**, written by `play-github-cli-multi.yml`. Each
-  has a `gh-token-<alias>` function, and the menu defaults to the one whose token has push
-  access to the project's remote.
+  has a `gh-token-<alias>` function, which CCY uses to check each key's push access to the
+  project's remote. When any key has it, the menu first offers only those keys; `a` lists
+  every identity, including the two sources below, and choosing one there that is not
+  confirmed to push asks for a `y` first. When no key can push (a new repository, say),
+  every identity is offered from the start.
 - **The project remote's own key.** When the remote is `git@<alias>:owner/repo.git`, CCY
   asks `ssh -G <alias>` what your `~/.ssh/config` binds the alias to. If that is GitHub,
   the alias's `IdentityFile` is the project's key — typically a per-repository **deploy
@@ -1152,7 +1155,7 @@ inside the container. Three sources are offered:
   container's `gh` still needs a token, which such a box takes from an exported
   `GH_TOKEN`.
 - **The session's ssh-agent** (`--ssh-agent`, or the menu row that appears whenever
-  `ssh-add -l` lists a key). Logged in over `ssh -A`, that is your own agent from your own
+  `ssh-add -l` lists a key, behind `a` when an account key can push). Logged in over `ssh -A`, that is your own agent from your own
   machine: pushes authenticate as you, and nothing is persisted on the box. See the
   SELinux note below.
 
@@ -1335,7 +1338,7 @@ absent supervisor and `--no-supervise`; both announce themselves at launch. See
 | "open in another terminal" when attaching     | A session can be attached from one terminal only. Detach it there first (F12, Detach), or end it from `ccy-sessions`.                                                                                                                                                                                                      |
 | "tmux is not installed"                       | `play-tmux-sessions.yml` has not run on this host. It is part of `playbook-main.yml`.                                                                                                                                                                                                                                      |
 | Sessions did not come back after a reboot     | Restore is opt-in: `ccy_restore_sessions: true` in `host_vars`, then the play. If it is on, `ccy-sessions verify-restore` names each session's state, and `journalctl --user -u ccy-sessions-restore -b --no-pager` shows what the restore did.                                                                            |
-| `ccy-sessions reboot` refuses                 | A live session's project has no hooks-daemon CLI, or its CLI cannot run where it is reached (in the container for ccy, on the host for cc). It is named with the CLI's own error; end it or repair the daemon there. Nothing was signalled or rebooted.                                                                                                                                                              |
+| `ccy-sessions reboot` refuses                 | A live session's project has no hooks-daemon CLI, or its CLI cannot run where it is reached (in the container for ccy, on the host for cc). It is named with the CLI's own error; end it or repair the daemon there. Nothing was signalled or rebooted.                                                                    |
 | Need to see what CCY itself is doing          | `ccy --debug` for interactive debug-layer selection.                                                                                                                                                                                                                                                                       |
 
 ---

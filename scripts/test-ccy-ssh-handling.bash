@@ -371,6 +371,138 @@ if github_identity_is_deploy_key "owner/repo"; then pass "owner/repo is a deploy
 if ! github_identity_is_deploy_key "someone"; then pass "a login is not a deploy key"; else fail "login classified as deploy key"; fi
 if ! github_identity_is_deploy_key ""; then pass "empty is not a deploy key"; else fail "empty classified as deploy key"; fi
 
+# ── discover_and_select_ssh_keys: the menu (Plan 00145) ──────────────────────
+# Three account keys, no deploy-key alias, no agent. STUB_WORKING is what the push
+# probe reports. Each run is a subshell, so the stubs and HOME never leak out; it
+# leaves the menu text in menu.out and "rc=N" plus the chosen keys in menu.keys.
+hdr "discover_and_select_ssh_keys (key menu)"
+
+MENU_HOME="$WORK/menu-home"
+mkdir -p "$MENU_HOME/.ssh"
+for alias in alpha beta gamma; do : > "$MENU_HOME/.ssh/github_$alias"; done
+K_ALPHA="$MENU_HOME/.ssh/github_alpha"
+K_BETA="$MENU_HOME/.ssh/github_beta"
+K_GAMMA="$MENU_HOME/.ssh/github_gamma"
+
+run_menu() {
+    local working="$1" input="$2"
+    (
+        HOME="$MENU_HOME"
+        PROBE_LOG_DIR="$WORK"
+        SSH_KEYS=()
+        detect_project_github_alias() {
+            [ -n "${STUB_ALIAS_KEY:-}" ] || return 1
+            GITHUB_ALIAS_KEY="$STUB_ALIAS_KEY"
+            GITHUB_ALIAS_HOST=gh-alias-a GITHUB_ALIAS_HOSTNAME=ssh.github.com GITHUB_ALIAS_PORT=443
+            return 0
+        }
+        ssh_agent_usable() { return 1; }
+        get_project_remote_url() { echo "git@github.com:owner/repo.git"; }
+        probe_gh_keys_for_remote() { [ -n "$working" ] && printf '%s\n' "$working"; return 0; }
+        discover_and_select_ssh_keys ccy < <(printf '%b' "$input") > "$WORK/menu.out" 2>&1
+        printf 'rc=%s\n' "$?" > "$WORK/menu.keys"
+        printf '%s\n' "${SSH_KEYS[@]}" >> "$WORK/menu.keys"
+    )
+}
+menu_chose() {
+    local expected
+    expected="$(printf 'rc=0\n%s' "$1")"
+    [ "$(cat "$WORK/menu.keys")" = "$expected" ]
+}
+menu_says() { grep -qF -- "$1" "$WORK/menu.out"; }
+
+run_menu "$K_BETA" '\n'
+if menu_chose "$K_BETA" && ! menu_says "$K_ALPHA" && ! menu_says "$K_GAMMA"; then
+    pass "one key can push → the menu lists only it, and ENTER takes it"
+else
+    fail "one pusher, ENTER: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
+run_menu "$K_BETA" '1\n'
+if menu_chose "$K_BETA"; then pass "one key can push → 1 takes it"; else fail "one pusher, 1: $(tr '\n' ' ' < "$WORK/menu.keys")"; fi
+
+run_menu "$K_BETA" 'a\n2\n'
+if menu_chose "$K_BETA" && menu_says "$K_ALPHA" && ! menu_says "Use it anyway"; then
+    pass "a → every identity is listed; a key that can push is taken without a question"
+else
+    fail "a then the pusher: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
+run_menu "$K_BETA" 'a\n1\nn\n1\ny\n'
+if menu_chose "$K_ALPHA" && menu_says "cannot push to this remote"; then
+    pass "a → a key that cannot push is asked about; n re-prompts, y takes it"
+else
+    fail "a then a non-pusher: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
+run_menu "$K_BETA" 'a\n3\n\n2\n'
+if menu_chose "$K_BETA"; then
+    pass "ENTER at the question means no, and the next pick is taken"
+else
+    fail "ENTER at the question: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
+run_menu "$K_BETA" '0\n'
+if menu_chose ""; then pass "0 in the short list → no key"; else fail "0: $(tr '\n' ' ' < "$WORK/menu.keys")"; fi
+
+run_menu "$K_BETA" '9\nx\n1\n'
+if menu_chose "$K_BETA" && menu_says "Invalid selection"; then
+    pass "an out-of-range or non-numeric pick re-prompts"
+else
+    fail "bad picks: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
+run_menu "$(printf '%s\n%s' "$K_ALPHA" "$K_GAMMA")" '2\n'
+if menu_chose "$K_GAMMA" && ! menu_says "$K_BETA"; then
+    pass "two keys can push → only those two are listed"
+else
+    fail "two pushers: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
+run_menu "" '1\n'
+if menu_chose "$K_ALPHA" && menu_says "$K_GAMMA" && ! menu_says "Use it anyway"; then
+    pass "no key can push → every identity is listed and taken without a question"
+else
+    fail "no pusher: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
+run_menu "$K_BETA" 'a\n\n'
+if menu_chose "$K_BETA"; then
+    pass "ENTER after a takes the key that can push, not the first listed"
+else
+    fail "ENTER after a: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
+run_menu "" '99999999999999999999\n9223372036854775809\n1\n'
+if menu_chose "$K_ALPHA" && [ "$(grep -c 'Invalid selection' "$WORK/menu.out")" -eq 2 ]; then
+    pass "a number too long to compare is invalid, never a silent pick"
+else
+    fail "overflowing pick: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
+run_menu "$K_BETA" '7\n8\n9\n1\n'
+if [ "$(head -1 "$WORK/menu.keys")" = "rc=1" ] && [ -z "$(tail -n +2 "$WORK/menu.keys" | tr -d '\n')" ] \
+        && menu_says "Giving up after 3 invalid selections"; then
+    pass "three invalid picks end the menu with rc 1 and no key"
+else
+    fail "three bad picks: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
+run_menu "$K_BETA" ''
+if [ "$(head -1 "$WORK/menu.keys")" = "rc=1" ] && menu_says "Input closed"; then
+    pass "closed input ends the menu with rc 1"
+else
+    fail "closed input: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
+STUB_ALIAS_KEY="$KEY_DIR/project_a" run_menu "$K_BETA" 'a\n1\ny\n'
+if menu_chose "$KEY_DIR/project_a" && menu_says "was not checked for push access" \
+        && ! menu_says "cannot push to this remote"; then
+    pass "the remote's own key, never probed, is called unchecked rather than unable to push"
+else
+    fail "unprobed alias key: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo ""
 echo "ccy ssh-handling: passed: $passed  failed: $failed"

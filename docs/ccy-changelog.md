@@ -17,6 +17,19 @@ Two version numbers move independently — see
 
 ---
 
+## 3.71.0
+
+- **The SSH key menu offers only the keys that can push to the project's remote**, when
+  the push probe finds any (Plan 00145). ENTER takes the first, in either list. `a` shows
+  every identity, and picking one there that is not confirmed to push asks
+  `Use it anyway? [y/N]` first: a probed key is named as unable to push, and the remote's
+  own key or the agent, which are never probed, as unchecked. When no key can push (a new
+  repo, or one nobody has access to yet) the menu lists every identity as before, with no
+  extra question.
+- **The key menu fails the launch on closed input or after three invalid picks**, instead
+  of looping on the prompt. A number too long to compare is invalid; it used to slip
+  through as a pick.
+
 ## 3.70.1
 
 - **A forwarded agent that is empty or locked is named as such**, with how to unlock it,

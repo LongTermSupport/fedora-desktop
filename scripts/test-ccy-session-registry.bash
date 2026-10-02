@@ -658,6 +658,7 @@ UNREACHABLE_PROMPTS=(
     "network-management.bash|Select network to disconnect [1-\${#candidates[@]}]: |--disconnect, dropped on replay"
     "network-management.bash|Clear the saved default network \$1? [y/N] |--disconnect, dropped on replay"
     "ssh-handling.bash|\$prompt_text|built from CCY_PROMPT_SSH_KEY"
+    "ssh-handling.bash|Use it anyway? [y/N] |a sub-prompt of the listed SSH key menu, reached only after a person picks a key"
 )
 unregistered=""
 unlabelled=""
