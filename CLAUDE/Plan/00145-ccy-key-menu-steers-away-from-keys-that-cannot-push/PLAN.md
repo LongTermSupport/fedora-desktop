@@ -66,8 +66,9 @@ towards.
 ### Phase 3: Host
 
 - [ ] 🚫 **Task 3.1**: **HOST**: deploy `play-claude-yolo.yml`, launch ccy in a project two
-  keys can see but only one can push to, and check the menu offers only that one. Blocked
-  on the owner: Ansible never runs in the ccy container, and the menu needs a person.
+  keys can see but only one can push to, and check the menu offers only that one. The
+  deploy is done: the play passed in the owner's meta-deploy run. Blocked on the owner
+  for the launch, because the menu needs a person.
 
 ## Success Criteria
 

@@ -52,7 +52,11 @@ pin task already runs after the install; a venv made afresh is unpinned, so it r
   `qa-tool-pin-converges` in `qa-all.bash`; row in `CLAUDE/QA.md`
 - [x] ✅ **Task 1.4**: `./scripts/qa-all.bash`, the qa-reviewer, and a PR to `F44`
 - [ ] 🚫 **Task 1.5**: On a host with an off-pin QA tool, `./playbooks/imports/play-python.yml`
-  converges it, and a second run reports no change for the QA-tool tasks
+  converges it, and a second run reports no change for the QA-tool tasks. The owner's
+  meta-deploy run passed with ruff and semgrep already on their pins: the remove and
+  install tasks skipped and the verify task passed, so the no-change half holds. The
+  converge half needs a host whose tools have drifted, and none has. Blocked until one
+  does; the container reproduction (`reproduce-pipx-uv.bash`) covers the path meanwhile.
 
 ## Success Criteria
 
