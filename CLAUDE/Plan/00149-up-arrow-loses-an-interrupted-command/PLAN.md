@@ -1,6 +1,7 @@
 # Plan 00149: up arrow loses an interrupted command
 
-**Status**: In Progress
+**Status**: Dormant (parked by the owner: not reproduced in the container or on the host. If
+the owner sees it again, reopen, rerun `triage.bash` and record the exact steps in Task 1.5)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
@@ -54,9 +55,9 @@ the terminal. The triage script measures which.
   then printed nothing for those runs because its output filter ran past systemd's
   `ESC \`-terminated OSC 3008 sequence to the next BEL, swallowing the command output. The
   filter is fixed.
-- [ ] 🚫 **Task 1.5**: **Owner**: the exact steps that lose the line: which command, which
+- [ ] ⏸️ **Task 1.5**: **Owner**: the exact steps that lose the line: which command, which
   terminal app or tab, whether up-arrow is pressed in the same tab, and whether it happens
-  every time. Blocked on the owner.
+  every time. On hold until it happens again.
 
 ### Phase 2: Fix
 
