@@ -94,7 +94,9 @@ clicked. Instead one row opens a menu of the plays, where a person picks.
 - [ ] 🚫 **Task 4.4**: **HOST**: deploy `play-fedora-desktop-panel.yml` (the panel row) and
   `play-host-health-login-report.yml` (`fedora-desktop-health --rerun`), log out and in,
   open the row, and pick a play. Blocked on the owner: Ansible never runs in the ccy
-  container, and the menu needs a person.
+  container, and the menu needs a person. Both plays ran in meta-deploy
+  `20261002-094803`, `failed=0` (`changed=0`: already in place); the logout and the row
+  itself remain.
 
 ## Success Criteria
 
