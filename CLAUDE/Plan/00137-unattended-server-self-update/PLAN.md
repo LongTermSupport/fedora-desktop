@@ -192,7 +192,7 @@ D1–D4 are the owner's choices, made 2026-09-23.
   the IaC graph follows D5 and D7.
 - [x] ✅ **Task 4.3**: Results reach the host-health report, so a failed or skipped cycle
   shows up in the login snippet. Contract: DESIGN-cycle.md, "The published copy".
-- [ ] 🔄 **Task 4.5**: The alert sinks from D8/Task 0.4. The secret lives in vault. The
+- [ ] 🚫 **Task 4.5**: The alert sinks from D8/Task 0.4. The secret lives in vault. The
   message carries no hostname, username or path (public-repo rule), and a sink that
   fails to deliver is itself reported. Code done: `helpers/self_update/alerts.py`, the
   play's prompt and root-only webhook file, and the result's `alert` key, which the
@@ -216,7 +216,7 @@ D1–D4 are the owner's choices, made 2026-09-23.
 - [x] ✅ **Task 5.2**: `./scripts/qa-all.bash`, then the `qa-reviewer` agent over the full
   diff, with findings resolved. Rounds 1 and 2 were BLOCK, round 3 FIX-BEFORE-MERGE, and
   round 4 PASS WITH NITS. Every finding is fixed (journal 18:35, 19:16, 19:36 and 19:56).
-- [ ] ⬜ **Task 5.3**: HOST: one full cycle on a server with two live sessions, triggered by
+- [ ] 🚫 **Task 5.3**: HOST: one full cycle on a server with two live sessions, triggered by
   a real commit that touches `lib/`.
 
 ## Success Criteria

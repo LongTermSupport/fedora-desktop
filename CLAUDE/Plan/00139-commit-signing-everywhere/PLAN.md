@@ -45,21 +45,26 @@ out.
 - **D1 — SSH signing, not GPG.** git, GitHub and the self-update gate already handle it,
   and the key file can be mounted into ccy with SELinux left on. GPG would need agent socket
   forwarding into every container.
+
 - **D2 — The key has no passphrase.** Host `cc` agents and ccy containers have no terminal
   to type one into. The only other way to sign unattended is a forwarded ssh-agent, which
   ccy supports only with SELinux labelling disabled. The key is 0600 in `~/.ssh`, the same
   trust level as the push keys ccy already mounts, and it is mounted read-only.
+
 - **D3 — Signing config moves to `~/.gitconfig`,** which ccy copies. The launcher repoints
   `user.signingkey` in its private copy; since D5 at the session's own identity, so no key
   is mounted for signing.
+
 - **D4 — Plan 00137's D3 is overruled by the owner.** The play's "must have a passphrase"
   assert inverts to "must not have one", and `git sign-deploy` goes. Every commit is signed,
   so the server gate's check of HEAD needs no special commit.
+
 - **D5 — Sign with the login keys, through the ssh-agent; D2 and the separate signing keys
   are withdrawn.** The owner asked whether the idea was not simply to sign with the normal
   SSH key. It is: GitHub takes the same public key again as a signing key. D2's premise was
   wrong. `ssh-keygen -Y sign` signs through the agent for a passphrase-protected key, with
   no terminal (measured), and every signer already has an agent holding the key:
+
   - a ccy container ssh-adds the identity chosen at launch into its own agent, or uses the
     forwarded one;
   - the desktop agent unlocks a key on first use.
@@ -121,7 +126,7 @@ out.
   - [x] ✅ **HOST (owner, at a desk)**: `./CLAUDE/Plan/meta-deploy.bash`, which runs this
     plan's deploy and acceptance. Deploy passed, with every play at `failed=0`, and each
     account alias offers only its own key. Acceptance 13 of 13 (`_meta-deploy/20260925-113855`)
-- [ ] 🔄 **Task 1.4**: The owner asked for this machine's public key to be kept in the
+- [ ] 🚫 **Task 1.4**: The owner asked for this machine's public key to be kept in the
   private config repo. The play writes it into `localhost.yml` as `git_signing_public_key`,
   in a managed block, the way other plays record values there. It uses its own name,
   because `self_update_signing_public_key` is the key a server trusts. Merged as
@@ -156,7 +161,7 @@ out.
 
 - [x] ✅ **Task 4.1**: `docs/configuration.md` "Commit Signing", `docs/playbooks.md` and
   `docs/ccy.md` describe the new model.
-- [ ] ⬜ **Task 4.2**: Owner's call, after everything signs: a GitHub ruleset requiring
+- [ ] 🚫 **Task 4.2**: Owner's call, after everything signs: a GitHub ruleset requiring
   signed commits on `F*` branches.
 - [x] ✅ **Task 4.3**: `deploy.bash` and `acceptance.bash`. Acceptance checks, on the host,
   that a commit made in a scratch repo carries a good signature from the machine key. The
@@ -199,7 +204,7 @@ out.
 - [x] ✅ **HOST (owner, at a desk)**: `./CLAUDE/Plan/meta-deploy.bash`. Every leg passed
   (`failed=0`). Six old signing keys are deleted from GitHub, and their twelve files from
   `~/.ssh`. Acceptance: 14 of 14 (`_meta-deploy/20260925-142901`)
-- [ ] 🔄 **Task 5.5**: A box with no GitHub identity does not sign. Headless
+- [ ] 🚫 **Task 5.5**: A box with no GitHub identity does not sign. Headless
   `RUN_BASH_GITHUB_ACCOUNTS=none` (Plan 00082) generates no `~/.ssh/id` and writes
   `github_accounts: {}`, and Task 5.1's unconditional key assert fails that whole
   provisioning run. The signing tasks sit in one block gated on `git_signing_declared`

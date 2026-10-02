@@ -72,7 +72,7 @@ them is still Plan 00109 Task 4.3, and the command built here is where it will h
   copies and still launches nothing, and the tests now prove that behaviourally
 - [x] ✅ **Task 3.2**: `play-fedora-desktop-panel.yml` installs `xdg-terminal-exec`, and
   the panel design notes that the terminal launch for the report is settled here
-- [ ] ⬜ **HOST**: run both plays, log out and back in, open a terminal and confirm the
+- [ ] 🚫 **HOST**: run both plays, log out and back in, open a terminal and confirm the
   full report then the one-line reminder; click the panel row and confirm a terminal opens
   and stays open; confirm over SSH
 

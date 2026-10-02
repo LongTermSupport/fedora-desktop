@@ -260,7 +260,8 @@ brainstorms are in [`brainstorm-ssh-key-restore/`](brainstorm-ssh-key-restore/BR
   to it rather than replace it:
   - seal the passphrase to the TPM with `systemd-creds`;
   - leave the session's key locked until its first push, and report it as pending.
-- [ ] ⬜ **Task 6.2**: Implement the decision, tests first.
+- [ ] 🚫 **Task 6.2**: Implement the decision, tests first. Blocked on Task 6.1, the
+  owner's decision.
 
 ## Dependencies
 

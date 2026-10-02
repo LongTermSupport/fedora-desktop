@@ -134,7 +134,7 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 - [x] ✅ **Task 3.1**: Post-boot health probe — wired and running on the HOST.
   Detail (the `daemon_reload` ordering defect, the HOST re-run):
   [COMPLETED-TASKS-detail.md#task-31-post-boot-health-probe](COMPLETED-TASKS-detail.md#task-31-post-boot-health-probe)
-- [ ] 🔄 **Task 3.2**: Surface findings to the user — code done, HOST run pending
+- [ ] 🚫 **Task 3.2**: Surface findings to the user — code done, HOST run pending
   - [x] ✅ `login_report.py` — one notification, silent when clean
   - [x] ✅ **HOST**: a real notification arrives. The owner, 2026-09-25: "panel
     notifications are working fine now"
@@ -175,14 +175,14 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   `metadata.json`, `statusDocument.js`, `sections/health.js`, `extension.js`,
   `stylesheet.css`, plus the producer `helpers/host_health/status_document.py` and the
   cross-language contract gate `helpers/gnome/check_panel_contract.py` in `qa-all.bash`
-- [ ] 🔄 **Task 4.2**: Health section — renders Phase 3's four checks.
+- [ ] 🚫 **Task 4.2**: Health section — renders Phase 3's four checks.
   Detail (indicator test coverage, self-section reasons, ledger-emptiness check,
   boot-awareness, malformed-document handling, the section-contract proof):
   [COMPLETED-TASKS-detail.md#task-42-health-section](COMPLETED-TASKS-detail.md#task-42-health-section)
   - [ ] ⬜ **HOST**: the rendering itself — whether St shows the demoted lines legibly and
     whether the icon is the right thing to look at. Only a Wayland session can say, and
     the harness deliberately does not claim to
-- [ ] 🔄 **Task 4.3**: Play/task runner — plays with their ledger state, launched in a
+- [ ] 🚫 **Task 4.3**: Play/task runner — plays with their ledger state, launched in a
   visible terminal, never in the background. Code done — HOST run pending. Ledger-seen
   plays via `host-status.json` `plays`; a click runs `fedora-desktop-health --run-play`.
   Decisions: [DESIGN-panel.md](DESIGN-panel.md) §9
@@ -190,12 +190,12 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     `xdg-terminal-exec`, `run.bash`'s sudo prompt works there, and the next report shows
     the play as fresh
 - [x] ✅ **Task 4.4**: Sections registered, not hardcoded — one array entry per section
-- [ ] 🔄 **Task 4.5**: ESLint clean, deployed by its own play, Wayland-correct
+- [x] ✅ **Task 4.5**: ESLint clean, deployed by its own play, Wayland-correct
   - [x] ✅ ESLint clean, contract gate green, HOST play run confirmed. Detail:
     [COMPLETED-TASKS-detail.md#task-45-eslint-clean-deployed-by-its-own-play-wayland-correct](COMPLETED-TASKS-detail.md#task-45-eslint-clean-deployed-by-its-own-play-wayland-correct)
   - [x] ✅ **HOST — eyes only**: that the icon is *visibly* in the top bar. The owner,
     2026-09-25, has the panel and its notifications working
-- [ ] 🔄 **Task 4.6**: The icon must not stay stuck at its login answer. Code done — deploy
+- [ ] 🚫 **Task 4.6**: The icon must not stay stuck at its login answer. Code done — deploy
   and HOST check pending. The status document is refreshed (a) by the play-ledger callback
   restarting `host-health-collect.service` after every ledgered play run
   (`helpers/play_ledger/health_refresh.py`), and (b) hourly on a desktop by
@@ -219,7 +219,7 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   rule and the suspend service, after the wedge ladder and never while locked
   - ⚠️ **Known limitation — the resume path is effectively inert**: the screen is already
     locked when the suspend service runs, so the run correctly refuses. Dock/udev works
-  - [ ] 🔄 **T5.4a**: Cover the unlock case. The owner chose option C of
+  - [ ] 🚫 **T5.4a**: Cover the unlock case. The owner chose option C of
     [DESIGN-panel.md §12](DESIGN-panel.md): a separate small extension, so the panel stays
     detect-only.
     - [x] ✅ `extensions/dock-recovery-on-unlock@fedora-desktop/`: on each unlock it

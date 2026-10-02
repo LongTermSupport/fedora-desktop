@@ -51,7 +51,7 @@ pin task already runs after the install; a venv made afresh is unpinned, so it r
 - [x] ✅ **Task 1.3**: `scripts/test-qa-tool-pin-converges.bash`, hard gate
   `qa-tool-pin-converges` in `qa-all.bash`; row in `CLAUDE/QA.md`
 - [x] ✅ **Task 1.4**: `./scripts/qa-all.bash`, the qa-reviewer, and a PR to `F44`
-- [ ] ⬜ **Task 1.5**: On a host with an off-pin QA tool, `./playbooks/imports/play-python.yml`
+- [ ] 🚫 **Task 1.5**: On a host with an off-pin QA tool, `./playbooks/imports/play-python.yml`
   converges it, and a second run reports no change for the QA-tool tasks
 
 ## Success Criteria
