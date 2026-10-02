@@ -162,19 +162,22 @@ Facts, with file and line citations, are in
   deployed with `containerReport.js` and `sections/containers.js`, the timer is still
   active; prints `COVERAGE: n of m`. Names as NOT ESTABLISHABLE: the logout, and the
   visual check that one icon shows and turns amber for an injected finding.
-- [ ] ⬜ **Task 7.3**: (On HOST) run `deploy.bash`, log out and back in, run
+- [ ] 🚫 **Task 7.3**: (On HOST) run `deploy.bash`, log out and back in, run
   `acceptance.bash`, then the human visual pass: one icon; inject a finding via the
   backend's `scan --inject` seam and see the icon and notification; copy a hint.
   Progress: `deploy.bash` ran (both plays rc 0, panel play changed=3); a second run
   changed nothing in either play (idempotent); `acceptance.bash` passed, COVERAGE 8 of 8.
   Open: the logout and the visual pass, which only a human can do.
-- [ ] ⬜ **Task 7.4** (follow-up): a contract check that the `containerReport.js` constants
-  (schema version, report path, DBus names) match the producer in `helpers/containerwatch/`;
-  `check_panel_contract` does not cover them today. The Task 8.1 review compared them by
-  hand against `core.py` and `cli.py`: no drift today.
-- [ ] ⬜ **Task 7.5** (follow-up): remove the one-off retirement tasks from
+- [x] ✅ **Task 7.4** (follow-up): a contract check that the `containerReport.js` constants
+  (schema version, report path, DBus names) match the producer in `helpers/containerwatch/`.
+  `check_panel_contract` now compares `SCHEMA_VERSION`, `DBUS_PATH`, `DBUS_INTERFACE` and
+  `DBUS_SIGNAL` by value, and asks the report path's two parts to appear quoted in the
+  JavaScript. The producer gained named constants for the signal and the path parts
+  (behaviour unchanged). Tests in `tests/helpers/gnome/test_check_panel_contract.py`, red
+  first; the gate's pass line names what it compared.
+- [ ] 🚫 **Task 7.5** (follow-up): remove the one-off retirement tasks from
   `play-fedora-desktop-panel.yml` once every host has run it; today only a comment in the
-  play records that they are temporary.
+  play records that they are temporary. Blocked until the owner's hosts have run the play.
 
 ### Phase 8: Review
 

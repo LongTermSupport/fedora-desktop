@@ -173,5 +173,62 @@ class TestTheKeysAreDerivedNotListed(unittest.TestCase):
         return check_panel_contract.panel_javascript(root)
 
 
+class TestTheContainerReportPair(unittest.TestCase):
+    """Plan 00144 Task 7.4: `containerReport.js` against `helpers/containerwatch/`.
+
+    The panel's containers section reads the report `container-watch` writes and listens
+    for the signal it emits. A schema number, DBus name or path part that differs on one
+    side leaves that section reading nothing, or never hearing a rewrite.
+    """
+
+    def test_the_constants_come_from_the_producer(self) -> None:
+        from helpers.containerwatch import cli, core
+
+        self.assertEqual(
+            check_panel_contract.container_expected(),
+            {
+                "SCHEMA_VERSION": str(core.SCHEMA_VERSION),
+                "DBUS_PATH": cli.DBUS_PATH,
+                "DBUS_INTERFACE": cli.DBUS_INTERFACE,
+                "DBUS_SIGNAL": cli.DBUS_SIGNAL,
+            },
+        )
+
+    def test_the_report_path_parts_are_the_ones_the_producer_joins(self) -> None:
+        from helpers.containerwatch import cli
+
+        parts = check_panel_contract.container_report_path_parts()
+        self.assertEqual(parts, [cli.REPORT_DIR_NAME, cli.REPORT_FILE_NAME])
+        self.assertTrue(cli.report_path().endswith(os.path.join(*parts)))
+
+    def test_a_missing_constant_names_the_file_it_was_looked_for_in(self) -> None:
+        findings = check_panel_contract.mismatches(
+            "", {"DBUS_SIGNAL": "FindingsChanged"}, check_panel_contract.CONTAINER_JS
+        )
+        self.assertEqual(len(findings), 1)
+        self.assertIn(check_panel_contract.CONTAINER_JS, findings[0])
+
+    def test_a_path_part_the_javascript_does_not_quote_is_a_finding(self) -> None:
+        javascript = "GLib.build_filenamev([dir, 'container-watch', 'report.json']);"
+        self.assertEqual(
+            check_panel_contract.unquoted(javascript, ["container-watch", "report.json"]), []
+        )
+        self.assertEqual(
+            check_panel_contract.unquoted(javascript, ["container-watch", "findings.json"]),
+            ["findings.json"],
+        )
+
+    def test_a_signal_renamed_on_the_python_side_is_caught(self) -> None:
+        root = os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        path = os.path.join(root, check_panel_contract.CONTAINER_JS)
+        with open(path, encoding="utf-8") as handle:
+            javascript = handle.read()
+        findings = check_panel_contract.mismatches(
+            javascript, {"DBUS_SIGNAL": "FindingsUpdated"}, check_panel_contract.CONTAINER_JS
+        )
+        self.assertEqual(len(findings), 1)
+        self.assertIn("FindingsUpdated", findings[0])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -10,7 +10,8 @@ would be confidently reporting that nothing is known about a host it simply cann
 the file for.
 
 That is this plan's own defect with the languages swapped, so the agreement is a gate
-rather than a comment asking someone to remember.
+rather than a comment asking someone to remember. The containers section has the same
+shape of contract with `helpers/containerwatch/` (Plan 00144), and is held to it here too.
 
 **It reads the JavaScript as text.** There is no JS runtime in the QA path, and adding
 one to compare six strings is not worth it. The risk a text matcher carries is that its
@@ -37,6 +38,8 @@ import os
 import re
 import sys
 
+from helpers.containerwatch import cli as containerwatch_cli
+from helpers.containerwatch import core as containerwatch_core
 from helpers.host_health import (
     handoff,
     login_message,
@@ -60,6 +63,37 @@ PANEL_SOURCES = (
     os.path.join("extensions", "fedora-desktop@fedora-desktop", "sections", "plays.js"),
     os.path.join("extensions", "fedora-desktop@fedora-desktop", "extension.js"),
 )
+
+
+#: The containers section's half of a second contract: `container-watch` writes the report
+#: and emits the signal, `containerReport.js` reads one and subscribes to the other.
+CONTAINER_JS = os.path.join(
+    "extensions", "fedora-desktop@fedora-desktop", "containerReport.js"
+)
+
+
+def container_expected() -> dict[str, str]:
+    """The constants `containerReport.js` must declare, from `helpers/containerwatch/`."""
+    return {
+        "SCHEMA_VERSION": str(containerwatch_core.SCHEMA_VERSION),
+        "DBUS_PATH": containerwatch_cli.DBUS_PATH,
+        "DBUS_INTERFACE": containerwatch_cli.DBUS_INTERFACE,
+        "DBUS_SIGNAL": containerwatch_cli.DBUS_SIGNAL,
+    }
+
+
+def container_report_path_parts() -> list[str]:
+    """The parts the producer joins under the runtime dir, which the panel joins too."""
+    return [containerwatch_cli.REPORT_DIR_NAME, containerwatch_cli.REPORT_FILE_NAME]
+
+
+def unquoted(javascript: str, literals: list[str]) -> list[str]:
+    """Literals the JavaScript never writes as a single-quoted string.
+
+    The report path is built inline rather than declared, so its parts are asked to
+    appear as the quoted strings the build call takes, not as a constant's value.
+    """
+    return [text for text in literals if f"'{text}'" not in javascript]
 
 
 def expected() -> dict[str, str]:
@@ -177,7 +211,7 @@ def _declared(javascript: str, name: str) -> str | None:
     return match.group(1) if match.group(1) is not None else match.group(2)
 
 
-def mismatches(javascript: str, wanted: dict[str, str]) -> list[str]:
+def mismatches(javascript: str, wanted: dict[str, str], js_path: str = PANEL_JS) -> list[str]:
     """Every disagreement, as a line naming the constant and both sides.
 
     Both sides, because "these disagree" sends the reader to diff two files by hand,
@@ -188,7 +222,7 @@ def mismatches(javascript: str, wanted: dict[str, str]) -> list[str]:
         found = _declared(javascript, name)
         if found is None:
             findings.append(
-                f"PANEL-CONTRACT-FAIL {name}: not declared in {PANEL_JS}, so the panel "
+                f"PANEL-CONTRACT-FAIL {name}: not declared in {js_path}, so the panel "
                 f"and the producer cannot be shown to agree on it (Python says "
                 f"{value!r})"
             )
@@ -215,7 +249,9 @@ def check(root: str) -> list[str]:
 
     Three comparisons, because the two halves share three kinds of name: the declared
     constants (compared by value, against the file that declares them), the document's
-    keys, and the section ids (both only asked to appear, across the whole panel).
+    keys, and the section ids (both only asked to appear, across the whole panel). Then
+    the containers section's own contract with `container-watch`: its declared constants
+    by value, and the report path's parts as the quoted strings it joins.
     """
     with open(os.path.join(root, PANEL_JS), encoding="utf-8") as handle:
         findings = mismatches(handle.read(), expected())
@@ -234,6 +270,16 @@ def check(root: str) -> list[str]:
             f"login_report.collect_sections and mentioned nowhere in the panel, so that "
             f"section would report `unavailable` for ever — which reads as a host "
             f"nothing has checked."
+        )
+
+    with open(os.path.join(root, CONTAINER_JS), encoding="utf-8") as handle:
+        container_javascript = handle.read()
+    findings.extend(mismatches(container_javascript, container_expected(), CONTAINER_JS))
+    for part in unquoted(container_javascript, container_report_path_parts()):
+        findings.append(
+            f"PANEL-CONTRACT-FAIL report path part {part!r}: joined by "
+            f"containerwatch.cli.report_path and never quoted in {CONTAINER_JS}, so the "
+            f"containers section is reading a different file from the one written."
         )
     return findings
 
@@ -254,7 +300,10 @@ def main(argv: list[str] | None = None) -> int:
         f"PANEL-CONTRACT-OK {len(wanted)} constant(s) agree between "
         f"status_document.py and the panel: {', '.join(sorted(wanted))}; "
         f"{len(keys)} document key(s) present: {', '.join(sorted(keys))}; "
-        f"{len(ids)} section id(s) present: {', '.join(sorted(ids))}"
+        f"{len(ids)} section id(s) present: {', '.join(sorted(ids))}; "
+        f"{len(container_expected())} constant(s) agree between helpers/containerwatch and "
+        f"containerReport.js: {', '.join(sorted(container_expected()))}; report path parts "
+        f"quoted: {', '.join(container_report_path_parts())}"
     )
     return 0
 

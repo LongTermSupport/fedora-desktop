@@ -50,6 +50,12 @@ SAMPLE_INTERVAL_S = 1.0
 # precedent (org.fedoradesktop.SpeechToText).
 DBUS_PATH = "/org/fedoradesktop/ContainerWatch"
 DBUS_INTERFACE = "org.fedoradesktop.ContainerWatch"
+DBUS_SIGNAL = "FindingsChanged"
+
+# The report's place under the runtime dir. The panel's containerReport.js joins the
+# same two parts, and helpers/gnome/check_panel_contract.py holds the two to agreement.
+REPORT_DIR_NAME = "container-watch"
+REPORT_FILE_NAME = "report.json"
 
 _SUBPROCESS_TIMEOUT_S = 5
 
@@ -544,7 +550,7 @@ def emit_signal(count: int, report_path: str) -> None:
     argv = [
         "gdbus", "emit", "--session",
         "--object-path", DBUS_PATH,
-        "--signal", f"{DBUS_INTERFACE}.FindingsChanged",
+        "--signal", f"{DBUS_INTERFACE}.{DBUS_SIGNAL}",
         str(count), report_path,
     ]
     try:
@@ -789,7 +795,7 @@ def render_explain(report: dict, host_pid: int) -> str:
 # --------------------------------------------------------------------------- #
 def report_path() -> str:
     runtime = os.environ.get("XDG_RUNTIME_DIR") or f"/tmp/container-watch-{os.getuid()}"
-    return os.path.join(runtime, "container-watch", "report.json")
+    return os.path.join(runtime, REPORT_DIR_NAME, REPORT_FILE_NAME)
 
 
 def read_report() -> dict:
