@@ -170,13 +170,20 @@ Facts, with file and line citations, are in
   Open: the logout and the visual pass, which only a human can do.
 - [ ] ⬜ **Task 7.4** (follow-up): a contract check that the `containerReport.js` constants
   (schema version, report path, DBus names) match the producer in `helpers/containerwatch/`;
-  `check_panel_contract` does not cover them today.
+  `check_panel_contract` does not cover them today. The Task 8.1 review compared them by
+  hand against `core.py` and `cli.py`: no drift today.
+- [ ] ⬜ **Task 7.5** (follow-up): remove the one-off retirement tasks from
+  `play-fedora-desktop-panel.yml` once every host has run it; today only a comment in the
+  play records that they are temporary.
 
 ### Phase 8: Review
 
-- [ ] ⬜ **Task 8.1**: Run the **`qa-reviewer` agent** over the full plan diff; resolve
-  every BLOCK and FIX-BEFORE-MERGE finding.
-- [ ] ⬜ **Task 8.2**: Update `CLAUDE/Plan/README.md`, set Complete, move to `Completed/`.
+- [x] ✅ **Task 8.1**: Run the **`qa-reviewer` agent** over the full plan diff; resolve
+  every BLOCK and FIX-BEFORE-MERGE finding. Verdict: pass with nits, no BLOCK or
+  FIX-BEFORE-MERGE. Its advisories became Task 7.5 and the note on Task 7.4; the rest are
+  recorded in the review, `subagent-reports/261002-qa-reviewer-opus.md`.
+- [ ] 🚫 **Task 8.2**: Update `CLAUDE/Plan/README.md`, set Complete, move to `Completed/`.
+  Blocked on Task 7.3: the logout and the visual check need the owner.
 
 ## Dependencies
 
