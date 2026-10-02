@@ -252,7 +252,9 @@ passphrase prompt. That is acceptable on the desktop, where the owner logs in an
 It is not acceptable on the server, where nobody is present. Four independent
 brainstorms are in [`brainstorm-ssh-key-restore/`](brainstorm-ssh-key-restore/BRIEF.md).
 
-- [ ] 🚫 **Task 6.1**: **Owner decision.** Choose how a restored session on the server
+- [x] ✅ **Task 6.1**: **Owner decision: the restore-only `SSH_ASKPASS`, alone.** The owner
+  accepted the recommendation; the TPM seal and the lazy unlock are not built.
+  Choose how a restored session on the server
   unlocks its key. Every brainstorm ranks the same answer first: a restore-only
   `SSH_ASKPASS` fed from the vault's `github_ssh_passphrase`, the same way
   `run.bash --headless` already unlocks it. The trade-off is that anyone who can read
@@ -260,8 +262,7 @@ brainstorms are in [`brainstorm-ssh-key-restore/`](brainstorm-ssh-key-restore/BR
   to it rather than replace it:
   - seal the passphrase to the TPM with `systemd-creds`;
   - leave the session's key locked until its first push, and report it as pending.
-- [ ] 🚫 **Task 6.2**: Implement the decision, tests first. Blocked on Task 6.1, the
-  owner's decision.
+- [ ] 🔄 **Task 6.2**: Implement the decision, tests first.
 
 ## Dependencies
 
