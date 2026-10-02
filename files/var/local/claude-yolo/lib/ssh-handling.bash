@@ -729,6 +729,8 @@ _probe_agent_start() {
 
 _probe_agent_stop() {
     local kill_out
+    # A restore's probe passphrase copy is removed with the agent it unlocked keys into.
+    ccy_restore_askpass_discard_probe
     if [ -n "$CCY_PROBE_AGENT_PID" ]; then
         if ! kill_out=$(kill "$CCY_PROBE_AGENT_PID" 2>&1); then
             # An already-gone agent is a normal teardown outcome, but say so
@@ -747,8 +749,18 @@ _probe_agent_stop() {
 # invocation; per the interactive-script rules a mistyped passphrase is a
 # recoverable input error, so we re-offer the whole ssh-add up to 3 rounds
 # before failing.
+#
+# With an askpass stage (a session restore on a headless server, see
+# ccy_restore_askpass_stage) there is no person to ask: ssh-add is run once, through the
+# stage's helper, with stdin closed, and a key the passphrase does not open fails at once.
 _probe_agent_add_key() {
-    local key="$1" round
+    local key="$1" askpass_dir="${2:-}" round
+    if [ -n "$askpass_dir" ]; then
+        SSH_AUTH_SOCK="$CCY_PROBE_AGENT_SOCK" SSH_ASKPASS="$askpass_dir/askpass" \
+            SSH_ASKPASS_REQUIRE=force CCY_RESTORE_PP_FILE="$askpass_dir/pp" \
+            ssh-add "$key" </dev/null
+        return
+    fi
     for round in 1 2 3; do
         if SSH_AUTH_SOCK="$CCY_PROBE_AGENT_SOCK" ssh-add "$key"; then
             return 0
@@ -760,6 +772,140 @@ _probe_agent_add_key() {
         fi
     done
     return 1
+}
+
+# ── Restore-only SSH_ASKPASS: a restored session on a headless server unlocks unattended ──
+#
+# After a reboot nobody is at a server to type a key's passphrase, so a restored session
+# would stop at ssh-add's prompt twice: here, and in the container's entrypoint. ccy-sessions
+# restore names a passphrase file (written by play-claude-yolo.yml from the vault's
+# github_ssh_passphrase) and ssh-add is fed from it through SSH_ASKPASS, the way
+# `run.bash --headless` loads the same key. ONLY then: an ordinary launch never sets
+# SSH_ASKPASS (ccy_restore_passphrase_take refuses the file outside a restore).
+#
+# Each use gets its own copy in a fresh owner-only directory on XDG_RUNTIME_DIR (tmpfs), and
+# each copy is removed once its keys are added: the probe's right after its unlock loop, the
+# container's by the entrypoint (restore_askpass_finish) before Claude starts, with the
+# launcher's cleanup as the backstop. The helper's text holds no secret, only reads
+# $CCY_RESTORE_PP_FILE when ssh-add runs it, so the passphrase is never in argv or a log.
+#
+# The helper answers ONLY "Enter passphrase for ...", ssh-add's first question for a key. Real
+# ssh-add asks "Bad passphrase, try again" of a wrong answer for ever (measured: OpenSSH 9.2
+# asked 24 times in 5 seconds), so refusing the retry is what makes a wrong passphrase a
+# failure instead of a hang. Any other question (a host key confirmation) is refused too.
+CCY_RESTORE_ASKPASS_MOUNT="/run/ccy/restore-askpass"
+CCY_PROBE_ASKPASS_DIR=""
+CCY_RESTORE_ASKPASS_DIR=""
+
+# ccy_restore_askpass_stage <passphrase-file> — stdout: a new stage directory holding `pp`
+# (the copy, 0600) and `askpass` (the helper, 0700).
+ccy_restore_askpass_stage() {
+    local source_file="$1" dir
+    if ! dir=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/ccy-askpass.XXXXXX"); then
+        print_error "could not create a directory for the session-restore askpass under ${XDG_RUNTIME_DIR:-/tmp}"
+        return 1
+    fi
+    if ! install -m 0600 -- "$source_file" "$dir/pp"; then
+        print_error "could not copy the session-restore passphrase file $source_file"
+        rm -rf -- "$dir"
+        return 1
+    fi
+    if ! cat >"$dir/askpass" <<'CCY_ASKPASS_BODY'; then
+#!/bin/sh
+# ccy session-restore askpass. Answers ssh-add's first passphrase question for a key from
+# $CCY_RESTORE_PP_FILE, and nothing else: a retry means the passphrase was wrong, and asking
+# again would loop for ever.
+case "$1" in
+"Enter passphrase for "*) exec cat -- "${CCY_RESTORE_PP_FILE:?ccy restore askpass: no passphrase file named}" ;;
+esac
+echo "ccy restore askpass: not answering: $1" >&2
+exit 1
+CCY_ASKPASS_BODY
+        print_error "could not write the session-restore askpass helper in $dir"
+        rm -rf -- "$dir"
+        return 1
+    fi
+    if ! chmod 0700 "$dir/askpass"; then
+        print_error "could not make the session-restore askpass helper executable"
+        rm -rf -- "$dir"
+        return 1
+    fi
+    printf '%s\n' "$dir"
+}
+
+# ccy_restore_askpass_discard_probe — remove the probe's stage, if there is one.
+ccy_restore_askpass_discard_probe() {
+    [ -n "$CCY_PROBE_ASKPASS_DIR" ] || return 0
+    if ! rm -rf -- "$CCY_PROBE_ASKPASS_DIR"; then
+        print_error "could not remove the session-restore passphrase copy in $CCY_PROBE_ASKPASS_DIR"
+        return 1
+    fi
+    CCY_PROBE_ASKPASS_DIR=""
+}
+
+# ccy_restore_askpass_container <passphrase-file> — stage the container's copy, export
+# CCY_RESTORE_ASKPASS_DIR (the launcher's cleanup removes it), and append to SSH_RUN_OPTS the
+# mount and the environment that make the entrypoint's own ssh-add use the helper. Paths
+# only; the passphrase never reaches the engine's argv. Call after
+# build_ssh_mounts_and_validate, which resets SSH_RUN_OPTS.
+ccy_restore_askpass_container() {
+    local dir relabel=""
+    dir=$(ccy_restore_askpass_stage "$1") || return 1
+    CCY_RESTORE_ASKPASS_DIR="$dir"
+    export CCY_RESTORE_ASKPASS_DIR
+    # Read-write: the entrypoint removes the copy and the helper once its keys are added.
+    if [ "${CCY_SELINUX_MODE:-off}" != "off" ]; then
+        relabel=":Z"
+    fi
+    SSH_RUN_OPTS+=(
+        -v "$dir:$CCY_RESTORE_ASKPASS_MOUNT$relabel"
+        -e "SSH_ASKPASS=$CCY_RESTORE_ASKPASS_MOUNT/askpass"
+        -e "SSH_ASKPASS_REQUIRE=force"
+        -e "CCY_RESTORE_PP_FILE=$CCY_RESTORE_ASKPASS_MOUNT/pp"
+    )
+}
+
+# _probe_unlock_keys <tool_name> — unlock every selected key file into the private probe
+# agent, BEFORE any GitHub connection is opened (see _probe_agent_start). Requires SSH_KEYS;
+# RESTORE_SSH_PASSPHRASE_FILE is set only on a server's session restore. Ordinarily it asks
+# the person, and is skipped when no terminal can answer (headless/CI): a passphrase-less key
+# needs no agent and an encrypted one could not be unlocked anyway. On a restore it asks
+# nobody: every key unlocks through askpass, or the launch fails here, loudly.
+_probe_unlock_keys() {
+    local tool_name="$1" unlock_key restore=false
+    [ -n "${RESTORE_SSH_PASSPHRASE_FILE:-}" ] && restore=true
+    if [ "$restore" = false ] && { [ ! -t 0 ] || [ "${HEADLESS_MODE:-false}" = "true" ]; }; then
+        return 0
+    fi
+    if [ "$restore" = true ] && ! ccy_restore_passphrase_check "$RESTORE_SSH_PASSPHRASE_FILE"; then
+        return 1
+    fi
+    _probe_agent_start
+    if [ -z "$CCY_PROBE_AGENT_SOCK" ]; then
+        if [ "$restore" = true ]; then
+            print_error "no probe ssh-agent, so this restored session cannot unlock its SSH key unattended."
+            return 1
+        fi
+        return 0
+    fi
+    if [ "$restore" = true ]; then
+        CCY_PROBE_ASKPASS_DIR=$(ccy_restore_askpass_stage "$RESTORE_SSH_PASSPHRASE_FILE") || return 1
+    fi
+    for unlock_key in "${SSH_KEYS[@]}"; do
+        # The session's agent is already unlocked by definition.
+        [ "$unlock_key" = "$SSH_AGENT_SENTINEL" ] && continue
+        if ! _probe_agent_add_key "$unlock_key" "$CCY_PROBE_ASKPASS_DIR"; then
+            print_error "Could not unlock SSH key: $unlock_key"
+            if [ "$restore" = true ]; then
+                echo "The session-restore passphrase (github_ssh_passphrase in host_vars) does not open this key." >&2
+                ccy_restore_askpass_discard_probe
+            else
+                echo "The passphrase was not accepted. Re-run $tool_name to try again."
+            fi
+            return 1
+        fi
+    done
+    ccy_restore_askpass_discard_probe
 }
 
 # Echoes the GitHub login that a token belongs to. Retries, and VALIDATES that
@@ -847,24 +993,11 @@ build_ssh_mounts_and_validate() {
     # connection is opened — see _probe_agent_start for why (GitHub's ~2-minute
     # LoginGraceTime vs a passphrase prompt left waiting). The RETURN trap
     # guarantees teardown on every exit path from this function, success or
-    # failure. Skipped when no tty can answer a prompt (headless/CI): a
-    # passphrase-less key needs no agent and an encrypted one could not be
-    # unlocked anyway.
-    if [ ${#SSH_KEYS[@]} -gt 0 ] && [ -t 0 ] && [ "${HEADLESS_MODE:-false}" != "true" ]; then
+    # failure. _probe_unlock_keys says when nothing is unlocked, and how a
+    # restored session on a server unlocks with nobody to ask.
+    if [ ${#SSH_KEYS[@]} -gt 0 ]; then
         trap '_probe_agent_stop' RETURN
-        _probe_agent_start
-        if [ -n "$CCY_PROBE_AGENT_SOCK" ]; then
-            local unlock_key
-            for unlock_key in "${SSH_KEYS[@]}"; do
-                # The session's agent is already unlocked by definition.
-                [ "$unlock_key" = "$SSH_AGENT_SENTINEL" ] && continue
-                if ! _probe_agent_add_key "$unlock_key"; then
-                    print_error "Could not unlock SSH key: $unlock_key"
-                    echo "The passphrase was not accepted. Re-run $tool_name to try again."
-                    return 1
-                fi
-            done
-        fi
+        _probe_unlock_keys "$tool_name" || return 1
     fi
 
     # The project's alias, if any: its stanza must reach the container whichever

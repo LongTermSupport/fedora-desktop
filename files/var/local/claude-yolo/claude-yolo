@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.71.0"  # The key menu offers only keys that can push. See docs/ccy-changelog.md.
+CCY_VERSION="3.72.0"  # A server's restored session unlocks its SSH key unattended. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,7 +70,7 @@ source "$SCRIPT_DIR/lib/tmux-session.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.38"
+REQUIRED_CONTAINER_VERSION="2.39"
 
 set -e
 
@@ -950,6 +950,9 @@ case "${CCY_SESSION_RESTORE:-}" in
     ;;
 esac
 unset CCY_SESSION_RESTORE
+# On a headless server the restore also names the SSH key passphrase file, so the key
+# unlocks through askpass with nobody at the keyboard. Refused on any other launch.
+ccy_restore_passphrase_take "$SESSION_RESTORE" || exit 1
 
 # Try to load previous launch configuration (if no flags specified).
 #
@@ -2000,6 +2003,11 @@ cleanup() {
     if [ -n "${CCY_KEY_STAGE_DIR:-}" ]; then
         rm -rf "$CCY_KEY_STAGE_DIR"
     fi
+    # A restore's container passphrase copy: the entrypoint removes it once its keys are
+    # added; this covers a container that never got that far.
+    if [ -n "${CCY_RESTORE_ASKPASS_DIR:-}" ]; then
+        rm -rf "$CCY_RESTORE_ASKPASS_DIR"
+    fi
 
     # Show debug log if CCY debugging is enabled
     if [ "$DEBUG_CCY" = true ] && [ -n "$DEBUG_LOG" ]; then
@@ -2025,6 +2033,14 @@ fi
 if ! configure_git_signing "$CONFIG_TEMP/gitconfig" "$PWD" "$signing_primary" \
     "$signing_in_container" "${SSH_AGENT_FORWARDED:-0}"; then
     exit 1
+fi
+
+# A server's session restore: the entrypoint unlocks the mounted key files with ssh-add too,
+# so it gets its own passphrase copy and askpass helper (lib/ssh-handling.bash). Not with a
+# forwarded agent, where the entrypoint adds nothing. After the trap, so cleanup removes it.
+if [ -n "$RESTORE_SSH_PASSPHRASE_FILE" ] && [ ${#SSH_KEY_PATHS[@]} -gt 0 ] \
+    && [ "${SSH_AGENT_FORWARDED:-0}" != "1" ]; then
+    ccy_restore_askpass_container "$RESTORE_SSH_PASSPHRASE_FILE" || exit 1
 fi
 
 # Convert SSH_KEY_PATHS array to colon-separated string
