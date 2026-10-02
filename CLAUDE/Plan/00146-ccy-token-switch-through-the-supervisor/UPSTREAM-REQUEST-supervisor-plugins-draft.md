@@ -3,13 +3,15 @@
 **Not filed.** This supersedes [UPSTREAM-REQUEST-draft.md](UPSTREAM-REQUEST-draft.md). The
 owner decided to ask for a generic plugin API in the supervisor, not a hard-coded
 credential-switch feature, so that the downstream credential switch ships as our own plugin
-and the daemon needs no knowledge of any downstream project. Filing is the owner's call
-(Plan 00146 Task 1.1). It goes only through `hooks-daemon issue-report`; the fields file is
-`untracked/scratch/supervisor-plugins-fields.json` (rebuilt from this file by
-`untracked/scratch/build_supervisor_plugins_fields.py`), and the generated body is
-`untracked/issue-reports/issue-report-20261002-171440.md`. If this text changes, regenerate
-the report; never edit the report by hand. Before filing, re-read everything below
-the rule for anything that identifies one install. There must be none.
+and the daemon needs no knowledge of any downstream project. Owner rulings folded in: plugins
+run at two levels, with the policy worker as the default; a plugin can never block the
+supervisor or the session; and every plugin failure is announced inside the session. Filing
+is the owner's call (Plan 00146 Task 1.1). It goes only through `hooks-daemon issue-report`.
+The fields file is `untracked/scratch/supervisor-plugins-fields.json`, rebuilt from this
+file by `untracked/scratch/build_supervisor_plugins_fields.py`. The generated body is the
+newest `untracked/issue-reports/issue-report-*.md`. If this text changes, regenerate the
+report; never edit the report by hand. Before filing, re-read everything below the rule for
+anything that identifies one install. There must be none.
 
 Design notes, source citations and the reasoning behind each choice:
 [subagent-reports/261002-supervisor-plugin-research-opus.md](subagent-reports/261002-supervisor-plugin-research-opus.md).
@@ -23,173 +25,198 @@ ccy supervisor: a small plugin API so downstream launchers can extend it without
 ## Problem
 
 The ccy supervisor (`claude-supervise.py`) is the only process that owns `claude`'s
-lifecycle: it starts it with `pty.fork` + `os.execvp`, watches it, and acts at a well-guarded
-idle choke point (idle, empty input box, subordinate to compact/continue). Every request
-family it handles (compact/continue, goal, goal clear, model switch and restore, operator
-signal, standing-auth, session actions) is built in: a hard-coded loader, a hard-coded
-branch in `decide_once`, a hard-coded entry in `Decision`. Its only configuration is three
-CLI flags and a handful of environment variables, and it spawns `claude` exactly once and
-returns its exit code.
+lifecycle. It starts `claude` with `pty.fork` + `os.execvp`, watches it, and acts at a
+well-guarded idle choke point: idle, an empty input box, and subordinate to compact/continue.
+Every request family it handles is built in, as a hard-coded loader, a branch in
+`decide_once` and a `Decision` member. Its only configuration is three CLI flags and a few
+environment variables. It spawns `claude` exactly once and returns its exit code.
 
-So a downstream launcher that needs the supervisor to do one more thing has to ask upstream
-for a feature that is really its own. Our case: the launcher passes the Claude credential in
-through an environment variable. When that account hits its rate limit, moving the session
-to another account means ending `claude` and starting `claude --resume <session-id>` with a
-different value in that variable. Claude Code reads the variable once, so this cannot happen
-inside a running `claude`, and only the supervisor can do it without tearing down everything
-around the session. That is launcher policy, and the daemon should not have to know it.
+So a downstream launcher that needs one more behaviour has to ask upstream for a feature that
+is really its own. Our case: the launcher passes the Claude credential in through an
+environment variable. When that account hits its rate limit, moving the session to another
+account means ending `claude` and starting `claude --resume <session-id>` with a different
+value in that variable. Claude Code reads the variable once, so this cannot happen inside a
+running `claude`. Only the supervisor can do it without tearing down everything around the
+session, but it is launcher policy, and the daemon should not have to know it.
 
 ## Proposal
 
-Let a project name supervisor plugins explicitly, and give them a few lifecycle hooks plus
-the primitives the supervisor already has.
+Let a project name plugins explicitly. Each plugin has a **worker half**, which holds the
+logic, and an optional, tiny **host half** for the one thing only the PTY host can do.
 
-**Discovery.** A repeatable supervisor flag, placed before `--` in the launcher's wrapper
-line (the supervisor is stdlib-only and reads no YAML, so a flag is the natural config):
+**Discovery.** Repeatable flags before `--` in the launcher's wrapper line. The supervisor is
+stdlib-only and reads no YAML, so flags are its natural config:
 
 ```text
-claude-supervise.py --plugin <path-to-module.py> [--plugin ...] --arm -- claude ...
+claude-supervise.py --plugin <name>=<worker.py> [--plugin-host <name>=<host.py>] --arm -- claude ...
 ```
 
-Nothing is discovered by scanning a directory. A plugin file must be a regular file owned by
-the supervisor's uid or root, and neither it nor its directory may be group- or
-world-writable. Plugins must be stdlib-only, like the supervisor.
+Nothing is found by scanning a directory. Each file must be a regular file owned by the
+supervisor's uid or root, and neither it nor its directory may be group- or world-writable.
+The host never imports a worker half, the worker never imports a host half, and both halves
+are stdlib-only.
 
-**Contract (API version 1).** The module defines the API major version it was written for
-and a factory. The plugin object is duck-typed and every hook is optional:
+**Hooks by level.**
+
+| Level  | Hook                                               | Why it is here                                                                                                                              |
+| ------ | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| worker | `on_start()`                                       | Default level: hot-reloadable, inside the existing per-tick safety net                                                                      |
+| worker | `on_idle(tick) -> Restart \| None`                 | Sees the same facts as the built-in families; its `Restart` crosses the existing host-worker channel and carries no secret                  |
+| host   | `before_spawn(spawn) -> Mapping[str, str] \| None` | A spawn's environment exists only in the process that calls `execvp`; this is the one way a secret reaches `claude` without crossing a pipe |
+
+Ending and respawning `claude` is a **supervisor primitive**, triggered by a `Restart`. It
+is not a plugin hook. The host has no other plugin code.
 
 ```python
-PLUGIN_API = 1                                   # major; a mismatch refuses to load
+# worker half                                    # host half (optional)
+PLUGIN_API = 1                                   PLUGIN_API = 1
+def create_worker_half(api) -> WorkerHalf: ...   def create_host_half(api) -> HostHalf: ...
 
-def create_plugin(host: PluginHost) -> Plugin: ...
+class WorkerHalf:                                class HostHalf:
+    name: str; version: str                          env_keys: frozenset[str]  # only vars it may set
+    def on_start(self) -> None: ...                  def before_spawn(self, spawn: SpawnInfo
+    def on_idle(self, tick: IdleTick                     ) -> Mapping[str, str] | None: ...
+        ) -> Restart | None: ...
 
-class Plugin:
-    name: str                                    # [a-z0-9-]{1,32}, unique per supervisor
-    version: str
-    env_keys: frozenset[str]                     # the ONLY variables it may set on a spawn
-
-    def on_start(self) -> None: ...              # once, before the first spawn
-    def before_spawn(self, spawn: SpawnInfo) -> Mapping[str, str] | None: ...
-    def on_idle(self, tick: IdleTick) -> Restart | None: ...
-    def on_child_exit(self, exit: ChildExit) -> Respawn | None: ...
-    def on_stop(self) -> None: ...               # once, before the supervisor returns
-
-class PluginHost:                                # supplied by the supervisor
-    api_version: tuple[int, int]                 # (major, minor)
-    state_dir: Path                              # <daemon untracked>/supervise/plugins/<name>/, 0700
-    Restart: type; Respawn: type                 # action constructors (no import needed)
-    def session_id(self) -> str | None: ...      # own session, or None if ambiguous
-    def status(self, text: str, *, level: str = "info", ttl: float = 10.0) -> None: ...
-    def audit(self, message: str) -> None: ...   # decision.log line, prefixed "plugin <name>:"
-
-@dataclass(frozen=True)
-class IdleTick:    now: float; session_id: str | None
-class SpawnInfo:   attempt: int; resume_session: str | None
-class ChildExit:   exit_code: int; requested_by: str | None   # plugin whose Restart caused it
-class Restart:     reason: str; resume: bool = True           # carries no env and no argv
-class Respawn:     reason: str; resume: bool = True
+# api (worker): api_version (major, minor); state_dir: Path (0700, per plugin);
+#   session_id() -> str | None (own session, None if ambiguous); status(text, level, ttl);
+#   audit(message) -> a decision.log line, carried to the host in TickOutcome; Restart(reason)
+IdleTick  = (now: float, session_id: str | None)
+SpawnInfo = (attempt: int, resume_session: str | None)
+Restart   = (reason: str)                        # short, logged only, never typed into the chat
 ```
 
-**Where the hooks run.** In the PTY host, because only the host owns the child. `on_idle` is
-called only on a tick where nothing built in wants the slot: the worker reports a new
-`TickOutcome` flag, set when the tick decided NOOP in MONITOR with no compaction signal
-pending, no unconfirmed own line, and `can_inject` true. So a plugin is subordinate to every
-built-in family, compact/continue included. Plugins are asked in `--plugin` order, and at
-most one action is taken per tick.
+**Where plugins sit in priority.** The worker calls `on_idle` only when `decide_once` has
+reached NOOP in MONITOR, with no compaction signal pending, no unconfirmed own line, and
+`can_inject` true. That puts plugins below every built-in family. Plugins are asked in flag
+order, and the first `Restart` of a tick wins.
 
-**Restart, the one action in v1.** The supervisor (1) refuses unless `session_id()` is
-unambiguous; (2) types `/exit` through the existing injection path; (3) stops all injections
-and plugin hooks until the child exits, giving up loudly and carrying on with the existing
-child if it is still running after a bounded wait; (4) forks a new `claude` on a new PTY:
-the original argv minus `--continue`/`-c`/`--resume`/`-r [id]`/`--fork-session`, plus
-`--resume <id>`, with the parent environment overlaid by every plugin's `before_spawn`
-result; (5) returns to the normal loop on the new child. The supervisor's exit code is the
-last child's. `before_spawn` is the only way an environment value travels, and it applies to
-every later spawn as well, so a changed value survives any later respawn.
+**Restart, the one action in v1.** The worker returns `Restart` in a new `TickOutcome`
+field. The host then:
 
-**Versioning.** `PLUGIN_API` is a major version: a mismatch refuses to load. Minor versions
-only add optional hooks or fields, which a plugin detects through `host.api_version`. The
-supervisor records each loaded plugin's name, version and API in `supervisor-status.json`
-and in `decision.log` at start.
+1. refuses unless the session id is unambiguous;
+2. types `/exit` through the existing injection path and holds every injection until the
+   child exits, giving up if the wait times out;
+3. forks the new child: the original argv minus `--continue`/`-c`/`--resume`/`-r [id]`/
+   `--fork-session`, plus `--resume <id>`;
+4. returns to the normal loop on the new child.
+
+The supervisor's exit code is the last child's.
+
+**The host half runs in the forked child, between `fork` and `exec`.** Supervisor code in
+the child imports the host half and calls `before_spawn`. It then checks the overlay against
+`env_keys` and a fixed denylist (`PATH`, `LD_*`, `PYTHON*`, `CLAUDE_PROJECT_DIR`,
+`CLAUDE_CODE_SESSION_ID`), and calls `execvpe`. A pipe marked close-on-exec reports the
+result to the parent: end-of-file means the exec happened; a short failure code means the
+hook or exec failed; silence past a deadline (a few seconds) means the parent kills the
+child with `SIGKILL`. All of this is stdlib. No thread is ever abandoned. The secret never
+enters the supervisor's memory or crosses any pipe. A hang, a crash or `os._exit` in the
+plugin kills only that child, never the supervisor.
+
+**Versioning.** `PLUGIN_API` is a major version, and a mismatch is a load failure. Minor
+versions only add optional hooks or fields, which a plugin detects through `api.api_version`.
+`supervisor-status.json` lists each plugin: name, version, level, and
+`loaded`/`failed`/`disabled` with the reason.
 
 ## Worked example: credential switch
 
-A downstream launcher passes the Claude credential via an environment variable. Its plugin
-declares `env_keys = {<that variable>}`. A launcher command writes a request file into the
-plugin's `state_dir`, naming nothing secret, and places the new credential in a
-container-local directory that is not the project bind mount. On `on_idle` the plugin finds
-the request and checks everything before anything destructive happens: the session id is
-unambiguous; the credential file is opened with `O_NOFOLLOW`, is a regular file owned by the
-supervisor's uid, mode `0600`, within a size bound; and it is unlinked at once, where a
-failed unlink refuses the request. Only then does the plugin keep the value in memory and
-return `Restart(reason="credential switch")`. Its `before_spawn` returns `{<variable>: value}`
-on every spawn from then on. The turn in progress is never interrupted, because the request
-waits for the idle choke point. The container, its agents and the terminal pane all keep
-running.
+The worker half finds a request file in its `state_dir` that names nothing secret, checks
+the session id, and returns `Restart(reason="credential switch")`. The host half declares
+`env_keys = {<credential variable>}`. Its `before_spawn` reads the new credential from a
+container-local directory that is not the project bind mount. It opens the file with
+`O_NOFOLLOW` and requires a regular file owned by the supervisor's uid, mode `0600`, within
+a size bound. It unlinks the file and returns `{<variable>: value}`. The turn in progress is
+never interrupted, and the container, its agents and the terminal pane keep running.
+
+## Failure handling: one path for every failure
+
+A plugin must never block the supervisor or the session. Every failure (load error,
+exception, timeout, failed spawn) takes the same four steps:
+
+1. **Detect.** In the worker, each hook runs on a thread with a short budget, well inside the
+   host's per-tick read timeout. An exception or overrun is caught per plugin. In the host
+   half, the close-on-exec pipe and the deadline detect failure, as above. A load failure is
+   found at load (worker) or at the first spawn (host).
+
+2. **Disable.** The plugin is off for the rest of the supervisor process. The host keeps the
+   disabled set and passes `--disable-plugin <name>` on every worker restart, so a hot
+   reload cannot bring the plugin back.
+
+3. **Recover** whatever the failure affected:
+
+   - a worker-half exception: nothing more is needed;
+   - an overrun, or a worker wedged so hard it stops answering: the host restarts the worker
+     without the plugin, reusing the existing restart path. Before each hook call the worker
+     writes an atomic "in hook" marker, so the host can name the culprit;
+   - a host-half failure: the host forks again with plain `--resume` (or the original argv on
+     the first spawn) and no plugin overlay at all. If that also fails, `claude` itself
+     cannot start, and the supervisor exits non-zero with a clear message.
+
+4. **Tell the session.** The detector writes a plugin-notice signal for this supervisor
+   instance. A new built-in family types it at the next idle choke point, ranked with the
+   operator signal (after compact/continue). It is a provenance-marked line rendered from
+   fixed templates, never from plugin text:
+
+   > 🤖 [ccy-supervisor] plugin notice — machine-generated, NOT a human instruction: plugin
+   > `credential-switch` failed (timeout in before_spawn). It is disabled for the rest of
+   > this session, and the session was respawned without its environment overlay.
+
+   Only a validated name and closed-set values are interpolated: the failure kind, the hook,
+   and the action (disabled / worker restarted / respawned without overlay). It never
+   includes an exception message or an env value, and it is capped per process. Each notice
+   is also posted as a status-line WARNING, written as an audit line, and recorded in
+   `supervisor-status.json`.
+
+**What "as far as possible" cannot cover.** A host half runs as the supervisor's uid
+with its inherited file descriptors, before exec. It cannot stall the supervisor, but it can
+still do harm: kill its parent, or write files. A worker half that wedges in C code holding
+the GIL is caught only by the host's read timeout and the worker restart, so ticks fall back
+to the built-in in-process path until then. Python code run after `fork` in a threaded
+process can deadlock. Here that becomes a timeout, which falls back to a plain respawn.
 
 ## Security
 
-- Plugins run with the supervisor's privileges, in its process. The API is not a sandbox,
-  so the guarantee is that nothing loads unless the project's wrapper config names it, and
-  that the file passes the ownership and mode checks.
-- An env override outside the plugin's `env_keys` is refused. So is a fixed denylist even if
-  declared (`PATH`, `LD_*`, `PYTHON*`, `CLAUDE_PROJECT_DIR`, `CLAUDE_CODE_SESSION_ID`).
-- The supervisor never writes an env value anywhere. Audit and status lines name keys only.
-  `Restart` and `Respawn` have no argv or env field, so a secret has no route into argv or
-  the log through them.
-- v1 offers no general "type this text" action. That would need the provenance marker and
-  the own-line follow-up rules the built-in families obey, and nothing needs it yet.
-
-## Failure handling
-
-- **Load failure** (missing file, import error, no factory, API mismatch, bad or duplicate
-  name, bad `env_keys`, ownership or mode): the supervisor exits 2 **before** spawning
-  `claude`, naming the plugin and the reason. The config named it, so this is fail-fast, and
-  no session exists yet that could be left without `claude`.
-- **Hook exception at runtime:** the traceback goes to the worker error log, an audit line
-  and a WARNING status notice name the plugin, and the plugin is disabled for the rest of
-  the process. The session carries on untouched. Nothing is retried every tick, and nothing
-  is swallowed silently.
-- **After `/exit`:** if `before_spawn` raises, or the new child dies within a short window,
-  the supervisor makes one loud retry with the unmodified environment and `--resume`. If that
-  fails too, it exits non-zero with a clear message. It never sits on an empty PTY.
-- `on_child_exit` respawns are capped (say, 3 in 10 minutes) so a buggy plugin cannot loop.
+- Nothing loads unless the wrapper config names it. The API is not a sandbox.
+- Env values exist only in the forked child. The supervisor logs key names at most, and
+  `Restart` has no argv or env field.
+- v1 has no general "type this text" action. Only fixed supervisor templates reach the chat.
 
 ## Tests
 
-Fake plugins and a fake child, a small stdlib script on the PTY that records its argv and
-env and exits on `/exit`:
-
-- each load refusal;
+- Each load refusal: the plugin is skipped, the session starts, and the notice is typed.
 - `on_idle` is never called while a compaction signal is pending, in AWAIT, with a non-empty
-  box, or on a tick a goal or operator signal claimed;
-- a raising hook is disabled, logged and posted, and the child is untouched;
-- after a restart, argv carries `--resume <id>` and no `--continue`, and env has the override;
-- the value appears in neither `decision.log` nor the status file;
-- an undeclared or denylisted key is refused before `/exit`;
-- an ambiguous session id is refused before `/exit`;
-- a child that ignores `/exit` causes an abandoned restart, and the session continues;
-- a failed respawn makes one retry, then exits non-zero.
+  box, or on a tick a built-in family claimed.
+- Restart: argv has `--resume <id>` and no `--continue`; env has the overlay; neither
+  `decision.log` nor the status file contains the value.
+- An undeclared or denylisted key, or an ambiguous session id, is refused before `/exit`.
+- Uniform failure path, one case per kind:
+  - a worker hook that raises: disabled, and the notice is typed;
+  - a worker hook that overruns, and a worker wedged in a busy loop: the worker restarts
+    with `--disable-plugin`, and the culprit is named;
+  - a host half that raises, sleeps past the deadline, or calls `os._exit`: the child is
+    killed and a plain `--resume` respawn follows;
+  - each case types the notice exactly once, at an idle tick, never into a non-empty box;
+  - the notice text carries no exception text and no env value.
+- A child that ignores `/exit`: the restart is abandoned and the session continues.
 
 ## Out of scope
 
-- Any built-in knowledge of credentials, accounts or a particular launcher.
-- Hot-reloading plugins. They live in the host, so changing one needs a supervisor restart.
-- A general text-injection action, and plugins in the policy worker.
+- Built-in knowledge of credentials, accounts or any launcher.
+- Plugin-driven respawn on an unsolicited exit, and a general text-injection action.
 - Changing a running `claude`'s credential. Claude Code does not support that.
 
 ## Alternatives considered
 
-- **A hard-coded "respawn with a changed credential" family.** It works, but it puts one
-  launcher's policy into the daemon, and the next downstream need is another feature request.
-- **Plugins in the policy worker.** That would bring hot reload and the existing per-tick
-  safety net. But the worker cannot fork or wait on `claude`, a secret would have to cross
-  the host-worker pipe, and plugin state would be lost on every worker restart.
-- **An outer wrapper loop plus one built-in "exit at idle" request.** This is the smallest
-  upstream change. The downstream wrapper re-runs the supervisor with `--resume` and a new
-  environment after it returns. But the supervisor, its worker and its status file restart
-  on every switch, and the plumbing is split across two processes. We would accept this if a
-  plugin API is unwelcome.
-- **Daemon handler plugins (`plugins:`, `project_handlers:`).** These load handlers into the
-  daemon process for hook events. The daemon neither spawns nor waits on `claude`, so they
-  cannot respawn it.
+- **Worker-only plugins.** The worker cannot fork or exec `claude`, so the env overlay
+  would have to cross the host-worker pipe with the secret in it.
+- **Host-only plugins.** Plugin logic would run in the process that owns the live session,
+  with no hot reload and no per-tick safety net, and a hang there stalls the PTY.
+- **Host half on a deadline thread in the host process.** An overrun thread cannot be
+  killed, only abandoned, and the secret would sit in the supervisor's memory. Running the
+  host half in the forked child avoids both.
+- **A hard-coded credential-switch family.** It puts one launcher's policy into the daemon.
+- **An outer wrapper loop plus a built-in "exit at idle" request.** This is the smallest
+  upstream change, but the supervisor and its worker restart on every switch. We would
+  accept it if a plugin API is unwelcome.
+- **The daemon's own `plugins:` and `project_handlers:`.** They load into the daemon process,
+  which never spawns `claude`.

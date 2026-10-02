@@ -147,6 +147,20 @@ The issue text is
 
 ## 2. Design choices, and why
 
+**Superseded in part by three owner rulings; the draft issue is authoritative.** First,
+plugins run at two levels: a worker half (the default, hot-reloadable) and an optional host
+half that has only `before_spawn`. Second, a plugin can never block the supervisor: a load
+failure is skipped and announced, which reverses item 6 below. Third, every failure takes
+one path: detect, disable, recover (restart the worker without the plugin, or respawn with
+plain `--resume` and no overlay), then type a fixed-template notice into the session through
+a new built-in family. The host-hook timeout is resolved by running the host half **in the
+forked child, between `fork` and `exec`**. A close-on-exec pipe reports success (EOF) or a
+failure code, and the parent kills the child with `SIGKILL` on a deadline. That is
+stdlib-only, abandons no thread, and keeps the secret out of the supervisor's memory and off
+every pipe. It beats a deadline thread, which cannot be killed and holds the secret in the
+host, and a helper subprocess, which would have to pipe the secret back. Items 2, 4, 6 and 7
+below are therefore replaced, and `on_child_exit` moved out of scope.
+
 01. **Discovery by `--plugin` flag, not YAML and not a directory scan.** The supervisor
     cannot read YAML (stdlib-only, a deliberate isolation from the daemon venv). The flag
     lives in the launcher's wrapper line, which is the project's own opt-in. A YAML key
