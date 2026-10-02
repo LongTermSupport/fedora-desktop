@@ -49,6 +49,8 @@ PLAN_ROOT="${scriptDir}"
 # run as one unit through its own shebang, which goes through run.bash, exactly as
 # `./playbooks/imports/<play>.yml` does by hand.
 PLANS=(
+    # Plan 00135 Task 6.2: CCY 3.72.0 and the restore unit's SSH unlock drop-in.
+    playbooks/imports/play-claude-yolo.yml
 )
 
 LIST_ONLY=0

@@ -245,7 +245,25 @@ from before the reboot running rather than asking what to do with them, and star
 alongside sibling sessions in the same project. Each of these is the one answer that
 cannot lose work, and each is announced on stderr. Every other prompt (token choice, SSH
 key or passphrase, GitHub-over-443, network, compose) has no safe answer, so it waits in
-the pane for a person.
+the pane for a person — except the SSH key passphrase on a headless server, below.
+
+**On a headless server the SSH key unlocks unattended** (since CCY 3.72.0). Where the
+provisioning profile is `server`, `ccy_restore_sessions: true` is declared and a GitHub
+identity is configured, `play-claude-yolo.yml` writes the vault's `github_ssh_passphrase` to
+`~/.claude-tokens/ccy/restore-ssh-passphrase` (mode 0600). It also adds the drop-in
+`ccy-sessions-restore.service.d/ssh-unlock.conf`, which names that file to the restore.
+Each restored `ccy` session then feeds the passphrase to `ssh-add` through `SSH_ASKPASS`,
+on the host and in the container. This is how `run.bash --headless` loads the same key.
+The passphrase is never in argv, a log or the pane. Each temporary copy is deleted once its
+key is added: the container's is deleted before Claude starts.
+
+- Only a restore does this. A launch you start yourself prompts as always. A desktop has
+  no drop-in, so a restored session there waits for you at the prompt.
+- A missing, empty or other-readable passphrase file starts no session at all, and the
+  unit fails. A passphrase that does not open the key fails that session's launch. A
+  missing `github_ssh_passphrase` fails the play.
+- The cost: anyone who can read your home directory can use the key, as with the vault
+  password file. Turn it off with `ccy_restore_sessions: false`, which removes the file.
 
 A launch that named its token, key and network therefore comes back unattended. Check
 with `ccy-sessions verify-restore [--wait SECONDS]`. It reads the manifest the boot's
@@ -261,6 +279,7 @@ session is `OK`. `--wait` keeps polling until they all are or the time runs out.
 | Record's directory has since been deleted | Fails loudly, keeps the record for you, carries on with the others; the unit ends `failed`                                        |
 | Live session list cannot be read          | Starts nothing — restoring blind could double every session                                                                       |
 | Registry path is not a readable directory | Fails: an unreadable registry is not "nothing to restore"                                                                         |
+| Server's SSH passphrase file is unusable  | Starts nothing: every `ccy` session would stop at its passphrase prompt; the unit ends `failed`                                   |
 | Machine not opted in                      | Nothing runs. Records are still written and removed as sessions end; one left by a killed session stays until that name is reused |
 
 `ccy --no-restore` marks a one-off session as not worth bringing back. `ccy-sessions restore --dry-run` prints what a restore would start and starts nothing.
