@@ -14,6 +14,8 @@ Newest first, continuing from [../README.md](../README.md#completed-plans).
      were read as an unrecognised section while their folders were plainly completed —
      sixteen advisories saying so. -->
 
+- [00070-documentation-drift-audit](00070-documentation-drift-audit/) - Fixed 23 confirmed documentation-drift defects and shipped `scripts/qa-docs.bash` as a permanent link and catalogue gate
+
 - [00071-qa-gate-correctness](00071-qa-gate-correctness/) - Fixed three defects that made `qa-all.bash` exit 1 on a clean tree, and pinned ruff via `/.ruff-version`
 
 - [00067-qa-gates-inert-in-nested-checkout](00067-qa-gates-inert-in-nested-checkout/) - QA gates scanned nothing in a nested checkout; exclusions are now anchored to the repo root and each gate exits 2 on an empty file set

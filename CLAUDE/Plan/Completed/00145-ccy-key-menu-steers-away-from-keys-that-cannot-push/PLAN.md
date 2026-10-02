@@ -1,6 +1,7 @@
 # Plan 00145: ccy key menu steers away from keys that cannot push
 
-**Status**: In Progress
+**Status**: Complete (2026-10-02; the owner confirmed on the host that the menu offers only
+the keys that can push)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
@@ -65,17 +66,19 @@ towards.
 
 ### Phase 3: Host
 
-- [ ] 🚫 **Task 3.1**: **HOST**: deploy `play-claude-yolo.yml`, launch ccy in a project two
+- [x] ✅ **Task 3.1**: **HOST**: deploy `play-claude-yolo.yml`, launch ccy in a project two
   keys can see but only one can push to, and check the menu offers only that one. The
-  deploy is done: the play passed in the owner's meta-deploy run. Blocked on the owner
-  for the launch, because the menu needs a person.
+  play passed in the owner's meta-deploy run, and the owner reports that in everyday ccy
+  launches since, the menu shows only the keys that can push by default. The `a` escape
+  and the `y` question had no separate host run; the gate covers both.
 
 ## Success Criteria
 
-- [ ] A launch in a project with a push-capable key cannot end up on a key that cannot
-  push without the user answering `y` to a question that says so.
-- [ ] A launch in a project no key can push to shows today's full menu.
-- [ ] The `ccy-ssh-handling` gate covers every branch of the new menu.
+- [x] A launch in a project with a push-capable key cannot end up on a key that cannot
+  push without the user answering `y` to a question that says so (host: short list
+  confirmed by the owner; the question: the gate).
+- [x] A launch in a project no key can push to shows today's full menu (the gate).
+- [x] The `ccy-ssh-handling` gate covers every branch of the new menu.
 
 ## Delivery & Milestones
 
@@ -83,4 +86,4 @@ towards.
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00145-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- (none yet)
+- CCY 3.71.0: the short list, the `a` escape and the confirmation; host-confirmed by the owner
