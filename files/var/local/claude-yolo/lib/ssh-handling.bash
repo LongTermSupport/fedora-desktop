@@ -562,7 +562,7 @@ discover_and_select_ssh_keys() {
             agent_label="$agent_label holding $held_names — already unlocked, no passphrase asked"
         fi
         candidates+=("$SSH_AGENT_SENTINEL")
-        labels+=("$agent_label; pushes as whoever it signs as; runs the container with SELinux labelling off")
+        labels+=("$agent_label; the container can use EVERY key the agent holds, and signs as whichever it picks; runs the container with SELinux labelling off")
         probed+=(no)
     fi
 
@@ -596,19 +596,6 @@ discover_and_select_ssh_keys() {
         suggested_key="${candidates[${pushers[0]}]}"
     else
         shown=("${!candidates[@]}")
-    fi
-
-    # Whatever the default key is, an agent that already holds that very key is the better
-    # default: it pushes as the same account and asks no passphrase, where the key file asks
-    # for it here and again in the container.
-    if [ "$agent_ok" = true ] && [ -n "$suggested_key" ] && [ ${#agent_held[@]} -gt 0 ] \
-            && [[ " ${agent_held[*]} " == *" $suggested_key "* ]]; then
-        for i in "${shown[@]}"; do
-            if [ "${candidates[$i]}" = "$SSH_AGENT_SENTINEL" ]; then
-                suggested_key="$SSH_AGENT_SENTINEL"
-                break
-            fi
-        done
     fi
 
     echo ""
@@ -932,6 +919,70 @@ ccy_restore_askpass_container() {
     SSH_RUN_OPTS+=(-v "$CCY_RESTORE_ASKPASS_DIR:$CCY_RESTORE_ASKPASS_MOUNT$relabel")
 }
 
+# ── An ordinary launch: the user's own SSH_ASKPASS answers for ONE key ──────────────────
+#
+# A key file is unlocked twice, here and again in the container, and a person at the keyboard
+# types the passphrase both times. When SSH_ASKPASS names an executable (the one ssh-add itself
+# would run) and exactly one encrypted key file is selected, that program is asked once and its
+# answer goes through the same stage a session restore uses: the host's unlock, then the
+# container's, with nobody asked. The answer lives in an owner-only file on the runtime
+# directory for the length of the launch and is never in argv or the environment. Several keys,
+# a forwarded agent, a passphrase-less key, a headless launch or a helper that gives no answer
+# leave the ordinary prompting exactly as it was.
+CCY_SUPPLIED_PP_FILE=""
+
+# Whether a person can answer on this launch's terminal; a function so a test can say.
+ccy_has_terminal() { [ -t 0 ]; }
+
+# ccy_askpass_passphrase_supply — sets RESTORE_SSH_PASSPHRASE_FILE when the helper answered.
+# Call after the keys are selected and before build_ssh_mounts_and_validate.
+ccy_askpass_passphrase_supply() {
+    [ -z "$RESTORE_SSH_PASSPHRASE_FILE" ] || return 0
+    { [ -n "${SSH_ASKPASS:-}" ] && [ -x "$SSH_ASKPASS" ]; } || return 0
+    { ccy_has_terminal && [ "${HEADLESS_MODE:-false}" != "true" ]; } || return 0
+    [ ${#SSH_KEYS[@]} -eq 1 ] || return 0
+    local key="${SSH_KEYS[0]}"
+    [ "$key" != "$SSH_AGENT_SENTINEL" ] || return 0
+
+    # An empty passphrase opens a key that has none: nothing to supply.
+    local unlock_probe
+    if unlock_probe=$(ssh-keygen -y -P '' -f "$key" 2>&1); then
+        return 0
+    fi
+    # Only an encrypted key is worth asking for: a missing or unreadable file fails differently.
+    [[ "$unlock_probe" == *passphrase* ]] || return 0
+
+    local pp_file pp_dir="${XDG_RUNTIME_DIR:-/tmp}" gpg_tty="${GPG_TTY:-}"
+    if ! pp_file=$(mktemp "$pp_dir/ccy-pp.XXXXXX"); then
+        print_error "could not create a file for the passphrase under $pp_dir"
+        return 1
+    fi
+    # A helper that asks through gpg needs the terminal named; tmux panes do not inherit it.
+    [ -n "$gpg_tty" ] || gpg_tty=$(tty) || gpg_tty=""
+    if ! GPG_TTY="$gpg_tty" SSH_ASKPASS_REQUIRE=force "$SSH_ASKPASS" "Enter passphrase for $key: " \
+            >"$pp_file" </dev/null || [ ! -s "$pp_file" ]; then
+        rm -f -- "$pp_file"
+        echo "note: your SSH_ASKPASS helper gave no passphrase for $key; ssh-add will ask."
+        return 0
+    fi
+    CCY_SUPPLIED_PP_FILE="$pp_file"
+    RESTORE_SSH_PASSPHRASE_FILE="$pp_file"
+    echo "✓ SSH key passphrase supplied by your SSH_ASKPASS helper — no prompt, here or in the container"
+}
+
+# ccy_askpass_passphrase_discard — remove the supplied answer, if there is one. Safe to repeat.
+ccy_askpass_passphrase_discard() {
+    [ -n "$CCY_SUPPLIED_PP_FILE" ] || return 0
+    if ! rm -f -- "$CCY_SUPPLIED_PP_FILE"; then
+        print_error "could not remove the supplied passphrase file $CCY_SUPPLIED_PP_FILE"
+        return 1
+    fi
+    if [ "$RESTORE_SSH_PASSPHRASE_FILE" = "$CCY_SUPPLIED_PP_FILE" ]; then
+        RESTORE_SSH_PASSPHRASE_FILE=""
+    fi
+    CCY_SUPPLIED_PP_FILE=""
+}
+
 # _probe_unlock_keys <tool_name> — unlock every selected key file into the private probe
 # agent, BEFORE any GitHub connection is opened (see _probe_agent_start). Requires SSH_KEYS;
 # RESTORE_SSH_PASSPHRASE_FILE is set only on a server's session restore. Ordinarily it asks
@@ -963,7 +1014,10 @@ _probe_unlock_keys() {
         [ "$unlock_key" = "$SSH_AGENT_SENTINEL" ] && continue
         if ! _probe_agent_add_key "$unlock_key" "$CCY_PROBE_ASKPASS_DIR"; then
             print_error "Could not unlock SSH key: $unlock_key"
-            if [ "$restore" = true ]; then
+            if [ -n "$CCY_SUPPLIED_PP_FILE" ]; then
+                echo "The passphrase your SSH_ASKPASS helper gave does not open this key." >&2
+                ccy_restore_askpass_discard_probe
+            elif [ "$restore" = true ]; then
                 echo "The session-restore passphrase (github_ssh_passphrase in host_vars) does not open this key." >&2
                 ccy_restore_askpass_discard_probe
             else

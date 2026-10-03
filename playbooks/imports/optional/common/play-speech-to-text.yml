@@ -5,8 +5,9 @@
 # Prerequisites: NVIDIA drivers installed via play-nvidia.yml
 #
 # Usage: Press Insert key to toggle recording. Text auto-pastes when stopped.
-# Model: Configurable via stt_model in host_vars/localhost.yml (default: small)
-#        Options: tiny, base, small, medium, large-v3
+# Model: chosen in the extension Settings (Whisper Model). Its default, auto, is resolved
+#        per recording by wsi-resolve-model. stt_model in host_vars/localhost.yml
+#        (default: small) is only the default of faster-whisper-transcribe run by hand.
 - hosts: desktop
   name: Speech-to-Text Extension
   become: true
@@ -16,7 +17,7 @@
     extension_name: speech-to-text@fedora-desktop
     extension_src: "{{ root_dir }}/extensions/{{ extension_name }}"
     extension_dest: "/home/{{ user_login }}/.local/share/gnome-shell/extensions/{{ extension_name }}"
-    # Whisper model size: tiny, base, small, medium, large-v3
+    # Default model of faster-whisper-transcribe when WHISPER_MODEL is unset (wsi always sets it)
     # Both batch and streaming modes share the same model cache (~/.cache/huggingface/hub/)
     faster_whisper_model: "{{ stt_model | default('small') }}"
     # Language code for transcription (e.g., "en" for English)
@@ -353,6 +354,27 @@
         group: "{{ user_login }}"
         mode: '0755'
 
+    # The one reader of the extension's GSettings keys for the recorder scripts
+    # (wsi-stop-grace uses it, so it is deployed first).
+    - name: Deploy Settings Reader (wsi-setting)
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/wsi-setting"
+        dest: "/home/{{ user_login }}/.local/bin/wsi-setting"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
+    # What the Whisper Model setting's `auto` means on this machine; wsi and wsi-stream
+    # refuse to record without it. A change can alter the warm server's model.
+    - name: Deploy Model Resolver (wsi-resolve-model)
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/wsi-resolve-model"
+        dest: "/home/{{ user_login }}/.local/bin/wsi-resolve-model"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+      notify: restart wsi-stream-server
+
     # Reads the stop-grace-seconds key from the schema compiled above; wsi and
     # wsi-stream refuse to record if it cannot be read.
     - name: Deploy Stop Grace Reader (wsi-stop-grace)
@@ -377,6 +399,171 @@
       failed_when: >-
         stop_grace_probe.rc != 0
         or not (stop_grace_probe.stdout | regex_search('^[0-9]+$'))
+
+    # wsi-stream passes this to the server it starts, and refuses to start one without it
+    - name: Verify Server Idle Timeout Is Readable
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - "/home/{{ user_login }}/.local/bin/wsi-setting"
+          - server-idle-timeout-minutes
+      environment:
+        HOME: "/home/{{ user_login }}"
+      register: idle_timeout_probe
+      changed_when: false
+      failed_when: >-
+        idle_timeout_probe.rc != 0
+        or not (idle_timeout_probe.stdout | regex_search('^[0-9]+$'))
+
+    # The NVIDIA driver (play-nvidia.yml) creates one /dev/nvidiaN node per GPU
+    - name: Find NVIDIA GPU Device Nodes
+      ansible.builtin.find:
+        paths: /dev
+        patterns: 'nvidia[0-9]*'
+        file_type: any
+      register: nvidia_gpu_nodes
+
+    # CTranslate2 answers 0, not an error, when it cannot reach a GPU that is there, and
+    # auto would then load the CPU model. The resolver already refuses that state; this
+    # also proves, as the recording user, that the count is real on a GPU host.
+    - name: Verify CTranslate2 Sees The GPU
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - "/home/{{ user_login }}/.local/bin/wsi-resolve-model"
+          - --gpu-count
+      environment:
+        HOME: "/home/{{ user_login }}"
+      register: gpu_count_probe
+      changed_when: false
+      failed_when: >-
+        gpu_count_probe.rc != 0
+        or not (gpu_count_probe.stdout | regex_search('^[0-9]+$'))
+        or (nvidia_gpu_nodes.matched > 0 and (gpu_count_probe.stdout | int) == 0)
+
+    # Proves the resolver can ask CTranslate2 (installed with faster-whisper above) for
+    # CUDA devices as the recording user; it prints the model auto means here.
+    - name: Verify The Auto Model Resolves
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - "/home/{{ user_login }}/.local/bin/wsi-resolve-model"
+          - --mode
+          - streaming
+          - --language
+          - "{{ stt_language_code }}"
+          - auto
+      environment:
+        HOME: "/home/{{ user_login }}"
+      register: auto_model_probe
+      changed_when: false
+      failed_when: auto_model_probe.rc != 0 or (auto_model_probe.stdout | trim | length == 0)
+
+    # =========================================================================
+    # Warm Server at Login (Settings: "Start the server at login")
+    # =========================================================================
+    # The unit is enabled on every host; at each login it reads the Settings and starts
+    # the server only in streaming server mode with the switch on, so turning the switch
+    # on or off needs no playbook run. See the unit file for the restart choice.
+
+    - name: Ensure The systemd User Unit Directory Exists
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/systemd/user"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
+    - name: Deploy The Warm Server At Login Unit
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.config/systemd/user/wsi-stream-server-at-login.service"
+        dest: "/home/{{ user_login }}/.config/systemd/user/wsi-stream-server-at-login.service"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+
+    # Resolved, never defaulted: a guessed uid points at another user's runtime directory
+    # without failing (play-container-watch.yml has the history).
+    - name: Resolve The Session User UID
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ user_login }}"
+        fail_key: false
+
+    - name: Assert The Session User Exists
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['getent_passwd'][user_login] is defined
+          - ansible_facts['getent_passwd'][user_login] is not none
+          - ansible_facts['getent_passwd'][user_login][1] | int > 0
+        fail_msg: >-
+          Could not resolve a uid for {{ user_login }}, so this play cannot find that
+          user's systemd manager to enable wsi-stream-server-at-login.service.
+
+    # Enabling writes the graphical-session.target wants-link; idempotent. Not started
+    # here: it acts at login, and an Insert starts the server on demand meanwhile.
+    - name: Enable The Warm Server At Login Unit
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.systemd:
+        name: wsi-stream-server-at-login.service
+        scope: user
+        enabled: true
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+
+    # Its own task, after the enable: the module reloads before it enables, so a reload
+    # inside the enable task would not see the new wants-link or a changed unit file.
+    - name: Reload The User Manager For The Warm Server Unit
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.systemd:
+        scope: user
+        daemon_reload: true
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+
+    # Read back from the live manager, not the disk: `is-enabled` has been seen to say
+    # enabled while graphical-session.target did not pull the unit in
+    # (play-host-health-login-report.yml). Probe-then-fail: the verdict is the next task.
+    - name: Read Back Whether The Live Manager Pulls In The Warm Server Unit
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - --user
+          - list-dependencies
+          - graphical-session.target
+          - --no-pager
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+      register: warm_server_readback
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe-then-fail — the verdict is the next task
+
+    - name: Assert The Warm Server Unit Is In The Live Graph, Not Only On Disk
+      ansible.builtin.fail:
+        msg: >-
+          {% if warm_server_readback.rc != 0 %}
+          The running user manager could not be asked what graphical-session.target pulls
+          in (`systemctl --user list-dependencies` exited {{ warm_server_readback.rc }}:
+          {{ warm_server_readback.stderr | default('') }}), so whether
+          wsi-stream-server-at-login.service will run at login is unknown.
+          {% else %}
+          wsi-stream-server-at-login.service is enabled on disk but graphical-session.target
+          does not name it in the running user manager, so it will not run at login. Collect,
+          on the host:
+          `systemctl --user list-dependencies graphical-session.target --no-pager | cat`,
+          `ls -l ~/.config/systemd/user/graphical-session.target.wants/ | cat` and
+          `systemctl --user show wsi-stream-server-at-login.service -p LoadState -p UnitFileState -p WantedBy --no-pager | cat`.
+          {% endif %}
+      when: >-
+        warm_server_readback.rc != 0
+        or 'wsi-stream-server-at-login.service' not in warm_server_readback.stdout
 
     # =========================================================================
     # Claude Code Post-Processing Integration

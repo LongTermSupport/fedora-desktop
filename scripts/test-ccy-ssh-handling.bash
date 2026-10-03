@@ -574,26 +574,19 @@ else
 fi
 
 STUB_AGENT_LIST="$AGENT_HOLDS_BETA" run_menu "$K_BETA" '\n'
-if menu_chose "ssh-agent" && menu_says "$K_BETA  ✓ has push access to this remote  (also in your ssh-agent" \
-        && ! menu_says "Use it anyway"; then
-    pass "the agent holds the key that can push → it is the default, listed beside the key file"
+if menu_chose "$K_BETA" && menu_says "the session's ssh-agent" && menu_says "$K_BETA  ✓ has push access to this remote  (also in your ssh-agent" \
+        && menu_says "EVERY key the agent holds"; then
+    pass "the agent holds the key that can push → listed beside it, saying it exposes every key it holds; the key file is the default"
 else
     fail "agent holds the pusher, ENTER: $(tr '\n' ' ' < "$WORK/menu.keys")"
 fi
 
-STUB_AGENT_LIST="$AGENT_HOLDS_BETA" run_menu "$K_BETA" '1\n'
-if menu_chose "$K_BETA"; then
-    pass "the key file stays one keystroke away when the agent is the default"
-else
-    fail "key file beside the agent default: $(tr '\n' ' ' < "$WORK/menu.keys")"
-fi
-
 # The remote's alias key IS an account key: one file is one line, with the account key's marks.
 STUB_AGENT_LIST="$AGENT_HOLDS_BETA" STUB_ALIAS_KEY="$K_BETA" run_menu "$K_BETA" '\n'
-if menu_chose "ssh-agent" && [ "$(grep -cF -- ") $K_BETA" "$WORK/menu.out")" -eq 1 ] \
+if menu_chose "$K_BETA" && [ "$(grep -cF -- ") $K_BETA" "$WORK/menu.out")" -eq 1 ] \
         && menu_says "the project remote's key" && menu_says "✓ has push access to this remote" \
         && menu_says "(also in your ssh-agent"; then
-    pass "an alias key that is also an account key is listed once, carrying push and agent marks, and the agent is the default"
+    pass "an alias key that is also an account key is listed once, carrying push and agent marks, and is the default"
 else
     fail "alias is an account key: $(tr '\n' ' ' < "$WORK/menu.keys")"
 fi
@@ -617,6 +610,132 @@ if menu_chose "$KEY_DIR/project_a"; then
     pass "the remote's own key stays the default over an agent holding an account key"
 else
     fail "alias beats agent: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
+# ── ccy_askpass_passphrase_supply: the user's SSH_ASKPASS answers for one key ──
+hdr "ccy_askpass_passphrase_supply"
+
+PP_SECRET="fixture-passphrase-$RANDOM"
+K_LOCKED="$WORK/locked_key"
+ssh-keygen -q -t ed25519 -N "$PP_SECRET" -C fixture-locked -f "$K_LOCKED"
+ASKPASS_OK="$WORK/askpass-ok"
+ASKPASS_NONE="$WORK/askpass-none"
+ASKPASS_LOG="$WORK/askpass.prompts"
+cat > "$ASKPASS_OK" <<ASKPASS_BODY
+#!/bin/sh
+printf '%s\\n' "\$1" >> "$ASKPASS_LOG"
+printf '%s\\n' "$PP_SECRET"
+ASKPASS_BODY
+cat > "$ASKPASS_NONE" <<'ASKPASS_BODY'
+#!/bin/sh
+exit 1
+ASKPASS_BODY
+chmod 0700 "$ASKPASS_OK" "$ASKPASS_NONE"
+
+# run_supply <askpass-or-empty> <terminal true|false> <key>...: prints rc, the supplied file's
+# existence and content, and whether the discard removed it.
+run_supply() {
+    local askpass="$1" terminal="$2"
+    shift 2
+    (
+        XDG_RUNTIME_DIR="$WORK/run"
+        mkdir -p "$XDG_RUNTIME_DIR"
+        RESTORE_SSH_PASSPHRASE_FILE=""
+        SSH_KEYS=("$@")
+        SSH_ASKPASS="$askpass"
+        [ -n "$askpass" ] || unset SSH_ASKPASS
+        ccy_has_terminal() { [ "$terminal" = true ]; }
+        ccy_askpass_passphrase_supply > "$WORK/supply.out" 2>&1
+        rc=$?
+        printf 'rc=%s\n' "$rc"
+        printf 'file=%s\n' "${RESTORE_SSH_PASSPHRASE_FILE:+set}"
+        if [ -n "$RESTORE_SSH_PASSPHRASE_FILE" ]; then
+            printf 'mode=%s\n' "$(stat -c %a -- "$RESTORE_SSH_PASSPHRASE_FILE")"
+            printf 'content=%s\n' "$(cat -- "$RESTORE_SSH_PASSPHRASE_FILE")"
+        fi
+        ccy_askpass_passphrase_discard
+        printf 'left=%s\n' "$(find "$XDG_RUNTIME_DIR" -name 'ccy-pp.*' | wc -l)"
+        printf 'after=%s\n' "${RESTORE_SSH_PASSPHRASE_FILE:+set}"
+    ) > "$WORK/supply.result"
+}
+supply_has() { grep -qxF -- "$1" "$WORK/supply.result"; }
+
+: > "$ASKPASS_LOG"
+run_supply "$ASKPASS_OK" true "$K_LOCKED"
+if supply_has "rc=0" && supply_has "file=set" && supply_has "mode=600" \
+        && supply_has "content=$PP_SECRET" && supply_has "left=0" && supply_has "after=" \
+        && grep -qF "Enter passphrase for $K_LOCKED" "$ASKPASS_LOG" \
+        && grep -qF "no prompt, here or in the container" "$WORK/supply.out"; then
+    pass "one encrypted key + a helper that answers → an owner-only file holding the answer, the helper asked ssh-add's own question, discard removes it"
+else
+    fail "supply: $(tr '\n' ' ' < "$WORK/supply.result") / $(cat "$WORK/supply.out")"
+fi
+if ! grep -qF -- "$PP_SECRET" "$WORK/supply.out"; then
+    pass "the passphrase never appears in what the launcher prints"
+else
+    fail "passphrase printed"
+fi
+
+: > "$ASKPASS_LOG"
+run_supply "$ASKPASS_OK" true "$K_ALPHA"
+if supply_has "rc=0" && supply_has "file=" && [ ! -s "$ASKPASS_LOG" ]; then
+    pass "a key with no passphrase is not asked about, and nothing is supplied"
+else
+    fail "unencrypted key: $(tr '\n' ' ' < "$WORK/supply.result")"
+fi
+
+: > "$ASKPASS_LOG"
+run_supply "$ASKPASS_OK" true "$K_LOCKED" "$K_ALPHA"
+if supply_has "file=" && [ ! -s "$ASKPASS_LOG" ]; then
+    pass "two selected keys → the helper is not asked (one answer cannot be assumed to fit both)"
+else
+    fail "two keys: $(tr '\n' ' ' < "$WORK/supply.result")"
+fi
+
+: > "$ASKPASS_LOG"
+run_supply "$ASKPASS_OK" true "ssh-agent"
+if supply_has "file=" && [ ! -s "$ASKPASS_LOG" ]; then
+    pass "the forwarded agent is never asked about"
+else
+    fail "agent sentinel: $(tr '\n' ' ' < "$WORK/supply.result")"
+fi
+
+: > "$ASKPASS_LOG"
+run_supply "$ASKPASS_OK" false "$K_LOCKED"
+if supply_has "file=" && [ ! -s "$ASKPASS_LOG" ]; then
+    pass "no terminal → the helper is not asked"
+else
+    fail "no terminal: $(tr '\n' ' ' < "$WORK/supply.result")"
+fi
+
+: > "$ASKPASS_LOG"
+run_supply "" true "$K_LOCKED"
+if supply_has "rc=0" && supply_has "file="; then
+    pass "no SSH_ASKPASS → nothing supplied, ordinary prompting"
+else
+    fail "no askpass: $(tr '\n' ' ' < "$WORK/supply.result")"
+fi
+
+run_supply "$WORK/not-a-program" true "$K_LOCKED"
+if supply_has "rc=0" && supply_has "file="; then
+    pass "SSH_ASKPASS naming something that is not executable → nothing supplied"
+else
+    fail "askpass not executable: $(tr '\n' ' ' < "$WORK/supply.result")"
+fi
+
+run_supply "$ASKPASS_NONE" true "$K_LOCKED"
+if supply_has "rc=0" && supply_has "file=" && supply_has "left=0" \
+        && grep -qF "gave no passphrase" "$WORK/supply.out"; then
+    pass "a helper that gives no answer → a note, no file left behind, ordinary prompting"
+else
+    fail "helper refuses: $(tr '\n' ' ' < "$WORK/supply.result") / $(cat "$WORK/supply.out")"
+fi
+
+run_supply "$ASKPASS_OK" true "$WORK/no-such-key"
+if supply_has "rc=0" && supply_has "file="; then
+    pass "a key file that is missing is not mistaken for an encrypted one"
+else
+    fail "missing key: $(tr '\n' ' ' < "$WORK/supply.result")"
 fi
 
 # ── Summary ──────────────────────────────────────────────────────────────────

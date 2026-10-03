@@ -77,6 +77,7 @@ class PrebufferStopTest(unittest.TestCase):
         self.pasted = []
         self.patches = {
             "check_dependencies": lambda: True,
+            "resolve_model": lambda mode, language: "base",
             "notify": lambda state, message: self.states.append(state),
             "emit_dbus_signal": lambda *a: None,
             "desktop_notification": lambda *a: None,
