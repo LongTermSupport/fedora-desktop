@@ -1,6 +1,6 @@
 # Plan 00148: speech-to-text: unlimited dictation by loop and buffer
 
-**Status**: In Progress (Phase 0 under way; Phases 2-5 wait on the Task 1.1 decision)
+**Status**: In Progress (Phase 0 under way; Task 1.1 decided: loop-and-buffer)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
@@ -70,7 +70,8 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
 
 ### Phase 1: Decision and measurements
 
-- [ ] 🚫 **Task 1.1**: Owner decision: loop-and-buffer or a raised cap. Options: (a)
+- [x] ✅ **Task 1.1**: **Owner chose (a), loop-and-buffer** ("optimise it as much as
+  possible"; the owner uses dictation heavily). Owner decision: loop-and-buffer or a raised cap. Options: (a)
   loop-and-buffer in the warm server as above; (b) raise the cap (e.g. to 300 s) in all six
   places, grow the stop-wait budget and move the watchdog in the same commit. Recommendation:
   (a); (b) worsens stop latency, the silent fallback to `tiny` text and server-mode
