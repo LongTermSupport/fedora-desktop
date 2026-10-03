@@ -37,6 +37,34 @@ ImageMagick (`magick`, libwebp 1.6.0) and `-strip`.
 - **Chosen default: WebP q50, longest edge ≤ 2000 px.** For this input that is a
   ~15.5 KB block.
 
+## Busy images and the block budget (Task 1.5)
+
+The single setting does not scale. A 1906x1385 media-player UI with album art comes out at
+129,334 bytes at q50, a ~175,000-char block. A block is only useful if the receiving agent
+can re-type it into one tool call.
+
+**Measured transcription.** A 35,311-char block (that UI at 1000 px, q30) was printed and
+copied back into one bash call by the agent; `sha256sum -c` said OK. 15.5K and 35K are
+proven, and nothing larger was tried.
+
+**Legibility held at every step tried.** The UI at 1000 px q30 keeps its titles and
+buttons readable. A receipt with a small-print table stays readable at 1200 px q30. A
+1811x5992 web page squeezed to 604x2000 keeps its body text.
+
+**Chosen: a ladder under a 40,000-char budget.** The encoder tries 2000 px q50, then
+2000 q30, then 1568, 1200, 1000 and 800 px at q30, and prints the first block that fits.
+If none fits it prints nothing and fails, telling the user to crop. On the five test
+images:
+
+| Image                       | Source    | Chosen step   | Block chars |
+| --------------------------- | --------- | ------------- | ----------- |
+| Terminal line (the example) | 3028x110  | 2000 px, q50  | 15,523      |
+| Media-player UI             | 1906x1385 | 1000 px, q30  | 35,605      |
+| Receipt                     | 1050x2299 | 1200 px, q30  | 36,874      |
+| Tall web page               | 1811x5992 | 2000 px, q50  | 31,496      |
+| Phone UI                    | 1125x2436 | 1568 px, q30  | 32,051      |
+| Random noise (failure case) | 2000x2000 | none, exits 1 | —           |
+
 ## Block format (prototype)
 
 The block is valid bash, so the receiving agent runs it rather than having to work out

@@ -5,9 +5,12 @@ set -euo pipefail
 
 readonly MAX_INPUT_BYTES=$((50 * 1024 * 1024))
 readonly MAX_INPUT_PIXELS=$((80 * 1000 * 1000))
-readonly MAX_EDGE=2000 # the Read tool displays at most 2000px wide
-readonly QUALITY="${IMGPASTE_QUALITY:-50}"
-readonly WARN_BLOCK_BYTES=$((100 * 1024))
+# The receiving agent re-types the block into one tool call. 35,311 chars were copied
+# back exactly (RESEARCH-encoding.md); the budget stays close to what is proven.
+readonly MAX_BLOCK_CHARS=40000
+# Tried in order; the first that fits the budget wins. 2000 is the widest the Read
+# tool displays. Quality drops before the edge does: q30 stayed legible in testing.
+readonly LADDER=("2000 50" "2000 30" "1568 30" "1200 30" "1000 30" "800 30")
 
 die() { echo "imgpaste: $*" >&2; exit 1; }
 
@@ -29,25 +32,31 @@ workdir=$(mktemp -d)
 trap 'rm -rf "$workdir"' EXIT
 out="$workdir/out.webp"
 
-magick -- "$first_frame" -auto-orient -strip -resize "${MAX_EDGE}x${MAX_EDGE}>" \
-	-quality "$QUALITY" -define webp:method=6 "$out"
-
-sha=$(sha256sum -- "$out" | cut -d' ' -f1)
-id=${sha:0:12}
-path="./imgpaste-$id.webp" # cwd-relative: the receiver may not be allowed to write outside its project
-read -r ow oh < <(magick identify -format '%w %h\n' -- "$out")
-
-block=$(
+render_block() {
+	local sha id path ow oh
+	sha=$(sha256sum -- "$out" | cut -d' ' -f1)
+	id=${sha:0:12}
+	path="./imgpaste-$id.webp" # cwd-relative: the receiver may not be allowed to write outside its project
+	read -r ow oh < <(magick identify -format '%w %h\n' -- "$out")
 	echo "# IMGPASTE v1: ${ow}x${oh} image. Agent: run this whole block in bash, then view ${path}"
 	echo "base64 -d > ${path} <<'IMGPASTE_END'"
 	base64 -w 76 -- "$out"
 	echo "IMGPASTE_END"
 	echo "echo '${sha}  ${path}' | sha256sum -c"
-)
-printf '%s\n' "$block"
+}
 
-block_bytes=${#block}
-# The terminal shows stderr beside the block and a copy often takes it too; as bash
-# comments these lines cannot fail the receiver's run.
-echo "# imgpaste: ${width}x${height} -> ${ow}x${oh} webp q${QUALITY}, $(stat -c %s -- "$out") bytes, block ${block_bytes} chars" >&2
-((block_bytes <= WARN_BLOCK_BYTES)) || echo "# imgpaste: WARNING block exceeds ${WARN_BLOCK_BYTES} chars; try IMGPASTE_QUALITY=30" >&2
+block=""
+for step in "${LADDER[@]}"; do
+	read -r edge quality <<<"$step"
+	magick -- "$first_frame" -auto-orient -strip -resize "${edge}x${edge}>" \
+		-quality "$quality" -define webp:method=6 "$out"
+	block=$(render_block)
+	((${#block} > MAX_BLOCK_CHARS)) || break
+	block=""
+done
+[[ -n "$block" ]] || die "no setting fits the ${MAX_BLOCK_CHARS}-char budget (last tried: ${edge}px q${quality}); crop the image to the part that matters"
+
+printf '%s\n' "$block"
+# The terminal shows stderr beside the block and a copy often takes it too; as a bash
+# comment this line cannot fail the receiver's run.
+echo "# imgpaste: ${width}x${height} -> longest edge <=${edge}px, webp q${quality}, $(stat -c %s -- "$out") bytes, block ${#block} chars" >&2

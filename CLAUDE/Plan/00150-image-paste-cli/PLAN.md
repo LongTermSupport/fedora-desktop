@@ -42,19 +42,19 @@ choice: [RESEARCH-encoding.md](RESEARCH-encoding.md). Example input:
 ### Phase 1: Prototype and dogfood
 
 - [x] ✅ **Task 1.1**: Measure candidate encodings on the example screenshot ([RESEARCH-encoding.md](RESEARCH-encoding.md)).
-- [x] ✅ **Task 1.2**: Pick the default: WebP q50, longest edge capped at 2000 px, no extra compression.
+- [x] ✅ **Task 1.2**: Pick the default: WebP q50, longest edge capped at 2000 px, no extra compression. (The first step of the Task 1.5 ladder.)
 - [x] ✅ **Task 1.3**: Write the prototype encoder with input validation and the self-decoding block format.
 - [ ] 🔄 **Task 1.4**: Dogfood the decode. An agent runs the printed block and views the result.
   - [x] ✅ Fix the decode target first. The prototype writes to `/tmp/imgpaste-<id>.webp`, and this repo's hooks block an agent from writing outside the project (R-WRITE-OUTSIDE-PROJECT-ROOT). Write to a path relative to the current directory instead (e.g. `./imgpaste-<id>.webp`), so it works both here and on bare servers.
   - [x] ✅ Re-encode, have the agent transcribe and run the block, and confirm the sha256 check passes and the image reads as legible. This tests whether an LLM can copy a ~15 KB base64 block accurately; the checksum is the guard.
   - [ ] ⬜ Paste a block into a fresh session with no context; confirm the agent follows the block's one-line instruction unaided.
-- [ ] ⬜ **Task 1.5**: Test a photo or busy-UI image and confirm q50 is still acceptable, or add a size-driven quality step-down.
+- [x] ✅ **Task 1.5**: Test a photo or busy-UI image and confirm q50 is still acceptable, or add a size-driven quality step-down. q50 alone gave a busy UI a ~175K-char block, so the prototype now steps quality, then size, down to a 40K-char budget and fails if nothing fits ([RESEARCH-encoding.md](RESEARCH-encoding.md)).
 
 ### Phase 2: Productionise
 
 - [ ] ⬜ **Task 2.1**: Move the prototype to `files/home/.local/bin/imgpaste`, following `CLAUDE/StderrHygiene.md`.
-- [ ] ⬜ **Task 2.2**: Deploy it from the existing play that installs `~/.local/bin` tools (no new playbook). Make sure ImageMagick with WebP support and `file` are installed by that play.
-- [ ] ⬜ **Task 2.3**: Check whether `wl-clipboard`/`xclip` are installed by IaC. If not, add them to the relevant system playbook and confirm Ctrl+V image paste works locally.
+- [ ] ⬜ **Task 2.2**: Deploy it from an existing play (no new playbook). Make sure ImageMagick with WebP support and `file` are installed by that play. **Owner decision:** no single play deploys the `~/.local/bin` tools; each has its own optional play. The closest are `play-clean-paste.yml` (installs `wl-clipboard`, but is built around its Ctrl+Alt+V keybinding) and `play-image-watermarking.yml` (installs ImageMagick 7).
+- [ ] ⬜ **Task 2.3**: Check whether `wl-clipboard`/`xclip` are installed by IaC. If not, add them to the relevant system playbook and confirm Ctrl+V image paste works locally. Found: `wl-clipboard` is installed only by the optional `play-clean-paste.yml`, and `xclip` by nothing. The Ctrl+V check needs the host.
 - [ ] ⬜ **Task 2.4**: Write `deploy.bash` and `acceptance.bash` on `_planlib.inc.bash`. Acceptance round-trips a fixture (encode, run the block, sha256 match), tests the rejection paths, and prints a COVERAGE line.
 - [ ] ⬜ **Task 2.5**: Document the command under `docs/`.
 - [ ] ⬜ **Task 2.6**: Run `./scripts/qa-all.bash`, then the `qa-reviewer` agent; resolve all findings.
