@@ -45,7 +45,7 @@ choice: [RESEARCH-encoding.md](RESEARCH-encoding.md). Example input:
 - [x] ✅ **Task 1.2**: Pick the default: WebP q50, longest edge capped at 2000 px, no extra compression.
 - [x] ✅ **Task 1.3**: Write the prototype encoder with input validation and the self-decoding block format.
 - [ ] 🔄 **Task 1.4**: Dogfood the decode. An agent runs the printed block and views the result.
-  - [ ] ⬜ Fix the decode target first. The prototype writes to `/tmp/imgpaste-<id>.webp`, and this repo's hooks block an agent from writing outside the project (R-WRITE-OUTSIDE-PROJECT-ROOT). Write to a path relative to the current directory instead (e.g. `./imgpaste-<id>.webp`), so it works both here and on bare servers.
+  - [x] ✅ Fix the decode target first. The prototype writes to `/tmp/imgpaste-<id>.webp`, and this repo's hooks block an agent from writing outside the project (R-WRITE-OUTSIDE-PROJECT-ROOT). Write to a path relative to the current directory instead (e.g. `./imgpaste-<id>.webp`), so it works both here and on bare servers.
   - [ ] ⬜ Re-encode, have the agent transcribe and run the block, and confirm the sha256 check passes and the image reads as legible. This tests whether an LLM can copy a ~15 KB base64 block accurately; the checksum is the guard.
   - [ ] ⬜ Paste a block into a fresh session with no context; confirm the agent follows the block's one-line instruction unaided.
 - [ ] ⬜ **Task 1.5**: Test a photo or busy-UI image and confirm q50 is still acceptable, or add a size-driven quality step-down.

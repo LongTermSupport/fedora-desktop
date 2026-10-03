@@ -53,9 +53,9 @@ echo '<sha256>  <path>' | sha256sum -c
 The full sha256 lets `sha256sum -c` catch any transcription error. A transcription error
 is a real risk: the receiving agent re-types the base64 into its tool call.
 
-## Open issue
+## Decode path
 
-`<path>` is `/tmp/imgpaste-<id>.webp` in the prototype. In this repository the
-project-containment hook blocks an agent's command from writing outside the repo root,
-so the dogfood decode was refused. Use a path relative to the current directory
-instead (Plan Task 1.4).
+`<path>` is `./imgpaste-<id>.webp`, relative to the receiver's current directory. A
+`/tmp` path was refused in this repository: the project-containment hook blocks an
+agent's command from writing outside the repo root, and other receivers may have
+similar limits.

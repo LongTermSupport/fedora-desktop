@@ -34,7 +34,7 @@ magick -- "$first_frame" -auto-orient -strip -resize "${MAX_EDGE}x${MAX_EDGE}>" 
 
 sha=$(sha256sum -- "$out" | cut -d' ' -f1)
 id=${sha:0:12}
-path="/tmp/imgpaste-$id.webp"
+path="./imgpaste-$id.webp" # cwd-relative: the receiver may not be allowed to write outside its project
 read -r ow oh < <(magick identify -format '%w %h\n' -- "$out")
 
 block=$(
