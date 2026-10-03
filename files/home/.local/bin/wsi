@@ -245,6 +245,15 @@ notify_desktop() {
 
 STOP_REQUESTED=false
 
+# signal_if_alive <signal> <pid> — signal a background process that may exit at any
+# moment. A `kill -0` probe followed by `kill` is a race: the process can be reaped
+# between the two, the kill then fails, and under `set -e` that ended the script (exit 1,
+# recorder never stopped). The grace timer is the usual sender of the second TERM, so
+# it is dying exactly when the trap that handles that TERM goes to cancel it.
+signal_if_alive() {
+    kill "-$1" "$2" 2>/dev/null || log_debug "Process $2 had already exited; $1 not delivered"
+}
+
 cleanup() {
     log_debug "Cleanup triggered"
     # Remove PID file
@@ -252,7 +261,7 @@ cleanup() {
 
     # Kill timer if still running (prevents orphaned background process)
     if [ -n "$TIMER_PID" ] && kill -0 "$TIMER_PID" 2>/dev/null; then
-        kill "$TIMER_PID" 2>/dev/null
+        signal_if_alive TERM "$TIMER_PID"
         log_debug "Killed timer process: $TIMER_PID"
     fi
     cancel_grace_timer
@@ -283,7 +292,7 @@ GRACE_TIMER_PID=""
 
 cancel_grace_timer() {
     if [ -n "$GRACE_TIMER_PID" ] && kill -0 "$GRACE_TIMER_PID" 2>/dev/null; then
-        kill "$GRACE_TIMER_PID" 2>/dev/null
+        signal_if_alive TERM "$GRACE_TIMER_PID"
         log_debug "Cancelled stop-grace timer: $GRACE_TIMER_PID"
     fi
     GRACE_TIMER_PID=""
@@ -319,7 +328,7 @@ stop_recording() {
     # Send SIGINT (like Ctrl+C) so rec flushes audio buffers before exiting
     if [ -n "$REC_PID" ] && kill -0 "$REC_PID" 2>/dev/null; then
         log_debug "Sending SIGINT to rec process $REC_PID"
-        kill -INT "$REC_PID" 2>/dev/null
+        signal_if_alive INT "$REC_PID"
         # Wait for rec to actually exit and flush buffers
         for i in {1..20}; do
             if ! kill -0 "$REC_PID" 2>/dev/null; then
@@ -805,7 +814,7 @@ notify_state "RECORDING" "Recording... (Insert to stop)"
     sleep "$MAX_RECORDING_SECONDS"
     if kill -0 "$REC_PID" 2>/dev/null; then
         log_debug "${MAX_RECORDING_SECONDS}-second limit reached, auto-stopping recording"
-        kill -INT "$REC_PID" 2>/dev/null
+        signal_if_alive INT "$REC_PID"
     fi
 ) &
 TIMER_PID=$!
@@ -833,7 +842,7 @@ log_debug "Recorder $REC_PID exited with status $REC_STATUS"
 
 # Cancel the timers if recording stopped early
 if kill -0 "$TIMER_PID" 2>/dev/null; then
-    kill "$TIMER_PID" 2>/dev/null
+    signal_if_alive TERM "$TIMER_PID"
     log_debug "Timer cancelled (recording stopped early)"
 fi
 cancel_grace_timer

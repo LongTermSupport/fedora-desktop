@@ -37,7 +37,19 @@ SCHEMA="$REPO_ROOT/extensions/speech-to-text@fedora-desktop/schemas/org.gnome.sh
 
 work=$(mktemp -d)
 test_user="wsi-grace-test-$$"
+# Every stub pw-record records its pid in $work/pids (not in $events, which reset_events
+# wipes between cases), so a case that fails before wsi stops its recorder cannot leave a
+# stub running behind the test. This script runs without `set -e`, so a stub that exits
+# between the probe and the kill cannot abort the cleanup.
 cleanup() {
+    local pidfile pid
+    for pidfile in "$work"/pids/*; do
+        [ -e "$pidfile" ] || continue
+        pid=$(cat "$pidfile")
+        if kill -0 "$pid" 2>/dev/null; then
+            kill "$pid"
+        fi
+    done
     rm -rf "$work"
     rm -f "/dev/shm/stt-recording-$test_user.pid" "/dev/shm/wfile-$test_user.wav"
 }
@@ -61,7 +73,7 @@ check() {
 #----------------------------------------------------------------------------
 stubs="$work/stubs"
 events="$work/events"
-mkdir -p "$stubs" "$events" "$work/home"
+mkdir -p "$stubs" "$events" "$work/home" "$work/pids"
 
 # gsettings: answers the stop-grace key from $STUB_GRACE and any other key from the
 # file $STUB_SETTINGS/<key>, printed as gsettings would (strings quoted); records its argv.
@@ -103,6 +115,8 @@ def stopped(signum, frame):
     sys.exit(0)
 signal.signal(signal.SIGINT, stopped)
 signal.signal(signal.SIGTERM, stopped)
+with open(f"{os.environ['STUB_PIDS']}/pw-record.{os.getpid()}", "w") as f:
+    f.write(f"{os.getpid()}\n")
 with open(sys.argv[-1], "wb") as f:
     f.write(b"RIFF-stub-audio")
 open(f"{events}/pw-record.started", "w").close()
@@ -145,6 +159,7 @@ run_env=(
     "HOME=$work/home"
     "USER=$test_user"
     "STUB_EVENTS=$events"
+    "STUB_PIDS=$work/pids"
     "STUB_SETTINGS=$settings"
     "PYTHONPATH=$stubs/python"
     "STUB_CUDA_DEVICES=0"
@@ -271,6 +286,19 @@ check "the play deploys the start-at-login unit" "1" \
     "$(grep -c 'files/home/.config/systemd/user/wsi-stream-server-at-login.service"' "$PLAY")"
 check "the play enables the start-at-login unit" "1" \
     "$(grep -c 'name: wsi-stream-server-at-login.service' "$PLAY")"
+
+#----------------------------------------------------------------------------
+echo "=== wsi: a background process that may have exited is signalled through signal_if_alive ==="
+#----------------------------------------------------------------------------
+# The grace timer is the usual sender of the second TERM, so it is exiting just as the trap
+# that handles that TERM cancels it. A raw `kill` there fails in the gap after the
+# `kill -0` probe and, under `set -e`, ended wsi with exit 1 and the recorder still running.
+# The race window is microseconds wide; the fuzz in Plan 00148 Task 0.7 hit it about once
+# in ninety runs, so this guards the cause statically.
+check "no raw kill of a recorded pid remains in wsi" "0" \
+    "$(grep -cE '^[[:space:]]*kill( -[A-Z]+)? "\$[A-Z_]*PID" 2>/dev/null' "$BIN/wsi")"
+check "the five signalling sites use signal_if_alive" "5" \
+    "$(grep -cE '^[[:space:]]*signal_if_alive (TERM|INT) "\$[A-Z_]*PID"' "$BIN/wsi")"
 
 #----------------------------------------------------------------------------
 echo "=== wsi: first TERM keeps recording for the grace ==="
