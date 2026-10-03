@@ -80,13 +80,16 @@ plan_deploy_leg "build ${PROTO_IMAGE} (wl-clipboard on top of ${BASE_IMAGE})" \
 
 plan_confirm "Copy an IMAGE to the clipboard now (e.g. a screenshot: Print, then copy). Then watch the screen while the next step runs." "ready"
 
-# The same socket flags the ccy launcher passes: the socket alone, read-only.
+# The same socket flags the ccy launcher passes: the socket alone, read-only. The ccy
+# entrypoint is bypassed: it sets up a full agent session and needs GH_TOKEN, none of which
+# this probe uses.
 plan_deploy_leg "wl-paste inside the container" \
     podman run --rm \
     -v "${socket}:${socket}:ro" \
     -e "WAYLAND_DISPLAY=${WAYLAND_DISPLAY}" \
     -e "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR}" \
-    "${PROTO_IMAGE}" bash -c "
+    --entrypoint /bin/bash \
+    "${PROTO_IMAGE}" -c "
         set -uo pipefail
         echo '--- wl-paste -l (types offered):'
         timeout 10 wl-paste -l
