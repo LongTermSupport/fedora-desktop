@@ -45,7 +45,13 @@ preferred.
 
 ### Phase 1: Survey
 
-- [ ] 🔄 **Task 1.1**: Survey agent: how Claude Code reads the clipboard on Linux (which
+- [x] ✅ **Task 1.1**: Done, [RESEARCH-survey.md](RESEARCH-survey.md). Claude Code runs
+  `xclip … || wl-paste` with no timeout; the Wayland socket ccy already mounts is usable from
+  inside (probe: `probe-wayland-globals.py`); GNOME offers no data-control protocol, so
+  `wl-paste` needs focus (flash, or hang). Recommends A for ccy (adds no new exposure) and D
+  (shim plus host spool) for LXC, whose containers are not configured by IaC. Side finding:
+  GNOME here offers no virtual-keyboard protocol, so `clean-paste`'s `wtype` keystroke likely
+  fails. Survey agent: how Claude Code reads the clipboard on Linux (which
   commands, which env vars, image MIME types), what the ccy launcher already passes into
   the container, how LXC containers here are configured, and the candidate mechanisms:
   - A: `wl-clipboard` in the container over the already-mounted Wayland socket.
@@ -61,8 +67,11 @@ preferred.
 
 ### Phase 2: Prototype
 
-- [ ] ⬜ **Task 2.1**: Prototype the chosen mechanism for ccy, as a plan-local script or a
-  ccy image change on a branch; the owner tries Ctrl+V once.
+- [ ] 🚫 **Task 2.1**: Prototype the chosen mechanism for ccy, as a plan-local script or a
+  ccy image change on a branch; the owner tries Ctrl+V once. Script ready:
+  `prototype-ccy-wl-paste.bash` (HOST, once). It builds a throwaway image with
+  `wl-clipboard`, runs `wl-paste` over the socket and removes the image. The owner reports the
+  rc, the bytes and whether a window flashed. Blocked on the owner's run; Task 1.2 follows its result.
 - [ ] ⬜ **Task 2.2**: Prototype for LXC (same mechanism if the survey says it carries).
 
 ### Phase 3: Deliver
