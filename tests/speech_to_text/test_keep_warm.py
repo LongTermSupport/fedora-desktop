@@ -14,6 +14,7 @@ scripts/test-wsi-stop-grace.bash.
 
 import configparser
 import contextlib
+import fcntl
 import importlib.util
 import io
 import os
@@ -21,6 +22,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -156,6 +158,26 @@ class ServerPidLockTest(unittest.TestCase):
         _out, err = proc.communicate(timeout=30)
         self.assertEqual(proc.returncode, 3, err)
         self.assertEqual(self.pid_file.read_text(), str(os.getpid()))
+
+    def test_a_start_during_wsi_streams_brief_probe_still_claims(self):
+        # wsi-stream's server_pid_alive() takes a shared lock for an instant; a server
+        # starting inside that instant must wait it out, not refuse to start
+        self.pid_file.write_text("")
+        probe_fd = os.open(self.pid_file, os.O_RDONLY)
+        self.addCleanup(os.close, probe_fd)
+        fcntl.flock(probe_fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        releaser = threading.Timer(0.05, fcntl.flock, args=(probe_fd, fcntl.LOCK_UN))
+        releaser.start()
+        self.addCleanup(releaser.cancel)
+        self.assertTrue(server.claim_pid_file())
+        self.assertEqual(self.pid_file.read_text(), str(os.getpid()))
+
+    def test_a_lock_held_past_the_grace_still_refuses(self):
+        self.pid_file.write_text("")
+        holder_fd = os.open(self.pid_file, os.O_RDONLY)
+        self.addCleanup(os.close, holder_fd)
+        fcntl.flock(holder_fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        self.assertFalse(server.claim_pid_file())
 
     def test_release_removes_the_file_and_frees_the_lock(self):
         self.assertTrue(server.claim_pid_file())

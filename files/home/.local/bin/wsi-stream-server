@@ -663,6 +663,30 @@ def cleanup():
     log("Server shutdown complete")
 
 
+PID_LOCK_GRACE_SECONDS = 0.2
+PID_LOCK_RETRY_SECONDS = 0.01
+
+
+def lock_exclusive_with_grace(fd):
+    """Take the exclusive lock, retrying briefly before giving up.
+
+    `wsi-stream` asks whether a server is running by taking a SHARED lock on the PID
+    file for an instant. A server that tries to lock inside that instant would
+    otherwise conclude another server holds the file and exit. A real server holds
+    its lock for its lifetime, so a lock still held after the grace is genuine.
+    Raises BlockingIOError if it is.
+    """
+    deadline = time.monotonic() + PID_LOCK_GRACE_SECONDS
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(PID_LOCK_RETRY_SECONDS)
+
+
 def claim_pid_file():
     """Hold an exclusive lock on PID_FILE for this server's lifetime, and write our PID.
 
@@ -681,7 +705,7 @@ def claim_pid_file():
             log(f"ERROR: cannot open the PID file {PID_FILE}: {e}", "ERROR")
             return False
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lock_exclusive_with_grace(fd)
         except BlockingIOError:
             held = os.read(fd, 32).decode(errors="replace").strip() or "unknown"
             os.close(fd)

@@ -556,7 +556,9 @@ In Claude post-processing modes the panel **label** is additionally prefixed wit
    ./playbooks/imports/optional/common/play-speech-to-text.yml
    ```
 
-4. If GPU still unavailable, extension falls back to CPU (slower but functional)
+4. If the GPU is still unavailable, the default `auto` model stops with an error naming the
+   broken CUDA setup rather than quietly running on the CPU. To dictate on the CPU until it
+   is fixed, pick a model explicitly in Settings (Whisper Model), e.g. `small`.
 
 ### ydotool Permission Errors
 
