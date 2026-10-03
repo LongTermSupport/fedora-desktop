@@ -5,7 +5,8 @@ WSI-Stream Server - Persistent Speech-to-Text Server
 Keeps Whisper model hot in memory for instant recording startup.
 
 Server listens on Unix socket for START/STOP commands from client.
-Auto-shuts down after idle timeout (default: 20 minutes).
+Auto-shuts down after idle timeout (default: 20 minutes; 0 = never). wsi-stream
+passes the extension's server-idle-timeout-minutes setting when it starts the server.
 
 Memory cost: ~200MB (base) to ~600MB (small model)
 Speed improvement: 3-6 seconds → <0.3 seconds for subsequent recordings
@@ -20,6 +21,7 @@ import threading
 import time
 import signal
 import array
+import fcntl
 from pathlib import Path
 from datetime import datetime
 
@@ -35,7 +37,7 @@ LOG_FILE = LOG_DIR / "server.log"
 PID_FILE = Path(f"/run/user/{os.getuid()}/wsi-stream-server.pid")
 
 # Configuration
-DEFAULT_IDLE_TIMEOUT = 1200  # 20 minutes
+DEFAULT_IDLE_TIMEOUT = 1200  # 20 minutes; 0 means never shut down
 SOCKET_TIMEOUT = 0.5  # Check for shutdown every 0.5s
 
 # Global state
@@ -46,6 +48,7 @@ last_activity_time = time.time()
 idle_timeout = DEFAULT_IDLE_TIMEOUT
 recording_active = False
 server_start_time = None
+pid_lock_fd = None  # open PID file whose flock marks this process as the running server
 
 # Recording pipeline state (managed by START/STOP commands)
 audio_process = None          # pw-record subprocess capturing microphone audio
@@ -85,8 +88,8 @@ def update_activity():
 
 
 def check_idle_timeout():
-    """Check if server has been idle too long."""
-    if recording_active:
+    """Check if server has been idle too long. A timeout of 0 keeps it running."""
+    if recording_active or idle_timeout == 0:
         return False
 
     idle_time = time.time() - last_activity_time
@@ -654,14 +657,77 @@ def cleanup():
         except Exception:
             pass
 
-    # Remove PID file
-    if PID_FILE.exists():
-        try:
-            PID_FILE.unlink()
-        except Exception:
-            pass
+    # Remove PID file and drop the lock (last: the server is gone only now)
+    release_pid_file()
 
     log("Server shutdown complete")
+
+
+def claim_pid_file():
+    """Hold an exclusive lock on PID_FILE for this server's lifetime, and write our PID.
+
+    The lock, not the PID in the file, is what says a server is running: the kernel
+    drops it when the process ends, however it ends. So of any number of servers
+    started together (the login unit, an Insert) exactly one gets it; a file left by a
+    server that died, or naming a PID since reused by another program, has no lock and
+    is simply taken over. Returns False if another server holds the lock or the file
+    cannot be used; the reason is logged.
+    """
+    global pid_lock_fd
+    for _attempt in range(3):
+        try:
+            fd = os.open(PID_FILE, os.O_RDWR | os.O_CREAT, 0o644)
+        except OSError as e:
+            log(f"ERROR: cannot open the PID file {PID_FILE}: {e}", "ERROR")
+            return False
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            held = os.read(fd, 32).decode(errors="replace").strip() or "unknown"
+            os.close(fd)
+            log(f"ERROR: Server already running (PID {held})", "ERROR")
+            log(f"PID file: {PID_FILE}", "ERROR")
+            log("To force restart, kill the existing server first:", "ERROR")
+            log(f"  kill {held}", "ERROR")
+            return False
+        except OSError as e:
+            os.close(fd)
+            log(f"ERROR: cannot lock the PID file {PID_FILE}: {e}", "ERROR")
+            return False
+        # A server that was shutting down may have removed the file between our open and
+        # our lock; we would then hold the lock on a file nobody else can see
+        try:
+            path_stat = os.stat(PID_FILE)
+            fd_stat = os.fstat(fd)
+            current = (path_stat.st_dev, path_stat.st_ino) == (fd_stat.st_dev, fd_stat.st_ino)
+        except FileNotFoundError:
+            current = False
+        if not current:
+            os.close(fd)
+            continue
+        os.ftruncate(fd, 0)
+        os.write(fd, str(os.getpid()).encode())
+        pid_lock_fd = fd
+        return True
+    log(f"ERROR: could not claim {PID_FILE}; it kept being replaced", "ERROR")
+    return False
+
+
+def release_pid_file():
+    """Remove PID_FILE and drop its lock, if this process holds it.
+
+    Removed while still locked, so a server that opened it meanwhile sees the path no
+    longer matches what it locked, and tries again.
+    """
+    global pid_lock_fd
+    if pid_lock_fd is None:
+        return
+    try:
+        PID_FILE.unlink(missing_ok=True)
+    except OSError as e:
+        log(f"Failed to remove the PID file {PID_FILE}: {e}", "WARN")
+    os.close(pid_lock_fd)
+    pid_lock_fd = None
 
 
 def signal_handler(signum, frame):
@@ -680,7 +746,8 @@ def main():
     parser.add_argument("-d", "--debug", action="store_true",
                         help="Enable debug logging")
     parser.add_argument("-t", "--timeout", type=int, default=DEFAULT_IDLE_TIMEOUT,
-                        help="Idle timeout in seconds (default: 300)")
+                        help="Idle timeout in seconds; 0 = never shut down "
+                             f"(default: {DEFAULT_IDLE_TIMEOUT})")
     parser.add_argument("-m", "--model", type=str, default="base",
                         help="Whisper model size (default: base)")
     parser.add_argument("-l", "--language", type=str, default="en",
@@ -690,10 +757,17 @@ def main():
                         help="Device type (default: auto)")
 
     args = parser.parse_args()
+    if args.timeout < 0:
+        parser.error(f"--timeout must be 0 (never) or a positive number of seconds, not {args.timeout}")
     debug_mode = args.debug
     idle_timeout = args.timeout
 
     server_start_time = time.time()
+
+    # SINGLETON ENFORCEMENT: before the log is truncated and the socket touched, so a
+    # second server never wipes the running one's log or removes its socket
+    if not claim_pid_file():
+        sys.exit(1)
 
     # Truncate log file on each server start so it doesn't grow unboundedly
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -701,47 +775,21 @@ def main():
 
     log("=== WSI-Stream Server Starting ===")
     log(f"Model: {args.model}, Language: {args.language}, Device: {args.device}")
-    log(f"Idle timeout: {idle_timeout}s")
+    log(f"Idle timeout: {idle_timeout}s" + (" (never shut down)" if idle_timeout == 0 else ""))
 
     # Register signal handlers
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
-
-    # SINGLETON ENFORCEMENT: Check if another instance is already running
-    if PID_FILE.exists():
-        try:
-            existing_pid = int(PID_FILE.read_text().strip())
-            # Check if that PID is actually running
-            try:
-                os.kill(existing_pid, 0)  # Signal 0 just checks if process exists
-                # Process exists - another instance is running
-                log(f"ERROR: Server already running (PID {existing_pid})", "ERROR")
-                log(f"PID file: {PID_FILE}", "ERROR")
-                log("To force restart, kill the existing server first:", "ERROR")
-                log(f"  kill {existing_pid}", "ERROR")
-                sys.exit(1)
-            except OSError:
-                # Process doesn't exist - stale PID file
-                log(f"Removing stale PID file (PID {existing_pid} not running)", "WARN")
-                PID_FILE.unlink()
-        except (ValueError, OSError) as e:
-            log(f"Invalid PID file, removing: {e}", "WARN")
-            PID_FILE.unlink()
 
     # Check if socket already exists (shouldn't happen but be safe)
     if SOCKET_PATH.exists():
         log(f"Removing stale socket: {SOCKET_PATH}", "WARN")
         SOCKET_PATH.unlink()
 
-    # Write PID file
-    try:
-        PID_FILE.write_text(str(os.getpid()))
-    except Exception as e:
-        log(f"Failed to write PID file: {e}", "WARN")
-
     # Initialize recorder (this is the expensive part - done once!)
     if not initialize_recorder(args.model, args.language, args.device):
         log("Failed to initialize recorder - exiting", "ERROR")
+        release_pid_file()
         return 1
 
     # Remove old socket if exists
@@ -750,6 +798,7 @@ def main():
             SOCKET_PATH.unlink()
         except Exception as e:
             log(f"Failed to remove old socket: {e}", "ERROR")
+            cleanup()
             return 1
 
     # Create Unix socket
@@ -761,6 +810,7 @@ def main():
         log(f"Server listening on {SOCKET_PATH}")
     except Exception as e:
         log(f"Failed to create socket: {e}", "ERROR")
+        cleanup()
         return 1
 
     # Start idle monitor thread

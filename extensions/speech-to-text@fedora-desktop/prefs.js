@@ -25,6 +25,7 @@ const WHISPER_MODELS = [
     ['base.en',        'Systran/faster-whisper-base.en',                 'Base English (~77MB)'],
     ['small.en',       'Systran/faster-whisper-small.en',                'Small English (~252MB)'],
     ['medium.en',      'Systran/faster-whisper-medium.en',               'Medium English (~789MB)'],
+    ['distil-large-v3.5', 'distil-whisper/distil-large-v3.5-ct2',        'Distil Large v3.5 English (~1.5GB)'],
 ];
 
 export default class SpeechToTextPreferences extends ExtensionPreferences {
@@ -67,6 +68,16 @@ export default class SpeechToTextPreferences extends ExtensionPreferences {
             ['Standard — load then start (~3-6s)',
                 'Pre-buffer — record while loading (~2-4s)',
                 'Server mode — persistent server (<0.5s, uses more memory)']);
+
+        const idleRow = Adw.SpinRow.new_with_range(0, 1440, 5);
+        idleRow.title = 'Server idle timeout (minutes)';
+        idleRow.subtitle = 'Server mode: shut the server down after this long unused; 0 = never. Applies from the next server start';
+        settings.bind('server-idle-timeout-minutes', idleRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        streamGroup.add(idleRow);
+
+        this._addSwitchRow(streamGroup, settings, 'server-start-at-login',
+            'Start the server at login',
+            'Server mode: load the model when you log in, so the first recording is instant');
 
         // === Output ===
         const outputGroup = new Adw.PreferencesGroup({ title: 'Output' });
@@ -149,7 +160,7 @@ export default class SpeechToTextPreferences extends ExtensionPreferences {
      */
     _buildInstalledModelList(settings) {
         const values = ['auto'];
-        const labels = ['Auto (optimized per mode)'];
+        const labels = ['Auto (GPU: Distil Large v3.5 for English, else Large v3 Turbo)'];
         const currentModel = settings.get_string('whisper-model');
 
         for (const [id, repo, label] of WHISPER_MODELS) {

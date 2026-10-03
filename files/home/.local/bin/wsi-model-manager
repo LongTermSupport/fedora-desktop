@@ -63,6 +63,7 @@ MODELS: list[tuple[str, str, str, str, bool, str]] = [
     ('base.en',         'Base EN',        'Systran/faster-whisper-base.en',         '~77MB',  True,  'English only — fast'),
     ('small.en',        'Small EN',       'Systran/faster-whisper-small.en',        '~252MB', True,  'English only — balanced'),
     ('medium.en',       'Medium EN',      'Systran/faster-whisper-medium.en',       '~789MB', True,  'English only — great'),
+    ('distil-large-v3.5', 'Distil Large v3.5', 'distil-whisper/distil-large-v3.5-ct2', '~1.5GB', True, 'English only — fewer errors than turbo, faster'),
 ]
 
 CACHE_DIR = Path.home() / '.cache' / 'huggingface' / 'hub'
@@ -80,6 +81,7 @@ EXPECTED_BYTES: dict[str, int] = {
     'base.en':          77_000_000,
     'small.en':        252_000_000,
     'medium.en':       789_000_000,
+    'distil-large-v3.5': 1_517_000_000,
 }
 
 
