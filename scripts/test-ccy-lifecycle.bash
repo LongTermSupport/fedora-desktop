@@ -476,17 +476,18 @@ check "the host probes for the plugin API major the plugin declares" \
     "PLUGIN_API = $CCY_LIFECYCLE_PLUGIN_API_MAJOR" \
     "$(grep -m1 -E '^PLUGIN_API = [0-9]+$' "$CCY_DIR/supervisor-plugins/ccy_lifecycle.py")"
 
-# The launcher sources every library in CCY_LIBS from /var/local/claude-yolo/lib/, but these tests
-# source them from the repo tree, so a library the play does not deploy passes here and breaks every
-# launch on the host. Read the launcher's own list, so a new library cannot be missed.
-libs_line=$(grep -E '^CCY_LIBS=\(' "$LAUNCHER")
-check "the launcher declares CCY_LIBS" "1" "$(grep -c -E '^CCY_LIBS=\(' "$LAUNCHER")"
-read -r -a ccy_libs <<<"${libs_line#CCY_LIBS=(}"
-ccy_libs[-1]="${ccy_libs[-1]%)}"
-for lib in "${ccy_libs[@]}"; do
-    check "the playbook deploys lib/$lib.bash" "1" \
-        "$(grep -c -F -- "files/var/local/claude-yolo/lib/$lib.bash\"" "$REPO_ROOT/playbooks/imports/play-claude-yolo.yml")"
+# The launcher sources its libraries from /var/local/claude-yolo/lib/, but these tests source them
+# from the repo tree, so a library the play does not deploy passes here and breaks every launch on
+# the host. Every lib/*.bash is checked, not the launcher's CCY_LIBS: that list omits
+# common-pure.bash, which common.bash sources.
+lib_count=0
+for lib_path in "$LIB_DIR"/*.bash; do
+    lib_count=$((lib_count + 1))
+    lib=$(basename "$lib_path")
+    check "the playbook deploys lib/$lib" "1" \
+        "$(grep -c -F -- "files/var/local/claude-yolo/lib/$lib\"" "$REPO_ROOT/playbooks/imports/play-claude-yolo.yml")"
 done
+check "the library check found the libraries" "yes" "$([ "$lib_count" -ge 11 ] && echo yes || echo no)"
 
 echo
 printf 'passed: %s  failed: %s\n' "$passed" "$failed"

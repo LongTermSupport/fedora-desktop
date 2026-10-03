@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.78.0"  # A --max-age restart relaunches unattended with the choices the session used; lifecycle options need a supervisor with the plugin API. See docs/ccy-changelog.md.
+CCY_VERSION="3.78.1"  # A restart relaunch no longer inherits the key staging directory or the token values. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -2109,6 +2109,7 @@ cleanup() {
     # a per-session tmpfs directory; they must not outlive the session.
     if [ -n "${CCY_KEY_STAGE_DIR:-}" ]; then
         rm -rf "$CCY_KEY_STAGE_DIR"
+        unset CCY_KEY_STAGE_DIR
     fi
     # A restore's container passphrase copy: the entrypoint removes it once its keys are
     # added; this covers a container that never got that far.
@@ -3443,10 +3444,16 @@ ccy_handle_restart_exit() {
     if [ -n "$RESTORE_SSH_PASSPHRASE_FILE" ]; then
         export CCY_RESTORE_SSH_PASSPHRASE_FILE="$RESTORE_SSH_PASSPHRASE_FILE"
     fi
-    # exec skips the EXIT trap, and the relaunch stages its own copies, so this launch's
-    # staged key copies and temp config are removed now rather than left behind.
+    # exec skips the EXIT trap, so this launch's staged key copies and temp config are
+    # removed now rather than left behind.
     trap - EXIT
     cleanup
+    # exec also hands over this launch's exported state. A staging directory the cleanup just
+    # removed would stop the relaunch making its own (and its mount), so a key file could not
+    # be staged on an SELinux-enforcing host; the token values are re-derived from the --token
+    # file the relaunch is given. The compose pair stays: this session's stack was started by
+    # the first launch, so the resumed session is the one to offer to stop it.
+    unset CCY_KEY_STAGE_DIR CLAUDE_CODE_OAUTH_TOKEN GH_TOKEN
     echo "Relaunching session $session_id..." >&2
     exec "$SCRIPT_DIR/claude-yolo" "${choice_args[@]}" "${relaunch_args[@]}"
 }

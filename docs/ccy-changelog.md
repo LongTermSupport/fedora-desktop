@@ -17,6 +17,20 @@ Two version numbers move independently — see
 
 ---
 
+## 3.78.1 — container 2.43
+
+Fixes from the second host review, before 3.78.0 was deployed.
+
+- **A key-file session can restart on an SELinux-enforcing host.** The relaunch inherited
+  the first launch's key staging directory, which the cleanup had just removed, so it made
+  neither a new directory nor its mount, and staging the key failed. The relaunch also no
+  longer inherits the token values: it re-derives them from the token file it is given.
+  It still inherits the record of compose services the first launch started, so the
+  resumed session is the one that offers to stop them.
+- The pre-commit container version check now reads the files the image copies from the
+  Dockerfile's own `COPY` lines, so it also covers the agent-browser guards and the
+  phpantom plugin, and any file the image starts copying later.
+
 ## 3.78.0 — container 2.43
 
 Fixes from the host review of 3.76.0 and 3.77.0, before either was deployed.
