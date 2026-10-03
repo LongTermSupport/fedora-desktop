@@ -50,6 +50,7 @@ PLAN_ROOT="${scriptDir}"
 # `./playbooks/imports/<play>.yml` does by hand.
 PLANS=(
     # PR #66: ccy 3.77.1 / container 2.42, session lifetimes and restart on a fresh container.
+    # ccy 3.78.0: ccy-sessions shows each session's CPU, token and SSH key; ccy-sessions --list.
     playbooks/imports/play-claude-yolo.yml
     # Plan 00148: continuous dictation in the warm server (Phases 2-4, off by default).
     playbooks/imports/optional/common/play-speech-to-text.yml

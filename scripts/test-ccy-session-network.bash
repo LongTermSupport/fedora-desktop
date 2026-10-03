@@ -34,7 +34,8 @@ source "$LIB_DIR/common-pure.bash"
 # shellcheck source=/dev/null
 source "$LIB_DIR/tmux-session.bash"
 
-for fn in ccy_session_containers ccy_network_word ccy_tmux_row; do
+for fn in ccy_session_containers ccy_network_word ccy_identity_words ccy_session_pids ccy_cpu_words \
+    ccy_tmux_row ccy_tmux_row_heading; do
     if ! declare -F "$fn" >/dev/null; then
         echo "FAIL: $fn is not defined after sourcing the libraries" >&2
         exit 1
@@ -163,16 +164,100 @@ check "a container the engine no longer lists reports no container" \
 check "an empty network table does not turn into none" \
     "no container" "$(ccy_network_word alpha_yolo "")"
 
+# ── the token and key words: the container's ccy-token and ccy-ssh-keys labels ───────
+TAB=$'\t'
+LABELS="$(
+    cat <<'EOF'
+alpha_yolo|work|key_0
+beta_yolo|none|none
+deep_yolo|personal|key_0 key_1
+old_yolo||
+EOF
+)"
+
+check "a session's token name and key are read off its container's labels" \
+    "work${TAB}key_0" "$(ccy_identity_words alpha_yolo "$LABELS")"
+check "none from the launcher stays none" \
+    "none${TAB}none" "$(ccy_identity_words beta_yolo "$LABELS")"
+check "several keys are joined with commas, one column" \
+    "personal${TAB}key_0,key_1" "$(ccy_identity_words deep_yolo "$LABELS")"
+check "a container without the labels says so, not none" \
+    "unlabelled${TAB}unlabelled" "$(ccy_identity_words old_yolo "$LABELS")"
+check "no container gives - in both" \
+    "-${TAB}-" "$(ccy_identity_words - "$LABELS")"
+check "a container the engine no longer lists gives - in both" \
+    "-${TAB}-" "$(ccy_identity_words ghost_yolo "$LABELS")"
+
+# ── CPU: which processes are a session's, and how busy they were ─────────────────────
+#
+# A session's processes are everything under its pane AND everything under its container's
+# first process: rootless podman's container is a child of conmon, not of the podman client
+# in the pane, so the pane's tree alone would show a busy ccy session as idle.
+CPU_ROOTS="ccy-alpha 100
+ccy-alpha 700
+cc-gamma 400
+ccy-idle 800"
+CPU_PROCESSES="1 0 systemd
+100 1 bash -c trampoline
+110 100 /bin/bash claude-yolo
+111 110 podman run --name alpha_yolo img
+650 1 conmon
+700 650 /entrypoint.sh
+701 700 claude
+702 701 npm test
+400 1 bash -c trampoline
+410 400 claude
+411 410 git status
+800 1 bash -c trampoline
+900 1 unrelated"
+check "a ccy session owns its pane's tree and its container's" \
+    "ccy-alpha 100 110 111 700 701 702" "$(ccy_session_pids "$CPU_ROOTS" "$CPU_PROCESSES" | grep '^ccy-alpha')"
+check "a cc session owns its pane's tree" \
+    "cc-gamma 400 410 411" "$(ccy_session_pids "$CPU_ROOTS" "$CPU_PROCESSES" | grep '^cc-gamma')"
+check "a session with only its pane still gets a line" \
+    "ccy-idle 800" "$(ccy_session_pids "$CPU_ROOTS" "$CPU_PROCESSES" | grep '^ccy-idle')"
+check "a process under no root belongs to no session" \
+    "" "$(ccy_session_pids "$CPU_ROOTS" "$CPU_PROCESSES" | grep -w 900)"
+
+# Ticks at 100 per second, over one second: 100 ticks is one whole core, 100%.
+SESSION_PIDS="busy 1 2
+idle 3
+newcomer 9
+twocores 4
+gone 5"
+BEFORE="1 100
+2 50
+3 10
+4 0
+5 70"
+AFTER="1 150
+2 60
+3 10
+4 150
+9 5"
+cpu="$(ccy_cpu_words "$SESSION_PIDS" "$BEFORE" "$AFTER" 1000000 100)"
+check "the session's processes' ticks are summed over the interval" "busy 60%" "$(grep '^busy' <<<"$cpu")"
+check "a session that used nothing is 0%" "idle 0%" "$(grep '^idle' <<<"$cpu")"
+check "a process born during the interval counts all its time" "newcomer 5%" "$(grep '^newcomer' <<<"$cpu")"
+check "more than one core reads above 100%, as top does" "twocores 150%" "$(grep '^twocores' <<<"$cpu")"
+check "a process that exited during the interval is not counted against anything" \
+    "gone 0%" "$(grep '^gone' <<<"$cpu")"
+check "half a second at the same ticks is twice the share" \
+    "busy 120%" "$(ccy_cpu_words "busy 1 2" "$BEFORE" "$AFTER" 500000 100)"
+
 # ── the picker row: the column appears only when a network was asked for ─────────────
 HOME_SAVED="$HOME"
 HOME="/home/<user>"
 three="$(ccy_tmux_row ccy-alpha 0 "$HOME/code/project")"
 four="$(ccy_tmux_row ccy-alpha 0 "$HOME/code/project" alpha-network)"
 attached_row="$(ccy_tmux_row ccy-alpha 1 "$HOME/code/project" "no container")"
+full="$(ccy_tmux_row ccy-alpha 0 "$HOME/code/project" alpha-network max-plan key_0,key_1 37%)"
+heading="$(ccy_tmux_row_heading)"
 HOME="$HOME_SAVED"
 
 read -r -a three_fields <<<"$three"
 read -r -a four_fields <<<"$four"
+read -r -a full_fields <<<"$full"
 
 # ccy's own offer picker passes three arguments. A blank column there would be a lie by
 # omission — it would read as "no network" — so the column has to be absent, not empty.
@@ -192,10 +277,19 @@ check "an attached session still says open elsewhere" \
 check "a multi-word network word does not break the name field" \
     "ccy-alpha" "${attached_row%% *}"
 
+check "cpu, token and key make seven columns" "7" "${#full_fields[@]}"
+check "cpu follows the state; token and key sit between the network and the directory" \
+    "ccy-alpha detached 37% alpha-network max-plan key_0,key_1 ~/code/project" "${full_fields[*]}"
+# The heading is printed above the rows by ccy-sessions --list, so each title must start
+# where its column does.
+check "the heading's columns line up with the row's" \
+    "$(awk '{ print index($0, "37%"), index($0, "alpha-network"), index($0, "max-plan"), index($0, "key_0") }' <<<"$full")" \
+    "$(awk '{ print index($0, "CPU"), index($0, "NETWORK"), index($0, "TOKEN"), index($0, "SSH KEY") }' <<<"$heading")"
+
 # ── the probe itself, over stubbed tmux / ps / engine ────────────────────────────────
 #
 # The pure halves above are only worth what the function that joins them is worth, so this
-# drives ccy_tmux_network_rows — the thing ccy-sessions actually calls — with every outside
+# drives ccy_tmux_detail_rows — the thing ccy-sessions actually calls — with every outside
 # command replaced by a shell function. A real tmux server and a real container are out of
 # reach in a checkout, and this is the path they would exercise.
 STUB_PANES="ccy-alpha 100
@@ -210,16 +304,46 @@ STUB_PROCESSES="1 0 /usr/lib/systemd/systemd --user
 210 200 /bin/bash /var/local/claude-yolo/claude-yolo
 211 210 podman run --rm -it --name beta_yolo img claude
 400 1 bash -c trampoline
-410 400 claude --dangerously-skip-permissions"
+410 400 claude --dangerously-skip-permissions
+700 1 /entrypoint.sh
+701 700 claude
+800 1 /entrypoint.sh"
 
-STUB_PODMAN_PS="alpha_yolo [alpha-network]
-beta_yolo []"
+STUB_PODMAN_PS="alpha_yolo|[alpha-network]|work|key_0 key_1
+beta_yolo|[]|none|none"
+# The two queries the probe may make. Pinned here so a change to either is a deliberate
+# change to the test as well: the stub engine answers nothing else.
+PS_FORMAT='{{.Names}}|{{.Networks}}|{{.Label "ccy-token"}}|{{.Label "ccy-ssh-keys"}}'
+INSPECT_FORMAT='{{.Name}} {{.State.Pid}}'
+
+# The CPU sample: the clock in microseconds, then "<pid> <ticks>". The stub answers the
+# first sample and the second alternately: one second apart, with alpha's claude having used
+# half a core and nothing else anything. Counted in a file, as the probe runs in a subshell.
+TICKS_BEFORE="0
+701 100
+800 50
+410 7"
+TICKS_AFTER="1000000
+701 150
+800 50
+410 7"
+SAMPLE_LOG="$(mktemp)"
+ccy_cpu_sample() {
+    printf 'sample %s\n' "$*" >>"$SAMPLE_LOG"
+    if [ $(($(grep -c . "$SAMPLE_LOG") % 2)) -eq 1 ]; then
+        printf '%s\n' "$TICKS_BEFORE"
+    else
+        printf '%s\n' "$TICKS_AFTER"
+    fi
+}
+getconf() { printf '100\n'; }
+export CCY_CPU_SAMPLE_SECONDS=0
 
 PANES_RC=0
 # The probe's output is captured with $(...), which runs it in a subshell, so a counter
 # variable would never come back. The engine stub records its calls in a file instead.
 CALL_LOG="$(mktemp)"
-trap 'rm -f "$CALL_LOG"' EXIT
+trap 'rm -f "$CALL_LOG" "$SAMPLE_LOG"' EXIT
 engine_calls() { grep -c . "$CALL_LOG"; }
 
 PANES_ERR="lost server"
@@ -240,7 +364,9 @@ ps() { printf '%s\n' "$STUB_PROCESSES"; }
 podman() {
     printf 'call\n' >>"$CALL_LOG"
     case "$*" in
-    "ps --filter label=ccy=true --format {{.Names}} {{.Networks}}") printf '%s\n' "$STUB_PODMAN_PS" ;;
+    "ps --filter label=ccy=true --format $PS_FORMAT") printf '%s\n' "$STUB_PODMAN_PS" ;;
+    # Docker prefixes the name with a slash and podman does not; beta answers as docker would.
+    "inspect --format $INSPECT_FORMAT alpha_yolo beta_yolo") printf '%s\n' "alpha_yolo 700" "/beta_yolo 800" ;;
     *)
         echo "unexpected engine call: $*"
         return 1
@@ -254,30 +380,37 @@ podman() {
 check "the ps stub shadows the real process table" "yes" \
     "$(case "$(ps)" in *alpha_yolo*) echo yes ;; *) echo no ;; esac)"
 check "the engine stub shadows the real engine" "yes" \
-    "$(case "$(podman ps --filter label=ccy=true --format '{{.Names}} {{.Networks}}')" in
+    "$(case "$(podman ps --filter label=ccy=true --format "$PS_FORMAT")" in
     *alpha-network*) echo yes ;;
     *) echo no ;;
     esac)"
+check "the engine stub answers the pid question" "alpha_yolo 700" \
+    "$(podman inspect --format "$INSPECT_FORMAT" alpha_yolo beta_yolo | grep '^alpha')"
+check "the tick-rate stub shadows the real one" "100" "$(getconf CLK_TCK)"
+check "the CPU sample stub gives the first sample first" "0" "$(ccy_cpu_sample 701 | awk 'NR == 1')"
 : >"$CALL_LOG"
+: >"$SAMPLE_LOG"
 
 # The probe is expected to succeed here, so its status is consumed: a failure must show up
 # as a failed case, not as an empty string that quietly mismatches every expectation below.
 # Nothing reaches stderr on the success path, so folding it in only adds the reason.
 probe_out=""
-if ! probe_out="$(ccy_tmux_network_rows 2>&1)"; then
+if ! probe_out="$(ccy_tmux_detail_rows 2>&1)"; then
     probe_out="UNEXPECTED PROBE FAILURE: ${probe_out}"
 fi
-check "the probe names the network of a connected session" \
-    "alpha-network" "$(printf '%s\n' "$probe_out" | awk '$1 == "ccy-alpha" { print $2 }')"
-check "the probe reports none for a container on no named network" \
-    "none" "$(printf '%s\n' "$probe_out" | awk '$1 == "ccy-beta" { print $2 }')"
+check "the probe gives a connected session its network, token, keys and CPU" \
+    "ccy-alpha${TAB}alpha-network${TAB}work${TAB}key_0,key_1${TAB}50%" "$(grep '^ccy-alpha' <<<"$probe_out")"
+check "the probe reports none for a container on no named network, with no token or key" \
+    "ccy-beta${TAB}none${TAB}none${TAB}none${TAB}0%" "$(grep '^ccy-beta' <<<"$probe_out")"
 check "the probe reports no container for a host cc session" \
-    "no container" "$(printf '%s\n' "$probe_out" | awk '$1 == "cc-gamma" { $1 = ""; sub(/^ /, ""); print }')"
+    "cc-gamma${TAB}no container${TAB}-${TAB}-${TAB}0%" "$(grep '^cc-gamma' <<<"$probe_out")"
 check "one row per session, no more" "3" "$(printf '%s\n' "$probe_out" | grep -c .)"
+check "the CPU is sampled twice, over every session's processes and its container's" \
+    "2 yes" "$(grep -c . "$SAMPLE_LOG") $(grep -q 'sample .*\b701\b' "$SAMPLE_LOG" && grep -q '\b410\b' "$SAMPLE_LOG" && echo yes)"
 
 # Flat in the session count is the whole reason this is one pass: the picker rebuilds its
 # rows on every loop, and a lookup per row would be felt.
-check "the engine is asked exactly once for all sessions" "1" "$(engine_calls)"
+check "the engine is asked twice for all sessions, the list and the pids" "2" "$(engine_calls)"
 
 # No session has a container, so there is no engine to ask and nothing to ask it.
 STUB_PROCESSES="1 0 /usr/lib/systemd/systemd --user
@@ -285,11 +418,11 @@ STUB_PROCESSES="1 0 /usr/lib/systemd/systemd --user
 410 400 claude --dangerously-skip-permissions"
 STUB_PANES="cc-gamma 400"
 : >"$CALL_LOG"
-if ! probe_out="$(ccy_tmux_network_rows 2>&1)"; then
+if ! probe_out="$(ccy_tmux_detail_rows 2>&1)"; then
     probe_out="UNEXPECTED PROBE FAILURE: ${probe_out}"
 fi
 check "no container anywhere means the engine is never called" "0" "$(engine_calls)"
-check "and the row still says why it is empty" "cc-gamma no container" "$probe_out"
+check "and the row still says why it is empty" "cc-gamma${TAB}no container${TAB}-${TAB}-${TAB}0%" "$probe_out"
 
 # A here-string over empty text still yields one blank line. Without a guard that blank
 # line becomes an empty engine name, which is then RUN — so no sessions at all has to be
@@ -297,7 +430,7 @@ check "and the row still says why it is empty" "cc-gamma no container" "$probe_o
 STUB_PANES=""
 STUB_PROCESSES=""
 : >"$CALL_LOG"
-if ! probe_out="$(ccy_tmux_network_rows 2>&1)"; then
+if ! probe_out="$(ccy_tmux_detail_rows 2>&1)"; then
     probe_out="UNEXPECTED PROBE FAILURE: ${probe_out}"
 fi
 check "no sessions at all produces no rows and no error" "" "$probe_out"
@@ -307,7 +440,7 @@ check "no sessions at all calls no engine" "0" "$(engine_calls)"
 # silent empty result would reach the picker as a blank column, which reads as "no network".
 PANES_RC=1
 PANES_ERR="server exited unexpectedly"
-probe_err="$(ccy_tmux_network_rows 2>&1 >/dev/null)"
+probe_err="$(ccy_tmux_detail_rows 2>&1 >/dev/null)"
 probe_rc=$?
 check "a failed probe returns non-zero" "1" "$probe_rc"
 case "$probe_err" in
@@ -319,12 +452,12 @@ esac
 # this BEFORE it discovers there are no sessions, so a complaint here would be the first
 # thing a user with nothing running ever sees from the command.
 PANES_ERR="no server running on /tmp/tmux-1000/ccy"
-noserver_err="$(ccy_tmux_network_rows 2>&1 >/dev/null)"
+noserver_err="$(ccy_tmux_detail_rows 2>&1 >/dev/null)"
 noserver_rc=$?
 check "no tmux server is not an error" "0" "$noserver_rc"
 check "and it complains about nothing" "" "$noserver_err"
 
-unset -f ps podman
+unset -f ps podman getconf ccy_cpu_sample
 
 printf '\npassed: %s failed: %s\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]

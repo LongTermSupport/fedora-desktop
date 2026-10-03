@@ -22,8 +22,18 @@
 #                  session outlives a container that has exited
 #   unknown        the question could not be answered; the reason is printed above the list
 #
+# The token and SSH key columns name the Claude token and the key(s) the session's container
+# was started with, read off its ccy-token and ccy-ssh-keys labels: "none" when it has none,
+# "-" when there is no container to ask (as for the network), "unknown" as above.
+#
+# The CPU column is how busy the session is: the CPU time used by everything it runs (its
+# container's processes and its own on the host) over a one-second sample, as top shows it,
+# so 100% is one whole core. The list therefore takes about a second to appear.
+#
 # Usage:
 #   ccy-sessions                                    the picker (needs a terminal)
+#   ccy-sessions -l|--list                          print the same table, with a heading, on
+#                                                   stdout and exit; no terminal needed
 #   ccy-sessions notify going-down --minutes N [--dry-run]
 #                                                   tell every live session's project that
 #                                                   the machine goes down in N minutes, as
@@ -91,6 +101,11 @@ usage_error() {
 subcommand="${1:-}"
 case "${subcommand}" in
 "" | notify | reboot | restore | verify-restore) ;;
+-l | --list)
+    if [[ $# -gt 1 ]]; then
+        usage_error "'${subcommand}' takes no further arguments."
+    fi
+    ;;
 -h | --help)
     usage
     exit 0
@@ -572,38 +587,58 @@ verify-restore)
     ;;
 esac
 
+# ── the table: the picker's rows, and --list ─────────────────────────────────────────────
+
+# rows — every session as a picker row, in the library's house format.
+#
+# The CPU, network, token and key columns are filled from one pass over the host (see
+# ccy_tmux_detail_rows), not one lookup per row, so refreshing the list costs the same with
+# ten sessions as with one. A probe that fails leaves those columns reading "unknown" on
+# every row: the reason is already on stderr, and a blank there would be read as "none".
+rows() {
+    local name attached dir word token keys cpu details listing
+    local -A network_of=() token_of=() keys_of=() cpu_of=()
+    if details="$(ccy_tmux_detail_rows)"; then
+        while IFS=$'\t' read -r name word token keys cpu; do
+            [[ -n "${name}" ]] || continue
+            network_of["${name}"]="${word}"
+            token_of["${name}"]="${token}"
+            keys_of["${name}"]="${keys}"
+            cpu_of["${name}"]="${cpu}"
+        done <<<"${details}"
+    else
+        echo "The CPU, network, token and SSH key columns read 'unknown' for every session — see the error above." >&2
+    fi
+    # Read whole first: a failed listing read through a process substitution would pass for
+    # "no sessions".
+    listing="$(ccy_tmux_list)" || return 1
+    while read -r name attached dir; do
+        [[ -n "${name}" ]] || continue
+        ccy_tmux_row "${name}" "${attached}" "${dir}" "${network_of[${name}]:-unknown}" \
+            "${token_of[${name}]:-unknown}" "${keys_of[${name}]:-unknown}" "${cpu_of[${name}]:-unknown}"
+        printf '\n'
+    done <<<"${listing}"
+}
+
+if [[ "${subcommand}" == -l || "${subcommand}" == --list ]]; then
+    listing="$(rows)" || exit 1
+    if [[ -z "${listing}" ]]; then
+        echo "No CCY or cc sessions are running." >&2
+        exit 0
+    fi
+    ccy_tmux_row_heading
+    printf '\n%s\n' "${listing}"
+    exit 0
+fi
+
 # ── the picker ───────────────────────────────────────────────────────────────────────────
 # Only the picker needs a terminal: it attaches sessions to the one it runs in. The
 # subcommands above run headless — the restore unit has no terminal, and a reboot helper
 # is as likely to be run over ssh as from a desktop.
 if [[ ! -t 0 || ! -t 1 ]]; then
-    echo "ccy-sessions needs a terminal: it attaches sessions to the one you are in." >&2
+    echo "ccy-sessions needs a terminal: it attaches sessions to the one you are in. ccy-sessions --list prints the table instead." >&2
     exit 1
 fi
-
-# rows — every session as a picker row, in the library's house format.
-#
-# The network column is filled from one pass over the host (see ccy_tmux_network_rows), not
-# one lookup per row, so refreshing the list costs the same with ten sessions as with one.
-# A probe that fails leaves every row reading "unknown": the reason is already on stderr,
-# and a blank there would be read as "this session has no network".
-rows() {
-    local name attached dir word netmap
-    local -A net=()
-    if netmap="$(ccy_tmux_network_rows)"; then
-        while read -r name word; do
-            [[ -n "${name}" ]] || continue
-            net["${name}"]="${word}"
-        done <<<"${netmap}"
-    else
-        echo "The network column reads 'unknown' for every session — see the error above." >&2
-    fi
-    while read -r name attached dir; do
-        [[ -n "${name}" ]] || continue
-        ccy_tmux_row "${name}" "${attached}" "${dir}" "${net[${name}]:-unknown}"
-        printf '\n'
-    done < <(ccy_tmux_list)
-}
 
 # confirm_end <name> — end a session and everything in it, after the picker's yes/no
 # (no is the default row). An ended session is not a session to restore: its record goes
@@ -640,11 +675,12 @@ fi
 HEADER="$(ccy_tmux_header "Enter attach   Ctrl-X end   Ctrl-N new   Esc or q quit" \
     "${new_line}" \
     "\"open elsewhere\" is attached in another terminal: it can be ended here, not attached" \
-    "network column: the container's network — \"none\" is on no named network, \"no container\" is nothing to ask")"
+    "CPU: over the last second, 100% is one core" \
+    "network, token, SSH key: what its container is on and was started with — \"no container\" and \"-\" mean nothing to ask")"
 
 attempt=1
 while :; do
-    listing="$(rows)"
+    listing="$(rows)" || exit 1
     if [[ -z "${listing}" ]]; then
         if project_here; then
             if ccy_tmux_confirm "CCY sessions" "No sessions are running. Start ccy in ${here}?" "start ccy here"; then

@@ -175,7 +175,13 @@ a name is the network the session's container is on, `none` means no named netwo
 (`--no-network`, or a default that is not one), `no container` means there is nothing to
 ask — a `cc` session, or a container that has exited under a session that has not — and
 `unknown` means the question could not be answered, with the reason printed above the
-list. Arrow keys choose, Enter attaches a detached one, Ctrl-X ends one (it
+list. Two more columns name the Claude token and the SSH key(s) the session's container was
+started with, read off its `ccy-token` and `ccy-ssh-keys` labels: `none` when it was given
+none, `-` when there is no container to ask. A CPU column says how busy each session is: the
+CPU used by everything it runs, container and host side, over a one-second sample, where 100%
+is one whole core (so the list takes a second to appear). `ccy-sessions --list` (or `-l`) prints the same
+table with a heading on stdout and exits, opening nothing and needing no terminal.
+Arrow keys choose, Enter attaches a detached one, Ctrl-X ends one (it
 asks first), Ctrl-N starts a new `ccy` session in the current directory, and the last
 row is always Exit (Esc or `q` do the same). Every yes/no question is the same picker,
 starting on Exit so Enter alone is the safe answer. A session that is open in another
@@ -660,18 +666,18 @@ are forwarded unchanged.
 
 ### Session
 
-| Flag              | Effect                                                                                                                                           |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ccy`             | Start a session in the current directory                                                                                                         |
-| `ccy "task"`      | Start an interactive session with an opening instruction                                                                                         |
-| `--prompt "text"` | Start with a preseeded prompt                                                                                                                    |
-| `--headless`      | Run non-interactively — requires `--prompt` (not the positional form)                                                                            |
-| `--supervise`     | Wrap `claude` in the in-container supervisor                                                                                                     |
-| `--no-restore`    | Do not bring this session back after a reboot (see [restore](#sessions-survive-a-reboot))                                                        |
-| `--top`           | Container manager: list and stop running CCY containers                                                                                          |
-| `ccy-sessions`    | Separate command: every CCY tmux session with its network, attach or end one; `reboot --in N` warns them and reboots; `restore` brings them back |
-| `--debug`         | Interactive debug-layer selection (CCY, entrypoint, Claude Code)                                                                                 |
-| `--`              | End of CCY options; everything after is forwarded raw to `claude`                                                                                |
+| Flag              | Effect                                                                                                                                                                                              |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ccy`             | Start a session in the current directory                                                                                                                                                            |
+| `ccy "task"`      | Start an interactive session with an opening instruction                                                                                                                                            |
+| `--prompt "text"` | Start with a preseeded prompt                                                                                                                                                                       |
+| `--headless`      | Run non-interactively — requires `--prompt` (not the positional form)                                                                                                                               |
+| `--supervise`     | Wrap `claude` in the in-container supervisor                                                                                                                                                        |
+| `--no-restore`    | Do not bring this session back after a reboot (see [restore](#sessions-survive-a-reboot))                                                                                                           |
+| `--top`           | Container manager: list and stop running CCY containers                                                                                                                                             |
+| `ccy-sessions`    | Separate command: every CCY tmux session with its CPU, network, token and SSH key, attach or end one; `--list` prints the table; `reboot --in N` warns them and reboots; `restore` brings them back |
+| `--debug`         | Interactive debug-layer selection (CCY, entrypoint, Claude Code)                                                                                                                                    |
+| `--`              | End of CCY options; everything after is forwarded raw to `claude`                                                                                                                                   |
 
 ### Image and updates
 

@@ -17,6 +17,22 @@ Two version numbers move independently — see
 
 ---
 
+## 3.78.0 — container 2.42
+
+- **`ccy-sessions` names each session's token and SSH key...** Two new columns, read off the
+  `ccy-token` and `ccy-ssh-keys` labels every ccy container already carries, in the same one
+  engine query that fills the network column: `none` when the session was given none, `-`
+  for a `cc` session or a container that has exited, `unknown` when the engine could not be
+  asked. Several keys are joined with commas.
+- **…and how busy each one is.** A CPU column, after the state: the CPU time used by
+  everything the session runs (its container's processes and its own on the host) over a
+  one-second sample, as `top` shows it, so 100% is one whole core. The list takes about a
+  second longer to appear because of it.
+- **`ccy-sessions --list` (`-l`) prints the table and exits.** A heading and one row per
+  session on stdout; nothing opens and no terminal is needed, so it works over ssh and in a
+  pipe. No sessions prints nothing on stdout and says so on stderr.
+- No image change, so no rebuild.
+
 ## 3.77.1 — container 2.42
 
 - **`--max-age`, `--run-for` and `--until` give a session a lifetime.** `--max-age 3d`

@@ -105,6 +105,12 @@ if [ "${1:-}" = exec ]; then
 fi
 case "$*" in
 "ps --filter label=ccy=true --format {{.Names}}") if [ -n "${TEST_PODMAN_NAMES:-}" ]; then cat "$TEST_PODMAN_NAMES"; fi ;;
+# The list's query: name, networks and the token and key labels.
+'ps --filter label=ccy=true --format {{.Names}}|{{.Networks}}|{{.Label "ccy-token"}}|{{.Label "ccy-ssh-keys"}}')
+    if [ -n "${TEST_PODMAN_DETAILS:-}" ]; then cat "$TEST_PODMAN_DETAILS"; fi
+    ;;
+# ... and the host pid of each listed container's first process, for the CPU column.
+'inspect --format {{.Name}} {{.State.Pid}} a_yolo') printf 'a_yolo 120\n' ;;
 *)
     echo "fake podman: unexpected call: $*" >&2
     exit 97
@@ -224,6 +230,43 @@ check "bare ccy-sessions still wants a terminal" "1" "$rc"
 check "and says so" "yes" "$([[ "$out" == *"needs a terminal"* ]] && echo yes || echo no)"
 run --bogus
 check "an unknown option is still exit 64" "64" "$rc"
+
+echo ""
+echo "=== --list: the table on stdout, no terminal, nothing opened ==="
+# One ccy session with a container, one cc session on the host.
+printf '%s\n' "ccy-a 0 $A" "cc-b 1 $B" >"$SESSIONS"
+printf '%s\n' "ccy-a 100" "cc-b 200" >"$SCRATCH/panes"
+printf '%s\n' "100 1 bash -c trampoline" "110 100 podman run --rm -it --name a_yolo img claude" \
+    "120 1 /entrypoint.sh" "200 1 bash -c trampoline" "210 200 claude" >"$SCRATCH/ps"
+printf '%s\n' "a_yolo|[a-net]|work|key_0" >"$SCRATCH/details"
+# The CPU sample reads this machine's /proc for the table's pids, so its figures are whatever
+# those pids are here: only their shape is checked. No pause between the two samples.
+list_stdout() {
+    HOME="$HOME_ON" PATH="$BIN:$PATH" CCY_LIB="$LIB_DIR" TEST_PANES="$SCRATCH/panes" \
+        TEST_PS="$SCRATCH/ps" TEST_PODMAN_DETAILS="$SCRATCH/details" CCY_CPU_SAMPLE_SECONDS=0 \
+        "$TOOL" "$@" </dev/null 2>/dev/null
+}
+for flag in --list -l; do
+    TEST_PANES="$SCRATCH/panes" TEST_PS="$SCRATCH/ps" TEST_PODMAN_DETAILS="$SCRATCH/details" \
+        CCY_CPU_SAMPLE_SECONDS=0 run "$flag"
+    check "$flag works with no terminal" "0" "$rc"
+    listed="$(list_stdout "$flag")"
+    check "$flag prints a heading and one row per session" "3" "$(grep -c . <<<"$listed")"
+    check "$flag heading names the CPU, token and key columns" "yes" \
+        "$([[ "$(awk 'NR == 1' <<<"$listed")" == *"CPU"*"TOKEN"*"SSH KEY"* ]] && echo yes || echo no)"
+    check "$flag row gives the ccy session its CPU, network, token and key" \
+        "ccy-a detached cpu a-net work key_0" \
+        "$(awk '$1 == "ccy-a" { print $1, $2, ($3 ~ /^[0-9]+%$/ ? "cpu" : $3), $4, $5, $6 }' <<<"$listed")"
+    check "$flag row gives the cc session its CPU, no container and - for token and key" \
+        "cc-b open elsewhere cpu no container - -" \
+        "$(awk '$1 == "cc-b" { print $1, $2, $3, ($4 ~ /^[0-9]+%$/ ? "cpu" : $4), $5, $6, $7, $8 }' <<<"$listed")"
+done
+run --list extra
+check "--list takes no argument" "64" "$rc"
+: >"$SESSIONS"
+run --list
+check "--list with no sessions succeeds" "0" "$rc"
+check "and prints nothing on stdout" "" "$(list_stdout --list)"
 
 echo ""
 echo "=== notify: every live project, exactly once ==="

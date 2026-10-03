@@ -300,18 +300,165 @@ ccy_network_word() {
     printf 'no container'
 }
 
-# ccy_tmux_network_rows — "<session> <network word>" for every session on CCY's server.
+# ccy_identity_words <container> <labels> — "<token>\t<keys>" for one session: the token
+# name and the SSH keys its container was started with. PURE.
+#   <labels> "<container>|<ccy-token label>|<ccy-ssh-keys label>" per line
 #
-# Three probes whatever the number of sessions: tmux for the panes, one process table, and
-# one query per engine that is actually running a CCY container — none at all when no session
-# has one. The picker rebuilds its rows on every loop, so this has to stay flat in the
-# session count rather than shelling out per row.
+# The launcher labels every container it starts with both (claude-yolo, CCY_LABEL_TOKEN):
+# the token name or "none", and the key basenames space-separated or "none". Several keys are
+# joined with commas here, so the column stays one word. "-" in both when there is no
+# container: a cc session runs claude on the host, under its own login, with no key mounted.
+# A listed container with no labels at all says "unlabelled" rather than passing for "none".
+ccy_identity_words() {
+    local container="$1" labels="$2" name token keys
+    if [[ "$container" != "-" ]]; then
+        while IFS='|' read -r name token keys; do
+            [[ "$name" == "$container" ]] || continue
+            local -a key_list=()
+            read -r -a key_list <<<"$keys"
+            keys="unlabelled"
+            if [[ "${#key_list[@]}" -gt 0 ]]; then
+                local IFS=,
+                keys="${key_list[*]}"
+            fi
+            printf '%s\t%s' "${token:-unlabelled}" "$keys"
+            return 0
+        done <<<"$labels"
+    fi
+    printf -- '-\t-'
+}
+
+# ── how busy a session is ─────────────────────────────────────────────────────────────────
+#
+# A session's processes are everything under its pane AND everything under its container's
+# first process. Rootless podman starts the container under conmon, not under the podman
+# client in the pane, so the pane's tree alone would show a busy ccy session as idle; the
+# container's processes are still visible from the host, so both trees are read the same way.
+# Its CPU is the time those processes used over a short sample, as top shows it: 100% is one
+# whole core.
+
+# How long the sample lasts, in seconds. The picker and --list wait this long for their rows.
+: "${CCY_CPU_SAMPLE_SECONDS:=1}"
+
+# ccy_session_pids <roots> <processes> — "<session> <pid>..." for every session in <roots>,
+# each with every process at or under any of its roots, in process-table order. PURE.
+#   <roots>     "<session> <pid>" per line, a session on as many lines as it has roots
+#   <processes> "<pid> <ppid> ..." per line
+ccy_session_pids() {
+    local roots="$1" processes="$2" session pid ppid walk hops
+    local -A root_of=() parent=() owned=()
+    local -a order=() table=()
+    while read -r session pid; do
+        [[ -n "$session" && -n "$pid" ]] || continue
+        root_of["$pid"]="$session"
+        if [[ -z "${owned[$session]+set}" ]]; then
+            owned["$session"]=""
+            order+=("$session")
+        fi
+    done <<<"$roots"
+    while read -r pid ppid _; do
+        [[ -n "$pid" ]] || continue
+        parent["$pid"]="$ppid"
+        table+=("$pid")
+    done <<<"$processes"
+    # The hop cap stops a malformed table (a cycle) from spinning, as in ccy_session_containers.
+    if [[ "${#table[@]}" -gt 0 ]]; then
+        for pid in "${table[@]}"; do
+            walk="$pid"
+            hops=0
+            while [[ -n "$walk" && "$walk" != "0" && "$hops" -lt 64 ]]; do
+                if [[ -n "${root_of[$walk]:-}" ]]; then
+                    owned["${root_of[$walk]}"]+=" $pid"
+                    break
+                fi
+                walk="${parent[$walk]:-}"
+                hops=$((hops + 1))
+            done
+        done
+    fi
+    if [[ "${#order[@]}" -gt 0 ]]; then
+        for session in "${order[@]}"; do
+            printf '%s%s\n' "$session" "${owned[$session]}"
+        done
+    fi
+}
+
+# ccy_cpu_words <session-pids> <before> <after> <elapsed-us> <ticks-per-second> —
+# "<session> <N>%" per session. PURE.
+#   <session-pids>  ccy_session_pids' output
+#   <before/after>  "<pid> <cpu ticks used so far>" per line
+# A process missing from <before> was born during the sample, so all its time is counted; one
+# missing from <after> exited during it and its last share is lost, which is the price of
+# sampling processes rather than a cgroup.
+ccy_cpu_words() {
+    local session_pids="$1" before="$2" after="$3" elapsed_us="$4" hz="$5"
+    local pid ticks session pids_text used denominator
+    local -A was=() now=()
+    local -a pids=()
+    denominator=$((elapsed_us * hz))
+    if [[ "$denominator" -le 0 ]]; then
+        print_error "a CPU sample needs time to pass and a tick rate; got ${elapsed_us} us at ${hz} ticks a second"
+        return 1
+    fi
+    while read -r pid ticks; do
+        [[ -n "$pid" ]] && was["$pid"]="$ticks"
+    done <<<"$before"
+    while read -r pid ticks; do
+        [[ -n "$pid" ]] && now["$pid"]="$ticks"
+    done <<<"$after"
+    while read -r session pids_text; do
+        [[ -n "$session" ]] || continue
+        read -r -a pids <<<"$pids_text"
+        used=0
+        for pid in "${pids[@]}"; do
+            [[ -n "${now[$pid]:-}" ]] || continue
+            used=$((used + now[$pid] - ${was[$pid]:-0}))
+        done
+        # ticks / (seconds * hz) * 100, rounded, in whole microseconds.
+        printf '%s %s%%\n' "$session" "$(((used * 100000000 + denominator / 2) / denominator))"
+    done <<<"$session_pids"
+}
+
+# ccy_cpu_sample <pid>... — the clock in microseconds on the first line, then "<pid> <ticks>"
+# for each pid still running: its user plus system time from /proc, in clock ticks.
+ccy_cpu_sample() {
+    local pid line
+    local -a fields=()
+    printf '%s\n' "${EPOCHREALTIME//[.,]/}"
+    for pid in "$@"; do
+        # FAIL-FAST-OK: a process can exit between the process table and this read; it then has no time left to count, which ccy_cpu_words allows for
+        if ! { read -r line <"/proc/$pid/stat"; } 2>/dev/null; then
+            continue
+        fi
+        # The command name, in brackets, may hold spaces: the fields are counted after it.
+        read -r -a fields <<<"${line##*) }"
+        printf '%s %s\n' "$pid" "$((fields[11] + fields[12]))"
+    done
+}
+
+# The engine queries: each CCY container's name, networks and the two labels above, then the
+# host pid of the first process of the ones that belong to a session. `|` separates the list's
+# fields because podman renders a network list with spaces, and the key label is
+# space-separated itself.
+CCY_ENGINE_DETAIL_FORMAT='{{.Names}}|{{.Networks}}|{{.Label "ccy-token"}}|{{.Label "ccy-ssh-keys"}}'
+CCY_ENGINE_PID_FORMAT='{{.Name}} {{.State.Pid}}'
+
+# ccy_tmux_detail_rows — "<session>\t<network word>\t<token>\t<keys>\t<cpu>" for every
+# session on CCY's server.
+#
+# The same probes whatever the number of sessions: tmux for the panes, one process table,
+# two queries per engine that is actually running a CCY container — none at all when no
+# session has one — and two CPU samples CCY_CPU_SAMPLE_SECONDS apart. The picker rebuilds its
+# rows on every loop, so this has to stay flat in the session count rather than shelling out
+# per row.
 #
 # Returns 1, having said why, when a probe fails. The caller then shows "unknown" on every
 # row rather than a blank, because a blank would read as "no network".
-ccy_tmux_network_rows() {
-    local panes processes containers networks="" listing session engine container
-    local -A engines=()
+ccy_tmux_detail_rows() {
+    local panes processes containers networks="" labels="" listing session engine container
+    local name nets token keys pid pids_text roots session_pids before after hz cpu_words
+    local -A engines=() running=() asked=() container_pid=() cpu=()
+    local -a all_pids=() owned=()
 
     # No server yet is the normal first-run state and means no sessions to report, exactly as
     # in ccy_tmux_list. It must not surface as an error: the caller prints one for every
@@ -340,29 +487,97 @@ ccy_tmux_network_rows() {
     for engine in "${!engines[@]}"; do
         # Every CCY container carries `--label ccy=true`, so this asks about those and
         # nothing else on the host.
-        if ! listing=$("$engine" ps --filter label=ccy=true --format '{{.Names}} {{.Networks}}' 2>&1); then
+        if ! listing=$("$engine" ps --filter label=ccy=true --format "$CCY_ENGINE_DETAIL_FORMAT" 2>&1); then
             print_error "$engine ps failed: $listing"
             return 1
         fi
-        networks+="${listing}"$'\n'
+        while IFS='|' read -r name nets token keys; do
+            [[ -n "$name" ]] || continue
+            networks+="${name} ${nets}"$'\n'
+            labels+="${name}|${token}|${keys}"$'\n'
+            running["$name"]=1
+        done <<<"$listing"
     done
+
+    # The host pid of each session's container's first process, asked only about containers
+    # the engine has just listed as running: one that has exited has no processes to count.
+    while read -r session engine container; do
+        [[ -n "$session" && -n "${running[$container]:-}" ]] || continue
+        asked["$engine"]+=" $container"
+    done <<<"$containers"
+    for engine in "${!asked[@]}"; do
+        local -a names=()
+        read -r -a names <<<"${asked[$engine]}"
+        if ! listing=$("$engine" inspect --format "$CCY_ENGINE_PID_FORMAT" "${names[@]}" 2>&1); then
+            print_error "$engine inspect failed: $listing"
+            return 1
+        fi
+        while read -r name pid; do
+            [[ -n "$name" ]] || continue
+            # Docker names a container with a leading slash; podman does not.
+            container_pid["${name#/}"]="$pid"
+        done <<<"$listing"
+    done
+
+    roots="$panes"
+    while read -r session engine container; do
+        [[ -n "$session" && "${container_pid[$container]:-0}" != "0" ]] || continue
+        roots+=$'\n'"${session} ${container_pid[$container]}"
+    done <<<"$containers"
+    session_pids=$(ccy_session_pids "$roots" "$processes")
+    while read -r session pids_text; do
+        [[ -n "$session" ]] || continue
+        read -r -a owned <<<"$pids_text"
+        all_pids+=("${owned[@]}")
+    done <<<"$session_pids"
+    if ! hz=$(getconf CLK_TCK 2>&1); then
+        print_error "the clock tick rate could not be read, so no CPU share can be worked out: $hz"
+        return 1
+    fi
+    before=$(ccy_cpu_sample "${all_pids[@]}")
+    sleep "$CCY_CPU_SAMPLE_SECONDS"
+    after=$(ccy_cpu_sample "${all_pids[@]}")
+    cpu_words=$(ccy_cpu_words "$session_pids" "$(awk 'NR > 1' <<<"$before")" \
+        "$(awk 'NR > 1' <<<"$after")" "$(($(awk 'NR == 1' <<<"$after") - $(awk 'NR == 1' <<<"$before")))" \
+        "$hz") || return 1
+    while read -r session token; do
+        [[ -n "$session" ]] && cpu["$session"]="$token"
+    done <<<"$cpu_words"
 
     while read -r session engine container; do
         [[ -n "$session" ]] || continue
-        printf '%s %s\n' "$session" "$(ccy_network_word "$container" "$networks")"
+        printf '%s\t%s\t%s\t%s\n' "$session" "$(ccy_network_word "$container" "$networks")" \
+            "$(ccy_identity_words "$container" "$labels")" "${cpu[$session]:-unknown}"
     done <<<"$containers"
 }
 
 # ── the shared picker: one look for ccy, cc and ccy-sessions ─────────────────────────────
 
-# ccy_tmux_row <name> <attached> <dir> [network] — one aligned picker row. The state words are
-# what the pickers test for, so they are defined once here. [network] adds a column before the
-# directory; with no network given the column is left out altogether rather than padded,
-# because a blank one would read as "no network" to the picker that never asked.
+# _ccy_tmux_full_row <seven columns> — the full row's layout, shared by the rows and the
+# heading ccy-sessions --list prints above them.
+_ccy_tmux_full_row() {
+    printf '%-28s  %-15s  %5s  %-22s  %-16s  %-16s  %s' "$@"
+}
+
+# ccy_tmux_row_heading — the column titles over full rows, aligned with them.
+ccy_tmux_row_heading() {
+    _ccy_tmux_full_row SESSION STATE CPU NETWORK TOKEN "SSH KEY" DIRECTORY
+}
+
+# ccy_tmux_row <name> <attached> <dir> [network [token keys cpu]] — one aligned picker row.
+# The state words are what the pickers test for, so they are defined once here. [network]
+# adds a column before the directory; [token keys cpu] add the CPU after the state and the
+# token and keys after the network. A column not given is left out altogether rather than
+# padded, because a blank one would read as "no network" (or no token) to the picker that
+# never asked.
 ccy_tmux_row() {
     local state="detached"
     if [[ "$2" != "0" ]]; then
         state="open elsewhere"
+    fi
+    if [[ -n "${5:-}" ]]; then
+        _ccy_tmux_full_row "$1" "$state" "${7:--}" "$4" "$5" "${6:--}" "${3/#${HOME}/\~}"
+        return 0
     fi
     if [[ -n "${4:-}" ]]; then
         printf '%-28s  %-15s  %-22s  %s' "$1" "$state" "$4" "${3/#${HOME}/\~}"
