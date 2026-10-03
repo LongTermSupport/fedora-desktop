@@ -16,12 +16,20 @@ raises, the microphone dying, a backlog past its ceiling, a drain past its deadl
 journal write) marks the session FAILED: the microphone is closed, the audio not yet
 transcribed is kept as WAV and the text so far is reported. Nothing is dropped silently.
 
+That pipeline runs only for START {continuous: true}. Without it no VAD runs: the whole
+recording (at most max_seconds) is one clip, transcribed once at STOP by the same
+worker and model.
+
 Commands, one JSON line each way over a Unix socket:
     START {max_seconds, silence_seconds, continuous}   KEEPALIVE   PROGRESS
     STOP (closes the microphone, drains; PROGRESS then reports the text)   ABORT   PING
 A recording stops itself when the client's KEEPALIVEs stop (15 s), after
 silence_seconds without speech (0 = never), and at max_seconds. The client reads those
 limits from the extension's settings.
+
+A dictation's text counts as delivered once a STOP or PROGRESS reply carrying it reached
+a client. One that never did (the client died, so the heartbeat stopped it) keeps its
+journal, holds off the idle shutdown, and is handed to the next START in its reply.
 
 Auto-shuts down after idle timeout (default: 20 minutes; 0 = never). wsi-stream passes
 the extension's server-idle-timeout-minutes setting when it starts the server.
@@ -118,8 +126,12 @@ def is_busy():
 
 
 def check_idle_timeout():
-    """Check if server has been idle too long. A timeout of 0 keeps it running."""
-    if is_busy() or idle_timeout == 0:
+    """Check if server has been idle too long. A timeout of 0 keeps it running.
+
+    Never while the last dictation's text is still owed to a client: the next START
+    hands it over, and a server that exited would forget it was owed.
+    """
+    if is_busy() or idle_timeout == 0 or (session is not None and session.owes_text()):
         return False
 
     idle_time = time.time() - last_activity_time
@@ -257,6 +269,29 @@ class Segmenter:
         return segment
 
 
+class WholeClip:
+    """Continuous dictation off: the whole recording is one segment, cut only at stop.
+
+    Takes the Segmenter's place without a VAD, so nothing judges speech and nothing is
+    dropped as silence; Whisper transcribes the clip as batch `wsi` does.
+    """
+
+    def __init__(self):
+        self._samples = array.array("h")
+        self.last_frame_was_speech = False
+        self.cut_counts = {"pause": 0, "soft": 0, "hard": 0, "stop": 0}
+
+    def push(self, frame, _speech_prob=None):
+        self._samples.extend(frame)
+        return []
+
+    def finish(self):
+        if not self._samples:
+            return []
+        self.cut_counts["stop"] += 1
+        return [Segment(0, 0, self._samples, "stop", 0)]
+
+
 class Transcript:
     """Segment texts committed strictly in sequence order, whatever order they arrive in."""
 
@@ -353,6 +388,10 @@ class DictationSession:
                  backlog_ceiling_seconds=BACKLOG_CEILING_SECONDS,
                  drain_base_seconds=DRAIN_BASE_SECONDS, drain_rtf_factor=DRAIN_RTF_FACTOR,
                  tick_seconds=0.2):
+        if continuous != (vad is not None):
+            raise ValueError("a VAD is required with continuous dictation and refused without it")
+        if silence_seconds and not continuous:
+            raise ValueError("the no-speech stop needs continuous dictation (it has the VAD)")
         self._transcribe = transcribe
         self._vad = vad
         self._runtime_dir = Path(runtime_dir)
@@ -369,7 +408,7 @@ class DictationSession:
         self._lock = threading.Lock()
         self._queue = queue.Queue()
         self._finished = threading.Event()
-        self._segmenter = Segmenter()
+        self._segmenter = Segmenter() if continuous else WholeClip()
         self._transcript = Transcript()
         self._journal = None
         self._proc = None
@@ -393,6 +432,8 @@ class DictationSession:
         self._backlog = 0.0
         self._rtf = None
         self._in_flight = None
+        self._transcribing = False  # the model is in use, whatever the state says
+        self.delivered = False      # a reply with the final text reached a client
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -427,7 +468,20 @@ class DictationSession:
         threading.Thread(target=self._supervise, daemon=True).start()
 
     def busy(self):
-        return self.state in self.ACTIVE
+        """Recording, draining, or a segment still in the model after the session ended.
+
+        A session failed at its drain deadline (or aborted) cannot stop a transcription
+        already under way; until it returns, a new session must not share the model.
+        """
+        return self.state in self.ACTIVE or self._transcribing
+
+    def status(self):
+        """The state a client is told: "stopping" while a stop is closing the microphone."""
+        with self._lock:
+            return self._status_locked()
+
+    def _status_locked(self):
+        return "stopping" if self.state == "recording" and self._stopping else self.state
 
     def keepalive(self):
         self._last_keepalive = time.monotonic()
@@ -514,10 +568,38 @@ class DictationSession:
             self._proc.terminate()
         self._finished.set()
 
-    def discard_if_done(self):
-        """Remove a finished, successful session's journal (its text has been delivered)."""
-        if self.state == "done" and self.session_dir.exists():
-            shutil.rmtree(self.session_dir)
+    def mark_delivered(self):
+        with self._lock:
+            self.delivered = True
+
+    def owes_text(self):
+        with self._lock:
+            return self._owes_text_locked()
+
+    def _owes_text_locked(self):
+        """Ended with something the user has not been given: text, kept audio or a failure."""
+        if self.state not in ("done", "failed") or self.delivered:
+            return False
+        return self.state == "failed" or bool(self._transcript.text) or bool(self.kept_audio)
+
+    def hand_over(self):
+        """At the next START: what the user was never given, once, or None.
+
+        A done session a client collected is removed. One nobody collected keeps its
+        directory (cleared at logout) and is returned for the START reply. A failed
+        session's directory is always kept: it holds the audio.
+        """
+        with self._lock:
+            if self._owes_text_locked():
+                self.delivered = True
+                return {"status": self.state, "transcription": self._transcript.text,
+                        "stop_reason": self.stop_reason, "error": self.error,
+                        "journal": str(self.session_dir / "journal.jsonl"),
+                        "session_dir": str(self.session_dir),
+                        "kept_audio": list(self.kept_audio)}
+            if self.state == "done" and self.session_dir.exists():
+                shutil.rmtree(self.session_dir)
+            return None
 
     def wait(self, timeout):
         return self._finished.wait(timeout)
@@ -529,7 +611,7 @@ class DictationSession:
             now = time.monotonic()
             end = self._stopped_at or now
             report = {
-                "status": self.state,
+                "status": self._status_locked(),
                 "continuous": self._continuous,
                 "elapsed_seconds": round(end - self._started_at, 1) if self._started_at else 0,
                 "segments_committed": self._transcript.committed_count,
@@ -580,6 +662,10 @@ class DictationSession:
             self._enqueue(self._segmenter.finish())
 
     def _segment(self, frames):
+        if self._vad is None:
+            for frame in frames:
+                self._segmenter.push(frame)
+            return
         probs = self._vad.probabilities(frames)
         if len(probs) != len(frames):
             raise RuntimeError(f"the VAD judged {len(probs)} of {len(frames)} frames")
@@ -618,14 +704,17 @@ class DictationSession:
                 if self.state not in self.ACTIVE:
                     continue
                 self._in_flight = segment
+                self._transcribing = True
                 prompt = self._transcript.prompt(PROMPT_CHARS)
             began = time.monotonic()
             try:
                 text = self._transcribe(padded(segment.samples), prompt).strip()
             except Exception as e:
+                self._transcribing = False
                 self.fail(f"segment {segment.seq} ({segment.start_seconds:.0f}-"
                           f"{segment.end_seconds:.0f} s) failed to transcribe: {e}", failed=segment)
                 continue
+            self._transcribing = False
             took = time.monotonic() - began
             journal_error = None
             with self._lock:
@@ -725,8 +814,50 @@ class WhisperTranscriber:
         return " ".join(s.text.strip() for s in segments).strip()
 
 
+def checked_probabilities(values, frame_count, source):
+    """`values` as floats, if they are exactly one probability per frame. Raises otherwise.
+
+    A VAD fed the wrong input shape can answer with one value per batch, or with
+    values that are not probabilities; segmenting on that would cut speech silently.
+    """
+    probs = [float(v) for v in values]
+    if len(probs) != frame_count:
+        raise RuntimeError(f"{source} returned {len(probs)} probabilities for {frame_count} frames")
+    bad = [p for p in probs if not 0.0 <= p <= 1.0]  # NaN fails the comparison too
+    if bad:
+        raise RuntimeError(f"{source} returned values that are not probabilities: {bad[:3]}")
+    return probs
+
+
+def select_vad_input(candidates, silence_frames):
+    """The first (name, call) whose answer for `silence_frames` is all "no speech".
+
+    Each call takes a list of frames and returns the model's raw output. Raises,
+    naming every candidate's failure, if none qualifies.
+    """
+    failures = []
+    for name, call in candidates:
+        try:
+            probs = checked_probabilities(call(silence_frames), len(silence_frames),
+                                          f"Silero VAD ({name} input)")
+        except Exception as e:
+            failures.append(f"{name} input: {type(e).__name__}: {e}")
+            continue
+        if max(probs) >= Segmenter.SPEECH_THRESHOLD:
+            failures.append(f"{name} input: judged silence as speech (max {max(probs):.2f})")
+            continue
+        return name, call
+    raise RuntimeError("the Silero VAD adapter cannot use this faster-whisper's VAD model: "
+                       + "; ".join(failures))
+
+
 class SileroFrameVad:
     """Speech probability per 512-sample frame, from faster-whisper's bundled Silero VAD.
+
+    Which input shape the model takes ((batch, samples) or samples) differs between
+    faster-whisper releases, so it is found by test, on silence, when the adapter is
+    built: a shape is used only if it yields one probability per frame, all "no
+    speech". Every later answer is checked the same way. Either check failing raises.
 
     The model keeps no state between calls, so each call also re-reads the last
     CONTEXT_FRAMES frames and only the newest probabilities are used.
@@ -735,24 +866,40 @@ class SileroFrameVad:
     CONTEXT_FRAMES = 32
 
     def __init__(self, model):
-        self._model = model
         self._context = []
+        silence = [array.array("h", [0] * FRAME_SAMPLES)] * self.CONTEXT_FRAMES
+        self.input_shape, self._call = select_vad_input([
+            ("(batch, samples)", functools.partial(self._run, model, batched=True)),
+            ("(samples)", functools.partial(self._run, model, batched=False)),
+        ], silence)
+
+    @staticmethod
+    def _run(model, frames, batched):
+        import numpy as np
+        audio = np.frombuffer(b"".join(f.tobytes() for f in frames), dtype=np.int16)
+        audio = audio.astype(np.float32) / 32768.0
+        return np.asarray(model(audio[None, :] if batched else audio)).reshape(-1)
 
     def probabilities(self, frames):
-        import numpy as np
         window = self._context + list(frames)
-        audio = np.frombuffer(b"".join(f.tobytes() for f in window), dtype=np.int16)
-        audio = audio.astype(np.float32) / 32768.0
-        # faster-whisper 1.1.x's model takes (batch, samples); 1.2.x takes samples
-        if hasattr(self._model, "encoder_session"):
-            probs = self._model(audio[None, :])
-        else:
-            probs = self._model(audio)
-        probs = np.asarray(probs).reshape(-1)
-        if probs.size != len(window):
-            raise RuntimeError(f"Silero VAD returned {probs.size} probabilities for {len(window)} frames")
+        probs = checked_probabilities(self._call(window), len(window),
+                                      f"Silero VAD ({self.input_shape} input)")
         self._context = window[-self.CONTEXT_FRAMES:]
-        return [float(p) for p in probs[-len(frames):]]
+        return probs[-len(frames):]
+
+
+_silero_model = None
+
+
+def make_silero_vad():
+    """A fresh adapter for a continuous session; loads the model on first use. Raises."""
+    global _silero_model
+    if _silero_model is None:
+        from faster_whisper.vad import get_vad_model
+        _silero_model = get_vad_model()
+    vad = SileroFrameVad(_silero_model)
+    log(f"Silero VAD ready ({vad.input_shape} input)")
+    return vad
 
 
 def choose_device(device_type):
@@ -766,24 +913,26 @@ def choose_device(device_type):
 
 
 def load_models(model_size="base", language="en", device_type="auto"):
-    """Load the Whisper model and the VAD - the expensive part, done once."""
+    """Load the Whisper model - the expensive part, done once.
+
+    The VAD is loaded by the first continuous START, so a recording without
+    continuous dictation never depends on it.
+    """
     global transcriber, make_vad
 
     try:
         from faster_whisper import WhisperModel
-        from faster_whisper.vad import get_vad_model
 
         device, compute_type = choose_device(device_type)
         log(f"Loading model={model_size}, language={language}, device={device} ({compute_type})")
         model = WhisperModel(model_size, device=device, compute_type=compute_type)
-        vad_model = get_vad_model()
     except Exception as e:
         log(f"Model load failed: {e}", "ERROR")
         return False
 
     transcriber = WhisperTranscriber(model, language)
-    make_vad = functools.partial(SileroFrameVad, vad_model)
-    log("Models loaded - ready for instant recording")
+    make_vad = make_silero_vad
+    log("Model loaded - ready for instant recording")
     return True
 
 
@@ -804,6 +953,8 @@ def start_limits(params):
     continuous = params.get("continuous", False)
     if not isinstance(continuous, bool):
         raise ValueError(f"continuous must be true or false (got {continuous!r})")
+    if silence_seconds and not continuous:
+        raise ValueError("silence_seconds needs continuous dictation (send 0 without it)")
     return {"max_seconds": max_seconds, "silence_seconds": silence_seconds,
             "continuous": continuous}
 
@@ -814,7 +965,12 @@ def handle_start_command(client_socket, params):
 
     update_activity()
     if is_busy():
-        send_response(client_socket, {"status": "error", "message": "Recording already active"})
+        if session.state in DictationSession.ACTIVE:
+            message = "Recording already active"
+        else:
+            message = (f"The previous dictation ({session.state}) is still finishing a "
+                       "transcription; the model is in use. Try again in a moment.")
+        send_response(client_socket, {"status": "error", "message": message})
         return
     if transcriber is None:
         send_response(client_socket, {"status": "error", "message": "Model not loaded"})
@@ -825,10 +981,19 @@ def handle_start_command(client_socket, params):
         send_response(client_socket, {"status": "error", "message": str(e)})
         return
 
-    if session is not None:
-        session.discard_if_done()
-    new_session = DictationSession(transcribe=transcriber, vad=make_vad(),
-                                   runtime_dir=DICTATION_DIR, capture_cmd=CAPTURE_CMD, **limits)
+    vad = None
+    if limits["continuous"]:
+        try:
+            vad = make_vad()
+        except Exception as e:
+            log(f"Continuous dictation unavailable: the VAD did not load: {e}", "ERROR")
+            send_response(client_socket, {"status": "error", "message":
+                                          f"Continuous dictation unavailable: {e}"})
+            return
+    new_session = DictationSession(transcribe=transcriber, vad=vad, runtime_dir=DICTATION_DIR,
+                                   capture_cmd=CAPTURE_CMD, heartbeat_seconds=HEARTBEAT_SECONDS,
+                                   drain_base_seconds=DRAIN_BASE_SECONDS,
+                                   drain_rtf_factor=DRAIN_RTF_FACTOR, **limits)
     try:
         new_session.start()
     except FileNotFoundError:
@@ -840,13 +1005,26 @@ def handle_start_command(client_socket, params):
         log(f"Audio capture failed: {e}", "ERROR")
         send_response(client_socket, {"status": "error", "message": f"Audio capture failed: {e}"})
         return
-    session = new_session
-    send_response(client_socket, {"status": "recording", "message": "Recording started",
-                                  "session_dir": str(session.session_dir)})
+    previous, session = session, new_session
+    reply = {"status": "recording", "message": "Recording started",
+             "session_dir": str(session.session_dir)}
+    undelivered = previous.hand_over() if previous is not None else None
+    if undelivered is not None:
+        log(f"Handing over a dictation no client collected ({undelivered['status']}, "
+            f"{len(undelivered['transcription'])} chars, journal {undelivered['journal']})", "WARN")
+        reply["undelivered"] = undelivered
+    send_response(client_socket, reply)
 
 
 def no_session(client_socket):
     send_response(client_socket, {"status": "error", "message": "No active recording"})
+
+
+def send_progress(client_socket):
+    """The session's progress; once a reply carrying the final text is sent, it is delivered."""
+    report = session.progress()
+    if send_response(client_socket, report) and "transcription" in report:
+        session.mark_delivered()
 
 
 def handle_stop_command(client_socket, params):
@@ -856,7 +1034,7 @@ def handle_stop_command(client_socket, params):
         no_session(client_socket)
         return
     session.stop("stop requested")
-    send_response(client_socket, session.progress())
+    send_progress(client_socket)
 
 
 def handle_keepalive_command(client_socket, params):
@@ -866,7 +1044,7 @@ def handle_keepalive_command(client_socket, params):
         no_session(client_socket)
         return
     session.keepalive()
-    send_response(client_socket, {"status": session.state})
+    send_response(client_socket, {"status": session.status()})
 
 
 def handle_progress_command(client_socket, params):
@@ -875,7 +1053,7 @@ def handle_progress_command(client_socket, params):
     if session is None:
         no_session(client_socket)
         return
-    send_response(client_socket, session.progress())
+    send_progress(client_socket)
 
 
 def handle_abort_command(client_socket, params):
@@ -924,11 +1102,13 @@ COMMANDS = {
 
 
 def send_response(client_socket, data):
-    """Send one JSON line to the client."""
+    """Send one JSON line to the client; True if it was sent."""
     try:
         client_socket.sendall((json.dumps(data) + "\n").encode())
     except OSError as e:
         log(f"Failed to send response: {e}", "ERROR")
+        return False
+    return True
 
 
 def read_request(client_socket):
@@ -1010,6 +1190,9 @@ def cleanup():
     if is_busy():
         log("Active dictation during shutdown - failing it and keeping its audio", "WARN")
         session.fail("the speech-to-text server shut down during the dictation")
+    if session is not None and session.owes_text():
+        log(f"Shutting down with a dictation no client collected; it stays in "
+            f"{session.session_dir} until logout", "WARN")
 
     transcriber = None
     make_vad = None

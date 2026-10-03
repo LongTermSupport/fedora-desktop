@@ -81,6 +81,7 @@ class ClientCase(unittest.TestCase):
         self.settings = {"continuous-dictation": "false"}
         self.signals = []
         self.notes = []
+        self.note_expiry = []
         self.clipboard = []
         self.pasted = []
         self.registered = []
@@ -91,7 +92,8 @@ class ClientCase(unittest.TestCase):
             read_stop_grace=lambda: 0, read_setting=lambda key: self.settings[key],
             is_server_running=lambda: True,
             emit_dbus_signal=lambda name, value: self.signals.append((name, value)),
-            desktop_notification=lambda message, ms: self.notes.append(message),
+            desktop_notification=lambda message, ms: (self.notes.append(message),
+                                                      self.note_expiry.append((message, ms))),
             copy_to_clipboard=lambda text, use_clipboard=False: self.clipboard.append(text) or True,
             auto_paste=lambda text, **kw: self.pasted.append(text) or True)
         patches.start()
@@ -234,6 +236,87 @@ class ServerClientTest(ClientCase):
         self.assertEqual(rc, 1)
         self.assertIn("ERROR", self.states())
         self.assertTrue(any("journal.jsonl" in n for n in self.notes), self.notes)
+
+    def test_a_failed_keepalive_still_stops_the_server_and_keeps_the_text(self):
+        keepalives = []
+        base = scripted([RECORDING], [{"status": "draining", "drain_seconds_left": 5}, DONE])
+
+        def answer(command, params):
+            if command == "KEEPALIVE":
+                keepalives.append(True)
+                return {"status": "error", "message": "KEEPALIVE: timed out"}
+            return base(command, params)
+
+        self.serve(answer)
+        rc = self.run_client(timeout=120)
+        self.assertTrue(keepalives)
+        self.assertIn("STOP", self.server.commands(), "the microphone was left open")
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.clipboard, ["Hello there world"])
+
+    def test_every_exit_path_tells_the_server_to_stop(self):
+        self.serve(scripted([RECORDING]))
+        with mock.patch.object(wsi_stream, "relay_progress", side_effect=RuntimeError("D-Bus gone")):
+            with self.assertRaises(RuntimeError):
+                self.run_client()
+        for cleanup in self.registered:
+            cleanup()
+        self.assertIn("STOP", self.server.commands())
+
+    def test_a_stop_while_the_server_is_already_stopping_completes(self):
+        base = scripted([RECORDING], [{"status": "stopping"},
+                                      {"status": "draining", "drain_seconds_left": 5}, DONE])
+
+        def answer(command, params):
+            if command == "STOP":
+                base(command, params)
+                return {"status": "stopping"}
+            return base(command, params)
+
+        self.serve(answer)
+        rc = self.run_client(signal_after=0.3)
+        self.assertEqual(rc, 0, self.notes)
+        self.assertEqual(self.clipboard, ["Hello there world"])
+
+    def test_the_routine_cap_without_continuous_is_a_transient_notification(self):
+        reason = "reached the 120 s recording limit"
+        self.serve(scripted([RECORDING, {"status": "draining", "stop_reason": reason,
+                                         "drain_seconds_left": 5},
+                             dict(DONE, stop_reason=reason)]))
+        rc = self.run_client()
+        self.assertEqual(rc, 0)
+        shown = [(m, ms) for m, ms in self.note_expiry if reason in m]
+        self.assertTrue(shown, self.note_expiry)
+        self.assertTrue(all(ms != 0 for _, ms in shown), shown)
+
+    def test_a_continuous_auto_stop_stays_until_dismissed(self):
+        self.settings = dict(CONTINUOUS)
+        reason = "no speech for 120 s"
+        self.serve(scripted([RECORDING, {"status": "draining", "stop_reason": reason,
+                                         "drain_seconds_left": 5},
+                             dict(DONE, stop_reason=reason)]))
+        self.run_client()
+        self.assertIn(0, [ms for m, ms in self.note_expiry if reason in m])
+
+    def test_text_the_server_could_not_hand_over_goes_to_the_clipboard_loudly(self):
+        base = scripted([RECORDING], [DONE])
+        journal = "/run/user/0/wsi-dictation/old/journal.jsonl"
+
+        def answer(command, params):
+            if command == "START":
+                return {"status": "recording", "session_dir": "/run/user/0/wsi-dictation/s",
+                        "undelivered": {"transcription": "words from before",
+                                        "stop_reason": "heartbeat lost: no KEEPALIVE for 15 s",
+                                        "journal": journal}}
+            return base(command, params)
+
+        self.serve(answer)
+        rc = self.run_client(signal_after=0.5)
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.clipboard[0], "words from before")
+        loud = [m for m, ms in self.note_expiry if ms == 0 and journal in m]
+        self.assertTrue(loud, self.note_expiry)
+        self.assertIn("heartbeat lost", loud[0])
 
     def test_unreadable_dictation_settings_record_nothing(self):
         self.settings = {"continuous-dictation": "true", "max-recording-minutes": "sixty",

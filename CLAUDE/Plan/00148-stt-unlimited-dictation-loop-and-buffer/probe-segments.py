@@ -31,6 +31,8 @@ def main(report: str, audio_path: str, repo_root: str) -> int:
 
     server = load_server(repo_root)
     raw = pathlib.Path(audio_path).read_bytes()
+    # The adapter's constructor finds the model's input shape by test and raises if
+    # none yields one "no speech" probability per frame of silence
     vad = server.SileroFrameVad(get_vad_model())
     segmenter = server.Segmenter()
     segments = []
@@ -54,6 +56,7 @@ def main(report: str, audio_path: str, repo_root: str) -> int:
     counts = segmenter.cut_counts
     lines = [
         "## Continuous dictation: how the segmenter cuts this speech", "",
+        f"- Silero VAD adapter: passed its silence self-test with {vad.input_shape} input",
         f"- audio: {minutes * 60:.1f} s; frames judged speech: "
         f"{speech_frames * server.FRAME_SAMPLES / RATE:.1f} s",
         f"- segments: {len(segments)}; cuts: pause {counts['pause']}, soft {counts['soft']}, "

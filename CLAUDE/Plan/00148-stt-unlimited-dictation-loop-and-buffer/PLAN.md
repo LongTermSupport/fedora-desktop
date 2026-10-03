@@ -109,9 +109,14 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
   `START {continuous:true}`, `PROGRESS`, `KEEPALIVE`, `ABORT`, and a STOP that drains under a
   backlog-scaled deadline. Any failure (segment error, `pw-record` exit, backlog ceiling,
   drain deadline, journal write) marks the session FAILED, keeps the audio, copies the text
-  so far. RealtimeSTT is gone from the server: it loads faster-whisper's `WhisperModel` and
-  bundled Silero VAD itself, and every server-mode recording runs through this session
-  (`continuous-dictation` off only means the fixed `--timeout` cap is sent as the limit).
+  so far. RealtimeSTT is gone from the server: it loads faster-whisper's `WhisperModel`
+  itself. With `continuous-dictation` off (the default) no VAD runs: the whole clip, up to
+  the fixed `--timeout` cap, is transcribed once at stop. The Silero VAD is loaded only by
+  a continuous START; its adapter finds the model's input shape by a silence self-test and
+  raises (START refused, loudly) rather than segment on a wrong shape. Text no client
+  collected (the client died, the heartbeat stopped it) keeps its journal and is handed to
+  the next START, which puts it on the clipboard. A failed session stays busy until its
+  in-flight transcription returns, so no START shares the model with it.
   Tested with a fake `pw-record`, stub VAD and stub transcriber
   (`test_continuous_session.py`); the real VAD adapter and model run only on the host
   (triage leg 3, Task 6.2).

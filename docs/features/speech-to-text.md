@@ -279,13 +279,18 @@ talking, and pastes the whole text once when you press Insert. The panel shows t
 elapsed time and, after a dot, how many segments are still waiting (`3:42 ·2`); amber
 means transcription is slower than your speech.
 
-The recording also stops by itself, transcribes and pastes, and the notification says
-why:
+The recording also stops by itself, transcribes and pastes, and a notification that
+stays until dismissed says why:
 
 - **Stop after silence** (`silence-autostop-seconds`, default 120 s, 0 = never);
 - **Maximum length** (`max-recording-minutes`, default 60); the panel counts down its
-  last minute;
-- if `wsi-stream` stops sending its keepalive (15 s), so a microphone is never left open.
+  last minute.
+
+With continuous dictation off, server mode records the whole clip (up to the 120 s cap)
+and transcribes it once at stop with the selected model; no speech detection runs, and
+reaching the cap shows the usual short notification. If the speech detector continuous
+dictation needs cannot be used with the installed faster-whisper, a continuous recording
+refuses to start and says why; turning the setting off still records.
 
 If anything fails (a segment cannot be transcribed, the microphone disappears,
 transcription falls more than 120 s behind, the final segments do not finish in time),
@@ -293,7 +298,19 @@ the dictation stops at once and **nothing is pasted**: the text so far is put on
 clipboard (Ctrl+V), the audio not yet transcribed is kept as WAV files, and a
 notification that stays until dismissed names the folder. While a dictation runs, its
 text is also written line by line to `$XDG_RUNTIME_DIR/wsi-dictation/session-*/journal.jsonl`
-(cleared at logout), so it can be recovered if `wsi-stream` itself dies.
+(cleared at logout).
+
+If `wsi-stream` itself dies, its keepalives stop and the server closes the microphone
+15 s later and finishes the transcription, but nobody is left to paste it. The server
+keeps that dictation's journal, stays up (even past its idle timeout) and, at the next
+Insert, the text is put on the clipboard (Ctrl+V) and a notification that stays names
+the journal. The new recording then carries on as usual; its own result replaces the
+clipboard when it is pasted, so paste the old text first. If the server stops before
+the next Insert (logout, a playbook run), the text is still in the journal until logout:
+
+```bash
+jq -r .text "$XDG_RUNTIME_DIR"/wsi-dictation/session-*/journal.jsonl | cat
+```
 
 ### Stop Grace
 

@@ -92,13 +92,12 @@ class SessionCase(unittest.TestCase):
             path = stt_stubs.install_fake_pw_record(self.stub_bin)
         stub_env = {"STUB_EVENTS": str(self.events), **(env or {})}
         cmd = ["env", *(f"{k}={v}" for k, v in stub_env.items()), str(path)]
-        options = dict(max_seconds=600, silence_seconds=0, continuous=True,
+        options = dict(max_seconds=600, silence_seconds=0, continuous=True, vad=StubVad(),
                        heartbeat_seconds=30, tick_seconds=0.02)
         options.update(kwargs)
         self.transcriber = transcriber or StubTranscriber()
         self.session = server.DictationSession(
-            transcribe=self.transcriber, vad=StubVad(), runtime_dir=self.runtime,
-            capture_cmd=cmd, **options)
+            transcribe=self.transcriber, runtime_dir=self.runtime, capture_cmd=cmd, **options)
         self.session.start()
         return self.session
 
@@ -230,6 +229,18 @@ class FailureTest(SessionCase):
         self.assert_failed(p, "still pending")
         self.assertGreater(len(p["kept_audio"]), 0)
 
+    def test_after_a_drain_deadline_the_session_stays_busy_until_the_transcription_returns(self):
+        block = threading.Event()
+        self.addCleanup(block.set)
+        s = self.start(transcriber=StubTranscriber(block=block), drain_base_seconds=0.3,
+                       drain_rtf_factor=0, mic="plain")
+        time.sleep(0.3)
+        s.stop("stop requested")
+        self.assert_failed(self.finished(), "still pending")
+        self.assertTrue(s.busy(), "a new dictation could start while the model is still in use")
+        block.set()
+        self.assertTrue(self.wait_until(lambda: not s.busy()), "never became free")
+
     def test_a_journal_write_failure_fails_the_session(self):
         s = self.start(mic="plain")
 
@@ -287,6 +298,87 @@ class SafetyStopTest(SessionCase):
         p = self.finished()
         self.assertEqual(p["status"], "done")
         self.assertIn("limit", p["stop_reason"])
+
+    def test_a_stop_while_stopping_reports_stopping_not_recording(self):
+        s = self.start(mic="plain")
+        time.sleep(0.2)
+        release = threading.Event()
+        self.addCleanup(release.set)
+        terminate = s._proc.terminate
+
+        def slow_terminate():
+            release.wait(5)
+            terminate()
+
+        s._proc.terminate = slow_terminate
+        first = threading.Thread(target=s.stop, args=("heartbeat lost",))
+        first.start()
+        self.assertTrue(self.wait_until(lambda: s._stopping))
+        self.assertIsNone(s.stop("stop requested"))
+        self.assertEqual(s.progress()["status"], "stopping")
+        release.set()
+        first.join()
+        self.assertEqual(self.finished()["status"], "done")
+
+
+class WholeClipTest(SessionCase):
+    """Continuous dictation off: no VAD, the whole recording is transcribed once at stop."""
+
+    def test_without_continuous_the_whole_clip_is_one_transcription_and_no_vad_runs(self):
+        s = self.start(mic="plain", continuous=False, vad=None)
+        time.sleep(0.5)
+        s.stop("stop requested")
+        p = self.finished()
+        self.assertEqual(p["status"], "done", p)
+        self.assertEqual(len(self.transcriber.calls), 1)
+        samples, prompt = self.transcriber.calls[0]
+        self.assertGreaterEqual(len(samples), s.captured_bytes // 2, "audio missing from the clip")
+        self.assertEqual(prompt, "")
+        self.assertEqual(p["transcription"], "s0")
+
+    def test_a_vad_without_continuous_or_none_with_it_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.start(continuous=False, vad=StubVad())
+        with self.assertRaises(ValueError):
+            self.start(continuous=True, vad=None)
+
+
+class VadAdapterTest(unittest.TestCase):
+    """The Silero adapter's checks, without faster-whisper: it fails loudly, never guesses."""
+
+    SILENCE = [server.array.array("h", [0] * server.FRAME_SAMPLES)] * 4
+
+    def test_a_wrong_number_of_probabilities_is_an_error(self):
+        with self.assertRaisesRegex(RuntimeError, "3 probabilities for 4 frames"):
+            server.checked_probabilities([0.1, 0.1, 0.1], 4, "Silero VAD")
+
+    def test_values_that_are_not_probabilities_are_an_error(self):
+        for bad in (float("nan"), 1.5, -0.1):
+            with self.assertRaises(RuntimeError, msg=bad):
+                server.checked_probabilities([0.1, bad], 2, "Silero VAD")
+
+    def test_the_input_shape_that_works_on_silence_is_chosen(self):
+        def wrong_shape(frames):
+            return [0.0]  # one value for the whole batch: the 1.2.x-on-2-D failure
+        def right_shape(frames):
+            return [0.01] * len(frames)
+        name, call = server.select_vad_input([("2-D", wrong_shape), ("1-D", right_shape)],
+                                             self.SILENCE)
+        self.assertEqual(name, "1-D")
+        self.assertIs(call, right_shape)
+
+    def test_no_working_input_shape_fails_loudly_naming_each(self):
+        def asserts(frames):
+            raise AssertionError("Input should be a 2D array")
+        def calls_silence_speech(frames):
+            return [0.9] * len(frames)
+        with self.assertRaises(RuntimeError) as caught:
+            server.select_vad_input([("2-D", calls_silence_speech), ("1-D", asserts)],
+                                    self.SILENCE)
+        message = str(caught.exception)
+        self.assertIn("2-D", message)
+        self.assertIn("silence as speech", message)
+        self.assertIn("Input should be a 2D array", message)
 
 
 class CommandTest(SessionCase):
@@ -346,6 +438,88 @@ class CommandTest(SessionCase):
     def test_commands_without_a_session_are_refused(self):
         for command in ("STOP", "KEEPALIVE", "PROGRESS"):
             self.assertEqual(self.send(command)["status"], "error", command)
+
+    def wait_for_state(self, state):
+        # session.progress() directly: a PROGRESS command would deliver the text
+        self.assertTrue(self.wait_until(lambda: server.session.progress()["status"] == state),
+                        server.session.progress())
+
+    def test_text_nobody_collected_survives_and_the_next_start_hands_it_over(self):
+        with mock.patch.object(server, "HEARTBEAT_SECONDS", 0.3):
+            self.send("START", {"continuous": True, "max_seconds": 600, "silence_seconds": 0})
+            first = server.session
+            self.wait_for_state("done")
+        self.assertIn("heartbeat", first.progress()["stop_reason"])
+        journal = pathlib.Path(first.progress()["session_dir"]) / "journal.jsonl"
+        with mock.patch.object(server, "idle_timeout", 1), \
+                mock.patch.object(server, "last_activity_time", 0):
+            self.assertFalse(server.check_idle_timeout(),
+                             "the server would idle out holding text nobody collected")
+        reply = self.send("START", {"continuous": True, "max_seconds": 600, "silence_seconds": 0})
+        self.assertEqual(reply["status"], "recording")
+        handed = reply.get("undelivered")
+        self.assertIsNotNone(handed, "the next START did not hand over the undelivered text")
+        self.assertEqual(handed["transcription"], "s0")
+        self.assertIn("heartbeat", handed["stop_reason"])
+        self.assertEqual(handed["journal"], str(journal))
+        self.assertTrue(journal.is_file(), "undelivered text was deleted")
+        self.send("ABORT")
+        reply = self.send("START", {"max_seconds": 60})
+        self.assertNotIn("undelivered", reply, "handed over twice")
+        self.assertTrue(journal.is_file(), "the journal of text once undelivered is kept")
+
+    def test_a_delivered_dictation_is_discarded_at_the_next_start(self):
+        self.send("START", {"max_seconds": 60})
+        first_dir = pathlib.Path(server.session.progress()["session_dir"])
+        time.sleep(0.3)
+        self.send("STOP")
+        self.assertTrue(self.wait_until(lambda: self.send("PROGRESS")["status"] == "done"))
+        reply = self.send("START", {"max_seconds": 60})
+        self.assertNotIn("undelivered", reply)
+        self.assertFalse(first_dir.exists())
+
+    def test_stop_during_a_stop_already_under_way_replies_stopping(self):
+        self.send("START", {"max_seconds": 60})
+        with server.session._lock:
+            server.session._stopping = True
+        try:
+            self.assertEqual(self.send("STOP")["status"], "stopping")
+            self.assertEqual(self.send("KEEPALIVE")["status"], "stopping")
+        finally:
+            with server.session._lock:
+                server.session._stopping = False
+
+    def test_without_continuous_no_vad_is_made(self):
+        def no_vad():
+            raise AssertionError("the Silero VAD adapter was built for a non-continuous recording")
+        with mock.patch.object(server, "make_vad", no_vad):
+            reply = self.send("START", {"continuous": False, "max_seconds": 60})
+        self.assertEqual(reply["status"], "recording", reply)
+
+    def test_continuous_with_a_vad_that_will_not_load_is_refused_loudly(self):
+        def broken_vad():
+            raise RuntimeError("Silero VAD returned 1 probabilities for 32 frames")
+        with mock.patch.object(server, "make_vad", broken_vad):
+            reply = self.send("START", {"continuous": True, "max_seconds": 60})
+        self.assertEqual(reply["status"], "error")
+        self.assertIn("1 probabilities for 32 frames", reply["message"])
+        self.assertIsNone(server.session)
+
+    def test_start_is_refused_while_a_failed_dictation_still_holds_the_model(self):
+        block = threading.Event()
+        self.addCleanup(block.set)
+        with mock.patch.object(server, "transcriber", StubTranscriber(block=block)), \
+                mock.patch.object(server, "DRAIN_BASE_SECONDS", 0.3), \
+                mock.patch.object(server, "DRAIN_RTF_FACTOR", 0):
+            self.send("START", {"max_seconds": 60})
+            time.sleep(0.3)
+            self.send("STOP")
+            self.wait_for_state("failed")
+            reply = self.send("START", {"max_seconds": 60})
+            self.assertEqual(reply["status"], "error")
+            self.assertIn("still", reply["message"])
+            block.set()
+            self.assertTrue(self.wait_until(lambda: not server.is_busy()))
 
     def test_a_reply_longer_than_one_read_arrives_whole(self):
         long_text = "word " * 5000
