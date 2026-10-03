@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00153-release-tags-fedora-major-semver](00153-release-tags-fedora-major-semver/) - Signed release tags `44.MINOR.PATCH` (major tracks Fedora), one release command, and the unattended self-update following the newest tag instead of the branch tip
+
 - [00151-container-clipboard-sharing](00151-container-clipboard-sharing/) - Research then build: can Claude Code's Ctrl+V image paste work inside ccy (Podman) and LXC containers? ccy already mounts the Wayland socket but ships no `wl-clipboard`; LXC has no display socket. Survey first, then prototype; `imgpaste` (Plan 00150) remains the fallback.
 
 - [00148-stt-unlimited-dictation-loop-and-buffer](00148-stt-unlimited-dictation-loop-and-buffer/) - The general speech-to-text improvements plan: a 3 s delayed stop so the last words are kept, unlimited dictation by loop-and-buffer in the warm server (owner's choice), and a review of newer speech models. New speech-to-text work goes here.
