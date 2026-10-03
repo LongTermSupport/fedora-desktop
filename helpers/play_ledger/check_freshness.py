@@ -288,11 +288,9 @@ def _emit(report: freshness.Report, stdout: TextIO, stderr: TextIO) -> int:
 def clear_broken(*, base: str, stdout: TextIO) -> int:
     """Forget a recorded ledger hole, so recording can resume. The operator's route.
 
-    `store.clear_broken` existed from the start and had **no caller** — no CLI, no
-    script, nothing. So a sentinel, once written, made the ledger permanently
-    untrustworthy with no documented way out, and every check downstream refused for
-    ever. A fail-safe with no reset is a fail-stop; issue #46 put two hosts in exactly
-    that state.
+    Without this route a sentinel, once written, would leave the ledger permanently
+    untrustworthy with no documented way out, and every check downstream would refuse
+    for ever. A fail-safe with no reset is a fail-stop.
 
     What this does NOT do is recover the missing rows. The plays that ran while the
     sentinel existed were never recorded and cannot be reconstructed, so the ledger

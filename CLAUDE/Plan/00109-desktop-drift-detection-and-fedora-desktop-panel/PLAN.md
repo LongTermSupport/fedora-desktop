@@ -16,8 +16,7 @@ installed here". Diagnosis, evidence and the blow-by-blow:
 
 The exposure is structural, not specific to DisplayLink. `playbook-main.yml` imports
 the core plays, so those are re-run whenever main is run. The **plays under
-`playbooks/imports/optional/`** (46 today outside `archived/`, two of them added by this
-plan) are run by
+`playbooks/imports/optional/`** (two of them added by this plan) are run by
 hand, once, and then forgotten — nothing records that they were ever run, at what
 commit, or whether they have changed since. DisplayLink is simply the one that bit
 first, and it bit at the worst moment: after a reboot, with no visible explanation.
@@ -195,8 +194,8 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     [COMPLETED-TASKS-detail.md#task-45-eslint-clean-deployed-by-its-own-play-wayland-correct](COMPLETED-TASKS-detail.md#task-45-eslint-clean-deployed-by-its-own-play-wayland-correct)
   - [x] ✅ **HOST — eyes only**: that the icon is *visibly* in the top bar. The owner,
     2026-09-25, has the panel and its notifications working
-- [ ] 🚫 **Task 4.6**: The icon must not stay stuck at its login answer. Code done — deploy
-  and HOST check pending. The status document is refreshed (a) by the play-ledger callback
+- [ ] 🚫 **Task 4.6**: The icon must not stay stuck at its login answer. Code done and
+  deployed (meta-deploy, `6c88cdf0`, failed=0); the HOST check is pending. The status document is refreshed (a) by the play-ledger callback
   restarting `host-health-collect.service` after every ledgered play run
   (`helpers/play_ledger/health_refresh.py`), and (b) hourly on a desktop by
   `host-health-collect.timer`, now deployed on both profiles. Decisions:
@@ -260,7 +259,9 @@ session and was approaching the size at which edits are blocked:
 
 ## Success Criteria
 
-**The HOST items in the task tree are now two scripts, not a list of instructions.**
+**The HOST items in the task tree are two scripts, not a list of instructions.** The
+checks that need eyes or a click (Tasks 3.2, 4.2, 4.3, 4.6, T5.4a, 5.4) are named in
+`acceptance.bash`'s FOR THE HUMAN list with exactly what to do.
 (No count here on purpose: the previous sentence gave one, it was the acceptance gate's
 check count rather than the task tree's, and it went stale the moment a task was ticked.) Run `deploy.bash` then `acceptance.bash` in this folder — or
 `CLAUDE/Plan/meta-deploy.bash` to run this plan alongside the others waiting.
@@ -295,9 +296,10 @@ never counting those as passed.
 - [ ] `qa-reviewer` agent run over the full plan diff, findings resolved — **run**
   (`subagent-reports/260916-qa-reviewer-full-plan-diff-opus-5.md`, verdict BLOCK: 1
   blocking, 3 should-fix, 6 minor, 2 nits). Every finding actionable from a container is
-  resolved, including the blocking one. Left open: the CI half above, and Decision 3,
-  which is the owner's. Unticked until a re-run confirms it, since a review whose
-  findings were actioned by the same agent that wrote them is not a second opinion
+  resolved, including the blocking one. Decision 3 is the owner's. The independent re-run
+  (`subagent-reports/261003-qa-reviewer-full-plan-diff-rerun-opus.md`, FIX-BEFORE-MERGE,
+  nothing blocking) confirmed those fixes and found doc and plan drift, since fixed.
+  Unticked until a further pass confirms the drift fixes
 
 ## Risks & Mitigations
 

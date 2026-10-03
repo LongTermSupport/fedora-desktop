@@ -107,11 +107,9 @@ def clear_broken(base: str, *, at: str) -> None:
     sentinel is unlinked, so a failure between the two leaves the ledger
     known-broken rather than silently claiming to be complete.
 
-    `at` is REQUIRED, and it used to default to `""` and write a bare newline. An
-    undated marker says a hole was cleared and not when, which is the half of the fact a
-    reader would act on — so the default made the wrong marker representable, and the
-    sole caller duly wrote one. A required argument makes it unwritable instead of
-    merely unchosen.
+    `at` is REQUIRED, with no default. An undated marker says a hole was cleared and
+    not when, which is the half of the fact a reader would act on; a required argument
+    makes that marker unwritable rather than merely unchosen.
     """
     if not at:
         raise ValueError("clear_broken needs the time it was cleared, not an empty string")

@@ -248,7 +248,7 @@ if ! DEFAULT_TARGET="$(systemctl get-default)"; then
 fi
 if [[ "${DEFAULT_TARGET}" != "graphical.target" ]]; then
     abort "the default target is ${DEFAULT_TARGET}, so this host provisions as 'server'" \
-        "this gate judges the DESKTOP delivery. The server route is judged by the VM scenario ${VMTEST_SCENARIO} — see the FOR THE HUMAN list in PLAN.md Task 3.2."
+        "this gate judges the DESKTOP delivery. The server route is judged by the VM scenario ${VMTEST_SCENARIO} — see PLAN.md Task 3.2."
 fi
 ok "default target is graphical.target — the desktop delivery is what is under test"
 
@@ -923,18 +923,16 @@ printf '\n'
 # Named, never faked, and never counted toward COVERAGE. Each line says WHY a script
 # cannot settle it, because "a human must do it" with no reason is how an item quietly
 # becomes nobody's.
-human "Task 0.2 — run ./triage.bash and read its rpm-ownership section. Whether each /usr/src/evdi-* tree is rpm-owned or unowned decides which cleanup mechanism the play gets, and the two are opposites. A script cannot choose; only the answer can."
-human "Task 3.2 (VM) — ./scripts/vmtest-request.bash run-scenario ${VMTEST_SCENARIO}. It builds and boots a guest across a kernel change. Nothing in that claim is about THIS machine, so this gate cannot make it; check [16] establishes only that the request will be accepted."
 human "Task 3.2 — that a notification actually APPEARS on screen at login. Check [10] proves the channel exists and check [12] proves the unit ran; whether a human saw it needs a human. Sending a test notification from here would put a popup on the screen, which a read-only gate must not do."
 human "Task 4.2 — whether St renders the demoted lines legibly and whether the icon is the right thing to look at. Only a Wayland session and a pair of eyes can say, and the test harness deliberately does not claim to."
 human "Task 4.5 — that the panel icon is visibly in the top bar. Checks [13]-[15] establish that it is deployed, declared and loaded by the shell, which is everything short of seeing it."
 human "Task 5.4 — that the refresh actually clears a BLACK background. It needs the symptom present, and the symptom is an upstream mutter bug that cannot be induced on demand. Check [18] establishes only that the action is deployed and armed."
-human "Task 5.4a — cover the unlock case. OWNER'S CALL between the panel and a user unit, not unwritten code. See DESIGN-panel.md §12."
-human "Task 4.3 — the play/task runner is not written. It needs the ledger's real contents, which check [7] is the first thing to produce."
+human "Task 5.4a — docked: log out and in, lock and unlock, then journalctl -t displaylink-dock-recovery must show action=refresh_background and RECOVERY-BACKGROUND: refreshed (action=none alone is the refusal, not a pass). Undocked: ls /sys/class/drm/ | grep DVI-I prints nothing. Both need the dock in a known state and a human at the lock screen."
+human "Task 4.3 — that the play rows read well in a live shell, a click opens a terminal via xdg-terminal-exec, run.bash's sudo prompt works there, and the next report shows the play as fresh. Each step needs a Wayland session and a click."
+human "Task 4.6 — re-run a stale play and watch the status document's generated_at move and the panel icon clear without a login. That needs a play to be stale, and making one stale means editing it, which a read-only gate must not do."
 human "Task 0.3 — the vault password file's permissions. Human-only: the path is guarded, so no agent can name it in a script, a command or a play."
 human "Success criterion — installed-vs-pinned FAILING when pointed at the 2026-09-11 state. That state is in the past and cannot be re-observed read-only; it is proven by the unit tests under tests/helpers/version_pins/, not on a host. Check [4] establishes the other direction."
 human "Success criterion — freshness reporting a play edited AFTER its ledgered run. Establishing it means editing a play, which a read-only gate must not do. Check [5] establishes that the axis answers at all."
-human "Success criterion — host-only checks skipping cleanly in CI. Needs a green run on a pushed branch; a host cannot observe CI."
 human "Success criterion — a second qa-reviewer pass over the full plan diff. An agent task, not a host one."
 
 # ── verdict ──────────────────────────────────────────────────────────────────────────────

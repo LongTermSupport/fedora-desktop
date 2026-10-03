@@ -877,16 +877,21 @@ below):
   from one that ran and found something — and `systemctl --user is-failed` would stay silent
   about a health surface that had stopped working
 
-**One play, two collectors.** Only the trigger is profile-specific; the checks are not. `scope: general`, branching on `provisioning_profile`:
+**One play, one collector, several triggers.** Only the triggers are profile-specific; the checks are not. `scope: general`, branching on `provisioning_profile`:
 
 - **desktop** — a `systemd --user` unit at the **end of a graphical login**, not at boot,
-  so somebody is present to read the notification
+  so somebody is present to read the notification. The collector also runs **hourly** on
+  a `--user` timer, so drift a `git pull` introduces reaches the panel icon without a login
 - **server** — `graphical-session.target` never activates and there is no session bus, so
-  a `--user` **timer** runs the same collection. A `git fetch` at every SSH login would
-  slow every login and can hang on an unreachable remote
-- The timer is **daily**, derived from the consumer's 14-day staleness bound rather than
-  picked: one failed run, one reboot or a day powered off must not read as a stale host,
-  but a collector that has stopped must be reported well inside the fortnight
+  the timer is the only trigger. A `git fetch` at every SSH login would slow every login
+  and can hang on an unreachable remote. Here the timer is **daily**, derived from the
+  consumer's 14-day staleness bound rather than picked: one failed run, one reboot or a
+  day powered off must not read as a stale host, but a collector that has stopped must be
+  reported well inside the fortnight
+- **After every play run**, on both profiles, the play-ledger callback restarts the
+  collector, so fixing a finding clears it without waiting for the timer. If that restart
+  cannot be requested, the run prints a `HEALTH-REFRESH-FAILED` line: the play itself
+  succeeded, but the panel may show the old result until the next scheduled collection
 
 **The terminal reads it on both profiles.** A `~/.bashrc-includes` snippet prints what the
 collector left at the next interactive shell, locally or over SSH, and
@@ -915,7 +920,8 @@ collector left at the next interactive shell, locally or over SSH, and
   breaks `scp`, `sftp` and `rsync` to the host with a protocol error
 - It fails loudly if `~/.bashrc` does not source `~/.bashrc-includes` — run
   `playbook-main.yml` first. A snippet nothing reads looks exactly like a healthy host
-- **The server checkout needs a remote the timer can fetch without an agent.** A timer
+- **The checkout needs a remote the timer can fetch without an agent** (on a server
+  especially, where the timer is the only trigger). A timer
   has no `ssh-agent`, and the freshness check never prompts, so an SSH remote with a
   passphrase-protected key reports "never reached the remote" on every login. Use an
   HTTPS remote, or a key usable without an agent
