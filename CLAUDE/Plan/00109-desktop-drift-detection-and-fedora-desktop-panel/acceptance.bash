@@ -932,7 +932,7 @@ if ! timer_enabled="$(systemctl --user is-enabled "${COLLECT_TIMER}")"; then
         "run play-host-health-login-report.yml; until then the icon refreshes only at login and after play runs"
 elif ! timer_active="$(systemctl --user is-active "${COLLECT_TIMER}")"; then
     bad "${COLLECT_TIMER} is ${timer_enabled} but '${timer_active:-not active}'" \
-        "enabled without being started: it arms only at the next boot"
+        "if inactive, it was enabled without being started and arms only at the next boot; if failed, see systemctl --user status ${COLLECT_TIMER}"
 else
     ok "${COLLECT_TIMER} is ${timer_enabled} and ${timer_active}"
 fi

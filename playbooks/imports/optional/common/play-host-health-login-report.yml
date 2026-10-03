@@ -22,7 +22,7 @@
 #             every SSH login would slow every login and can hang.
 #
 # BOTH also run the silent collector (`host-health-collect.service`) on that timer, and the
-# play-ledger callback restarts it after every play run. The status document is the panel
+# play-ledger callback restarts it after every play run the ledger records. The status document is the panel
 # icon's only input, so one written only at login stays stuck on the login's answer —
 # fixing a finding by re-running a play would never clear it. Hourly on a desktop, daily
 # on a server; see the timer template for why each.

@@ -293,14 +293,12 @@ never counting those as passed.
   `deployed-drift` reports `⚠ skipped (CCY container — no deployed copies to compare)`, an
   advisory rather than a pass, so a skipped check cannot be read as a passed one. CI: the
   green QA run 37040514044 on F44 (`a142f2d7`) logs `⚠ deployed-drift: skipped (/home/runner/.local/bin does not exist)`
-- [ ] `qa-reviewer` agent run over the full plan diff, findings resolved — **run**
-  (`subagent-reports/260916-qa-reviewer-full-plan-diff-opus-5.md`, verdict BLOCK: 1
-  blocking, 3 should-fix, 6 minor, 2 nits). Every finding actionable from a container is
-  resolved, including the blocking one. Decision 3 is the owner's. The independent re-run
-  (`subagent-reports/261003-qa-reviewer-full-plan-diff-rerun-opus.md`, FIX-BEFORE-MERGE,
-  nothing blocking) confirmed those fixes and found doc and plan drift. A confirmation
-  pass found the FOR THE HUMAN list still partly stale; that and its other points were
-  then fixed (check [19] added for the timer). Unticked until a pass confirms that
+- [x] `qa-reviewer` agent run over the full plan diff, findings resolved. First run BLOCK
+  (`subagent-reports/260916-qa-reviewer-full-plan-diff-opus-5.md`), then an independent
+  re-run FIX-BEFORE-MERGE (`261003-qa-reviewer-full-plan-diff-rerun-opus.md`), a
+  confirmation pass FIX-BEFORE-MERGE (`261003-qa-reviewer-confirm-fixes-opus.md`), and
+  a final pass PASS WITH NITS (`261003-qa-reviewer-confirm-round2-opus.md`), whose two
+  nits are fixed. Decision 3 is the owner's and is not a code finding
 
 ## Risks & Mitigations
 
