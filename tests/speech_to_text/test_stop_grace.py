@@ -107,6 +107,33 @@ class GracefulStopTest(unittest.TestCase):
             self.make(-1)
 
 
+class PendingStopAnnouncementTest(unittest.TestCase):
+    """The panel is told STOPPING once, when the grace starts, so Insert visibly worked."""
+
+    def setUp(self):
+        self.signals = []
+        self.notices = []
+        self._saved = (wsi_stream.emit_dbus_signal, wsi_stream.desktop_notification)
+        wsi_stream.emit_dbus_signal = lambda name, value: self.signals.append((name, value))
+        wsi_stream.desktop_notification = lambda *args: self.notices.append(args)
+
+    def tearDown(self):
+        wsi_stream.emit_dbus_signal, wsi_stream.desktop_notification = self._saved
+
+    def test_the_grace_tells_the_panel_stopping_once(self):
+        stop = wsi_stream.GracefulStop(3, clock=FakeClock())
+        stop.request()
+        wsi_stream.announce_pending_stop(stop)
+        wsi_stream.announce_pending_stop(stop)
+        self.assertEqual(self.signals, [("StateChanged", "STOPPING")])
+        self.assertEqual(len(self.notices), 1)
+
+    def test_no_request_tells_the_panel_nothing(self):
+        stop = wsi_stream.GracefulStop(3, clock=FakeClock())
+        wsi_stream.announce_pending_stop(stop)
+        self.assertEqual(self.signals, [])
+
+
 class SignalHandlerTest(unittest.TestCase):
     """The real handlers, driven by real signals to this process."""
 

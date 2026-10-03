@@ -291,8 +291,8 @@ if wait_for_recording_state; then
     check "the text is still delivered" "Hello world" "$(cat "$work/wsi.out")"
     check "the pending stop is announced" "1" \
         "$(grep -c 'Notify .*Stopping in 2s' "$events/gdbus.log")"
-    check "no new extension state is invented for it" "0" \
-        "$(grep -c 'StateChanged \(STOPPING\|PENDING\)' "$events/gdbus.log")"
+    check "the panel is told the stop is pending (STOPPING)" "1" \
+        "$(grep -c 'StateChanged STOPPING' "$events/gdbus.log")"
     check "auto without a GPU transcribes with small" "small" "$(cat "$events/whisper.model")"
     check "…in the system language when run without --language" "en" \
         "$(cat "$events/whisper.language")"

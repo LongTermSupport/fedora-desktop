@@ -1,6 +1,6 @@
 # Plan 00148: speech-to-text improvements (unlimited dictation, delayed stop, models)
 
-**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 4.1-4.5 and 7.4 built; host checks Tasks 0.5, 1.2 and 8.4 pending; next: Task 4.6 after the triage run, Phases 5 and 6)
+**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 4.1-4.5 and 7.4 built, all merged to F44; host checks Tasks 0.5, 1.2 and 8.4 pending; next: Tasks 0.7 and 4.7, Task 4.6 after the triage run, Phases 5 and 6)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
@@ -81,6 +81,19 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
   the last word in each mode; the word is in the pasted text. Also, in pre-buffer mode,
   press Insert while the model is still loading (cold start): the words said before the
   press are all pasted (the tests' stubs cannot show whether the 1.5 s final wait is enough).
+- [x] ✅ **Task 0.6**: The panel shows the press was taken (owner's request: the icon stayed
+  as it was through the grace, so Insert felt as if it had not worked). Both recorders send
+  a new `STOPPING` state when the grace starts (`wsi` `emit_state`, `wsi-stream`
+  `announce_pending_stop`); `extension.js` shows the orange `content-loading` icon for it,
+  stops the elapsed counter, and keeps Insert (stop now) and Escape (discard) working.
+  Tests: `test-wsi-stop-grace.bash` asserts the `wsi` signal, `test_stop_grace.py` the
+  `wsi-stream` one. Needs the logout (extension) to be seen; checked by the owner with
+  Task 0.5.
+- [ ] ⬜ **Task 0.7**: `test-wsi-stop-grace.bash` "first TERM keeps recording" is flaky: in
+  2 of 4 back-to-back runs `wsi` exited 1, the stub `pw-record` was never stopped and no
+  text came out, and stub `pw-record` processes were left running. Root cause not found.
+  Reproduce with `WSI_TEST_TRACE=1` (a `bash -x` trace in the stderr dump), fix, and make
+  the test kill its stubs on every exit. One clean run on 2026-10-03 after Task 0.6.
 
 ### Phase 1: Decision and measurements
 
@@ -169,6 +182,12 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
 - [ ] ⬜ **Task 4.6**: Pin `RealtimeSTT` and `faster-whisper` in
   `play-speech-to-text.yml`'s existing pip task, to the versions Task 1.2 finds; fix the
   play's stale header comment on the default model.
+- [ ] ⬜ **Task 4.7**: Nits from the merge review of Phases 2-4 (it said merge; these were
+  left for after): `docs/features/speech-to-text.md` diagram says server mode cuts on Silero
+  VAD, which is true only with continuous dictation on; `wsi-stream-server`'s
+  `WhisperTranscriber` docstring says "one Whisper window, no seams", false for a whole
+  120 s clip; `wsi-stream`'s recovered-text notification does not warn that the next paste
+  replaces the clipboard.
 
 ### Phase 5: Article mode on the server session
 

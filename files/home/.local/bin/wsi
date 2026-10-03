@@ -179,19 +179,21 @@ log_error() {
 
 NOTIFICATION_ID=0
 
+# emit_state <state> — tell the panel extension, which sets its icon from it.
+emit_state() {
+    gdbus emit --session \
+        --object-path "$DBUS_PATH" \
+        --signal "${DBUS_INTERFACE}.StateChanged" \
+        "$1" 2>/dev/null &
+}
+
 notify_state() {
     local state="$1"
     local message="$2"
     local icon="${3:-audio-input-microphone}"
 
     log_debug "State: $state - $message"
-
-    # Send DBus signal for extension icon state
-    gdbus emit --session \
-        --object-path "$DBUS_PATH" \
-        --signal "${DBUS_INTERFACE}.StateChanged" \
-        "$state" 2>/dev/null &
-
+    emit_state "$state"
     notify_desktop "$message" "$icon" 3000
 }
 
@@ -303,6 +305,9 @@ on_term() {
     log_debug "Stop requested - recording for ${STOP_GRACE_SECONDS}s more (TERM again stops now)"
     ( sleep "$STOP_GRACE_SECONDS"; kill -TERM $$ ) &
     GRACE_TIMER_PID=$!
+    # STOPPING, not RECORDING: the panel shows the press was taken while the microphone
+    # stays open for the grace.
+    emit_state "STOPPING"
     notify_desktop "Stopping in ${STOP_GRACE_SECONDS}s - finish your sentence.\nInsert: stop now. Escape: discard." \
         "audio-input-microphone" "$((STOP_GRACE_SECONDS * 1000))"
 }

@@ -218,6 +218,9 @@ def announce_pending_stop(stop):
         log(stop.notes.pop(0))
     if stop.take_notice():
         log(f"Stop pending: {stop.grace_seconds}s grace")
+        # STOPPING, not RECORDING: the panel shows the press was taken while the microphone
+        # stays open for the grace.
+        emit_dbus_signal("StateChanged", "STOPPING")
         desktop_notification(
             f"Stopping in {stop.grace_seconds}s - finish your sentence.\n"
             "Insert: stop now. Escape: discard.",

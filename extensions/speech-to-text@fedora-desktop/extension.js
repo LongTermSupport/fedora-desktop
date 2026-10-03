@@ -614,6 +614,14 @@ export default class SpeechToTextExtension extends Extension {
                 }
                 this._addAbortKeybinding();  // Enable Escape key during recording
                 break;
+            case 'STOPPING':
+                // Insert was pressed: the microphone stays open for the stop grace, but
+                // the icon already shows the press was taken. Escape still discards and
+                // Insert again stops at once.
+                this._stopCountdown();
+                this._icon.icon_name = 'content-loading-symbolic';
+                this._icon.style = 'color: #ffaa00;';  // Orange/Yellow
+                break;
             case 'TRANSCRIBING':
                 this._stopCountdown();
                 this._removeAbortKeybinding();  // Disable Escape key when transcribing
@@ -869,6 +877,7 @@ export default class SpeechToTextExtension extends Extension {
             }
             // If currently in any active state, stop it instead of starting new
             if (this._currentState === 'RECORDING' ||
+                this._currentState === 'STOPPING' ||
                 this._currentState === 'PREPARING' ||
                 this._currentState === 'TRANSCRIBING') {
                 this._stopRecording();
@@ -942,6 +951,7 @@ export default class SpeechToTextExtension extends Extension {
             }
             // If currently in any active state, stop it instead of starting new
             if (this._currentState === 'RECORDING' ||
+                this._currentState === 'STOPPING' ||
                 this._currentState === 'PREPARING' ||
                 this._currentState === 'TRANSCRIBING') {
                 this._stopRecording();
@@ -1024,6 +1034,7 @@ export default class SpeechToTextExtension extends Extension {
             }
             // Don't allow opening article mode while another recording is active
             if (this._currentState === 'RECORDING' ||
+                this._currentState === 'STOPPING' ||
                 this._currentState === 'PREPARING' ||
                 this._currentState === 'TRANSCRIBING') {
                 this._log('Article mode: another recording is already active');
@@ -1172,8 +1183,8 @@ export default class SpeechToTextExtension extends Extension {
     }
 
     _abortRecording() {
-        // Only abort if currently recording
-        if (this._currentState !== 'RECORDING') {
+        // Only abort while the microphone is open: recording, or in the stop grace
+        if (this._currentState !== 'RECORDING' && this._currentState !== 'STOPPING') {
             this._log('Abort ignored - not recording');
             return;
         }
@@ -1422,6 +1433,7 @@ export default class SpeechToTextExtension extends Extension {
             case 'RECORDING':
                 this._statusLabel.label.style = 'font-weight: bold; color: #ff4444;';
                 break;
+            case 'STOPPING':
             case 'TRANSCRIBING':
                 this._statusLabel.label.style = 'font-weight: bold; color: #ffaa00;';
                 break;

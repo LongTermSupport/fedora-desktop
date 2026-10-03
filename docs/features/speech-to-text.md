@@ -352,11 +352,12 @@ were lost, per mode: `CLAUDE/Plan/00148-stt-unlimited-dictation-loop-and-buffer/
 
 3. **Stop Recording**: Press **Insert** again
 
-   - Recording carries on for a short grace (3 seconds by default) so the words you
+   - The icon turns to the orange "…" at once, so you can see the press was taken, but
+     recording carries on for a short grace (3 seconds by default) so the words you
      were still saying are kept; a notification says "Stopping in 3s" (only when
-     notifications are on; the panel timer keeps running either way)
+     notifications are on)
    - Press **Insert** once more to stop at once; **Escape** still discards at once
-   - Icon changes to ⚙️ (processing)
+   - The icon stays "…" while the text is transcribed
    - Desktop notification: "Transcribing..."
 
    See [Stop Grace](#stop-grace) to change or turn off the grace.
