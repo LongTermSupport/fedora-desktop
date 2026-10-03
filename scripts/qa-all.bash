@@ -523,6 +523,18 @@ fi
 restart_request_summary=$(qa_gate_case_count "$restart_request_out")
 qa_pass_line ccy-restart-request "$restart_request_summary"
 
+# scripts/git-hooks/pre-commit: an edit to what the image bakes in (Dockerfile, entrypoint,
+# supervisor plugins) needs a container version bump, with LABEL and REQUIRED_CONTAINER_VERSION
+# moving together. Run against a throwaway repository.
+container_hook_out=""
+if ! container_hook_out="$(bash "$SCRIPT_DIR/test-ccy-container-version-hook.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-container-version-hook \
+        "ccy container version hook tests failed" \
+        "$container_hook_out"
+fi
+container_hook_summary=$(qa_gate_case_count "$container_hook_out")
+qa_pass_line ccy-container-version-hook "$container_hook_summary"
+
 # lib/session-lifecycle.bash and the entrypoint's plugin hook-up: --max-age/--run-for/--until
 # are validated strictly, a relaunch keeps the deadline, and with no option the supervisor's
 # wrapper line is byte-identical. The plugin itself is covered by the helper unit suite.

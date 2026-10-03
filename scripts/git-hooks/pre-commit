@@ -210,6 +210,61 @@ if [ ${#CCY_STAGED[@]} -gt 0 ]; then
     fi
 fi
 
+# ============================================================================
+# CCY Container Version Bump Validation
+# ============================================================================
+# The image is rebuilt when its claude-yolo-version LABEL differs from the
+# launcher's REQUIRED_CONTAINER_VERSION, or when the Dockerfile's own hash
+# changes. Everything else the image bakes in (the entrypoint, the supervisor
+# plugins) reaches a running container ONLY through a version bump, so an edit
+# there without one ships a stale copy with no error.
+
+CCY_DOCKERFILE="files/var/local/claude-yolo/Dockerfile"
+CCY_IMAGE_STAGED=()
+for FILE in "${STAGED_FILE_LIST[@]}"; do
+    case "$FILE" in
+        "$CCY_DOCKERFILE" | files/var/local/claude-yolo/entrypoint.sh | files/var/local/claude-yolo/supervisor-plugins/*)
+            CCY_IMAGE_STAGED+=("$FILE") ;;
+    esac
+done
+
+if [ ${#CCY_IMAGE_STAGED[@]} -gt 0 ]; then
+    echo "🔍 Checking CCY container version bump requirement (${#CCY_IMAGE_STAGED[@]} image file(s) staged)..."
+    staged_dockerfile=$(git show ":$CCY_DOCKERFILE")
+    STAGED_LABEL=$(awk -F'"' '/^LABEL claude-yolo-version=/{print $2; exit}' <<<"$staged_dockerfile")
+    staged_launcher=$(git show ":$CCY_SCRIPT")
+    STAGED_REQUIRED=$(awk -F'"' '/^REQUIRED_CONTAINER_VERSION=/{print $2; exit}' <<<"$staged_launcher")
+    HEAD_LABEL=""
+    if head_dockerfile=$(git show "HEAD:$CCY_DOCKERFILE" 2>/dev/null); then
+        HEAD_LABEL=$(awk -F'"' '/^LABEL claude-yolo-version=/{print $2; exit}' <<<"$head_dockerfile")
+    fi
+    if [ "$STAGED_LABEL" != "$STAGED_REQUIRED" ]; then
+        echo -e "${RED}COMMIT REJECTED: the Dockerfile LABEL claude-yolo-version ($STAGED_LABEL) and the launcher's REQUIRED_CONTAINER_VERSION ($STAGED_REQUIRED) differ.${NC}"
+        echo "Bump both together; stage $CCY_DOCKERFILE and $CCY_SCRIPT."
+        exit 1
+    fi
+    if [ -n "$HEAD_LABEL" ] && [ "$STAGED_LABEL" = "$HEAD_LABEL" ]; then
+        if git diff --cached HEAD -- "${CCY_IMAGE_STAGED[@]}" \
+            | grep -E '^[+-]' \
+            | grep -vE '^[+-]{3}' \
+            | grep -vE '^[+-][[:space:]]*(#|$)' \
+            | grep -q .; then
+            echo -e "${RED}COMMIT REJECTED: CCY container version bump required${NC}"
+            echo ""
+            echo "These files are baked into the image, and a running container only"
+            echo "picks up a change through a container version bump:"
+            printf '  %s\n' "${CCY_IMAGE_STAGED[@]}"
+            echo ""
+            echo "Bump LABEL claude-yolo-version in $CCY_DOCKERFILE and"
+            echo "REQUIRED_CONTAINER_VERSION in $CCY_SCRIPT to the same new value"
+            echo "(currently $STAGED_LABEL), and stage both."
+            exit 1
+        fi
+    elif [ -n "$HEAD_LABEL" ]; then
+        echo "✓ CCY container version bumped: $HEAD_LABEL → $STAGED_LABEL"
+    fi
+fi
+
 FOUND_ISSUES=0
 
 # Check each staged file
