@@ -42,15 +42,22 @@ git -C "$repo" config user.email test@example.com
 write_launcher() {
     printf '#!/usr/bin/env bash\nCCY_VERSION="%s"\nREQUIRED_CONTAINER_VERSION="%s"\n' "$1" "$2" >"$ccy/claude-yolo"
 }
-# write_dockerfile <container-version>
+# write_dockerfile <container-version> — the image copies the entrypoint, the plugin directory
+# and one more file with a flag; a --from copy names a build-stage path, not a repo file.
 write_dockerfile() {
-    printf 'FROM scratch\nLABEL claude-yolo-version="%s"\n' "$1" >"$ccy/Dockerfile"
+    printf '%s\n' 'FROM scratch' "LABEL claude-yolo-version=\"$1\"" \
+        'COPY entrypoint.sh /usr/local/bin/entrypoint.sh' \
+        'COPY supervisor-plugins/ /opt/claude-yolo/supervisor-plugins/' \
+        'COPY --chown=root:root guard-tool /opt/claude-yolo/guard-tool' \
+        'COPY --from=builder /build/not-in-repo /usr/local/bin/not-in-repo' >"$ccy/Dockerfile"
 }
 
 write_launcher 1.0.0 2.0
 write_dockerfile 2.0
 printf '#!/usr/bin/env bash\necho start\n' >"$ccy/entrypoint.sh"
 printf 'PLUGIN_API = 1\n' >"$ccy/supervisor-plugins/ccy_lifecycle.py"
+printf '#!/usr/bin/env bash\necho guard\n' >"$ccy/guard-tool"
+printf '#!/usr/bin/env bash\necho host\n' >"$ccy/host-only-tool"
 git -C "$repo" add -A
 git -C "$repo" commit -q --no-verify -m baseline
 
@@ -67,6 +74,8 @@ baseline() {
     write_dockerfile 2.0
     printf '#!/usr/bin/env bash\necho start\n' >"$ccy/entrypoint.sh"
     printf 'PLUGIN_API = 1\n' >"$ccy/supervisor-plugins/ccy_lifecycle.py"
+    printf '#!/usr/bin/env bash\necho guard\n' >"$ccy/guard-tool"
+    printf '#!/usr/bin/env bash\necho host\n' >"$ccy/host-only-tool"
     git -C "$repo" add -A
 }
 has() { if grep -q -F -- "$1" "$work/hook.out"; then echo yes; else echo no; fi; }
@@ -97,6 +106,15 @@ printf 'PLUGIN_API = 1\nVALUE = 2\n' >"$ccy/supervisor-plugins/ccy_lifecycle.py"
 write_dockerfile 2.1
 check "a LABEL bump the launcher does not match is rejected" "1" "$(hook_status)"
 check "…and names both values" "yes" "$(has '(2.1) and the launcher')"
+baseline
+
+printf '#!/usr/bin/env bash\necho guarded\n' >"$ccy/guard-tool"
+check "any file the Dockerfile COPYs is guarded, not just a listed few" "1" "$(hook_status)"
+baseline
+
+printf '#!/usr/bin/env bash\necho host side\n' >"$ccy/host-only-tool"
+check "a file in the ccy directory the image does not copy needs no container bump" "0" "$(hook_status)"
+check "…and prints no container check" "no" "$(has 'container version bump requirement')"
 baseline
 
 printf 'unrelated\n' >"$repo/README.txt"

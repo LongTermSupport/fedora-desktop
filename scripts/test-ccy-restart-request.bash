@@ -320,6 +320,9 @@ cat >"$work/stub/claude-yolo" <<'STUB'
 printf '%s\n' "$@" >"$STUB_RECORD"
 printf 'marker=%s passphrase-file=%s stdin-is-null=%s\n' "${CCY_RESTART_RELAUNCH:-unset}" \
     "${CCY_RESTORE_SSH_PASSPHRASE_FILE:-unset}" "$([ -t 0 ] && echo no || echo yes)" >"$STUB_RECORD.env"
+printf 'stage=%s oauth=%s gh=%s compose=%s/%s\n' "${CCY_KEY_STAGE_DIR-unset}" \
+    "${CLAUDE_CODE_OAUTH_TOKEN-unset}" "${GH_TOKEN-unset}" "${CCY_COMPOSE_WAS_STARTED-unset}" \
+    "${CCY_COMPOSE_CMD-unset}" >"$STUB_RECORD.inherit"
 STUB
 chmod +x "$work/stub/claude-yolo"
 cat >"$work/update-stub.bash" <<'STUB'
@@ -403,6 +406,18 @@ check "…this launch's staged files are cleaned up before the exec (exec skips 
     "cleaned" "$(cat "$work/ok.cleanups")"
 check "…the budget history is created in its own directory" "1" \
     "$(cat "$work/history-ok/"* | wc -l)"
+
+# exec hands the relaunch this launch's exported state. The key staging directory names a
+# directory the cleanup just removed, so a relaunch that inherited it skipped making its own
+# and its mount, and failed to stage a key file on an SELinux-enforcing host. The token values
+# are re-derived from the --token file the relaunch is given, so they need not sit in the
+# environment of every process it starts. The compose pair is kept on purpose: the first
+# launch started that stack for this session, so the resumed session offers to stop it.
+check "a relaunch with this launch's state exported still execs" "rc=0 update=1 exec=yes request=gone" \
+    "$(CCY_KEY_STAGE_DIR="$work/gone-stage" CLAUDE_CODE_OAUTH_TOKEN=tok-value GH_TOKEN=gh-value \
+        CCY_COMPOSE_WAS_STARTED=true CCY_COMPOSE_CMD=podman-compose handler_case inherit "$GOOD" 0 0)"
+check "…the relaunch inherits no key staging directory and no token value, but keeps compose" \
+    "stage=unset oauth=unset gh=unset compose=true/podman-compose" "$(cat "$work/inherit.argv.inherit")"
 check "…and nothing of it is in the disposable update-check cache" "no" \
     "$([ -e "$work/cache-ok" ] && find "$work/cache-ok" -name '*history*' | grep -q . && echo yes || echo no)"
 
@@ -523,9 +538,11 @@ check "…which no rebuild deletes" "0" "$(grep -c -F "rm -rf \"\$CCY_RESTART_HI
 check "…and the handler keeps no history in the update-check cache" "0" \
     "$(grep -c -F 'VERSION_CHECK_CACHE/restart-history' "$work/handler.bash")"
 
-# Every prompt on the launch path must fall where a restart's stdin is /dev/null: after the
-# restart mark is read and before the terminal is handed back, which is before the container
-# runs. The one prompt after the container (stopping compose services) is outside the window.
+# Every prompt the LAUNCHER itself holds on the launch path must fall where a restart's stdin is
+# /dev/null: after the restart mark is read and before the terminal is handed back, which is
+# before the container runs. The one prompt after the container (stopping compose services) is
+# outside the window. The libraries' prompts are not counted here: they are reached only through
+# launcher calls inside the window, so the closed stdin covers them too.
 marker_line=$(grep -n -x 'ccy_restart_marker_take || exit 1' "$LAUNCHER" | cut -d: -f1)
 restore_line=$(grep -n -F "exec <&\"\$CCY_RESTART_TTY_FD\" {CCY_RESTART_TTY_FD}<&-" "$LAUNCHER" | cut -d: -f1)
 run_line=$(grep -n -E "^container_cmd run \\\$DOCKER_FLAGS --rm" "$LAUNCHER" | cut -d: -f1)
