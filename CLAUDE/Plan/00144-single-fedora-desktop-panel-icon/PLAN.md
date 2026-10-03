@@ -215,8 +215,10 @@ Full options and reasoning in [DECISIONS.md](DECISIONS.md).
 - [ ] An injected container finding changes that icon per D1 and raises one notification.
 - [ ] `container-watch@fedora-desktop` is in neither `enabled-extensions` nor the extensions
   directory, and re-running both plays reports no change.
-- [ ] `./scripts/test-panel-sections.bash`, ESLint and `./scripts/qa-all.bash` pass; the
-  no-kill gate reports a non-zero count of JavaScript files scanned.
+- [x] `./scripts/test-panel-sections.bash`, ESLint and `./scripts/qa-all.bash` pass; the
+  no-kill gate reports a non-zero count of JavaScript files scanned. In the QA run on F44
+  after `a8480fec`: panel-sections 126 passed, js 19 files OK, nokill-containerwatch
+  6 files clean, QA passed over 1142 files.
 - [x] `qa-reviewer` finds no unresolved BLOCK or FIX-BEFORE-MERGE issue
   ([`subagent-reports/261002-qa-reviewer-opus.md`](subagent-reports/261002-qa-reviewer-opus.md):
   PASS WITH NITS).

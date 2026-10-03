@@ -292,7 +292,7 @@ The questions as first asked, before they were settled, are in
 - [x] `--dry-run` signals nothing and reboots nothing. Same script: "dry run signals no
   daemon", "dry run invokes no systemctl".
 - [ ] A machine with restore disabled behaves exactly as before this plan.
-- [ ] `./scripts/qa-all.bash` green.
+- [x] `./scripts/qa-all.bash` green (1142 files, run on F44 after `a8480fec`; ccy-sessions-reboot 156 passed).
 - [x] ✅ `qa-reviewer` agent over the full plan diff, findings resolved (round 1 FIX-BEFORE-MERGE, round 2 PASS; journal 26-09-23).
 - [x] No hostname, address, username or private path anywhere in the diff or the PR.
   The added lines and messages of all 42 commits naming the plan were scanned with the

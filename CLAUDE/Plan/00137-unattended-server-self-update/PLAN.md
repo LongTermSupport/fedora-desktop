@@ -251,7 +251,9 @@ D1–D4 are the owner's choices, made 2026-09-23.
   in Task 3.2 passes for both.
 - [ ] A failed play is reported, and the sessions end up in the state D8 chose.
 - [ ] A manual play run started during a cycle is refused by the lock, and the reverse.
-- [ ] `./scripts/qa-all.bash` green; `qa-reviewer` findings resolved.
+- [x] `./scripts/qa-all.bash` green; `qa-reviewer` findings resolved. QA: 1142 files on F44
+  after `a8480fec` (self-update-cycle 164 passed). Review: Task 5.2's round 4 PASS WITH
+  NITS, and Task 4.8's review fixes in `57a8cd99`.
 
 ## Delivery & Milestones
 
