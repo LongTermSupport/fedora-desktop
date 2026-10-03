@@ -1,6 +1,6 @@
 # Plan 00148: speech-to-text improvements (unlimited dictation, delayed stop, models)
 
-**Status**: In Progress (Phase 0, Task 7.4 and Phase 8 built, host checks Tasks 0.5 and 8.4 pending; Task 1.1 decided: loop-and-buffer)
+**Status**: In Progress (Phases 0, 2, 8 and Task 7.4 built; host checks Tasks 0.5, 1.2 and 8.4 pending; Task 1.1 decided: loop-and-buffer)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
@@ -94,26 +94,35 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
   probes: installed RealtimeSTT and faster-whisper versions, real-time factor of the chosen
   model per 20 s segment, hard-cut frequency at 20 s soft / 28 s hard max, and word loss at
   phrase boundaries in article mode. Written: it records the owner reading aloud for 90 s
-  (or reuses `--audio`) and replays that one recording to every probe. Blocked on the
+  (or reuses `--audio`) and replays that one recording to every probe; the hard-cut probe
+  runs the checkout's own segmenter and VAD adapter. Blocked on the
   owner: **HOST** run (it needs a person speaking).
 
 ### Phase 2: Continuous dictation in the server
 
-- [ ] ⬜ **Task 2.1**: Tests first: unit tests under `tests/` for the segmenter as a pure
+- [x] ✅ **Task 2.1**: Tests first: unit tests under `tests/` for the segmenter as a pure
   function on synthetic arrays (silence cut, soft max, hard cut at the energy minimum, pure
-  silence never queued) and for ordered commit.
-- [ ] ⬜ **Task 2.2**: `wsi-stream-server`: VAD segmenter, one ordered transcription worker
+  silence never queued) and for ordered commit (`test_continuous_segmenter.py`).
+- [x] ✅ **Task 2.2**: `wsi-stream-server`: VAD segmenter, one ordered transcription worker
   (main model, `condition_on_previous_text=False`, a short `initial_prompt` from committed
   text), in-memory buffer plus append-only JSONL journal in `$XDG_RUNTIME_DIR`, commands
   `START {continuous:true}`, `PROGRESS`, `KEEPALIVE`, `ABORT`, and a STOP that drains under a
   backlog-scaled deadline. Any failure (segment error, `pw-record` exit, backlog ceiling,
   drain deadline, journal write) marks the session FAILED, keeps the audio, copies the text
-  so far.
-- [ ] ⬜ **Task 2.3**: Replace `WATCHDOG_TIMEOUT = 125` with the heartbeat (stop after 15 s
+  so far. RealtimeSTT is gone from the server: it loads faster-whisper's `WhisperModel` and
+  bundled Silero VAD itself, and every server-mode recording runs through this session
+  (`continuous-dictation` off only means the fixed `--timeout` cap is sent as the limit).
+  Tested with a fake `pw-record`, stub VAD and stub transcriber
+  (`test_continuous_session.py`); the real VAD adapter and model run only on the host
+  (triage leg 3, Task 6.2).
+- [x] ✅ **Task 2.3**: Replace `WATCHDOG_TIMEOUT = 125` with the heartbeat (stop after 15 s
   without `KEEPALIVE`), the no-speech auto-stop, and the large configurable absolute cap.
-- [ ] ⬜ **Task 2.4**: `wsi-stream` server-mode client: no fixed `--timeout`, sends
+  The server applies the limits START carries; the client reads them from Settings.
+- [x] ✅ **Task 2.4**: `wsi-stream` server-mode client: no fixed `--timeout`, sends
   keepalives, relays progress, exits non-zero on FAILED with the partial text on the
-  clipboard. Diagnostics to stderr (`CLAUDE/StderrHygiene.md`).
+  clipboard. Diagnostics to stderr (`CLAUDE/StderrHygiene.md`). Replies are read to their
+  newline (a long dictation is far over one 4 KiB read); progress goes to the panel as a
+  new `Progress` D-Bus signal (`test_server_client.py`, against a stub server).
 
 ### Phase 3: Panel extension and settings
 
@@ -125,9 +134,10 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
 
 ### Phase 4: Side findings
 
-- [ ] ⬜ **Task 4.1**: Server mode pastes the `tiny` realtime-preview model's text whatever
+- [x] ✅ **Task 4.1**: Server mode pastes the `tiny` realtime-preview model's text whatever
   model is selected (`wsi-stream-server` never calls `text()`). Continuous mode uses the
   main model; fix or retire the old server-mode path so it cannot paste preview text.
+  Retired with Task 2.2: the server no longer loads RealtimeSTT, so no preview model exists.
 - [ ] ⬜ **Task 4.2**: Remove the silent fallback to buffered `tiny` text in standard
   streaming (`wsi-stream`, `run_standard_streaming`), or make it a loud warning.
 - [ ] ⬜ **Task 4.3**: Plan/code drift: completed Plan 015 says a `Shift+Insert` article-mode

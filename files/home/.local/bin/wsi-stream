@@ -58,6 +58,16 @@ MODEL_RESOLVER = Path(__file__).resolve().parent / "wsi-resolve-model"
 # while recording, so recorder.stop() freezes whatever the last pass produced.
 FINAL_REALTIME_PASSES = 2
 FINAL_REALTIME_WAIT_SECONDS = 1.5
+# The one home of the streaming recording cap (standard, pre-buffer, and server mode
+# without continuous dictation). Batch wsi's is its own; continuous dictation's limits
+# are the extension's GSettings keys. scripts/qa-stt-limits.bash keeps it single.
+STREAMING_MAX_SECONDS = 120
+# Server-mode client: the server stops a recording 15 s after the last KEEPALIVE
+KEEPALIVE_INTERVAL = 5.0
+PROGRESS_INTERVAL = 1.0
+DRAIN_POLL_INTERVAL = 0.5
+DRAIN_GRACE_SECONDS = 10  # beyond the server's own drain deadline
+SERVER_REPLY_TIMEOUT = 10  # STOP closes the microphone before it replies (up to ~5 s)
 
 # Global state
 debug_mode = False
@@ -298,6 +308,12 @@ def emit_dbus_signal(signal_name, value):
         ], capture_output=True, timeout=1)
     except Exception as e:
         log(f"DBus signal failed: {e}", "WARN")
+
+
+def emit_dbus_text(signal_name, text):
+    """Emit a signal whose one argument is `text`, quoted so gdbus cannot read it as a number."""
+    quoted = "'" + text.replace("\\", "\\\\").replace("'", "\\'") + "'"
+    emit_dbus_signal(signal_name, quoted)
 
 
 def notify(state, message):
@@ -649,28 +665,81 @@ def run_server_at_login():
 
 
 def send_server_command(command, params=None):
-    """Send command to server and return response."""
+    """Send one command to the server; its one-line JSON reply, or status "error".
+
+    The reply is read to its newline: a long dictation's text is far larger than one
+    read, and a reply cut short would not parse.
+    """
     if params is None:
         params = {}
 
     try:
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.settimeout(5)
-        sock.connect(str(SERVER_SOCKET))
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(SERVER_REPLY_TIMEOUT)
+            sock.connect(str(SERVER_SOCKET))
+            sock.sendall((json.dumps({"command": command, "params": params}) + "\n").encode())
+            reply = b""
+            while not reply.endswith(b"\n"):
+                chunk = sock.recv(65536)
+                if not chunk:
+                    break
+                reply += chunk
+        return json.loads(reply.decode())
 
-        # Send command
-        message = json.dumps({"command": command, "params": params}) + "\n"
-        sock.sendall(message.encode())
+    except (OSError, ValueError) as e:
+        log(f"Server command {command} failed: {e}", "ERROR")
+        return {"status": "error", "message": f"{command}: {e}"}
 
-        # Read response
-        response = sock.recv(4096).decode().strip()
-        sock.close()
 
-        return json.loads(response)
+def dictation_limits(args):
+    """START's limits: continuous dictation's from Settings, else the fixed --timeout cap.
 
-    except Exception as e:
-        log(f"Server command failed: {e}", "ERROR")
-        return {"status": "error", "message": str(e)}
+    Raises if a setting cannot be read. Returns (continuous, max_seconds, silence_seconds).
+    """
+    continuous = read_setting("continuous-dictation") == "true"
+    if not continuous:
+        return False, args.timeout, 0
+    minutes = read_setting("max-recording-minutes")
+    silence = read_setting("silence-autostop-seconds")
+    if not minutes.isdigit() or int(minutes) < 1:
+        raise RuntimeError(f"max-recording-minutes is not a whole number above 0: '{minutes}'")
+    if not silence.isdigit():
+        raise RuntimeError(f"silence-autostop-seconds is not a whole number: '{silence}'")
+    return True, int(minutes) * 60, int(silence)
+
+
+def relay_progress(progress):
+    """Hand the panel the dictation's elapsed time and backlog (the Progress signal)."""
+    rtf = progress.get("rtf")
+    behind = 1 if rtf is not None and rtf > 1 else 0
+    emit_dbus_text("Progress", (
+        f"elapsed={progress.get('elapsed_seconds', 0):.0f} "
+        f"pending={progress.get('segments_pending', 0)} "
+        f"backlog={progress.get('backlog_seconds', 0):.0f} behind={behind}"))
+
+
+def report_failed_dictation(progress):
+    """FAILED: the text so far goes to the clipboard (never pasted), and the user is told."""
+    text = (progress.get("transcription") or "").strip()
+    error = progress.get("error") or "unknown error"
+    lines = [f"Dictation failed: {error}"]
+    if text and copy_to_clipboard(text, use_clipboard=True):
+        lines.append(f"The text so far ({len(text.split())} words) is on the clipboard: Ctrl+V.")
+    elif text:
+        lines.append("The text so far could not be copied to the clipboard; "
+                     f"it is in {progress.get('session_dir')}/journal.jsonl")
+    else:
+        lines.append("No text had been transcribed yet.")
+    if progress.get("kept_audio"):
+        lines.append(f"Untranscribed audio kept in {progress.get('session_dir')}")
+    for unsaved in progress.get("unsaved_audio") or []:
+        lines.append(f"Audio NOT kept: {unsaved}")
+    message = "\n".join(lines)
+    log(message, "ERROR")
+    print(f"wsi-stream: {message}", file=sys.stderr)
+    emit_dbus_text("Error", error)
+    emit_dbus_signal("StateChanged", "ERROR")
+    desktop_notification(message, 0)  # 0: stays until dismissed
 
 
 def run_server_mode(args):
@@ -692,6 +761,15 @@ def run_server_mode(args):
         log(f"Cannot read the stop grace: {e}", "ERROR")
         notify("ERROR", "Cannot read the stop grace (re-run play-speech-to-text.yml)")
         return 1
+
+    try:
+        continuous, max_seconds, silence_seconds = dictation_limits(args)
+    except Exception as e:
+        log(f"Cannot read the dictation limits: {e}", "ERROR")
+        notify("ERROR", "Cannot read the dictation settings (re-run play-speech-to-text.yml)")
+        return 1
+    log(f"Continuous dictation: {continuous}; limit {max_seconds} s; "
+        f"no-speech stop {silence_seconds or 'off'}")
 
     # Track whether recording is active (for cleanup)
     recording_active = False
@@ -760,81 +838,108 @@ def run_server_mode(args):
 
     log("Server ready - instant recording startup!")
 
-    # From here a stop is a graceful request: the wait loop below sends STOP once it is
-    # due (SIGTERM after the grace). SIGUSR1 is the extension's abort (Escape): STOP the
-    # server at once so it releases the mic, but discard the text. SIGKILLing this client
-    # instead would leave the server recording until its watchdog fires, refusing every
-    # START in the meantime.
+    # From here a stop is a graceful request: the loop below sends STOP once it is due
+    # (SIGTERM after the grace). SIGUSR1 is the extension's abort (Escape): ABORT the
+    # session at once so the server releases the mic and discards the text. SIGKILLing
+    # this client instead would leave the server recording until the KEEPALIVEs are
+    # missed, refusing every START in the meantime.
     install_stop_handlers(stop, abort_on_usr1=True)
-
-    # Clear buffer file
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    BUFFER_FILE.write_text("")
 
     # Start recording via server
     notify("RECORDING", "Recording... (server mode)")
 
-    response = send_server_command("START")
+    response = send_server_command("START", {
+        "continuous": continuous, "max_seconds": max_seconds, "silence_seconds": silence_seconds})
 
     if response.get("status") != "recording":
         log(f"Server START failed: {response}", "ERROR")
-        notify("ERROR", "Failed to start recording")
+        notify("ERROR", f"Failed to start recording: {response.get('message', response)}")
         if PID_FILE.exists():
             PID_FILE.unlink()
         return 1
 
-    log("Recording active (server mode)")
+    log(f"Recording active (server mode); journal in {response.get('session_dir')}")
     recording_active = True  # Mark as active for cleanup
 
-    # Wait for stop signal (extension will kill this process)
-    # Use short sleep intervals so signal can interrupt quickly
-    timeout = args.timeout or 120
-    start_time = time.monotonic()
-    try:
-        while (time.monotonic() - start_time) < timeout and not stop.due():
-            announce_pending_stop(stop)
-            time.sleep(0.1)  # Check every 100ms
-        if (time.monotonic() - start_time) >= timeout:
-            log("Timeout reached, stopping recording")
-        else:
-            log("Stop signal received, stopping recording")
-    except KeyboardInterrupt:
-        log("Interrupted, stopping recording")
-        # Let the signal handler or normal flow handle it
-        # Don't exit here - continue to normal STOP flow
+    # Until the stop is due: KEEPALIVE so the server knows we are here, PROGRESS for the
+    # panel. The server applies the limits itself and may stop (or fail) on its own.
+    progress = {"status": "recording"}
+    last_keepalive = last_progress = time.monotonic()
+    while not stop.due() and progress.get("status") == "recording":
+        announce_pending_stop(stop)
+        now = time.monotonic()
+        if now - last_keepalive >= KEEPALIVE_INTERVAL:
+            reply = send_server_command("KEEPALIVE")
+            last_keepalive = now
+            if reply.get("status") == "error":
+                progress = reply
+        if progress.get("status") == "recording" and now - last_progress >= PROGRESS_INTERVAL:
+            progress = send_server_command("PROGRESS")
+            last_progress = now
+            if progress.get("status") == "recording":
+                relay_progress(progress)
+        time.sleep(0.1)
+
+    if stop.discard:
+        reply = send_server_command("ABORT")
+        recording_active = False
+        log(f"Recording discarded (abort): {reply}")
+        return 0
 
     # INSTANT VISUAL FEEDBACK: Change to spinner IMMEDIATELY
     # This happens BEFORE server cleanup, so user sees instant response to Insert key
     emit_dbus_signal("StateChanged", "TRANSCRIBING")
-    log("Changed to spinner (instant feedback - processing)")
 
-    # Stop recording
-    response = send_server_command("STOP")
-
-    # Mark as inactive immediately after STOP sent
-    # This prevents atexit handler from trying to send STOP again
+    # STOP closes the microphone (or, if the server stopped on its own, just reports);
+    # the segments still queued are then transcribed while we poll
+    if progress.get("status") == "recording":
+        log("Stop due, sending STOP")
+        progress = send_server_command("STOP")
+    else:
+        log(f"The server ended the recording itself: {progress}")
     recording_active = False
 
     # The PID file stays until exit (atexit removes it): the extension treats a missing
     # PID file as "no recorder", and transcription + paste are still to come.
+    give_up_at = None
+    while progress.get("status") == "draining":
+        relay_progress(progress)
+        if give_up_at is None:
+            give_up_at = (time.monotonic() + progress.get("drain_seconds_left", 0)
+                          + DRAIN_GRACE_SECONDS)
+        if time.monotonic() > give_up_at:
+            progress = {"status": "error", "message": "the server never finished transcribing"}
+            break
+        time.sleep(DRAIN_POLL_INTERVAL)
+        progress = send_server_command("PROGRESS")
 
-    if stop.discard:
-        log("Recording discarded (abort) - not transcribing or pasting")
-        return 0
-
-    if response.get("status") != "stopped":
-        log(f"Server STOP failed: {response}", "ERROR")
-        notify("ERROR", "Failed to stop recording")
+    if progress.get("status") == "failed":
+        report_failed_dictation(progress)
+        return 1
+    if progress.get("status") != "done":
+        log(f"Server STOP failed: {progress}", "ERROR")
+        message = (f"{progress.get('message', progress)}. Any text transcribed so far is in "
+                   f"{response.get('session_dir')}/journal.jsonl")
+        print(f"wsi-stream: the dictation did not complete: {message}", file=sys.stderr)
+        emit_dbus_signal("StateChanged", "ERROR")
+        desktop_notification(f"Failed to finish the dictation: {message}", 0)
         return 1
 
-    # Get transcription
-    text = response.get("transcription", "").strip()
+    text = progress.get("transcription", "").strip()
+    stop_reason = progress.get("stop_reason") or ""
+    notes = []
+    if stop_reason and stop_reason != "stop requested":
+        notes.append(f"Stopped: {stop_reason}")
+    if progress.get("empty_segments"):
+        notes.append(f"{progress['empty_segments']} segment(s) with speech produced no text; "
+                     f"their audio is in {progress.get('session_dir')}")
+    for note in notes:
+        log(note, "WARN")
+        desktop_notification(note, 0)
 
     if not text:
         log("No speech detected", "WARN")
         notify("ERROR", "No speech detected")
-        if BUFFER_FILE.exists():
-            BUFFER_FILE.unlink()
         return 1
 
     # Capitalize first letter
@@ -851,11 +956,8 @@ def run_server_mode(args):
     log(f"Final text ({len(text)} chars): {text}")
 
     # Save to last-transcription file
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
     TRANSCRIPTION_FILE.write_text(text)
-
-    # Cleanup buffer file
-    if BUFFER_FILE.exists():
-        BUFFER_FILE.unlink()
 
     # Output
     if args.auto_paste:
@@ -1003,7 +1105,7 @@ def run_standard_streaming(args, stop):
         rec_thread.start()
 
         # Wait for completion, a due stop, or the timeout (main thread handles signals)
-        timeout = args.timeout or 30
+        timeout = args.timeout
         give_up_at = time.monotonic() + timeout
         while (not recording_done.is_set() and not stop.due()
                and time.monotonic() < give_up_at):
@@ -1468,8 +1570,10 @@ def main():
                         help="Wrap text with speech-to-text:\"...\"")
     parser.add_argument("-l", "--language", type=str, default=None,
                         help="Language code for transcription (e.g., 'en')")
-    parser.add_argument("--timeout", type=int, default=120,
-                        help="Maximum recording time in seconds (default: 120 for streaming)")
+    parser.add_argument("--timeout", type=int, default=STREAMING_MAX_SECONDS,
+                        help="Maximum recording time in seconds, for every streaming mode "
+                             "except continuous dictation, whose limits are in Settings "
+                             f"(default: {STREAMING_MAX_SECONDS})")
     parser.add_argument("--no-notify", action="store_true",
                         help="Suppress desktop notifications")
     parser.add_argument("--pre-buffer", action="store_true",

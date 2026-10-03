@@ -13,7 +13,10 @@
 #      Silero VAD faster-whisper ships and whether it loads; the CUDA device count;
 #   2. real-time factor of the streaming model per 20 s segment (the model `auto` or the
 #      Whisper Model setting picks), and a whole-file reference transcript;
-#   3. article mode: the recording fed in real time to RealtimeSTT with wsi-article's
+#   3. how the checkout's continuous-dictation segmenter and its Silero VAD adapter cut
+#      that speech: segments, their lengths, and how often a hard cut (no pause by
+#      28 s) lands inside speech;
+#   4. article mode: the recording fed in real time to RealtimeSTT with wsi-article's
 #      settings, phrase by phrase as wsi-article reads it, and the words it lost against
 #      a reference transcript from the same model.
 # The recording is dictated speech: it stays in untracked/ and is never committed.
@@ -83,6 +86,8 @@ printf -- '- recording: %s\n\n' "${audio}" >>"${REPORT}"
 plan_gather_leg "versions" python3 "${PLAN_SCRIPT_DIR}/probe-versions.py" "${REPORT}"
 plan_gather_leg "real-time factor per 20 s segment" \
   python3 "${PLAN_SCRIPT_DIR}/probe-rtf.py" "${REPORT}" "${audio}"
+plan_gather_leg "hard-cut frequency at 20 s soft / 28 s hard max" \
+  python3 "${PLAN_SCRIPT_DIR}/probe-segments.py" "${REPORT}" "${audio}" "${PLAN_REPO_ROOT}"
 plan_gather_leg "article mode word loss at phrase boundaries" \
   python3 "${PLAN_SCRIPT_DIR}/probe-article.py" "${REPORT}" "${audio}"
 plan_finish

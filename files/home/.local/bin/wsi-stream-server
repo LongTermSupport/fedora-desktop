@@ -2,28 +2,47 @@
 """
 WSI-Stream Server - Persistent Speech-to-Text Server
 =====================================================
-Keeps Whisper model hot in memory for instant recording startup.
+Keeps the Whisper model hot in memory for instant recording startup, and runs each
+dictation as a loop and a buffer, so a dictation has no length limit of its own.
 
-Server listens on Unix socket for START/STOP commands from client.
-Auto-shuts down after idle timeout (default: 20 minutes; 0 = never). wsi-stream
-passes the extension's server-idle-timeout-minutes setting when it starts the server.
+    pw-record (16 kHz mono s16) -> capture thread -> Silero VAD -> Segmenter
+        -> segment queue -> ONE transcription worker (the selected model)
+        -> ordered commit -> text in memory + append-only journal
 
-Memory cost: ~200MB (base) to ~600MB (small model)
-Speed improvement: 3-6 seconds → <0.3 seconds for subsequent recordings
+The segmenter cuts at natural pauses and keeps every segment within one Whisper window
+(28 s at most), so the worker transcribes each segment once, in order, while the user is
+still speaking; at STOP only the last segment or two remain. Any failure (a segment that
+raises, the microphone dying, a backlog past its ceiling, a drain past its deadline, a
+journal write) marks the session FAILED: the microphone is closed, the audio not yet
+transcribed is kept as WAV and the text so far is reported. Nothing is dropped silently.
+
+Commands, one JSON line each way over a Unix socket:
+    START {max_seconds, silence_seconds, continuous}   KEEPALIVE   PROGRESS
+    STOP (closes the microphone, drains; PROGRESS then reports the text)   ABORT   PING
+A recording stops itself when the client's KEEPALIVEs stop (15 s), after
+silence_seconds without speech (0 = never), and at max_seconds. The client reads those
+limits from the extension's settings.
+
+Auto-shuts down after idle timeout (default: 20 minutes; 0 = never). wsi-stream passes
+the extension's server-idle-timeout-minutes setting when it starts the server.
 """
 
-import os
-import sys
-import json
-import socket
-import subprocess
-import threading
-import time
-import signal
 import array
 import fcntl
-from pathlib import Path
+import functools
+import json
+import os
+import queue
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import threading
+import time
+import wave
 from datetime import datetime
+from pathlib import Path
 
 # Suppress HuggingFace Hub rate-limit warnings - model downloads are deliberate
 os.environ.setdefault("HF_TOKEN", "")
@@ -35,34 +54,40 @@ SOCKET_PATH = Path(f"/run/user/{os.getuid()}/wsi-stream.socket")
 LOG_DIR = Path.home() / ".local/share/speech-to-text"
 LOG_FILE = LOG_DIR / "server.log"
 PID_FILE = Path(f"/run/user/{os.getuid()}/wsi-stream-server.pid")
+# Journal and kept audio: per-user tmpfs, cleared at logout. Dictated text is not kept
+# across logins, so never ~/.cache.
+DICTATION_DIR = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}") / "wsi-dictation"
+CAPTURE_CMD = ["pw-record", "--rate", "16000", "--channels", "1", "--format", "s16", "-"]
 
 # Configuration
 DEFAULT_IDLE_TIMEOUT = 1200  # 20 minutes; 0 means never shut down
 SOCKET_TIMEOUT = 0.5  # Check for shutdown every 0.5s
+REQUEST_LIMIT_BYTES = 65536
+
+# Audio: Silero VAD judges 512-sample frames (32 ms at 16 kHz)
+SAMPLE_RATE = 16000
+FRAME_SAMPLES = 512
+FRAME_BYTES = FRAME_SAMPLES * 2
+VAD_BATCH_FRAMES = 8  # frames judged per VAD call (256 ms)
+
+# Session safety stops and failure limits (Plan 00148 research sections 3.3, 3.4)
+HEARTBEAT_SECONDS = 15
+BACKLOG_CEILING_SECONDS = 120
+DRAIN_BASE_SECONDS = 10
+DRAIN_RTF_FACTOR = 3
+PROMPT_CHARS = 200
+MIN_SEGMENT_SECONDS = 1.0  # shorter segments are padded with silence, as wsi pads
 
 # Global state
-recorder = None
 debug_mode = False
 shutdown_requested = False
 last_activity_time = time.time()
 idle_timeout = DEFAULT_IDLE_TIMEOUT
-recording_active = False
 server_start_time = None
 pid_lock_fd = None  # open PID file whose flock marks this process as the running server
-
-# Recording pipeline state (managed by START/STOP commands)
-audio_process = None          # pw-record subprocess capturing microphone audio
-audio_feed_thread = None      # Thread that reads audio chunks and feeds to recorder
-audio_feed_stop = None        # threading.Event to signal the feeding thread to stop
-transcription_text = ""       # Accumulated transcription from realtime callbacks
-transcription_lock = threading.Lock()  # Protects transcription_text and realtime_updates
-realtime_updates = 0          # Realtime passes reported, empty ones included
-# At stop, wait (bounded) for this many realtime passes over the last audio fed
-FINAL_REALTIME_PASSES = 2
-FINAL_REALTIME_WAIT_SECONDS = 1.5
-active_client_addr = None     # Address of client that started current recording (for disconnect detection)
-watchdog_timer = None         # Timer that enforces maximum recording duration (Layer 3 protection)
-WATCHDOG_TIMEOUT = 125        # Maximum recording duration (5 seconds buffer beyond client timeout)
+transcriber = None  # WhisperTranscriber, loaded once
+make_vad = None     # returns a fresh frame VAD for a session
+session = None      # the current or last DictationSession
 
 
 def log(message, level="INFO"):
@@ -77,8 +102,8 @@ def log(message, level="INFO"):
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         with open(LOG_FILE, "a") as f:
             f.write(log_line + "\n")
-    except Exception:
-        pass
+    except OSError as e:
+        print(f"wsi-stream-server: cannot write {LOG_FILE}: {e}: {log_line}", file=sys.stderr)
 
 
 def update_activity():
@@ -87,415 +112,780 @@ def update_activity():
     last_activity_time = time.time()
 
 
+def is_busy():
+    """True while a dictation is recording or still being transcribed."""
+    return session is not None and session.busy()
+
+
 def check_idle_timeout():
     """Check if server has been idle too long. A timeout of 0 keeps it running."""
-    if recording_active or idle_timeout == 0:
+    if is_busy() or idle_timeout == 0:
         return False
 
     idle_time = time.time() - last_activity_time
     return idle_time >= idle_timeout
 
 
-def on_realtime_transcription_update(text):
-    """Callback for real-time transcription updates from the recorder.
+# ---------------------------------------------------------------------------
+# Segmenting: pure, testable on synthetic frames
+# ---------------------------------------------------------------------------
 
-    Called by RealtimeSTT's realtime transcription worker whenever new partial
-    transcription text is available. Accumulates text in a thread-safe manner
-    so handle_stop_command() can retrieve the final result.
+def frames_for(seconds):
+    return max(1, round(seconds * SAMPLE_RATE / FRAME_SAMPLES))
+
+
+class Segment:
+    """One stretch of speech for one transcription: audio, its place, why it was cut."""
+
+    def __init__(self, seq, start_frame, samples, cut, speech_frames):
+        self.seq = seq
+        self.start_frame = start_frame
+        self.samples = samples
+        self.cut = cut
+        self.speech_frames = speech_frames
+
+    @property
+    def duration(self):
+        return len(self.samples) / SAMPLE_RATE
+
+    @property
+    def start_seconds(self):
+        return self.start_frame * FRAME_SAMPLES / SAMPLE_RATE
+
+    @property
+    def end_seconds(self):
+        return self.start_seconds + self.duration
+
+
+class Segmenter:
+    """Cuts a stream of 512-sample frames into segments, from each frame's speech probability.
+
+    - A segment closes after END_PAUSE_SECONDS without speech once it holds
+      MIN_SPEECH_SECONDS of speech; with less speech, after SHORT_END_PAUSE_SECONDS.
+    - Past SOFT_MAX_SECONDS it closes at the next pause of SOFT_PAUSE_SECONDS.
+    - At HARD_MAX_SECONDS with no pause it is cut at the quietest frame of the last
+      HARD_CUT_WINDOW_SECONDS; the rest starts the next segment, so no audio is lost.
+    - Until a segment holds speech only PRE_ROLL_SECONDS of what came before is kept:
+      pure silence is never queued.
     """
-    global transcription_text, realtime_updates
 
-    with transcription_lock:
-        realtime_updates += 1
+    SPEECH_THRESHOLD = 0.5
+    MIN_SPEECH_SECONDS = 1.0
+    END_PAUSE_SECONDS = 0.7
+    SHORT_END_PAUSE_SECONDS = 2.0
+    SOFT_MAX_SECONDS = 20.0
+    SOFT_PAUSE_SECONDS = 0.25
+    HARD_MAX_SECONDS = 28.0
+    HARD_CUT_WINDOW_SECONDS = 2.0
+    PRE_ROLL_SECONDS = 0.5
 
-    if not text:
-        return
+    def __init__(self):
+        self._frames = []
+        self._speech = []
+        self._energy = []
+        self._start = 0  # stream frame index of self._frames[0]
+        self._seq = 0
+        self._speech_frames = 0
+        self._trailing_silence = 0
+        self.last_frame_was_speech = False
+        self.cut_counts = {"pause": 0, "soft": 0, "hard": 0, "stop": 0}
+        self._min_speech = frames_for(self.MIN_SPEECH_SECONDS)
+        self._end_pause = frames_for(self.END_PAUSE_SECONDS)
+        self._short_end_pause = frames_for(self.SHORT_END_PAUSE_SECONDS)
+        self._soft_max = frames_for(self.SOFT_MAX_SECONDS)
+        self._soft_pause = frames_for(self.SOFT_PAUSE_SECONDS)
+        self._hard_max = frames_for(self.HARD_MAX_SECONDS)
+        self._hard_window = frames_for(self.HARD_CUT_WINDOW_SECONDS)
+        self._pre_roll = frames_for(self.PRE_ROLL_SECONDS)
 
-    text = text.strip()
-    if not text:
-        return
-
-    with transcription_lock:
-        transcription_text = text
-
-    log(f"Realtime transcription update: '{text}'")
-
-
-def initialize_recorder(model_size="base", language="en", device_type="auto"):
-    """Initialize the AudioToTextRecorder - expensive operation done once."""
-    global recorder
-
-    try:
-        from RealtimeSTT import AudioToTextRecorder
-
-        log(f"Initializing recorder (model={model_size}, language={language}, device={device_type})")
-
-        recorder_config = {
-            "model": model_size,
-            "language": language,
-            "use_microphone": False,  # We'll feed audio manually
-            "silero_sensitivity": 0.4,
-            "enable_realtime_transcription": True,
-            "realtime_processing_pause": 0.2,
-            "on_realtime_transcription_update": on_realtime_transcription_update,
-            "spinner": False,
-        }
-
-        # Device selection
-        if device_type == "auto" or device_type == "gpu":
-            recorder_config["device"] = "cuda"
-            recorder_config["compute_type"] = "float16"
-            log("Requesting GPU (CUDA)")
+    def push(self, frame, speech_prob):
+        """Add one frame; returns the segments it closed (none or one)."""
+        speech = speech_prob >= self.SPEECH_THRESHOLD
+        self.last_frame_was_speech = speech
+        self._frames.append(frame)
+        self._speech.append(speech)
+        self._energy.append(sum(s * s for s in frame))
+        if speech:
+            self._speech_frames += 1
+            self._trailing_silence = 0
         else:
-            recorder_config["device"] = "cpu"
-            recorder_config["compute_type"] = "int8"
-            log("Using CPU")
+            self._trailing_silence += 1
 
-        recorder = AudioToTextRecorder(**recorder_config)
-        log("Recorder initialized successfully - ready for instant recording")
+        if self._speech_frames == 0:
+            excess = len(self._frames) - self._pre_roll
+            if excess > 0:
+                self._drop(excess)
+            return []
+
+        n = len(self._frames)
+        if self._trailing_silence >= self._end_pause and self._speech_frames >= self._min_speech:
+            return [self._cut(n, "pause")]
+        if self._trailing_silence >= self._short_end_pause:
+            return [self._cut(n, "pause")]
+        if n >= self._soft_max and self._trailing_silence >= self._soft_pause:
+            return [self._cut(n, "soft")]
+        if n >= self._hard_max:
+            quietest = min(range(n - self._hard_window, n), key=lambda i: self._energy[i])
+            return [self._cut(quietest, "hard")]
+        return []
+
+    def finish(self):
+        """At stop: the open segment, however short, if it holds any speech."""
+        if self._speech_frames == 0:
+            self._drop(len(self._frames))
+            return []
+        return [self._cut(len(self._frames), "stop")]
+
+    def _drop(self, count):
+        del self._frames[:count], self._speech[:count], self._energy[:count]
+        self._start += count
+
+    def _cut(self, at, kind):
+        samples = array.array("h")
+        for f in self._frames[:at]:
+            samples.extend(f)
+        segment = Segment(self._seq, self._start, samples, kind, sum(self._speech[:at]))
+        self._seq += 1
+        self.cut_counts[kind] += 1
+        self._drop(at)
+        self._speech_frames = sum(self._speech)
+        self._trailing_silence = 0
+        for was_speech in reversed(self._speech):
+            if was_speech:
+                break
+            self._trailing_silence += 1
+        return segment
+
+
+class Transcript:
+    """Segment texts committed strictly in sequence order, whatever order they arrive in."""
+
+    def __init__(self):
+        self._parts = []
+        self._held = {}
+        self._next = 0
+
+    def commit(self, seq, text):
+        """Store seq's text; returns the (seq, text) pairs that became contiguous."""
+        if seq < self._next or seq in self._held:
+            raise ValueError(f"segment {seq} committed twice")
+        self._held[seq] = text.strip()
+        newly = []
+        while self._next in self._held:
+            part = self._held.pop(self._next)
+            self._parts.append(part)
+            newly.append((self._next, part))
+            self._next += 1
+        return newly
+
+    @property
+    def committed_count(self):
+        return self._next
+
+    @property
+    def held(self):
+        return sorted(self._held)
+
+    @property
+    def text(self):
+        return " ".join(p for p in self._parts if p)
+
+    def prompt(self, chars):
+        return self.text[-chars:]
+
+
+class Journal:
+    """Append-only JSONL, one line per segment, so a crash leaves the text recoverable."""
+
+    def __init__(self, path):
+        self.path = path
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        self._file = os.fdopen(fd, "a", encoding="utf-8")
+
+    def record(self, **entry):
+        self._file.write(json.dumps(entry) + "\n")
+        self._file.flush()
+
+    def close(self):
+        """Close it; a failure is logged, as the session is ending either way."""
+        try:
+            self._file.close()
+        except OSError as e:
+            log(f"Closing the journal {self.path} failed: {e}", "ERROR")
+
+
+def write_wav(path, samples):
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(SAMPLE_RATE)
+        w.writeframes(samples.tobytes())
+
+
+def padded(samples):
+    """At least MIN_SEGMENT_SECONDS of audio: Whisper does badly on very short clips."""
+    short = int(SAMPLE_RATE * MIN_SEGMENT_SECONDS) - len(samples)
+    if short <= 0:
+        return samples
+    out = array.array("h", samples)
+    out.extend([0] * short)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# The dictation session
+# ---------------------------------------------------------------------------
+
+class DictationSession:
+    """One dictation: microphone -> segments -> ordered text, and how it ends.
+
+    States: recording -> draining -> done; any of them -> failed; recording -> aborted.
+    Threads: capture (reads the microphone, runs the VAD and the segmenter, never waits
+    on transcription), worker (transcribes one segment at a time, in order), supervisor
+    (heartbeat, no-speech and absolute stops, backlog ceiling, drain deadline).
+    """
+
+    ACTIVE = ("recording", "draining")
+    FINISHED = ("done", "failed", "aborted")
+
+    def __init__(self, *, transcribe, vad, runtime_dir, max_seconds, silence_seconds=0,
+                 continuous=False, capture_cmd=None, heartbeat_seconds=HEARTBEAT_SECONDS,
+                 backlog_ceiling_seconds=BACKLOG_CEILING_SECONDS,
+                 drain_base_seconds=DRAIN_BASE_SECONDS, drain_rtf_factor=DRAIN_RTF_FACTOR,
+                 tick_seconds=0.2):
+        self._transcribe = transcribe
+        self._vad = vad
+        self._runtime_dir = Path(runtime_dir)
+        self._max_seconds = max_seconds
+        self._silence_seconds = silence_seconds
+        self._continuous = continuous
+        self._capture_cmd = list(capture_cmd or CAPTURE_CMD)
+        self._heartbeat = heartbeat_seconds
+        self._backlog_ceiling = backlog_ceiling_seconds
+        self._drain_base = drain_base_seconds
+        self._drain_rtf_factor = drain_rtf_factor
+        self._tick = tick_seconds
+
+        self._lock = threading.Lock()
+        self._queue = queue.Queue()
+        self._finished = threading.Event()
+        self._segmenter = Segmenter()
+        self._transcript = Transcript()
+        self._journal = None
+        self._proc = None
+        self._capture_thread = None
+        self.session_dir = self._runtime_dir / f"session-{time.time_ns()}"
+
+        self.state = "starting"
+        self.stop_reason = None
+        self.error = None
+        self.captured_bytes = 0
+        self.empty_segments = 0
+        self.kept_audio = []
+        self.unsaved_audio = []
+        self._stopping = False
+        self._started_at = None
+        self._stopped_at = None
+        self._last_keepalive = None
+        self._last_speech = None
+        self._drain_deadline = None
+        self._pending = 0
+        self._backlog = 0.0
+        self._rtf = None
+        self._in_flight = None
+
+    # -- lifecycle ----------------------------------------------------------
+
+    def start(self):
+        """Open the microphone and start the threads. Raises if the microphone will not open."""
+        self._runtime_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(self._runtime_dir, 0o700)
+        self.session_dir.mkdir(mode=0o700)
+        try:
+            self._journal = Journal(self.session_dir / "journal.jsonl")
+            self._proc = subprocess.Popen(self._capture_cmd, stdout=subprocess.PIPE,
+                                          stderr=subprocess.DEVNULL)
+            time.sleep(0.1)
+            if self._proc.poll() is not None:
+                raise RuntimeError(f"pw-record exited at once with code {self._proc.returncode}")
+        except Exception:
+            if self._proc is not None and self._proc.poll() is None:
+                self._proc.kill()
+                self._proc.wait(timeout=2)
+            if self._journal is not None:
+                self._journal.close()
+            shutil.rmtree(self.session_dir)
+            raise
+        now = time.monotonic()
+        self._started_at = self._last_keepalive = self._last_speech = now
+        self.state = "recording"
+        log(f"Dictation started (pw-record PID {self._proc.pid}, limit {self._max_seconds} s, "
+            f"no-speech stop {self._silence_seconds or 'off'}, journal {self._journal.path})")
+        self._capture_thread = threading.Thread(target=self._capture, daemon=True)
+        self._capture_thread.start()
+        threading.Thread(target=self._work, daemon=True).start()
+        threading.Thread(target=self._supervise, daemon=True).start()
+
+    def busy(self):
+        return self.state in self.ACTIVE
+
+    def keepalive(self):
+        self._last_keepalive = time.monotonic()
+
+    def capture_returncode(self):
+        return None if self._proc is None else self._proc.poll()
+
+    def stop(self, reason):
+        """Close the microphone, keep every captured sample, and drain the queue.
+
+        Idempotent: returns None if the session was not recording (already stopping,
+        stopped, failed or aborted). The worker finishes the remaining segments; the
+        supervisor fails the session if that takes past the drain deadline.
+        """
+        with self._lock:
+            if self.state != "recording" or self._stopping:
+                return None
+            self._stopping = True
+            self.stop_reason = reason
+        log(f"Stopping dictation: {reason}")
+        self._proc.terminate()
+        self._capture_thread.join(timeout=3)
+        if self._capture_thread.is_alive():
+            log("pw-record did not close its output in 3 s - killing it", "WARN")
+            self._proc.kill()
+            self._capture_thread.join(timeout=2)
+        if self._capture_thread.is_alive():
+            self.fail("the microphone did not close (pw-record ignored SIGTERM and SIGKILL)")
+            return False
+        with self._lock:
+            if self.state != "recording":
+                return False
+            self.state = "draining"
+            self._stopped_at = time.monotonic()
+            rtf = self._rtf if self._rtf is not None else 1.0
+            budget = self._drain_base + self._drain_rtf_factor * self._backlog * rtf
+            self._drain_deadline = self._stopped_at + budget
+            self._queue.put(None)
+            log(f"Microphone closed ({self.captured_bytes} bytes); draining {self._pending} "
+                f"segment(s), {self._backlog:.1f} s of audio, within {budget:.1f} s")
         return True
 
-    except ImportError as e:
-        log(f"RealtimeSTT not installed: {e}", "ERROR")
-        return False
-    except Exception as e:
-        log(f"Recorder initialization failed: {e}", "ERROR")
-        return False
+    def abort(self):
+        """Escape: close the microphone at once and discard the text, journal included."""
+        with self._lock:
+            if self.state in self.FINISHED:
+                return
+            self.state = "aborted"
+            self._drain_queue(keep=False)
+            self._queue.put(None)
+        log("Dictation aborted - discarding it")
+        if self._proc is not None:
+            self._proc.kill()
+        if self._capture_thread is not None:
+            self._capture_thread.join(timeout=3)
+        with self._lock:
+            self._journal.close()
+            shutil.rmtree(self.session_dir)
+        self._finished.set()
+
+    def fail(self, message, failed=None):
+        """Mark the session FAILED: keep the untranscribed audio, close the microphone.
+
+        `failed` is the segment that caused it, if one did; the segment being
+        transcribed and every queued one are kept too. Never raises.
+        """
+        with self._lock:
+            if self.state in self.FINISHED:
+                return
+            self.state = "failed"
+            self.error = message
+            self._stopped_at = self._stopped_at or time.monotonic()
+            if self._in_flight is not None:
+                self._settle_locked(self._in_flight)
+                self._keep(self._in_flight, "failed" if self._in_flight is failed else "pending")
+                self._in_flight = None
+            elif failed is not None:
+                self._keep(failed, "failed")
+            self._drain_queue(keep=True)
+            self._queue.put(None)
+            self._journal.close()
+        log(f"Dictation FAILED: {message}", "ERROR")
+        if self._proc is not None and self._proc.poll() is None:
+            self._proc.terminate()
+        self._finished.set()
+
+    def discard_if_done(self):
+        """Remove a finished, successful session's journal (its text has been delivered)."""
+        if self.state == "done" and self.session_dir.exists():
+            shutil.rmtree(self.session_dir)
+
+    def wait(self, timeout):
+        return self._finished.wait(timeout)
+
+    # -- reporting ----------------------------------------------------------
+
+    def progress(self):
+        with self._lock:
+            now = time.monotonic()
+            end = self._stopped_at or now
+            report = {
+                "status": self.state,
+                "continuous": self._continuous,
+                "elapsed_seconds": round(end - self._started_at, 1) if self._started_at else 0,
+                "segments_committed": self._transcript.committed_count,
+                "segments_pending": self._pending,
+                "backlog_seconds": round(self._backlog, 1),
+                "rtf": None if self._rtf is None else round(self._rtf, 3),
+                "hard_cuts": self._segmenter.cut_counts["hard"],
+                "empty_segments": self.empty_segments,
+                "kept_audio": list(self.kept_audio),
+                "unsaved_audio": list(self.unsaved_audio),
+                "stop_reason": self.stop_reason,
+                "error": self.error,
+                "session_dir": str(self.session_dir),
+            }
+            if self.state == "draining" and self._drain_deadline:
+                report["drain_seconds_left"] = round(max(0.0, self._drain_deadline - now), 1)
+            if self.state in ("done", "failed"):
+                report["transcription"] = self._transcript.text
+            return report
+
+    # -- threads ------------------------------------------------------------
+
+    def _capture(self):
+        pending = []
+        try:
+            while True:
+                chunk = self._proc.stdout.read(FRAME_BYTES)
+                if not chunk:
+                    break
+                self.captured_bytes += len(chunk)
+                frame = array.array("h", chunk[:len(chunk) - len(chunk) % 2])
+                if len(frame) < FRAME_SAMPLES:
+                    frame.extend([0] * (FRAME_SAMPLES - len(frame)))
+                pending.append(frame)
+                if len(pending) >= VAD_BATCH_FRAMES:
+                    self._segment(pending)
+                    pending = []
+            if pending:
+                self._segment(pending)
+            with self._lock:
+                unexpected = self.state == "recording" and not self._stopping
+            if unexpected:
+                code = self._proc.wait(timeout=2)
+                self.fail(f"the microphone (pw-record) stopped unexpectedly (exit code {code})")
+            self._enqueue(self._segmenter.finish())
+        except Exception as e:
+            self.fail(f"audio capture failed: {e}")
+            self._enqueue(self._segmenter.finish())
+
+    def _segment(self, frames):
+        probs = self._vad.probabilities(frames)
+        if len(probs) != len(frames):
+            raise RuntimeError(f"the VAD judged {len(probs)} of {len(frames)} frames")
+        closed = []
+        for frame, prob in zip(frames, probs):
+            closed += self._segmenter.push(frame, prob)
+            if self._segmenter.last_frame_was_speech:
+                self._last_speech = time.monotonic()
+        self._enqueue(closed)
+
+    def _enqueue(self, segments):
+        with self._lock:
+            for segment in segments:
+                if self.state in self.ACTIVE:
+                    self._queue.put(segment)
+                    self._pending += 1
+                    self._backlog += segment.duration
+                elif self.state == "failed":
+                    self._keep(segment, "pending")
+                if segment.cut == "hard":
+                    log(f"Segment {segment.seq} hard-cut at {segment.duration:.1f} s (no pause)", "WARN")
+
+    def _work(self):
+        while True:
+            segment = self._queue.get()
+            if segment is None:
+                with self._lock:
+                    if self.state == "draining":
+                        self.state = "done"
+                        self._journal.close()
+                        log(f"Dictation done: {self._transcript.committed_count} segment(s), "
+                            f"{len(self._transcript.text)} chars")
+                        self._finished.set()
+                return
+            with self._lock:
+                if self.state not in self.ACTIVE:
+                    continue
+                self._in_flight = segment
+                prompt = self._transcript.prompt(PROMPT_CHARS)
+            began = time.monotonic()
+            try:
+                text = self._transcribe(padded(segment.samples), prompt).strip()
+            except Exception as e:
+                self.fail(f"segment {segment.seq} ({segment.start_seconds:.0f}-"
+                          f"{segment.end_seconds:.0f} s) failed to transcribe: {e}", failed=segment)
+                continue
+            took = time.monotonic() - began
+            journal_error = None
+            with self._lock:
+                if self.state not in self.ACTIVE:
+                    continue  # fail() kept this segment's audio while it was in flight
+                self._in_flight = None
+                self._settle_locked(segment)
+                rtf = took / max(segment.duration, 0.001)
+                self._rtf = rtf if self._rtf is None else 0.5 * self._rtf + 0.5 * rtf
+                status = "ok" if text else "empty"
+                try:
+                    self._journal.record(seq=segment.seq, t_start=round(segment.start_seconds, 2),
+                                         t_end=round(segment.end_seconds, 2), status=status,
+                                         cut=segment.cut, text=text)
+                except OSError as e:
+                    journal_error = e
+                else:
+                    self._transcript.commit(segment.seq, text)
+                    if status == "empty":
+                        self.empty_segments += 1
+                        self._keep(segment, "empty")
+            if journal_error is not None:
+                self.fail(f"cannot write the journal {self._journal.path}: {journal_error}",
+                          failed=segment)
+
+    def _supervise(self):
+        while not self._finished.wait(self._tick):
+            now = time.monotonic()
+            with self._lock:
+                state = self.state
+                backlog = self._backlog
+                deadline = self._drain_deadline
+                pending = self._pending
+                rtf = self._rtf
+            if state == "recording":
+                if now - self._last_keepalive > self._heartbeat:
+                    self.stop(f"heartbeat lost: no KEEPALIVE for {self._heartbeat:g} s")
+                elif self._silence_seconds and now - self._last_speech > self._silence_seconds:
+                    self.stop(f"no speech for {self._silence_seconds:g} s")
+                elif now - self._started_at >= self._max_seconds:
+                    self.stop(f"reached the {self._max_seconds:g} s recording limit")
+                elif backlog > self._backlog_ceiling:
+                    self.fail(f"transcription cannot keep up: {backlog:.0f} s of audio waiting "
+                              f"(real-time factor {rtf or 0:.2f})")
+            elif state == "draining" and deadline is not None and now > deadline:
+                self.fail(f"transcription did not finish in time: {pending} segment(s) "
+                          "still pending")
+
+    # -- helpers (callers hold the lock where named _locked or noted) --------
+
+    def _settle_locked(self, segment):
+        self._pending -= 1
+        self._backlog -= segment.duration
+
+    def _drain_queue(self, keep):
+        """Empty the queue (lock held); keep each segment's audio if asked."""
+        while True:
+            try:
+                segment = self._queue.get_nowait()
+            except queue.Empty:
+                return
+            if segment is None:
+                continue
+            self._settle_locked(segment)
+            if keep:
+                self._keep(segment, "pending")
+
+    def _keep(self, segment, label):
+        """Save a segment's audio as WAV beside the journal (lock held)."""
+        path = self.session_dir / f"seg-{segment.seq:04d}-{label}.wav"
+        try:
+            write_wav(path, segment.samples)
+        except OSError as e:
+            self.unsaved_audio.append(f"segment {segment.seq}: {e}")
+            log(f"Cannot keep segment {segment.seq}'s audio at {path}: {e}", "ERROR")
+            return
+        self.kept_audio.append(str(path))
 
 
-def audio_feeding_thread_func(proc, stop_event):
-    """Read audio chunks from pw-record and feed them to the recorder.
+# ---------------------------------------------------------------------------
+# Models: faster-whisper's own model and Silero VAD (no RealtimeSTT)
+# ---------------------------------------------------------------------------
 
-    This function runs in a dedicated thread. It reads raw PCM audio data
-    (16000 Hz, mono, S16_LE) from the pw-record subprocess stdout pipe and
-    feeds it to the recorder via feed_audio(). The thread exits when the
-    stop_event is set or the audio stream ends.
+class WhisperTranscriber:
+    """The selected model, called once per segment: one Whisper window, no seams."""
 
-    Args:
-        proc: The pw-record subprocess with audio data on stdout.
-        stop_event: threading.Event that signals this thread to stop.
+    def __init__(self, model, language):
+        self._model = model
+        self._language = language
+
+    def __call__(self, samples, prompt):
+        import numpy as np
+        audio = np.frombuffer(samples.tobytes(), dtype=np.int16).astype(np.float32) / 32768.0
+        segments, _info = self._model.transcribe(
+            audio, language=self._language or None, beam_size=5, vad_filter=False,
+            condition_on_previous_text=False, initial_prompt=prompt or None)
+        return " ".join(s.text.strip() for s in segments).strip()
+
+
+class SileroFrameVad:
+    """Speech probability per 512-sample frame, from faster-whisper's bundled Silero VAD.
+
+    The model keeps no state between calls, so each call also re-reads the last
+    CONTEXT_FRAMES frames and only the newest probabilities are used.
     """
-    # 1024 samples * 2 bytes per sample (S16_LE) = 2048 bytes per chunk
-    chunk_size = 1024 * 2
-    chunks_fed = 0
 
-    log("Audio feeding thread started")
+    CONTEXT_FRAMES = 32
+
+    def __init__(self, model):
+        self._model = model
+        self._context = []
+
+    def probabilities(self, frames):
+        import numpy as np
+        window = self._context + list(frames)
+        audio = np.frombuffer(b"".join(f.tobytes() for f in window), dtype=np.int16)
+        audio = audio.astype(np.float32) / 32768.0
+        # faster-whisper 1.1.x's model takes (batch, samples); 1.2.x takes samples
+        if hasattr(self._model, "encoder_session"):
+            probs = self._model(audio[None, :])
+        else:
+            probs = self._model(audio)
+        probs = np.asarray(probs).reshape(-1)
+        if probs.size != len(window):
+            raise RuntimeError(f"Silero VAD returned {probs.size} probabilities for {len(window)} frames")
+        self._context = window[-self.CONTEXT_FRAMES:]
+        return [float(p) for p in probs[-len(frames):]]
+
+
+def choose_device(device_type):
+    """(device, compute_type): `auto` uses CUDA when CTranslate2 counts a GPU."""
+    if device_type == "cpu":
+        return "cpu", "int8"
+    if device_type == "gpu":
+        return "cuda", "float16"
+    import ctranslate2
+    return ("cuda", "float16") if ctranslate2.get_cuda_device_count() > 0 else ("cpu", "int8")
+
+
+def load_models(model_size="base", language="en", device_type="auto"):
+    """Load the Whisper model and the VAD - the expensive part, done once."""
+    global transcriber, make_vad
 
     try:
-        while not stop_event.is_set():
-            chunk = proc.stdout.read(chunk_size)
-            if not chunk:
-                log("Audio stream ended (pw-record closed)")
-                break
+        from faster_whisper import WhisperModel
+        from faster_whisper.vad import get_vad_model
 
-            if len(chunk) < 2:
-                continue
-
-            # Convert raw bytes to signed 16-bit integer array.
-            # RealtimeSTT's feed_audio() expects array-like int16 data.
-            try:
-                audio_array = array.array('h', chunk)
-                recorder.feed_audio(audio_array)
-                chunks_fed += 1
-
-                if chunks_fed % 50 == 0:
-                    log(f"Fed {chunks_fed} audio chunks ({chunks_fed * chunk_size / 16000:.1f}s of audio)")
-            except Exception as e:
-                log(f"Error feeding audio chunk {chunks_fed}: {e}", "ERROR")
-                break
+        device, compute_type = choose_device(device_type)
+        log(f"Loading model={model_size}, language={language}, device={device} ({compute_type})")
+        model = WhisperModel(model_size, device=device, compute_type=compute_type)
+        vad_model = get_vad_model()
     except Exception as e:
-        log(f"Audio feeding thread error: {e}", "ERROR")
-    finally:
-        log(f"Audio feeding thread exiting (fed {chunks_fed} chunks total)")
+        log(f"Model load failed: {e}", "ERROR")
+        return False
+
+    transcriber = WhisperTranscriber(model, language)
+    make_vad = functools.partial(SileroFrameVad, vad_model)
+    log("Models loaded - ready for instant recording")
+    return True
 
 
-def watchdog_timeout_handler():
-    """LAYER 3 PROTECTION: Watchdog timer callback - force stop if recording runs too long.
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
 
-    This is the last line of defense against microphone resource leaks.
-    If the client crashes, disconnects, or fails to send STOP within the timeout,
-    this timer will forcibly stop the recording pipeline.
-    """
-    global recording_active, active_client_addr, watchdog_timer
-
-    log("LAYER 3 PROTECTION: Watchdog timeout triggered", "WARN")
-    log(f"Recording exceeded {WATCHDOG_TIMEOUT}s without STOP - forcing cleanup")
-
-    if recording_active:
-        try:
-            stop_recording_pipeline()
-            recording_active = False
-            active_client_addr = None
-            log("Watchdog: Recording pipeline stopped successfully")
-        except Exception as e:
-            log(f"Watchdog: Error during forced stop: {e}", "ERROR")
-    else:
-        log("Watchdog: Recording already stopped (false alarm)")
-
-    watchdog_timer = None
-
-
-def stop_recording_pipeline():
-    """Stop the active recording pipeline and clean up all resources.
-
-    In this order: terminates pw-record, lets the feeding thread drain the pipe
-    to EOF (signalling it to stop only if it has not got there in 3 s), waits
-    (bounded) for two realtime passes over that last audio, then calls
-    recorder.stop() and returns the accumulated transcription text.
-
-    Returns:
-        The transcribed text string, or empty string if nothing was captured.
-    """
-    global audio_process, audio_feed_thread, audio_feed_stop, transcription_text
-
-    # Step 1: Terminate pw-record. The feeding thread keeps reading until EOF, so the
-    # audio already in the pipe (up to ~2 s) is fed rather than dropped - signalling
-    # the thread to stop first threw away the last words.
-    if audio_process:
-        try:
-            audio_process.terminate()
-            audio_process.wait(timeout=2)
-            log(f"pw-record terminated (exit code: {audio_process.returncode})")
-        except subprocess.TimeoutExpired:
-            log("pw-record did not terminate in time, killing", "WARN")
-            audio_process.kill()
-            audio_process.wait(timeout=1)
-            log("pw-record killed")
-        except Exception as e:
-            log(f"Error terminating pw-record: {e}", "WARN")
-            try:
-                audio_process.kill()
-            except Exception:
-                pass
-
-    # Step 2: Wait for the feeding thread to drain the pipe and reach EOF
-    if audio_feed_thread and audio_feed_thread.is_alive():
-        audio_feed_thread.join(timeout=3)
-        if audio_feed_thread.is_alive():
-            log("Audio feeding thread did not reach EOF in time - stopping it", "WARN")
-            if audio_feed_stop:
-                audio_feed_stop.set()
-            audio_feed_thread.join(timeout=1)
-        else:
-            log("Audio feeding thread joined successfully")
-
-    # Step 3: Let the realtime worker transcribe the audio fed last. RealtimeSTT only
-    # publishes realtime text while recording, so recorder.stop() freezes whatever the
-    # last pass produced; polling for updates after stop() could never see one. Wait
-    # (bounded) for passes that began after the final chunk: the first reported pass may
-    # already have been in flight, the second cannot have been.
-    with transcription_lock:
-        passes_at_eof = realtime_updates
-    passes = 0
-    deadline = time.monotonic() + FINAL_REALTIME_WAIT_SECONDS
-    while time.monotonic() < deadline:
-        with transcription_lock:
-            passes = realtime_updates - passes_at_eof
-        if passes >= FINAL_REALTIME_PASSES:
-            break
-        time.sleep(0.05)
-    log(f"Final realtime passes after EOF: {passes} of {FINAL_REALTIME_PASSES}")
-
-    # Step 4: Stop the recorder. With use_microphone=False, do NOT call
-    # recorder.text() as it blocks indefinitely. The realtime callback has
-    # already captured the text.
-    if recorder:
-        try:
-            recorder.stop()
-            log("Recorder stopped")
-        except Exception as e:
-            log(f"Error stopping recorder: {e}", "WARN")
-
-    # Step 5: Retrieve accumulated transcription text
-    with transcription_lock:
-        result = transcription_text
-
-    # Step 6: Reset pipeline state for next recording cycle
-    audio_process = None
-    audio_feed_thread = None
-    audio_feed_stop = None
-    with transcription_lock:
-        transcription_text = ""
-
-    return result
+def start_limits(params):
+    """The session limits START carries. Raises ValueError naming what is wrong."""
+    max_seconds = params.get("max_seconds")
+    if isinstance(max_seconds, bool) or not isinstance(max_seconds, int) or max_seconds <= 0:
+        raise ValueError("START needs max_seconds, a whole number of seconds above 0 "
+                         f"(got {max_seconds!r})")
+    silence_seconds = params.get("silence_seconds", 0)
+    if isinstance(silence_seconds, bool) or not isinstance(silence_seconds, int) or silence_seconds < 0:
+        raise ValueError("silence_seconds must be a whole number of seconds, 0 for off "
+                         f"(got {silence_seconds!r})")
+    continuous = params.get("continuous", False)
+    if not isinstance(continuous, bool):
+        raise ValueError(f"continuous must be true or false (got {continuous!r})")
+    return {"max_seconds": max_seconds, "silence_seconds": silence_seconds,
+            "continuous": continuous}
 
 
 def handle_start_command(client_socket, params):
-    """Handle START recording command from client.
-
-    Spawns a pw-record process to capture microphone audio, starts the
-    recorder's realtime transcription, and launches a feeding thread that
-    reads audio chunks from pw-record and feeds them to the recorder.
-
-    The audio pipeline:
-      microphone -> pw-record (16kHz mono S16_LE) -> feeding thread -> recorder.feed_audio() -> realtime callback -> transcription_text
-    """
-    global recording_active, active_client_addr
-    global audio_process, audio_feed_thread, audio_feed_stop, transcription_text
+    """START: open the microphone and begin a dictation session."""
+    global session
 
     update_activity()
-
-    if recording_active:
-        send_response(client_socket, {
-            "status": "error",
-            "message": "Recording already active"
-        })
+    if is_busy():
+        send_response(client_socket, {"status": "error", "message": "Recording already active"})
+        return
+    if transcriber is None:
+        send_response(client_socket, {"status": "error", "message": "Model not loaded"})
+        return
+    try:
+        limits = start_limits(params)
+    except ValueError as e:
+        send_response(client_socket, {"status": "error", "message": str(e)})
         return
 
-    if not recorder:
-        send_response(client_socket, {
-            "status": "error",
-            "message": "Recorder not initialized"
-        })
-        return
-
-    log("START command received - beginning recording")
-
-    # Track the client that started this recording (for disconnect detection)
+    if session is not None:
+        session.discard_if_done()
+    new_session = DictationSession(transcribe=transcriber, vad=make_vad(),
+                                   runtime_dir=DICTATION_DIR, capture_cmd=CAPTURE_CMD, **limits)
     try:
-        active_client_addr = client_socket.getpeername()
-        log(f"Tracking client: {active_client_addr}")
-    except Exception:
-        active_client_addr = "unknown"
-
-    # Reset transcription accumulator for this new recording session
-    with transcription_lock:
-        transcription_text = ""
-
-    # Start pw-record to capture microphone audio as raw PCM data.
-    # Format: 16000 Hz sample rate, 1 channel (mono), signed 16-bit little-endian.
-    # This matches the format RealtimeSTT expects for feed_audio().
-    pw_record_cmd = [
-        "pw-record",
-        "--rate", "16000",
-        "--channels", "1",
-        "--format", "s16",
-        "-"  # Output raw PCM to stdout
-    ]
-
-    try:
-        audio_process = subprocess.Popen(
-            pw_record_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL
-        )
-        log(f"pw-record started (PID {audio_process.pid})")
+        new_session.start()
     except FileNotFoundError:
         log("pw-record not found - PipeWire not installed", "ERROR")
-        send_response(client_socket, {
-            "status": "error",
-            "message": "pw-record not found (PipeWire required)"
-        })
+        send_response(client_socket, {"status": "error",
+                                      "message": "pw-record not found (PipeWire required)"})
         return
     except Exception as e:
-        log(f"Failed to start pw-record: {e}", "ERROR")
-        send_response(client_socket, {
-            "status": "error",
-            "message": f"Audio capture failed: {e}"
-        })
+        log(f"Audio capture failed: {e}", "ERROR")
+        send_response(client_socket, {"status": "error", "message": f"Audio capture failed: {e}"})
         return
+    session = new_session
+    send_response(client_socket, {"status": "recording", "message": "Recording started",
+                                  "session_dir": str(session.session_dir)})
 
-    # Verify pw-record is actually running (check for immediate exit due to
-    # audio device busy, permission errors, etc.)
-    time.sleep(0.1)
-    if audio_process.poll() is not None:
-        exit_code = audio_process.returncode
-        log(f"pw-record exited immediately with code {exit_code}", "ERROR")
-        audio_process = None
-        send_response(client_socket, {
-            "status": "error",
-            "message": f"Audio capture failed (pw-record exit code: {exit_code})"
-        })
-        return
 
-    # Start the recorder's realtime transcription processing.
-    # This sets is_recording=True internally so feed_audio() data gets processed.
-    try:
-        recorder.start()
-        log("Recorder started (realtime transcription active)")
-    except Exception as e:
-        log(f"Failed to start recorder: {e}", "ERROR")
-        # Clean up pw-record since we can't proceed
-        try:
-            audio_process.terminate()
-            audio_process.wait(timeout=2)
-        except Exception:
-            try:
-                audio_process.kill()
-            except Exception:
-                pass
-        audio_process = None
-        send_response(client_socket, {
-            "status": "error",
-            "message": f"Recorder start failed: {e}"
-        })
-        return
-
-    # Launch the audio feeding thread to continuously read from pw-record
-    # and push chunks into the recorder
-    audio_feed_stop = threading.Event()
-    audio_feed_thread = threading.Thread(
-        target=audio_feeding_thread_func,
-        args=(audio_process, audio_feed_stop),
-        daemon=True
-    )
-    audio_feed_thread.start()
-    log("Audio feeding thread launched")
-
-    recording_active = True
-
-    # LAYER 3 PROTECTION: Start watchdog timer
-    # If client crashes or fails to send STOP, this will force cleanup
-    global watchdog_timer
-    watchdog_timer = threading.Timer(WATCHDOG_TIMEOUT, watchdog_timeout_handler)
-    watchdog_timer.daemon = True
-    watchdog_timer.start()
-    log(f"Watchdog timer started ({WATCHDOG_TIMEOUT}s timeout)")
-
-    send_response(client_socket, {
-        "status": "recording",
-        "message": "Recording started"
-    })
+def no_session(client_socket):
+    send_response(client_socket, {"status": "error", "message": "No active recording"})
 
 
 def handle_stop_command(client_socket, params):
-    """Handle STOP recording command from client.
-
-    Stops the pw-record audio capture, waits for the feeding thread to finish,
-    finalizes transcription via recorder.stop(), and returns the accumulated
-    transcription text to the client.
-    """
-    global recording_active, active_client_addr, watchdog_timer
-
+    """STOP: close the microphone and drain; the reply is the session's progress."""
     update_activity()
-
-    if not recording_active:
-        send_response(client_socket, {
-            "status": "error",
-            "message": "No active recording"
-        })
+    if session is None:
+        no_session(client_socket)
         return
+    session.stop("stop requested")
+    send_response(client_socket, session.progress())
 
-    log("STOP command received - stopping recording")
 
-    # Cancel watchdog timer since we're stopping gracefully
-    if watchdog_timer:
-        watchdog_timer.cancel()
-        watchdog_timer = None
-        log("Watchdog timer cancelled (graceful stop)")
+def handle_keepalive_command(client_socket, params):
+    """KEEPALIVE: the client is still there; without one for 15 s the recording stops."""
+    update_activity()
+    if session is None:
+        no_session(client_socket)
+        return
+    session.keepalive()
+    send_response(client_socket, {"status": session.state})
 
-    # Stop the entire recording pipeline and get the transcribed text
-    text = stop_recording_pipeline()
 
-    recording_active = False
-    active_client_addr = None
+def handle_progress_command(client_socket, params):
+    """PROGRESS: the session's state; with the text once it is done or failed."""
+    update_activity()
+    if session is None:
+        no_session(client_socket)
+        return
+    send_response(client_socket, session.progress())
 
-    log(f"Recording stopped, transcription: '{text}' ({len(text)} chars)")
 
-    send_response(client_socket, {
-        "status": "stopped",
-        "transcription": text
-    })
+def handle_abort_command(client_socket, params):
+    """ABORT (Escape): close the microphone and discard the dictation."""
+    update_activity()
+    if session is None:
+        no_session(client_socket)
+        return
+    session.abort()
+    send_response(client_socket, {"status": session.state})
 
 
 def handle_ping_command(client_socket, params):
@@ -504,7 +894,7 @@ def handle_ping_command(client_socket, params):
 
     send_response(client_socket, {
         "status": "alive",
-        "recording": recording_active,
+        "recording": is_busy(),
         "uptime_seconds": time.time() - server_start_time,
         "idle_seconds": time.time() - last_activity_time
     })
@@ -522,86 +912,72 @@ def handle_shutdown_command(client_socket, params):
     })
 
 
+COMMANDS = {
+    "START": handle_start_command,
+    "STOP": handle_stop_command,
+    "KEEPALIVE": handle_keepalive_command,
+    "PROGRESS": handle_progress_command,
+    "ABORT": handle_abort_command,
+    "PING": handle_ping_command,
+    "SHUTDOWN": handle_shutdown_command,
+}
+
+
 def send_response(client_socket, data):
-    """Send JSON response to client."""
+    """Send one JSON line to the client."""
     try:
-        message = json.dumps(data) + "\n"
-        client_socket.sendall(message.encode())
-    except Exception as e:
+        client_socket.sendall((json.dumps(data) + "\n").encode())
+    except OSError as e:
         log(f"Failed to send response: {e}", "ERROR")
 
 
+def read_request(client_socket):
+    """One request line (up to REQUEST_LIMIT_BYTES), or '' if the client sent nothing."""
+    data = b""
+    while b"\n" not in data and len(data) < REQUEST_LIMIT_BYTES:
+        chunk = client_socket.recv(4096)
+        if not chunk:
+            break
+        data += chunk
+    return data.decode().strip()
+
+
 def handle_client(client_socket):
-    """Handle a client connection."""
-    global recording_active, active_client_addr
-
-    client_addr = None
+    """Handle a client connection: one command, one reply."""
     try:
-        client_addr = client_socket.getpeername()
-    except Exception:
-        client_addr = "unknown"
-
-    try:
-        # Read command from client
-        data = client_socket.recv(4096).decode().strip()
+        data = read_request(client_socket)
         if not data:
-            log(f"Client {client_addr} disconnected (empty data)")
-            # Check if this is the active recording client
-            if recording_active and client_addr == active_client_addr:
-                log("LAYER 2 PROTECTION: Active recording client disconnected without STOP", "WARN")
-                log("Automatically stopping recording pipeline to release microphone")
-                stop_recording_pipeline()
-                recording_active = False
-                active_client_addr = None
+            log("A client connected and sent nothing")
             return
 
         try:
             command = json.loads(data)
         except json.JSONDecodeError as e:
-            send_response(client_socket, {
-                "status": "error",
-                "message": f"Invalid JSON: {e}"
-            })
+            send_response(client_socket, {"status": "error", "message": f"Invalid JSON: {e}"})
             return
 
         cmd_type = command.get("command")
-        params = command.get("params", {})
+        params = command.get("params") or {}
+        if cmd_type not in ("PING", "PROGRESS", "KEEPALIVE"):
+            log(f"Received command: {cmd_type}")
 
-        log(f"Received command: {cmd_type} from {client_addr}")
-
-        # Dispatch to handler
-        if cmd_type == "START":
-            handle_start_command(client_socket, params)
-        elif cmd_type == "STOP":
-            handle_stop_command(client_socket, params)
-        elif cmd_type == "PING":
-            handle_ping_command(client_socket, params)
-        elif cmd_type == "SHUTDOWN":
-            handle_shutdown_command(client_socket, params)
-        else:
-            send_response(client_socket, {
-                "status": "error",
-                "message": f"Unknown command: {cmd_type}"
-            })
+        handler = COMMANDS.get(cmd_type)
+        if handler is None:
+            send_response(client_socket, {"status": "error",
+                                          "message": f"Unknown command: {cmd_type}"})
+            return
+        handler(client_socket, params)
 
     except (ConnectionResetError, BrokenPipeError) as e:
-        log(f"Client {client_addr} connection lost: {e}", "WARN")
-        # LAYER 2 PROTECTION: Client crashed or was killed
-        if recording_active and client_addr == active_client_addr:
-            log("LAYER 2 PROTECTION: Active recording client lost connection", "WARN")
-            log("Automatically stopping recording pipeline to release microphone")
-            stop_recording_pipeline()
-            recording_active = False
-            active_client_addr = None
+        # A recording whose client is gone stops itself when the KEEPALIVEs stop
+        log(f"Client connection lost: {e}", "WARN")
 
     except Exception as e:
-        log(f"Error handling client {client_addr}: {e}", "ERROR")
+        log(f"Error handling client: {e}", "ERROR")
+        send_response(client_socket, {"status": "error", "message": f"Server error: {e}"})
 
     finally:
-        try:
-            client_socket.close()
-        except Exception:
-            pass
+        client_socket.close()
 
 
 def idle_monitor_thread():
@@ -621,7 +997,7 @@ cleanup_done = False
 
 def cleanup():
     """Cleanup on exit."""
-    global recorder, recording_active, cleanup_done, watchdog_timer, active_client_addr
+    global transcriber, make_vad, cleanup_done
 
     if cleanup_done:
         return
@@ -629,33 +1005,21 @@ def cleanup():
 
     log("Server shutting down - cleaning up")
 
-    # Cancel watchdog timer if running
-    if watchdog_timer:
-        watchdog_timer.cancel()
-        watchdog_timer = None
-        log("Watchdog timer cancelled (server shutdown)")
+    # A dictation in progress fails loudly: its text so far and its audio stay in the
+    # journal directory, and the microphone is released
+    if is_busy():
+        log("Active dictation during shutdown - failing it and keeping its audio", "WARN")
+        session.fail("the speech-to-text server shut down during the dictation")
 
-    # If a recording is active, stop the pipeline first
-    if recording_active:
-        log("Active recording detected during shutdown - stopping pipeline")
-        stop_recording_pipeline()
-        recording_active = False
-        active_client_addr = None
-
-    # Shutdown recorder (releases model memory and audio resources)
-    if recorder:
-        try:
-            recorder.shutdown()
-        except Exception:
-            pass
-        recorder = None
+    transcriber = None
+    make_vad = None
 
     # Remove socket
     if SOCKET_PATH.exists():
         try:
             SOCKET_PATH.unlink()
-        except Exception:
-            pass
+        except OSError as e:
+            log(f"Failed to remove the socket {SOCKET_PATH}: {e}", "WARN")
 
     # Remove PID file and drop the lock (last: the server is gone only now)
     release_pid_file()
@@ -805,22 +1169,17 @@ def main():
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
 
-    # Check if socket already exists (shouldn't happen but be safe)
-    if SOCKET_PATH.exists():
-        log(f"Removing stale socket: {SOCKET_PATH}", "WARN")
-        SOCKET_PATH.unlink()
-
-    # Initialize recorder (this is the expensive part - done once!)
-    if not initialize_recorder(args.model, args.language, args.device):
-        log("Failed to initialize recorder - exiting", "ERROR")
+    # Load the models (this is the expensive part - done once!)
+    if not load_models(args.model, args.language, args.device):
+        log("Failed to load the models - exiting", "ERROR")
         release_pid_file()
         return 1
 
-    # Remove old socket if exists
+    # Remove a socket left by a server that died
     if SOCKET_PATH.exists():
         try:
             SOCKET_PATH.unlink()
-        except Exception as e:
+        except OSError as e:
             log(f"Failed to remove old socket: {e}", "ERROR")
             cleanup()
             return 1
@@ -832,7 +1191,7 @@ def main():
         server_socket.listen(5)
         server_socket.settimeout(SOCKET_TIMEOUT)  # Non-blocking accept
         log(f"Server listening on {SOCKET_PATH}")
-    except Exception as e:
+    except OSError as e:
         log(f"Failed to create socket: {e}", "ERROR")
         cleanup()
         return 1
@@ -853,7 +1212,7 @@ def main():
             except socket.timeout:
                 # Normal timeout - check shutdown flag
                 continue
-            except Exception as e:
+            except OSError as e:
                 if not shutdown_requested:
                     log(f"Accept error: {e}", "ERROR")
 

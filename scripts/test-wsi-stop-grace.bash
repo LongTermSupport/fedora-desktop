@@ -10,8 +10,15 @@
 # pw-record / sox / soxi / faster-whisper / gdbus / gsettings on PATH, and measures when
 # the stub microphone is told to stop. It then runs tests/speech_to_text/: unit tests
 # of the wsi-stream stop state, handlers, grace reader and drain; pre-buffer mode run
-# end to end with a stub RealtimeSTT and fake pw-record; and wsi-stream-server's stop
-# order. Standard streaming and the server-mode client loop are NOT run end to end.
+# end to end with a stub RealtimeSTT and fake pw-record. Standard streaming is NOT run
+# end to end.
+#
+# Continuous dictation (Plan 00148 Phase 2): wsi-stream-server's segmenter and ordered
+# commit as pure units; its dictation session run for real with a fake pw-record, a
+# stub VAD and a stub transcriber (STOP drains the microphone to EOF and transcribes
+# the last audio; every failure and safety stop); and wsi-stream's server-mode client
+# loop against a stub server. The real Silero VAD and Whisper model are not loaded here
+# (they need the host's packages); the plan's triage.bash runs them on the host.
 #
 # It also covers what shares those scripts (Plan 00148 Tasks 7.4 and 8.x): the
 # settings reader wsi-setting, the model wsi picks for `auto` (wsi-resolve-model, with
@@ -248,6 +255,12 @@ check "stop-grace-seconds: int, default 3, range 0..30" "i 3 0 30" "$(schema_key
 check "server-idle-timeout-minutes: int, default 20, range 0..1440" "i 20 0 1440" \
     "$(schema_key server-idle-timeout-minutes)"
 check "server-start-at-login: boolean, default off" "b false" "$(schema_key server-start-at-login)"
+check "continuous-dictation: boolean, default off until verified" "b false" \
+    "$(schema_key continuous-dictation)"
+check "max-recording-minutes: int, default 60, range 1..480" "i 60 1 480" \
+    "$(schema_key max-recording-minutes)"
+check "silence-autostop-seconds: int, default 120, range 0..3600" "i 120 0 3600" \
+    "$(schema_key silence-autostop-seconds)"
 
 PLAY="$REPO_ROOT/playbooks/imports/optional/common/play-speech-to-text.yml"
 for helper in wsi-stop-grace wsi-setting wsi-resolve-model wsi-stream wsi-stream-server; do
@@ -390,7 +403,9 @@ echo "=== wsi-stream, wsi-stream-server, wsi-resolve-model: unit tests (tests/sp
 if (cd "$REPO_ROOT" && python3 -m unittest \
         tests/speech_to_text/test_stop_grace.py \
         tests/speech_to_text/test_prebuffer_stop.py \
-        tests/speech_to_text/test_server_stop_order.py \
+        tests/speech_to_text/test_continuous_segmenter.py \
+        tests/speech_to_text/test_continuous_session.py \
+        tests/speech_to_text/test_server_client.py \
         tests/speech_to_text/test_resolve_model.py \
         tests/speech_to_text/test_keep_warm.py) > "$work/unit.out" 2>&1; then
     passed=$((passed + 1))
