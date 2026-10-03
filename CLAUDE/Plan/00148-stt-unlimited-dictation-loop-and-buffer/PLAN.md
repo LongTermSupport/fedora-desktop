@@ -147,11 +147,21 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
 
 ### Phase 7: Newer models and engines
 
-- [ ] 🔄 **Task 7.1**: Research what has changed in local speech recognition since this
-  system was built: better, faster or lighter models, and engines worth offering as an
-  option (findings go in `RESEARCH-stt-models-2026.md`).
-- [ ] ⬜ **Task 7.2**: Owner picks from the research's ranked recommendations; the chosen
-  items become tasks here.
+- [x] ✅ **Task 7.1**: Research what has changed in local speech recognition since this
+  system was built ([RESEARCH-stt-models-2026.md](RESEARCH-stt-models-2026.md)). Our
+  defaults (`base` streaming, `small` batch, `tiny` in server mode) are now near the bottom of
+  the Open ASR Leaderboard. Ranked: (1) same engine, `distil-large-v3.5` for English and
+  `large-v3-turbo` otherwise when a GPU is present (faster-whisper 1.2.x knows it); (2)
+  optional engine NVIDIA Parakeet TDT 0.6B via `onnx-asr`: fewer errors than large-v3, own
+  punctuation, no looping, fast on CPU, fits Phase 2's 28 s segments, but no prompt carry-over
+  and a second engine; (3) ignore Kyutai, Voxtral, Phi-4-multimodal and others for now.
+- [ ] 🚫 **Task 7.2**: Owner picks from the ranked recommendations; the chosen items become
+  tasks here. Blocked on the owner.
+- [ ] ⬜ **Task 7.3**: Fixes the research found: `wsi-model-manager` lists turbo as ~800 MB
+  (it is ~1.6 GB); the panel and model manager label turbo "Distilled" (it is large-v3 with a
+  pruned decoder); the turbo download repo was renamed upstream and works only by redirect.
+  RealtimeSTT 1.1.x needs Python < 3.13 while the play targets 3.14, so the installed version
+  is likely 1.0.4 or older (feeds Task 4.6; Task 1.2 confirms).
 
 ## Success Criteria
 
