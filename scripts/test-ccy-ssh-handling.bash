@@ -40,7 +40,7 @@ source "$SSH_LIB"
 
 for fn in resolve_github_ssh_alias remote_ssh_host parse_github_owner_repo \
           detect_project_github_alias render_ssh_alias_stanza compose_ssh_alias_exports \
-          ssh_agent_usable _github_probe_identity github_identity_is_deploy_key; do
+          ssh_agent_usable ssh_agent_holds_key _github_probe_identity github_identity_is_deploy_key; do
     if ! declare -F "$fn" >/dev/null; then
         echo "FAIL: $fn is not defined after sourcing the libraries" >&2
         echo "      (the function is absent, not merely broken)" >&2
@@ -379,7 +379,17 @@ hdr "discover_and_select_ssh_keys (key menu)"
 
 MENU_HOME="$WORK/menu-home"
 mkdir -p "$MENU_HOME/.ssh"
-for alias in alpha beta gamma; do : > "$MENU_HOME/.ssh/github_$alias"; done
+# Real key pairs, so the agent-held cases can match a fingerprint; the stubs above shadow
+# ssh and ssh-add only, ssh-keygen is the real one.
+if ! command -v ssh-keygen >/dev/null; then
+    echo "FAIL: ssh-keygen is not installed; the agent-held cases need it" >&2
+    exit 1
+fi
+for alias in alpha beta gamma; do
+    ssh-keygen -q -t ed25519 -N '' -C "fixture-$alias" -f "$MENU_HOME/.ssh/github_$alias"
+done
+# What `ssh-add -l` prints for a key: bits, fingerprint, comment, type.
+agent_line() { ssh-keygen -lf "$1.pub"; }
 K_ALPHA="$MENU_HOME/.ssh/github_alpha"
 K_BETA="$MENU_HOME/.ssh/github_beta"
 K_GAMMA="$MENU_HOME/.ssh/github_gamma"
@@ -396,7 +406,10 @@ run_menu() {
             GITHUB_ALIAS_HOST=gh-alias-a GITHUB_ALIAS_HOSTNAME=ssh.github.com GITHUB_ALIAS_PORT=443
             return 0
         }
-        ssh_agent_usable() { return 1; }
+        ssh_agent_usable() {
+            SSH_AGENT_PROBE_OUTPUT="${STUB_AGENT_LIST:-}"
+            [ -n "$SSH_AGENT_PROBE_OUTPUT" ]
+        }
         get_project_remote_url() { echo "git@github.com:owner/repo.git"; }
         probe_gh_keys_for_remote() { [ -n "$working" ] && printf '%s\n' "$working"; return 0; }
         discover_and_select_ssh_keys ccy < <(printf '%b' "$input") > "$WORK/menu.out" 2>&1
@@ -501,6 +514,84 @@ if menu_chose "$KEY_DIR/project_a" && menu_says "was not checked for push access
     pass "the remote's own key, never probed, is called unchecked rather than unable to push"
 else
     fail "unprobed alias key: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
+# ── ssh_agent_holds_key ──────────────────────────────────────────────────────
+hdr "ssh_agent_holds_key"
+
+SSH_AGENT_PROBE_OUTPUT="$(agent_line "$K_ALPHA")"
+if ssh_agent_holds_key "$K_ALPHA"; then pass "a key whose fingerprint the agent lists is held"; else fail "listed key not held"; fi
+if ! ssh_agent_holds_key "$K_BETA"; then pass "a key the agent does not list is not held"; else fail "unlisted key reported held"; fi
+
+SSH_AGENT_PROBE_OUTPUT="$(agent_line "$K_BETA")"$'\n'"$(agent_line "$K_ALPHA")"
+if ssh_agent_holds_key "$K_ALPHA" && ssh_agent_holds_key "$K_BETA" && ! ssh_agent_holds_key "$K_GAMMA"; then
+    pass "several agent identities: each listed key is held, the unlisted one is not"
+else
+    fail "multi-identity agent"
+fi
+
+cp "$K_ALPHA" "$WORK/no-pub-key"
+if ! ssh_agent_holds_key "$WORK/no-pub-key"; then pass "a key with no .pub beside it counts as not held"; else fail "key with no .pub reported held"; fi
+
+printf 'not a public key\n' > "$WORK/bad-pub-key.pub"
+: > "$WORK/bad-pub-key"
+if ! ssh_agent_holds_key "$WORK/bad-pub-key"; then pass "an unreadable .pub counts as not held"; else fail "unreadable .pub reported held"; fi
+SSH_AGENT_PROBE_OUTPUT=""
+
+# ── discover_and_select_ssh_keys: an agent that already holds an account key ──
+hdr "discover_and_select_ssh_keys (agent already unlocked)"
+
+AGENT_HOLDS_ALPHA="$(agent_line "$K_ALPHA")"
+AGENT_HOLDS_BETA="$(agent_line "$K_BETA")"
+
+STUB_AGENT_LIST="$AGENT_HOLDS_ALPHA" run_menu "" '\n'
+if menu_chose "ssh-agent" && menu_says "already unlocked, no passphrase asked" && menu_says "← default"; then
+    pass "no key can push, agent holds an account key → the agent is the default and ENTER takes it"
+else
+    fail "agent default: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
+STUB_AGENT_LIST="$AGENT_HOLDS_ALPHA" run_menu "" '1\n'
+if menu_chose "$K_ALPHA" && menu_says "$K_ALPHA  (also in your ssh-agent, which asks no passphrase)" \
+        && ! menu_says "$K_BETA  (also in your ssh-agent"; then
+    pass "only the key the agent holds is marked as also in the agent"
+else
+    fail "agent marker: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
+STUB_AGENT_LIST="unrelated-fingerprint" run_menu "" '\n'
+if [ "$(head -1 "$WORK/menu.keys")" = "rc=1" ] && menu_says "No default available" && ! menu_says "already unlocked"; then
+    pass "an agent holding no account key gets no default and no unlocked claim, as before"
+else
+    fail "unrelated agent: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
+STUB_AGENT_LIST="$AGENT_HOLDS_ALPHA" run_menu "$K_BETA" '\n'
+if menu_chose "$K_BETA" && ! menu_says "the session's ssh-agent"; then
+    pass "a verified pusher stays the default, and an agent holding a different key stays off the short list"
+else
+    fail "pusher beats agent: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
+STUB_AGENT_LIST="$AGENT_HOLDS_BETA" run_menu "$K_BETA" '\n'
+if menu_chose "$K_BETA" && menu_says "the session's ssh-agent" && menu_says "$K_BETA  ✓ has push access to this remote  (also in your ssh-agent"; then
+    pass "the agent holds the key that can push → listed beside it; the key file is still the default"
+else
+    fail "agent holds the pusher, ENTER: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
+STUB_AGENT_LIST="$AGENT_HOLDS_BETA" run_menu "$K_BETA" '2\n'
+if menu_chose "ssh-agent" && ! menu_says "Use it anyway"; then
+    pass "the agent, listed beside a pusher it holds, is taken without the cannot-push question"
+else
+    fail "agent beside pusher, 2: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
+STUB_AGENT_LIST="$AGENT_HOLDS_ALPHA" STUB_ALIAS_KEY="$KEY_DIR/project_a" run_menu "" '\n'
+if menu_chose "$KEY_DIR/project_a"; then
+    pass "the remote's own key stays the default over an agent holding an account key"
+else
+    fail "alias beats agent: $(tr '\n' ' ' < "$WORK/menu.keys")"
 fi
 
 # ── Summary ──────────────────────────────────────────────────────────────────

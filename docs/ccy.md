@@ -1176,7 +1176,10 @@ inside the container. Three sources are offered:
 - **The session's ssh-agent** (`--ssh-agent`, or the menu row that appears whenever
   `ssh-add -l` lists a key, behind `a` when an account key can push). Logged in over `ssh -A`, that is your own agent from your own
   machine: pushes authenticate as you, and nothing is persisted on the box. See the
-  SELinux note below.
+  SELinux note below. When the agent already holds a `github_` account key (matched by
+  fingerprint), the menu marks that key and the agent row as unlocked: a key file asks for
+  its passphrase on the host and again in the container, the agent asks for none. With no
+  push-verified key and no remote key to steer by, that agent is the default.
 
 ```bash
 ccy --ssh-key ~/.ssh/<key>   # specific key file (repeatable)

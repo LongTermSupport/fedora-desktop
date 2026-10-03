@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.73.0 — container 2.40
+
+- **An ssh-agent that already holds your account key is the way to a session with no
+  passphrase prompt, and the key menu now says so.** A key file picked at the menu is
+  unlocked twice, on the host and again in the container. The session's ssh-agent asks for
+  neither, but nothing pointed at it. CCY now matches each `github_` key against the agent
+  by fingerprint. A key the agent holds is marked "also in your ssh-agent", and the agent
+  row names the keys it holds. When no key is verified to push and the remote names no key
+  of its own, the agent is the default where there was none. A verified pusher, or the
+  remote's own key, still wins. When a key that can push is also in the agent, the agent
+  is listed beside it on the short list.
+
 ## 3.72.1 — container 2.40
 
 Fixes to 3.72.0's unattended unlock, found in review before it reached any host.

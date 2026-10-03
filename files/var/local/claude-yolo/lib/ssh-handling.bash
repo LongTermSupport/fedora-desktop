@@ -266,6 +266,20 @@ ssh_agent_usable() {
     [ "$rc" -eq 0 ]
 }
 
+# Is the key file's public half among the identities the session's agent holds?
+# Matches by fingerprint against SSH_AGENT_PROBE_OUTPUT, which ssh_agent_usable
+# filled; a key without its .pub beside it cannot be matched and counts as not held.
+#
+# Args: $1 = private key path
+ssh_agent_holds_key() {
+    local pub="$1.pub" listing fingerprint
+    [ -f "$pub" ] || return 1
+    listing=$(ssh-keygen -lf "$pub" 2>&1) || return 1
+    fingerprint=$(awk 'NR == 1 { print $2 }' <<< "$listing")
+    [ -n "$fingerprint" ] || return 1
+    grep -qF -- " $fingerprint " <<< "$SSH_AGENT_PROBE_OUTPUT"
+}
+
 # A GitHub greeting names a LOGIN for an account key and OWNER/REPO for a
 # deploy key. The slash is the whole distinction.
 github_identity_is_deploy_key() {
@@ -396,6 +410,9 @@ _ssh_key_menu_list() {
 #      `ssh -A`; pushes then authenticate as that person).
 # When the remote's key is the ONLY candidate it is selected without a prompt:
 # there is nothing to choose between, and that is exactly the headless-box case.
+# A session agent that already holds an account key asks for no passphrase, which
+# a key file does twice (here and in the container): such keys are marked, and with
+# no push-verified key and no remote key the agent is the default.
 #
 # Args: $1 = tool_name (for display)
 # Modifies: SSH_KEYS global array
@@ -415,10 +432,19 @@ discover_and_select_ssh_keys() {
         return 1
     fi
 
-    local agent_ok=false agent_key_count=0
+    # agent_held: the account key files whose public half the agent already holds. Those
+    # are unlocked, so the agent route asks for no passphrase where a key file asks twice
+    # (here, then again in the container).
+    local agent_ok=false agent_key_count=0 held_key
+    local -a agent_held=()
     if ssh_agent_usable; then
         agent_ok=true
         agent_key_count=$(grep -c . <<< "$SSH_AGENT_PROBE_OUTPUT")
+        for held_key in "${GITHUB_KEYS[@]}"; do
+            if ssh_agent_holds_key "$held_key"; then
+                agent_held+=("$held_key")
+            fi
+        done
     fi
 
     local remote_url=""
@@ -492,6 +518,11 @@ discover_and_select_ssh_keys() {
     if [ -z "$suggested_key" ] && [ "$alias_rc" -eq 0 ]; then
         suggested_key="$GITHUB_ALIAS_KEY"
     fi
+    # With nothing else to steer by, an agent that already holds an account key is the
+    # default: choosing a key file instead means typing its passphrase.
+    if [ -z "$suggested_key" ] && [ ${#agent_held[@]} -gt 0 ]; then
+        suggested_key="$SSH_AGENT_SENTINEL"
+    fi
 
     # probed[i] says whether the push probe checked candidates[i]: only the github_
     # account keys are; the remote's own key and the agent are offered unchecked.
@@ -507,13 +538,24 @@ discover_and_select_ssh_keys() {
         if [ -n "$working_keys" ] && grep -qxF "${GITHUB_KEYS[$i]}" <<< "$working_keys"; then
             marker="  ✓ has push access to this remote"
         fi
+        if [[ " ${agent_held[*]:-} " == *" ${GITHUB_KEYS[$i]} "* ]]; then
+            marker="$marker  (also in your ssh-agent, which asks no passphrase)"
+        fi
         candidates+=("${GITHUB_KEYS[$i]}")
         labels+=("${GITHUB_KEYS[$i]}${marker}")
         if [ -n "$remote_url" ]; then probed+=(yes); else probed+=(no); fi
     done
     if [ "$agent_ok" = true ]; then
+        local agent_label="the session's ssh-agent ($agent_key_count key(s))"
+        if [ ${#agent_held[@]} -gt 0 ]; then
+            local held_names="" held_path
+            for held_path in "${agent_held[@]}"; do
+                held_names="${held_names:+$held_names, }$(basename "$held_path")"
+            done
+            agent_label="$agent_label holding $held_names — already unlocked, no passphrase asked"
+        fi
         candidates+=("$SSH_AGENT_SENTINEL")
-        labels+=("the session's ssh-agent ($agent_key_count key(s)) — pushes as whoever it signs as; runs the container with SELinux labelling off")
+        labels+=("$agent_label; pushes as whoever it signs as; runs the container with SELinux labelling off")
         probed+=(no)
     fi
 
@@ -528,6 +570,16 @@ discover_and_select_ssh_keys() {
             pushers+=("$i")
         fi
     done
+    # The agent joins the short list, after the keys that can push, when it holds one of
+    # them: it is the route that asks for no passphrase. It never becomes the default here.
+    if [ ${#pushers[@]} -gt 0 ] && [ "$agent_ok" = true ]; then
+        for held_key in "${agent_held[@]}"; do
+            if grep -qxF "$held_key" <<< "$working_keys"; then
+                pushers+=("$((${#candidates[@]} - 1))")
+                break
+            fi
+        done
+    fi
     local short_list=false
     if [ ${#pushers[@]} -gt 0 ]; then
         short_list=true
