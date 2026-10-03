@@ -34,7 +34,7 @@
     <key name="streaming-mode" type="b">
       <default>false</default>
       <summary>Streaming Mode</summary>
-      <description>Use real-time streaming transcription with VAD (auto-stops on silence). Requires RealtimeSTT to be installed.</description>
+      <description>Use streaming transcription instead of batch. It does not stop on silence: it stops at Insert or at wsi-stream's fixed streaming limit, or, with continuous dictation in server mode, at the limits set for that. Standard and pre-buffer mode need RealtimeSTT.</description>
     </key>
     <key name="streaming-startup-mode" type="s">
       <default>'standard'</default>

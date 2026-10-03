@@ -1,6 +1,6 @@
 # Plan 00148: speech-to-text improvements (unlimited dictation, delayed stop, models)
 
-**Status**: In Progress (Phases 0, 2, 8 and Task 7.4 built; host checks Tasks 0.5, 1.2 and 8.4 pending; Task 1.1 decided: loop-and-buffer)
+**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 4.1-4.5 and 7.4 built; host checks Tasks 0.5, 1.2 and 8.4 pending; next: Task 4.6 after the triage run, Phases 5 and 6)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
@@ -142,17 +142,25 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
   model is selected (`wsi-stream-server` never calls `text()`). Continuous mode uses the
   main model; fix or retire the old server-mode path so it cannot paste preview text.
   Retired with Task 2.2: the server no longer loads RealtimeSTT, so no preview model exists.
-- [ ] ⬜ **Task 4.2**: Remove the silent fallback to buffered `tiny` text in standard
-  streaming (`wsi-stream`, `run_standard_streaming`), or make it a loud warning.
-- [ ] ⬜ **Task 4.3**: Plan/code drift: completed Plan 015 says a `Shift+Insert` article-mode
+- [x] ✅ **Task 4.2**: Remove the silent fallback to buffered `tiny` text in standard
+  streaming (`wsi-stream`, `run_standard_streaming`), or make it a loud warning. Now the
+  preview is never pasted: it goes to the clipboard, the panel shows ERROR and a
+  notification that stays says nothing was pasted; exit 1.
+- [x] ✅ **Task 4.3**: Plan/code drift: completed Plan 015 says a `Shift+Insert` article-mode
   binding shipped; no such binding exists (article mode is menu-only). Correct the record
-  without rewriting the completed plan's history.
-- [ ] ⬜ **Task 4.4**: Docs drift: `docs/features/speech-to-text.md` says 30 s only; the
+  without rewriting the completed plan's history. A CORRECTION note under the claim; the
+  original text is left as written.
+- [x] ✅ **Task 4.4**: Docs drift: `docs/features/speech-to-text.md` says 30 s only; the
   `streaming-mode` schema description claims it auto-stops on silence, which it does not.
-  Document the real per-mode limits and continuous mode.
-- [ ] ⬜ **Task 4.5**: The 120 is held in six places (`extension.js` twice, `wsi-stream`,
+  Document the real per-mode limits and continuous mode. New "Recording Limits" and
+  "Continuous Dictation" sections.
+- [x] ✅ **Task 4.5**: The 120 is held in six places (`extension.js` twice, `wsi-stream`,
   `wsi-stream-server`, `wsi`, `wsi-article`) with nothing keeping them in step. After Phase 3
   each limit has one source, and a QA check fails if a literal copy reappears.
+  `scripts/qa-stt-limits.bash`, a hard gate in `qa-all.bash`: `wsi`'s
+  `MAX_RECORDING_SECONDS`, `wsi-stream`'s `STREAMING_MAX_SECONDS`, the GSettings keys.
+  Control run against the pre-plan files: 12 of 13 rules fail. `wsi-article`'s 120 is a
+  flush interval and is not checked (Phase 5 replaces it).
 - [ ] ⬜ **Task 4.6**: Pin `RealtimeSTT` and `faster-whisper` in
   `play-speech-to-text.yml`'s existing pip task, to the versions Task 1.2 finds; fix the
   play's stale header comment on the default model.

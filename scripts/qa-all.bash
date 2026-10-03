@@ -522,6 +522,18 @@ fi
 wsi_stop_grace_summary=$(qa_gate_case_count "$wsi_stop_grace_out")
 qa_pass_line wsi-stop-grace "$wsi_stop_grace_summary"
 
+# Speech-to-text recording limits (Plan 00148 Task 4.5): each limit has one home (wsi's
+# 30 s, wsi-stream's 120 s, continuous dictation's GSettings keys); a literal copy in the
+# panel, the server or a second place in a recorder fails here.
+stt_limits_out=""
+if ! stt_limits_out="$(bash "$SCRIPT_DIR/qa-stt-limits.bash" 2>&1)"; then
+    qa_hard_gate_failed stt-limits \
+        "a speech-to-text recording limit is held in more than one place" \
+        "$stt_limits_out"
+fi
+stt_limits_summary=$(qa_gate_case_count "$stt_limits_out")
+qa_pass_line stt-limits "$stt_limits_summary"
+
 # ccy_host_hostname (Plan 00121): CCY_HOST_HOSTNAME tells the container which MACHINE it is
 # on, since its own HOSTNAME is the container id. The value reaches a `podman run -e`
 # argument and is then read by shells in the container, so the grammar is the guard — driven

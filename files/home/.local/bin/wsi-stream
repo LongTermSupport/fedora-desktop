@@ -718,6 +718,23 @@ def relay_progress(progress):
         f"backlog={progress.get('backlog_seconds', 0):.0f} behind={behind}"))
 
 
+def report_preview_fallback(preview):
+    """Standard streaming without a final transcription: the preview goes to the clipboard only.
+
+    The preview comes from the realtime model (lower quality than the selected one) and
+    may lag the speech, so it is never pasted as if it were the result.
+    """
+    copied = copy_to_clipboard(preview, use_clipboard=True)
+    message = ("The final transcription did not finish, so nothing was pasted. "
+               + ("The live preview text (lower quality) is on the clipboard: Ctrl+V."
+                  if copied else "The live preview text could not be copied either."))
+    log(f"{message} Preview: {preview}", "ERROR")
+    print(f"wsi-stream: {message}", file=sys.stderr)
+    emit_dbus_text("Error", "final transcription did not finish")
+    emit_dbus_signal("StateChanged", "ERROR")
+    desktop_notification(message, 0)  # 0: stays until dismissed
+
+
 def report_failed_dictation(progress):
     """FAILED: the text so far goes to the clipboard (never pasted), and the user is told."""
     text = (progress.get("transcription") or "").strip()
@@ -1189,19 +1206,17 @@ def run_standard_streaming(args, stop):
         emit_dbus_signal("StateChanged", "IDLE")
         log("Sent IDLE signal")
 
-    # Use final text from recorder, fall back to buffer if empty
-    if final_text and final_text.strip():
-        text = final_text.strip()
-    elif current_text:
-        text = current_text
-        log("Using buffered text (recorder returned empty)")
-    else:
-        # Try reading from buffer file as last resort
-        try:
-            text = BUFFER_FILE.read_text().strip()
-            log("Using text from buffer file")
-        except Exception:
-            text = ""
+    # The pasted text is the main model's final transcription. If it never came, the
+    # live preview (the realtime model's, lower quality) is NOT pasted in its place: it
+    # goes to the clipboard and the user is told.
+    text = (final_text or "").strip()
+    if not text:
+        preview = current_text or (BUFFER_FILE.read_text().strip() if BUFFER_FILE.exists() else "")
+        if preview:
+            report_preview_fallback(preview)
+            if BUFFER_FILE.exists():
+                BUFFER_FILE.unlink()
+            return 1
 
     if not text:
         log("No speech detected", "WARN")

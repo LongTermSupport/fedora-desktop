@@ -398,6 +398,23 @@ check "…before the microphone opens" "absent" \
     "$([ -e "$events/pw-record.started" ] && echo present || echo absent)"
 
 #----------------------------------------------------------------------------
+echo "=== qa-stt-limits.bash: a limit planted back in is caught ==="
+#----------------------------------------------------------------------------
+limits_root="$work/limits"
+mkdir -p "$limits_root/files/home/.local/bin" "$limits_root/extensions/speech-to-text@fedora-desktop"
+cp "$BIN/wsi" "$BIN/wsi-stream" "$BIN/wsi-stream-server" "$limits_root/files/home/.local/bin/"
+cp "$REPO_ROOT/extensions/speech-to-text@fedora-desktop/extension.js" \
+    "$REPO_ROOT/extensions/speech-to-text@fedora-desktop/prefs.js" \
+    "$limits_root/extensions/speech-to-text@fedora-desktop/"
+bash "$SCRIPT_DIR/qa-stt-limits.bash" "$limits_root" > "$work/limits.out" 2>&1; rc=$?
+check "the gate passes on an unchanged copy" "0" "$rc"
+printf '        const limit = this._streamingMode ? 120 : 30;\n' \
+    >> "$limits_root/extensions/speech-to-text@fedora-desktop/extension.js"
+bash "$SCRIPT_DIR/qa-stt-limits.bash" "$limits_root" > "$work/limits.out" 2>&1; rc=$?
+check "…and fails once the panel holds a copy of the streaming limit" "1" "$rc"
+check "…naming the rule" "1" "$(grep -c 'FAIL: panel: no 120' "$work/limits.out")"
+
+#----------------------------------------------------------------------------
 echo "=== wsi-stream, wsi-stream-server, wsi-resolve-model: unit tests (tests/speech_to_text) ==="
 #----------------------------------------------------------------------------
 if (cd "$REPO_ROOT" && python3 -m unittest \

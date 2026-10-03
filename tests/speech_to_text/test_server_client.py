@@ -1,4 +1,4 @@
-"""wsi-stream's server-mode client against a stub server (Plan 00148 Task 2.4).
+"""wsi-stream's server-mode client against a stub server (Plan 00148 Tasks 2.4, 4.2).
 
 run_server_mode() is driven for real, in the main thread so its signal handlers work,
 against a stub wsi-stream-server on a temporary Unix socket that answers each command
@@ -242,6 +242,17 @@ class ServerClientTest(ClientCase):
         rc = self.run_client()
         self.assertEqual(rc, 1)
         self.assertEqual(self.server.received, [])
+
+
+class PreviewFallbackTest(ClientCase):
+    """Standard streaming without a final transcription (Plan 00148 Task 4.2)."""
+
+    def test_the_preview_goes_to_the_clipboard_loudly_and_is_never_pasted(self):
+        wsi_stream.report_preview_fallback("words from the tiny model")
+        self.assertEqual(self.clipboard, ["words from the tiny model"])
+        self.assertEqual(self.pasted, [])
+        self.assertIn("ERROR", self.states())
+        self.assertTrue(any("nothing was pasted" in n for n in self.notes), self.notes)
 
 
 if __name__ == "__main__":
