@@ -48,7 +48,9 @@ import math
 import os
 import re
 import time
+from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import Any
 
 PLUGIN_API = 1
 
@@ -73,7 +75,7 @@ _DIGITS = re.compile(r"[0-9]+")
 _LAUNCH_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{7,63}")
 
 
-def _optional_int(environ, name: str) -> int | None:
+def _optional_int(environ: Mapping[str, str], name: str) -> int | None:
     raw = environ.get(name, "")
     if raw == "":
         return None
@@ -97,56 +99,134 @@ def _describe_duration(seconds: int) -> str:
 
 
 class Config:
-    """The validated configuration; `enabled` is False when no feature is configured."""
+    """The validated configuration of an enabled plugin (at least one feature is on).
 
-    def __init__(self, environ) -> None:
-        self.max_age = _optional_int(environ, ENV_MAX_AGE)
-        self.deadline = _optional_int(environ, ENV_DEADLINE)
-        warn = _optional_int(environ, ENV_WARN_MINUTES)
-        self.warn_minutes = WARN_MINUTES_DEFAULT if warn is None else warn
+    Plain classes, not dataclasses: the supervisor may import this file without registering
+    it in sys.modules, which dataclasses cannot cope with under postponed annotations.
+    """
 
-        if self.max_age is not None and not (
-            MAX_AGE_MIN_SECONDS <= self.max_age <= MAX_AGE_MAX_SECONDS
+    def __init__(self, launch_id: str, max_age: int | None, deadline: int | None, warn_minutes: int) -> None:
+        self.launch_id = launch_id
+        self.max_age = max_age
+        self.deadline = deadline
+        self.warn_minutes = warn_minutes
+
+
+def parse_config(environ: Mapping[str, str]) -> Config | None:
+    """Validate the environment. None means no feature is configured; ValueError means a bad value."""
+    max_age = _optional_int(environ, ENV_MAX_AGE)
+    deadline = _optional_int(environ, ENV_DEADLINE)
+    warn = _optional_int(environ, ENV_WARN_MINUTES)
+    warn_minutes = WARN_MINUTES_DEFAULT if warn is None else warn
+
+    if max_age is not None and not (MAX_AGE_MIN_SECONDS <= max_age <= MAX_AGE_MAX_SECONDS):
+        raise ValueError(
+            f"{ENV_MAX_AGE} must be between {MAX_AGE_MIN_SECONDS} and "
+            f"{MAX_AGE_MAX_SECONDS} seconds, got {max_age}"
+        )
+    if deadline is not None and deadline <= 0:
+        raise ValueError(f"{ENV_DEADLINE} must be a positive epoch time, got {deadline}")
+    if not (WARN_MINUTES_MIN <= warn_minutes <= WARN_MINUTES_MAX):
+        raise ValueError(
+            f"{ENV_WARN_MINUTES} must be between {WARN_MINUTES_MIN} and "
+            f"{WARN_MINUTES_MAX}, got {warn_minutes}"
+        )
+    if max_age is not None and warn_minutes * 60 >= max_age:
+        raise ValueError(
+            f"{ENV_WARN_MINUTES} ({warn_minutes}) must be shorter than the maximum age "
+            f"({_describe_duration(max_age)})"
+        )
+
+    if max_age is None and deadline is None:
+        return None
+    launch_id = environ.get(ENV_LAUNCH_ID, "")
+    if not _LAUNCH_ID.fullmatch(launch_id):
+        raise ValueError(
+            f"{ENV_LAUNCH_ID} must be set by the launcher to an id of 8 to 64 safe "
+            f"characters, got {launch_id!r}"
+        )
+    return Config(launch_id=launch_id, max_age=max_age, deadline=deadline, warn_minutes=warn_minutes)
+
+
+class State:
+    """What survives a worker hot reload and a container restart."""
+
+    def __init__(
+        self,
+        launch_id: str,
+        started_at: float,
+        restart_warned: bool = False,
+        deadline_notified: int | None = None,
+    ) -> None:
+        self.launch_id = launch_id
+        self.started_at = started_at
+        self.restart_warned = restart_warned
+        self.deadline_notified = deadline_notified
+
+    def to_json(self) -> str:
+        return json.dumps(
+            {
+                "launch_id": self.launch_id,
+                "started_at": self.started_at,
+                "restart_warned": self.restart_warned,
+                "deadline_notified": self.deadline_notified,
+            },
+            sort_keys=True,
+        )
+
+    @classmethod
+    def from_json(cls, raw: str, path: Path) -> State:
+        try:
+            data: object = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"the lifecycle state at {path} is not valid JSON: {exc}") from exc
+        if not isinstance(data, dict):
+            raise ValueError(f"the lifecycle state at {path} has unexpected contents")
+        launch = data.get("launch_id")
+        started = data.get("started_at")
+        warned = data.get("restart_warned", False)
+        notified = data.get("deadline_notified")
+        if (
+            not isinstance(launch, str)
+            or isinstance(started, bool)
+            or not isinstance(started, (int, float))
+            or not isinstance(warned, bool)
+            or isinstance(notified, bool)
+            or not (notified is None or isinstance(notified, int))
         ):
-            raise ValueError(
-                f"{ENV_MAX_AGE} must be between {MAX_AGE_MIN_SECONDS} and "
-                f"{MAX_AGE_MAX_SECONDS} seconds, got {self.max_age}"
-            )
-        if self.deadline is not None and self.deadline <= 0:
-            raise ValueError(f"{ENV_DEADLINE} must be a positive epoch time, got {self.deadline}")
-        if not (WARN_MINUTES_MIN <= self.warn_minutes <= WARN_MINUTES_MAX):
-            raise ValueError(
-                f"{ENV_WARN_MINUTES} must be between {WARN_MINUTES_MIN} and "
-                f"{WARN_MINUTES_MAX}, got {self.warn_minutes}"
-            )
-        if self.max_age is not None and self.warn_minutes * 60 >= self.max_age:
-            raise ValueError(
-                f"{ENV_WARN_MINUTES} ({self.warn_minutes}) must be shorter than the maximum age "
-                f"({_describe_duration(self.max_age)})"
-            )
+            raise ValueError(f"the lifecycle state at {path} has unexpected contents")
+        return cls(
+            launch_id=launch,
+            started_at=float(started),
+            restart_warned=warned,
+            deadline_notified=notified,
+        )
 
-        self.launch_id = environ.get(ENV_LAUNCH_ID, "")
-        if self.enabled and not _LAUNCH_ID.fullmatch(self.launch_id):
-            raise ValueError(
-                f"{ENV_LAUNCH_ID} must be set by the launcher to an id of 8 to 64 safe "
-                f"characters, got {self.launch_id!r}"
-            )
 
-    @property
-    def enabled(self) -> bool:
-        return self.max_age is not None or self.deadline is not None
+class _Active:
+    """A configured, started plugin: both parts exist together or not at all."""
+
+    def __init__(self, config: Config, state: State) -> None:
+        self.config = config
+        self.state = state
 
 
 class LifecycleHalf:
     name = PLUGIN_NAME
     version = PLUGIN_VERSION
 
-    def __init__(self, api, environ=None, clock=None) -> None:
+    def __init__(
+        self,
+        api: Any,
+        environ: Mapping[str, str] | None = None,
+        clock: Callable[[], float] | None = None,
+    ) -> None:
         self._api = api
-        self._environ = os.environ if environ is None else environ
-        self._clock = time.time if clock is None else clock
-        self._config: Config | None = None
-        self._state: dict | None = None
+        self._environ: Mapping[str, str] = os.environ if environ is None else environ
+        self._clock: Callable[[], float] = time.time if clock is None else clock
+        # None until on_start has run and found a feature configured. on_idle then does
+        # nothing, which is the whole of "off".
+        self._active: _Active | None = None
         self._restart_audited = False
 
     # -- supervisor hooks ---------------------------------------------------------------
@@ -157,60 +237,65 @@ class LifecycleHalf:
         Runs on every worker start, including a hot reload, so it must be idempotent: the
         same launch id keeps the stored start time and flags.
         """
-        self._config = Config(self._environ)
-        if not self._config.enabled:
-            self._state = None
+        self._active = None
+        config = parse_config(self._environ)
+        if config is None:
             return
-        self._state = self._load_or_create_state(self._config)
-        started = self._state["started_at"]
+        state = self._load_or_create_state(config)
+        self._active = _Active(config=config, state=state)
         self._api.audit(
-            f"started: launch {self._config.launch_id}, session clock began at {started:.0f}, "
-            f"max age {self._describe_max_age()}, deadline {self._describe_deadline()}"
+            f"started: launch {config.launch_id}, session clock began at {state.started_at:.0f}, "
+            f"max age {'off' if config.max_age is None else _describe_duration(config.max_age)}, "
+            f"deadline {'none' if config.deadline is None else config.deadline}"
         )
 
-    def on_idle(self, tick):
-        if self._config is None or self._state is None:
+    def on_idle(self, tick: Any) -> Any:
+        active = self._active
+        if active is None:
             return None
-        now = tick.now
-        deadline_result = self._deadline_result(now)
+        now = float(tick.now)
+        deadline_result = self._deadline_result(active, now)
         if deadline_result is not None:
             return deadline_result
-        return self._max_age_result(now)
+        return self._max_age_result(active, now)
 
     # -- features -----------------------------------------------------------------------
 
-    def _deadline_result(self, now: float):
-        config = self._config
-        if config.deadline is None or now < config.deadline:
+    def _deadline_result(self, active: _Active, now: float) -> Any:
+        deadline = active.config.deadline
+        if deadline is None or now < deadline:
             return None
-        if self._state["deadline_notified"] == config.deadline:
+        if active.state.deadline_notified == deadline:
             return None
-        self._state["deadline_notified"] = config.deadline
-        self._save_state()
-        self._api.audit(f"deadline {config.deadline} reached: asking for the deadline notice")
+        active.state.deadline_notified = deadline
+        self._save_state(active.state)
+        self._api.audit(f"deadline {deadline} reached: asking for the deadline notice")
         return self._api.Notify(self._api.DEADLINE_REACHED)
 
-    def _max_age_result(self, now: float):
-        config = self._config
-        if config.max_age is None:
+    def _max_age_result(self, active: _Active, now: float) -> Any:
+        config = active.config
+        state = active.state
+        max_age = config.max_age
+        if max_age is None:
             return None
-        if config.deadline is not None and self._state["deadline_notified"] == config.deadline:
+        if config.deadline is not None and state.deadline_notified == config.deadline:
             return None
-        restart_at = self._state["started_at"] + config.max_age
+        restart_at = state.started_at + max_age
         if now >= restart_at:
             if not self._restart_audited:
                 self._restart_audited = True
+                age = _describe_duration(int(now - state.started_at))
                 self._api.audit(
-                    f"restart requested: session is {_describe_duration(int(now - self._state['started_at']))} "
-                    f"old, maximum is {_describe_duration(config.max_age)}"
+                    f"restart requested: session is {age} old, "
+                    f"maximum is {_describe_duration(max_age)}"
                 )
             return self._api.ExitForRestart(
-                f"session reached its maximum age of {_describe_duration(config.max_age)}"
+                f"session reached its maximum age of {_describe_duration(max_age)}"
             )
         warn_at = restart_at - config.warn_minutes * 60
-        if now >= warn_at and not self._state["restart_warned"]:
-            self._state["restart_warned"] = True
-            self._save_state()
+        if now >= warn_at and not state.restart_warned:
+            state.restart_warned = True
+            self._save_state(state)
             remaining_minutes = max(1, math.ceil((restart_at - now) / 60))
             minutes = min(config.warn_minutes, remaining_minutes)
             self._api.audit(f"restart warning: {minutes} minute(s) to the maximum age")
@@ -222,83 +307,49 @@ class LifecycleHalf:
     def _state_path(self) -> Path:
         return Path(self._api.state_dir) / STATE_FILE
 
-    def _load_or_create_state(self, config: Config) -> dict:
-        path = self._state_path()
-        previous = self._read_state(path)
-        if previous is not None and previous["launch_id"] == config.launch_id:
+    def _load_or_create_state(self, config: Config) -> State:
+        previous = self._read_state(self._state_path())
+        if previous is not None and previous.launch_id == config.launch_id:
             state = previous
         else:
             # A new container: the age clock and the restart warning start over. The
             # deadline notice is keyed by the deadline itself and carries across, so a
             # restart after the deadline does not announce it a second time.
-            state = {
-                "launch_id": config.launch_id,
-                "started_at": float(self._clock()),
-                "restart_warned": False,
-                "deadline_notified": None if previous is None else previous["deadline_notified"],
-            }
-        self._state = state
-        self._save_state()
+            state = State(
+                launch_id=config.launch_id,
+                started_at=float(self._clock()),
+                deadline_notified=None if previous is None else previous.deadline_notified,
+            )
+        self._save_state(state)
         return state
 
     @staticmethod
-    def _read_state(path: Path) -> dict | None:
+    def _read_state(path: Path) -> State | None:
         try:
             raw = path.read_text(encoding="utf-8")
         except FileNotFoundError:
             return None
         except OSError as exc:
             raise ValueError(f"cannot read the lifecycle state at {path}: {exc}") from exc
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"the lifecycle state at {path} is not valid JSON: {exc}") from exc
-        started = data.get("started_at") if isinstance(data, dict) else None
-        launch = data.get("launch_id") if isinstance(data, dict) else None
-        warned = data.get("restart_warned", False) if isinstance(data, dict) else None
-        notified = data.get("deadline_notified") if isinstance(data, dict) else None
-        valid = (
-            isinstance(launch, str)
-            and isinstance(started, (int, float))
-            and not isinstance(started, bool)
-            and isinstance(warned, bool)
-            and (notified is None or (isinstance(notified, int) and not isinstance(notified, bool)))
-        )
-        if not valid:
-            raise ValueError(f"the lifecycle state at {path} has unexpected contents")
-        return {
-            "launch_id": launch,
-            "started_at": float(started),
-            "restart_warned": warned,
-            "deadline_notified": notified,
-        }
+        return State.from_json(raw, path)
 
-    def _save_state(self) -> None:
+    def _save_state(self, state: State) -> None:
         path = self._state_path()
         tmp = path.with_name(path.name + f".tmp.{os.getpid()}")
-        payload = json.dumps(self._state, sort_keys=True)
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, STATE_FILE_MODE)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(payload)
+                handle.write(state.to_json())
             os.replace(tmp, path)
         except OSError:
             tmp.unlink(missing_ok=True)
             raise
 
-    # -- audit text ---------------------------------------------------------------------
 
-    def _describe_max_age(self) -> str:
-        if self._config.max_age is None:
-            return "off"
-        return _describe_duration(self._config.max_age)
-
-    def _describe_deadline(self) -> str:
-        if self._config.deadline is None:
-            return "none"
-        return str(self._config.deadline)
-
-
-def create_worker_half(api, environ=None, clock=None):
+def create_worker_half(
+    api: Any,
+    environ: Mapping[str, str] | None = None,
+    clock: Callable[[], float] | None = None,
+) -> LifecycleHalf:
     """The supervisor's factory; `environ` and `clock` exist for tests only."""
     return LifecycleHalf(api, environ=environ, clock=clock)

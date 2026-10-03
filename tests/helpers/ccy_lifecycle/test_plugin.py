@@ -123,9 +123,37 @@ class ContractTests(PluginTestCase):
                 top = stripped.split()[1].split(".")[0]
                 self.assertIn(
                     top,
-                    {"__future__", "json", "math", "os", "re", "time", "pathlib", "typing"},
+                    {
+                        "__future__",
+                        "collections",
+                        "dataclasses",
+                        "json",
+                        "math",
+                        "os",
+                        "pathlib",
+                        "re",
+                        "time",
+                        "typing",
+                    },
                     f"unexpected import: {stripped}",
                 )
+
+    def test_on_idle_before_on_start_does_nothing(self):
+        # The one path where no configuration exists yet: it must be "off", not an error.
+        half = self.module.create_worker_half(
+            self.api, environ=env(CCY_LIFECYCLE_MAX_AGE_SECONDS=7200), clock=lambda: T0
+        )
+        self.assertIsNone(half.on_idle(FakeTick(T0 + 10_000_000)))
+        self.assertFalse((self.state_dir / "lifecycle.json").exists())
+
+    def test_a_failed_restart_of_the_half_leaves_it_off_not_half_configured(self):
+        good = env(CCY_LIFECYCLE_MAX_AGE_SECONDS=7200)
+        half = self.half(good)
+        self.assertIsNotNone(half.on_idle(FakeTick(T0 + 7200)))
+        half._environ = env(CCY_LIFECYCLE_MAX_AGE_SECONDS="junk")
+        with self.assertRaises(ValueError):
+            half.on_start()
+        self.assertIsNone(half.on_idle(FakeTick(T0 + 7300)))
 
 
 class ConfigTests(PluginTestCase):
