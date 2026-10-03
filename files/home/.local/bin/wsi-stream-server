@@ -825,7 +825,12 @@ class DictationSession:
 # ---------------------------------------------------------------------------
 
 class WhisperTranscriber:
-    """The selected model, called once per segment: one Whisper window, no seams."""
+    """The selected model, called once per span of audio it is handed.
+
+    With continuous dictation that span is one VAD segment, which fits one Whisper window.
+    Without it the span is the whole clip (up to 120 s), and Whisper windows that internally,
+    so a seam there is Whisper's own, not ours.
+    """
 
     def __init__(self, model, language):
         self._model = model

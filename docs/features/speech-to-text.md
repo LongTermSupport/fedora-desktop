@@ -860,9 +860,10 @@ wsi -d  # Run with debug flag
 │  │  - CPU: fallback    │    │  - Higher GPU load          │   │
 │  │  - Batch mode       │    │  - Experimental             │   │
 │  │  - Server mode:     │    └──────────────────────────────┘   │
-│  │    Silero VAD cuts, │                                       │
-│  │    one ordered      │                                       │
-│  │    worker           │                                       │
+│  │    continuous: VAD  │                                       │
+│  │    cuts, ordered    │                                       │
+│  │    worker. Off: one │                                       │
+│  │    clip, no VAD     │                                       │
 │  └─────────────────────┘                                       │
 └─────────────────────────────────────────────────────────────────┘
                      │ Optional

@@ -1,6 +1,6 @@
 # Plan 00148: speech-to-text improvements (unlimited dictation, delayed stop, models)
 
-**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 0.7, 4.1-4.6 and 7.4 built, all merged to F44 but 0.7; host checks Tasks 0.5, 1.2 and 8.4 pending; next: Task 4.7, Phases 5 and 6)
+**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 0.7, 4.1-4.7 and 7.4 built, all merged to F44 but 4.7; host checks Tasks 0.5, 1.2 and 8.4 pending; next: Phases 5 and 6)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
@@ -186,12 +186,11 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
   `play-speech-to-text.yml`'s existing pip task, to the versions Task 1.2 finds; fix the
   play's stale header comment on the default model. Pinned to RealtimeSTT 1.0.0 and
   faster-whisper 1.2.1 (what RealtimeSTT 1.0.0 declares); the header was already current.
-- [ ] ⬜ **Task 4.7**: Nits from the merge review of Phases 2-4 (it said merge; these were
-  left for after): `docs/features/speech-to-text.md` diagram says server mode cuts on Silero
-  VAD, which is true only with continuous dictation on; `wsi-stream-server`'s
-  `WhisperTranscriber` docstring says "one Whisper window, no seams", false for a whole
-  120 s clip; `wsi-stream`'s recovered-text notification does not warn that the next paste
-  replaces the clipboard.
+- [x] ✅ **Task 4.7**: Nits from the merge review of Phases 2-4: the
+  `docs/features/speech-to-text.md` diagram now says server mode cuts on Silero VAD only with
+  continuous dictation on; `WhisperTranscriber`'s docstring no longer claims "no seams" for a
+  whole 120 s clip; the recovered-text and failed-dictation notifications of `wsi-stream` say
+  the next copy or dictation replaces the clipboard.
 
 ### Phase 5: Article mode on the server session
 

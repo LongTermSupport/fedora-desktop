@@ -746,7 +746,8 @@ def report_failed_dictation(progress):
     error = progress.get("error") or "unknown error"
     lines = [f"Dictation failed: {error}"]
     if text and copy_to_clipboard(text, use_clipboard=True):
-        lines.append(f"The text so far ({len(text.split())} words) is on the clipboard: Ctrl+V.")
+        lines.append(f"The text so far ({len(text.split())} words) is on the clipboard: Ctrl+V. "
+                     "The next copy or dictation replaces it.")
     elif text:
         lines.append("The text so far could not be copied to the clipboard; "
                      f"it is in {progress.get('session_dir')}/journal.jsonl")
@@ -774,7 +775,8 @@ def report_undelivered_dictation(handed):
     why = handed.get("error") or handed.get("stop_reason") or "unknown"
     lines = [f"Your previous dictation was never pasted (it ended: {why})."]
     if text and copy_to_clipboard(text, use_clipboard=True):
-        lines.append(f"Its text ({len(text.split())} words) is on the clipboard now: Ctrl+V.")
+        lines.append(f"Its text ({len(text.split())} words) is on the clipboard now: Ctrl+V. "
+                     "The next copy or dictation replaces it.")
     elif text:
         lines.append("Its text could not be copied to the clipboard.")
     else:
