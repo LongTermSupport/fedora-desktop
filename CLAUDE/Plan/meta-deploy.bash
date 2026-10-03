@@ -49,12 +49,6 @@ PLAN_ROOT="${scriptDir}"
 # run as one unit through its own shebang, which goes through run.bash, exactly as
 # `./playbooks/imports/<play>.yml` does by hand.
 PLANS=(
-    # ccy 3.73.0: the SSH key menu marks keys the ssh-agent already holds. No host run
-    # of this play is recorded since that version landed.
-    playbooks/imports/play-claude-yolo.yml
-    # Removes the obsolete GSK_RENDERER=ngl block from /etc/environment. Log out and back
-    # in afterwards so the session drops it.
-    playbooks/imports/optional/common/play-fast-file-manager.yml
 )
 
 LIST_ONLY=0
