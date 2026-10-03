@@ -190,6 +190,16 @@ notify_state() {
         --signal "${DBUS_INTERFACE}.StateChanged" \
         "$state" 2>/dev/null &
 
+    notify_desktop "$message" "$icon" 3000
+}
+
+# A desktop notification with no state change, for news the extension has no
+# state for (the pending stop). Same replaceable notification as notify_state.
+notify_desktop() {
+    local message="$1"
+    local icon="$2"
+    local expire_ms="$3"
+
     # Skip desktop notification if --no-notify was passed
     if [ "$NO_NOTIFY" = true ]; then
         return
@@ -214,7 +224,7 @@ notify_state() {
         "$message" \
         '[]' \
         '{}' \
-        3000 2>/dev/null) || {
+        "$expire_ms" 2>/dev/null) || {
         result=""
         log_debug "Desktop notification was not accepted (gdbus call failed)"
     }
@@ -241,6 +251,7 @@ cleanup() {
         kill "$TIMER_PID" 2>/dev/null
         log_debug "Killed timer process: $TIMER_PID"
     fi
+    cancel_grace_timer
 
     # Signal idle state only if we're actually exiting (not just stopping recording)
     if [ "$STOP_REQUESTED" = false ]; then
@@ -251,9 +262,53 @@ cleanup() {
     fi
 }
 
+#----------------------------------------------------------------------------
+# Delayed stop. The extension stops a recording with SIGTERM the moment Insert
+# is pressed, which cut off the words still being spoken. The first TERM now
+# starts a grace period (wsi-stop-grace, 0 = none) during which recording
+# continues; a timer then sends TERM again, and a second TERM - from that timer
+# or from a second Insert - stops at once. The trap returns straight away, so
+# the main `wait` loop below is what keeps the recording going, and a second
+# TERM is never deferred behind a sleep. INT (Ctrl+C) stays immediate, and the
+# extension's Escape abort SIGKILLs the process tree, so neither waits.
+#----------------------------------------------------------------------------
+STOP_GRACE_SECONDS=""   # Set from wsi-stop-grace before recording starts
+STOP_PENDING=false
+RECORDING_OVER=false    # The recorder has exited; nothing left to keep open
+GRACE_TIMER_PID=""
+
+cancel_grace_timer() {
+    if [ -n "$GRACE_TIMER_PID" ] && kill -0 "$GRACE_TIMER_PID" 2>/dev/null; then
+        kill "$GRACE_TIMER_PID" 2>/dev/null
+        log_debug "Cancelled stop-grace timer: $GRACE_TIMER_PID"
+    fi
+    GRACE_TIMER_PID=""
+}
+
+on_term() {
+    # Unset grace (TERM before it was read) behaves as 0: stop now.
+    # `return 0`, never a bare `return`: inside a trap a bare return reports the
+    # status of the command the trap interrupted (the `wait`, 143), and under
+    # `set -e` that ends the script before the recording is transcribed.
+    # A press after the recorder has gone (e.g. during transcription) has nothing
+    # to delay.
+    if [ "$STOP_PENDING" = true ] || [ "$RECORDING_OVER" = true ] \
+        || [ "${STOP_GRACE_SECONDS:-0}" -eq 0 ]; then
+        stop_recording
+        return 0
+    fi
+    STOP_PENDING=true
+    log_debug "Stop requested - recording for ${STOP_GRACE_SECONDS}s more (TERM again stops now)"
+    ( sleep "$STOP_GRACE_SECONDS"; kill -TERM $$ ) &
+    GRACE_TIMER_PID=$!
+    notify_desktop "Stopping in ${STOP_GRACE_SECONDS}s - finish your sentence.\nInsert: stop now. Escape: discard." \
+        "audio-input-microphone" "$((STOP_GRACE_SECONDS * 1000))"
+}
+
 stop_recording() {
     log_debug "Stop requested - sending SIGINT to rec process"
     STOP_REQUESTED=true
+    cancel_grace_timer
     # Send SIGINT (like Ctrl+C) so rec flushes audio buffers before exiting
     if [ -n "$REC_PID" ] && kill -0 "$REC_PID" 2>/dev/null; then
         log_debug "Sending SIGINT to rec process $REC_PID"
@@ -285,8 +340,9 @@ fi
 
 # Trap EXIT for final cleanup
 trap cleanup EXIT
-# Trap TERM/INT to stop recording but continue script
-trap 'stop_recording' TERM INT
+# Trap TERM/INT to stop recording but continue script (TERM after the grace)
+trap 'on_term' TERM
+trap 'stop_recording' INT
 
 #============================================================================
 # UTILITY FUNCTIONS
@@ -655,6 +711,16 @@ if [ "$available_space" -lt 10240 ]; then
 fi
 log_debug "Available space: ${available_space}KB"
 
+# Stop grace (see on_term). Read from the sibling reader so the extension's
+# GSettings key stays the one source; a reader that fails means the install is
+# incomplete, so recording does not start on a guessed value.
+STOP_GRACE_READER="$(dirname "${BASH_SOURCE[0]}")/wsi-stop-grace"
+if ! STOP_GRACE_SECONDS=$("$STOP_GRACE_READER"); then
+    log_error "Cannot read the stop grace ($STOP_GRACE_READER failed; re-run play-speech-to-text.yml)"
+    exit 1
+fi
+log_debug "Stop grace: ${STOP_GRACE_SECONDS}s"
+
 log_debug "All preflight checks passed"
 
 #============================================================================
@@ -703,15 +769,28 @@ log_debug "30-second timer started with PID $TIMER_PID"
 # path — the timer above sends SIGINT — so it is recorded rather than discarded:
 # `|| true` threw away the one number that distinguishes "stopped by the timer"
 # from "the recorder died".
+#
+# A trapped signal makes `wait` return early (status > 128) with the recorder
+# still running - that is the first TERM of a delayed stop - so it waits again
+# until the recorder itself has gone.
 REC_STATUS=0
-wait $REC_PID || REC_STATUS=$?
+while :; do
+    REC_STATUS=0
+    wait $REC_PID || REC_STATUS=$?
+    if ! kill -0 "$REC_PID" 2>/dev/null; then
+        break
+    fi
+    log_debug "wait interrupted (status $REC_STATUS); recorder $REC_PID still capturing"
+done
+RECORDING_OVER=true
 log_debug "Recorder $REC_PID exited with status $REC_STATUS"
 
-# Cancel the timer if recording stopped early
+# Cancel the timers if recording stopped early
 if kill -0 "$TIMER_PID" 2>/dev/null; then
     kill "$TIMER_PID" 2>/dev/null
     log_debug "Timer cancelled (recording stopped early)"
 fi
+cancel_grace_timer
 
 log_debug "Recording complete: $ramf"
 

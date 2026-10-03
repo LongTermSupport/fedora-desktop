@@ -1,6 +1,6 @@
 # Plan 00148: speech-to-text: unlimited dictation by loop and buffer
 
-**Status**: In Progress (Phase 0 under way; Phases 2-5 wait on the Task 1.1 decision)
+**Status**: In Progress (Phase 0 built, host check Task 0.5 pending; Phases 2-5 wait on the Task 1.1 decision)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
@@ -54,17 +54,20 @@ TERM into `stop_recording`; `wsi-stream` has SIGTERM handlers for server and loc
 Owner's fix: recording continues for a grace period after the press (default 3 s), then
 stops. It lives in the recorders' TERM handlers, so it needs no logout.
 
-- [ ] 🔄 **Task 0.1**: Per mode (`wsi`, `wsi-stream` local, `wsi-stream` server), trace
+- [x] ✅ **Task 0.1**: Per mode (`wsi`, `wsi-stream` local, `wsi-stream` server), trace
   SIGTERM to final text and find where audio or words are dropped
-  (findings go in `RESEARCH-stop-path.md`). If a mode also discards buffered audio
-  at stop, fix that too.
-- [ ] ⬜ **Task 0.2**: One grace setting (default 3 s; 0 = immediate), read by every
-  recorder from a single source.
-- [ ] ⬜ **Task 0.3**: First TERM: keep recording for the grace, then stop as today. A
+  (findings: [RESEARCH-stop-path.md](RESEARCH-stop-path.md)). If a mode also discards
+  buffered audio at stop, fix that too. Pre-buffer mode had no TERM handler at all, and
+  pre-buffer and server mode dropped the `pw-record` pipe and the last realtime pass;
+  all fixed.
+- [x] ✅ **Task 0.2**: One grace setting (default 3 s; 0 = immediate), read by every
+  recorder from a single source: GSettings `stop-grace-seconds`, read via `wsi-stop-grace`.
+- [x] ✅ **Task 0.3**: First TERM: keep recording for the grace, then stop as today. A
   second TERM during the grace stops at once. SIGUSR1 (Escape, abort) stays immediate.
-  The pending stop is visible (state or notification) without an extension change if possible.
-- [ ] ⬜ **Task 0.4**: Tests where the logic is testable outside GNOME; docs; qa-all and
-  `qa-reviewer`.
+  The pending stop is a desktop notification; no extension change.
+- [x] ✅ **Task 0.4**: Tests where the logic is testable outside GNOME
+  (`scripts/test-wsi-stop-grace.bash`, `tests/speech_to_text/`, gated in `qa-all.bash`);
+  docs. Targeted QA done; the full `qa-all.bash` and `qa-reviewer` run by the coordinator.
 - [ ] ⬜ **Task 0.5**: **HOST**: deploy `play-speech-to-text.yml`; press Insert right on
   the last word in each mode; the word is in the pasted text.
 

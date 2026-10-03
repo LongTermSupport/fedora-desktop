@@ -1,0 +1,41 @@
+#!/usr/bin/bash
+#============================================================================
+# wsi-stop-grace - print the speech-to-text stop grace, in whole seconds
+#============================================================================
+# The recorders (wsi, wsi-stream) keep recording for this long after the first
+# Insert press, so the words spoken right before it are captured; a second press
+# during the grace stops at once. 0 means stop immediately.
+#
+# Single source: the GSettings key `stop-grace-seconds` in the extension's own
+# schema (default 3). The schema is compiled into the extension directory, not
+# the system schema path, so it is read with --schemadir.
+#
+#   gsettings --schemadir <dir below> set \
+#       org.gnome.shell.extensions.speech-to-text stop-grace-seconds 5
+#
+# stdout is the value and nothing else; every diagnostic goes to stderr.
+# Not interactive: invoked by the recorders, which treat failure as fatal.
+#============================================================================
+set -euo pipefail
+
+readonly SCHEMA_ID="org.gnome.shell.extensions.speech-to-text"
+readonly KEY="stop-grace-seconds"
+readonly SCHEMA_DIR="$HOME/.local/share/gnome-shell/extensions/speech-to-text@fedora-desktop/schemas"
+
+if [[ $# -ne 0 ]]; then
+    echo "usage: wsi-stop-grace (takes no arguments; prints the grace in seconds)" >&2
+    exit 2
+fi
+
+if ! value=$(gsettings --schemadir "$SCHEMA_DIR" get "$SCHEMA_ID" "$KEY" 2>&1); then
+    echo "wsi-stop-grace: cannot read $SCHEMA_ID $KEY from $SCHEMA_DIR: $value" >&2
+    echo "wsi-stop-grace: re-run play-speech-to-text.yml to install and compile the schema" >&2
+    exit 1
+fi
+
+if [[ ! "$value" =~ ^[0-9]+$ ]]; then
+    echo "wsi-stop-grace: $KEY is not a whole number of seconds: '$value'" >&2
+    exit 1
+fi
+
+echo "$value"

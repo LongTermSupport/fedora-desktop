@@ -52,7 +52,11 @@ audio_process = None          # pw-record subprocess capturing microphone audio
 audio_feed_thread = None      # Thread that reads audio chunks and feeds to recorder
 audio_feed_stop = None        # threading.Event to signal the feeding thread to stop
 transcription_text = ""       # Accumulated transcription from realtime callbacks
-transcription_lock = threading.Lock()  # Protects transcription_text from concurrent access
+transcription_lock = threading.Lock()  # Protects transcription_text and realtime_updates
+realtime_updates = 0          # Realtime passes reported, empty ones included
+# At stop, wait (bounded) for this many realtime passes over the last audio fed
+FINAL_REALTIME_PASSES = 2
+FINAL_REALTIME_WAIT_SECONDS = 1.5
 active_client_addr = None     # Address of client that started current recording (for disconnect detection)
 watchdog_timer = None         # Timer that enforces maximum recording duration (Layer 3 protection)
 WATCHDOG_TIMEOUT = 125        # Maximum recording duration (5 seconds buffer beyond client timeout)
@@ -96,7 +100,10 @@ def on_realtime_transcription_update(text):
     transcription text is available. Accumulates text in a thread-safe manner
     so handle_stop_command() can retrieve the final result.
     """
-    global transcription_text
+    global transcription_text, realtime_updates
+
+    with transcription_lock:
+        realtime_updates += 1
 
     if not text:
         return
@@ -237,12 +244,9 @@ def stop_recording_pipeline():
     """
     global audio_process, audio_feed_thread, audio_feed_stop, transcription_text
 
-    # Step 1: Signal the feeding thread to stop reading audio
-    if audio_feed_stop:
-        audio_feed_stop.set()
-        log("Signaled audio feeding thread to stop")
-
-    # Step 2: Terminate pw-record so the feeding thread's read() unblocks
+    # Step 1: Terminate pw-record. The feeding thread keeps reading until EOF, so the
+    # audio already in the pipe (up to ~2 s) is fed rather than dropped - signalling
+    # the thread to stop first threw away the last words.
     if audio_process:
         try:
             audio_process.terminate()
@@ -260,17 +264,37 @@ def stop_recording_pipeline():
             except Exception:
                 pass
 
-    # Step 3: Wait for the feeding thread to finish
+    # Step 2: Wait for the feeding thread to drain the pipe and reach EOF
     if audio_feed_thread and audio_feed_thread.is_alive():
         audio_feed_thread.join(timeout=3)
         if audio_feed_thread.is_alive():
-            log("Audio feeding thread did not exit in time", "WARN")
+            log("Audio feeding thread did not reach EOF in time - stopping it", "WARN")
+            if audio_feed_stop:
+                audio_feed_stop.set()
+            audio_feed_thread.join(timeout=1)
         else:
             log("Audio feeding thread joined successfully")
 
-    # Step 4: Stop the recorder to finalize any pending transcription.
-    # With use_microphone=False, do NOT call recorder.text() as it blocks
-    # indefinitely. The realtime callback has already captured the text.
+    # Step 3: Let the realtime worker transcribe the audio fed last. RealtimeSTT only
+    # publishes realtime text while recording, so recorder.stop() freezes whatever the
+    # last pass produced; polling for updates after stop() could never see one. Wait
+    # (bounded) for passes that began after the final chunk: the first reported pass may
+    # already have been in flight, the second cannot have been.
+    with transcription_lock:
+        passes_at_eof = realtime_updates
+    passes = 0
+    deadline = time.monotonic() + FINAL_REALTIME_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        with transcription_lock:
+            passes = realtime_updates - passes_at_eof
+        if passes >= FINAL_REALTIME_PASSES:
+            break
+        time.sleep(0.05)
+    log(f"Final realtime passes after EOF: {passes} of {FINAL_REALTIME_PASSES}")
+
+    # Step 4: Stop the recorder. With use_microphone=False, do NOT call
+    # recorder.text() as it blocks indefinitely. The realtime callback has
+    # already captured the text.
     if recorder:
         try:
             recorder.stop()
@@ -278,33 +302,11 @@ def stop_recording_pipeline():
         except Exception as e:
             log(f"Error stopping recorder: {e}", "WARN")
 
-    # Step 5: Wait for final transcription to complete
-    # Poll transcription_text until it stops updating (max 2 seconds)
-    # This ensures we capture the last spoken words
-    last_text = ""
-    stable_count = 0
-    max_polls = 20  # 20 * 0.1s = 2 seconds max
-
-    for _ in range(max_polls):
-        time.sleep(0.1)
-        with transcription_lock:
-            current_text = transcription_text
-
-        if current_text == last_text:
-            stable_count += 1
-            if stable_count >= 3:  # Stable for 0.3s
-                break
-        else:
-            stable_count = 0
-            last_text = current_text
-
-    log(f"Final transcription stabilized after {(_ + 1) * 0.1:.1f}s")
-
-    # Step 6: Retrieve accumulated transcription text
+    # Step 5: Retrieve accumulated transcription text
     with transcription_lock:
         result = transcription_text
 
-    # Step 7: Reset pipeline state for next recording cycle
+    # Step 6: Reset pipeline state for next recording cycle
     audio_process = None
     audio_feed_thread = None
     audio_feed_stop = None

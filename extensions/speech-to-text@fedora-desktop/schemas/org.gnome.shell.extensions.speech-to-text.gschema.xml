@@ -76,6 +76,12 @@
       <summary>Claude Model</summary>
       <description>Claude model to use for post-processing: "sonnet" (balanced), "opus" (best quality), "haiku" (fastest)</description>
     </key>
+    <key name="stop-grace-seconds" type="i">
+      <range min="0" max="30"/>
+      <default>3</default>
+      <summary>Stop Grace (seconds)</summary>
+      <description>After the first stop press (Insert), keep recording for this many seconds so the last words are captured, then stop. A second press during the grace stops at once; Escape still discards at once. 0 stops immediately. Read by the recorder scripts via wsi-stop-grace.</description>
+    </key>
     <key name="paste-default-mode" type="s">
       <default>'with-shift'</default>
       <summary>Default Paste Shortcut</summary>

@@ -349,6 +349,16 @@
         group: "{{ user_login }}"
         mode: '0755'
 
+    # Reads the stop-grace-seconds key from the schema compiled above; wsi and
+    # wsi-stream refuse to record if it cannot be read.
+    - name: Deploy Stop Grace Reader (wsi-stop-grace)
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/wsi-stop-grace"
+        dest: "/home/{{ user_login }}/.local/bin/wsi-stop-grace"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
     # =========================================================================
     # Claude Code Post-Processing Integration
     # =========================================================================
