@@ -769,6 +769,19 @@ Clean Paste — Ctrl+Alt+V clipboard sanitiser:
 
 - Strips formatting and hidden characters from clipboard content before pasting
 
+#### play-cli-tools.yml
+
+CLI Tools — the one home for small command-line utilities (rule:
+[AnsibleStyle.md](../CLAUDE/AnsibleStyle.md#small-cli-utilities-go-in-play-cli-toolsyml)):
+
+- **`imgpaste <image>`** prints a short bash block that carries the image as base64 with
+  its sha256. Paste the block into any agent's chat, including one on a remote server
+  with no clipboard. The agent runs it, the checksum proves the paste arrived intact, and
+  the agent views the decoded WebP. Big or busy images are shrunk step by step until the
+  block fits about 40,000 characters, the size an agent is known to copy exactly; one
+  that cannot fit is refused with a hint to crop it. Installs ImageMagick (and asserts it
+  can write WebP) and `file`
+
 #### play-cloudflare-dns.yml
 
 Cloudflare encrypted DNS — DNS-over-TLS with malware filtering, no client:

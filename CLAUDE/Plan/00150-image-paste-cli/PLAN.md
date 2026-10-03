@@ -19,7 +19,8 @@ A side task checks the local root cause: Claude Code's own image paste (Ctrl+V) 
 the clipboard through `wl-paste` (Wayland) or `xclip` (X11). This is not yet verified
 on this host.
 
-Prototype: [`imgpaste-proto.bash`](imgpaste-proto.bash). Measurements and the format
+The command: [`files/home/.local/bin/imgpaste`](../../../files/home/.local/bin/imgpaste),
+deployed by `play-cli-tools.yml`. Measurements and the format
 choice: [RESEARCH-encoding.md](RESEARCH-encoding.md). Example input:
 [`assets/example-terminal-screenshot.png`](assets/example-terminal-screenshot.png).
 
@@ -29,7 +30,7 @@ choice: [RESEARCH-encoding.md](RESEARCH-encoding.md). Example input:
 - Text in the decoded image stays legible when viewed with the Read tool.
 - Decoding needs only `bash`, `base64` and `sha256sum` on the receiving host.
 - Bad input fails fast: non-images and oversized images are rejected with a clear stderr message.
-- The command and its packages are deployed by an existing playbook.
+- The command and its packages are deployed by `play-cli-tools.yml`, the one play for small CLI utilities.
 
 ## Non-Goals
 
@@ -52,11 +53,15 @@ choice: [RESEARCH-encoding.md](RESEARCH-encoding.md). Example input:
 
 ### Phase 2: Productionise
 
-- [ ] ⬜ **Task 2.1**: Move the prototype to `files/home/.local/bin/imgpaste`, following `CLAUDE/StderrHygiene.md`.
-- [ ] ⬜ **Task 2.2**: Deploy it from an existing play (no new playbook). Make sure ImageMagick with WebP support and `file` are installed by that play. **Owner decision:** no single play deploys the `~/.local/bin` tools; each has its own optional play. The closest are `play-clean-paste.yml` (installs `wl-clipboard`, but is built around its Ctrl+Alt+V keybinding) and `play-image-watermarking.yml` (installs ImageMagick 7).
+- [x] ✅ **Task 2.1**: Move the prototype to `files/home/.local/bin/imgpaste`, following `CLAUDE/StderrHygiene.md`. Added `--help`.
+- [x] ✅ **Task 2.2**: Deploy it, with ImageMagick (WebP write support asserted) and `file`. **Owner decision:** a new `play-cli-tools.yml` is the one home for small CLI utilities, so tools stop getting a play each. The rule is in `CLAUDE/AnsibleStyle.md` ("Small CLI utilities go in `play-cli-tools.yml`").
+- [ ] ⬜ **Task 2.2a**: Bring existing one-tool plays into `play-cli-tools.yml`. **Owner decision on which.** Each move deletes the old play in the same commit and adds it to `helpers/play_ledger/retired-plays.json`; plays named in `optional/server-recommended.bundle` need that file updated too. Survey:
+  - Strong: `play-disk-reclaim.yml` (`reclaim`), `play-network-tools.yml` (`lan-scan`, `qnap-finder`), `play-collaboration.yml` (`tmate-share`, `tmate-full`), `play-open-command.yml` (`open`), `play-lxcfreeze.yml` + `play-podfreeze.yml` (move together: they share `tasks/deploy-freeze-lib.yml`), `play-compression-helpers.yml` (`compress`, `uncompress`; also pins the upstream `ouch` binary).
+  - Weak: `play-gnome-shell-dev.yml` (gnome scope), `play-image-watermarking.yml` (config in `/etc/watermark/`), `play-clean-paste.yml` (a GNOME keybinding), core `play-markless.yml` (moving it makes it opt-in).
 - [ ] ⬜ **Task 2.3**: Check whether `wl-clipboard`/`xclip` are installed by IaC. If not, add them to the relevant system playbook and confirm Ctrl+V image paste works locally. Found: `wl-clipboard` is installed only by the optional `play-clean-paste.yml`, and `xclip` by nothing. The Ctrl+V check needs the host.
-- [ ] ⬜ **Task 2.4**: Write `deploy.bash` and `acceptance.bash` on `_planlib.inc.bash`. Acceptance round-trips a fixture (encode, run the block, sha256 match), tests the rejection paths, and prints a COVERAGE line.
-- [ ] ⬜ **Task 2.5**: Document the command under `docs/`.
+- [x] ✅ **Task 2.4**: Write `deploy.bash` and `acceptance.bash` on `_planlib.inc.bash`. Acceptance round-trips a fixture (encode, run the block, sha256 match), tests the rejection paths, and prints a COVERAGE line.
+  - [ ] ⬜ **HOST**: `./deploy.bash`, then `./acceptance.bash`.
+- [x] ✅ **Task 2.5**: Document the command under `docs/` (`docs/playbooks.md`, `play-cli-tools.yml`).
 - [ ] ⬜ **Task 2.6**: Run `./scripts/qa-all.bash`, then the `qa-reviewer` agent; resolve all findings.
 
 ## Success Criteria

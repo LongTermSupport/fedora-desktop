@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
-# Prototype: encode an image as a pasteable, self-decoding bash block.
+# imgpaste — encode an image as a pasteable, self-decoding bash block, so an agent with
+# no clipboard access (a remote server over SSH, a terminal where image paste fails) can
+# be shown a screenshot. Paste the block into the chat; the agent runs it with bash, the
+# sha256 proves the paste arrived intact, and the agent views the decoded WebP.
 # stdout = the block; everything else goes to stderr.
+# Deployed by playbooks/imports/optional/common/play-cli-tools.yml. Measurements behind
+# every limit below: CLAUDE/Plan/00150-image-paste-cli/RESEARCH-encoding.md.
 set -euo pipefail
 
 readonly MAX_INPUT_BYTES=$((50 * 1024 * 1024))
 readonly MAX_INPUT_PIXELS=$((80 * 1000 * 1000))
 # The receiving agent re-types the block into one tool call. 35,311 chars were copied
-# back exactly (RESEARCH-encoding.md); the budget stays close to what is proven.
+# back exactly; the budget stays close to what is proven.
 readonly MAX_BLOCK_CHARS=40000
 # Tried in order; the first that fits the budget wins. 2000 is the widest the Read
 # tool displays. Quality drops before the edge does: q30 stayed legible in testing.
@@ -14,7 +19,16 @@ readonly LADDER=("2000 50" "2000 30" "1568 30" "1200 30" "1000 30" "800 30")
 
 die() { echo "imgpaste: $*" >&2; exit 1; }
 
-[[ $# -eq 1 ]] || die "usage: imgpaste <image-file>"
+readonly USAGE="usage: imgpaste <image-file>
+
+Prints a bash block that recreates the image as ./imgpaste-<id>.webp when run, then
+checks its sha256. Paste the whole block into an agent's chat."
+
+if [[ $# -eq 1 && ( "$1" == "-h" || "$1" == "--help" ) ]]; then
+	printf '%s\n' "$USAGE"
+	exit 0
+fi
+[[ $# -eq 1 ]] || die "$USAGE"
 input="$1"
 [[ -f "$input" ]] || die "not a file: $input"
 

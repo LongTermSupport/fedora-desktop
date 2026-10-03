@@ -1,0 +1,73 @@
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
+---
+# CLI Tools — the home for small command-line utilities.
+#
+# A small, self-contained CLI (a script in files/home/.local/bin plus a few packages, no
+# services, keybindings or secrets) is added HERE as a new block of tasks, not given a
+# play of its own. One play per tiny tool multiplies the plays a host must remember to
+# run; see CLAUDE/AnsibleStyle.md "Small CLI utilities".
+#
+# Tools:
+#   imgpaste — encode an image as a pasteable, self-decoding bash block for an agent
+#              that cannot reach the clipboard (Plan 00150)
+#
+# Standalone / opt-in play — run directly:
+#   ./playbooks/imports/optional/common/play-cli-tools.yml
+- hosts: desktop
+  name: CLI Tools - small command-line utilities
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    user_bin_dir: "/home/{{ user_login }}/.local/bin"
+  tasks:
+    - name: Ensure user local bin directory exists
+      ansible.builtin.file:
+        path: "{{ user_bin_dir }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
+    # ── imgpaste ─────────────────────────────────────────────────────────────────
+    - name: Install imgpaste dependencies
+      ansible.builtin.package:
+        name:
+          - ImageMagick   # provides `magick` (IM7 on Fedora 43+); encodes to WebP
+          - file          # the mime check that rejects non-images before ImageMagick reads them
+        state: present
+      tags: imgpaste
+
+    # Probe-then-fail: imgpaste writes WebP and nothing else, so an ImageMagick built
+    # without the WebP coder would fail on every image, at the moment the user needs it.
+    - name: Probe ImageMagick formats for WebP write support
+      ansible.builtin.command: magick -list format
+      register: imgpaste_magick_formats
+      changed_when: false
+      tags: imgpaste
+
+    - name: Assert ImageMagick can write WebP
+      ansible.builtin.assert:
+        that:
+          - imgpaste_magick_formats.stdout is search('(?m)^\s*WEBP\*?\s+r[w]')
+        fail_msg: |
+          `magick -list format` lists no writable WEBP coder, and imgpaste encodes to WebP only.
+          Install the ImageMagick WebP delegate (libwebp) and re-run this play.
+      tags: imgpaste
+
+    - name: Deploy imgpaste
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/imgpaste"
+        dest: "{{ user_bin_dir }}/imgpaste"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      tags: imgpaste
+
+    - name: Display installation summary
+      ansible.builtin.debug:
+        msg:
+          - "============================================"
+          - "CLI Tools installed"
+          - "============================================"
+          - "  imgpaste <image>  - print a self-decoding block to paste into an agent's chat"
