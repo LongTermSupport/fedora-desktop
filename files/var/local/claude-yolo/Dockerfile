@@ -33,7 +33,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.42"
+LABEL claude-yolo-version="2.43"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -103,6 +103,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libimage-exiftool-perl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# wl-clipboard: Claude Code's Ctrl+V image paste runs `wl-paste`, and the launcher already
+# mounts the host Wayland socket, so this pastes a screenshot from the host clipboard into a
+# session. GNOME offers no data-control protocol, so wl-paste must win focus with a 1x1
+# window, and Claude calls it with no timeout: if the compositor withholds focus the paste
+# would hang. The wrapper in /usr/local/bin (ahead of /usr/bin on PATH) caps each call and
+# fails with exit 124 and a message instead. With no Wayland session it fails at once.
+RUN apt-get update && apt-get install -y --no-install-recommends wl-clipboard \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && printf '%s\n' \
+        '#!/bin/bash' \
+        'timeout 5 /usr/bin/wl-paste "$@"' \
+        'rc=$?' \
+        'if [[ $rc -eq 124 ]]; then echo "wl-paste: no answer from the compositor in 5s (GNOME withheld focus?)" >&2; fi' \
+        'exit $rc' \
+        > /usr/local/bin/wl-paste \
+    && chmod 755 /usr/local/bin/wl-paste \
+    && test -x /usr/bin/wl-copy
 
 # Install GitHub CLI
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \

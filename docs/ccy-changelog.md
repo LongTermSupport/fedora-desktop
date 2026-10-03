@@ -17,9 +17,9 @@ Two version numbers move independently — see
 
 ---
 
-## 3.76.0 — container 2.42
+## 3.78.0 — container 2.43
 
-Fixes from the host review of 3.74.0 and 3.75.0, before either was deployed.
+Fixes from the host review of 3.76.0 and 3.77.0, before either was deployed.
 
 - **The play deploys `restart-request.bash` and `session-lifecycle.bash`.** The launcher
   sources both on every launch, but the play did not copy them, so every `ccy` launch would
@@ -49,22 +49,22 @@ Fixes from the host review of 3.74.0 and 3.75.0, before either was deployed.
 - **Two sessions in one project keep separate `--max-age` clocks.** The plugin keys its state
   by container, so a second session no longer resets the first one's age. A deadline
   announced once is still not announced again after a restart of the same session. This plugin
-  change is why the container version moves to 2.42.
+  change is why the container version moves to 2.43.
 - **The warning is given when the session is idle** inside the last
   `CCY_RESTART_WARN_MINUTES`; a session busy through that whole window gets none.
 - A pre-commit check now requires a container version bump for any change to the Dockerfile,
   the entrypoint or the supervisor plugins.
 
-## 3.75.0 — container 2.41
+## 3.77.0 — container 2.42
 
 - **`--max-age`, `--run-for` and `--until` give a session a lifetime.** `--max-age 3d`
   restarts the session on a fresh container (and so the newest Claude Code) once it has run
-  that long: the session is warned first, the supervisor ends it at an idle point, and 3.74.0's
+  that long: the session is warned first, the supervisor ends it at an idle point, and 3.76.0's
   relaunch picks it up with `--resume`. `--run-for 2h` and `--until 17:30` tell the session once,
   at the deadline, that its time is up; they never end it. Durations are days, hours and
   minutes (`90m`, `12h`, `1d12h`). All three are off unless given; `CCY_MAX_AGE` sets a default
   for `--max-age` and `CCY_RESTART_WARN_MINUTES` the warning lead (default 10).
-- **Done by a supervisor plugin the image ships.** The container version moves to 2.41 for
+- **Done by a supervisor plugin the image ships.** The container version moves to 2.42 for
   `/opt/claude-yolo/supervisor-plugins/ccy_lifecycle.py` (root owned, outside the project mount).
   The entrypoint adds it to the supervisor's command line only when an option is set; without
   one the wrapper line is unchanged. A bad value fails the launch with an example, before any
@@ -77,7 +77,7 @@ Fixes from the host review of 3.74.0 and 3.75.0, before either was deployed.
   `tests/helpers/ccy_lifecycle/test_plugin.py` (the plugin). The image build and a live
   restart need trying on a host.
 
-## 3.74.0 — container 2.40
+## 3.76.0 — container 2.41
 
 - **A session can ask to be restarted on a fresh container, and CCY now honours it.** Claude
   Code is baked into the image, so a long-lived session never sees a newer version until its
@@ -97,8 +97,29 @@ Fixes from the host review of 3.74.0 and 3.75.0, before either was deployed.
   and passed through as the exit status. The image update is not optional here: if it
   fails, CCY stops rather than relaunching on the old version.
 - Unit-tested in `scripts/test-ccy-restart-request.bash`. Nothing in the image changed, so
-  the container version stays at 2.40. The part that talks to a real container is not
+  the container version stays at 2.41. The part that talks to a real container is not
   covered by it and needs trying on a host.
+
+## 3.75.0 — container 2.41
+
+- **Ctrl+V pastes an image from the host clipboard into a session.** Claude Code reads the
+  clipboard with `wl-paste`, which the image did not carry. It now ships `wl-clipboard`,
+  which reads the host clipboard through the Wayland socket the launcher already mounts, so
+  no new access is granted. GNOME makes `wl-paste` win focus before it may read, and Claude
+  waits on it with no timeout, so a wrapper caps each call at 5 s and fails with a message
+  rather than freezing the paste. Proven on a GNOME Wayland host (Plan 00151). `imgpaste`
+  remains the route on hosts with no local clipboard.
+
+## 3.74.0 — container 2.40
+
+- **The ssh-agent is the default whenever it holds the key the menu would have chosen.**
+  3.73.0 made the agent the default only when nothing else was suggested, so a project whose
+  remote key was also loaded in the agent still defaulted to the key file and asked for its
+  passphrase. Now the default key is picked as before, and if the agent holds that very key
+  the agent is the default instead. The key file stays one keystroke away.
+- **A key the remote and the account both name is listed once.** The remote's own key can be
+  one of the `github_` account keys; the menu showed it twice, with the push and agent marks
+  on only one line. It is now one line carrying both.
 
 ## 3.73.0 — container 2.40
 

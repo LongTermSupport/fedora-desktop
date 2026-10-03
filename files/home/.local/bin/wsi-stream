@@ -46,12 +46,170 @@ SERVER_PID_FILE = Path(f"/run/user/{os.getuid()}/wsi-stream-server.pid")
 DBUS_PATH = "/org/fedoradesktop/SpeechToText"
 DBUS_INTERFACE = "org.fedoradesktop.SpeechToText"
 
+# Prints the stop grace in seconds; reads the extension's GSettings key, the one source
+STOP_GRACE_READER = Path(__file__).resolve().parent / "wsi-stop-grace"
+# After the microphone closes, wait for this many more realtime passes (bounded) so
+# the audio captured last is transcribed: RealtimeSTT publishes realtime text only
+# while recording, so recorder.stop() freezes whatever the last pass produced.
+FINAL_REALTIME_PASSES = 2
+FINAL_REALTIME_WAIT_SECONDS = 1.5
+
 # Global state
 debug_mode = False
 no_notify = False
 stop_requested = False
 recorder = None
 current_text = ""
+realtime_updates = 0  # Realtime passes reported, empty ones included
+
+
+class GracefulStop:
+    """Delayed-stop state shared by every wsi-stream mode.
+
+    The extension stops a recording with SIGTERM the moment Insert is pressed, which
+    cut off the words still being spoken. The first request() starts a grace period
+    during which recording continues; a second request(), or any request when the
+    grace is 0, makes the stop due at once. stop_now() is for SIGINT and SIGUSR1
+    (Escape, with discard=True), which never wait.
+
+    Called from signal handlers, so it only records times: it never sleeps or
+    blocks. Each mode's own loop polls due() and stops there.
+    """
+
+    def __init__(self, grace_seconds, clock=time.monotonic):
+        if grace_seconds < 0:
+            raise ValueError(f"grace_seconds must be >= 0, got {grace_seconds}")
+        self.grace_seconds = grace_seconds
+        self._clock = clock
+        self.deadline = None
+        self.discard = False
+        self._notice_owed = False
+        self.notes = []  # Log lines left by signal handlers for the main loop
+
+    def _due_now(self):
+        now = self._clock()
+        self.deadline = now if self.deadline is None else min(self.deadline, now)
+
+    def request(self):
+        """A stop press. Returns True if it started a grace, False if the stop is due now."""
+        if self.deadline is None and self.grace_seconds > 0:
+            self.deadline = self._clock() + self.grace_seconds
+            self._notice_owed = True
+            return True
+        self._due_now()
+        return False
+
+    def stop_now(self, discard=False):
+        self._due_now()
+        if discard:
+            self.discard = True
+
+    @property
+    def requested(self):
+        return self.deadline is not None
+
+    def due(self):
+        return self.deadline is not None and self._clock() >= self.deadline
+
+    def take_notice(self):
+        """True once per grace that has started but not been announced to the user."""
+        owed = self._notice_owed and not self.due()
+        self._notice_owed = False
+        return owed
+
+
+def read_stop_grace():
+    """The stop grace in seconds, from wsi-stop-grace. Raises if it cannot be read."""
+    result = subprocess.run([str(STOP_GRACE_READER)], capture_output=True, text=True,
+                            timeout=5, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"{STOP_GRACE_READER} failed: {result.stderr.strip()}")
+    value = result.stdout.strip()
+    if not value.isdigit():
+        raise RuntimeError(f"{STOP_GRACE_READER} printed a non-number: '{value}'")
+    return int(value)
+
+
+def install_stop_handlers(stop, abort_on_usr1=False):
+    """SIGTERM is a stop press (graced); SIGINT stops now; SIGUSR1 discards if asked.
+
+    The handlers do not log: log() can print to stderr, and a handler that
+    interrupts a print on the main thread would raise a reentrant-call error. They
+    leave a note that announce_pending_stop() logs from the main loop.
+    """
+    def on_term(signum, frame):
+        if stop.request():
+            stop.notes.append(f"SIGTERM: recording {stop.grace_seconds}s more (TERM again stops now)")
+        else:
+            stop.notes.append("SIGTERM: stopping now")
+
+    def on_now(signum, frame):
+        discard = signum == signal.SIGUSR1
+        stop.notes.append(f"Signal {signum}: stopping now{' and discarding' if discard else ''}")
+        stop.stop_now(discard=discard)
+
+    signal.signal(signal.SIGTERM, on_term)
+    signal.signal(signal.SIGINT, on_now)
+    if abort_on_usr1:
+        signal.signal(signal.SIGUSR1, on_now)
+
+
+def announce_pending_stop(stop):
+    """Log the handlers' notes, and tell the user a stop is pending (once per grace).
+
+    Called from the main loop, never from a signal handler.
+    """
+    while stop.notes:
+        log(stop.notes.pop(0))
+    if stop.take_notice():
+        log(f"Stop pending: {stop.grace_seconds}s grace")
+        desktop_notification(
+            f"Stopping in {stop.grace_seconds}s - finish your sentence.\n"
+            "Insert: stop now. Escape: discard.",
+            stop.grace_seconds * 1000,
+        )
+
+
+def wait_for_final_realtime_passes(start_count):
+    """Wait (bounded) for realtime passes that began after the microphone closed.
+
+    Call with the count taken after the last audio was fed. The first pass reported
+    after that may have started earlier; the one after it cannot have, as the
+    realtime worker runs one pass at a time.
+    """
+    deadline = time.monotonic() + FINAL_REALTIME_WAIT_SECONDS
+    while realtime_updates < start_count + FINAL_REALTIME_PASSES and time.monotonic() < deadline:
+        time.sleep(0.05)
+    log(f"Final realtime passes: {realtime_updates - start_count} of {FINAL_REALTIME_PASSES}")
+
+
+def read_remaining_audio(proc, chunk_size, feed):
+    """Feed the audio pw-record had already captured, after asking it to stop.
+
+    The pipe holds up to ~2 s of 16 kHz mono audio; closing it unread dropped the
+    last words. Reading lets a writer blocked on a full pipe exit, and a timer kills
+    a pw-record that ignores SIGTERM so the read always reaches EOF.
+    """
+    import array
+    import threading
+    proc.terminate()
+    killer = threading.Timer(2, proc.kill)
+    killer.start()
+    fed = 0
+    try:
+        while True:
+            chunk = proc.stdout.read(chunk_size)
+            if not chunk:
+                break
+            usable = len(chunk) - len(chunk) % 2
+            if usable:
+                feed(array.array('h', chunk[:usable]))
+                fed += 1
+    finally:
+        killer.cancel()
+        proc.stdout.close()
+    proc.wait(timeout=2)
+    log(f"Fed {fed} remaining audio chunks after stop")
 
 
 def cleanup_on_exit():
@@ -72,9 +230,6 @@ def cleanup_on_exit():
             PID_FILE.unlink()
         except Exception:
             pass
-
-
-atexit.register(cleanup_on_exit)
 
 
 def log(message, level="INFO"):
@@ -106,8 +261,11 @@ def notify(state, message):
     """Send notification and DBus state signal."""
     log(f"State: {state} - {message}")
     emit_dbus_signal("StateChanged", state)
+    desktop_notification(message, 2000)
 
-    # Skip desktop notification if --no-notify was passed
+
+def desktop_notification(message, expire_ms):
+    """Desktop notification with no state change (unless --no-notify was passed)."""
     if no_notify:
         return
 
@@ -122,7 +280,7 @@ def notify(state, message):
             "audio-input-microphone",
             "Speech to Text (Streaming)",
             message,
-            "[]", "{}", "2000"
+            "[]", "{}", str(expire_ms)
         ], capture_output=True, timeout=1)
     except Exception:
         pass
@@ -224,8 +382,9 @@ def on_realtime_update(new_text):
     Callback for real-time transcription - writes to buffer file.
     File is completely replaced each time (no append/diff needed).
     """
-    global current_text
+    global current_text, realtime_updates
 
+    realtime_updates += 1
     if not new_text:
         return
 
@@ -408,6 +567,13 @@ def run_server_mode(args):
 
     log("=== Server mode requested ===")
 
+    try:
+        stop = GracefulStop(read_stop_grace())
+    except Exception as e:
+        log(f"Cannot read the stop grace: {e}", "ERROR")
+        notify("ERROR", "Cannot read the stop grace (re-run play-speech-to-text.yml)")
+        return 1
+
     # Track whether recording is active (for cleanup)
     recording_active = False
     cleanup_done = False
@@ -470,25 +636,12 @@ def run_server_mode(args):
 
     log("Server ready - instant recording startup!")
 
-    # From here a stop is a graceful request: the wait loop below sends STOP.
-    # SIGUSR1 is the extension's abort (Escape): STOP the server so it releases the
-    # mic, but discard the text. SIGKILLing this client instead would leave the server
-    # recording until its watchdog fires, refusing every START in the meantime.
-    stop_requested = False
-    discard_requested = False
-
-    def handle_signal(signum, frame):
-        nonlocal stop_requested, discard_requested, recording_active
-        log(f"Signal {signum} received, requesting stop")
-        stop_requested = True
-        if signum == signal.SIGUSR1:
-            discard_requested = True
-        # Mark as inactive so atexit doesn't try to send STOP again
-        recording_active = False
-
-    signal.signal(signal.SIGINT, handle_signal)
-    signal.signal(signal.SIGTERM, handle_signal)
-    signal.signal(signal.SIGUSR1, handle_signal)
+    # From here a stop is a graceful request: the wait loop below sends STOP once it is
+    # due (SIGTERM after the grace). SIGUSR1 is the extension's abort (Escape): STOP the
+    # server at once so it releases the mic, but discard the text. SIGKILLing this client
+    # instead would leave the server recording until its watchdog fires, refusing every
+    # START in the meantime.
+    install_stop_handlers(stop, abort_on_usr1=True)
 
     # Clear buffer file
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -514,7 +667,8 @@ def run_server_mode(args):
     timeout = args.timeout or 120
     start_time = time.monotonic()
     try:
-        while (time.monotonic() - start_time) < timeout and not stop_requested:
+        while (time.monotonic() - start_time) < timeout and not stop.due():
+            announce_pending_stop(stop)
             time.sleep(0.1)  # Check every 100ms
         if (time.monotonic() - start_time) >= timeout:
             log("Timeout reached, stopping recording")
@@ -540,7 +694,7 @@ def run_server_mode(args):
     # The PID file stays until exit (atexit removes it): the extension treats a missing
     # PID file as "no recorder", and transcription + paste are still to come.
 
-    if discard_requested:
+    if stop.discard:
         log("Recording discarded (abort) - not transcribing or pasting")
         return 0
 
@@ -622,14 +776,21 @@ def run_streaming(args):
 
     log(f"Starting streaming transcription (pre-buffer: {args.pre_buffer})...")
 
+    try:
+        stop = GracefulStop(read_stop_grace())
+    except Exception as e:
+        log(f"Cannot read the stop grace: {e}", "ERROR")
+        notify("ERROR", "Cannot read the stop grace (re-run play-speech-to-text.yml)")
+        return 1
+
     # Route to appropriate implementation
     if args.pre_buffer:
-        return run_prebuffered_streaming(args)
+        return run_prebuffered_streaming(args, stop)
     else:
-        return run_standard_streaming(args)
+        return run_standard_streaming(args, stop)
 
 
-def run_standard_streaming(args):
+def run_standard_streaming(args, stop):
     """Standard streaming mode - RealtimeSTT manages audio."""
     global debug_mode, no_notify, stop_requested, recorder, current_text
 
@@ -672,24 +833,11 @@ def run_standard_streaming(args):
         finally:
             recording_done.set()
 
-    # Signal handler - stop recording on SIGINT/SIGTERM
-    def handle_signal(signum, frame):
-        global stop_requested, recorder
-        log(f"Signal {signum} received, stopping...")
-        stop_requested = True
-        if recorder:
-            try:
-                recorder.stop()
-                log("Called recorder.stop()")
-            except Exception as e:
-                log(f"stop() failed: {e}", "WARN")
-        # DON'T set recording_done here - let the recording thread set it
-        # after recorder.text() returns with the final transcription.
-        # Setting it here causes a race where we proceed before the last
-        # audio chunk is transcribed, losing the final word(s).
-
-    signal.signal(signal.SIGINT, handle_signal)
-    signal.signal(signal.SIGTERM, handle_signal)
+    # SIGTERM starts the grace, SIGINT stops now; the wait loop below calls
+    # recorder.stop() once the stop is due. recording_done is left to the
+    # recording thread, set after recorder.text() returns with the final
+    # transcription: setting it on stop raced ahead of the last audio chunk.
+    install_stop_handlers(stop)
 
     try:
         # Signal PREPARING state (orange icon) while initializing
@@ -733,13 +881,23 @@ def run_standard_streaming(args):
         rec_thread = threading.Thread(target=recording_thread, daemon=True)
         rec_thread.start()
 
-        # Wait for either completion or timeout (main thread handles signals)
+        # Wait for completion, a due stop, or the timeout (main thread handles signals)
         timeout = args.timeout or 30
-        recording_done.wait(timeout=timeout)
+        give_up_at = time.monotonic() + timeout
+        while (not recording_done.is_set() and not stop.due()
+               and time.monotonic() < give_up_at):
+            announce_pending_stop(stop)
+            recording_done.wait(timeout=0.1)
 
-        # If stop was requested but recording thread hasn't finished yet,
-        # give it a few more seconds for the final transcription
-        if stop_requested and not recording_done.is_set():
+        # Stop due: stop the recorder, then give the recording thread a few
+        # more seconds for the final transcription
+        if stop.due() and not recording_done.is_set():
+            stop_requested = True
+            try:
+                recorder.stop()
+                log("Called recorder.stop()")
+            except Exception as e:
+                log(f"stop() failed: {e}", "WARN")
             log("Waiting for final transcription after stop...")
             recording_done.wait(timeout=5)
 
@@ -883,7 +1041,7 @@ def run_standard_streaming(args):
     return 0
 
 
-def run_prebuffered_streaming(args):
+def run_prebuffered_streaming(args, stop):
     """
     Pre-buffered streaming mode - starts audio capture immediately while model loads.
     Provides instant startup by recording audio to buffer during model initialization.
@@ -896,6 +1054,10 @@ def run_prebuffered_streaming(args):
     from RealtimeSTT import AudioToTextRecorder
     import threading
     import array
+
+    # Without handlers SIGTERM's default action killed this process outright: no
+    # paste, no IDLE. Installed before the PID file names us as the recorder.
+    install_stop_handlers(stop)
 
     # Write PID file (use main process PID)
     PID_FILE.write_text(str(os.getpid()))
@@ -973,9 +1135,12 @@ def run_prebuffered_streaming(args):
         model_thread = threading.Thread(target=load_model_thread, daemon=True)
         model_thread.start()
 
-        # Buffer audio chunks while model loads
+        # Buffer audio chunks while model loads, until the model is ready or a stop
+        # is due - a stop pressed during the load closes the microphone now, not
+        # when the model finishes loading
         log("Buffering audio while model loads...")
-        while not model_ready.is_set():
+        while not model_ready.is_set() and not stop.due():
+            announce_pending_stop(stop)
             try:
                 chunk = audio_process.stdout.read(chunk_size)
                 if not chunk:
@@ -987,6 +1152,16 @@ def run_prebuffered_streaming(args):
                 log(f"Buffering error: {e}", "WARN")
                 break
 
+        # Stopped during the load: close the microphone and keep what it captured,
+        # then wait for the model to transcribe exactly that
+        stopped_while_loading = stop.due() and not model_ready.is_set()
+        if stopped_while_loading:
+            announce_pending_stop(stop)
+            log("Stop due while the model loads - closing the microphone")
+            stop_requested = True
+            read_remaining_audio(audio_process, chunk_size, audio_buffer.append)
+            model_ready.wait()
+
         # Check if model loaded successfully
         if model_error:
             raise model_error
@@ -995,17 +1170,19 @@ def run_prebuffered_streaming(args):
             raise RuntimeError("Model failed to load")
 
         log(f"Model ready! Buffered {len(audio_buffer)} chunks ({len(audio_buffer) * chunk_size / 16000:.2f}s)")
-        notify("RECORDING", "Recording... (transcribing live)")
+        if stopped_while_loading:
+            notify("TRANSCRIBING", "Transcribing what was recorded...")
+        else:
+            notify("RECORDING", "Recording... (transcribing live)")
 
         # Start the recorder so realtime worker processes audio (sets is_recording=True)
         recorder.start()
         log("Recorder started (realtime transcription active)")
 
-        # Feed buffered chunks to model
+        # Feed every buffered chunk: the buffering loop ended at the model load or at
+        # a due stop, so all of it was captured before the microphone closed
         log("Feeding buffered audio to model...")
         for i, chunk in enumerate(audio_buffer):
-            if stop_requested:
-                break
             # Convert bytes to numpy-like array that RealtimeSTT expects
             audio_array = array.array('h', chunk)  # 'h' = signed short (int16)
             recorder.feed_audio(audio_array)
@@ -1015,10 +1192,11 @@ def run_prebuffered_streaming(args):
         audio_buffer.clear()  # Free memory
         log("All buffered audio fed to model")
 
-        # Continue feeding real-time audio until stop
+        # Continue feeding real-time audio until stop (unless it already came)
         log("Feeding real-time audio...")
         timeout_time = time.time() + args.timeout
-        while not stop_requested and time.time() < timeout_time:
+        while not stopped_while_loading and not stop.due() and time.time() < timeout_time:
+            announce_pending_stop(stop)
             try:
                 chunk = audio_process.stdout.read(chunk_size)
                 if not chunk:
@@ -1034,12 +1212,11 @@ def run_prebuffered_streaming(args):
         log("Stopping audio capture...")
         stop_requested = True
 
-        # Stop pw-record gracefully
-        try:
-            audio_process.terminate()
-            audio_process.wait(timeout=2)
-        except Exception:
-            audio_process.kill()
+        # Stop pw-record and feed what it had already captured, then let the
+        # realtime worker transcribe that tail before recorder.stop() freezes the text
+        if not stopped_while_loading:
+            read_remaining_audio(audio_process, chunk_size, recorder.feed_audio)
+        wait_for_final_realtime_passes(realtime_updates)
 
         # Get final transcription
         # In prebuffered mode with use_microphone=False, recorder.text() would block
@@ -1186,6 +1363,10 @@ def main():
                         help="Paste key: 1=Ctrl+Shift+V (terminals), 0=Ctrl+V (browsers/GUI apps)")
 
     args = parser.parse_args()
+
+    # Registered here rather than at import, so loading this file for its unit tests
+    # emits no D-Bus signal on exit
+    atexit.register(cleanup_on_exit)
 
     try:
         # Route to server mode if requested

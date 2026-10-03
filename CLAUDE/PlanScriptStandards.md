@@ -238,6 +238,10 @@ say so in the output. When something must happen between the two that a script c
 (a logout to load new GNOME Shell code, a reboot), keep them separate and say why in
 `deploy.bash`'s closing message.
 
+The owner never runs a plan's `deploy.bash` by hand from a chat instruction: the plan goes
+into `CLAUDE/Plan/meta-deploy.bash`'s `PLANS` list, which runs it
+([PlanWorkflow.md](PlanWorkflow.md)).
+
 ### R10 — Reports go in the run directory, and the script writes them
 
 `plan_start_log auto` creates `untracked/plan-runs/<plan>/<script>/<timestamp>/`, exports it as `PLAN_RUN_DIR`, and

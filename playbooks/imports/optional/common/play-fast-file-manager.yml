@@ -6,8 +6,7 @@
 # This playbook addresses slow GNOME file picker issues by:
 # - Installing lightweight PCManFM as alternative file manager
 # - Configuring xdg-desktop-portal to use faster GTK file chooser
-# - Applying GSK_RENDERER=ngl fix for the GTK4 app slow-load issue (F41/42-era;
-#   re-evaluate whether it is still needed on F44/GNOME 50 — see docs/fast-file-manager.md)
+# - Removing the GSK_RENDERER=ngl override from /etc/environment (see the task for why)
 # - Disabling GNOME's recently-used file history (a huge ~/.local/share/recently-used.xbel
 #   makes Nautilus stat hundreds of paths on startup; on network-backed mounts
 #   this stalls it for seconds)
@@ -28,9 +27,7 @@
     # Performance optimization options (can be overridden in host_vars)
     # Set these in environment/localhost/host_vars/localhost.yml:
     #   fast_file_manager_disable_thumbnails: true
-    #   fast_file_manager_apply_gsk_fix: false
     disable_thumbnails: "{{ fast_file_manager_disable_thumbnails | default(false) }}"
-    apply_gsk_fix: "{{ fast_file_manager_apply_gsk_fix | default(true) }}"
 
   tasks:
     - name: Scope guard — assert provisioning_profile is recognised
@@ -109,26 +106,20 @@
         - config
 
     # ============================================================================
-    # Apply GSK Renderer Fix for Fedora 41/42
+    # Remove the GSK_RENDERER=ngl Override
     # ============================================================================
-    # Many Fedora 41+ users report 3-5 second delays opening GTK4 apps
-    # including Nautilus. Setting GSK_RENDERER=ngl fixes this immediately.
-    # @see https://community.frame.work/t/fix-fedora-41-apps-slow-to-load/60612
+    # GSK_RENDERER=ngl was a Fedora 41/42 workaround for slow GTK4 app startup.
+    # On Fedora 44 "ngl" is only a deprecated alias for "gl", so forcing it
+    # on every GTK4 app is obsolete. Leave the renderer to GTK's default.
 
-    - name: Apply GSK_RENDERER=ngl Fix for GTK4 App Slow-Load Performance
+    - name: Remove GSK_RENDERER=ngl Override from /etc/environment
       blockinfile:
         path: /etc/environment
         marker: "# {mark} ANSIBLE MANAGED: GSK Renderer Performance Fix"
-        block: |
-          # Fix for slow GTK4 app startup on Fedora 41/42
-          # Forces use of NGL renderer instead of slower default
-          GSK_RENDERER=ngl
-        create: true
-        mode: '0644'
-      when: apply_gsk_fix
+        state: absent
       tags:
         - performance
-        - gsk-fix
+        - gsk-renderer
 
     # ============================================================================
     # Disable Recently-Used File History
@@ -194,12 +185,12 @@
           - "Changes applied:"
           - "  ✓ PCManFM installed as lightweight file manager"
           - "  ✓ XDG portal configured to use GTK file chooser"
-          - "  ✓ GSK_RENDERER=ngl applied (if enabled)"
+          - "  ✓ GSK_RENDERER=ngl override removed"
           - "  ✓ Recently-used file history disabled (recently-used.xbel removed)"
           - "  ✓ Thumbnails disabled (if enabled)"
           - ""
           - "IMPORTANT: To activate all changes:"
-          - "  1. Log out and log back in (for GSK_RENDERER)"
+          - "  1. Log out and log back in (drops GSK_RENDERER from the session)"
           - "  2. Restart Chrome/Firefox"
           - "  3. Test file picker - should be instant!"
           - ""

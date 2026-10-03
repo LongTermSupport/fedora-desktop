@@ -22,7 +22,8 @@ never at the project root.** This keeps the repo root clean and lets a plan's
 tooling travel with it into `Completed/`.
 
 - `deploy.bash` — runs the plan's Ansible command(s) (HOST-only; never run Ansible
-  in the CCY container).
+  in the CCY container). The owner runs it through `meta-deploy.bash`: add the plan to its
+  `PLANS` list when a run is pending ([PlanWorkflow.md](../PlanWorkflow.md)).
 - `triage.bash` — confirms things are OK, at planning stage and/or after deploy
   (read-only, re-runnable).
 - testing / `acceptance.bash` (and any other plan-specific test/scratch script,

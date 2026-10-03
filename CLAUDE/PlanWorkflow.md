@@ -141,21 +141,20 @@ So, for any plan whose remaining work touches the host:
   replugged by hand, a reboot — is named by the script as NOT ESTABLISHABLE and listed
   for the human. It is never quietly omitted, and it never counts as a passed check.
 
-**When several plans are waiting, that is one batch, not several errands.** A runner
-that walks the plan tree, finds every in-progress plan shipping these scripts, takes
-**one** consent for the whole set, and runs `deploy.bash` then `acceptance.bash` for
-each turns six interruptions into one. Two properties are what make it trustworthy
-rather than convenient:
+**Every host run reaches the owner through
+[`CLAUDE/Plan/meta-deploy.bash`](Plan/meta-deploy.bash), and nothing else.** Its `PLANS`
+list holds, at every commit, exactly what needs running now: a plan folder (its triage,
+`deploy.bash` and `acceptance.bash` run in order) or a playbook path for a change no plan
+owns. When work needs a host run, the same commit adds it to that list, and the owner is
+told "I have updated meta-deploy; run `./CLAUDE/Plan/meta-deploy.bash`", with what it will
+do. Never hand over individual plays or scripts, and never say `git pull` first (the
+container works in the host's own checkout). Remove an entry once it has run and passed.
+A run that needs a logout before its acceptance can judge it goes in two rounds: the deploy
+now, the plan (deploy again, then acceptance) after the logout. The full standing rule:
+[AgentNotes.md](AgentNotes.md#meta-deploybash-is-how-host-runs-reach-the-owner--keep-its-list-exact).
 
-- It **discovers** the plans by reading `**Status**: In Progress` at run time. A list
-  written into the runner goes stale the first time a plan completes and then names
-  finished work for ever, which reads exactly like having checked.
-- A failing plan **does not abort the batch** — the plans are independent, so stopping
-  would strand the ones that would have worked — but a plan's own `acceptance.bash`
-  **never** runs when its `deploy.bash` failed, because those two are not independent.
-
-Keep the runner in `untracked/`: it is a convenience over the plan tree, it holds no
-knowledge of its own, and an agent can regenerate it from this section in a minute.
+A failing plan **does not abort the batch**, but its own `acceptance.bash` **never** runs
+when its `deploy.bash` failed, because those two are not independent.
 
 ### All three write their own log — not just `triage.bash`
 

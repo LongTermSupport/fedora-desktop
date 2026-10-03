@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.76.0"  # A --max-age restart relaunches unattended with the choices the session used; lifecycle options need a supervisor with the plugin API. See docs/ccy-changelog.md.
+CCY_VERSION="3.78.0"  # A --max-age restart relaunches unattended with the choices the session used; lifecycle options need a supervisor with the plugin API. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -74,7 +74,7 @@ source "$SCRIPT_DIR/lib/tmux-session.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.42"
+REQUIRED_CONTAINER_VERSION="2.43"
 
 set -e
 

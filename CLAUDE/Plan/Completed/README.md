@@ -14,6 +14,8 @@ Newest first, continuing from [../README.md](../README.md#completed-plans).
      were read as an unrecognised section while their folders were plainly completed —
      sixteen advisories saying so. -->
 
+- [00090-resync-ccy-ci-runner-branch-onto-f44](00090-resync-ccy-ci-runner-branch-onto-f44/) - Resynced the diverged Plan 00068 branch onto `F44` and landed it via [PR #39](https://github.com/LongTermSupport/fedora-desktop/pull/39)
+
 - [00085-headless-path-local-bin](00085-headless-path-local-bin/) - A downstream live proof of the composed PR #33/#34 headless mechanisms found a third, unrelated blocker: `ansible-galaxy: command not found` under a non-interactive `sudo -u` invocation, since pipx's `~/.local/bin` shims are never put on PATH there. Exports PATH right after the pipx install block. Merged (`dac4f7c`).
 
 - [00070-documentation-drift-audit](00070-documentation-drift-audit/) - Fixed 23 confirmed documentation-drift defects and shipped `scripts/qa-docs.bash` as a permanent link and catalogue gate

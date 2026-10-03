@@ -34,9 +34,9 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00148-stt-unlimited-dictation-loop-and-buffer](00148-stt-unlimited-dictation-loop-and-buffer/) - Feature: replace the 120 s streaming dictation cap with continuous dictation in the warm server (VAD-cut segments, one ordered worker, paste once at stop, a loud stop on any failed segment), plus the side findings. Waiting on the owner's choice of loop-and-buffer over a raised cap.
+- [00151-container-clipboard-sharing](00151-container-clipboard-sharing/) - Research then build: can Claude Code's Ctrl+V image paste work inside ccy (Podman) and LXC containers? ccy already mounts the Wayland socket but ships no `wl-clipboard`; LXC has no display socket. Survey first, then prototype; `imgpaste` (Plan 00150) remains the fallback.
 
-- [00150-image-paste-cli](00150-image-paste-cli/) - Feature: `imgpaste <image>` prints a self-decoding bash block (WebP, base64, sha256) to paste into any Claude chat, so screenshots reach agents on hosts with no clipboard. Deployed by the new `play-cli-tools.yml`, which now also holds open, compress and reclaim; next is the host deploy and the fresh-session paste test.
+- [00148-stt-unlimited-dictation-loop-and-buffer](00148-stt-unlimited-dictation-loop-and-buffer/) - The general speech-to-text improvements plan: a 3 s delayed stop so the last words are kept, unlimited dictation by loop-and-buffer in the warm server (owner's choice), and a review of newer speech models. New speech-to-text work goes here.
 
 - [00149-up-arrow-loses-an-interrupted-command](00149-up-arrow-loses-an-interrupted-command/) - Bug: a command stopped with Ctrl+C is not on up-arrow in a local terminal. Dormant: not reproduced in the container or on the host (bash 5.3); reopen with `triage.bash` if it happens again.
 
@@ -186,6 +186,8 @@ Use these Unicode icons in plan documents:
 
 ## Completed Plans
 
+- [00150-image-paste-cli](Completed/00150-image-paste-cli/) - Feature: `imgpaste <image>` prints a self-decoding bash block (WebP, base64, sha256) to paste into any Claude chat, so screenshots reach agents with no clipboard. Deployed by the new `play-cli-tools.yml`, the one play for small CLI utilities. Host acceptance 8 of 8.
+
 - [00142-qa-tool-pin-does-not-converge-under-pipx-uv](Completed/00142-qa-tool-pin-does-not-converge-under-pipx-uv/) - `play-python.yml` could not move a QA tool at the wrong version onto its pin: under pipx's uv backend `install --force` re-runs `uv venv` on the existing venv, which uv refuses. An off-pin tool is now removed, installed fresh and re-pinned; reproduced offline and gated. Search: "A virtual environment already exists".
 
 - [00145-ccy-key-menu-steers-away-from-keys-that-cannot-push](Completed/00145-ccy-key-menu-steers-away-from-keys-that-cannot-push/) - Bug fix: ccy's launch-time SSH key menu accepted a key its own push probe had just found cannot push. When any key can push, the menu now offers only those; the full list is behind `a`, and a key there that cannot push needs a `y`. CCY 3.71.0. Host-confirmed by the owner.
@@ -243,8 +245,6 @@ Use these Unicode icons in plan documents:
 - [00102-dash-to-dock-does-not-dodge-ptyxis-terminal](Completed/00102-dash-to-dock-does-not-dodge-ptyxis-terminal/) - Dash to Dock stayed on top of an un-maximised Ptyxis window; `intellihide-mode` is now `ALL_WINDOWS` via `play-gnome-shell-extensions.yml`, deployed and accepted on the host
 
 - [00091-podman-first-docker-optional](Completed/00091-podman-first-docker-optional/) - Demoted rootful Docker from core to an optional playbook (podman-first); merged via PR #42
-
-- [00090-resync-ccy-ci-runner-branch-onto-f44](Completed/00090-resync-ccy-ci-runner-branch-onto-f44/) - Resynced the diverged Plan 00068 branch onto `F44` and landed it via [PR #39](https://github.com/LongTermSupport/fedora-desktop/pull/39)
 
 **Older completed plans** — everything beyond the most recent 30 — are in
 [Completed/README.md](Completed/README.md), moved there verbatim. The retention window
