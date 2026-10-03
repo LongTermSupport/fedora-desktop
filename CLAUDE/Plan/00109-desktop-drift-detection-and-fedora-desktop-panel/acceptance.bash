@@ -117,6 +117,7 @@ EXT_UUID="fedora-desktop@fedora-desktop"
 EXT_FILES=(extension.js metadata.json statusDocument.js stylesheet.css sections/health.js)
 HEALTH_UNIT="host-health.service"
 HEALTH_TARGET="graphical-session.target"
+COLLECT_TIMER="host-health-collect.timer"
 VMTEST_SCENARIO="server-host-health-kernel-change"
 VMTEST_SCRIPTS=(
     guest-prepare-server-host-health-kernel-change.bash
@@ -138,7 +139,7 @@ RECOVERY_DOCK_UNIT="/etc/systemd/system/displaylink-dock-recovery.service"
 RECOVERY_SUSPEND_UNIT="displaylink-suspend.service"
 
 # The checks this gate is expected to run. COVERAGE is stated against this list.
-EXPECTED_CHECKS=(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18)
+EXPECTED_CHECKS=(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19)
 RAN_CHECKS=()
 
 PASS=0
@@ -918,18 +919,36 @@ else
 fi
 printf '\n'
 
+# --- 19. the hourly collector timer is armed -----------------------------------------------
+#
+# Task 4.6's "confirm the timer is armed". Enabled alone is not armed: the wants-symlink
+# does nothing until the next boot unless the timer was also started, and an unarmed timer
+# leaves the panel icon on its login answer — the defect Task 4.6 exists to fix.
+check 19 "${COLLECT_TIMER} is enabled and active"
+timer_enabled=""
+timer_active=""
+if ! timer_enabled="$(systemctl --user is-enabled "${COLLECT_TIMER}")"; then
+    bad "${COLLECT_TIMER} is '${timer_enabled:-not enabled}'" \
+        "run play-host-health-login-report.yml; until then the icon refreshes only at login and after play runs"
+elif ! timer_active="$(systemctl --user is-active "${COLLECT_TIMER}")"; then
+    bad "${COLLECT_TIMER} is ${timer_enabled} but '${timer_active:-not active}'" \
+        "enabled without being started: it arms only at the next boot"
+else
+    ok "${COLLECT_TIMER} is ${timer_enabled} and ${timer_active}"
+fi
+printf '\n'
+
 # ── what this script will not pretend to have established ────────────────────────────────
 #
 # Named, never faked, and never counted toward COVERAGE. Each line says WHY a script
 # cannot settle it, because "a human must do it" with no reason is how an item quietly
 # becomes nobody's.
-human "Task 3.2 — that a notification actually APPEARS on screen at login. Check [10] proves the channel exists and check [12] proves the unit ran; whether a human saw it needs a human. Sending a test notification from here would put a popup on the screen, which a read-only gate must not do."
+human "Task 3.2 — that a CLEAN login is silent: no notification at all. Check [12] proves the unit ran; whether anything appeared on screen needs a human, and it needs a host with no findings at that login."
 human "Task 4.2 — whether St renders the demoted lines legibly and whether the icon is the right thing to look at. Only a Wayland session and a pair of eyes can say, and the test harness deliberately does not claim to."
-human "Task 4.5 — that the panel icon is visibly in the top bar. Checks [13]-[15] establish that it is deployed, declared and loaded by the shell, which is everything short of seeing it."
 human "Task 5.4 — that the refresh actually clears a BLACK background. It needs the symptom present, and the symptom is an upstream mutter bug that cannot be induced on demand. Check [18] establishes only that the action is deployed and armed."
 human "Task 5.4a — docked: log out and in, lock and unlock, then journalctl -t displaylink-dock-recovery must show action=refresh_background and RECOVERY-BACKGROUND: refreshed (action=none alone is the refusal, not a pass). Undocked: ls /sys/class/drm/ | grep DVI-I prints nothing. Both need the dock in a known state and a human at the lock screen."
 human "Task 4.3 — that the play rows read well in a live shell, a click opens a terminal via xdg-terminal-exec, run.bash's sudo prompt works there, and the next report shows the play as fresh. Each step needs a Wayland session and a click."
-human "Task 4.6 — re-run a stale play and watch the status document's generated_at move and the panel icon clear without a login. That needs a play to be stale, and making one stale means editing it, which a read-only gate must not do."
+human "Task 4.6 — re-run a stale play and watch the status document's generated_at move and the panel icon clear without a login. Check [19] establishes the timer is armed; the rest needs a play to be stale, and making one stale means editing it, which a read-only gate must not do."
 human "Task 0.3 — the vault password file's permissions. Human-only: the path is guarded, so no agent can name it in a script, a command or a play."
 human "Success criterion — installed-vs-pinned FAILING when pointed at the 2026-09-11 state. That state is in the past and cannot be re-observed read-only; it is proven by the unit tests under tests/helpers/version_pins/, not on a host. Check [4] establishes the other direction."
 human "Success criterion — freshness reporting a play edited AFTER its ledgered run. Establishing it means editing a play, which a read-only gate must not do. Check [5] establishes that the axis answers at all."

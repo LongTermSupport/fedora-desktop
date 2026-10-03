@@ -269,8 +269,8 @@ check count rather than the task tree's, and it went stale the moment a task was
 because it is the only one that can demand a MOK enrolment and a reboot. (That last point
 is recorded in `deploy.bash`'s header comment, not announced at runtime: this said "its
 change gate says so before anything runs", and there is neither a gate — R8 removed
-`plan_gate_change` — nor any runtime warning.) `acceptance.bash` carries nineteen COVERAGE-registered
-checks and prints what needs a Wayland session or your own eyes under FOR THE HUMAN,
+`plan_gate_change` — nor any runtime warning.) `acceptance.bash` carries COVERAGE-registered checks
+(listed in its `EXPECTED_CHECKS`) and prints what needs a Wayland session or your own eyes under FOR THE HUMAN,
 never counting those as passed.
 
 - [x] The installed-vs-pinned check **fails** when pointed at the 2026-09-11 state
@@ -298,8 +298,9 @@ never counting those as passed.
   blocking, 3 should-fix, 6 minor, 2 nits). Every finding actionable from a container is
   resolved, including the blocking one. Decision 3 is the owner's. The independent re-run
   (`subagent-reports/261003-qa-reviewer-full-plan-diff-rerun-opus.md`, FIX-BEFORE-MERGE,
-  nothing blocking) confirmed those fixes and found doc and plan drift, since fixed.
-  Unticked until a further pass confirms the drift fixes
+  nothing blocking) confirmed those fixes and found doc and plan drift. A confirmation
+  pass found the FOR THE HUMAN list still partly stale; that and its other points were
+  then fixed (check [19] added for the timer). Unticked until a pass confirms that
 
 ## Risks & Mitigations
 
