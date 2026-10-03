@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.73.0"  # The key menu marks keys the ssh-agent already holds and defaults to it. See docs/ccy-changelog.md.
+CCY_VERSION="3.74.0"  # The key menu defaults to an ssh-agent that holds the default key, and lists a key once. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
