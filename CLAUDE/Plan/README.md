@@ -246,8 +246,6 @@ Use these Unicode icons in plan documents:
 
 - [00091-podman-first-docker-optional](Completed/00091-podman-first-docker-optional/) - Demoted rootful Docker from core to an optional playbook (podman-first); merged via PR #42
 
-- [00090-resync-ccy-ci-runner-branch-onto-f44](Completed/00090-resync-ccy-ci-runner-branch-onto-f44/) - Resynced the diverged Plan 00068 branch onto `F44` and landed it via [PR #39](https://github.com/LongTermSupport/fedora-desktop/pull/39)
-
 **Older completed plans** — everything beyond the most recent 30 — are in
 [Completed/README.md](Completed/README.md), moved there verbatim. The retention window
 keeps this index readable; the archive keeps the record whole.
