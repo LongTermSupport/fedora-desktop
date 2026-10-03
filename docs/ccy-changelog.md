@@ -17,6 +17,28 @@ Two version numbers move independently — see
 
 ---
 
+## 3.75.0 — container 2.41
+
+- **`--max-age`, `--run-for` and `--until` give a session a lifetime.** `--max-age 3d`
+  restarts the session on a fresh container (and so the newest Claude Code) once it has run
+  that long: the session is warned first, the supervisor ends it at an idle point, and 3.74.0's
+  relaunch picks it up with `--resume`. `--run-for 2h` and `--until 17:30` tell the session once,
+  at the deadline, that its time is up; they never end it. Durations are days, hours and
+  minutes (`90m`, `12h`, `1d12h`). All three are off unless given; `CCY_MAX_AGE` sets a default
+  for `--max-age` and `CCY_RESTART_WARN_MINUTES` the warning lead (default 10).
+- **Done by a supervisor plugin the image ships.** The container version moves to 2.41 for
+  `/opt/claude-yolo/supervisor-plugins/ccy_lifecycle.py` (root owned, outside the project mount).
+  The entrypoint adds it to the supervisor's command line only when an option is set; without
+  one the wrapper line is unchanged. A bad value fails the launch with an example, before any
+  prompt, and so does an option the session cannot honour (`--no-supervise`, or a project with
+  no supervisor).
+- **A restart keeps the deadline** (it is absolute) and restarts the `--max-age` clock. The
+  supervisor's "restarted, now on Claude Code X" marker is left alone by the launcher for the
+  next supervisor to read.
+- Unit-tested in `scripts/test-ccy-lifecycle.bash` (host and entrypoint halves) and
+  `tests/helpers/ccy_lifecycle/test_plugin.py` (the plugin). The image build and a live
+  restart need trying on a host.
+
 ## 3.74.0 — container 2.40
 
 - **A session can ask to be restarted on a fresh container, and CCY now honours it.** Claude

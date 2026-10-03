@@ -176,6 +176,21 @@
         - scripts
         - dockerfile
 
+    # The Dockerfile COPYs this directory into the image at /opt/claude-yolo/supervisor-plugins/.
+    # Without it the build context has no supervisor-plugins/ and the image build fails.
+    - name: Copy Supervisor Plugins into Docker Build Context
+      become: true
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/var/local/claude-yolo/supervisor-plugins/"
+        dest: /opt/claude-yolo/supervisor-plugins/
+        owner: root
+        group: root
+        mode: "0644"
+        directory_mode: "0755"
+      tags:
+        - scripts
+        - dockerfile
+
     - name: Copy PHPantom LSP Plugin into Docker Build Context
       become: true
       ansible.builtin.copy:

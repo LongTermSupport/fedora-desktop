@@ -523,6 +523,18 @@ fi
 restart_request_summary=$(qa_gate_case_count "$restart_request_out")
 qa_pass_line ccy-restart-request "$restart_request_summary"
 
+# lib/session-lifecycle.bash and the entrypoint's plugin hook-up: --max-age/--run-for/--until
+# are validated strictly, a relaunch keeps the deadline, and with no option the supervisor's
+# wrapper line is byte-identical. The plugin itself is covered by the helper unit suite.
+lifecycle_out=""
+if ! lifecycle_out="$(bash "$SCRIPT_DIR/test-ccy-lifecycle.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-lifecycle \
+        "ccy session-lifecycle unit tests failed" \
+        "$lifecycle_out"
+fi
+lifecycle_summary=$(qa_gate_case_count "$lifecycle_out")
+qa_pass_line ccy-lifecycle "$lifecycle_summary"
+
 # ccy_host_hostname (Plan 00121): CCY_HOST_HOSTNAME tells the container which MACHINE it is
 # on, since its own HOSTNAME is the container id. The value reaches a `podman run -e`
 # argument and is then read by shells in the container, so the grammar is the guard — driven

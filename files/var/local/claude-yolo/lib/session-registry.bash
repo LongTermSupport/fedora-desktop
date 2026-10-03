@@ -90,8 +90,10 @@ ccy_registry_launch_args() {
 # NEXT word whatever it is, `--` ends ccy's options. Three groups:
 #   dropped, no value   modes that exit without a session, one-run switches, --ssh-agent
 #                       (the agent socket is a different path after a reboot) and the opt-out
-#   dropped, with value --update-token, --export-token, --connect, --disconnect, --prompt
-#   kept, with value    --token, --ssh-key, --network, --engine
+#   dropped, with value --update-token, --export-token, --connect, --disconnect, --prompt,
+#                       --run-for, --until (a deadline is absolute: a replay would restart or
+#                       miss it; a supervisor-requested relaunch carries it in the environment)
+#   kept, with value    --token, --ssh-key, --network, --engine, --max-age
 # A word that is not a flag is a first message to claude — stale on replay — unless it
 # follows a flag ccy does not know, when it is that flag's value (`--model opus`).
 #
@@ -102,8 +104,8 @@ ccy_registry_launch_args() {
 CCY_REGISTRY_DROP_FLAGS=(--rebuild --create-token --list-tokens --custom --custom-docker --top
     --prevent --debug --headless --disable-custom-docker --ssh-agent --no-restore
     --help --version -h -v)
-CCY_REGISTRY_DROP_VALUE_FLAGS=(--update-token --export-token --connect --disconnect --prompt)
-CCY_REGISTRY_KEEP_VALUE_FLAGS=(--token --ssh-key --network --engine)
+CCY_REGISTRY_DROP_VALUE_FLAGS=(--update-token --export-token --connect --disconnect --prompt --run-for --until)
+CCY_REGISTRY_KEEP_VALUE_FLAGS=(--token --ssh-key --network --engine --max-age)
 CCY_REGISTRY_KEEP_FLAGS=(--no-ssh --github-443 --no-network --supervise --no-supervise)
 
 # ccy_registry_flag_class <word> — drop, drop-value, keep-value, keep, or unknown.

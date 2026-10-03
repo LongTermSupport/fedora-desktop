@@ -33,7 +33,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.40"
+LABEL claude-yolo-version="2.41"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -349,6 +349,17 @@ COPY skills/browsing/ /opt/claude-yolo/skills/browsing/
 # be switched on but never off.
 COPY optional/ /opt/claude-yolo/optional/
 RUN chmod 755 /opt/claude-yolo/optional/child-claude/bin/ccy-claude
+
+# Supervisor plugins (hooks-daemon plugin API). Staged here, outside the project bind mount, as
+# root-owned files: the supervisor refuses a plugin file that is group- or world-writable or
+# owned by anyone but its own uid or root. entrypoint.sh names ccy_lifecycle.py on the
+# supervisor's command line only when --max-age/--run-for/--until are in use.
+COPY supervisor-plugins/ /opt/claude-yolo/supervisor-plugins/
+RUN chown -R root:root /opt/claude-yolo/supervisor-plugins \
+    && chmod 755 /opt/claude-yolo/supervisor-plugins \
+    && chmod 644 /opt/claude-yolo/supervisor-plugins/ccy_lifecycle.py \
+    && python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read(), sys.argv[1])' \
+        /opt/claude-yolo/supervisor-plugins/ccy_lifecycle.py
 
 # Set workspace directory
 WORKDIR /workspace
