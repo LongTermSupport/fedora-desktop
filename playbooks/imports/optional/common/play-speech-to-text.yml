@@ -416,6 +416,33 @@
         idle_timeout_probe.rc != 0
         or not (idle_timeout_probe.stdout | regex_search('^[0-9]+$'))
 
+    # The NVIDIA driver (play-nvidia.yml) creates one /dev/nvidiaN node per GPU
+    - name: Find NVIDIA GPU Device Nodes
+      ansible.builtin.find:
+        paths: /dev
+        patterns: 'nvidia[0-9]*'
+        file_type: any
+      register: nvidia_gpu_nodes
+
+    # CTranslate2 answers 0, not an error, when it cannot reach a GPU that is there, and
+    # auto would then load the CPU model. The resolver already refuses that state; this
+    # also proves, as the recording user, that the count is real on a GPU host.
+    - name: Verify CTranslate2 Sees The GPU
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - "/home/{{ user_login }}/.local/bin/wsi-resolve-model"
+          - --gpu-count
+      environment:
+        HOME: "/home/{{ user_login }}"
+      register: gpu_count_probe
+      changed_when: false
+      failed_when: >-
+        gpu_count_probe.rc != 0
+        or not (gpu_count_probe.stdout | regex_search('^[0-9]+$'))
+        or (nvidia_gpu_nodes.matched > 0 and (gpu_count_probe.stdout | int) == 0)
+
     # Proves the resolver can ask CTranslate2 (installed with faster-whisper above) for
     # CUDA devices as the recording user; it prints the model auto means here.
     - name: Verify The Auto Model Resolves
@@ -498,6 +525,45 @@
         daemon_reload: true
       environment:
         XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+
+    # Read back from the live manager, not the disk: `is-enabled` has been seen to say
+    # enabled while graphical-session.target did not pull the unit in
+    # (play-host-health-login-report.yml). Probe-then-fail: the verdict is the next task.
+    - name: Read Back Whether The Live Manager Pulls In The Warm Server Unit
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - --user
+          - list-dependencies
+          - graphical-session.target
+          - --no-pager
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+      register: warm_server_readback
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe-then-fail — the verdict is the next task
+
+    - name: Assert The Warm Server Unit Is In The Live Graph, Not Only On Disk
+      ansible.builtin.fail:
+        msg: >-
+          {% if warm_server_readback.rc != 0 %}
+          The running user manager could not be asked what graphical-session.target pulls
+          in (`systemctl --user list-dependencies` exited {{ warm_server_readback.rc }}:
+          {{ warm_server_readback.stderr | default('') }}), so whether
+          wsi-stream-server-at-login.service will run at login is unknown.
+          {% else %}
+          wsi-stream-server-at-login.service is enabled on disk but graphical-session.target
+          does not name it in the running user manager, so it will not run at login. Collect,
+          on the host:
+          `systemctl --user list-dependencies graphical-session.target --no-pager | cat`,
+          `ls -l ~/.config/systemd/user/graphical-session.target.wants/ | cat` and
+          `systemctl --user show wsi-stream-server-at-login.service -p LoadState -p UnitFileState -p WantedBy --no-pager | cat`.
+          {% endif %}
+      when: >-
+        warm_server_readback.rc != 0
+        or 'wsi-stream-server-at-login.service' not in warm_server_readback.stdout
 
     # =========================================================================
     # Claude Code Post-Processing Integration

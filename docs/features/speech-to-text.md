@@ -150,13 +150,17 @@ is decided at each recording by `~/.local/bin/wsi-resolve-model`:
 | No GPU (CPU) | `small` batch, `base` streaming | `small` batch, `base` streaming |
 
 The first recording with a model not yet downloaded fetches it (about 1.5 GB for either
-GPU choice). An English-only model with another language set is refused with an error,
+GPU choice). On a machine with an NVIDIA GPU that CUDA cannot use (a broken CUDA or
+cuDNN install), `auto` stops with an error rather than quietly using the CPU model. An
+English-only model with another language set is refused with an error,
 not transcribed as English. `distil-large-v3.5` is handed to faster-whisper as its
-Hugging Face repo, `distil-whisper/distil-large-v3.5-ct2`, because faster-whisper only
-knows the short name from 1.2.0. Article mode always uses `base`.
+Hugging Face repo, `distil-whisper/distil-large-v3.5-ct2`: faster-whisper 1.2.1 knows
+the short name, but 1.1.1 (pinned by older RealtimeSTT releases) does not. Article mode
+always uses `base`.
 
-`stt_model` in the host variables is only the default of `faster-whisper-transcribe`
-when you run it by hand. `stt_language` sets that script's language:
+`stt_model` and `stt_language` in the host variables are only the defaults of
+`faster-whisper-transcribe` when you run that script by hand; the recorders always pass
+the model and language from Settings:
 
 ```yaml
 # File: environment/localhost/host_vars/localhost.yml
@@ -197,17 +201,16 @@ start. Models are cached in `~/.cache/huggingface/hub/` and shared between batch
 
 ### Language Configuration
 
-By default, transcription is configured for English (`en`). To change:
+Choose the language in **Settings... → Transcription → Language**: "System default"
+uses your desktop locale (`en_GB.UTF-8` gives `en`), or "English". For another code, or
+`""` for language detection (slower and less accurate), set the key directly:
 
-```yaml
-# Auto-detect language (not recommended - slower and less accurate)
-stt_language: ""
-
-# Specific language
-stt_language: es  # Spanish
-stt_language: fr  # French
-stt_language: de  # German
+```bash
+gsettings --schemadir ~/.local/share/gnome-shell/extensions/speech-to-text@fedora-desktop/schemas \
+    set org.gnome.shell.extensions.speech-to-text language 'de'
 ```
+
+`wsi` run by hand without `--language` uses the same setting.
 
 ### Streaming Mode Setup
 
@@ -238,8 +241,11 @@ Mode** control that:
   mode "Server"; otherwise it starts nothing. The playbook enables the unit on every
   host, so the switch needs no playbook run; it applies from the next login.
 
-Only one server ever runs: its PID file is the lock, and an Insert while the login
-unit's server is still loading waits for it. The unit never restarts the server: after
+At most one server runs at a time. A server holds an exclusive lock on its PID file
+(`$XDG_RUNTIME_DIR/wsi-stream-server.pid`) for as long as it lives, and a second server
+that cannot take the lock exits at once; a file left behind without the lock does not
+block a start. An Insert while a server is still loading waits for it (up to 45 s), and
+the login unit starts nothing if a server already holds the lock. The unit never restarts the server: after
 the idle timeout, or after a playbook run that updated the scripts (which stops the
 server), the next Insert starts it again. With both settings on (0 and at login) the
 server stays warm until logout. What the unit did at login:
@@ -653,12 +659,8 @@ The playbook configures ydotool as a system service with world-writable socket (
    - Move closer to microphone
    - Use noise-cancelling microphone if available
 
-4. **Language mismatch**:
-
-   ```yaml
-   # Try auto-detect
-   stt_language: ""
-   ```
+4. **Language mismatch**: check **Settings... → Transcription → Language**, or try
+   language detection (see [Language Configuration](#language-configuration)).
 
 ### Slow Transcription
 
@@ -666,11 +668,8 @@ The playbook configures ydotool as a system service with world-writable socket (
 
 **Solutions:**
 
-1. **Use smaller model**:
-
-   ```yaml
-   stt_model: tiny  # or base
-   ```
+1. **Use a smaller model**: in **Settings... → Transcription → Whisper Model**, choose
+   `base` or `tiny` instead of `auto` (download it first with **Manage Whisper Models...**).
 
 2. **Check GPU is being used**:
 
@@ -703,17 +702,12 @@ The playbook configures ydotool as a system service with world-writable socket (
 
 2. **Reduce background noise**
 
-3. **Use larger model** for better accuracy:
+3. **Use a larger model** for better accuracy: in **Settings... → Transcription →
+   Whisper Model**, choose `large-v3-turbo`, `large-v3` or, for English,
+   `distil-large-v3.5` (on a GPU, `auto` already picks one of these).
 
-   ```yaml
-   stt_model: medium  # or large-v3
-   ```
-
-4. **Force correct language**:
-
-   ```yaml
-   stt_language: en  # Don't rely on auto-detect
-   ```
+4. **Force the correct language**: set **Settings... → Transcription → Language**
+   rather than relying on language detection.
 
 5. **Check microphone quality** - some built-in laptop mics are poor quality
 

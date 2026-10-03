@@ -726,9 +726,32 @@ log_debug "Stop grace: ${STOP_GRACE_SECONDS}s"
 # machine and hands over names older faster-whisper releases lack as their repo.
 # Resolved before the microphone opens, so a failure costs no recording.
 if [ -z "$IPnPORT" ]; then
+    # One language for the resolver and the transcriber: --language (the extension
+    # always passes it), else WHISPER_LANGUAGE, else the extension's language setting,
+    # as the extension computes it. Exported, so faster-whisper-transcribe never falls
+    # back to a different default of its own ("" means language detection in both).
+    if [ -z "$LANGUAGE" ]; then
+        if [ -n "${WHISPER_LANGUAGE+set}" ]; then
+            LANGUAGE="$WHISPER_LANGUAGE"
+        else
+            SETTING_READER="$(dirname "${BASH_SOURCE[0]}")/wsi-setting"
+            if ! language_setting=$("$SETTING_READER" language); then
+                log_error "Cannot read the language setting ($SETTING_READER failed; reason above)"
+                exit 1
+            fi
+            if [ "$language_setting" = system ]; then
+                system_locale="${LANG:-en_GB.UTF-8}"
+                LANGUAGE="${system_locale%%_*}"
+            else
+                LANGUAGE="$language_setting"
+            fi
+        fi
+    fi
+    export WHISPER_LANGUAGE="$LANGUAGE"
+
     MODEL_RESOLVER="$(dirname "${BASH_SOURCE[0]}")/wsi-resolve-model"
     if ! resolved_model=$("$MODEL_RESOLVER" --mode batch \
-            --language "${LANGUAGE:-${WHISPER_LANGUAGE:-}}" "${WHISPER_MODEL:-auto}"); then
+            --language "$LANGUAGE" "${WHISPER_MODEL:-auto}"); then
         log_error "Cannot choose the Whisper model ($MODEL_RESOLVER failed; reason above)"
         notify_state "ERROR" "Cannot choose the Whisper model"
         exit 1

@@ -21,6 +21,7 @@ import argparse
 import atexit
 import socket
 import json
+import fcntl
 from pathlib import Path
 from datetime import datetime
 
@@ -525,18 +526,23 @@ def is_server_running():
 
 
 def server_pid_alive():
-    """True if the server's PID file names a live process (it may still be loading)."""
+    """True if a server process exists (it may still be loading its model).
+
+    Asks the server's lock, not the PID in its file: a running server holds an
+    exclusive flock on the PID file, so a file left by a dead server, or naming a PID
+    since reused by another program, does not count.
+    """
     try:
-        pid = int(SERVER_PID_FILE.read_text().strip())
-    except (OSError, ValueError):
+        fd = os.open(SERVER_PID_FILE, os.O_RDONLY)
+    except FileNotFoundError:
         return False
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
+        fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except BlockingIOError:
         return True
-    return True
+    finally:
+        os.close(fd)
+    return False
 
 
 def server_command(model, language, idle_timeout_seconds):

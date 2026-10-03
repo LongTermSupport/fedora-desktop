@@ -4,8 +4,9 @@ The server's idle timeout comes from the extension's server-idle-timeout-minutes
 (0 = never shut down), passed by wsi-stream when it starts the server. A user unit
 runs `wsi-stream --server-at-login`, which becomes the server only when Settings ask
 for it (streaming on, startup mode "server", server-start-at-login on) and no server
-is running or loading. The server's PID file is the lock that keeps an Insert, the
-login unit and a second Insert from ever running two servers.
+is running or loading. An exclusive flock on the server's PID file, held for the
+server's lifetime, keeps an Insert, the login unit and a second Insert from ever
+running two servers; a leftover file without the lock never blocks a start.
 
 Stdlib only; nothing here loads a model, opens a microphone or needs GNOME. Run by
 scripts/test-wsi-stop-grace.bash.
@@ -20,6 +21,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -81,59 +83,107 @@ class ServerIdleTimeoutTest(unittest.TestCase):
 
 
 class ServerPidLockTest(unittest.TestCase):
+    """The PID file's flock is the server lock; the PID written in it is information."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         tmp = pathlib.Path(self.tmp.name)
         self.pid_file = tmp / "wsi-stream-server.pid"
         patcher = mock.patch.multiple(server, PID_FILE=self.pid_file, LOG_DIR=tmp,
-                                      LOG_FILE=tmp / "server.log")
+                                      LOG_FILE=tmp / "server.log", pid_lock_fd=None)
         patcher.start()
         self.addCleanup(patcher.stop)
+        self.addCleanup(server.release_pid_file)
 
-    def leftovers(self):
-        return sorted(p.name for p in self.pid_file.parent.iterdir() if p.name != "server.log")
-
-    def dead_pid(self):
-        proc = subprocess.Popen([sys.executable, "-c", "pass"])
-        proc.wait()
-        return proc.pid
-
-    def test_no_pid_file_is_claimed_for_this_process(self):
-        self.assertTrue(server.claim_pid_file())
-        self.assertEqual(self.pid_file.read_text(), str(os.getpid()))
-        self.assertEqual(self.leftovers(), ["wsi-stream-server.pid"])
-
-    def test_a_live_server_keeps_its_pid_file(self):
-        self.pid_file.write_text(str(os.getppid()))
-        self.assertFalse(server.claim_pid_file())
-        self.assertEqual(self.pid_file.read_text(), str(os.getppid()))
-        self.assertEqual(self.leftovers(), ["wsi-stream-server.pid"])
-
-    def test_a_dead_servers_pid_file_is_replaced(self):
-        self.pid_file.write_text(str(self.dead_pid()))
-        self.assertTrue(server.claim_pid_file())
-        self.assertEqual(self.pid_file.read_text(), str(os.getpid()))
-
-    def test_a_pid_file_without_a_number_is_replaced(self):
-        self.pid_file.write_text("")
-        self.assertTrue(server.claim_pid_file())
-        self.assertEqual(self.pid_file.read_text(), str(os.getpid()))
-
-    def test_a_second_claim_by_another_process_fails(self):
-        self.assertTrue(server.claim_pid_file())
+    def server_process(self, body, *args):
+        """Run `body` in a fresh Python with the server script loaded as `s`."""
         code = (
-            "import importlib.util, pathlib, sys\n"
+            "import pathlib, sys, time\n"
             f"sys.path.insert(0, {str(pathlib.Path(__file__).resolve().parent)!r})\n"
             "import stt_stubs\n"
             "s = stt_stubs.load_script('wsi-stream-server', 'srv')\n"
             f"s.PID_FILE = pathlib.Path({str(self.pid_file)!r})\n"
-            f"s.LOG_DIR = s.PID_FILE.parent; s.LOG_FILE = s.LOG_DIR / 'server.log'\n"
-            "sys.exit(0 if s.claim_pid_file() else 3)\n")
-        result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
-                                timeout=30, check=False)
-        self.assertEqual(result.returncode, 3, result.stderr)
+            "s.LOG_DIR = s.PID_FILE.parent; s.LOG_FILE = s.LOG_DIR / 'server.log'\n"
+            + body)
+        return subprocess.Popen([sys.executable, "-c", code, *args], stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True)
+
+    def race(self, starts=6):
+        """Start servers that all claim at the same moment; return how many won."""
+        go = pathlib.Path(self.tmp.name) / "go"
+        body = (
+            "go = pathlib.Path(sys.argv[1])\n"
+            "while not go.exists(): time.sleep(0.001)\n"
+            "won = s.claim_pid_file()\n"
+            "print('won' if won else 'lost', flush=True)\n"
+            "time.sleep(1.0)\n")  # hold the lock while the others try
+        procs = [self.server_process(body, str(go)) for _ in range(starts)]
+        time.sleep(0.5)  # let every process load the script and reach the wait
+        go.touch()
+        results = []
+        for proc in procs:
+            out, err = proc.communicate(timeout=30)
+            self.assertEqual(proc.returncode, 0, err)
+            results.append(out.strip())
+        return results.count("won")
+
+    def test_no_pid_file_is_claimed_for_this_process(self):
+        self.assertTrue(server.claim_pid_file())
         self.assertEqual(self.pid_file.read_text(), str(os.getpid()))
+
+    def test_racing_starts_give_exactly_one_server(self):
+        self.assertEqual(self.race(), 1)
+
+    def test_racing_starts_over_a_stale_file_give_exactly_one_server(self):
+        # The stale file names a live process (a reused PID) and holds no lock
+        self.pid_file.write_text(str(os.getpid()))
+        self.assertEqual(self.race(), 1)
+
+    def test_a_reused_pid_without_the_lock_does_not_block_a_start(self):
+        self.pid_file.write_text(str(os.getppid()))
+        self.assertTrue(server.claim_pid_file())
+        self.assertEqual(self.pid_file.read_text(), str(os.getpid()))
+
+    def test_a_pid_file_without_a_number_is_taken_over(self):
+        self.pid_file.write_text("")
+        self.assertTrue(server.claim_pid_file())
+        self.assertEqual(self.pid_file.read_text(), str(os.getpid()))
+
+    def test_a_running_server_keeps_its_lock_and_its_pid_file(self):
+        self.assertTrue(server.claim_pid_file())
+        proc = self.server_process("sys.exit(0 if s.claim_pid_file() else 3)\n")
+        _out, err = proc.communicate(timeout=30)
+        self.assertEqual(proc.returncode, 3, err)
+        self.assertEqual(self.pid_file.read_text(), str(os.getpid()))
+
+    def test_release_removes_the_file_and_frees_the_lock(self):
+        self.assertTrue(server.claim_pid_file())
+        server.release_pid_file()
+        self.assertFalse(self.pid_file.exists())
+        proc = self.server_process("sys.exit(0 if s.claim_pid_file() else 3)\n")
+        _out, err = proc.communicate(timeout=30)
+        self.assertEqual(proc.returncode, 0, err)
+
+    def test_a_model_that_fails_to_load_leaves_no_pid_file(self):
+        body = (
+            "s.SOCKET_PATH = s.PID_FILE.with_name('test.socket')\n"
+            "s.initialize_recorder = lambda *a: False\n"
+            "sys.argv = ['wsi-stream-server']\n"
+            "sys.exit(s.main())\n")
+        proc = self.server_process(body)
+        _out, err = proc.communicate(timeout=30)
+        self.assertEqual(proc.returncode, 1, err)
+        self.assertFalse(self.pid_file.exists())
+
+    def test_wsi_stream_sees_a_server_by_its_lock_not_its_pid(self):
+        with mock.patch.object(wsi_stream, "SERVER_PID_FILE", self.pid_file):
+            self.assertFalse(wsi_stream.server_pid_alive())  # no file
+            self.pid_file.write_text(str(os.getpid()))
+            self.assertFalse(wsi_stream.server_pid_alive())  # live PID, no lock
+            self.pid_file.unlink()
+            self.assertTrue(server.claim_pid_file())
+            self.assertTrue(wsi_stream.server_pid_alive())  # locked
 
 
 class IdleTimeoutSettingTest(unittest.TestCase):

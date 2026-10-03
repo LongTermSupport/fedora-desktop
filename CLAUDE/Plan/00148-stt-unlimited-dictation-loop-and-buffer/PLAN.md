@@ -175,7 +175,9 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
   an older install, and RealtimeSTT 0.3.104 pins faster-whisper 1.1.1, which rejects it;
   so the name always goes over as its repo `distil-whisper/distil-large-v3.5-ct2`, which
   1.1.1 and 1.2.1 both accept (`faster_whisper/utils.py`, wheels read). An English-only
-  model with another language is refused. Article mode still ignores the setting.
+  model with another language is refused. CTranslate2 counts 0, not an error, for a GPU
+  it cannot reach, so 0 with `/dev/nvidiaN` present fails loudly, and the play asserts a
+  non-zero count on GPU hosts. Article mode still ignores the setting.
 - [ ] ❌ **Task 7.3** (not chosen by the owner; kept for the record): Fixes the research found: `wsi-model-manager` lists turbo as ~800 MB
   (it is ~1.6 GB); the panel and model manager label turbo "Distilled" (it is large-v3 with a
   pruned decoder); the turbo download repo was renamed upstream and works only by redirect.
@@ -198,9 +200,11 @@ owner wants an option to keep it hot all the time.
   The unit runs only when streaming mode is `server`. `wsi-stream-server-at-login.service`
   (graphical session) is always enabled and decides at login from GSettings, so the switch
   needs no play run; it becomes the server via `exec`. `Restart=no`: idle exit and the
-  play's handler mean stopped, and a failing model load must not loop. No double servers:
-  the server claims its PID file atomically (hard link), and both the unit and an Insert
-  wait for a live PID rather than start another.
+  play's handler mean stopped, and a failing model load must not loop. At most one server:
+  it holds an exclusive `flock` on its PID file for its lifetime, and a second server
+  exits at once; a leftover file without the lock (dead server, reused PID) never blocks.
+  An Insert waits up to 45 s for a server that holds the lock; the unit then exits 0
+  without starting another. The play reads back that the live manager pulls the unit in.
 - [x] ✅ **Task 8.3**: Tests where testable; docs. `tests/speech_to_text/test_keep_warm.py`
   and `test_resolve_model.py` plus new harness cases in `scripts/test-wsi-stop-grace.bash`;
   control run against the pre-Phase-8 scripts fails them. Docs: "Keeping the Server Warm".

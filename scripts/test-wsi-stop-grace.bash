@@ -114,6 +114,7 @@ EOF
 cat > "$stubs/faster-whisper-transcribe" <<'EOF'
 #!/usr/bin/bash
 printf '%s\n' "${WHISPER_MODEL-<unset>}" > "$STUB_EVENTS/whisper.model"
+printf '%s\n' "${WHISPER_LANGUAGE-<unset>}" > "$STUB_EVENTS/whisper.language"
 echo "hello world"
 EOF
 # gdbus: records every call; answers Notify like the real notification daemon.
@@ -127,7 +128,9 @@ EOF
 chmod 755 "$stubs"/*
 
 settings="$work/settings"
-mkdir -p "$settings"
+mkdir -p "$settings" "$work/dev"
+# wsi run without --language reads this; LANG is unset below, so "system" means en
+printf "'system'\n" > "$settings/language"
 
 run_env=(
     env -i
@@ -138,6 +141,8 @@ run_env=(
     "STUB_SETTINGS=$settings"
     "PYTHONPATH=$stubs/python"
     "STUB_CUDA_DEVICES=0"
+    # An empty stand-in for /dev: no NVIDIA device nodes, whatever this machine has
+    "WSI_DEV_DIR=$work/dev"
 )
 
 reset_events() {
@@ -276,6 +281,8 @@ if wait_for_recording_state; then
     check "no new extension state is invented for it" "0" \
         "$(grep -c 'StateChanged \(STOPPING\|PENDING\)' "$events/gdbus.log")"
     check "auto without a GPU transcribes with small" "small" "$(cat "$events/whisper.model")"
+    check "…in the system language when run without --language" "en" \
+        "$(cat "$events/whisper.language")"
 else
     failed=$((failed + 1))
     echo "  FAIL: wsi never reached RECORDING; stderr:"
@@ -322,12 +329,33 @@ if wait_for_recording_state; then
     check "no pending-stop notice" "0" "$(grep -c 'Stopping in' "$events/gdbus.log")"
     check "auto with a GPU and English transcribes with distil-large-v3.5, as its repo" \
         "distil-whisper/distil-large-v3.5-ct2" "$(cat "$events/whisper.model")"
+    check "…and the transcriber is told English" "en" "$(cat "$events/whisper.language")"
 else
     failed=$((failed + 1))
     echo "  FAIL: wsi never reached RECORDING; stderr:"
     cat "$work/wsi.err"
     kill -KILL "$WSI_PID" 2>/dev/null
 fi
+
+#----------------------------------------------------------------------------
+echo "=== wsi by hand, no --language: the setting's language for model and transcriber ==="
+#----------------------------------------------------------------------------
+printf "'de'\n" > "$settings/language"
+STUB_CUDA_DEVICES=1 start_wsi 0
+if wait_for_recording_state; then
+    kill -TERM "$WSI_PID"
+    wait "$WSI_PID"; rc=$?
+    check_wsi_exit "$rc"
+    check "auto picks the multilingual model for the setting's language" "large-v3-turbo" \
+        "$(cat "$events/whisper.model")"
+    check "…and the transcriber gets that same language" "de" "$(cat "$events/whisper.language")"
+else
+    failed=$((failed + 1))
+    echo "  FAIL: wsi never reached RECORDING; stderr:"
+    cat "$work/wsi.err"
+    kill -KILL "$WSI_PID" 2>/dev/null
+fi
+printf "'system'\n" > "$settings/language"
 
 #----------------------------------------------------------------------------
 echo "=== wsi: no grace value, no recording ==="
