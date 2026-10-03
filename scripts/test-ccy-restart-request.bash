@@ -211,8 +211,8 @@ check "--session-id is dropped (it conflicts with --resume)" "--resume|$SID|" \
     "$(relaunch "$SID" --session-id "$OLD")"
 check "an argument with a newline survives" $'--model|a\nb|--resume|'"$SID|" \
     "$(relaunch "$SID" --model $'a\nb')"
-bad_out=$(ccy_restart_relaunch_args "not-a-uuid" 2>/dev/null)
-bad_rc=$?
+bad_rc=0
+bad_out=$(ccy_restart_relaunch_args "not-a-uuid" 2>/dev/null) || bad_rc=$?
 check "a malformed session id is refused (status)" 1 "$bad_rc"
 check "a malformed session id is refused (no output)" "" "$bad_out"
 
