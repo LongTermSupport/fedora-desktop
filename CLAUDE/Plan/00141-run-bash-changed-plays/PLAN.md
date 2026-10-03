@@ -100,9 +100,15 @@ clicked. Instead one row opens a menu of the plays, where a person picks.
 
 ## Success Criteria
 
-- [ ] After a commit that changes only a file a play deploys, `--changed` runs that play.
-- [ ] A play whose inputs did not change is not run.
-- [ ] A failed play stops the run, and the exit status is that play's.
+- [x] After a commit that changes only a file a play deploys, `--changed` runs that play.
+  Proven in two halves: `test_changed_plays.py` commits a deployed file in a real git
+  checkout and the judge names the play (`test_a_play_whose_deployed_file_changed_runs`,
+  `test_main_runs_the_play_whose_deployed_file_changed`); `test-run-bash-changed.bash`
+  drives the real `run.bash` and runs what the judge names.
+- [x] A play whose inputs did not change is not run. `test_an_unrelated_change_runs_nothing`,
+  `test_an_unchanged_successful_play_is_current`, and the run.bash case "nothing changed".
+- [x] A failed play stops the run, and the exit status is that play's. `test-run-bash-changed.bash`,
+  case "a failure stops the run" (real `run.bash`, stubbed `ansible-playbook`).
 - [x] `qa-all.bash` passes, and `qa-reviewer` findings are resolved.
 
 ## Delivery & Milestones

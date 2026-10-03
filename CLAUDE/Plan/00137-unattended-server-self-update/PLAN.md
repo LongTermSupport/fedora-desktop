@@ -170,7 +170,7 @@ D1–D4 are the owner's choices, made 2026-09-23.
 
 ### Phase 3: Sessions
 
-- [ ] ❌ **Task 3.1**: ~~`ccy-sessions stop` that keeps the records~~. Cancelled by D1:
+- [x] ❌ **Task 3.1**: ~~`ccy-sessions stop` that keeps the records~~. Cancelled by D1:
   the reboot ends the sessions, and Plan 00135 proves that path keeps their records.
 - [x] ✅ **Task 3.2**: A boot-time restore that cannot block on a prompt, plus a
   post-restore check: the pane is alive, the container is up, and `capture-pane` shows no

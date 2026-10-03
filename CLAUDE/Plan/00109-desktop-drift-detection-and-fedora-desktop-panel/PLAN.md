@@ -272,10 +272,14 @@ change gate says so before anything runs", and there is neither a gate — R8 re
 checks and prints what needs a Wayland session or your own eyes under FOR THE HUMAN,
 never counting those as passed.
 
-- [ ] The installed-vs-pinned check **fails** when pointed at the 2026-09-11 state
-  and passes now — demonstrated, not asserted
-- [ ] The freshness check reports a play edited after its ledgered run, and stays
-  silent about every play never run here
+- [x] The installed-vs-pinned check **fails** when pointed at the 2026-09-11 state
+  and passes now — demonstrated, not asserted. `tests/helpers/version_pins/test_check_pins.py`
+  runs the check on both states: `test_the_INCIDENT_state_is_a_finding`,
+  `test_the_state_AFTER_the_fix_is_clean`.
+- [x] The freshness check reports a play edited after its ledgered run, and stays
+  silent about every play never run here. `test_a_stale_play_is_named_on_stdout_with_its_commits`;
+  the check iterates only ledgered plays, and `test_an_empty_ledger_is_clean_and_asks_git_nothing`
+  covers a host where nothing has run.
 - [ ] A clean system produces **no notification at all** at login
 - [ ] The panel opens from one icon and shows health plus play state
 - [x] `./scripts/qa-all.bash` passes (929 files, exit 0, three standing advisories —

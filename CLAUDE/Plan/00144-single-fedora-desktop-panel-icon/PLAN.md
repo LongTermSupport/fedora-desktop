@@ -217,7 +217,9 @@ Full options and reasoning in [DECISIONS.md](DECISIONS.md).
   directory, and re-running both plays reports no change.
 - [ ] `./scripts/test-panel-sections.bash`, ESLint and `./scripts/qa-all.bash` pass; the
   no-kill gate reports a non-zero count of JavaScript files scanned.
-- [ ] `qa-reviewer` finds no unresolved BLOCK or FIX-BEFORE-MERGE issue.
+- [x] `qa-reviewer` finds no unresolved BLOCK or FIX-BEFORE-MERGE issue
+  ([`subagent-reports/261002-qa-reviewer-opus.md`](subagent-reports/261002-qa-reviewer-opus.md):
+  PASS WITH NITS).
 
 ## Risks & Mitigations
 

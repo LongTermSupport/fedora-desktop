@@ -286,8 +286,11 @@ The questions as first asked, before they were settled, are in
 - [ ] A session running at reboot is running after it, in the right directory, resumed.
 - [ ] Each live session's project is signalled exactly once per warning, and again at one
   minute.
-- [ ] A project missing the daemon CLI causes a loud refusal and **no reboot**.
-- [ ] `--dry-run` signals nothing and reboots nothing.
+- [x] A project missing the daemon CLI causes a loud refusal and **no reboot**.
+  `scripts/test-ccy-sessions-reboot.bash`: "a missing daemon CLI refuses the reboot", and
+  the same inside a ccy container.
+- [x] `--dry-run` signals nothing and reboots nothing. Same script: "dry run signals no
+  daemon", "dry run invokes no systemctl".
 - [ ] A machine with restore disabled behaves exactly as before this plan.
 - [ ] `./scripts/qa-all.bash` green.
 - [x] ✅ `qa-reviewer` agent over the full plan diff, findings resolved (round 1 FIX-BEFORE-MERGE, round 2 PASS; journal 26-09-23).
