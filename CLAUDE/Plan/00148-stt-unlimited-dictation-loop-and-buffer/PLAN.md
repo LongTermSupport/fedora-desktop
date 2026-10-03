@@ -155,9 +155,14 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
   optional engine NVIDIA Parakeet TDT 0.6B via `onnx-asr`: fewer errors than large-v3, own
   punctuation, no looping, fast on CPU, fits Phase 2's 28 s segments, but no prompt carry-over
   and a second engine; (3) ignore Kyutai, Voxtral, Phi-4-multimodal and others for now.
-- [ ] 🚫 **Task 7.2**: Owner picks from the ranked recommendations; the chosen items become
-  tasks here. Blocked on the owner.
-- [ ] ⬜ **Task 7.3**: Fixes the research found: `wsi-model-manager` lists turbo as ~800 MB
+- [x] ✅ **Task 7.2**: Owner picks from the ranked recommendations. **Owner chose (1) only**,
+  the better default model in the same engine (Task 7.4). Not chosen: Parakeet as an optional
+  engine, and Task 7.3's model-manager fixes.
+- [ ] ⬜ **Task 7.4**: `auto` picks `distil-large-v3.5` for English and `large-v3-turbo`
+  for other languages when a GPU is present; `distil-large-v3.5` is added to the model list
+  (panel, `wsi-model-manager`, docs). Built after Phase 0 lands, since both touch the
+  recorder scripts.
+- [ ] ❌ **Task 7.3** (not chosen by the owner; kept for the record): Fixes the research found: `wsi-model-manager` lists turbo as ~800 MB
   (it is ~1.6 GB); the panel and model manager label turbo "Distilled" (it is large-v3 with a
   pruned decoder); the turbo download repo was renamed upstream and works only by redirect.
   RealtimeSTT 1.1.x needs Python < 3.13 while the play targets 3.14, so the installed version
