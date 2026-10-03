@@ -148,6 +148,26 @@ RUN wget -qO /tmp/magick.AppImage "https://github.com/ImageMagick/ImageMagick/re
     && chmod 755 /usr/local/bin/magick \
     && magick --version | head -n1
 
+# wl-clipboard: Claude Code's Ctrl+V image paste runs `wl-paste` (Plan 00151). ccy already
+# mounts the host Wayland socket, so this reads the host clipboard. GNOME offers no
+# data-control protocol, so wl-paste must win focus with a 1x1 window, and Claude calls it
+# with no timeout: if mutter withholds focus the paste would hang. The wrapper in
+# /usr/local/bin (ahead of /usr/bin on PATH) caps each call and fails with exit 124 and a
+# message instead. Trial here first; moves to the shared claude-yolo image once proven.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends wl-clipboard \
+    && rm -rf /var/lib/apt/lists/* \
+    && printf '%s\n' \
+        '#!/bin/bash' \
+        'timeout 5 /usr/bin/wl-paste "$@"' \
+        'rc=$?' \
+        'if [[ $rc -eq 124 ]]; then echo "wl-paste: no answer from the compositor in 5s (GNOME withheld focus?)" >&2; fi' \
+        'exit $rc' \
+        > /usr/local/bin/wl-paste \
+    && chmod 755 /usr/local/bin/wl-paste
+
 # Install Ansible collections required by the project.
 # Versions pinned to known-good ranges (current latest: community.general 13.0.1,
 # ansible.posix 2.2.0); bump upper bounds when the project has been tested against
@@ -176,4 +196,7 @@ RUN ansible --version && \
     gitleaks version && \
     rg --version && \
     gawk --version && \
-    magick --version
+    magick --version && \
+    test -x /usr/bin/wl-paste && \
+    test -x /usr/bin/wl-copy && \
+    test -x /usr/local/bin/wl-paste

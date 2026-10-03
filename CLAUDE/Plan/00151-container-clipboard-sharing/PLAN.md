@@ -72,6 +72,11 @@ preferred.
   `prototype-ccy-wl-paste.bash` (HOST, once). It builds a throwaway image with
   `wl-clipboard`, runs `wl-paste` over the socket and removes the image. The owner reports the
   rc, the bytes and whether a window flashed. Blocked on the owner's run; Task 1.2 follows its result.
+- [ ] 🔄 **Task 2.1a**: Owner choice: trial in this project's ccy image first
+  (`.claude/ccy/Dockerfile`), then make it standard in the shared image. Added
+  `wl-clipboard` plus a `/usr/local/bin/wl-paste` wrapper that caps each call at 5 s, so a
+  GNOME focus refusal fails with exit 124 instead of freezing Claude's Ctrl+V. Needs a ccy
+  rebuild (automatic on next launch) and one Ctrl+V try.
 - [ ] ⬜ **Task 2.2**: Prototype for LXC (same mechanism if the survey says it carries).
 
 ### Phase 3: Deliver
