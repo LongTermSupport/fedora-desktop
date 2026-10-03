@@ -79,4 +79,4 @@ choice: [RESEARCH-encoding.md](RESEARCH-encoding.md). Example input:
 
 - Plan, prototype and encoding research committed (`d94a14cd`).
 - Dogfood decode passed; block-budget ladder (`9cee0cde`, `59ea6ece`).
-- `play-cli-tools.yml` with imgpaste (`cf6bc90f`); open, compression helpers and disk reclaim merged in (this plan's next commit).
+- `play-cli-tools.yml` with imgpaste (`cf6bc90f`); open, compression helpers and disk reclaim merged in (`36e61be9`).

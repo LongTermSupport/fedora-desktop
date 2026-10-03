@@ -156,7 +156,7 @@ Use these Unicode icons in plan documents:
 
 - [00061-headless-server-provisioning](00061-headless-server-provisioning/) - Provision a headless Fedora Server from the same source tree as the desktop: a per-play `scope` taxonomy, a server entry point, and a QA gate that fails on any play mis-declaring its scope.
 
-- [00062-disk-reclaim-tui](00062-disk-reclaim-tui/) - General-purpose disk-reclamation tooling: `play-disk-reclaim.yml` plus `reclaim`, a pure-bash confirm-first TUI for targeted cleanup. QA green; HOST deploy and live test pending.
+- [00062-disk-reclaim-tui](00062-disk-reclaim-tui/) - General-purpose disk-reclamation tooling: `reclaim` (deployed by `play-cli-tools.yml`, tag `disk-reclaim`), a pure-bash confirm-first TUI for targeted cleanup. QA green; HOST deploy and live test pending.
 
 - [00063-headless-run-bash-server-cloud-provisioning](00063-headless-run-bash-server-cloud-provisioning/) - Make `run.bash` provision a headless Fedora Server or Cloud box unattended, driven entirely by `RUN_BASH_*` env vars and failing fast by name when one is missing with no TTY. Depends on Plan 00061.
 

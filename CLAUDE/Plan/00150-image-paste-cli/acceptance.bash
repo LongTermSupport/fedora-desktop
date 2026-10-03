@@ -6,8 +6,9 @@
 #
 # It checks what a script can establish: the deployed command is the repo's, it is on PATH,
 # --help answers, the example screenshot round-trips (encode, run the block, sha256 OK,
-# decoded file is WebP), and a non-image and an image too busy for the budget are both
-# refused with nothing on stdout. It prints COVERAGE and names what it CANNOT establish.
+# decoded file is WebP), and four inputs are refused with nothing on stdout and for the
+# right reason: a non-image, an image too busy for the block budget, one over the pixel
+# limit and one over the byte limit. It prints COVERAGE and names what it CANNOT establish.
 #
 # Usage: ./acceptance.bash [-h|--help]
 #
@@ -36,7 +37,8 @@ PLAN_USAGE="usage: acceptance.bash [-h|--help]
 
 Checks, on the HOST after deploy.bash: ~/.local/bin/imgpaste is the repo's copy and on
 PATH; --help answers; the example screenshot round-trips with sha256 OK into a WebP; a
-non-image and an over-budget image are refused with nothing on stdout. Prints COVERAGE."
+non-image and images over the block budget, the pixel limit and the byte limit are each
+refused with nothing on stdout, for the stated reason. Prints COVERAGE."
 
 plan_mode gather
 plan_parse_common_flags "$@"
@@ -130,7 +132,7 @@ magick -size 2000x2000 xc: +noise Random "${work}/noise.png"
 refused "random noise (no step fits the block budget)" "${work}/noise.png" "no setting fits"
 
 magick -size 9000x9000 xc:white "${work}/over-pixels.png"
-refused "a 9000x9000 image (over the pixel limit)" "${work}/over-pixels.png" "pixels"
+refused "a 9000x9000 image (over the pixel limit)" "${work}/over-pixels.png" "9000x9000, limit is"
 
 # A valid PNG header padded to 51 MiB: `file` still calls it an image, so the byte limit,
 # not the mime check, is what refuses it. truncate makes it sparse, so it costs no disk.
