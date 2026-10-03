@@ -9,9 +9,7 @@ play-rust-dev.yml
 play-distrobox.yml
 play-network-tools.yml
 play-rclone.yml
-play-open-command.yml
-play-compression-helpers.yml
-play-disk-reclaim.yml
+play-cli-tools.yml
 play-advanced-kernel-management.yml
 play-container-watch.yml
 play-collaboration.yml

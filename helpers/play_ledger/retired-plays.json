@@ -1,3 +1,6 @@
 {
-  "playbooks/imports/play-claude-code.yml": "playbooks/imports/play-claude-yolo.yml"
+  "playbooks/imports/play-claude-code.yml": "playbooks/imports/play-claude-yolo.yml",
+  "playbooks/imports/optional/common/play-open-command.yml": "playbooks/imports/optional/common/play-cli-tools.yml",
+  "playbooks/imports/optional/common/play-compression-helpers.yml": "playbooks/imports/optional/common/play-cli-tools.yml",
+  "playbooks/imports/optional/common/play-disk-reclaim.yml": "playbooks/imports/optional/common/play-cli-tools.yml"
 }

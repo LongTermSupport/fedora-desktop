@@ -43,6 +43,23 @@
 - `user_email`: Email address
 - `lastfm_api_key`/`lastfm_api_secret`: Encrypted API credentials
 
+### Small CLI utilities go in `play-cli-tools.yml`
+
+A small, self-contained command-line tool does **not** get a play of its own. Add it to
+`playbooks/imports/optional/common/play-cli-tools.yml` as one more block of tasks, tagged
+with the tool's name, and list it in that play's header.
+
+- **Belongs there:** a script under `files/home/.local/bin/` (or similar) plus a few
+  packages it needs, with any probe-then-fail check for those packages.
+- **Gets its own play:** anything with services, timers, GNOME keybindings or
+  extensions, system config under `/etc`, secrets, or hardware. The CLI is then part of
+  a subsystem, and the subsystem owns the play.
+- The play is `scope: general` and runs on servers too, so a GUI-only task in it is
+  gated on `provisioning_profile != 'server'` rather than making the whole play `gnome`.
+
+**Why:** every play is one more thing a host must remember to run, and the ledger tracks
+each one separately. One play per tiny tool multiplies that for no benefit.
+
 ---
 
 ## File Modification Preferences

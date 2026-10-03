@@ -112,7 +112,7 @@ plan_mode gather
 plan_require_host "it runs the deployed /usr/local/bin/compress and uncompress, and the ouch binary the play installs"
 plan_start_log auto
 
-readonly PLAY="$PLAN_REPO_ROOT/playbooks/imports/optional/common/play-compression-helpers.yml"
+readonly PLAY="$PLAN_REPO_ROOT/playbooks/imports/optional/common/play-cli-tools.yml"
 readonly REPO_COMPRESS="$PLAN_REPO_ROOT/files/usr/local/bin/compress"
 readonly REPO_UNCOMPRESS="$PLAN_REPO_ROOT/files/usr/local/bin/uncompress"
 readonly DEP_COMPRESS="/usr/local/bin/compress"

@@ -251,5 +251,6 @@ Per the project's #1 hard rule.
   - `uncompress` refuses preexisting target folder, `--force` replaces ✓
 - `./scripts/qa-all.bash` passed (238 files).
 - **Next**: user reviews + commits, then deploys on HOST (not in CCY
-  container) with `ansible-playbook playbooks/imports/optional/common/play-compression-helpers.yml`,
+  container) with `ansible-playbook playbooks/imports/optional/common/play-compression-helpers.yml`
+  (since Plan 00150: `play-cli-tools.yml --tags compression-helpers`),
   then Phase 4 host testing.

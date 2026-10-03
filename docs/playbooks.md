@@ -769,6 +769,39 @@ Clean Paste — Ctrl+Alt+V clipboard sanitiser:
 
 - Strips formatting and hidden characters from clipboard content before pasting
 
+#### play-cli-tools.yml
+
+CLI Tools — the one home for small command-line utilities (rule:
+[AnsibleStyle.md](../CLAUDE/AnsibleStyle.md#small-cli-utilities-go-in-play-cli-toolsyml)):
+
+- **`imgpaste <image>`** prints a short bash block that carries the image as base64 with
+  its sha256. Paste the block into any agent's chat, including one on a remote server
+  with no clipboard. The agent runs it, the checksum proves the paste arrived intact, and
+  the agent views the decoded WebP. Big or busy images are shrunk step by step until the
+  block fits about 40,000 characters, the size an agent is known to copy exactly; one
+  that cannot fit is refused with a hint to crop it. Installs ImageMagick (and asserts it
+  can write WebP) and `file`
+- **`open`** opens any file, directory or URL. It uses the registered default app when
+  there is one, like `xdg-open`, and shows a chooser when there is not (fzf, else a
+  numbered menu; `-a` forces it). It never offers a GUI app with no display: over SSH you
+  get terminal viewers, and only installed ones. `open .`, `open -l FILE` (what could
+  open this), `open -d FILE` (choose and remember), `open -t FILE` (terminal only),
+  `open -n FILE` (print the command, run nothing). Installs the MIME and viewer stack it
+  delegates to (`xdg-utils`, `perl-File-MimeInfo`, `fzf`, `chafa`, `w3m`,
+  `poppler-utils`, `bsdtar`, `jq`, `tree` and others). Fedora ships no `/usr/bin/open`,
+  so nothing is masked
+- **`reclaim`** is a bash menu that reports what is using disk and runs targeted cleanups
+  (dnf autoremove/clean, old kernels, journal vacuum, container prune,
+  flatpak/cache/trash), **each behind an explicit confirmation**. Installs `ncdu`, `duf`
+  and `trash-cli`, plus the `baobab` GUI analyser on desktops only
+- **`compress` / `uncompress`** in `/usr/local/bin` wrap a pinned static `ouch` binary:
+  `compress myfolder` makes `myfolder.tar.xz` (`--zip`, `--7z`), and `uncompress` extracts
+  any supported archive into `./NAME/`. The play refuses to run while the `ncompress`
+  package is installed, because its legacy `/usr/bin/compress` would shadow the wrappers
+
+Run one tool alone with `--tags imgpaste`, `open-command`, `disk-reclaim` or
+`compression-helpers`. The play is `scope: general` and in the `server-recommended` bundle.
+
 #### play-cloudflare-dns.yml
 
 Cloudflare encrypted DNS — DNS-over-TLS with malware filtering, no client:
@@ -794,12 +827,6 @@ Cloudflare encrypted DNS — DNS-over-TLS with malware filtering, no client:
 Collaboration tools:
 
 - Installs team collaboration and screen-sharing applications
-
-#### play-compression-helpers.yml
-
-Compression helpers — installs `compress` and `uncompress` commands:
-
-- Provides legacy UNIX compress/uncompress utilities
 
 #### play-container-watch.yml
 
@@ -1009,15 +1036,6 @@ provider.
   reconciled for LXC outbound connectivity
 - See [Containerization Guide](containerization.md) for rootful vs rootless rationale
 
-#### play-disk-reclaim.yml
-
-Disk reclaim — disk-usage analysers plus the `reclaim` cleanup TUI:
-
-- Installs `ncdu`, `duf` and `trash-cli`; adds the `baobab` GUI analyser on desktops only
-- Deploys `reclaim`, a dependency-light bash menu that reports what is using disk and runs
-  targeted cleanups (dnf autoremove/clean, old kernels, journal vacuum, container prune,
-  flatpak/cache/trash) — **each behind an explicit confirmation**
-
 #### play-distrobox.yml
 
 Distrobox installation:
@@ -1146,24 +1164,6 @@ NordVPN OpenVPN manager:
 - Deploys `nord` helper for interactive OpenVPN connection management
 - Uses NordVPN service credentials (stored encrypted in `localhost.yml`)
 - See [docs/nordvpn-installation.md](nordvpn-installation.md) for setup guide
-
-#### play-open-command.yml
-
-`open` — one command to open any file, directory, or URL:
-
-- Deploys `~/.local/bin/open`, plus the MIME/viewer stack it delegates to
-  (`xdg-utils`, `perl-File-MimeInfo`, `shared-mime-info`, `desktop-file-utils`,
-  `file`, `fzf`, `less`, `chafa`, `w3m`, `poppler-utils`, `bsdtar`, `jq`, `tree`)
-- Uses the registered default app when there is one — same as `xdg-open`
-- Shows a chooser when there is **not** one, or the file type is unrecognised:
-  fzf if available, otherwise a plain numbered menu (`-a` forces it either way)
-- Never offers a GUI app when there is no display — over SSH or on a headless
-  server you get terminal viewers, and only ones actually installed
-- `open .` (file manager or directory listing), `open -l FILE` (what could open
-  this?), `open -d FILE` (choose, and remember it as the default), `open -t FILE`
-  (terminal handlers only), `open -n FILE` (print the command, run nothing)
-- Works on desktop and server (`scope: general`). Fedora ships no `/usr/bin/open`
-  and `~/.local/bin` comes first in PATH, so nothing is masked
 
 #### play-lxcfreeze.yml
 

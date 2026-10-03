@@ -65,7 +65,7 @@ version_pins:
         Not yet established. Needs a host to determine how the installed version is
         resolved; declared rather than omitted so the gap is counted, not invisible.
 
-  - playbook: playbooks/imports/optional/common/play-compression-helpers.yml
+  - playbook: playbooks/imports/optional/common/play-cli-tools.yml
     var: ouchVersion
     github: ouch-org/ouch
     installed:

@@ -1,0 +1,252 @@
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
+---
+# CLI Tools — the home for small command-line utilities.
+#
+# A small, self-contained CLI (a script plus a few packages, no services, keybindings or
+# secrets) is added HERE as a new block of tasks tagged with its name, not given a play of
+# its own. One play per tiny tool multiplies the plays a host must remember to run; see
+# CLAUDE/AnsibleStyle.md "Small CLI utilities go in play-cli-tools.yml".
+#
+# Tools (run one alone with --tags <tag>):
+#   open                 tag open-command         open anything, desktop or over SSH
+#   reclaim              tag disk-reclaim         disk-usage report and guarded cleanups
+#   compress/uncompress  tag compression-helpers  archive wrappers over a pinned ouch
+#   imgpaste             tag imgpaste             image -> self-decoding block for an agent
+#
+# Every block is headless-safe: this play is in optional/server-recommended.bundle.
+# The blocks are fail-fast and run in this order, so a failing check stops every tool
+# after it. Blocks that depend on something outside the repo's control go last: the
+# compression block (ncompress preflight, ouch download from GitHub, version assert) can
+# stop only imgpaste, and imgpaste's WebP assert stops nothing.
+# Keep a new tool with such an assert after the plain ones.
+#
+# Standalone / opt-in play — run directly:
+#   ./playbooks/imports/optional/common/play-cli-tools.yml
+- hosts: desktop
+  name: CLI Tools - small command-line utilities
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    user_bin_dir: "/home/{{ user_login }}/.local/bin"
+    # Pin ouch version for reproducibility. Update deliberately; vars/version-pins.yml
+    # names this var. @see https://github.com/ouch-org/ouch/releases
+    ouchVersion: "0.8.1"
+    ouchArch: "x86_64-unknown-linux-musl"
+    ouchDir: "/opt/ouch-{{ ouchVersion }}"
+    ouchBin: "/usr/local/bin/ouch"
+    ouchUrl: "https://github.com/ouch-org/ouch/releases/download/{{ ouchVersion }}/ouch-{{ ouchArch }}.tar.gz"
+  tasks:
+    # Tagged `always`: every tool's block needs it, including a run with --tags <tool>.
+    - name: Ensure user local bin directory exists
+      ansible.builtin.file:
+        path: "{{ user_bin_dir }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      tags: always
+
+    # ── open ─────────────────────────────────────────────────────────────────────
+    # Why a wrapper: xdg-open / gio open only open a registered default and fail with
+    # none; mimeopen prompts but only knows graphical apps, useless over SSH; handlr and
+    # rifle are not in Fedora's repos. The wrapper adds session awareness (terminal
+    # viewers when there is no display) and a chooser (fzf, else a numbered menu), and
+    # delegates the rest. It takes the name `open`: Fedora ships no /usr/bin/open, and
+    # ~/.local/bin precedes /usr/bin on the user's PATH.
+    #
+    # Packages in two groups: how a file's type and its apps are found, and the terminal
+    # viewers offered with no display. The script probes each handler with `command -v`,
+    # so anything installed later (mpv, ranger, bat, …) is picked up automatically.
+    - name: Install open MIME resolution and chooser dependencies
+      ansible.builtin.dnf:
+        name:
+          - xdg-utils            # xdg-open, xdg-mime (default lookup + set)
+          - perl-File-MimeInfo   # mimetype (type lookup), mimeopen (set default)
+          - shared-mime-info     # the freedesktop MIME database itself
+          - desktop-file-utils   # .desktop database the app list is read from
+          - file                 # last-resort MIME fallback on a minimal box
+          - fzf                  # the good chooser (a numbered menu is used without it)
+          - less                 # pager behind most terminal handlers
+        state: present
+      tags:
+        - packages
+        - open-command
+
+    - name: Install open terminal viewers used when there is no display
+      ansible.builtin.dnf:
+        name:
+          - chafa                # images, rendered in the terminal
+          - w3m                  # HTML and http(s) URLs
+          - poppler-utils        # pdftotext / pdfinfo for PDFs
+          - bsdtar               # archive contents listing
+          - jq                   # JSON
+          - tree                 # recursive directory listing
+        state: present
+      tags:
+        - packages
+        - open-command
+
+    - name: Deploy the open command
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/open"
+        dest: "{{ user_bin_dir }}/open"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+      tags: open-command
+
+    # ── reclaim ──────────────────────────────────────────────────────────────────
+    # A dependency-light bash menu that reports what is using disk and runs targeted
+    # cleanups, each behind an explicit confirmation; ncdu and baobab do deep dives.
+    - name: Install reclaim command-line disk-usage tools
+      ansible.builtin.package:
+        name:
+          - ncdu           # interactive ncurses disk-usage analyser (the tool's deep-dive)
+          - duf            # friendly df replacement — coloured filesystem overview
+          - trash-cli      # FreeDesktop trash CLI (trash-list / trash-empty) for safe trashing
+        state: present
+      tags: disk-reclaim
+
+    # baobab is a GTK GUI analyser, so this one task is gated rather than the play
+    # being declared `gnome` (CLAUDE/AnsibleStyle.md).
+    - name: Install baobab GUI disk analyser (desktop only)
+      ansible.builtin.package:
+        name: baobab
+        state: present
+      when: provisioning_profile != 'server'
+      tags: disk-reclaim
+
+    - name: Deploy the reclaim TUI
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/reclaim"
+        dest: "{{ user_bin_dir }}/reclaim"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      tags: disk-reclaim
+
+    # ── compress / uncompress ────────────────────────────────────────────────────
+    - name: Preflight - assert ncompress is not installed (conflicts with our compress/uncompress)
+      ansible.builtin.command: rpm -q ncompress
+      register: ncompress_check
+      failed_when: false  # FAIL-FAST-OK: probe — we want the non-zero exit path here
+      changed_when: false
+      tags: compression-helpers
+
+    - name: Fail if ncompress is installed (would shadow our wrappers via /usr/bin)
+      ansible.builtin.fail:
+        msg: |
+          The `ncompress` package is installed and provides /usr/bin/compress and
+          /usr/bin/uncompress (the legacy SVR4 tools). These would shadow our
+          wrappers in /usr/local/bin on some PATH orderings.
+
+          Remove it first: sudo dnf remove ncompress
+      when: ncompress_check.rc == 0
+      tags: compression-helpers
+
+    - name: Create versioned ouch directory
+      ansible.builtin.file:
+        path: "{{ ouchDir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags: compression-helpers
+
+    - name: Download and extract ouch static musl binary
+      ansible.builtin.unarchive:
+        src: "{{ ouchUrl }}"
+        dest: "{{ ouchDir }}"
+        remote_src: true
+        creates: "{{ ouchDir }}/ouch-{{ ouchArch }}/ouch"
+        owner: root
+        group: root
+        mode: "0755"
+      tags: compression-helpers
+
+    - name: Symlink ouch into /usr/local/bin
+      ansible.builtin.file:
+        src: "{{ ouchDir }}/ouch-{{ ouchArch }}/ouch"
+        dest: "{{ ouchBin }}"
+        state: link
+        force: true
+      tags: compression-helpers
+
+    - name: Verify ouch runs
+      ansible.builtin.command: "{{ ouchBin }} --version"
+      register: ouch_version
+      changed_when: false
+      tags: compression-helpers
+
+    - name: Assert ouch version matches pin
+      ansible.builtin.assert:
+        that:
+          - ouchVersion in ouch_version.stdout
+        fail_msg: "ouch reports '{{ ouch_version.stdout }}' — expected version {{ ouchVersion }}"
+      tags: compression-helpers
+
+    - name: Install compress wrapper
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/usr/local/bin/compress"
+        dest: /usr/local/bin/compress
+        owner: root
+        group: root
+        mode: "0755"
+      tags: compression-helpers
+
+    - name: Install uncompress wrapper
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/usr/local/bin/uncompress"
+        dest: /usr/local/bin/uncompress
+        owner: root
+        group: root
+        mode: "0755"
+      tags: compression-helpers
+
+    # ── imgpaste ─────────────────────────────────────────────────────────────────
+    - name: Install imgpaste dependencies
+      ansible.builtin.package:
+        name:
+          - ImageMagick   # provides `magick` (IM7 on Fedora 43+); encodes to WebP
+          - file          # the mime check that rejects non-images before ImageMagick reads them
+        state: present
+      tags: imgpaste
+
+    # Probe-then-fail: imgpaste writes WebP and nothing else, so an ImageMagick built
+    # without the WebP coder would fail on every image, at the moment the user needs it.
+    - name: Probe ImageMagick formats for WebP write support
+      ansible.builtin.command: magick -list format
+      register: imgpaste_magick_formats
+      changed_when: false
+      tags: imgpaste
+
+    - name: Assert ImageMagick can write WebP
+      ansible.builtin.assert:
+        that:
+          - imgpaste_magick_formats.stdout is search('(?m)^\s*WEBP\*?\s+rw')
+        fail_msg: |
+          `magick -list format` lists no writable WEBP coder, and imgpaste encodes to WebP only.
+          Install the ImageMagick WebP delegate (libwebp) and re-run this play.
+      tags: imgpaste
+
+    - name: Deploy imgpaste
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/imgpaste"
+        dest: "{{ user_bin_dir }}/imgpaste"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      tags: imgpaste
+
+    - name: Display installation summary
+      ansible.builtin.debug:
+        msg:
+          - "============================================"
+          - "CLI Tools installed"
+          - "============================================"
+          - "  open FILE          - default app, or a chooser (open --help for -a -d -l -t)"
+          - "  reclaim             - interactive disk cleanup menu (reclaim report: non-interactive)"
+          - "  compress PATH       - e.g. myfolder -> myfolder.tar.xz (--zip, --7z)"
+          - "  uncompress ARCHIVE  - extract anything ouch supports into ./NAME/"
+          - "  imgpaste <image>    - print a self-decoding block to paste into an agent's chat"

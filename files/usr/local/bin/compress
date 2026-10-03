@@ -120,7 +120,7 @@ if [[ -e "$output" ]]; then
 fi
 
 if ! command -v ouch >/dev/null 2>&1; then
-  die "backend missing: /usr/local/bin/ouch — run play-compression-helpers.yml to install"
+  die "backend missing: /usr/local/bin/ouch — run play-cli-tools.yml to install"
 fi
 
 exec ouch compress -- "$input_trimmed" "$output"

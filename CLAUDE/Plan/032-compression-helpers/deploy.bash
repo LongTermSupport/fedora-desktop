@@ -43,7 +43,7 @@ done
 source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
 
-readonly PLAY="playbooks/imports/optional/common/play-compression-helpers.yml"
+readonly PLAY="playbooks/imports/optional/common/play-cli-tools.yml"
 
 PLAN_USAGE="usage: deploy.bash [-h|--help] [--check] [-y|--yes]
 

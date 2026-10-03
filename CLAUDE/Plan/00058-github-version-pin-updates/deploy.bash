@@ -28,7 +28,7 @@ cd "$repo_root"
 playbooks=(
     "playbooks/imports/play-nvm-install.yml"
     "playbooks/imports/play-markless.yml"
-    "playbooks/imports/optional/common/play-compression-helpers.yml"
+    "playbooks/imports/optional/common/play-cli-tools.yml"
     "playbooks/imports/optional/common/play-photography.yml"
     "playbooks/imports/optional/common/play-qobuz.yml"
     # Hardware-specific: DKMS/evdi + Secure Boot MOK enrolment. Needs a real
