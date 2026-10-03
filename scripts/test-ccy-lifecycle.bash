@@ -411,6 +411,18 @@ check "the playbook copies the plugin into the build context" "1" \
     "$(grep -c -F 'Copy Supervisor Plugins into Docker Build Context' "$REPO_ROOT/playbooks/imports/play-claude-yolo.yml")"
 check "the plugin source exists" "yes" "$([ -f "$CCY_DIR/supervisor-plugins/ccy_lifecycle.py" ] && echo yes || echo no)"
 
+# The launcher sources every library in CCY_LIBS from /var/local/claude-yolo/lib/, but these tests
+# source them from the repo tree, so a library the play does not deploy passes here and breaks every
+# launch on the host. Read the launcher's own list, so a new library cannot be missed.
+libs_line=$(grep -E '^CCY_LIBS=\(' "$LAUNCHER")
+check "the launcher declares CCY_LIBS" "1" "$(grep -c -E '^CCY_LIBS=\(' "$LAUNCHER")"
+read -r -a ccy_libs <<<"${libs_line#CCY_LIBS=(}"
+ccy_libs[-1]="${ccy_libs[-1]%)}"
+for lib in "${ccy_libs[@]}"; do
+    check "the playbook deploys lib/$lib.bash" "1" \
+        "$(grep -c -F -- "files/var/local/claude-yolo/lib/$lib.bash\"" "$REPO_ROOT/playbooks/imports/play-claude-yolo.yml")"
+done
+
 echo
 printf 'passed: %s  failed: %s\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]
