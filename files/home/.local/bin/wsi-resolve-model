@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""wsi-resolve-model - print the faster-whisper model a recorder should load.
+
+    wsi-resolve-model --mode batch|streaming [--language CODE] [MODEL]
+    wsi-resolve-model --gpu-count
+
+MODEL is the panel's Whisper Model setting (WHISPER_MODEL); empty or `auto` means
+choose. `auto` with a CUDA device picks distil-large-v3.5 for English and
+large-v3-turbo for any other language (or language detection); without one it picks
+small for batch and base for streaming. The CUDA check is CTranslate2's own device
+count, the one faster-whisper's engine uses.
+
+CTranslate2 answers 0, not an error, when it cannot reach a GPU that is there (a
+broken CUDA or cuDNN install, a driver mismatch). So a count of 0 on a machine with
+NVIDIA device nodes (/dev/nvidia0, ...) is a failure, never a quiet CPU fallback.
+
+--gpu-count prints the checked count alone, for the play's verify task.
+
+stdout is the argument for faster-whisper's WhisperModel (or the count) and nothing
+else: a model name, or a Hugging Face repo ID for a name the installed faster-whisper
+may not know. Diagnostics go to stderr. Not interactive: the recorders treat failure
+as fatal.
+"""
+
+import argparse
+import glob
+import os
+import sys
+
+AUTO_WITHOUT_GPU = {"batch": "small", "streaming": "base"}
+AUTO_GPU_ENGLISH = "distil-large-v3.5"
+AUTO_GPU_OTHER = "large-v3-turbo"
+
+# faster-whisper 1.2.1 maps distil-large-v3.5 to this repo (faster_whisper/utils.py
+# _MODELS, read in the 1.2.1 wheel); 1.1.1, which RealtimeSTT 0.3.104 pins, has no such
+# entry and rejects the name as an "Invalid model size" (read in the 1.1.1 wheel). Both
+# load any `org/name` as a repo ID, so the name is never handed over bare.
+REPO_FOR_NAME = {"distil-large-v3.5": "distil-whisper/distil-large-v3.5-ct2"}
+
+ENGLISH_ONLY = {"distil-large-v3.5"}
+
+# Where the NVIDIA driver creates one node per GPU. WSI_DEV_DIR exists for the tests.
+DEV_DIR = os.environ.get("WSI_DEV_DIR", "/dev")
+
+
+class GpuNotVisible(RuntimeError):
+    """NVIDIA GPUs are present but CTranslate2 counts none."""
+
+
+def is_english_only(name):
+    return name.endswith(".en") or name in ENGLISH_ONLY
+
+
+def nvidia_device_nodes():
+    """The NVIDIA GPU device nodes on this machine (/dev/nvidia0, /dev/nvidia1, ...)."""
+    return sorted(glob.glob(os.path.join(DEV_DIR, "nvidia[0-9]*")))
+
+
+def cuda_device_count():
+    """CUDA devices CTranslate2 can use.
+
+    Raises if CTranslate2 cannot answer, and GpuNotVisible if it answers 0 while
+    NVIDIA GPU device nodes exist.
+    """
+    import ctranslate2
+    count = int(ctranslate2.get_cuda_device_count())
+    if count < 0:
+        raise ValueError(f"CTranslate2 reported {count} CUDA devices")
+    nodes = nvidia_device_nodes()
+    if count == 0 and nodes:
+        raise GpuNotVisible(
+            f"this machine has NVIDIA GPUs ({', '.join(nodes)}) but CTranslate2 counts 0 "
+            "CUDA devices, so the GPU cannot be used (a broken CUDA/cuDNN install or a "
+            "driver mismatch). Check `nvidia-smi`, then re-run play-nvidia.yml and "
+            "play-speech-to-text.yml.")
+    return count
+
+
+def choose_auto(mode, language, gpu_count):
+    if gpu_count == 0:
+        return AUTO_WITHOUT_GPU[mode]
+    return AUTO_GPU_ENGLISH if language == "en" else AUTO_GPU_OTHER
+
+
+def checked_gpu_count():
+    """cuda_device_count(), or None after saying why on stderr."""
+    try:
+        return cuda_device_count()
+    except GpuNotVisible as e:
+        print(f"wsi-resolve-model: {e}", file=sys.stderr)
+    except Exception as e:
+        print(f"wsi-resolve-model: cannot ask CTranslate2 for CUDA devices: {e}", file=sys.stderr)
+        print("wsi-resolve-model: re-run play-speech-to-text.yml (installs faster-whisper)",
+              file=sys.stderr)
+    return None
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        prog="wsi-resolve-model",
+        description="Print the faster-whisper model a speech-to-text recorder should load.")
+    parser.add_argument("--gpu-count", action="store_true",
+                        help="print the CUDA device count CTranslate2 sees, checked against "
+                             "the NVIDIA device nodes, and nothing else")
+    parser.add_argument("--mode", choices=sorted(AUTO_WITHOUT_GPU),
+                        help="which recorder asks: batch (wsi) or streaming (wsi-stream)")
+    parser.add_argument("--language", default="",
+                        help="transcription language code; empty for language detection")
+    parser.add_argument("model", nargs="?", default="auto",
+                        help="the Whisper Model setting; empty or 'auto' to choose (default: auto)")
+    args = parser.parse_args(argv)
+
+    if args.gpu_count:
+        gpu_count = checked_gpu_count()
+        if gpu_count is None:
+            return 1
+        print(gpu_count)
+        return 0
+    if args.mode is None:
+        parser.error("--mode is required (or --gpu-count)")
+
+    language = args.language.strip().lower()
+    name = args.model.strip() or "auto"
+
+    if name == "auto":
+        gpu_count = checked_gpu_count()
+        if gpu_count is None:
+            return 1
+        name = choose_auto(args.mode, language, gpu_count)
+        print(f"wsi-resolve-model: auto -> {name} ({'GPU' if gpu_count else 'no GPU'}, "
+              f"{args.mode}, language {language or 'detected'})", file=sys.stderr)
+
+    if is_english_only(name) and language not in ("", "en"):
+        print(f"wsi-resolve-model: {name} is English only, but the language is '{language}'. "
+              "Choose a multilingual model, or set the language to English.", file=sys.stderr)
+        return 1
+
+    print(REPO_FOR_NAME.get(name, name))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

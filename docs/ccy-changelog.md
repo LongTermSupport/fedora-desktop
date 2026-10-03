@@ -17,102 +17,68 @@ Two version numbers move independently — see
 
 ---
 
-## 3.78.1 — container 2.43
-
-Fixes from the second host review, before 3.78.0 was deployed.
-
-- **A key-file session can restart on an SELinux-enforcing host.** The relaunch inherited
-  the first launch's key staging directory, which the cleanup had just removed, so it made
-  neither a new directory nor its mount, and staging the key failed. The relaunch also no
-  longer inherits the token values: it re-derives them from the token file it is given.
-  It still inherits the record of compose services the first launch started, so the
-  resumed session is the one that offers to stop them.
-- The pre-commit container version check now reads the files the image copies from the
-  Dockerfile's own `COPY` lines, so it also covers the agent-browser guards and the
-  phpantom plugin, and any file the image starts copying later.
-
-## 3.78.0 — container 2.43
-
-Fixes from the host review of 3.76.0 and 3.77.0, before either was deployed.
-
-- **The play deploys `restart-request.bash` and `session-lifecycle.bash`.** The launcher
-  sources both on every launch, but the play did not copy them, so every `ccy` launch would
-  have failed once the play ran. A test now checks the play deploys every library the
-  launcher lists.
-- **A `--max-age` restart relaunches unattended.** It relaunches with the token file, SSH
-  keys (or `--ssh-agent` / `--no-ssh`), GitHub-443 mode and project network the session
-  actually ran with, including choices made at prompts, and asks nothing. It stops with an
-  error and the manual `ccy --resume <id>` command, instead of waiting at a prompt, in three
-  cases. The first is an SSH key that needs a passphrase, unless a server restore's passphrase
-  file is in force; use `--ssh-agent` or a key without a passphrase for unattended restarts.
-  The others are an expired token and a token that fails validation. The key check runs
-  before any restart budget or image update is spent.
-- **On a restart ccy takes the safe answer** where there is exactly one. It keeps old
-  `.claude/ccy/sessions` dirs, leaves zombie containers, starts alongside sibling containers,
-  rejoins its network without offering to start compose services, and skips network
-  detection when the session had no project network.
-- **The restart budget's history moved** to `~/.cache/claude-yolo-restart-history/`, so
-  `--rebuild` and version rebuilds no longer reset the crash-loop bound. Counts start fresh
-  once. Before relaunching, the launcher removes its staged SSH key copies and temp config,
-  which the exec used to leave behind.
-- **`--max-age`, `--run-for` and `--until` need a supervisor with the plugin API.** They are
-  refused before any prompt when the project has no supervisor, or one that predates the
-  hooks-daemon supervisor plugin API. Previously the container exited with an argparse error.
-  The host only reads the file. The entrypoint checks a wrapper set by `CCY_CLAUDE_WRAPPER` or
-  `ccy.env` the same way.
-- **Two sessions in one project keep separate `--max-age` clocks.** The plugin keys its state
-  by container, so a second session no longer resets the first one's age. A deadline
-  announced once is still not announced again after a restart of the same session. This plugin
-  change is why the container version moves to 2.43.
-- **The warning is given when the session is idle** inside the last
-  `CCY_RESTART_WARN_MINUTES`; a session busy through that whole window gets none.
-- A pre-commit check now requires a container version bump for any change to the Dockerfile,
-  the entrypoint or the supervisor plugins.
-
 ## 3.77.0 — container 2.42
 
 - **`--max-age`, `--run-for` and `--until` give a session a lifetime.** `--max-age 3d`
   restarts the session on a fresh container (and so the newest Claude Code) once it has run
-  that long: the session is warned first, the supervisor ends it at an idle point, and 3.76.0's
-  relaunch picks it up with `--resume`. `--run-for 2h` and `--until 17:30` tell the session once,
-  at the deadline, that its time is up; they never end it. Durations are days, hours and
-  minutes (`90m`, `12h`, `1d12h`). All three are off unless given; `CCY_MAX_AGE` sets a default
-  for `--max-age` and `CCY_RESTART_WARN_MINUTES` the warning lead (default 10).
-- **Done by a supervisor plugin the image ships.** The container version moves to 2.42 for
-  `/opt/claude-yolo/supervisor-plugins/ccy_lifecycle.py` (root owned, outside the project mount).
-  The entrypoint adds it to the supervisor's command line only when an option is set; without
-  one the wrapper line is unchanged. A bad value fails the launch with an example, before any
-  prompt, and so does an option the session cannot honour (`--no-supervise`, or a project with
-  no supervisor).
-- **A restart keeps the deadline** (it is absolute) and restarts the `--max-age` clock. The
-  supervisor's "restarted, now on Claude Code X" marker is left alone by the launcher for the
+  that long. `--run-for 2h` and `--until 17:30` tell the session once, at the deadline, that
+  its time is up; they never end it. Durations are days, hours and minutes (`90m`, `12h`,
+  `1d12h`). All three are off unless given; `CCY_MAX_AGE` sets a default for `--max-age` and
+  `CCY_RESTART_WARN_MINUTES` the warning lead (default 10). The session is warned when it is
+  idle inside that window; a session busy through the whole window gets no warning.
+- **Done by a supervisor plugin the image ships**
+  (`/opt/claude-yolo/supervisor-plugins/ccy_lifecycle.py`, root owned, outside the project
+  mount), which is why the container version moves to 2.42. The entrypoint adds it to the
+  supervisor's command line only when an option is set; without one the wrapper line is
+  unchanged. Two sessions in one project keep separate `--max-age` clocks.
+- **Refused before any prompt** when a value is bad (with an example), with `--no-supervise`,
+  or when the project has no supervisor or one older than the hooks-daemon supervisor plugin
+  API (upgrade the hooks daemon there). The host only reads the supervisor file. The
+  entrypoint checks a wrapper set by `CCY_CLAUDE_WRAPPER` or `ccy.env` the same way.
+- **A session can ask to be restarted, and CCY honours it.** The supervisor ends the session
+  at an idle point, writes `.claude/ccy/state/restart-request.json` and exits with status 75.
+  When the container exits with 75 and that file is fresh and well formed, CCY removes it,
+  updates Claude Code in the image, and relaunches with `--resume <session-id>`. The
+  relaunch asks nothing: it carries the token file, SSH keys (or `--ssh-agent` / `--no-ssh`),
+  GitHub-443 mode and network the session actually used, including choices made at prompts,
+  and takes the one safe answer at the prompts that have one. It stops with the manual
+  `ccy --resume <id>` command instead of waiting, for an SSH key that needs a passphrase
+  (unless a server restore's passphrase file is in force), an expired token, or a token that
+  fails validation. A deadline is absolute and survives the restart; the `--max-age` clock
+  starts again. The supervisor's "restarted, now on Claude Code X" marker is left for the
   next supervisor to read.
-- Unit-tested in `scripts/test-ccy-lifecycle.bash` (host and entrypoint halves) and
-  `tests/helpers/ccy_lifecycle/test_plugin.py` (the plugin). The image build and a live
-  restart need trying on a host.
+- **It cannot loop.** At most 3 restarts per project per hour (`CCY_RESTART_MAX`,
+  `CCY_RESTART_WINDOW_SECONDS`), counted in `~/.cache/claude-yolo-restart-history/`, which a
+  rebuild does not touch. Then CCY stops with the command to resume by hand. The request file
+  is written by code in the container, so it is refused unless it is a regular file under
+  4 KiB, JSON, less than five minutes old, with a UUID session id. Status 75 with no usable
+  request is reported on stderr and passed through. If the image update fails, CCY stops
+  rather than relaunching on the old version.
+- **Deployment and checks.** The play deploys the two new libraries. A test checks it deploys
+  every `lib/*.bash`. The pre-commit hook requires a container version bump for a change to
+  the Dockerfile or any file its `COPY` lines take from the repo. Unit-tested in
+  `scripts/test-ccy-lifecycle.bash`, `scripts/test-ccy-restart-request.bash`,
+  `scripts/test-ccy-container-version-hook.bash` and `tests/helpers/ccy_lifecycle/`.
+  A live restart needs trying on a host.
 
 ## 3.76.0 — container 2.41
 
-- **A session can ask to be restarted on a fresh container, and CCY now honours it.** Claude
-  Code is baked into the image, so a long-lived session never sees a newer version until its
-  container is replaced. The session supervisor can now decide a session should restart (for
-  example at a maximum age): it ends the session at an idle point, writes
-  `.claude/ccy/state/restart-request.json` and exits with status 75. When the container
-  exits with 75 and that file is present, fresh and well formed, CCY removes it, updates
-  Claude Code in the image, and relaunches the same command with `--resume <session-id>`
-  (replacing any `-c`/`--continue`/`-r`/`--resume`), keeping the token, keys and network.
-- **It cannot loop.** At most 3 restarts are honoured per project in an hour
-  (`CCY_RESTART_MAX` and `CCY_RESTART_WINDOW_SECONDS` override), then CCY stops with the
-  command to resume by hand. The request is deleted before anything else happens, and a
-  stale file is removed before every run. The file is written by code in the container, so
-  it is refused unless it is a regular file under 4 KiB, JSON, less than five minutes old,
-  with a UUID session id.
-- **Any other exit is unchanged.** Status 75 with no usable request is reported on stderr
-  and passed through as the exit status. The image update is not optional here: if it
-  fails, CCY stops rather than relaunching on the old version.
-- Unit-tested in `scripts/test-ccy-restart-request.bash`. Nothing in the image changed, so
-  the container version stays at 2.41. The part that talks to a real container is not
-  covered by it and needs trying on a host.
+- **One encrypted key file unlocks with no prompt when your own `SSH_ASKPASS` helper can
+  answer for it.** A key file is unlocked twice, on the host and again in the container, and
+  the agent route that avoids both prompts hands the container every key the agent holds
+  and runs it without SELinux confinement. Now, when `SSH_ASKPASS` names an executable and
+  exactly one encrypted key file is selected, the launcher asks that program once, in
+  ssh-add's own words, and feeds the answer to both unlocks through the stage a session
+  restore already uses. The container gets that one key file, read-only, and stays confined.
+  The answer sits in an owner-only file on the runtime directory for the length of the
+  launch, is removed once it has been copied where it is needed, and is never in argv or the
+  environment. The launcher names the terminal for a helper that asks through gpg. Several
+  keys, a passphrase-less key, the forwarded agent, a launch with no terminal, or a helper
+  that gives no answer leave the ordinary prompting as it was.
+- **The ssh-agent row says what it hands over.** It now says the container can use every key
+  the agent holds. The agent is no longer the default when it holds the key the menu would
+  pick (3.74.0 made it so; a key file with a helper is the narrower route to the same no-prompt
+  result).
 
 ## 3.75.0 — container 2.41
 
@@ -126,11 +92,6 @@ Fixes from the host review of 3.76.0 and 3.77.0, before either was deployed.
 
 ## 3.74.0 — container 2.40
 
-- **The ssh-agent is the default whenever it holds the key the menu would have chosen.**
-  3.73.0 made the agent the default only when nothing else was suggested, so a project whose
-  remote key was also loaded in the agent still defaulted to the key file and asked for its
-  passphrase. Now the default key is picked as before, and if the agent holds that very key
-  the agent is the default instead. The key file stays one keystroke away.
 - **A key the remote and the account both name is listed once.** The remote's own key can be
   one of the `github_` account keys; the menu showed it twice, with the push and agent marks
   on only one line. It is now one line carrying both.

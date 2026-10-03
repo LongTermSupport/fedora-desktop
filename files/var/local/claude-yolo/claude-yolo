@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.78.1"  # A restart relaunch no longer inherits the key staging directory or the token values. See docs/ccy-changelog.md.
+CCY_VERSION="3.77.0"  # --max-age restarts a session on a fresh container, unattended; --run-for and --until announce a deadline. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -74,7 +74,7 @@ source "$SCRIPT_DIR/lib/tmux-session.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.43"
+REQUIRED_CONTAINER_VERSION="2.42"
 
 set -e
 
@@ -1127,7 +1127,11 @@ ccy_selinux_mode
 # SIGTERM, a SIGHUP; bash runs the EXIT trap for both) must not leave the probe agent holding
 # unlocked keys, nor a restore's passphrase copy on XDG_RUNTIME_DIR. The probe's own RETURN
 # trap covers only a normal return.
-trap _probe_agent_stop EXIT
+trap '_probe_agent_stop; ccy_askpass_passphrase_discard' EXIT
+
+# One selected key file, and an SSH_ASKPASS helper that can answer for it: no prompt, here or
+# in the container (lib/ssh-handling.bash).
+ccy_askpass_passphrase_supply || exit 1
 
 # A restart cannot type a key's passphrase, here or at the container's own ssh-add. The
 # launcher that asked for the restart checked this before spending the budget on it; checked
@@ -2118,6 +2122,7 @@ cleanup() {
     fi
     # The duty of the probe's trap this one replaces; a no-op once the probe has returned.
     _probe_agent_stop
+    ccy_askpass_passphrase_discard
 
     # Show debug log if CCY debugging is enabled
     if [ "$DEBUG_CCY" = true ] && [ -n "$DEBUG_LOG" ]; then
@@ -2152,6 +2157,8 @@ if [ -n "$RESTORE_SSH_PASSPHRASE_FILE" ] && [ ${#SSH_KEY_PATHS[@]} -gt 0 ] \
     && [ "${SSH_AGENT_FORWARDED:-0}" != "1" ]; then
     ccy_restore_askpass_container "$RESTORE_SSH_PASSPHRASE_FILE" || exit 1
 fi
+# A passphrase an SSH_ASKPASS helper supplied has now been copied wherever it is needed.
+ccy_askpass_passphrase_discard || exit 1
 
 # Convert SSH_KEY_PATHS array to colon-separated string
 SSH_KEY_PATHS_STR=$(IFS=:; echo "${SSH_KEY_PATHS[*]}")

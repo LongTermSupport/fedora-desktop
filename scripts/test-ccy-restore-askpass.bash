@@ -390,9 +390,11 @@ check "the launcher's cleanup removes the container stage" "yes" \
     "$(yes_if grep -q 'CCY_RESTORE_ASKPASS_DIR' <<<"$cleanup_def")"
 check "and stops the probe agent, which removes the probe's copy" "yes" \
     "$(yes_if grep -qx '    _probe_agent_stop' <<<"$cleanup_def")"
+check "and discards a passphrase an SSH_ASKPASS helper supplied" "yes" \
+    "$(yes_if grep -qx '    ccy_askpass_passphrase_discard' <<<"$cleanup_def")"
 # The guard driven above (probe-killed) is installed before the probe runs, since the
 # launcher's cleanup trap is set only after it.
-guard_line="$(grep -nx 'trap _probe_agent_stop EXIT' "$LAUNCHER" | cut -d: -f1)"
+guard_line="$(grep -nx "trap '_probe_agent_stop; ccy_askpass_passphrase_discard' EXIT" "$LAUNCHER" | cut -d: -f1)"
 probe_line="$(grep -nx 'build_ssh_mounts_and_validate "ccy" || exit 1' "$LAUNCHER" | cut -d: -f1)"
 check "the launcher guards its probe against being killed, before running it" "yes" \
     "$(yes_if test -n "$guard_line" -a -n "$probe_line" -a "${guard_line:-0}" -lt "${probe_line:-0}")"

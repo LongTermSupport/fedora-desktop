@@ -54,7 +54,7 @@
     <key name="whisper-model" type="s">
       <default>'auto'</default>
       <summary>Whisper Model</summary>
-      <description>Whisper model to use for transcription: "auto" (base for streaming, small for batch), "tiny", "base", "small", "medium", "large-v3"</description>
+      <description>Whisper model to use for transcription: "auto" (with an NVIDIA GPU: distil-large-v3.5 for English, large-v3-turbo otherwise; without one: base for streaming, small for batch; resolved by wsi-resolve-model), or a model name such as "small", "large-v3-turbo" or "distil-large-v3.5" (English only)</description>
     </key>
     <key name="toggle-recording-claude" type="as">
       <default><![CDATA[['<Primary>Insert']]]></default>
@@ -81,6 +81,17 @@
       <default>3</default>
       <summary>Stop Grace (seconds)</summary>
       <description>After the first stop press (Insert), keep recording for this many seconds so the last words are captured, then stop. A second press during the grace stops at once; Escape still discards at once. 0 stops immediately. Read by the recorder scripts via wsi-stop-grace.</description>
+    </key>
+    <key name="server-idle-timeout-minutes" type="i">
+      <range min="0" max="1440"/>
+      <default>20</default>
+      <summary>Server Idle Timeout (minutes)</summary>
+      <description>Streaming server mode: the warm server shuts down after this many minutes without a recording. 0 keeps it running until logout. Passed by wsi-stream when it starts the server, so a change applies from the next server start.</description>
+    </key>
+    <key name="server-start-at-login" type="b">
+      <default>false</default>
+      <summary>Start the Server at Login</summary>
+      <description>Streaming server mode: start the warm server when you log in, so the first recording is not a cold start. Only acts when streaming mode is on with startup mode "server". Run by the user unit wsi-stream-server-at-login.service; applies from the next login.</description>
     </key>
     <key name="paste-default-mode" type="s">
       <default>'with-shift'</default>
