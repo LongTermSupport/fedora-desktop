@@ -288,10 +288,10 @@ never counting those as passed.
   is about); ESLint clean from
   `extensions/`, which is where its config lives — `eslint .` at the repo root finds no
   config at all and fails for that reason, which is not a finding about the code
-- [ ] Host-only checks skip cleanly in the CCY container **and in CI** — the container
-  half is done: `deployed-drift` reports `⚠ skipped (CCY container — no deployed copies to compare)`, an advisory rather than a pass, so a skipped check cannot be read as a
-  passed one. The CI half is unverified from here and needs a green run on a pushed
-  branch to claim
+- [x] Host-only checks skip cleanly in the CCY container **and in CI**. Container:
+  `deployed-drift` reports `⚠ skipped (CCY container — no deployed copies to compare)`, an
+  advisory rather than a pass, so a skipped check cannot be read as a passed one. CI: the
+  green QA run 37040514044 on F44 (`a142f2d7`) logs `⚠ deployed-drift: skipped (/home/runner/.local/bin does not exist)`
 - [ ] `qa-reviewer` agent run over the full plan diff, findings resolved — **run**
   (`subagent-reports/260916-qa-reviewer-full-plan-diff-opus-5.md`, verdict BLOCK: 1
   blocking, 3 should-fix, 6 minor, 2 nits). Every finding actionable from a container is

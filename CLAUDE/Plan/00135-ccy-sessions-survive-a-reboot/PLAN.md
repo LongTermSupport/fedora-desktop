@@ -294,7 +294,11 @@ The questions as first asked, before they were settled, are in
 - [ ] A machine with restore disabled behaves exactly as before this plan.
 - [ ] `./scripts/qa-all.bash` green.
 - [x] ✅ `qa-reviewer` agent over the full plan diff, findings resolved (round 1 FIX-BEFORE-MERGE, round 2 PASS; journal 26-09-23).
-- [ ] No hostname, address, username or private path anywhere in the diff or the PR.
+- [x] No hostname, address, username or private path anywhere in the diff or the PR.
+  The added lines and messages of all 42 commits naming the plan were scanned with the
+  pre-commit hook's own `localhost.yml` denylist (no field matched) and for home paths,
+  IPv4 addresses and emails (none outside placeholders). The work went straight to F44;
+  there was no PR of its own.
 
 ## Out of Scope — tracked separately
 
