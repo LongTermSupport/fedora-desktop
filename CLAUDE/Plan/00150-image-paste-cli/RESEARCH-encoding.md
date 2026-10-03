@@ -53,6 +53,9 @@ echo '<sha256>  <path>' | sha256sum -c
 The full sha256 lets `sha256sum -c` catch any transcription error. A transcription error
 is a real risk: the receiving agent re-types the base64 into its tool call.
 
+The encoder's stderr lines start with `# `. A terminal copy often takes them along with the
+block, and as comments they cannot make the receiver's run fail.
+
 ## Decode path
 
 `<path>` is `./imgpaste-<id>.webp`, relative to the receiver's current directory. A

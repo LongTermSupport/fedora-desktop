@@ -47,5 +47,7 @@ block=$(
 printf '%s\n' "$block"
 
 block_bytes=${#block}
-echo "imgpaste: ${width}x${height} -> ${ow}x${oh} webp q${QUALITY}, $(stat -c %s -- "$out") bytes, block ${block_bytes} chars" >&2
-((block_bytes <= WARN_BLOCK_BYTES)) || echo "imgpaste: WARNING block exceeds ${WARN_BLOCK_BYTES} chars; try IMGPASTE_QUALITY=30" >&2
+# The terminal shows stderr beside the block and a copy often takes it too; as bash
+# comments these lines cannot fail the receiver's run.
+echo "# imgpaste: ${width}x${height} -> ${ow}x${oh} webp q${QUALITY}, $(stat -c %s -- "$out") bytes, block ${block_bytes} chars" >&2
+((block_bytes <= WARN_BLOCK_BYTES)) || echo "# imgpaste: WARNING block exceeds ${WARN_BLOCK_BYTES} chars; try IMGPASTE_QUALITY=30" >&2
