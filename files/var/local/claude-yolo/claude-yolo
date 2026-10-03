@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.73.0"  # The key menu marks keys the ssh-agent already holds and defaults to it. See docs/ccy-changelog.md.
+CCY_VERSION="3.74.0"  # Ctrl+V pastes images from the host clipboard (wl-clipboard in the image). See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,7 +70,7 @@ source "$SCRIPT_DIR/lib/tmux-session.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.40"
+REQUIRED_CONTAINER_VERSION="2.41"
 
 set -e
 

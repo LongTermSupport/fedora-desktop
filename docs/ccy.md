@@ -352,19 +352,19 @@ risks are bounded and named below, not eliminated.
 
 ### What the container CAN reach
 
-| Exposed                                 | How                                                                                         |
-| --------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Your project directory                  | Bind-mounted read/write at `/workspace`                                                     |
-| One or more SSH private keys            | Mounted **read-only** at `/root/.ssh/key_N` (individual keys, not all of `~/.ssh`)          |
-| A Claude OAuth token                    | Environment variable — no credential files are mounted                                      |
-| A GitHub token for `gh`                 | Environment variable, from your existing `gh` login                                         |
-| Your git identity                       | A read-only copy of `~/.gitconfig`, to set `user.name` / `user.email`                       |
-| Commit signing                          | Through an ssh-agent holding the session's SSH key; no key is copied in for it (Plan 00139) |
-| Your Wayland or X11 display socket      | Mounted read-only and auto-detected, so the agent can open browser windows on your desktop  |
-| The host GPU render device              | `--device /dev/dri` — always attached, for accelerated browser rendering                    |
-| The network                             | Normal outbound; optionally a named container network                                       |
-| The host machine's name                 | `CCY_HOST_HOSTNAME` — the container's own `HOSTNAME` is its container id, not the machine   |
-| Anything you add via `CCY_EXTRA_MOUNTS` | Explicit opt-in — see [debug mounts](ccy-debug-mounts.md)                                   |
+| Exposed                                 | How                                                                                                                                                                             |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Your project directory                  | Bind-mounted read/write at `/workspace`                                                                                                                                         |
+| One or more SSH private keys            | Mounted **read-only** at `/root/.ssh/key_N` (individual keys, not all of `~/.ssh`)                                                                                              |
+| A Claude OAuth token                    | Environment variable — no credential files are mounted                                                                                                                          |
+| A GitHub token for `gh`                 | Environment variable, from your existing `gh` login                                                                                                                             |
+| Your git identity                       | A read-only copy of `~/.gitconfig`, to set `user.name` / `user.email`                                                                                                           |
+| Commit signing                          | Through an ssh-agent holding the session's SSH key; no key is copied in for it (Plan 00139)                                                                                     |
+| Your Wayland or X11 display socket      | Mounted read-only and auto-detected, so the agent can open browser windows on your desktop and Ctrl+V can paste images ([container clipboard](features/container-clipboard.md)) |
+| The host GPU render device              | `--device /dev/dri` — always attached, for accelerated browser rendering                                                                                                        |
+| The network                             | Normal outbound; optionally a named container network                                                                                                                           |
+| The host machine's name                 | `CCY_HOST_HOSTNAME` — the container's own `HOSTNAME` is its container id, not the machine                                                                                       |
+| Anything you add via `CCY_EXTRA_MOUNTS` | Explicit opt-in — see [debug mounts](ccy-debug-mounts.md)                                                                                                                       |
 
 ### What it CANNOT reach
 

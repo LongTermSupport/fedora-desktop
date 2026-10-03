@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.74.0 — container 2.41
+
+- **Ctrl+V pastes an image from the host clipboard into a session.** Claude Code reads the
+  clipboard with `wl-paste`, which the image did not carry. It now ships `wl-clipboard`,
+  which reads the host clipboard through the Wayland socket the launcher already mounts, so
+  no new access is granted. GNOME makes `wl-paste` win focus before it may read, and Claude
+  waits on it with no timeout, so a wrapper caps each call at 5 s and fails with a message
+  rather than freezing the paste. Proven on a GNOME Wayland host (Plan 00151). `imgpaste`
+  remains the route on hosts with no local clipboard.
+
 ## 3.73.0 — container 2.40
 
 - **An ssh-agent that already holds your account key is the way to a session with no

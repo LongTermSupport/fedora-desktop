@@ -62,8 +62,10 @@ preferred.
     talks to a host helper).
     For each: does it work under GNOME/mutter, what it exposes, what it costs. Report in
     `RESEARCH-survey.md`.
-- [ ] ⬜ **Task 1.2**: Owner decision on the mechanism(s), from the survey's
-  recommendation and security notes.
+- [x] ✅ **Task 1.2**: Owner decision on the mechanism(s), from the survey's
+  recommendation and security notes. **Owner chose A** (wl-clipboard over the mounted
+  socket) for ccy, trial in this project's image first, then standard; and asked for LXC and
+  other containers to be documented ([docs/features/container-clipboard.md](../../../docs/features/container-clipboard.md)).
 
 ### Phase 2: Prototype
 
@@ -75,7 +77,8 @@ preferred.
   `prototype-ccy-wl-paste.bash` (HOST, once). It builds a throwaway image with
   `wl-clipboard`, runs `wl-paste` over the socket and removes the image. The owner reports the
   rc, the bytes and whether a window flashed. Blocked on the owner's run; Task 1.2 follows its result.
-- [ ] 🔄 **Task 2.1a**: Owner choice: trial in this project's ccy image first
+- [x] ✅ **Task 2.1a**: **Ctrl+V confirmed by the owner**: a pasted photo attached to the
+  message in the rebuilt project ccy. Owner choice: trial in this project's ccy image first
   (`.claude/ccy/Dockerfile`), then make it standard in the shared image. Added
   `wl-clipboard` plus a `/usr/local/bin/wl-paste` wrapper that caps each call at 5 s, so a
   GNOME focus refusal fails with exit 124 instead of freezing Claude's Ctrl+V. Needs a ccy
@@ -85,11 +88,18 @@ preferred.
   project (it rebuilds), copy an image, press Ctrl+V in Claude; the image attaches. Then
   Task 3.1 moves `wl-clipboard` and the guard into the shared claude-yolo image.
 - [ ] ⬜ **Task 2.2**: Prototype for LXC (same mechanism if the survey says it carries).
+  The manual recipe is documented (untested) in `docs/features/container-clipboard.md`:
+  a read-only `lxc.mount.entry` for the socket with `optional`, `WAYLAND_DISPLAY` as an
+  absolute path, a matching uid, wl-clipboard plus the guard inside, and a container restart
+  after each login. Automating it needs LXC config under IaC, which this repo does not have.
 
 ### Phase 3: Deliver
 
-- [ ] ⬜ **Task 3.1**: Implement in IaC (ccy Dockerfile/launcher with version bumps; the
-  LXC play), docs updated.
+- [ ] 🔄 **Task 3.1**: Implement in IaC (ccy Dockerfile/launcher with version bumps; the
+  LXC play), docs updated. ccy done: `wl-clipboard` and the guard moved to the shared image
+  (container 2.41, CCY 3.74.0, changelog), removed from this project's Dockerfile; docs
+  `docs/features/container-clipboard.md` and the ccy.md security table. HOST: the next ccy
+  launch in any project rebuilds the base image. LXC remains manual (Task 2.2).
 - [ ] ⬜ **Task 3.2**: `deploy.bash` running `acceptance.bash` as its last leg.
 - [ ] ⬜ **Task 3.3**: `./scripts/qa-all.bash` and the `qa-reviewer` agent clean.
 
