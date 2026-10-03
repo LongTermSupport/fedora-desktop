@@ -1,6 +1,6 @@
 # Plan 00148: speech-to-text improvements (unlimited dictation, delayed stop, models)
 
-**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 4.1-4.5 and 7.4 built, all merged to F44; host checks Tasks 0.5, 1.2 and 8.4 pending; next: Tasks 0.7 and 4.7, Task 4.6 after the triage run, Phases 5 and 6)
+**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 4.1-4.6 and 7.4 built, all merged to F44; host checks Tasks 0.5, 1.2 and 8.4 pending; next: Tasks 0.7 and 4.7, Phases 5 and 6)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
@@ -104,12 +104,15 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
   (a); (b) worsens stop latency, the silent fallback to `tiny` text and server-mode
   truncation, all of which grow with length (research section 2). Blocked on the owner.
 - [ ] 🚫 **Task 1.2**: `triage.bash` (HOST, read-only) for the research's section 3.6
-  probes: installed RealtimeSTT and faster-whisper versions, real-time factor of the chosen
-  model per 20 s segment, hard-cut frequency at 20 s soft / 28 s hard max, and word loss at
-  phrase boundaries in article mode. Written: it records the owner reading aloud for 90 s
-  (or reuses `--audio`) and replays that one recording to every probe; the hard-cut probe
-  runs the checkout's own segmenter and VAD adapter. Blocked on the
-  owner: **HOST** run (it needs a person speaking).
+  facts. **Run 20261003-223727** got the versions (RealtimeSTT 1.0.0, faster-whisper 1.2.1,
+  CTranslate2 4.7.1, Silero VAD v6 loads) and the segmenter's cuts of 90 s of speech (7
+  segments, all at pauses, 0 hard cuts). Its real-time-factor and article-mode probes each
+  loaded a second Whisper model beside the warm server's and failed with CUDA out of
+  memory. Redesigned: no probe records or loads a model. The server logs a
+  `Dictation stats:` line per finished dictation (RTF mean and worst, worst backlog, cut
+  counts; `test_continuous_session.py` `StatsLineTest`), and `probe-dictations.py` reports
+  them. The article-mode measurement is dropped: Phase 5 replaces that loop either way.
+  Blocked on the owner: dictate with Continuous Dictation on, then a **HOST** triage run.
 
 ### Phase 2: Continuous dictation in the server
 
@@ -179,9 +182,10 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
   `MAX_RECORDING_SECONDS`, `wsi-stream`'s `STREAMING_MAX_SECONDS`, the GSettings keys.
   Control run against the pre-plan files: 12 of 13 rules fail. `wsi-article`'s 120 is a
   flush interval and is not checked (Phase 5 replaces it).
-- [ ] ⬜ **Task 4.6**: Pin `RealtimeSTT` and `faster-whisper` in
+- [x] ✅ **Task 4.6**: Pin `RealtimeSTT` and `faster-whisper` in
   `play-speech-to-text.yml`'s existing pip task, to the versions Task 1.2 finds; fix the
-  play's stale header comment on the default model.
+  play's stale header comment on the default model. Pinned to RealtimeSTT 1.0.0 and
+  faster-whisper 1.2.1 (what RealtimeSTT 1.0.0 declares); the header was already current.
 - [ ] ⬜ **Task 4.7**: Nits from the merge review of Phases 2-4 (it said merge; these were
   left for after): `docs/features/speech-to-text.md` diagram says server mode cuts on Silero
   VAD, which is true only with continuous dictation on; `wsi-stream-server`'s

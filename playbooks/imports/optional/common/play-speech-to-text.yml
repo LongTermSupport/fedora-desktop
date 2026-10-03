@@ -104,12 +104,16 @@
     # faster-whisper with GPU acceleration
     # =========================================================================
 
+    # Pinned to what RealtimeSTT 1.0.0 (below) declares it needs. The continuous-dictation
+    # segmenter loads the Silero VAD that faster-whisper ships, so an unpinned upgrade could
+    # change it under the server; move both pins together, after re-running Plan 00148's
+    # triage.
     - name: Install faster-whisper with CUDA Support
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.pip:
         name:
-          - faster-whisper
+          - faster-whisper==1.2.1
           - nvidia-cublas-cu12
           - nvidia-cudnn-cu12==9.*
           - textual
@@ -236,7 +240,7 @@
       become_user: "{{ user_login }}"
       ansible.builtin.pip:
         name:
-          - RealtimeSTT
+          - RealtimeSTT==1.0.0
         extra_args: --user --resume-retries 5
         state: present
 

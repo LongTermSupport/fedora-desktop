@@ -49,16 +49,12 @@ PLAN_ROOT="${scriptDir}"
 # run as one unit through its own shebang, which goes through run.bash, exactly as
 # `./playbooks/imports/<play>.yml` does by hand.
 PLANS=(
-    # PR #66: ccy 3.77.1 / container 2.42, session lifetimes and restart on a fresh container.
-    # ccy 3.78.0: ccy-sessions shows each session's CPU, token and SSH key; ccy-sessions --list.
-    playbooks/imports/play-claude-yolo.yml
-    # Plan 00148: continuous dictation in the warm server (Phases 2-4, off by default), and
-    # the "…" panel icon as soon as Insert stops a recording (seen after the logout).
+    # Plan 00148: the speech server logs its figures for every dictation, and the speech
+    # packages are pinned. Unattended: needs nobody at the microphone. It restarts the warm
+    # speech server, so do not be dictating while it runs.
     playbooks/imports/optional/common/play-speech-to-text.yml
-    # Plan 00148 Task 1.2: measurements on the deployed speech-to-text; asks you to read
-    # aloud for 90 s. Read-only.
-    00148-stt-unlimited-dictation-loop-and-buffer
-    # Plans 00109 and 00144 come next, after the logout their acceptance gates need.
+    # Next: Plan 00148's triage (reads those figures; records nothing), once you have
+    # dictated with Continuous Dictation on. Plans 00109 and 00144 after the logout.
 )
 
 LIST_ONLY=0

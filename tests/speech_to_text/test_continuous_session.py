@@ -185,6 +185,59 @@ class StopTest(SessionCase):
         self.finished()
 
 
+class StatsLineTest(SessionCase):
+    """Every finished dictation logs one line of figures, which Plan 00148's triage reads.
+
+    It is how the speed of real dictation is measured without loading a second model.
+    """
+
+    def stats(self):
+        lines = [line.split("Dictation stats: ", 1)[1]
+                 for line in server.LOG_FILE.read_text().splitlines() if "Dictation stats: " in line]
+        self.assertEqual(len(lines), 1, f"wanted one stats line, got {lines}")
+        return dict(field.split("=", 1) for field in lines[0].split())
+
+    def test_a_done_dictation_logs_its_figures(self):
+        s = self.start(transcriber=StubTranscriber(delay=0.05),
+                       env={"STUB_PATTERN": "speech=1.5,silence=1.0", "STUB_SPEED": "8"})
+        self.assertTrue(self.wait_until(lambda: s.progress()["segments_committed"] >= 3))
+        s.stop("stop requested")
+        p = self.finished()
+        stats = self.stats()
+        self.assertEqual(stats["outcome"], "done")
+        self.assertEqual(stats["mode"], "continuous")
+        self.assertEqual(int(stats["segments"]), p["segments_committed"])
+        self.assertGreater(float(stats["audio_s"]), 0)
+        self.assertGreater(float(stats["rtf_max"]), 0)
+        self.assertGreaterEqual(float(stats["rtf_max"]), float(stats["rtf_mean"]))
+        self.assertGreater(float(stats["backlog_max_s"]), 0)
+        cuts = dict(c.split(":") for c in stats["cuts"].split(","))
+        self.assertEqual(set(cuts), {"pause", "soft", "hard", "stop"})
+        self.assertEqual(sum(int(v) for v in cuts.values()), int(stats["segments"]))
+
+    def test_a_failed_dictation_logs_its_figures_too(self):
+        self.start(transcriber=StubTranscriber(delay=2.0), backlog_ceiling_seconds=2,
+                   env={"STUB_PATTERN": "speech=1.5,silence=1.0", "STUB_SPEED": "8"})
+        self.finished()
+        self.assertTrue(self.wait_until(lambda: "Dictation stats: " in server.LOG_FILE.read_text()))
+        self.assertEqual(self.stats()["outcome"], "failed")
+
+    def test_a_whole_clip_says_so(self):
+        s = self.start(mic="plain", continuous=False, vad=None)
+        time.sleep(0.3)
+        s.stop("stop requested")
+        self.finished()
+        stats = self.stats()
+        self.assertEqual((stats["mode"], stats["segments"]), ("whole", "1"))
+
+    def test_an_aborted_dictation_logs_no_figures(self):
+        s = self.start()
+        time.sleep(0.3)
+        s.abort()
+        self.assertTrue(self.wait_until(self.mic_stopped))
+        self.assertNotIn("Dictation stats: ", server.LOG_FILE.read_text())
+
+
 class FailureTest(SessionCase):
     def assert_failed(self, p, words):
         self.assertEqual(p["status"], "failed")

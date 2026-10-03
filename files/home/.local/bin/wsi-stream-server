@@ -431,6 +431,12 @@ class DictationSession:
         self._pending = 0
         self._backlog = 0.0
         self._rtf = None
+        # Figures for the stats line at the end (see _log_stats).
+        self._backlog_max = 0.0
+        self._audio_done = 0.0
+        self._took_done = 0.0
+        self._rtf_max = 0.0
+        self._segments_done = 0
         self._in_flight = None
         self._transcribing = False  # the model is in use, whatever the state says
         self.delivered = False      # a reply with the final text reached a client
@@ -563,6 +569,7 @@ class DictationSession:
             self._drain_queue(keep=True)
             self._queue.put(None)
             self._journal.close()
+            self._log_stats_locked("failed")
         log(f"Dictation FAILED: {message}", "ERROR")
         if self._proc is not None and self._proc.poll() is None:
             self._proc.terminate()
@@ -683,6 +690,7 @@ class DictationSession:
                     self._queue.put(segment)
                     self._pending += 1
                     self._backlog += segment.duration
+                    self._backlog_max = max(self._backlog_max, self._backlog)
                 elif self.state == "failed":
                     self._keep(segment, "pending")
                 if segment.cut == "hard":
@@ -698,6 +706,7 @@ class DictationSession:
                         self._journal.close()
                         log(f"Dictation done: {self._transcript.committed_count} segment(s), "
                             f"{len(self._transcript.text)} chars")
+                        self._log_stats_locked("done")
                         self._finished.set()
                 return
             with self._lock:
@@ -733,6 +742,10 @@ class DictationSession:
                     journal_error = e
                 else:
                     self._transcript.commit(segment.seq, text)
+                    self._segments_done += 1
+                    self._audio_done += segment.duration
+                    self._took_done += took
+                    self._rtf_max = max(self._rtf_max, rtf)
                     if status == "empty":
                         self.empty_segments += 1
                         self._keep(segment, "empty")
@@ -764,6 +777,19 @@ class DictationSession:
                           "still pending")
 
     # -- helpers (callers hold the lock where named _locked or noted) --------
+
+    def _log_stats_locked(self, outcome):
+        """One line of figures for a finished dictation, key=value, read by Plan 00148's
+        triage: how real dictation performs, measured by the server that does it, with no
+        second model. rtf is transcription time / audio time (above 1 the backlog grows)."""
+        audio = self._audio_done
+        cuts = ",".join(f"{k}:{v}" for k, v in self._segmenter.cut_counts.items())
+        log("Dictation stats: "
+            f"outcome={outcome} mode={'continuous' if self._continuous else 'whole'} "
+            f"segments={self._segments_done} audio_s={audio:.1f} "
+            f"transcribe_s={self._took_done:.1f} "
+            f"rtf_mean={self._took_done / audio if audio else 0:.3f} rtf_max={self._rtf_max:.3f} "
+            f"backlog_max_s={self._backlog_max:.1f} cuts={cuts}")
 
     def _settle_locked(self, segment):
         self._pending -= 1
