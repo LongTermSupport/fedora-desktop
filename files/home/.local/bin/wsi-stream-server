@@ -235,9 +235,10 @@ def watchdog_timeout_handler():
 def stop_recording_pipeline():
     """Stop the active recording pipeline and clean up all resources.
 
-    Terminates the pw-record process, signals the feeding thread to stop,
-    calls recorder.stop() to finalize transcription, and returns the
-    accumulated transcription text.
+    In this order: terminates pw-record, lets the feeding thread drain the pipe
+    to EOF (signalling it to stop only if it has not got there in 3 s), waits
+    (bounded) for two realtime passes over that last audio, then calls
+    recorder.stop() and returns the accumulated transcription text.
 
     Returns:
         The transcribed text string, or empty string if nothing was captured.

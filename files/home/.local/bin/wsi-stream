@@ -84,6 +84,7 @@ class GracefulStop:
         self.deadline = None
         self.discard = False
         self._notice_owed = False
+        self.notes = []  # Log lines left by signal handlers for the main loop
 
     def _due_now(self):
         now = self._clock()
@@ -130,16 +131,21 @@ def read_stop_grace():
 
 
 def install_stop_handlers(stop, abort_on_usr1=False):
-    """SIGTERM is a stop press (graced); SIGINT stops now; SIGUSR1 discards if asked."""
+    """SIGTERM is a stop press (graced); SIGINT stops now; SIGUSR1 discards if asked.
+
+    The handlers do not log: log() can print to stderr, and a handler that
+    interrupts a print on the main thread would raise a reentrant-call error. They
+    leave a note that announce_pending_stop() logs from the main loop.
+    """
     def on_term(signum, frame):
         if stop.request():
-            log(f"SIGTERM: recording {stop.grace_seconds}s more (TERM again stops now)")
+            stop.notes.append(f"SIGTERM: recording {stop.grace_seconds}s more (TERM again stops now)")
         else:
-            log("SIGTERM: stopping now")
+            stop.notes.append("SIGTERM: stopping now")
 
     def on_now(signum, frame):
         discard = signum == signal.SIGUSR1
-        log(f"Signal {signum}: stopping now{' and discarding' if discard else ''}")
+        stop.notes.append(f"Signal {signum}: stopping now{' and discarding' if discard else ''}")
         stop.stop_now(discard=discard)
 
     signal.signal(signal.SIGTERM, on_term)
@@ -149,7 +155,12 @@ def install_stop_handlers(stop, abort_on_usr1=False):
 
 
 def announce_pending_stop(stop):
-    """Tell the user a stop is pending, once per grace. Called from the main loop."""
+    """Log the handlers' notes, and tell the user a stop is pending (once per grace).
+
+    Called from the main loop, never from a signal handler.
+    """
+    while stop.notes:
+        log(stop.notes.pop(0))
     if stop.take_notice():
         log(f"Stop pending: {stop.grace_seconds}s grace")
         desktop_notification(
@@ -1124,9 +1135,11 @@ def run_prebuffered_streaming(args, stop):
         model_thread = threading.Thread(target=load_model_thread, daemon=True)
         model_thread.start()
 
-        # Buffer audio chunks while model loads
+        # Buffer audio chunks while model loads, until the model is ready or a stop
+        # is due - a stop pressed during the load closes the microphone now, not
+        # when the model finishes loading
         log("Buffering audio while model loads...")
-        while not model_ready.is_set():
+        while not model_ready.is_set() and not stop.due():
             announce_pending_stop(stop)
             try:
                 chunk = audio_process.stdout.read(chunk_size)
@@ -1139,6 +1152,16 @@ def run_prebuffered_streaming(args, stop):
                 log(f"Buffering error: {e}", "WARN")
                 break
 
+        # Stopped during the load: close the microphone and keep what it captured,
+        # then wait for the model to transcribe exactly that
+        stopped_while_loading = stop.due() and not model_ready.is_set()
+        if stopped_while_loading:
+            announce_pending_stop(stop)
+            log("Stop due while the model loads - closing the microphone")
+            stop_requested = True
+            read_remaining_audio(audio_process, chunk_size, audio_buffer.append)
+            model_ready.wait()
+
         # Check if model loaded successfully
         if model_error:
             raise model_error
@@ -1147,14 +1170,17 @@ def run_prebuffered_streaming(args, stop):
             raise RuntimeError("Model failed to load")
 
         log(f"Model ready! Buffered {len(audio_buffer)} chunks ({len(audio_buffer) * chunk_size / 16000:.2f}s)")
-        notify("RECORDING", "Recording... (transcribing live)")
+        if stopped_while_loading:
+            notify("TRANSCRIBING", "Transcribing what was recorded...")
+        else:
+            notify("RECORDING", "Recording... (transcribing live)")
 
         # Start the recorder so realtime worker processes audio (sets is_recording=True)
         recorder.start()
         log("Recorder started (realtime transcription active)")
 
-        # Feed buffered chunks to model - all of them, even if a stop is already due:
-        # this is audio the user spoke before stopping
+        # Feed every buffered chunk: the buffering loop ended at the model load or at
+        # a due stop, so all of it was captured before the microphone closed
         log("Feeding buffered audio to model...")
         for i, chunk in enumerate(audio_buffer):
             # Convert bytes to numpy-like array that RealtimeSTT expects
@@ -1166,10 +1192,10 @@ def run_prebuffered_streaming(args, stop):
         audio_buffer.clear()  # Free memory
         log("All buffered audio fed to model")
 
-        # Continue feeding real-time audio until stop
+        # Continue feeding real-time audio until stop (unless it already came)
         log("Feeding real-time audio...")
         timeout_time = time.time() + args.timeout
-        while not stop.due() and time.time() < timeout_time:
+        while not stopped_while_loading and not stop.due() and time.time() < timeout_time:
             announce_pending_stop(stop)
             try:
                 chunk = audio_process.stdout.read(chunk_size)
@@ -1188,7 +1214,8 @@ def run_prebuffered_streaming(args, stop):
 
         # Stop pw-record and feed what it had already captured, then let the
         # realtime worker transcribe that tail before recorder.stop() freezes the text
-        read_remaining_audio(audio_process, chunk_size, recorder.feed_audio)
+        if not stopped_while_loading:
+            read_remaining_audio(audio_process, chunk_size, recorder.feed_audio)
         wait_for_final_realtime_passes(realtime_updates)
 
         # Get final transcription

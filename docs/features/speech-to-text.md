@@ -218,7 +218,9 @@ Enable real-time transcription in extension settings:
 After the first stop press, every recorder (batch, and streaming in standard,
 pre-buffer and server mode) keeps recording for `stop-grace-seconds` (default 3,
 range 0-30), then stops. A second press during the grace stops at once, Escape
-discards at once, and 0 turns the grace off. There is no Settings control yet; set
+discards at once, and 0 turns the grace off. In pre-buffer mode a stop pressed while
+the model is still loading closes the microphone on the same schedule; what was
+recorded is transcribed once the model has loaded. There is no Settings control yet; set
 it with `gsettings` (takes effect on the next recording, no logout):
 
 ```bash

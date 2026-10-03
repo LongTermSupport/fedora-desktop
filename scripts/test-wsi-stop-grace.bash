@@ -8,8 +8,10 @@
 #
 # This drives the REAL batch recorder (files/home/.local/bin/wsi) end to end with stub
 # pw-record / sox / soxi / faster-whisper / gdbus / gsettings on PATH, and measures when
-# the stub microphone is told to stop. It then runs the wsi-stream unit tests
-# (tests/speech_to_text/), which cover the streaming modes without RealtimeSTT.
+# the stub microphone is told to stop. It then runs tests/speech_to_text/: unit tests
+# of the wsi-stream stop state, handlers, grace reader and drain; pre-buffer mode run
+# end to end with a stub RealtimeSTT and fake pw-record; and wsi-stream-server's stop
+# order. Standard streaming and the server-mode client loop are NOT run end to end.
 #
 # `set -e` is deliberately NOT used: every case must run so the summary reports the full
 # picture, and each result is checked explicitly.
@@ -265,7 +267,10 @@ check "…before the microphone opens" "absent" \
 #----------------------------------------------------------------------------
 echo "=== wsi-stream: unit tests (tests/speech_to_text) ==="
 #----------------------------------------------------------------------------
-if (cd "$REPO_ROOT" && python3 -m unittest tests/speech_to_text/test_stop_grace.py) > "$work/unit.out" 2>&1; then
+if (cd "$REPO_ROOT" && python3 -m unittest \
+        tests/speech_to_text/test_stop_grace.py \
+        tests/speech_to_text/test_prebuffer_stop.py \
+        tests/speech_to_text/test_server_stop_order.py) > "$work/unit.out" 2>&1; then
     passed=$((passed + 1))
     echo "  PASS: $(grep -E '^Ran [0-9]+ tests' "$work/unit.out")"
 else

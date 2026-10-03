@@ -64,9 +64,13 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
   recorder from a single source: GSettings `stop-grace-seconds`, read via `wsi-stop-grace`.
 - [x] ✅ **Task 0.3**: First TERM: keep recording for the grace, then stop as today. A
   second TERM during the grace stops at once. SIGUSR1 (Escape, abort) stays immediate.
-  The pending stop is a desktop notification; no extension change.
+  The pending stop is a desktop notification; no extension change. In pre-buffer mode
+  this holds during the model load too: the microphone closes when the stop is due, and
+  the captured audio is transcribed once the model is ready.
 - [x] ✅ **Task 0.4**: Tests where the logic is testable outside GNOME
-  (`scripts/test-wsi-stop-grace.bash`, `tests/speech_to_text/`, gated in `qa-all.bash`);
+  (`scripts/test-wsi-stop-grace.bash`, `tests/speech_to_text/`, gated in `qa-all.bash`:
+  batch `wsi`, pre-buffer mode and the server's stop order end to end with stubs;
+  standard streaming and the server-mode client loop only through their shared units);
   docs. Targeted QA done; the full `qa-all.bash` and `qa-reviewer` run by the coordinator.
 - [ ] ⬜ **Task 0.5**: **HOST**: deploy `play-speech-to-text.yml`; press Insert right on
   the last word in each mode; the word is in the pasted text.

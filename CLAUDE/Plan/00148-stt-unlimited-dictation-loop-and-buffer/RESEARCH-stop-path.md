@@ -86,7 +86,10 @@ Also discarding audio on the stop path, once handlers exist:
   `core/realtime_callbacks.py:17-23`), so audio fed after the last pass started is never
   transcribed.
 
-Fixed (now): handlers installed; every buffered chunk is fed; `read_remaining_audio()`
+Fixed (now): handlers installed; the buffering loop during the model load also ends
+when the stop is due, closing and draining the microphone then and transcribing what
+it captured once the model is ready (a first version kept recording until the load
+finished, caught in review); every buffered chunk is fed; `read_remaining_audio()`
 terminates `pw-record` and feeds the pipe to EOF (a timer SIGKILLs a `pw-record` that
 ignores SIGTERM); `wait_for_final_realtime_passes()` waits, bounded at 1.5 s, for two
 realtime passes after the last chunk before `recorder.stop()`. Two, because the first
