@@ -1,6 +1,6 @@
 # Plan 00148: speech-to-text: unlimited dictation by loop and buffer
 
-**Status**: Not Started (decision gate: Task 1.1, loop-and-buffer or a raised cap)
+**Status**: In Progress (Phase 0 under way; Phases 2-5 wait on the Task 1.1 decision)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
@@ -45,6 +45,28 @@ Lineage of the 120, failure analysis, the full pipeline and the IaC file list:
   follow-on inside the plan, not a prerequisite).
 
 ## Tasks
+
+### Phase 0: Delayed stop keeps the last words (independent of Task 1.1)
+
+Pressing Insert to stop often loses the last word or two: `extension.js` `_stopRecording()`
+sends SIGTERM to the recorder's PID and each recorder stops capturing at once (`wsi` traps
+TERM into `stop_recording`; `wsi-stream` has SIGTERM handlers for server and local mode).
+Owner's fix: recording continues for a grace period after the press (default 3 s), then
+stops. It lives in the recorders' TERM handlers, so it needs no logout.
+
+- [ ] 🔄 **Task 0.1**: Per mode (`wsi`, `wsi-stream` local, `wsi-stream` server), trace
+  SIGTERM to final text and find where audio or words are dropped
+  (findings go in `RESEARCH-stop-path.md`). If a mode also discards buffered audio
+  at stop, fix that too.
+- [ ] ⬜ **Task 0.2**: One grace setting (default 3 s; 0 = immediate), read by every
+  recorder from a single source.
+- [ ] ⬜ **Task 0.3**: First TERM: keep recording for the grace, then stop as today. A
+  second TERM during the grace stops at once. SIGUSR1 (Escape, abort) stays immediate.
+  The pending stop is visible (state or notification) without an extension change if possible.
+- [ ] ⬜ **Task 0.4**: Tests where the logic is testable outside GNOME; docs; qa-all and
+  `qa-reviewer`.
+- [ ] ⬜ **Task 0.5**: **HOST**: deploy `play-speech-to-text.yml`; press Insert right on
+  the last word in each mode; the word is in the pasted text.
 
 ### Phase 1: Decision and measurements
 
@@ -119,6 +141,8 @@ Lineage of the 120, failure analysis, the full pipeline and the IaC file list:
 
 ## Success Criteria
 
+- [ ] Pressing Insert on the last word keeps that word, in every mode; a second Insert
+  during the grace stops at once; Escape still aborts at once.
 - [ ] A dictation of several minutes pastes complete, ordered text once at stop.
 - [ ] A forced segment failure stops the session, copies the text so far, keeps the audio,
   and says so.
