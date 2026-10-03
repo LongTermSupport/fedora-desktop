@@ -1317,6 +1317,13 @@ export CCY_AUTO_UPDATE=0   # notify only, never update automatically
 ccy --rebuild=claude       # force the fast update now
 ```
 
+A running session never sees a newer version, because Claude Code lives in the image. When
+the session supervisor decides a session should restart (it exits with status 75 and leaves
+`.claude/ccy/state/restart-request.json`), CCY updates the image and relaunches the same
+command with `--resume <session-id>`. At most 3 restarts per project per hour
+(`CCY_RESTART_MAX`, `CCY_RESTART_WINDOW_SECONDS`); then it stops and prints the resume
+command.
+
 ### ctrl+z and the supervisor
 
 Claude Code's terminal UI intercepts `Ctrl+Z` and sends itself `SIGSTOP` — unrecoverable
