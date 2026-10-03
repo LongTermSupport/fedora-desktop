@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.74.0"  # A session whose supervisor exits 75 with a restart request is relaunched with --resume on an updated image. See docs/ccy-changelog.md.
+CCY_VERSION="3.75.0"  # --max-age restarts a session on a fresh container after a set age; --run-for and --until announce a deadline. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,7 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # from lib/ (see CCY_HASH), because a hand-written list of what the program
 # consists of is a list that goes stale — this one omitted common-pure.bash,
 # which common.bash sources, for two months.
-CCY_LIBS=(common token-management ssh-handling network-management dockerfile-custom docker-health session-registry restart-request tmux-session)
+CCY_LIBS=(common token-management ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session)
 
 if [ -f "$SCRIPT_DIR/lib/common.bash" ]; then
     source "$SCRIPT_DIR/lib/common.bash"
@@ -64,6 +64,8 @@ source "$SCRIPT_DIR/lib/docker-health.bash"
 source "$SCRIPT_DIR/lib/session-registry.bash"
 # shellcheck source=lib/restart-request.bash
 source "$SCRIPT_DIR/lib/restart-request.bash"
+# shellcheck source=lib/session-lifecycle.bash
+source "$SCRIPT_DIR/lib/session-lifecycle.bash"
 # shellcheck source=lib/tmux-session.bash
 source "$SCRIPT_DIR/lib/tmux-session.bash"
 
@@ -72,7 +74,7 @@ source "$SCRIPT_DIR/lib/tmux-session.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.40"
+REQUIRED_CONTAINER_VERSION="2.41"
 
 set -e
 
@@ -245,6 +247,14 @@ Options:
                          entrypoint.sh sources before claude runs.
   --no-supervise         Run claude unwrapped. Disables auto-compaction AND the
                          ctrl+z guard, so ctrl+z can freeze the session.
+  --max-age DURATION     Restart the session on a fresh container (and so the newest Claude
+                         Code) once it has run this long, at the first idle point after a
+                         warning to the session. DURATION is days, hours and minutes:
+                         90m, 12h, 3d, 1d12h; between 30m and 30d. Off unless given, or
+                         CCY_MAX_AGE is exported. Needs the supervisor.
+  --run-for DURATION     Tell the session its time is up after this long (same DURATION
+                         form, 1m to 30d). Only announces; it never ends the session.
+  --until HH:MM          Same, at the next HH:MM local time. Use one of --run-for/--until.
   --no-restore           Do not bring this session back after a reboot on a machine
                          that restores sessions (ccy-sessions restore; docs/ccy.md)
   --top                  Container manager: list/stop all CCY containers
@@ -533,6 +543,12 @@ HEADLESS_MODE=false
 SUPERVISE_MODE=false
 NO_SUPERVISE_MODE=false
 PROMPT_TEXT=""
+NEXT_IS_MAX_AGE=false
+NEXT_IS_RUN_FOR=false
+NEXT_IS_UNTIL=false
+OPT_MAX_AGE=""
+OPT_RUN_FOR=""
+OPT_UNTIL=""
 SAW_DOUBLE_DASH=false
 
 # The arguments exactly as given, for a supervisor-requested relaunch (see the end of this
@@ -590,6 +606,21 @@ for arg in "$@"; do
     elif [ "$NEXT_IS_PROMPT" = true ]; then
         PROMPT_TEXT="$arg"
         NEXT_IS_PROMPT=false
+    elif [ "$NEXT_IS_MAX_AGE" = true ]; then
+        OPT_MAX_AGE="$arg"
+        NEXT_IS_MAX_AGE=false
+    elif [ "$NEXT_IS_RUN_FOR" = true ]; then
+        OPT_RUN_FOR="$arg"
+        NEXT_IS_RUN_FOR=false
+    elif [ "$NEXT_IS_UNTIL" = true ]; then
+        OPT_UNTIL="$arg"
+        NEXT_IS_UNTIL=false
+    elif [ "$arg" = "--max-age" ]; then
+        NEXT_IS_MAX_AGE=true
+    elif [ "$arg" = "--run-for" ]; then
+        NEXT_IS_RUN_FOR=true
+    elif [ "$arg" = "--until" ]; then
+        NEXT_IS_UNTIL=true
     elif [ "$arg" = "--rebuild" ]; then
         FORCE_REBUILD=true
         REBUILD_MODE="full"
@@ -693,6 +724,18 @@ fi
 # auto-fallback (port 22 firewall-blocked).
 GITHUB_443_PRELAUNCH="$GITHUB_SSH_443"
 
+# Session limits (lib/session-lifecycle.bash). Validated here, before any prompt, so a typo
+# costs nothing; the deadline itself is worked out at launch. A value-taking option that ends
+# the command line is a mistake, not a request for the default.
+for _ccy_dangling in max-age:"$NEXT_IS_MAX_AGE" run-for:"$NEXT_IS_RUN_FOR" until:"$NEXT_IS_UNTIL"; do
+    if [ "${_ccy_dangling#*:}" = true ]; then
+        print_error "--${_ccy_dangling%%:*} needs a value (see ccy --help)"
+        exit 1
+    fi
+done
+unset _ccy_dangling
+ccy_lifecycle_validate_options "$OPT_MAX_AGE" "$OPT_RUN_FOR" "$OPT_UNTIL" "$NO_SUPERVISE_MODE" || exit 1
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Fail-fast flag validation
 # ─────────────────────────────────────────────────────────────────────────────
@@ -739,6 +782,7 @@ if [ ${#suspect_flags[@]} -gt 0 ]; then
             ccy_flags=(
                 --rebuild --disable-custom-docker --no-ssh --github-443 --no-network
                 --headless --supervise --no-supervise --no-restore --ssh-agent --prompt --debug --engine --ssh-key --token --create-token
+                --max-age --run-for --until
                 --update-token --list-tokens --export-token --network --connect --disconnect
                 --custom --custom-docker --top --prevent --help
             )
@@ -3318,6 +3362,13 @@ ccy_handle_restart_exit() {
         print_error "Not restarting session $session_id: could not build the relaunch arguments."
         exit 1
     fi
+    # A deadline is absolute and the relaunch drops --run-for/--until, so it travels in the
+    # environment instead. --max-age stays in the arguments: its clock starts again.
+    # restarted.json, written by the supervisor beside the request, is deliberately left
+    # alone: the next supervisor consumes it to tell the resumed session what changed.
+    if [ -n "${CCY_LIFECYCLE_DEADLINE_EPOCH:-}" ]; then
+        export CCY_RELAUNCH_DEADLINE_EPOCH="$CCY_LIFECYCLE_DEADLINE_EPOCH"
+    fi
     echo "Relaunching session $session_id..." >&2
     exec "$SCRIPT_DIR/claude-yolo" "${relaunch_args[@]}"
 }
@@ -3328,6 +3379,10 @@ ccy_restart_request_discard "$PWD/$CCY_RESTART_REQUEST_REL" || exit 1
 # `set -e` would turn the container's exit status into this script's before the restart
 # check below could look at it, so capture it. Any status other than 75 is passed straight
 # through, as it always was.
+# Resolve a relative deadline against NOW, after every prompt, and give this container its
+# launch id (lib/session-lifecycle.bash).
+ccy_lifecycle_finalize || exit 1
+
 container_rc=0
 container_cmd run $DOCKER_FLAGS --rm \
     --name "$CONTAINER_NAME" \
@@ -3355,6 +3410,10 @@ container_cmd run $DOCKER_FLAGS --rm \
     -e "CCY_HOST_HOSTNAME=$CCY_HOST_HOSTNAME" \
     -e "CCY_CLAUDE_WRAPPER=${CCY_CLAUDE_WRAPPER:-}" \
     -e "CCY_NO_SUPERVISOR=${CCY_NO_SUPERVISOR:-}" \
+    -e "CCY_LIFECYCLE_LAUNCH_ID=${CCY_LIFECYCLE_LAUNCH_ID:-}" \
+    -e "CCY_LIFECYCLE_MAX_AGE_SECONDS=${CCY_LIFECYCLE_MAX_AGE_SECONDS:-}" \
+    -e "CCY_LIFECYCLE_DEADLINE_EPOCH=${CCY_LIFECYCLE_DEADLINE_EPOCH:-}" \
+    -e "CCY_LIFECYCLE_WARN_MINUTES=${CCY_LIFECYCLE_WARN_MINUTES:-}" \
     -e "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-1}" \
     -e "CLAUDE_CODE_AUTO_COMPACT_WINDOW=${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-600000}" \
     -e "MAX_THINKING_TOKENS=${MAX_THINKING_TOKENS:-}" \

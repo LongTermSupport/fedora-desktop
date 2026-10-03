@@ -562,9 +562,51 @@ if [[ -z "${CCY_CLAUDE_WRAPPER:-}" ]] && [[ "${CCY_NO_SUPERVISOR:-}" != "1" ]]; 
     fi
 fi
 
+# ── Session lifecycle plugin: only when --max-age/--run-for/--until asked for it ──────
+#
+# The launcher passes the settings as CCY_LIFECYCLE_* (lib/session-lifecycle.bash on the
+# host; a project ccy.env sourced above may set them too). When none is set this block does
+# nothing and the wrapper line below is exactly what it was before the plugin existed.
+#
+# The plugin file lives in the image, outside the project mount, root owned: the supervisor
+# refuses a plugin that is group- or world-writable, and a project could not otherwise be
+# trusted not to supply its own. It is named on the supervisor's command line, before the
+# final `--`, which is where the supervisor takes `--plugin` flags.
+ccy_lifecycle_wanted() {
+    [[ -n "${CCY_LIFECYCLE_MAX_AGE_SECONDS:-}" || -n "${CCY_LIFECYCLE_DEADLINE_EPOCH:-}" ]]
+}
+
+# ccy_lifecycle_extend_wrapper — add the plugin to the _ccy_wrapper array. Refuses, with the
+# reason on stderr, anything it cannot honour: the user asked for a session limit, and a
+# session that quietly runs without it is the "skip and continue" this project bans.
+ccy_lifecycle_extend_wrapper() {
+    local plugin="/opt/claude-yolo/supervisor-plugins/ccy_lifecycle.py"
+    local last=$((${#_ccy_wrapper[@]} - 1))
+    if [[ "$CCY_CLAUDE_WRAPPER" != *claude-supervise.py* ]] || ((last < 1)) || [[ "${_ccy_wrapper[$last]}" != "--" ]]; then
+        echo "✗ CCY: --max-age/--run-for/--until need the hooks-daemon supervisor as the claude wrapper, but the wrapper is:" >&2
+        echo "    $CCY_CLAUDE_WRAPPER" >&2
+        echo "  It must be the supervisor's own command line ending in --. Fix CCY_CLAUDE_WRAPPER, or drop the option." >&2
+        return 1
+    fi
+    if [[ ! -f "$plugin" ]]; then
+        echo "✗ CCY: the lifecycle plugin is missing from this image ($plugin)." >&2
+        echo "  Rebuild the image: ccy --rebuild" >&2
+        return 1
+    fi
+    _ccy_wrapper=("${_ccy_wrapper[@]:0:$last}" --plugin "ccy-lifecycle=$plugin" --)
+}
+
 # Execute the command.
 if [[ -n "${CCY_CLAUDE_WRAPPER:-}" ]]; then
     read -ra _ccy_wrapper <<< "$CCY_CLAUDE_WRAPPER"
+    if ccy_lifecycle_wanted; then
+        ccy_lifecycle_extend_wrapper || exit 1
+    fi
     exec "${_ccy_wrapper[@]}" "$@"
+fi
+if ccy_lifecycle_wanted; then
+    echo "✗ CCY: --max-age/--run-for/--until are carried out by the supervisor, and this session runs without one." >&2
+    echo "  Install the hooks daemon in this project (it deploys the supervisor), or drop the option." >&2
+    exit 1
 fi
 exec "$@"
