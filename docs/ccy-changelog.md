@@ -17,6 +17,29 @@ Two version numbers move independently — see
 
 ---
 
+## 3.74.0 — container 2.40
+
+- **A session can ask to be restarted on a fresh container, and CCY now honours it.** Claude
+  Code is baked into the image, so a long-lived session never sees a newer version until its
+  container is replaced. The session supervisor can now decide a session should restart (for
+  example at a maximum age): it ends the session at an idle point, writes
+  `.claude/ccy/state/restart-request.json` and exits with status 75. When the container
+  exits with 75 and that file is present, fresh and well formed, CCY removes it, updates
+  Claude Code in the image, and relaunches the same command with `--resume <session-id>`
+  (replacing any `-c`/`--continue`/`-r`/`--resume`), keeping the token, keys and network.
+- **It cannot loop.** At most 3 restarts are honoured per project in an hour
+  (`CCY_RESTART_MAX` and `CCY_RESTART_WINDOW_SECONDS` override), then CCY stops with the
+  command to resume by hand. The request is deleted before anything else happens, and a
+  stale file is removed before every run. The file is written by code in the container, so
+  it is refused unless it is a regular file under 4 KiB, JSON, less than five minutes old,
+  with a UUID session id.
+- **Any other exit is unchanged.** Status 75 with no usable request is reported on stderr
+  and passed through as the exit status. The image update is not optional here: if it
+  fails, CCY stops rather than relaunching on the old version.
+- Unit-tested in `scripts/test-ccy-restart-request.bash`. Nothing in the image changed, so
+  the container version stays at 2.40. The part that talks to a real container is not
+  covered by it and needs trying on a host.
+
 ## 3.73.0 — container 2.40
 
 - **An ssh-agent that already holds your account key is the way to a session with no

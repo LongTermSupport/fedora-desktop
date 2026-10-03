@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.73.0"  # The key menu marks keys the ssh-agent already holds and defaults to it. See docs/ccy-changelog.md.
+CCY_VERSION="3.74.0"  # A session whose supervisor exits 75 with a restart request is relaunched with --resume on an updated image. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,7 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # from lib/ (see CCY_HASH), because a hand-written list of what the program
 # consists of is a list that goes stale — this one omitted common-pure.bash,
 # which common.bash sources, for two months.
-CCY_LIBS=(common token-management ssh-handling network-management dockerfile-custom docker-health session-registry tmux-session)
+CCY_LIBS=(common token-management ssh-handling network-management dockerfile-custom docker-health session-registry restart-request tmux-session)
 
 if [ -f "$SCRIPT_DIR/lib/common.bash" ]; then
     source "$SCRIPT_DIR/lib/common.bash"
@@ -62,6 +62,8 @@ source "$SCRIPT_DIR/lib/dockerfile-custom.bash"
 source "$SCRIPT_DIR/lib/docker-health.bash"
 # shellcheck source=lib/session-registry.bash
 source "$SCRIPT_DIR/lib/session-registry.bash"
+# shellcheck source=lib/restart-request.bash
+source "$SCRIPT_DIR/lib/restart-request.bash"
 # shellcheck source=lib/tmux-session.bash
 source "$SCRIPT_DIR/lib/tmux-session.bash"
 
@@ -532,6 +534,10 @@ SUPERVISE_MODE=false
 NO_SUPERVISE_MODE=false
 PROMPT_TEXT=""
 SAW_DOUBLE_DASH=false
+
+# The arguments exactly as given, for a supervisor-requested relaunch (see the end of this
+# script). The loop below only reads "$@", but a copy cannot be disturbed by a later `set --`.
+CCY_ORIG_ARGS=("$@")
 
 for arg in "$@"; do
     if [ "$SAW_DOUBLE_DASH" = true ]; then
@@ -3253,6 +3259,76 @@ fi
 # The ${VAR:-default} form below preserves both overrides: a host export before launch, and
 # an `export` line in a project's .claude/ccy/ccy.env, which the entrypoint sources after
 # this environment is in place. See docs/ccy.md.
+# --- a restart requested by the session supervisor --------------------------
+#
+# Claude Code is baked into the image, so a session that should pick up a newer version (the
+# supervisor's max-age plugin, for one) cannot restart inside its container. The supervisor
+# types /exit, writes .claude/ccy/state/restart-request.json and exits 75; the container ends
+# and this function, on the host, decides what that meant. See lib/restart-request.bash for
+# the contract and for why the file is treated as untrusted input.
+#
+# Returns 0 when the exit was NOT an acted-on restart, so the caller carries on exactly as it
+# always did with a container's exit status. When it is one it does not return: it execs a
+# fresh launcher. Anything that stops the restart from happening exits non-zero with the
+# reason on stderr; it never falls back to relaunching on an old image or a guessed session.
+ccy_handle_restart_exit() {
+    local request_file="$PWD/$CCY_RESTART_REQUEST_REL"
+    local session_id="" read_rc=0
+    session_id=$(ccy_restart_request_read "$request_file") || read_rc=$?
+    case "$read_rc" in
+    0) ;;
+    2)
+        echo "The container exited with status $CCY_RESTART_EXIT_STATUS but left no restart request at $CCY_RESTART_REQUEST_REL, so this is not a restart. Exiting with that status." >&2
+        return 0
+        ;;
+    *)
+        ccy_restart_request_discard "$request_file" || exit 1
+        echo "The container exited with status $CCY_RESTART_EXIT_STATUS with an unusable restart request (discarded), so this is not a restart. Exiting with that status." >&2
+        return 0
+        ;;
+    esac
+
+    # Consume the request before acting on it: whatever happens next, it cannot loop.
+    ccy_restart_request_discard "$request_file" || exit 1
+
+    local history_file
+    history_file="$VERSION_CHECK_CACHE/restart-history-$(printf '%s' "$PWD" | md5sum | cut -c1-16)"
+    if ! ccy_restart_budget_take "$history_file" "$(date +%s)" \
+        "${CCY_RESTART_MAX:-$CCY_RESTART_DEFAULT_MAX}" \
+        "${CCY_RESTART_WINDOW_SECONDS:-$CCY_RESTART_DEFAULT_WINDOW_SECONDS}"; then
+        print_error "Not restarting session $session_id."
+        echo "  Resume it by hand when you are ready: ccy --resume $session_id" >&2
+        exit 1
+    fi
+
+    echo "" >&2
+    echo "Session $session_id asked to restart on a fresh container. Updating Claude Code in $IMAGE_NAME first..." >&2
+    if ! update_claude_inplace "$IMAGE_NAME"; then
+        print_error "Not restarting session $session_id: the image update failed (see above)."
+        echo "  Resume it on the existing image: ccy --resume $session_id" >&2
+        exit 1
+    fi
+    # The update just ran, so the relaunch has no reason to repeat the daily check.
+    mkdir -p "$VERSION_CHECK_CACHE"
+    touch "$VERSION_CHECK_CACHE/${IMAGE_NAME//[:\/]/_}"
+
+    local relaunch_args=()
+    mapfile -d '' -t relaunch_args < <(ccy_restart_relaunch_args "$session_id" "${CCY_ORIG_ARGS[@]}")
+    if [ "${#relaunch_args[@]}" -eq 0 ]; then
+        print_error "Not restarting session $session_id: could not build the relaunch arguments."
+        exit 1
+    fi
+    echo "Relaunching session $session_id..." >&2
+    exec "$SCRIPT_DIR/claude-yolo" "${relaunch_args[@]}"
+}
+
+# A request file left by an earlier run must never be mistaken for this run's.
+ccy_restart_request_discard "$PWD/$CCY_RESTART_REQUEST_REL" || exit 1
+
+# `set -e` would turn the container's exit status into this script's before the restart
+# check below could look at it, so capture it. Any status other than 75 is passed straight
+# through, as it always was.
+container_rc=0
 container_cmd run $DOCKER_FLAGS --rm \
     --name "$CONTAINER_NAME" \
     --label ccy=true \
@@ -3287,7 +3363,14 @@ container_cmd run $DOCKER_FLAGS --rm \
     -e "FORCE_COLOR=1" \
     -w /workspace \
     "$IMAGE_NAME" \
-    claude --dangerously-skip-permissions "${CLAUDE_CMD_ARGS[@]}"
+    claude --dangerously-skip-permissions "${CLAUDE_CMD_ARGS[@]}" || container_rc=$?
+
+if [ "$container_rc" -eq "$CCY_RESTART_EXIT_STATUS" ]; then
+    ccy_handle_restart_exit
+fi
+if [ "$container_rc" -ne 0 ]; then
+    exit "$container_rc"
+fi
 
 # Offer to stop compose services if CCY started them this session
 if [[ "${CCY_COMPOSE_WAS_STARTED:-}" = "true" ]]; then

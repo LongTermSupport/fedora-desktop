@@ -510,6 +510,19 @@ fi
 gpu_device_summary=$(qa_gate_case_count "$gpu_device_out")
 qa_pass_line ccy-gpu-device "$gpu_device_summary"
 
+# lib/restart-request.bash: a supervisor's restart request is a file written by code in the
+# container and acted on by the host, so it is validated strictly (regular file, size, JSON,
+# freshness, session id), the restart count is bounded, and the relaunch argv replaces every
+# --continue/--resume with one --resume. Driven with each way a request can be wrong.
+restart_request_out=""
+if ! restart_request_out="$(bash "$SCRIPT_DIR/test-ccy-restart-request.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-restart-request \
+        "ccy restart-request unit tests failed" \
+        "$restart_request_out"
+fi
+restart_request_summary=$(qa_gate_case_count "$restart_request_out")
+qa_pass_line ccy-restart-request "$restart_request_summary"
+
 # ccy_host_hostname (Plan 00121): CCY_HOST_HOSTNAME tells the container which MACHINE it is
 # on, since its own HOSTNAME is the container id. The value reaches a `podman run -e`
 # argument and is then read by shells in the container, so the grammar is the guard — driven
