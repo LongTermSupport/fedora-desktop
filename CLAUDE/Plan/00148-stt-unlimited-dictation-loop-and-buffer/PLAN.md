@@ -126,11 +126,15 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
 
 ### Phase 3: Panel extension and settings
 
-- [ ] ⬜ **Task 3.1**: GSettings keys `continuous-dictation` (default off until verified),
-  `max-recording-minutes`, `silence-autostop-seconds`, with `prefs.js` controls.
-- [ ] ⬜ **Task 3.2**: `extension.js`: elapsed time and backlog instead of the 117/27
+- [x] ✅ **Task 3.1**: GSettings keys `continuous-dictation` (default off until verified),
+  `max-recording-minutes`, `silence-autostop-seconds`, with `prefs.js` controls. Defaults
+  60 min and 120 s; the controls take their ranges from the schema.
+- [x] ✅ **Task 3.2**: `extension.js`: elapsed time and backlog instead of the 117/27
   countdown (a countdown only in the absolute cap's last minute), limits read from
-  GSettings, the `117`/`120` literals removed. ESLint green.
+  GSettings, the `117`/`120` literals removed. ESLint green. Every mode now shows elapsed
+  time and the extension no longer stops a recording itself: the recorders already stop at
+  their own caps (batch 30 s, streaming 120 s), and continuous dictation's cap is the
+  server's. Not run in GNOME Shell here (needs a logout on the host, Task 6.2).
 
 ### Phase 4: Side findings
 

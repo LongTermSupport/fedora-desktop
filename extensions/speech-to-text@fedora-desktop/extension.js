@@ -25,6 +25,9 @@ import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 const DBUS_PATH = '/org/fedoradesktop/SpeechToText';
 const DBUS_INTERFACE = 'org.fedoradesktop.SpeechToText';
 
+// Continuous dictation: count down only in the last minute of its maximum length
+const COUNTDOWN_LAST_SECONDS = 60;
+
 export default class SpeechToTextExtension extends Extension {
     constructor(metadata) {
         super(metadata);
@@ -62,7 +65,13 @@ export default class SpeechToTextExtension extends Extension {
 
         // Recording timer state
         this._recordingTimer = null;
-        this._remainingSeconds = 27;  // Will be set based on mode in _startCountdown
+        this._recordingSeconds = 0;  // Elapsed recording time shown on the panel label
+        // Continuous dictation's maximum length, read from GSettings when a recording
+        // starts; 0 means no countdown (the other modes' recorders enforce their own caps)
+        this._recordingLimitSeconds = 0;
+        this._dictationPending = 0;  // Segments waiting to be transcribed (Progress signal)
+        this._dictationBehind = false;  // Transcription slower than speech (Progress signal)
+        this._dbusProgressSubscriptionId = null;
         this._countdownLabel = null;
         this._flashTimer = null;
         this._flashState = false;
@@ -218,6 +227,10 @@ export default class SpeechToTextExtension extends Extension {
         if (this._dbusErrorSubscriptionId !== null) {
             Gio.DBus.session.signal_unsubscribe(this._dbusErrorSubscriptionId);
             this._dbusErrorSubscriptionId = null;
+        }
+        if (this._dbusProgressSubscriptionId !== null) {
+            Gio.DBus.session.signal_unsubscribe(this._dbusProgressSubscriptionId);
+            this._dbusProgressSubscriptionId = null;
         }
 
         // Remove keybindings
@@ -461,6 +474,29 @@ export default class SpeechToTextExtension extends Extension {
                 this._log(`Error: ${errorMsg}`);
             }
         );
+
+        // Continuous dictation's progress from wsi-stream:
+        // "elapsed=<s> pending=<segments> backlog=<s> behind=<0|1>"
+        this._dbusProgressSubscriptionId = Gio.DBus.session.signal_subscribe(
+            null,
+            DBUS_INTERFACE,
+            'Progress',
+            DBUS_PATH,
+            null,
+            Gio.DBusSignalFlags.NONE,
+            (connection, sender, path, iface, signal, params) => {
+                const fields = {};
+                for (const pair of params.get_child_value(0).get_string()[0].split(' ')) {
+                    const [name, value] = pair.split('=');
+                    fields[name] = Number(value);
+                }
+                if (Number.isFinite(fields.elapsed))
+                    this._recordingSeconds = fields.elapsed;
+                this._dictationPending = Number.isFinite(fields.pending) ? fields.pending : 0;
+                this._dictationBehind = fields.behind === 1;
+                this._refreshRecordingLabel();
+            }
+        );
     }
 
     _checkServerStatus() {
@@ -628,77 +664,93 @@ export default class SpeechToTextExtension extends Extension {
         }
     }
 
+    /** m:ss */
+    _formatSeconds(seconds) {
+        const whole = Math.max(0, Math.floor(seconds));
+        return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+    }
+
+    /** Seconds left of continuous dictation's maximum length, or null with no countdown. */
+    _secondsLeft() {
+        if (this._recordingLimitSeconds <= 0)
+            return null;
+        const left = this._recordingLimitSeconds - this._recordingSeconds;
+        return left <= COUNTDOWN_LAST_SECONDS ? Math.max(0, left) : null;
+    }
+
     _countdownText() {
-        // Just the seconds: the coloured badge already says "recording", and panel
-        // space is tight. Claude modes keep an emoji so the style is still visible.
+        // Elapsed time, or the time left in the last minute of continuous dictation's
+        // maximum length, plus "·N" while N segments wait to be transcribed. The coloured
+        // badge already says "recording", and panel space is tight. Claude modes keep an
+        // emoji so the style is still visible.
+        const left = this._secondsLeft();
+        let text = this._formatSeconds(left === null ? this._recordingSeconds : left);
+        if (this._dictationPending > 0)
+            text += ` ·${this._dictationPending}`;
         if (this._isClaudeMode) {
             const emoji = this._claudeStyle === 'natural' ? '💬' : '🤖';
-            return `${emoji} ${this._remainingSeconds}`;
+            return `${emoji} ${text}`;
         }
-        return `${this._remainingSeconds}`;
+        return text;
+    }
+
+    _refreshRecordingLabel() {
+        if (!this._countdownLabel || this._isArticleMode)
+            return;
+        this._countdownLabel.text = this._countdownText();
+        const left = this._secondsLeft();
+        if (left !== null && left <= 5) {
+            this._startFlashing();  // Red: the maximum length is about to stop it
+            return;
+        }
+        this._stopFlashing();
+        // Amber: transcription is falling behind, or the last 10 s of the maximum length
+        const amber = this._dictationBehind || (left !== null && left <= 10);
+        this._countdownLabel.style = `color: white; font-weight: bold; font-size: 13px; background-color: ${amber ? '#ffaa00' : '#44ff44'}; padding: 2px 4px; border-radius: 3px;`;
+    }
+
+    /** Continuous dictation: streaming, server startup mode, and the setting on. */
+    _continuousDictation() {
+        return this._streamingMode && this._streamingStartupMode === 'server' &&
+            this._settings.get_boolean('continuous-dictation');
     }
 
     _startCountdown() {
-        // Stop any existing countdown
+        // Stop any existing timer
         this._stopCountdown();
 
-        // Initialize countdown based on mode:
-        // - Streaming: 117s (3s safety buffer before 120s limit)
-        // - Batch: 27s (3s safety buffer before 30s limit)
-        this._remainingSeconds = this._streamingMode ? 117 : 27;
+        // The recorders stop themselves at their limits; the panel only shows the time.
+        // Continuous dictation's maximum length comes from the same GSettings key
+        // wsi-stream reads, so the countdown in its last minute matches the server's stop.
+        this._recordingSeconds = 0;
+        this._dictationPending = 0;
+        this._dictationBehind = false;
+        this._recordingLimitSeconds = this._continuousDictation()
+            ? this._settings.get_int('max-recording-minutes') * 60 : 0;
 
-        // Replace iconBox (which contains icon + server status dot) with countdown label
+        // Replace iconBox (which contains icon + server status dot) with the label
         if (this._iconBox) {
             this._indicator.remove_child(this._iconBox);
         }
 
-        // Start with green background, white text
         // Note: Don't use 'system-status-icon' style_class - it has max-width that
         // truncates the label. Ellipsizing is disabled too: on a crowded panel the
         // label is squeezed, and "RE…" hides the one thing it exists to show.
         this._countdownLabel = new St.Label({
             text: this._countdownText(),
             y_align: 2,  // Clutter.ActorAlign.CENTER
-            style: 'color: white; font-weight: bold; font-size: 13px; background-color: #44ff44; padding: 2px 4px; border-radius: 3px;'
         });
         this._countdownLabel.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
         this._indicator.add_child(this._countdownLabel);
+        this._refreshRecordingLabel();
 
-        const limit = this._streamingMode ? 120 : 30;
-        this._log(`Countdown started: ${this._remainingSeconds}s (${limit}s limit, streaming: ${this._streamingMode})`);
+        this._log(`Recording timer started (${this._recordingLimitSeconds
+            ? `continuous dictation, stops at ${this._recordingLimitSeconds}s`
+            : 'elapsed time; the recorder enforces its own limit'})`);
 
-        // Start 1-second timer
         this._recordingTimer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => {
-            this._remainingSeconds--;
-
-            if (this._countdownLabel) {
-                this._countdownLabel.text = this._countdownText();
-
-                // Update color/style based on time remaining
-                if (this._remainingSeconds > 10) {
-                    // Green background, white text (27-11)
-                    this._stopFlashing();
-                    this._countdownLabel.style = 'color: white; font-weight: bold; font-size: 13px; background-color: #44ff44; padding: 2px 4px; border-radius: 3px;';
-                } else if (this._remainingSeconds > 5) {
-                    // Yellow background, white text (10-6)
-                    this._stopFlashing();
-                    this._countdownLabel.style = 'color: white; font-weight: bold; font-size: 13px; background-color: #ffaa00; padding: 2px 4px; border-radius: 3px;';
-                } else {
-                    // Red - start flashing (5-0)
-                    this._startFlashing();
-                }
-            }
-
-            this._log(`Countdown: ${this._remainingSeconds}s remaining`);
-
-            // Auto-stop at 0 - trigger recording stop
-            if (this._remainingSeconds <= 0) {
-                this._log('Countdown reached 0 - stopping recording');
-                this._recordingTimer = null;
-                this._stopRecording();
-                return GLib.SOURCE_REMOVE;
-            }
-
+            this._recordingSeconds++;
+            this._refreshRecordingLabel();
             return GLib.SOURCE_CONTINUE;
         });
     }
