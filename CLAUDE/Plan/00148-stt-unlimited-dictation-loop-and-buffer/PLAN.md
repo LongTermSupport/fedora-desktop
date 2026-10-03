@@ -1,6 +1,6 @@
 # Plan 00148: speech-to-text improvements (unlimited dictation, delayed stop, models)
 
-**Status**: In Progress (Phase 0 built, host check Task 0.5 pending; Task 1.1 decided: loop-and-buffer)
+**Status**: In Progress (Phase 0, Task 7.4 and Phase 8 built, host checks Tasks 0.5 and 8.4 pending; Task 1.1 decided: loop-and-buffer)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
@@ -167,10 +167,15 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
 - [x] ✅ **Task 7.2**: Owner picks from the ranked recommendations. **Owner chose (1) only**,
   the better default model in the same engine (Task 7.4). Not chosen: Parakeet as an optional
   engine, and Task 7.3's model-manager fixes.
-- [ ] ⬜ **Task 7.4**: `auto` picks `distil-large-v3.5` for English and `large-v3-turbo`
+- [x] ✅ **Task 7.4**: `auto` picks `distil-large-v3.5` for English and `large-v3-turbo`
   for other languages when a GPU is present; `distil-large-v3.5` is added to the model list
-  (panel, `wsi-model-manager`, docs). Built after Phase 0 lands, since both touch the
-  recorder scripts.
+  (panel, `wsi-model-manager`, docs). One resolver, `wsi-resolve-model` (CTranslate2's CUDA
+  device count), used by `wsi` and every `wsi-stream` mode; no GPU keeps `small`/`base`.
+  The play installs faster-whisper unpinned (1.2.1 today, which knows the name) but keeps
+  an older install, and RealtimeSTT 0.3.104 pins faster-whisper 1.1.1, which rejects it;
+  so the name always goes over as its repo `distil-whisper/distil-large-v3.5-ct2`, which
+  1.1.1 and 1.2.1 both accept (`faster_whisper/utils.py`, wheels read). An English-only
+  model with another language is refused. Article mode still ignores the setting.
 - [ ] ❌ **Task 7.3** (not chosen by the owner; kept for the record): Fixes the research found: `wsi-model-manager` lists turbo as ~800 MB
   (it is ~1.6 GB); the panel and model manager label turbo "Distilled" (it is large-v3 with a
   pruned decoder); the turbo download repo was renamed upstream and works only by redirect.
@@ -184,14 +189,24 @@ The warm server (`wsi-stream-server`) shuts itself down after 20 minutes idle
 starts it only on the next Insert, so that press waits for a cold start and model load. The
 owner wants an option to keep it hot all the time.
 
-- [ ] ⬜ **Task 8.1**: GSettings key for the idle timeout in minutes (default 20; 0 = never
+- [x] ✅ **Task 8.1**: GSettings key for the idle timeout in minutes (default 20; 0 = never
   shut down), passed by `wsi-stream` when it starts the server, with a `prefs.js` control.
-  Fix the `--timeout` help text.
-- [ ] ⬜ **Task 8.2**: GSettings key "start the server at login" (default off), via a systemd
+  Fix the `--timeout` help text. Key `server-idle-timeout-minutes` (0-1440), read through
+  the new `wsi-setting`; the server refuses a negative timeout.
+- [x] ✅ **Task 8.2**: GSettings key "start the server at login" (default off), via a systemd
   user unit deployed by `play-speech-to-text.yml`, so the first Insert of a session is warm.
-  The unit runs only when streaming mode is `server`.
-- [ ] ⬜ **Task 8.3**: Tests where testable; docs; then a **HOST** check: with keep-warm on,
-  an Insert after 30 idle minutes starts recording without a model load.
+  The unit runs only when streaming mode is `server`. `wsi-stream-server-at-login.service`
+  (graphical session) is always enabled and decides at login from GSettings, so the switch
+  needs no play run; it becomes the server via `exec`. `Restart=no`: idle exit and the
+  play's handler mean stopped, and a failing model load must not loop. No double servers:
+  the server claims its PID file atomically (hard link), and both the unit and an Insert
+  wait for a live PID rather than start another.
+- [x] ✅ **Task 8.3**: Tests where testable; docs. `tests/speech_to_text/test_keep_warm.py`
+  and `test_resolve_model.py` plus new harness cases in `scripts/test-wsi-stop-grace.bash`;
+  control run against the pre-Phase-8 scripts fails them. Docs: "Keeping the Server Warm".
+- [ ] ⬜ **Task 8.4**: **HOST**: deploy `play-speech-to-text.yml`; with keep-warm on (timeout
+  0, start at login, Server mode), log in, wait 30 idle minutes, press Insert: recording
+  starts without a model load. Also check `journalctl --user -u wsi-stream-server-at-login.service` and that `auto` loads `distil-large-v3.5` on the GPU.
 
 ## Success Criteria
 

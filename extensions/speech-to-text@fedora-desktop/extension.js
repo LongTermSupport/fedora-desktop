@@ -73,7 +73,7 @@ export default class SpeechToTextExtension extends Extension {
 
         // Whisper model definitions (name, label, size, description, englishOnly)
         this._whisperModels = [
-            ['auto', 'Auto (optimized per mode)', 'varies', 'Base for streaming, small for batch', false],
+            ['auto', 'Auto (optimized per mode)', 'varies', 'GPU: Distil Large v3.5 (English) or Large v3 Turbo; CPU: base streaming, small batch', false],
             // Multilingual models
             ['tiny', 'Tiny', '~75MB', 'Fastest, basic accuracy', false],
             ['base', 'Base', '~142MB', 'Fast, good accuracy', false],
@@ -87,6 +87,7 @@ export default class SpeechToTextExtension extends Extension {
             ['base.en', 'Base English', '~77MB', 'Fast, good accuracy, English only', true],
             ['small.en', 'Small English', '~252MB', 'Balanced, English only', true],
             ['medium.en', 'Medium English', '~789MB', 'Great accuracy, English only', true],
+            ['distil-large-v3.5', 'Distil Large v3.5', '~1.5GB', 'Fewer errors than Turbo, faster, English only', true],
         ];
 
         // Claude model definitions (name, label, description)

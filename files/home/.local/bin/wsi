@@ -721,6 +721,22 @@ if ! STOP_GRACE_SECONDS=$("$STOP_GRACE_READER"); then
 fi
 log_debug "Stop grace: ${STOP_GRACE_SECONDS}s"
 
+# The model faster-whisper-transcribe loads. WHISPER_MODEL is the panel's Whisper
+# Model setting (unset means auto); wsi-resolve-model says what auto means on this
+# machine and hands over names older faster-whisper releases lack as their repo.
+# Resolved before the microphone opens, so a failure costs no recording.
+if [ -z "$IPnPORT" ]; then
+    MODEL_RESOLVER="$(dirname "${BASH_SOURCE[0]}")/wsi-resolve-model"
+    if ! resolved_model=$("$MODEL_RESOLVER" --mode batch \
+            --language "${LANGUAGE:-${WHISPER_LANGUAGE:-}}" "${WHISPER_MODEL:-auto}"); then
+        log_error "Cannot choose the Whisper model ($MODEL_RESOLVER failed; reason above)"
+        notify_state "ERROR" "Cannot choose the Whisper model"
+        exit 1
+    fi
+    export WHISPER_MODEL="$resolved_model"
+    log_debug "Whisper model: $WHISPER_MODEL"
+fi
+
 log_debug "All preflight checks passed"
 
 #============================================================================

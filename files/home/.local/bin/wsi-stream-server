@@ -5,7 +5,8 @@ WSI-Stream Server - Persistent Speech-to-Text Server
 Keeps Whisper model hot in memory for instant recording startup.
 
 Server listens on Unix socket for START/STOP commands from client.
-Auto-shuts down after idle timeout (default: 20 minutes).
+Auto-shuts down after idle timeout (default: 20 minutes; 0 = never). wsi-stream
+passes the extension's server-idle-timeout-minutes setting when it starts the server.
 
 Memory cost: ~200MB (base) to ~600MB (small model)
 Speed improvement: 3-6 seconds → <0.3 seconds for subsequent recordings
@@ -35,7 +36,7 @@ LOG_FILE = LOG_DIR / "server.log"
 PID_FILE = Path(f"/run/user/{os.getuid()}/wsi-stream-server.pid")
 
 # Configuration
-DEFAULT_IDLE_TIMEOUT = 1200  # 20 minutes
+DEFAULT_IDLE_TIMEOUT = 1200  # 20 minutes; 0 means never shut down
 SOCKET_TIMEOUT = 0.5  # Check for shutdown every 0.5s
 
 # Global state
@@ -85,8 +86,8 @@ def update_activity():
 
 
 def check_idle_timeout():
-    """Check if server has been idle too long."""
-    if recording_active:
+    """Check if server has been idle too long. A timeout of 0 keeps it running."""
+    if recording_active or idle_timeout == 0:
         return False
 
     idle_time = time.time() - last_activity_time
@@ -664,6 +665,50 @@ def cleanup():
     log("Server shutdown complete")
 
 
+def claim_pid_file():
+    """Make PID_FILE name this process, unless a live server already holds it.
+
+    The file is written under a private name and hard-linked into place, which fails
+    if PID_FILE exists: two servers started together (the login unit and an Insert)
+    cannot both claim it, and nobody ever reads a half-written PID. A PID file naming a
+    dead process, or holding no number, is stale and is replaced. Returns False if
+    another server is running or the file cannot be written; the reason is logged.
+    """
+    staging = PID_FILE.with_name(f"{PID_FILE.name}.{os.getpid()}")
+    try:
+        staging.write_text(str(os.getpid()))
+        for _attempt in range(2):
+            try:
+                os.link(staging, PID_FILE)
+                return True
+            except FileExistsError:
+                pass
+            try:
+                held = PID_FILE.read_text().strip()
+            except FileNotFoundError:
+                continue  # removed between the link and the read; try again
+            try:
+                os.kill(int(held), 0)
+            except (ValueError, ProcessLookupError):
+                log(f"Removing stale PID file ({PID_FILE} holds '{held}', not a live process)", "WARN")
+                PID_FILE.unlink(missing_ok=True)
+                continue
+            except PermissionError:
+                pass  # alive, owned by someone else: still a running server
+            log(f"ERROR: Server already running (PID {held})", "ERROR")
+            log(f"PID file: {PID_FILE}", "ERROR")
+            log("To force restart, kill the existing server first:", "ERROR")
+            log(f"  kill {held}", "ERROR")
+            return False
+        log(f"ERROR: could not claim {PID_FILE}; another server keeps replacing it", "ERROR")
+        return False
+    except OSError as e:
+        log(f"ERROR: cannot write the PID file {PID_FILE}: {e}", "ERROR")
+        return False
+    finally:
+        staging.unlink(missing_ok=True)
+
+
 def signal_handler(signum, frame):
     """Handle shutdown signals."""
     global shutdown_requested
@@ -680,7 +725,8 @@ def main():
     parser.add_argument("-d", "--debug", action="store_true",
                         help="Enable debug logging")
     parser.add_argument("-t", "--timeout", type=int, default=DEFAULT_IDLE_TIMEOUT,
-                        help="Idle timeout in seconds (default: 300)")
+                        help="Idle timeout in seconds; 0 = never shut down "
+                             f"(default: {DEFAULT_IDLE_TIMEOUT})")
     parser.add_argument("-m", "--model", type=str, default="base",
                         help="Whisper model size (default: base)")
     parser.add_argument("-l", "--language", type=str, default="en",
@@ -690,10 +736,17 @@ def main():
                         help="Device type (default: auto)")
 
     args = parser.parse_args()
+    if args.timeout < 0:
+        parser.error(f"--timeout must be 0 (never) or a positive number of seconds, not {args.timeout}")
     debug_mode = args.debug
     idle_timeout = args.timeout
 
     server_start_time = time.time()
+
+    # SINGLETON ENFORCEMENT: before the log is truncated and the socket touched, so a
+    # second server never wipes the running one's log or removes its socket
+    if not claim_pid_file():
+        sys.exit(1)
 
     # Truncate log file on each server start so it doesn't grow unboundedly
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -701,43 +754,16 @@ def main():
 
     log("=== WSI-Stream Server Starting ===")
     log(f"Model: {args.model}, Language: {args.language}, Device: {args.device}")
-    log(f"Idle timeout: {idle_timeout}s")
+    log(f"Idle timeout: {idle_timeout}s" + (" (never shut down)" if idle_timeout == 0 else ""))
 
     # Register signal handlers
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
 
-    # SINGLETON ENFORCEMENT: Check if another instance is already running
-    if PID_FILE.exists():
-        try:
-            existing_pid = int(PID_FILE.read_text().strip())
-            # Check if that PID is actually running
-            try:
-                os.kill(existing_pid, 0)  # Signal 0 just checks if process exists
-                # Process exists - another instance is running
-                log(f"ERROR: Server already running (PID {existing_pid})", "ERROR")
-                log(f"PID file: {PID_FILE}", "ERROR")
-                log("To force restart, kill the existing server first:", "ERROR")
-                log(f"  kill {existing_pid}", "ERROR")
-                sys.exit(1)
-            except OSError:
-                # Process doesn't exist - stale PID file
-                log(f"Removing stale PID file (PID {existing_pid} not running)", "WARN")
-                PID_FILE.unlink()
-        except (ValueError, OSError) as e:
-            log(f"Invalid PID file, removing: {e}", "WARN")
-            PID_FILE.unlink()
-
     # Check if socket already exists (shouldn't happen but be safe)
     if SOCKET_PATH.exists():
         log(f"Removing stale socket: {SOCKET_PATH}", "WARN")
         SOCKET_PATH.unlink()
-
-    # Write PID file
-    try:
-        PID_FILE.write_text(str(os.getpid()))
-    except Exception as e:
-        log(f"Failed to write PID file: {e}", "WARN")
 
     # Initialize recorder (this is the expensive part - done once!)
     if not initialize_recorder(args.model, args.language, args.device):

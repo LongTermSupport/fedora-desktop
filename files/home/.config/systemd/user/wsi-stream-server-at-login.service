@@ -1,0 +1,23 @@
+[Unit]
+Description=Speech-to-text: start the warm streaming server at login, if Settings ask for it
+Documentation=https://github.com/LongTermSupport/fedora-desktop
+# Enabled on every host by play-speech-to-text.yml; the decision is made at each login
+# from GSettings, so the Settings switch needs no playbook run. wsi-stream exits 0 having
+# started nothing unless streaming mode is on, its startup mode is "server" and
+# server-start-at-login is true, or if a server is already running or loading (the PID
+# file is the lock). Otherwise it replaces itself with wsi-stream-server, so the server
+# is this unit's main process. Part of the graphical session: it stops at logout.
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/wsi-stream --server-at-login
+# No restart. The server exits 0 on its idle timeout and on the playbook's
+# `restart wsi-stream-server` handler (SIGTERM), and both are meant to leave it
+# stopped until the next Insert starts it on demand. A crash is left in the journal
+# rather than retried, so a model that cannot load does not hold the GPU in a loop.
+Restart=no
+
+[Install]
+WantedBy=graphical-session.target

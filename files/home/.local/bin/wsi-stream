@@ -151,17 +151,25 @@ def read_server_idle_timeout():
     return int(value) * 60
 
 
-def resolve_model(mode, language):
-    """The faster-whisper model for WHISPER_MODEL (unset = auto). Raises on failure."""
-    setting = os.environ.get("WHISPER_MODEL", "auto")
+def resolve_model(mode, language, setting=None):
+    """The faster-whisper model for a Whisper Model setting. Raises on failure.
+
+    The setting defaults to WHISPER_MODEL, which the extension sets for any choice but
+    auto; unset means auto.
+    """
+    if setting is None:
+        setting = os.environ.get("WHISPER_MODEL", "auto")
     result = subprocess.run(
         [str(MODEL_RESOLVER), "--mode", mode, "--language", language or "", setting],
         capture_output=True, text=True, timeout=30, check=False)
     if result.returncode != 0:
         raise RuntimeError(f"{MODEL_RESOLVER} failed: {result.stderr.strip()}")
+    model = result.stdout.strip()
+    if not model:
+        raise RuntimeError(f"{MODEL_RESOLVER} printed no model")
     if result.stderr.strip():
         log(result.stderr.strip())
-    return result.stdout.strip()
+    return model
 
 
 def install_stop_handlers(stop, abort_on_usr1=False):
@@ -624,9 +632,11 @@ def run_server_at_login():
         print("wsi-stream: the server is already running; not starting another",
               file=sys.stderr)
         return 0
+    # No extension launched this process, so the Settings are read for what the
+    # extension would pass on an Insert: the language code and the Whisper Model
     language = session_language(read_setting("language"))
-    cmd = server_command(resolve_model("streaming", language), language,
-                         read_server_idle_timeout())
+    model = resolve_model("streaming", language, setting=read_setting("whisper-model"))
+    cmd = server_command(model, language, read_server_idle_timeout())
     print(f"wsi-stream: starting the server: {' '.join(cmd)}", file=sys.stderr)
     sys.stderr.flush()
     os.execv(cmd[0], cmd)
@@ -1436,6 +1446,7 @@ def run_prebuffered_streaming(args, stop):
 
 
 def main():
+    global debug_mode
     parser = argparse.ArgumentParser(
         description="Streaming speech-to-text with real-time transcription"
     )
@@ -1491,7 +1502,6 @@ def main():
             return run_streaming(args)
     except Exception as e:
         # Ensure critical errors are ALWAYS logged, even without debug mode
-        global debug_mode
         debug_mode = True  # Force logging for crash reports
         log(f"FATAL ERROR: {e}", "CRITICAL")
         import traceback
