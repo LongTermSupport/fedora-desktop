@@ -36,6 +36,8 @@ Use these Unicode icons in plan documents:
 
 - [00148-stt-unlimited-dictation-loop-and-buffer](00148-stt-unlimited-dictation-loop-and-buffer/) - Feature: replace the 120 s streaming dictation cap with continuous dictation in the warm server (VAD-cut segments, one ordered worker, paste once at stop, a loud stop on any failed segment), plus the side findings. Waiting on the owner's choice of loop-and-buffer over a raised cap.
 
+- [00150-image-paste-cli](00150-image-paste-cli/) - Feature: `imgpaste <image>` prints a self-decoding bash block (WebP, base64, sha256) to paste into any Claude chat, so screenshots reach agents on hosts with no clipboard. Encoding chosen and prototyped; next is the dogfood decode (Task 1.4).
+
 - [00149-up-arrow-loses-an-interrupted-command](00149-up-arrow-loses-an-interrupted-command/) - Bug: a command stopped with Ctrl+C is not on up-arrow in a local terminal. Dormant: not reproduced in the container or on the host (bash 5.3); reopen with `triage.bash` if it happens again.
 
 - [00147-tmux-f12-menu-fedora-desktop-items](00147-tmux-f12-menu-fedora-desktop-items/) - Feature: one "Fedora Desktop" entry in the tmux F12 menu, its submenu built at press time from one-file-per-item drop-ins, so a play adds an item with no `tmux.conf` edit or reload. First item: the ccy token switch (Plan 00146). Waiting on owner decisions.
