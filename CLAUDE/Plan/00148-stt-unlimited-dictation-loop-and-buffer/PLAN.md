@@ -90,10 +90,12 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
   places, grow the stop-wait budget and move the watchdog in the same commit. Recommendation:
   (a); (b) worsens stop latency, the silent fallback to `tiny` text and server-mode
   truncation, all of which grow with length (research section 2). Blocked on the owner.
-- [ ] ⬜ **Task 1.2**: `triage.bash` (HOST, read-only) for the research's section 3.6
+- [ ] 🚫 **Task 1.2**: `triage.bash` (HOST, read-only) for the research's section 3.6
   probes: installed RealtimeSTT and faster-whisper versions, real-time factor of the chosen
   model per 20 s segment, hard-cut frequency at 20 s soft / 28 s hard max, and word loss at
-  phrase boundaries in article mode.
+  phrase boundaries in article mode. Written: it records the owner reading aloud for 90 s
+  (or reuses `--audio`) and replays that one recording to every probe. Blocked on the
+  owner: **HOST** run (it needs a person speaking).
 
 ### Phase 2: Continuous dictation in the server
 
