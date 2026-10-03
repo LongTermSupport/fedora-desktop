@@ -67,7 +67,10 @@ preferred.
 
 ### Phase 2: Prototype
 
-- [ ] 🚫 **Task 2.1**: Prototype the chosen mechanism for ccy, as a plan-local script or a
+- [x] ✅ **Task 2.1**: **Passed on the host**: inside a container built from the ccy
+  image, `wl-paste -l` offered `image/png` (rc 0) and `wl-paste --type image/png` returned
+  162,020 bytes (rc 0), over the read-only socket mount, SELinux Permissive. GNOME gave focus;
+  option A works. Prototype the chosen mechanism for ccy, as a plan-local script or a
   ccy image change on a branch; the owner tries Ctrl+V once. Script ready:
   `prototype-ccy-wl-paste.bash` (HOST, once). It builds a throwaway image with
   `wl-clipboard`, runs `wl-paste` over the socket and removes the image. The owner reports the
@@ -76,7 +79,9 @@ preferred.
   (`.claude/ccy/Dockerfile`), then make it standard in the shared image. Added
   `wl-clipboard` plus a `/usr/local/bin/wl-paste` wrapper that caps each call at 5 s, so a
   GNOME focus refusal fails with exit 124 instead of freezing Claude's Ctrl+V. Needs a ccy
-  rebuild (automatic on next launch) and one Ctrl+V try.
+  rebuild (automatic on next launch) and one Ctrl+V try. **HOST next**: start ccy in this
+  project (it rebuilds), copy an image, press Ctrl+V in Claude; the image attaches. Then
+  Task 3.1 moves `wl-clipboard` and the guard into the shared claude-yolo image.
 - [ ] ⬜ **Task 2.2**: Prototype for LXC (same mechanism if the survey says it carries).
 
 ### Phase 3: Deliver
