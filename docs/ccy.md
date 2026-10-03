@@ -1324,6 +1324,12 @@ command with `--resume <session-id>`. At most 3 restarts per project per hour
 (`CCY_RESTART_MAX`, `CCY_RESTART_WINDOW_SECONDS`); then it stops and prints the resume
 command.
 
+The relaunch asks nothing. It reuses the token file, SSH keys, GitHub-443 mode and network
+the session ran with, even those picked at a prompt. Where no answer is safe it stops with
+the resume command instead: an SSH key that needs a passphrase, or an expired or invalid
+token. For sessions that should restart unattended, use `--ssh-agent` or a key with no
+passphrase.
+
 ### Session limits: `--max-age`, `--run-for`, `--until`
 
 Off unless you ask. They need the [supervisor](#the-supervisor) and are carried out by a
@@ -1339,8 +1345,9 @@ export CCY_MAX_AGE=3d      # the default for --max-age, for every project
 export CCY_RESTART_WARN_MINUTES=20   # warning lead for --max-age, default 10
 ```
 
-- **`--max-age`** (30m to 30d). The session is warned `CCY_RESTART_WARN_MINUTES` before it
-  is due. At the age the supervisor ends the session at its first idle point (never mid-turn),
+- **`--max-age`** (30m to 30d). The session is warned when it is idle inside the last
+  `CCY_RESTART_WARN_MINUTES` before it is due; a session busy through that whole window gets
+  no warning. At the age the supervisor ends the session at its first idle point (never mid-turn),
   CCY updates the image and relaunches with `--resume`, and the resumed session is told which
   Claude Code version it is on. The clock restarts with each new container. The supervisor
   only acts when the session is idle, so a session that is never idle restarts at its first
@@ -1349,8 +1356,11 @@ export CCY_RESTART_WARN_MINUTES=20   # warning lead for --max-age, default 10
 - **`--run-for` / `--until`** (1m to 30d; use one). The session is told once, at the
   deadline, that its time is up. Nothing is ended. The deadline is absolute, so it survives a
   `--max-age` restart, and once it has been announced the age restart stands down.
-- A bad value stops the launch with an example before anything is prompted. `--no-supervise`
-  with any of them is refused, and so is a project whose wrapper is not the supervisor.
+- A bad value stops the launch with an example before anything is prompted. So does
+  `--no-supervise` with any of them, and a project with no supervisor or with one older than
+  the supervisor plugin API (upgrade the hooks daemon there). The host only reads the
+  supervisor file, never runs it. A wrapper set by `CCY_CLAUDE_WRAPPER` or the project's
+  `ccy.env` is checked the same way by the entrypoint, at container start.
 
 ### ctrl+z and the supervisor
 

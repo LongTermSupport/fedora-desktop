@@ -593,6 +593,37 @@ ccy_lifecycle_extend_wrapper() {
         echo "  Rebuild the image: ccy --rebuild" >&2
         return 1
     fi
+    # A supervisor older than the plugin API rejects --plugin as an unknown argument and the
+    # container exits with an argparse error, so read its declared API major first.
+    local supervisor="" word want have
+    for word in "${_ccy_wrapper[@]}"; do
+        if [[ "$word" == *claude-supervise.py ]]; then
+            supervisor="$word"
+            break
+        fi
+    done
+    if [[ ! -f "$supervisor" ]]; then
+        echo "✗ CCY: the supervisor the wrapper names is not there: ${supervisor:-(none)}" >&2
+        return 1
+    fi
+    if ! want=$(awk '/^PLUGIN_API = [0-9]+$/ {print $3; exit}' "$plugin") || [[ -z "$want" ]]; then
+        echo "✗ CCY: the lifecycle plugin in this image declares no PLUGIN_API ($plugin). Rebuild: ccy --rebuild" >&2
+        return 1
+    fi
+    if ! have=$(awk '/^_PLUGIN_API_MAJOR = [0-9]+$/ {print $3; exit}' "$supervisor"); then
+        echo "✗ CCY: could not read the supervisor at $supervisor." >&2
+        return 1
+    fi
+    if [[ -z "$have" ]]; then
+        echo "✗ CCY: this project's supervisor predates the plugin API that --max-age/--run-for/--until need." >&2
+        echo "  upgrade the hooks daemon in this project to a release with the supervisor plugin API, or drop the option." >&2
+        return 1
+    fi
+    if [[ "$have" != "$want" ]]; then
+        echo "✗ CCY: this project's supervisor speaks plugin API $have, and the lifecycle plugin speaks plugin API $want." >&2
+        echo "  Update ccy, or upgrade the hooks daemon in this project, so the two agree; or drop the option." >&2
+        return 1
+    fi
     _ccy_wrapper=("${_ccy_wrapper[@]:0:$last}" --plugin "ccy-lifecycle=$plugin" --)
 }
 

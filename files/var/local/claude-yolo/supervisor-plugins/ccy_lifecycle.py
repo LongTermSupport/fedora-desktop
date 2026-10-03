@@ -35,18 +35,35 @@ Anything invalid raises ValueError from on_start. The supervisor disables a plug
 raises and tells the session so, which is the loud failure wanted here: a typo must not
 quietly turn the feature off.
 
-The persisted state lives in the plugin's private state directory, which survives a
-container restart (hence the launch id) and a worker hot reload (hence persisting at all).
+The persisted state lives in the plugin's private state directory. That directory belongs to
+the PROJECT, not the container: it survives a container restart and a worker hot reload, and
+every concurrent ccy container of the project shares it. So nothing in it is keyed by the
+project alone:
+
+  lifecycle-<launch id>.json        this container's age clock, warning and deadline flags.
+                                    A hot reload finds it again; a new container (a new
+                                    launch id) never sees it, so the age clock restarts.
+  deadline-<epoch>-<session>.json   "this deadline was announced to this Claude session".
+                                    The relaunch after a restart resumes the same session
+                                    id, so it is not told twice; a concurrent session with
+                                    the same deadline has a different id and is told too.
+                                    <session> is a hash, so no session id is written down.
+
+Each start removes files of both shapes, and leftovers of an interrupted save, that have not
+been written for PRUNE_AFTER_SECONDS. That is longer than any session the plugin restarts
+can live, and a live container rewrites its own file on every worker start.
 
 Standard library only, as the supervisor's plugin contract requires.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
 import re
+import stat
 import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -68,11 +85,22 @@ WARN_MINUTES_DEFAULT = 10
 WARN_MINUTES_MIN = 1
 WARN_MINUTES_MAX = 240
 
-STATE_FILE = "lifecycle.json"
+STATE_FILE_PREFIX = "lifecycle-"
+DEADLINE_MARKER_PREFIX = "deadline-"
+STATE_SUFFIX = ".json"
 STATE_FILE_MODE = 0o600
+# Twice the longest session the plugin restarts, so a live container's file is never pruned.
+PRUNE_AFTER_SECONDS = 2 * MAX_AGE_MAX_SECONDS
+SESSION_KEY_HEX_CHARS = 32
 
 _DIGITS = re.compile(r"[0-9]+")
 _LAUNCH_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{7,63}")
+# Every name this plugin writes, including the temporary file of an interrupted save. Pruning
+# matches against this and nothing else, so a file another writer put here is never removed.
+_OWN_FILE = re.compile(
+    r"(?:lifecycle-[A-Za-z0-9][A-Za-z0-9._-]{7,63}|deadline-[0-9]+-[0-9a-f]{32})"
+    r"\.json(?:\.tmp\.[0-9]+)?"
+)
 
 
 def _optional_int(environ: Mapping[str, str], name: str) -> int | None:
@@ -101,8 +129,11 @@ def _describe_duration(seconds: int) -> str:
 class Config:
     """The validated configuration of an enabled plugin (at least one feature is on).
 
-    Plain classes, not dataclasses: the supervisor may import this file without registering
-    it in sys.modules, which dataclasses cannot cope with under postponed annotations.
+    Plain classes, not dataclasses. The supervisor's loader registers this module in
+    sys.modules before executing it, so dataclasses would work there; but the unit tests
+    (tests/helpers/ccy_lifecycle/test_plugin.py, load_plugin_module) import a fresh copy
+    per test WITHOUT registering it, and a dataclass under postponed annotations fails to
+    build when its module is missing from sys.modules.
     """
 
     def __init__(self, launch_id: str, max_age: int | None, deadline: int | None, warn_minutes: int) -> None:
@@ -149,7 +180,7 @@ def parse_config(environ: Mapping[str, str]) -> Config | None:
 
 
 class State:
-    """What survives a worker hot reload and a container restart."""
+    """One container's state (lifecycle-<launch id>.json): it survives a worker hot reload."""
 
     def __init__(
         self,
@@ -254,21 +285,34 @@ class LifecycleHalf:
         if active is None:
             return None
         now = float(tick.now)
-        deadline_result = self._deadline_result(active, now)
+        session_id: object = tick.session_id
+        if session_id is not None and not isinstance(session_id, str):
+            raise TypeError(f"tick.session_id must be a str or None, got {type(session_id)}")
+        deadline_result = self._deadline_result(active, now, session_id or None)
         if deadline_result is not None:
             return deadline_result
         return self._max_age_result(active, now)
 
     # -- features -----------------------------------------------------------------------
 
-    def _deadline_result(self, active: _Active, now: float) -> Any:
+    def _deadline_result(self, active: _Active, now: float, session_id: str | None) -> Any:
         deadline = active.config.deadline
         if deadline is None or now < deadline:
             return None
         if active.state.deadline_notified == deadline:
             return None
+        # With no single session id (none, or several) only this container's own record
+        # applies, so a relaunch in that case could announce the deadline once more.
+        marker = None if session_id is None else self._deadline_marker_path(deadline, session_id)
         active.state.deadline_notified = deadline
         self._save_state(active.state)
+        if marker is not None and marker.is_file():
+            # This session was told in an earlier container. Recording it here also stands
+            # the maximum-age restart down, as it did there.
+            self._api.audit(f"deadline {deadline} was announced before a restart: not repeating")
+            return None
+        if marker is not None:
+            self._write_private(marker, json.dumps({"deadline": deadline, "announced_at": now}))
         self._api.audit(f"deadline {deadline} reached: asking for the deadline notice")
         return self._api.Notify(self._api.DEADLINE_REACHED)
 
@@ -304,24 +348,53 @@ class LifecycleHalf:
 
     # -- state --------------------------------------------------------------------------
 
-    def _state_path(self) -> Path:
-        return Path(self._api.state_dir) / STATE_FILE
+    def _state_dir(self) -> Path:
+        return Path(self._api.state_dir)
+
+    def _state_path(self, launch_id: str) -> Path:
+        # Safe as a file name: parse_config has matched launch_id against _LAUNCH_ID.
+        return self._state_dir() / f"{STATE_FILE_PREFIX}{launch_id}{STATE_SUFFIX}"
+
+    def _deadline_marker_path(self, deadline: int, session_id: str) -> Path:
+        key = hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:SESSION_KEY_HEX_CHARS]
+        return self._state_dir() / f"{DEADLINE_MARKER_PREFIX}{deadline}-{key}{STATE_SUFFIX}"
 
     def _load_or_create_state(self, config: Config) -> State:
-        previous = self._read_state(self._state_path())
-        if previous is not None and previous.launch_id == config.launch_id:
-            state = previous
-        else:
-            # A new container: the age clock and the restart warning start over. The
-            # deadline notice is keyed by the deadline itself and carries across, so a
-            # restart after the deadline does not announce it a second time.
-            state = State(
-                launch_id=config.launch_id,
-                started_at=float(self._clock()),
-                deadline_notified=None if previous is None else previous.deadline_notified,
-            )
+        path = self._state_path(config.launch_id)
+        self._prune_stale_files(keep=path.name, now=float(self._clock()))
+        state = self._read_state(path)
+        if state is None:
+            # A new container: the age clock and the restart warning start over. Whether a
+            # deadline was already announced is per session, found in on_idle.
+            state = State(launch_id=config.launch_id, started_at=float(self._clock()))
+        elif state.launch_id != config.launch_id:
+            raise ValueError(f"the lifecycle state at {path} names launch {state.launch_id!r}")
         self._save_state(state)
         return state
+
+    def _prune_stale_files(self, keep: str, now: float) -> None:
+        directory = self._state_dir()
+        try:
+            names = [entry.name for entry in directory.iterdir()]
+        except OSError as exc:
+            raise ValueError(f"cannot list the lifecycle state in {directory}: {exc}") from exc
+        for name in names:
+            if name == keep or not _OWN_FILE.fullmatch(name):
+                continue
+            path = directory / name
+            try:
+                info = path.lstat()
+            except FileNotFoundError:
+                # A concurrent container's start pruned it first, or its save renamed it.
+                continue
+            except OSError as exc:
+                raise ValueError(f"cannot inspect the lifecycle state at {path}: {exc}") from exc
+            if not stat.S_ISREG(info.st_mode) or now - info.st_mtime <= PRUNE_AFTER_SECONDS:
+                continue
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as exc:
+                raise ValueError(f"cannot remove stale lifecycle state {path}: {exc}") from exc
 
     @staticmethod
     def _read_state(path: Path) -> State | None:
@@ -334,12 +407,17 @@ class LifecycleHalf:
         return State.from_json(raw, path)
 
     def _save_state(self, state: State) -> None:
-        path = self._state_path()
+        self._write_private(self._state_path(state.launch_id), state.to_json())
+
+    @staticmethod
+    def _write_private(path: Path, text: str) -> None:
+        # The temporary name carries the target's own unique name, so two containers (whose
+        # pids can coincide across pid namespaces) never write the same temporary file.
         tmp = path.with_name(path.name + f".tmp.{os.getpid()}")
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, STATE_FILE_MODE)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(state.to_json())
+                handle.write(text)
             os.replace(tmp, path)
         except OSError:
             tmp.unlink(missing_ok=True)

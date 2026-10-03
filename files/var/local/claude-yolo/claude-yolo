@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.75.0"  # --max-age restarts a session on a fresh container after a set age; --run-for and --until announce a deadline. See docs/ccy-changelog.md.
+CCY_VERSION="3.76.0"  # A --max-age restart relaunches unattended with the choices the session used; lifecycle options need a supervisor with the plugin API. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -74,7 +74,7 @@ source "$SCRIPT_DIR/lib/tmux-session.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.41"
+REQUIRED_CONTAINER_VERSION="2.42"
 
 set -e
 
@@ -129,8 +129,21 @@ check_ccy_gitignore_safety || exit 1
 # Hostname restriction: prevent running Desktop CCY on projects locked to a specific host
 check_allowed_hostname || exit 1
 
-# Migration: detect and offer to remove old session directories (v2.x -> v3.x)
-if [ -d ".claude/ccy/sessions" ]; then
+# Is this the relaunch of a session that asked to restart (ccy_handle_restart_exit, at the end
+# of this script)? Nobody is watching it, so it must never wait at a prompt: its arguments
+# carry every launch choice the session ran with, the prompts with one safe answer take it,
+# and the rest stop the launch with the manual resume command (lib/restart-request.bash).
+# Until the container starts, stdin is /dev/null, so a prompt nobody has accounted for here
+# fails instead of waiting for ever; the terminal comes back just before `container_cmd run`.
+ccy_restart_marker_take || exit 1
+if [ -n "$CCY_RESTART_RELAUNCH_SESSION" ]; then
+    exec {CCY_RESTART_TTY_FD}<&0 </dev/null
+fi
+
+# Migration: detect and offer to remove old session directories (v2.x -> v3.x). A restart
+# keeps them without asking: keeping is the answer that changes nothing, and if they are still
+# here the person gave that answer when the session was launched.
+if [ -d ".claude/ccy/sessions" ] && [ -z "$CCY_RESTART_RELAUNCH_SESSION" ]; then
     session_count=$(find .claude/ccy/sessions -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)  # FAIL-FAST-OK: wc always yields a number, and 0 means "no migration needed" — the safe default
     if [ "$session_count" -gt 0 ]; then
         echo ""
@@ -192,6 +205,10 @@ PROJECT_DIR="$CCY_ROOT/projects"
 # still re-checks even if another project already checked earlier today. New path
 # (not the old "-version-check" file) avoids a file-vs-directory migration clash.
 VERSION_CHECK_CACHE="$HOME/.cache/claude-yolo-update-checks"
+# The restart budget's history (ccy_handle_restart_exit), one file per project. Its own
+# directory, never inside VERSION_CHECK_CACHE: that one is disposable and is deleted on every
+# rebuild, and deleting this one would reset the bound that stops a restart loop.
+CCY_RESTART_HISTORY_DIR="$HOME/.cache/claude-yolo-restart-history"
 
 # Show version if requested
 if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
@@ -1000,9 +1017,16 @@ case "${CCY_SESSION_RESTORE:-}" in
     ;;
 esac
 unset CCY_SESSION_RESTORE
+# A restore and a restart both run with nobody at the keyboard, so the prompts that have one
+# safe answer (the passphrase file, zombie and sibling containers) take it for either.
+CCY_UNATTENDED_LAUNCH="$SESSION_RESTORE"
+if [ -n "$CCY_RESTART_RELAUNCH_SESSION" ]; then
+    CCY_UNATTENDED_LAUNCH=true
+fi
 # On a headless server the restore also names the SSH key passphrase file, so the key
-# unlocks through askpass with nobody at the keyboard. Refused on any other launch.
-ccy_restore_passphrase_take "$SESSION_RESTORE" || exit 1
+# unlocks through askpass with nobody at the keyboard; a restart of such a session hands the
+# same file on. Refused on any other launch.
+ccy_restore_passphrase_take "$CCY_UNATTENDED_LAUNCH" || exit 1
 
 # Try to load previous launch configuration (if no flags specified).
 #
@@ -1010,7 +1034,8 @@ ccy_restore_passphrase_take "$SESSION_RESTORE" || exit 1
 # Accepting the quick-launch config takes effect by populating SPECIFIED_TOKEN /
 # SSH_KEYS / SPECIFIED_NETWORK below, and declining takes effect by leaving them
 # empty so the interactive prompts run. The flag tracked that state a second
-# time without anything consulting it.
+# time without anything consulting it. A restart never gets here: its arguments
+# always carry --token, and --no-ssh or the keys.
 if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
    [[ -z "$SPECIFIED_TOKEN" ]] && [[ -z "$SPECIFIED_NETWORK" ]] && \
    [[ "$NO_NETWORK_MODE" = false ]]; then
@@ -1103,6 +1128,15 @@ ccy_selinux_mode
 # unlocked keys, nor a restore's passphrase copy on XDG_RUNTIME_DIR. The probe's own RETURN
 # trap covers only a normal return.
 trap _probe_agent_stop EXIT
+
+# A restart cannot type a key's passphrase, here or at the container's own ssh-add. The
+# launcher that asked for the restart checked this before spending the budget on it; checked
+# again because this is where the prompt would be.
+if [ -n "$CCY_RESTART_RELAUNCH_SESSION" ] \
+    && ! ccy_restart_keys_unattended "$RESTORE_SSH_PASSPHRASE_FILE" "${SSH_KEYS[@]}"; then
+    ccy_restart_refuse "$CCY_RESTART_RELAUNCH_SESSION" "an SSH key needs a passphrase (see above)."
+    exit 1
+fi
 
 # Build SSH mounts and validate GitHub access
 # This sets: SSH_MOUNTS, SSH_KEY_PATHS, GITHUB_USERNAME, GH_TOKEN
@@ -1225,6 +1259,12 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
     if ! is_token_valid "$SELECTED_TOKEN"; then
         filename=$(basename "$SELECTED_TOKEN")
         token_name="${filename%.*.token}"
+        # Making a token needs a person at a browser, so a restart stops here.
+        if [ -n "$CCY_RESTART_RELAUNCH_SESSION" ]; then
+            ccy_restart_refuse "$CCY_RESTART_RELAUNCH_SESSION" \
+                "token $filename has expired or expires today. Renew it with: ccy --update-token=$token_name"
+            exit 1
+        fi
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo "⚠  TOKEN EXPIRED OR EXPIRING TODAY"
@@ -1344,6 +1384,14 @@ fi
 if [ "$TOKEN_VALIDATION_FAILED" = true ]; then
     filename=$(basename "$SELECTED_TOKEN")
     token_name="${filename%.*.token}"
+
+    # Every recovery below is a person's choice, and switching a restarted session to another
+    # account unasked would be worse than stopping.
+    if [ -n "$CCY_RESTART_RELAUNCH_SESSION" ]; then
+        ccy_restart_refuse "$CCY_RESTART_RELAUNCH_SESSION" \
+            "token $filename failed validation ($VALIDATION_FAILURE_REASON). Check it with: ccy --list-tokens"
+        exit 1
+    fi
 
     echo ""
     echo "════════════════════════════════════════════════════════════════════════════════"
@@ -1489,8 +1537,9 @@ fi
 # These are stopped/dead containers where --rm never fired — auto-removed
 clean_stale_containers_startup "yolo"
 
-# Check for zombie containers (running but with no controlling terminal)
-if ! check_zombie_containers_startup "yolo" "$SESSION_RESTORE"; then
+# Check for zombie containers (running but with no controlling terminal). Unattended, a
+# restore's answer: leave them, since none can be proved dead.
+if ! check_zombie_containers_startup "yolo" "$CCY_UNATTENDED_LAUNCH"; then
     exit 0
 fi
 
@@ -1499,8 +1548,10 @@ fi
 # ═══════════════════════════════════════════════════════════════════════════
 
 # Check for running containers for this project before starting a new session
-# This helps users avoid accumulating containers they forgot about
-if ! check_project_containers_startup "$PROJECT_NAME" "yolo" "$SESSION_RESTORE"; then
+# This helps users avoid accumulating containers they forgot about. Unattended, a restore's
+# answer: start alongside them. A restart's own container is already gone (--rm), so any
+# still running belongs to another session, which stopping would kill.
+if ! check_project_containers_startup "$PROJECT_NAME" "yolo" "$CCY_UNATTENDED_LAUNCH"; then
     # User chose to quit
     exit 0
 fi
@@ -2203,8 +2254,10 @@ if [[ -n "$SPECIFIED_NETWORK" ]]; then
     # --network flag provided (or loaded from config)
     # Verify network exists
     if container_cmd network ls --format '{{.Name}}' | grep -q "^${SPECIFIED_NETWORK}$"; then
-        # Network exists - check if services are running
-        if check_and_start_compose_services "$SPECIFIED_NETWORK" "$PROJECT_NAME"; then
+        # Network exists - check if services are running. A restart rejoins the network the
+        # session had and starts nothing: whatever ran on it before the restart is unchanged.
+        if [ -n "$CCY_RESTART_RELAUNCH_SESSION" ] \
+            || check_and_start_compose_services "$SPECIFIED_NETWORK" "$PROJECT_NAME"; then
             # Services running (or were started)
             NETWORK_FLAG="--network $SPECIFIED_NETWORK"
             AUTO_CONNECT_NETWORK="$SPECIFIED_NETWORK"
@@ -2299,6 +2352,11 @@ if [[ -n "$SPECIFIED_NETWORK" ]]; then
 elif [[ "$NO_NETWORK_MODE" = true ]]; then
     # --no-network flag provided
     echo "✓ Skipping network connection (--no-network flag)"
+    echo ""
+elif [[ -n "$CCY_RESTART_RELAUNCH_SESSION" ]]; then
+    # A restart with neither flag: the session joined no project network, so the relaunch
+    # joins none either, without the detection and offers below.
+    echo "✓ No project network (the session had none before its restart)"
     echo ""
 else
     # No network flags - check for persisted network preference first
@@ -3167,6 +3225,12 @@ if [ "${#GPU_DEVICE_FLAGS[@]}" -eq 0 ]; then
     debug "No /dev/dri on this host — no GPU passed to the container; browser rendering is software-only"
 fi
 
+# Every launch-time prompt is behind us: a restart gets its terminal back for the session
+# itself (stdin was /dev/null since ccy_restart_marker_take).
+if [ -n "$CCY_RESTART_RELAUNCH_SESSION" ]; then
+    exec <&"$CCY_RESTART_TTY_FD" {CCY_RESTART_TTY_FD}<&-
+fi
+
 # Disable CTRL+Z (suspend) for this terminal session. Inside a CCY container
 # there is no way to foreground a backgrounded podman process, so it only
 # causes lost work. Saved state is restored in cleanup() on exit.
@@ -3283,26 +3347,6 @@ if ! CCY_HOST_HOSTNAME="$(ccy_host_hostname "$(uname -n)")"; then
     exit 1
 fi
 
-# --- the auto-compact window ------------------------------------------------
-#
-# CLAUDE_CODE_AUTO_COMPACT_WINDOW caps how large a session grows before Claude Code
-# summarises it. Upstream's recommended value is `auto`, which defers to the model's own
-# context window and so imposes no cap at all; CCY deliberately overrides it with a fixed
-# 600,000-token ceiling, which is a guard for the 1M-context models this workflow runs. Do
-# not revert it back to `auto` as if it were an accident — it is a deliberate cost ceiling.
-#
-# WRITTEN IN FULL DIGITS, NOT `600k`. This variable has no suffix handling: it is parsed by
-# the generic numeric helper shared with BASH_MAX_OUTPUT_LENGTH, so `600k` becomes 600, and
-# the resolver then floors it at 100,000. 3.58.0 shipped the suffix and every session ran at
-# a 100,000-token ceiling. The `auto`/`500k` grammar belongs to the /autocompact command, not
-# here. Do not "tidy" this back to a suffix.
-#
-# The effective threshold is min(this value, the model's context window), and the variable
-# beats the autoCompactWindow setting, so the window can no longer be changed from
-# /autocompact, which reports the override instead of applying it.
-# The ${VAR:-default} form below preserves both overrides: a host export before launch, and
-# an `export` line in a project's .claude/ccy/ccy.env, which the entrypoint sources after
-# this environment is in place. See docs/ccy.md.
 # --- a restart requested by the session supervisor --------------------------
 #
 # Claude Code is baked into the image, so a session that should pick up a newer version (the
@@ -3335,13 +3379,43 @@ ccy_handle_restart_exit() {
     # Consume the request before acting on it: whatever happens next, it cannot loop.
     ccy_restart_request_discard "$request_file" || exit 1
 
+    # The relaunch runs with nobody at the keyboard. A key passphrase is the one choice its
+    # arguments cannot carry, so a key that needs one stops the restart here, before the
+    # budget and an image update are spent on a launch that would wait at ssh-add.
+    if ! ccy_restart_keys_unattended "$RESTORE_SSH_PASSPHRASE_FILE" "${SSH_KEYS[@]}"; then
+        ccy_restart_refuse "$session_id" "the relaunch would wait at an SSH passphrase prompt. For unattended restarts launch with --ssh-agent (an agent that already holds the key) or a key without a passphrase."
+        exit 1
+    fi
+
+    # The choices this session RAN with (a prompt's answer is in no argument), then the rest of
+    # its arguments with those choices taken out. Built before anything is spent on the
+    # restart. A process substitution's status is not seen by mapfile, so each builder's is
+    # read with `wait`: one that stopped part way could otherwise leave an argv that looks whole.
+    local choice_args=() relaunch_args=() builder_rc=0
+    mapfile -d '' -t choice_args < <(ccy_restart_choice_args "$SELECTED_TOKEN" \
+        "${GITHUB_SSH_443:-0}" "$NO_NETWORK_MODE" "$AUTO_CONNECT_NETWORK" "${SSH_KEYS[@]}")
+    wait "$!" || builder_rc=$?
+    if [ "$builder_rc" -ne 0 ] || [ "${#choice_args[@]}" -eq 0 ]; then
+        ccy_restart_refuse "$session_id" "could not work out the launch choices to relaunch with (see above)."
+        exit 1
+    fi
+    mapfile -d '' -t relaunch_args < <(ccy_restart_relaunch_args "$session_id" "${CCY_ORIG_ARGS[@]}")
+    wait "$!" || builder_rc=$?
+    if [ "$builder_rc" -ne 0 ] || [ "${#relaunch_args[@]}" -eq 0 ]; then
+        ccy_restart_refuse "$session_id" "could not build the relaunch arguments (see above)."
+        exit 1
+    fi
+
     local history_file
-    history_file="$VERSION_CHECK_CACHE/restart-history-$(printf '%s' "$PWD" | md5sum | cut -c1-16)"
+    if ! mkdir -p "$CCY_RESTART_HISTORY_DIR"; then
+        ccy_restart_refuse "$session_id" "could not create the restart history directory $CCY_RESTART_HISTORY_DIR."
+        exit 1
+    fi
+    history_file="$CCY_RESTART_HISTORY_DIR/$(printf '%s' "$PWD" | md5sum | cut -c1-16)"
     if ! ccy_restart_budget_take "$history_file" "$(date +%s)" \
         "${CCY_RESTART_MAX:-$CCY_RESTART_DEFAULT_MAX}" \
         "${CCY_RESTART_WINDOW_SECONDS:-$CCY_RESTART_DEFAULT_WINDOW_SECONDS}"; then
-        print_error "Not restarting session $session_id."
-        echo "  Resume it by hand when you are ready: ccy --resume $session_id" >&2
+        ccy_restart_refuse "$session_id" "its restart budget is spent (see above)."
         exit 1
     fi
 
@@ -3356,12 +3430,6 @@ ccy_handle_restart_exit() {
     mkdir -p "$VERSION_CHECK_CACHE"
     touch "$VERSION_CHECK_CACHE/${IMAGE_NAME//[:\/]/_}"
 
-    local relaunch_args=()
-    mapfile -d '' -t relaunch_args < <(ccy_restart_relaunch_args "$session_id" "${CCY_ORIG_ARGS[@]}")
-    if [ "${#relaunch_args[@]}" -eq 0 ]; then
-        print_error "Not restarting session $session_id: could not build the relaunch arguments."
-        exit 1
-    fi
     # A deadline is absolute and the relaunch drops --run-for/--until, so it travels in the
     # environment instead. --max-age stays in the arguments: its clock starts again.
     # restarted.json, written by the supervisor beside the request, is deliberately left
@@ -3369,20 +3437,51 @@ ccy_handle_restart_exit() {
     if [ -n "${CCY_LIFECYCLE_DEADLINE_EPOCH:-}" ]; then
         export CCY_RELAUNCH_DEADLINE_EPOCH="$CCY_LIFECYCLE_DEADLINE_EPOCH"
     fi
+    # The mark that makes the relaunch unattended (ccy_restart_marker_take), and a server
+    # restore's passphrase file, which is a path; the passphrase never leaves that file.
+    export CCY_RESTART_RELAUNCH="$session_id"
+    if [ -n "$RESTORE_SSH_PASSPHRASE_FILE" ]; then
+        export CCY_RESTORE_SSH_PASSPHRASE_FILE="$RESTORE_SSH_PASSPHRASE_FILE"
+    fi
+    # exec skips the EXIT trap, and the relaunch stages its own copies, so this launch's
+    # staged key copies and temp config are removed now rather than left behind.
+    trap - EXIT
+    cleanup
     echo "Relaunching session $session_id..." >&2
-    exec "$SCRIPT_DIR/claude-yolo" "${relaunch_args[@]}"
+    exec "$SCRIPT_DIR/claude-yolo" "${choice_args[@]}" "${relaunch_args[@]}"
 }
 
 # A request file left by an earlier run must never be mistaken for this run's.
 ccy_restart_request_discard "$PWD/$CCY_RESTART_REQUEST_REL" || exit 1
 
-# `set -e` would turn the container's exit status into this script's before the restart
-# check below could look at it, so capture it. Any status other than 75 is passed straight
-# through, as it always was.
 # Resolve a relative deadline against NOW, after every prompt, and give this container its
 # launch id (lib/session-lifecycle.bash).
 ccy_lifecycle_finalize || exit 1
 
+# --- the auto-compact window ------------------------------------------------
+#
+# CLAUDE_CODE_AUTO_COMPACT_WINDOW caps how large a session grows before Claude Code
+# summarises it. Upstream's recommended value is `auto`, which defers to the model's own
+# context window and so imposes no cap at all; CCY deliberately overrides it with a fixed
+# 600,000-token ceiling, which is a guard for the 1M-context models this workflow runs. Do
+# not revert it back to `auto` as if it were an accident — it is a deliberate cost ceiling.
+#
+# WRITTEN IN FULL DIGITS, NOT `600k`. This variable has no suffix handling: it is parsed by
+# the generic numeric helper shared with BASH_MAX_OUTPUT_LENGTH, so `600k` becomes 600, and
+# the resolver then floors it at 100,000. 3.58.0 shipped the suffix and every session ran at
+# a 100,000-token ceiling. The `auto`/`500k` grammar belongs to the /autocompact command, not
+# here. Do not "tidy" this back to a suffix.
+#
+# The effective threshold is min(this value, the model's context window), and the variable
+# beats the autoCompactWindow setting, so the window can no longer be changed from
+# /autocompact, which reports the override instead of applying it.
+# The ${VAR:-default} form below preserves both overrides: a host export before launch, and
+# an `export` line in a project's .claude/ccy/ccy.env, which the entrypoint sources after
+# this environment is in place. See docs/ccy.md.
+#
+# `set -e` would turn the container's exit status into this script's before the restart
+# check below could look at it, so capture it. Any status other than 75 is passed straight
+# through, as it always was.
 container_rc=0
 container_cmd run $DOCKER_FLAGS --rm \
     --name "$CONTAINER_NAME" \
