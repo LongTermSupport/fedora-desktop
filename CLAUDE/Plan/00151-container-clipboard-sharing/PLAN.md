@@ -79,7 +79,9 @@ preferred.
   (`.claude/ccy/Dockerfile`), then make it standard in the shared image. Added
   `wl-clipboard` plus a `/usr/local/bin/wl-paste` wrapper that caps each call at 5 s, so a
   GNOME focus refusal fails with exit 124 instead of freezing Claude's Ctrl+V. Needs a ccy
-  rebuild (automatic on next launch) and one Ctrl+V try. **HOST next**: start ccy in this
+  rebuild (automatic on next launch) and one Ctrl+V try. **Confirmed in the rebuilt ccy**:
+  `wl-paste -l` lists `image/png` and `wl-paste --type image/png` returns the screenshot
+  (89,846 bytes, viewed with Read), through the 5 s guard, no hang. **HOST next**: start ccy in this
   project (it rebuilds), copy an image, press Ctrl+V in Claude; the image attaches. Then
   Task 3.1 moves `wl-clipboard` and the guard into the shared claude-yolo image.
 - [ ] ⬜ **Task 2.2**: Prototype for LXC (same mechanism if the survey says it carries).
