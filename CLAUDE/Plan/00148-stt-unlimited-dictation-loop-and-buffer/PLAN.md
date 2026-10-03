@@ -1,6 +1,6 @@
 # Plan 00148: speech-to-text improvements (unlimited dictation, delayed stop, models)
 
-**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 4.1-4.6 and 7.4 built, all merged to F44; host checks Tasks 0.5, 1.2 and 8.4 pending; next: Tasks 0.7 and 4.7, Phases 5 and 6)
+**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 0.7, 4.1-4.6 and 7.4 built, all merged to F44 but 0.7; host checks Tasks 0.5, 1.2 and 8.4 pending; next: Task 4.7, Phases 5 and 6)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
@@ -89,11 +89,11 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
   Tests: `test-wsi-stop-grace.bash` asserts the `wsi` signal, `test_stop_grace.py` the
   `wsi-stream` one. Needs the logout (extension) to be seen; checked by the owner with
   Task 0.5.
-- [ ] ⬜ **Task 0.7**: `test-wsi-stop-grace.bash` "first TERM keeps recording" is flaky: in
-  2 of 4 back-to-back runs `wsi` exited 1, the stub `pw-record` was never stopped and no
-  text came out, and stub `pw-record` processes were left running. Root cause not found.
-  Reproduce with `WSI_TEST_TRACE=1` (a `bash -x` trace in the stderr dump), fix, and make
-  the test kill its stubs on every exit. One clean run on 2026-10-03 after Task 0.6.
+- [x] ✅ **Task 0.7**: `test-wsi-stop-grace.bash` "first TERM keeps recording" was flaky: `wsi`
+  exited 1 and left the recorder running. **A production race in `wsi`, not a test flake**:
+  the trap's probe-then-`kill` of the exiting grace timer failed under `set -e`. Fixed with
+  `signal_if_alive` at all five sites; the test kills its stubs on exit and checks
+  statically that no raw `kill` remains. Cause, evidence and follow-ups: journal 2026-10-03.
 
 ### Phase 1: Decision and measurements
 
