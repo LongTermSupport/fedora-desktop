@@ -213,6 +213,25 @@ Enable real-time transcription in extension settings:
 - May take 5-15 minutes
 - Subsequent uses are instant
 
+### Stop Grace
+
+After the first stop press, every recorder (batch, and streaming in standard,
+pre-buffer and server mode) keeps recording for `stop-grace-seconds` (default 3,
+range 0-30), then stops. A second press during the grace stops at once, Escape
+discards at once, and 0 turns the grace off. In pre-buffer mode a stop pressed while
+the model is still loading closes the microphone on the same schedule; what was
+recorded is transcribed once the model has loaded. There is no Settings control yet; set
+it with `gsettings` (takes effect on the next recording, no logout):
+
+```bash
+gsettings --schemadir ~/.local/share/gnome-shell/extensions/speech-to-text@fedora-desktop/schemas \
+    set org.gnome.shell.extensions.speech-to-text stop-grace-seconds 5
+```
+
+The recorders read it through `~/.local/bin/wsi-stop-grace` and refuse to record if
+it cannot be read; re-run `play-speech-to-text.yml` to fix that. Why the last words
+were lost, per mode: `CLAUDE/Plan/00148-stt-unlimited-dictation-loop-and-buffer/RESEARCH-stop-path.md`.
+
 ---
 
 ## Usage
@@ -233,8 +252,14 @@ Enable real-time transcription in extension settings:
 
 3. **Stop Recording**: Press **Insert** again
 
+   - Recording carries on for a short grace (3 seconds by default) so the words you
+     were still saying are kept; a notification says "Stopping in 3s" (only when
+     notifications are on; the countdown keeps running either way)
+   - Press **Insert** once more to stop at once; **Escape** still discards at once
    - Icon changes to ⚙️ (processing)
    - Desktop notification: "Transcribing..."
+
+   See [Stop Grace](#stop-grace) to change or turn off the grace.
 
 4. **Text Appears**: Automatically typed at cursor
 
@@ -773,6 +798,7 @@ Scripts:
   ~/.local/bin/
     ├── wsi                  - Main backend (batch mode)
     ├── wsi-stream           - Streaming mode backend
+    ├── wsi-stop-grace       - Prints the stop grace (stop-grace-seconds)
     ├── wsi-claude-process   - Claude Code integration
     └── faster-whisper-transcribe - GPU Whisper wrapper
 

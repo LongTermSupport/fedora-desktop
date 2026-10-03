@@ -510,6 +510,18 @@ fi
 gpu_device_summary=$(qa_gate_case_count "$gpu_device_out")
 qa_pass_line ccy-gpu-device "$gpu_device_summary"
 
+# Speech-to-text delayed stop (Plan 00148 Phase 0): the first Insert keeps recording for the
+# grace, a second stops at once, 0 means no grace. Drives the real batch recorder with stub
+# audio tools and times the stub microphone's stop; then the wsi-stream unit tests.
+wsi_stop_grace_out=""
+if ! wsi_stop_grace_out="$(bash "$SCRIPT_DIR/test-wsi-stop-grace.bash" 2>&1)"; then
+    qa_hard_gate_failed wsi-stop-grace \
+        "speech-to-text stop grace tests failed" \
+        "$wsi_stop_grace_out"
+fi
+wsi_stop_grace_summary=$(qa_gate_case_count "$wsi_stop_grace_out")
+qa_pass_line wsi-stop-grace "$wsi_stop_grace_summary"
+
 # ccy_host_hostname (Plan 00121): CCY_HOST_HOSTNAME tells the container which MACHINE it is
 # on, since its own HOSTNAME is the container id. The value reaches a `podman run -e`
 # argument and is then read by shells in the container, so the grammar is the guard — driven

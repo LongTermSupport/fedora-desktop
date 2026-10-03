@@ -1,6 +1,6 @@
 # Plan 00148: speech-to-text improvements (unlimited dictation, delayed stop, models)
 
-**Status**: In Progress (Phase 0 under way; Task 1.1 decided: loop-and-buffer)
+**Status**: In Progress (Phase 0 built, host check Task 0.5 pending; Task 1.1 decided: loop-and-buffer)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
@@ -10,7 +10,7 @@
 This is the general plan for speech-to-text improvements; the owner uses dictation heavily
 and wants it as good as it can be. New speech-to-text work is added here as a phase rather
 than as a new plan. Current scope: the delayed stop (Phase 0), unlimited dictation (Phases
-1-6), and a review of newer speech models (Phase 7).
+1-6), a review of newer speech models (Phase 7), and keeping the server warm (Phase 8).
 
 Streaming dictation stops at 120 seconds. Nothing was measured to arrive at that number: it
 was set to four times the earlier 30 s cap "since transcription is real-time", and a 125 s
@@ -59,19 +59,28 @@ TERM into `stop_recording`; `wsi-stream` has SIGTERM handlers for server and loc
 Owner's fix: recording continues for a grace period after the press (default 3 s), then
 stops. It lives in the recorders' TERM handlers, so it needs no logout.
 
-- [ ] 🔄 **Task 0.1**: Per mode (`wsi`, `wsi-stream` local, `wsi-stream` server), trace
+- [x] ✅ **Task 0.1**: Per mode (`wsi`, `wsi-stream` local, `wsi-stream` server), trace
   SIGTERM to final text and find where audio or words are dropped
-  (findings go in `RESEARCH-stop-path.md`). If a mode also discards buffered audio
-  at stop, fix that too.
-- [ ] ⬜ **Task 0.2**: One grace setting (default 3 s; 0 = immediate), read by every
-  recorder from a single source.
-- [ ] ⬜ **Task 0.3**: First TERM: keep recording for the grace, then stop as today. A
+  (findings: [RESEARCH-stop-path.md](RESEARCH-stop-path.md)). If a mode also discards
+  buffered audio at stop, fix that too. Pre-buffer mode had no TERM handler at all, and
+  pre-buffer and server mode dropped the `pw-record` pipe and the last realtime pass;
+  all fixed.
+- [x] ✅ **Task 0.2**: One grace setting (default 3 s; 0 = immediate), read by every
+  recorder from a single source: GSettings `stop-grace-seconds`, read via `wsi-stop-grace`.
+- [x] ✅ **Task 0.3**: First TERM: keep recording for the grace, then stop as today. A
   second TERM during the grace stops at once. SIGUSR1 (Escape, abort) stays immediate.
-  The pending stop is visible (state or notification) without an extension change if possible.
-- [ ] ⬜ **Task 0.4**: Tests where the logic is testable outside GNOME; docs; qa-all and
-  `qa-reviewer`.
+  The pending stop is a desktop notification; no extension change. In pre-buffer mode
+  this holds during the model load too: the microphone closes when the stop is due, and
+  the captured audio is transcribed once the model is ready.
+- [x] ✅ **Task 0.4**: Tests where the logic is testable outside GNOME
+  (`scripts/test-wsi-stop-grace.bash`, `tests/speech_to_text/`, gated in `qa-all.bash`:
+  batch `wsi`, pre-buffer mode and the server's stop order end to end with stubs;
+  standard streaming and the server-mode client loop only through their shared units);
+  docs. Targeted QA done; the full `qa-all.bash` and `qa-reviewer` run by the coordinator.
 - [ ] ⬜ **Task 0.5**: **HOST**: deploy `play-speech-to-text.yml`; press Insert right on
-  the last word in each mode; the word is in the pasted text.
+  the last word in each mode; the word is in the pasted text. Also, in pre-buffer mode,
+  press Insert while the model is still loading (cold start): the words said before the
+  press are all pasted (the tests' stubs cannot show whether the 1.5 s final wait is enough).
 
 ### Phase 1: Decision and measurements
 
@@ -167,6 +176,22 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
   pruned decoder); the turbo download repo was renamed upstream and works only by redirect.
   RealtimeSTT 1.1.x needs Python < 3.13 while the play targets 3.14, so the installed version
   is likely 1.0.4 or older (feeds Task 4.6; Task 1.2 confirms).
+
+### Phase 8: Keep the server warm
+
+The warm server (`wsi-stream-server`) shuts itself down after 20 minutes idle
+(`DEFAULT_IDLE_TIMEOUT = 1200`; its `--timeout` help text wrongly says 300), and `wsi-stream`
+starts it only on the next Insert, so that press waits for a cold start and model load. The
+owner wants an option to keep it hot all the time.
+
+- [ ] ⬜ **Task 8.1**: GSettings key for the idle timeout in minutes (default 20; 0 = never
+  shut down), passed by `wsi-stream` when it starts the server, with a `prefs.js` control.
+  Fix the `--timeout` help text.
+- [ ] ⬜ **Task 8.2**: GSettings key "start the server at login" (default off), via a systemd
+  user unit deployed by `play-speech-to-text.yml`, so the first Insert of a session is warm.
+  The unit runs only when streaming mode is `server`.
+- [ ] ⬜ **Task 8.3**: Tests where testable; docs; then a **HOST** check: with keep-warm on,
+  an Insert after 30 idle minutes starts recording without a model load.
 
 ## Success Criteria
 
