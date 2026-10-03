@@ -196,7 +196,7 @@ Write the file to: `./untracked/hooks-daemon-{slug}.md`
 
 After writing the report, tell the user:
 
-```
+```text
 Report saved to: ./untracked/hooks-daemon-{slug}.md
 
 **This report is written for YOU, and is not safe to publish as-is.** It is

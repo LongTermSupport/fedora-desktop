@@ -11,13 +11,15 @@ Install the Claude Code Hooks Daemon into this project.
 
 ## When to Use
 
-This command is for **first-time installation** on a fresh clone. If the daemon is already installed, use `/hooks-daemon upgrade` instead.
+This command adds the daemon to a project that does **not use it yet**. It is not the fresh-clone command:
 
-You typically need this when:
+- You cloned a project that already uses the hooks daemon (its tracked `.claude/hooks-daemon.yaml` and `.claude/provision.sh` are there, `.claude/hooks-daemon/` is not): use `/hooks-daemon provision`, which builds the daemon at the version the project names and changes no tracked file.
+- The daemon is already installed and you want another version: use `/hooks-daemon upgrade`.
 
-- You cloned a project that uses the hooks daemon but the daemon isn't installed locally
-- Hook scripts are firing "not installed" errors
-- `.claude/hooks-daemon/` directory doesn't exist
+You typically need `install` when:
+
+- The project has never had the hooks daemon and you are adding it
+- A provision cannot work because the project has no `.claude/provision.sh` and no recorded version (an old installation): install, then commit what it writes
 
 ## What Happens During Install
 

@@ -217,7 +217,7 @@ if TYPE_CHECKING:
 # (see CLAUDE/development/RELEASING.md). Display-only for the banner and the
 # runtime status file; staleness detection (Plan 00164 Phase 3) uses a content
 # hash of THIS file so it is correct even between version bumps.
-__version__ = "3.67.0"
+__version__ = "3.68.0"
 
 # Absolute path to THIS running script — hashed for staleness detection so the
 # daemon can tell when the on-disk supervisor differs from the running one.
@@ -2357,6 +2357,115 @@ def load_compaction_origin(path: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Usage pause (Plan 00479 Task 4.5).
+#
+# The daemon's usage gate pauses a session that crossed its usage ceiling and
+# records it as ``<session>.usage-paused`` (JSON) beside the other signals --
+# deliberately NOT ``*.json``. While a live record exists for an own session the
+# supervisor injects ONE `/compact` (see `_usage_pause_outcome`) and nothing
+# else. This script cannot import the daemon package, so the names below are
+# copies of ``claude_code_hooks_daemon.utils.usage_pause``, pinned to it by
+# tests/unit/supervise/test_usage_pause.py.
+# ---------------------------------------------------------------------------
+
+_USAGE_PAUSE_SUFFIX = ".usage-paused"
+_USAGE_PAUSE_GLOB = f"*{_USAGE_PAUSE_SUFFIX}"
+_USAGE_PAUSE_FIELDS = (
+    "session_id",
+    "paused_at",
+    "resume_at",
+    "window",
+    "used_percentage",
+    "ceiling",
+    "reason",
+)
+_USAGE_PAUSE_WINDOWS = frozenset({"five_hour", "seven_day"})
+# How long past `resume_at` a record still counts: the daemon clears it when the
+# resume cron fires, and this is the backstop for a daemon that never did.
+_USAGE_PAUSE_GRACE_SECONDS = 3600.0
+# The longest a record may pause: resume_at - paused_at. A record asking for more
+# is corrupt or hand-edited and reads as no pause (daemon copy: MAX_PAUSE_SPAN_SECONDS).
+_USAGE_PAUSE_MAX_SPAN_SECONDS = 8 * 86400.0
+_USAGE_PAUSE_TIME_FORMAT = "%Y-%m-%d %H:%M UTC"
+
+
+@dataclass(frozen=True)
+class UsagePauseRecord:
+    """A parsed, validated ``<session>.usage-paused`` record."""
+
+    session_id: str
+    paused_at: float
+    resume_at: float
+    window: str
+    used_percentage: float
+    ceiling: float
+    reason: str
+
+    def is_live(self, now: float) -> bool:
+        """True while ``now`` is within [paused_at, resume_at + grace]."""
+        return self.paused_at <= now <= self.resume_at + _USAGE_PAUSE_GRACE_SECONDS
+
+
+def _usage_pause_number(value: object) -> float | None:
+    """A finite int/float as a float (never a bool, which is an int), else None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    # NaN and +/-inf both make `number - number` NaN, so only a finite value passes.
+    return number if number - number == 0.0 else None
+
+
+def _parse_usage_pause(data: object) -> UsagePauseRecord | None:
+    """Validate untyped record bytes the way the daemon's writer would; None if bad."""
+    if not isinstance(data, dict):
+        return None
+    session_id, window, reason = (data.get(k) for k in ("session_id", "window", "reason"))
+    paused_at, resume_at, used, ceiling = (
+        _usage_pause_number(data.get(k))
+        for k in ("paused_at", "resume_at", "used_percentage", "ceiling")
+    )
+    if not (isinstance(session_id, str) and session_id.strip()):
+        return None
+    if not (isinstance(window, str) and window in _USAGE_PAUSE_WINDOWS):
+        return None
+    if not (isinstance(reason, str) and reason.strip()):
+        return None
+    if paused_at is None or resume_at is None or used is None or ceiling is None:
+        return None
+    if resume_at <= paused_at or resume_at - paused_at > _USAGE_PAUSE_MAX_SPAN_SECONDS:
+        return None
+    return UsagePauseRecord(session_id, paused_at, resume_at, window, used, ceiling, reason)
+
+
+def load_usage_pause(
+    directory: Path, *, now: float, own_sessions: frozenset[str] | None
+) -> UsagePauseRecord | None:
+    """Return the live usage pause for this supervisor's own session, or None.
+
+    Fails open, like every other signal reader: an unreadable, malformed,
+    future-dated, expired or foreign-session record is no pause, so a broken
+    record can never silence the supervisor. ``own_sessions`` follows the same
+    rule as the other readers (``None`` disables the filter; the empty set puts
+    nothing in scope). When several qualify, the most recently paused wins.
+    """
+    if not directory.is_dir():
+        return None
+    best: UsagePauseRecord | None = None
+    for path in directory.glob(_USAGE_PAUSE_GLOB):
+        try:
+            record = _parse_usage_pause(json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            continue
+        if record is None or not record.is_live(now):
+            continue
+        if not _session_in_scope(record.session_id, own_sessions):
+            continue
+        if best is None or record.paused_at > best.paused_at:
+            best = record
+    return best
+
+
+# ---------------------------------------------------------------------------
 # Goal-intent signal (Plan 00269) — structural validation gate (Decision 2).
 #
 # The member allowlist ({'/compact', 'continue'}) cannot express per-plan
@@ -3317,6 +3426,10 @@ class CompactStateMachine:
         # (round-tripped) and last-fire ts (process-local backoff).
         self._flag_compactions = 0
         self._flag_compact_last_ts: float | None = None
+        # Plan 00479 Task 4.5: the `paused_at` of the usage pause whose single
+        # /compact has been decided (None while no pause has been compacted).
+        # Round-tripped, so a worker restart cannot type a second one.
+        self._pause_compacted_for: float | None = None
         # Audit items owed to the chat: one entry per silent injection
         # (/model) since the last flush. Flushed as ONE visible bot-prefixed
         # message on the next injectable tick; bounded FIFO.
@@ -3935,6 +4048,30 @@ class CompactStateMachine:
         self._session_actions_injections += 1
 
     @property
+    def pause_compacted_for(self) -> float | None:
+        """The ``paused_at`` of the usage pause already compacted, or None (Plan 00479)."""
+        return self._pause_compacted_for
+
+    def mark_pause_compacted(self, paused_at: float) -> None:
+        """Latch the single /compact of the usage pause recorded at ``paused_at``."""
+        self._pause_compacted_for = paused_at
+
+    def clear_pause_compacted(self) -> None:
+        """Forget the latch: the pause is over, so the next one compacts afresh."""
+        self._pause_compacted_for = None
+
+    def drop_await_for_usage_pause(self) -> bool:
+        """Leave AWAIT_COMPACTING while a usage pause holds; True if it was left.
+
+        A paused session is evaluated by no band, so nothing else would end the
+        wait, and a wait that later resolved would type `continue`.
+        """
+        if self.state is not SupervisorState.AWAIT_COMPACTING:
+            return False
+        self._enter_monitor()
+        return True
+
+    @property
     def dry_run_fired(self) -> bool:
         """True once a dry-run marker has been injected this session (Plan 00183)."""
         return self._dry_run_fired
@@ -3977,6 +4114,7 @@ class CompactStateMachine:
             "model_restores": self._model_restores,
             "model_restore_last_ts": self._model_restore_last_ts,
             "flag_compactions": self._flag_compactions,
+            "pause_compacted_for": self._pause_compacted_for,
             "audit_pending": list(self._audit_pending),
             "restore_awaiting": self._restore_awaiting,
             "restore_awaiting_ts": self._restore_awaiting_ts,
@@ -4068,6 +4206,9 @@ class CompactStateMachine:
             self._model_restore_last_ts = None if raw is None else _coerce_float(raw)
         if "flag_compactions" in state:
             self._flag_compactions = _coerce_int(state["flag_compactions"])
+        if "pause_compacted_for" in state:
+            raw = state["pause_compacted_for"]
+            self._pause_compacted_for = None if raw is None else _coerce_float(raw)
         if "audit_pending" in state:
             raw_items = state["audit_pending"]
             if isinstance(raw_items, list):
@@ -4477,6 +4618,19 @@ _FLAG_COMPACT_BODY = (
 _DRY_RUN_FLAG_COMPACT_BODY = (
     "flag-cleaning compact fired (dry-run — not a real /compact, not human input)"
 )
+# Plan 00479 Task 4.5: the instruction of the ONE /compact typed while a usage
+# pause holds. It is the opposite of `_ARMED_COMPACT_BODY`: the session is told
+# to do NOTHING after compacting, because the daemon's resume cron -- not a
+# nudge -- is what wakes it at the window reset. `{resume}` is the human-readable
+# UTC resume time (`_USAGE_PAUSE_TIME_FORMAT`).
+_PAUSE_COMPACT_BODY = (
+    "Usage ceiling reached: this session is PAUSED until {resume}. After "
+    "compacting, do nothing further — take no action, send no message and do "
+    "not continue any work — until the scheduled resume cron fires at {resume}."
+)
+_DRY_RUN_PAUSE_COMPACT_BODY = (
+    "usage-pause compact fired (dry-run — not a real /compact, not human input)"
+)
 # `continue` is harmless -- it only nudges the agent to resume -- so it is
 # injected FOR REAL in both dry-run and armed modes. Detecting a compaction and
 # not resuming would defeat the purpose, and (unlike /compact) a stray
@@ -4870,6 +5024,89 @@ def _noop_band_suffix(reading: SidecarReading | None) -> str:
     return " [red]"
 
 
+def _usage_pause_outcome(
+    machine: CompactStateMachine,
+    pause: UsagePauseRecord,
+    *,
+    facts: TickFacts,
+    dry_run: bool,
+) -> TickOutcome:
+    """Decide a tick while a usage pause holds (Plan 00479 Task 4.5).
+
+    The whole decision, replacing the machine's evaluation and every injection
+    family below it: while the session is paused it gets ONE `/compact` whose
+    instruction is to do nothing until the resume cron fires, and then nothing
+    at all -- no `continue`, `/goal`, restore, reminder or other nudge, since
+    any of them would wake a session that exists to stay quiet. The compact
+    waits for the session to STOP (the same ``idle`` + ``work_idle`` gates the
+    band compaction uses, plus an empty input box) and is latched per pause
+    (``pause_compacted_for``) so a pause compacts exactly once.
+    """
+    resume = datetime.fromtimestamp(pause.resume_at, tz=UTC).strftime(_USAGE_PAUSE_TIME_FORMAT)
+    held = f"usage pause until {resume} ({pause.window})"
+
+    def outcome(
+        decision: Decision,
+        reason: str,
+        *,
+        payload: str | None = None,
+        deferred_log: str | None = None,
+        noop_reason_log: str | None = None,
+    ) -> TickOutcome:
+        return TickOutcome(
+            decision_value=decision.value,
+            reason=reason,
+            payload=payload,
+            submit=True,
+            consume_signal_path=None,
+            deferred_log=deferred_log,
+            machine_state=machine.export_state(),
+            noop_reason_log=noop_reason_log,
+        )
+
+    if machine.drop_await_for_usage_pause():
+        # No compact this tick: the host suppresses a WOULD_COMPACT while its own
+        # state is still AWAIT_COMPACTING, which would swallow the latch.
+        return outcome(
+            Decision.NOOP,
+            held,
+            noop_reason_log=f"{_NOOP_LOG_PREFIX}: {held}: compaction wait dropped, no continue",
+        )
+    if machine.pause_compacted_for == pause.paused_at:
+        return outcome(
+            Decision.NOOP,
+            held,
+            noop_reason_log=f"{_NOOP_LOG_PREFIX}: {held}: compact issued, no nudges",
+        )
+    if not (facts.idle and facts.work_idle):
+        return outcome(
+            Decision.NOOP,
+            held,
+            noop_reason_log=(
+                f"{_NOOP_LOG_PREFIX}: {held}: waiting for the session to stop before compacting"
+            ),
+        )
+    if not facts.input_line_empty:
+        return outcome(
+            Decision.NOOP,
+            held,
+            deferred_log=f"{_DEFERRED_LOG_PREFIX} (usage-pause compact pending)",
+        )
+    prefix = _format_bot_prefix(facts.now_wall)
+    if dry_run:
+        payload = f"{prefix} {_DRY_RUN_PAUSE_COMPACT_BODY}"
+    else:
+        # `/compact` MUST stay the FIRST token so it is recognised as the slash
+        # command; the bot chrome rides along as its instruction.
+        payload = f"/compact {prefix} {_PAUSE_COMPACT_BODY.format(resume=resume)}"
+    machine.mark_pause_compacted(pause.paused_at)
+    return outcome(
+        Decision.WOULD_COMPACT,
+        f"{held} -> would inject /compact (do nothing until the resume cron fires)",
+        payload=payload,
+    )
+
+
 def decide_once(
     machine: CompactStateMachine,
     *,
@@ -4961,6 +5198,15 @@ def decide_once(
     # path (the passed machine is already the live authoritative one).
     if facts.machine_state is not None:
         machine.import_state(facts.machine_state)
+    # Plan 00479 Task 4.5: a live usage pause for this session decides the whole
+    # tick (one /compact, then silence) and bypasses every injection family below.
+    usage_pause = load_usage_pause(sidecar_dir, now=facts.now_wall, own_sessions=own_sessions)
+    if usage_pause is not None:
+        return _usage_pause_outcome(machine, usage_pause, facts=facts, dry_run=dry_run)
+    pause_lifted_log: str | None = None
+    if machine.pause_compacted_for is not None:
+        machine.clear_pause_compacted()
+        pause_lifted_log = f"{_NOOP_LOG_PREFIX}: usage pause lifted -> normal behaviour resumed"
     # Plan 00328: adopt the platform's OWN record of a safety downgrade before
     # the reading is tracked, because that is the tick on which the drop is
     # first observed and the episode would open. Nothing else opens one.
@@ -5666,7 +5912,7 @@ def decide_once(
         consume_signal_path=consume_signal_path,
         deferred_log=deferred_log,
         machine_state=machine.export_state(),
-        noop_reason_log=noop_reason_log,
+        noop_reason_log=pause_lifted_log or noop_reason_log,
         confirm_enters=confirm_enters,
         model_switch_family=model_switch_family,
         model_switch_session=model_switch_session,
