@@ -1,6 +1,6 @@
 # Plan 00150: image paste cli
 
-**Status**: In Progress
+**Status**: Complete (2026-10-03)
 **Created**: 2026-10-03
 **Owner**: joseph
 **Priority**: Medium
@@ -19,7 +19,7 @@ A side task checks the local root cause: Claude Code's own image paste (Ctrl+V) 
 the clipboard through `wl-paste` (Wayland) or `xclip` (X11). This is not yet verified
 on this host.
 
-The command: [`files/home/.local/bin/imgpaste`](../../../files/home/.local/bin/imgpaste),
+The command: [`files/home/.local/bin/imgpaste`](../../../../files/home/.local/bin/imgpaste),
 deployed by `play-cli-tools.yml`. Measurements and the format
 choice: [RESEARCH-encoding.md](RESEARCH-encoding.md). Example input:
 [`assets/example-terminal-screenshot.png`](assets/example-terminal-screenshot.png).
@@ -56,10 +56,10 @@ choice: [RESEARCH-encoding.md](RESEARCH-encoding.md). Example input:
 - [x] ✅ **Task 2.1**: Move the prototype to `files/home/.local/bin/imgpaste`, following `CLAUDE/StderrHygiene.md`. Added `--help`.
 - [x] ✅ **Task 2.2**: Deploy it, with ImageMagick (WebP write support asserted) and `file`. **Owner decision:** a new `play-cli-tools.yml` is the one home for small CLI utilities, so tools stop getting a play each. The rule is in `CLAUDE/AnsibleStyle.md` ("Small CLI utilities go in `play-cli-tools.yml`").
 - [x] ✅ **Task 2.2a**: Bring existing one-tool plays into `play-cli-tools.yml`. **Owner chose** `play-open-command.yml`, `play-compression-helpers.yml` and `play-disk-reclaim.yml`: their tasks moved in (tags `open-command`, `compression-helpers`, `disk-reclaim`), the three plays are deleted and mapped in `helpers/play_ledger/retired-plays.json`, `server-recommended.bundle` names `play-cli-tools.yml` once, and the `ouch` pin in `vars/version-pins.yml` follows its var. Not chosen, for later: `play-network-tools.yml`, `play-collaboration.yml`, `play-lxcfreeze.yml` + `play-podfreeze.yml` (strong); `play-gnome-shell-dev.yml`, `play-image-watermarking.yml`, `play-clean-paste.yml`, core `play-markless.yml` (weak).
-  - [ ] ⬜ **HOST**: a host that ran any of the three old plays reports each as gone until `play-cli-tools.yml` has run once; `deploy.bash` covers that. Anyone with an old name in `RUN_BASH_OPTIONAL_PLAYBOOKS` must switch to `play-cli-tools`.
-- [ ] ⬜ **Task 2.3**: Check whether `wl-clipboard`/`xclip` are installed by IaC. If not, add them to the relevant system playbook and confirm Ctrl+V image paste works locally. Found: `wl-clipboard` is installed only by the optional `play-clean-paste.yml`, and `xclip` by nothing. The Ctrl+V check needs the host.
+  - [x] ✅ **HOST**: a host that ran any of the three old plays reports each as gone until `play-cli-tools.yml` has run once; `deploy.bash` ran it on the host. Anyone with an old name in `RUN_BASH_OPTIONAL_PLAYBOOKS` must switch to `play-cli-tools`.
+- [x] ❌ **Task 2.3** (dropped, owner decision): Check whether `wl-clipboard`/`xclip` are installed by IaC and confirm Ctrl+V image paste works locally. The owner runs Claude almost entirely inside ccy containers, where Ctrl+V cannot reach the host clipboard at all, so a desktop-level fix would not be used; imgpaste is the route. Found before dropping: `wl-clipboard` is installed only by the optional `play-clean-paste.yml`, and `xclip` by nothing.
 - [x] ✅ **Task 2.4**: Write `deploy.bash` and `acceptance.bash` on `_planlib.inc.bash`. Acceptance round-trips a fixture (encode, run the block, sha256 match), tests the rejection paths (non-image, over the block budget, over the pixel limit, over the byte limit, each by its stderr reason), and prints a COVERAGE line.
-  - [ ] ⬜ **HOST**: `./deploy.bash` (it runs `acceptance.bash` as its last leg).
+  - [x] ✅ **HOST**: `./deploy.bash` (it runs `acceptance.bash` as its last leg). Passed on the host: the play ran with no failures, acceptance 8 of 8.
 - [x] ✅ **Task 2.5**: Document the command under `docs/` (`docs/playbooks.md`, `play-cli-tools.yml`).
 - [x] ✅ **Task 2.6**: Run `./scripts/qa-all.bash`, then the `qa-reviewer` agent; resolve all findings. qa-all green on `58872608`; the confirming review was PASS WITH NITS, nits fixed in `087a039a` ([subagent-reports/261003-qa-reviewer-confirm-opus.md](subagent-reports/261003-qa-reviewer-confirm-opus.md)).
 
@@ -67,8 +67,8 @@ choice: [RESEARCH-encoding.md](RESEARCH-encoding.md). Example input:
 
 - [x] The example screenshot round-trips: block run by an agent, sha256 OK, text legible in Read.
 - [x] A fresh agent decodes a pasted block using only the block's own instruction line.
-- [ ] Non-image and oversized inputs fail fast with a clear stderr message.
-- [ ] Deployed via Ansible; `acceptance.bash` passes on the host.
+- [x] Non-image and oversized inputs fail fast with a clear stderr message.
+- [x] Deployed via Ansible; `acceptance.bash` passes on the host.
 - [x] `./scripts/qa-all.bash` and the `qa-reviewer` agent are clean.
 
 ## Delivery & Milestones
@@ -80,3 +80,4 @@ choice: [RESEARCH-encoding.md](RESEARCH-encoding.md). Example input:
 - Plan, prototype and encoding research committed (`d94a14cd`).
 - Dogfood decode passed; block-budget ladder (`9cee0cde`, `59ea6ece`).
 - `play-cli-tools.yml` with imgpaste (`cf6bc90f`); open, compression helpers and disk reclaim merged in (`36e61be9`).
+- WebP check fixed for Fedora's modular ImageMagick (`35ac6e22`); host deploy and acceptance 8 of 8 (`977bae23`).
