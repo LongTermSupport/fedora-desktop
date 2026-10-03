@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00151-container-clipboard-sharing](00151-container-clipboard-sharing/) - Research then build: can Claude Code's Ctrl+V image paste work inside ccy (Podman) and LXC containers? ccy already mounts the Wayland socket but ships no `wl-clipboard`; LXC has no display socket. Survey first, then prototype; `imgpaste` (Plan 00150) remains the fallback.
+
 - [00148-stt-unlimited-dictation-loop-and-buffer](00148-stt-unlimited-dictation-loop-and-buffer/) - Feature: replace the 120 s streaming dictation cap with continuous dictation in the warm server (VAD-cut segments, one ordered worker, paste once at stop, a loud stop on any failed segment), plus the side findings. Waiting on the owner's choice of loop-and-buffer over a raised cap.
 
 - [00149-up-arrow-loses-an-interrupted-command](00149-up-arrow-loses-an-interrupted-command/) - Bug: a command stopped with Ctrl+C is not on up-arrow in a local terminal. Dormant: not reproduced in the container or on the host (bash 5.3); reopen with `triage.bash` if it happens again.
@@ -184,7 +186,7 @@ Use these Unicode icons in plan documents:
 
 ## Completed Plans
 
-- [00150-image-paste-cli](Completed/00150-image-paste-cli/) - Feature: `imgpaste <image>` prints a self-decoding bash block (WebP, base64, sha256) to paste into any Claude chat, so screenshots reach agents in containers or on hosts with no clipboard. Deployed by the new `play-cli-tools.yml`, the one play for small CLI utilities, which also took in open, compress and reclaim. Host acceptance 8 of 8; fresh-session paste confirmed by the owner. Ctrl+V clipboard work dropped: it cannot reach into ccy containers.
+- [00150-image-paste-cli](Completed/00150-image-paste-cli/) - Feature: `imgpaste <image>` prints a self-decoding bash block (WebP, base64, sha256) to paste into any Claude chat, so screenshots reach agents with no clipboard. Deployed by the new `play-cli-tools.yml`, the one play for small CLI utilities. Host acceptance 8 of 8.
 
 - [00142-qa-tool-pin-does-not-converge-under-pipx-uv](Completed/00142-qa-tool-pin-does-not-converge-under-pipx-uv/) - `play-python.yml` could not move a QA tool at the wrong version onto its pin: under pipx's uv backend `install --force` re-runs `uv venv` on the existing venv, which uv refuses. An off-pin tool is now removed, installed fresh and re-pinned; reproduced offline and gated. Search: "A virtual environment already exists".
 
