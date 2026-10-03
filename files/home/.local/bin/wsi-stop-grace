@@ -7,31 +7,25 @@
 # during the grace stops at once. 0 means stop immediately.
 #
 # Single source: the GSettings key `stop-grace-seconds` in the extension's own
-# schema (default 3). The schema is compiled into the extension directory, not
-# the system schema path, so it is read with --schemadir.
-#
-#   gsettings --schemadir <dir below> set \
-#       org.gnome.shell.extensions.speech-to-text stop-grace-seconds 5
+# schema (default 3), read through wsi-setting (which says how to change it).
 #
 # stdout is the value and nothing else; every diagnostic goes to stderr.
 # Not interactive: invoked by the recorders, which treat failure as fatal.
 #============================================================================
 set -euo pipefail
 
-readonly SCHEMA_ID="org.gnome.shell.extensions.speech-to-text"
 readonly KEY="stop-grace-seconds"
-readonly SCHEMA_DIR="$HOME/.local/share/gnome-shell/extensions/speech-to-text@fedora-desktop/schemas"
+SETTING_READER="$(dirname -- "${BASH_SOURCE[0]}")/wsi-setting"
+readonly SETTING_READER
 
 if [[ $# -ne 0 ]]; then
     echo "usage: wsi-stop-grace (takes no arguments; prints the grace in seconds)" >&2
     exit 2
 fi
 
-# gsettings' own stderr passes straight through: a GLib warning there must not be
-# mistaken for the value, and on failure it is the reason.
-if ! value=$(gsettings --schemadir "$SCHEMA_DIR" get "$SCHEMA_ID" "$KEY"); then
-    echo "wsi-stop-grace: cannot read $SCHEMA_ID $KEY from $SCHEMA_DIR (gsettings error above)" >&2
-    echo "wsi-stop-grace: re-run play-speech-to-text.yml to install and compile the schema" >&2
+# wsi-setting names the cause and the play to re-run on stderr
+if ! value=$("$SETTING_READER" "$KEY"); then
+    echo "wsi-stop-grace: cannot read $KEY" >&2
     exit 1
 fi
 

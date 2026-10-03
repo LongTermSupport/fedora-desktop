@@ -1,0 +1,44 @@
+#!/usr/bin/bash
+#============================================================================
+# wsi-setting - print one speech-to-text GSettings value
+#============================================================================
+# The one place the recorder scripts read the extension's settings from. The
+# schema is compiled into the extension directory, not the system schema path,
+# so it is read with --schemadir.
+#
+#   wsi-setting server-idle-timeout-minutes      -> 20
+#   wsi-setting streaming-startup-mode           -> server   (quotes removed)
+#   wsi-setting server-start-at-login            -> false
+#
+# To change a value:
+#   gsettings --schemadir <dir below> set \
+#       org.gnome.shell.extensions.speech-to-text <key> <value>
+#
+# stdout is the value and nothing else; every diagnostic goes to stderr.
+# Not interactive: invoked by the recorders, which treat failure as fatal.
+#============================================================================
+set -euo pipefail
+
+readonly SCHEMA_ID="org.gnome.shell.extensions.speech-to-text"
+readonly SCHEMA_DIR="$HOME/.local/share/gnome-shell/extensions/speech-to-text@fedora-desktop/schemas"
+
+if [[ $# -ne 1 || ! "$1" =~ ^[a-z][a-z0-9-]*$ ]]; then
+    echo "usage: wsi-setting <key>   (prints the key's value)" >&2
+    exit 2
+fi
+readonly KEY="$1"
+
+# gsettings' own stderr passes straight through: a GLib warning there must not be
+# mistaken for the value, and on failure it is the reason.
+if ! value=$(gsettings --schemadir "$SCHEMA_DIR" get "$SCHEMA_ID" "$KEY"); then
+    echo "wsi-setting: cannot read $SCHEMA_ID $KEY from $SCHEMA_DIR (gsettings error above)" >&2
+    echo "wsi-setting: re-run play-speech-to-text.yml to install and compile the schema" >&2
+    exit 1
+fi
+
+# A string prints as a GVariant literal, 'like this'
+if [[ "$value" =~ ^\'(.*)\'$ ]]; then
+    value="${BASH_REMATCH[1]}"
+fi
+
+echo "$value"

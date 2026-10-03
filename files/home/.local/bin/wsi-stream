@@ -48,6 +48,10 @@ DBUS_INTERFACE = "org.fedoradesktop.SpeechToText"
 
 # Prints the stop grace in seconds; reads the extension's GSettings key, the one source
 STOP_GRACE_READER = Path(__file__).resolve().parent / "wsi-stop-grace"
+# Prints one of the extension's GSettings values
+SETTING_READER = Path(__file__).resolve().parent / "wsi-setting"
+# Prints the faster-whisper model for the Whisper Model setting (what `auto` means)
+MODEL_RESOLVER = Path(__file__).resolve().parent / "wsi-resolve-model"
 # After the microphone closes, wait for this many more realtime passes (bounded) so
 # the audio captured last is transcribed: RealtimeSTT publishes realtime text only
 # while recording, so recorder.stop() freezes whatever the last pass produced.
@@ -128,6 +132,36 @@ def read_stop_grace():
     if not value.isdigit():
         raise RuntimeError(f"{STOP_GRACE_READER} printed a non-number: '{value}'")
     return int(value)
+
+
+def read_setting(key):
+    """One of the extension's GSettings values, from wsi-setting. Raises if unreadable."""
+    result = subprocess.run([str(SETTING_READER), key], capture_output=True, text=True,
+                            timeout=5, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"{SETTING_READER} {key} failed: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def read_server_idle_timeout():
+    """The warm server's idle timeout in seconds (0 = never), from its minutes setting."""
+    value = read_setting("server-idle-timeout-minutes")
+    if not value.isdigit():
+        raise RuntimeError(f"server-idle-timeout-minutes is not a whole number: '{value}'")
+    return int(value) * 60
+
+
+def resolve_model(mode, language):
+    """The faster-whisper model for WHISPER_MODEL (unset = auto). Raises on failure."""
+    setting = os.environ.get("WHISPER_MODEL", "auto")
+    result = subprocess.run(
+        [str(MODEL_RESOLVER), "--mode", mode, "--language", language or "", setting],
+        capture_output=True, text=True, timeout=30, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"{MODEL_RESOLVER} failed: {result.stderr.strip()}")
+    if result.stderr.strip():
+        log(result.stderr.strip())
+    return result.stdout.strip()
 
 
 def install_stop_handlers(stop, abort_on_usr1=False):
@@ -482,32 +516,63 @@ def is_server_running():
                 pass
 
 
-def start_server(model_size="base", language="en"):
-    """Start the persistent server if not already running."""
+def server_pid_alive():
+    """True if the server's PID file names a live process (it may still be loading)."""
+    try:
+        pid = int(SERVER_PID_FILE.read_text().strip())
+    except (OSError, ValueError):
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def server_command(model, language, idle_timeout_seconds):
+    """The wsi-stream-server command line; one builder for Insert and for login."""
+    cmd = [str(SERVER_SCRIPT), "--model", model, "--language", language,
+           "--timeout", str(idle_timeout_seconds)]
+    if debug_mode:
+        cmd.append("--debug")
+    return cmd
+
+
+def start_server(language="en"):
+    """Start the persistent server if not already running.
+
+    Raises if the model or the idle timeout cannot be read; returns False if the
+    server does not come up.
+    """
     if is_server_running():
         log("Server already running")
         return True
-
-    log(f"Starting persistent server (model={model_size}, language={language})...")
 
     # Check if server script exists
     if not SERVER_SCRIPT.exists():
         log(f"Server script not found: {SERVER_SCRIPT}", "ERROR")
         return False
 
-    # Build server command
-    cmd = [str(SERVER_SCRIPT), "--model", model_size, "--language", language]
-    if debug_mode:
-        cmd.append("--debug")
+    # Started at login (or by another Insert) and still loading its model: a second
+    # server would only refuse to start, so wait for this one
+    cmd = None
+    if server_pid_alive():
+        log("Server process exists but is not answering yet - waiting for it")
+    else:
+        cmd = server_command(resolve_model("streaming", language), language,
+                             read_server_idle_timeout())
 
     try:
-        # Start server in background
-        subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL if not debug_mode else None,
-            stderr=subprocess.DEVNULL if not debug_mode else None,
-            start_new_session=True  # Detach from parent
-        )
+        if cmd:
+            log(f"Starting persistent server: {' '.join(cmd)}")
+            subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL if not debug_mode else None,
+                stderr=subprocess.DEVNULL if not debug_mode else None,
+                start_new_session=True  # Detach from parent
+            )
 
         # Wait for server to be ready (up to 45 seconds for model loading)
         # Model loading can take 20-30 seconds on first start
@@ -527,6 +592,44 @@ def start_server(model_size="base", language="en"):
     except Exception as e:
         log(f"Failed to start server: {e}", "ERROR")
         return False
+
+
+def session_language(setting):
+    """The language code for the `language` setting, as the extension computes it."""
+    if setting == "system":
+        return (os.environ.get("LANG") or "en_GB.UTF-8").split("_")[0]
+    return setting
+
+
+def server_wanted_at_login():
+    """True if Settings ask for the server at login: streaming on, server mode, key on."""
+    return (read_setting("streaming-mode") == "true"
+            and read_setting("streaming-startup-mode") == "server"
+            and read_setting("server-start-at-login") == "true")
+
+
+def run_server_at_login():
+    """ExecStart of wsi-stream-server-at-login.service: become the server, if wanted.
+
+    Exits 0 and starts nothing unless server_wanted_at_login(), or if a server is
+    already running or loading (an Insert got there first). Otherwise replaces this
+    process with the server, so the unit's main process is the server itself and
+    systemd sees its exit status. Diagnostics go to stderr (the journal).
+    """
+    if not server_wanted_at_login():
+        print("wsi-stream: start at login is off, or streaming is not in server mode; "
+              "not starting the server", file=sys.stderr)
+        return 0
+    if is_server_running() or server_pid_alive():
+        print("wsi-stream: the server is already running; not starting another",
+              file=sys.stderr)
+        return 0
+    language = session_language(read_setting("language"))
+    cmd = server_command(resolve_model("streaming", language), language,
+                         read_server_idle_timeout())
+    print(f"wsi-stream: starting the server: {' '.join(cmd)}", file=sys.stderr)
+    sys.stderr.flush()
+    os.execv(cmd[0], cmd)
 
 
 def send_server_command(command, params=None):
@@ -609,8 +712,7 @@ def run_server_mode(args):
     # Register cleanup function to run on ANY exit (normal or abnormal)
     atexit.register(ensure_stop_sent)
 
-    # Determine model and language
-    model_size = os.environ.get("WHISPER_MODEL", "base")
+    # The model is resolved only if the server has to be started
     language = args.language or os.environ.get("WHISPER_LANGUAGE", "en") or "en"
 
     # Write the PID file before a cold server start (20-30s). Without it, an Insert press
@@ -630,7 +732,13 @@ def run_server_mode(args):
     # Start server if not running (detached: it keeps loading if we are aborted)
     if not is_server_running():
         notify("PREPARING", "Starting server...")
-        if not start_server(model_size, language):
+        try:
+            started = start_server(language)
+        except Exception as e:
+            log(f"Cannot start the server: {e}", "ERROR")
+            notify("ERROR", f"Cannot start the server: {e}")
+            return 1
+        if not started:
             notify("ERROR", "Failed to start server")
             return 1
 
@@ -808,12 +916,9 @@ def run_standard_streaming(args, stop):
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     BUFFER_FILE.write_text("")
 
-    # Use "base" model for streaming by default (faster loading)
-    # "base" (74M params, ~142MB) loads ~3x faster than "small" (244M params, ~466MB)
-    # with minimal accuracy trade-off. Override with WHISPER_MODEL env var if needed.
-    model_size = os.environ.get("WHISPER_MODEL", "base")
     # Language from arg, then env, then default to English
     language = args.language or os.environ.get("WHISPER_LANGUAGE", "en") or None
+    model_size = resolve_model("streaming", language)
     log(f"Using model: {model_size}, language: {language or 'auto-detect'}")
 
     final_text = ""
@@ -1067,9 +1172,8 @@ def run_prebuffered_streaming(args, stop):
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     BUFFER_FILE.write_text("")
 
-    model_size = os.environ.get("WHISPER_MODEL", "base")
+    # The model is resolved in the loading thread, so the microphone opens first
     language = args.language or os.environ.get("WHISPER_LANGUAGE", "en") or None
-    log(f"Using model: {model_size}, language: {language or 'auto-detect'}")
 
     # Start audio recording IMMEDIATELY (before model loads!)
     notify("PREPARING", "Starting recorder...")
@@ -1105,7 +1209,9 @@ def run_prebuffered_streaming(args, stop):
             nonlocal model_error
             try:
                 notify("PREPARING", "Loading model...")
-                log("Loading model in background thread...")
+                model_size = resolve_model("streaming", language)
+                log(f"Loading model {model_size} (language: {language or 'auto-detect'}) "
+                    "in background thread...")
 
                 recorder_config = {
                     "model": model_size,
@@ -1361,8 +1467,17 @@ def main():
                         help="Claude processing style (corporate/natural)")
     parser.add_argument("--paste-with-shift", type=int, default=1,
                         help="Paste key: 1=Ctrl+Shift+V (terminals), 0=Ctrl+V (browsers/GUI apps)")
+    parser.add_argument("--server-at-login", action="store_true",
+                        help="Become the persistent server if Settings ask for it at login "
+                             "(run by wsi-stream-server-at-login.service; records nothing)")
 
     args = parser.parse_args()
+
+    # Before atexit: this path records nothing, and the recorder's exit cleanup would
+    # remove the PID file of a recording in progress
+    if args.server_at_login:
+        debug_mode = args.debug
+        return run_server_at_login()
 
     # Registered here rather than at import, so loading this file for its unit tests
     # emits no D-Bus signal on exit
