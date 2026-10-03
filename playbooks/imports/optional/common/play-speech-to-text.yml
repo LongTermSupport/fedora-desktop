@@ -333,12 +333,16 @@
         mode: '0644'
       register: schema_copy
 
+    # Every run, not only when the XML copy changed: a run that copied the XML and
+    # died before compiling would otherwise leave a stale compiled schema for good,
+    # and the recorders refuse to start without the stop-grace-seconds key.
     - name: Compile GSettings Schema
+      become: true
+      become_user: "{{ user_login }}"
       ansible.builtin.command:
         cmd: glib-compile-schemas "{{ extension_dest }}/schemas"
-      when: schema_copy.changed
       register: schema_compile
-      changed_when: true
+      changed_when: schema_copy.changed
       failed_when: schema_compile.rc != 0
 
     - name: Copy WSI Script
@@ -358,6 +362,21 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: '0755'
+
+    # Proves the deployed reader and the compiled key work together, as the user the
+    # recorders run as; otherwise the first sign would be a dictation that will not start.
+    - name: Verify Stop Grace Is Readable
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        cmd: "/home/{{ user_login }}/.local/bin/wsi-stop-grace"
+      environment:
+        HOME: "/home/{{ user_login }}"
+      register: stop_grace_probe
+      changed_when: false
+      failed_when: >-
+        stop_grace_probe.rc != 0
+        or not (stop_grace_probe.stdout | regex_search('^[0-9]+$'))
 
     # =========================================================================
     # Claude Code Post-Processing Integration
