@@ -1,4 +1,4 @@
-# Plan 00148: speech-to-text: unlimited dictation by loop and buffer
+# Plan 00148: speech-to-text improvements (unlimited dictation, delayed stop, models)
 
 **Status**: In Progress (Phase 0 under way; Task 1.1 decided: loop-and-buffer)
 **Created**: 2026-10-02
@@ -6,6 +6,11 @@
 **Priority**: Medium
 
 ## Overview
+
+This is the general plan for speech-to-text improvements; the owner uses dictation heavily
+and wants it as good as it can be. New speech-to-text work is added here as a phase rather
+than as a new plan. Current scope: the delayed stop (Phase 0), unlimited dictation (Phases
+1-6), and a review of newer speech models (Phase 7).
 
 Streaming dictation stops at 120 seconds. Nothing was measured to arrive at that number: it
 was set to four times the earlier 30 s cap "since transcription is real-time", and a 125 s
@@ -139,6 +144,14 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
 - [ ] 🚫 **Task 6.2**: **HOST**: run `deploy.bash` and `acceptance.bash`, log out and in for
   the extension, and dictate past five minutes with a forced segment failure. Blocked on the
   owner: Ansible never runs in the ccy container, and dictation needs a person.
+
+### Phase 7: Newer models and engines
+
+- [ ] 🔄 **Task 7.1**: Research what has changed in local speech recognition since this
+  system was built: better, faster or lighter models, and engines worth offering as an
+  option (findings go in `RESEARCH-stt-models-2026.md`).
+- [ ] ⬜ **Task 7.2**: Owner picks from the research's ranked recommendations; the chosen
+  items become tasks here.
 
 ## Success Criteria
 

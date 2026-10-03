@@ -36,7 +36,7 @@ Use these Unicode icons in plan documents:
 
 - [00151-container-clipboard-sharing](00151-container-clipboard-sharing/) - Research then build: can Claude Code's Ctrl+V image paste work inside ccy (Podman) and LXC containers? ccy already mounts the Wayland socket but ships no `wl-clipboard`; LXC has no display socket. Survey first, then prototype; `imgpaste` (Plan 00150) remains the fallback.
 
-- [00148-stt-unlimited-dictation-loop-and-buffer](00148-stt-unlimited-dictation-loop-and-buffer/) - Feature: replace the 120 s streaming dictation cap with continuous dictation in the warm server (VAD-cut segments, one ordered worker, paste once at stop, a loud stop on any failed segment), plus the side findings. Waiting on the owner's choice of loop-and-buffer over a raised cap.
+- [00148-stt-unlimited-dictation-loop-and-buffer](00148-stt-unlimited-dictation-loop-and-buffer/) - The general speech-to-text improvements plan: a 3 s delayed stop so the last words are kept, unlimited dictation by loop-and-buffer in the warm server (owner's choice), and a review of newer speech models. New speech-to-text work goes here.
 
 - [00149-up-arrow-loses-an-interrupted-command](00149-up-arrow-loses-an-interrupted-command/) - Bug: a command stopped with Ctrl+C is not on up-arrow in a local terminal. Dormant: not reproduced in the container or on the host (bash 5.3); reopen with `triage.bash` if it happens again.
 
