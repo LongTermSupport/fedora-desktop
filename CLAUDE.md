@@ -374,6 +374,8 @@ Full detail on any rule: `bin/hooks-daemon explain-rule <ID>`.
 
 <!-- handler: subagent-cron-delete-blocker -->
 
+<!-- handler: subagent-full-qa-blocker -->
+
 <!-- handler: subagent-worktree-write-guard -->
 
 <!-- handler: upgrade-approval-guard -->
@@ -484,6 +486,7 @@ Full detail on any rule: `bin/hooks-daemon explain-rule <ID>`.
 | R-ROOT-RECURSION-CATASTROPHIC          | `grep -r`/`find`/`rg`/... rooted at `/`, `/proc`, `/sys`, `/home`, `/root`, `~`, `$HOME`                                                                                                                                                                        | Walks the entire filesystem and can pin every CPU core for hours                                                                                                                                          | Scope the search to the project (e.g. `rg -l "pattern" .`)                                                                                                                                                            |
 | R-STAGED-LINT-FAILURE                  | a staged file fails the cheap syntax check at commit time                                                                                                                                                                                                       | lint_on_edit only ever runs at Write/Edit time, so a git add of pre-existing content skips it entirely                                                                                                    | Fix the failing file(s) above and re-stage before committing                                                                                                                                                          |
 | R-SUBAGENT-CRON-DELETE                 | `CronDelete` called from inside a subagent                                                                                                                                                                                                                      | A session cron belongs to the coordinator's session, which is the session that loses coverage when it goes                                                                                                | Report the cron id and your reasoning to the coordinator and let it decide                                                                                                                                            |
+| R-SUBAGENT-FULL-QA                     | a full-suite QA run inside a sub-agent (a declared `full_qa_patterns` command)                                                                                                                                                                                  | Concurrent full runs across agents exhaust the host, and the coordinator runs the full gate over every ready branch anyway                                                                                | Run targeted QA on what you changed, commit, and hand the commit to the coordinator                                                                                                                                   |
 | R-SUBAGENT-CROSS-WORKTREE-WRITE        | a subagent's Write/Edit/NotebookEdit into another checkout of its repository                                                                                                                                                                                    | Edits land uncommitted in a branch nobody on this task owns, and a later commit there carries them under the wrong branch's name                                                                          | Write only inside your own worktree; report any cross-branch need to the coordinator                                                                                                                                  |
 | R-UPGRADE-APPROVAL-AGENT               | an agent action that grants or forges the owner's upgrade approval (running `approve-upgrade`, writing/touching a marker under `upgrade-approvals/`, forging a venv `.daemon-version` stamp, or moving the `.claude/hooks-daemon` clone to another ref by hand) | Approving a breaking upgrade is the project OWNER's step, not the agent's — the gate exists so a human reads what changed before it happens                                                               | Report the gate's reasons to the user and stop; the owner runs `hooks-daemon approve-upgrade <version> --from <previous>` in their own terminal (it requires a TTY and a typed confirmation phrase)                   |
 | R-UPGRADE-APPROVAL-ENV-BYPASS          | a Bash command that sets `HOOKS_DAEMON_UPGRADE_HANDOFF`, or runs an upgrade with a variable that picks its interpreter, venv, flags or code, or passes `--uv <path>`                                                                                            | The upgrade and its pre-deploy gate run as shipped, not as an agent steers them                                                                                                                           | Run the upgrade with no such variable set; if it cannot run, tell the user                                                                                                                                            |
@@ -583,9 +586,17 @@ One line each; these fire with their own guidance when relevant. Full text: `bin
 
 - git_upstream_checker — additive fetch + pull/cleanup advice on session start
 
+<!-- handler: goal-injection -->
+
+- goal_injection — plan-start goal signal for the ccy supervisor
+
 <!-- handler: hook-registration-checker -->
 
 - hook_registration_checker — hooks configuration policy
+
+<!-- handler: idle-housekeeping-advisory -->
+
+- idle_housekeeping_advisory — report-first idle housekeeping (beta, opt-in)
 
 <!-- handler: markdown-table-formatter -->
 
@@ -602,6 +613,10 @@ One line each; these fire with their own guidance when relevant. Full text: `bin
 <!-- handler: model-downgrade-recorder -->
 
 - model_downgrade_recorder — the automatic model downgrade is written down
+
+<!-- handler: model-fallback-detector -->
+
+- model_fallback_detector — silent model substitution is surfaced
 
 <!-- handler: nitpick-dismissive-language -->
 
@@ -647,9 +662,17 @@ One line each; these fire with their own guidance when relevant. Full text: `bin
 
 - reference_repo_sweep — reference clones are made fresh before you read them
 
+<!-- handler: routine-qa-sweep -->
+
+- routine_qa_sweep — recurring work that has stopped recurring
+
 <!-- handler: secret-file-hygiene-checker -->
 
 - secret_file_hygiene_checker -- on-disk hygiene for protected paths
+
+<!-- handler: session-actions-directive -->
+
+- session_actions_directive — the must-do list is delivered as a turn
 
 <!-- handler: standing-authorisations -->
 
@@ -666,6 +689,10 @@ One line each; these fire with their own guidance when relevant. Full text: `bin
 <!-- handler: subagent-report-size-blocker -->
 
 - subagent_report_size_blocker — write large reports to a file
+
+<!-- handler: tool-disable-advisor -->
+
+- tool_disable_advisor — declared never-want tools are checked at session start
 
 <!-- handler: worktree-create -->
 
