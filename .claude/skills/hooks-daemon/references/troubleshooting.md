@@ -69,7 +69,7 @@ ps aux | grep hooks-daemon
 
 **Error:**
 
-```
+```text
 Can't instantiate abstract class MyHandler with abstract method get_acceptance_tests
 ```
 

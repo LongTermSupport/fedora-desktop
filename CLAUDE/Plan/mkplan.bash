@@ -35,8 +35,12 @@
 #   1. Requires exactly one non-empty argument: the plan name.
 #   2. Normalises + validates the name into a safe kebab slug that starts
 #      with a letter (matches the daemon's NNNNN-[a-zA-Z] plan pattern).
-#   3. Takes an exclusive, portable lock on the plan dir so concurrent runs
-#      (two agents, or an agent + a human) cannot assign the same number.
+#   3. Takes an exclusive, portable lock in the repository's COMMON git dir
+#      (shared by every linked worktree, like the counter it guards) so
+#      concurrent runs (two agents, or an agent + a human, in any checkout)
+#      cannot assign the same number. If the common git dir cannot be
+#      resolved to an existing absolute path, the lock falls back to the
+#      plan dir, which serialises runners of that one checkout only.
 #   4. Resolves the next plan number from the git-anchored counter
 #      (`hooksdaemon.latestPlanNumber`), bootstrapping from a filesystem
 #      scan when the counter is unset — exactly like the hooks daemon does.
@@ -63,6 +67,8 @@ readonly COUNTER_KEY="hooksdaemon.latestPlanNumber"
 readonly NUMBER_WIDTH=5
 readonly MAX_NAME_LENGTH=80
 readonly LOCK_BASENAME=".mkplan.lock"
+# Lock name inside the common git dir; distinct from any file git keeps there.
+readonly COMMON_DIR_LOCK_BASENAME="hooksdaemon-mkplan.lock"
 readonly LOCK_MAX_ATTEMPTS=100
 readonly LOCK_RETRY_SECONDS=0.1
 
@@ -118,7 +124,7 @@ USAGE
     journal_usage
 }
 
-# Release the plan-dir lock. Only removes the lock if THIS process took it
+# Release the scaffold lock. Only removes the lock if THIS process took it
 # (lock_held set) and the dir is still present — never another runner's lock.
 release_lock() {
     if [[ -n "$lock_held" && -d "$lock_held" ]]; then
@@ -126,7 +132,31 @@ release_lock() {
     fi
 }
 
-# Acquire an exclusive lock on the plan dir via atomic `mkdir`. Portable
+# True (0) iff $1 is a single line, starts with a slash, and names an existing
+# directory.
+is_usable_git_dir() {
+    local candidate="$1"
+    [[ "${candidate:0:1}" == "/" ]] || return 1
+    [[ "$candidate" != *$'\n'* ]] || return 1
+    [[ -d "$candidate" ]]
+}
+
+# Print the directory the scaffold lock lives in: the repository's common git
+# dir when git answers with exactly one absolute path naming an existing
+# directory, else the plan dir. Old git does not know the path-format option,
+# echoes it back and exits 0, so the exit status alone proves nothing about
+# the answer.
+scaffold_lock_dir() {
+    local plan_dir="$1" answer
+    if answer="$(git -C "$plan_dir" rev-parse --path-format=absolute --git-common-dir)" \
+        && is_usable_git_dir "$answer"; then
+        printf '%s/%s\n' "$answer" "$COMMON_DIR_LOCK_BASENAME"
+    else
+        printf '%s/%s\n' "$plan_dir" "$LOCK_BASENAME"
+    fi
+}
+
+# Acquire an exclusive lock via atomic `mkdir`. Portable
 # (Linux + macOS/BSD, no `flock` dependency) and silent: mkdir's stderr is
 # captured (2>&1 into a var, NOT discarded) and only surfaced if we time out.
 acquire_lock() {
@@ -502,7 +532,7 @@ plan_rel="${plan_dir#"$repo_root"/}"
 
 # Everything from here to the counter write is the critical section: a single
 # atomic-mkdir lock serialises concurrent runners so no two assign the same N.
-acquire_lock "$plan_dir/$LOCK_BASENAME"
+acquire_lock "$(scaffold_lock_dir "$plan_dir")"
 
 fs_highest="$(filesystem_highest "$plan_dir")"
 

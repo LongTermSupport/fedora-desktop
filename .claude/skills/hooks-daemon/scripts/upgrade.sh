@@ -19,15 +19,15 @@
 #   HOOKS_DAEMON_UPGRADE_BASE_URL   base URL override (default: GitHub raw)
 #
 # Usage:
-#   upgrade.sh [VERSION]   — passes VERSION through to the canonical script.
+#   upgrade.sh [FLAGS] [VERSION]   — passes both through to the canonical script.
 #
 
 set -euo pipefail
 
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
-    printf '%s\n' "Usage: upgrade.sh [VERSION]" \
-        "  VERSION  Target git tag (default: latest). See HOOKS_DAEMON_UPGRADE_REF" \
-        "           and HOOKS_DAEMON_UPGRADE_BASE_URL for fetch overrides."
+    printf '%s\n' "Usage: upgrade.sh [--skip-reading-confirmation=DIGEST] [--skip-config-optimisation] [VERSION]" \
+        "  VERSION  Target git tag (default: latest). DIGEST is the value the pre-deploy gate's stop printed." \
+        "  See HOOKS_DAEMON_UPGRADE_REF and HOOKS_DAEMON_UPGRADE_BASE_URL for fetch overrides."
     exit 0
 fi
 
@@ -48,10 +48,12 @@ URL="$BASE_URL/$REF/scripts/upgrade.sh"
 TMP="$(mktemp)"
 if ! curl -fsSL --max-time 30 -o "$TMP" "$URL"; then
     rm -f "$TMP"
+    CLONE="$PROJECT_ROOT/.claude/hooks-daemon"
     # Plan 00114 F4: make the offline/network failure actionable instead of a
-    # dead end. The installed daemon already ships a working Layer 1 upgrade.sh.
-    # A single printf keeps the shim under its thin-shim line budget.
-    printf 'Error: failed to fetch upgrade.sh from %s\nRecovery: run the installed daemon Layer 1 directly:\n  bash "%s/.claude/hooks-daemon/scripts/upgrade.sh" --project-root "%s"\nor pin a reachable ref: HOOKS_DAEMON_UPGRADE_REF=v3.16.0 bash "%s"\n' "$URL" "$PROJECT_ROOT" "$PROJECT_ROOT" "$0" >&2
+    # dead end. Plan 00376: the recovery runs the TARGET's own Layer 1 out of
+    # the installed clone, because the installed Layer 1 may predate the
+    # pre-deploy gate. A single printf keeps the shim under its line budget.
+    printf 'Error: failed to fetch upgrade.sh from %s\nRecovery: run the target release'"'"'s own Layer 1 from the installed clone (VERSION = the tag to install):\n  git -C "%s" fetch --tags && git -C "%s" show VERSION:scripts/upgrade.sh > "%s/untracked/upgrade-target.sh" && bash "%s/untracked/upgrade-target.sh" --project-root "%s" VERSION\nor pin a reachable ref no older than the target: HOOKS_DAEMON_UPGRADE_REF=VERSION bash "%s"\n' "$URL" "$CLONE" "$CLONE" "$CLONE" "$CLONE" "$PROJECT_ROOT" "$0" >&2
     exit 1
 fi
 chmod +x "$TMP"

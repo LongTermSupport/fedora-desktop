@@ -1,6 +1,6 @@
 # Hooks Daemon - Active Configuration
 
-> Generated on 2026-10-02 (v3.67.0) by `generate-docs`. Regenerate: `.claude/hooks-daemon/bin/hooks-daemon generate-docs`
+> Generated on 2026-10-03 (v3.68.0) by `generate-docs`. Regenerate: `.claude/hooks-daemon/bin/hooks-daemon generate-docs`
 
 ## Plan Mode
 
@@ -18,6 +18,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 
 | Priority | Handler | Behaviour | Description |
 |----------|---------|----------|-------------|
+| 9 | usage_pause_tool_gate | BLOCKING | Deny and halt the main thread's tools outside the pause allow-list while paused |
 | 10 | ask_user_question_blocker | BLOCKING | Allow AskUserQuestion only when every question is prefix-justified |
 | 10 | curl_pipe_shell | BLOCKING | Block curl/wget piped to shell commands |
 | 10 | destructive_git | BLOCKING | Block destructive git commands that permanently destroy data |
@@ -29,12 +30,10 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 12 | absolute_path | BLOCKING | Require absolute paths for Read/Write/Edit tool file_path parameters |
 | 13 | error_hiding_blocker | BLOCKING | Block error-hiding patterns in code written via Write or Edit tools |
 | 14 | artifact_publish_blocker | BLOCKING | Deny artefact publishing; allow read-only enumeration |
-| 14 | flaggable_content_channel_guard | BLOCKING | Deny content-revealing git/grep commands over configured flaggable paths |
 | 14 | issue_filing_gate | BLOCKING | Deny an upstream issue whose body nothing checked |
 | 14 | project_containment | BLOCKING | Deny a write to a path named outside the repository root |
-| 14 | quarantine_artefact_read_guard | BLOCKING | Deny reading a quarantined DETAIL artefact from the main context |
-| 14 | secret_file_guard | BLOCKING | Deny any tool call that would put a protected file's contents into context |
 | 14 | subagent_cron_delete_blocker | BLOCKING | Deny ``CronDelete`` inside a subagent; the coordinator is unaffected |
+| 14 | subagent_worktree_write_guard | BLOCKING | Deny a subagent's write into a checkout other than the one it works in |
 | 15 | dangerous_permissions | BLOCKING | Block chmod 777 and dangerous permission commands |
 | 15 | pipe_blocker | BLOCKING | Block expensive commands piped to tail/head to prevent information loss |
 | 15 | security_antipattern | BLOCKING | Block Write/Edit of files containing security antipatterns |
@@ -48,11 +47,11 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 20 | git_message_backtick | BLOCKING | Block a double-quoted git message whose backticks would be executed |
 | 20 | git_stash | BLOCKING | Block or warn about git stash based on mode configuration |
 | 20 | merge_to_main_approval | BLOCKING | Deny a merge into the main checkout's default branch while the key is on |
+| 20 | upgrade_approval_guard | BLOCKING | Deny an agent action that grants or bypasses the owner's upgrade approval |
 | 30 | plan_number_helper | BLOCKING | Detect bash commands attempting to discover plan numbers and provide correct answer |
 | 30 | plan_status_snapshot | ADVISORY | Record a PLAN.md's pre-write status for `goal_injection` to consume |
 | 30 | qa_suppression | BLOCKING | Block QA suppression comments across all supported languages |
 | 31 | plan_journal_guard | BLOCKING | Deny a journal entry written by hand rather than through `mkplan.bash --journal` |
-| 32 | subagent_full_qa_blocker | BLOCKING | Deny a declared full-suite QA run inside a sub-agent; the coordinator runs it |
 | 34 | verification_result_gate | ADVISORY | Advise when a verifier's exit status is never consumed before a mutator |
 | 35 | markdown_organization | BLOCKING | Enforce markdown file organization rules |
 | 36 | bash_safe_mode | ADVISORY | Require a bash safety prelude on multi-statement Bash invocations |
@@ -66,6 +65,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 40 | global_npm_advisor | NON-TERMINAL | Advise on global npm/yarn package installations |
 | 40 | plan_time_estimates | BLOCKING | Block time estimates in plan documents |
 | 42 | comment_changelog | BLOCKING | Block Write/Edit content that writes historical narrative into a comment |
+| 42 | conflict_marker_commit_gate | BLOCKING | Deny a commit that would record a merge-conflict marker |
 | 42 | installed_plugin_edit_advisor | ADVISORY | Say so when a write lands in an installed Claude Code plugin's files |
 | 43 | comment_size | BLOCKING | Block/advise on over-long comments, tiered like plan-doc-size |
 | 43 | plan_close_approval | BLOCKING | Deny an agent's terminal status flip of a PLAN.md while the key is on |
@@ -83,7 +83,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 50 | validate_instruction_content | BLOCKING | Validates content being written to CLAUDE.md and README.md files |
 | 55 | web_search_year | ADVISORY | Validate WebSearch queries don't use outdated years |
 | 57 | daemon_docs_guard | ADVISORY | Warn when reading from the hooks-daemon internal CLAUDE/ docs directory |
-| 58 | flaggable_work_advisor | ADVISORY | Advise delegating safeguard-flaggable work BEFORE opening the content |
+| 59 | merge_qa_advisor | ADVISORY | Advise the static checks to run before merging a work branch with no recorded green run |
 | 60 | british_english | ADVISORY | Warn about American English spellings in content files (non-blocking) |
 
 ### PostToolUse (12 handlers)
@@ -96,14 +96,14 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 27 | background_process_tracker | ADVISORY | Track backgrounded Bash processes and advise on watchdog/harvest (never kills) |
 | 28 | command_hints | ADVISORY | Inject a rate-limited advisory HINT when a configured command is detected |
 | 29 | recovery_cron_advisor | ADVISORY | Advisory handler that manages failsafe recovery cron across plan lifecycle |
-| 30 | goal_injection | ADVISORY | Write a goal-intent signal when a plan TRANSITIONS to In Progress |
 | 31 | markdown_table_formatter | NON-TERMINAL | Auto-format markdown tables after Write/Edit of .md files |
 | 32 | budget_exhaustion_detector | ADVISORY | Advisory PostToolUse handler that flags budget-exhaustion messaging |
 | 33 | model_downgrade_recorder | ADVISORY | Publish Claude Code's own automatic model-downgrade record, silently |
 | 34 | merge_qa_report | ADVISORY | Post-hoc plan/docs QA report over what a merge/pull/rebase just introduced |
 | 35 | daemon_sync_after_merge | ADVISORY | Advise a restart when a merge/pull/rebase changed daemon config or handlers |
+| 36 | cron_record_keeper | ADVISORY | Record every CronCreate and forget every CronDelete, silently |
 
-### SessionStart (30 handlers)
+### SessionStart (26 handlers)
 
 | Priority | Handler | Behaviour | Description |
 |----------|---------|----------|-------------|
@@ -117,17 +117,15 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 54 | gitignore_safety_checker | ADVISORY | Warn when required .claude/ paths are absent from .gitignore |
 | 55 | suggest_status_line | ADVISORY | Suggest setting up daemon-based statusline on session start |
 | 55 | version_check | ADVISORY | Check daemon version against latest GitHub release on new sessions |
+| 56 | branch_count_advisor | ADVISORY | Name open work branches beyond the limit, and any far behind the default branch |
 | 56 | git_upstream_checker | ADVISORY | Full-fetch + configurable pull policy when a branch is behind upstream |
 | 57 | plan_qa_sweep | ADVISORY | Advisory SessionStart sweep over the plan tree (silent when clean) |
 | 58 | ccy_supervisor_integrity | ADVISORY | Advisory: warn when the ccy supervisor is armed but its files are unsafe |
 | 59 | deployed_artefact_drift | ADVISORY | Advise when a deployed daemon-owned file differs from its template |
 | 59 | plan_workflow_asset_checker | ADVISORY | Advise when plan_workflow is enabled but its assets are not provisioned |
 | 60 | contract_staleness | ADVISORY | Advise a vendored-contract refresh when Claude Code has moved on |
-| 61 | skill_opportunity_detector | ADVISORY | TTL-gated advisory pointing at the ``skill-scan`` CLI |
 | 62 | secret_file_hygiene_checker | ADVISORY | Advise (never block) unsafe on-disk state for existing protected files |
-| 63 | model_fallback_detector | ADVISORY | Detect a safety-triggered model fallback from the session transcript |
 | 64 | docs_qa_sweep | ADVISORY | Advisory SessionStart sweep over the documentation corpus (silent when clean) |
-| 65 | tool_disable_advisor | NON-TERMINAL | Advise when a declared never-want tool is not disabled at source |
 | 66 | monorepo_detector | ADVISORY | Advise when manifests exist below the repo root but not at it |
 | 67 | config_optimisation_reminder | ADVISORY | Remind the agent when the config-optimisation review is stale |
 | 68 | remote_docs_staleness | ADVISORY | Report vendored documents that are stale or no longer parse |
@@ -135,25 +133,23 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 70 | failsafe_cron_session_advisor | ADVISORY | Advise establishing the failsafe recovery cron at session start |
 | 70 | persistent_cron_assertor | ADVISORY | State the project's declared crons and instruct a CronList reconcile |
 | 71 | reference_repo_sweep | ADVISORY | Fetch, safely fast-forward and record every governed reference repo |
-| 72 | routine_qa_sweep | ADVISORY | Advisory SessionStart sweep over the Routine tree (silent when clean) |
-| 73 | session_actions_directive | ADVISORY | Signal the ccy supervisor when a session starts with must-do items |
 
-### PreCompact (2 handlers)
+### PreCompact (1 handler)
 
 | Priority | Handler | Behaviour | Description |
 |----------|---------|----------|-------------|
 | 15 | disclosure_reset_pre_compact | NON-TERMINAL | Reset DisclosureTracker state for the firing agent on PreCompact |
-| 20 | compaction_signal | NON-TERMINAL | Write a ``<session>.compacting`` signal on PreCompact for the supervisor |
 
-### UserPromptSubmit (6 handlers)
+### UserPromptSubmit (7 handlers)
 
 | Priority | Handler | Behaviour | Description |
 |----------|---------|----------|-------------|
+| 9 | usage_pause_gate | BLOCKING | Record and enforce the usage pause on UserPromptSubmit |
 | 20 | git_context_injector | CONTEXT | Inject current git status as context when user submits a prompt |
 | 25 | standing_authorisations | ADVISORY | Inject the authorisations a project has recorded in its config |
 | 37 | failsafe_cron_blockage_suppressor | BLOCKING | Suppress a delivered failsafe-cron tick while the session is stably |
+| 38 | stop_failure_resolver | ADVISORY | Resolve this session's recorded StopFailure when it submits a prompt |
 | 55 | critical_thinking_advisory | ADVISORY | Periodically inject advisory context encouraging critical evaluation |
-| 56 | idle_housekeeping_advisory | ADVISORY | After N consecutive no-op recovery ticks, advise a report-first |
 | 58 | daemon_upgrade_detector | ADVISORY | Advise when the INSTALLED daemon version has changed underneath this process |
 
 ### PermissionRequest (1 handler)
@@ -162,10 +158,11 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 |----------|---------|----------|-------------|
 | 10 | auto_approve_reads | TERMINAL | Auto-approve read-only tool permission requests |
 
-### Stop (3 handlers)
+### Stop (4 handlers)
 
 | Priority | Handler | Behaviour | Description |
 |----------|---------|----------|-------------|
+| 6 | usage_pause_stop_gate | BLOCKING | Allow a paused session's stop only when its crons are exactly the resume cron |
 | 7 | cron_stop_enforcer | BLOCKING | Block a Stop while a declared persistent cron was never created |
 | 9 | teammate_reap_advisor | ADVISORY | Report the Stop payload's ``background_tasks`` count and name ``TaskStop`` |
 | 15 | auto_continue_stop | TERMINAL | Intercept Stop events and enforce explicit stop reasons or auto-continue |
@@ -180,7 +177,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 10 | subagent_report_persistence | NON-TERMINAL | Persist every stopping sub-agent's final reply to a gitignored file |
 | 15 | subagent_report_size_blocker | TERMINAL | Block a SubagentStop whose ``last_assistant_message`` is oversized |
 
-### Status (16 handlers)
+### Status (14 handlers)
 
 | Priority | Handler | Behaviour | Description |
 |----------|---------|----------|-------------|
@@ -188,17 +185,15 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 4 | environment_indicator | NON-TERMINAL | Show 💻 (desktop/host) or a container icon (🐳 docker / 📦 podman / 🧊 lxc) |
 | 5 | git_repo_name | NON-TERMINAL | Show git repository name at start of status line |
 | 6 | account_display | NON-TERMINAL | Display Claude account username in status line |
-| 6 | host_hostname | NON-TERMINAL | Show ``@machine-name`` for the host this session is really running on |
 | 10 | model_context | NON-TERMINAL | Format model name with effort level and colour-coded context percentage |
 | 11 | downgrade_indicator | NON-TERMINAL | Surface a silent model-family downgrade (e.g. fable/opus -> lower) in the status line |
-| 12 | context_sidecar | NON-TERMINAL | Write an observe-only context-state sidecar for the PTY supervisor |
 | 13 | supervisor_indicator | NON-TERMINAL | Show whether the ccy PTY supervisor is overseeing the session |
 | 14 | current_time | NON-TERMINAL | Display current local time in status line (24-hour format, no seconds) |
-| 15 | prompt_cache_indicator | NON-TERMINAL | Render prompt-cache hit ratio, TTL, and a warning when the cache is cold |
+| 15 | prompt_cache_indicator | NON-TERMINAL | Render prompt-cache health as `main`, `⑂` and `Σ` background-coloured chips |
+| 16 | usage_indicator | NON-TERMINAL | Show 5-hour and weekly subscription usage, colour-coded, with reset countdown |
 | 20 | git_branch | NON-TERMINAL | Show current git branch with magicmonty-style status icons if in a git repo |
 | 25 | working_directory | NON-TERMINAL | Display working directory when it differs from project root |
 | 28 | startup_cleanup | NON-TERMINAL | Show 🧹 briefly after daemon startup to indicate stale-file cleanup ran |
-| 30 | daemon_stats | NON-TERMINAL | Show daemon health: uptime, memory, last error, log level |
 | 32 | upgrade_notifier | NON-TERMINAL | Show a daemon-upgrade-available indicator on the status line |
 
 ### WorktreeCreate (1 handler)
@@ -218,6 +213,12 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | Priority | Handler | Behaviour | Description |
 |----------|---------|----------|-------------|
 | 10 | agent_terminated_early_failure_detector | ADVISORY | PostToolUseFailure advisory: surfaces a foreground Agent/Task dispatch killed by a harness usage limit |
+
+### StopFailure (1 handler)
+
+| Priority | Handler | Behaviour | Description |
+|----------|---------|----------|-------------|
+| 50 | stop_failure_recorder | ADVISORY | Record each rate-limit or credential StopFailure, silently |
 
 ### Daemon Plugin (2 handlers)
 

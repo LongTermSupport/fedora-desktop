@@ -194,5 +194,10 @@ if [ ! -f "$PYTHON" ]; then
     exit 1
 fi
 
-# Forward all arguments to daemon CLI
-"$PYTHON" -m claude_code_hooks_daemon.daemon.cli "$@"
+# Forward all arguments to daemon CLI, naming the project root resolved, as a
+# new daemon names it, and handing over PROJECT_ROOT as walked up from $PWD,
+# links unresolved: a daemon an older init.sh started through a link names
+# its root that way, and a daemon's root text is never resolved (round 9b).
+PHYSICAL_ROOT="$(cd -P -- "$PROJECT_ROOT" && pwd -P)"
+CLAUDE_HOOKS_DAEMON_CALLER_ROOT="$PROJECT_ROOT" "$PYTHON" -m claude_code_hooks_daemon.daemon.cli \
+    --project-root "$PHYSICAL_ROOT" "$@"

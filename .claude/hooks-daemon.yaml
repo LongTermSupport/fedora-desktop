@@ -18,6 +18,7 @@ daemon:
   log_level: INFO
   enable_hello_world_handlers: false
   enforce_single_daemon_process: true  # Auto-enabled (container detected)
+  expected_version: "3.68.0"  # daemon version this project expects; `provision.sh` installs exactly this
 
 # CCY container workflow (Plan 00147 / fedora-desktop#31).
 # deploy_supervisor: true keeps the standalone PTY supervisor (claude-supervise.py,
@@ -177,6 +178,7 @@ handlers:
     # ADVISORY HANDLERS (Priority 56-60)
     daemon_docs_guard: {enabled: true, priority: 57}        # Warn when reading daemon internal docs
     british_english: {enabled: true, priority: 60}          # Warn about American English spellings
+    subagent_full_qa_blocker: {enabled: true}               # Full-suite QA belongs to the coordinator, not a sub-agent
 
   # PostToolUse handlers (run after tool execution)
   post_tool_use:
@@ -194,6 +196,8 @@ handlers:
       options:
         exclude_paths:
           - ".semgrep/bash-conventions.bash"
+    goal_injection: {enabled: true}          # Goal-intent signal when a plan becomes In Progress
+    plan_fact_check_feed: {enabled: true}    # Feed plan edits to the fact-check debouncer
 
   # PermissionRequest - Auto-approve decisions
   permission_request:
@@ -229,9 +233,15 @@ handlers:
         authorisations:
           - id: subagent-delegation
             enabled: true
+    idle_housekeeping_advisory: {enabled: true}  # Report-first housekeeping after repeated no-op recovery ticks
 
   # SessionStart - Initialise environment
   session_start:
+    routine_qa_sweep: {enabled: true}             # Routine tree sweep (silent when clean)
+    model_fallback_detector: {enabled: true}      # Surface a safety-triggered model fallback
+    session_actions_directive: {enabled: true}    # Signal the ccy supervisor about must-do items
+    skill_opportunity_detector: {enabled: true}   # Advisory pointing at skill-scan
+    tool_disable_advisor: {enabled: true}         # Check declared never-want tools are disabled
     hook_registration_checker: {enabled: true, priority: 51}      # Validate hook registrations
     optimal_config_checker: {enabled: true, priority: 52}         # Check for optimal Claude Code settings
     git_filemode_checker: {enabled: true, priority: 53}           # Warn when git core.fileMode=false
@@ -259,6 +269,7 @@ handlers:
   # PreCompact - Before conversation compaction
   pre_compact:
     disclosure_reset_pre_compact: {enabled: true, priority: 15}  # Reset per-agent rule-disclosure state
+    compaction_signal: {enabled: true}                           # Compaction signal for the supervisor
 
   # StatusLine handlers
   status_line:
@@ -267,6 +278,8 @@ handlers:
     model_context: {enabled: true, priority: 10}    # Model name and context %
     git_branch: {enabled: true, priority: 20}       # Current git branch
     startup_cleanup: {enabled: true, priority: 28}  # Stale file cleanup indicator
+    context_sidecar: {enabled: true}                # Context-state sidecar for the PTY supervisor
+    host_hostname: {enabled: true}                  # Which host the session is really running on
     daemon_stats: {enabled: false, priority: 30}    # Daemon health metrics (owner removed it from the bar)
 
   # WorktreeCreate - seed a fresh worktree with the gitignored local config an

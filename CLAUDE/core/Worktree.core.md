@@ -516,7 +516,7 @@ cd untracked/worktrees/worktree-plan
 git fetch origin
 git merge main --no-edit
 # ⚠️ If there are conflicts, resolve them HERE in the worktree
-# ⚠️ Test thoroughly after merge - the worktree must pass all QA
+# ⚠️ Test thoroughly after merge - the worktree must pass this project's QA gate for the change
 # ... run this project's test/QA suite ...
 .claude/hooks-daemon/bin/hooks-daemon restart
 .claude/hooks-daemon/bin/hooks-daemon status

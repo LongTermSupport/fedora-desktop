@@ -1,7 +1,7 @@
 ---
 name: hooks-daemon
-description: Manage Claude Code Hooks Daemon - install, upgrade, optimise the configuration, check health, restart, run the housekeeping pass, status-line-explained to explain every status-line icon, issue-report to file a defect upstream, file a local bug-report, and report issues
-argument-hint: "[install|upgrade|optimise|housekeeping|restart|health|status-line-explained|issue-report|bug-report|report] [args...]"
+description: Manage Claude Code Hooks Daemon - install, provision a fresh checkout, upgrade, optimise the configuration, check health, restart, run the housekeeping pass, status-line-explained to explain every status-line icon, issue-report to file a defect upstream, file a local bug-report, and report issues
+argument-hint: "[install|provision|upgrade|optimise|housekeeping|restart|health|status-line-explained|issue-report|bug-report|report] [args...]"
 disable-model-invocation: false
 user-invocable: true
 allowed-tools: Bash, Read, Write, Edit
@@ -29,6 +29,18 @@ Install the hooks daemon on a fresh clone (daemon not yet present):
 
 See [install.md](install.md) for detailed install documentation.
 
+### Provision a Fresh Checkout
+
+A fresh clone of a project that already uses the daemon has the tracked hooks
+and config but no daemon (`.claude/hooks-daemon/` is gitignored). Build it, at
+the version the project names, without changing any tracked file:
+
+```claude-code
+/hooks-daemon provision
+```
+
+See [provision.md](provision.md).
+
 ### Upgrade Daemon
 
 Update to a new version of the hooks daemon:
@@ -36,7 +48,7 @@ Update to a new version of the hooks daemon:
 ```claude-code
 /hooks-daemon upgrade          # Auto-detect and upgrade to latest version
 /hooks-daemon upgrade 2.14.0   # Upgrade to specific version
-/hooks-daemon upgrade --force  # Force reinstall current version
+/hooks-daemon upgrade --skip-reading-confirmation=<digest>  # after reading what the gate listed
 ```
 
 See [upgrade.md](upgrade.md) for detailed upgrade documentation.
@@ -225,6 +237,12 @@ case "$SUBCOMMAND" in
         bash "$SKILL_DIR/scripts/install.sh" "$@"
         ;;
 
+    provision)
+        # The project's tracked .claude/provision.sh, which exists before the
+        # daemon does. Never downloaded: it is the project's own file.
+        bash "$SKILL_DIR/../../provision.sh" "$@"
+        ;;
+
     upgrade)
         bash "$SKILL_DIR/scripts/upgrade.sh" "$@"
         ;;
@@ -284,6 +302,7 @@ case "$SUBCOMMAND" in
         echo ""
         echo "Available commands:"
         echo "  install [--force]     Install daemon (fresh clone)"
+        echo "  provision             Build the daemon for a fresh checkout, at the version the project names"
         echo "  upgrade [VERSION]     Upgrade daemon to new version"
         echo "  optimise              Config-optimisation review (closes every upgrade)"
         echo "  housekeeping [--apply STEP] [--list]"
