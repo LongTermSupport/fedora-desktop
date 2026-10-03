@@ -61,7 +61,7 @@ choice: [RESEARCH-encoding.md](RESEARCH-encoding.md). Example input:
 - [x] ✅ **Task 2.4**: Write `deploy.bash` and `acceptance.bash` on `_planlib.inc.bash`. Acceptance round-trips a fixture (encode, run the block, sha256 match), tests the rejection paths (non-image, over the block budget, over the pixel limit, over the byte limit, each by its stderr reason), and prints a COVERAGE line.
   - [ ] ⬜ **HOST**: `./deploy.bash` (it runs `acceptance.bash` as its last leg).
 - [x] ✅ **Task 2.5**: Document the command under `docs/` (`docs/playbooks.md`, `play-cli-tools.yml`).
-- [ ] ⬜ **Task 2.6**: Run `./scripts/qa-all.bash`, then the `qa-reviewer` agent; resolve all findings.
+- [x] ✅ **Task 2.6**: Run `./scripts/qa-all.bash`, then the `qa-reviewer` agent; resolve all findings. qa-all green on `58872608`; the confirming review was PASS WITH NITS, nits fixed in `087a039a` ([subagent-reports/261003-qa-reviewer-confirm-opus.md](subagent-reports/261003-qa-reviewer-confirm-opus.md)).
 
 ## Success Criteria
 
@@ -69,7 +69,7 @@ choice: [RESEARCH-encoding.md](RESEARCH-encoding.md). Example input:
 - [ ] A fresh agent decodes a pasted block using only the block's own instruction line.
 - [ ] Non-image and oversized inputs fail fast with a clear stderr message.
 - [ ] Deployed via Ansible; `acceptance.bash` passes on the host.
-- [ ] `./scripts/qa-all.bash` and the `qa-reviewer` agent are clean.
+- [x] `./scripts/qa-all.bash` and the `qa-reviewer` agent are clean.
 
 ## Delivery & Milestones
 
