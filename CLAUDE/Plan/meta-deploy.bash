@@ -52,7 +52,8 @@ PLANS=(
     # PR #66: ccy 3.77.1 / container 2.42, session lifetimes and restart on a fresh container.
     # ccy 3.78.0: ccy-sessions shows each session's CPU, token and SSH key; ccy-sessions --list.
     playbooks/imports/play-claude-yolo.yml
-    # Plan 00148: continuous dictation in the warm server (Phases 2-4, off by default).
+    # Plan 00148: continuous dictation in the warm server (Phases 2-4, off by default), and
+    # the "…" panel icon as soon as Insert stops a recording (seen after the logout).
     playbooks/imports/optional/common/play-speech-to-text.yml
     # Plan 00148 Task 1.2: measurements on the deployed speech-to-text; asks you to read
     # aloud for 90 s. Read-only.
