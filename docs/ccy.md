@@ -1328,6 +1328,53 @@ export CCY_AUTO_UPDATE=0   # notify only, never update automatically
 ccy --rebuild=claude       # force the fast update now
 ```
 
+A running session never sees a newer version, because Claude Code lives in the image. When
+the session supervisor decides a session should restart (it exits with status 75 and leaves
+`.claude/ccy/state/restart-request.json`), CCY updates the image and relaunches the same
+command with `--resume <session-id>`. At most 3 restarts per project per hour
+(`CCY_RESTART_MAX`, `CCY_RESTART_WINDOW_SECONDS`); then it stops and prints the resume
+command.
+
+The relaunch asks nothing. It reuses the token file, SSH keys, GitHub-443 mode and network
+the session ran with, even those picked at a prompt. Where no answer is safe it stops with
+the resume command instead: an SSH key that needs a passphrase (including one first unlocked
+through your `SSH_ASKPASS` helper, which also needs someone present), or an expired or
+invalid token. For sessions that should restart unattended, use a key with no passphrase,
+or `--ssh-agent`, which exposes every key the agent holds. An agent that asks before it signs
+cannot be answered either: on a restart the GitHub check gives up after 60 seconds and says so.
+
+### Session limits: `--max-age`, `--run-for`, `--until`
+
+Off unless you ask. They need the [supervisor](#the-supervisor) and are carried out by a
+plugin the image ships (`/opt/claude-yolo/supervisor-plugins/ccy_lifecycle.py`), which the
+entrypoint adds to the supervisor's command line only when one of them is set. A duration
+is days, hours, minutes in that order: `90m`, `12h`, `3d`, `1d12h`.
+
+```bash
+ccy --max-age 3d           # restart on a fresh container (newest Claude Code) after 3 days
+ccy --run-for 2h           # tell the session its time is up after 2 hours
+ccy --until 17:30          # ...at the next 17:30 local time
+export CCY_MAX_AGE=3d      # the default for --max-age, for every project
+export CCY_RESTART_WARN_MINUTES=20   # warning lead for --max-age, default 10
+```
+
+- **`--max-age`** (30m to 30d). The session is warned when it is idle inside the last
+  `CCY_RESTART_WARN_MINUTES` before it is due; a session busy through that whole window gets
+  no warning. At the age the supervisor ends the session at its first idle point (never mid-turn),
+  CCY updates the image and relaunches with `--resume`, and the resumed session is told which
+  Claude Code version it is on. The clock restarts with each new container. The supervisor
+  only acts when the session is idle, so a session that is never idle restarts at its first
+  idle point after the age; there is no forced restart. The restart count limit above still
+  applies. A worker hot reload does not reset the clock; a new container does.
+- **`--run-for` / `--until`** (1m to 30d; use one). The session is told once, at the
+  deadline, that its time is up. Nothing is ended. The deadline is absolute, so it survives a
+  `--max-age` restart, and once it has been announced the age restart stands down.
+- A bad value stops the launch with an example before anything is prompted. So does
+  `--no-supervise` with any of them, and a project with no supervisor or with one older than
+  the supervisor plugin API (upgrade the hooks daemon there). The host only reads the
+  supervisor file, never runs it. A wrapper set by `CCY_CLAUDE_WRAPPER` or the project's
+  `ccy.env` is checked the same way by the entrypoint, at container start.
+
 ### ctrl+z and the supervisor
 
 Claude Code's terminal UI intercepts `Ctrl+Z` and sends itself `SIGSTOP` — unrecoverable

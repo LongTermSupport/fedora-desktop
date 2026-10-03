@@ -17,6 +17,53 @@ Two version numbers move independently — see
 
 ---
 
+## 3.77.1 — container 2.42
+
+- **`--max-age`, `--run-for` and `--until` give a session a lifetime.** `--max-age 3d`
+  restarts the session on a fresh container (and so the newest Claude Code) once it has run
+  that long. `--run-for 2h` and `--until 17:30` tell the session once, at the deadline, that
+  its time is up; they never end it. Durations are days, hours and minutes (`90m`, `12h`,
+  `1d12h`). All three are off unless given; `CCY_MAX_AGE` sets a default for `--max-age` and
+  `CCY_RESTART_WARN_MINUTES` the warning lead (default 10). The session is warned when it is
+  idle inside that window; a session busy through the whole window gets no warning.
+- **Done by a supervisor plugin the image ships**
+  (`/opt/claude-yolo/supervisor-plugins/ccy_lifecycle.py`, root owned, outside the project
+  mount), which is why the container version moves to 2.42. The entrypoint adds it to the
+  supervisor's command line only when an option is set; without one the wrapper line is
+  unchanged. Two sessions in one project keep separate `--max-age` clocks.
+- **Refused before any prompt** when a value is bad (with an example), with `--no-supervise`,
+  or when the project has no supervisor or one older than the hooks-daemon supervisor plugin
+  API (upgrade the hooks daemon there). The host only reads the supervisor file. The
+  entrypoint checks a wrapper set by `CCY_CLAUDE_WRAPPER` or `ccy.env` the same way.
+- **A session can ask to be restarted, and CCY honours it.** The supervisor ends the session
+  at an idle point, writes `.claude/ccy/state/restart-request.json` and exits with status 75.
+  When the container exits with 75 and that file is fresh and well formed, CCY removes it,
+  updates Claude Code in the image, and relaunches with `--resume <session-id>`. The
+  relaunch asks nothing: it carries the token file, SSH keys (or `--ssh-agent` / `--no-ssh`),
+  GitHub-443 mode and network the session actually used, including choices made at prompts,
+  and takes the one safe answer at the prompts that have one. It stops with the manual
+  `ccy --resume <id>` command instead of waiting, for an SSH key that needs a passphrase
+  (unless a server restore's passphrase file is in force; 3.76.0's `SSH_ASKPASS` unlock needs
+  someone present, so it does not apply), an expired token, or a token that fails validation.
+  For unattended restarts use a key with no passphrase, or `--ssh-agent`, which exposes every
+  key the agent holds. On an unattended launch the GitHub identity check gives up after 60 s
+  (`CCY_UNATTENDED_PROBE_SECONDS`) rather than wait on an agent that asks before signing. A deadline is absolute and survives the restart; the `--max-age` clock
+  starts again. The supervisor's "restarted, now on Claude Code X" marker is left for the
+  next supervisor to read.
+- **It cannot loop.** At most 3 restarts per project per hour (`CCY_RESTART_MAX`,
+  `CCY_RESTART_WINDOW_SECONDS`), counted in `~/.cache/claude-yolo-restart-history/`, which a
+  rebuild does not touch. Then CCY stops with the command to resume by hand. The request file
+  is written by code in the container, so it is refused unless it is a regular file under
+  4 KiB, JSON, less than five minutes old, with a UUID session id. Status 75 with no usable
+  request is reported on stderr and passed through. If the image update fails, CCY stops
+  rather than relaunching on the old version.
+- **Deployment and checks.** The play deploys the two new libraries. A test checks it deploys
+  every `lib/*.bash`. The pre-commit hook requires a container version bump for a change to
+  the Dockerfile or any file its `COPY` lines take from the repo. Unit-tested in
+  `scripts/test-ccy-lifecycle.bash`, `scripts/test-ccy-restart-request.bash`,
+  `scripts/test-ccy-container-version-hook.bash` and `tests/helpers/ccy_lifecycle/`.
+  A live restart needs trying on a host.
+
 ## 3.76.0 — container 2.41
 
 - **One encrypted key file unlocks with no prompt when your own `SSH_ASKPASS` helper can

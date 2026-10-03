@@ -510,6 +510,43 @@ fi
 gpu_device_summary=$(qa_gate_case_count "$gpu_device_out")
 qa_pass_line ccy-gpu-device "$gpu_device_summary"
 
+# lib/restart-request.bash: a supervisor's restart request is a file written by code in the
+# container and acted on by the host, so it is validated strictly (regular file, size, JSON,
+# freshness, session id), the restart count is bounded, and the relaunch argv replaces every
+# --continue/--resume with one --resume. Driven with each way a request can be wrong.
+restart_request_out=""
+if ! restart_request_out="$(bash "$SCRIPT_DIR/test-ccy-restart-request.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-restart-request \
+        "ccy restart-request unit tests failed" \
+        "$restart_request_out"
+fi
+restart_request_summary=$(qa_gate_case_count "$restart_request_out")
+qa_pass_line ccy-restart-request "$restart_request_summary"
+
+# scripts/git-hooks/pre-commit: an edit to what the image bakes in (Dockerfile, entrypoint,
+# supervisor plugins) needs a container version bump, with LABEL and REQUIRED_CONTAINER_VERSION
+# moving together. Run against a throwaway repository.
+container_hook_out=""
+if ! container_hook_out="$(bash "$SCRIPT_DIR/test-ccy-container-version-hook.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-container-version-hook \
+        "ccy container version hook tests failed" \
+        "$container_hook_out"
+fi
+container_hook_summary=$(qa_gate_case_count "$container_hook_out")
+qa_pass_line ccy-container-version-hook "$container_hook_summary"
+
+# lib/session-lifecycle.bash and the entrypoint's plugin hook-up: --max-age/--run-for/--until
+# are validated strictly, a relaunch keeps the deadline, and with no option the supervisor's
+# wrapper line is byte-identical. The plugin itself is covered by the helper unit suite.
+lifecycle_out=""
+if ! lifecycle_out="$(bash "$SCRIPT_DIR/test-ccy-lifecycle.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-lifecycle \
+        "ccy session-lifecycle unit tests failed" \
+        "$lifecycle_out"
+fi
+lifecycle_summary=$(qa_gate_case_count "$lifecycle_out")
+qa_pass_line ccy-lifecycle "$lifecycle_summary"
+
 # Speech-to-text delayed stop (Plan 00148 Phase 0): the first Insert keeps recording for the
 # grace, a second stops at once, 0 means no grace. Drives the real batch recorder with stub
 # audio tools and times the stub microphone's stop; then the wsi-stream unit tests.
