@@ -388,6 +388,8 @@
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/docker-health.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/tmux-session.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/session-registry.bash"
+        - "{{ root_dir }}/files/var/local/claude-yolo/lib/restart-request.bash"
+        - "{{ root_dir }}/files/var/local/claude-yolo/lib/session-lifecycle.bash"
       # `launchers` is on the lib and on every script that sources it (ccy, cc,
       # ccy-sessions), with the directories they land in: a tag that deployed one
       # without the others would recreate the new-lib-under-old-cc break.
