@@ -83,7 +83,7 @@ if [[ ! -r "$archive" ]]; then
 fi
 
 if ! command -v ouch >/dev/null 2>&1; then
-  die "backend missing: /usr/local/bin/ouch — run play-compression-helpers.yml to install"
+  die "backend missing: /usr/local/bin/ouch — run play-cli-tools.yml to install"
 fi
 
 # Derive target folder name from archive basename by stripping compression

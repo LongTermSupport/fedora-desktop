@@ -55,11 +55,10 @@ choice: [RESEARCH-encoding.md](RESEARCH-encoding.md). Example input:
 
 - [x] ✅ **Task 2.1**: Move the prototype to `files/home/.local/bin/imgpaste`, following `CLAUDE/StderrHygiene.md`. Added `--help`.
 - [x] ✅ **Task 2.2**: Deploy it, with ImageMagick (WebP write support asserted) and `file`. **Owner decision:** a new `play-cli-tools.yml` is the one home for small CLI utilities, so tools stop getting a play each. The rule is in `CLAUDE/AnsibleStyle.md` ("Small CLI utilities go in `play-cli-tools.yml`").
-- [ ] ⬜ **Task 2.2a**: Bring existing one-tool plays into `play-cli-tools.yml`. **Owner decision on which.** Each move deletes the old play in the same commit and adds it to `helpers/play_ledger/retired-plays.json`; plays named in `optional/server-recommended.bundle` need that file updated too. Survey:
-  - Strong: `play-disk-reclaim.yml` (`reclaim`), `play-network-tools.yml` (`lan-scan`, `qnap-finder`), `play-collaboration.yml` (`tmate-share`, `tmate-full`), `play-open-command.yml` (`open`), `play-lxcfreeze.yml` + `play-podfreeze.yml` (move together: they share `tasks/deploy-freeze-lib.yml`), `play-compression-helpers.yml` (`compress`, `uncompress`; also pins the upstream `ouch` binary).
-  - Weak: `play-gnome-shell-dev.yml` (gnome scope), `play-image-watermarking.yml` (config in `/etc/watermark/`), `play-clean-paste.yml` (a GNOME keybinding), core `play-markless.yml` (moving it makes it opt-in).
+- [x] ✅ **Task 2.2a**: Bring existing one-tool plays into `play-cli-tools.yml`. **Owner chose** `play-open-command.yml`, `play-compression-helpers.yml` and `play-disk-reclaim.yml`: their tasks moved in (tags `open-command`, `compression-helpers`, `disk-reclaim`), the three plays are deleted and mapped in `helpers/play_ledger/retired-plays.json`, `server-recommended.bundle` names `play-cli-tools.yml` once, and the `ouch` pin in `vars/version-pins.yml` follows its var. Not chosen, for later: `play-network-tools.yml`, `play-collaboration.yml`, `play-lxcfreeze.yml` + `play-podfreeze.yml` (strong); `play-gnome-shell-dev.yml`, `play-image-watermarking.yml`, `play-clean-paste.yml`, core `play-markless.yml` (weak).
+  - [ ] ⬜ **HOST**: a host that ran any of the three old plays reports each as gone until `play-cli-tools.yml` has run once; `deploy.bash` covers that. Anyone with an old name in `RUN_BASH_OPTIONAL_PLAYBOOKS` must switch to `play-cli-tools`.
 - [ ] ⬜ **Task 2.3**: Check whether `wl-clipboard`/`xclip` are installed by IaC. If not, add them to the relevant system playbook and confirm Ctrl+V image paste works locally. Found: `wl-clipboard` is installed only by the optional `play-clean-paste.yml`, and `xclip` by nothing. The Ctrl+V check needs the host.
-- [x] ✅ **Task 2.4**: Write `deploy.bash` and `acceptance.bash` on `_planlib.inc.bash`. Acceptance round-trips a fixture (encode, run the block, sha256 match), tests the rejection paths, and prints a COVERAGE line.
+- [x] ✅ **Task 2.4**: Write `deploy.bash` and `acceptance.bash` on `_planlib.inc.bash`. Acceptance round-trips a fixture (encode, run the block, sha256 match), tests the rejection paths (non-image, over the block budget, over the pixel limit, over the byte limit, each by its stderr reason), and prints a COVERAGE line.
   - [ ] ⬜ **HOST**: `./deploy.bash`, then `./acceptance.bash`.
 - [x] ✅ **Task 2.5**: Document the command under `docs/` (`docs/playbooks.md`, `play-cli-tools.yml`).
 - [ ] ⬜ **Task 2.6**: Run `./scripts/qa-all.bash`, then the `qa-reviewer` agent; resolve all findings.
@@ -78,4 +77,6 @@ choice: [RESEARCH-encoding.md](RESEARCH-encoding.md). Example input:
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00150-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- Plan, prototype and encoding research committed (Phase 1 partly done).
+- Plan, prototype and encoding research committed (`d94a14cd`).
+- Dogfood decode passed; block-budget ladder (`9cee0cde`, `59ea6ece`).
+- `play-cli-tools.yml` with imgpaste (`cf6bc90f`); open, compression helpers and disk reclaim merged in (this plan's next commit).

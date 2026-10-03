@@ -143,7 +143,7 @@ mime_of() {
     if [ -z "$mime" ]; then
         die "could not determine the file type of '$target'.
   This needs one of: mimetype (perl-File-MimeInfo), xdg-mime (xdg-utils), or file.
-  Deploy them with: ansible-playbook playbooks/imports/optional/common/play-open-command.yml"
+  Deploy them with: ansible-playbook playbooks/imports/optional/common/play-cli-tools.yml"
     fi
     printf '%s' "$mime"
 }

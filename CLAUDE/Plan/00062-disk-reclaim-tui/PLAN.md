@@ -42,7 +42,8 @@ OUT-OF-MAP ARTIFACTS below):**
 **Other open items (lower priority):**
 
 - **Task 3.3** — (HOST) deploy + live-test the `reclaim` feature itself (walk the
-  menu). The tool + `play-disk-reclaim.yml` are written; not yet menu-walked.
+  menu). The tool and its deploy are written (now in `play-cli-tools.yml`, tag
+  `disk-reclaim`, since Plan 00150 merged `play-disk-reclaim.yml` into it); not yet menu-walked.
 - **reclaim refinement (follow-up, not yet ticketed):** `reclaim`'s container
   action uses `podman system df` as its reachability probe, which now
   false-negatives (store healthy, but `df` fails on the out-of-map volumes) and

@@ -106,36 +106,46 @@ if "${deployed}" "${fixture}" > "${work}/block.txt" 2> "${work}/encode.stderr" \
 fi
 check "the example screenshot round-trips: block runs, sha256 OK, decoded file is image/webp" "${roundtrip}"
 
-# --- refusals print nothing on stdout, so a refused run can never be pasted as a block ----
-printf 'not an image\n' > "${work}/not-an-image.txt"
-if "${deployed}" "${work}/not-an-image.txt" > "${work}/refused-text.out" 2> "${work}/refused-text.err"; then
-    check "a text file is refused" no
-else
-    if [[ -s "${work}/refused-text.out" ]]; then
-        check "a text file is refused with nothing on stdout" no
+# --- refusals: non-zero, nothing on stdout, and refused for the RIGHT reason -----------------
+# Nothing on stdout means a refused run can never be pasted as a block. The stderr reason is
+# asserted too: without it, any failure (a broken ImageMagick, say) would read as a pass.
+refused() {
+    local label="${1}" input="${2}" reason="${3}" name
+    name="$(basename "${input}")"
+    if "${deployed}" "${input}" > "${work}/${name}.out" 2> "${work}/${name}.err"; then
+        check "${label} is refused (it was accepted)" no
+    elif [[ -s "${work}/${name}.out" ]]; then
+        check "${label} is refused with nothing on stdout (stdout was not empty)" no
+    elif ! grep -q -F -e "${reason}" "${work}/${name}.err"; then
+        check "${label} is refused for '${reason}' (stderr: $(head -c 200 "${work}/${name}.err"))" no
     else
-        check "a text file is refused with nothing on stdout" yes
+        check "${label} is refused, nothing on stdout, reason '${reason}'" yes
     fi
-fi
+}
+
+printf 'not an image\n' > "${work}/not-an-image.txt"
+refused "a text file" "${work}/not-an-image.txt" "not an image"
 
 magick -size 2000x2000 xc: +noise Random "${work}/noise.png"
-if "${deployed}" "${work}/noise.png" > "${work}/refused-noise.out" 2> "${work}/refused-noise.err"; then
-    check "random noise (no step fits the block budget) is refused" no
-else
-    if [[ -s "${work}/refused-noise.out" ]]; then
-        check "random noise is refused with nothing on stdout" no
-    else
-        check "random noise is refused with nothing on stdout" yes
-    fi
-fi
+refused "random noise (no step fits the block budget)" "${work}/noise.png" "no setting fits"
+
+magick -size 9000x9000 xc:white "${work}/over-pixels.png"
+refused "a 9000x9000 image (over the pixel limit)" "${work}/over-pixels.png" "pixels"
+
+# A valid PNG header padded to 51 MiB: `file` still calls it an image, so the byte limit,
+# not the mime check, is what refuses it. truncate makes it sparse, so it costs no disk.
+cp "${fixture}" "${work}/over-bytes.png"
+truncate -s 51M "${work}/over-bytes.png"
+refused "a 51 MiB image (over the byte limit)" "${work}/over-bytes.png" "bytes, limit is"
 
 printf '\nCOVERAGE: %d of %d established checks passed\n' "${passed}" "${total}"
 printf '\nNOT ESTABLISHABLE by this script (a human must confirm, Task 1.4):\n'
 printf '  - that an agent in a fresh session runs a pasted block from its instruction line alone\n'
 printf '  - that an agent can read the decoded image (Read tool), not just that it is valid WebP\n'
+printf '\n==> run log: %s\n' "${PLAN_RUN_LOG}"
 
 if [[ "${failed}" -gt 0 ]]; then
-    printf '\n==> %d check(s) FAILED\n' "${failed}" >&2
+    printf '==> %d check(s) FAILED\n' "${failed}" >&2
     exit 1
 fi
-printf '\n==> all established checks passed\n'
+printf '==> all established checks passed\n'

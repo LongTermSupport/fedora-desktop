@@ -7,6 +7,9 @@
 # Deployed by playbooks/imports/optional/common/play-cli-tools.yml. Measurements behind
 # every limit below: CLAUDE/Plan/00150-image-paste-cli/RESEARCH-encoding.md.
 set -euo pipefail
+# render_block runs inside $(...), where bash otherwise drops errexit: a failed base64 or
+# sha256sum there would still print a block, and a bad block is worse than none.
+shopt -s inherit_errexit
 
 readonly MAX_INPUT_BYTES=$((50 * 1024 * 1024))
 readonly MAX_INPUT_PIXELS=$((80 * 1000 * 1000))

@@ -116,7 +116,8 @@ not, terminal-aware when headless". Build the wrapper; delegate everything else.
 ### Phase 4: HOST deployment and live verification
 
 - [ ] ⬜ **Task 4.1**: (HOST) Run
-  `ansible-playbook playbooks/imports/optional/common/play-open-command.yml`
+  `ansible-playbook playbooks/imports/optional/common/play-cli-tools.yml --tags open-command`
+  (`play-open-command.yml` was merged into `play-cli-tools.yml` by Plan 00150)
 - [ ] ⬜ **Task 4.2**: (HOST) Desktop checks — `open <pdf>` uses the registered
   viewer; `open .` opens the file manager; `open -a <image>` shows the chooser;
   `open -d <image>` registers the default and a subsequent `open` honours it
