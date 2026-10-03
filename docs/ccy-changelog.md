@@ -17,6 +17,25 @@ Two version numbers move independently — see
 
 ---
 
+## 3.76.0 — container 2.41
+
+- **One encrypted key file unlocks with no prompt when your own `SSH_ASKPASS` helper can
+  answer for it.** A key file is unlocked twice, on the host and again in the container, and
+  the agent route that avoids both prompts hands the container every key the agent holds
+  and runs it without SELinux confinement. Now, when `SSH_ASKPASS` names an executable and
+  exactly one encrypted key file is selected, the launcher asks that program once, in
+  ssh-add's own words, and feeds the answer to both unlocks through the stage a session
+  restore already uses. The container gets that one key file, read-only, and stays confined.
+  The answer sits in an owner-only file on the runtime directory for the length of the
+  launch, is removed once it has been copied where it is needed, and is never in argv or the
+  environment. The launcher names the terminal for a helper that asks through gpg. Several
+  keys, a passphrase-less key, the forwarded agent, a launch with no terminal, or a helper
+  that gives no answer leave the ordinary prompting as it was.
+- **The ssh-agent row says what it hands over.** It now says the container can use every key
+  the agent holds. The agent is no longer the default when it holds the key the menu would
+  pick (3.74.0 made it so; a key file with a helper is the narrower route to the same no-prompt
+  result).
+
 ## 3.75.0 — container 2.41
 
 - **Ctrl+V pastes an image from the host clipboard into a session.** Claude Code reads the
@@ -29,11 +48,6 @@ Two version numbers move independently — see
 
 ## 3.74.0 — container 2.40
 
-- **The ssh-agent is the default whenever it holds the key the menu would have chosen.**
-  3.73.0 made the agent the default only when nothing else was suggested, so a project whose
-  remote key was also loaded in the agent still defaulted to the key file and asked for its
-  passphrase. Now the default key is picked as before, and if the agent holds that very key
-  the agent is the default instead. The key file stays one keystroke away.
 - **A key the remote and the account both name is listed once.** The remote's own key can be
   one of the `github_` account keys; the menu showed it twice, with the push and agent marks
   on only one line. It is now one line carrying both.
