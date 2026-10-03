@@ -232,6 +232,12 @@ gate. A `gather` leg failing means "this probe did not run", not "the system is 
 triage script's non-zero exit says *the fact-finding was incomplete*, which is precisely why it
 must still be non-zero rather than swallowed.
 
+**`deploy.bash` ends by running `acceptance.bash` as its last `plan_deploy_leg`**, so the human
+runs one command, not two. Skip it only under `--check` (nothing was deployed to test), and
+say so in the output. When something must happen between the two that a script cannot do
+(a logout to load new GNOME Shell code, a reboot), keep them separate and say why in
+`deploy.bash`'s closing message.
+
 ### R10 — Reports go in the run directory, and the script writes them
 
 `plan_start_log auto` creates `untracked/plan-runs/<plan>/<script>/<timestamp>/`, exports it as `PLAN_RUN_DIR`, and

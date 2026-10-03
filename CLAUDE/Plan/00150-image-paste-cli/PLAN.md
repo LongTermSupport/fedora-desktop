@@ -59,7 +59,7 @@ choice: [RESEARCH-encoding.md](RESEARCH-encoding.md). Example input:
   - [ ] ⬜ **HOST**: a host that ran any of the three old plays reports each as gone until `play-cli-tools.yml` has run once; `deploy.bash` covers that. Anyone with an old name in `RUN_BASH_OPTIONAL_PLAYBOOKS` must switch to `play-cli-tools`.
 - [ ] ⬜ **Task 2.3**: Check whether `wl-clipboard`/`xclip` are installed by IaC. If not, add them to the relevant system playbook and confirm Ctrl+V image paste works locally. Found: `wl-clipboard` is installed only by the optional `play-clean-paste.yml`, and `xclip` by nothing. The Ctrl+V check needs the host.
 - [x] ✅ **Task 2.4**: Write `deploy.bash` and `acceptance.bash` on `_planlib.inc.bash`. Acceptance round-trips a fixture (encode, run the block, sha256 match), tests the rejection paths (non-image, over the block budget, over the pixel limit, over the byte limit, each by its stderr reason), and prints a COVERAGE line.
-  - [ ] ⬜ **HOST**: `./deploy.bash`, then `./acceptance.bash`.
+  - [ ] ⬜ **HOST**: `./deploy.bash` (it runs `acceptance.bash` as its last leg).
 - [x] ✅ **Task 2.5**: Document the command under `docs/` (`docs/playbooks.md`, `play-cli-tools.yml`).
 - [ ] ⬜ **Task 2.6**: Run `./scripts/qa-all.bash`, then the `qa-reviewer` agent; resolve all findings.
 
