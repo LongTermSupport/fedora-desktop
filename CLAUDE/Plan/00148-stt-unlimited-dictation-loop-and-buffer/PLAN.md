@@ -1,6 +1,6 @@
 # Plan 00148: speech-to-text improvements (unlimited dictation, delayed stop, models)
 
-**Status**: In Progress (Phase 0, Task 7.4 and Phase 8 built, host checks Tasks 0.5 and 8.4 pending; Task 1.1 decided: loop-and-buffer)
+**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 4.1-4.5 and 7.4 built; host checks Tasks 0.5, 1.2 and 8.4 pending; next: Task 4.6 after the triage run, Phases 5 and 6)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
@@ -90,53 +90,82 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
   places, grow the stop-wait budget and move the watchdog in the same commit. Recommendation:
   (a); (b) worsens stop latency, the silent fallback to `tiny` text and server-mode
   truncation, all of which grow with length (research section 2). Blocked on the owner.
-- [ ] ⬜ **Task 1.2**: `triage.bash` (HOST, read-only) for the research's section 3.6
+- [ ] 🚫 **Task 1.2**: `triage.bash` (HOST, read-only) for the research's section 3.6
   probes: installed RealtimeSTT and faster-whisper versions, real-time factor of the chosen
   model per 20 s segment, hard-cut frequency at 20 s soft / 28 s hard max, and word loss at
-  phrase boundaries in article mode.
+  phrase boundaries in article mode. Written: it records the owner reading aloud for 90 s
+  (or reuses `--audio`) and replays that one recording to every probe; the hard-cut probe
+  runs the checkout's own segmenter and VAD adapter. Blocked on the
+  owner: **HOST** run (it needs a person speaking).
 
 ### Phase 2: Continuous dictation in the server
 
-- [ ] ⬜ **Task 2.1**: Tests first: unit tests under `tests/` for the segmenter as a pure
+- [x] ✅ **Task 2.1**: Tests first: unit tests under `tests/` for the segmenter as a pure
   function on synthetic arrays (silence cut, soft max, hard cut at the energy minimum, pure
-  silence never queued) and for ordered commit.
-- [ ] ⬜ **Task 2.2**: `wsi-stream-server`: VAD segmenter, one ordered transcription worker
+  silence never queued) and for ordered commit (`test_continuous_segmenter.py`).
+- [x] ✅ **Task 2.2**: `wsi-stream-server`: VAD segmenter, one ordered transcription worker
   (main model, `condition_on_previous_text=False`, a short `initial_prompt` from committed
   text), in-memory buffer plus append-only JSONL journal in `$XDG_RUNTIME_DIR`, commands
   `START {continuous:true}`, `PROGRESS`, `KEEPALIVE`, `ABORT`, and a STOP that drains under a
   backlog-scaled deadline. Any failure (segment error, `pw-record` exit, backlog ceiling,
   drain deadline, journal write) marks the session FAILED, keeps the audio, copies the text
-  so far.
-- [ ] ⬜ **Task 2.3**: Replace `WATCHDOG_TIMEOUT = 125` with the heartbeat (stop after 15 s
+  so far. RealtimeSTT is gone from the server: it loads faster-whisper's `WhisperModel`
+  itself. With `continuous-dictation` off (the default) no VAD runs: the whole clip, up to
+  the fixed `--timeout` cap, is transcribed once at stop. The Silero VAD is loaded only by
+  a continuous START; its adapter finds the model's input shape by a silence self-test and
+  raises (START refused, loudly) rather than segment on a wrong shape. Text no client
+  collected (the client died, the heartbeat stopped it) keeps its journal and is handed to
+  the next START, which puts it on the clipboard. A failed session stays busy until its
+  in-flight transcription returns, so no START shares the model with it.
+  Tested with a fake `pw-record`, stub VAD and stub transcriber
+  (`test_continuous_session.py`); the real VAD adapter and model run only on the host
+  (triage leg 3, Task 6.2).
+- [x] ✅ **Task 2.3**: Replace `WATCHDOG_TIMEOUT = 125` with the heartbeat (stop after 15 s
   without `KEEPALIVE`), the no-speech auto-stop, and the large configurable absolute cap.
-- [ ] ⬜ **Task 2.4**: `wsi-stream` server-mode client: no fixed `--timeout`, sends
+  The server applies the limits START carries; the client reads them from Settings.
+- [x] ✅ **Task 2.4**: `wsi-stream` server-mode client: no fixed `--timeout`, sends
   keepalives, relays progress, exits non-zero on FAILED with the partial text on the
-  clipboard. Diagnostics to stderr (`CLAUDE/StderrHygiene.md`).
+  clipboard. Diagnostics to stderr (`CLAUDE/StderrHygiene.md`). Replies are read to their
+  newline (a long dictation is far over one 4 KiB read); progress goes to the panel as a
+  new `Progress` D-Bus signal (`test_server_client.py`, against a stub server).
 
 ### Phase 3: Panel extension and settings
 
-- [ ] ⬜ **Task 3.1**: GSettings keys `continuous-dictation` (default off until verified),
-  `max-recording-minutes`, `silence-autostop-seconds`, with `prefs.js` controls.
-- [ ] ⬜ **Task 3.2**: `extension.js`: elapsed time and backlog instead of the 117/27
+- [x] ✅ **Task 3.1**: GSettings keys `continuous-dictation` (default off until verified),
+  `max-recording-minutes`, `silence-autostop-seconds`, with `prefs.js` controls. Defaults
+  60 min and 120 s; the controls take their ranges from the schema.
+- [x] ✅ **Task 3.2**: `extension.js`: elapsed time and backlog instead of the 117/27
   countdown (a countdown only in the absolute cap's last minute), limits read from
-  GSettings, the `117`/`120` literals removed. ESLint green.
+  GSettings, the `117`/`120` literals removed. ESLint green. Every mode now shows elapsed
+  time and the extension no longer stops a recording itself: the recorders already stop at
+  their own caps (batch 30 s, streaming 120 s), and continuous dictation's cap is the
+  server's. Not run in GNOME Shell here (needs a logout on the host, Task 6.2).
 
 ### Phase 4: Side findings
 
-- [ ] ⬜ **Task 4.1**: Server mode pastes the `tiny` realtime-preview model's text whatever
+- [x] ✅ **Task 4.1**: Server mode pastes the `tiny` realtime-preview model's text whatever
   model is selected (`wsi-stream-server` never calls `text()`). Continuous mode uses the
   main model; fix or retire the old server-mode path so it cannot paste preview text.
-- [ ] ⬜ **Task 4.2**: Remove the silent fallback to buffered `tiny` text in standard
-  streaming (`wsi-stream`, `run_standard_streaming`), or make it a loud warning.
-- [ ] ⬜ **Task 4.3**: Plan/code drift: completed Plan 015 says a `Shift+Insert` article-mode
+  Retired with Task 2.2: the server no longer loads RealtimeSTT, so no preview model exists.
+- [x] ✅ **Task 4.2**: Remove the silent fallback to buffered `tiny` text in standard
+  streaming (`wsi-stream`, `run_standard_streaming`), or make it a loud warning. Now the
+  preview is never pasted: it goes to the clipboard, the panel shows ERROR and a
+  notification that stays says nothing was pasted; exit 1.
+- [x] ✅ **Task 4.3**: Plan/code drift: completed Plan 015 says a `Shift+Insert` article-mode
   binding shipped; no such binding exists (article mode is menu-only). Correct the record
-  without rewriting the completed plan's history.
-- [ ] ⬜ **Task 4.4**: Docs drift: `docs/features/speech-to-text.md` says 30 s only; the
+  without rewriting the completed plan's history. A CORRECTION note under the claim; the
+  original text is left as written.
+- [x] ✅ **Task 4.4**: Docs drift: `docs/features/speech-to-text.md` says 30 s only; the
   `streaming-mode` schema description claims it auto-stops on silence, which it does not.
-  Document the real per-mode limits and continuous mode.
-- [ ] ⬜ **Task 4.5**: The 120 is held in six places (`extension.js` twice, `wsi-stream`,
+  Document the real per-mode limits and continuous mode. New "Recording Limits" and
+  "Continuous Dictation" sections.
+- [x] ✅ **Task 4.5**: The 120 is held in six places (`extension.js` twice, `wsi-stream`,
   `wsi-stream-server`, `wsi`, `wsi-article`) with nothing keeping them in step. After Phase 3
   each limit has one source, and a QA check fails if a literal copy reappears.
+  `scripts/qa-stt-limits.bash`, a hard gate in `qa-all.bash`: `wsi`'s
+  `MAX_RECORDING_SECONDS`, `wsi-stream`'s `STREAMING_MAX_SECONDS`, the GSettings keys.
+  Control run against the pre-plan files: 12 of 13 rules fail. `wsi-article`'s 120 is a
+  flush interval and is not checked (Phase 5 replaces it).
 - [ ] ⬜ **Task 4.6**: Pin `RealtimeSTT` and `faster-whisper` in
   `play-speech-to-text.yml`'s existing pip task, to the versions Task 1.2 finds; fix the
   play's stale header comment on the default model.

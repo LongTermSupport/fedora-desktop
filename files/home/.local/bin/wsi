@@ -28,6 +28,8 @@
 #============================================================================
 TEMPD='/dev/shm'
 ramf="$TEMPD/wfile-$USER.wav"
+# The one home of batch mode's recording cap; scripts/qa-stt-limits.bash keeps it single
+readonly MAX_RECORDING_SECONDS=30
 WHISPERFILE="faster-whisper-transcribe"
 CLIPBOARD=false
 AUTO_PASTE=false
@@ -790,19 +792,19 @@ log_debug "PID file written: $PID_FILE ($$)"
 sleep 0.3
 log_debug "Audio pipeline ready, starting recording indicator"
 
-# Now signal that we're actually recording (red icon + countdown)
+# Now signal that we're actually recording (red icon + elapsed timer)
 notify_state "RECORDING" "Recording... (Insert to stop)"
 
-# Start 30-second timeout timer in background
+# Start the recording-limit timer in background
 (
-    sleep 30
+    sleep "$MAX_RECORDING_SECONDS"
     if kill -0 "$REC_PID" 2>/dev/null; then
-        log_debug "30-second limit reached, auto-stopping recording"
+        log_debug "${MAX_RECORDING_SECONDS}-second limit reached, auto-stopping recording"
         kill -INT "$REC_PID" 2>/dev/null
     fi
 ) &
 TIMER_PID=$!
-log_debug "30-second timer started with PID $TIMER_PID"
+log_debug "${MAX_RECORDING_SECONDS}-second timer started with PID $TIMER_PID"
 
 # Wait for recording to complete (or be killed). A non-zero status is the normal
 # path — the timer above sends SIGINT — so it is recorded rather than discarded:

@@ -49,19 +49,14 @@ PLAN_ROOT="${scriptDir}"
 # run as one unit through its own shebang, which goes through run.bash, exactly as
 # `./playbooks/imports/<play>.yml` does by hand.
 PLANS=(
-    # Plan 00151: Ctrl+V image paste in every ccy session (CCY 3.75.0, container 2.41).
+    # PR #66: ccy 3.77.1 / container 2.42, session lifetimes and restart on a fresh container.
     playbooks/imports/play-claude-yolo.yml
-    # Plan 00148: speech-to-text delayed stop (Phase 0), better default model (Task 7.4),
-    # keep the server warm (Phase 8).
+    # Plan 00148: continuous dictation in the warm server (Phases 2-4, off by default).
     playbooks/imports/optional/common/play-speech-to-text.yml
-    # No plan: script(1) for the ccy-relabel-preflight QA gate (util-linux-script).
-    playbooks/imports/play-python.yml
-    # Plans 00144, 00141 (Task 4.4), 00136 and 00109: the panel and its backends, deployed now
-    # so the next logout loads the new panel code. Their acceptance gates need that logout, so
-    # 00109 and 00144 replace these lines in the next round, after it.
-    playbooks/imports/optional/common/play-container-watch.yml
-    playbooks/imports/optional/common/play-host-health-login-report.yml
-    playbooks/imports/optional/common/play-fedora-desktop-panel.yml
+    # Plan 00148 Task 1.2: measurements on the deployed speech-to-text; asks you to read
+    # aloud for 90 s. Read-only.
+    00148-stt-unlimited-dictation-loop-and-buffer
+    # Plans 00109 and 00144 come next, after the logout their acceptance gates need.
 )
 
 LIST_ONLY=0

@@ -34,7 +34,7 @@
     <key name="streaming-mode" type="b">
       <default>false</default>
       <summary>Streaming Mode</summary>
-      <description>Use real-time streaming transcription with VAD (auto-stops on silence). Requires RealtimeSTT to be installed.</description>
+      <description>Use streaming transcription instead of batch. It does not stop on silence: it stops at Insert or at wsi-stream's fixed streaming limit, or, with continuous dictation in server mode, at the limits set for that. Standard and pre-buffer mode need RealtimeSTT.</description>
     </key>
     <key name="streaming-startup-mode" type="s">
       <default>'standard'</default>
@@ -92,6 +92,23 @@
       <default>false</default>
       <summary>Start the Server at Login</summary>
       <description>Streaming server mode: start the warm server when you log in, so the first recording is not a cold start. Only acts when streaming mode is on with startup mode "server". Run by the user unit wsi-stream-server-at-login.service; applies from the next login.</description>
+    </key>
+    <key name="continuous-dictation" type="b">
+      <default>false</default>
+      <summary>Continuous Dictation</summary>
+      <description>Streaming server mode: dictate for as long as you like. The server transcribes each phrase while you speak and pastes the whole text once at stop. The recording stops at Insert, after the no-speech time below, or at the maximum length. Off: server mode stops at the fixed streaming limit, as the other streaming modes do. Read by wsi-stream at each recording.</description>
+    </key>
+    <key name="max-recording-minutes" type="i">
+      <range min="1" max="480"/>
+      <default>60</default>
+      <summary>Maximum Recording Length (minutes)</summary>
+      <description>Continuous dictation: the recording stops and is transcribed after this many minutes, as a last resort against a forgotten microphone. The panel counts down in the last minute.</description>
+    </key>
+    <key name="silence-autostop-seconds" type="i">
+      <range min="0" max="3600"/>
+      <default>120</default>
+      <summary>Stop After Silence (seconds)</summary>
+      <description>Continuous dictation: stop and transcribe after this many seconds without speech. 0 never stops for silence.</description>
     </key>
     <key name="paste-default-mode" type="s">
       <default>'with-shift'</default>

@@ -51,7 +51,7 @@ _WANTED = {
 
 class ServerIdleTimeoutTest(unittest.TestCase):
     def setUp(self):
-        patcher = mock.patch.multiple(server, recording_active=False,
+        patcher = mock.patch.multiple(server, session=None,
                                       last_activity_time=server.time.time() - 10_000)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -190,7 +190,7 @@ class ServerPidLockTest(unittest.TestCase):
     def test_a_model_that_fails_to_load_leaves_no_pid_file(self):
         body = (
             "s.SOCKET_PATH = s.PID_FILE.with_name('test.socket')\n"
-            "s.initialize_recorder = lambda *a: False\n"
+            "s.load_models = lambda *a: False\n"
             "sys.argv = ['wsi-stream-server']\n"
             "sys.exit(s.main())\n")
         proc = self.server_process(body)

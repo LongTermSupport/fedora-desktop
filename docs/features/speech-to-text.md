@@ -254,6 +254,64 @@ server stays warm until logout. What the unit did at login:
 journalctl --user -u wsi-stream-server-at-login.service -b --no-pager | cat
 ```
 
+### Recording Limits
+
+Each mode stops itself; the panel shows the elapsed time (`1:42`).
+
+| Mode                                 | Stops at                                                                     |
+| ------------------------------------ | ---------------------------------------------------------------------------- |
+| Batch (`wsi`)                        | 30 s                                                                         |
+| Streaming: standard, pre-buffer      | 120 s (`wsi-stream --timeout`)                                               |
+| Streaming: server, continuous off    | 120 s, the same cap                                                          |
+| Streaming: server, continuous **on** | Insert; or **Stop after silence** / **Maximum length** (Settings), see below |
+| Article mode (**Create Article...**) | its window's Stop; it flushes text every 120 s but has no limit              |
+
+None of these auto-stops on a pause in speech, except continuous dictation's no-speech
+stop.
+
+### Continuous Dictation
+
+For dictating at length. In streaming **Server mode**, turn on **Settings... → Continuous
+Dictation → Continuous dictation** (`continuous-dictation`, default off while it is new;
+read at each recording, no logout). The server cuts your speech at natural pauses into
+segments of at most 28 s, transcribes each with the selected model while you keep
+talking, and pastes the whole text once when you press Insert. The panel shows the
+elapsed time and, after a dot, how many segments are still waiting (`3:42 ·2`); amber
+means transcription is slower than your speech.
+
+The recording also stops by itself, transcribes and pastes, and a notification that
+stays until dismissed says why:
+
+- **Stop after silence** (`silence-autostop-seconds`, default 120 s, 0 = never);
+- **Maximum length** (`max-recording-minutes`, default 60); the panel counts down its
+  last minute.
+
+With continuous dictation off, server mode records the whole clip (up to the 120 s cap)
+and transcribes it once at stop with the selected model; no speech detection runs, and
+reaching the cap shows the usual short notification. If the speech detector continuous
+dictation needs cannot be used with the installed faster-whisper, a continuous recording
+refuses to start and says why; turning the setting off still records.
+
+If anything fails (a segment cannot be transcribed, the microphone disappears,
+transcription falls more than 120 s behind, the final segments do not finish in time),
+the dictation stops at once and **nothing is pasted**: the text so far is put on the
+clipboard (Ctrl+V), the audio not yet transcribed is kept as WAV files, and a
+notification that stays until dismissed names the folder. While a dictation runs, its
+text is also written line by line to `$XDG_RUNTIME_DIR/wsi-dictation/session-*/journal.jsonl`
+(cleared at logout).
+
+If `wsi-stream` itself dies, its keepalives stop and the server closes the microphone
+15 s later and finishes the transcription, but nobody is left to paste it. The server
+keeps that dictation's journal, stays up (even past its idle timeout) and, at the next
+Insert, the text is put on the clipboard (Ctrl+V) and a notification that stays names
+the journal. The new recording then carries on as usual; its own result replaces the
+clipboard when it is pasted, so paste the old text first. If the server stops before
+the next Insert (logout, a playbook run), the text is still in the journal until logout:
+
+```bash
+jq -r .text "$XDG_RUNTIME_DIR"/wsi-dictation/session-*/journal.jsonl | cat
+```
+
 ### Stop Grace
 
 After the first stop press, every recorder (batch, and streaming in standard,
@@ -283,7 +341,8 @@ were lost, per mode: `CLAUDE/Plan/00148-stt-unlimited-dictation-loop-and-buffer/
 
    - 🎤 Red microphone icon appears
    - Desktop notification: "Recording..."
-   - Maximum duration: 30 seconds
+   - The panel shows the elapsed time; each mode stops itself at its limit (batch 30 s,
+     see [Recording Limits](#recording-limits))
 
 2. **Speak Clearly**: Say what you want to type
 
@@ -295,7 +354,7 @@ were lost, per mode: `CLAUDE/Plan/00148-stt-unlimited-dictation-loop-and-buffer/
 
    - Recording carries on for a short grace (3 seconds by default) so the words you
      were still saying are kept; a notification says "Stopping in 3s" (only when
-     notifications are on; the countdown keeps running either way)
+     notifications are on; the panel timer keeps running either way)
    - Press **Insert** once more to stop at once; **Escape** still discards at once
    - Icon changes to ⚙️ (processing)
    - Desktop notification: "Transcribing..."
@@ -357,10 +416,14 @@ Output: The quick brown fox jumps over the lazy dog.
 
 **Characteristics:**
 
-- Words appear instantly while speaking
-- Useful for long-form dictation
+- Words appear instantly while speaking (standard and pre-buffer mode preview)
+- Stops at 120 s; for longer dictation use [Continuous Dictation](#continuous-dictation)
 - Higher GPU load
 - Experimental feature
+- Standard mode pastes the selected model's final transcription. If that does not
+  finish, nothing is pasted: the live preview text (lower quality) goes to the clipboard
+  and an error notification says so
+- Server mode transcribes with the selected model in the warm server (no preview text)
 
 ### Claude Code Post-Processing
 
@@ -772,7 +835,7 @@ wsi -d  # Run with debug flag
 │                     GNOME Shell Extension                       │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │  UI: Icon, Menu, Keybindings (Insert, Ctrl+Insert)      │   │
-│  │  DBus: Signals (StateChanged, Error)                    │   │
+│  │  DBus: Signals (StateChanged, Error, Progress)          │   │
 │  └────────────────┬─────────────────────────────────────────┘   │
 └────────────────────┼─────────────────────────────────────────────┘
                      │ Spawns
@@ -792,10 +855,14 @@ wsi -d  # Run with debug flag
 │               Transcription Engines                             │
 │  ┌─────────────────────┐    ┌──────────────────────────────┐   │
 │  │  faster-whisper     │    │  RealtimeSTT (streaming)    │   │
-│  │  - GPU: CUDA        │    │  - Real-time transcription  │   │
+│  │  - GPU: CUDA        │    │  - standard, pre-buffer     │   │
 │  │  - CPU: fallback    │    │  - Higher GPU load          │   │
 │  │  - Batch mode       │    │  - Experimental             │   │
-│  └─────────────────────┘    └──────────────────────────────┘   │
+│  │  - Server mode:     │    └──────────────────────────────┘   │
+│  │    Silero VAD cuts, │                                       │
+│  │    one ordered      │                                       │
+│  │    worker           │                                       │
+│  └─────────────────────┘                                       │
 └─────────────────────────────────────────────────────────────────┘
                      │ Optional
                      ▼

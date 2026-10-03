@@ -8,6 +8,11 @@ Delivered: `files/home/.local/bin/wsi-article` + `wsi-article-window`, the
 `Shift+Insert` binding, and the two-pane article window are all shipped in the
 repo (see the Key Reference Files / Verification sections below).
 
+> **CORRECTION** (Plan 00148 Task 4.3): no `Shift+Insert` binding shipped. The schema has
+> no article-mode key and the extension binds no key for it; article mode is opened from
+> the panel menu ("Create Article...") only, as commit `a04aae3a` says ("not a
+> keybinding"). The keybinding text below is the original plan, left as written.
+
 ## Context
 
 The speech-to-text system currently supports single-session recording (up to 120 seconds) with optional Claude post-processing (corporate/natural styles). This plan adds **article mode**: an indefinite looped recording mode where every 120 seconds the accumulated transcription is flushed and Claude re-polishes the entire raw article. A dedicated two-pane GTK window serves as the UI.

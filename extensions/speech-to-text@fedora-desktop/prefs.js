@@ -69,15 +69,35 @@ export default class SpeechToTextPreferences extends ExtensionPreferences {
                 'Pre-buffer — record while loading (~2-4s)',
                 'Server mode — persistent server (<0.5s, uses more memory)']);
 
-        const idleRow = Adw.SpinRow.new_with_range(0, 1440, 5);
-        idleRow.title = 'Server idle timeout (minutes)';
-        idleRow.subtitle = 'Server mode: shut the server down after this long unused; 0 = never. Applies from the next server start';
-        settings.bind('server-idle-timeout-minutes', idleRow, 'value', Gio.SettingsBindFlags.DEFAULT);
-        streamGroup.add(idleRow);
+        this._addSpinRow(streamGroup, settings, 'server-idle-timeout-minutes',
+            'Server idle timeout (minutes)',
+            'Server mode: shut the server down after this long unused; 0 = never. Applies from the next server start',
+            5);
 
         this._addSwitchRow(streamGroup, settings, 'server-start-at-login',
             'Start the server at login',
             'Server mode: load the model when you log in, so the first recording is instant');
+
+        // === Continuous dictation (server mode) ===
+        const dictationGroup = new Adw.PreferencesGroup({
+            title: 'Continuous Dictation',
+            description: 'Server mode only. Dictate for as long as you like: each phrase is transcribed while you speak, and the whole text is pasted once when you stop',
+        });
+        page.add(dictationGroup);
+
+        this._addSwitchRow(dictationGroup, settings, 'continuous-dictation',
+            'Continuous dictation',
+            'Off: server mode stops at the fixed streaming limit, like the other streaming modes');
+
+        this._addSpinRow(dictationGroup, settings, 'max-recording-minutes',
+            'Maximum length (minutes)',
+            'Stops and transcribes after this long, in case the microphone was forgotten; the panel counts down the last minute',
+            5);
+
+        this._addSpinRow(dictationGroup, settings, 'silence-autostop-seconds',
+            'Stop after silence (seconds)',
+            'Stops and transcribes after this long without speech; 0 = never',
+            30);
 
         // === Output ===
         const outputGroup = new Adw.PreferencesGroup({ title: 'Output' });
@@ -214,6 +234,17 @@ export default class SpeechToTextPreferences extends ExtensionPreferences {
             }
         });
         group.add(row);
+    }
+
+    /** A number row bound to an integer key; its range is the schema's, not a copy. */
+    _addSpinRow(group, settings, key, title, subtitle, step) {
+        const [, [min, max]] = settings.settings_schema.get_key(key).get_range().recursiveUnpack();
+        const row = Adw.SpinRow.new_with_range(min, max, step);
+        row.title = title;
+        row.subtitle = subtitle;
+        settings.bind(key, row, 'value', Gio.SettingsBindFlags.DEFAULT);
+        group.add(row);
+        return row;
     }
 
     _addSwitchRow(group, settings, key, title, subtitle) {
