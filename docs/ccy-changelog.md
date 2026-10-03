@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.74.0 — container 2.40
+
+- **The ssh-agent is the default whenever it holds the key the menu would have chosen.**
+  3.73.0 made the agent the default only when nothing else was suggested, so a project whose
+  remote key was also loaded in the agent still defaulted to the key file and asked for its
+  passphrase. Now the default key is picked as before, and if the agent holds that very key
+  the agent is the default instead. The key file stays one keystroke away.
+- **A key the remote and the account both name is listed once.** The remote's own key can be
+  one of the `github_` account keys; the menu showed it twice, with the push and agent marks
+  on only one line. It is now one line carrying both.
+
 ## 3.73.0 — container 2.40
 
 - **An ssh-agent that already holds your account key is the way to a session with no
