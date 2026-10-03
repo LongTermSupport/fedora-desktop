@@ -49,6 +49,16 @@ PLAN_ROOT="${scriptDir}"
 # run as one unit through its own shebang, which goes through run.bash, exactly as
 # `./playbooks/imports/<play>.yml` does by hand.
 PLANS=(
+    # Plan 00151: Ctrl+V image paste in every ccy session (CCY 3.75.0, container 2.41).
+    playbooks/imports/play-claude-yolo.yml
+    # Plan 00148: speech-to-text delayed stop (Phase 0).
+    playbooks/imports/optional/common/play-speech-to-text.yml
+    # Plans 00144, 00141 (Task 4.4), 00136 and 00109: the panel and its backends, deployed now
+    # so the next logout loads the new panel code. Their acceptance gates need that logout, so
+    # 00109 and 00144 replace these lines in the next round, after it.
+    playbooks/imports/optional/common/play-container-watch.yml
+    playbooks/imports/optional/common/play-host-health-login-report.yml
+    playbooks/imports/optional/common/play-fedora-desktop-panel.yml
 )
 
 LIST_ONLY=0

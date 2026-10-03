@@ -215,19 +215,24 @@
 
     # Probe-then-fail: imgpaste writes WebP and nothing else, so an ImageMagick built
     # without the WebP coder would fail on every image, at the moment the user needs it.
-    - name: Probe ImageMagick formats for WebP write support
-      ansible.builtin.command: magick -list format
-      register: imgpaste_magick_formats
+    # The probe encodes a 1x1 WebP rather than parsing `magick -list format`, whose
+    # columns differ between builds (a modular build adds a Module column).
+    - name: Probe ImageMagick for WebP write support
+      ansible.builtin.command:
+        argv: [magick, -size, 1x1, "xc:white", "webp:/dev/null"]
+      register: imgpaste_webp_probe
       changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe; the assert below fails with the reason
       tags: imgpaste
 
     - name: Assert ImageMagick can write WebP
       ansible.builtin.assert:
         that:
-          - imgpaste_magick_formats.stdout is search('(?m)^\s*WEBP\*?\s+rw')
+          - imgpaste_webp_probe.rc == 0
         fail_msg: |
-          `magick -list format` lists no writable WEBP coder, and imgpaste encodes to WebP only.
-          Install the ImageMagick WebP delegate (libwebp) and re-run this play.
+          ImageMagick could not encode a 1x1 WebP (rc {{ imgpaste_webp_probe.rc }}):
+          {{ imgpaste_webp_probe.stderr }}
+          imgpaste encodes to WebP only. Install the ImageMagick WebP coder (libwebp) and re-run this play.
       tags: imgpaste
 
     - name: Deploy imgpaste

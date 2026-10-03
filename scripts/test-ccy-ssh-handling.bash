@@ -574,10 +574,35 @@ else
 fi
 
 STUB_AGENT_LIST="$AGENT_HOLDS_BETA" run_menu "$K_BETA" '\n'
-if menu_chose "$K_BETA" && menu_says "the session's ssh-agent" && menu_says "$K_BETA  ✓ has push access to this remote  (also in your ssh-agent"; then
-    pass "the agent holds the key that can push → listed beside it; the key file is still the default"
+if menu_chose "ssh-agent" && menu_says "$K_BETA  ✓ has push access to this remote  (also in your ssh-agent" \
+        && ! menu_says "Use it anyway"; then
+    pass "the agent holds the key that can push → it is the default, listed beside the key file"
 else
     fail "agent holds the pusher, ENTER: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
+STUB_AGENT_LIST="$AGENT_HOLDS_BETA" run_menu "$K_BETA" '1\n'
+if menu_chose "$K_BETA"; then
+    pass "the key file stays one keystroke away when the agent is the default"
+else
+    fail "key file beside the agent default: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
+# The remote's alias key IS an account key: one file is one line, with the account key's marks.
+STUB_AGENT_LIST="$AGENT_HOLDS_BETA" STUB_ALIAS_KEY="$K_BETA" run_menu "$K_BETA" '\n'
+if menu_chose "ssh-agent" && [ "$(grep -cF -- ") $K_BETA" "$WORK/menu.out")" -eq 1 ] \
+        && menu_says "the project remote's key" && menu_says "✓ has push access to this remote" \
+        && menu_says "(also in your ssh-agent"; then
+    pass "an alias key that is also an account key is listed once, carrying push and agent marks, and the agent is the default"
+else
+    fail "alias is an account key: $(tr '\n' ' ' < "$WORK/menu.keys")"
+fi
+
+STUB_ALIAS_KEY="$K_BETA" run_menu "$K_BETA" '\n'
+if menu_chose "$K_BETA" && [ "$(grep -cF -- ") $K_BETA" "$WORK/menu.out")" -eq 1 ]; then
+    pass "with no agent the alias-and-account key is listed once and is the default"
+else
+    fail "alias is an account key, no agent: $(tr '\n' ' ' < "$WORK/menu.keys")"
 fi
 
 STUB_AGENT_LIST="$AGENT_HOLDS_BETA" run_menu "$K_BETA" '2\n'

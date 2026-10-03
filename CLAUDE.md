@@ -7,8 +7,16 @@
 **IF THE PROJECT PATH IS `/workspace/` — YOU ARE IN A CCY CONTAINER.**
 
 - **NEVER run Ansible playbooks** in the container
-- **Only edit and commit** — then tell the user to deploy on their HOST system
+- **Only edit and commit**, then put the host run in `CLAUDE/Plan/meta-deploy.bash` (below)
 - CCY version bump required when modifying `files/var/local/claude-yolo/claude-yolo`
+
+**Host runs go through `meta-deploy.bash`, never a list of commands.** Whatever needs running
+on the host (a plan's `deploy.bash`, a play no plan owns) is added to the `PLANS` list in
+`CLAUDE/Plan/meta-deploy.bash` in the same commit, and the owner is told "I have updated
+meta-deploy; run `./CLAUDE/Plan/meta-deploy.bash`", with what it will do. Never hand over
+individual plays or scripts, and never say `git pull` first: this container works in the
+host's own checkout. Only a reboot, a login, a look at the screen, a decision or another
+machine is asked for separately. Full rule: [AgentNotes.md](CLAUDE/AgentNotes.md#meta-deploybash-is-how-host-runs-reach-the-owner--keep-its-list-exact).
 
 **Full container rules and the retired ctrl+z patch:** [CLAUDE/ContainerRules.md](CLAUDE/ContainerRules.md)
 

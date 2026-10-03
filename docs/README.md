@@ -342,6 +342,7 @@ ccy --top
 
 - [Feature documentation index](features/README.md) — all feature guides in one place
 - [Speech-to-Text](features/speech-to-text.md) — Press-and-hold Insert key transcription with auto-paste
+- [Container Clipboard](features/container-clipboard.md) — Ctrl+V image paste inside ccy, LXC and other containers
 - [Claude Devtools](features/claude-devtools.md) — `ccdt` helper for Claude Code development containers
 
 **GitHub**
