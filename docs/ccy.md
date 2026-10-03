@@ -1337,9 +1337,11 @@ command.
 
 The relaunch asks nothing. It reuses the token file, SSH keys, GitHub-443 mode and network
 the session ran with, even those picked at a prompt. Where no answer is safe it stops with
-the resume command instead: an SSH key that needs a passphrase, or an expired or invalid
-token. For sessions that should restart unattended, use `--ssh-agent` or a key with no
-passphrase.
+the resume command instead: an SSH key that needs a passphrase (including one first unlocked
+through your `SSH_ASKPASS` helper, which also needs someone present), or an expired or
+invalid token. For sessions that should restart unattended, use a key with no passphrase,
+or `--ssh-agent`, which exposes every key the agent holds. An agent that asks before it signs
+cannot be answered either: on a restart the GitHub check gives up after 60 seconds and says so.
 
 ### Session limits: `--max-age`, `--run-for`, `--until`
 

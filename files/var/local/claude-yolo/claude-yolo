@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.77.0"  # --max-age restarts a session on a fresh container, unattended; --run-for and --until announce a deadline. See docs/ccy-changelog.md.
+CCY_VERSION="3.77.1"  # --max-age restarts a session on a fresh container, unattended; --run-for and --until announce a deadline. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -3391,7 +3391,7 @@ ccy_handle_restart_exit() {
     # arguments cannot carry, so a key that needs one stops the restart here, before the
     # budget and an image update are spent on a launch that would wait at ssh-add.
     if ! ccy_restart_keys_unattended "$RESTORE_SSH_PASSPHRASE_FILE" "${SSH_KEYS[@]}"; then
-        ccy_restart_refuse "$session_id" "the relaunch would wait at an SSH passphrase prompt. For unattended restarts launch with --ssh-agent (an agent that already holds the key) or a key without a passphrase."
+        ccy_restart_refuse "$session_id" "the relaunch would wait at an SSH passphrase prompt; an SSH_ASKPASS unlock needs someone present too. For unattended restarts launch with a key that has no passphrase, or with --ssh-agent, which exposes every key the agent holds (docs/ccy.md)."
         exit 1
     fi
 
