@@ -52,6 +52,13 @@
           - portaudio-devel
           - python3-devel
 
+    # script(1) gives scripts/test-ccy-relabel-preflight.bash a pseudo-terminal
+    # to answer its prompt; Fedora ships it apart from util-linux.
+    - name: Install script(1) for the QA tests that drive a prompt
+      become: true
+      ansible.builtin.dnf:
+        name: util-linux-script
+
     # The QA toolchain is pinned, unlike the development tools below, because
     # scripts/qa-toolchain.bash ASSERTS these versions: a gate's verdict is a
     # property of the binary that produced it, so a host running different

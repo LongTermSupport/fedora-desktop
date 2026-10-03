@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.75.0"  # Ctrl+V pastes images from the host clipboard (wl-clipboard in the image). See docs/ccy-changelog.md.
+CCY_VERSION="3.76.0"  # One encrypted key file is unlocked through the user's SSH_ASKPASS helper, with no prompt. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1052,7 +1052,11 @@ ccy_selinux_mode
 # SIGTERM, a SIGHUP; bash runs the EXIT trap for both) must not leave the probe agent holding
 # unlocked keys, nor a restore's passphrase copy on XDG_RUNTIME_DIR. The probe's own RETURN
 # trap covers only a normal return.
-trap _probe_agent_stop EXIT
+trap '_probe_agent_stop; ccy_askpass_passphrase_discard' EXIT
+
+# One selected key file, and an SSH_ASKPASS helper that can answer for it: no prompt, here or
+# in the container (lib/ssh-handling.bash).
+ccy_askpass_passphrase_supply || exit 1
 
 # Build SSH mounts and validate GitHub access
 # This sets: SSH_MOUNTS, SSH_KEY_PATHS, GITHUB_USERNAME, GH_TOKEN
@@ -2016,6 +2020,7 @@ cleanup() {
     fi
     # The duty of the probe's trap this one replaces; a no-op once the probe has returned.
     _probe_agent_stop
+    ccy_askpass_passphrase_discard
 
     # Show debug log if CCY debugging is enabled
     if [ "$DEBUG_CCY" = true ] && [ -n "$DEBUG_LOG" ]; then
@@ -2050,6 +2055,8 @@ if [ -n "$RESTORE_SSH_PASSPHRASE_FILE" ] && [ ${#SSH_KEY_PATHS[@]} -gt 0 ] \
     && [ "${SSH_AGENT_FORWARDED:-0}" != "1" ]; then
     ccy_restore_askpass_container "$RESTORE_SSH_PASSPHRASE_FILE" || exit 1
 fi
+# A passphrase an SSH_ASKPASS helper supplied has now been copied wherever it is needed.
+ccy_askpass_passphrase_discard || exit 1
 
 # Convert SSH_KEY_PATHS array to colon-separated string
 SSH_KEY_PATHS_STR=$(IFS=:; echo "${SSH_KEY_PATHS[*]}")
