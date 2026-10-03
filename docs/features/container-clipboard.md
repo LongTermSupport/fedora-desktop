@@ -62,7 +62,7 @@ Evidence and the options that were weighed:
 
 ## ccy
 
-Built in from CCY 3.74.0 (container 2.41). The launcher mounts the socket read-only and sets
+Built in from CCY 3.75.0 (container 2.41). The launcher mounts the socket read-only and sets
 both variables, and the image carries `wl-clipboard` and the wrapper. Nothing to configure.
 
 ## Podman or Docker (`run`)

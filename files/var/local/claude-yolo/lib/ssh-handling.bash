@@ -541,6 +541,13 @@ discover_and_select_ssh_keys() {
         if [[ " ${agent_held[*]:-} " == *" ${GITHUB_KEYS[$i]} "* ]]; then
             marker="$marker  (also in your ssh-agent, which asks no passphrase)"
         fi
+        # The remote's alias key can be one of the account keys: one file, one line. The
+        # alias entry (first in the list) takes the account key's markers and its probe.
+        if [ "$alias_rc" -eq 0 ] && [ "${GITHUB_KEYS[$i]}" = "$GITHUB_ALIAS_KEY" ]; then
+            labels[0]="${labels[0]}${marker}"
+            if [ -n "$remote_url" ]; then probed[0]=yes; fi
+            continue
+        fi
         candidates+=("${GITHUB_KEYS[$i]}")
         labels+=("${GITHUB_KEYS[$i]}${marker}")
         if [ -n "$remote_url" ]; then probed+=(yes); else probed+=(no); fi
@@ -571,7 +578,7 @@ discover_and_select_ssh_keys() {
         fi
     done
     # The agent joins the short list, after the keys that can push, when it holds one of
-    # them: it is the route that asks for no passphrase. It never becomes the default here.
+    # them: it is the route that asks for no passphrase.
     if [ ${#pushers[@]} -gt 0 ] && [ "$agent_ok" = true ]; then
         for held_key in "${agent_held[@]}"; do
             if grep -qxF "$held_key" <<< "$working_keys"; then
@@ -589,6 +596,19 @@ discover_and_select_ssh_keys() {
         suggested_key="${candidates[${pushers[0]}]}"
     else
         shown=("${!candidates[@]}")
+    fi
+
+    # Whatever the default key is, an agent that already holds that very key is the better
+    # default: it pushes as the same account and asks no passphrase, where the key file asks
+    # for it here and again in the container.
+    if [ "$agent_ok" = true ] && [ -n "$suggested_key" ] && [ ${#agent_held[@]} -gt 0 ] \
+            && [[ " ${agent_held[*]} " == *" $suggested_key "* ]]; then
+        for i in "${shown[@]}"; do
+            if [ "${candidates[$i]}" = "$SSH_AGENT_SENTINEL" ]; then
+                suggested_key="$SSH_AGENT_SENTINEL"
+                break
+            fi
+        done
     fi
 
     echo ""

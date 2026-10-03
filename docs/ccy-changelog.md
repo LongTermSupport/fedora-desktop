@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.74.0 — container 2.41
+## 3.75.0 — container 2.41
 
 - **Ctrl+V pastes an image from the host clipboard into a session.** Claude Code reads the
   clipboard with `wl-paste`, which the image did not carry. It now ships `wl-clipboard`,
@@ -26,6 +26,17 @@ Two version numbers move independently — see
   waits on it with no timeout, so a wrapper caps each call at 5 s and fails with a message
   rather than freezing the paste. Proven on a GNOME Wayland host (Plan 00151). `imgpaste`
   remains the route on hosts with no local clipboard.
+
+## 3.74.0 — container 2.40
+
+- **The ssh-agent is the default whenever it holds the key the menu would have chosen.**
+  3.73.0 made the agent the default only when nothing else was suggested, so a project whose
+  remote key was also loaded in the agent still defaulted to the key file and asked for its
+  passphrase. Now the default key is picked as before, and if the agent holds that very key
+  the agent is the default instead. The key file stays one keystroke away.
+- **A key the remote and the account both name is listed once.** The remote's own key can be
+  one of the `github_` account keys; the menu showed it twice, with the push and agent marks
+  on only one line. It is now one line carrying both.
 
 ## 3.73.0 — container 2.40
 

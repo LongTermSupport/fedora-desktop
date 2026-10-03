@@ -97,7 +97,7 @@ preferred.
 
 - [ ] 🔄 **Task 3.1**: Implement in IaC (ccy Dockerfile/launcher with version bumps; the
   LXC play), docs updated. ccy done: `wl-clipboard` and the guard moved to the shared image
-  (container 2.41, CCY 3.74.0, changelog), removed from this project's Dockerfile; docs
+  (container 2.41, CCY 3.75.0, changelog), removed from this project's Dockerfile; docs
   `docs/features/container-clipboard.md` and the ccy.md security table. HOST: the next ccy
   launch in any project rebuilds the base image. LXC remains manual (Task 2.2).
 - [ ] ⬜ **Task 3.2**: `deploy.bash` running `acceptance.bash` as its last leg.
