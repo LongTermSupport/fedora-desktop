@@ -82,6 +82,10 @@ case "$mode" in
         exit 0
         ;;
     T)
+        # STUB_SSH_HANG stands in for an agent that asks before it signs and gets no answer.
+        if [ -n "${STUB_SSH_HANG:-}" ]; then
+            sleep "$STUB_SSH_HANG"
+        fi
         printf '%s\n' "${STUB_GREETING:?}" >&2
         exit 1
         ;;
@@ -366,6 +370,25 @@ if [ -z "$got" ]; then pass "rejected key → empty"; else fail "rejected key �
 got=$(SSH_AUTH_SOCK="$sock" STUB_GREETING="Hi person! You've successfully authenticated, but GitHub does not provide shell access." \
       _github_probe_identity ssh-agent github.com 22)
 if [ "$got" = "person" ]; then pass "the ssh-agent sentinel probes through the agent → login"; else fail "agent probe → '$got'"; fi
+
+# An unattended launch (a --max-age restart, a reboot restore) has nobody to answer an agent
+# that asks before signing, so the probe is bounded there and says why it gave up; an attended
+# launch is not bounded, because a person can confirm.
+start=$SECONDS
+got=$(CCY_UNATTENDED_LAUNCH=true CCY_UNATTENDED_PROBE_SECONDS=2 STUB_SSH_HANG=30 \
+      SSH_AUTH_SOCK="$sock" STUB_GREETING="Hi late! You've successfully authenticated, but GitHub does not provide shell access." \
+      _github_probe_identity ssh-agent github.com 22 2>"$WORK/probe-timeout.err")
+elapsed=$((SECONDS - start))
+if [ -z "$got" ] && [ "$elapsed" -lt 20 ]; then pass "unattended: a probe that never answers gives up (${elapsed}s)"; else fail "unattended hang: got '$got' after ${elapsed}s"; fi
+if grep -q 'no answer' "$WORK/probe-timeout.err"; then pass "…and says it got no answer"; else fail "unattended hang: no reason on stderr"; fi
+got=$(CCY_UNATTENDED_LAUNCH=true CCY_UNATTENDED_PROBE_SECONDS=10 \
+      STUB_GREETING="Hi prompt! You've successfully authenticated, but GitHub does not provide shell access." \
+      _github_probe_identity "$KEY_DIR/project_a" github.com 22)
+if [ "$got" = "prompt" ]; then pass "unattended: a probe that answers in time → login"; else fail "unattended answer → '$got'"; fi
+got=$(CCY_UNATTENDED_LAUNCH=false STUB_SSH_HANG=3 \
+      STUB_GREETING="Hi patient! You've successfully authenticated, but GitHub does not provide shell access." \
+      _github_probe_identity "$KEY_DIR/project_a" github.com 22)
+if [ "$got" = "patient" ]; then pass "attended: a slow answer is still waited for"; else fail "attended slow → '$got'"; fi
 
 if github_identity_is_deploy_key "owner/repo"; then pass "owner/repo is a deploy key"; else fail "owner/repo not classified as deploy key"; fi
 if ! github_identity_is_deploy_key "someone"; then pass "a login is not a deploy key"; else fail "login classified as deploy key"; fi

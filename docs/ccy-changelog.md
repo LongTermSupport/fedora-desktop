@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.77.0 — container 2.42
+## 3.77.1 — container 2.42
 
 - **`--max-age`, `--run-for` and `--until` give a session a lifetime.** `--max-age 3d`
   restarts the session on a fresh container (and so the newest Claude Code) once it has run
@@ -43,8 +43,11 @@ Two version numbers move independently — see
   GitHub-443 mode and network the session actually used, including choices made at prompts,
   and takes the one safe answer at the prompts that have one. It stops with the manual
   `ccy --resume <id>` command instead of waiting, for an SSH key that needs a passphrase
-  (unless a server restore's passphrase file is in force), an expired token, or a token that
-  fails validation. A deadline is absolute and survives the restart; the `--max-age` clock
+  (unless a server restore's passphrase file is in force; 3.76.0's `SSH_ASKPASS` unlock needs
+  someone present, so it does not apply), an expired token, or a token that fails validation.
+  For unattended restarts use a key with no passphrase, or `--ssh-agent`, which exposes every
+  key the agent holds. On an unattended launch the GitHub identity check gives up after 60 s
+  (`CCY_UNATTENDED_PROBE_SECONDS`) rather than wait on an agent that asks before signing. A deadline is absolute and survives the restart; the `--max-age` clock
   starts again. The supervisor's "restarted, now on Claude Code X" marker is left for the
   next supervisor to read.
 - **It cannot loop.** At most 3 restarts per project per hour (`CCY_RESTART_MAX`,

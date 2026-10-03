@@ -723,20 +723,33 @@ discover_and_select_ssh_keys() {
 # whatever it holds and no -i at all.
 # ConnectTimeout bounds the wait so a DROP-firewalled port 22 fails fast (~10s)
 # instead of hanging on the default TCP timeout before any 443 fallback can run.
+# It does not bound what follows the connection: an agent that asks before it
+# signs (ssh-add -c, an expired gpg-agent cache) waits for a person. On an
+# unattended launch (CCY_UNATTENDED_LAUNCH: a restart or a restore) there is
+# nobody, so the whole probe is bounded and an expiry is reported as such.
 _github_probe_identity() {
     local key="$1" host="$2" port="$3"
-    local -a identity_opts
+    local -a identity_opts guard=()
     if [ "$key" = "$SSH_AGENT_SENTINEL" ]; then
         identity_opts=(-o IdentitiesOnly=no -o IdentityAgent="${SSH_AUTH_SOCK:-none}")
     else
         identity_opts=(-i "$key" -o IdentitiesOnly=yes -o IdentityAgent="${CCY_PROBE_AGENT_SOCK:-none}")
     fi
-    ssh -T "${identity_opts[@]}" \
+    if [ "${CCY_UNATTENDED_LAUNCH:-false}" = true ]; then
+        guard=(timeout --kill-after=5 "${CCY_UNATTENDED_PROBE_SECONDS:-60}")
+    fi
+    local out rc=0
+    out=$("${guard[@]}" ssh -T "${identity_opts[@]}" \
         -F /dev/null \
         -o StrictHostKeyChecking=no \
         -o ConnectTimeout=10 \
         -p "$port" \
-        "git@${host}" 2>&1 | grep -oP "Hi \K[^!]+"
+        "git@${host}" 2>&1) || rc=$?
+    if [ "${#guard[@]}" -gt 0 ] && { [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; }; then
+        echo "  GitHub probe for ${key} got no answer within ${CCY_UNATTENDED_PROBE_SECONDS:-60}s; an agent that asks before signing cannot be answered on an unattended launch." >&2
+        return 1
+    fi
+    printf '%s\n' "$out" | grep -oP "Hi \K[^!]+"
 }
 
 # ── Private probe agent: unlock passphrase keys BEFORE any connection exists ──
