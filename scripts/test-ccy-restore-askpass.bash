@@ -375,8 +375,12 @@ fin_line="$(grep -nxF "restore_askpass_finish \"\$RESTORE_ASKPASS_MOUNT\"" "$ENT
 exec_line="$(grep -nxF "exec \"\$@\"" "$ENTRYPOINT" | cut -d: -f1)"
 check "entrypoint finishes after its ssh-add and before exec" "yes" \
     "$(yes_if test -n "$add_line" -a -n "$fin_line" -a -n "$exec_line" -a "${fin_line:-0}" -gt "${add_line:-0}" -a "${fin_line:-0}" -lt "${exec_line:-0}")"
-check "the launcher takes the passphrase file from the restore marker" "1" \
-    "$(grep -cxF "ccy_restore_passphrase_take \"\$SESSION_RESTORE\" || exit 1" "$LAUNCHER")"
+# A --max-age restart of a restored session relaunches unattended too, so the file is taken on
+# any unattended launch: a restore, or a restart whose marker the launcher validated.
+check "the launcher takes the passphrase file on an unattended launch" "1" \
+    "$(grep -cxF "ccy_restore_passphrase_take \"\$CCY_UNATTENDED_LAUNCH\" || exit 1" "$LAUNCHER")"
+check "…which starts as the restore marker" "1" \
+    "$(grep -cxF "CCY_UNATTENDED_LAUNCH=\"\$SESSION_RESTORE\"" "$LAUNCHER")"
 check "the launcher stages the container's askpass on a restore" "1" \
     "$(grep -cF "ccy_restore_askpass_container \"\$RESTORE_SSH_PASSPHRASE_FILE\" || exit 1" "$LAUNCHER")"
 check "the engine is given SSH_RUN_OPTS, which carries those options" "1" \

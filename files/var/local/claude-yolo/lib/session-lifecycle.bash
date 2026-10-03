@@ -36,6 +36,8 @@ CCY_LIFECYCLE_RUN_FOR_MIN_SECONDS=60
 CCY_LIFECYCLE_RUN_FOR_MAX_SECONDS=2592000
 CCY_LIFECYCLE_WARN_MIN_MINUTES=1
 CCY_LIFECYCLE_WARN_MAX_MINUTES=240
+# The supervisor plugin API major ccy_lifecycle.py declares (its PLUGIN_API); a test holds the two equal.
+CCY_LIFECYCLE_PLUGIN_API_MAJOR=1
 
 # Where the image keeps the plugin (outside the project mount, root owned).
 export CCY_LIFECYCLE_PLUGIN_PATH="/opt/claude-yolo/supervisor-plugins/ccy_lifecycle.py"
@@ -191,6 +193,37 @@ ccy_lifecycle_validate_options() {
 
     if [[ "$no_supervise" == true ]] && ccy_lifecycle_requested; then
         printf 'ERROR: --max-age, --run-for and --until are carried out by the supervisor, and --no-supervise turns it off.\n' >&2
+        return 1
+    fi
+    if ccy_lifecycle_requested && [[ -z "${CCY_CLAUDE_WRAPPER:-}" ]]; then
+        ccy_lifecycle_check_supervisor "$PWD/.claude/ccy/claude-supervise.py" || return 1
+    fi
+}
+
+# ccy_lifecycle_check_supervisor <path> — status 1 with a message unless the project's supervisor
+# takes --plugin at the plugin API major ccy_lifecycle.py declares. Run on the host before any
+# prompt, so the file is READ, never executed: the host runs no project code. A wrapper the host
+# names in CCY_CLAUDE_WRAPPER is not this file, so the entrypoint judges that one.
+ccy_lifecycle_check_supervisor() {
+    local path="${1:?}" major
+    if [[ ! -f "$path" ]]; then
+        printf 'ERROR: --max-age, --run-for and --until are carried out by the supervisor, and this project has no hooks-daemon supervisor (%s).\n' "$path" >&2
+        printf '  Install the hooks daemon in this project, or drop the option.\n' >&2
+        return 1
+    fi
+    if ! major=$(awk '/^_PLUGIN_API_MAJOR = [0-9]+$/ {print $3; exit}' "$path"); then
+        printf 'ERROR: could not read the project supervisor at %s.\n' "$path" >&2
+        return 1
+    fi
+    if [[ -z "$major" ]]; then
+        printf 'ERROR: this project'"'"'s supervisor predates the plugin API that --max-age, --run-for and --until need.\n' >&2
+        printf '  upgrade the hooks daemon in this project to a release with the supervisor plugin API, or drop the option.\n' >&2
+        return 1
+    fi
+    if [[ "$major" != "$CCY_LIFECYCLE_PLUGIN_API_MAJOR" ]]; then
+        printf 'ERROR: this project'"'"'s supervisor speaks plugin API %s, and the ccy lifecycle plugin speaks plugin API %s.\n' \
+            "$major" "$CCY_LIFECYCLE_PLUGIN_API_MAJOR" >&2
+        printf '  Update ccy, or upgrade the hooks daemon in this project, so the two agree; or drop the option.\n' >&2
         return 1
     fi
 }

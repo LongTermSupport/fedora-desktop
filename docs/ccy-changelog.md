@@ -17,6 +17,44 @@ Two version numbers move independently — see
 
 ---
 
+## 3.76.0 — container 2.42
+
+Fixes from the host review of 3.74.0 and 3.75.0, before either was deployed.
+
+- **The play deploys `restart-request.bash` and `session-lifecycle.bash`.** The launcher
+  sources both on every launch, but the play did not copy them, so every `ccy` launch would
+  have failed once the play ran. A test now checks the play deploys every library the
+  launcher lists.
+- **A `--max-age` restart relaunches unattended.** It relaunches with the token file, SSH
+  keys (or `--ssh-agent` / `--no-ssh`), GitHub-443 mode and project network the session
+  actually ran with, including choices made at prompts, and asks nothing. It stops with an
+  error and the manual `ccy --resume <id>` command, instead of waiting at a prompt, in three
+  cases. The first is an SSH key that needs a passphrase, unless a server restore's passphrase
+  file is in force; use `--ssh-agent` or a key without a passphrase for unattended restarts.
+  The others are an expired token and a token that fails validation. The key check runs
+  before any restart budget or image update is spent.
+- **On a restart ccy takes the safe answer** where there is exactly one. It keeps old
+  `.claude/ccy/sessions` dirs, leaves zombie containers, starts alongside sibling containers,
+  rejoins its network without offering to start compose services, and skips network
+  detection when the session had no project network.
+- **The restart budget's history moved** to `~/.cache/claude-yolo-restart-history/`, so
+  `--rebuild` and version rebuilds no longer reset the crash-loop bound. Counts start fresh
+  once. Before relaunching, the launcher removes its staged SSH key copies and temp config,
+  which the exec used to leave behind.
+- **`--max-age`, `--run-for` and `--until` need a supervisor with the plugin API.** They are
+  refused before any prompt when the project has no supervisor, or one that predates the
+  hooks-daemon supervisor plugin API. Previously the container exited with an argparse error.
+  The host only reads the file. The entrypoint checks a wrapper set by `CCY_CLAUDE_WRAPPER` or
+  `ccy.env` the same way.
+- **Two sessions in one project keep separate `--max-age` clocks.** The plugin keys its state
+  by container, so a second session no longer resets the first one's age. A deadline
+  announced once is still not announced again after a restart of the same session. This plugin
+  change is why the container version moves to 2.42.
+- **The warning is given when the session is idle** inside the last
+  `CCY_RESTART_WARN_MINUTES`; a session busy through that whole window gets none.
+- A pre-commit check now requires a container version bump for any change to the Dockerfile,
+  the entrypoint or the supervisor plugins.
+
 ## 3.75.0 — container 2.41
 
 - **`--max-age`, `--run-for` and `--until` give a session a lifetime.** `--max-age 3d`

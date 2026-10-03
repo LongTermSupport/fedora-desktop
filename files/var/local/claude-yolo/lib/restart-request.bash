@@ -18,8 +18,14 @@
 # The file is written by code running in the container, so it is untrusted input that ends up
 # in the relaunch argv. Everything here refuses rather than guesses.
 #
-# Needs jq (installed by play-claude-yolo.yml). Needs session-registry.bash loaded first:
-# the relaunch argv reuses its flag classification.
+# Needs jq and ssh-keygen (installed by play-claude-yolo.yml and the base system). Needs
+# session-registry.bash loaded first: the relaunch argv reuses its flag classification. The
+# key functions need SSH_AGENT_SENTINEL, from ssh-handling.bash.
+#
+# Nobody is watching a relaunch, so it must never stop at a prompt. The launcher marks it
+# (CCY_RESTART_RELAUNCH, read by ccy_restart_marker_take) and carries every launch choice in
+# its arguments; the prompts that have one safe answer take it, and anything else stops the
+# launch with ccy_restart_refuse, which names the manual `ccy --resume <id>`.
 
 # The exit status the supervisor uses for "restart requested".
 export CCY_RESTART_EXIT_STATUS=75
@@ -196,15 +202,17 @@ ccy_restart_budget_take() {
 }
 
 # ccy_restart_relaunch_args <session-id> [original launcher args...] — the arguments for the
-# relaunch, NUL separated (an argument may hold a newline). Every ccy option the session was
-# started with is kept, so it comes back on the same token, network and keys; what is dropped
-# is what only made sense once (an opening message, --prompt, --rebuild, the debug chooser).
-# Claude's own session selectors (-c, --continue, -r, --resume, --session-id) are removed and
-# replaced by one `--resume <session-id>`.
+# relaunch, NUL separated (an argument may hold a newline). The ccy options the session was
+# started with are kept, except the launch choices (--token, --ssh-key, --ssh-agent, --no-ssh,
+# --network, --no-network, --github-443): those are dropped, and the caller puts the choices
+# the session actually ran with in front, from ccy_restart_choice_args. A choice made at a
+# prompt is in no argument, so the original arguments alone would send the relaunch back to
+# that prompt with nobody there to answer it. Also dropped is what only made sense once (an
+# opening message, --prompt, --rebuild, the debug chooser). Claude's own session selectors
+# (-c, --continue, -r, --resume, --session-id) are removed and replaced by one
+# `--resume <session-id>`.
 #
-# The walk mirrors ccy_registry_replay_args and uses its flag classification, with one
-# difference: --ssh-agent is kept. A restore after a reboot cannot reuse the agent socket, but
-# a relaunch seconds after the container exited can.
+# The walk mirrors ccy_registry_replay_args and uses its flag classification.
 #   status 0  arguments printed
 #   status 1  the session id is not a Claude session id; nothing printed
 ccy_restart_relaunch_args() {
@@ -242,11 +250,17 @@ ccy_restart_relaunch_args() {
                 printf '%s\0' "$arg"
                 continue
             fi
-            if [[ "$arg" == "--ssh-agent" ]]; then
+            case "$arg" in
+            --token | --ssh-key | --network)
+                drop_next=true
                 value_slot=false
-                printf '%s\0' "$arg"
                 continue
-            fi
+                ;;
+            --ssh-agent | --no-ssh | --no-network | --github-443)
+                value_slot=false
+                continue
+                ;;
+            esac
             case "$(ccy_registry_flag_class "$arg")" in
             drop)
                 value_slot=false
@@ -302,4 +316,122 @@ ccy_restart_relaunch_args() {
         fi
     done
     printf '%s\0' "--resume" "$sid"
+}
+
+# ccy_restart_choice_args <token-file> <github-443> <no-network> <network> [ssh-keys...] — the
+# launch choices the session ran with, as launcher options, NUL separated. They go in front
+# of ccy_restart_relaunch_args, so they come before any `--`.
+#   token-file  the token file the session used: its path, so the relaunch opens that exact
+#               file. The token itself never enters argv.
+#   github-443  0 or 1, the session's GITHUB_SSH_443
+#   no-network  true or false, whether --no-network was in force
+#   network     the project network it joined, or empty for none
+#   ssh-keys    the session's SSH_KEYS; none means --no-ssh, SSH_AGENT_SENTINEL means --ssh-agent
+#   status 0  options printed
+#   status 1  an input is not one of the above; nothing printed, the reason on stderr
+ccy_restart_choice_args() {
+    local token="${1?ccy_restart_choice_args requires the token file}"
+    local gh443="${2?ccy_restart_choice_args requires the 443 state}"
+    local no_network="${3?ccy_restart_choice_args requires the no-network state}"
+    local network="${4?ccy_restart_choice_args requires the network}"
+    shift 4
+    local sentinel="${SSH_AGENT_SENTINEL:?ccy_restart_choice_args needs lib/ssh-handling.bash loaded first}"
+    if [ -z "$token" ]; then
+        printf 'the session has no token file on record, so the relaunch could not name one.\n' >&2
+        return 1
+    fi
+    if [ "$gh443" != 0 ] && [ "$gh443" != 1 ]; then
+        printf 'GITHUB_SSH_443 is "%s", not 0 or 1.\n' "$gh443" >&2
+        return 1
+    fi
+    if [ "$no_network" != true ] && [ "$no_network" != false ]; then
+        printf 'the no-network state is "%s", not true or false.\n' "$no_network" >&2
+        return 1
+    fi
+    local key
+    for key in "$@"; do
+        if [ -z "$key" ]; then
+            printf 'the session has an empty SSH key entry, so the relaunch could not name it.\n' >&2
+            return 1
+        fi
+    done
+
+    local out=(--token "$token")
+    if [ "$#" -eq 0 ]; then
+        out+=(--no-ssh)
+    fi
+    for key in "$@"; do
+        if [ "$key" = "$sentinel" ]; then
+            out+=(--ssh-agent)
+        else
+            out+=(--ssh-key "$key")
+        fi
+    done
+    if [ "$gh443" = 1 ]; then
+        out+=(--github-443)
+    fi
+    if [ "$no_network" = true ]; then
+        out+=(--no-network)
+    elif [ -n "$network" ]; then
+        out+=(--network "$network")
+    fi
+    printf '%s\0' "${out[@]}"
+}
+
+# ccy_restart_keys_unattended <passphrase-file> [ssh-keys...] — whether every SSH key can be
+# unlocked with nobody at the keyboard. A forwarded agent is unlocked already. A key file opens
+# unattended when it has no passphrase, or when a passphrase file is named (a server's session
+# restore; ssh-handling.bash feeds it to ssh-add through askpass). Anything else would stop
+# the relaunch at ssh-add's prompt, on the host or inside the container.
+#   status 0  every key opens unattended
+#   status 1  a key does not; which one and why on stderr
+ccy_restart_keys_unattended() {
+    local passphrase_file="${1?ccy_restart_keys_unattended requires the passphrase file, or an empty one}"
+    shift
+    local sentinel="${SSH_AGENT_SENTINEL:?ccy_restart_keys_unattended needs lib/ssh-handling.bash loaded first}"
+    [ -z "$passphrase_file" ] || return 0
+    local key why
+    for key in "$@"; do
+        [ "$key" = "$sentinel" ] && continue
+        # -P '' tries the empty passphrase and never asks; the public key on stdout is not wanted.
+        if ! why=$(ssh-keygen -y -P '' -f "$key" 2>&1 >/dev/null); then
+            why=$(printf '%s' "$why" | tr '\n' ' ')
+            printf 'SSH key %s does not open without a passphrase (%s), and nobody is at the keyboard to type one.\n' \
+                "$key" "$why" >&2
+            return 1
+        fi
+    done
+}
+
+# ccy_restart_marker_take — read and remove CCY_RESTART_RELAUNCH, the mark ccy_handle_restart_exit
+# puts on the launcher it execs. Sets CCY_RESTART_RELAUNCH_SESSION to the session id being
+# restarted, or to empty on any other launch. Removed from the environment, so nothing this
+# launch starts inherits it and a ccy run by hand inside the session is an ordinary launch.
+# On a restart it also says on stderr what is happening, and how to resume by hand if the
+# launch stops before Claude starts.
+#   status 1  the mark is set but is not a Claude session id
+CCY_RESTART_RELAUNCH_SESSION=""
+ccy_restart_marker_take() {
+    local mark="${CCY_RESTART_RELAUNCH:-}"
+    unset CCY_RESTART_RELAUNCH
+    CCY_RESTART_RELAUNCH_SESSION=""
+    [ -n "$mark" ] || return 0
+    if ! [[ "$mark" =~ $CCY_RESTART_SESSION_ID_PATTERN ]]; then
+        printf 'CCY_RESTART_RELAUNCH is set, but not to a Claude session id; only a supervisor-requested restart sets it.\n' >&2
+        return 1
+    fi
+    CCY_RESTART_RELAUNCH_SESSION="$mark"
+    printf 'Restarting session %s with nobody at the keyboard: nothing will be asked, and a choice only a person can make stops the launch.\n' \
+        "$CCY_RESTART_RELAUNCH_SESSION" >&2
+    printf '  If it stops before Claude starts, resume it by hand: ccy --resume %s\n' \
+        "$CCY_RESTART_RELAUNCH_SESSION" >&2
+}
+
+# ccy_restart_refuse <session-id> <reason> — say on stderr why a restart stops here and how to
+# resume the session by hand. The caller exits.
+ccy_restart_refuse() {
+    local sid="${1:?ccy_restart_refuse requires a session id}"
+    local reason="${2:?ccy_restart_refuse requires a reason}"
+    printf 'ERROR: Not restarting session %s: %s\n' "$sid" "$reason" >&2
+    printf '  Resume it by hand when you are ready: ccy --resume %s\n' "$sid" >&2
 }

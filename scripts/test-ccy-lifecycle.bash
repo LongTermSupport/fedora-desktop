@@ -40,6 +40,12 @@ source "$LIB_DIR/session-lifecycle.bash"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
+# The launcher validates from the project directory, where it looks for a supervisor that takes
+# --plugin. Every case runs in a stand-in project whose supervisor declares the plugin API.
+mkdir -p "$work/project/.claude/ccy"
+printf '_PLUGIN_API_MAJOR = 1\n' >"$work/project/.claude/ccy/claude-supervise.py"
+cd "$work/project" || exit 1
+
 passed=0
 failed=0
 check() {
@@ -61,6 +67,7 @@ reset_env() {
     unset CCY_MAX_AGE CCY_RESTART_WARN_MINUTES CCY_RELAUNCH_DEADLINE_EPOCH
     unset CCY_LIFECYCLE_MAX_AGE_SECONDS CCY_LIFECYCLE_DEADLINE_EPOCH CCY_LIFECYCLE_WARN_MINUTES
     unset CCY_LIFECYCLE_RUN_FOR_SECONDS CCY_LIFECYCLE_UNTIL_TEXT CCY_LIFECYCLE_LAUNCH_ID
+    unset CCY_CLAUDE_WRAPPER
 }
 
 # validate <max-age> <run-for> <until> [no-supervise] — prints the outcome as one line.
@@ -142,6 +149,34 @@ check "--max-age with --run-for is allowed" "rc=0 age=259200 run=7200 until= dl=
 check "a feature with --no-supervise is refused" "rc=1 age=259200 run= until= dl= warn=" "$(validate 3d '' '' true)"
 check "…and says why" "yes" "$(has 'no-supervise' "$work/validate.err")"
 check "no feature with --no-supervise is fine" "rc=0 age= run= until= dl= warn=" "$(validate '' '' '' true)"
+
+echo "=== the project's supervisor must take --plugin (checked before any prompt) ==="
+
+# status <max-age> <run-for> <until> — the validator's exit status alone; stderr to validate.err.
+status() {
+    reset_env
+    ccy_lifecycle_validate_options "$1" "$2" "$3" false 2>"$work/validate.err"
+    echo $?
+}
+
+supervisor="$work/project/.claude/ccy/claude-supervise.py"
+mv "$supervisor" "$work/supervisor.keep"
+check "no supervisor: a feature is refused" "1" "$(status 3d '' '')"
+check "…and says the project has no supervisor" "yes" "$(has 'no hooks-daemon supervisor' "$work/validate.err")"
+check "no supervisor: no feature is still fine" "0" "$(status '' '' '')"
+printf 'import argparse\n' >"$supervisor"
+check "a supervisor without the plugin API: --until is refused" "1" "$(status '' '' 17:30)"
+check "…and says to upgrade the hooks daemon" "yes" "$(has 'upgrade the hooks daemon' "$work/validate.err")"
+printf '_PLUGIN_API_MAJOR = 2\n' >"$supervisor"
+check "a supervisor on another plugin API major: refused" "1" "$(status 3d '' '')"
+check "…and names both majors" "yes" "$(has 'API 2' "$work/validate.err")"
+check "a host CCY_CLAUDE_WRAPPER is left to the entrypoint to judge" "0" "$(
+    reset_env
+    CCY_CLAUDE_WRAPPER='python3 /elsewhere/claude-supervise.py --' \
+        ccy_lifecycle_validate_options 3d '' '' false 2>/dev/null
+    echo $?
+)"
+mv "$work/supervisor.keep" "$supervisor"
 
 echo "=== host defaults ==="
 
@@ -239,8 +274,10 @@ SID="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 check "--max-age is kept with its value" "keep-value" "$(ccy_registry_flag_class --max-age)"
 check "--run-for is dropped with its value" "drop-value" "$(ccy_registry_flag_class --run-for)"
 check "--until is dropped with its value" "drop-value" "$(ccy_registry_flag_class --until)"
+# --token is a launch choice: the handler passes the token the session actually used, so the
+# walk removes the typed one (scripts/test-ccy-restart-request.bash covers that half).
 check "a relaunch keeps --max-age and drops --run-for" \
-    "--token|work|--max-age|3d|--resume|$SID" \
+    "--max-age|3d|--resume|$SID" \
     "$(ccy_restart_relaunch_args "$SID" --token work --max-age 3d --run-for 2h -c | nul_to_bar)"
 check "…--until too" \
     "--max-age|3d|--resume|$SID" \
@@ -261,8 +298,19 @@ cat >"$work/stub/claude-yolo" <<'STUB'
 } >"$STUB_RECORD"
 STUB
 chmod +x "$work/stub/claude-yolo"
-cat >"$work/update-stub.bash" <<'STUB'
+# Besides the update stub, the launch state the handler turns into the relaunch's choices: a
+# token file, no keys, no network, and a restart history inside the case's own cache.
+cat >"$work/update-stub.bash" <<STUB
 update_claude_inplace() { return 0; }
+cleanup() { :; }
+SSH_AGENT_SENTINEL="$(awk -F'"' '/^readonly SSH_AGENT_SENTINEL=/ {print $2}' "$LIB_DIR/ssh-handling.bash")"
+SELECTED_TOKEN="$work/token"
+GITHUB_SSH_443=0
+SSH_KEYS=()
+NO_NETWORK_MODE=false
+AUTO_CONNECT_NETWORK=""
+RESTORE_SSH_PASSPHRASE_FILE=""
+CCY_RESTART_HISTORY_DIR="\$VERSION_CHECK_CACHE/restart-history"
 STUB
 
 # relaunch_case <name> <deadline-epoch|-> <orig-args...> — runs the handler against a valid
@@ -300,10 +348,10 @@ relaunch_case() {
 check "a restart consumes the request and leaves restarted.json for the next supervisor" \
     "rc=0 request=gone restarted.json=kept" "$(relaunch_case a 1790007200 --max-age 3d --run-for 2h)"
 check "…the relaunch carries the deadline and drops --run-for" \
-    "argv=--max-age 3d --resume $SID|deadline=1790007200" "$(paste -sd'|' "$work/a.record")"
+    "argv=--token $work/token --no-ssh --max-age 3d --resume $SID|deadline=1790007200" "$(paste -sd'|' "$work/a.record")"
 relaunch_case b - --max-age 3d >/dev/null
 check "without a deadline nothing is carried" \
-    "argv=--max-age 3d --resume $SID|deadline=unset" "$(paste -sd'|' "$work/b.record")"
+    "argv=--token $work/token --no-ssh --max-age 3d --resume $SID|deadline=unset" "$(paste -sd'|' "$work/b.record")"
 check "outside comments the launcher never touches restarted.json" "0" \
     "$(grep -v '^[[:space:]]*#' "$LAUNCHER" | grep -c -F 'restarted.json')"
 check "the library never touches it either" "0" \
@@ -314,7 +362,7 @@ echo "=== the entrypoint's wrapper line (its own functions, exec replaced by a p
 awk '/^ccy_lifecycle_wanted\(\) \{$/ {p=1} p {print}' "$ENTRYPOINT" >"$work/tail.bash"
 check "the entrypoint's tail was found" "yes" "$([ -s "$work/tail.bash" ] && echo yes || echo no)"
 mkdir -p "$work/plugins"
-printf '# plugin\n' >"$work/plugins/ccy_lifecycle.py"
+printf '# plugin\nPLUGIN_API = 1\n' >"$work/plugins/ccy_lifecycle.py"
 awk -v dir="$work/plugins" '{ gsub("/opt/claude-yolo/supervisor-plugins", dir) } 1' "$work/tail.bash" >"$work/tail-test.bash"
 check "the plugin path was redirected for the test" "yes" "$(has "$work/plugins/ccy_lifecycle.py" "$work/tail-test.bash")"
 
@@ -360,15 +408,29 @@ check "no option: an armed wrapper line is byte-identical" \
     "python3|/workspace/.claude/ccy/claude-supervise.py|--arm|--|claude" \
     "$(wrapper_case "python3 /workspace/.claude/ccy/claude-supervise.py --arm --" '' '' claude)"
 check "no option and no wrapper: plain exec" "claude|--x" "$(wrapper_case - '' '' claude --x)"
+# With an option on, the entrypoint reads the supervisor the wrapper names, so these cases name
+# the stand-in project's supervisor, which declares the plugin API.
+SUP="$work/project/.claude/ccy/claude-supervise.py"
+mkdir -p "$work/old-supervise"
 check "--max-age: the plugin is named before the final --" \
-    "python3|/workspace/.claude/ccy/claude-supervise.py|--plugin|$PLUG|--|claude" \
-    "$(wrapper_case "$DEFAULT_WRAPPER" 7200 '' claude)"
+    "python3|$SUP|--plugin|$PLUG|--|claude" \
+    "$(wrapper_case "python3 $SUP --" 7200 '' claude)"
 check "a deadline alone adds the plugin too" \
-    "python3|/workspace/.claude/ccy/claude-supervise.py|--plugin|$PLUG|--|claude" \
-    "$(wrapper_case "$DEFAULT_WRAPPER" '' 1790007200 claude)"
+    "python3|$SUP|--plugin|$PLUG|--|claude" \
+    "$(wrapper_case "python3 $SUP --" '' 1790007200 claude)"
 check "an armed wrapper keeps --arm and gains the plugin" \
-    "python3|/workspace/.claude/ccy/claude-supervise.py|--arm|--plugin|$PLUG|--|claude" \
-    "$(wrapper_case "python3 /workspace/.claude/ccy/claude-supervise.py --arm --" 7200 '' claude)"
+    "python3|$SUP|--arm|--plugin|$PLUG|--|claude" \
+    "$(wrapper_case "python3 $SUP --arm --" 7200 '' claude)"
+printf 'import argparse\n' >"$work/old-supervise/claude-supervise.py"
+check "a supervisor without the plugin API is refused, not handed --plugin" "rc=1" \
+    "$(wrapper_case "python3 $work/old-supervise/claude-supervise.py --" 7200 '' claude)"
+check "…and says to upgrade the hooks daemon" "yes" "$(has 'upgrade the hooks daemon' "$work/wrapper.err")"
+printf '_PLUGIN_API_MAJOR = 2\n' >"$work/old-supervise/claude-supervise.py"
+check "a supervisor on another plugin API major is refused" "rc=1" \
+    "$(wrapper_case "python3 $work/old-supervise/claude-supervise.py --" 7200 '' claude)"
+check "…and names both majors" "yes" "$(has 'API 2' "$work/wrapper.err")"
+check "a wrapper naming a supervisor that is not there is refused" "rc=1" \
+    "$(wrapper_case "python3 $work/nowhere/claude-supervise.py --" 7200 '' claude)"
 check "a wrapper that is not the supervisor is refused" "rc=1" \
     "$(wrapper_case "env FOO=1 --" 7200 '' claude)"
 check "…and says what the wrapper was" "yes" "$(has 'env FOO=1 --' "$work/wrapper.err")"
@@ -377,7 +439,7 @@ check "a supervisor line with no final -- is refused" "rc=1" \
 check "a feature with no supervisor at all is refused" "rc=1" "$(wrapper_case - 7200 '' claude)"
 check "…and says so" "yes" "$(has 'runs without one' "$work/wrapper.err")"
 rm -f "$work/plugins/ccy_lifecycle.py"
-check "a missing plugin file is refused" "rc=1" "$(wrapper_case "$DEFAULT_WRAPPER" 7200 '' claude)"
+check "a missing plugin file is refused" "rc=1" "$(wrapper_case "python3 $SUP --" 7200 '' claude)"
 check "…and says to rebuild" "yes" "$(has 'ccy --rebuild' "$work/wrapper.err")"
 
 echo "=== launcher and image wiring ==="
@@ -410,6 +472,9 @@ check "…root owned, directory 755, file 644" "3" \
 check "the playbook copies the plugin into the build context" "1" \
     "$(grep -c -F 'Copy Supervisor Plugins into Docker Build Context' "$REPO_ROOT/playbooks/imports/play-claude-yolo.yml")"
 check "the plugin source exists" "yes" "$([ -f "$CCY_DIR/supervisor-plugins/ccy_lifecycle.py" ] && echo yes || echo no)"
+check "the host probes for the plugin API major the plugin declares" \
+    "PLUGIN_API = $CCY_LIFECYCLE_PLUGIN_API_MAJOR" \
+    "$(grep -m1 -E '^PLUGIN_API = [0-9]+$' "$CCY_DIR/supervisor-plugins/ccy_lifecycle.py")"
 
 # The launcher sources every library in CCY_LIBS from /var/local/claude-yolo/lib/, but these tests
 # source them from the repo tree, so a library the play does not deploy passes here and breaks every
