@@ -100,8 +100,17 @@ preferred.
   (container 2.41, CCY 3.75.0, changelog), removed from this project's Dockerfile; docs
   `docs/features/container-clipboard.md` and the ccy.md security table. HOST: the next ccy
   launch in any project rebuilds the base image. LXC remains manual (Task 2.2).
-- [ ] ⬜ **Task 3.2**: `deploy.bash` running `acceptance.bash` as its last leg.
-- [ ] ⬜ **Task 3.3**: `./scripts/qa-all.bash` and the `qa-reviewer` agent clean.
+- [x] ✅ **Task 3.2**: `deploy.bash` (runs `play-claude-yolo.yml`) with `acceptance.bash` as its
+  last leg, listed in `meta-deploy.bash`. Acceptance checks launcher, lib and Dockerfile equal
+  the checkout, the `claude-yolo:latest` version label, the guard and `wl-paste`/`wl-copy` in
+  a throwaway container, and that `wl-paste -l` is answered over the socket (rc 1 only
+  without "Failed to connect", which a bad mount also returns). The play builds the image, so
+  an old label is a FAIL. Exercised with a stub podman: drifted lib, old image, rc 124, a
+  failed connection and a pass each give the intended result.
+- [x] ✅ **Task 3.3**: `qa-reviewer` over the diff; its findings fixed (rc 1 false pass, image
+  is built by the play, `plan_deploy_leg` and `--check` handling, project images named).
+  `qa-all.bash` aborts at its `js` gate in the ccy container (no eslint tooling for
+  `extensions/` there, an IaC gap); every other gate passes, CI runs the whole suite.
 
 ## Success Criteria
 
