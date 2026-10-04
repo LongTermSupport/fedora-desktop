@@ -156,7 +156,7 @@ English-only model with another language set is refused with an error,
 not transcribed as English. `distil-large-v3.5` is handed to faster-whisper as its
 Hugging Face repo, `distil-whisper/distil-large-v3.5-ct2`: faster-whisper 1.2.1 knows
 the short name, but 1.1.1 (pinned by older RealtimeSTT releases) does not. Article mode
-always uses `base`.
+uses the warm server's model, like streaming server mode.
 
 `stt_model` and `stt_language` in the host variables are only the defaults of
 `faster-whisper-transcribe` when you run that script by hand; the recorders always pass
@@ -264,7 +264,7 @@ Each mode stops itself; the panel shows the elapsed time (`1:42`).
 | Streaming: standard, pre-buffer      | 120 s (`wsi-stream --timeout`)                                               |
 | Streaming: server, continuous off    | 120 s, the same cap                                                          |
 | Streaming: server, continuous **on** | Insert; or **Stop after silence** / **Maximum length** (Settings), see below |
-| Article mode (**Create Article...**) | its window's Stop; it flushes text every 120 s but has no limit              |
+| Article mode (**Create Article...**) | its window's Stop, or the same **Stop after silence** / **Maximum length**   |
 
 None of these auto-stops on a pause in speech, except continuous dictation's no-speech
 stop.

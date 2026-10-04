@@ -696,21 +696,29 @@ def send_server_command(command, params=None):
         return {"status": "error", "message": f"{command}: {e}"}
 
 
-def dictation_limits(args):
-    """START's limits: continuous dictation's from Settings, else the fixed --timeout cap.
+def continuous_limits():
+    """Continuous dictation's limits from Settings: (max_seconds, silence_seconds).
 
-    Raises if a setting cannot be read. Returns (continuous, max_seconds, silence_seconds).
+    Raises if a setting cannot be read. Also used by wsi-article, which is always continuous.
     """
-    continuous = read_setting("continuous-dictation") == "true"
-    if not continuous:
-        return False, args.timeout, 0
     minutes = read_setting("max-recording-minutes")
     silence = read_setting("silence-autostop-seconds")
     if not minutes.isdigit() or int(minutes) < 1:
         raise RuntimeError(f"max-recording-minutes is not a whole number above 0: '{minutes}'")
     if not silence.isdigit():
         raise RuntimeError(f"silence-autostop-seconds is not a whole number: '{silence}'")
-    return True, int(minutes) * 60, int(silence)
+    return int(minutes) * 60, int(silence)
+
+
+def dictation_limits(args):
+    """START's limits: continuous dictation's from Settings, else the fixed --timeout cap.
+
+    Raises if a setting cannot be read. Returns (continuous, max_seconds, silence_seconds).
+    """
+    if read_setting("continuous-dictation") != "true":
+        return False, args.timeout, 0
+    max_seconds, silence_seconds = continuous_limits()
+    return True, max_seconds, silence_seconds
 
 
 def relay_progress(progress):
