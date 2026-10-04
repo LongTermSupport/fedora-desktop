@@ -17,7 +17,8 @@
 # commit as pure units; its dictation session run for real with a fake pw-record, a
 # stub VAD and a stub transcriber (STOP drains the microphone to EOF and transcribes
 # the last audio; every failure and safety stop); and wsi-stream's server-mode client
-# loop against a stub server. The real Silero VAD and Whisper model are not loaded here
+# loop against a stub server, and wsi-article (article mode) against the same kind of stub
+# plus a real journal file. The real Silero VAD and Whisper model are not loaded here
 # (they need the host's packages); the plan's triage.bash runs them on the host.
 #
 # It also covers what shares those scripts (Plan 00148 Tasks 7.4 and 8.x): the
@@ -451,6 +452,7 @@ if (cd "$REPO_ROOT" && python3 -m unittest \
         tests/speech_to_text/test_continuous_segmenter.py \
         tests/speech_to_text/test_continuous_session.py \
         tests/speech_to_text/test_server_client.py \
+        tests/speech_to_text/test_article_client.py \
         tests/speech_to_text/test_resolve_model.py \
         tests/speech_to_text/test_keep_warm.py) > "$work/unit.out" 2>&1; then
     passed=$((passed + 1))

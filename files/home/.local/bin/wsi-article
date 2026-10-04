@@ -1,91 +1,67 @@
 #!/usr/bin/env python3
 """
-WSI-Article - Article Mode: Looped Streaming Speech-to-Text
-============================================================
-Records indefinitely in 120-second chunks. Each chunk is appended to a raw
-article file. wsi-article-window displays the raw text and a Claude-polished
-version, re-polishing after each chunk.
+WSI-Article - Article Mode on the server's continuous dictation
+================================================================
+Records for as long as the user wants, through the warm server's continuous dictation
+session (the same one Insert uses): the server cuts the speech at pauses, transcribes each
+segment in order and journals it. This client keeps the session alive, follows the
+journal, and gives wsi-article-window what it reads:
+
+  article-buffer.txt          the phrases of the current chunk, as they commit
+  article-raw.txt             flushed chunks, one paragraph each
+  article-chunk.trigger       touched at each flush, so the window re-polishes
+  article-recording.active    present while the session is recording
+
+Every failure is loud: a notification that stays, a message on stderr and a non-zero exit.
+Whatever the journal held is kept in the raw file first.
 """
 
-import os
-import sys
-import subprocess
-import signal
-import time
-import threading
 import argparse
-import atexit
-from pathlib import Path
+import importlib.machinery
+import importlib.util
+import json
+import os
+import signal
+import sys
+import time
 from datetime import datetime
+from pathlib import Path
 
-SCRIPT_VERSION = "1.2.0"
+SCRIPT_VERSION = "2.0.0"
 
-# Suppress HuggingFace Hub rate-limit warnings - model downloads are deliberate
-os.environ.setdefault("HF_TOKEN", "")
-os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 
-# Constants
-LOG_DIR = Path.home() / ".local/share/speech-to-text"
-LOG_FILE = LOG_DIR / "debug.log"
-CACHE_DIR = Path.home() / ".cache/speech-to-text"
+def load_sibling(name):
+    """Load the script `name` next to this one as a module (wsi-stream has no .py suffix)."""
+    path = Path(__file__).resolve().parent / name
+    loader = importlib.machinery.SourceFileLoader(f"{name.replace('-', '_')}_module", str(path))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
 
-# Use same PID file as wsi-stream so Escape keybinding can stop us
-PID_FILE = Path("/dev/shm") / f"stt-recording-{os.getenv('USER')}.pid"
 
-# Article-specific files
+# The server protocol, its limits reader and the notification helpers live in wsi-stream
+stream = load_sibling("wsi-stream")
+
+LOG_DIR = stream.LOG_DIR
+LOG_FILE = stream.LOG_FILE
+CACHE_DIR = stream.CACHE_DIR
+
+# The same PID file as wsi-stream, so the extension sees one recorder at a time
+PID_FILE = stream.PID_FILE
+
 ARTICLE_RAW_FILE = CACHE_DIR / "article-raw.txt"
-ARTICLE_BUFFER_FILE = CACHE_DIR / "article-buffer.txt"   # within-chunk phrases
-ARTICLE_PARTIAL_FILE = CACHE_DIR / "article-partial.txt"  # real-time partial
+ARTICLE_BUFFER_FILE = CACHE_DIR / "article-buffer.txt"
 ARTICLE_TRIGGER_FILE = CACHE_DIR / "article-chunk.trigger"
-ARTICLE_RECORDING_ACTIVE_FILE = CACHE_DIR / "article-recording.active"  # set when loop starts
+ARTICLE_RECORDING_ACTIVE_FILE = CACHE_DIR / "article-recording.active"
 
-DBUS_PATH = "/org/fedoradesktop/SpeechToText"
-DBUS_INTERFACE = "org.fedoradesktop.SpeechToText"
+# How often the buffer is flushed to the raw file, which is how often the window polishes.
+# A polishing cadence, not a recording limit: the dictation's limits are in Settings.
+FLUSH_SECONDS = 120
+POLL_INTERVAL = 0.1
 
-CHUNK_DURATION = 120  # seconds per chunk before flushing
-
-# Global state
 debug_mode = False
-no_notify = False
 stop_requested = False
-recorder = None
-
-
-def cleanup_on_exit():
-    """Ensure IDLE signal is sent and mic is released on any exit."""
-    global recorder
-    try:
-        emit_dbus_signal("StateChanged", "IDLE")
-    except Exception:
-        pass
-    _release_recorder()
-    for f in (PID_FILE, ARTICLE_PARTIAL_FILE, ARTICLE_BUFFER_FILE, ARTICLE_RECORDING_ACTIVE_FILE):
-        if f.exists():
-            try:
-                f.unlink()
-            except Exception:
-                pass
-
-
-def _release_recorder():
-    """Shut down recorder and release audio device."""
-    global recorder
-    if recorder is None:
-        return
-    r = recorder
-    recorder = None
-    for method in ('stop', 'abort', 'shutdown'):
-        try:
-            getattr(r, method)()
-        except Exception:
-            pass
-    del r
-    import gc
-    gc.collect()
-
-
-atexit.register(cleanup_on_exit)
 
 
 def log(message, level="INFO"):
@@ -98,275 +74,278 @@ def log(message, level="INFO"):
             f.write(log_line + "\n")
 
 
-def emit_dbus_signal(signal_name, value):
+def fail(message):
+    """A failure the user must see: stderr, the log, a notification that stays, ERROR state."""
+    log(message, "ERROR")
+    print(f"wsi-article: {message}", file=sys.stderr)
+    stream.emit_dbus_signal("StateChanged", "ERROR")
+    stream.desktop_notification(message, 0)  # 0: stays until dismissed
+
+
+def read_new_segments(path, offset):
+    """The texts of the segments journaled since byte `offset`, and the new offset.
+
+    A line still being written (no newline yet) is left for the next read. A missing
+    journal is nothing yet. A complete line that is not a journal entry raises ValueError.
+    """
     try:
-        subprocess.run([
-            "gdbus", "emit", "--session",
-            "--object-path", DBUS_PATH,
-            "--signal", f"{DBUS_INTERFACE}.{signal_name}",
-            value
-        ], capture_output=True, timeout=1)
-    except Exception as e:
-        log(f"DBus signal failed: {e}", "WARN")
+        with open(path, "rb") as f:
+            f.seek(offset)
+            data = f.read()
+    except FileNotFoundError:
+        return [], offset
+    complete = data.rfind(b"\n") + 1
+    texts = []
+    for line in data[:complete].splitlines():
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError as e:
+            raise ValueError(f"{path}: a line is not JSON: {e}") from e
+        if not isinstance(entry, dict):
+            raise ValueError(f"{path}: a line is not a journal entry: {line[:80]!r}")
+        text = (entry.get("text") or "").strip()
+        if entry.get("status") == "ok" and text:
+            texts.append(text)
+    return texts, offset + complete
 
 
-def notify(state, message):
-    log(f"State: {state} - {message}")
-    emit_dbus_signal("StateChanged", state)
-    if no_notify:
+def write_buffer(phrases):
+    """The current chunk's phrases, for the window to show before the chunk is flushed."""
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    ARTICLE_BUFFER_FILE.write_text("\n".join(phrases))
+
+
+def flush_chunk(phrases):
+    """Append the chunk to the raw file as one paragraph and tell the window to polish."""
+    if not phrases:
         return
-    try:
-        subprocess.run([
-            "gdbus", "call", "--session",
-            "--dest", "org.freedesktop.Notifications",
-            "--object-path", "/org/freedesktop/Notifications",
-            "--method", "org.freedesktop.Notifications.Notify",
-            "speech-to-text-article", "0", "audio-input-microphone",
-            "Article Mode", message, "[]", "{}", "2000"
-        ], capture_output=True, timeout=1)
-    except Exception:
-        pass
+    chunk = " ".join(phrases)
+    chunk = chunk[0].upper() + chunk[1:]
+    log(f"Flushing a chunk of {len(phrases)} phrase(s), {len(chunk)} chars")
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    with open(ARTICLE_RAW_FILE, "a") as f:
+        f.write(chunk + "\n\n")
+    ARTICLE_BUFFER_FILE.write_text("")  # its phrases are in the raw file now
+    ARTICLE_TRIGGER_FILE.write_text(str(time.time()))
 
 
-def on_partial_update(new_text):
-    """Real-time transcription callback - writes current partial to file."""
-    if not new_text or not new_text.strip():
-        return
-    try:
-        CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        ARTICLE_PARTIAL_FILE.write_text(new_text.strip())
-    except Exception:
-        pass
+def remove_marker_files():
+    for path in (PID_FILE, ARTICLE_BUFFER_FILE, ARTICLE_RECORDING_ACTIVE_FILE):
+        path.unlink(missing_ok=True)
 
 
-def write_buffer(chunk_texts):
-    """Write accumulated within-chunk phrases so the window can display them."""
-    try:
-        CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        ARTICLE_BUFFER_FILE.write_text("\n".join(chunk_texts))
-    except Exception as e:
-        log(f"Buffer write failed: {e}", "WARN")
+def request_stop(signum, frame):
+    global stop_requested
+    log(f"Signal {signum} received - stopping")
+    stop_requested = True
 
 
-def flush_chunk(chunk_texts, chunk_num):
-    """Append current chunk to the raw article file and signal the window."""
-    if not chunk_texts:
-        log(f"Chunk {chunk_num}: nothing to flush")
-        return
-    chunk_text = " ".join(chunk_texts)
-    if chunk_text:
-        chunk_text = chunk_text[0].upper() + chunk_text[1:]
-    log(f"Flushing chunk {chunk_num} ({len(chunk_text)} chars)")
-    try:
-        CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        with open(ARTICLE_RAW_FILE, "a") as f:
-            f.write(chunk_text + "\n\n")
-        ARTICLE_BUFFER_FILE.write_text("")  # clear buffer — now in raw
-        ARTICLE_TRIGGER_FILE.write_text(str(time.time()))
-        log(f"Chunk {chunk_num} written, trigger updated")
-    except Exception as e:
-        log(f"Chunk flush failed: {e}", "ERROR")
+def abort_startup(signum, frame):
+    log(f"Signal {signum} received during server startup, aborting")
+    raise SystemExit(1)  # the finally in run_article_mode removes the PID file and emits IDLE
 
 
-def check_dependencies():
-    try:
-        import RealtimeSTT  # noqa: F401
-        return True
-    except ImportError as e:
-        log(f"RealtimeSTT not installed: {e}", "ERROR")
-        notify("ERROR", "RealtimeSTT not installed\n\npip install --user RealtimeSTT")
-        return False
+def describe_failure(progress, session_dir):
+    """The message for a dictation that ended FAILED."""
+    lines = [f"Article dictation failed: {progress.get('error') or 'unknown error'}",
+             f"The text so far is in the article window; the journal is "
+             f"{progress.get('session_dir') or session_dir}/journal.jsonl"]
+    if progress.get("kept_audio"):
+        lines.append(f"Untranscribed audio kept in {progress.get('session_dir') or session_dir}")
+    for unsaved in progress.get("unsaved_audio") or []:
+        lines.append(f"Audio NOT kept: {unsaved}")
+    return "\n".join(lines)
 
 
 def run_article_mode(args):
-    global debug_mode, no_notify, stop_requested, recorder
+    global debug_mode, stop_requested
 
-    if not check_dependencies():
-        return 1
-
-    from RealtimeSTT import AudioToTextRecorder
-
+    debug_mode = args.debug
+    stream.debug_mode = args.debug
+    stream.no_notify = args.no_notify
+    stop_requested = False
     print(f"wsi-article v{SCRIPT_VERSION} starting (pid={os.getpid()})", file=sys.stderr)
-    PID_FILE.write_text(str(os.getpid()))
-    log(f"PID file written: {PID_FILE} (pid={os.getpid()})")
-
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    ARTICLE_RAW_FILE.write_text("")
-    ARTICLE_BUFFER_FILE.write_text("")
-    ARTICLE_PARTIAL_FILE.write_text("")
-    if ARTICLE_TRIGGER_FILE.exists():
-        ARTICLE_TRIGGER_FILE.unlink()
-
-    model_size = os.environ.get("WHISPER_MODEL", "base")
-    language = args.language or os.environ.get("WHISPER_LANGUAGE", "en") or None
-    log(f"Model: {model_size}, language: {language or 'auto-detect'}")
-
-    # Shared event to unblock the recording loop cleanly
-    phrase_unblock = threading.Event()
-
-    def handle_signal(signum, frame):
-        global stop_requested
-        log(f"Signal {signum} received — stopping")
-        stop_requested = True
-        phrase_unblock.set()  # unblock any wait()
-        if recorder:
-            try:
-                recorder.stop()
-                log("Called recorder.stop()")
-            except Exception as e:
-                log(f"recorder.stop() failed: {e}", "WARN")
-
-    signal.signal(signal.SIGINT, handle_signal)
-    signal.signal(signal.SIGTERM, handle_signal)
 
     try:
-        notify("PREPARING", "Loading model...")
-
-        recorder_config = {
-            "model": model_size,
-            "language": language,
-            "silero_sensitivity": 0.4,
-            # Short silence so phrases are returned promptly in the loop
-            "post_speech_silence_duration": 1.5,
-            "min_length_of_recording": 0.3,
-            "min_gap_between_recordings": 0.1,
-            "enable_realtime_transcription": True,
-            "realtime_processing_pause": 0.2,
-            "on_realtime_transcription_update": on_partial_update,
-            "spinner": False,
-        }
-        recorder_config["device"] = "cuda"
-        recorder_config["compute_type"] = "float16"
-
-        recorder = AudioToTextRecorder(**recorder_config)
-        log("Recorder initialized")
-
-        notify("PREPARING", "Initializing audio...")
-        time.sleep(0.5)
-
-        ARTICLE_RECORDING_ACTIVE_FILE.write_text(str(os.getpid()))
-        log("Recording active marker written")
-
-        # Do NOT emit RECORDING via DBus — the old extension (before logout)
-        # has no _isArticleMode guard and would start a countdown that calls
-        # _stopRecording() at ~117s, killing the process. The panel indicator
-        # is handled by the window's _launchArticleMode() spinner instead.
-        log("Article mode recording started")
-        if not no_notify:
-            try:
-                subprocess.run([
-                    "gdbus", "call", "--session",
-                    "--dest", "org.freedesktop.Notifications",
-                    "--object-path", "/org/freedesktop/Notifications",
-                    "--method", "org.freedesktop.Notifications.Notify",
-                    "speech-to-text-article", "0", "audio-input-microphone",
-                    "Article Mode", "Recording…", "[]", "{}", "2000"
-                ], capture_output=True, timeout=1)
-            except Exception:
-                pass
-
-        chunk_texts = []
-        chunk_start = time.time()
-        chunk_num = 0
-
-        # Shared phrase state — only ONE phrase thread runs at a time.
-        # Creating these outside the loop avoids the Python late-binding closure
-        # bug where a new iteration's reassignment clobbers the old thread's
-        # phrase_done/phrase_result references, leading to concurrent
-        # recorder.text() calls that corrupt the recorder after ~120s.
-        phrase_done = threading.Event()
-        phrase_result = [None]
-
-        def _phrase_thread_fn():
-            try:
-                phrase_result[0] = recorder.text()
-            except Exception as e:
-                log(f"recorder.text() error: {e}", "WARN")
-                phrase_result[0] = None
-            finally:
-                phrase_done.set()
-                phrase_unblock.set()
-
-        def _start_phrase_thread():
-            phrase_done.clear()
-            phrase_result[0] = None
-            t = threading.Thread(target=_phrase_thread_fn, daemon=True)
-            t.start()
-
-        # Start the first phrase before entering the loop
-        _start_phrase_thread()
-
-        while not stop_requested:
-            # Wait for phrase completion, stop signal, or periodic chunk-timer
-            # check. Short timeout (5s) keeps chunk flush responsive.
-            phrase_unblock.wait(timeout=5)
-            phrase_unblock.clear()
-
-            if stop_requested:
-                # Give the phrase thread a moment to return final text
-                phrase_done.wait(timeout=3)
-
-            # If a phrase completed, collect it and start the next one
-            if phrase_done.is_set():
-                phrase = phrase_result[0]
-                if phrase and phrase.strip():
-                    chunk_texts.append(phrase.strip())
-                    write_buffer(chunk_texts)
-                    log(f"Phrase collected: {len(phrase)} chars")
-                if not stop_requested:
-                    _start_phrase_thread()
-
-            # Flush chunk every CHUNK_DURATION seconds
-            elapsed = time.time() - chunk_start
-            if not stop_requested and elapsed >= CHUNK_DURATION and chunk_texts:
-                chunk_num += 1
-                flush_chunk(chunk_texts, chunk_num)
-                chunk_texts = []
-                chunk_start = time.time()
-                log(f"Starting chunk {chunk_num + 1}")
-
-            if stop_requested:
-                break
-
-        # Final flush of any remaining phrases
-        if chunk_texts:
-            chunk_num += 1
-            flush_chunk(chunk_texts, chunk_num)
-
-        log("Article recording ended cleanly")
-
+        max_seconds, silence_seconds = stream.continuous_limits()
     except Exception as e:
-        log(f"Article mode error: {e}", "ERROR")
-        notify("ERROR", f"Article recording failed: {e}")
+        fail(f"Cannot read the dictation settings (re-run play-speech-to-text.yml): {e}")
+        return 1
+    log(f"Limit {max_seconds} s; no-speech stop {silence_seconds or 'off'}")
+
+    # True from START until the server has acknowledged a STOP, or ended the dictation itself:
+    # while it is, every exit sends one, so no exit leaves the microphone open
+    recording_active = False
+    session_dir = None
+    all_texts = []
+    phrases = []
+    offset = 0
+    last_flush = time.monotonic()
+
+    PID_FILE.write_text(str(os.getpid()))
+    signal.signal(signal.SIGINT, abort_startup)
+    signal.signal(signal.SIGTERM, abort_startup)
+
+    try:
+        language = args.language or os.environ.get("WHISPER_LANGUAGE", "en") or "en"
+        if not stream.is_server_running():
+            stream.notify("PREPARING", "Starting server...")
+            try:
+                started = stream.start_server(language)
+            except Exception as e:
+                fail(f"Cannot start the server: {e}")
+                return 1
+            if not started:
+                fail("Failed to start the server")
+                return 1
+
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        ARTICLE_RAW_FILE.write_text("")
+        ARTICLE_BUFFER_FILE.write_text("")
+        ARTICLE_TRIGGER_FILE.unlink(missing_ok=True)
+
+        signal.signal(signal.SIGINT, request_stop)
+        signal.signal(signal.SIGTERM, request_stop)
+
+        response = stream.send_server_command("START", {
+            "continuous": True, "max_seconds": max_seconds, "silence_seconds": silence_seconds})
+        if response.get("status") != "recording":
+            fail(f"Failed to start the dictation: {response.get('message', response)}")
+            return 1
+        recording_active = True
+        session_dir = response.get("session_dir")
+        journal = Path(session_dir) / "journal.jsonl"
+        ARTICLE_RECORDING_ACTIVE_FILE.write_text(str(os.getpid()))
+        log(f"Article dictation started; journal {journal}")
+        if response.get("undelivered"):
+            stream.report_undelivered_dictation(response["undelivered"])
+
+        # Not RECORDING on D-Bus: the panel's own recording countdown would stop an
+        # article; the window shows the state of an article itself.
+
+        def collect():
+            """Read what the server journaled since the last read into the buffer."""
+            nonlocal offset
+            texts, offset = read_new_segments(journal, offset)
+            if texts:
+                all_texts.extend(texts)
+                phrases.extend(texts)
+                write_buffer(phrases)
+
+        progress = {"status": "recording"}
+        last_keepalive = last_progress = time.monotonic()
+        while not stop_requested and progress.get("status") == "recording":
+            now = time.monotonic()
+            if now - last_keepalive >= stream.KEEPALIVE_INTERVAL:
+                reply = stream.send_server_command("KEEPALIVE")
+                last_keepalive = now
+                if reply.get("status") == "error":
+                    progress = reply
+            if progress.get("status") == "recording" \
+                    and now - last_progress >= stream.PROGRESS_INTERVAL:
+                progress = stream.send_server_command("PROGRESS")
+                last_progress = now
+            collect()
+            if phrases and time.monotonic() - last_flush >= FLUSH_SECONDS:
+                flush_chunk(phrases)
+                phrases.clear()
+                last_flush = time.monotonic()
+            time.sleep(POLL_INTERVAL)
+
+        # STOP closes the microphone (or, if the server stopped on its own, just reports);
+        # the segments still queued are then transcribed while we poll. A KEEPALIVE or
+        # PROGRESS that failed ends up here too: STOP is sent so a server still recording
+        # closes the microphone and keeps the text.
+        if progress.get("status") in ("recording", "error"):
+            if progress.get("status") == "error":
+                log(f"Lost touch with the server ({progress}); sending STOP", "ERROR")
+            else:
+                log("Stop requested, sending STOP")
+            progress = stream.send_server_command("STOP")
+        else:
+            log(f"The server ended the dictation itself: {progress}")
+        if progress.get("status") != "error":
+            recording_active = False
+
+        # "stopping": the server is still closing the microphone; "draining": the last
+        # segments are being transcribed. However long that takes, up to the server's own
+        # deadline: nothing here kills the client or the session sooner.
+        waiting_for = give_up_at = None
+        while progress.get("status") in ("stopping", "draining"):
+            status = progress["status"]
+            if status != waiting_for:
+                waiting_for = status
+                allowance = (stream.MIC_CLOSE_SECONDS if status == "stopping"
+                             else progress.get("drain_seconds_left", 0))
+                give_up_at = time.monotonic() + allowance + stream.DRAIN_GRACE_SECONDS
+            if time.monotonic() > give_up_at:
+                progress = {"status": "error",
+                            "message": "the server never finished transcribing"}
+                break
+            collect()
+            time.sleep(stream.DRAIN_POLL_INTERVAL)
+            progress = stream.send_server_command("PROGRESS")
+        collect()
+
+        status = progress.get("status")
+        if status == "failed":
+            flush_chunk(phrases)
+            fail(describe_failure(progress, session_dir))
+            return 1
+        if status != "done":
+            flush_chunk(phrases)
+            fail(f"The dictation did not complete: {progress.get('message', progress)}. "
+                 f"Any text transcribed so far is in {journal}")
+            return 1
+
+        final_text = (progress.get("transcription") or "").strip()
+        journal_text = " ".join(all_texts)
+        flush_chunk(phrases)
+        if journal_text != final_text:
+            fail(f"The journal and the server's final text disagree: the journal gave "
+                 f"{len(journal_text)} chars, the final text {len(final_text)}. What the journal "
+                 f"gave is in the article window; the server's text is in {journal}")
+            return 1
+        reason = progress.get("stop_reason") or ""
+        if reason and reason != "stop requested":
+            log(f"Stopped: {reason}", "WARN")
+            stream.desktop_notification(f"Stopped: {reason}", 0)
+        if not all_texts:
+            log("No speech detected", "WARN")
+        log("Article dictation ended cleanly")
+        return 0
+
+    except (OSError, ValueError) as e:
+        flush_chunk_error = None
+        try:
+            flush_chunk(phrases)
+        except OSError as flush_error:
+            flush_chunk_error = flush_error
+        suffix = f" (and the raw file could not be written: {flush_chunk_error})" \
+            if flush_chunk_error else ""
+        fail(f"Cannot follow the dictation journal {session_dir}/journal.jsonl: {e}{suffix}")
         return 1
 
     finally:
-        if PID_FILE.exists():
-            PID_FILE.unlink()
-        _release_recorder()
-        for f in (ARTICLE_PARTIAL_FILE, ARTICLE_BUFFER_FILE, ARTICLE_RECORDING_ACTIVE_FILE):
-            if f.exists():
-                try:
-                    f.unlink()
-                except Exception:
-                    pass
-        emit_dbus_signal("StateChanged", "IDLE")
-        log("Mic released, IDLE signal sent")
-
-    return 0
+        if recording_active:
+            reply = stream.send_server_command("STOP")
+            log(f"Cleanup: STOP answered {reply}", "ERROR" if reply.get("status") == "error"
+                else "INFO")
+        remove_marker_files()
+        stream.emit_dbus_signal("StateChanged", "IDLE")
+        log("Marker files removed, IDLE signal sent")
 
 
 def main():
-    global debug_mode, no_notify
-
-    parser = argparse.ArgumentParser(description="Article mode: looped speech-to-text")
+    global debug_mode
+    parser = argparse.ArgumentParser(description="Article mode: long dictation for the article window")
     parser.add_argument("-d", "--debug", action="store_true")
     parser.add_argument("-l", "--language", type=str, default=None)
     parser.add_argument("--no-notify", action="store_true")
 
     args = parser.parse_args()
-    debug_mode = args.debug
-    no_notify = args.no_notify
 
     try:
         return run_article_mode(args)
@@ -375,7 +354,7 @@ def main():
         log(f"FATAL: {e}", "CRITICAL")
         import traceback
         log(traceback.format_exc(), "CRITICAL")
-        notify("ERROR", f"Article mode crashed: {e}")
+        fail(f"Article mode crashed: {e}")
         return 1
 
 

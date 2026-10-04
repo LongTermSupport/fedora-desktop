@@ -1,6 +1,6 @@
 # Plan 00148: speech-to-text improvements (unlimited dictation, delayed stop, models)
 
-**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 0.7, 4.1-4.7 and 7.4 built, all merged to F44 but 4.7; host checks Tasks 0.5, 1.2 and 8.4 pending; next: Phases 5 and 6)
+**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 0.7, 4.1-4.7, 5.1 and 7.4 built, all merged to F44 but 5.1; host checks Tasks 0.5, 1.2 and 8.4 pending; next: Phase 6)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
@@ -194,8 +194,15 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
 
 ### Phase 5: Article mode on the server session
 
-- [ ] ⬜ **Task 5.1**: Point `wsi-article` at the server session and journal; remove its own
-  loop, its swallowed exceptions and the window's 3 s SIGKILL on Stop.
+- [x] ✅ **Task 5.1**: `wsi-article` is now a client of the server's continuous session
+  (START, KEEPALIVE, PROGRESS, STOP, reusing `wsi-stream`'s socket helpers and the shared
+  `continuous_limits()`); it follows the session journal for live text and writes the files
+  the window already reads (buffer, raw, trigger, active marker). Its own RealtimeSTT loop,
+  swallowed exceptions and fixed 120 s chunk loop are gone; every failure is a notification
+  that stays, stderr and exit 1, with the text so far kept in the raw file. The window no
+  longer SIGKILLs on Stop or on close: the client drains and bounds its own wait.
+  Tests: `test_article_client.py` (17, stub server plus a real journal file). Needs the
+  host run (Task 6.2) to be heard.
 
 ### Phase 6: Verification
 

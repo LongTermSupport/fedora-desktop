@@ -51,7 +51,6 @@ class ArticleWindow(Gtk.ApplicationWindow):
         self.is_polishing = False
         self.chunk_count = 0
         self.poll_timer_id = None
-        self._force_kill_timer = None
         self._final_polish_done = False
         self._recording_active_seen = False
 
@@ -232,10 +231,6 @@ class ArticleWindow(Gtk.ApplicationWindow):
             self.article_proc = None
             self.stop_btn.set_sensitive(False)
             self.stop_btn.set_label("■ Stopped")
-            # Cancel force-kill timer if it was pending
-            if self._force_kill_timer:
-                GLib.Source.remove(self._force_kill_timer)
-                self._force_kill_timer = None
             # Trigger final polish from whatever has been accumulated
             if not self._final_polish_done:
                 self._final_polish_done = True
@@ -428,21 +423,16 @@ class ArticleWindow(Gtk.ApplicationWindow):
         return False
 
     def _on_stop(self, _btn):
-        """Terminate wsi-article; force-kill after 3 seconds if needed."""
+        """Ask wsi-article to stop; it drains the server's queued speech, then exits.
+
+        No kill follows: a SIGKILL after a few seconds would throw away the last words,
+        which the server is still transcribing. wsi-article bounds its own wait.
+        """
         proc = self.article_proc
         if proc and proc.poll() is None:
             proc.terminate()
-            self._set_status("Stopping…")
-            # Schedule a force-kill in case terminate doesn't unblock the recorder
-            self._force_kill_timer = GLib.timeout_add(3000, self._force_kill)
-
-    def _force_kill(self):
-        """Force-kill wsi-article if it hasn't exited after terminate()."""
-        self._force_kill_timer = None
-        proc = self.article_proc
-        if proc and proc.poll() is None:
-            proc.kill()
-        return False  # GLib.SOURCE_REMOVE
+            self.stop_btn.set_sensitive(False)
+            self._set_status("Stopping… transcribing the last words")
 
     def _on_copy(self, _btn):
         """Copy from whichever tab is currently active."""
@@ -476,14 +466,9 @@ class ArticleWindow(Gtk.ApplicationWindow):
         if self.poll_timer_id:
             GLib.Source.remove(self.poll_timer_id)
             self.poll_timer_id = None
-        if self._force_kill_timer:
-            GLib.Source.remove(self._force_kill_timer)
-            self._force_kill_timer = None
         proc = self.article_proc
         if proc and proc.poll() is None:
-            proc.terminate()
-            # Give it a moment, then kill
-            GLib.timeout_add(1000, lambda: proc.kill() if proc.poll() is None else None)
+            proc.terminate()  # it finishes its stop on its own, with no window to show it
         return False
 
     def _set_status(self, text):
