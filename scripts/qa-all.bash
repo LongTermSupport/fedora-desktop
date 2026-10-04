@@ -460,6 +460,18 @@ fi
 gh_scopes_summary=$(qa_gate_case_count "$gh_scopes_out")
 qa_pass_line gh-scope-outside-ssot "$gh_scopes_summary"
 
+# model-present-without-weights and dropdown-label-carries-explanation (Defence Before Fix,
+# Plan 00156; CLAUDE/QA.md). A model cache snapshot counted as installed without its
+# weights, and dropdown options too long to read, together hid a model that never loaded.
+stt_rules_out=""
+if ! stt_rules_out="$(bash "$SCRIPT_DIR/qa-speech-to-text-rules.bash" 2>&1)"; then
+    qa_hard_gate_failed speech-to-text-rules \
+        "speech-to-text rules: a model judged present without its weights, or a dropdown label that explains itself" \
+        "$stt_rules_out"
+fi
+stt_rules_summary=$(qa_gate_case_count "$stt_rules_out")
+qa_pass_line speech-to-text-rules "$stt_rules_summary"
+
 # ccy's SELinux relabel decision (Plan 00118, CCY 3.55.0).
 #
 # On an Enforcing host container_t may not read user_home_t, so a ccy container

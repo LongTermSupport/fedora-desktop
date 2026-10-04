@@ -73,6 +73,7 @@ they are deliberately not jq-merged stages, so they cannot disturb the positiona
 | `test-ccy-lifecycle.bash`                   | `lib/session-lifecycle.bash` — `--max-age`/`--run-for`/`--until` validation, the deadline kept across a restart, the entrypoint adding the supervisor plugin only when asked (plugin: `tests/helpers/ccy_lifecycle/`)                                                                                                                                                                                                                                                                                                                               |
 | `test-wsi-stop-grace.bash`                  | speech-to-text's delayed stop: the real `wsi` under stub audio tools keeps the microphone open for the grace after the first TERM, stops at once on a second TERM or a grace of 0, and refuses to record without a grace; then `tests/speech_to_text/`: `wsi-stream`'s stop state, handlers and drain as units, pre-buffer mode end to end (stub RealtimeSTT, fake `pw-record`, TERM during and after the model load), and `wsi-stream-server`'s stop order. Standard streaming and the server-mode client loop are not run end to end (Plan 00148) |
 | `qa-stt-limits.bash`                        | each speech-to-text recording limit has one home: `wsi`'s 30 s, `wsi-stream`'s 120 s, continuous dictation's GSettings keys; a literal copy in the panel, the server or a second place in a recorder fails (Plan 00148)                                                                                                                                                                                                                                                                                                                             |
+| `qa-speech-to-text-rules.bash`              | the Semgrep rules in `.semgrep/speech-to-text.yml`, proven against `.semgrep/speech-to-text.js` and `.py` every run, over every tracked JavaScript and Python file (extensionless scripts found by shebang); exits 2 if a file it handed semgrep was not scanned. See [model-present-without-weights](#model-present-without-weights) and [dropdown-label-carries-explanation](#dropdown-label-carries-explanation) (Plan 00156)                                                                                                                    |
 | `test-ccy-host-hostname.bash`               | `ccy_host_hostname` — the RFC 1123 grammar guarding `CCY_HOST_HOSTNAME` (Plan 00121)                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `test-ccy-network-disconnect.bash`          | `ccy --disconnect` — the detach, the picker's re-prompt, and whether the saved default network is cleared, kept, or never there, against a stubbed engine                                                                                                                                                                                                                                                                                                                                                                                           |
 | `test-ccy-session-network.bash`             | the `ccy-sessions` CPU, network, token and SSH key columns — the process-tree join from a tmux session to its container, which processes a session's CPU counts and the share they come to, both engines' renderings of a network list, and the token and key labels                                                                                                                                                                                                                                                                                |
@@ -683,6 +684,53 @@ play. Found and defended under Defence Before Fix (Plan 00139).
 - **Never** add an exclude to the rule to clear a finding. Excludes are only for files that
   cannot carry the hazard, such as a plan's prose or a changelog. Adding one is the
   owner's decision.
+
+### model-present-without-weights
+
+**What it is.** A function that names a Hugging Face cache `snapshots` path (the word
+right after a quote or a slash) and never names `model.bin`. Run by
+`qa-speech-to-text-rules.bash` over every tracked JavaScript and Python file.
+
+**Why it exists.** A snapshot directory appears as soon as a download starts. The small
+config files land first and the weights last, so an interrupted download leaves a
+snapshot with no `model.bin`, which faster-whisper cannot load. Settings counted such a
+snapshot as installed and offered the `auto` model. The warm server then failed to load
+it and the panel reported a timeout. `wsi-model-manager` used the same test, so it
+called the broken download "already installed" and refused to fetch it again. Found and
+defended under Defence Before Fix (Plan 00156).
+
+**How to fix a finding.** Judge a model present only when a snapshot holds `model.bin`,
+the file `WhisperModel` loads:
+
+```python
+any((rev / "model.bin").is_file() for rev in snapshots.iterdir())
+```
+
+In GJS, check `snapshot.get_child('model.bin').query_exists(null)` for each snapshot.
+Never satisfy the rule by mentioning `model.bin` in a comment while the check still
+looks at the directory.
+
+### dropdown-label-carries-explanation
+
+**What it is.** A dropdown option label that explains itself instead of naming the
+option. It is reported when it holds an em dash, a parenthesis, a comma, a semicolon or
+a tilde, or runs to 25 characters or more. The rule reads every place the panel builds
+labels: an `_addComboRow` call, the `WHISPER_MODELS` catalogue, and a `labels` array
+built or pushed to at runtime. Run by `qa-speech-to-text-rules.bash`.
+
+**Why it exists.** An `Adw.ComboRow` shows the selected option beside the row's title,
+in whatever width is left, and ellipsizes the rest. Options such as
+`Standard — load then start (~3-6s)` were cut off, so neither the chosen value nor the
+choices could be read. The 25-character limit sits above the longest short name in the
+panel (19) and below the shortest label that was truncated (34). Found and defended
+under Defence Before Fix (Plan 00156).
+
+**How to fix a finding.** Give the option a short name (`Standard`, `Sonnet`,
+`Ctrl+Shift+V`). Move what it meant into the row's subtitle, or into the group's
+description when several rows share it. A state such as "not installed" belongs in the
+subtitle, not glued onto the option. Never escape the rule by spelling the explanation
+with other punctuation: the rule's characters are a proxy for explanation, not the
+thing banned.
 
 ---
 

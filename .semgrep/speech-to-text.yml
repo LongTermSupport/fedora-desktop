@@ -1,0 +1,97 @@
+rules:
+  # Rule: a downloaded model is present only when its weights are (Defence Before Fix;
+  # CLAUDE/QA.md "model-present-without-weights").
+  #
+  # A Hugging Face cache snapshot appears as soon as a download starts: the small config
+  # files land first, and the weights arrive last. An interrupted download leaves a
+  # snapshot with no model.bin, which faster-whisper cannot load. Code that judges a model
+  # present from the cache or snapshot directory therefore offers a model that fails later
+  # and somewhere else. That is how the panel's server came to time out on an `auto`
+  # model whose download had never finished.
+  #
+  # WRONG: snapshots.exists() and any(snapshots.iterdir())
+  # RIGHT: any((rev / "model.bin").is_file() for rev in snapshots.iterdir())
+  #
+  # The rule reports a function that names a `snapshots` path component (the word right
+  # after a quote or a slash) and never names model.bin. The word alone is not enough:
+  # helpers/containerwatch takes CPU "snapshots", which are no cache.
+  - id: model-present-without-weights
+    languages: [javascript]
+    patterns:
+      - pattern-regex: '[/''"`]snapshots\b'
+      - pattern-inside: |
+          $M(...) { ... }
+      - pattern-not-inside: |
+          $M(...) {
+            ...
+            <... 'model.bin' ...>;
+            ...
+          }
+    message: >
+      model-present-without-weights: a model judged present from its cache snapshot.
+      Check that model.bin is in the snapshot. See CLAUDE/QA.md
+      "model-present-without-weights".
+    severity: ERROR
+    metadata:
+      dbf-class: a downloaded model judged present without its weight file
+  - id: model-present-without-weights
+    languages: [python]
+    patterns:
+      - pattern-regex: '[/''"`]snapshots\b'
+      - pattern-inside: |
+          def $F(...):
+            ...
+      - pattern-not-inside: |
+          def $F(...):
+            ...
+            <... 'model.bin' ...>
+            ...
+    message: >
+      model-present-without-weights: a model judged present from its cache snapshot.
+      Check that model.bin is in the snapshot. See CLAUDE/QA.md
+      "model-present-without-weights".
+    severity: ERROR
+    metadata:
+      dbf-class: a downloaded model judged present without its weight file
+
+  # Rule: a dropdown option is a short name (Defence Before Fix; CLAUDE/QA.md
+  # "dropdown-label-carries-explanation").
+  #
+  # An Adw.ComboRow shows the selected option beside the row's title, in whatever width is
+  # left, and ellipsizes the rest. An option that carries its own explanation (a clause
+  # after an em dash, a parenthesis, timings, a caveat) is cut off. Then neither the
+  # selected value nor the options can be read. The owner reported exactly that for every
+  # Startup mode option. The explanation belongs in the row's subtitle.
+  #
+  # WRONG: ['Standard — load then start (~3-6s)', ...]
+  # RIGHT: ['Standard', ...], with 'Standard: load the model at each Insert …' in the subtitle
+  #
+  # A label is reported when it holds an em dash, a parenthesis, a comma, a semicolon or a
+  # tilde, or runs to 25 characters or more. The 34-character original was truncated, and
+  # the longest short name in the panel is 19. The labels are found in every place the
+  # panel builds them: an `_addComboRow` call, the WHISPER_MODELS catalogue, and a
+  # `labels` array built or pushed to at runtime.
+  - id: dropdown-label-carries-explanation
+    languages: [javascript]
+    patterns:
+      - pattern-either:
+          - pattern: this._addComboRow($G, $S, $K, $T, $SUB, $VALS, [..., $L, ...])
+          - pattern: const WHISPER_MODELS = [..., [$ID, $REPO, $L, ...], ...];
+          - patterns:
+              - pattern-either:
+                  - pattern: $LABELS.push($L)
+                  - pattern: const $LABELS = [..., $L, ...];
+              - metavariable-regex:
+                  metavariable: $LABELS
+                  regex: '^(labels|.*Labels)$'
+      - focus-metavariable: $L
+      - metavariable-regex:
+          metavariable: $L
+          regex: '(?s)^.(?:.*(?:—|\(|\)|,|;|~).*|.{25,}).$'
+    message: >
+      dropdown-label-carries-explanation: a dropdown option that explains itself is
+      truncated in the row. Use a short name and move the explanation to the row's
+      subtitle. See CLAUDE/QA.md "dropdown-label-carries-explanation".
+    severity: ERROR
+    metadata:
+      dbf-class: a dropdown option label that carries explanation instead of a short name
