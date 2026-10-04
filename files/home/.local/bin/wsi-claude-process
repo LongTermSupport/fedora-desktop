@@ -13,8 +13,11 @@
 # Description:
 #   Reads prompt template from ~/.config/speech-to-text/claude-prompt-{style}.txt
 #   Replaces {TRANSCRIPTION} placeholder with actual transcribed text
-#   Calls Claude Code CLI (ccy) in headless mode
-#   Returns reformatted text or original text if processing fails
+#   Calls the Claude Code CLI headless, as the account the `claude-token` setting
+#   names (a token in ~/.claude-tokens/ccy/tokens/, as cc and ccy use), or the
+#   desktop login when the setting is empty
+#   Prints the reformatted text. On any failure it prints nothing, says why on
+#   stderr and exits 1: the caller must never mistake the raw text for Claude's.
 #
 
 set -euo pipefail
@@ -23,6 +26,10 @@ set -euo pipefail
 CONFIG_DIR="${HOME}/.config/speech-to-text"
 LOG_DIR="${HOME}/.local/share/speech-to-text"
 LOG_FILE="${LOG_DIR}/debug.log"
+TOKEN_DIR="${HOME}/.claude-tokens/ccy/tokens"
+SETTING_READER="$(dirname "$(readlink -f "$0")")/wsi-setting"
+# Below the callers' own limits (180 s), so this script reports the timeout itself
+CLAUDE_TIMEOUT_SECONDS=170
 DEBUG_MODE=false
 CLAUDE_MODEL="sonnet"
 STYLE="corporate"
@@ -62,12 +69,36 @@ log() {
     fi
 }
 
-# Error handling
+# Error handling: the reason on stderr (the caller shows it), nothing on stdout
 error_exit() {
     log "ERROR: $1"
-    # Return original transcription on error
-    echo "$TRANSCRIPTION"
-    exit 0
+    echo "wsi-claude-process: $1" >&2
+    exit 1
+}
+
+# The newest unexpired NAME.YYYY-MM-DD.token for NAME, the format cc checks
+export_named_token() {
+    local name="$1" today newest="" file expiry token
+    today=$(date +%Y-%m-%d)
+    for file in "$TOKEN_DIR/$name".*.token; do
+        [[ -f "$file" ]] || continue
+        expiry="${file%.token}"
+        expiry="${expiry##*.}"
+        [[ "$expiry" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || continue
+        [[ "$expiry" < "$today" ]] && continue
+        if [[ -z "$newest" || "$file" > "$newest" ]]; then
+            newest="$file"
+        fi
+    done
+    if [[ -z "$newest" ]]; then
+        error_exit "no unexpired token named '$name' in $TOKEN_DIR (Settings → Claude token; make one with ccy --create-token)"
+    fi
+    token=$(<"$newest")
+    if ! [[ "$token" =~ ^sk-ant-oat01- ]] || (( ${#token} < 90 || ${#token} > 120 )); then
+        error_exit "the token file $newest is not a Claude Code OAuth token"
+    fi
+    export CLAUDE_CODE_OAUTH_TOKEN="$token"
+    log "Using token '$name' ($(basename "$newest"))"
 }
 
 # Preflight checks
@@ -84,6 +115,17 @@ fi
 # Check if claude is available
 if ! command -v claude &>/dev/null; then
     error_exit "claude CLI not found in PATH"
+fi
+
+# The account. The desktop login is parked aside while a cc named-token session runs,
+# so an empty setting fails then with "Not logged in"; a named token does not.
+if ! TOKEN_NAME=$("$SETTING_READER" claude-token); then
+    error_exit "cannot read the claude-token setting (re-run play-speech-to-text.yml)"
+fi
+if [[ -n "$TOKEN_NAME" ]]; then
+    export_named_token "$TOKEN_NAME"
+else
+    log "Using the desktop login (claude-token is empty)"
 fi
 
 # Select prompt file based on style
@@ -115,11 +157,21 @@ FULL_PROMPT="${FULL_PROMPT//\{TWEAK\}/$TWEAK_LINE}"
 
 log "Constructed full prompt (${#FULL_PROMPT} chars)"
 
-# Call Claude CLI in headless mode
+# Call Claude CLI in headless mode. Its stderr is kept apart: it holds the reason a
+# failed run gives (e.g. "Not logged in"), which is what the caller must show.
 log "Calling claude with model=$CLAUDE_MODEL"
-if ! RESULT=$(echo "$FULL_PROMPT" | claude --model "$CLAUDE_MODEL" 2>>"$LOG_FILE"); then
-    log "claude failed: $RESULT"
-    error_exit "Claude processing failed"
+CLAUDE_ERR=$(mktemp)
+trap 'rm -f "$CLAUDE_ERR"' EXIT
+claude_rc=0
+RESULT=$(printf '%s\n' "$FULL_PROMPT" |
+    timeout "$CLAUDE_TIMEOUT_SECONDS" claude -p --model "$CLAUDE_MODEL" 2>"$CLAUDE_ERR") || claude_rc=$?
+if [[ "$claude_rc" -ne 0 ]]; then
+    reason=$(tr '\n' ' ' <"$CLAUDE_ERR")
+    [[ -n "$reason" ]] || reason="$RESULT"
+    if [[ "$claude_rc" -eq 124 ]]; then
+        reason="no answer within ${CLAUDE_TIMEOUT_SECONDS} s"
+    fi
+    error_exit "claude failed (exit $claude_rc): ${reason:-no message}"
 fi
 
 # Clean up result (remove any leading/trailing whitespace)

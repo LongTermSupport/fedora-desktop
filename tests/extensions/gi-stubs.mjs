@@ -115,6 +115,19 @@ export class Extension {
     }
 }
 
+/** `ExtensionPreferences`, the base a `prefs.js` extends, for a test that drives its helpers. */
+export class ExtensionPreferences {
+    constructor(metadata) {
+        this.metadata = metadata;
+    }
+}
+
+/** `Adw` and `Gtk` are used only to build the preferences window, which no test builds.
+ * Empty objects let `prefs.js` import; a test that reached for a widget would fail on
+ * the missing name rather than pass against an invented one. */
+export const Adw = {};
+export const Gtk = {};
+
 /** `PanelMenu.Button`, carrying the one thing the panel reads back off it: `menu`. */
 export class Button {
     constructor(alignment, nameText, dontCreateMenu) {
@@ -353,6 +366,7 @@ export const Gio = {
     DBusSignalFlags: DBUS_SIGNAL_FLAGS,
     IOErrorEnum: IO_ERROR_ENUM,
     SubprocessFlags: SUBPROCESS_FLAGS,
+    FileQueryInfoFlags: {NONE: 0},
     Subprocess: {
         new(argv, flags) {
             SPAWNS.push({argv, flags});
@@ -398,8 +412,32 @@ export const Gio = {
          * and "starts as unavailable" is a decision the extension states in as many
          * words. Nothing in the panel depends on the callback being deferred.
          */
+        /**
+         * The file tree is `GLIB_FILES` too: a path exists when it is a stubbed file or
+         * has one beneath it, and a directory's children are the next names down. So a
+         * test lays out a cache by naming its files, and an empty directory is absent,
+         * as one that was never created is.
+         */
         new_for_path: path => ({
             path,
+            get_child: name => Gio.File.new_for_path(`${path}/${name}`),
+            get_path: () => path,
+            query_exists() {
+                return GLIB_FILES.has(path) ||
+                    [...GLIB_FILES.keys()].some(file => file.startsWith(`${path}/`));
+            },
+            enumerate_children() {
+                const names = [...new Set([...GLIB_FILES.keys()]
+                    .filter(file => file.startsWith(`${path}/`))
+                    .map(file => file.slice(path.length + 1).split('/')[0]))];
+                if (names.length === 0) {
+                    throw ioError(IO_ERROR_ENUM.NOT_FOUND, `stub Gio: no such directory ${path}`);
+                }
+                return {
+                    next_file: () => (names.length > 0 ? {get_name: () => names.shift()} : null),
+                    close() {},
+                };
+            },
             load_contents_async(cancellable, callback) {
                 const result = {path: this.path, cancellable};
                 if (DEFERRED_READS.enabled) {

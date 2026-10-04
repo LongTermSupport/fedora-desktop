@@ -11,21 +11,22 @@ import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 import { ExtensionPreferences } from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
-// Whisper model catalogue — mirrors wsi-model-manager.
-// Each entry: [modelId, huggingFaceRepo, displayLabel]
+// Whisper model catalogue — mirrors wsi-model-manager, which shows each model's size.
+// Each entry: [modelId, huggingFaceRepo, displayLabel]; a label is a short name, since
+// the dropdown truncates anything longer.
 const WHISPER_MODELS = [
-    ['tiny',           'Systran/faster-whisper-tiny',                    'Tiny (~75MB)'],
-    ['base',           'Systran/faster-whisper-base',                    'Base (~142MB)'],
-    ['small',          'Systran/faster-whisper-small',                   'Small (~466MB)'],
-    ['medium',         'Systran/faster-whisper-medium',                  'Medium (~1.5GB)'],
-    ['large-v2',       'Systran/faster-whisper-large-v2',                'Large v2 (~3GB)'],
-    ['large-v3',       'Systran/faster-whisper-large-v3',                'Large v3 (~3GB)'],
-    ['large-v3-turbo', 'mobiuslabsgmbh/faster-whisper-large-v3-turbo',   'Large v3 Turbo (~1.6GB)'],
-    ['tiny.en',        'Systran/faster-whisper-tiny.en',                 'Tiny English (~41MB)'],
-    ['base.en',        'Systran/faster-whisper-base.en',                 'Base English (~77MB)'],
-    ['small.en',       'Systran/faster-whisper-small.en',                'Small English (~252MB)'],
-    ['medium.en',      'Systran/faster-whisper-medium.en',               'Medium English (~789MB)'],
-    ['distil-large-v3.5', 'distil-whisper/distil-large-v3.5-ct2',        'Distil Large v3.5 English (~1.5GB)'],
+    ['tiny',           'Systran/faster-whisper-tiny',                    'Tiny'],
+    ['base',           'Systran/faster-whisper-base',                    'Base'],
+    ['small',          'Systran/faster-whisper-small',                   'Small'],
+    ['medium',         'Systran/faster-whisper-medium',                  'Medium'],
+    ['large-v2',       'Systran/faster-whisper-large-v2',                'Large v2'],
+    ['large-v3',       'Systran/faster-whisper-large-v3',                'Large v3'],
+    ['large-v3-turbo', 'mobiuslabsgmbh/faster-whisper-large-v3-turbo',   'Large v3 Turbo'],
+    ['tiny.en',        'Systran/faster-whisper-tiny.en',                 'Tiny English'],
+    ['base.en',        'Systran/faster-whisper-base.en',                 'Base English'],
+    ['small.en',       'Systran/faster-whisper-small.en',                'Small English'],
+    ['medium.en',      'Systran/faster-whisper-medium.en',               'Medium English'],
+    ['distil-large-v3.5', 'distil-whisper/distil-large-v3.5-ct2',        'Distil v3.5 English'],
 ];
 
 export default class SpeechToTextPreferences extends ExtensionPreferences {
@@ -49,10 +50,15 @@ export default class SpeechToTextPreferences extends ExtensionPreferences {
             ['System default', 'English']);
 
         // Build model list: auto + only installed models (+ current selection if missing)
-        const [modelValues, modelLabels] = this._buildInstalledModelList(settings);
+        const [modelValues, modelLabels, missingLabel] = this._buildInstalledModelList(settings);
+        const modelSubtitle = 'Auto: with a GPU, Distil v3.5 English for English, else Large v3 Turbo; ' +
+            'without one, Small (batch) or Base (streaming). ' +
+            'Only downloaded models are listed; use "Manage Whisper Models" to download more';
         this._addComboRow(transcGroup, settings, 'whisper-model',
             'Whisper Model',
-            'Only downloaded models shown — use "Manage Whisper Models" to download more',
+            missingLabel === null
+                ? modelSubtitle
+                : `${missingLabel} is selected but not downloaded. ${modelSubtitle}`,
             modelValues, modelLabels);
 
         // === Streaming ===
@@ -63,11 +69,13 @@ export default class SpeechToTextPreferences extends ExtensionPreferences {
             'Streaming mode', 'Real-time transcription using RealtimeSTT (requires Auto-paste)');
 
         this._addComboRow(streamGroup, settings, 'streaming-startup-mode',
-            'Startup mode', 'How the streaming server initialises',
+            'Startup mode',
+            'Standard: load the model at each Insert, then record (~3-6 s). ' +
+            'Pre-buffer: record while the model loads (~2-4 s). ' +
+            'Server: a background process keeps the model loaded between recordings, ' +
+            'so recording starts at once (<0.5 s) but holds GPU memory while it runs',
             ['standard', 'pre-buffer', 'server'],
-            ['Standard — load then start (~3-6s)',
-                'Pre-buffer — record while loading (~2-4s)',
-                'Server mode — persistent server (<0.5s, uses more memory)']);
+            ['Standard', 'Pre-buffer', 'Server']);
 
         this._addSpinRow(streamGroup, settings, 'server-idle-timeout-minutes',
             'Server idle timeout (minutes)',
@@ -81,7 +89,7 @@ export default class SpeechToTextPreferences extends ExtensionPreferences {
         // === Continuous dictation (server mode) ===
         const dictationGroup = new Adw.PreferencesGroup({
             title: 'Continuous Dictation',
-            description: 'Server mode only. Dictate for as long as you like: each phrase is transcribed while you speak, and the whole text is pasted once when you stop',
+            description: 'Needs Streaming mode on with Startup mode set to Server (above). Dictate for as long as you like: each phrase is transcribed while you speak, and the text is pasted when you stop, or as you go (below)',
         });
         page.add(dictationGroup);
 
@@ -99,6 +107,12 @@ export default class SpeechToTextPreferences extends ExtensionPreferences {
             'Stops and transcribes after this long without speech; 0 = never',
             30);
 
+        this._addSpinRow(dictationGroup, settings, 'dictation-paste-interval-seconds',
+            'Paste while dictating, every (seconds)',
+            'Pastes the text transcribed so far into the focused window (outlined in red), so ' +
+            'it appears as you speak; Enter only at the end. 0 = paste everything once at stop',
+            30);
+
         // === Output ===
         const outputGroup = new Adw.PreferencesGroup({ title: 'Output' });
         page.add(outputGroup);
@@ -110,30 +124,22 @@ export default class SpeechToTextPreferences extends ExtensionPreferences {
             'Send Enter after paste', 'Press Enter after pasting the transcription');
 
         this._addSwitchRow(outputGroup, settings, 'wrap-marker',
-            'Wrap with marker', 'Surround transcription with [STT]...[/STT] markers');
+            'Wrap with marker', 'Surround transcription with speech-to-text:"…"');
 
         this._addSwitchRow(outputGroup, settings, 'show-notifications',
             'Show notifications', 'Show desktop notifications for transcription events');
 
         this._addComboRow(outputGroup, settings, 'paste-default-mode',
-            'Paste shortcut', 'Key combo used to paste transcription (find your app\'s WM_CLASS with: xprop WM_CLASS)',
-            ['with-shift', 'no-shift'],
-            ['Ctrl+Shift+V (default — correct for terminals)',
-                'Ctrl+V (correct for browsers and most GUI apps)']);
+            'Paste shortcut for other apps',
+            'Chosen at each paste for the window focused then. Terminals always get ' +
+            'Ctrl+Shift+V; apps in the list below always get Ctrl+V; every other app gets ' +
+            'this. With debug logging on, the log names each paste\'s window class',
+            ['no-shift', 'with-shift'],
+            ['Ctrl+V', 'Ctrl+Shift+V']);
 
-        const ctrlVRow = new Adw.EntryRow({
-            title: 'Apps using Ctrl+V',
-            text: settings.get_string('paste-ctrl-v-apps'),
-            show_apply_button: true,
-        });
-        ctrlVRow.connect('apply', () => {
-            settings.set_string('paste-ctrl-v-apps', ctrlVRow.text);
-        });
-        settings.connect('changed::paste-ctrl-v-apps', () => {
-            const val = settings.get_string('paste-ctrl-v-apps');
-            if (ctrlVRow.text !== val) ctrlVRow.text = val;
-        });
-        outputGroup.add(ctrlVRow);
+        this._addListRow(outputGroup, settings, 'paste-ctrl-v-apps', 'Apps using Ctrl+V');
+        this._addListRow(outputGroup, settings, 'paste-save-apps',
+            'Apps to save after pasting (Ctrl+S; never terminals)');
 
         // === Claude Code ===
         const claudeGroup = new Adw.PreferencesGroup({ title: 'Claude Code Post-Processing' });
@@ -143,11 +149,20 @@ export default class SpeechToTextPreferences extends ExtensionPreferences {
             'Enable Claude processing', 'Post-process transcription with Claude Code (Ctrl+Insert)');
 
         this._addComboRow(claudeGroup, settings, 'claude-model',
-            'Claude model', 'Claude model used for post-processing',
+            'Claude model',
+            'Claude model used for post-processing. Sonnet balances speed and quality; ' +
+            'Opus gives the best quality, more slowly; Haiku is fastest',
             ['sonnet', 'opus', 'haiku'],
-            ['Sonnet — balanced speed and quality',
-                'Opus — best quality, slower',
-                'Haiku — fastest']);
+            ['Sonnet', 'Opus', 'Haiku']);
+
+        const tokenNames = this._listClaudeTokens(settings.get_string('claude-token'));
+        this._addComboRow(claudeGroup, settings, 'claude-token',
+            'Claude token',
+            'The account post-processing runs as: a named token from ~/.claude-tokens/ccy/tokens ' +
+            '(ccy --create-token makes one; the newest unexpired one is used). Desktop login is ' +
+            'parked while a cc named-token session runs, so post-processing fails then',
+            ['', ...tokenNames],
+            ['Desktop login', ...tokenNames]);
 
         this._addPromptRow(claudeGroup,
             'Edit Corporate Prompt',
@@ -172,36 +187,36 @@ export default class SpeechToTextPreferences extends ExtensionPreferences {
     // -------------------------------------------------------------------------
 
     /**
-     * Build the values/labels arrays for the whisper-model combo row.
-     * Always includes 'auto'. Only adds models whose HuggingFace cache
-     * snapshot directory exists and is non-empty.  If the currently saved
-     * model is not installed it is still included (labelled "not installed")
-     * so the setting is never silently lost.
+     * Build the values/labels arrays for the whisper-model combo row, and the label
+     * of the saved model when it is not installed (else null).
+     * Always includes 'auto'. Only adds models _isModelInstalled finds. If the
+     * currently saved model is not installed it is still included, so the setting is
+     * never silently lost, and the caller says so in the row's subtitle.
      */
     _buildInstalledModelList(settings) {
         const values = ['auto'];
-        const labels = ['Auto (GPU: Distil Large v3.5 for English, else Large v3 Turbo)'];
+        const labels = ['Auto'];
         const currentModel = settings.get_string('whisper-model');
+        let missingLabel = null;
 
         for (const [id, repo, label] of WHISPER_MODELS) {
             const installed = this._isModelInstalled(repo);
-            if (installed) {
+            if (installed || id === currentModel) {
                 values.push(id);
                 labels.push(label);
-            } else if (id === currentModel) {
-                // Keep the saved value even if not installed so we don't lose it
-                values.push(id);
-                labels.push(`${label} — not installed`);
             }
+            if (!installed && id === currentModel)
+                missingLabel = label;
         }
 
-        return [values, labels];
+        return [values, labels, missingLabel];
     }
 
     /**
-     * Return true if the given HuggingFace repo has a non-empty snapshots
-     * directory in the local cache (meaning the model was fully downloaded).
-     * repo format: "Org/model-name"  →  cache: models--Org--model-name/snapshots/
+     * Return true if a snapshot of the given HuggingFace repo in the local cache
+     * holds model.bin. An interrupted download leaves a snapshot with the small
+     * config files and no model.bin, which WhisperModel cannot load.
+     * repo format: "Org/model-name"  →  cache: models--Org--model-name/snapshots/<rev>/
      */
     _isModelInstalled(repoId) {
         const cacheBase = GLib.get_home_dir() + '/.cache/huggingface/hub';
@@ -212,10 +227,15 @@ export default class SpeechToTextPreferences extends ExtensionPreferences {
         try {
             const enumerator = dir.enumerate_children(
                 'standard::name', Gio.FileQueryInfoFlags.NONE, null);
-            const hasChild = enumerator.next_file(null) !== null;
+            let installed = false;
+            let info;
+            while (!installed && (info = enumerator.next_file(null)) !== null)
+                installed = dir.get_child(info.get_name()).get_child('model.bin').query_exists(null);
             enumerator.close(null);
-            return hasChild;
-        } catch (_e) {
+            return installed;
+        } catch (e) {
+            // A cache that cannot be read offers nothing, and says why in the journal.
+            logError(e, `STT prefs: reading ${snapshotsPath}`);
             return false;
         }
     }
@@ -234,6 +254,51 @@ export default class SpeechToTextPreferences extends ExtensionPreferences {
             }
         });
         group.add(row);
+    }
+
+    /**
+     * The token names in ~/.claude-tokens/ccy/tokens (NAME.YYYY-MM-DD.token), sorted, plus
+     * the saved one if its file is gone, so the setting is never silently changed.
+     */
+    _listClaudeTokens(saved) {
+        const names = new Set();
+        const dir = Gio.File.new_for_path(`${GLib.get_home_dir()}/.claude-tokens/ccy/tokens`);
+        if (dir.query_exists(null)) {
+            try {
+                const enumerator = dir.enumerate_children(
+                    'standard::name', Gio.FileQueryInfoFlags.NONE, null);
+                let info;
+                while ((info = enumerator.next_file(null)) !== null) {
+                    const match = info.get_name().match(/^(.+)\.\d{4}-\d{2}-\d{2}\.token$/);
+                    if (match)
+                        names.add(match[1]);
+                }
+                enumerator.close(null);
+            } catch (e) {
+                logError(e, 'STT prefs: listing Claude tokens');
+            }
+        }
+        if (saved)
+            names.add(saved);
+        return [...names].sort();
+    }
+
+    /** A comma-separated list of window classes, saved when its apply button is pressed. */
+    _addListRow(group, settings, key, title) {
+        const row = new Adw.EntryRow({
+            title,
+            text: settings.get_string(key),
+            show_apply_button: true,
+        });
+        row.connect('apply', () => {
+            settings.set_string(key, row.text);
+        });
+        settings.connect(`changed::${key}`, () => {
+            const val = settings.get_string(key);
+            if (row.text !== val) row.text = val;
+        });
+        group.add(row);
+        return row;
     }
 
     /** A number row bound to an integer key; its range is the schema's, not a copy. */

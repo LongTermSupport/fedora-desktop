@@ -613,7 +613,9 @@ class DictationSession:
 
     # -- reporting ----------------------------------------------------------
 
-    def progress(self):
+    def progress(self, with_text=False):
+        """The session's state. `with_text` adds `text_so_far`, the committed text, which
+        only ever grows: a later one starts with every earlier one."""
         with self._lock:
             now = time.monotonic()
             end = self._stopped_at or now
@@ -637,6 +639,8 @@ class DictationSession:
                 report["drain_seconds_left"] = round(max(0.0, self._drain_deadline - now), 1)
             if self.state in ("done", "failed"):
                 report["transcription"] = self._transcript.text
+            if with_text:
+                report["text_so_far"] = self._transcript.text
             return report
 
     # -- threads ------------------------------------------------------------
@@ -1051,9 +1055,13 @@ def no_session(client_socket):
     send_response(client_socket, {"status": "error", "message": "No active recording"})
 
 
-def send_progress(client_socket):
-    """The session's progress; once a reply carrying the final text is sent, it is delivered."""
-    report = session.progress()
+def send_progress(client_socket, with_text=False):
+    """The session's progress; once a reply carrying the final text is sent, it is delivered.
+
+    `text_so_far` (asked for by a client pasting in chunks) never marks it delivered:
+    only the final text does, so a session whose last chunk was not pasted still owes it.
+    """
+    report = session.progress(with_text=with_text)
     if send_response(client_socket, report) and "transcription" in report:
         session.mark_delivered()
 
@@ -1079,12 +1087,18 @@ def handle_keepalive_command(client_socket, params):
 
 
 def handle_progress_command(client_socket, params):
-    """PROGRESS: the session's state; with the text once it is done or failed."""
+    """PROGRESS: the session's state; with the text once it is done or failed, and the
+    committed text so far when `with_text` is true."""
     update_activity()
     if session is None:
         no_session(client_socket)
         return
-    send_progress(client_socket)
+    with_text = params.get("with_text", False)
+    if not isinstance(with_text, bool):
+        send_response(client_socket, {"status": "error",
+                                      "message": f"with_text must be true or false (got {with_text!r})"})
+        return
+    send_progress(client_socket, with_text=with_text)
 
 
 def handle_abort_command(client_socket, params):

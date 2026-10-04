@@ -22,6 +22,7 @@ import atexit
 import socket
 import json
 import fcntl
+import re
 from pathlib import Path
 from datetime import datetime
 
@@ -46,6 +47,11 @@ SERVER_PID_FILE = Path(f"/run/user/{os.getuid()}/wsi-stream-server.pid")
 
 DBUS_PATH = "/org/fedoradesktop/SpeechToText"
 DBUS_INTERFACE = "org.fedoradesktop.SpeechToText"
+# The panel's own object: it says, for the window focused at that moment, which paste key
+# it needs and whether to save after the paste
+PANEL_DBUS_PATH = "/org/fedoradesktop/SpeechToText/Panel"
+PANEL_DBUS_INTERFACE = "org.fedoradesktop.SpeechToText.Panel"
+PASTE_TARGET_REPLY = re.compile(r"^\('((?:[^'\\]|\\.)*)', (true|false), (true|false)\)$")
 
 # Prints the stop grace in seconds; reads the extension's GSettings key, the one source
 STOP_GRACE_READER = Path(__file__).resolve().parent / "wsi-stop-grace"
@@ -302,6 +308,23 @@ def log(message, level="INFO"):
             f.write(log_line + "\n")
 
 
+LOG_ROTATE_BYTES = 1048576  # the panel rotates its log at the same size
+
+
+def start_log_session():
+    """Mark a recording's start in the debug log, rotating it once it is over 1 MB.
+
+    The panel writes to the same file, and its line naming the focused window comes just
+    before a recording starts, so the log is never emptied here: that line is what tells
+    a failed paste's target.
+    """
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    if LOG_FILE.exists() and LOG_FILE.stat().st_size > LOG_ROTATE_BYTES:
+        LOG_FILE.replace(LOG_FILE.with_name(LOG_FILE.name + ".old"))
+    with open(LOG_FILE, "a") as f:
+        f.write("\n")
+
+
 def emit_dbus_signal(signal_name, value):
     """Emit DBus signal for extension communication."""
     try:
@@ -396,49 +419,94 @@ def copy_to_clipboard(text, use_clipboard=False):
         return False
 
 
-def auto_paste(text, skip_enter=False, paste_with_shift=True):
-    """Paste text at cursor using ydotool."""
-    # Copy to CLIPBOARD (Ctrl+Shift+V / Ctrl+V both read from CLIPBOARD)
-    if not copy_to_clipboard(text, use_clipboard=True):
-        return False
+def parse_paste_target(reply):
+    """(wm_class, with_shift, save_after) from the panel's PasteKey reply, or None."""
+    match = PASTE_TARGET_REPLY.match(reply.strip())
+    if match is None:
+        return None
+    return match[1], match[2] == "true", match[3] == "true"
 
-    # Wait for clipboard to be ready
-    time.sleep(0.3)
+
+def paste_target_now(fallback_with_shift):
+    """(with_shift, save_after) for the window focused right now, as the panel judges it.
+
+    Asked at every paste, so a focus change during a long dictation is followed. A panel
+    that cannot answer (one loaded before PasteKey existed, until the next login) leaves
+    the key chosen at Insert, which is said in the log, and no save.
+    """
+    try:
+        result = subprocess.run(
+            ["gdbus", "call", "--session", "--dest", "org.gnome.Shell",
+             "--object-path", PANEL_DBUS_PATH, "--method", f"{PANEL_DBUS_INTERFACE}.PasteKey"],
+            capture_output=True, text=True, timeout=2, check=False)
+        target = parse_paste_target(result.stdout) if result.returncode == 0 else None
+        why = (result.stderr or result.stdout).strip()
+    except subprocess.TimeoutExpired:
+        target, why = None, "no answer within 2 s"
+    if target is None:
+        log(f"The panel did not say how to paste into the focused window ({why}); "
+            f"using the key chosen at Insert", "WARN")
+        return fallback_with_shift, False
+    wm_class, with_shift, save_after = target
+    log(f"Focused window {wm_class!r}: {'Ctrl+Shift+V' if with_shift else 'Ctrl+V'}"
+        f"{', then Ctrl+S' if save_after else ''}")
+    return with_shift, save_after
+
+
+# ydotool key codes (Linux input-event-codes.h)
+KEY_CTRL, KEY_SHIFT, KEY_V, KEY_S, KEY_ENTER = 29, 42, 47, 31, 28
+
+
+def press(env, *keys):
+    """Press `keys` together and release them in reverse order."""
+    events = [f"{k}:1" for k in keys] + [f"{k}:0" for k in reversed(keys)]
+    subprocess.run(["ydotool", "key", *events], env=env, check=True, timeout=5)
+
+
+def auto_paste(text, skip_enter=False, paste_with_shift=True):
+    """Paste text at the cursor with ydotool, then Enter and a save as asked.
+
+    The paste key, and whether to save, are the focused window's at this moment
+    (paste_target_now); paste_with_shift is the key chosen at Insert, kept only for a
+    panel that cannot say. An empty `text` pastes nothing: a chunked dictation whose
+    text was all pasted already ends with only its Enter.
+    """
+    with_shift, save_after = paste_target_now(paste_with_shift)
 
     env = os.environ.copy()
     env["YDOTOOL_SOCKET"] = "/run/ydotool.socket"
 
     try:
-        if paste_with_shift:
-            # Ctrl+Shift+V (29=Ctrl, 42=Shift, 47=V) - correct for terminals
-            subprocess.run(
-                ["ydotool", "key", "29:1", "42:1", "47:1", "47:0", "42:0", "29:0"],
-                env=env, check=True, timeout=5
-            )
-            log("Paste simulated via Ctrl+Shift+V")
-        else:
-            # Ctrl+V (29=Ctrl, 47=V) - correct for browsers and most GUI apps
-            subprocess.run(
-                ["ydotool", "key", "29:1", "47:1", "47:0", "29:0"],
-                env=env, check=True, timeout=5
-            )
-            log("Paste simulated via Ctrl+V")
-
-        # Longer delay for longer text
-        delay = min(0.3 + len(text) * 0.002, 1.0)
-        time.sleep(delay)
+        if text:
+            # Copy to CLIPBOARD (Ctrl+Shift+V / Ctrl+V both read from CLIPBOARD)
+            if not copy_to_clipboard(text, use_clipboard=True):
+                return False
+            time.sleep(0.3)  # Wait for clipboard to be ready
+            if with_shift:
+                press(env, KEY_CTRL, KEY_SHIFT, KEY_V)  # terminals
+                log("Paste simulated via Ctrl+Shift+V")
+            else:
+                press(env, KEY_CTRL, KEY_V)  # every other app
+                log("Paste simulated via Ctrl+V")
+            # Longer delay for longer text
+            time.sleep(min(0.3 + len(text) * 0.002, 1.0))
 
         if not skip_enter:
-            subprocess.run(
-                ["ydotool", "key", "28:1", "28:0"],
-                env=env, check=True, timeout=5
-            )
+            press(env, KEY_ENTER)
             log("Enter key sent")
-
-        return True
     except Exception as e:
         log(f"Auto-paste failed: {e}", "ERROR")
         return False
+
+    # After the paste has landed: a failed save is reported, but the paste is not undone
+    # or repeated (a chunk counted as unpasted would be pasted twice)
+    if save_after and (text or not skip_enter):
+        try:
+            press(env, KEY_CTRL, KEY_S)
+            log("Save simulated via Ctrl+S")
+        except Exception as e:
+            log(f"The text was pasted but the save (Ctrl+S) failed: {e}", "ERROR")
+    return True
 
 
 def on_realtime_update(new_text):
@@ -490,30 +558,53 @@ def check_dependencies():
         return False
 
 
+CLAUDE_TIMEOUT_SECONDS = 180  # wsi-claude-process gives up on claude itself at 170 s
+
+
+class ClaudeProcessingFailed(RuntimeError):
+    """Claude post-processing gave no result; the message says why."""
+
+
 def run_claude_processing(text, args):
-    """Post-process transcription through Claude Code."""
+    """Post-process transcription through Claude Code. Raises ClaudeProcessingFailed.
+
+    Never falls back to the raw text: pasting it as if Claude had rewritten it hid a
+    failure that lasted until the owner compared the two.
+    """
     log(f"Post-processing through Claude Code (model: {args.claude_model}, style: {args.claude_style})")
     # Log raw transcription being sent to Claude
     preview = text[:100] + "..." if len(text) > 100 else text
     log(f"Raw transcription to Claude ({len(text)} chars): {preview}")
+    cmd = ["wsi-claude-process", "--model", args.claude_model, "--style", args.claude_style]
+    if args.debug:
+        cmd.append("--debug")
+    cmd.append(text)
     try:
-        cmd = ["wsi-claude-process", "--model", args.claude_model, "--style", args.claude_style]
-        if args.debug:
-            cmd.append("--debug")
-        cmd.append(text)
+        result = subprocess.run(cmd, capture_output=True, text=True,
+                                timeout=CLAUDE_TIMEOUT_SECONDS, check=False)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise ClaudeProcessingFailed(f"wsi-claude-process could not run: {e}") from e
+    processed = result.stdout.strip()
+    if result.returncode != 0 or not processed:
+        reason = result.stderr.strip() or f"exit {result.returncode}, no output"
+        raise ClaudeProcessingFailed(reason.removeprefix("wsi-claude-process: "))
+    log("Claude processing successful")
+    return processed
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        if result.returncode == 0 and result.stdout.strip():
-            log("Claude processing successful")
-            return result.stdout.strip()
-        else:
-            log(f"Claude processing failed (exit: {result.returncode}), using original text", "WARN")
-            if result.stderr:
-                log(f"Claude stderr: {result.stderr}", "WARN")
-            return text
-    except Exception as e:
-        log(f"Claude processing error: {e}, using original text", "WARN")
-        return text
+
+def report_claude_failure(raw_text, error):
+    """Claude failed: the raw text goes to the clipboard, never pasted, and the user is told."""
+    copied = copy_to_clipboard(raw_text, use_clipboard=True)
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    TRANSCRIPTION_FILE.write_text(raw_text)
+    message = (f"Claude post-processing failed: {error}. Nothing was pasted. "
+               + ("The raw transcript is on the clipboard: Ctrl+V."
+                  if copied else f"The raw transcript is in {TRANSCRIPTION_FILE}."))
+    log(message, "ERROR")
+    print(f"wsi-stream: {message}", file=sys.stderr)
+    emit_dbus_text("Error", f"Claude: {error}")  # the panel menu shows its first 30 chars
+    emit_dbus_signal("StateChanged", "ERROR")
+    desktop_notification(message, 0)  # 0: stays until dismissed
 
 
 def is_server_running():
@@ -721,6 +812,70 @@ def dictation_limits(args):
     return True, max_seconds, silence_seconds
 
 
+def read_paste_interval():
+    """Seconds between chunk pastes in a continuous dictation; 0 pastes once at stop."""
+    value = read_setting("dictation-paste-interval-seconds")
+    if not value.isdigit():
+        raise RuntimeError(f"dictation-paste-interval-seconds is not a whole number: '{value}'")
+    return int(value)
+
+
+class ChunkPaster:
+    """Pastes a continuous dictation's text as it is committed, a chunk at a time.
+
+    The server's committed text only grows (each phrase is appended after a space, and
+    none is revised), so what is still to paste is always the tail after the characters
+    already pasted. The first chunk is capitalised and carries the opening marker; the
+    last (at stop) carries the closing one. A chunk that fails to paste is not counted,
+    so its text goes out with the next.
+    """
+
+    def __init__(self, wrap_marker):
+        self.wrap_marker = wrap_marker
+        self.pasted = 0  # characters of the server's text already pasted
+
+    @property
+    def started(self):
+        return self.pasted > 0
+
+    def next_chunk(self, text_so_far):
+        """(chunk, pasted_after) for the text not yet pasted, or None when there is none."""
+        tail = text_so_far[self.pasted:]
+        if not tail.strip():
+            return None
+        if not self.started:
+            tail = tail.lstrip()
+            tail = tail[0].upper() + tail[1:]
+            if self.wrap_marker:
+                tail = 'speech-to-text:"' + tail
+        return tail, len(text_so_far)
+
+    def mark_pasted(self, pasted_after):
+        self.pasted = pasted_after
+
+    def last_chunk(self, final_text):
+        """What is still to paste at stop: the rest of the text, then the closing marker."""
+        rest = final_text[self.pasted:]
+        return rest + '"' if self.wrap_marker else rest
+
+
+def paste_chunk(chunks, text_so_far):
+    """Paste the text committed since the last chunk, with no Enter (that ends the dictation).
+
+    A paste that fails is logged and not counted: its text is pasted with the next chunk,
+    or at stop. The recording carries on either way.
+    """
+    pending = chunks.next_chunk(text_so_far)
+    if pending is None:
+        return
+    chunk, pasted_after = pending
+    log(f"Pasting a chunk ({len(chunk)} chars)")
+    if auto_paste(chunk, skip_enter=True):
+        chunks.mark_pasted(pasted_after)
+    else:
+        log("The chunk was not pasted; it goes out with the next one", "WARN")
+
+
 def relay_progress(progress):
     """Hand the panel the dictation's elapsed time and backlog (the Progress signal)."""
     rtf = progress.get("rtf")
@@ -806,8 +961,7 @@ def run_server_mode(args):
     no_notify = args.no_notify
 
     if debug_mode:
-        LOG_DIR.mkdir(parents=True, exist_ok=True)
-        LOG_FILE.write_text("")  # Fresh log each session
+        start_log_session()
 
     log("=== Server mode requested ===")
 
@@ -826,6 +980,20 @@ def run_server_mode(args):
         return 1
     log(f"Continuous dictation: {continuous}; limit {max_seconds} s; "
         f"no-speech stop {silence_seconds or 'off'}")
+
+    # Chunks are for a plain continuous dictation pasted at the cursor; Claude
+    # post-processing needs the whole text, so it still pastes once at stop
+    paste_interval = 0
+    if continuous and args.auto_paste and not args.claude_process:
+        try:
+            paste_interval = read_paste_interval()
+        except Exception as e:
+            log(f"Cannot read the paste interval: {e}", "ERROR")
+            notify("ERROR", "Cannot read the dictation settings (re-run play-speech-to-text.yml)")
+            return 1
+    chunks = ChunkPaster(args.wrap_marker) if paste_interval else None
+    if chunks:
+        log(f"Pasting the text every {paste_interval} s as it is transcribed")
 
     # True from START until the server has acknowledged a STOP or ABORT (or ended the
     # recording itself): while it is, every exit sends one, so no exit leaves the
@@ -923,7 +1091,7 @@ def run_server_mode(args):
     # Until the stop is due: KEEPALIVE so the server knows we are here, PROGRESS for the
     # panel. The server applies the limits itself and may stop (or fail) on its own.
     progress = {"status": "recording"}
-    last_keepalive = last_progress = time.monotonic()
+    last_keepalive = last_progress = last_chunk = time.monotonic()
     while not stop.due() and progress.get("status") == "recording":
         announce_pending_stop(stop)
         now = time.monotonic()
@@ -932,11 +1100,19 @@ def run_server_mode(args):
             last_keepalive = now
             if reply.get("status") == "error":
                 progress = reply
-        if progress.get("status") == "recording" and now - last_progress >= PROGRESS_INTERVAL:
-            progress = send_server_command("PROGRESS")
+        chunk_due = chunks is not None and now - last_chunk >= paste_interval
+        if progress.get("status") == "recording" and (chunk_due or now - last_progress >= PROGRESS_INTERVAL):
+            progress = send_server_command("PROGRESS", {"with_text": chunk_due})
             last_progress = now
             if progress.get("status") == "recording":
                 relay_progress(progress)
+                if chunk_due:
+                    last_chunk = now
+                    if "text_so_far" in progress:
+                        paste_chunk(chunks, progress["text_so_far"])
+                    else:
+                        log("The server sent no text_so_far (older server code?); "
+                            "the text is pasted at stop", "WARN")
         time.sleep(0.1)
 
     if stop.discard:
@@ -1015,12 +1191,20 @@ def run_server_mode(args):
         notify("ERROR", "No speech detected")
         return 1
 
+    # Chunks already pasted: what is left goes out at stop (the server's text, before the
+    # capitalisation and marker below, which the first chunk carried)
+    server_text = text
+
     # Capitalize first letter
     text = text[0].upper() + text[1:] if len(text) > 1 else text.upper()
 
     # Post-process through Claude Code if requested
     if args.claude_process:
-        text = run_claude_processing(text, args)
+        try:
+            text = run_claude_processing(text, args)
+        except ClaudeProcessingFailed as e:
+            report_claude_failure(text, e)
+            return 1
 
     # Wrap with marker if requested
     if args.wrap_marker and not args.claude_process:
@@ -1034,9 +1218,15 @@ def run_server_mode(args):
 
     # Output
     if args.auto_paste:
-        log("Auto-pasting")
+        to_paste = text
+        if chunks is not None and chunks.started:
+            to_paste = chunks.last_chunk(server_text)
+            log(f"Pasting the last chunk ({len(to_paste)} chars); the whole text is in "
+                f"{TRANSCRIPTION_FILE}")
+        else:
+            log("Auto-pasting")
         time.sleep(0.2)
-        success = auto_paste(text, skip_enter=args.no_auto_enter, paste_with_shift=args.paste_with_shift)
+        success = auto_paste(to_paste, skip_enter=args.no_auto_enter, paste_with_shift=args.paste_with_shift)
         if success:
             preview = text[:60] + "..." if len(text) > 60 else text
             notify("SUCCESS", preview)
@@ -1070,8 +1260,7 @@ def run_streaming(args):
     current_text = ""
 
     if debug_mode:
-        LOG_DIR.mkdir(parents=True, exist_ok=True)
-        LOG_FILE.write_text("")  # Fresh log each session
+        start_log_session()
 
     log(f"Starting streaming transcription (pre-buffer: {args.pre_buffer})...")
 
@@ -1287,7 +1476,11 @@ def run_standard_streaming(args, stop):
 
     # Post-process through Claude Code if requested
     if args.claude_process:
-        text = run_claude_processing(text, args)
+        try:
+            text = run_claude_processing(text, args)
+        except ClaudeProcessingFailed as e:
+            report_claude_failure(text, e)
+            return 1
 
     # Wrap with marker if requested
     # BUT: Don't wrap Claude-processed text - it's already clean and formatted
@@ -1556,7 +1749,11 @@ def run_prebuffered_streaming(args, stop):
 
         # Post-process through Claude Code if requested
         if args.claude_process:
-            text = run_claude_processing(text, args)
+            try:
+                text = run_claude_processing(text, args)
+            except ClaudeProcessingFailed as e:
+                report_claude_failure(text, e)
+                return 1
 
         # Wrap with marker if requested
         # BUT: Don't wrap Claude-processed text - it's already clean and formatted

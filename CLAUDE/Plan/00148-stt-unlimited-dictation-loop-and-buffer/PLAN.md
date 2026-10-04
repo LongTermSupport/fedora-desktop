@@ -1,6 +1,6 @@
 # Plan 00148: speech-to-text improvements (unlimited dictation, delayed stop, models)
 
-**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 0.7, 4.1-4.7, 5.1, 6.1 and 7.4 built, all merged to F44 but 6.1; host checks Tasks 0.5, 1.2, 6.2 and 8.4 pending)
+**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 0.7, 4.1-4.7, 5.1, 6.1, 7.4 and Phase 9 (9.1-9.4, 9.6, 9.8) built, all merged to F44 but 6.1; host checks Tasks 0.5, 1.2, 6.2, 8.4 and 9.5 pending; 9.9 open)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
@@ -274,6 +274,67 @@ owner wants an option to keep it hot all the time.
 - [ ] ⬜ **Task 8.4**: **HOST**: deploy `play-speech-to-text.yml`; with keep-warm on (timeout
   0, start at login, Server mode), log in, wait 30 idle minutes, press Insert: recording
   starts without a model load. Also check `journalctl --user -u wsi-stream-server-at-login.service` and that `auto` loads `distil-large-v3.5` on the GPU.
+
+### Phase 9: Paste where the owner is looking
+
+Two long dictations into GNOME Text Editor transcribed in full, and neither pasted. The
+recorder sent `Ctrl+Shift+V`, which GTK 4 text views do not bind. The paste key is chosen
+once, at Insert, from a `paste-ctrl-v-apps` allow-list naming only nine browsers and chat
+apps. So every other GUI app gets the terminal key, and a focus change during a dictation
+is never seen. The panel's own log line naming the window is lost too, because
+`wsi-stream` empties the shared `debug.log` at start. The owner also asked to see text
+arrive while dictating, and to see which window it will go into.
+
+- [x] ✅ **Task 9.1**: The paste key is chosen at each paste from the window focused at that
+  moment: the panel answers a D-Bus call with the focused window's WM class and whether
+  its app is a terminal, and `wsi-stream` asks before every paste. A terminal is an app
+  whose desktop entry declares `Categories=TerminalEmulator` (kitty and Ptyxis do; GNOME
+  Text Editor does not), so no list of terminals is kept by hand. A terminal gets
+  `Ctrl+Shift+V`, and every other app `Ctrl+V`. `paste-ctrl-v-apps` stays as the owner's
+  override. Not chosen: verifying the paste (ydotool reports nothing back, and
+  accessibility readback is blind in terminals and Electron apps), and sending both keys
+  (a terminal's `Ctrl+V` is quoted-insert, and a browser would paste twice). The current
+  default dates from `3f2ae608`, which tested terminals and browsers only, and browsers
+  accept both keys.
+- [x] ✅ **Task 9.2**: The panel's log lines survive a recording's start: `wsi-stream` stops
+  emptying the file the panel writes to.
+- [x] ✅ **Task 9.3**: An insert-mode setting: one paste at stop (today), or every 120 s of
+  dictation. Each chunk holds only finished phrases and goes to the window focused when it
+  is pasted (Task 9.1), and Enter follows only the last. Chunking loses nothing:
+  `WhisperTranscriber` transcribes each VAD phrase once, never revises it, and passes the
+  text before it only as a prompt.
+- [x] ✅ **Task 9.4**: While dictating, the panel outlines the focused window, which is where
+  the next paste will land, and follows focus changes.
+- [x] ✅ **Task 9.6**: Optional save after paste: `Ctrl+S` follows a paste into an app the
+  owner lists (`paste-save-apps`, empty by default), decided in the same panel answer as
+  the paste key. Never for a terminal, where `Ctrl+S` is XOFF and freezes the screen.
+  The list is opt-in because `Ctrl+S` is "save page" in a browser and a Save dialog for an
+  untitled document.
+- [x] ✅ **Task 9.8**: Claude post-processing (Ctrl+Insert, Alt+Insert, article mode)
+  pasted the raw transcript for a whole session. `claude` answered "Not logged in"
+  because cc parks the desktop login while a named-token session runs, and
+  `wsi-claude-process` printed its input as Claude's output and exited 0. Now it fails
+  with the reason and prints nothing; the callers put the raw text on the clipboard,
+  paste nothing, and show the error. It runs as the token the new `claude-token` setting
+  names (owner's choice), taking the newest unexpired `NAME.YYYY-MM-DD.token`.
+  `tests/speech_to_text/test_claude_process.py`, red against HEAD.
+- [ ] ⬜ **Task 9.9**: Open findings from the Phase 9 review
+  (`subagent-reports/261004-qa-reviewer-phase9.md`):
+  - batch mode (`wsi`) does not ask `PasteKey` and never saves after pasting; the docs
+    say so;
+  - no unit test covers the server's `progress(with_text=…)`, or the `run_server_mode`
+    chunk wiring through the real stop path;
+  - `report_undelivered_dictation` and `report_failed_dictation` overstate what is owed
+    once chunks have been pasted;
+  - the outline draws over the overview.
+- [ ] ⬜ **Task 9.7**: **The boundary (owner's decision).** Phase 9 is the last piece of
+  injection work built here. Before any IBus engine, voice commands or document mode, the
+  owner tries Vocalinux. It is the closest existing app: an IBus `commit_text` engine,
+  editing voice commands, and whisper/faster-whisper/Parakeet engines. If it fits, adopt
+  it rather than rebuild it. Survey: [research-linux-dictation-landscape.md](research-linux-dictation-landscape.md).
+- [ ] ⬜ **Task 9.5**: **HOST**: deploy, log out and in; dictate past 120 s into GNOME Text
+  Editor with chunks on, then with them off; switch windows mid-dictation and see the
+  outline and the next chunk follow.
 
 ## Success Criteria
 

@@ -76,6 +76,11 @@
       <summary>Claude Model</summary>
       <description>Claude model to use for post-processing: "sonnet" (balanced), "opus" (best quality), "haiku" (fastest)</description>
     </key>
+    <key name="claude-token" type="s">
+      <default>''</default>
+      <summary>Claude Token</summary>
+      <description>The account Claude post-processing runs as: the name of a token in ~/.claude-tokens/ccy/tokens/ (NAME.YYYY-MM-DD.token, made by ccy --create-token, as cc and ccy use), of which the newest unexpired file is used. Empty uses the desktop login, which cc parks aside while a named-token session runs, so post-processing fails then. Read by wsi-claude-process at each run.</description>
+    </key>
     <key name="stop-grace-seconds" type="i">
       <range min="0" max="30"/>
       <default>3</default>
@@ -111,14 +116,25 @@
       <description>Continuous dictation: stop and transcribe after this many seconds without speech. 0 never stops for silence.</description>
     </key>
     <key name="paste-default-mode" type="s">
-      <default>'with-shift'</default>
-      <summary>Default Paste Shortcut</summary>
-      <description>Default paste key combo: "with-shift" for Ctrl+Shift+V (correct for terminals), "no-shift" for Ctrl+V (correct for browsers and GUI apps)</description>
+      <default>'no-shift'</default>
+      <summary>Paste Shortcut For Other Apps</summary>
+      <description>The paste key for an app that is not a terminal and not in the Ctrl+V list: "no-shift" for Ctrl+V (what GUI toolkits bind), "with-shift" for Ctrl+Shift+V. A terminal (an app whose desktop entry has the TerminalEmulator category) always gets Ctrl+Shift+V. Chosen at each paste, for the window focused then.</description>
     </key>
     <key name="paste-ctrl-v-apps" type="s">
       <default>'Google-chrome,Firefox,firefox,Brave-browser,Chromium,chromium,thunderbird,Slack,Discord'</default>
       <summary>Apps Using Ctrl+V</summary>
-      <description>Comma-separated WM_CLASS names of apps that use Ctrl+V instead of Ctrl+Shift+V for pasting</description>
+      <description>Comma-separated WM_CLASS names of apps that always paste with Ctrl+V, ahead of every other rule</description>
+    </key>
+    <key name="paste-save-apps" type="s">
+      <default>''</default>
+      <summary>Apps To Save After Pasting</summary>
+      <description>Comma-separated WM_CLASS names of apps that get Ctrl+S after each paste (and after its Enter), e.g. org.gnome.TextEditor. Never sent to a terminal, where Ctrl+S freezes the screen. Empty by default: in a browser Ctrl+S saves the page, and an untitled document opens a Save dialog.</description>
+    </key>
+    <key name="dictation-paste-interval-seconds" type="i">
+      <range min="0" max="3600"/>
+      <default>0</default>
+      <summary>Paste During Dictation Every (seconds)</summary>
+      <description>Continuous dictation: paste the text transcribed so far every this many seconds, into the window focused at that moment, so it appears while you speak. Enter follows only the last paste, at stop. 0 pastes the whole text once at stop. Not used with Claude post-processing, which needs the whole text. Read by wsi-stream at each recording.</description>
     </key>
   </schema>
 </schemalist>

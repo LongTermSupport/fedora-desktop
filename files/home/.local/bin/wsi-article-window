@@ -39,6 +39,19 @@ _RECORDER_ENV = {
 }
 
 
+
+def run_claude_stage(cmd):
+    """(text, "") from one wsi-claude-process run, or ("", reason) when it failed."""
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180, check=False)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return "", f"wsi-claude-process could not run: {e}"
+    text = result.stdout.strip()
+    if result.returncode == 0 and text:
+        return text, ""
+    reason = result.stderr.strip() or f"exit {result.returncode}, no output"
+    return "", reason.removeprefix("wsi-claude-process: ")
+
 class ArticleWindow(Gtk.ApplicationWindow):
     def __init__(self, app, args):
         super().__init__(application=app)
@@ -348,16 +361,9 @@ class ArticleWindow(Gtk.ApplicationWindow):
             if self.args.debug:
                 cmd1.append("--debug")
             cmd1.append(raw_text)
-            try:
-                result1 = subprocess.run(
-                    cmd1, capture_output=True, text=True, timeout=120
-                )
-                stage1 = result1.stdout.strip() if result1.returncode == 0 else ""
-            except Exception:
-                stage1 = ""
-
+            stage1, reason = run_claude_stage(cmd1)
             if not stage1:
-                GLib.idle_add(self._on_polish_done, "")
+                GLib.idle_add(self._on_polish_done, "", reason)
                 return
 
             # Show stage 1 result immediately; signal stage 2 is starting
@@ -372,16 +378,11 @@ class ArticleWindow(Gtk.ApplicationWindow):
             if self.args.debug:
                 cmd2.append("--debug")
             cmd2.append(stage1)
-            try:
-                result2 = subprocess.run(
-                    cmd2, capture_output=True, text=True, timeout=120
-                )
-                stage2 = result2.stdout.strip() if result2.returncode == 0 else ""
-            except Exception:
-                stage2 = ""
-
-            # Fall back to stage 1 if humanization fails
-            GLib.idle_add(self._on_polish_done, stage2 or stage1)
+            stage2, reason = run_claude_stage(cmd2)
+            # Stage 1 is Claude's own work, so it stands if humanizing fails; the
+            # status says so rather than passing it off as the finished text
+            GLib.idle_add(self._on_polish_done, stage2 or stage1,
+                          "" if stage2 else f"humanizing failed ({reason}); showing the structured text")
 
         threading.Thread(target=polish_thread, daemon=True).start()
 
@@ -392,18 +393,16 @@ class ArticleWindow(Gtk.ApplicationWindow):
         self._set_status("Structured ✓ — humanizing… (stage 2/2)")
         return False
 
-    def _on_polish_done(self, polished_text):
+    def _on_polish_done(self, polished_text, problem=""):
         self.is_polishing = False
         self.repolish_btn.set_sensitive(True)
         if polished_text:
             self._set_polished_text(polished_text)
             self.notebook.set_current_page(1)
             n = self.chunk_count
-            self._set_status(
-                f"Polished ✓  ({n} chunk{'s' if n != 1 else ''} recorded)"
-            )
+            self._set_status(problem or f"Polished ✓  ({n} chunk{'s' if n != 1 else ''} recorded)")
         else:
-            self._set_status("Polishing failed — is Claude (claude CLI) available?")
+            self._set_status(f"Polishing failed: {problem}")
         return False
 
     def _on_stop(self, _btn):

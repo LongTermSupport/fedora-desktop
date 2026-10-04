@@ -444,7 +444,7 @@ check "…and fails once the panel holds a copy of the streaming limit" "1" "$rc
 check "…naming the rule" "1" "$(grep -c 'FAIL: panel: no 120' "$work/limits.out")"
 
 #----------------------------------------------------------------------------
-echo "=== wsi-stream, wsi-stream-server, wsi-resolve-model: unit tests (tests/speech_to_text) ==="
+echo "=== wsi-stream, wsi-stream-server, wsi-resolve-model, wsi-model-manager: unit tests (tests/speech_to_text) ==="
 #----------------------------------------------------------------------------
 if (cd "$REPO_ROOT" && python3 -m unittest \
         tests/speech_to_text/test_stop_grace.py \
@@ -452,6 +452,9 @@ if (cd "$REPO_ROOT" && python3 -m unittest \
         tests/speech_to_text/test_continuous_segmenter.py \
         tests/speech_to_text/test_continuous_session.py \
         tests/speech_to_text/test_server_client.py \
+        tests/speech_to_text/test_model_manager_installed.py \
+        tests/speech_to_text/test_paste_target.py \
+        tests/speech_to_text/test_claude_process.py \
         tests/speech_to_text/test_article_client.py \
         tests/speech_to_text/test_resolve_model.py \
         tests/speech_to_text/test_keep_warm.py) > "$work/unit.out" 2>&1; then

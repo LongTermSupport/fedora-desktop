@@ -187,6 +187,14 @@ emit_state() {
         "$1" 2>/dev/null &
 }
 
+# emit_error <text> — the panel shows it beside the error state (its first 30 chars)
+emit_error() {
+    gdbus emit --session \
+        --object-path "$DBUS_PATH" \
+        --signal "${DBUS_INTERFACE}.Error" \
+        "'$1'" 2>/dev/null &
+}
+
 notify_state() {
     local state="$1"
     local message="$2"
@@ -993,21 +1001,33 @@ if [ "$CLAUDE_PROCESS" = true ]; then
         [ "$DEBUG" = true ] && claude_cmd_args+=("--debug")
         claude_cmd_args+=("$str")
 
-        processed_str=$(wsi-claude-process "${claude_cmd_args[@]}" 2>>"$LOG_FILE")
-        claude_exit=$?
+        # Never the raw text in Claude's place: on failure it goes to the clipboard,
+        # unpasted, and the panel says why (wsi-claude-process prints the reason)
+        claude_err=$(mktemp)
+        claude_exit=0
+        processed_str=$(wsi-claude-process "${claude_cmd_args[@]}" 2>"$claude_err") || claude_exit=$?
+        claude_reason=$(tr '\n' ' ' <"$claude_err")
+        rm -f "$claude_err"
 
-        if [ $claude_exit -eq 0 ] && [ -n "$processed_str" ]; then
+        if [ "$claude_exit" -eq 0 ] && [ -n "$processed_str" ]; then
             log_debug "Claude processing successful"
             log_debug "Original: '$str'"
             log_debug "Processed: '$processed_str'"
             str="$processed_str"
         else
-            log_debug "Claude processing failed (exit: $claude_exit), using original text"
-            log_debug "Error output: $processed_str"
-            # Continue with original text on failure
+            claude_reason="${claude_reason#wsi-claude-process: }"
+            claude_reason="${claude_reason:-exit $claude_exit, no output}"
+            log_error "Claude post-processing failed: $claude_reason"
+            echo -n "$str" | wl-copy
+            emit_error "Claude: ${claude_reason//\'/}"
+            emit_state "ERROR"
+            notify_desktop "Claude post-processing failed: $claude_reason. Nothing was pasted. The raw transcript is on the clipboard: Ctrl+V." "dialog-error" 0
+            exit 1
         fi
     else
-        log_debug "wsi-claude-process not found, skipping Claude processing"
+        log_error "wsi-claude-process not found (re-run play-speech-to-text.yml)"
+        emit_state "ERROR"
+        exit 1
     fi
 fi
 

@@ -20,10 +20,24 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
+import { FocusOutline } from './focusOutline.js';
 
 // DBus interface for wsi communication
 const DBUS_PATH = '/org/fedoradesktop/SpeechToText';
 const DBUS_INTERFACE = 'org.fedoradesktop.SpeechToText';
+
+// The panel's own object, which wsi-stream calls (on org.gnome.Shell) before each paste
+const PANEL_DBUS_PATH = '/org/fedoradesktop/SpeechToText/Panel';
+const PANEL_DBUS_XML = `
+<node>
+  <interface name="org.fedoradesktop.SpeechToText.Panel">
+    <method name="PasteKey">
+      <arg type="s" direction="out" name="wm_class"/>
+      <arg type="b" direction="out" name="with_shift"/>
+      <arg type="b" direction="out" name="save_after"/>
+    </method>
+  </interface>
+</node>`;
 
 // Continuous dictation: count down only in the last minute of its maximum length
 const COUNTDOWN_LAST_SECONDS = 60;
@@ -206,8 +220,10 @@ export default class SpeechToTextExtension extends Extension {
         // Add to panel
         Main.panel.addToStatusArea('speech-to-text', this._indicator);
 
-        // Subscribe to DBus signals from wsi script
+        // Subscribe to DBus signals from wsi script, and answer its paste questions
         this._subscribeToDBus();
+        this._exportPanelDBus();
+        this._focusOutline = new FocusOutline();
 
         // Ensure log directory exists
         this._ensureLogDirectory();
@@ -219,6 +235,12 @@ export default class SpeechToTextExtension extends Extension {
     }
 
     disable() {
+        this._unexportPanelDBus();
+        if (this._focusOutline) {
+            this._focusOutline.hide();
+            this._focusOutline = null;
+        }
+
         // Unsubscribe from DBus
         if (this._dbusSubscriptionId !== null) {
             Gio.DBus.session.signal_unsubscribe(this._dbusSubscriptionId);
@@ -599,6 +621,13 @@ export default class SpeechToTextExtension extends Extension {
             GLib.Source.remove(this._iconResetTimeoutId);
             this._iconResetTimeoutId = null;
         }
+
+        // Outline the window the text will be pasted into, for as long as a paste can come
+        const pasteCanCome = ['RECORDING', 'STOPPING', 'TRANSCRIBING'].includes(state);
+        if (pasteCanCome && this._autoPaste && !this._isArticleMode)
+            this._focusOutline?.show();
+        else
+            this._focusOutline?.hide();
 
         switch (state) {
             case 'PREPARING':
@@ -1106,20 +1135,64 @@ export default class SpeechToTextExtension extends Extension {
     }
 
     _getPasteWithShift() {
-        // Returns 1 (Ctrl+Shift+V) or 0 (Ctrl+V) based on focused window and GSettings
-        const wmClass = global.display.focus_window ? global.display.focus_window.get_wm_class() : null;
-        const defaultMode = this._settings ? this._settings.get_string('paste-default-mode') : 'with-shift';
-        const ctrlVAppsStr = this._settings ? this._settings.get_string('paste-ctrl-v-apps') : '';
-        const ctrlVApps = ctrlVAppsStr.split(',').map(s => s.trim()).filter(Boolean);
+        // 1 (Ctrl+Shift+V) or 0 (Ctrl+V) for the window focused at Insert. The recorder
+        // asks again (PasteKey) at each paste; this is its answer if the panel cannot.
+        return this._pasteTargetForFocus().withShift ? 1 : 0;
+    }
 
-        if (wmClass && ctrlVApps.includes(wmClass)) {
-            this._log(`WM class "${wmClass}" in ctrl-v-apps → Ctrl+V`);
-            return 0;
+    /**
+     * How to paste into the window focused right now: its WM class, whether it takes
+     * Ctrl+Shift+V, and whether to send Ctrl+S after.
+     *
+     * A terminal is an app whose desktop entry lists the TerminalEmulator category, the
+     * freedesktop way of saying so, rather than a list of terminals kept by hand. In order:
+     * an app in paste-ctrl-v-apps pastes with Ctrl+V; a terminal with Ctrl+Shift+V; any
+     * other app with paste-default-mode (Ctrl+V by default, what GUI toolkits bind).
+     * Ctrl+S is for apps in paste-save-apps, and never for a terminal (XOFF there).
+     */
+    _pasteTargetForFocus() {
+        const window = global.display.focus_window;
+        const wmClass = window ? window.get_wm_class() ?? '' : '';
+        const list = key => (this._settings ? this._settings.get_string(key) : '')
+            .split(',').map(s => s.trim()).filter(Boolean);
+        const app = window ? Shell.WindowTracker.get_default().get_window_app(window) : null;
+        const categories = app?.get_app_info()?.get_categories() ?? '';
+        const isTerminal = categories.split(';').includes('TerminalEmulator');
+
+        let withShift, why;
+        if (wmClass && list('paste-ctrl-v-apps').includes(wmClass)) {
+            withShift = false;
+            why = 'in the Ctrl+V list';
+        } else if (isTerminal) {
+            withShift = true;
+            why = 'a terminal';
+        } else {
+            const defaultMode = this._settings ? this._settings.get_string('paste-default-mode') : 'no-shift';
+            withShift = defaultMode === 'with-shift';
+            why = `not a terminal (paste-default-mode ${defaultMode})`;
         }
+        const saveAfter = !isTerminal && wmClass !== '' && list('paste-save-apps').includes(wmClass);
+        this._log(`Paste into "${wmClass}", ${why}: ${withShift ? 'Ctrl+Shift+V' : 'Ctrl+V'}` +
+            `${saveAfter ? ', then Ctrl+S' : ''}`);
+        return { wmClass, withShift, saveAfter };
+    }
 
-        const useShift = defaultMode !== 'no-shift';
-        this._log(`WM class "${wmClass}" → ${useShift ? 'Ctrl+Shift+V' : 'Ctrl+V'} (default: ${defaultMode})`);
-        return useShift ? 1 : 0;
+    /** The panel's D-Bus object: the recorder asks it how to paste, just before pasting. */
+    _exportPanelDBus() {
+        this._panelDBus = Gio.DBusExportedObject.wrapJSObject(PANEL_DBUS_XML, {
+            PasteKey: () => {
+                const { wmClass, withShift, saveAfter } = this._pasteTargetForFocus();
+                return [wmClass, withShift, saveAfter];
+            },
+        });
+        this._panelDBus.export(Gio.DBus.session, PANEL_DBUS_PATH);
+    }
+
+    _unexportPanelDBus() {
+        if (this._panelDBus) {
+            this._panelDBus.unexport();
+            this._panelDBus = null;
+        }
     }
 
     _killRecorders(signalName) {

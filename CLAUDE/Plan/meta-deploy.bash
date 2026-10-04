@@ -50,10 +50,13 @@ PLAN_ROOT="${scriptDir}"
 # `./playbooks/imports/<play>.yml` does by hand.
 PLANS=(
     # Plan 00148: the speech server logs its figures for every dictation, the speech
-    # packages are pinned, article mode follows the server's journal. Its deploy.bash runs
-    # play-speech-to-text.yml, then acceptance.bash checks the deployed files. Unattended:
-    # needs nobody at the microphone. It restarts the warm speech server, so do not be
-    # dictating while it runs.
+    # packages are pinned, article mode follows the server's journal; Phase 9 picks the
+    # paste key per window at each paste, pastes while dictating, outlines the target and
+    # can save after pasting. Its deploy.bash runs play-speech-to-text.yml, which also
+    # carries Plan 00156 (it downloads the `auto` model, about 1.5 GB the first time).
+    # Then acceptance.bash checks the deployed files. Unattended: needs nobody at the
+    # microphone. It restarts the warm speech server, so do not be dictating while it
+    # runs. Log out and in afterwards for the panel and Settings code.
     00148-stt-unlimited-dictation-loop-and-buffer
     # Plan 00151: ccy's clipboard image paste (wl-clipboard and the 5 s wl-paste guard in the
     # shared image). Deploys the launcher, lib and Dockerfile, builds claude-yolo:latest (a few

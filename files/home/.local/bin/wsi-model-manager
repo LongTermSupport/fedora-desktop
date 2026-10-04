@@ -96,14 +96,16 @@ def repo_cache_dir(repo_id: str) -> Path:
 # ---------------------------------------------------------------------------
 
 def get_installed() -> set[str]:
-    """Return set of model IDs that are fully present in the HuggingFace cache."""
+    """Return set of model IDs that are fully present in the HuggingFace cache.
+
+    Present means a snapshot holds model.bin, the file WhisperModel loads: an
+    interrupted download leaves a snapshot with only the small config files, and
+    that model must show as not installed so it can be downloaded again.
+    """
     installed: set[str] = set()
     for model_id, _label, repo_id, *_ in MODELS:
-        model_dir = repo_cache_dir(repo_id)
-        if not model_dir.exists():
-            continue
-        snapshots = model_dir / 'snapshots'
-        if snapshots.exists() and any(snapshots.iterdir()):
+        snapshots = repo_cache_dir(repo_id) / 'snapshots'
+        if snapshots.is_dir() and any((rev / 'model.bin').is_file() for rev in snapshots.iterdir()):
             installed.add(model_id)
     return installed
 

@@ -94,7 +94,7 @@ for script in wsi wsi-stream wsi-stream-server wsi-article wsi-article-window \
 done
 
 printf '=== extension files deployed and identical ===\n'
-for file in extension.js prefs.js metadata.json \
+for file in extension.js focusOutline.js prefs.js metadata.json \
     schemas/org.gnome.shell.extensions.speech-to-text.gschema.xml; do
     if [[ ! -f "${extDeployed}/${file}" ]]; then
         check "${file} is deployed" no
@@ -108,7 +108,7 @@ done
 printf '=== settings the recorders read ===\n'
 # wsi-setting is the reader the recorders use; a non-zero exit is the answer being checked.
 for key in stop-grace-seconds server-idle-timeout-minutes max-recording-minutes \
-    silence-autostop-seconds; do
+    silence-autostop-seconds dictation-paste-interval-seconds; do
     if value="$("${binDir}/wsi-setting" "${key}" 2>&1)" && [[ "${value}" =~ ^[0-9]+$ ]]; then
         check "${key} reads as a whole number (${value})" yes
     else
@@ -122,6 +122,16 @@ for key in continuous-dictation server-start-at-login; do
         check "${key} reads as true or false (got: ${value:-nothing})" no
     fi
 done
+
+printf '=== the auto model is on disk (Plan 00156) ===\n'
+# The weights, not just a snapshot: an interrupted download leaves the snapshot without them
+if autoModel="$("${binDir}/wsi-resolve-model" --mode streaming --language en auto 2>/dev/null)" &&
+    modelDir="$(python3 -c 'import sys; from faster_whisper.utils import download_model; print(download_model(sys.argv[1], local_files_only=True))' "${autoModel}" 2>&1)" &&
+    [[ -f "${modelDir}/model.bin" ]]; then
+    check "the auto model (${autoModel}) has model.bin" yes
+else
+    check "the auto model (${autoModel:-unresolved}) has model.bin (got: ${modelDir:-nothing})" no
+fi
 
 printf '=== model resolver and unit ===\n'
 if value="$("${binDir}/wsi-resolve-model" --gpu-count 2>&1)" && [[ "${value}" =~ ^[0-9]+$ ]]; then

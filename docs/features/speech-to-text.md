@@ -141,8 +141,10 @@ gnome-extensions list --enabled | grep speech-to-text
 ### Model Size Selection
 
 Choose the model in **Settings... → Transcription → Whisper Model** (only downloaded
-models are listed; **Manage Whisper Models...** downloads more). The default, `auto`,
-is decided at each recording by `~/.local/bin/wsi-resolve-model`:
+models are listed, meaning a cache snapshot holds the weights, `model.bin`; **Manage
+Whisper Models...** downloads more). The default, `auto`, is decided at each recording
+by `~/.local/bin/wsi-resolve-model`, and `play-speech-to-text.yml` downloads the model
+it picks, resuming a download that was cut short:
 
 | Machine      | English                         | Other languages or detection    |
 | ------------ | ------------------------------- | ------------------------------- |
@@ -278,6 +280,31 @@ segments of at most 28 s, transcribes each with the selected model while you kee
 talking, and pastes the whole text once when you press Insert. The panel shows the
 elapsed time and, after a dot, how many segments are still waiting (`3:42 ·2`); amber
 means transcription is slower than your speech.
+
+To see the text arrive as you speak, set **Paste while dictating, every (seconds)**
+(`dictation-paste-interval-seconds`, default 0 = once at stop), for example to 120.
+Each paste then holds the phrases finished since the last one, and Enter follows only
+the last paste, at stop. Nothing is lost by pasting early: each phrase is transcribed
+once, when you pause, and never revised. Claude post-processing still pastes once at
+stop, because it needs the whole text.
+
+### Where The Text Is Pasted
+
+While a dictation can still paste, the focused window has a red outline: that is where
+the next paste goes. In streaming mode the paste key is chosen at each paste, for the
+window focused at that moment (batch mode still uses the window focused at Insert, and
+does not save after pasting):
+
+- an app in **Apps using Ctrl+V** (`paste-ctrl-v-apps`) gets Ctrl+V;
+- a terminal gets Ctrl+Shift+V. A terminal is an app whose desktop entry lists the
+  `TerminalEmulator` category, which kitty, Ptyxis and GNOME Terminal all do;
+- any other app gets **Paste shortcut for other apps** (`paste-default-mode`, Ctrl+V by
+  default, which is what GTK, Qt, Electron and browsers bind).
+
+**Apps to save after pasting** (`paste-save-apps`, empty by default) gets Ctrl+S after
+each paste, for example `org.gnome.TextEditor`. It is never sent to a terminal, where
+Ctrl+S freezes the screen until Ctrl+Q. With **Debug logging** on, each paste's line in
+`debug.log` names the window class to put in either list.
 
 The recording also stops by itself, transcribes and pastes, and a notification that
 stays until dismissed says why:
@@ -557,6 +584,18 @@ wsi --claude-process --claude-model opus --claude-style natural
 - **haiku**: Fastest, cheapest, good for simple cleanup
 - **sonnet**: Best balance (default)
 - **opus**: Most capable, best for complex formatting
+
+### Claude Account (Token)
+
+**Claude token** (`claude-token`) chooses the account post-processing runs as: one of the
+named tokens in `~/.claude-tokens/ccy/tokens/`, the same ones `cc` and `ccy` offer
+(`ccy --create-token` makes one). The newest unexpired file of that name is used.
+**Desktop login** (empty) uses the host's own login, which `cc` parks aside while a
+named-token session is open, so post-processing fails then with "Not logged in".
+
+If post-processing fails for any reason, **nothing is pasted**. The raw transcript goes
+on the clipboard (Ctrl+V), the icon turns red, and the panel menu (and a notification,
+if notifications are on) says why.
 
 ---
 

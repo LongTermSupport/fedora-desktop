@@ -48,16 +48,16 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
 
 - [x] ✅ **Task 1.1**: Independent searches for each class, dispatched before any rule
   exists ([`dbf/`](dbf/) `search-*.md`).
-- [ ] 🔄 **Task 1.2**: Class "model judged present without its weights"
+- [x] ✅ **Task 1.2**: Class "model judged present without its weights"
   (`model-present-without-weights`): rule, page and fixture, committed red; sweep; fix
   every instance.
 - [ ] ⬜ **Task 1.3**: Class "a ready-wait that ignores its child's exit": rule, page and
   fixture, committed red; sweep; fix every instance. 16 instances found across five
   languages, so this class runs after 1.2 and 1.4 have been fixed and deployed.
-- [ ] 🔄 **Task 1.4**: Class "a dropdown option label carries explanation"
+- [x] ✅ **Task 1.4**: Class "a dropdown option label carries explanation"
   (`dropdown-label-carries-explanation`): rule, page and fixture, committed red; sweep;
   fix every instance.
-- [ ] ⬜ **Task 1.5**: The playbook not downloading `auto`'s model. No static rule is
+- [x] ✅ **Task 1.5**: The playbook not downloading `auto`'s model. No static rule is
   practical here: knowing which strings name a downloadable artefact needs the resolver's
   runtime answer. Fixed conventionally (the playbook downloads each mode's `auto` model),
   with the reason recorded in the report.
@@ -66,7 +66,7 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
 
 - [ ] ⬜ **Task 2.1**: `wsi-stream` raises the server's own error when the server it started
   exits (`tests/speech_to_text/test_server_start.py`).
-- [ ] ⬜ **Task 2.2**: The playbook downloads `auto`'s model; prefs labels and descriptions.
+- [x] ✅ **Task 2.2**: The playbook downloads `auto`'s model; prefs labels and descriptions.
 
 ### Phase 3: Review and deploy
 

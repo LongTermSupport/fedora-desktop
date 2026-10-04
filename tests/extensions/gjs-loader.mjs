@@ -24,6 +24,8 @@ const GI_DEFAULTS = new Map([
     ['gi://Gio', 'Gio'],
     ['gi://St', 'St'],
     ['gi://Pango', 'Pango'],
+    ['gi://Adw', 'Adw'],
+    ['gi://Gtk', 'Gtk'],
 ]);
 
 /** Shell module -> the named exports it must provide. */
@@ -32,6 +34,7 @@ const SHELL_NAMES = new Map([
     ['resource:///org/gnome/shell/ui/main.js', ['notify', 'panel', 'screenShield']],
     ['resource:///org/gnome/shell/ui/panelMenu.js', ['Button']],
     ['resource:///org/gnome/shell/extensions/extension.js', ['Extension']],
+    ['resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js', ['ExtensionPreferences']],
 ]);
 
 function dataModule(source) {
