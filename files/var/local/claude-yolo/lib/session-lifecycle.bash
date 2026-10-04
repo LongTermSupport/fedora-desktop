@@ -96,13 +96,19 @@ ccy_lifecycle_parse_until() {
         return 1
     fi
     [[ -n "$now" ]] || now=$(date +%s)
-    local target
-    if ! target=$(date -d "$text" +%s); then
+    # "Today" is the day of `now`, not of the clock: `date -d HH:MM` alone means the real
+    # today, which disagrees with an injected `now` on any other day.
+    local day target
+    if ! day=$(date -d "@$now" +%F); then
+        printf 'ERROR: --until: could not read the time %s.\n' "$now" >&2
+        return 1
+    fi
+    if ! target=$(date -d "$day $text" +%s); then
         printf 'ERROR: --until: could not work out %s.\n' "$text" >&2
         return 1
     fi
     if ((target <= now)); then
-        if ! target=$(date -d "tomorrow $text" +%s); then
+        if ! target=$(date -d "$day $text tomorrow" +%s); then
             printf 'ERROR: --until: could not work out tomorrow at %s.\n' "$text" >&2
             return 1
         fi
