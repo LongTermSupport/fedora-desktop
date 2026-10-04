@@ -304,9 +304,11 @@
           ]
       notify: wm-restart
 
-    # bluez5.headset-roles is bluez5.roles in 0.5. Codec, role and mSBC switches are
-    # monitor properties; auto-connect and LDAC quality are device properties; the
-    # idle and suspend settings are node properties.
+    # bluez5.roles and bluez5.codecs are left at their defaults (every role, every
+    # installed codec). Setting roles replaces the whole list, so a headset-only list
+    # drops A2DP and leaves every headphone with only the "off" profile. Codec and mSBC
+    # switches are monitor properties; auto-connect and LDAC quality are device
+    # properties; the idle and suspend settings are node properties.
     - name: Configure WirePlumber Bluetooth settings
       ansible.builtin.copy:
         dest: "{{ wireplumber_config_dir }}/wireplumber.conf.d/51-bluetooth-quality.conf"
@@ -320,8 +322,6 @@
             bluez5.enable-sbc-xq = true
             bluez5.enable-msbc = true
             bluez5.enable-hw-volume = true
-            bluez5.roles = [ hsp_hs hsp_ag hfp_hf hfp_ag ]
-            bluez5.codecs = [ sbc sbc_xq aac ldac aptx aptx_hd aptx_ll aptx_ll_duplex ]
             bluez5.default.rate = 48000
           }
 
