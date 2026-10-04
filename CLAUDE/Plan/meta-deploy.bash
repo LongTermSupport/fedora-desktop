@@ -49,10 +49,12 @@ PLAN_ROOT="${scriptDir}"
 # run as one unit through its own shebang, which goes through run.bash, exactly as
 # `./playbooks/imports/<play>.yml` does by hand.
 PLANS=(
-    # Plan 00148: the speech server logs its figures for every dictation, and the speech
-    # packages are pinned. Unattended: needs nobody at the microphone. It restarts the warm
-    # speech server, so do not be dictating while it runs.
-    playbooks/imports/optional/common/play-speech-to-text.yml
+    # Plan 00148: the speech server logs its figures for every dictation, the speech
+    # packages are pinned, article mode follows the server's journal. Its deploy.bash runs
+    # play-speech-to-text.yml, then acceptance.bash checks the deployed files. Unattended:
+    # needs nobody at the microphone. It restarts the warm speech server, so do not be
+    # dictating while it runs.
+    00148-stt-unlimited-dictation-loop-and-buffer
     # Next: Plan 00148's triage (reads those figures; records nothing), once you have
     # dictated with Continuous Dictation on. Plans 00109 and 00144 after the logout.
 )

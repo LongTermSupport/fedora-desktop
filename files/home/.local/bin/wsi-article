@@ -222,8 +222,10 @@ def run_article_mode(args):
         if response.get("undelivered"):
             stream.report_undelivered_dictation(response["undelivered"])
 
-        # Not RECORDING on D-Bus: the panel's own recording countdown would stop an
-        # article; the window shows the state of an article itself.
+        # PREPARING, not RECORDING, on D-Bus: the panel's own recording countdown would stop
+        # an article. Sent even when the server was already warm, so the panel is not IDLE
+        # while an article records (an Insert press then starts a competing recorder).
+        stream.emit_dbus_signal("StateChanged", "PREPARING")
 
         def collect():
             """Read what the server journaled since the last read into the buffer."""

@@ -26,7 +26,6 @@ from pathlib import Path
 CACHE_DIR = Path.home() / ".cache/speech-to-text"
 ARTICLE_RAW_FILE = CACHE_DIR / "article-raw.txt"
 ARTICLE_BUFFER_FILE = CACHE_DIR / "article-buffer.txt"
-ARTICLE_PARTIAL_FILE = CACHE_DIR / "article-partial.txt"
 ARTICLE_TRIGGER_FILE = CACHE_DIR / "article-chunk.trigger"
 ARTICLE_RECORDING_ACTIVE_FILE = CACHE_DIR / "article-recording.active"
 ARTICLE_SCRIPT = Path.home() / ".local/bin/wsi-article"
@@ -46,7 +45,6 @@ class ArticleWindow(Gtk.ApplicationWindow):
         self.args = args
         self.article_proc = None
         self.last_trigger_mtime = 0.0
-        self.last_partial_mtime = 0.0
         self.last_buffer_mtime = 0.0
         self.is_polishing = False
         self.chunk_count = 0
@@ -228,13 +226,14 @@ class ArticleWindow(Gtk.ApplicationWindow):
     def _poll_files(self):
         # ── Check if wsi-article has exited ─────────────────────────────────
         if self.article_proc is not None and self.article_proc.poll() is not None:
+            exit_code = self.article_proc.returncode
             self.article_proc = None
             self.stop_btn.set_sensitive(False)
             self.stop_btn.set_label("■ Stopped")
             # Trigger final polish from whatever has been accumulated
             if not self._final_polish_done:
                 self._final_polish_done = True
-                self._on_process_stopped()
+                self._on_process_stopped(exit_code)
             return True
 
         # ── Recording active marker: wsi-article has entered the record loop ─
@@ -263,16 +262,6 @@ class ArticleWindow(Gtk.ApplicationWindow):
             except Exception:
                 pass
 
-        # ── Partial file: real-time phrase fragment ──────────────────────────
-        if ARTICLE_PARTIAL_FILE.exists():
-            try:
-                mtime = ARTICLE_PARTIAL_FILE.stat().st_mtime
-                if mtime > self.last_partial_mtime:
-                    self.last_partial_mtime = mtime
-                    self._update_display()
-            except Exception:
-                pass
-
         return True  # GLib.SOURCE_CONTINUE
 
     def _read_all_raw(self):
@@ -297,20 +286,8 @@ class ArticleWindow(Gtk.ApplicationWindow):
         return combined
 
     def _update_display(self):
-        """Refresh left pane: completed raw + buffer + [current partial]."""
-        combined = self._read_all_raw()
-        partial = ""
-        try:
-            if ARTICLE_PARTIAL_FILE.exists():
-                partial = ARTICLE_PARTIAL_FILE.read_text().strip()
-        except Exception:
-            pass
-        display = combined
-        if partial:
-            if display and not display.endswith("\n"):
-                display += "\n"
-            display += f"[{partial}]"
-        self._set_raw_text(display)
+        """Refresh left pane: completed raw + buffer."""
+        self._set_raw_text(self._read_all_raw())
 
     def _on_new_chunk(self):
         """Called when a 120-second chunk is flushed."""
@@ -319,7 +296,7 @@ class ArticleWindow(Gtk.ApplicationWindow):
         if not self.is_polishing:
             self._run_polish(self._read_all_raw())
 
-    def _on_process_stopped(self):
+    def _on_process_stopped(self, exit_code=0):
         """Called when wsi-article exits. Resets panel indicator and polishes."""
         # Emit IDLE so the extension panel resets even if wsi-article was
         # force-killed and its atexit handler never ran.
@@ -335,8 +312,15 @@ class ArticleWindow(Gtk.ApplicationWindow):
         combined = self._read_all_raw()
         if combined.strip():
             self._set_raw_text(combined)
-            self._set_status("Recording stopped — polishing final article…")
+            if exit_code:
+                self._set_status(f"Dictation FAILED (exit {exit_code}; see the wsi-article "
+                                 "log) — polishing the text captured before it failed…")
+            else:
+                self._set_status("Recording stopped — polishing final article…")
             self._run_polish(combined)
+        elif exit_code:
+            self._set_status(f"Dictation FAILED (exit {exit_code}; see the wsi-article log) "
+                             "— no text captured")
         else:
             self._set_status("Recording stopped — no text captured")
 
