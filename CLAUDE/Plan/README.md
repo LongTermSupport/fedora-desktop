@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00154-ccy-sessions-freeze-and-thaw](00154-ccy-sessions-freeze-and-thaw/) - Freeze and thaw ccy sessions from the `ccy-sessions` picker through `podfreeze`: a frozen column (`-` for `cc`), one key that toggles the selected session, a refusal to freeze the session you are typing in, and `notify`/`reboot` naming a frozen session instead of hanging on it
+
 - [00153-release-tags-fedora-major-semver](00153-release-tags-fedora-major-semver/) - Signed release tags `44.MINOR.PATCH` (major tracks Fedora), one release command, and the unattended self-update following the newest tag instead of the branch tip
 
 - [00151-container-clipboard-sharing](00151-container-clipboard-sharing/) - Research then build: can Claude Code's Ctrl+V image paste work inside ccy (Podman) and LXC containers? ccy already mounts the Wayland socket but ships no `wl-clipboard`; LXC has no display socket. Survey first, then prototype; `imgpaste` (Plan 00150) remains the fallback.

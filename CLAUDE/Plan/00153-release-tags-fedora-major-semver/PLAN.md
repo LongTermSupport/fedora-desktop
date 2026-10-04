@@ -1,6 +1,6 @@
 # Plan 00153: release tags, Fedora major plus semver
 
-**Status**: Not Started
+**Status**: In Progress (Task 1.2 designed; Task 1.1 waits on the owner's decisions; nothing is tagged)
 **Created**: 2026-10-03
 **Owner**: joseph
 **Priority**: Medium
@@ -49,10 +49,15 @@ release tag rather than the branch tip.
     passed host acceptance (meta-deploy summary all PASS).
   - Changelog: one `CHANGELOG.md` at the root (`docs/ccy-changelog.md` stays ccy's own).
   - GitHub Release created from each tag, body = that changelog entry.
-- [ ] ⬜ **Task 1.2**: Read how `fedora-desktop-self-update` and its play pick the commit to
+- [x] ✅ **Task 1.2**: Read how `fedora-desktop-self-update` and its play pick the commit to
   deploy (newest signed commit on the branch) and design "newest signed release tag for
   this Fedora major" in its place, including the first-run case of a branch with no tag
-  yet (refuse loudly, never fall back to the tip silently).
+  yet (refuse loudly, never fall back to the tip silently). Done:
+  [DESIGN-self-update-tags.md](DESIGN-self-update-tags.md). Three points need the owner
+  with Task 1.1: the tagged commit must be one the release command signs (a GitHub merge
+  commit is signed by GitHub, so tagging it would be refused); tags replace branch-tip
+  deployment outright (no running server to migrate); an unusable newest tag refuses, never
+  falls back to an older one.
 
 ### Phase 2: Release command
 
