@@ -100,7 +100,12 @@ preferred.
   (container 2.41, CCY 3.75.0, changelog), removed from this project's Dockerfile; docs
   `docs/features/container-clipboard.md` and the ccy.md security table. HOST: the next ccy
   launch in any project rebuilds the base image. LXC remains manual (Task 2.2).
-- [ ] ⬜ **Task 3.2**: `deploy.bash` running `acceptance.bash` as its last leg.
+- [x] ✅ **Task 3.2**: `deploy.bash` (runs `play-claude-yolo.yml`) with `acceptance.bash` as its
+  last leg, listed in `meta-deploy.bash`. Acceptance checks launcher, lib and Dockerfile equal
+  the checkout, the `claude-yolo:latest` version label, the guard and `wl-paste`/`wl-copy` in
+  a throwaway container, and that `wl-paste -l` is answered over the socket. An old image is
+  PENDING (exit 3, start ccy once), not a failure. Exercised with a stub podman: drifted lib,
+  old image, rc 124 and a pass each give the intended result.
 - [ ] ⬜ **Task 3.3**: `./scripts/qa-all.bash` and the `qa-reviewer` agent clean.
 
 ## Success Criteria

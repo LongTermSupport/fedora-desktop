@@ -55,6 +55,10 @@ PLANS=(
     # needs nobody at the microphone. It restarts the warm speech server, so do not be
     # dictating while it runs.
     00148-stt-unlimited-dictation-loop-and-buffer
+    # Plan 00151: ccy's clipboard image paste (wl-clipboard and the 5 s wl-paste guard in the
+    # shared image). Deploys the launcher, lib and Dockerfile, then acceptance checks them and
+    # the image. If it says the image is old, start ccy once (it rebuilds) and rerun this.
+    00151-container-clipboard-sharing
     # Next: Plan 00148's triage (reads those figures; records nothing), once you have
     # dictated with Continuous Dictation on. Plans 00109 and 00144 after the logout.
 )
