@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.78.1 — container 2.42
+
+- **`--until HH:MM` takes "today" from the time it is given.** The parser asked the clock
+  for today's date but compared the result with the time it was passed, so the two agreed
+  only when that time was the clock's. At launch they are the same moment and nothing
+  changes; the unit test, which injects a fixed time, passed only on the day it was
+  written and failed on every other day, including CI on 2026-10-04.
+
 ## 3.78.0 — container 2.42
 
 - **`ccy-sessions` names each session's token and SSH key...** Two new columns, read off the
