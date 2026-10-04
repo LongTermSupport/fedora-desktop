@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00155-headset-button-toggles-speech-to-text](00155-headset-button-toggles-speech-to-text/) - Feature: a Bluetooth headset's multifunction button toggles speech-to-text through a TDD'd evdev listener (user service) and a udev access rule in `play-speech-to-text.yml`. Leading candidate: double press toggles, single press stays media play/pause. Triage first, then owner decisions.
+
 - [00154-ccy-sessions-freeze-and-thaw](00154-ccy-sessions-freeze-and-thaw/) - Freeze and thaw ccy sessions from the `ccy-sessions` picker through `podfreeze`: a frozen column (`-` for `cc`), one key that toggles the selected session, a refusal to freeze the session you are typing in, and `notify`/`reboot` naming a frozen session instead of hanging on it
 
 - [00153-release-tags-fedora-major-semver](00153-release-tags-fedora-major-semver/) - Signed release tags `44.MINOR.PATCH` (major tracks Fedora), one release command, and the unattended self-update following the newest tag instead of the branch tip
