@@ -1089,8 +1089,11 @@ High-fidelity audio system:
 - **HD sample rate support**: 44.1kHz, 48kHz, 88.2kHz, 96kHz, 176.4kHz, **192kHz**
 - **Dynamic rate switching**: Automatic based on active audio streams
 - **PipeWire optimization**: Quantum tuning (32-8192) for low latency
-- **Bluetooth codecs**: LDAC (HQ), aptX, aptX-HD, AAC, SBC-XQ
-- **USB audio**: Special handling with larger buffers for DACs
+- **Bluetooth codecs**: every installed codec and every role (A2DP, HFP) is enabled —
+  LDAC (HQ), aptX / aptX HD / aptX LL (RPM Fusion `pipewire-codec-aptx`), AAC, Opus,
+  SBC-XQ, mSBC for calls. WirePlumber picks the best one the headphones support
+- **Realtime audio threads**: adds you to the `pipewire` group so PipeWire gets its
+  realtime priority from rlimits rather than the RTKit cap (takes effect at next login)
 - **High-quality resampling**: Quality level 10
 - **WirePlumber 0.5 format**: the ALSA and Bluetooth rules are SPA-JSON in
   `~/.config/wireplumber/wireplumber.conf.d/`. The play removes the Lua files older runs
@@ -1102,7 +1105,8 @@ High-fidelity audio system:
 - Studio-quality audio playback up to 192kHz/24-bit
 - LDAC codec for wireless headphones (990kbps)
 - Optimized latency for music production
-- Better Bluetooth headphone compatibility (controller mode: bredr)
+- Better Bluetooth headphone compatibility (controller mode: bredr — classic Bluetooth
+  only, so LE Audio and BLE devices are off)
 
 **For audiophiles**:
 

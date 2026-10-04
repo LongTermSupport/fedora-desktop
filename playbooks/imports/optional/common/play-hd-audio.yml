@@ -10,33 +10,23 @@
     pipewire_config_dir: "/home/{{ user_login }}/.config/pipewire"
     wireplumber_config_dir: "/home/{{ user_login }}/.config/wireplumber"
   tasks:
-    - name: Check for existing audio enhancement configs
-      ansible.builtin.find:
-        paths:
-          - "{{ pipewire_config_dir }}/pipewire.conf.d"
-          - "{{ pipewire_config_dir }}/pipewire-pulse.conf.d"
-          - "{{ pipewire_config_dir }}/client.conf.d"
-        patterns:
-          - "*hd-audio*.conf"
-          - "*bluetooth*.conf"
-          - "*alsa-properties*.conf"
-      register: existing_audio_configs
-      failed_when: false  # FAIL-FAST-OK: probe — config directories may not exist yet
+    # Codecs Fedora cannot ship. LDAC, AAC, LC3 and Opus come with pipewire itself;
+    # aptX / aptX HD / aptX LL are built against libfreeaptx in RPM Fusion.
+    - name: Install the aptX Bluetooth codecs
+      become: true
+      ansible.builtin.dnf:
+        name: pipewire-codec-aptx
+        state: present
 
-    - name: Prompt for audio config removal if exists
-      ansible.builtin.pause:
-        prompt: "Existing audio enhancement configuration found. Remove and recreate? (yes/no)"
-      register: remove_config
-      when: existing_audio_configs.files | default([]) | length > 0
-
-    - name: Remove existing audio enhancement configs only
-      ansible.builtin.file:
-        path: "{{ item.path }}"
-        state: absent
-      loop: "{{ existing_audio_configs.files | default([]) }}"
-      when:
-        - existing_audio_configs.files | default([]) | length > 0
-        - remove_config.user_input | default('yes') | lower == 'yes'
+    # /etc/security/limits.d/25-pw-rlimits.conf (shipped by pipewire) grants @pipewire
+    # realtime priority. Outside the group PipeWire falls back to RTKit, which caps its
+    # audio threads at priority 20. Takes effect at the next login.
+    - name: Add the user to the pipewire group for realtime audio threads
+      become: true
+      ansible.builtin.user:
+        name: "{{ user_login }}"
+        groups: pipewire
+        append: true
 
     - name: Create PipeWire config directory structure
       ansible.builtin.file:
@@ -69,84 +59,19 @@
               default.clock.min-quantum   = 32
               default.clock.max-quantum   = 8192
           }
-
-          context.modules = [
-              {   name = libpipewire-module-rt
-                  args = {
-                      nice.level    = -11
-                      rt.prio       = 88
-                      rt.time.soft  = 2000000
-                      rt.time.hard  = 2000000
-                  }
-                  flags = [ ifexists nofail ]
-              }
-          ]
       notify: pw-restart
 
-    - name: Configure HD Audio - ALSA properties
-      ansible.builtin.copy:
-        dest: "{{ pipewire_config_dir }}/pipewire.conf.d/99-alsa-properties.conf"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0644"
-        content: |
-          # ALSA device properties for HD Audio
-
-          alsa.properties = {
-              # Increase buffer sizes for better stability at high sample rates
-              api.alsa.period-size   = 1024
-              api.alsa.period-num    = 32
-              api.alsa.headroom      = 1024
-              api.alsa.disable-mmap  = false
-              api.alsa.disable-batch = false
-          }
-
-          # Rules for all ALSA devices
-          alsa.rules = [
-              {
-                  matches = [
-                      {
-                          # Match all ALSA devices
-                          device.name = "~alsa_.*"
-                      }
-                  ]
-                  actions = {
-                      update-props = {
-                          # Enable rate adaptation
-                          audio.rate                = 0
-                          audio.allowed-rates       = [ 44100 48000 88200 96000 176400 192000 ]
-                          audio.format              = "F32"
-
-                          # High quality resampling
-                          resample.quality          = 10
-                          resample.disable          = false
-
-                          # Keep devices active
-                          session.suspend-timeout-seconds = 0
-
-                          # Use ACP (Audio Control Profiles) for proper device handling
-                          api.alsa.use-acp         = true
-                          api.alsa.ignore-dB       = false
-                      }
-                  }
-              }
-              {
-                  matches = [
-                      {
-                          # Specific settings for USB audio devices like Steinberg
-                          device.name = "~alsa_.*usb.*"
-                      }
-                  ]
-                  actions = {
-                      update-props = {
-                          # USB devices often need larger buffers
-                          api.alsa.period-size     = 2048
-                          api.alsa.period-num      = 3
-                          api.alsa.headroom        = 2048
-                      }
-                  }
-              }
-          ]
+    # Both files were never read for what they set: alsa.* keys configure the ALSA
+    # client plugin (client.conf), pulse.* keys belong to pipewire-pulse.conf, and
+    # each loaded a second libpipewire-module-rt next to the stock one. ALSA device
+    # tuning lives in WirePlumber's 51-hd-audio.conf below.
+    - name: Remove PipeWire drop-ins that set nothing
+      ansible.builtin.file:
+        path: "{{ pipewire_config_dir }}/pipewire.conf.d/{{ item }}"
+        state: absent
+      loop:
+        - 99-alsa-properties.conf
+        - 99-bluetooth-latency.conf
       notify: pw-restart
 
     - name: Configure HD Audio - PulseAudio compatibility
@@ -220,44 +145,26 @@
           DisableAutoSpawn
       when: speechd_conf.stat.exists
 
-    # Bluetooth Audio Configuration
+    # bredr is classic Bluetooth only: LE is off, so no LE Audio (LC3) and no BLE
+    # devices. It works around headphones that failed to connect in dual mode.
     - name: Set Bluetooth Controller Mode to bredr for compatibility
       become: true
       ansible.builtin.blockinfile:
         marker: "# {mark} ANSIBLE MANAGED: Bluetooth Audio Enhancement"
         block: |
-          # Enable classic Bluetooth + LE for better headphone compatibility
+          # Classic Bluetooth only (LE disabled) for headphone compatibility
           ControllerMode = bredr
         path: /etc/bluetooth/main.conf
         insertafter: \[General\]
       notify: restart-bt
 
-    - name: Configure PipeWire Bluetooth latency settings
-      ansible.builtin.copy:
-        dest: "{{ pipewire_config_dir }}/pipewire.conf.d/99-bluetooth-latency.conf"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0644"
-        content: |
-          # Bluetooth latency optimization for PipeWire
-
-          pulse.properties = {
-              # Lower latency for Bluetooth devices
-              pulse.min.req     = 128/48000
-              pulse.min.quantum = 128/48000
-          }
-
-          # Bluetooth-specific module settings
-          context.modules = [
-              {   name = libpipewire-module-rt
-                  args = {
-                      nice.level    = -11
-                      rt.prio       = 88
-                  }
-                  flags = [ ifexists nofail ]
-              }
-          ]
-      notify: pw-restart
+    - name: Remove the duplicate ControllerMode block from the retired headphones-fix play
+      become: true
+      ansible.builtin.blockinfile:
+        marker: "# {mark} ANSIBLE MANAGED: Set Controller Mode to bredr to Fix Bluetooth Headphones"
+        path: /etc/bluetooth/main.conf
+        state: absent
+      notify: restart-bt
 
     # WirePlumber 0.5 reads only SPA-JSON under wireplumber.conf.d/. It ignores Lua, and
     # logs "Lua configuration files are NOT supported" at every start while a *.lua.d
