@@ -1,6 +1,6 @@
 # Plan 00148: speech-to-text improvements (unlimited dictation, delayed stop, models)
 
-**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 0.7, 4.1-4.7, 5.1 and 7.4 built, all merged to F44 but 5.1; host checks Tasks 0.5, 1.2 and 8.4 pending; next: Phase 6)
+**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 0.7, 4.1-4.7, 5.1, 6.1 and 7.4 built, all merged to F44 but 6.1; host checks Tasks 0.5, 1.2, 6.2 and 8.4 pending)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
@@ -181,7 +181,8 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
   `scripts/qa-stt-limits.bash`, a hard gate in `qa-all.bash`: `wsi`'s
   `MAX_RECORDING_SECONDS`, `wsi-stream`'s `STREAMING_MAX_SECONDS`, the GSettings keys.
   Control run against the pre-plan files: 12 of 13 rules fail. `wsi-article`'s 120 is a
-  flush interval and is not checked (Phase 5 replaces it).
+  polish cadence (how often the window polishes the text so far), not a dictation limit, and
+  is not checked.
 - [x] ✅ **Task 4.6**: Pin `RealtimeSTT` and `faster-whisper` in
   `play-speech-to-text.yml`'s existing pip task, to the versions Task 1.2 finds; fix the
   play's stale header comment on the default model. Pinned to RealtimeSTT 1.0.0 and
@@ -206,8 +207,11 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
 
 ### Phase 6: Verification
 
-- [ ] ⬜ **Task 6.1**: `deploy.bash` and `acceptance.bash` in this folder;
-  `./scripts/qa-all.bash` green; `qa-reviewer` agent over the full diff.
+- [x] ✅ **Task 6.1**: `deploy.bash` and `acceptance.bash` in this folder (listed in
+  `meta-deploy.bash`); `qa-reviewer` agent over the full diff, its findings fixed (the panel
+  stays PREPARING while an article records; the window reports a failed dictation and drops
+  the dead partial-file path). `qa-all.bash` aborts at its `js` gate in the ccy container
+  (no eslint tooling for `extensions/` there); every other gate was run and passes.
 - [ ] 🚫 **Task 6.2**: **HOST**: run `deploy.bash` and `acceptance.bash`, log out and in for
   the extension, and dictate past five minutes with a forced segment failure. Blocked on the
   owner: Ansible never runs in the ccy container, and dictation needs a person.
@@ -235,7 +239,8 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
   1.1.1 and 1.2.1 both accept (`faster_whisper/utils.py`, wheels read). An English-only
   model with another language is refused. CTranslate2 counts 0, not an error, for a GPU
   it cannot reach, so 0 with `/dev/nvidiaN` present fails loudly, and the play asserts a
-  non-zero count on GPU hosts. Article mode still ignores the setting.
+  non-zero count on GPU hosts. Article mode, now a client of the warm server (Task 5.1),
+  uses the server's model.
 - [ ] ❌ **Task 7.3** (not chosen by the owner; kept for the record): Fixes the research found: `wsi-model-manager` lists turbo as ~800 MB
   (it is ~1.6 GB); the panel and model manager label turbo "Distilled" (it is large-v3 with a
   pruned decoder); the turbo download repo was renamed upstream and works only by redirect.
