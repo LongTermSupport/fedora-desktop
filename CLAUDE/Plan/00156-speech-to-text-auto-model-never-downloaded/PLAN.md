@@ -68,7 +68,17 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
   exits (`tests/speech_to_text/test_server_start.py`). The fix and its test are drafted
   and held in [`held/`](held/) until Task 1.3's defence is committed red. The patch is
   against 6515dd7c's `wsi-stream`, and is re-applied by hand since that file has moved on.
+
 - [x] ✅ **Task 2.2**: The playbook downloads `auto`'s model; prefs labels and descriptions.
+
+- [ ] ⬜ **Task 2.3**: The play's "Download The Auto Model" hung on the first deploy:
+  `model.bin` stayed a 0-byte `.incomplete`, the process sat in `futex_do_wait` for
+  30 minutes holding the blob's `.lock`, and the HEAD request (302 to the xet CDN)
+  answered at once. The same 0-byte state is what the reboot left behind. Find why the
+  xet download stalls, give the task a time limit that fails loudly, and decide with the
+  owner whether a large model download should run by default on a metered (5G) link.
+  The deploy was stopped by a shutdown at this task, so the rest of the play, its
+  acceptance and Plan 00151 did not run. Every file before the download was deployed.
 
 ### Phase 3: Review and deploy
 
