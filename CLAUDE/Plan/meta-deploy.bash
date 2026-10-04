@@ -56,8 +56,9 @@ PLANS=(
     # dictating while it runs.
     00148-stt-unlimited-dictation-loop-and-buffer
     # Plan 00151: ccy's clipboard image paste (wl-clipboard and the 5 s wl-paste guard in the
-    # shared image). Deploys the launcher, lib and Dockerfile, then acceptance checks them and
-    # the image. If it says the image is old, start ccy once (it rebuilds) and rerun this.
+    # shared image). Deploys the launcher, lib and Dockerfile, builds claude-yolo:latest (a few
+    # minutes), then acceptance checks the files, the image and a live wl-paste. Run it from
+    # the unlocked desktop session: a locked screen makes the wl-paste check fail.
     00151-container-clipboard-sharing
     # Next: Plan 00148's triage (reads those figures; records nothing), once you have
     # dictated with Continuous Dictation on. Plans 00109 and 00144 after the logout.

@@ -3,13 +3,12 @@
 #
 # WHAT THIS CHANGES (HOST-only; running it is the consent, CLAUDE/PlanScriptStandards.md R8):
 #   play-claude-yolo.yml — deploys the ccy and cc launchers, their lib/, and the shared
-#   Dockerfile that now carries wl-clipboard and the 5 s wl-paste guard. The container image
-#   is NOT rebuilt here: the launcher rebuilds claude-yolo:latest on its next start, when the
-#   Dockerfile's version label differs from the image's.
+#   Dockerfile that carries wl-clipboard and the 5 s wl-paste guard, then the play builds
+#   claude-yolo:latest from it (a podman build as the desktop user; the first run after a
+#   Dockerfile change takes a few minutes).
 #
-# The LAST LEG is acceptance.bash. Until a ccy has been started once after this run, the image
-# is still the old one and acceptance reports that as PENDING (exit 3), which this script
-# passes on as a note, not a failure.
+# The LAST LEG is acceptance.bash, skipped under --check (nothing was deployed to test).
+# Project images built from a custom Dockerfile are rebuilt by ccy on its next start there.
 #
 # Usage: ./deploy.bash [--check] [-y|--yes] [-h|--help]
 set -euo pipefail
@@ -34,9 +33,8 @@ plan_init "${BASH_SOURCE[0]}"
 
 PLAN_USAGE="usage: deploy.bash [--check] [-y|--yes] [-h|--help]
 
-Runs play-claude-yolo.yml on the HOST, then acceptance.bash as the last leg. If acceptance
-says the container image is still the old one, start ccy once (it rebuilds) and run
-acceptance.bash again."
+Runs play-claude-yolo.yml on the HOST (it also builds the claude-yolo:latest image), then
+acceptance.bash as the last leg (not under --check)."
 
 plan_mode deploy
 plan_parse_common_flags "$@"
@@ -57,19 +55,11 @@ plan_start_log auto
 plan_deploy_leg "play-claude-yolo.yml" \
     plan_ansible_playbook playbooks/imports/play-claude-yolo.yml
 
-acceptanceStatus=0
-"${PLAN_SCRIPT_DIR}/acceptance.bash" || acceptanceStatus=$?
-case "${acceptanceStatus}" in
-    0) printf '\nDeploy and acceptance passed.\n' ;;
-    3)
-        printf '\nDeploy done. The container image is still the old one.\n'
-        printf 'Start ccy once in any project (it rebuilds the image), then run %s/acceptance.bash.\n' \
-            "${PLAN_SCRIPT_DIR}"
-        ;;
-    *)
-        printf '[FATAL] acceptance.bash failed (exit %d); see its output above\n' "${acceptanceStatus}" >&2
-        exit "${acceptanceStatus}"
-        ;;
-esac
+# A --check run deployed nothing, so acceptance would only fail on the undeployed copy.
+if [[ "${PLAN_CHECK}" -eq 1 ]]; then
+    printf '\n==> --check: acceptance.bash not run, nothing was deployed to test\n'
+else
+    plan_deploy_leg "acceptance.bash" "${PLAN_SCRIPT_DIR}/acceptance.bash"
+fi
 
 plan_finish

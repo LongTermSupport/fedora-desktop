@@ -12,8 +12,7 @@
 #
 # Usage: ./acceptance.bash [-h|--help]
 #
-# EXIT CODES: 0 every established check passed; 1 at least one failed; 3 the files are
-# deployed but the image is still the old one (start ccy once, it rebuilds); 64 usage error.
+# EXIT CODES: 0 every established check passed; 1 at least one failed; 64 usage error.
 set -euo pipefail
 
 scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -39,7 +38,7 @@ PLAN_USAGE="usage: acceptance.bash [-h|--help]
 Checks, on the HOST after deploy.bash: launcher, lib and Dockerfile deployed and identical to
 this checkout's; the claude-yolo:latest image has the Dockerfile's version label; in a
 throwaway container the wl-paste guard, wl-paste and wl-copy exist and wl-paste answers over
-the Wayland socket. Exit 3 means the image has not been rebuilt yet."
+the Wayland socket."
 
 plan_mode gather
 plan_parse_common_flags "$@"
@@ -66,7 +65,6 @@ imageName="claude-yolo:latest"
 total=0
 passed=0
 failed=0
-pending=0
 
 check() {
     local label="${1}" ok="${2}"
@@ -103,9 +101,15 @@ if ! command -v podman > /dev/null; then
     check "podman is installed" no
 else
     wantVersion="$(awk -F'"' '/^LABEL claude-yolo-version=/ {print $2}' "${launcherSource}/Dockerfile")"
+    requiredVersion="$(awk -F'"' '/^REQUIRED_CONTAINER_VERSION=/ {print $2}' "${launcherSource}/claude-yolo")"
     if [[ -z "${wantVersion}" ]]; then
         check "the Dockerfile has a claude-yolo-version label" no
     else
+        if [[ "${wantVersion}" == "${requiredVersion}" ]]; then
+            check "the launcher's REQUIRED_CONTAINER_VERSION matches the Dockerfile label (${wantVersion})" yes
+        else
+            check "the launcher requires '${requiredVersion}' but the Dockerfile label is '${wantVersion}'" no
+        fi
         haveVersion=""
         if podman image exists "${imageName}"; then
             haveVersion="$(podman image inspect "${imageName}" \
@@ -113,24 +117,20 @@ else
         fi
         if [[ "${haveVersion}" == "${wantVersion}" ]]; then
             check "${imageName} carries claude-yolo-version ${wantVersion}" yes
-        elif [[ "${failed}" -eq 0 ]]; then
-            pending=1
-            printf '  PENDING: %s is at version "%s", the Dockerfile says %s (start ccy once: it rebuilds)\n' \
-                "${imageName}" "${haveVersion:-absent}" "${wantVersion}"
         else
-            check "${imageName} carries claude-yolo-version ${wantVersion} (has: ${haveVersion:-absent})" no
+            check "${imageName} carries claude-yolo-version ${wantVersion} (has: ${haveVersion:-absent}; deploy.bash builds it)" no
         fi
     fi
 fi
 
-if [[ "${pending}" -eq 0 && "${failed}" -eq 0 ]]; then
+if [[ "${failed}" -eq 0 ]]; then
     printf '=== inside a throwaway container ===\n'
     # The script runs inside the container, so its expansions are single-quoted on purpose.
     inside="$(podman run --rm --entrypoint /bin/bash "${imageName}" -c \
         'for f in /usr/local/bin/wl-paste /usr/bin/wl-paste /usr/bin/wl-copy; do
              if [[ -x $f ]]; then echo "ok $f"; else echo "missing $f"; fi
          done
-         grep -c "timeout 5" /usr/local/bin/wl-paste' 2>&1)" || inside="${inside:-podman run failed}"
+         echo "guard $(grep -c "timeout 5" /usr/local/bin/wl-paste)"' 2>&1)" || inside="${inside:-podman run failed}"
     for f in /usr/local/bin/wl-paste /usr/bin/wl-paste /usr/bin/wl-copy; do
         if [[ "${inside}" == *"ok ${f}"* ]]; then
             check "${f} exists and is executable in the image" yes
@@ -138,7 +138,7 @@ if [[ "${pending}" -eq 0 && "${failed}" -eq 0 ]]; then
             check "${f} exists and is executable in the image (got: ${inside//$'\n'/; })" no
         fi
     done
-    if [[ "${inside}" == *$'\n1' ]]; then
+    if [[ "${inside}" == *"guard 1"* ]]; then
         check "the /usr/local/bin/wl-paste wrapper carries the 5 s guard" yes
     else
         check "the /usr/local/bin/wl-paste wrapper carries the 5 s guard" no
@@ -153,9 +153,11 @@ if [[ "${pending}" -eq 0 && "${failed}" -eq 0 ]]; then
         pasteOut="$(podman run --rm --entrypoint /bin/bash \
             -v "${socket}:${socket}:ro" -e WAYLAND_DISPLAY -e XDG_RUNTIME_DIR \
             "${imageName}" -c 'wl-paste -l' 2>&1)" || pasteStatus=$?
-        # 0 = a clipboard with content, 1 = an empty clipboard: both mean the compositor
-        # answered. 124 is the guard's timeout: GNOME withheld focus.
-        if [[ "${pasteStatus}" -eq 0 || "${pasteStatus}" -eq 1 ]]; then
+        # 0 = a clipboard with content; 1 = an empty clipboard, but also what a failed
+        # connection returns, so rc 1 counts only without that message. 124 is the guard's
+        # timeout: GNOME withheld focus (a locked screen does the same).
+        if [[ "${pasteStatus}" -eq 0 ]] \
+            || [[ "${pasteStatus}" -eq 1 && "${pasteOut}" != *"Failed to connect"* ]]; then
             check "wl-paste -l is answered by the compositor (rc ${pasteStatus})" yes
         else
             check "wl-paste -l is answered by the compositor (rc ${pasteStatus}; 124 = no answer in 5 s): ${pasteOut}" no
@@ -166,14 +168,12 @@ fi
 printf '\nCOVERAGE: %d of %d established checks passed\n' "${passed}" "${total}"
 printf '\nNOT ESTABLISHABLE by this script (a person must confirm):\n'
 printf '  - Ctrl+V in a running ccy session attaching a copied image (confirmed once by the owner)\n'
+printf '  - project images built from a custom Dockerfile (claude-yolo:<project>): only :latest is checked\n'
 printf '  - containers other than ccy (LXC stays a manual recipe, Task 2.2)\n'
+printf '  - wl-paste needs the screen unlocked: a locked screen makes check above fail with rc 124\n'
 
 if [[ "${failed}" -gt 0 ]]; then
     printf '\n==> %d check(s) FAILED\n' "${failed}" >&2
     exit 1
-fi
-if [[ "${pending}" -gt 0 ]]; then
-    printf '\n==> files deployed; the image still needs a rebuild (start ccy once)\n'
-    exit 3
 fi
 printf '\n==> all established checks passed\n'
