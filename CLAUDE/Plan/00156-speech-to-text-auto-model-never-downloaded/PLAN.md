@@ -65,7 +65,9 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
 ### Phase 2: Original defects
 
 - [ ] ⬜ **Task 2.1**: `wsi-stream` raises the server's own error when the server it started
-  exits (`tests/speech_to_text/test_server_start.py`).
+  exits (`tests/speech_to_text/test_server_start.py`). The fix and its test are drafted
+  and held in [`held/`](held/) until Task 1.3's defence is committed red. The patch is
+  against 6515dd7c's `wsi-stream`, and is re-applied by hand since that file has moved on.
 - [x] ✅ **Task 2.2**: The playbook downloads `auto`'s model; prefs labels and descriptions.
 
 ### Phase 3: Review and deploy

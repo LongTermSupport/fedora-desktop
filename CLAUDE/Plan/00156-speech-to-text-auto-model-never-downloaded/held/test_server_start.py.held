@@ -1,0 +1,75 @@
+"""wsi-stream's start_server() when the server it starts dies while loading.
+
+A server that cannot load its model (a model.bin an interrupted download never wrote,
+GPU memory the model does not fit in) logs why and exits within seconds. The client
+must stop waiting at once and name that error, not wait out its 45 s and report a
+timeout that hides the cause.
+
+Stdlib only. Run by scripts/test-wsi-stop-grace.bash.
+"""
+
+import importlib.util
+import pathlib
+import tempfile
+import unittest
+from unittest import mock
+
+_spec = importlib.util.spec_from_file_location(
+    "stt_stubs", pathlib.Path(__file__).resolve().parent / "stt_stubs.py")
+stt_stubs = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(stt_stubs)
+
+wsi_stream = stt_stubs.load_script("wsi-stream", "wsi_stream_server_start")
+
+SERVER_LOG = """\
+[2026-01-01T00:00:00] [SERVER] [INFO] === WSI-Stream Server Starting ===
+[2026-01-01T00:00:02] [SERVER] [INFO] Loading model=large-v3, language=en, device=cuda (float16)
+[2026-01-01T00:00:06] [SERVER] [ERROR] Model load failed: CUDA failed with error out of memory
+[2026-01-01T00:00:06] [SERVER] [ERROR] Failed to load the models - exiting
+"""
+
+
+class DeadServer:
+    """A Popen stand-in for a server process that has already exited."""
+
+    def poll(self):
+        return 1
+
+
+class StartServerTest(unittest.TestCase):
+
+    def setUp(self):
+        tmp = pathlib.Path(tempfile.mkdtemp())
+        self.server_log = tmp / "server.log"
+        self.sleeps = []
+        for name, value in {
+            "SERVER_LOG_FILE": self.server_log,
+            "LOG_FILE": tmp / "debug.log",
+            "SERVER_SCRIPT": pathlib.Path(__file__),
+            "is_server_running": lambda: False,
+            "server_pid_alive": lambda: False,
+            "resolve_model": lambda mode, language: "large-v3",
+            "read_server_idle_timeout": lambda: 20,
+        }.items():
+            patcher = mock.patch.object(wsi_stream, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        for module, name, value in ((wsi_stream.subprocess, "Popen", lambda *a, **k: DeadServer()),
+                                    (wsi_stream.time, "sleep", self.sleeps.append)):
+            patcher = mock.patch.object(module, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_a_server_that_exits_names_its_error_at_once(self):
+        self.server_log.write_text(SERVER_LOG)
+        with self.assertRaisesRegex(RuntimeError, "CUDA failed with error out of memory"):
+            wsi_stream.start_server("en")
+        self.assertEqual(len(self.sleeps), 1, "the client kept waiting for a dead server")
+
+    def test_a_server_that_exits_without_a_log_says_so(self):
+        with self.assertRaisesRegex(RuntimeError, "cannot be read"):
+            wsi_stream.start_server("en")
+
+
+if __name__ == "__main__":
+    unittest.main()
