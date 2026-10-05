@@ -403,9 +403,10 @@ The residual risks worth naming honestly:
 - **The session's SSH key also signs commits**, whenever your git config signs. The
   container signs through the agent that holds it: the container's own, for a key you
   chose at launch, or your forwarded one. So anything it signs is Verified as the account
-  that key belongs to. Where a self-updating server trusts that key, a signed commit is a
-  release that server will run as root once it is pushed: whoever can push and sign from
-  the container can ship to it. Every launch prints the key it signs with
+  that key belongs to. Where a self-updating server trusts that key and follows the branch
+  channel, a signed commit is a release that server will run as root once it is pushed:
+  whoever can push and sign from the container can ship to it. On the default tags channel
+  the same key must also sign a release tag, which the release command makes. Every launch prints the key it signs with
   (`✓ Commit signing: …`). A session with no SSH identity cannot sign, so with signing on
   it refuses to start.
 - **With only a forwarded agent, the key follows the project's remotes.** The session

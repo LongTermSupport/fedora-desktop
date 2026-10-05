@@ -40,6 +40,9 @@ user_email: "yourname@example.com"
 # Self-Update".
 # self_update_enabled: true
 # self_update_branch: F44
+# What the server follows: "tags" (the default) deploys the newest signed release tag
+# 44.MINOR.PATCH of that branch; "branch" opts into the newest signed commit on the branch.
+# self_update_channel: tags
 # self_update_remote_url: https://github.com/example/fedora-desktop.git
 # self_update_signing_principal: yourname@example.com
 # Every key that signs your commits, one .pub line each: the desktop's ~/.ssh/id.pub, and

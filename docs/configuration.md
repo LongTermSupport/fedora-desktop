@@ -301,10 +301,27 @@ after changing host_vars: the cycle runs with a root-owned copy.
 The whole cycle is described in [playbooks.md](playbooks.md#play-self-updateyml). Running
 it day to day:
 
-- **Trust.** The server deploys only the newest commit signed by a key in
-  `self_update_signing_public_keys`. Those keys sign every commit made on the desktop and
-  in its ccy sessions, so a push from there is a release. Anything signed by a key not on
-  the list waits, and a bad signature refuses the cycle.
+- **Trust.** By default (`self_update_channel: tags`) the server deploys only the newest
+  signed release tag `<fedora-major>.<minor>.<patch>` of `self_update_branch` (which must be
+  `F<number>`), and the commit under it must be signed by a key in
+  `self_update_signing_public_keys`. A push is not a release: the owner tags one with
+  `scripts/release.bash` ([releases.md](releases.md)). A branch with no release tag, or a
+  newest tag that is lightweight, signed by another key, moved upstream or on an unsigned
+  commit, is refused and alerted; an older tag or the branch tip is never deployed in its
+  place. `self_update_channel: branch` opts into the older behaviour: the newest commit
+  signed by a listed key, so a signed push from the desktop or a ccy session is deployed.
+  On either channel a commit or tag signed by a key not on the list waits or refuses, and a
+  bad signature refuses the cycle. The alert names the tag and the check that failed.
+- **A release tag that was moved.** A release tag the server already holds that now points
+  elsewhere upstream is never followed (no force), and refuses every cycle until a person
+  acts: withdraw the moved tag upstream, so the next fetch prunes it, and release under a new
+  number; or re-clone (the last bullet). A moved draft such as `44.2.0-rc1` is passed over and
+  stops nothing. If the withdrawn tag was the deployed one, the next-newest tag is behind the
+  clone and the cycle refuses as "ahead" until a person decides; nothing downgrades by itself.
+- **Switching channel.** Going from `branch` to `tags` leaves the clone ahead of the newest
+  release, so the cycle refuses until that release catches up, and re-running the play does
+  not move the clone back either: the play moves a clone back only when it has just made it.
+  To go back to an older release deliberately, re-clone.
 - **Pausing.** Set `self_update_enabled: false` and re-run the play. That removes what it
   installed, and setting it back to true restores it.
 - **When it runs.** Nightly at 03:30, within a random 30 minutes. A night missed while

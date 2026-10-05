@@ -100,6 +100,8 @@ These keys have no defaults. The orchestrator refuses to run if one is missing:
 
 - `USER`
 - `BRANCH`
+- `CHANNEL`: `tags` or `branch` (Plan 00153; see the CORRECTION under D3 at the end). `tags`
+  needs `BRANCH` to be `F<number>`, else the cycle refuses the config (exit 70).
 - `REMOTE_URL` (HTTPS for the public repo, Task 2.2)
 - `PRINCIPAL`
 - `WARN_MINUTES` (default in IaC: 3)
@@ -145,8 +147,8 @@ These keys have no defaults. The orchestrator refuses to run if one is missing:
 
 ## Result record
 
-`state/last-result` holds one line per key: `at`, `phase`, `outcome`, `old`, `new`,
-`plays`, `detail`, `alert`. It carries no hostname or username. `plays` holds
+`state/last-result` holds one line per key: `at`, `phase`, `outcome`, `old`, `new`, `tag`
+(the release the commit is, empty on the branch channel), `plays`, `detail`, `alert`. It carries no hostname or username. `plays` holds
 repo-relative play paths (`playbooks/imports/...`), and `detail` may name one; no path
 outside the repository appears.
 
@@ -224,3 +226,25 @@ Keeping the helpers in a separate root-owned install, verified once by the play,
 rejected. That copy would drift from the clone the plays run from, and it would need its
 own update path through the same gate. Checking in the entry point costs two git calls
 and keeps a single tree.
+
+## CORRECTION under D3 (Plan 00153): the credential is now a signed release tag
+
+D3, and the three layers above, describe the **`branch` channel**: the cycle deploys the
+newest commit the pinned key signed. That is no longer the default. The default channel,
+`tags`, deploys the newest **signed annotated tag** `<fedora-major>.<minor>.<patch>` of the
+branch's Fedora major, and its commit must also be signed by the pinned principal, so the
+invariant "HEAD is a commit the pinned signer signed" holds unchanged and layers 2 and 3 are
+untouched. What differs:
+
+- `CHANNEL` in the config chooses (`tags` by default, `branch` as the explicit opt-in); the
+  play passes one variable, `self_update_channel`.
+- The anchor (layer 1) in the `tags` channel lands the clone on the newest valid tag's
+  commit, wherever HEAD is, or fails the play when there is none. The `branch` channel's
+  anchor is as described above.
+- Only the newest tag is judged, and an unusable one refuses the cycle (exit 20): never a
+  fall back to an older tag or to the tip. A tag moved upstream, or withdrawn while it was
+  the deployed one, refuses too, and nothing downgrades by itself.
+- `update.py` prints `SELF-UPDATE-TAG <name>`; the result record, the published copy and
+  `status` carry it as `tag`.
+
+The full design is `CLAUDE/Plan/00153-release-tags-fedora-major-semver/DESIGN-self-update-tags.md`.

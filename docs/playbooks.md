@@ -1361,13 +1361,19 @@ profile, Plan 00137). **Off unless `self_update_enabled: true`**; turning it off
 everything it installed.
 
 - A nightly root timer fast-forwards a root-owned deploy clone under
-  `/var/lib/fedora-desktop/`, only to a commit signed by one of the owner's pinned keys
-  (the desktop's `~/.ssh/id` and the GitHub account keys its ccy sessions sign with). The play
-  itself puts the clone on the newest signed commit, and the cycle runs nothing from a
+  `/var/lib/fedora-desktop/`, by default only to the newest signed release tag of the
+  branch's Fedora major (`self_update_channel: tags`), on a commit signed by one of the
+  owner's pinned keys (the desktop's `~/.ssh/id` and the GitHub account keys its ccy
+  sessions sign with); `self_update_channel: branch` follows the newest signed commit
+  instead ([configuration.md](configuration.md#unattended-server-self-update)). The play
+  itself puts the clone on that commit (a branch with no release tag fails the play), and the cycle runs nothing from a
   clone whose HEAD is unsigned, whose files differ from it, or that holds any file the
   commit does not (ignored files included), other than the host_vars copy the play puts
-  there. Re-running the play never alters an existing clone, so clearing those last two
-  takes a fresh clone: see [configuration.md](configuration.md#unattended-server-self-update).
+  there. Re-running the play never edits an existing clone's files, and on the tags channel it
+  only moves one forward, to a release fetched since (it fetches the release tags first; it
+  moves a clone back only when it has just made it, and otherwise refuses and says how to
+  re-clone). It prints where the clone was anchored. Clearing a dirty clone takes a fresh
+  clone: see [configuration.md](configuration.md#unattended-server-self-update).
 - It runs the allowlisted plays that commit affects, warns the ccy/cc sessions, and
   reboots. The sessions come back through the boot-time restore, and a post-boot unit
   checks they did.

@@ -238,7 +238,9 @@ D1–D4 are the owner's choices, made 2026-09-23.
   diff, with findings resolved. Rounds 1 and 2 were BLOCK, round 3 FIX-BEFORE-MERGE, and
   round 4 PASS WITH NITS. Every finding is fixed (journal 18:35, 19:16, 19:36 and 19:56).
 - [ ] 🚫 **Task 5.3**: HOST: one full cycle on a server with two live sessions, triggered by
-  a real commit that touches `lib/`.
+  a real commit that touches `lib/`. Plan 00153 Phase 3 changed the default channel: the server
+  now follows the newest signed release tag, so this cycle needs a release tag (`44.0.0`, Plan
+  00153 Task 4.1) on that commit, or the server declared with `self_update_channel: branch`.
 
 ## Success Criteria
 

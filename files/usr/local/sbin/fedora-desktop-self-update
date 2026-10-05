@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # fedora-desktop-self-update — the unattended self-update cycle on a server (Plan 00137).
 #
-# Brings the deploy-only clone up to the newest commit signed by one of the owner's keys,
-# runs the allowlisted plays whose inputs changed, then warns the ccy/cc sessions and
-# reboots so they come back through the boot-time restore. After the boot, `verify` checks
-# every restored session came back. Any failure stops the cycle with no reboot.
+# Brings the deploy-only clone up to the newest signed release tag (<fedora-major>.<minor>.<patch>)
+# of the branch's Fedora major, the commit under it signed by one of the owner's keys. CHANNEL=branch
+# in the config follows the newest signed commit on the branch instead. Then it runs the
+# allowlisted plays whose inputs changed, warns the ccy/cc sessions and reboots so they come back
+# through the boot-time restore. After the boot, `verify` checks every restored session came back.
+# Any failure stops the cycle with no reboot. On the tags channel a branch with no release tag, or
+# a newest tag that fails its checks, is refused (exit 20), never answered with an older tag or
+# the branch tip.
 #
 # Usage:
 #   fedora-desktop-self-update run [--dry-run]   the timer's cycle; --dry-run names the
@@ -110,7 +114,7 @@ fi
 GIT=(git -C "${CLONE}" -c core.hooksPath=/dev/null -c core.fsmonitor=false -c protocol.ext.allow=never
     -c gpg.program=false -c gpg.openpgp.program=false -c gpg.x509.program=false
     -c "gpg.ssh.program=${SSH_KEYGEN}" -c "gpg.ssh.allowedSignersFile=${ALLOWED_SIGNERS}")
-UNTRUSTED="re-run the self-update play: it moves the clone to the newest commit one of your listed keys signed"
+UNTRUSTED="re-run the self-update play: it moves the clone to the commit its channel deploys (the newest signed release tag, or on the branch channel the newest commit one of your listed keys signed)"
 # The play never updates an existing clone (update: false), and its anchor refuses a dirty
 # one, so re-running it cannot clear these two. Only a fresh clone can.
 RECLONE="re-running the play cannot clear this. Run the self-update play once with self_update_enabled: false in host_vars, which removes the clone and the rest of the automation, then once more with it true, which clones and anchors afresh"
