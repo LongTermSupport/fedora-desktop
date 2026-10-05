@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00157-cc-desktop-launcher-broken](00157-cc-desktop-launcher-broken/) - Bug: `cc` reports that no Claude process was found instead of starting a session. The text is not in this repo, so a read-only `triage.bash` finds who prints it, what `cc` resolves to, and whether the deployed wrapper, the claude install or the credential state changed.
+
 - [00156-speech-to-text-auto-model-never-downloaded](00156-speech-to-text-auto-model-never-downloaded/) - Regression from Plan 00148: the `auto` model was never downloaded, so the warm server would not start after a reboot. Fixed under Defence Before Fix.
 
 - [00155-headset-button-toggles-speech-to-text](00155-headset-button-toggles-speech-to-text/) - Feature: a Bluetooth headset's multifunction button toggles speech-to-text through a TDD'd evdev listener (user service) and a udev access rule in `play-speech-to-text.yml`. Leading candidate: double press toggles, single press stays media play/pause. Triage first, then owner decisions.

@@ -49,21 +49,17 @@ PLAN_ROOT="${scriptDir}"
 # run as one unit through its own shebang, which goes through run.bash, exactly as
 # `./playbooks/imports/<play>.yml` does by hand.
 PLANS=(
-    # Plan 00148: the speech server logs its figures for every dictation, the speech
-    # packages are pinned, article mode follows the server's journal; Phase 9 picks the
-    # paste key per window at each paste, pastes while dictating, outlines the target and
-    # can save after pasting. Its deploy.bash runs play-speech-to-text.yml, which also
-    # carries Plan 00156 (it downloads the `auto` model, about 1.5 GB the first time).
-    # Then acceptance.bash checks the deployed files. Unattended: needs nobody at the
-    # microphone. It restarts the warm speech server, so do not be dictating while it
-    # runs. Log out and in afterwards for the panel and Settings code.
-    00148-stt-unlimited-dictation-loop-and-buffer
+    # Plan 00157: cc says no Claude process was found. Triage only, read-only and quick; it
+    # runs first so its report is there before the deploy below starts.
+    00157-cc-desktop-launcher-broken
     # Plan 00151: ccy's clipboard image paste (wl-clipboard and the 5 s wl-paste guard in the
     # shared image). Deploys the launcher, lib and Dockerfile, builds claude-yolo:latest (a few
     # minutes), then acceptance checks the files, the image and a live wl-paste. Run it from
     # the unlocked desktop session: a locked screen makes the wl-paste check fail.
     00151-container-clipboard-sharing
-    # Next: Plan 00148's triage (reads those figures; records nothing), once you have
+    # Next: Plan 00148's deploy (play-speech-to-text.yml, which carries Plan 00156), once
+    # Plan 00156 Task 2.3 gives "Download The Auto Model" a time limit: the last run hung
+    # there for 30 minutes and it would hang again. Then 00148's triage, once you have
     # dictated with Continuous Dictation on. Plans 00109 and 00144 after the logout.
 )
 
