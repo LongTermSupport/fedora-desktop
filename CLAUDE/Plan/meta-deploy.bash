@@ -55,6 +55,9 @@ PLANS=(
     # Speech to text: Plan 00156's fixes (a server that dies while loading is reported at
     # once, and no model is downloaded for you). Log out and in after it.
     00148-stt-unlimited-dictation-loop-and-buffer
+    # Every other play that changed since it ran here: the LXC play (Plan 00156) and the
+    # plays whose "Press ENTER" pauses became messages. --yes: it asks nothing.
+    00141-run-bash-changed-plays/run-changed.bash
     # Next: after the logout, 00144's and 00148's acceptance; 00148's triage once you have
     # dictated with Continuous Dictation on; 00134's triage again after the next boot.
 )
