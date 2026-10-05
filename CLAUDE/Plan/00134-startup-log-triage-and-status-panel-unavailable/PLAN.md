@@ -85,15 +85,18 @@ containers that needs its own diagnosis (F7).
   not devices; other Lua left behind stops the play). Deployed by the host batch (journal
   26-09-23 19:10): only the two `.conf` files remain, and there has been no Lua warning since
   the restart. Remaining: `wpctl inspect` on the HOST.
-- [ ] 🚫 **Task 2.2**: `play-browsers.yml` — resolve the duplicate `[vivaldi]` repo id:
+- [x] ✅ **Task 2.2**: `play-browsers.yml` — resolve the duplicate `[vivaldi]` repo id:
   keep exactly one of the two repo files (the RPM's own post-install writes
   `vivaldi.repo`; the play writes `vivaldi-fedora.repo`) and make the play remove the
   other on every run. Verify `dnf5 repolist` shows one `vivaldi` and dnf5daemon logs
   no `Id is present more than once`. Code done: `vivaldi-fedora.repo` is kept, and
   `/etc/default/vivaldi` `repo_add_once="false"` stops the scriptlet recreating the
   other (the RPM's scriptlets are quoted in the journal, 18:35). Deployed by the host batch:
-  the duplicate `[vivaldi]` id is gone. Remaining: after the next boot, dnf5daemon logs no
-  `Id is present more than once` (both lines this boot predate the deploy).
+  the duplicate `[vivaldi]` id is gone. The triage in meta-deploy `20261005-140009`, on a
+  later boot, finds no `vivaldi` duplicate and no dnf5daemon `Id is present more than once`
+  line. It lists one other id twice, `copr.fedorainfracloud.org`, with no dnf5daemon
+  complaint; not judged yet whether that is a real duplicate or the probe matching copr's
+  section names.
 - [x] ✅ **Task 2.3**: `files/home/.config/systemd/user/vmtest-bridge@.service` — replace
   `RuntimeMaxSec=120` with `TimeoutStartSec=120` and fix the comment. Audit every
   other `Type=oneshot` unit in `files/` for the same mistake. Code done: the other 12
@@ -108,7 +111,7 @@ containers that needs its own diagnosis (F7).
   Code done (stat, then a mode task gated on existence). HOST verified by the batch: the
   mode task changed the entry. Triage (before) found it executable; triage (after) finds
   no executable autostart entry.
-- [ ] 🚫 **Task 2.5**: ABRT policy as IaC — `play-basic-configs.yml` sets
+- [x] ✅ **Task 2.5**: ABRT policy as IaC — `play-basic-configs.yml` sets
   `abrt_auto_reporting` (project default on; per-host override) via
   `abrt-auto-reporting`, and installs `abrt-prune-stale.{service,timer}` running
   `files/usr/local/bin/abrt-prune-stale.bash` daily with `abrt_retention_days`
@@ -116,12 +119,15 @@ containers that needs its own diagnosis (F7).
   in `host_vars`, not in the repo — the play persists whatever values are in effect
   (`-e` or defaults) into a managed block there. Deployed (79 → 10 records).
   Desktop profile only, and the block installs `abrt` + `abrt-tui` itself (PR #50; journal
-  16:40). Remaining: confirm no applet backlog notification at the next login.
+  16:40). The triage in meta-deploy `20261005-140009`, on a later boot: no ABRT record and
+  no applet assertion this boot.
 - [ ] 🚫 **Task 2.6**: Thunar — no play installed it and no package needed it; the owner
   does not use it, so `play-basic-configs.yml` removes it (`c4b55c97`), and its
   `org.freedesktop.FileManager1` service file goes with the package. The play ran on
-  2026-09-24 in this plan's deploy, and the removal task reported `changed`. HOST verify
-  pending: the next boot's `journalctl -b -u dbus-broker` has no duplicate line.
+  2026-09-24 in this plan's deploy, and the removal task reported `changed`. The triage in
+  meta-deploy `20261005-140009` finds Thunar not installed. HOST verify pending: the
+  triage does not yet print `journalctl -b -u dbus-broker`'s duplicate line, so add that
+  probe and read it.
 
 ### Phase 3: things to diagnose before changing
 

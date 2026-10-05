@@ -200,8 +200,10 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   (`helpers/play_ledger/health_refresh.py`), and (b) hourly on a desktop by
   `host-health-collect.timer`, now deployed on both profiles. Decisions:
   [DESIGN-panel.md](DESIGN-panel.md) §4
-  - [ ] ⬜ **HOST**: run `play-host-health-login-report.yml`; confirm the timer is armed;
-    re-run a stale play and watch `generated_at` move and the icon clear without a login
+  - [x] ✅ **HOST**: the acceptance in meta-deploy `20261005-140009` passed 22 of 22: the
+    timer is enabled and active, and the document was collected at the end of that run's
+    play runs (the after-play refresh), not at the morning's login
+  - [ ] ⬜ **HOST — eyes only**: the icon clears without a login after a stale play re-runs
 
 ### Phase 5: Recover the desktop background after a monitor change
 
