@@ -68,10 +68,27 @@ LOG="$SCRATCH/calls.log"
 mkdir -p "$BIN" "$STATE/clients"
 
 # tmux: sessions are "<name> <dir>" lines in $STATE/sessions; a session's clients are
-# "<tty> <activity-epoch>" lines in $STATE/clients/<name>. Every call is logged. A detach
-# empties the session's clients, unless TEST_TMUX_STICKY (the client never lets go) or
-# TEST_TMUX_DETACH_FAIL (tmux refuses) is set. An unknown call is an error, so a new tmux
-# call in the code under test shows up as a failure rather than passing by accident.
+# "<tty> <activity-epoch>[ exiting|suspended]" lines in $STATE/clients/<name>. Every call
+# is logged.
+#
+# It keeps tmux's two views of "who is on this session" apart, because they differ: the
+# #{session_attached} count in list-sessions leaves out a client that has been told to leave
+# and has not yet gone (flagged "exiting" here), or one that is suspended (flagged
+# "suspended", gone only once detached), while list-clients — which the single-attach hook
+# counts — still shows both.
+#
+# detach-client flags every client exiting. They are gone after TEST_TMUX_LINGER more
+# list-clients calls (default 0: at once), or never with TEST_TMUX_STICKY. Other knobs:
+#   TEST_TMUX_DETACH_FAIL  tmux refuses the detach
+#   TEST_TMUX_DETACH_GONE  the client left just before the detach, which tmux then fails
+#                          with "no current client"
+#   TEST_TMUX_END_ON_DETACH  the session ends at the detach, its client still flagged
+#   TEST_TMUX_RACE_ATTACH  another terminal attaches just before ours does
+# attach-session models the hook: if list-clients would show any client on the session,
+# the arriving terminal is detached again (tmux still exits 0); otherwise this terminal is
+# on it until the user detaches, which here is at once. Which happened is $STATE/attached.
+# An unknown call is an error, so a new tmux call in the code under test shows up as a
+# failure rather than passing by accident.
 cat >"$BIN/tmux" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -88,7 +105,7 @@ case "$1" in
 list-sessions)
     while read -r name dir; do
         [ -n "$name" ] || continue
-        printf '%s %s %s\n' "$name" "$(clients_of "$name" | awk 'NF' | wc -l)" "$dir"
+        printf '%s %s %s\n' "$name" "$(clients_of "$name" | awk 'NF && $3 == ""' | wc -l)" "$dir"
     done <"$TEST_STATE/sessions"
     ;;
 list-panes) ;;
@@ -97,18 +114,49 @@ list-clients)
         echo "can't find session: $target" >&2
         exit 1
     fi
-    clients_of "$target"
+    clients_of "$target" | awk '{ print $1, $2 }'
+    linger="$(cat "$TEST_STATE/linger")"
+    if [ -z "${TEST_TMUX_STICKY:-}" ] && [ -f "$TEST_STATE/clients/$target" ] &&
+        grep -q ' exiting$' "$TEST_STATE/clients/$target"; then
+        if [ "$linger" -gt 0 ]; then
+            printf '%s\n' "$((linger - 1))" >"$TEST_STATE/linger"
+        else
+            awk '$3 != "exiting"' "$TEST_STATE/clients/$target" >"$TEST_STATE/clients/$target.new"
+            mv "$TEST_STATE/clients/$target.new" "$TEST_STATE/clients/$target"
+        fi
+    fi
     ;;
 detach-client)
     if [ -n "${TEST_TMUX_DETACH_FAIL:-}" ]; then
         echo "server exited unexpectedly" >&2
         exit 1
     fi
-    if [ -z "${TEST_TMUX_STICKY:-}" ]; then
+    if [ -n "${TEST_TMUX_DETACH_GONE:-}" ]; then
+        : >"$TEST_STATE/clients/$target"
+        echo "no current client" >&2
+        exit 1
+    fi
+    awk 'NF { print $1, $2, "exiting" }' "$TEST_STATE/clients/$target" >"$TEST_STATE/clients/$target.new"
+    mv "$TEST_STATE/clients/$target.new" "$TEST_STATE/clients/$target"
+    if [ -n "${TEST_TMUX_END_ON_DETACH:-}" ]; then
+        awk -v gone="$target" '$1 != gone' "$TEST_STATE/sessions" >"$TEST_STATE/sessions.new"
+        mv "$TEST_STATE/sessions.new" "$TEST_STATE/sessions"
+    fi
+    if [ -z "${TEST_TMUX_STICKY:-}" ] && [ "$(cat "$TEST_STATE/linger")" -eq 0 ]; then
         : >"$TEST_STATE/clients/$target"
     fi
     ;;
-set-hook | attach-session) ;;
+attach-session)
+    if [ -n "${TEST_TMUX_RACE_ATTACH:-}" ]; then
+        printf '/dev/pts/9 %s\n' "$(date +%s)" >>"$TEST_STATE/clients/$target"
+    fi
+    if [ -n "$(clients_of "$target" | awk 'NF')" ]; then
+        printf 'kicked\n' >"$TEST_STATE/attached"
+    else
+        printf 'yes\n' >"$TEST_STATE/attached"
+    fi
+    ;;
+set-hook) ;;
 *)
     echo "fake tmux: unexpected call: $*" >&2
     exit 97
@@ -156,6 +204,8 @@ reset() {
     : >"$LOG"
     : >"$TEST_FZF_LOG"
     printf '0\n' >"$STATE/fzf-calls"
+    printf '0\n' >"$STATE/linger"
+    printf 'no\n' >"$STATE/attached"
     for spec in "$@"; do
         name="${spec%%:*}"
         printf '%s %s\n' "$name" "$SCRATCH" >>"$STATE/sessions"
@@ -164,7 +214,6 @@ reset() {
         fi
     done
 }
-calls() { awk '{ print $1 }' "$LOG" | paste -sd' ' -; }
 # detaches — how many detach-client calls were made. Anchored: the single-attach hook that
 # set-hook installs carries the words detach-client too.
 detaches() { grep -c '^detach-client' "$LOG"; }
@@ -209,10 +258,9 @@ echo "== take over: the other terminal is detached, this one attached, nothing k
 reset "ccy-a:/dev/pts/3"
 err="$(ccy_tmux_take_over ccy-a 2>&1 >/dev/null)"
 check "taking over an open session succeeds" "0" "$?"
-# The second list-sessions is the wait seeing no client; the third is ccy_tmux_attach's own
-# check, which still guards the race after it.
-check "the other terminal is detached, then this one attaches" \
-    "list-sessions list-clients detach-client list-sessions list-sessions set-hook attach-session list-sessions" "$(calls)"
+check "the other terminal is detached, then this one attaches" "detach-client attach-session" \
+    "$(awk '$1 == "detach-client" || $1 == "attach-session" { print $1 }' "$LOG" | paste -sd' ' -)"
+check "this terminal is the one left on the session" "yes" "$(cat "$STATE/attached")"
 check "the detach names the session exactly" "1" "$(grep -cx 'detach-client -s =ccy-a' "$LOG")"
 check "no session is killed" "0" "$(grep -c 'kill' "$LOG")"
 check_has "it says which terminal it detached" "/dev/pts/3" "$err"
@@ -221,7 +269,7 @@ echo "== take over: a session that ended meanwhile is reported, not attached"
 reset
 err="$(ccy_tmux_take_over ccy-a 2>&1 >/dev/null)"
 check "return 2" "2" "$?"
-check "nothing is detached or attached" "list-sessions" "$(calls)"
+check "nothing is detached or attached" "0 0" "$(detaches) $(grep -c '^attach-session' "$LOG")"
 check_has "it says the session has ended" "has ended" "$err"
 
 echo "== take over: tmux refusing the detach stops it"
@@ -244,6 +292,49 @@ err="$(ccy_tmux_take_over ccy-a 2>&1 >/dev/null)"
 check "return 0" "0" "$?"
 check "no detach is sent" "0" "$(detaches)"
 check "it attaches" "1" "$(grep -cx 'attach-session -t =ccy-a' "$LOG")"
+
+# The wait must use the hook's own view. A client told to leave drops out of
+# #{session_attached} at once but stays in list-clients until it has gone; attaching in
+# between is kicked straight back off by the hook.
+echo "== take over: it waits until the old terminal is gone from list-clients, the hook's view"
+reset "ccy-a:/dev/pts/3"
+printf '3\n' >"$STATE/linger"
+err="$(CCY_TMUX_TAKE_OVER_WAIT_TENTHS=20 ccy_tmux_take_over ccy-a 2>&1 >/dev/null)"
+check "return 0" "0" "$?"
+check "this terminal is the one left on the session, not kicked by the hook" "yes" "$(cat "$STATE/attached")"
+
+echo "== take over: a terminal flagged leaving that never goes stops it"
+reset "ccy-a:/dev/pts/3"
+err="$(TEST_TMUX_STICKY=1 ccy_tmux_take_over ccy-a 2>&1 >/dev/null)"
+check "return 1" "1" "$?"
+check "nothing is attached" "0" "$(grep -c '^attach-session' "$LOG")"
+
+echo "== take over: the old terminal left just before the detach"
+reset "ccy-a:/dev/pts/3"
+err="$(TEST_TMUX_DETACH_GONE=1 ccy_tmux_take_over ccy-a 2>&1 >/dev/null)"
+check "the failed detach is not a failure: the session is free, so return 0" "0" "$?"
+check "this terminal is attached" "yes" "$(cat "$STATE/attached")"
+
+echo "== take over: a session that ends during the wait is reported at once"
+reset "ccy-a:/dev/pts/3"
+start="${EPOCHREALTIME/[.,]/}"
+err="$(TEST_TMUX_STICKY=1 TEST_TMUX_END_ON_DETACH=1 CCY_TMUX_TAKE_OVER_WAIT_TENTHS=50 \
+    ccy_tmux_take_over ccy-a 2>&1 >/dev/null)"
+rc=$?
+elapsed_ms=$(((${EPOCHREALTIME/[.,]/} - start) / 1000))
+check "return 2" "2" "$rc"
+check_has "it says the session ended" "ended" "$err"
+check "it does not sit out the five-second wait" "yes" "$([ "$elapsed_ms" -lt 2000 ] && echo yes || echo "no: ${elapsed_ms} ms")"
+check "nothing is attached" "0" "$(grep -c '^attach-session' "$LOG")"
+
+echo "== attach: kicked by the hook is not success"
+reset "ccy-a"
+err="$(TEST_TMUX_RACE_ATTACH=1 ccy_tmux_attach ccy-a 2>&1 >/dev/null)"
+check "ccy_tmux_attach returns 3 when this terminal was not left attached" "3" "$?"
+check_has "and says so" "was not attached" "$err"
+reset "ccy-a:/dev/pts/3"
+err="$(TEST_TMUX_RACE_ATTACH=1 ccy_tmux_take_over ccy-a 2>&1 >/dev/null)"
+check "a take-over whose attach was kicked returns 3, not 0" "3" "$?"
 
 # ── the picker: ccy-sessions under a terminal ─────────────────────────────────────────
 # run_picker <answers...> — run the real ccy-sessions in the scratch directory with the
@@ -294,6 +385,31 @@ check "it exits 0 after attaching" "rc=0" "$(rc_of "$out")"
 check "no question is asked" "1" "$(cat "$STATE/fzf-calls")"
 check "no detach is sent" "0" "$(detaches)"
 check "it attaches" "1" "$(grep -cx 'attach-session -t =ccy-b' "$LOG")"
+
+# A client tmux leaves out of #{session_attached} (suspended, or told to leave and stuck) makes
+# the row read "detached" while the hook still counts it, so Enter would be kicked off again
+# every time. Ctrl-T asks list-clients, finds it, and takes the session over.
+echo "== ccy-sessions: Ctrl-T on a row that reads detached but has a client the hook counts"
+reset "ccy-c:/dev/pts/4"
+printf '/dev/pts/4 %s suspended\n' "$((NOW - 600))" >"$STATE/clients/ccy-c"
+out="$(run_picker "ctrl-t|ccy-c" "|YES")"
+check "it exits 0 after attaching" "rc=0" "$(rc_of "$out")"
+check_has "the question names that terminal" "/dev/pts/4 (idle 10 min)" "$(cat "$TEST_FZF_LOG")"
+check "the session is detached from it" "1" "$(detaches)"
+check "this terminal is the one left on the session" "yes" "$(cat "$STATE/attached")"
+
+echo "== ccy-sessions: after three failed tries, the last word is true"
+reset "ccy-a:/dev/pts/3"
+out="$(run_picker "|ccy-a" "|ccy-a" "|ccy-a")"
+check "it exits 1" "rc=1" "$(rc_of "$out")"
+check_has "nothing was tried, so it says nothing changed" "Nothing changed" "$out"
+reset "ccy-a:/dev/pts/3" "ccy-b:/dev/pts/4" "ccy-c:/dev/pts/5" "ccy-d:/dev/pts/6"
+out="$(TEST_TMUX_STICKY=1 TEST_TMUX_END_ON_DETACH=1 run_picker \
+    "ctrl-t|ccy-a" "|YES" "ctrl-t|ccy-b" "|YES" "ctrl-t|ccy-c" "|YES")"
+check "it exits 1" "rc=1" "$(rc_of "$out")"
+check "three take-overs detached three terminals" "3" "$(detaches)"
+check "so it does not claim nothing changed" "no" "$([[ "$out" == *"Nothing changed"* ]] && echo yes || echo no)"
+check_has "it names the sessions a take-over was tried on" "A take-over was tried on ccy-a ccy-b ccy-c" "$out"
 
 echo
 echo "passed: $passed  failed: $failed"

@@ -659,21 +659,30 @@ confirm_end() {
 }
 
 # attach_here <name> — attach a detached session; exits once the user detaches again. Returns
-# only when the session was taken or ended between the list and the key, which counts as a try.
+# only when the session was taken or ended between the list and the key, or another terminal
+# was on it afterwards (the library said so), which counts as a try.
 attach_here() {
-    if ccy_tmux_attach "${1}"; then
-        exit 0
-    fi
-    echo "'${1}' was taken or ended just now — the list has been refreshed." >&2
+    local rc=0
+    ccy_tmux_attach "${1}" || rc=$?
+    case "${rc}" in
+    0) exit 0 ;;
+    3) ;;
+    *) echo "'${1}' was taken or ended just now — the list has been refreshed." >&2 ;;
+    esac
     return 0
 }
 
+# The sessions a take-over was tried on without attaching here: it may have detached their
+# other terminal, so after the tries run out "Nothing changed" would not be true.
+DETACHED_FROM=()
+
 # confirm_take_over <name> — take a session over from the terminal it is open on, after the
 # picker's yes/no naming that terminal and how long it has been idle (no is the default row).
-# Returns 0 when nothing was tried (declined, or nobody holds it any more and it was offered
-# again) so the list comes back without using a try; 1 when the take-over could not happen
-# because the session ended or was taken again meanwhile. Exits 0 after attaching, and 1 on
-# any other failure, whose reason the library has already printed.
+# Asks list-clients, the hook's own view, rather than trusting the row's state: a client tmux
+# leaves out of the row's count can still hold the session. Nobody holding it: attaches as
+# Enter does. Returns 0 when declined, so the list comes back without using a try; 1 when the
+# session ended or was taken again meanwhile. Exits 0 after attaching, and 1 on any other
+# failure, whose reason the library has already printed.
 confirm_take_over() {
     local name="${1}" others rc=0
     others="$(ccy_tmux_other_terminals "${name}")" || rc=$?
@@ -684,8 +693,8 @@ confirm_take_over() {
         exit 1
     fi
     if [[ -z "${others}" ]]; then
-        echo "'${name}' is no longer open anywhere else — the list has been refreshed." >&2
-        return 0
+        attach_here "${name}"
+        return 1
     fi
     if ! ccy_tmux_confirm "Take over ${name}?" \
         "It is open on ${others}. That terminal is detached, not closed, and the session keeps running." \
@@ -698,6 +707,7 @@ confirm_take_over() {
     case "${rc}" in
     0) exit 0 ;;
     2)
+        DETACHED_FROM+=("${name}")
         echo "The list has been refreshed." >&2
         return 1
         ;;
@@ -762,12 +772,8 @@ while :; do
         continue
         ;;
     ctrl-t)
-        if [[ "${row}" == *"open elsewhere"* ]]; then
-            if confirm_take_over "${name}"; then
-                continue
-            fi
-        else
-            attach_here "${name}"
+        if confirm_take_over "${name}"; then
+            continue
         fi
         ;;
     *)
@@ -780,7 +786,11 @@ while :; do
     esac
     attempt=$((attempt + 1))
     if [[ "${attempt}" -gt "${MAX_TRIES}" ]]; then
-        echo "Nothing attached after ${MAX_TRIES} tries. Nothing changed." >&2
+        if [[ "${#DETACHED_FROM[@]}" -gt 0 ]]; then
+            echo "Nothing attached after ${MAX_TRIES} tries. A take-over was tried on ${DETACHED_FROM[*]}; what each one did is above." >&2
+        else
+            echo "Nothing attached after ${MAX_TRIES} tries. Nothing changed." >&2
+        fi
         exit 1
     fi
 done
