@@ -13,6 +13,7 @@ scripts/test-wsi-stop-grace.bash.
 
 import importlib.util
 import pathlib
+import re
 import sys
 import tempfile
 import types
@@ -81,6 +82,35 @@ class GetInstalledTest(unittest.TestCase):
 
     def test_an_empty_cache_has_nothing_installed(self):
         self.assertEqual(manager.get_installed(), set())
+
+
+class CataloguesAgreeTest(unittest.TestCase):
+    """The manager downloads, Settings lists and wsi-resolve-model checks the disk for
+    the same repo per name (Plan 00156 Task 2.4). A name that maps to a different repo in
+    one of them is downloaded to one place and looked for in another, so the recorder
+    would refuse a model the manager shows as installed."""
+
+    PREFS = stt_stubs.REPO_ROOT / "extensions" / "speech-to-text@fedora-desktop" / "prefs.js"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.resolver = stt_stubs.load_script("wsi-resolve-model", "wsi_resolve_model_catalogue")
+        block = re.search(r"const WHISPER_MODELS = \[(.*?)\n\];", cls.PREFS.read_text(), re.S)
+        if block is None:
+            raise AssertionError(f"no WHISPER_MODELS list in {cls.PREFS}")
+        cls.prefs = dict(re.findall(r"\['([^']+)',\s*'([^']+)',", block.group(1)))
+
+    def test_every_manager_model_is_one_the_resolver_knows_by_the_same_repo(self):
+        for model_id, _label, repo, *_ in manager.MODELS:
+            self.assertEqual(self.resolver.HF_REPO.get(model_id), repo, model_id)
+
+    def test_every_settings_model_is_one_the_resolver_knows_by_the_same_repo(self):
+        self.assertTrue(self.prefs, "no models read from prefs.js")
+        for model_id, repo in self.prefs.items():
+            self.assertEqual(self.resolver.HF_REPO.get(model_id), repo, model_id)
+
+    def test_settings_and_the_manager_offer_the_same_models(self):
+        self.assertEqual(set(self.prefs), {m[0] for m in manager.MODELS})
 
 
 if __name__ == "__main__":

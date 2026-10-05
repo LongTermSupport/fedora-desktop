@@ -449,14 +449,15 @@
         or (nvidia_gpu_nodes.matched > 0 and (gpu_count_probe.stdout | int) == 0)
 
     # Proves the resolver can ask CTranslate2 (installed with faster-whisper above) for
-    # CUDA devices as the recording user; it prints the model auto means here, for
-    # each recorder (they differ without a GPU).
+    # CUDA devices as the recording user; it prints the model auto suggests here, for
+    # each recorder (they differ without a GPU). --suggest, since nothing is downloaded.
     - name: Verify The Auto Model Resolves
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.command:
         argv:
           - "/home/{{ user_login }}/.local/bin/wsi-resolve-model"
+          - --suggest
           - --mode
           - "{{ item }}"
           - --language

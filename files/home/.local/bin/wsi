@@ -806,11 +806,27 @@ if [ -z "$IPnPORT" ]; then
     fi
     export WHISPER_LANGUAGE="$LANGUAGE"
 
+    # The resolver exits 3 when the model is not on disk (nothing is downloaded for the
+    # user, and faster-whisper must not download it now); its last line says what to
+    # download and where, and is the whole message the panel shows.
     MODEL_RESOLVER="$(dirname "${BASH_SOURCE[0]}")/wsi-resolve-model"
-    if ! resolved_model=$("$MODEL_RESOLVER" --mode batch \
-            --language "$LANGUAGE" "${WHISPER_MODEL:-auto}"); then
-        log_error "Cannot choose the Whisper model ($MODEL_RESOLVER failed; reason above)"
-        notify_state "ERROR" "Cannot choose the Whisper model"
+    resolver_err=$(mktemp)
+    if resolved_model=$("$MODEL_RESOLVER" --mode batch \
+            --language "$LANGUAGE" "${WHISPER_MODEL:-auto}" 2>"$resolver_err"); then
+        resolver_rc=0
+    else
+        resolver_rc=$?
+    fi
+    resolver_said=$(cat "$resolver_err")
+    rm -f "$resolver_err"
+    if [ -n "$resolver_said" ]; then
+        log_debug "$resolver_said"
+    fi
+    if [ "$resolver_rc" -eq 3 ]; then
+        log_error "${resolver_said##*wsi-resolve-model: }"
+        exit 1
+    elif [ "$resolver_rc" -ne 0 ]; then
+        log_error "Cannot choose the Whisper model ($MODEL_RESOLVER failed: $resolver_said)"
         exit 1
     fi
     export WHISPER_MODEL="$resolved_model"

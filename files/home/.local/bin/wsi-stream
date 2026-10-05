@@ -170,8 +170,17 @@ def read_server_idle_timeout():
     return int(value) * 60
 
 
+class ModelNotDownloaded(RuntimeError):
+    """The model to load is not on disk; the message says what to download, and where."""
+
+
+# wsi-resolve-model's exit when the model's weights are not on disk
+RESOLVER_NOT_DOWNLOADED = 3
+
+
 def resolve_model(mode, language, setting=None):
-    """The faster-whisper model for a Whisper Model setting. Raises on failure.
+    """The faster-whisper model for a Whisper Model setting. Raises on failure, and
+    ModelNotDownloaded when the model is not on disk, so it is never downloaded here.
 
     The setting defaults to WHISPER_MODEL, which the extension sets for any choice but
     auto; unset means auto.
@@ -181,6 +190,9 @@ def resolve_model(mode, language, setting=None):
     result = subprocess.run(
         [str(MODEL_RESOLVER), "--mode", mode, "--language", language or "", setting],
         capture_output=True, text=True, timeout=30, check=False)
+    if result.returncode == RESOLVER_NOT_DOWNLOADED:
+        reason = result.stderr.strip().splitlines()[-1]
+        raise ModelNotDownloaded(reason.removeprefix("wsi-resolve-model: "))
     if result.returncode != 0:
         raise RuntimeError(f"{MODEL_RESOLVER} failed: {result.stderr.strip()}")
     model = result.stdout.strip()
@@ -1080,6 +1092,10 @@ def run_server_mode(args):
         notify("PREPARING", "Starting server...")
         try:
             started = start_server(language)
+        except ModelNotDownloaded as e:
+            log(str(e), "ERROR")
+            notify("ERROR", str(e))
+            return 1
         except Exception as e:
             log(f"Cannot start the server: {e}", "ERROR")
             notify("ERROR", f"Cannot start the server: {e}")
@@ -1828,7 +1844,7 @@ def run_prebuffered_streaming(args, stop):
 
     except Exception as e:
         log(f"Pre-buffer streaming error: {e}", "ERROR")
-        notify("ERROR", f"Recording failed: {e}")
+        notify("ERROR", str(e) if isinstance(e, ModelNotDownloaded) else f"Recording failed: {e}")
 
         # Cleanup
         if 'audio_process' in locals() and audio_process:
@@ -1905,6 +1921,11 @@ def main():
             return run_server_mode(args)
         else:
             return run_streaming(args)
+    except ModelNotDownloaded as e:
+        # Not a crash: the user has a model to download, and the message says which
+        log(str(e), "ERROR")
+        notify("ERROR", str(e))
+        return 1
     except Exception as e:
         # Ensure critical errors are ALWAYS logged, even without debug mode
         debug_mode = True  # Force logging for crash reports

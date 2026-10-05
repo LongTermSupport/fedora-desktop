@@ -433,5 +433,63 @@ class PreviewFallbackTest(ClientCase):
         self.assertTrue(any("nothing was pasted" in n for n in self.notes), self.notes)
 
 
+REASON = ("No speech model is downloaded. Open the model manager and download at least "
+          "one; base is the one suggested for this machine.")
+
+
+class ModelNotDownloadedTest(ClientCase):
+    """No model is downloaded by default (Plan 00156 Task 2.4). wsi-resolve-model exits
+    3 when the model is not on disk; wsi-stream shows its reason as the whole message,
+    records nothing and never lets faster-whisper download the model."""
+
+    def stub_resolver(self, rc, stderr):
+        script = pathlib.Path(self.tmp.name) / "wsi-resolve-model"
+        script.write_text("#!/bin/sh\nprintf '%s' \"$STUB_STDERR\" >&2\nexit " + str(rc) + "\n")
+        script.chmod(0o755)
+        for patcher in (mock.patch.object(wsi_stream, "MODEL_RESOLVER", script),
+                        mock.patch.dict(os.environ, {"STUB_STDERR": stderr})):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_exit_3_is_model_not_downloaded_with_the_reason_alone(self):
+        self.stub_resolver(3, "wsi-resolve-model: auto -> base (no GPU)\n"
+                              f"wsi-resolve-model: {REASON}\n")
+        with self.assertRaises(wsi_stream.ModelNotDownloaded) as raised:
+            wsi_stream.resolve_model("streaming", "en")
+        self.assertEqual(str(raised.exception), REASON)
+
+    def test_another_failure_is_not_model_not_downloaded(self):
+        self.stub_resolver(1, "wsi-resolve-model: cannot ask CTranslate2 for CUDA devices\n")
+        with self.assertRaises(RuntimeError) as raised:
+            wsi_stream.resolve_model("streaming", "en")
+        self.assertNotIsInstance(raised.exception, wsi_stream.ModelNotDownloaded)
+
+    def test_server_mode_shows_the_reason_and_starts_no_server(self):
+        self.stub_resolver(3, f"wsi-resolve-model: {REASON}\n")
+        server_command = mock.Mock()
+        with mock.patch.multiple(wsi_stream, is_server_running=lambda: False,
+                                 server_pid_alive=lambda: False,
+                                 read_server_idle_timeout=lambda: 0,
+                                 server_command=server_command,
+                                 SERVER_SCRIPT=stt_stubs.BIN / "wsi-stream-server"):
+            rc = self.run_client()
+        self.assertEqual(rc, 1)
+        server_command.assert_not_called()
+        self.assertIn("ERROR", self.states())
+        self.assertIn(REASON, self.notes, "the reason is the whole message, no prefix")
+
+    def test_a_recording_mode_shows_the_reason_not_a_crash(self):
+        def missing(args):
+            raise wsi_stream.ModelNotDownloaded(REASON)
+
+        with mock.patch.object(wsi_stream, "run_streaming", missing), \
+                mock.patch.object(wsi_stream.sys, "argv", ["wsi-stream"]):
+            rc = wsi_stream.main()
+        self.assertEqual(rc, 1)
+        self.assertIn("ERROR", self.states())
+        self.assertIn(REASON, self.notes)
+        self.assertFalse(any("crashed" in n for n in self.notes), self.notes)
+
+
 if __name__ == "__main__":
     unittest.main()

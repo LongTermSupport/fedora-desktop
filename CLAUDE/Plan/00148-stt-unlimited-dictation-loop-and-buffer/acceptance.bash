@@ -129,10 +129,12 @@ if value="$("${binDir}/wsi-resolve-model" --gpu-count 2>&1)" && [[ "${value}" =~
 else
     check "wsi-resolve-model --gpu-count answers (got: ${value:-nothing})" no
 fi
-if value="$("${binDir}/wsi-resolve-model" --mode streaming --language en 2>&1)" && [[ -n "${value}" ]]; then
-    check "wsi-resolve-model picks a streaming model (${value})" yes
+# --suggest: no model is downloaded by default (Plan 00156), so this asks for the choice
+# alone, not for its weights on disk.
+if value="$("${binDir}/wsi-resolve-model" --suggest --mode streaming --language en 2>&1)" && [[ -n "${value}" ]]; then
+    check "wsi-resolve-model suggests a streaming model (${value})" yes
 else
-    check "wsi-resolve-model picks a streaming model (got: ${value:-nothing})" no
+    check "wsi-resolve-model suggests a streaming model (got: ${value:-nothing})" no
 fi
 if unitState="$(systemctl --user is-enabled wsi-stream-server-at-login.service 2>&1)"; then
     check "wsi-stream-server-at-login.service is enabled (${unitState})" yes

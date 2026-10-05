@@ -94,13 +94,23 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
 
   - [x] ✅ The play drops "Download The Auto Model" (keeps "Verify The Auto Model
     Resolves"). Plan 00148's `acceptance.bash` stops requiring `auto`'s `model.bin`.
-  - `wsi` and `wsi-stream` (and the warm server) check, before the microphone opens, that
-    the model to be used has `model.bin` on disk, and otherwise fail with: no speech model
-    is downloaded (or: `auto` picked X, which is not downloaded); open the model manager
-    and download at least one. The panel shows that message. faster-whisper is never left
-    to download on first use.
-  - Settings and the model manager show which model `auto` suggests for this machine.
-  - Tests first, red against the current recorder.
+  - [x] ✅ `wsi-resolve-model`, which every recorder and the warm server's start go
+    through, names a model only when its `model.bin` is on disk (the Hugging Face cache,
+    found as huggingface_hub finds it, or a model directory). Otherwise it exits 3 with
+    one line: no speech model is downloaded, or `auto` picked X (or the setting is X),
+    which is not downloaded; download it in **Manage Whisper Models...**, or choose one
+    you have. `wsi` and `wsi-stream` show that line as the whole notification, and
+    faster-whisper never sees a model it would download. `--suggest` skips the check,
+    for the play's verify task and the acceptance. Tests first, each red against the
+    old code: `test_resolve_model.py` `ModelOnDiskTest`, `test_server_client.py`
+    `ModelNotDownloadedTest`, the "no model downloaded" case in
+    `test-wsi-stop-grace.bash`, and `CataloguesAgreeTest` (the resolver, the manager
+    and Settings name the same repo per model).
+  - The pre-buffered streaming mode opens the microphone before the model is resolved
+    (its point is an instant start), so there the message comes a moment after the
+    start, and what was captured is discarded. Every other mode checks first.
+  - [ ] ⬜ Settings and the model manager show which model `auto` suggests for this machine
+    (`wsi-resolve-model --suggest`).
 
 ### Phase 3: Review and deploy
 

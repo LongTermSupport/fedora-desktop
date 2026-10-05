@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """wsi-resolve-model - print the faster-whisper model a recorder should load.
 
-    wsi-resolve-model --mode batch|streaming [--language CODE] [MODEL]
+    wsi-resolve-model [--suggest] --mode batch|streaming [--language CODE] [MODEL]
     wsi-resolve-model --gpu-count
 
 MODEL is the panel's Whisper Model setting (WHISPER_MODEL); empty or `auto` means
@@ -14,18 +14,29 @@ CTranslate2 answers 0, not an error, when it cannot reach a GPU that is there (a
 broken CUDA or cuDNN install, a driver mismatch). So a count of 0 on a machine with
 NVIDIA device nodes (/dev/nvidia0, ...) is a failure, never a quiet CPU fallback.
 
+No model is downloaded for the user, so the model is named only when its weights
+(model.bin) are on disk, in the Hugging Face cache or in a model directory given as
+MODEL. Otherwise the exit is 3, and the last stderr line says what to download and
+where, for the panel to show. A recorder never reaches faster-whisper with a model it
+would download. --suggest names the choice without that check, for Settings, the
+model manager and the play's verify task.
+
 --gpu-count prints the checked count alone, for the play's verify task.
 
 stdout is the argument for faster-whisper's WhisperModel (or the count) and nothing
-else: a model name, or a Hugging Face repo ID for a name the installed faster-whisper
-may not know. Diagnostics go to stderr. Not interactive: the recorders treat failure
-as fatal.
+else: a model name, a model directory, or a Hugging Face repo ID for a name the
+installed faster-whisper may not know. Diagnostics go to stderr. Not interactive: the
+recorders treat failure as fatal.
+
+Exit: 0 resolved; 1 cannot choose (GPU probe, language, unknown name); 2 usage;
+3 the model is not downloaded.
 """
 
 import argparse
 import glob
 import os
 import sys
+from pathlib import Path
 
 AUTO_WITHOUT_GPU = {"batch": "small", "streaming": "base"}
 AUTO_GPU_ENGLISH = "distil-large-v3.5"
@@ -38,6 +49,36 @@ AUTO_GPU_OTHER = "large-v3-turbo"
 REPO_FOR_NAME = {"distil-large-v3.5": "distil-whisper/distil-large-v3.5-ct2"}
 
 ENGLISH_ONLY = {"distil-large-v3.5"}
+
+# The repo faster-whisper downloads for each name it knows, so the cache can be checked
+# without importing it: faster_whisper/utils.py _MODELS in the 1.2.1 wheel (1.1.1's is
+# the same less distil-large-v3.5). wsi-model-manager and the Settings list offer a
+# subset, and a test holds the three to the same repos.
+HF_REPO = {
+    "tiny.en": "Systran/faster-whisper-tiny.en",
+    "tiny": "Systran/faster-whisper-tiny",
+    "base.en": "Systran/faster-whisper-base.en",
+    "base": "Systran/faster-whisper-base",
+    "small.en": "Systran/faster-whisper-small.en",
+    "small": "Systran/faster-whisper-small",
+    "medium.en": "Systran/faster-whisper-medium.en",
+    "medium": "Systran/faster-whisper-medium",
+    "large-v1": "Systran/faster-whisper-large-v1",
+    "large-v2": "Systran/faster-whisper-large-v2",
+    "large-v3": "Systran/faster-whisper-large-v3",
+    "large": "Systran/faster-whisper-large-v3",
+    "distil-large-v2": "Systran/faster-distil-whisper-large-v2",
+    "distil-medium.en": "Systran/faster-distil-whisper-medium.en",
+    "distil-small.en": "Systran/faster-distil-whisper-small.en",
+    "distil-large-v3": "Systran/faster-distil-whisper-large-v3",
+    "distil-large-v3.5": "distil-whisper/distil-large-v3.5-ct2",
+    "large-v3-turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+    "turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+}
+
+NOT_DOWNLOADED = 3
+MANAGER_HINT = ("Open the model manager (Manage Whisper Models... in the speech-to-text "
+                "panel menu, or wsi-model-manager) and download")
 
 # Where the NVIDIA driver creates one node per GPU. WSI_DEV_DIR exists for the tests.
 DEV_DIR = os.environ.get("WSI_DEV_DIR", "/dev")
@@ -82,6 +123,49 @@ def choose_auto(mode, language, gpu_count):
     return AUTO_GPU_ENGLISH if language == "en" else AUTO_GPU_OTHER
 
 
+def hub_cache():
+    """The Hugging Face hub cache, found as huggingface_hub finds it."""
+    if os.environ.get("HF_HUB_CACHE"):
+        return Path(os.environ["HF_HUB_CACHE"])
+    if os.environ.get("HF_HOME"):
+        return Path(os.environ["HF_HOME"]) / "hub"
+    cache = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+    return Path(cache) / "huggingface" / "hub"
+
+
+def has_weights(model):
+    """Whether WhisperModel(model) would load from disk: model.bin in the model
+    directory, or in a cache snapshot of the model's repo. is_file() follows the
+    snapshot's symlink, so weights whose blob is gone count as absent."""
+    if os.path.isdir(model):
+        return Path(model, "model.bin").is_file()
+    repo = HF_REPO.get(model, model)
+    snapshots = hub_cache() / ("models--" + repo.replace("/", "--")) / "snapshots"
+    return snapshots.is_dir() and any((rev / "model.bin").is_file()
+                                      for rev in snapshots.iterdir())
+
+
+def downloaded_names():
+    """The names this machine can transcribe with, one per repo."""
+    names = {}
+    for name, repo in HF_REPO.items():
+        if repo not in names and has_weights(name):
+            names[repo] = name
+    return sorted(names.values())
+
+
+def not_downloaded_reason(name, picked_by_auto):
+    """One line: which model is missing, and what to do about it."""
+    have = downloaded_names()
+    if not have:
+        return (f"No speech model is downloaded. {MANAGER_HINT} at least one; "
+                f"{name} is the one suggested for this machine.")
+    which = (f"auto picked {name} for this machine" if picked_by_auto
+             else f"The Whisper Model setting is {name}")
+    return (f"{which}, which is not downloaded. {MANAGER_HINT} it, or choose one you "
+            f"have in Settings: {', '.join(have)}.")
+
+
 def checked_gpu_count():
     """cuda_device_count(), or None after saying why on stderr."""
     try:
@@ -102,6 +186,8 @@ def main(argv=None):
     parser.add_argument("--gpu-count", action="store_true",
                         help="print the CUDA device count CTranslate2 sees, checked against "
                              "the NVIDIA device nodes, and nothing else")
+    parser.add_argument("--suggest", action="store_true",
+                        help="name the model without checking that it is downloaded")
     parser.add_argument("--mode", choices=sorted(AUTO_WITHOUT_GPU),
                         help="which recorder asks: batch (wsi) or streaming (wsi-stream)")
     parser.add_argument("--language", default="",
@@ -121,8 +207,9 @@ def main(argv=None):
 
     language = args.language.strip().lower()
     name = args.model.strip() or "auto"
+    picked_by_auto = name == "auto"
 
-    if name == "auto":
+    if picked_by_auto:
         gpu_count = checked_gpu_count()
         if gpu_count is None:
             return 1
@@ -134,6 +221,16 @@ def main(argv=None):
         print(f"wsi-resolve-model: {name} is English only, but the language is '{language}'. "
               "Choose a multilingual model, or set the language to English.", file=sys.stderr)
         return 1
+
+    if name not in HF_REPO and "/" not in name and not os.path.isdir(name):
+        print(f"wsi-resolve-model: '{name}' is not a model faster-whisper knows. Choose one "
+              "in Settings.", file=sys.stderr)
+        return 1
+
+    if not args.suggest and not has_weights(name):
+        print(f"wsi-resolve-model: {not_downloaded_reason(name, picked_by_auto)}",
+              file=sys.stderr)
+        return NOT_DOWNLOADED
 
     print(REPO_FOR_NAME.get(name, name))
     return 0

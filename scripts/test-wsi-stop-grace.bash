@@ -166,6 +166,19 @@ cat > "$STUB_EVENTS/wl-copy.text"
 EOF
 chmod 755 "$stubs"/*
 
+# The models the cases transcribe with, "downloaded" into the stand-in HOME's Hugging Face
+# cache: wsi-resolve-model names a model only when its model.bin is on disk (Plan 00156).
+python3 - "$work/home/.cache/huggingface/hub" <<'EOF'
+import pathlib, sys
+for repo in ("Systran/faster-whisper-small", "Systran/faster-whisper-base",
+             "distil-whisper/distil-large-v3.5-ct2",
+             "mobiuslabsgmbh/faster-whisper-large-v3-turbo"):
+    snapshot = pathlib.Path(sys.argv[1], "models--" + repo.replace("/", "--"), "snapshots", "0")
+    snapshot.mkdir(parents=True)
+    (snapshot / "model.bin").write_bytes(b"weights")
+EOF
+mkdir -p "$work/empty-hub"
+
 settings="$work/settings"
 mkdir -p "$settings" "$work/dev"
 # wsi run without --language reads this; LANG is unset below, so "system" means en
@@ -226,7 +239,7 @@ start_wsi() {
     # WSI_TEST_TRACE=1 runs wsi under `bash -x`; the trace lands in the stderr dump
     "${run_env[@]}" "STUB_GRACE=$grace" "STUB_CUDA_DEVICES=${STUB_CUDA_DEVICES:-0}" \
         "STUB_PASTE_KEY=${STUB_PASTE_KEY:-}" "XDG_SESSION_TYPE=${STUB_SESSION_TYPE:-}" \
-        "WAYLAND_DISPLAY=${STUB_WAYLAND_DISPLAY:-}" \
+        "WAYLAND_DISPLAY=${STUB_WAYLAND_DISPLAY:-}" "HF_HUB_CACHE=${STUB_HF_HUB_CACHE:-}" \
         bash ${WSI_TEST_TRACE:+-x} "$BIN/wsi" "$@" \
         > "$work/wsi.out" 2> "$work/wsi.err" &
     WSI_PID=$!
@@ -401,6 +414,20 @@ else
     cat "$work/wsi.err"
     kill -KILL "$WSI_PID" 2>/dev/null
 fi
+
+#----------------------------------------------------------------------------
+echo "=== wsi with no model downloaded: says so, and never opens the microphone ==="
+#----------------------------------------------------------------------------
+STUB_HF_HUB_CACHE="$work/empty-hub" start_wsi 0 --language en
+wait "$WSI_PID"; rc=$?
+check "wsi exits 1" "1" "$rc"
+check "the microphone was never opened" "absent" \
+    "$([ -e "$events/pw-record.started" ] && echo present || echo absent)"
+check "nothing was transcribed" "absent" \
+    "$([ -e "$events/whisper.model" ] && echo present || echo absent)"
+check "the panel is told ERROR" "1" "$(grep -c 'StateChanged ERROR' "$events/gdbus.log")"
+check "the notification is the resolver's reason: download a model" "1" \
+    "$(grep -c 'Notify .*No speech model is downloaded.*Manage Whisper Models' "$events/gdbus.log")"
 
 #----------------------------------------------------------------------------
 echo "=== wsi by hand, no --language: the setting's language for model and transcriber ==="

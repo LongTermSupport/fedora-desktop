@@ -142,17 +142,21 @@ gnome-extensions list --enabled | grep speech-to-text
 
 Choose the model in **Settings... → Transcription → Whisper Model** (only downloaded
 models are listed, meaning a cache snapshot holds the weights, `model.bin`; **Manage
-Whisper Models...** downloads more). The default, `auto`, is decided at each recording
-by `~/.local/bin/wsi-resolve-model`, and `play-speech-to-text.yml` downloads the model
-it picks, resuming a download that was cut short:
+Whisper Models...** downloads them). **No model is downloaded for you**: the model that
+suits one machine does not suit every machine, so download at least one with **Manage
+Whisper Models...** before the first recording. The default, `auto`, is decided at each
+recording by `~/.local/bin/wsi-resolve-model`, and is the one to download unless you
+want another:
 
 | Machine      | English                         | Other languages or detection    |
 | ------------ | ------------------------------- | ------------------------------- |
 | NVIDIA GPU   | `distil-large-v3.5`             | `large-v3-turbo`                |
 | No GPU (CPU) | `small` batch, `base` streaming | `small` batch, `base` streaming |
 
-The first recording with a model not yet downloaded fetches it (about 1.5 GB for either
-GPU choice). On a machine with an NVIDIA GPU that CUDA cannot use (a broken CUDA or
+A recording whose model is not downloaded does not start, and nothing is fetched behind
+your back: the notification says which model is missing (or that none is downloaded)
+and to download it in **Manage Whisper Models...** (about 1.5 GB for either GPU
+choice). On a machine with an NVIDIA GPU that CUDA cannot use (a broken CUDA or
 cuDNN install), `auto` stops with an error rather than quietly using the CPU model. An
 English-only model with another language set is refused with an error,
 not transcribed as English. `distil-large-v3.5` is handed to faster-whisper as its
