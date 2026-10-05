@@ -1,6 +1,6 @@
 # Plan 00148: speech-to-text improvements (unlimited dictation, delayed stop, models)
 
-**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 0.7, 4.1-4.7, 5.1, 6.1, 7.4 and Phase 9 (9.1-9.4, 9.6, 9.8, 9.9) built, all merged to F44 but 6.1 and 9.9; host checks Tasks 0.5, 1.2, 6.2, 8.4 and 9.5 pending)
+**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 0.7, 4.1-4.7, 5.1, 6.1, 7.4 and Phase 9 (9.1-9.4, 9.6, 9.8-9.10) built, all merged to F44 but 6.1, 9.9 and 9.10; host checks Tasks 0.5, 1.2, 6.2, 8.4 and 9.5 pending)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
@@ -327,19 +327,15 @@ arrive while dictating, and to see which window it will go into.
   - the failed and handed-over reports owe only what was not pasted: the client reports
     each chunk with a new `PASTED {chars}` command;
   - the outline hides while the overview shows (`test-stt-focus-outline.mjs`).
-- [ ] ⬜ **Task 9.10**: **Pin the paste target at Insert (owner's request).** The window
-  focused when recording starts is where the dictation is meant to go. Today each paste
-  goes to whatever is focused at that moment (Tasks 9.1, 9.3, 9.4), so a stray click or a
-  window that steals focus takes the text. Instead the panel keeps that window from Insert
-  and answers `PasteKey` for it; if focus has moved, the panel gives the window back focus
-  (`Main.activateWindow`, which the Shell may do on Wayland where an app may not), and the
-  recorder pastes only once focus is confirmed there. The outline stays on the pinned
-  window. Owner's answers:
-  - the pinned window was closed: keep the text on the clipboard, paste nothing, say so;
-  - the pinned window is on another workspace: switch to it and paste;
-  - any focus change mid-dictation counts as an accident, deliberate or not: the pin is
-    fixed until stop, with no way to move it. Task 9.5's "outline and chunk follow the
-    new window" check becomes "they stay on the pinned window".
+- [x] ✅ **Task 9.10**: **Pin the paste target at Insert (owner's request).** The panel
+  pins the window focused at Insert (`pasteTarget.js`) until the dictation ends, and
+  `PasteKey` answers for it with two more fields, `focused` and `gone`. If focus has
+  moved, the panel calls `Main.activateWindow` (switching workspace) and `wsi`/`wsi-stream`
+  ask again every 0.1 s for up to 2 s; a closed window, or one that never gets focus
+  back, gets no paste: the text not yet pasted goes to the clipboard with a notification
+  that stays. A mid-dictation chunk that cannot paste waits for the next. The outline
+  stays on the pinned window. Owner's answers: closed means clipboard only; another
+  workspace means switch and paste; the pin cannot be moved. Detail in the journal.
 - [x] ✅ **Task 9.7**: **The boundary (owner's decision).** Owner's answer: no adoption. The
   owner was after an established, high-quality app, and the survey found none on GNOME
   Wayland: Vocalinux is young and would largely duplicate this stack, and Talon is closed,
@@ -347,7 +343,8 @@ arrive while dictating, and to see which window it will go into.
   mode is new work here, planned when wanted. Survey: [research-linux-dictation-landscape.md](research-linux-dictation-landscape.md).
 - [ ] ⬜ **Task 9.5**: **HOST**: deploy, log out and in; dictate past 120 s into GNOME Text
   Editor with chunks on, then with them off; switch windows mid-dictation and see the
-  outline and the next chunk follow.
+  outline and the next chunk stay on the pinned window (Task 9.10); close it and see the
+  text on the clipboard.
 
 ## Success Criteria
 

@@ -254,30 +254,57 @@ notify_desktop() {
     fi
 }
 
-# paste_target_now — set PASTE_WITH_SHIFT and SAVE_AFTER for the window focused now, as
-# the panel's PasteKey judges it. A panel that cannot answer (one loaded before PasteKey
-# existed, until the next login) leaves the key chosen at Insert, which is said in the
-# log, and no save.
+# paste_target_now — set PASTE_WITH_SHIFT and SAVE_AFTER for the window this dictation
+# pastes into, as the panel's PasteKey judges it, and PASTE_TARGET to "ready", or to
+# "closed" / "unfocused" when nothing may be pasted.
+#
+# The panel pins the window focused at Insert. If focus has moved, the panel gives it
+# focus back and this asks again every 0.1 s, PASTE_FOCUS_POLLS times (about 2 s). The
+# answer is (wm_class, with_shift, save_after, focused, gone); a panel that does not pin
+# (loaded before that, until the next login) answers the first three. A panel that cannot
+# answer (one loaded before PasteKey existed) leaves the key chosen at Insert, which is
+# said in the log, and no save.
 SAVE_AFTER=false
+PASTE_TARGET=ready
+PASTE_FOCUS_POLLS=20
 paste_target_now() {
-    local reply rc why
-    local answer="^\('((\\\\.|[^'\\\\])*)', (true|false), (true|false)\)$"
-    if reply=$(timeout 2 gdbus call --session --dest org.gnome.Shell \
-            --object-path "$PANEL_DBUS_PATH" --method "${PANEL_DBUS_INTERFACE}.PasteKey" 2>&1); then
-        rc=0
-    else
-        rc=$?
-    fi
-    if [ "$rc" -eq 0 ] && [[ "$reply" =~ $answer ]]; then
-        PASTE_WITH_SHIFT=$([ "${BASH_REMATCH[3]}" = true ] && echo 1 || echo 0)
-        SAVE_AFTER="${BASH_REMATCH[4]}"
-        log "Focused window '${BASH_REMATCH[1]}': $([ "$PASTE_WITH_SHIFT" = 1 ] && echo Ctrl+Shift+V || echo Ctrl+V)$([ "$SAVE_AFTER" = true ] && echo ', then Ctrl+S')"
-        return
-    fi
-    why="$reply"
-    [ "$rc" -eq 124 ] && why="no answer within 2 s"
-    log "WARN: The panel did not say how to paste into the focused window ($why); using the key chosen at Insert"
-    SAVE_AFTER=false
+    local reply rc why poll
+    local answer="^\('((\\\\.|[^'\\\\])*)', (true|false), (true|false)(, (true|false), (true|false))?\)$"
+    for ((poll = 0; poll <= PASTE_FOCUS_POLLS; poll++)); do
+        if reply=$(timeout 2 gdbus call --session --dest org.gnome.Shell \
+                --object-path "$PANEL_DBUS_PATH" --method "${PANEL_DBUS_INTERFACE}.PasteKey" 2>&1); then
+            rc=0
+        else
+            rc=$?
+        fi
+        if [ "$rc" -ne 0 ] || ! [[ "$reply" =~ $answer ]]; then
+            why="$reply"
+            [ "$rc" -eq 124 ] && why="no answer within 2 s"
+            log "WARN: The panel did not say how to paste into the focused window ($why); using the key chosen at Insert"
+            SAVE_AFTER=false
+            PASTE_TARGET=ready
+            return
+        fi
+        if [ "${BASH_REMATCH[7]}" = true ]; then
+            PASTE_TARGET=closed
+            return
+        fi
+        # Focused, or a panel that does not pin (no fourth field)
+        if [ "${BASH_REMATCH[6]}" != false ]; then
+            PASTE_WITH_SHIFT=$([ "${BASH_REMATCH[3]}" = true ] && echo 1 || echo 0)
+            SAVE_AFTER="${BASH_REMATCH[4]}"
+            PASTE_TARGET=ready
+            log "Pasting into '${BASH_REMATCH[1]}': $([ "$PASTE_WITH_SHIFT" = 1 ] && echo Ctrl+Shift+V || echo Ctrl+V)$([ "$SAVE_AFTER" = true ] && echo ', then Ctrl+S')"
+            return
+        fi
+        if [ "$poll" -eq 0 ]; then
+            log "WARN: '${BASH_REMATCH[1]}' lost focus during the dictation; waiting for the panel to give it focus back"
+        fi
+        if [ "$poll" -lt "$PASTE_FOCUS_POLLS" ]; then
+            sleep 0.1
+        fi
+    done
+    PASTE_TARGET=unfocused
 }
 
 #============================================================================
@@ -1115,8 +1142,9 @@ wm="${XDG_SESSION_TYPE:-unknown}"
 # Two paste paths:
 #   1. PASTE_WITH_SHIFT set ("0" or "1") - extension-driven path:
 #      copy to CLIPBOARD selection, then simulate Ctrl+V or Ctrl+Shift+V, as the panel's
-#      PasteKey says for the window focused at paste time (the key chosen at Insert if
-#      it cannot say), then Enter, then Ctrl+S if the panel asks for a save.
+#      PasteKey says for the window pinned at Insert once it has focus (the key chosen at
+#      Insert if it cannot say), then Enter, then Ctrl+S if the panel asks for a save.
+#      That window closed, or never given focus back: the text stays on the clipboard.
 #   2. PASTE_WITH_SHIFT empty - legacy direct-shell path:
 #      copy to PRIMARY selection, then simulate Shift+Insert (works almost
 #      everywhere but loses the per-app distinction the extension makes).
@@ -1168,6 +1196,20 @@ if [ "$AUTO_PASTE" = true ]; then
                 exit 1
                 ;;
         esac
+    fi
+
+    # The window pinned at Insert cannot take the paste: the text stays on the clipboard
+    if [ "$PASTE_TARGET" != ready ]; then
+        if [ "$PASTE_TARGET" = closed ]; then
+            unpasted_why="the window this dictation started in was closed"
+        else
+            unpasted_why="the window this dictation started in would not take focus back"
+        fi
+        # log_error tells the panel ERROR; the notification then replaces its own with one
+        # that stays
+        log_error "Nothing was pasted: $unpasted_why"
+        notify_desktop "Nothing was pasted: $unpasted_why. The text is on the clipboard: Ctrl+V." "dialog-error" 0
+        exit 1
     fi
 
     # Brief delay to ensure selection is ready

@@ -51,7 +51,14 @@ DBUS_INTERFACE = "org.fedoradesktop.SpeechToText"
 # it needs and whether to save after the paste
 PANEL_DBUS_PATH = "/org/fedoradesktop/SpeechToText/Panel"
 PANEL_DBUS_INTERFACE = "org.fedoradesktop.SpeechToText.Panel"
-PASTE_TARGET_REPLY = re.compile(r"^\('((?:[^'\\]|\\.)*)', (true|false), (true|false)\)$")
+# (wm_class, with_shift, save_after, focused, gone); a panel that does not pin the window
+# (one loaded before Task 9.10, until the next login) answers the first three only
+PASTE_TARGET_REPLY = re.compile(
+    r"^\('((?:[^'\\]|\\.)*)', (true|false), (true|false)(?:, (true|false), (true|false))?\)$")
+# How long a paste waits for the panel to give the pinned window focus back, asking again
+# at each poll (the asking is what re-activates it)
+PASTE_FOCUS_WAIT_SECONDS = 2.0
+PASTE_FOCUS_POLL_SECONDS = 0.1
 
 # Prints the stop grace in seconds; reads the extension's GSettings key, the one source
 STOP_GRACE_READER = Path(__file__).resolve().parent / "wsi-stop-grace"
@@ -432,37 +439,104 @@ def copy_to_clipboard(text, use_clipboard=False):
 
 
 def parse_paste_target(reply):
-    """(wm_class, with_shift, save_after) from the panel's PasteKey reply, or None."""
+    """(wm_class, with_shift, save_after, focused, gone) from the panel's PasteKey reply,
+    or None. A three-field reply is a panel that does not pin: focused, never gone."""
     match = PASTE_TARGET_REPLY.match(reply.strip())
     if match is None:
         return None
-    return match[1], match[2] == "true", match[3] == "true"
+    pinning = match[4] is not None
+    return (match[1], match[2] == "true", match[3] == "true",
+            match[4] == "true" if pinning else True, match[5] == "true" if pinning else False)
 
 
-def paste_target_now(fallback_with_shift):
-    """(with_shift, save_after) for the window focused right now, as the panel judges it.
+class PasteTargetUnavailable(Exception):
+    """The window the dictation is pinned to cannot take the paste: it was closed, or it
+    would not take focus back. Nothing is pasted; the caller says where the text went."""
 
-    Asked at every paste, so a focus change during a long dictation is followed. A panel
-    that cannot answer (one loaded before PasteKey existed, until the next login) leaves
-    the key chosen at Insert, which is said in the log, and no save.
-    """
+
+def ask_paste_key():
+    """The panel's PasteKey answer (parse_paste_target), or (None, why it gave none)."""
     try:
         result = subprocess.run(
             ["gdbus", "call", "--session", "--dest", "org.gnome.Shell",
              "--object-path", PANEL_DBUS_PATH, "--method", f"{PANEL_DBUS_INTERFACE}.PasteKey"],
             capture_output=True, text=True, timeout=2, check=False)
-        target = parse_paste_target(result.stdout) if result.returncode == 0 else None
-        why = (result.stderr or result.stdout).strip()
     except subprocess.TimeoutExpired:
-        target, why = None, "no answer within 2 s"
-    if target is None:
-        log(f"The panel did not say how to paste into the focused window ({why}); "
-            f"using the key chosen at Insert", "WARN")
-        return fallback_with_shift, False
-    wm_class, with_shift, save_after = target
-    log(f"Focused window {wm_class!r}: {'Ctrl+Shift+V' if with_shift else 'Ctrl+V'}"
-        f"{', then Ctrl+S' if save_after else ''}")
-    return with_shift, save_after
+        return None, "no answer within 2 s"
+    target = parse_paste_target(result.stdout) if result.returncode == 0 else None
+    return target, (result.stderr or result.stdout).strip()
+
+
+def paste_target_now(fallback_with_shift):
+    """(with_shift, save_after) for the window this dictation pastes into, as the panel
+    judges it, once that window has focus.
+
+    The panel pins the window focused at Insert. If focus has moved, the panel gives it
+    focus back and this asks again, every PASTE_FOCUS_POLL_SECONDS for up to
+    PASTE_FOCUS_WAIT_SECONDS. Raises PasteTargetUnavailable if the window was closed or
+    never got focus back. A panel that cannot answer (one loaded before PasteKey existed,
+    until the next login) leaves the key chosen at Insert, which is said in the log, and
+    no save.
+    """
+    polls = round(PASTE_FOCUS_WAIT_SECONDS / PASTE_FOCUS_POLL_SECONDS)
+    for poll in range(polls + 1):
+        target, why = ask_paste_key()
+        if target is None:
+            log(f"The panel did not say how to paste into the focused window ({why}); "
+                f"using the key chosen at Insert", "WARN")
+            return fallback_with_shift, False
+        wm_class, with_shift, save_after, focused, gone = target
+        if gone:
+            raise PasteTargetUnavailable("the window this dictation started in was closed")
+        if focused:
+            log(f"Pasting into {wm_class!r}: {'Ctrl+Shift+V' if with_shift else 'Ctrl+V'}"
+                f"{', then Ctrl+S' if save_after else ''}")
+            return with_shift, save_after
+        if poll == 0:
+            log(f"{wm_class!r} lost focus during the dictation; waiting for the panel to "
+                f"give it focus back", "WARN")
+        if poll < polls:
+            time.sleep(PASTE_FOCUS_POLL_SECONDS)
+    raise PasteTargetUnavailable(
+        f"the window this dictation started in ({wm_class}) would not take focus back")
+
+
+def report_unpasted(text, why, words_pasted=0):
+    """A paste found no window to go into (PasteTargetUnavailable): `text`, what was still
+    to paste, goes to the clipboard, nothing is pasted, and a notification that stays
+    says so. Returns the exit status, 1."""
+    text = text.strip()
+    lines = [f"Nothing was pasted: {why}."]
+    if words_pasted:
+        lines.append(f"Its first {words_pasted} words were already pasted.")
+    rest = "The rest of the text" if words_pasted else "The text"
+    if text and copy_to_clipboard(text, use_clipboard=True):
+        lines.append(f"{rest} ({len(text.split())} words) is on the clipboard: Ctrl+V.")
+    elif text:
+        lines.append(f"{rest} could not be copied to the clipboard; it is in {TRANSCRIPTION_FILE}")
+    else:
+        lines.append("No text was left to paste.")
+    message = "\n".join(lines)
+    log(message, "ERROR")
+    print(f"wsi-stream: {message}", file=sys.stderr)
+    emit_dbus_text("Error", why)
+    emit_dbus_signal("StateChanged", "ERROR")
+    desktop_notification(message, 0)  # 0: stays until dismissed
+    return 1
+
+
+def paste_and_report(text, args, shown, words_pasted=0):
+    """The paste at the end of a dictation: `text` into the pinned window, then SUCCESS
+    with `shown` as the preview. Returns the exit status."""
+    try:
+        pasted = auto_paste(text, skip_enter=args.no_auto_enter, paste_with_shift=args.paste_with_shift)
+    except PasteTargetUnavailable as e:
+        return report_unpasted(text, str(e), words_pasted)
+    if not pasted:
+        notify("ERROR", "Auto-paste failed")
+        return 1
+    notify("SUCCESS", shown[:60] + "..." if len(shown) > 60 else shown)
+    return 0
 
 
 # ydotool key codes (Linux input-event-codes.h)
@@ -478,8 +552,9 @@ def press(env, *keys):
 def auto_paste(text, skip_enter=False, paste_with_shift=True):
     """Paste text at the cursor with ydotool, then Enter and a save as asked.
 
-    The paste key, and whether to save, are the focused window's at this moment
-    (paste_target_now); paste_with_shift is the key chosen at Insert, kept only for a
+    The paste key, and whether to save, are those of the window pinned at Insert, once it
+    has focus (paste_target_now, which raises PasteTargetUnavailable before anything is
+    copied or pressed); paste_with_shift is the key chosen at Insert, kept only for a
     panel that cannot say. An empty `text` pastes nothing: a chunked dictation whose
     text was all pasted already ends with only its Enter.
     """
@@ -874,17 +949,23 @@ class ChunkPaster:
 def paste_chunk(chunks, text_so_far):
     """Paste the text committed since the last chunk, with no Enter (that ends the dictation).
 
-    A paste that fails is logged and not counted: its text is pasted with the next chunk,
-    or at stop. The recording carries on either way. The server is told how much is
-    pasted (PASTED), so a dictation this client never collects is handed over owing only
-    the rest.
+    A paste that fails, or finds no window to go into (PasteTargetUnavailable), is logged
+    and not counted: its text is pasted with the next chunk, or at stop, where a window
+    still missing is reported. The recording carries on either way. The server is told
+    how much is pasted (PASTED), so a dictation this client never collects is handed over
+    owing only the rest.
     """
     pending = chunks.next_chunk(text_so_far)
     if pending is None:
         return
     chunk, pasted_after = pending
     log(f"Pasting a chunk ({len(chunk)} chars)")
-    if not auto_paste(chunk, skip_enter=True):
+    try:
+        pasted = auto_paste(chunk, skip_enter=True)
+    except PasteTargetUnavailable as e:
+        log(f"The chunk was not pasted ({e}); it goes out with the next one", "WARN")
+        return
+    if not pasted:
         log("The chunk was not pasted; it goes out with the next one", "WARN")
         return
     chunks.mark_pasted(pasted_after)
@@ -1261,21 +1342,18 @@ def run_server_mode(args):
 
     # Output
     if args.auto_paste:
-        to_paste = text
+        to_paste, words_pasted = text, 0
         if chunks is not None and chunks.started:
             to_paste = chunks.last_chunk(server_text)
+            words_pasted = len(server_text[:chunks.pasted].split())
             log(f"Pasting the last chunk ({len(to_paste)} chars); the whole text is in "
                 f"{TRANSCRIPTION_FILE}")
         else:
             log("Auto-pasting")
         time.sleep(0.2)
-        success = auto_paste(to_paste, skip_enter=args.no_auto_enter, paste_with_shift=args.paste_with_shift)
-        if success:
-            preview = text[:60] + "..." if len(text) > 60 else text
-            notify("SUCCESS", preview)
-        else:
-            notify("ERROR", "Auto-paste failed")
-            return 1
+        rc = paste_and_report(to_paste, args, text, words_pasted)
+        if rc != 0:
+            return rc
     else:
         log("Copying to clipboard")
         if copy_to_clipboard(text, use_clipboard=args.clipboard):
@@ -1547,13 +1625,9 @@ def run_standard_streaming(args, stop):
         log("Auto-pasting (instant - transcription was real-time)")
         # Small delay to ensure any focus changes from recorder shutdown settle
         time.sleep(0.2)
-        success = auto_paste(text, skip_enter=args.no_auto_enter, paste_with_shift=args.paste_with_shift)
-        if success:
-            preview = text[:60] + "..." if len(text) > 60 else text
-            notify("SUCCESS", preview)
-        else:
-            notify("ERROR", "Auto-paste failed")
-            return 1
+        rc = paste_and_report(text, args, text)
+        if rc != 0:
+            return rc
     else:
         log("Copying to clipboard (instant - transcription was real-time)")
         if copy_to_clipboard(text, use_clipboard=args.clipboard):
@@ -1819,13 +1893,9 @@ def run_prebuffered_streaming(args, stop):
         if args.auto_paste:
             log("Auto-pasting (instant - transcription was real-time)")
             time.sleep(0.2)
-            success = auto_paste(text, skip_enter=args.no_auto_enter, paste_with_shift=args.paste_with_shift)
-            if success:
-                preview = text[:60] + "..." if len(text) > 60 else text
-                notify("SUCCESS", preview)
-            else:
-                notify("ERROR", "Auto-paste failed")
-                return 1
+            rc = paste_and_report(text, args, text)
+            if rc != 0:
+                return rc
         else:
             log("Copying to clipboard (instant - transcription was real-time)")
             if copy_to_clipboard(text, use_clipboard=args.clipboard):

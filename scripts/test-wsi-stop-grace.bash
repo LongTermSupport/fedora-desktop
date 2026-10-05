@@ -142,6 +142,7 @@ echo "hello world"
 EOF
 # gdbus: records every call; answers Notify like the real notification daemon, and the
 # panel's PasteKey with $STUB_PASTE_KEY (empty: a panel without the method, which fails).
+# Replies separated by "|" answer the 1st, 2nd... call in turn; the last one repeats.
 cat > "$stubs/gdbus" <<'EOF'
 #!/usr/bin/bash
 printf '%s\n' "$*" >> "$STUB_EVENTS/gdbus.log"
@@ -150,7 +151,12 @@ if [ "$1" = call ] && [[ "$*" == *.PasteKey* ]]; then
         echo "Error: GDBus.Error:org.freedesktop.DBus.Error.UnknownMethod: No such method" >&2
         exit 1
     fi
-    echo "$STUB_PASTE_KEY"
+    IFS='|' read -r -a replies <<< "$STUB_PASTE_KEY"
+    asked=$(grep -c 'Panel.PasteKey' "$STUB_EVENTS/gdbus.log")
+    if [ "$asked" -gt "${#replies[@]}" ]; then
+        asked=${#replies[@]}
+    fi
+    echo "${replies[$((asked - 1))]}"
 elif [ "$1" = call ]; then
     echo "(uint32 7,)"
 fi
@@ -480,9 +486,10 @@ check "…before the microphone opens" "absent" \
 echo "=== wsi -a: the panel names the paste key and the save at paste time (Task 9.9) ==="
 #----------------------------------------------------------------------------
 # batch_paste <PasteKey reply, empty for none> <wsi args...> — one auto-paste dictation;
-# sets KEYS to the key chords ydotool was asked for, joined by " | "
+# sets KEYS to the key chords ydotool was asked for, joined by " | ". wsi is expected to
+# exit $WANT_RC (default 0).
 batch_paste() {
-    local reply="$1" rc
+    local reply="$1" rc want_rc="${WANT_RC:-0}"
     shift
     KEYS=""
     STUB_PASTE_KEY="$reply" STUB_SESSION_TYPE=wayland STUB_WAYLAND_DISPLAY=wayland-stub \
@@ -499,7 +506,11 @@ batch_paste() {
     fi
     kill -TERM "$WSI_PID"
     wait "$WSI_PID"; rc=$?
-    check_wsi_exit "$rc"
+    check "wsi exits $want_rc" "$want_rc" "$rc"
+    if [ "$rc" != "$want_rc" ]; then
+        echo "    wsi stderr:"
+        cat "$work/wsi.err"
+    fi
     if [ -f "$events/ydotool.log" ]; then
         KEYS=$(awk 'NR > 1 { printf " | " } { printf "%s", $0 }' "$events/ydotool.log")
     fi
@@ -509,18 +520,43 @@ CTRL_SHIFT_V="key 29:1 42:1 47:1 47:0 42:0 29:0"
 ENTER="key 28:1 28:0"
 CTRL_S="key 29:1 31:1 31:0 29:0"
 
-batch_paste "('org.gnome.TextEditor', false, true)" --paste-with-shift 1
+batch_paste "('org.gnome.TextEditor', false, true, true, false)" --paste-with-shift 1
 check "an app the panel says needs Ctrl+V and a save: Ctrl+V, Enter, then Ctrl+S" \
     "$CTRL_V | $ENTER | $CTRL_S" "$KEYS"
 check "…the panel was asked" "1" "$(grep -c 'Panel.PasteKey' "$events/gdbus.log")"
 check "…and the text was on the clipboard" "Hello world" "$(cat "$events/wl-copy.text")"
 
-batch_paste "('kitty', true, false)" --paste-with-shift 0
+batch_paste "('kitty', true, false, true, false)" --paste-with-shift 0
 check "a terminal, whatever was chosen at Insert: Ctrl+Shift+V, Enter, no save" \
     "$CTRL_SHIFT_V | $ENTER" "$KEYS"
 
-batch_paste "('org.gnome.TextEditor', false, true)" --paste-with-shift 1 --no-auto-enter
+batch_paste "('org.gnome.TextEditor', false, true, true, false)" --paste-with-shift 1 --no-auto-enter
 check "no Enter asked for: the save still follows the paste" "$CTRL_V | $CTRL_S" "$KEYS"
+
+batch_paste "('kitty', true, false)" --paste-with-shift 0
+check "a panel that does not pin (three fields): pasted as it says" \
+    "$CTRL_SHIFT_V | $ENTER" "$KEYS"
+
+echo "=== wsi -a: the paste goes to the window pinned at Insert (Task 9.10) ==="
+unfocused="('org.gnome.TextEditor', false, true, false, false)"
+batch_paste "$unfocused|$unfocused|('org.gnome.TextEditor', false, true, true, false)" \
+    --paste-with-shift 1
+check "focus moved away: wsi waits until the panel has given the window focus back" \
+    "$CTRL_V | $ENTER | $CTRL_S" "$KEYS"
+check "…asking until it has" "3" "$(grep -c 'Panel.PasteKey' "$events/gdbus.log")"
+
+WANT_RC=1 batch_paste "('', false, false, false, true)" --paste-with-shift 1
+check "the pinned window was closed: nothing pressed" "" "$KEYS"
+check "…the text is on the clipboard" "Hello world" "$(cat "$events/wl-copy.text")"
+check "…and a notification that stays says so" "1" \
+    "$(grep -c "Notify .*was closed.*clipboard.* 0\$" "$events/gdbus.log")"
+check "…and the panel is told ERROR" "1" "$(grep -c 'StateChanged ERROR' "$events/gdbus.log")"
+
+WANT_RC=1 batch_paste "$unfocused" --paste-with-shift 1
+check "the pinned window never took focus back: nothing pressed" "" "$KEYS"
+check "…the text is on the clipboard" "Hello world" "$(cat "$events/wl-copy.text")"
+check "…and a notification says so" "1" \
+    "$(grep -c 'Notify .*would not take focus.*clipboard' "$events/gdbus.log")"
 
 batch_paste "" --paste-with-shift 1
 check "a panel that cannot answer: the key chosen at Insert, and no save" \

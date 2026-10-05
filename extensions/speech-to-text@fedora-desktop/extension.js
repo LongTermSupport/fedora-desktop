@@ -21,12 +21,15 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import { FocusOutline } from './focusOutline.js';
+import { PasteTargetPin } from './pasteTarget.js';
 
 // DBus interface for wsi communication
 const DBUS_PATH = '/org/fedoradesktop/SpeechToText';
 const DBUS_INTERFACE = 'org.fedoradesktop.SpeechToText';
 
-// The panel's own object, which wsi-stream calls (on org.gnome.Shell) before each paste
+// The panel's own object, which the recorders call (on org.gnome.Shell) before each
+// paste. focused false: the pinned window was given focus back, ask again; gone true:
+// it was closed, paste nothing.
 const PANEL_DBUS_PATH = '/org/fedoradesktop/SpeechToText/Panel';
 const PANEL_DBUS_XML = `
 <node>
@@ -35,6 +38,8 @@ const PANEL_DBUS_XML = `
       <arg type="s" direction="out" name="wm_class"/>
       <arg type="b" direction="out" name="with_shift"/>
       <arg type="b" direction="out" name="save_after"/>
+      <arg type="b" direction="out" name="focused"/>
+      <arg type="b" direction="out" name="gone"/>
     </method>
   </interface>
 </node>`;
@@ -224,6 +229,7 @@ export default class SpeechToTextExtension extends Extension {
         this._subscribeToDBus();
         this._exportPanelDBus();
         this._focusOutline = new FocusOutline();
+        this._pasteTarget = new PasteTargetPin();
 
         // Ensure log directory exists
         this._ensureLogDirectory();
@@ -239,6 +245,10 @@ export default class SpeechToTextExtension extends Extension {
         if (this._focusOutline) {
             this._focusOutline.hide();
             this._focusOutline = null;
+        }
+        if (this._pasteTarget) {
+            this._pasteTarget.release();
+            this._pasteTarget = null;
         }
 
         // Unsubscribe from DBus
@@ -622,12 +632,15 @@ export default class SpeechToTextExtension extends Extension {
             this._iconResetTimeoutId = null;
         }
 
-        // Outline the window the text will be pasted into, for as long as a paste can come
+        // Outline the window the text will be pasted into, for as long as a paste can come;
+        // the pin taken at Insert lasts until the dictation has ended
         const pasteCanCome = ['RECORDING', 'STOPPING', 'TRANSCRIBING'].includes(state);
         if (pasteCanCome && this._autoPaste && !this._isArticleMode)
-            this._focusOutline?.show();
+            this._focusOutline?.show(this._pasteTarget?.window ?? null);
         else
             this._focusOutline?.hide();
+        if (['IDLE', 'SUCCESS', 'ERROR'].includes(state))
+            this._pasteTarget?.release();
 
         switch (state) {
             case 'PREPARING':
@@ -916,6 +929,7 @@ export default class SpeechToTextExtension extends Extension {
             // Track that this is regular mode (not Claude)
             this._isClaudeMode = false;
             this._claudeStyle = null;
+            this._pasteTarget.pin(global.display.focus_window);
 
             // Pass debug, auto-paste, and wrap-marker flags if enabled
             // Note: auto-enter is ON by default in auto-paste mode, so we pass --no-auto-enter to disable
@@ -990,6 +1004,7 @@ export default class SpeechToTextExtension extends Extension {
             // Track that this is Claude mode with specific style
             this._isClaudeMode = true;
             this._claudeStyle = style;
+            this._pasteTarget.pin(global.display.focus_window);
 
             // Build flags similar to _launchWSI
             const debugFlag = this._debugEnabled ? ' --debug' : '';
@@ -1137,12 +1152,12 @@ export default class SpeechToTextExtension extends Extension {
     _getPasteWithShift() {
         // 1 (Ctrl+Shift+V) or 0 (Ctrl+V) for the window focused at Insert. The recorder
         // asks again (PasteKey) at each paste; this is its answer if the panel cannot.
-        return this._pasteTargetForFocus().withShift ? 1 : 0;
+        return this._pasteTargetFor(global.display.focus_window).withShift ? 1 : 0;
     }
 
     /**
-     * How to paste into the window focused right now: its WM class, whether it takes
-     * Ctrl+Shift+V, and whether to send Ctrl+S after.
+     * How to paste into `window`: its WM class, whether it takes Ctrl+Shift+V, and
+     * whether to send Ctrl+S after.
      *
      * A terminal is an app whose desktop entry lists the TerminalEmulator category, the
      * freedesktop way of saying so, rather than a list of terminals kept by hand. In order:
@@ -1150,8 +1165,7 @@ export default class SpeechToTextExtension extends Extension {
      * other app with paste-default-mode (Ctrl+V by default, what GUI toolkits bind).
      * Ctrl+S is for apps in paste-save-apps, and never for a terminal (XOFF there).
      */
-    _pasteTargetForFocus() {
-        const window = global.display.focus_window;
+    _pasteTargetFor(window) {
         const wmClass = window ? window.get_wm_class() ?? '' : '';
         const list = key => (this._settings ? this._settings.get_string(key) : '')
             .split(',').map(s => s.trim()).filter(Boolean);
@@ -1177,12 +1191,22 @@ export default class SpeechToTextExtension extends Extension {
         return { wmClass, withShift, saveAfter };
     }
 
-    /** The panel's D-Bus object: the recorder asks it how to paste, just before pasting. */
+    /**
+     * The panel's D-Bus object: the recorder asks it how to paste, just before pasting,
+     * into the window pinned at Insert (pasteTarget.js).
+     */
     _exportPanelDBus() {
         this._panelDBus = Gio.DBusExportedObject.wrapJSObject(PANEL_DBUS_XML, {
             PasteKey: () => {
-                const { wmClass, withShift, saveAfter } = this._pasteTargetForFocus();
-                return [wmClass, withShift, saveAfter];
+                const { window, focused, gone } = this._pasteTarget.answer(global.display.focus_window);
+                if (gone) {
+                    this._log('The window this dictation started in was closed: nothing is pasted');
+                    return ['', false, false, false, true];
+                }
+                const { wmClass, withShift, saveAfter } = this._pasteTargetFor(window);
+                if (!focused)
+                    this._log(`"${wmClass}" lost focus during the dictation; giving it focus back`);
+                return [wmClass, withShift, saveAfter, focused, false];
             },
         });
         this._panelDBus.export(Gio.DBus.session, PANEL_DBUS_PATH);
