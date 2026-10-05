@@ -405,6 +405,59 @@ class ChunkedDictationTest(ClientCase):
         self.assertNotIn(f"({len(WHOLE.split())} words)", message)
 
 
+class PinnedWindowUnavailableTest(ClientCase):
+    """The window the dictation started in was closed, or would not take focus back, by
+    the time of a paste (Task 9.10): nothing is pasted, the text not yet pasted goes to the
+    clipboard, and the user is told."""
+
+    def unavailable_after(self, pastes, reason="the window this dictation started in was closed"):
+        """auto_paste pastes `pastes` times, then finds no window to paste into."""
+        def paste(text, **kw):
+            if len(self.pasted) >= pastes:
+                raise wsi_stream.PasteTargetUnavailable(reason)
+            self.pasted.append(text)
+            return True
+        patcher = mock.patch.object(wsi_stream, "auto_paste", paste)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_closed_at_stop_puts_the_text_on_the_clipboard_and_says_so(self):
+        self.unavailable_after(0)
+        self.serve(scripted([RECORDING], [{"status": "draining", "drain_seconds_left": 5}, DONE]))
+        rc = self.run_client(signal_after=0.3, auto_paste=True)
+        self.assertEqual(rc, 1)
+        self.assertEqual(self.pasted, [])
+        self.assertEqual(self.clipboard, ["Hello there world"])
+        self.assertIn("ERROR", self.states())
+        self.assertNotIn("SUCCESS", self.states())
+        loud = [m for m, ms in self.note_expiry if ms == 0]
+        self.assertTrue(loud, self.note_expiry)
+        self.assertIn("was closed", loud[0])
+        self.assertIn("clipboard", loud[0])
+
+    def test_a_window_that_will_not_take_focus_is_reported_the_same_way(self):
+        self.unavailable_after(0, reason="the window this dictation started in would not take focus")
+        self.serve(scripted([RECORDING], [DONE]))
+        rc = self.run_client(signal_after=0.3, auto_paste=True)
+        self.assertEqual(rc, 1)
+        self.assertEqual(self.clipboard, ["Hello there world"])
+        self.assertTrue(any("would not take focus" in m for m in self.notes), self.notes)
+
+    def test_closed_after_a_chunk_copies_only_the_text_not_yet_pasted(self):
+        self.unavailable_after(1)
+        self.settings = dict(CONTINUOUS, **{"dictation-paste-interval-seconds": "1"})
+        self.serve(chunked([FIRST, SECOND], (dict(DONE, transcription=WHOLE),)))
+        rc = self.run_client(signal_after=2.6, auto_paste=True)
+        self.assertEqual(rc, 1)
+        self.assertEqual(self.pasted, ["So my first experience"])
+        reported = [p["chars"] for c, p in self.server.received if c == "PASTED"]
+        self.assertEqual(reported, [len(FIRST)], "a chunk not pasted was reported as pasted")
+        self.assertEqual(self.clipboard, ["was llama cpp which ran a model locally"])
+        loud = [m for m, ms in self.note_expiry if ms == 0]
+        self.assertTrue(loud, self.note_expiry)
+        self.assertIn("first 4 words were already pasted", loud[0])
+
+
 class UndeliveredAfterChunksTest(ClientCase):
     """A dictation handed over at START whose client had pasted part of it in chunks."""
 

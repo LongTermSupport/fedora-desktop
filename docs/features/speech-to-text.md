@@ -294,9 +294,14 @@ stop, because it needs the whole text.
 
 ### Where The Text Is Pasted
 
-While a dictation can still paste, the focused window has a red outline: that is where
-the next paste goes. The paste key is chosen at each paste, in batch and streaming mode
-alike, for the window focused at that moment:
+The text goes into the window that was focused when you pressed Insert, in batch and
+streaming mode alike, and with Claude post-processing. While a dictation can still paste,
+that window has a red outline. If focus has moved by the time of a paste (a stray click,
+a window that grabbed focus), the panel gives that window focus back, switching
+workspace if need be, and the text is pasted once it has focus. There is no way to move
+the target during a dictation. If that window was closed, or does not get focus back
+within about 2 s, nothing is pasted: the text not yet pasted goes on the clipboard and a
+notification says so. The paste key is chosen at each paste, for that window:
 
 - an app in **Apps using Ctrl+V** (`paste-ctrl-v-apps`) gets Ctrl+V;
 - a terminal gets Ctrl+Shift+V. A terminal is an app whose desktop entry lists the
