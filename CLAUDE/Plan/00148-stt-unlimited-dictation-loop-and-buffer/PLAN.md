@@ -1,6 +1,6 @@
 # Plan 00148: speech-to-text improvements (unlimited dictation, delayed stop, models)
 
-**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 0.7, 4.1-4.7, 5.1, 6.1, 7.4 and Phase 9 (9.1-9.4, 9.6, 9.8) built, all merged to F44 but 6.1; host checks Tasks 0.5, 1.2, 6.2, 8.4 and 9.5 pending; 9.9 open)
+**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 0.7, 4.1-4.7, 5.1, 6.1, 7.4 and Phase 9 (9.1-9.4, 9.6, 9.8, 9.9) built, all merged to F44 but 6.1 and 9.9; host checks Tasks 0.5, 1.2, 6.2, 8.4 and 9.5 pending)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
@@ -318,15 +318,15 @@ arrive while dictating, and to see which window it will go into.
   paste nothing, and show the error. It runs as the token the new `claude-token` setting
   names (owner's choice), taking the newest unexpired `NAME.YYYY-MM-DD.token`.
   `tests/speech_to_text/test_claude_process.py`, red against HEAD.
-- [ ] ⬜ **Task 9.9**: Open findings from the Phase 9 review
-  (`subagent-reports/261004-qa-reviewer-phase9.md`):
-  - batch mode (`wsi`) does not ask `PasteKey` and never saves after pasting; the docs
-    say so;
-  - no unit test covers the server's `progress(with_text=…)`, or the `run_server_mode`
-    chunk wiring through the real stop path;
-  - `report_undelivered_dictation` and `report_failed_dictation` overstate what is owed
-    once chunks have been pasted;
-  - the outline draws over the overview.
+- [x] ✅ **Task 9.9**: Open findings from the Phase 9 review
+  (`subagent-reports/261004-qa-reviewer-phase9.md`), each test-first:
+  - batch mode (`wsi`) asks `PasteKey` at paste time and sends Ctrl+S when asked, as
+    `wsi-stream` does (`test-wsi-stop-grace.bash`, stub ydotool);
+  - the server's `PROGRESS {with_text}` and `run_server_mode`'s chunks through the real
+    stop path are tested; the chunks are compared with the same run pasting once at stop;
+  - the failed and handed-over reports owe only what was not pasted: the client reports
+    each chunk with a new `PASTED {chars}` command;
+  - the outline hides while the overview shows (`test-stt-focus-outline.mjs`).
 - [ ] ⬜ **Task 9.7**: **The boundary (owner's decision).** Phase 9 is the last piece of
   injection work built here. Before any IBus engine, voice commands or document mode, the
   owner tries Vocalinux. It is the closest existing app: an IBus `commit_text` engine,
