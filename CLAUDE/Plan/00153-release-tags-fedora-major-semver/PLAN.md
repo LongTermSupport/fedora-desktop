@@ -1,6 +1,6 @@
 # Plan 00153: release tags, Fedora major plus semver
 
-**Status**: In Progress (Phase 1 decided; Phase 2 release command next; nothing is tagged)
+**Status**: In Progress (Phases 1 and 2 done; Phase 3, self-update follows tags, next; nothing is tagged)
 **Created**: 2026-10-03
 **Owner**: joseph
 **Priority**: Medium
@@ -64,14 +64,18 @@ release tag rather than the branch tip.
 
 ### Phase 2: Release command
 
-- [ ] ⬜ **Task 2.1**: Tests first, then `scripts/release.bash`: refuses on a dirty tree, on
-  a branch that is not `F<major>`, behind its remote, or with CI not green on HEAD; takes
-  `minor` or `patch`; derives the major from the branch name; writes the changelog entry
-  from the commits since the last tag for the owner to edit; signs and pushes the tag;
-  creates the GitHub Release.
-- [ ] ⬜ **Task 2.2**: `.github/workflows/qa.yml` also runs on pushed tags.
-- [ ] ⬜ **Task 2.3**: Docs: release process in `CLAUDE/` (agent rules: agents never tag
-  without the owner asking) and a short user-facing note in `docs/`.
+- [x] ✅ **Task 2.1**: Tests first (`scripts/test-release.bash`, 59 cases, mutation-checked, a gate in
+  `qa-all.bash`), then `scripts/release.bash`. Two steps, because F44 only takes pull requests:
+  `prepare first|minor|patch` refuses on a dirty tree, a branch that is not `F<major>`, one
+  behind or ahead of its remote, or CI not green on HEAD; derives the major from the branch;
+  writes the changelog entry (commit subjects since the last tag) for the owner to edit;
+  commits it signed on `release-<version>` and opens the pull request. `tag <version>`, after a
+  merge-commit merge, signs the annotated tag on the signed release commit (not GitHub's merge
+  commit), refuses an unsigned or CI-red release commit, pushes it and creates the GitHub Release.
+  Neither step is ever run by an agent against the real repository.
+- [x] ✅ **Task 2.2**: `.github/workflows/qa.yml` also runs on pushed tags `N.N.N`.
+- [x] ✅ **Task 2.3**: [CLAUDE/Release.md](../../Release.md) (agents never tag without the owner
+  asking; indexed in `CLAUDE.md`) and [docs/releases.md](../../../docs/releases.md).
 
 ### Phase 3: Self-update follows tags
 
