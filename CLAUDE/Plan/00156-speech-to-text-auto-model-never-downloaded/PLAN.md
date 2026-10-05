@@ -129,7 +129,10 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
 
 ### Phase 3: Review and deploy
 
-- [ ] ⬜ **Task 3.1**: The DBF conformance review, then `qa-reviewer`.
+- [x] ✅ **Task 3.1**: The DBF conformance review, then `qa-reviewer`, for Task 1.3 and 2.1:
+  no blocker; every finding fixed or recorded as Tasks 4.4 and 4.5
+  ([conformance](subagent-reports/261005-dbf-conformance-review-opus-5-5.md),
+  [qa-reviewer](subagent-reports/261005-qa-reviewer-task-1-3-opus-5-5.md)).
 - [x] ✅ **Task 3.2**: Plan 00148's `deploy.bash` runs `play-speech-to-text.yml`, which
   carries this plan, and is in `meta-deploy.bash`; no second deploy script is needed.
 - [ ] ⬜ **Task 3.3**: Owner checks: log out and in, open Settings, press Insert in server mode.
