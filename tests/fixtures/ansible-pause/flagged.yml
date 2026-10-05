@@ -1,0 +1,53 @@
+---
+# Fixture for scripts/qa-ansible-pause.bash: every pause marked EXPECT-FINDING must be
+# reported, and no other line. A task list, not a play, so no gate syntax-checks it.
+
+- name: Info-only pause that waits for Enter
+  ansible.builtin.pause:  # EXPECT-FINDING
+    prompt: |
+      Something happened. Press ENTER to continue...
+
+- name: Timed pause with no reason given
+  ansible.builtin.pause:  # EXPECT-FINDING
+    seconds: 5
+
+- name: Bare short-form module name
+  pause:  # EXPECT-FINDING
+    prompt: "Press ENTER"
+
+- ansible.builtin.pause:  # EXPECT-FINDING
+    prompt: "Pause key first, on the dash line"
+  when: something_happened
+
+- name: Pause inside a block
+  when: needs_setup
+  block:
+    - name: Instructions before real prompts
+      ansible.builtin.pause:  # EXPECT-FINDING
+        prompt: "Go and get your credentials, then press ENTER"
+
+    - name: The real prompt
+      ansible.builtin.pause:
+        prompt: "Enter the key"
+      register: key_prompt
+
+# A register on the NEXT task does not count for this one.
+- name: Pause followed by a registering task
+  ansible.builtin.pause:  # EXPECT-FINDING
+    prompt: "Press ENTER"
+
+- name: Next task registers
+  ansible.builtin.command: "true"
+  register: next_result
+  changed_when: false
+
+# An empty PAUSE-OK carries no reason and does not count.
+- name: Annotated with no reason  # PAUSE-OK:
+  ansible.builtin.pause:  # EXPECT-FINDING
+    prompt: "Press ENTER"
+
+# The prompt text mentions register: but the task has none.
+- name: Prompt text that says register
+  ansible.builtin.pause:  # EXPECT-FINDING
+    prompt: |
+      register: this line is prompt text, not a key

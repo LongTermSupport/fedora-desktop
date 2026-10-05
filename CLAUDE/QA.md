@@ -75,6 +75,7 @@ they are deliberately not jq-merged stages, so they cannot disturb the positiona
 | `qa-stt-limits.bash`                        | each speech-to-text recording limit has one home: `wsi`'s 30 s, `wsi-stream`'s 120 s, continuous dictation's GSettings keys; a literal copy in the panel, the server or a second place in a recorder fails (Plan 00148)                                                                                                                                                                                                                                                                                                                             |
 | `qa-speech-to-text-rules.bash`              | the Semgrep rules in `.semgrep/speech-to-text.yml`, proven against `.semgrep/speech-to-text.js` and `.py` every run, over every tracked JavaScript and Python file (extensionless scripts found by shebang); exits 2 if a file it handed semgrep was not scanned. See [model-present-without-weights](#model-present-without-weights) and [dropdown-label-carries-explanation](#dropdown-label-carries-explanation) (Plan 00156)                                                                                                                    |
 | `qa-ready-wait-rules.bash`                  | [ready-wait-ignores-child-exit](#ready-wait-ignores-child-exit) over every tracked Python file (`.semgrep/ready-wait.yml`, proven against `.semgrep/ready-wait.py`) and every tracked shell script (`helpers/ready_wait/bash_ready_waits.py`, proven against `.semgrep/ready-wait.bash`), each run; exits 2 if a Python file it handed semgrep was not scanned (Plan 00156)                                                                                                                                                                         |
+| `qa-ansible-pause.bash`                     | [pause-without-register](#pause-without-register) over every tracked YAML file under `playbooks/` and `tasks/`: an `ansible.builtin.pause` task with no `register:` and no `# PAUSE-OK: <reason>`. Proven every run against `tests/fixtures/ansible-pause/flagged.yml` (each `EXPECT-FINDING` line reported, nothing else) and `clean.yml` (nothing reported)                                                                                                                                                                                       |
 | `test-ccy-host-hostname.bash`               | `ccy_host_hostname` — the RFC 1123 grammar guarding `CCY_HOST_HOSTNAME` (Plan 00121)                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `test-ccy-network-disconnect.bash`          | `ccy --disconnect` — the detach, the picker's re-prompt, and whether the saved default network is cleared, kept, or never there, against a stubbed engine                                                                                                                                                                                                                                                                                                                                                                                           |
 | `test-ccy-session-network.bash`             | the `ccy-sessions` CPU, network, token and SSH key columns — the process-tree join from a tmux session to its container, which processes a session's CPU counts and the share they come to, both engines' renderings of a network list, and the token and key labels                                                                                                                                                                                                                                                                                |
@@ -815,6 +816,30 @@ reviewed, not detected:
 - **A wait in a later run of the script.** A step script that starts a process in one
   invocation and waits for it in the next keeps the pid in a file; the rule reads one
   file's text, in order, and cannot follow that.
+
+### pause-without-register
+
+**What it is.** An `ansible.builtin.pause` (or bare `pause:`) task under `playbooks/` or
+`tasks/` that has no `register:` and no `# PAUSE-OK: <reason>` comment. Run by
+`qa-ansible-pause.bash`. The comment may sit on any line of the task or on the comment
+lines directly above its `- `. A `PAUSE-OK:` with no reason after it does not count.
+
+**Why it exists.** The owner runs plays unattended in a batch (`run.bash --changed --yes`,
+from `CLAUDE/Plan/meta-deploy.bash`), and the batch must not carry confirmations of its
+own. A play that ended on "Press ENTER to continue" just to show its closing
+instructions hung such a batch on a question nobody knew was owed.
+
+**How to fix a finding.**
+
+- **Status, instructions, a reboot reminder:** use `ansible.builtin.debug` with `msg:`
+  carrying the same text, minus "Press ENTER". It prints and moves on.
+- **A value or decision the play uses afterwards:** `register:` it, and put a `when:` on
+  the task so it asks only when the value is missing, never on a rerun that already has
+  it.
+- **A pause that must stay without a register** (a fixed few-second wait for a service,
+  a wait while the owner logs in somewhere that the next task then checks, an
+  Enter-or-Ctrl+C risk decision): annotate it `# PAUSE-OK: <why it has to wait>`. Prefer
+  a check that fails with an actionable message over a wait, where one is possible.
 
 ---
 

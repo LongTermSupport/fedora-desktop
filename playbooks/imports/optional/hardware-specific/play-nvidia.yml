@@ -280,8 +280,8 @@
       register: mok_import
 
     - name: Display MOK enrollment password
-      ansible.builtin.pause:
-        prompt: |2
+      ansible.builtin.debug:
+        msg: |2
 
           ========================================================================
           IMPORTANT: SECURE BOOT MOK ENROLLMENT REQUIRED
@@ -300,8 +300,7 @@
           6. Select "Reboot"
 
           The password will ONLY be needed this one time during enrollment.
-
-          Press ENTER only after you have memorized the password...
+          It is the mok_password value in your vault, if this output is gone by then.
           ========================================================================
       when:
         - "'SecureBoot enabled' in secure_boot_state.stdout"
@@ -404,15 +403,16 @@
           ========================================
 
     - name: Reboot reminder (only when built != loaded)
-      ansible.builtin.pause:
-        prompt: |2
+      ansible.builtin.debug:
+        msg: |2
 
           ========================================================================
           REBOOT REQUIRED — NVIDIA driver {{ nvidia_built.stdout }} is built but not loaded
           ========================================================================
           {% if 'SecureBoot enabled' in secure_boot_state.stdout and mok_import is changed %}
 
-          ALSO: complete MOK enrollment at boot (password shown earlier in this run).
+          ALSO: complete MOK enrollment at boot (password shown earlier in this run,
+          and stored as mok_password in your vault).
           {% endif %}
 
           After reboot, verify with:
@@ -424,7 +424,5 @@
             vulkaninfo --summary                        # Vulkan devices list
           {% endif %}
             ./scripts/nvidia-status.bash                # full diagnostics
-
-          Press ENTER to acknowledge.
           ========================================================================
       when: nvidia_loaded.stdout != nvidia_built.stdout

@@ -121,6 +121,7 @@
         success_msg: "DisplayLink package version is current: {{ displaylink_version }}"
       when: not version_check_failed
 
+    # PAUSE-OK: a risk decision, Enter accepts and Ctrl+C aborts; fires only when GitHub could not be asked
     - name: Warning about version check failure
       ansible.builtin.pause:
         prompt: |2
@@ -190,8 +191,8 @@
       register: mok_import
 
     - name: Display MOK enrollment password
-      ansible.builtin.pause:
-        prompt: |2
+      ansible.builtin.debug:
+        msg: |2
 
           ========================================================================
           IMPORTANT: SECURE BOOT MOK ENROLLMENT REQUIRED
@@ -210,8 +211,7 @@
           6. Select "Reboot"
 
           The password will ONLY be needed this one time during enrollment.
-
-          Press ENTER only after you have memorized the password...
+          It is the mok_password value in your vault, if this output is gone by then.
           ========================================================================
       when:
         - "'SecureBoot enabled' in secure_boot_state.stdout"
@@ -436,8 +436,8 @@
       when: "'SecureBoot disabled' in secure_boot_state.stdout or 'is already enrolled' in mok_enrolled.stdout | default('')"
 
     - name: Final instructions
-      ansible.builtin.pause:
-        prompt: |2
+      ansible.builtin.debug:
+        msg: |2
 
           ========================================================================
           DisplayLink Installation Status
@@ -461,8 +461,6 @@
           LOG OUT AND BACK IN: the dock-recovery-on-unlock extension changed. On
           Wayland a login is the only thing that loads new extension code.
           {% endif %}
-
-          Press ENTER to continue...
           ========================================================================
 
   handlers:

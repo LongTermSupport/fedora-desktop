@@ -1,0 +1,40 @@
+---
+# Fixture for scripts/qa-ansible-pause.bash: nothing here may be reported.
+# A task list, not a play, so no gate syntax-checks it.
+
+- name: A prompt whose answer the play uses
+  ansible.builtin.pause:
+    prompt: "Enter a colour"
+  register: colour_prompt
+
+- name: Register written before the module key
+  register: secret_prompt
+  ansible.builtin.pause:
+    prompt: "Enter the password"
+    echo: false
+
+- name: Annotated on the name line  # PAUSE-OK: waits while the owner logs in, then the next task checks it
+  ansible.builtin.pause:
+    prompt: "Log in, then press ENTER"
+
+# PAUSE-OK: a fixed wait for the service socket, takes no input
+- name: Annotated on its own line above the task
+  ansible.builtin.pause:
+    seconds: 2
+
+- name: Annotated on the module line
+  ansible.builtin.pause:  # PAUSE-OK: confirmation gate before deleting data
+    prompt: "Type DELETE"
+
+- name: Pause inside a block, registered
+  when: needs_setup
+  block:
+    - name: Ask inside a block
+      ansible.builtin.pause:
+        prompt: "Enter the key"
+      register: key_prompt
+
+- name: Status goes in debug
+  ansible.builtin.debug:
+    msg: |
+      Done. This mentions ansible.builtin.pause in prose only.

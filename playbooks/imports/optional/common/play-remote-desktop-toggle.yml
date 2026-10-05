@@ -135,6 +135,7 @@
       changed_when: disable_result.rc == 0
       failed_when: false  # FAIL-FAST-OK: disable may fail if no active GNOME session
 
+    # PAUSE-OK: a fixed 2 s wait for the extension to unload; asks nothing
     - name: Wait Briefly for Extension to Unload
       ansible.builtin.pause:
         seconds: 2

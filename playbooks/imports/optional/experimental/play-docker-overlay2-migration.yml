@@ -123,6 +123,7 @@
       failed_when: false  # FAIL-FAST-OK: docker may not be installed yet (fresh install)
       when: docker_socket_status.rc != 0
 
+    # PAUSE-OK: a fixed 2 s wait for the Docker socket to start; asks nothing
     - name: Brief Pause for Docker Startup  # noqa: no-handler
       ansible.builtin.pause:
         seconds: 2
@@ -268,6 +269,7 @@
       failed_when: false  # FAIL-FAST-OK: socket may not be active
       changed_when: true
 
+    # PAUSE-OK: a fixed 3 s wait for Docker to stop; asks nothing
     - name: Wait for Docker to Stop
       ansible.builtin.pause:
         seconds: 3
@@ -315,6 +317,7 @@
           Then re-run this migration playbook.
       when: start_socket_result.rc != 0 or start_service_result.rc != 0
 
+    # PAUSE-OK: a fixed 3 s wait for Docker to initialise; asks nothing
     - name: Wait for Docker Service to Initialize
       ansible.builtin.pause:
         seconds: 3

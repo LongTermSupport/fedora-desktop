@@ -107,8 +107,8 @@
       when: lastfm_api_key is not defined or lastfm_api_secret is not defined
       block:
         - name: Display Last.fm API instructions
-          ansible.builtin.pause:
-            prompt: |2
+          ansible.builtin.debug:
+            msg: |2
 
               ============================================
               LAST.FM API CREDENTIALS REQUIRED
@@ -120,7 +120,7 @@
               2. Create an API application (any name/description)
               3. Copy the API Key and Shared Secret
 
-              Press ENTER when you have your credentials ready...
+              The next two prompts ask for them.
 
         - name: Prompt for Last.fm API Key
           ansible.builtin.pause:
@@ -276,6 +276,7 @@
 
     - name: Manual Rescrobbled Setup Required
       block:
+        # PAUSE-OK: waits while the owner logs rescrobbled in to Last.fm; the next task checks the session file
         - name: Display Setup Instructions
           ansible.builtin.pause:
             prompt: |2
@@ -396,6 +397,7 @@
 
     - name: Manual hifi-rs Setup Required
       block:
+        # PAUSE-OK: waits while the owner configures hifi-rs with Qobuz credentials; the next task checks the API
         - name: Display hifi-rs Setup Instructions
           ansible.builtin.pause:
             prompt: |2
