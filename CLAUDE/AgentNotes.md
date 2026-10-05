@@ -56,6 +56,14 @@ pass/fail gate is separate — the repo's documented trio is
 (`verify.bash` is an acceptable synonym). A verdict ("store loads ✅") belongs in
 the acceptance/verify gate, **not** in triage.
 
+### Questions for the owner go in the chat, in one batch, then stop
+
+**Standing rule from the owner:** ask questions directly in the chat text, never through the
+question tool. Gather every open question into one numbered list, each with the options and
+a recommendation where there is one, then stop and wait for the answers. The owner answers
+by dictation from that message, so a question asked in a tool dialog, or scattered across
+several messages, gets lost in the scrollback.
+
 ### `meta-deploy.bash` is how host runs reach the owner — keep its list exact
 
 **Standing rule from the owner:** "META DEPLOY IS PERMANENTLY AND CONTINUOUSLY UPDATED TO
@@ -66,6 +74,11 @@ STUFF". Its `PLANS` list is, at every commit, exactly what needs running **now**
 - **Something needs running: add it,** in dependency order. If a triage needs a flag, put
   it on the plan's line.
 - **It has run and is done: remove it,** in the commit that records the result.
+- **Prune after every run, as the first thing done with its results.** The run's verdict
+  is `untracked/plan-runs/_meta-deploy/<newest>/summary.txt`. As soon as the owner says a
+  run has finished, read it, take every unit that PASSed out of the list, and commit that
+  with the results, before starting other work. Only a unit that failed, or a run that is
+  still owed, stays in.
 - **It cannot usefully run yet: leave it out.** A triage that reads the next boot's journal
   goes in once the reboot has happened, not before. A run that would only repeat one
   already passed is not pending.
