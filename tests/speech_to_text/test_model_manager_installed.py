@@ -5,13 +5,17 @@ model.bin. The manager once counted any snapshot as installed, and then refused 
 download that model again as "already installed", so the broken download could not be
 repaired from the manager (Plan 00156).
 
-Stdlib only, plus the manager's own imports (textual, huggingface_hub), which
-play-speech-to-text.yml installs. Run by scripts/test-wsi-stop-grace.bash.
+Stdlib only. The manager imports textual, rich and huggingface_hub at load and exits without
+them; neither is used by the code under test, so stand-ins are loaded in their place and
+the test runs wherever qa-all.bash does, the CCY container included. Run by
+scripts/test-wsi-stop-grace.bash.
 """
 
 import importlib.util
 import pathlib
+import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -20,7 +24,35 @@ _spec = importlib.util.spec_from_file_location(
 stt_stubs = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(stt_stubs)
 
-manager = stt_stubs.load_script("wsi-model-manager", "wsi_model_manager_installed")
+
+class _Stand:
+    """Stands in for a textual class or callable the manager names at load time."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+
+def _stand_in_modules():
+    def module(name, **attrs):
+        mod = types.ModuleType(name)
+        mod.__dict__.update(attrs)
+        return mod
+
+    return {
+        "textual": module("textual", work=lambda **kwargs: (lambda fn: fn)),
+        "textual.app": module("textual.app", App=_Stand, ComposeResult=_Stand),
+        "textual.binding": module("textual.binding", Binding=_Stand),
+        "textual.screen": module("textual.screen", Screen=_Stand),
+        "textual.widgets": module("textual.widgets", DataTable=_Stand, Footer=_Stand,
+                                  Header=_Stand, Input=_Stand, Static=_Stand),
+        "rich": module("rich"),
+        "rich.text": module("rich.text", Text=_Stand),
+        "huggingface_hub": module("huggingface_hub", snapshot_download=_Stand),
+    }
+
+
+with mock.patch.dict(sys.modules, _stand_in_modules()):
+    manager = stt_stubs.load_script("wsi-model-manager", "wsi_model_manager_installed")
 
 DISTIL_SNAPSHOT = "models--distil-whisper--distil-large-v3.5-ct2/snapshots/9793ccc0"
 

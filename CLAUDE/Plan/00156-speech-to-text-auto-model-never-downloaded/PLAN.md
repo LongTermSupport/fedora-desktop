@@ -71,7 +71,7 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
 
 - [x] ✅ **Task 2.2**: The playbook downloads `auto`'s model; prefs labels and descriptions.
 
-- [ ] ⬜ **Task 2.3**: The play's "Download The Auto Model" hung on the first deploy:
+- [ ] 🔄 **Task 2.3**: The play's "Download The Auto Model" hung on the first deploy:
   `model.bin` stayed a 0-byte `.incomplete`, the process sat in `futex_do_wait` for
   30 minutes holding the blob's `.lock`, and the HEAD request (302 to the xet CDN)
   answered at once. The same 0-byte state is what the reboot left behind. Find why the
@@ -79,6 +79,11 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
   owner whether a large model download should run by default on a metered (5G) link.
   The deploy was stopped by a shutdown at this task, so the rest of the play, its
   acceptance and Plan 00151 did not run. Every file before the download was deployed.
+
+  - [x] ✅ The task has a 30-minute time limit per model (`timeout: 1800`), so a stall
+    fails the play instead of holding it.
+  - [ ] ⬜ HOST: why the xet download stalls (needs a host run to observe).
+  - [ ] 🚫 Owner decision: should a large model download run by default on a metered (5G) link?
 
 ### Phase 3: Review and deploy
 
@@ -93,11 +98,11 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
   installed. Installing it was refused in-session; the owner runs the install.
 - [ ] ⬜ **Task 4.2**: The model list offers models that do not fit the GPU's memory
   (`large-v3`, fp16, on a 4 GB card).
-- [ ] ⬜ **Task 4.3**: `qa-all.bash` gate `wsi-stop-grace` is red in the CCY container:
+- [x] ✅ **Task 4.3**: `qa-all.bash` gate `wsi-stop-grace` was red in the CCY container:
   `test_model_manager_installed.py` loads `wsi-model-manager`, which exits on import
-  without `textual` and `huggingface_hub`, and this project's ccy image
-  (`.claude/ccy/Dockerfile`) has neither. Declare them there (or stub them in
-  `tests/speech_to_text/stt_stubs.py`), so the gate tests what it names.
+  without `textual`, `rich` and `huggingface_hub`, and the ccy image has none of them.
+  The test now loads stand-ins for them (none is used by the code under test), so it
+  runs anywhere; a control run against 6515dd7c's manager still fails on the defect.
 
 ## Success Criteria
 

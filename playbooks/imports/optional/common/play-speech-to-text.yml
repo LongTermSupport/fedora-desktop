@@ -476,9 +476,15 @@
     # wait, and an interrupted one leaves a snapshot with no model.bin. faster-whisper's
     # own download_model fetches the files WhisperModel loads, resumes a partial
     # download, and maps a bare name to its repo.
+    #
+    # The time limit is per model. The download can stall with a 0-byte model.bin and no
+    # output, which would hold the whole deploy. 30 minutes is generous for about 1.5 GB
+    # on a slow link; past it the task fails rather than waiting for ever, and a re-run
+    # resumes what did arrive.
     - name: Download The Auto Model
       become: true
       become_user: "{{ user_login }}"
+      timeout: 1800
       ansible.builtin.command:
         argv:
           - python3
