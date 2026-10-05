@@ -21,15 +21,17 @@ recording (at most max_seconds) is one clip, transcribed once at STOP by the sam
 worker and model.
 
 Commands, one JSON line each way over a Unix socket:
-    START {max_seconds, silence_seconds, continuous}   KEEPALIVE   PROGRESS
+    START {max_seconds, silence_seconds, continuous}   KEEPALIVE   PROGRESS {with_text}
     STOP (closes the microphone, drains; PROGRESS then reports the text)   ABORT   PING
+    PASTED {chars} (a client pasting in chunks has pasted that much of the text)
 A recording stops itself when the client's KEEPALIVEs stop (15 s), after
 silence_seconds without speech (0 = never), and at max_seconds. The client reads those
 limits from the extension's settings.
 
 A dictation's text counts as delivered once a STOP or PROGRESS reply carrying it reached
 a client. One that never did (the client died, so the heartbeat stopped it) keeps its
-journal, holds off the idle shutdown, and is handed to the next START in its reply.
+journal, holds off the idle shutdown, and is handed to the next START in its reply, with
+how much of it was already pasted in chunks; one pasted whole owes nothing.
 
 Auto-shuts down after idle timeout (default: 20 minutes; 0 = never). wsi-stream passes
 the extension's server-idle-timeout-minutes setting when it starts the server.
@@ -440,6 +442,7 @@ class DictationSession:
         self._in_flight = None
         self._transcribing = False  # the model is in use, whatever the state says
         self.delivered = False      # a reply with the final text reached a client
+        self.pasted_chars = 0       # of the text, how much a chunking client has pasted
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -579,15 +582,31 @@ class DictationSession:
         with self._lock:
             self.delivered = True
 
+    def mark_pasted(self, chars):
+        """A chunking client pasted the text's first `chars` characters.
+
+        Raises ValueError for a count that is not a whole number within the text, or that
+        goes back: the client only ever pastes more.
+        """
+        if type(chars) is not int:
+            raise ValueError(f"chars must be a whole number (got {chars!r})")
+        with self._lock:
+            if not self.pasted_chars <= chars <= len(self._transcript.text):
+                raise ValueError(f"chars must be from {self.pasted_chars} to "
+                                 f"{len(self._transcript.text)} (got {chars})")
+            self.pasted_chars = chars
+
     def owes_text(self):
         with self._lock:
             return self._owes_text_locked()
 
     def _owes_text_locked(self):
-        """Ended with something the user has not been given: text, kept audio or a failure."""
+        """Ended with something the user has not been given: text not pasted, kept audio or
+        a failure."""
         if self.state not in ("done", "failed") or self.delivered:
             return False
-        return self.state == "failed" or bool(self._transcript.text) or bool(self.kept_audio)
+        unpasted = self._transcript.text[self.pasted_chars:].strip()
+        return self.state == "failed" or bool(unpasted) or bool(self.kept_audio)
 
     def hand_over(self):
         """At the next START: what the user was never given, once, or None.
@@ -600,7 +619,7 @@ class DictationSession:
             if self._owes_text_locked():
                 self.delivered = True
                 return {"status": self.state, "transcription": self._transcript.text,
-                        "stop_reason": self.stop_reason, "error": self.error,
+                        "pasted_chars": self.pasted_chars, "stop_reason": self.stop_reason, "error": self.error,
                         "journal": str(self.session_dir / "journal.jsonl"),
                         "session_dir": str(self.session_dir),
                         "kept_audio": list(self.kept_audio)}
@@ -1101,6 +1120,21 @@ def handle_progress_command(client_socket, params):
     send_progress(client_socket, with_text=with_text)
 
 
+def handle_pasted_command(client_socket, params):
+    """PASTED {chars}: a chunking client has pasted the text's first `chars` characters,
+    so a dictation it never collects is handed over owing only the rest."""
+    update_activity()
+    if session is None:
+        no_session(client_socket)
+        return
+    try:
+        session.mark_pasted(params.get("chars"))
+    except ValueError as e:
+        send_response(client_socket, {"status": "error", "message": str(e)})
+        return
+    send_response(client_socket, {"status": "ok"})
+
+
 def handle_abort_command(client_socket, params):
     """ABORT (Escape): close the microphone and discard the dictation."""
     update_activity()
@@ -1140,6 +1174,7 @@ COMMANDS = {
     "STOP": handle_stop_command,
     "KEEPALIVE": handle_keepalive_command,
     "PROGRESS": handle_progress_command,
+    "PASTED": handle_pasted_command,
     "ABORT": handle_abort_command,
     "PING": handle_ping_command,
     "SHUTDOWN": handle_shutdown_command,

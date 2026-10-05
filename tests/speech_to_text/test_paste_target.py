@@ -7,8 +7,9 @@ paste (PasteKey on D-Bus), and a continuous dictation can paste in chunks as it 
 
 Covered: the panel's reply is parsed, and a panel that cannot answer leaves the key
 chosen at Insert; the keys pressed for each answer (Ctrl+S only when asked, after the
-Enter); and the chunk paster, whose chunks put together are exactly the text a single
-paste at stop would have pasted.
+Enter); and the chunk paster's offsets and markers. That its chunks put together are
+exactly what one paste at stop pastes is checked against the real single-paste path, by
+running run_server_mode both ways (test_server_client.ChunkedDictationTest).
 
 Stdlib only. Run by scripts/test-wsi-stop-grace.bash.
 """

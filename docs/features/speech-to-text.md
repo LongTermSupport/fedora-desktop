@@ -321,8 +321,8 @@ refuses to start and says why; turning the setting off still records.
 
 If anything fails (a segment cannot be transcribed, the microphone disappears,
 transcription falls more than 120 s behind, the final segments do not finish in time),
-the dictation stops at once and **nothing is pasted**: the text so far is put on the
-clipboard (Ctrl+V), the audio not yet transcribed is kept as WAV files, and a
+the dictation stops at once and **nothing more is pasted**: the text so far not already
+pasted while dictating is put on the clipboard (Ctrl+V), the audio not yet transcribed is kept as WAV files, and a
 notification that stays until dismissed names the folder. While a dictation runs, its
 text is also written line by line to `$XDG_RUNTIME_DIR/wsi-dictation/session-*/journal.jsonl`
 (cleared at logout).
@@ -330,7 +330,7 @@ text is also written line by line to `$XDG_RUNTIME_DIR/wsi-dictation/session-*/j
 If `wsi-stream` itself dies, its keepalives stop and the server closes the microphone
 15 s later and finishes the transcription, but nobody is left to paste it. The server
 keeps that dictation's journal, stays up (even past its idle timeout) and, at the next
-Insert, the text is put on the clipboard (Ctrl+V) and a notification that stays names
+Insert, the text it had not yet pasted is put on the clipboard (Ctrl+V) and a notification that stays names
 the journal. The new recording then carries on as usual; its own result replaces the
 clipboard when it is pasted, so paste the old text first. If the server stops before
 the next Insert (logout, a playbook run), the text is still in the journal until logout:

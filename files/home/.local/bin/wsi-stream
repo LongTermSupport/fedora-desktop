@@ -863,17 +863,29 @@ def paste_chunk(chunks, text_so_far):
     """Paste the text committed since the last chunk, with no Enter (that ends the dictation).
 
     A paste that fails is logged and not counted: its text is pasted with the next chunk,
-    or at stop. The recording carries on either way.
+    or at stop. The recording carries on either way. The server is told how much is
+    pasted (PASTED), so a dictation this client never collects is handed over owing only
+    the rest.
     """
     pending = chunks.next_chunk(text_so_far)
     if pending is None:
         return
     chunk, pasted_after = pending
     log(f"Pasting a chunk ({len(chunk)} chars)")
-    if auto_paste(chunk, skip_enter=True):
-        chunks.mark_pasted(pasted_after)
-    else:
+    if not auto_paste(chunk, skip_enter=True):
         log("The chunk was not pasted; it goes out with the next one", "WARN")
+        return
+    chunks.mark_pasted(pasted_after)
+    reply = send_server_command("PASTED", {"chars": pasted_after})
+    if reply.get("status") != "ok":
+        log(f"The server was not told the chunk was pasted ({reply}); a dictation handed "
+            "over later would include it", "WARN")
+
+
+def unpasted_text(transcription, pasted_chars):
+    """(the text not yet pasted, the number of words already pasted) of a dictation."""
+    pasted = transcription[:pasted_chars]
+    return transcription[pasted_chars:].strip(), len(pasted.split())
 
 
 def relay_progress(progress):
@@ -903,17 +915,23 @@ def report_preview_fallback(preview):
     desktop_notification(message, 0)  # 0: stays until dismissed
 
 
-def report_failed_dictation(progress):
-    """FAILED: the text so far goes to the clipboard (never pasted), and the user is told."""
-    text = (progress.get("transcription") or "").strip()
+def report_failed_dictation(progress, pasted_chars=0):
+    """FAILED: the text so far not yet pasted in chunks goes to the clipboard (never
+    pasted), and the user is told."""
+    text, words_pasted = unpasted_text(progress.get("transcription") or "", pasted_chars)
     error = progress.get("error") or "unknown error"
     lines = [f"Dictation failed: {error}"]
+    if words_pasted:
+        lines.append(f"Its first {words_pasted} words were already pasted.")
+    rest = "The rest of the text" if words_pasted else "The text so far"
     if text and copy_to_clipboard(text, use_clipboard=True):
-        lines.append(f"The text so far ({len(text.split())} words) is on the clipboard: Ctrl+V. "
+        lines.append(f"{rest} ({len(text.split())} words) is on the clipboard: Ctrl+V. "
                      "The next copy or dictation replaces it.")
     elif text:
-        lines.append("The text so far could not be copied to the clipboard; "
+        lines.append(f"{rest} could not be copied to the clipboard; "
                      f"it is in {progress.get('session_dir')}/journal.jsonl")
+    elif words_pasted:
+        lines.append("No more text had been transcribed.")
     else:
         lines.append("No text had been transcribed yet.")
     if progress.get("kept_audio"):
@@ -931,17 +949,26 @@ def report_failed_dictation(progress):
 def report_undelivered_dictation(handed):
     """The server held a dictation no client collected (wsi-stream died before it ended).
 
-    Its text goes on the clipboard now, and a notification that stays says so and where
-    the journal is kept.
+    Its text not already pasted in chunks goes on the clipboard now, and a notification
+    that stays says so and where the journal is kept.
     """
-    text = (handed.get("transcription") or "").strip()
+    text, words_pasted = unpasted_text(handed.get("transcription") or "",
+                                       handed.get("pasted_chars") or 0)
     why = handed.get("error") or handed.get("stop_reason") or "unknown"
-    lines = [f"Your previous dictation was never pasted (it ended: {why})."]
+    if words_pasted:
+        lines = [f"Your previous dictation was never pasted in full (it ended: {why}). "
+                 f"Its first {words_pasted} words were already pasted."]
+        rest = "The rest of its text"
+    else:
+        lines = [f"Your previous dictation was never pasted (it ended: {why})."]
+        rest = "Its text"
     if text and copy_to_clipboard(text, use_clipboard=True):
-        lines.append(f"Its text ({len(text.split())} words) is on the clipboard now: Ctrl+V. "
+        lines.append(f"{rest} ({len(text.split())} words) is on the clipboard now: Ctrl+V. "
                      "The next copy or dictation replaces it.")
     elif text:
-        lines.append("Its text could not be copied to the clipboard.")
+        lines.append(f"{rest} could not be copied to the clipboard.")
+    elif words_pasted:
+        lines.append("No more text had been transcribed.")
     else:
         lines.append("It had no text.")
     lines.append(f"It is kept in {handed.get('journal')} until you log out.")
@@ -1162,7 +1189,7 @@ def run_server_mode(args):
         progress = send_server_command("PROGRESS")
 
     if progress.get("status") == "failed":
-        report_failed_dictation(progress)
+        report_failed_dictation(progress, chunks.pasted if chunks is not None else 0)
         return 1
     if progress.get("status") != "done":
         log(f"Server STOP failed: {progress}", "ERROR")

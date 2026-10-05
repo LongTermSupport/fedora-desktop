@@ -7,7 +7,10 @@ recorders. Covered: START carries the limits from Settings (continuous) or the f
 there is no client-side time limit in continuous mode; KEEPALIVEs are sent and PROGRESS
 is relayed to the panel; Insert drains then pastes; a server that stops by itself is
 followed, not stopped again; FAILED exits non-zero with the text so far on the clipboard
-and nothing pasted; Escape sends ABORT; a vanished server fails loudly.
+and nothing pasted; Escape sends ABORT; a vanished server fails loudly. A continuous
+dictation pasted in chunks: the chunks are asked for with PROGRESS {with_text} and
+reported with PASTED, they join to exactly what one paste at stop pastes, and a failure
+or a handed-over dictation puts on the clipboard only what was not pasted.
 
 Stdlib only. Run by scripts/test-wsi-stop-grace.bash.
 """
@@ -108,14 +111,15 @@ class ClientCase(unittest.TestCase):
         self.server = StubServer(self.socket_path, answer)
         self.addCleanup(self.server.close)
 
-    def run_client(self, signal_after=None, signum=signal.SIGTERM, auto_paste=False, timeout=120):
+    def run_client(self, signal_after=None, signum=signal.SIGTERM, auto_paste=False, timeout=120,
+                   wrap_marker=False):
         if signal_after is not None:
             timer = threading.Timer(signal_after, os.kill, args=(os.getpid(), signum))
             timer.start()
             self.addCleanup(timer.cancel)
         args = argparse.Namespace(
             debug=False, no_notify=False, language="en", timeout=timeout, claude_process=False,
-            wrap_marker=False, auto_paste=auto_paste, no_auto_enter=True, paste_with_shift=1,
+            wrap_marker=wrap_marker, auto_paste=auto_paste, no_auto_enter=True, paste_with_shift=1,
             clipboard=True)
         rc = wsi_stream.run_server_mode(args)
         for cleanup in self.registered:
@@ -325,6 +329,97 @@ class ServerClientTest(ClientCase):
         rc = self.run_client()
         self.assertEqual(rc, 1)
         self.assertEqual(self.server.received, [])
+
+
+FIRST, SECOND = "so my first experience", "so my first experience was llama cpp"
+WHOLE = "so my first experience was llama cpp which ran a model locally"
+
+
+def chunked(snapshots, after_stop, start_extra=None):
+    """A continuous dictation's server: PROGRESS {with_text} answers each of `snapshots`
+    in turn as the text so far (the last repeats), STOP answers draining, PROGRESS then
+    answers from `after_stop`; PASTED is acknowledged."""
+    snapshots, after = list(snapshots), list(after_stop)
+    stopped = []
+
+    def answer(command, params):
+        if command == "START":
+            return {"status": "recording", "session_dir": "/run/user/0/wsi-dictation/s",
+                    **(start_extra or {})}
+        if command == "KEEPALIVE":
+            return {"status": "recording"}
+        if command == "PASTED":
+            return {"status": "ok"}
+        if command == "STOP":
+            stopped.append(True)
+            return {"status": "draining", "drain_seconds_left": 5, "segments_pending": 1}
+        if command == "PROGRESS" and stopped:
+            return after.pop(0) if len(after) > 1 else after[0]
+        if command == "PROGRESS" and params.get("with_text"):
+            text = snapshots.pop(0) if len(snapshots) > 1 else snapshots[0]
+            return dict(RECORDING, text_so_far=text)
+        if command == "PROGRESS":
+            return RECORDING
+        return {"status": "error", "message": f"unexpected {command}"}
+
+    return answer
+
+
+class ChunkedDictationTest(ClientCase):
+    """run_server_mode pasting a continuous dictation in chunks (Plan 00148 Task 9.3),
+    through the real stop path: the chunks are asked for with PROGRESS {with_text}, each
+    is reported to the server with PASTED, and what is left goes out at stop."""
+
+    def dictate(self, interval, wrap_marker=True, after_stop=(dict(DONE, transcription=WHOLE),)):
+        self.settings = dict(CONTINUOUS, **{"dictation-paste-interval-seconds": interval})
+        self.serve(chunked([FIRST, SECOND], after_stop))
+        rc = self.run_client(signal_after=2.6, auto_paste=True, wrap_marker=wrap_marker)
+        self.server.close()
+        self.socket_path.unlink()
+        self.registered.clear()
+        return rc
+
+    def test_the_chunks_paste_exactly_what_one_paste_at_stop_would(self):
+        self.assertEqual(self.dictate("0"), 0)
+        single, self.pasted = self.pasted, []
+        self.assertEqual(len(single), 1, "with no interval the text is pasted once, at stop")
+        self.assertEqual(self.dictate("1"), 0)
+        self.assertGreater(len(self.pasted), 2, f"no chunk was pasted before the stop: {self.pasted}")
+        self.assertEqual("".join(self.pasted), single[0])
+
+    def test_each_chunk_is_asked_for_with_the_text_and_reported_as_pasted(self):
+        self.dictate("1", wrap_marker=False)
+        asked = [p for c, p in self.server.received if c == "PROGRESS" and p.get("with_text")]
+        self.assertTrue(asked, "PROGRESS was never asked for the text so far")
+        reported = [p["chars"] for c, p in self.server.received if c == "PASTED"]
+        self.assertEqual(reported, [len(FIRST), len(SECOND)])
+
+    def test_a_failure_after_chunks_copies_only_the_text_not_yet_pasted(self):
+        failed = {"status": "failed", "transcription": WHOLE, "error": "CUDA out of memory",
+                  "session_dir": "/run/user/0/wsi-dictation/s"}
+        rc = self.dictate("1", wrap_marker=False, after_stop=(failed,))
+        self.assertEqual(rc, 1)
+        self.assertEqual(self.clipboard, ["which ran a model locally"])
+        message = " ".join(self.notes)
+        self.assertIn("already pasted", message)
+        self.assertNotIn(f"({len(WHOLE.split())} words)", message)
+
+
+class UndeliveredAfterChunksTest(ClientCase):
+    """A dictation handed over at START whose client had pasted part of it in chunks."""
+
+    def test_only_the_text_never_pasted_goes_to_the_clipboard(self):
+        handed = {"status": "done", "transcription": WHOLE, "pasted_chars": len(SECOND),
+                  "stop_reason": "heartbeat lost: no KEEPALIVE for 15 s",
+                  "journal": "/run/user/0/wsi-dictation/old/journal.jsonl"}
+        self.serve(chunked([""], [DONE], start_extra={"undelivered": handed}))
+        rc = self.run_client(signal_after=0.5)
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.clipboard[0], "which ran a model locally")
+        loud = [m for m, ms in self.note_expiry if ms == 0 and "journal.jsonl" in m]
+        self.assertTrue(loud, self.note_expiry)
+        self.assertIn("already pasted", loud[0])
+        self.assertIn("never pasted", loud[0])
 
 
 class PreviewFallbackTest(ClientCase):
