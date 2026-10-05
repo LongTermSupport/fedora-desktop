@@ -64,7 +64,7 @@ release tag rather than the branch tip.
 
 ### Phase 2: Release command
 
-- [x] ✅ **Task 2.1**: Tests first (`scripts/test-release.bash`, 42 cases, a gate in
+- [x] ✅ **Task 2.1**: Tests first (`scripts/test-release.bash`, 59 cases, mutation-checked, a gate in
   `qa-all.bash`), then `scripts/release.bash`. Two steps, because F44 only takes pull requests:
   `prepare first|minor|patch` refuses on a dirty tree, a branch that is not `F<major>`, one
   behind or ahead of its remote, or CI not green on HEAD; derives the major from the branch;

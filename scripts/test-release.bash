@@ -58,6 +58,8 @@ trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/bin"
 
 ssh-keygen -q -t ed25519 -N '' -C "$PRINCIPAL" -f "$work/key"
+ssh-keygen -q -t ed25519 -N '' -C other@example.com -f "$work/otherkey"
+# Only the test's own checks use this file; release.bash derives its own from user.signingkey.
 printf '%s %s\n' "$PRINCIPAL" "$(cut -d' ' -f1,2 "$work/key.pub")" >"$work/signers"
 
 # A stub gh: records every call, answers the CI question from RELEASE_TEST_CI.
@@ -73,7 +75,8 @@ case "$1 $2" in
             none) echo '[]' ;;
         esac ;;
     "pr create") echo "https://example.invalid/pull/1" ;;
-    "release create") ;;
+    "release view") [ "${RELEASE_TEST_RELEASE_EXISTS:-0}" = 1 ] || exit 1 ;;
+    "release create") [ "${RELEASE_TEST_RELEASE_FAIL:-0}" = 0 ] || exit 1 ;;
     *) echo "stub gh: unexpected $*" >&2; exit 99 ;;
 esac
 STUB
@@ -96,23 +99,29 @@ fixture() {
     git -C "$dir" config user.email "$PRINCIPAL"
     git -C "$dir" config gpg.format ssh
     git -C "$dir" config user.signingkey "$work/key.pub"
-    git -C "$dir" config gpg.ssh.allowedSignersFile "$work/signers"
-    git -C "$dir" config commit.gpgsign true
-    git -C "$dir" config tag.gpgsign true
+    # Signing is NOT switched on by config (and no allowed-signers file is set): whether
+    # release.bash itself signs its commit and tag, and verifies against the owner's own
+    # key, is what the cases below must show.
     git -C "$dir" remote add origin "$dir.git"
     echo base >"$dir/file"
     git -C "$dir" add -A
-    git -C "$dir" commit -q -m "base"
-    git -C "$dir" push -q origin F44
+    git -C "$dir" commit -q -S -m "base" || setup_fail "base commit"
+    git -C "$dir" push -q origin F44 || setup_fail "push base"
     : >"$RELEASE_TEST_GH_LOG"
     echo "$dir"
+}
+
+# setup_fail WHAT: a fixture step failed; the cases after it would test nothing.
+setup_fail() {
+    echo "SETUP FAILED: $*" >&2
+    exit 2
 }
 
 # commit DIR SUBJECT: one more signed commit, pushed.
 commit() {
     echo "$2" >>"$1/file"
-    git -C "$1" commit -q -am "$2"
-    git -C "$1" push -q origin "$(git -C "$1" branch --show-current)"
+    git -C "$1" commit -q -S -am "$2" || setup_fail "commit $2"
+    git -C "$1" push -q origin "$(git -C "$1" branch --show-current)" || setup_fail "push $2"
 }
 
 # run DIR ARGS...: run the fixture's release.bash; sets rc and out.
@@ -127,15 +136,15 @@ run() {
 # owner did not sign) and push, leaving F44 ready for `tag`.
 merge_release() {
     local dir="$1" version="$2"
-    git -C "$dir" switch -q F44
-    git -C "$dir" -c commit.gpgsign=false merge -q --no-ff -m "Merge pull request" "release-$version"
-    git -C "$dir" push -q origin F44
+    git -C "$dir" switch -q F44 || setup_fail "switch to F44"
+    git -C "$dir" merge -q --no-ff -m "Merge pull request" "release-$version" || setup_fail "merge release-$version"
+    git -C "$dir" push -q origin F44 || setup_fail "push merge"
 }
 
 # seed_tag DIR VERSION: a release tag left by an earlier run.
 seed_tag() {
-    git -C "$1" tag -s -m "Release $2" "$2"
-    git -C "$1" push -q origin "$2"
+    git -C "$1" tag -s -m "Release $2" "$2" || setup_fail "tag $2"
+    git -C "$1" push -q origin "$2" || setup_fail "push tag $2"
 }
 
 # expect NAME RC [TEXT]: pass when the last run exited RC and its output contains TEXT.
@@ -228,7 +237,7 @@ run "$dir" prepare first --yes
 expect "first when a release exists is refused" 1 "already"
 seed_tag "$dir" 44.9.0
 seed_tag "$dir" 44.10.0
-git -C "$dir" tag 44.11.0-rc1
+git -C "$dir" tag -a -m "candidate" 44.11.0-rc1 || setup_fail "rc tag"
 commit "$dir" "a change"
 run "$dir" prepare patch --yes --dry-run
 expect "patch is numeric (44.10.0 beats 44.9.0; a -rc tag is ignored)" 0 "44.10.1"
@@ -253,7 +262,8 @@ run "$dir" prepare first --yes
 expect "prepare first succeeds" 0 "44.0.0"
 same "it works on branch release-44.0.0" "$(git -C "$dir" branch --show-current)" "release-44.0.0"
 assert "the release branch is pushed" git --git-dir="$dir.git" rev-parse -q --verify refs/heads/release-44.0.0
-assert "the release commit is signed by the owner" git -C "$dir" verify-commit HEAD
+assert "the release commit is signed by the owner" \
+    git -C "$dir" -c gpg.ssh.allowedSignersFile="$work/signers" verify-commit HEAD
 same "its subject is 'Release 44.0.0'" "$(git -C "$dir" log -1 --format=%s)" "Release 44.0.0"
 assert "CHANGELOG.md has the 44.0.0 entry" grep -q '^## 44.0.0' "$dir/CHANGELOG.md"
 assert "a pull request is opened" grep -q "pr create" "$RELEASE_TEST_GH_LOG"
@@ -279,15 +289,80 @@ merge_release "$dir" 44.0.0
 run "$dir" tag 44.0.0 --yes
 expect "tag succeeds after the merge" 0
 same "the tag is annotated" "$(git -C "$dir" cat-file -t 44.0.0)" "tag"
-assert "the tag is signed" git -C "$dir" verify-tag 44.0.0
+assert "the tag is signed (by release.bash itself, not by config)" \
+    git -C "$dir" -c gpg.ssh.allowedSignersFile="$work/signers" verify-tag 44.0.0
 release_commit="$(git -C "$dir" log -1 --format=%H --grep='^Release 44.0.0$' F44)"
 tagged_commit="$(git -C "$dir" rev-parse '44.0.0^{commit}')"
 same "it points at the release commit" "$tagged_commit" "$release_commit"
 differs "not at the merge commit on top of it" "$tagged_commit" "$(git -C "$dir" rev-parse F44)"
 assert "the tag is pushed" git --git-dir="$dir.git" rev-parse -q --verify refs/tags/44.0.0
 assert "a GitHub Release is created from it" grep -q "release create 44.0.0" "$RELEASE_TEST_GH_LOG"
+RELEASE_TEST_RELEASE_EXISTS=1 run "$dir" tag 44.0.0 --yes
+expect "tagging a released version again is refused" 1 "already exists"
+
+echo "== tag: dry run, resume, terminal, other keys, missing entry"
+dir="$(fixture tag-dry)"
+run "$dir" prepare first --yes
+merge_release "$dir" 44.0.0
+: >"$RELEASE_TEST_GH_LOG"
+run "$dir" tag 44.0.0 --dry-run
+expect "tag --dry-run says what it would do" 0 "would tag 44.0.0"
+same "tag --dry-run creates no tag" "$(git -C "$dir" tag --list)" ""
+if grep -q "release create" "$RELEASE_TEST_GH_LOG"; then check "tag --dry-run creates no GitHub Release" no; else check "tag --dry-run creates no GitHub Release" yes; fi
+tag_no_tty_out="$(cd "$dir" && PATH="$work/bin:$PATH" bash scripts/release.bash tag 44.0.0 </dev/null 2>&1)"
+tag_no_tty_rc=$?
+out="$tag_no_tty_out" rc="$tag_no_tty_rc" expect "without --yes and without a terminal it refuses" 1 "terminal"
+same "...and tags nothing" "$(git -C "$dir" tag --list)" ""
+
+dir="$(fixture tag-resume)"
+run "$dir" prepare first --yes
+merge_release "$dir" 44.0.0
+RELEASE_TEST_RELEASE_FAIL=1 run "$dir" tag 44.0.0 --yes
+expect "a failed GitHub Release is reported with the way on" 1 "run this command again"
+assert "(the tag is pushed meanwhile)" git --git-dir="$dir.git" rev-parse -q --verify refs/tags/44.0.0
+: >"$RELEASE_TEST_GH_LOG"
 run "$dir" tag 44.0.0 --yes
-expect "tagging twice is refused" 1 "already exists"
+expect "running it again finishes the Release" 0 "released 44.0.0"
+assert "(it created the Release without a second tag)" grep -q "release create 44.0.0" "$RELEASE_TEST_GH_LOG"
+
+dir="$(fixture tag-otherkey)"
+echo release >>"$dir/file"
+git -C "$dir" -c user.signingkey="$work/otherkey.pub" commit -q -S -am "Release 44.0.0" || setup_fail "other-key commit"
+git -C "$dir" push -q origin F44 || setup_fail "push other-key commit"
+run "$dir" tag 44.0.0 --yes
+if [ "$rc" -eq 1 ] && [ -z "$(git -C "$dir" tag --list)" ]; then
+    check "a release commit signed by another key is not tagged" yes
+else
+    check "a release commit signed by another key is not tagged" no "rc=$rc $out"
+fi
+
+dir="$(fixture tag-noentry)"
+echo release >>"$dir/file"
+git -C "$dir" commit -q -S -am "Release 44.0.0" || setup_fail "entry-less commit"
+git -C "$dir" push -q origin F44 || setup_fail "push entry-less commit"
+run "$dir" tag 44.0.0 --yes
+expect "a release commit with no changelog entry is not tagged" 1 "CHANGELOG"
+
+echo "== prepare: ahead of the remote, a declined prompt, a leftover branch"
+dir="$(fixture ahead)"
+echo local >>"$dir/file"
+git -C "$dir" commit -q -S -am "local only" || setup_fail "local commit"
+run "$dir" prepare first --yes
+expect "a branch ahead of its remote is refused" 1 "ahead"
+
+dir="$(fixture declined)"
+printf 'n\n' >"$work/answer-n"
+declined_out="$(cd "$dir" && PATH="$work/bin:$PATH" EDITOR=true script -qec "bash scripts/release.bash prepare first" /dev/null <"$work/answer-n" 2>&1)"
+same "declining the prompt leaves the F44 branch checked out" "$(git -C "$dir" branch --show-current)" "F44"
+same "...with a clean tree" "$(git -C "$dir" status --porcelain)" ""
+same "...and no release branch left behind" "$(git -C "$dir" branch --list 'release-*')" ""
+lacks "(no pull request was opened)" "$(cat "$RELEASE_TEST_GH_LOG")" "pr create"
+: "$declined_out"
+
+dir="$(fixture leftover)"
+git -C "$dir" branch release-44.0.0
+run "$dir" prepare first --yes
+expect "an existing release branch is refused before anything changes" 1 "already exists"
 
 dir="$(fixture tag-missing)"
 run "$dir" tag 44.0.0 --yes
