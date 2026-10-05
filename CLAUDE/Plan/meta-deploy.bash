@@ -53,10 +53,9 @@ PLAN_ROOT="${scriptDir}"
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
     00158-ccy-sessions-take-over
-    # Next: Plan 00148's deploy (play-speech-to-text.yml, which carries Plan 00156), once
-    # Task 9.10 (the pinned paste target) is in, so one logout covers both. Then 00148's
-    # triage, once you have dictated with Continuous Dictation on. Plans 00109 and 00144
-    # after the logout.
+    00148-stt-unlimited-dictation-loop-and-buffer
+    # Next: 00148's triage, once you have dictated with Continuous Dictation on. Plans
+    # 00109 and 00144 after the logout.
 )
 
 LIST_ONLY=0
