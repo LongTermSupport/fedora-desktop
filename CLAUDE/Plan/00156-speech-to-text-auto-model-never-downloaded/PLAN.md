@@ -165,7 +165,9 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
 
 ## Success Criteria
 
-- [ ] `./CLAUDE/Plan/meta-deploy.bash` runs the play green, downloading no model.
+- [x] `./CLAUDE/Plan/meta-deploy.bash` runs the play green, downloading no model
+  (meta-deploy `20261005-180311`: failed=0, no download task; Plan 00148's acceptance
+  26 of 26).
 - [ ] With no model downloaded, Insert says which model to download and records nothing;
   after downloading it in the model manager, Insert in server mode starts a recording.
 - [ ] `./scripts/qa-all.bash` is green with each new rule loaded, and each rule is proved
