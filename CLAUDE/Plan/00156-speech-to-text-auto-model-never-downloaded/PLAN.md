@@ -119,8 +119,8 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
 ### Phase 3: Review and deploy
 
 - [ ] ⬜ **Task 3.1**: The DBF conformance review, then `qa-reviewer`.
-- [ ] ⬜ **Task 3.2**: `deploy.bash` runs `play-speech-to-text.yml`; it is added to
-  `meta-deploy.bash`.
+- [x] ✅ **Task 3.2**: Plan 00148's `deploy.bash` runs `play-speech-to-text.yml`, which
+  carries this plan, and is in `meta-deploy.bash`; no second deploy script is needed.
 - [ ] ⬜ **Task 3.3**: Owner checks: log out and in, open Settings, press Insert in server mode.
 
 ### Phase 4: Findings not fixed here
@@ -137,8 +137,9 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
 
 ## Success Criteria
 
-- [ ] `./CLAUDE/Plan/meta-deploy.bash` runs the play green and `auto`'s model has `model.bin`.
-- [ ] Insert in server mode starts a recording after a fresh login.
+- [ ] `./CLAUDE/Plan/meta-deploy.bash` runs the play green, downloading no model.
+- [ ] With no model downloaded, Insert says which model to download and records nothing;
+  after downloading it in the model manager, Insert in server mode starts a recording.
 - [ ] `./scripts/qa-all.bash` is green with each new rule loaded, and each rule is proved
   red on its fixture.
 
