@@ -205,6 +205,76 @@ export const SCREEN_SHIELD = {
     },
 };
 
+/**
+ * A GObject's signals as far as a test needs them: `connect`/`disconnect` by id (an
+ * unknown id throws, as GObject warns), `emit` to every handler of a signal, and a count
+ * so a test can prove everything connected was disconnected.
+ */
+export class SignalSource {
+    constructor() {
+        this.handlers = new Map();
+        this.nextId = 1;
+    }
+
+    connect(signal, handler) {
+        const id = this.nextId++;
+        this.handlers.set(id, {signal, handler});
+        return id;
+    }
+
+    disconnect(id) {
+        if (!this.handlers.delete(id))
+            throw new Error(`stub signals: no handler ${id} to disconnect`);
+    }
+
+    connectedCount() {
+        return this.handlers.size;
+    }
+
+    emit(signal, ...args) {
+        for (const connected of [...this.handlers.values()]) {
+            if (connected.signal === signal)
+                connected.handler(this, ...args);
+        }
+    }
+}
+
+/**
+ * `Main.overview`: `visible` and the signals the shell emits as it opens and closes
+ * (`showing` when it starts to open, `hidden` once it has closed). `setVisible` emits
+ * them only on a real change, as `Overview._changeShownState` does.
+ */
+class StubOverview extends SignalSource {
+    constructor() {
+        super();
+        this.visible = false;
+    }
+
+    reset() {
+        this.handlers.clear();
+        this.visible = false;
+    }
+
+    setVisible(visible) {
+        if (this.visible === visible)
+            return;
+        this.visible = visible;
+        this.emit(visible ? 'showing' : 'hidden');
+    }
+}
+
+export const overview = new StubOverview();
+
+/** `Main.layoutManager.uiGroup`: what was added above the windows. */
+export const layoutManager = {
+    uiGroup: {
+        children: [],
+        add_child(actor) {
+            this.children.push(actor);
+        },
+    },
+};
+
 /** The shell's own binding is `export let`, and it is `null` on a system that cannot
  * lock. Re-exported live by the loader, so `setScreenShield(null)` is what an extension
  * importing `main.js` then reads. */
@@ -500,6 +570,35 @@ export const St = {
             this.style_class = properties?.style_class;
             this.style = properties?.style;
             this.clutter_text = {};
+        }
+    },
+    /** Records whether it is shown, where it was put and whether it was destroyed. */
+    Widget: class StubWidget {
+        constructor(properties) {
+            this.style = properties?.style;
+            this.reactive = properties?.reactive;
+            this.visible = true;
+            this.destroyed = false;
+        }
+
+        show() {
+            this.visible = true;
+        }
+
+        hide() {
+            this.visible = false;
+        }
+
+        set_position(x, y) {
+            this.position = [x, y];
+        }
+
+        set_size(width, height) {
+            this.size = [width, height];
+        }
+
+        destroy() {
+            this.destroyed = true;
         }
     },
     ClipboardType: {CLIPBOARD: 'clipboard', PRIMARY: 'primary'},

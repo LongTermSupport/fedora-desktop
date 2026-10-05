@@ -9,7 +9,9 @@ the journal cannot be written). A FAILED session keeps the audio it did not tran
 reports the text committed so far; nothing is dropped without saying so.
 
 Also the server's commands over a real socket pair: START's parameters are required,
-STOP drains and PROGRESS reports.
+STOP drains, PROGRESS reports (with the text so far when asked), and PASTED records how
+much of the text a chunking client pasted, so a dictation handed over later owes only
+the rest.
 
 Stdlib only. Run by scripts/test-wsi-stop-grace.bash.
 """
@@ -573,6 +575,53 @@ class CommandTest(SessionCase):
             self.assertIn("still", reply["message"])
             block.set()
             self.assertTrue(self.wait_until(lambda: not server.is_busy()))
+
+    def test_progress_with_text_carries_the_text_so_far_and_does_not_deliver_it(self):
+        self.send("START", {"continuous": True, "max_seconds": 600, "silence_seconds": 0})
+        self.assertNotIn("text_so_far", self.send("PROGRESS"), "only asked for, never by default")
+        self.assertEqual(self.send("PROGRESS", {"with_text": True})["text_so_far"], "")
+        time.sleep(0.3)
+        self.send("STOP")
+        self.wait_for_state("done")
+        reply = self.send("PROGRESS", {"with_text": True})
+        self.assertEqual(reply["text_so_far"], reply["transcription"])
+        self.assertTrue(server.session.delivered, "the final text was delivered")
+        reply = self.send("PROGRESS", {"with_text": "yes"})
+        self.assertEqual(reply["status"], "error")
+        self.assertIn("with_text", reply["message"])
+
+    def end_by_heartbeat(self, text):
+        """A dictation of `text` whose client vanished: done, and nobody collected it."""
+        patcher = mock.patch.object(server, "transcriber", lambda samples, prompt: text)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        with mock.patch.object(server, "HEARTBEAT_SECONDS", 0.3):
+            self.send("START", {"continuous": True, "max_seconds": 600, "silence_seconds": 0})
+            self.wait_for_state("done")
+        return server.session
+
+    def test_text_already_pasted_in_chunks_is_not_handed_over_again(self):
+        self.end_by_heartbeat("one two three")
+        self.assertEqual(self.send("PASTED", {"chars": 3})["status"], "ok")
+        handed = self.send("START", {"max_seconds": 60})["undelivered"]
+        self.assertEqual(handed["transcription"], "one two three")
+        self.assertEqual(handed["pasted_chars"], 3)
+
+    def test_a_dictation_pasted_whole_in_chunks_owes_nothing(self):
+        first = self.end_by_heartbeat("one two three")
+        self.send("PASTED", {"chars": len("one two three")})
+        reply = self.send("START", {"max_seconds": 60})
+        self.assertNotIn("undelivered", reply)
+        self.assertFalse(first.session_dir.exists())
+
+    def test_pasted_refuses_what_cannot_be_a_count_of_the_text(self):
+        self.end_by_heartbeat("one two three")
+        for chars in (-1, 14, "3", True, None):
+            reply = self.send("PASTED", {"chars": chars})
+            self.assertEqual(reply["status"], "error", chars)
+        self.assertEqual(self.send("PASTED", {"chars": 7})["status"], "ok")
+        self.assertEqual(self.send("PASTED", {"chars": 3})["status"], "error",
+                         "the pasted count never goes back")
 
     def test_a_reply_longer_than_one_read_arrives_whole(self):
         long_text = "word " * 5000

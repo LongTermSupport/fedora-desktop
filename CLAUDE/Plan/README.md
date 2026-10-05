@@ -252,10 +252,6 @@ Use these Unicode icons in plan documents:
 
 - [00103-slack-flatpak-rejects-md-dropped-from-nautilus](Completed/00103-slack-flatpak-rejects-md-dropped-from-nautilus/) - Slack Flatpak rejected a `.md` dragged from Nautilus: the sandbox only had `xdg-download`; `play-comms.yml` now grants `home:ro`, deployed and confirmed on the host
 
-- [00102-dash-to-dock-does-not-dodge-ptyxis-terminal](Completed/00102-dash-to-dock-does-not-dodge-ptyxis-terminal/) - Dash to Dock stayed on top of an un-maximised Ptyxis window; `intellihide-mode` is now `ALL_WINDOWS` via `play-gnome-shell-extensions.yml`, deployed and accepted on the host
-
-- [00091-podman-first-docker-optional](Completed/00091-podman-first-docker-optional/) - Demoted rootful Docker from core to an optional playbook (podman-first); merged via PR #42
-
 **Older completed plans** — everything beyond the most recent 30 — are in
 [Completed/README.md](Completed/README.md), moved there verbatim. The retention window
 keeps this index readable; the archive keeps the record whole.

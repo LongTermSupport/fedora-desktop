@@ -37,6 +37,7 @@ TEST_FILES=(
     tests/extensions/test-panel-containers.mjs
     tests/extensions/test-dock-recovery-on-unlock.mjs
     tests/extensions/test-stt-prefs-installed-model.mjs
+    tests/extensions/test-stt-focus-outline.mjs
 )
 
 if ! command -v node >/dev/null; then

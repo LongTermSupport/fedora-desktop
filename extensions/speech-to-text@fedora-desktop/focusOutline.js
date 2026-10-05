@@ -4,7 +4,9 @@
  * paste), so the owner can see it before the text arrives.
  *
  * It follows focus changes, moves and resizes, and takes no input: the outline is a
- * non-reactive border drawn above the windows, so clicks pass through to them.
+ * non-reactive border drawn above the windows, so clicks pass through to them. It is
+ * hidden while the overview shows (from its 'showing' signal until 'hidden'), where the
+ * window it frames is not where it appears.
  */
 
 import St from 'gi://St';
@@ -16,12 +18,9 @@ export class FocusOutline {
     constructor() {
         this._actor = null;
         this._focusSignal = null;
+        this._overviewSignals = [];
         this._window = null;
         this._windowSignals = [];
-    }
-
-    get shown() {
-        return this._actor !== null;
     }
 
     show() {
@@ -33,6 +32,10 @@ export class FocusOutline {
         });
         Main.layoutManager.uiGroup.add_child(this._actor);
         this._focusSignal = global.display.connect('notify::focus-window', () => this._follow());
+        this._overviewSignals = [
+            Main.overview.connect('showing', () => this._actor.hide()),
+            Main.overview.connect('hidden', () => this._follow()),
+        ];
         this._follow();
     }
 
@@ -41,6 +44,9 @@ export class FocusOutline {
             return;
         global.display.disconnect(this._focusSignal);
         this._focusSignal = null;
+        for (const id of this._overviewSignals)
+            Main.overview.disconnect(id);
+        this._overviewSignals = [];
         this._release();
         this._actor.destroy();
         this._actor = null;
@@ -77,6 +83,9 @@ export class FocusOutline {
         const rect = this._window.get_frame_rect();
         this._actor.set_position(rect.x - BORDER_PX, rect.y - BORDER_PX);
         this._actor.set_size(rect.width + 2 * BORDER_PX, rect.height + 2 * BORDER_PX);
-        this._actor.show();
+        if (Main.overview.visible)
+            this._actor.hide();
+        else
+            this._actor.show();
     }
 }

@@ -14,6 +14,10 @@ Newest first, continuing from [../README.md](../README.md#completed-plans).
      were read as an unrecognised section while their folders were plainly completed —
      sixteen advisories saying so. -->
 
+- [00102-dash-to-dock-does-not-dodge-ptyxis-terminal](00102-dash-to-dock-does-not-dodge-ptyxis-terminal/) - Dash to Dock stayed on top of an un-maximised Ptyxis window; `intellihide-mode` is now `ALL_WINDOWS` via `play-gnome-shell-extensions.yml`, deployed and accepted on the host
+
+- [00091-podman-first-docker-optional](00091-podman-first-docker-optional/) - Demoted rootful Docker from core to an optional playbook (podman-first); merged via PR #42
+
 - [00090-resync-ccy-ci-runner-branch-onto-f44](00090-resync-ccy-ci-runner-branch-onto-f44/) - Resynced the diverged Plan 00068 branch onto `F44` and landed it via [PR #39](https://github.com/LongTermSupport/fedora-desktop/pull/39)
 
 - [00085-headless-path-local-bin](00085-headless-path-local-bin/) - A downstream live proof of the composed PR #33/#34 headless mechanisms found a third, unrelated blocker: `ansible-galaxy: command not found` under a non-interactive `sudo -u` invocation, since pipx's `~/.local/bin` shims are never put on PATH there. Exports PATH right after the pipx install block. Merged (`dac4f7c`).
