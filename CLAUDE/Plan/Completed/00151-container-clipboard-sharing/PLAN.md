@@ -1,6 +1,6 @@
 # Plan 00151: container clipboard sharing
 
-**Status**: In Progress
+**Status**: Complete (2026-10-05)
 **Created**: 2026-10-03
 **Owner**: joseph
 **Priority**: Medium
@@ -87,7 +87,9 @@ preferred.
   (89,846 bytes, viewed with Read), through the 5 s guard, no hang. **HOST next**: start ccy in this
   project (it rebuilds), copy an image, press Ctrl+V in Claude; the image attaches. Then
   Task 3.1 moves `wl-clipboard` and the guard into the shared claude-yolo image.
-- [ ] ⬜ **Task 2.2**: Prototype for LXC (same mechanism if the survey says it carries).
+- [x] ✅ **Task 2.2**: Closed without a prototype: the owner considers the plan done once
+  ccy works. LXC stays the documented manual recipe below.
+  Prototype for LXC (same mechanism if the survey says it carries).
   The manual recipe is documented (untested) in `docs/features/container-clipboard.md`:
   a read-only `lxc.mount.entry` for the socket with `optional`, `WAYLAND_DISPLAY` as an
   absolute path, a matching uid, wl-clipboard plus the guard inside, and a container restart
@@ -95,11 +97,13 @@ preferred.
 
 ### Phase 3: Deliver
 
-- [ ] 🔄 **Task 3.1**: Implement in IaC (ccy Dockerfile/launcher with version bumps; the
+- [x] ✅ **Task 3.1**: Implement in IaC (ccy Dockerfile/launcher with version bumps; the
   LXC play), docs updated. ccy done: `wl-clipboard` and the guard moved to the shared image
   (container 2.41, CCY 3.75.0, changelog), removed from this project's Dockerfile; docs
-  `docs/features/container-clipboard.md` and the ccy.md security table. HOST: the next ccy
-  launch in any project rebuilds the base image. LXC remains manual (Task 2.2).
+  `docs/features/container-clipboard.md` and the ccy.md security table. Deployed on the
+  host through meta-deploy; acceptance passed 20 of 20 (image 2.42, guard and wl-paste in a
+  throwaway container, `wl-paste -l` answered over the socket). The owner confirms Ctrl+V of
+  an image works in ccy. LXC remains manual (Task 2.2).
 - [x] ✅ **Task 3.2**: `deploy.bash` (runs `play-claude-yolo.yml`) with `acceptance.bash` as its
   last leg, listed in `meta-deploy.bash`. Acceptance checks launcher, lib and Dockerfile equal
   the checkout, the `claude-yolo:latest` version label, the guard and `wl-paste`/`wl-copy` in
@@ -114,10 +118,11 @@ preferred.
 
 ## Success Criteria
 
-- [ ] The survey states, per container type, whether clipboard image paste is possible
-  and the recommended mechanism, with evidence.
-- [ ] Either Ctrl+V pastes an image into Claude inside ccy and LXC, deployed by IaC and
-  confirmed on the host, or the plan records why not and is closed.
+- [x] The survey states, per container type, whether clipboard image paste is possible
+  and the recommended mechanism, with evidence ([RESEARCH-survey.md](RESEARCH-survey.md)).
+- [x] Ctrl+V pastes an image into Claude inside ccy, deployed by IaC and confirmed on the
+  host. LXC: not automated, because this repo has no LXC config under IaC; the manual recipe
+  is in `docs/features/container-clipboard.md`.
 
 ## Delivery & Milestones
 

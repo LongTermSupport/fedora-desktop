@@ -52,20 +52,9 @@ PLAN_ROOT="${scriptDir}"
 # An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
-    # Plan 00157: first record what the hung earlier triage run was waiting on, then kill it
-    # and everything it started (Ctrl-C could not end it). Touches nothing of this run.
-    00157-cc-desktop-launcher-broken/reap-stuck-triage.bash
-    # Plan 00157: cc says no Claude process was found. Triage only, read-only and quick; it
-    # runs before the deploy below so its report is there first.
-    00157-cc-desktop-launcher-broken
-    # Plan 00151: ccy's clipboard image paste (wl-clipboard and the 5 s wl-paste guard in the
-    # shared image). Deploys the launcher, lib and Dockerfile, builds claude-yolo:latest (a few
-    # minutes), then acceptance checks the files, the image and a live wl-paste. Run it from
-    # the unlocked desktop session: a locked screen makes the wl-paste check fail.
-    00151-container-clipboard-sharing
-    # Next: Plan 00148's deploy (play-speech-to-text.yml, which carries Plan 00156), once
-    # Plan 00156 Task 2.3 gives "Download The Auto Model" a time limit: the last run hung
-    # there for 30 minutes and it would hang again. Then 00148's triage, once you have
+    # Next: Plan 00148's deploy (play-speech-to-text.yml, which carries Plan 00156). The
+    # auto-model download now has a time limit; it waits on the owner's answer on running a
+    # 1.5 GB download by default over a metered link. Then 00148's triage, once you have
     # dictated with Continuous Dictation on. Plans 00109 and 00144 after the logout.
 )
 

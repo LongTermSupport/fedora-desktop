@@ -22,7 +22,7 @@ calls it with no timeout, so if the compositor ever withheld focus, the paste wo
 The fix is a small wrapper that caps each call (see step 4 below).
 
 Evidence and the options that were weighed:
-[Plan 00151 survey](../../CLAUDE/Plan/00151-container-clipboard-sharing/RESEARCH-survey.md).
+[Plan 00151 survey](../../CLAUDE/Plan/Completed/00151-container-clipboard-sharing/RESEARCH-survey.md).
 
 ## What any container needs
 
@@ -79,8 +79,8 @@ connect; with user-namespace remapping enabled it cannot.
 
 ## LXC
 
-Not yet tested, and not yet automated: this repo does not manage LXC container configs
-([Plan 00151](../../CLAUDE/Plan/00151-container-clipboard-sharing/PLAN.md), Task 2.2).
+Not tested, and not automated: this repo does not manage LXC container configs
+([Plan 00151](../../CLAUDE/Plan/Completed/00151-container-clipboard-sharing/PLAN.md), Task 2.2).
 
 1. Add to `/var/lib/lxc/<name>/config`, replacing `1000` with your desktop user's uid:
 

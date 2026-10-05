@@ -31,7 +31,7 @@ while [[ "${repoRoot}" != "/" ]] && [[ ! -e "${repoRoot}/ansible.cfg" ]]; do
 done
 [[ -e "${repoRoot}/ansible.cfg" ]] || { printf '[FATAL] no ansible.cfg above %s\n' "${scriptDir}" >&2; exit 1; }
 # shellcheck source-path=SCRIPTDIR
-# shellcheck source=../_planlib.inc.bash
+# shellcheck source=../../_planlib.inc.bash
 source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
 

@@ -31,7 +31,7 @@ while [[ "${repoRoot}" != "/" ]] && [[ ! -e "${repoRoot}/ansible.cfg" ]]; do
 done
 [[ -e "${repoRoot}/ansible.cfg" ]] || { printf '[FATAL] no ansible.cfg above %s\n' "${scriptDir}" >&2; exit 1; }
 # shellcheck source-path=SCRIPTDIR
-# shellcheck source=../_planlib.inc.bash
+# shellcheck source=../../_planlib.inc.bash
 source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
 
@@ -251,6 +251,36 @@ ccy_session_table() {
   ccy-sessions --list
 }
 
+session_records() {
+  local dir="${XDG_STATE_HOME:-${HOME}/.local/state}/ccy/sessions" f
+  if ! ls -l "${dir}"; then
+    return 1
+  fi
+  for f in "${dir}"/*; do
+    if [[ -f "${f}" ]]; then
+      printf -- '--- %s\n' "${f}"
+      cat "${f}"
+    fi
+  done
+}
+
+restore_journal() {
+  journalctl --user -u ccy-sessions-restore.service -b --no-pager
+}
+
+# claude stores a directory's conversations under ~/.claude/projects/<the path with every
+# character outside [A-Za-z0-9] replaced by '-'>; `claude --continue` has nothing to resume
+# when that holds no conversation. Names and dates only.
+checkout_conversations() {
+  local dir
+  dir="${CLAUDE_HOME}/projects/$(printf '%s' "${PLAN_REPO_ROOT}" | tr -c 'A-Za-z0-9' '-')"
+  printf 'conversation store for this checkout: %s\n' "${dir}"
+  ls -ld "${dir}"
+  printf 'conversations (*.jsonl): %s\n' "$(find "${dir}" -maxdepth 1 -name '*.jsonl' | wc -l)"
+  echo "newest five:"
+  find "${dir}" -maxdepth 1 -name '*.jsonl' -printf '%TY-%Tm-%Td %TH:%TM  %s bytes  %f\n' | sort -r | awk 'NR <= 5'
+}
+
 tools_cc_needs() {
   local tool path
   for tool in tmux systemd-run systemd-escape fzf jq script; do
@@ -324,6 +354,14 @@ probe "processes mentioning claude" claude_processes
 probe "tmux sessions on the ccy server (cc-* are cc's)" ccy_tmux_sessions
 probe "ccy-sessions --list" ccy_session_table
 probe "tools cc needs" tools_cc_needs
+
+echo "=== the boot restore"
+echo "### READ THIS FOR: whether the restore started cc as 'cc --continue' in a directory with"
+echo "###   nothing to continue. claude then prints 'No conversation found to continue' and"
+echo "###   exits, and the held session is what the next cc offers to re-attach to."
+probe "session records the next boot restores" session_records
+probe "the restore service, this boot" restore_journal
+probe "claude conversations stored for this checkout" checkout_conversations
 
 if [[ "${TRACE}" -eq 1 ]]; then
   echo "=== cc --trace"

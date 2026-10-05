@@ -34,8 +34,6 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00157-cc-desktop-launcher-broken](00157-cc-desktop-launcher-broken/) - Bug: `cc` reports that no Claude process was found instead of starting a session. The text is not in this repo, so a read-only `triage.bash` finds who prints it, what `cc` resolves to, and whether the deployed wrapper, the claude install or the credential state changed.
-
 - [00156-speech-to-text-auto-model-never-downloaded](00156-speech-to-text-auto-model-never-downloaded/) - Regression from Plan 00148: the `auto` model was never downloaded, so the warm server would not start after a reboot. Fixed under Defence Before Fix.
 
 - [00155-headset-button-toggles-speech-to-text](00155-headset-button-toggles-speech-to-text/) - Feature: a Bluetooth headset's multifunction button toggles speech-to-text through a TDD'd evdev listener (user service) and a udev access rule in `play-speech-to-text.yml`. Leading candidate: double press toggles, single press stays media play/pause. Triage first, then owner decisions.
@@ -43,8 +41,6 @@ Use these Unicode icons in plan documents:
 - [00154-ccy-sessions-freeze-and-thaw](00154-ccy-sessions-freeze-and-thaw/) - Freeze and thaw ccy sessions from the `ccy-sessions` picker through `podfreeze`: a frozen column (`-` for `cc`), one key that toggles the selected session, a refusal to freeze the session you are typing in, and `notify`/`reboot` naming a frozen session instead of hanging on it
 
 - [00153-release-tags-fedora-major-semver](00153-release-tags-fedora-major-semver/) - Signed release tags `44.MINOR.PATCH` (major tracks Fedora), one release command, and the unattended self-update following the newest tag instead of the branch tip
-
-- [00151-container-clipboard-sharing](00151-container-clipboard-sharing/) - Research then build: can Claude Code's Ctrl+V image paste work inside ccy (Podman) and LXC containers? ccy already mounts the Wayland socket but ships no `wl-clipboard`; LXC has no display socket. Survey first, then prototype; `imgpaste` (Plan 00150) remains the fallback.
 
 - [00148-stt-unlimited-dictation-loop-and-buffer](00148-stt-unlimited-dictation-loop-and-buffer/) - The general speech-to-text improvements plan: a 3 s delayed stop so the last words are kept, unlimited dictation by loop-and-buffer in the warm server (owner's choice), and a review of newer speech models. New speech-to-text work goes here.
 
@@ -195,6 +191,10 @@ Use these Unicode icons in plan documents:
 - [00074-grub-cgroup-check-reports-absence-it-cannot-prove](00074-grub-cgroup-check-reports-absence-it-cannot-prove/) - `run.bash`'s legacy-grub cgroup step now distinguishes a failing `grubby` from a genuine negative and aborts on a proven failure instead of continuing
 
 ## Completed Plans
+
+- [00157-cc-desktop-launcher-broken](Completed/00157-cc-desktop-launcher-broken/) - Bug: host `cc` stopped starting sessions. Triage found the wrapper, its libraries, the claude install and the credentials all sound; `cc` worked again once the session the boot restore had started (`cc --continue`) was gone. Likely cause, unconfirmed: claude's "No conversation found to continue" in that restored session. Left behind: a triage whose interactive-shell probe cannot hang, and a reaper for a hung run.
+
+- [00151-container-clipboard-sharing](Completed/00151-container-clipboard-sharing/) - Ctrl+V image paste works inside ccy: `wl-clipboard` and a 5 s `wl-paste` guard in the shared image (container 2.41+), deployed with a 20-check acceptance and confirmed by the owner. LXC stays a documented manual recipe, as this repo has no LXC config under IaC.
 
 - [00150-image-paste-cli](Completed/00150-image-paste-cli/) - Feature: `imgpaste <image>` prints a self-decoding bash block (WebP, base64, sha256) to paste into any Claude chat, so screenshots reach agents with no clipboard. Deployed by the new `play-cli-tools.yml`, the one play for small CLI utilities. Host acceptance 8 of 8.
 
