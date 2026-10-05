@@ -21,7 +21,8 @@
 #
 # Session names mirror container names: ccy-<project>, then ccy-<project>-2, and so on.
 # Running ccy in a project that has a detached session — the one a dead terminal left
-# behind — offers to re-attach it; a session open in another terminal is never offered.
+# behind — offers to re-attach it; a session open in another terminal is never offered
+# there. ccy-sessions can take one over (ccy_tmux_take_over), detaching the other terminal.
 #
 # Requires print_error (common-pure.bash, always loaded first) and lib/session-registry.bash:
 # every session started here is recorded so a reboot can be undone, and the record's removal
@@ -124,6 +125,118 @@ ccy_tmux_attach() {
     return 0
 }
 
+# ── taking a session over from another terminal ──────────────────────────────────────────
+#
+# A terminal that dropped without letting go — an SSH connection that died while its tmux
+# client stayed connected — holds its session, and the one-terminal rule then refuses it to
+# every other terminal. Taking over detaches that other terminal and attaches this one. Only
+# the client is detached: the session and everything in it keep running.
+
+# How long a detached terminal is given to let go, in tenths of a second. tmux detaches a
+# client by telling it to leave, so the session shows no client only once it has.
+: "${CCY_TMUX_TAKE_OVER_WAIT_TENTHS:=50}"
+
+# ccy_tmux_idle_words <seconds> — "idle 40 s", "idle 12 min", "idle 3 h", "idle 2 d",
+# rounded down. PURE. A negative age (the clock moved back) reads as 0.
+ccy_tmux_idle_words() {
+    local s="$1"
+    if [[ "$s" -lt 0 ]]; then
+        s=0
+    fi
+    if [[ "$s" -lt 60 ]]; then
+        printf 'idle %s s' "$s"
+    elif [[ "$s" -lt 3600 ]]; then
+        printf 'idle %s min' "$((s / 60))"
+    elif [[ "$s" -lt 86400 ]]; then
+        printf 'idle %s h' "$((s / 3600))"
+    else
+        printf 'idle %s d' "$((s / 86400))"
+    fi
+}
+
+# ccy_tmux_client_words <clients> <now> — "<tty> (idle …), <tty> (idle …)". PURE.
+#   <clients> "<tty> <last-activity-epoch>" per line, as ccy_tmux_other_terminals asks tmux
+ccy_tmux_client_words() {
+    local clients="$1" now="$2" tty activity out=""
+    while read -r tty activity; do
+        [[ -n "$tty" ]] || continue
+        out+="${out:+, }${tty} ($(ccy_tmux_idle_words "$((now - activity))"))"
+    done <<<"$clients"
+    printf '%s' "$out"
+}
+
+# _ccy_tmux_clients <name> — the raw "<tty> <last-activity-epoch>" lines for a session.
+_ccy_tmux_clients() {
+    local out
+    if ! out=$(ccy_tmux list-clients -t "=$1" -F '#{client_tty} #{client_activity}' 2>&1); then
+        print_error "could not list the terminals on '$1': $out"
+        return 1
+    fi
+    printf '%s\n' "$out"
+}
+
+# _ccy_tmux_exists <name> — 0 if the session is on the server, 2 if not, 1 on a failure.
+_ccy_tmux_exists() {
+    local listing
+    listing=$(ccy_tmux_list) || return 1
+    [[ -n "$(awk -v want="$1" '$1 == want' <<<"$listing")" ]] || return 2
+}
+
+# ccy_tmux_other_terminals <name> — the terminals a session is open on, worded by
+# ccy_tmux_client_words; empty when it is open on none. Returns 2, silently, when the
+# session has ended (the caller words that), 1 after an error.
+ccy_tmux_other_terminals() {
+    local clients
+    _ccy_tmux_exists "$1" || return $?
+    clients=$(_ccy_tmux_clients "$1") || return 1
+    ccy_tmux_client_words "$clients" "$EPOCHSECONDS"
+}
+
+# ccy_tmux_take_over <name> — detach every other terminal from the session, check it now
+# has none, and attach this one through ccy_tmux_attach. Returns 2 when the session has
+# ended (nothing is attached) or was taken again before the attach; 1 when tmux refuses the
+# detach or the other terminal does not let go in time, and nothing is attached then
+# either. Never kills the session or anything in it.
+ccy_tmux_take_over() {
+    local name="${1:?ccy_tmux_take_over requires a session name}" clients words out rc=0 waited=0
+    _ccy_tmux_exists "$name" || rc=$?
+    if [[ "$rc" -eq 2 ]]; then
+        print_error "'$name' has ended; there is nothing to take over."
+        return 2
+    elif [[ "$rc" -ne 0 ]]; then
+        return 1
+    fi
+    clients=$(_ccy_tmux_clients "$name") || return 1
+    if [[ -n "$clients" ]]; then
+        words=$(ccy_tmux_client_words "$clients" "$EPOCHSECONDS")
+        if ! out=$(ccy_tmux detach-client -s "=$name" 2>&1); then
+            print_error "could not detach '$name' from ${words}: $out"
+            return 1
+        fi
+        echo "Detached '$name' from ${words}; the session keeps running." >&2
+        while :; do
+            rc=0
+            ccy_tmux_is_detached "$name" || rc=$?
+            [[ "$rc" -ne 0 ]] || break
+            if [[ "$rc" -eq 2 ]]; then
+                return 1
+            fi
+            if [[ "$waited" -ge "$CCY_TMUX_TAKE_OVER_WAIT_TENTHS" ]]; then
+                _ccy_tmux_exists "$name" || rc=$?
+                if [[ "$rc" -eq 2 ]]; then
+                    print_error "'$name' ended while it was being taken over; nothing was attached."
+                    return 2
+                fi
+                print_error "'$name' was told to leave ${words}, but it is still open there after $((CCY_TMUX_TAKE_OVER_WAIT_TENTHS / 10)) s. Nothing was attached; the session keeps running."
+                return 1
+            fi
+            sleep 0.1
+            waited=$((waited + 1))
+        done
+    fi
+    ccy_tmux_attach "$name"
+}
+
 # ccy_tmux_offer <project> — when the project has detached sessions, ask what to do. Prints
 # exactly one line on stdout: "attach <name>", "create", or "quit". Prompts go to stderr.
 # It is the same picker as ccy-sessions — one look for the whole human layer — shown only
@@ -142,7 +255,7 @@ ccy_tmux_offer() {
 
     if [[ -z "$rows" ]]; then
         if [[ -n "$in_use" ]]; then
-            echo "Open in other terminals: ${in_use}. Starting a new session." >&2
+            echo "Open in other terminals: ${in_use} (ccy-sessions, Ctrl-T, takes one over). Starting a new session." >&2
         fi
         printf 'create\n'
         return 0
@@ -151,7 +264,7 @@ ccy_tmux_offer() {
     local header picked key row
     header="$(ccy_tmux_header "Enter attach   Ctrl-N new session   Esc or q quit" \
         "Detached sessions started from ${PWD/#${HOME}/\~}" \
-        "${in_use:+Open in other terminals (cannot be attached): ${in_use}}")"
+        "${in_use:+Open in other terminals: ${in_use} — ccy-sessions, Ctrl-T, takes one over}")"
     if ! picked="$(ccy_tmux_pick "${CCY_TMUX_SESSION_PREFIX}: a session is detached here" "$header" "ctrl-n" <<<"${rows%$'\n'}")"; then
         echo "Nothing started." >&2
         printf 'quit\n'

@@ -5,13 +5,17 @@
 # ccy and cc run each interactive session inside tmux on CCY's own server (see
 # docs/ccy.md "Sessions Survive the Terminal"), so a session outlives the terminal that
 # showed it. This is the way back: the same picker ccy and cc show themselves, over every
-# session at once. Arrow keys move; Enter attaches; Ctrl-X ends a session; Ctrl-N starts
-# a new ccy session in the current project folder (by running ccy the normal way); Esc or
-# q leaves. Nothing needs Enter after it.
+# session at once. Arrow keys move; Enter attaches; Ctrl-T takes over a session open in
+# another terminal; Ctrl-X ends a session; Ctrl-N starts a new ccy session in the current
+# project folder (by running ccy the normal way); Esc or q leaves. Nothing needs Enter
+# after it.
 #
 # A session can be attached from ONE terminal only. One that is open elsewhere is shown
 # as such and Enter on it is refused — the tmux server enforces the same rule, so even a
-# race cannot mirror one claude into two terminals. It can still be ended from here.
+# race cannot mirror one claude into two terminals. Ctrl-T takes it over: after a yes/no
+# naming the other terminal and how long it has been idle, that terminal is detached (the
+# way out of a dropped SSH connection still holding the session) and this one attached.
+# The session and everything in it keep running. It can also be ended from here.
 #
 # Each row also names the container network that session is on, asked of the container
 # engine itself so it reflects a later ccy --connect and not only the launch flags:
@@ -654,6 +658,53 @@ confirm_end() {
     fi
 }
 
+# attach_here <name> — attach a detached session; exits once the user detaches again. Returns
+# only when the session was taken or ended between the list and the key, which counts as a try.
+attach_here() {
+    if ccy_tmux_attach "${1}"; then
+        exit 0
+    fi
+    echo "'${1}' was taken or ended just now — the list has been refreshed." >&2
+    return 0
+}
+
+# confirm_take_over <name> — take a session over from the terminal it is open on, after the
+# picker's yes/no naming that terminal and how long it has been idle (no is the default row).
+# Returns 0 when nothing was tried (declined, or nobody holds it any more and it was offered
+# again) so the list comes back without using a try; 1 when the take-over could not happen
+# because the session ended or was taken again meanwhile. Exits 0 after attaching, and 1 on
+# any other failure, whose reason the library has already printed.
+confirm_take_over() {
+    local name="${1}" others rc=0
+    others="$(ccy_tmux_other_terminals "${name}")" || rc=$?
+    if [[ "${rc}" -eq 2 ]]; then
+        echo "'${name}' has ended — the list has been refreshed." >&2
+        return 1
+    elif [[ "${rc}" -ne 0 ]]; then
+        exit 1
+    fi
+    if [[ -z "${others}" ]]; then
+        echo "'${name}' is no longer open anywhere else — the list has been refreshed." >&2
+        return 0
+    fi
+    if ! ccy_tmux_confirm "Take over ${name}?" \
+        "It is open on ${others}. That terminal is detached, not closed, and the session keeps running." \
+        "take over '${name}'"; then
+        echo "Left '${name}' where it is." >&2
+        return 0
+    fi
+    rc=0
+    ccy_tmux_take_over "${name}" || rc=$?
+    case "${rc}" in
+    0) exit 0 ;;
+    2)
+        echo "The list has been refreshed." >&2
+        return 1
+        ;;
+    *) exit 1 ;;
+    esac
+}
+
 # A new session is only ever started the normal way — by running ccy itself, which does
 # every check and prompt it always does — and only from a project folder, which for ccy
 # means a git work tree. Anywhere else the key is shown as unavailable rather than hidden.
@@ -672,9 +723,9 @@ if project_here; then
 else
     new_line="Ctrl-N unavailable: ${here} is not a project folder (no git repository)"
 fi
-HEADER="$(ccy_tmux_header "Enter attach   Ctrl-X end   Ctrl-N new   Esc or q quit" \
+HEADER="$(ccy_tmux_header "Enter attach   Ctrl-T take over   Ctrl-X end   Ctrl-N new   Esc or q quit" \
     "${new_line}" \
-    "\"open elsewhere\" is attached in another terminal: it can be ended here, not attached" \
+    "\"open elsewhere\" is attached in another terminal: Ctrl-T detaches that terminal and attaches this one; the session keeps running" \
     "CPU: over the last second, 100% is one core" \
     "network, token, SSH key: what its container is on and was started with — \"no container\" and \"-\" mean nothing to ask")"
 
@@ -692,7 +743,7 @@ while :; do
         exit 0
     fi
     # The picker prints the key that closed it (empty for Enter), then the chosen row.
-    if ! picked="$(ccy_tmux_pick "CCY sessions" "${HEADER}" "ctrl-x,ctrl-n" <<<"${listing%$'\n'}")"; then
+    if ! picked="$(ccy_tmux_pick "CCY sessions" "${HEADER}" "ctrl-t,ctrl-x,ctrl-n" <<<"${listing%$'\n'}")"; then
         exit 0 # Esc or q
     fi
     key="${picked%%$'\n'*}"
@@ -710,14 +761,20 @@ while :; do
         confirm_end "${name}"
         continue
         ;;
+    ctrl-t)
+        if [[ "${row}" == *"open elsewhere"* ]]; then
+            if confirm_take_over "${name}"; then
+                continue
+            fi
+        else
+            attach_here "${name}"
+        fi
+        ;;
     *)
         if [[ "${row}" != *"open elsewhere"* ]]; then
-            if ccy_tmux_attach "${name}"; then
-                exit 0
-            fi
-            echo "'${name}' was taken or ended just now — the list has been refreshed." >&2
+            attach_here "${name}"
         else
-            echo "'${name}' is open in another terminal. Detach it there (F12, Detach), or end it here with Ctrl-X." >&2
+            echo "'${name}' is open in another terminal. Ctrl-T takes it over here; Ctrl-X ends it." >&2
         fi
         ;;
     esac

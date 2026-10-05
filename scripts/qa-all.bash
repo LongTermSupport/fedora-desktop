@@ -673,6 +673,20 @@ fi
 sessions_reboot_summary=$(qa_gate_case_count "$sessions_reboot_out")
 qa_pass_line ccy-sessions-reboot "$sessions_reboot_summary"
 
+# ccy-sessions Ctrl-T, taking over a session open in another terminal (Plan 00158): the
+# library's ccy_tmux_take_over under a fake tmux holding sessions and clients, and the REAL
+# picker under `script` with a fake fzf. The other terminal is detached and this one
+# attached, nothing is ever killed, and nothing is attached when the session ended, tmux
+# refused the detach, the other terminal did not let go, or the user said no.
+sessions_take_over_out=""
+if ! sessions_take_over_out="$(bash "$SCRIPT_DIR/test-ccy-sessions-take-over.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-sessions-take-over \
+        "ccy-sessions take-over unit tests failed" \
+        "$sessions_take_over_out"
+fi
+sessions_take_over_summary=$(qa_gate_case_count "$sessions_take_over_out")
+qa_pass_line ccy-sessions-take-over "$sessions_take_over_summary"
+
 # The restore-only SSH_ASKPASS (Plan 00135 Task 6.2), with the REAL ssh-keygen, ssh-agent and
 # ssh-add: a server's restored session unlocks its key unattended on the host and in the
 # container's entrypoint, an ordinary launch never uses askpass, the passphrase reaches no
