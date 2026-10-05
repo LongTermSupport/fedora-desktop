@@ -594,6 +594,7 @@ if (cd "$REPO_ROOT" && python3 -m unittest \
         tests/speech_to_text/test_continuous_segmenter.py \
         tests/speech_to_text/test_continuous_session.py \
         tests/speech_to_text/test_server_client.py \
+        tests/speech_to_text/test_server_start.py \
         tests/speech_to_text/test_model_manager_installed.py \
         tests/speech_to_text/test_paste_target.py \
         tests/speech_to_text/test_claude_process.py \

@@ -34,6 +34,7 @@ os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 # Constants
 LOG_DIR = Path.home() / ".local/share/speech-to-text"
 LOG_FILE = LOG_DIR / "debug.log"
+SERVER_LOG_FILE = LOG_DIR / "server.log"  # written by wsi-stream-server
 CACHE_DIR = Path.home() / ".cache/speech-to-text"
 TRANSCRIPTION_FILE = CACHE_DIR / "last-transcription.txt"
 BUFFER_FILE = CACHE_DIR / "streaming-buffer.txt"
@@ -756,8 +757,9 @@ def server_command(model, language, idle_timeout_seconds):
 def start_server(language="en"):
     """Start the persistent server if not already running.
 
-    Raises if the model or the idle timeout cannot be read; returns False if the
-    server does not come up.
+    Raises if the model or the idle timeout cannot be read, or if the server it waits
+    for exits before it answers (naming the server's error); returns False if the
+    server does not come up in time.
     """
     if is_server_running():
         log("Server already running")
@@ -777,10 +779,11 @@ def start_server(language="en"):
         cmd = server_command(resolve_model("streaming", language), language,
                              read_server_idle_timeout())
 
+    server = None
     try:
         if cmd:
             log(f"Starting persistent server: {' '.join(cmd)}")
-            subprocess.Popen(
+            server = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL if not debug_mode else None,
                 stderr=subprocess.DEVNULL if not debug_mode else None,
@@ -788,13 +791,24 @@ def start_server(language="en"):
             )
 
         # Wait for server to be ready (up to 45 seconds for model loading)
-        # Model loading can take 20-30 seconds on first start
+        # Model loading can take 20-30 seconds on first start. Each try first asks
+        # whether the server is still there: the one started here by its handle, one
+        # already loading by its lock. A server that exits (a model that will not load,
+        # GPU memory) is reported at once with its own error, not after the 45 s.
         log("Waiting for server to load model (this may take 20-30 seconds)...")
         for i in range(90):  # 90 * 0.5s = 45 seconds max
             time.sleep(0.5)
+            if server is not None and server.poll() is not None and server_pid_alive():
+                # Lost a start race (another Insert, or the login unit): the server that
+                # won holds the lock, so wait for that one
+                log("The server started here gave way to one already starting - waiting for it")
+                server = None
+            alive = server.poll() is None if server is not None else server_pid_alive()
             if is_server_running():
                 log(f"Server started successfully (took {(i+1)*0.5:.1f}s)")
                 return True
+            if not alive:
+                raise RuntimeError(f"the server exited while loading: {server_failure()}")
             # Log progress every 5 seconds so user knows it's working
             if (i + 1) % 10 == 0:
                 log(f"Still waiting for server... ({(i+1)*0.5:.0f}s elapsed)")
@@ -802,9 +816,23 @@ def start_server(language="en"):
         log("Server failed to start (timeout after 45s)", "ERROR")
         return False
 
-    except Exception as e:
+    except OSError as e:
         log(f"Failed to start server: {e}", "ERROR")
         return False
+
+
+def server_failure():
+    """The first ERROR the server logged, which names why it exited (a model that
+    will not load, GPU memory). The server empties its log at each start; a second
+    server that gave way to it appends "Server already running", which is not its
+    error and is skipped."""
+    try:
+        lines = SERVER_LOG_FILE.read_text().splitlines()
+    except OSError as e:
+        return f"its log {SERVER_LOG_FILE} cannot be read: {e}"
+    errors = [line.split("[ERROR] ", 1)[1] for line in lines
+              if "[ERROR] " in line and "Server already running" not in line]
+    return errors[0] if errors else f"no error in {SERVER_LOG_FILE}"
 
 
 def session_language(setting):

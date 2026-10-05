@@ -53,9 +53,14 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
 - [x] ✅ **Task 1.2**: Class "model judged present without its weights"
   (`model-present-without-weights`): rule, page and fixture, committed red; sweep; fix
   every instance.
-- [ ] ⬜ **Task 1.3**: Class "a ready-wait that ignores its child's exit": rule, page and
-  fixture, committed red; sweep; fix every instance. 16 instances found across five
-  languages, so this class runs after 1.2 and 1.4 have been fixed and deployed.
+- [x] ✅ **Task 1.3**: Class "a ready-wait that ignores its child's exit"
+  (`ready-wait-ignores-child-exit`). The gate `qa-ready-wait-rules.bash` runs a Semgrep
+  rule for Python and `helpers/ready_wait/bash_ready_waits.py` for bash, because Semgrep
+  cannot parse 88 of the 371 tracked shell scripts. It was committed red with 8
+  findings. GNOME JS, Ansible, daemonizing starts and step scripts get no rule; the
+  reasons are on the QA.md page. 14 of the search's 16 instances are fixed. #8 and #15
+  are recorded as not fixed, with the reason. The sweep is in
+  [`subagent-reports/261005-task-1-3-opus.md`](subagent-reports/261005-task-1-3-opus.md).
 - [x] ✅ **Task 1.4**: Class "a dropdown option label carries explanation"
   (`dropdown-label-carries-explanation`): rule, page and fixture, committed red; sweep;
   fix every instance.
@@ -66,10 +71,13 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
 
 ### Phase 2: Original defects
 
-- [ ] ⬜ **Task 2.1**: `wsi-stream` raises the server's own error when the server it started
-  exits (`tests/speech_to_text/test_server_start.py`). The fix and its test are drafted
-  and held in [`held/`](held/) until Task 1.3's defence is committed red. The patch is
-  against 6515dd7c's `wsi-stream`, and is re-applied by hand since that file has moved on.
+- [x] ✅ **Task 2.1**: `wsi-stream`'s `start_server()` asks on every try whether the
+  server is still there: the server it started by its handle, and one already loading
+  by its lock. A server that exited raises at once with the first ERROR in its log, for
+  example "Model load failed: CUDA failed with error out of memory". A server that lost
+  a start race waits for the one that won. `tests/speech_to_text/test_server_start.py`
+  fails 4 of its 6 cases against the unfixed `wsi-stream` and passes against the fix.
+  The held draft was re-applied by hand and `held/` is removed.
 
 - [x] ✅ **Task 2.2**: The playbook downloads `auto`'s model; prefs labels and descriptions.
 
