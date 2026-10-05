@@ -287,9 +287,11 @@ class FailureTest(SessionCase):
     def test_after_a_drain_deadline_the_session_stays_busy_until_the_transcription_returns(self):
         block = threading.Event()
         self.addCleanup(block.set)
-        s = self.start(transcriber=StubTranscriber(block=block), drain_base_seconds=0.3,
+        transcriber = StubTranscriber(block=block)
+        s = self.start(transcriber=transcriber, drain_base_seconds=0.3,
                        drain_rtf_factor=0, mic="plain")
-        time.sleep(0.3)
+        # Stop only once a transcription is in flight; a fixed sleep raced it under load.
+        self.assertTrue(self.wait_until(lambda: transcriber.calls), "no segment reached the model")
         s.stop("stop requested")
         self.assert_failed(self.finished(), "still pending")
         self.assertTrue(s.busy(), "a new dictation could start while the model is still in use")
