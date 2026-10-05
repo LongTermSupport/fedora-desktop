@@ -224,6 +224,11 @@ rather than only once it is under way.
 `plan_confirm` stays available for a **specific** question a script cannot answer itself
 (R5). "May I proceed?" is not such a question.
 
+**The same holds for a command the script runs.** If it asks "run these now?" (as
+`run.bash --changed` does), pass its own flag that answers it (`--yes`). If it has no such
+flag, add one to it before the script calls it. A script in meta-deploy's list that stops
+at a yes/no question makes the whole batch wait for an answer nobody knows is owed.
+
 ### R9 — Triage gathers facts; acceptance renders the verdict
 
 Keep the roles distinct, as [AgentNotes.md](AgentNotes.md) requires: `triage.bash` establishes

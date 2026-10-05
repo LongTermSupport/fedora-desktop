@@ -60,6 +60,7 @@ offers the same plays each time, and it warns about this before it asks. A remov
 that has a successor in `helpers/play_ledger/retired-plays.json` runs that successor
 instead. It also names any play it cannot judge (one holding a reference it cannot
 follow), and any other play that is no longer in the checkout. It runs neither.
+`./run.bash --changed --yes` runs the list without asking, for an unattended caller.
 
 **To pick the plays yourself, run `./run.bash --rerun`.** It lists every play that has run
 on this machine as a numbered menu, in the same order, and marks with `*` the ones that

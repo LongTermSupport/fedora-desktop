@@ -5,10 +5,9 @@
 # meta-deploy. HOST ONLY (CLAUDE/PlanScriptStandards.md R2): it runs Ansible, which never
 # runs in the CCY container.
 #
-# run.bash lists the plays that changed since they last ran here and asks before running
-# them; that question reaches the person at meta-deploy's terminal, so nothing runs
-# unasked. Answering no is a valid outcome: the list it printed is the evidence Task 3.2
-# wants ("read what it ran").
+# run.bash lists the plays that changed since they last ran here and runs them. --yes
+# answers its "run them now?" question: being in meta-deploy's list is the consent
+# (CLAUDE/PlanScriptStandards.md R8). The list it prints is the evidence Task 3.2 wants.
 #
 # Usage: ./run-changed.bash [-h|--help]
 set -euo pipefail
@@ -34,8 +33,8 @@ plan_init "${BASH_SOURCE[0]}"
 
 PLAN_USAGE="usage: run-changed.bash [-h|--help]
 
-Runs ./run.bash --changed on the HOST: it lists the plays that changed since they last
-ran here and asks before running them."
+Runs ./run.bash --changed --yes on the HOST: it lists the plays that changed since they
+last ran here and runs them."
 
 plan_mode deploy
 plan_parse_common_flags "$@"
@@ -49,6 +48,6 @@ fi
 plan_require_host "it runs run.bash, which runs Ansible"
 plan_start_log auto
 
-plan_deploy_leg "run.bash --changed" "${repoRoot}/run.bash" --changed
+plan_deploy_leg "run.bash --changed" "${repoRoot}/run.bash" --changed --yes
 
 plan_finish

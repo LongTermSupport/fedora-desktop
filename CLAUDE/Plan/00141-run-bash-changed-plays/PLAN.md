@@ -71,9 +71,11 @@ and the working tree, and asks whether any of them is one of that play's inputs.
 
 - [x] ✅ **Task 3.1**: Docs (`docs/playbooks.md` or the run.bash doc), `qa-all.bash`, and
   the `qa-reviewer` agent.
-- [ ] 🚫 **Task 3.2**: **HOST**: run `./run.bash --changed` for real, and read what it ran.
-  `run-changed.bash` runs it, and meta-deploy carries it: meta-deploy runs in the owner's
-  terminal, so run.bash's one question reaches them. Waiting on that meta-deploy run.
+- [x] ✅ **Task 3.2**: **HOST**: `./run.bash --changed` ran for real in meta-deploy
+  `20261005-140009`: it listed 10 changed plays and ran all of them in order, each
+  completed. Its "Run them now?" question held the batch until the owner answered, so
+  meta-deploy units now pass `--yes` (run.bash 1.31.0); see R8 in
+  [PlanScriptStandards.md](../../PlanScriptStandards.md).
 
 ### Phase 4: `--rerun` and the one-row panel
 
