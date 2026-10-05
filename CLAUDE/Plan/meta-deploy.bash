@@ -48,9 +48,15 @@ PLAN_ROOT="${scriptDir}"
 # An entry may instead be a playbook path under playbooks/, for a change no plan owns. It is
 # run as one unit through its own shebang, which goes through run.bash, exactly as
 # `./playbooks/imports/<play>.yml` does by hand.
+#
+# An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
+# three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
+    # Plan 00157: first record what the hung earlier triage run was waiting on, then kill it
+    # and everything it started (Ctrl-C could not end it). Touches nothing of this run.
+    00157-cc-desktop-launcher-broken/reap-stuck-triage.bash
     # Plan 00157: cc says no Claude process was found. Triage only, read-only and quick; it
-    # runs first so its report is there before the deploy below starts.
+    # runs before the deploy below so its report is there first.
     00157-cc-desktop-launcher-broken
     # Plan 00151: ccy's clipboard image paste (wl-clipboard and the 5 s wl-paste guard in the
     # shared image). Deploys the launcher, lib and Dockerfile, builds claude-yolo:latest (a few
@@ -90,6 +96,15 @@ for planEntry in "${PLANS[@]}"; do
         fi
         PLAN_DIRS+=("${repoRoot}/${planName}")
         TRIAGE_ARGS["${repoRoot}/${planName}"]=""
+        continue
+    fi
+    if [[ "${planName}" == */*.bash ]]; then
+        if [[ ! -x "${PLAN_ROOT}/${planName}" ]]; then
+            printf '[FATAL] no executable plan script at %s\n' "${PLAN_ROOT}/${planName}" >&2
+            exit 1
+        fi
+        PLAN_DIRS+=("${PLAN_ROOT}/${planName}")
+        TRIAGE_ARGS["${PLAN_ROOT}/${planName}"]=""
         continue
     fi
     planDir="${PLAN_ROOT}/${planName}"
@@ -152,7 +167,11 @@ BAD=0
 for planDir in "${PLAN_DIRS[@]}"; do
     planName="$(basename "${planDir}")"
 
-    if [[ "${planDir}" == *.yml ]]; then
+    # A playbook or a single plan script: one unit, one log, one verdict.
+    if [[ "${planDir}" == *.yml || "${planDir}" == *.bash ]]; then
+        if [[ "${planDir}" == *.bash ]]; then
+            planName="$(basename "$(dirname "${planDir}")")-${planName}"
+        fi
         printf '\n===> %s\n' "${planName}"
         if "${planDir}" 2>&1 | tee "${CAPTURE_DIR}/${planName}.log"; then
             status="${PIPESTATUS[0]}"

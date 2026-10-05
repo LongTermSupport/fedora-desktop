@@ -42,6 +42,10 @@ Each is settled by a section of `triage.bash`; none is a finding yet.
 
 - [x] ✅ **Task 1.1**: Write `triage.bash`: read-only by default; `--trace` additionally runs
   `bash -x cc --version` under `script`, with token values redacted before the trace is written
+- [x] ✅ **Task 1.1a**: The first host run hung in its first interactive-shell probe and
+  Ctrl-C could not end it. `triage.bash` now runs that shell detached, into a file, killed
+  at its limit; `reap-stuck-triage.bash` (first in meta-deploy) records what the old run
+  was waiting on, then kills it and everything it started.
 - [ ] 🔄 **Task 1.2**: Owner runs the triage on the host (through `meta-deploy.bash`); read the report
   under `untracked/plan-runs/00157-cc-desktop-launcher-broken/triage/`
 - [ ] ⬜ **Task 1.3**: Record the facts the report establishes; settle H1 to H4. If the source is still
