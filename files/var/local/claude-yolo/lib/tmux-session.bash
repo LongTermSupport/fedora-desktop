@@ -83,12 +83,20 @@ ccy_tmux_next_name() {
     printf '%s\n' "$candidate"
 }
 
-# ccy_tmux_is_detached <name> — true only if the session exists and no client is on it.
-# A listing failure is a failure (return 2 after the error), not "gone".
+# ccy_tmux_is_detached <name> — true only if the session exists and no client is on it, as
+# list-clients counts them: the single-attach hook's own view. #{session_attached} is not
+# used here because it drops a client that has been told to leave but has not yet gone,
+# which the hook still counts — attaching in that gap is kicked straight back off.
+# A tmux failure is a failure (return 2 after the error), not "gone".
 ccy_tmux_is_detached() {
-    local listing
-    listing=$(ccy_tmux_list) || return 2
-    [[ "$(awk -v want="$1" '$1 == want { print $2 }' <<<"$listing")" == "0" ]]
+    local clients rc=0
+    clients=$(_ccy_tmux_clients "$1") || rc=$?
+    if [[ "$rc" -eq 2 ]]; then
+        return 1
+    elif [[ "$rc" -ne 0 ]]; then
+        return 2
+    fi
+    [[ -z "$clients" ]]
 }
 
 # The hook that enforces one terminal per session. It runs on the server for every attach;
@@ -102,9 +110,10 @@ ccy_tmux_single_attach_hook() {
 # ccy_tmux_attach <name> — attach the current terminal to a detached session and, when the
 # user detaches again, say what state they left it in. Refuses (return 2) a session that has
 # a client at the moment of asking; the hook covers the race after that. Does not return to
-# a launcher: attaching IS the session, so the caller exits afterwards.
+# a launcher: attaching IS the session, so the caller exits afterwards. Returns 3 when
+# another terminal is on the session afterwards: the hook detached this one on arrival.
 ccy_tmux_attach() {
-    local name="${1:?ccy_tmux_attach requires a session name}"
+    local name="${1:?ccy_tmux_attach requires a session name}" clients rc=0
     if ! ccy_tmux_is_detached "$name"; then
         print_error "'$name' is open in another terminal, or gone. It can be attached from one terminal only."
         return 2
@@ -115,13 +124,18 @@ ccy_tmux_attach() {
         print_error "could not attach to '$name'"
         return 1
     fi
-    if ccy_tmux_is_detached "$name"; then
-        echo "Detached. '$name' keeps running; run ccy in its project directory to return to it." >&2
-    elif [[ -n "$(ccy_tmux_list | awk -v want="$name" '$1 == want')" ]]; then
-        echo "'$name' is open in another terminal, so this terminal was not attached to it." >&2
-    else
+    clients=$(_ccy_tmux_clients "$name") || rc=$?
+    if [[ "$rc" -eq 2 ]]; then
         echo "'$name' has ended." >&2
+        return 0
+    elif [[ "$rc" -ne 0 ]]; then
+        return 1
     fi
+    if [[ -n "$clients" ]]; then
+        print_error "'$name' is open in another terminal, so this terminal was not attached to it."
+        return 3
+    fi
+    echo "Detached. '$name' keeps running; run ccy in its project directory to return to it." >&2
     return 0
 }
 
@@ -165,21 +179,20 @@ ccy_tmux_client_words() {
     printf '%s' "$out"
 }
 
-# _ccy_tmux_clients <name> — the raw "<tty> <last-activity-epoch>" lines for a session.
+# _ccy_tmux_clients <name> — the "<tty> <last-activity-epoch>" lines for every client on a
+# session, as list-clients — and therefore the single-attach hook — sees them. Returns 2,
+# silently, when the session (or the whole server) is gone; 1 after any other error.
 _ccy_tmux_clients() {
     local out
     if ! out=$(ccy_tmux list-clients -t "=$1" -F '#{client_tty} #{client_activity}' 2>&1); then
+        if [[ "$out" == *"can't find session"* || "$out" == *"no server running"* ||
+            "$out" == *"No such file or directory"* ]]; then
+            return 2
+        fi
         print_error "could not list the terminals on '$1': $out"
         return 1
     fi
     printf '%s\n' "$out"
-}
-
-# _ccy_tmux_exists <name> — 0 if the session is on the server, 2 if not, 1 on a failure.
-_ccy_tmux_exists() {
-    local listing
-    listing=$(ccy_tmux_list) || return 1
-    [[ -n "$(awk -v want="$1" '$1 == want' <<<"$listing")" ]] || return 2
 }
 
 # ccy_tmux_other_terminals <name> — the terminals a session is open on, worded by
@@ -187,46 +200,51 @@ _ccy_tmux_exists() {
 # session has ended (the caller words that), 1 after an error.
 ccy_tmux_other_terminals() {
     local clients
-    _ccy_tmux_exists "$1" || return $?
-    clients=$(_ccy_tmux_clients "$1") || return 1
+    clients=$(_ccy_tmux_clients "$1") || return $?
     ccy_tmux_client_words "$clients" "$EPOCHSECONDS"
 }
 
-# ccy_tmux_take_over <name> — detach every other terminal from the session, check it now
-# has none, and attach this one through ccy_tmux_attach. Returns 2 when the session has
-# ended (nothing is attached) or was taken again before the attach; 1 when tmux refuses the
-# detach or the other terminal does not let go in time, and nothing is attached then
-# either. Never kills the session or anything in it.
+# ccy_tmux_take_over <name> — detach every other terminal from the session, wait until
+# list-clients shows none (the hook's view; see ccy_tmux_is_detached), and attach this one
+# through ccy_tmux_attach. Returns 2 when the session has ended, or was taken again just
+# before the attach; 1 when tmux refuses the detach or the other terminal does not let go in
+# time; 3 when the attach was kicked off again (ccy_tmux_attach). Nothing is attached on 1
+# or 2. Never kills the session or anything in it.
 ccy_tmux_take_over() {
-    local name="${1:?ccy_tmux_take_over requires a session name}" clients words out rc=0 waited=0
-    _ccy_tmux_exists "$name" || rc=$?
+    local name="${1:?ccy_tmux_take_over requires a session name}" clients words out rc=0 waited=0 detach_failed=false
+    clients=$(_ccy_tmux_clients "$name") || rc=$?
     if [[ "$rc" -eq 2 ]]; then
         print_error "'$name' has ended; there is nothing to take over."
         return 2
     elif [[ "$rc" -ne 0 ]]; then
         return 1
     fi
-    clients=$(_ccy_tmux_clients "$name") || return 1
     if [[ -n "$clients" ]]; then
         words=$(ccy_tmux_client_words "$clients" "$EPOCHSECONDS")
-        if ! out=$(ccy_tmux detach-client -s "=$name" 2>&1); then
-            print_error "could not detach '$name' from ${words}: $out"
-            return 1
+        if out=$(ccy_tmux detach-client -s "=$name" 2>&1); then
+            echo "Detached '$name' from ${words}; the session keeps running." >&2
+        else
+            # The other terminal may have left between the listing and the detach, and tmux
+            # then fails the detach for want of a client. That is the outcome wanted, so it
+            # is only a failure if a client is still there.
+            detach_failed=true
+            echo "The detach from ${words} failed (${out}); checking whether '$name' is free anyway." >&2
         fi
-        echo "Detached '$name' from ${words}; the session keeps running." >&2
         while :; do
             rc=0
-            ccy_tmux_is_detached "$name" || rc=$?
-            [[ "$rc" -ne 0 ]] || break
+            clients=$(_ccy_tmux_clients "$name") || rc=$?
             if [[ "$rc" -eq 2 ]]; then
+                print_error "'$name' ended while it was being taken over; nothing was attached."
+                return 2
+            elif [[ "$rc" -ne 0 ]]; then
+                return 1
+            fi
+            [[ -n "$clients" ]] || break
+            if [[ "$detach_failed" == true ]]; then
+                print_error "could not detach '$name' from ${words}: $out"
                 return 1
             fi
             if [[ "$waited" -ge "$CCY_TMUX_TAKE_OVER_WAIT_TENTHS" ]]; then
-                _ccy_tmux_exists "$name" || rc=$?
-                if [[ "$rc" -eq 2 ]]; then
-                    print_error "'$name' ended while it was being taken over; nothing was attached."
-                    return 2
-                fi
                 print_error "'$name' was told to leave ${words}, but it is still open there after $((CCY_TMUX_TAKE_OVER_WAIT_TENTHS / 10)) s. Nothing was attached; the session keeps running."
                 return 1
             fi
@@ -825,8 +843,12 @@ ccy_tmux_insulate() {
         ;;
     attach)
         # A refusal here means the session was taken between the offer and the answer.
-        # Not a retry loop: the honest move is to show the offer again from the top.
-        if ccy_tmux_attach "$name"; then
+        # Not a retry loop: the honest move is to show the offer again from the top. Return 3
+        # (another terminal holds it after the attach) has already been reported, and
+        # the user may well have worked in it first, so it is not shown the offer again.
+        local attach_rc=0
+        ccy_tmux_attach "$name" || attach_rc=$?
+        if [[ "$attach_rc" -eq 0 || "$attach_rc" -eq 3 ]]; then
             exit 0
         fi
         exec "$@"

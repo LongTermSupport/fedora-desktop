@@ -52,10 +52,11 @@ PLAN_ROOT="${scriptDir}"
 # An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
-    # Next: Plan 00148's deploy (play-speech-to-text.yml, which carries Plan 00156). The
-    # auto-model download now has a time limit; it waits on the owner's answer on running a
-    # 1.5 GB download by default over a metered link. Then 00148's triage, once you have
-    # dictated with Continuous Dictation on. Plans 00109 and 00144 after the logout.
+    00158-ccy-sessions-take-over
+    # Next: Plan 00148's deploy (play-speech-to-text.yml, which carries Plan 00156), once
+    # Task 9.10 (the pinned paste target) is in, so one logout covers both. Then 00148's
+    # triage, once you have dictated with Continuous Dictation on. Plans 00109 and 00144
+    # after the logout.
 )
 
 LIST_ONLY=0

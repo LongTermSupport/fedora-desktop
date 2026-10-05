@@ -68,7 +68,7 @@ resolve first, not skip it.
 ## Decisions (defaults proposed; the owner can overrule any)
 
 1. **Column** `FROZEN` after STATE: `frozen` / `running` / `-` / `unknown`.
-2. **Key** Ctrl-F toggles freeze/thaw. (Ctrl-X ends, Ctrl-N starts, Esc or q quits.)
+2. **Key** Ctrl-F toggles freeze/thaw. (Ctrl-T takes over, Ctrl-X ends, Ctrl-N starts, Esc or q quits.)
 3. **Enter on a frozen session** attaches, with a one-line note above the picker saying the
    session is frozen and Ctrl-F thaws it. Refusing would hide a session that can still be
    looked at.

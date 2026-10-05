@@ -164,9 +164,9 @@ directory. Enter re-attaches, Ctrl-N starts a new session instead, and the last 
 always Exit (Esc or `q` do the same).
 Every key acts on its own; nothing needs Enter after it. A session that is open in
 another terminal is named in the header and is not offered: **a session can be attached
-from one terminal only** (`ccy-sessions` can take one over, below). The tmux server enforces it too — a second client attaching to
-an open session is detached again at once — so two terminals can never mirror one
-`claude`, whoever wins a race.
+from one terminal only** (`ccy-sessions` can take one over, below). The tmux server
+enforces it too — a second client attaching to an open session is detached again at once —
+so two terminals can never mirror one `claude`, whoever wins a race.
 
 `ccy-sessions` is the view across every project: a picker listing each session with its
 state, its container network and its directory. The network is asked of the container

@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.79.0"  # ccy-sessions Ctrl-T takes over a session open in another terminal. See docs/ccy-changelog.md.
+CCY_VERSION="3.79.1"  # attach and take-over count clients as the single-attach hook does. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

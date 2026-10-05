@@ -5,7 +5,7 @@
 # Ansible never runs in the CCY container. Run it on every machine that uses ccy-sessions.
 #
 # THE ONE LEG:
-#   play-claude-yolo.yml — installs the CCY 3.79.0 launcher, its lib/ (tmux-session.bash
+#   play-claude-yolo.yml — installs the CCY 3.79.1 launcher, its lib/ (tmux-session.bash
 #   carries ccy_tmux_take_over) and ~/.local/bin/ccy-sessions (the Ctrl-T key). No image
 #   content changed (container 2.42), so no rebuild is triggered by this plan.
 #
@@ -38,7 +38,7 @@ PLAN_USAGE="usage: deploy.bash [-h|--help] [--check]
 
 Runs, on the HOST:
 
-  playbooks/imports/play-claude-yolo.yml   (launcher 3.79.0, its lib/, ccy-sessions)
+  playbooks/imports/play-claude-yolo.yml   (launcher 3.79.1, its lib/, ccy-sessions)
 
 --check previews without changing anything. Then try Ctrl-T in ccy-sessions on a session
 that is open in another terminal."

@@ -17,6 +17,23 @@ Two version numbers move independently — see
 
 ---
 
+## 3.79.1 — container 2.42
+
+- **Attach and take-over count a session's terminals the way the one-terminal rule does.**
+  They read tmux's attached count, which leaves out a terminal that has been told to leave
+  but has not yet gone, or one that is suspended; the server-side rule counts every client
+  tmux lists. In that gap a take-over attached, the rule detached the new terminal at once,
+  and the take-over still reported success. Both now ask `list-clients`, wait until it shows
+  no other terminal, and say so — `ccy-sessions` exits 1 — when this terminal was not left
+  on the session.
+- **A terminal that leaves just before the take-over detaches it is not an error.** tmux
+  fails that detach for want of a client; the take-over now looks again and attaches when
+  the session is free. A session that ends during the wait is reported at once, not after
+  the five seconds.
+- **Ctrl-T asks tmux who holds the session, whatever the row says,** so a session held by a
+  suspended terminal (shown as "detached") can be taken over too. After three failed tries
+  the picker names the sessions a take-over was tried on instead of saying nothing changed.
+
 ## 3.79.0 — container 2.42
 
 - **`ccy-sessions` can take over a session that is open in another terminal.** A session is

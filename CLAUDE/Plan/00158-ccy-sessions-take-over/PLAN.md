@@ -69,6 +69,18 @@ Deployed by `playbooks/imports/play-claude-yolo.yml`, which installs the launche
   `docs/ccy-changelog.md` 3.79.0, `CCY_VERSION` 3.78.1 to 3.79.0 (container unchanged,
   2.42).
 
+### Phase 3b: qa-reviewer fixes (CCY 3.79.1)
+
+- [x] ✅ **Task 3b.1**: attach and take-over count clients with `list-clients`, the
+  single-attach hook's own view, not `#{session_attached}`; `ccy_tmux_attach` returns 3 when
+  this terminal was not left on the session, and `ccy-sessions` exits 1 then. Red first: the
+  fake tmux now models a client tmux leaves out of the attached count.
+- [x] ✅ **Task 3b.2**: a detach that fails because the other terminal had just left is
+  re-checked and the attach goes ahead; a session ending during the wait is reported at once.
+- [x] ✅ **Task 3b.3**: Ctrl-T asks list-clients whatever the row says (a suspended holder);
+  the out-of-tries message is true after a take-over; `docs/ccy.md` wrap; Plan 00154's key
+  list names Ctrl-T.
+
 ### Phase 4: Host
 
 - [ ] ⬜ **Task 4.1 (HOST)**: the owner runs `play-claude-yolo.yml` on each machine that
