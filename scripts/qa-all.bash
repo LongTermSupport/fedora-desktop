@@ -877,6 +877,18 @@ fi
 self_update_cycle_summary=$(qa_gate_case_count "$self_update_cycle_out")
 qa_pass_line self-update-cycle "$self_update_cycle_summary"
 
+# The release command (Plan 00153): refusals before anything is written, the version following
+# from the last tag, and the signed tag landing on the release commit, driven against a signed
+# git fixture with only `gh` stubbed.
+release_out=""
+if ! release_out="$(bash "$SCRIPT_DIR/test-release.bash" 2>&1)"; then
+    qa_hard_gate_failed release \
+        "scripts/release.bash tests failed" \
+        "$release_out"
+fi
+release_summary=$(qa_gate_case_count "$release_out")
+qa_pass_line release "$release_summary"
+
 # The run-log secret scrubber (Plan 00121). Redaction is the easy half; what this gate exists
 # for is `scrub_verify` REFUSING an artefact where redaction missed a secret. A scrubber is
 # fail-open by nature — it writes a file it believes is clean and a miss is silent — so the

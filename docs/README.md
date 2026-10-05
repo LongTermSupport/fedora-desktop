@@ -322,6 +322,10 @@ ccy --top
 - [CCY changelog](ccy-changelog.md) — Release notes for the launcher and container image
 - [CCY debug mounts](ccy-debug-mounts.md) — Mounting host directories into CCY containers
 
+**Releases**
+
+- [Releases](releases.md) — Signed `44.x.y` tags on the Fedora release branch, and how the owner makes one
+
 **DDEV**
 
 - [Installation and setup](ddev.md#installation)
