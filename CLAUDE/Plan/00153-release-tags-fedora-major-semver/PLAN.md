@@ -102,7 +102,9 @@ release tag rather than the branch tip.
 ### Phase 4: First release
 
 - [ ] ⬜ **Task 4.1**: After the current round's host acceptance (Plans 00148, 00151, 00109,
-  00144 at the next reboot), tag `44.0.0`.
+  00144 at the next reboot), tag `44.0.0`. Owner, 2026-10-05: tag it once the plans in
+  progress are finished and the branch is at a stable point; no new plan starts before
+  then. Agents still tag only when the owner asks ([Release.md](../../Release.md)).
 - [ ] ⬜ **Task 4.2**: `qa-reviewer` over the plan's diff; plan complete.
 
 ## Success Criteria
