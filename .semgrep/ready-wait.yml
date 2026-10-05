@@ -1,0 +1,74 @@
+rules:
+  # Rule: a ready-wait asks, on every try, whether the process it waits for is still
+  # alive (Defence Before Fix; CLAUDE/QA.md "ready-wait-ignores-child-exit").
+  #
+  # Code that starts a process and then polls for it to become ready (a socket that
+  # answers, a file that appears) must notice when that process has already exited.
+  # Otherwise a failure known within seconds is hidden behind the whole timeout and
+  # reported as "timed out", without the process's own error. That is how a speech
+  # server that ran out of GPU memory after 6 s came to be reported as a 45 s timeout.
+  #
+  # WRONG: subprocess.Popen(cmd)
+  #        for _ in range(90):
+  #            time.sleep(0.5)
+  #            if is_server_running(): return True
+  # RIGHT: server = subprocess.Popen(cmd)
+  #        for _ in range(90):
+  #            time.sleep(0.5)
+  #            if is_server_running(): return True
+  #            if server.poll() is not None: raise RuntimeError(<the server's error>)
+  #
+  # The rule reports a loop that sleeps, in a function that starts a process, when the
+  # loop never calls .poll() or .wait(), reads .returncode, or probes a pid with
+  # os.kill(pid, 0) or os.waitpid. The bash half of the rule is
+  # helpers/ready_wait/bash_ready_waits.py, because semgrep cannot parse about a quarter of
+  # this repo's bash.
+  - id: ready-wait-ignores-child-exit
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              def $F(...):
+                ...
+                <... subprocess.Popen(...) ...>
+                ...
+          - pattern-inside: |
+              async def $F(...):
+                ...
+                <... asyncio.create_subprocess_exec(...) ...>
+                ...
+          - pattern-inside: |
+              async def $F(...):
+                ...
+                <... asyncio.create_subprocess_shell(...) ...>
+                ...
+      - pattern-either:
+          - pattern: |
+              for $I in $ITEMS:
+                ...
+                time.sleep(...)
+                ...
+          - pattern: |
+              while $COND:
+                ...
+                time.sleep(...)
+                ...
+          - pattern: |
+              for $I in $ITEMS:
+                ...
+                await asyncio.sleep(...)
+                ...
+          - pattern: |
+              while $COND:
+                ...
+                await asyncio.sleep(...)
+                ...
+      - pattern-not-regex: '\.poll\(\)|\.returncode\b|\.wait\(|os\.kill\([^)]*,\s*0\s*\)|os\.waitpid\('
+    message: >
+      ready-wait-ignores-child-exit: this loop waits for a process it started without
+      asking whether that process has exited, so a crash is reported as a timeout. Check
+      the process on every try and raise its own error. See CLAUDE/QA.md
+      "ready-wait-ignores-child-exit".
+    severity: ERROR
+    metadata:
+      dbf-class: a ready-wait that ignores its child's exit

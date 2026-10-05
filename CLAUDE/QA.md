@@ -74,6 +74,7 @@ they are deliberately not jq-merged stages, so they cannot disturb the positiona
 | `test-wsi-stop-grace.bash`                  | speech-to-text's delayed stop: the real `wsi` under stub audio tools keeps the microphone open for the grace after the first TERM, stops at once on a second TERM or a grace of 0, and refuses to record without a grace; then `tests/speech_to_text/`: `wsi-stream`'s stop state, handlers and drain as units, pre-buffer mode end to end (stub RealtimeSTT, fake `pw-record`, TERM during and after the model load), and `wsi-stream-server`'s stop order. Standard streaming and the server-mode client loop are not run end to end (Plan 00148) |
 | `qa-stt-limits.bash`                        | each speech-to-text recording limit has one home: `wsi`'s 30 s, `wsi-stream`'s 120 s, continuous dictation's GSettings keys; a literal copy in the panel, the server or a second place in a recorder fails (Plan 00148)                                                                                                                                                                                                                                                                                                                             |
 | `qa-speech-to-text-rules.bash`              | the Semgrep rules in `.semgrep/speech-to-text.yml`, proven against `.semgrep/speech-to-text.js` and `.py` every run, over every tracked JavaScript and Python file (extensionless scripts found by shebang); exits 2 if a file it handed semgrep was not scanned. See [model-present-without-weights](#model-present-without-weights) and [dropdown-label-carries-explanation](#dropdown-label-carries-explanation) (Plan 00156)                                                                                                                    |
+| `qa-ready-wait-rules.bash`                  | [ready-wait-ignores-child-exit](#ready-wait-ignores-child-exit) over every tracked Python file (`.semgrep/ready-wait.yml`, proven against `.semgrep/ready-wait.py`) and every tracked shell script (`helpers/ready_wait/bash_ready_waits.py`, proven against `.semgrep/ready-wait.bash`), each run; exits 2 if a Python file it handed semgrep was not scanned (Plan 00156)                                                                                                                                                                         |
 | `test-ccy-host-hostname.bash`               | `ccy_host_hostname` — the RFC 1123 grammar guarding `CCY_HOST_HOSTNAME` (Plan 00121)                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `test-ccy-network-disconnect.bash`          | `ccy --disconnect` — the detach, the picker's re-prompt, and whether the saved default network is cleared, kept, or never there, against a stubbed engine                                                                                                                                                                                                                                                                                                                                                                                           |
 | `test-ccy-session-network.bash`             | the `ccy-sessions` CPU, network, token and SSH key columns — the process-tree join from a tmux session to its container, which processes a session's CPU counts and the share they come to, both engines' renderings of a network list, and the token and key labels                                                                                                                                                                                                                                                                                |
@@ -733,6 +734,82 @@ description when several rows share it. A state such as "not installed" belongs 
 subtitle, not glued onto the option. Never escape the rule by spelling the explanation
 with other punctuation: the rule's characters are a proxy for explanation, not the
 thing banned.
+
+### ready-wait-ignores-child-exit
+
+**What it is.** A loop that waits for a process this code started to become ready,
+sleeping between tries, and never asks on a try whether that process has already
+exited. Run by `qa-ready-wait-rules.bash` in two halves:
+
+- **Python** (`.semgrep/ready-wait.yml`): a loop that calls `time.sleep` or
+  `asyncio.sleep`, in a function that starts a process with `subprocess.Popen` or
+  `asyncio.create_subprocess_*`, and never calls `.poll()` or `.wait()`, reads
+  `.returncode`, or probes with `os.kill(pid, 0)` or `os.waitpid`.
+- **Bash** (`helpers/ready_wait/bash_ready_waits.py`): a loop that runs `sleep` and
+  waits for something (it breaks, returns or exits, or is a `while`/`until` on a test),
+  after a background start (`cmd &`, or a call to a function that starts one and keeps
+  its `$!`) in the same function or top level, or in a function called from there. It
+  is cleared by `kill -0`, `ps -p` or `wait -n` in its header or body. `wait` on the
+  child, or the end of a `case` arm, ends the scope's armed state. Semgrep is not used
+  for bash because its parser rejects about a quarter of this repo's scripts.
+
+**Why it exists.** A failure known within seconds is hidden behind the whole timeout
+and reported as "timed out", without the process's own error. The speech server ran out
+of GPU memory and exited after 6 s; `wsi-stream` kept polling its socket for 45 s and
+told the panel "timeout", so the CUDA error never reached the owner. Found and defended
+under Defence Before Fix (Plan 00156).
+
+**How to fix a finding.** Keep the handle or the pid, and on every try ask whether the
+process is still there before deciding to sleep again. When it has gone, stop at once
+and report its own error: its exit status, the first error in its log, or its stderr.
+
+```python
+server = subprocess.Popen(cmd)
+for _ in range(90):
+    time.sleep(0.5)
+    if is_server_running():
+        return True
+    if server.poll() is not None:
+        raise RuntimeError(f"the server exited: {server_failure()}")
+```
+
+```bash
+tmate -F &
+tmate_pid=$!
+for _ in $(seq 1 30); do
+    if kill -0 "$tmate_pid" 2>/dev/null; then alive=1; else alive=0; fi
+    if tmate show-messages | grep -q "read only"; then break; fi
+    if [ "$alive" -eq 0 ]; then
+        status=0; wait "$tmate_pid" || status=$?
+        echo "ERROR: tmate exited (status $status) before it was ready" >&2
+        exit 1
+    fi
+    sleep 0.5
+done
+```
+
+Ask liveness before readiness, as above: a child that became ready and then exited in
+the same moment is then still reported ready. Never clear a finding by naming
+`kill -0` somewhere it does not decide anything; the words are what the rule reads, a
+check that changes the outcome is what it stands for.
+
+**Where no rule reaches, and why.** These forms of the class are fixed by hand and
+reviewed, not detected:
+
+- **A start that is not a child.** `lxc-start`, `virsh start` and `virt-install` hand
+  the guest to a manager and return; the wait polls the guest, not a pid. Knowing
+  that a command daemonizes is knowledge about the tool, not the text. Check the
+  manager's state on each try (`lxc-info -sH`, `virsh domstate`).
+- **Ansible.** `wait_for:` and `until:` after a `systemd` start wait for a socket or a
+  daemon's own answer; which unit serves that socket is in the unit's configuration,
+  not the task. Probe the unit (`systemctl is-active`) in the same retried command and
+  fail on it.
+- **GNOME Shell extensions.** A timer cleared by a D-Bus signal stands in for the wait,
+  and a spawn with `GLib.spawn_command_line_async` has no handle at all. Spawn with
+  `Gio.Subprocess` and `wait_async`, and end the wait when the child exits first.
+- **A wait in a later run of the script.** A step script that starts a process in one
+  invocation and waits for it in the next keeps the pid in a file; the rule reads one
+  file's text, in order, and cannot follow that.
 
 ---
 

@@ -472,6 +472,18 @@ fi
 stt_rules_summary=$(qa_gate_case_count "$stt_rules_out")
 qa_pass_line speech-to-text-rules "$stt_rules_summary"
 
+# ready-wait-ignores-child-exit (Defence Before Fix, Plan 00156; CLAUDE/QA.md). A wait for
+# a started process that never asks whether it exited turned a server's 6 s CUDA failure
+# into a 45 s "timeout" that named nothing.
+ready_wait_out=""
+if ! ready_wait_out="$(bash "$SCRIPT_DIR/qa-ready-wait-rules.bash" 2>&1)"; then
+    qa_hard_gate_failed ready-wait-rules \
+        "a ready-wait that ignores its child's exit (Python and bash)" \
+        "$ready_wait_out"
+fi
+ready_wait_summary=$(qa_gate_case_count "$ready_wait_out")
+qa_pass_line ready-wait-rules "$ready_wait_summary"
+
 # ccy's SELinux relabel decision (Plan 00118, CCY 3.55.0).
 #
 # On an Enforcing host container_t may not read user_home_t, so a ccy container
