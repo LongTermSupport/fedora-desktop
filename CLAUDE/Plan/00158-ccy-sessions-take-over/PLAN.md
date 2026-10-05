@@ -85,4 +85,4 @@ Deployed by `playbooks/imports/play-claude-yolo.yml`, which installs the launche
 
 ## Delivery & Milestones
 
-- Phases 1-3 delivered on branch `ccy-sessions-take-over`.
+- Phases 1-3 delivered on branch `ccy-sessions-take-over`: 859c0b00.
