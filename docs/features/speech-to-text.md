@@ -291,9 +291,8 @@ stop, because it needs the whole text.
 ### Where The Text Is Pasted
 
 While a dictation can still paste, the focused window has a red outline: that is where
-the next paste goes. In streaming mode the paste key is chosen at each paste, for the
-window focused at that moment (batch mode still uses the window focused at Insert, and
-does not save after pasting):
+the next paste goes. The paste key is chosen at each paste, in batch and streaming mode
+alike, for the window focused at that moment:
 
 - an app in **Apps using Ctrl+V** (`paste-ctrl-v-apps`) gets Ctrl+V;
 - a terminal gets Ctrl+Shift+V. A terminal is an app whose desktop entry lists the

@@ -8,7 +8,8 @@
 #
 # This drives the REAL batch recorder (files/home/.local/bin/wsi) end to end with stub
 # pw-record / sox / soxi / faster-whisper / gdbus / gsettings on PATH, and measures when
-# the stub microphone is told to stop. It then runs tests/speech_to_text/: unit tests
+# the stub microphone is told to stop, and which keys an auto-paste presses for each
+# answer of the panel's PasteKey (stub ydotool and wl-copy). It then runs tests/speech_to_text/: unit tests
 # of the wsi-stream stop state, handlers, grace reader and drain; pre-buffer mode run
 # end to end with a stub RealtimeSTT and fake pw-record. Standard streaming is NOT run
 # end to end.
@@ -139,13 +140,29 @@ printf '%s\n' "${WHISPER_MODEL-<unset>}" > "$STUB_EVENTS/whisper.model"
 printf '%s\n' "${WHISPER_LANGUAGE-<unset>}" > "$STUB_EVENTS/whisper.language"
 echo "hello world"
 EOF
-# gdbus: records every call; answers Notify like the real notification daemon.
+# gdbus: records every call; answers Notify like the real notification daemon, and the
+# panel's PasteKey with $STUB_PASTE_KEY (empty: a panel without the method, which fails).
 cat > "$stubs/gdbus" <<'EOF'
 #!/usr/bin/bash
 printf '%s\n' "$*" >> "$STUB_EVENTS/gdbus.log"
-if [ "$1" = call ]; then
+if [ "$1" = call ] && [[ "$*" == *.PasteKey* ]]; then
+    if [ -z "${STUB_PASTE_KEY:-}" ]; then
+        echo "Error: GDBus.Error:org.freedesktop.DBus.Error.UnknownMethod: No such method" >&2
+        exit 1
+    fi
+    echo "$STUB_PASTE_KEY"
+elif [ "$1" = call ]; then
     echo "(uint32 7,)"
 fi
+EOF
+# ydotool: records each key chord it is asked to press; wl-copy records what it is given
+cat > "$stubs/ydotool" <<'EOF'
+#!/usr/bin/bash
+printf '%s\n' "$*" >> "$STUB_EVENTS/ydotool.log"
+EOF
+cat > "$stubs/wl-copy" <<'EOF'
+#!/usr/bin/bash
+cat > "$STUB_EVENTS/wl-copy.text"
 EOF
 chmod 755 "$stubs"/*
 
@@ -166,7 +183,11 @@ run_env=(
     "STUB_CUDA_DEVICES=0"
     # An empty stand-in for /dev: no NVIDIA device nodes, whatever this machine has
     "WSI_DEV_DIR=$work/dev"
+    # A real Unix socket standing in for the ydotool daemon's (the stub ydotool ignores it)
+    "WSI_YDOTOOL_SOCKET=$work/ydotool.socket"
 )
+python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' \
+    "$work/ydotool.socket"
 
 reset_events() {
     rm -f "$events"/*
@@ -204,6 +225,8 @@ start_wsi() {
     reset_events
     # WSI_TEST_TRACE=1 runs wsi under `bash -x`; the trace lands in the stderr dump
     "${run_env[@]}" "STUB_GRACE=$grace" "STUB_CUDA_DEVICES=${STUB_CUDA_DEVICES:-0}" \
+        "STUB_PASTE_KEY=${STUB_PASTE_KEY:-}" "XDG_SESSION_TYPE=${STUB_SESSION_TYPE:-}" \
+        "WAYLAND_DISPLAY=${STUB_WAYLAND_DISPLAY:-}" \
         bash ${WSI_TEST_TRACE:+-x} "$BIN/wsi" "$@" \
         > "$work/wsi.out" 2> "$work/wsi.err" &
     WSI_PID=$!
@@ -425,6 +448,58 @@ reset_events
 check "wsi refuses an English-only model for another language" "1" "$rc"
 check "…before the microphone opens" "absent" \
     "$([ -e "$events/pw-record.started" ] && echo present || echo absent)"
+
+#----------------------------------------------------------------------------
+echo "=== wsi -a: the panel names the paste key and the save at paste time (Task 9.9) ==="
+#----------------------------------------------------------------------------
+# batch_paste <PasteKey reply, empty for none> <wsi args...> — one auto-paste dictation;
+# sets KEYS to the key chords ydotool was asked for, joined by " | "
+batch_paste() {
+    local reply="$1" rc
+    shift
+    KEYS=""
+    STUB_PASTE_KEY="$reply" STUB_SESSION_TYPE=wayland STUB_WAYLAND_DISPLAY=wayland-stub \
+        start_wsi 0 -a "$@"
+    if ! wait_for_recording_state; then
+        failed=$((failed + 1))
+        echo "  FAIL: wsi never reached RECORDING; stderr:"
+        cat "$work/wsi.err"
+        if ps -p "$WSI_PID" > /dev/null; then
+            kill -KILL "$WSI_PID"
+        fi
+        wait "$WSI_PID"
+        return
+    fi
+    kill -TERM "$WSI_PID"
+    wait "$WSI_PID"; rc=$?
+    check_wsi_exit "$rc"
+    if [ -f "$events/ydotool.log" ]; then
+        KEYS=$(awk 'NR > 1 { printf " | " } { printf "%s", $0 }' "$events/ydotool.log")
+    fi
+}
+CTRL_V="key 29:1 47:1 47:0 29:0"
+CTRL_SHIFT_V="key 29:1 42:1 47:1 47:0 42:0 29:0"
+ENTER="key 28:1 28:0"
+CTRL_S="key 29:1 31:1 31:0 29:0"
+
+batch_paste "('org.gnome.TextEditor', false, true)" --paste-with-shift 1
+check "an app the panel says needs Ctrl+V and a save: Ctrl+V, Enter, then Ctrl+S" \
+    "$CTRL_V | $ENTER | $CTRL_S" "$KEYS"
+check "…the panel was asked" "1" "$(grep -c 'Panel.PasteKey' "$events/gdbus.log")"
+check "…and the text was on the clipboard" "Hello world" "$(cat "$events/wl-copy.text")"
+
+batch_paste "('kitty', true, false)" --paste-with-shift 0
+check "a terminal, whatever was chosen at Insert: Ctrl+Shift+V, Enter, no save" \
+    "$CTRL_SHIFT_V | $ENTER" "$KEYS"
+
+batch_paste "('org.gnome.TextEditor', false, true)" --paste-with-shift 1 --no-auto-enter
+check "no Enter asked for: the save still follows the paste" "$CTRL_V | $CTRL_S" "$KEYS"
+
+batch_paste "" --paste-with-shift 1
+check "a panel that cannot answer: the key chosen at Insert, and no save" \
+    "$CTRL_SHIFT_V | $ENTER" "$KEYS"
+check "…and the log says so" "1" \
+    "$(grep -c 'did not say how to paste' "$work/wsi.err")"
 
 #----------------------------------------------------------------------------
 echo "=== qa-stt-limits.bash: a limit planted back in is caught ==="
