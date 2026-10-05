@@ -29,8 +29,10 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
 
 ## Goals
 
-- `auto`'s model is downloaded by the playbook, for each recorder mode, and a partial
-  download is resumed.
+- No model is downloaded by default (owner's decision, Task 2.4). With none on disk, or
+  with `auto` picking one that is not on disk, recording stops before it starts with a
+  clear message: download at least one model, and from where. Nothing downloads at run
+  time unasked.
 - Settings lists a model as installed only when its weights (`model.bin`) are present.
 - A server that dies while loading is reported at once, with its own error.
 - The Settings dropdowns show short option names, and the explanation sits in the subtitle.
@@ -82,8 +84,23 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
 
   - [x] ✅ The task has a 30-minute time limit per model (`timeout: 1800`), so a stall
     fails the play instead of holding it.
-  - [ ] ⬜ HOST: why the xet download stalls (needs a host run to observe).
-  - [ ] 🚫 Owner decision: should a large model download run by default on a metered (5G) link?
+  - [ ] ⬜ HOST: why the xet download stalls (needs a host run to observe). Moot for the
+    play once Task 2.4 removes its download; still matters for the model manager.
+  - [x] ✅ Owner decision: no. See Task 2.4.
+
+- [ ] ⬜ **Task 2.4**: **Owner's decision: no model downloads by default.** One model is not
+  right for every machine this repo installs, so the play suggests and never installs, and a
+  metered-link check is not trusted. Supersedes Tasks 1.5 and 2.2's download half.
+
+  - The play drops "Download The Auto Model" (keeps "Verify The Auto Model Resolves").
+    Plan 00148's `acceptance.bash` stops requiring `auto`'s `model.bin`.
+  - `wsi` and `wsi-stream` (and the warm server) check, before the microphone opens, that
+    the model to be used has `model.bin` on disk, and otherwise fail with: no speech model
+    is downloaded (or: `auto` picked X, which is not downloaded); open the model manager
+    and download at least one. The panel shows that message. faster-whisper is never left
+    to download on first use.
+  - Settings and the model manager show which model `auto` suggests for this machine.
+  - Tests first, red against the current recorder.
 
 ### Phase 3: Review and deploy
 

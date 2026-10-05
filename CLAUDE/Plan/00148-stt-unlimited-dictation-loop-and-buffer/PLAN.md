@@ -327,11 +327,24 @@ arrive while dictating, and to see which window it will go into.
   - `report_undelivered_dictation` and `report_failed_dictation` overstate what is owed
     once chunks have been pasted;
   - the outline draws over the overview.
-- [ ] ⬜ **Task 9.7**: **The boundary (owner's decision).** Phase 9 is the last piece of
-  injection work built here. Before any IBus engine, voice commands or document mode, the
-  owner tries Vocalinux. It is the closest existing app: an IBus `commit_text` engine,
-  editing voice commands, and whisper/faster-whisper/Parakeet engines. If it fits, adopt
-  it rather than rebuild it. Survey: [research-linux-dictation-landscape.md](research-linux-dictation-landscape.md).
+- [ ] ⬜ **Task 9.10**: **Pin the paste target at Insert (owner's request).** The window
+  focused when recording starts is where the dictation is meant to go. Today each paste
+  goes to whatever is focused at that moment (Tasks 9.1, 9.3, 9.4), so a stray click or a
+  window that steals focus takes the text. Instead the panel keeps that window from Insert
+  and answers `PasteKey` for it; if focus has moved, the panel gives the window back focus
+  (`Main.activateWindow`, which the Shell may do on Wayland where an app may not), and the
+  recorder pastes only once focus is confirmed there. The outline stays on the pinned
+  window. Owner's answers:
+  - the pinned window was closed: keep the text on the clipboard, paste nothing, say so;
+  - the pinned window is on another workspace: switch to it and paste;
+  - any focus change mid-dictation counts as an accident, deliberate or not: the pin is
+    fixed until stop, with no way to move it. Task 9.5's "outline and chunk follow the
+    new window" check becomes "they stay on the pinned window".
+- [x] ✅ **Task 9.7**: **The boundary (owner's decision).** Owner's answer: no adoption. The
+  owner was after an established, high-quality app, and the survey found none on GNOME
+  Wayland: Vocalinux is young and would largely duplicate this stack, and Talon is closed,
+  X11-only and leaving Linux. Not installed. Any IBus engine, voice commands or document
+  mode is new work here, planned when wanted. Survey: [research-linux-dictation-landscape.md](research-linux-dictation-landscape.md).
 - [ ] ⬜ **Task 9.5**: **HOST**: deploy, log out and in; dictate past 120 s into GNOME Text
   Editor with chunks on, then with them off; switch windows mid-dictation and see the
   outline and the next chunk follow.
