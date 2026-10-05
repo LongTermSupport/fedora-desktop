@@ -121,12 +121,15 @@ Fedora pin mismatch refused; `--dry-run` names the target and moves nothing; `--
 on the newest valid tag and refuses when there is none. `scripts/test-self-update-cycle.bash`
 gains the end-to-end cycle against a tagged repository.
 
-## Decisions for the owner (with the recommendation)
+## Decisions (owner, Plan 00153 Task 1.1)
 
 1. **Tag the signed commit the release command makes**, not whatever merge is on top. Needed
-   so the wrapper's "HEAD is owner-signed" invariant stays unchanged. Recommended.
-2. **Replace branch-tip deployment with tags outright**, no mode switch: no server runs the
-   unattended cycle yet. Recommended; a switch would be a second code path to test and to
-   leave behind.
+   so the wrapper's "HEAD is owner-signed" invariant stays unchanged. Accepted.
+2. **Tags are the default; following the branch tip is an explicit opt-in channel.** The owner
+   chose this over replacing the tip outright (the recommendation). Consequences for Phase 3:
+   the play gains one variable choosing the channel (`tags` by default, `branch` to opt in);
+   the existing branch-tip walk is kept for `branch` and both paths are tested. The default
+   channel behaves exactly as designed above, so "never fall back to the tip" holds within
+   the `tags` channel: an unusable tag is never answered by switching channel.
 3. **Refuse, never fall back**, when the newest tag is unusable, including a withdrawn
-   tag that was deployed. Recommended; the cost is a person has to look.
+   tag that was deployed. Accepted; the cost is a person has to look.
