@@ -93,6 +93,11 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
   installed. Installing it was refused in-session; the owner runs the install.
 - [ ] ⬜ **Task 4.2**: The model list offers models that do not fit the GPU's memory
   (`large-v3`, fp16, on a 4 GB card).
+- [ ] ⬜ **Task 4.3**: `qa-all.bash` gate `wsi-stop-grace` is red in the CCY container:
+  `test_model_manager_installed.py` loads `wsi-model-manager`, which exits on import
+  without `textual` and `huggingface_hub`, and this project's ccy image
+  (`.claude/ccy/Dockerfile`) has neither. Declare them there (or stub them in
+  `tests/speech_to_text/stt_stubs.py`), so the gate tests what it names.
 
 ## Success Criteria
 
