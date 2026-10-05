@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00159-speech-to-text-vocabulary](00159-speech-to-text-vocabulary/) - Feature: a personal vocabulary primes Whisper and a "heard => meant" list corrects the text, both kept in `~/.config/fedora-desktop/`, a checkout of the private config repo
+
 - [00158-ccy-sessions-take-over](00158-ccy-sessions-take-over/) - `ccy-sessions` Ctrl-T takes over a session open in another terminal (a dropped SSH still holding it): asks first naming that terminal and its idle time, detaches it, attaches here; the session keeps running. CCY 3.79.0, deployed by `play-claude-yolo.yml`.
 
 - [00156-speech-to-text-auto-model-never-downloaded](00156-speech-to-text-auto-model-never-downloaded/) - Regression from Plan 00148: the `auto` model was never downloaded, so the warm server would not start after a reboot. Fixed under Defence Before Fix.
