@@ -14,7 +14,9 @@ Keys:
 
 from __future__ import annotations
 
+import os
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -83,6 +85,45 @@ EXPECTED_BYTES: dict[str, int] = {
     'medium.en':       789_000_000,
     'distil-large-v3.5': 1_517_000_000,
 }
+
+
+RESOLVER = Path(__file__).resolve().parent / 'wsi-resolve-model'
+SETTING_READER = Path(__file__).resolve().parent / 'wsi-setting'
+AUTO_MODES = ('batch', 'streaming')
+
+
+def session_language() -> str:
+    """The language the recorders transcribe in: the Settings value, where `system`
+    means the language part of $LANG, as the extension computes it."""
+    result = subprocess.run([str(SETTING_READER), 'language'], capture_output=True,
+                            text=True, timeout=10, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(f'cannot read the language setting: {result.stderr.strip()}')
+    value = result.stdout.strip()
+    if value == 'system':
+        return os.environ.get('LANG', 'en_GB.UTF-8').split('_')[0]
+    return value
+
+
+def auto_suggestions(language: str) -> dict[str, list[str]]:
+    """The model `auto` picks on this machine, per recorder mode: {model_id: [modes]}.
+
+    Asked of wsi-resolve-model --suggest, the same choice the recorders make, without
+    its check that the model is downloaded. Raises RuntimeError with the resolver's
+    reason when it cannot choose.
+    """
+    id_for = {repo: model_id for model_id, _label, repo, *_ in MODELS}
+    picks: dict[str, list[str]] = {}
+    for mode in AUTO_MODES:
+        result = subprocess.run(
+            [str(RESOLVER), '--suggest', '--mode', mode, '--language', language, 'auto'],
+            capture_output=True, text=True, timeout=30, check=False)
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip().splitlines()[-1]
+                               if result.stderr.strip() else f'{RESOLVER} failed')
+        name = result.stdout.strip()
+        picks.setdefault(id_for.get(name, name), []).append(mode)
+    return picks
 
 
 def repo_cache_dir(repo_id: str) -> Path:
@@ -204,6 +245,8 @@ class ModelManagerApp(App):
         self._filter_text = ''
         self._visible_model_ids: list[str] = []  # tracks row order for cursor lookup
         self._download_progress: dict[str, str] = {}  # model_id → progress string
+        self._suggested: dict[str, list[str]] = {}  # model_id → modes auto picks it for
+        self._suggest_error = ''
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -217,6 +260,10 @@ class ModelManagerApp(App):
         self.sub_title = 'faster-whisper (Systran)'
         table = self.query_one('#table', DataTable)
         table.add_columns('Status', 'Model', 'Size', 'Lang', 'Description')
+        try:
+            self._suggested = auto_suggestions(session_language())
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:
+            self._suggest_error = f'auto cannot choose a model here: {e}'
         self._installed = get_installed()
         self._rebuild_table()
         table.focus()
@@ -246,6 +293,8 @@ class ModelManagerApp(App):
             else:
                 status = Text('  Available', style='dim')
 
+            if model_id in self._suggested:
+                label = f'{label}  ★ auto'
             table.add_row(status, label, size, lang, desc, key=model_id)
             self._visible_model_ids.append(model_id)
 
@@ -258,6 +307,15 @@ class ModelManagerApp(App):
         msg = f'{n} of {total} models installed'
         if dl:
             msg += f'  ·  {dl} downloading...'
+        if self._suggest_error:
+            msg += f'  ·  {self._suggest_error}'
+        elif self._suggested:
+            label_for = {model_id: label for model_id, label, *_ in MODELS}
+            picks = ', '.join(f"{label_for.get(m, m)} ({' and '.join(modes)})"
+                              for m, modes in self._suggested.items())
+            msg += f'  ·  ★ auto picks {picks} here'
+            if not n:
+                msg += ': download one to start dictating'
         self.query_one('#status', Static).update(msg)
 
     def _selected_model_id(self) -> str | None:

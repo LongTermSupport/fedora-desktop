@@ -53,13 +53,14 @@ export default class SpeechToTextPreferences extends ExtensionPreferences {
         const [modelValues, modelLabels, missingLabel] = this._buildInstalledModelList(settings);
         const modelSubtitle = 'Auto: with a GPU, Distil v3.5 English for English, else Large v3 Turbo; ' +
             'without one, Small (batch) or Base (streaming). ' +
-            'Only downloaded models are listed; use "Manage Whisper Models" to download more';
-        this._addComboRow(transcGroup, settings, 'whisper-model',
-            'Whisper Model',
-            missingLabel === null
-                ? modelSubtitle
-                : `${missingLabel} is selected but not downloaded. ${modelSubtitle}`,
-            modelValues, modelLabels);
+            'Only downloaded models are listed, and none is downloaded for you: ' +
+            'use "Manage Whisper Models" to download at least one';
+        const modelRowSubtitle = missingLabel === null
+            ? modelSubtitle
+            : `${missingLabel} is selected but not downloaded. ${modelSubtitle}`;
+        const modelRow = this._addComboRow(transcGroup, settings, 'whisper-model',
+            'Whisper Model', modelRowSubtitle, modelValues, modelLabels);
+        this._showAutoSuggestion(modelRow, settings, modelRowSubtitle);
 
         // === Streaming ===
         const streamGroup = new Adw.PreferencesGroup({ title: 'Streaming Mode' });
@@ -237,6 +238,45 @@ export default class SpeechToTextPreferences extends ExtensionPreferences {
             // A cache that cannot be read offers nothing, and says why in the journal.
             logError(e, `STT prefs: reading ${snapshotsPath}`);
             return false;
+        }
+    }
+
+    /**
+     * Put the model Auto picks on this machine at the front of the row's subtitle, as
+     * wsi-resolve-model --suggest answers it for the current language and recording
+     * mode: the model to download when none is. Asked asynchronously (the resolver
+     * asks CTranslate2 about the GPU), so the window opens at once.
+     */
+    _showAutoSuggestion(row, settings, subtitle) {
+        const resolver = `${GLib.get_home_dir()}/.local/bin/wsi-resolve-model`;
+        const setting = settings.get_string('language');
+        const language = setting === 'system'
+            ? (GLib.getenv('LANG') ?? 'en_GB.UTF-8').split('_')[0]
+            : setting;
+        const mode = settings.get_boolean('streaming-mode') ? 'streaming' : 'batch';
+        const labelFor = Object.fromEntries(
+            WHISPER_MODELS.flatMap(([id, repo, label]) => [[id, label], [repo, label]]));
+        try {
+            const proc = Gio.Subprocess.new(
+                [resolver, '--suggest', '--mode', mode, '--language', language, 'auto'],
+                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
+            proc.communicate_utf8_async(null, null, (p, res) => {
+                try {
+                    const [, stdout, stderr] = p.communicate_utf8_finish(res);
+                    const answer = stdout.trim();
+                    if (p.get_successful() && answer) {
+                        row.subtitle = `On this machine Auto picks ${labelFor[answer] ?? answer}. ${subtitle}`;
+                    } else {
+                        const reason = stderr.trim().split('\n').pop();
+                        row.subtitle = `Auto cannot choose a model here: ${reason}. ${subtitle}`;
+                    }
+                } catch (e) {
+                    logError(e, 'STT prefs: reading the Auto model');
+                }
+            });
+        } catch (e) {
+            logError(e, `STT prefs: running ${resolver}`);
+            row.subtitle = `Auto cannot choose a model here (${resolver} did not run). ${subtitle}`;
         }
     }
 

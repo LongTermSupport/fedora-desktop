@@ -113,5 +113,65 @@ class CataloguesAgreeTest(unittest.TestCase):
         self.assertEqual(set(self.prefs), {m[0] for m in manager.MODELS})
 
 
+class AutoSuggestionTest(unittest.TestCase):
+    """The manager marks the model `auto` picks on this machine, the one to download when
+    none is (Plan 00156 Task 2.4), by asking wsi-resolve-model --suggest for each mode."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.dir = pathlib.Path(self._tmp.name)
+        self.calls = self.dir / "calls"
+
+    def stub(self, name, body):
+        script = self.dir / name
+        script.write_text("#!/bin/sh\n" + body)
+        script.chmod(0o755)
+        return script
+
+    def resolver(self, batch, streaming, rc=0):
+        script = self.stub("wsi-resolve-model",
+                           f'echo "$*" >> "{self.calls}"\n'
+                           f'case "$*" in *"--mode batch"*) echo "{batch}" ;; '
+                           f'*) echo "{streaming}" ;; esac\n'
+                           f'[ {rc} -eq 0 ] || {{ echo "wsi-resolve-model: no GPU answer" >&2; exit {rc}; }}\n')
+        patcher = mock.patch.object(manager, "RESOLVER", script)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_each_mode_is_asked_without_the_disk_check(self):
+        self.resolver("small", "base")
+        manager.auto_suggestions("en")
+        calls = self.calls.read_text().splitlines()
+        self.assertEqual(len(calls), 2)
+        for call in calls:
+            self.assertIn("--suggest", call)
+            self.assertIn("--language en", call)
+            self.assertTrue(call.endswith(" auto"), call)
+
+    def test_the_answer_maps_back_to_model_ids_with_their_modes(self):
+        self.resolver("distil-whisper/distil-large-v3.5-ct2", "distil-whisper/distil-large-v3.5-ct2")
+        self.assertEqual(manager.auto_suggestions("en"),
+                         {"distil-large-v3.5": ["batch", "streaming"]})
+        self.resolver("small", "base")
+        self.assertEqual(manager.auto_suggestions("en"),
+                         {"small": ["batch"], "base": ["streaming"]})
+
+    def test_a_resolver_failure_is_raised_with_its_reason(self):
+        self.resolver("small", "base", rc=1)
+        with self.assertRaises(RuntimeError) as raised:
+            manager.auto_suggestions("en")
+        self.assertIn("no GPU answer", str(raised.exception))
+
+    def test_the_language_is_the_setting_and_system_means_lang(self):
+        reader = self.stub("wsi-setting", f'cat "{self.dir}/language"\n')
+        with mock.patch.object(manager, "SETTING_READER", reader), \
+                mock.patch.dict(manager.os.environ, {"LANG": "de_DE.UTF-8"}):
+            (self.dir / "language").write_text("fr\n")
+            self.assertEqual(manager.session_language(), "fr")
+            (self.dir / "language").write_text("system\n")
+            self.assertEqual(manager.session_language(), "de")
+
+
 if __name__ == "__main__":
     unittest.main()

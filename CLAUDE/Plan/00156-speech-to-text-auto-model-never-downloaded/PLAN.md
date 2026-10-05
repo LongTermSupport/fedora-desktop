@@ -88,7 +88,7 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
     play once Task 2.4 removes its download; still matters for the model manager.
   - [x] ✅ Owner decision: no. See Task 2.4.
 
-- [ ] ⬜ **Task 2.4**: **Owner's decision: no model downloads by default.** One model is not
+- [x] ✅ **Task 2.4**: **Owner's decision: no model downloads by default.** One model is not
   right for every machine this repo installs, so the play suggests and never installs, and a
   metered-link check is not trusted. Supersedes Tasks 1.5 and 2.2's download half.
 
@@ -109,8 +109,12 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
   - The pre-buffered streaming mode opens the microphone before the model is resolved
     (its point is an instant start), so there the message comes a moment after the
     start, and what was captured is discarded. Every other mode checks first.
-  - [ ] ⬜ Settings and the model manager show which model `auto` suggests for this machine
-    (`wsi-resolve-model --suggest`).
+  - [x] ✅ Settings and the model manager show which model `auto` picks on this machine
+    (`wsi-resolve-model --suggest`): the Whisper Model subtitle starts "On this machine
+    Auto picks X", and the manager marks it "★ auto", with the modes, in its status line.
+    `AutoSuggestionTest` was red first; the Settings tests in
+    `test-stt-prefs-installed-model.mjs` were written after the code (the stub harness
+    could not return a process's stdout until now), so they were never seen red.
 
 ### Phase 3: Review and deploy
 

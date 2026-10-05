@@ -302,6 +302,7 @@ export const GLib = {
     get_user_state_dir: () => '/stub/state',
     get_user_runtime_dir: () => '/stub/runtime',
     get_home_dir: () => '/stub/home',
+    getenv: name => process.env[name] ?? null,
     build_filenamev: parts => parts.join('/'),
     FileTest: {IS_EXECUTABLE: 'is-executable'},
     file_test(path, test) {
@@ -382,7 +383,7 @@ export const SPAWN_FAILURE = {message: null};
 
 /** How a started process ends, for a caller that waits on it. The callback fires
  * synchronously; a test sets this before the spawn and reads the outcome after. */
-export const SPAWN_OUTCOME = {successful: true, exitStatus: 0, stderr: ''};
+export const SPAWN_OUTCOME = {successful: true, exitStatus: 0, stdout: '', stderr: ''};
 
 /** GLib's own values (gioenums.h: STDOUT_PIPE 1<<2, STDERR_PIPE 1<<4), so a flag a
  * test asserts on is the number the real shell would receive. */
@@ -453,7 +454,7 @@ export const Gio = {
                     const piped = pipe => (flags & pipe) !== 0;
                     return [
                         true,
-                        piped(SUBPROCESS_FLAGS.STDOUT_PIPE) ? '' : null,
+                        piped(SUBPROCESS_FLAGS.STDOUT_PIPE) ? SPAWN_OUTCOME.stdout : null,
                         piped(SUBPROCESS_FLAGS.STDERR_PIPE) ? SPAWN_OUTCOME.stderr : null,
                     ];
                 },
