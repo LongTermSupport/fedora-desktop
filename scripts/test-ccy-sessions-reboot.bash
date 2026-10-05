@@ -505,7 +505,15 @@ HOME="$HOME_ON" PATH="$BIN:$PATH" CCY_LIB="$LIB_DIR" CCY_SESSIONS_MINUTE_SECONDS
     "$TOOL" reboot --in 3 </dev/null >"$SCRATCH/cancel.out" 2>&1 &
 reboot_pid=$!
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    if kill -0 "$reboot_pid" 2>/dev/null; then alive=1; else alive=0; fi
     if [ "$(calls | grep -c 'signal reboot-warning --minutes 3 ')" -eq 2 ]; then break; fi
+    if [ "$alive" -eq 0 ]; then
+        status=0
+        wait "$reboot_pid" || status=$?
+        echo "FAIL: ccy-sessions reboot exited (status $status) before warning both sessions:" >&2
+        cat "$SCRATCH/cancel.out" >&2
+        exit 1
+    fi
     sleep 0.1
 done
 # TERM rather than INT: a job started with & from a non-interactive shell has SIGINT

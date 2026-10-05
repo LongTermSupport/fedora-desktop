@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Unit-test reboot_guest and guest_prepare (files/home/.local/bin/vmtest, Plan 00109 Task 3.2).
+# Unit-test reboot_guest and guest_prepare (files/home/.local/bin/vmtest, Plan 00109 Task 3.2),
+# and the guest's wait for SSH across a reboot (Plan 00156 Task 1.3).
 #
-# Extracts the two functions under test out of `vmtest` with awk into a temp file and
+# Extracts the functions under test out of `vmtest` with awk into a temp file and
 # sources that — `vmtest` calls main "$@" on load and would try to drive libvirt. Each
 # function is bounded by its `<name>() {` line and the first `^}` after it; a refactor
 # that moves one keeps working, one that renames it fails loudly at extraction.
@@ -46,6 +47,8 @@ FN="$work/fn.bash"
 : >"$FN"
 extract reboot_guest "$FN"
 extract guest_prepare "$FN"
+extract guest_must_be_up "$FN"
+extract wait_for_ssh "$FN"
 
 passed=0
 failed=0
@@ -84,11 +87,21 @@ timeout() {
     fi
     return "${STUB_PREPARE_RC:-0}"
 }
+# The guest as libvirt and SSH see it: STUB_DOMSTATE is what `virsh domstate` answers,
+# STUB_SSH_RC how `ssh true` ends. Each sleep is recorded, so a wait that went on after
+# the guest had stopped shows in the trace.
+virsh() { printf '%s\n' "${STUB_DOMSTATE:-running}"; }
+guest_ssh() { return "${STUB_SSH_RC:-0}"; }
+sleep() { printf 'sleep %s\n' "$*" >>"$TRACE_DIR/trace"; }
 VMTEST_HOME="$STUB_LAB_DIR"
 PREPARE_TIMEOUT_SECONDS=1
 SSH_KEY=/dev/null
 GUEST_PORT=0
 CLOUD_USER=stub
+LIBVIRT_URI=qemu:///stub
+DOMAIN=vmtest-stub
+SSH_WAIT_SECONDS=600
+BUILD_DIR=/stub/build
 STUB
 )
 
@@ -205,6 +218,24 @@ elif [[ "$DIE_MESSAGE" == *"without printing VMTEST-GUEST-PREPARE-DONE"* ]]; the
     report pass a-fixture-that-stops-early-aborts
 else
     report fail a-fixture-that-stops-early-aborts "aborted for another reason: ${DIE_MESSAGE:-none}"
+fi
+
+# ── 8. a guest that answers SSH ends the wait ────────────────────────────────────────
+if run_case server wait_for_ssh && [ -z "$TRACE" ]; then
+    report pass a-guest-answering-ssh-ends-the-wait
+else
+    report fail a-guest-answering-ssh-ends-the-wait "trace: ${TRACE:-none}; output: ${CASE_OUTPUT:-none}"
+fi
+
+# ── 9. a guest that stopped is named at once, not waited out ─────────────────────────
+# Without the domain's state, a guest that crashed or powered off reads as "did not
+# answer SSH within 600s", ten minutes later, and the cause is left to the console log.
+if STUB_DOMSTATE="shut off" STUB_SSH_RC=255 run_case server wait_for_ssh; then
+    report fail a-stopped-guest-ends-the-wait "it returned success for a guest that was shut off"
+elif [[ "$DIE_MESSAGE" == *"is shut off while waiting for SSH"* && "$TRACE" != *sleep* ]]; then
+    report pass a-stopped-guest-ends-the-wait
+else
+    report fail a-stopped-guest-ends-the-wait "die: ${DIE_MESSAGE:-none}; trace: ${TRACE:-none}"
 fi
 
 printf 'passed: %d\n' "$passed"

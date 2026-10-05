@@ -338,7 +338,15 @@ bash -c "$tramp" ccy-tmux sleep 30 </dev/null >"$SCRATCH/killed.out" 2>&1 &
 tramp_pid=$!
 # Give the trampoline time to start its command, then take it down the way a reboot does.
 for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if kill -0 "$tramp_pid" 2>/dev/null; then alive=1; else alive=0; fi
     if pgrep -P "$tramp_pid" >"$SCRATCH/children"; then break; fi
+    if [ "$alive" -eq 0 ]; then
+        status=0
+        wait "$tramp_pid" || status=$?
+        echo "FAIL: the trampoline exited (status $status) before starting its command:" >&2
+        cat "$SCRATCH/killed.out" >&2
+        exit 1
+    fi
     sleep 0.1
 done
 kill -KILL "$tramp_pid"

@@ -53,9 +53,15 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
 - [x] ✅ **Task 1.2**: Class "model judged present without its weights"
   (`model-present-without-weights`): rule, page and fixture, committed red; sweep; fix
   every instance.
-- [ ] ⬜ **Task 1.3**: Class "a ready-wait that ignores its child's exit": rule, page and
-  fixture, committed red; sweep; fix every instance. 16 instances found across five
-  languages, so this class runs after 1.2 and 1.4 have been fixed and deployed.
+- [x] ✅ **Task 1.3**: Class "a ready-wait that ignores its child's exit"
+  (`ready-wait-ignores-child-exit`). The gate `qa-ready-wait-rules.bash` runs a Semgrep
+  rule for Python and `helpers/ready_wait/bash_ready_waits.py` for bash, because Semgrep
+  cannot parse 88 of the 371 tracked shell scripts. It was committed red with 8
+  findings. GNOME JS, Ansible, daemonizing starts and step scripts get no rule; the
+  reasons are on the QA.md page. 15 of the search's 16 instances are fixed (#8 after
+  review); #15 is referred to the owner (Task 4.5). The sweep is in
+  [`subagent-reports/261005-task-1-3-opus.md`](subagent-reports/261005-task-1-3-opus.md),
+  the reviews beside it.
 - [x] ✅ **Task 1.4**: Class "a dropdown option label carries explanation"
   (`dropdown-label-carries-explanation`): rule, page and fixture, committed red; sweep;
   fix every instance.
@@ -66,10 +72,15 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
 
 ### Phase 2: Original defects
 
-- [ ] ⬜ **Task 2.1**: `wsi-stream` raises the server's own error when the server it started
-  exits (`tests/speech_to_text/test_server_start.py`). The fix and its test are drafted
-  and held in [`held/`](held/) until Task 1.3's defence is committed red. The patch is
-  against 6515dd7c's `wsi-stream`, and is re-applied by hand since that file has moved on.
+- [x] ✅ **Task 2.1**: `wsi-stream`'s `start_server()` asks on every try whether the
+  server is still there: the server it started by its handle, and one already loading
+  by its lock. A server that exited raises at once with the first ERROR in its log, for
+  example "Model load failed: CUDA failed with error out of memory". A server that lost
+  a start race waits for the one that won. `tests/speech_to_text/test_server_start.py`
+  fails against the unfixed `wsi-stream` and passes against the fix. After review, the
+  error is read only from the server's own run: what it appended since the start, or
+  from its last start marker, without the block a server that gave way appends.
+  The held draft was re-applied by hand and `held/` is removed.
 
 - [x] ✅ **Task 2.2**: The playbook downloads `auto`'s model; prefs labels and descriptions.
 
@@ -134,6 +145,20 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
   without `textual`, `rich` and `huggingface_hub`, and the ccy image has none of them.
   The test now loads stand-ins for them (none is used by the code under test), so it
   runs anywhere; a control run against 6515dd7c's manager still fails on the defect.
+- [ ] ⬜ **Task 4.4**: The next wider ready-wait rule, not built: treat starts that hand a
+  guest to a manager (`lxc-start`, `virsh start`, `virt-install`) as arming a wait, as
+  `&` does. Instances #6 and #7 were of this shape and are fixed by hand, but a new copy
+  would pass the gate. Not built because their liveness check sits in a helper function
+  and the rule reads only the loop's text; to try next, let the rule follow a function
+  called from the loop's header or body.
+- [ ] ⬜ **Task 4.5**: OWNER: the ready-wait class stands at 15 of 16 instances fixed,
+  1 remaining, Completed Plan 00111's `insulation-steps.bash` (#15). What stopped it: the
+  start and the waits run in separate invocations (the pid is kept in a file), and
+  several steps kill the fake terminal on purpose and then wait for the effects, so one
+  liveness check in the shared `wait_for` would be wrong for them. Each wait is bounded
+  (15 to 60 s) and names what it waited for. To try next, if the script is run again:
+  give `wait_for` an optional pid file to check, passed only by the steps that expect
+  the terminal alive.
 
 ## Success Criteria
 

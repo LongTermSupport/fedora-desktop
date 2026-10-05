@@ -449,18 +449,32 @@ run_lxc_block() {
     # cleanup backstop. The spinner is silent (busy loops) → no redirect needed.
     sudo lxc-attach -n "$burner" -- timeout "$BURNER_TTL_S" \
         sh -c 'while :; do :; done & while :; do :; done & wait' &
+    local spinner_pid=$!
     # Settle: ensure the spinner is established AND aged past CW_AGE_S before the
     # scan — a sub-second-old process is filtered by the age gate, which was the
     # flaky 0-findings cause. This settle is the deterministic fix.
     sleep 3
 
-    # Ground truth: the in-container spinner PID(s).
+    # Ground truth: the in-container spinner PID(s). An lxc-attach that has already
+    # exited ends the wait at once with its status; its own error is above. `ps -p`,
+    # not `kill -0`: the attach runs under sudo, and kill -0 on a root process is
+    # refused even while it lives. Liveness is read first, so a spinner seen just as
+    # the attach ended still counts.
     gt_pids=""
+    local alive spinner_rc
     for _ in 1 2 3 4 5; do
+        if ps -p "$spinner_pid" >/dev/null; then alive=1; else alive=0; fi
         if gt_pids="$(sudo lxc-attach -n "$burner" -- pgrep -f 'while' 2>&1)" && [ -n "$gt_pids" ]; then
             break
         fi
         gt_pids=""
+        if [ "$alive" -eq 0 ]; then
+            spinner_rc=0
+            wait "$spinner_pid" || spinner_rc=$?
+            fail "$engine: the spinner's lxc-attach in '$burner' exited (status $spinner_rc) before its spinner was seen"
+            lxc_restore "$burner" "$started_by_us"
+            return 0
+        fi
         sleep 1
     done
     if [ -z "$gt_pids" ]; then
