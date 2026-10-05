@@ -59,7 +59,7 @@ from dataclasses import dataclass
 from typing import Protocol, TextIO
 
 from helpers.play_lock import lock as play_lock
-from helpers.self_update import affected_plays, alerts, published, update
+from helpers.self_update import affected_plays, alerts, gate, published, update
 
 EXIT_OK = 0
 EXIT_REFUSED = 20
@@ -85,14 +85,21 @@ _MAX_WARN_MINUTES = 60
 #: block on an empty pipe, so filling it before the child starts cannot deadlock.
 PIPE_MAX_BYTES = 4096
 
-_KEYS = ("USER", "BRANCH", "REMOTE_URL", "PRINCIPAL", "WARN_MINUTES", "ALERT_SINKS", "ANSIBLE_COLLECTIONS_DIR")
-RESULT_KEYS = ("at", "phase", "outcome", "old", "new", "plays", "detail", "alert")
+_KEYS = ("USER", "BRANCH", "CHANNEL", "REMOTE_URL", "PRINCIPAL", "WARN_MINUTES", "ALERT_SINKS", "ANSIBLE_COLLECTIONS_DIR")
+#: `tag` is the release the deployed commit is ("" on the branch channel).
+RESULT_KEYS = ("at", "phase", "outcome", "old", "new", "tag", "plays", "detail", "alert")
 #: The alert sinks this cycle can deliver to (Task 0.4: the owner chose Slack alone).
 SINKS = ("slack",)
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _NAME = re.compile(r"^[a-z_][a-z0-9_-]*$")
 _BRANCH = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 _REMOTE = "origin"
+#: What a refusing update's exit status means, for the alert; any other is the gate in general.
+_REFUSAL_REASONS = {
+    update.EXIT_NO_RELEASE: "no release tag exists for this Fedora major, and the branch tip is never deployed in its place",
+    update.EXIT_TAG_REFUSED: "the newest release tag failed its checks, and no older one is tried",
+    update.EXIT_TAG_MOVED: f"a release tag was moved upstream and is not followed: {update.MOVED_TAG_REMEDY}",
+}
 
 
 class ConfigError(Exception):
@@ -111,6 +118,7 @@ class Cancelled(Exception):
 class Config:
     user: str
     branch: str
+    channel: str
     remote_url: str
     principal: str
     warn_minutes: int
@@ -139,6 +147,13 @@ def parse_config(text: str) -> Config:
         raise ConfigError(f"USER={values['USER']!r} is not a user name")
     if not _BRANCH.match(values["BRANCH"]):
         raise ConfigError(f"BRANCH={values['BRANCH']!r} is not a branch name")
+    if values["CHANNEL"] not in update.CHANNELS:
+        raise ConfigError(f"CHANNEL={values['CHANNEL']!r} is not one of {', '.join(update.CHANNELS)}")
+    if values["CHANNEL"] == update.CHANNEL_TAGS and gate.branch_major(values["BRANCH"]) is None:
+        raise ConfigError(
+            f"BRANCH={values['BRANCH']!r} is not a Fedora release branch F<number>, so the {update.CHANNEL_TAGS} "
+            f"channel has no release tags to follow; name an F<number> branch or choose CHANNEL={update.CHANNEL_BRANCH}"
+        )
     if not values["REMOTE_URL"].startswith("https://"):
         raise ConfigError("REMOTE_URL must be an https:// URL (the public repository, fetched without a key)")
     if not values["PRINCIPAL"]:
@@ -156,7 +171,7 @@ def parse_config(text: str) -> Config:
     if not os.path.isabs(collections) or os.path.normpath(collections) != collections or re.search(r"\s", collections):
         raise ConfigError(f"ANSIBLE_COLLECTIONS_DIR={collections!r} is not an absolute, normalised path")
     return Config(
-        user=values["USER"], branch=values["BRANCH"], remote_url=values["REMOTE_URL"],
+        user=values["USER"], branch=values["BRANCH"], channel=values["CHANNEL"], remote_url=values["REMOTE_URL"],
         principal=values["PRINCIPAL"], warn_minutes=int(minutes), alert_sinks=sinks,
         ansible_collections_dir=collections,
     )
@@ -167,6 +182,7 @@ class Owed:
     boot: str
     new: str
     plays: tuple[str, ...]
+    tag: str = ""
 
 
 class State:
@@ -223,12 +239,14 @@ class State:
         record = self._read("owed-verify")
         if record is None:
             return None
-        if set(record) != {"boot", "new", "plays"} or not _SHA.match(record["new"]):
-            raise StateError("owed-verify is not a boot, a commit and a list of plays")
-        return Owed(boot=record["boot"], new=record["new"], plays=tuple(record["plays"].split()))
+        # `tag` is absent from a record written before the tags channel existed.
+        if set(record) - {"tag"} != {"boot", "new", "plays"} or not _SHA.match(record["new"]):
+            raise StateError("owed-verify is not a boot, a commit, a list of plays and optionally a release tag")
+        return Owed(boot=record["boot"], new=record["new"], plays=tuple(record["plays"].split()),
+                    tag=record.get("tag", ""))
 
-    def write_owed(self, *, boot: str, new: str, plays: tuple[str, ...]) -> None:
-        self._write("owed-verify", {"boot": boot, "new": new, "plays": " ".join(plays)})
+    def write_owed(self, *, boot: str, new: str, plays: tuple[str, ...], tag: str = "") -> None:
+        self._write("owed-verify", {"boot": boot, "new": new, "plays": " ".join(plays), "tag": tag})
 
     def clear_owed(self) -> None:
         with contextlib.suppress(FileNotFoundError):
@@ -255,6 +273,9 @@ class UpdateResult:
     new: str | None
     target: str | None
     nothing: str | None
+    tag: str | None = None
+    #: update.py's one-line reason for a release refusal (the tag and the check that failed).
+    reason: str | None = None
 
     def head(self) -> str | None:
         return self.new or self.target or self.nothing
@@ -289,10 +310,11 @@ def alert(record: dict[str, str], host: Host, stderr: TextIO) -> str:
 
 def _finish(
     state: State, host: Host, stdout: TextIO, stderr: TextIO, *, code: int, phase: str, outcome: str,
-    old: str = "", new: str = "", plays: tuple[str, ...] = (), detail: str = "", announce: bool = False,
+    old: str = "", new: str = "", tag: str = "", plays: tuple[str, ...] = (), detail: str = "",
+    announce: bool = False,
 ) -> int:
     record = {
-        "at": host.now(), "phase": phase, "outcome": outcome, "old": old, "new": new,
+        "at": host.now(), "phase": phase, "outcome": outcome, "old": old, "new": new, "tag": tag,
         "plays": " ".join(plays), "detail": detail, "alert": "",
     }
     # Recorded before the sinks are tried, so a sink that hangs or crashes cannot cost the
@@ -352,19 +374,23 @@ def run_cycle(config: Config, host: Host, state: State, *, dry_run: bool, stdout
     if result.rc != 0 or head is None:
         if dry_run:
             return EXIT_REFUSED
+        # update.py's own line names the tag and the check; the table is for one that gave none.
+        reason = result.reason or _REFUSAL_REASONS.get(result.rc, "the update or trust gate refused")
         return _finish(state, host, stdout, stderr, code=EXIT_REFUSED, phase="update", outcome="refused",
-                       detail=f"the update or trust gate refused (update exit {result.rc})", announce=True)
+                       detail=f"{reason} (update exit {result.rc})", announce=True)
 
+    tag = result.tag or ""
     deployed = state.read_deployed()
     owed = state.read_owed()
     if deployed == head:
         if not dry_run and owed is not None and owed.boot == host.boot_id():
-            return _warn_and_reboot(config, host, state, stdout, stderr, old=deployed, new=head, plays=owed.plays)
+            return _warn_and_reboot(config, host, state, stdout, stderr, old=deployed, new=head, tag=tag,
+                                    plays=owed.plays)
         if dry_run:
             stdout.write("SELF-UPDATE-CYCLE nothing\n")
             return EXIT_OK
         return _finish(state, host, stdout, stderr, code=EXIT_OK, phase="update", outcome="nothing",
-                       old=deployed or "", new=head)
+                       old=deployed or "", new=head, tag=tag)
 
     try:
         plays = _plays_to_run(host, deployed, head)
@@ -373,7 +399,7 @@ def run_cycle(config: Config, host: Host, state: State, *, dry_run: bool, stdout
         if dry_run:
             return EXIT_REFUSED
         return _finish(state, host, stdout, stderr, code=EXIT_REFUSED, phase="plan", outcome="refused",
-                       old=deployed or "", new=head, detail="the plays to run could not be worked out",
+                       old=deployed or "", new=head, tag=tag, detail="the plays to run could not be worked out",
                        announce=True)
 
     if plays:
@@ -383,7 +409,7 @@ def run_cycle(config: Config, host: Host, state: State, *, dry_run: bool, stdout
             if dry_run:
                 return EXIT_CONFIG
             return _finish(state, host, stdout, stderr, code=EXIT_CONFIG, phase="plan", outcome="config-invalid",
-                           old=deployed or "", new=head, plays=plays,
+                           old=deployed or "", new=head, tag=tag, plays=plays,
                            detail="the system ansible or its collections cannot be trusted; no play ran",
                            announce=True)
 
@@ -396,34 +422,34 @@ def run_cycle(config: Config, host: Host, state: State, *, dry_run: bool, stdout
     if not plays:
         state.write_deployed(head)
         return _finish(state, host, stdout, stderr, code=EXIT_OK, phase="plan", outcome="nothing",
-                       old=deployed or "", new=head)
+                       old=deployed or "", new=head, tag=tag)
 
     for play in plays:
         rc = host.run_play(play)
         if rc != 0:
             return _finish(state, host, stdout, stderr, code=EXIT_PLAY_FAILED, phase="play", outcome="play-failed",
-                           old=deployed or "", new=head, plays=plays,
+                           old=deployed or "", new=head, tag=tag, plays=plays,
                            detail=f"{play} exited {rc}; no reboot, retried next cycle", announce=True)
 
     state.write_deployed(head)
-    state.write_owed(boot=host.boot_id(), new=head, plays=plays)
-    return _warn_and_reboot(config, host, state, stdout, stderr, old=deployed or "", new=head, plays=plays)
+    state.write_owed(boot=host.boot_id(), new=head, plays=plays, tag=tag)
+    return _warn_and_reboot(config, host, state, stdout, stderr, old=deployed or "", new=head, tag=tag, plays=plays)
 
 
 def _warn_and_reboot(
     config: Config, host: Host, state: State, stdout: TextIO, stderr: TextIO,
-    *, old: str, new: str, plays: tuple[str, ...],
+    *, old: str, new: str, tag: str, plays: tuple[str, ...],
 ) -> int:
     minutes = config.warn_minutes
 
     def unwarnable(detail: str) -> int:
         return _finish(state, host, stdout, stderr, code=EXIT_UNWARNABLE, phase="warn", outcome="unwarnable",
-                       old=old, new=new, plays=plays, detail=detail, announce=True)
+                       old=old, new=new, tag=tag, plays=plays, detail=detail, announce=True)
 
     if host.notify(["going-down", "--minutes", str(minutes)]) != 0:
         return unwarnable("a session could not be warned; no reboot, retried next cycle")
     state.write_result({"at": host.now(), "phase": "warn", "outcome": "rebooting", "old": old, "new": new,
-                        "plays": " ".join(plays), "detail": f"reboot in {minutes} minute(s)"})
+                        "tag": tag, "plays": " ".join(plays), "detail": f"reboot in {minutes} minute(s)"})
     try:
         if minutes > 1:
             host.sleep((minutes - 1) * MINUTE)
@@ -434,12 +460,13 @@ def _warn_and_reboot(
     except Cancelled:
         _withdraw(host, stderr)
         return _finish(state, host, stdout, stderr, code=EXIT_CANCELLED, phase="warn", outcome="cancelled",
-                       old=old, new=new, plays=plays, detail="the countdown was interrupted; withdrawn, no reboot",
+                       old=old, new=new, tag=tag, plays=plays,
+                       detail="the countdown was interrupted; withdrawn, no reboot",
                        announce=True)
     if host.reboot() != 0:
         _withdraw(host, stderr)
         return _finish(state, host, stdout, stderr, code=EXIT_REBOOT_FAILED, phase="reboot", outcome="reboot-failed",
-                       old=old, new=new, plays=plays, detail="the reboot request was refused; withdrawn",
+                       old=old, new=new, tag=tag, plays=plays, detail="the reboot request was refused; withdrawn",
                        announce=True)
     stdout.write("SELF-UPDATE-CYCLE rebooting\n")
     return EXIT_OK
@@ -454,9 +481,10 @@ def verify(config: Config, host: Host, state: State, *, stdout: TextIO, stderr: 
     state.clear_owed()
     if rc == 0:
         return _finish(state, host, stdout, stderr, code=EXIT_OK, phase="verify", outcome="deployed",
-                       new=owed.new, plays=owed.plays, detail="every restored session is running", announce=True)
+                       new=owed.new, tag=owed.tag, plays=owed.plays, detail="every restored session is running",
+                       announce=True)
     return _finish(state, host, stdout, stderr, code=EXIT_VERIFY_FAILED, phase="verify", outcome="verify-failed",
-                   new=owed.new, plays=owed.plays, detail="a restored session is not running, or waits at a prompt",
+                   new=owed.new, tag=owed.tag, plays=owed.plays, detail="a restored session is not running, or waits at a prompt",
                    announce=True)
 
 
@@ -735,12 +763,13 @@ class RealHost:
         rc = update.run(
             checkout=self._clone, remote=_REMOTE, branch=self._config.branch,
             allowed_signers=self._allowed_signers, principal=self._config.principal,
-            dry_run=dry_run, stdout=out, stderr=sys.stderr,
+            dry_run=dry_run, channel=self._config.channel, stdout=out, stderr=sys.stderr,
         )
         markers = dict(line.split(" ", 1) for line in out.getvalue().splitlines() if " " in line)
         return UpdateResult(
             rc=rc, old=markers.get("SELF-UPDATE-OLD"), new=markers.get("SELF-UPDATE-NEW"),
             target=markers.get("SELF-UPDATE-TARGET"), nothing=markers.get("SELF-UPDATE-NOTHING"),
+            tag=markers.get("SELF-UPDATE-TAG"), reason=markers.get("SELF-UPDATE-REFUSED"),
         )
 
     def changed_plays(self, old: str, new: str) -> affected_plays.Report:

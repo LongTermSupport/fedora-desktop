@@ -27,10 +27,12 @@ FILE_NAME = "result"
 
 #: The cycle's result keys, then the boot a post-boot check is owed by ("" for none).
 #: `alert` names each sink that did not accept this result's alert ("" when all did).
-KEYS = ("at", "phase", "outcome", "old", "new", "plays", "detail", "alert", "owed_boot")
+#: `tag` is the release the commit is ("" on the branch channel).
+KEYS = ("at", "phase", "outcome", "old", "new", "tag", "plays", "detail", "alert", "owed_boot")
 #: Keys a record written by an older cycle lacks, and what they mean when absent. A cycle
-#: from before alerts existed sent nothing, so nothing it sent can have failed.
-_ABSENT_MEANS = {"alert": ""}
+#: from before alerts existed sent nothing, so nothing it sent can have failed, and one from
+#: before release tags followed none.
+_ABSENT_MEANS = {"alert": "", "tag": ""}
 
 #: A cycle that finished with nothing wrong.
 OK_OUTCOMES = frozenset({"nothing", "deployed"})

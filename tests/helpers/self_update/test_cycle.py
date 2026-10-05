@@ -16,7 +16,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from helpers.self_update import cycle, published
+from helpers.self_update import cycle, published, update
 from helpers.self_update.affected_plays import Report
 
 OLD = "a" * 40
@@ -26,6 +26,7 @@ PLAY = "playbooks/imports/play-claude-yolo.yml"
 CONFIG_TEXT = (
     "USER=tester\n"
     "BRANCH=F44\n"
+    "CHANNEL=tags\n"
     "REMOTE_URL=https://github.com/example/fedora-desktop.git\n"
     "PRINCIPAL=owner@example.com\n"
     "WARN_MINUTES=3\n"
@@ -157,11 +158,29 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(config.alert_sinks, ())
 
     def test_every_key_is_required(self) -> None:
-        for key in ("USER", "BRANCH", "REMOTE_URL", "PRINCIPAL", "WARN_MINUTES", "ALERT_SINKS",
+        for key in ("USER", "BRANCH", "CHANNEL", "REMOTE_URL", "PRINCIPAL", "WARN_MINUTES", "ALERT_SINKS",
                     "ANSIBLE_COLLECTIONS_DIR"):
             text = "".join(line + "\n" for line in CONFIG_TEXT.splitlines() if not line.startswith(key + "="))
             with self.subTest(missing=key), self.assertRaises(cycle.ConfigError):
                 cycle.parse_config(text)
+
+    def test_the_channel_is_tags_or_branch_and_nothing_else(self) -> None:
+        self.assertEqual(cycle.parse_config(CONFIG_TEXT).channel, "tags")
+        self.assertEqual(cycle.parse_config(CONFIG_TEXT.replace("CHANNEL=tags", "CHANNEL=branch")).channel, "branch")
+        for bad in ("", "tip", "Tags", "tags,branch", "latest"):
+            with self.subTest(value=bad), self.assertRaises(cycle.ConfigError):
+                cycle.parse_config(CONFIG_TEXT.replace("CHANNEL=tags", f"CHANNEL={bad}"))
+
+    def test_the_tags_channel_needs_a_fedora_release_branch(self) -> None:
+        """No F<number> branch, no tag family to follow."""
+        for bad in ("main", "f44", "F4x", "release/F44", "F044"):
+            with self.subTest(branch=bad), self.assertRaises(cycle.ConfigError) as caught:
+                cycle.parse_config(CONFIG_TEXT.replace("BRANCH=F44", f"BRANCH={bad}"))
+            self.assertIn("F<number>", str(caught.exception))
+
+    def test_the_branch_channel_follows_any_branch(self) -> None:
+        text = CONFIG_TEXT.replace("CHANNEL=tags", "CHANNEL=branch").replace("BRANCH=F44", "BRANCH=main")
+        self.assertEqual(cycle.parse_config(text).branch, "main")
 
     def test_an_unknown_key_is_refused(self) -> None:
         with self.assertRaises(cycle.ConfigError):
@@ -831,6 +850,95 @@ class TestVerify(CycleCase):
         self.assertIn("ALERT", err)
 
 
+class TestReleaseTag(CycleCase):
+    """The tags channel's marker is carried through every result, so what a host runs reads
+    as 'release 44.2.1' and not as a bare sha."""
+
+    TAG = "44.2.1"
+
+    def tagged(self, **fields: object) -> cycle.UpdateResult:
+        values: dict[str, object] = {"rc": 0, "old": OLD, "new": NEW, "target": None, "nothing": None, "tag": self.TAG}
+        values.update(fields)
+        return cycle.UpdateResult(**values)
+
+    def test_a_cycle_result_names_the_release_it_deployed(self) -> None:
+        self.host.update_result = self.tagged()
+        self.run_cycle()
+        self.assertEqual(self.result()["tag"], self.TAG)
+        copy = published.read(self.published_dir)
+        assert copy is not None
+        self.assertEqual(copy["tag"], self.TAG)
+
+    def test_the_tag_survives_the_reboot_into_the_verify_result(self) -> None:
+        self.host.update_result = self.tagged()
+        self.run_cycle()
+        self.host.boot = "boot-2"
+        self.verify()
+        self.assertEqual(self.result()["outcome"], "deployed")
+        self.assertEqual(self.result()["tag"], self.TAG)
+        self.assertEqual(self.host.alerts_sent[-1]["tag"], self.TAG)
+
+    def test_a_result_with_no_release_has_an_empty_tag(self) -> None:
+        self.run_cycle()
+        self.assertEqual(self.result()["tag"], "")
+
+    def test_nothing_new_still_names_the_release_at_head(self) -> None:
+        self.state.write_deployed(NEW)
+        self.host.update_result = self.tagged(old=None, new=None, nothing=NEW)
+        self.run_cycle()
+        self.assertEqual(self.result()["outcome"], "nothing")
+        self.assertEqual(self.result()["tag"], self.TAG)
+
+    def test_a_failed_play_names_the_release_that_failed(self) -> None:
+        self.state.write_deployed(OLD)
+        self.host.update_result = self.tagged()
+        self.host.play_rc[PLAY] = 2
+        self.run_cycle()
+        self.assertEqual(self.result()["outcome"], "play-failed")
+        self.assertEqual(self.result()["tag"], self.TAG)
+
+    def test_status_prints_the_tag(self) -> None:
+        self.host.update_result = self.tagged()
+        self.run_cycle()
+        out = io.StringIO()
+        cycle.status(self.state, stdout=out)
+        self.assertIn(f"tag={self.TAG}", out.getvalue())
+
+    def test_each_release_refusal_is_named_in_the_alert(self) -> None:
+        for rc, words in ((update.EXIT_NO_RELEASE, "no release tag"), (update.EXIT_TAG_REFUSED, "newest release tag"),
+                          (update.EXIT_TAG_MOVED, "moved")):
+            with self.subTest(rc=rc):
+                self.host.update_result = cycle.UpdateResult(rc=rc, old=None, new=None, target=None, nothing=None)
+                code, _, err = self.run_cycle()
+                self.assertEqual(code, cycle.EXIT_REFUSED)
+                self.assertEqual(self.mutating_calls(), [])
+                self.assertIn(words, self.result()["detail"])
+                self.assertIn("ALERT", err)
+
+    def test_the_alert_names_the_tag_and_the_check_that_refused_it(self) -> None:
+        reason = "release tag 44.2.1 is refused: it is signed by a stranger"
+        self.host.update_result = cycle.UpdateResult(
+            rc=update.EXIT_TAG_REFUSED, old=None, new=None, target=None, nothing=None, reason=reason,
+        )
+        self.run_cycle()
+        self.assertIn(reason, self.result()["detail"])
+        self.assertIn(reason, self.host.alerts_sent[-1]["detail"])
+        self.assertNotIn("\n", self.result()["detail"])
+
+    def test_the_moved_tag_alert_says_how_to_clear_it(self) -> None:
+        self.host.update_result = cycle.UpdateResult(rc=update.EXIT_TAG_MOVED, old=None, new=None, target=None,
+                                                     nothing=None)
+        self.run_cycle()
+        self.assertIn("withdraw", self.result()["detail"])
+
+    def test_an_owed_record_from_before_tags_still_reads(self) -> None:
+        with open(os.path.join(self._tmp.name, "owed-verify"), "w", encoding="utf-8") as handle:
+            handle.write(f"boot=boot-0\nnew={NEW}\nplays={PLAY}\n")
+        owed = self.state.read_owed()
+        assert owed is not None
+        self.assertEqual(owed.tag, "")
+
+
 class TestAlerts(CycleCase):
     def test_an_announced_failure_is_sent_to_the_sinks_once_it_is_recorded(self) -> None:
         self.host.play_rc[PLAY] = 2
@@ -871,7 +979,7 @@ class TestAlerts(CycleCase):
 class TestState(CycleCase):
     def test_the_result_record_has_exactly_the_contract_keys(self) -> None:
         self.run_cycle()
-        self.assertEqual(set(self.result()), {"at", "phase", "outcome", "old", "new", "plays", "detail", "alert"})
+        self.assertEqual(set(self.result()), {"at", "phase", "outcome", "old", "new", "tag", "plays", "detail", "alert"})
 
     def test_every_result_is_published_with_the_owed_boot(self) -> None:
         """The first cycle ends at the countdown, owing a check from this boot."""

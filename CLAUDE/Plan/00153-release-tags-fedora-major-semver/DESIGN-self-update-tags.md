@@ -90,7 +90,9 @@ git fetch --prune remote \
 ### Markers, exit codes and what the human sees
 
 - A new marker `SELF-UPDATE-TAG <name>` beside `-NEW` / `-TARGET` / `-NOTHING`, carried into
-  the published status so the host-health report shows "release 44.2.1", not a bare sha.
+  the published status (built in Phase 3). Showing "release 44.2.1" in the host-health report,
+  not a bare sha, is Task 3.3; until then the name appears in `status`, the published record
+  and the alerts.
 - New internal exit codes in `update.py`: `EXIT_NO_RELEASE` (20), `EXIT_TAG_REFUSED` (21),
   `EXIT_TAG_MOVED` (22). `cycle.py` already treats any non-zero update status as "the update or
   trust gate refused" (wrapper exit 20, alert sent); only the detail text names the new cause.

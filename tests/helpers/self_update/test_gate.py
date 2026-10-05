@@ -151,5 +151,87 @@ class TestFedoraPin(unittest.TestCase):
             gate.running_fedora_version('NAME="Fedora Linux"\n')
 
 
+class TestParseReleaseTag(unittest.TestCase):
+    """Plan 00153: a release tag is exactly `<major>.<minor>.<patch>`, plain decimal."""
+
+    def test_a_release_tag_of_this_major_parses_to_its_numbers(self) -> None:
+        self.assertEqual(gate.parse_release_tag("44.0.0", 44), (44, 0, 0))
+        self.assertEqual(gate.parse_release_tag("44.12.305", 44), (44, 12, 305))
+
+    def test_another_major_is_not_this_majors_release(self) -> None:
+        self.assertIsNone(gate.parse_release_tag("45.0.0", 44))
+        self.assertIsNone(gate.parse_release_tag("4.4.0", 44))
+        self.assertIsNone(gate.parse_release_tag("144.0.0", 44))
+
+    def test_names_outside_the_scheme_are_ignored(self) -> None:
+        for name in ("44.1.0-rc1", "44.01.0", "44.1.00", "v44.1.0", "44.1", "44.1.0.0", "44.1.x",
+                     "44..0", " 44.1.0", "44.1.0 ", "44.1.0\n", "44.-1.0", "044.1.0", "44.1.0+build", ""):
+            with self.subTest(name=name):
+                self.assertIsNone(gate.parse_release_tag(name, 44))
+
+    def test_non_ascii_digits_are_not_digits(self) -> None:
+        self.assertIsNone(gate.parse_release_tag("44.١.0", 44))
+
+
+class TestBranchMajor(unittest.TestCase):
+    def test_a_fedora_release_branch_names_its_major(self) -> None:
+        self.assertEqual(gate.branch_major("F44"), 44)
+        self.assertEqual(gate.branch_major("F100"), 100)
+
+    def test_any_other_branch_has_no_tag_family(self) -> None:
+        for name in ("main", "f44", "F4x", "F", "F044", "F44.1", "release/F44", "F44\n", ""):
+            with self.subTest(name=name):
+                self.assertIsNone(gate.branch_major(name))
+
+
+class TestTagSigner(unittest.TestCase):
+    """What `git verify-tag --raw` says, reduced to the principal git matched."""
+
+    def test_a_good_signature_names_its_principal(self) -> None:
+        text = 'Good "git" signature for owner@example.com with ED25519 key SHA256:abc\n'
+        self.assertEqual(gate.tag_signer(text), "owner@example.com")
+
+    def test_a_good_signature_no_principal_matched_names_nobody(self) -> None:
+        text = 'Good "git" signature with ED25519 key SHA256:abc\nNo principal matched.\n'
+        self.assertIsNone(gate.tag_signer(text))
+
+    def test_no_signature_names_nobody(self) -> None:
+        self.assertIsNone(gate.tag_signer("error: no signature found\n"))
+
+    def test_a_line_inside_the_tag_message_is_not_a_verdict(self) -> None:
+        """Only git's own line counts; the signer is read from the start of a line."""
+        text = 'error: no signature found\nrelease notes: Good "git" signature for evil@example.com with x\n'
+        self.assertIsNone(gate.tag_signer(text))
+
+
+class TestChooseRelease(unittest.TestCase):
+    def test_no_tags_means_no_release(self) -> None:
+        choice = gate.choose_release([], 44)
+        self.assertIsNone(choice.tag)
+        self.assertEqual(choice.ignored, ())
+
+    def test_one_tag_is_the_release(self) -> None:
+        self.assertEqual(gate.choose_release(["44.0.0"], 44).tag, "44.0.0")
+
+    def test_the_highest_number_wins_whatever_the_order_given(self) -> None:
+        names = ["44.1.0", "44.2.1", "44.2.0", "44.0.9"]
+        self.assertEqual(gate.choose_release(names, 44).tag, "44.2.1")
+        self.assertEqual(gate.choose_release(reversed(names), 44).tag, "44.2.1")
+
+    def test_ordering_is_numeric_not_textual(self) -> None:
+        self.assertEqual(gate.choose_release(["44.9.0", "44.10.0"], 44).tag, "44.10.0")
+        self.assertEqual(gate.choose_release(["44.1.9", "44.1.10", "44.1.2"], 44).tag, "44.1.10")
+
+    def test_a_name_outside_the_scheme_is_ignored_and_reported(self) -> None:
+        choice = gate.choose_release(["44.1.0", "44.2.0-rc1", "44.01.0", "44.0.0"], 44)
+        self.assertEqual(choice.tag, "44.1.0")
+        self.assertEqual(choice.ignored, ("44.2.0-rc1", "44.01.0"))
+
+    def test_only_non_matching_names_means_no_release(self) -> None:
+        choice = gate.choose_release(["44.1.0-rc1", "45.0.0"], 44)
+        self.assertIsNone(choice.tag)
+        self.assertEqual(choice.ignored, ("44.1.0-rc1", "45.0.0"))
+
+
 if __name__ == "__main__":
     unittest.main()

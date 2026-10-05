@@ -31,7 +31,14 @@ class TestTheFormat(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             published.write(directory, RECORD, owed_boot="boot-1")
             record = published.read(directory)
-        self.assertEqual(record, {**RECORD, "alert": "", "owed_boot": "boot-1"})
+        self.assertEqual(record, {**RECORD, "alert": "", "tag": "", "owed_boot": "boot-1"})
+
+    def test_a_release_tag_is_published(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            published.write(directory, {**RECORD, "tag": "44.2.1"}, owed_boot="")
+            record = published.read(directory)
+        assert record is not None
+        self.assertEqual(record["tag"], "44.2.1")
 
     def test_a_failed_alert_delivery_is_published(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -47,7 +54,7 @@ class TestTheFormat(unittest.TestCase):
             with open(published.path(directory), "w", encoding="utf-8") as handle:
                 handle.write("".join(f"{key}={value}\n" for key, value in RECORD.items()) + "owed_boot=\n")
             record = published.read(directory)
-        self.assertEqual(record, {**RECORD, "alert": "", "owed_boot": ""})
+        self.assertEqual(record, {**RECORD, "alert": "", "tag": "", "owed_boot": ""})
 
     def test_the_keys_are_the_cycles_result_keys_plus_the_owed_boot(self) -> None:
         self.assertEqual(published.KEYS, (*cycle.RESULT_KEYS, "owed_boot"))
