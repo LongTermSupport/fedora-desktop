@@ -1528,9 +1528,8 @@
               }
 
         - name: Display multi-account completion
-          ansible.builtin.pause:
-            seconds: 0
-            prompt: |2
+          ansible.builtin.debug:
+            msg: |2
 
               ========================================================================
               GitHub CLI Multi-Account Setup Complete!

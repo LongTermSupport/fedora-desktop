@@ -484,6 +484,18 @@ fi
 ready_wait_summary=$(qa_gate_case_count "$ready_wait_out")
 qa_pass_line ready-wait-rules "$ready_wait_summary"
 
+# pause-without-register (CLAUDE/QA.md). A play that stopped on "Press ENTER to continue"
+# to show its closing instructions hung an unattended meta-deploy batch on a question
+# nobody knew was owed.
+pause_out=""
+if ! pause_out="$(bash "$SCRIPT_DIR/qa-ansible-pause.bash" 2>&1)"; then
+    qa_hard_gate_failed pause-without-register \
+        "an ansible pause with no register and no PAUSE-OK reason" \
+        "$pause_out"
+fi
+pause_summary=$(qa_gate_case_count "$pause_out")
+qa_pass_line pause-without-register "$pause_summary"
+
 # ccy's SELinux relabel decision (Plan 00118, CCY 3.55.0).
 #
 # On an Enforcing host container_t may not read user_home_t, so a ccy container

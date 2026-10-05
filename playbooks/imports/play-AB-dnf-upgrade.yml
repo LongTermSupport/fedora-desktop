@@ -243,8 +243,8 @@
         - dnf
 
     - name: Notify if reboot is required for kernel
-      ansible.builtin.pause:
-        prompt: |2
+      ansible.builtin.debug:
+        msg: |2
 
           ========================================================================
           KERNEL CHANGE DETECTED — REBOOT REQUIRED
@@ -262,8 +262,6 @@
           themselves don't require the new kernel. But device-specific
           drivers (WiFi, Bluetooth, IPU6 camera, etc.) will not benefit
           from the new kernel until reboot.
-
-          Press ENTER to continue with the rest of the workflow...
           ========================================================================
       when: pre_upgrade_kernels.stdout != post_upgrade_kernels.stdout
       tags:

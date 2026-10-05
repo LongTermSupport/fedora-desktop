@@ -108,8 +108,8 @@
         state: started
 
     - name: Final instructions
-      ansible.builtin.pause:
-        prompt: |2
+      ansible.builtin.debug:
+        msg: |2
 
           ========================================================================
           Intel IPU6 webcam — userspace stack installed
@@ -131,6 +131,4 @@
           If the camera does not show up, a reboot is the most reliable
           way to ensure the mainline IPU6 modules + pipewire come up in
           the correct order.
-
-          Press ENTER to continue...
           ========================================================================

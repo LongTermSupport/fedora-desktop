@@ -142,6 +142,11 @@ line carries `# FAIL-FAST-OK: <reason>` (the project's #1 rule, enforced by
 `scripts/qa-ansible.bash`). The probe-then-fail pattern — a registered result
 that the next task explicitly checks — is the one legitimate use.
 
+**No "Press ENTER" pauses:** show status and instructions with `ansible.builtin.debug`,
+because a play run unattended in a batch hangs on any `ansible.builtin.pause`. A pause
+must `register:` an answer the play uses, or carry `# PAUSE-OK: <reason>`
+([pause-without-register](QA.md#pause-without-register)).
+
 ### Preflight Assertions
 
 ```yaml
