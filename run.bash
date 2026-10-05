@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.30.0"
+RUN_BASH_VERSION="1.31.0"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -965,6 +965,8 @@ PLAY_PATH=""
 PLAY_ARGS=()
 # --changed (Plan 00141): run every play whose inputs changed since it last ran here.
 CHANGED_PLAYS=false
+# --yes: --changed runs its list without asking, for a caller nobody answers (meta-deploy).
+ASSUME_YES=false
 # --rerun (Plan 00141): list the plays that have run here and run the ones the operator picks.
 RERUN_PLAYS=false
 while (( $# > 0 )); do
@@ -986,6 +988,9 @@ Options:
                        playbook-main.yml order, optional plays last, and stops at
                        the first failure. Names any play it cannot judge, and any
                        that is gone, rather than skip it.
+  --yes                With --changed: run the list without asking, and do not
+                       offer a GitHub issue if a play fails. For a caller that
+                       runs it unattended, such as meta-deploy.
   --rerun              List every play that has run here as a numbered menu, the
                        ones that have to run again marked * (changed since, or
                        last run failed). Pick one or more ("3", "1 4"), "a" for
@@ -1212,6 +1217,9 @@ USAGE
       ;;
     --rerun)
       RERUN_PLAYS=true
+      ;;
+    --yes)
+      ASSUME_YES=true
       ;;
     *.yml)
       # A playbook path is the only positional run.bash takes; everything after it is
@@ -1940,8 +1948,9 @@ run_playbook_with_issue_option(){
   else
     error "Failed: $name (exit code: $exit_code)"
     
-    # Offer to create GitHub issue (posts to the PUBLIC tracker — default No)
-    if confirm "Would you like to create a GitHub issue for this failure? (posts to the PUBLIC tracker)" n; then
+    # Offer to create GitHub issue (posts to the PUBLIC tracker — default No). --yes means
+    # nobody is there to answer, so it is not offered.
+    if [[ "${ASSUME_YES:-}" != "true" ]] && confirm "Would you like to create a GitHub issue for this failure? (posts to the PUBLIC tracker)" n; then
       create_github_issue "$playbook" "$exit_code"
     fi
 
@@ -2019,6 +2028,11 @@ play_batch_run(){
   exit 0
 }
 
+if [[ "$ASSUME_YES" == "true" && "$CHANGED_PLAYS" != "true" ]]; then
+  fatal "--yes" "--yes only answers the question --changed asks" \
+    "run ./run.bash --changed --yes; --rerun's pick is its own answer"
+fi
+
 if [[ "$CHANGED_PLAYS" == "true" ]]; then
   if [[ "$RERUN_PLAYS" == "true" ]]; then
     fatal "changed plays" "--changed and --rerun are mutually exclusive" \
@@ -2060,7 +2074,7 @@ if [[ "$CHANGED_PLAYS" == "true" ]]; then
   echo -e "\n${CYAN}${ARROW}${NC} ${#_changed_run[@]} play(s) changed since they last ran here:"
   printf '     %s\n' "${_changed_run[@]}"
   play_batch_warn_dirty --changed
-  if ! confirm "Run them now, in this order?" n; then
+  if [[ "$ASSUME_YES" != "true" ]] && ! confirm "Run them now, in this order?" n; then
     exit 0
   fi
   play_batch_run "run.bash --changed" changed "${_changed_run[@]}"

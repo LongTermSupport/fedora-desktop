@@ -88,6 +88,9 @@ STUFF". Its `PLANS` list is, at every commit, exactly what needs running **now**
 - **Never hand over a second command.** A step a plan's run needs, even an interactive one
   such as a GitHub scope refresh, belongs in that plan's `deploy.bash`, not in a message
   telling the owner to type it before or after meta.
+- **No yes/no questions inside a unit.** Being in the list is the consent: a unit that
+  calls a command which asks "run these now?" passes that command's own yes flag (see
+  [R8](PlanScriptStandards.md#r8--no-blanket-confirmation-prompt-running-the-script-is-the-consent)).
 - **Order by dependency:** deploys that others build on come first, and read-only triage
   that judges what the deploys left behind comes last.
 

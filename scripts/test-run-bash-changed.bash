@@ -153,6 +153,22 @@ run_changed 'n\n' -- --changed
 check "exits 0" "0" "$rc"
 check "runs nothing" "" "$(plays_run)"
 
+echo "=== --yes: no question, for an unattended caller such as meta-deploy ==="
+run_changed '' -- --changed --yes
+check "exits 0 with nothing on stdin" "0" "$rc"
+check "runs both" "play-a.yml play-b.yml " "$(plays_run)"
+check "asks nothing" "no" "$(yes_if grep -q 'Run them now' <<<"$out")"
+run_changed '' -- --yes
+check "--yes without --changed: refused" "1" "$rc"
+check "and runs nothing" "" "$(plays_run)"
+run_changed 'q\n' -- --rerun --yes
+check "--yes with --rerun: refused (the pick is the answer)" "1" "$rc"
+check "and says why" "yes" "$(yes_if grep -q -- '--yes only answers' <<<"$out")"
+printf 'RUN %s\nRUN %s\n' "$A" "$B" >"$MARKERS"
+run_changed '' FAKE_FAIL_PLAY=play-a.yml -- --changed --yes
+check "a failure under --yes: the play's status" "4" "$rc"
+check "with no offer to file a public issue" "no" "$(yes_if grep -q 'create a GitHub issue' <<<"$out")"
+
 echo "=== a failure stops the run ==="
 printf 'RUN %s\nRUN %s\nRUN %s\n' "$A" "$B" "$C" >"$MARKERS"
 run_changed 'y\nn\n' FAKE_FAIL_PLAY=play-b.yml -- --changed

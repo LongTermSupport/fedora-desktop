@@ -15,6 +15,13 @@ the index, not the record.
 
 ---
 
+## 1.31.0 — `--changed --yes` runs the list without asking (Plan 00141)
+
+`./run.bash --changed --yes` runs the changed plays without the "Run them now?" question,
+and if a play fails it does not offer to file a GitHub issue. It is for a caller nobody
+answers, such as a plan script in `meta-deploy.bash`. `--yes` with anything but
+`--changed` is refused.
+
 ## 1.30.0 — a machine new to the config repo is offered "Add new host" first (found running Plan 00139 Task 1.4)
 
 When the config repo has no saved config for this machine, the config step listed the other
