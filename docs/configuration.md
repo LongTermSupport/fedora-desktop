@@ -301,10 +301,17 @@ after changing host_vars: the cycle runs with a root-owned copy.
 The whole cycle is described in [playbooks.md](playbooks.md#play-self-updateyml). Running
 it day to day:
 
-- **Trust.** The server deploys only the newest commit signed by a key in
-  `self_update_signing_public_keys`. Those keys sign every commit made on the desktop and
-  in its ccy sessions, so a push from there is a release. Anything signed by a key not on
-  the list waits, and a bad signature refuses the cycle.
+- **Trust.** By default (`self_update_channel: tags`) the server deploys only the newest
+  signed release tag `<fedora-major>.<minor>.<patch>` of `self_update_branch` (which must be
+  `F<number>`), and the commit under it must be signed by a key in
+  `self_update_signing_public_keys`. A push is not a release: the owner tags one with
+  `scripts/release.bash` ([releases.md](releases.md)). A branch with no release tag, or a
+  newest tag that is lightweight, signed by another key, moved upstream or on an unsigned
+  commit, is refused and alerted; an older tag or the branch tip is never deployed in its
+  place. `self_update_channel: branch` opts into the older behaviour: the newest commit
+  signed by a listed key, so a signed push from the desktop or a ccy session is deployed.
+  On either channel a commit or tag signed by a key not on the list waits or refuses, and a
+  bad signature refuses the cycle.
 - **Pausing.** Set `self_update_enabled: false` and re-run the play. That removes what it
   installed, and setting it back to true restores it.
 - **When it runs.** Nightly at 03:30, within a random 30 minutes. A night missed while

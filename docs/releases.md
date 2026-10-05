@@ -23,5 +23,8 @@ GitHub's merge commit, and checks signatures against your own `user.signingkey`.
 reason, rather than guess; `--dry-run` says what each would do. If the GitHub Release fails after the
 tag is pushed, run `tag` again to finish it. Agents never run it.
 
-The unattended server self-update will deploy the newest release tag instead of the branch tip
-(Plan 00153, Phase 3).
+The unattended server self-update deploys the newest release tag by default, not the branch tip
+(`self_update_channel: tags`; `branch` is the explicit opt-in to the tip). A branch with no release
+tag, or a newest tag that fails its checks, is refused rather than answered with an older tag, so
+tag `<major>.0.0` before provisioning a server. See
+[configuration.md](configuration.md#unattended-server-self-update).

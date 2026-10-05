@@ -1,9 +1,14 @@
-"""Bring the deploy clone up to the newest owner-signed commit, or refuse (Plan 00137 T1.1, T1.2).
+"""Bring the deploy clone up to the newest owner-signed release, or refuse (Plan 00137 T1.1, T1.2).
 
 Run: `python3 -m helpers.self_update.update --checkout PATH --remote origin --branch F44
---allowed-signers FILE --principal NAME [--os-release /etc/os-release]`
+--allowed-signers FILE --principal NAME [--channel tags|branch] [--os-release /etc/os-release]`
 
-In order, stopping at the first thing that is wrong:
+Two channels (Plan 00153). `tags`, the default, deploys the newest signed release tag
+`<major>.<minor>.<patch>` of the branch's Fedora major (`F44` gives 44): see `_update_tags`
+and `_newest_release`, and CLAUDE/Plan/00153-release-tags-fedora-major-semver/DESIGN-self-update-tags.md.
+The tag fetch never forces and prunes, only the newest tag is judged, and an unusable one
+refuses (never a fall back to an older tag or the tip). `branch` deploys the newest commit
+the pinned signer signed, as described from here on:
 
 1. The allowed-signers file is checked: a regular file, not a symlink, owned by root or
    the caller, with no group/other write bit on it or on its directory, and at least one
@@ -39,6 +44,7 @@ stdout carries only the stable marker lines; every diagnostic goes to stderr:
     SELF-UPDATE-NEW <sha>      deployed now
     SELF-UPDATE-TARGET <sha>   --dry-run: the commit a real run would fast-forward to
     SELF-UPDATE-NOTHING <sha>  no trusted commit above the deployed one
+    SELF-UPDATE-TAG <name>     tags channel: the release the line above is (also on --anchor)
 
 `--dry-run` runs every step, the fetch included, and stops before the fast-forward.
 
@@ -86,6 +92,15 @@ EXIT_SIGNERS_FILE = 16
 EXIT_BAD_SIGNATURE = 17
 EXIT_FEDORA_MISMATCH = 18
 EXIT_GIT_FAILED = 19
+EXIT_NO_RELEASE = 20
+EXIT_TAG_REFUSED = 21
+EXIT_TAG_MOVED = 22
+
+#: What the cycle follows. `tags` (the default) deploys the newest signed release tag of the
+#: branch's Fedora major; `branch` deploys the newest owner-signed commit on the branch.
+CHANNEL_TAGS = "tags"
+CHANNEL_BRANCH = "branch"
+CHANNELS = (CHANNEL_TAGS, CHANNEL_BRANCH)
 
 _FETCH_TIMEOUT_SECONDS = 120
 #: How far back `--anchor` looks for a signed commit before it refuses.
@@ -134,7 +149,8 @@ class _Git:
         if ssh_keygen is None:
             raise Refusal(EXIT_GIT_FAILED, "ssh-keygen is not on PATH, so no signature can be verified")
         self._checkout = checkout
-        self._env = {**env, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "", "SSH_ASKPASS": ""}
+        # LC_ALL=C: a refused tag move is told apart from other fetch failures by git's own wording.
+        self._env = {**env, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "", "SSH_ASKPASS": "", "LC_ALL": "C"}
         self._config = [
             "-c", "core.hooksPath=/dev/null",
             "-c", "core.fsmonitor=false",
@@ -237,6 +253,111 @@ def _require_fedora_pin(git: _Git, target: str, os_release: str) -> None:
         )
 
 
+def _release_major(branch: str) -> int:
+    major = gate.branch_major(branch)
+    if major is None:
+        raise Refusal(
+            EXIT_USAGE,
+            f"the {CHANNEL_TAGS} channel needs a Fedora release branch named F<number> (F44), not {branch!r}: "
+            "there is no tag family to follow",
+        )
+    return major
+
+
+def _refuse_tag(tag: str, why: str) -> Refusal:
+    return Refusal(EXIT_TAG_REFUSED, f"release tag {tag} is refused: {why}; nothing was moved, and no older release is tried")
+
+
+def _newest_release(git: _Git, *, remote: str, branch: str, major: int, principal: str, stderr: TextIO) -> tuple[str, str]:
+    """`(tag name, commit)` of the newest release, judged, or a Refusal.
+
+    Only the highest tag is judged. An older one is never a fallback: skipping the newest
+    release because it looks wrong is how a withdrawn or tampered release gets replaced by
+    an old one without anyone being told.
+    """
+    names = git.out("for-each-ref", "--format=%(refname:strip=2)", f"refs/tags/{major}.*").split()
+    choice = gate.choose_release(names, major)
+    for name in choice.ignored:
+        stderr.write(f"self-update: tag {name} is not a release name ({major}.MINOR.PATCH); ignored\n")
+    tag = choice.tag
+    if tag is None:
+        raise Refusal(
+            EXIT_NO_RELEASE,
+            f"no release tag {major}.MINOR.PATCH exists on {remote}; the owner makes one with "
+            "scripts/release.bash, and the branch tip is never deployed in its place",
+        )
+    ref = f"refs/tags/{tag}"
+    kind, internal = git.out("for-each-ref", f"--format=%(objecttype){_FIELD_SEP}%(tag)", ref).rstrip("\n").split(_FIELD_SEP, 1)
+    if kind != "tag":
+        raise _refuse_tag(tag, f"it is a {kind} reference, not an annotated signed tag")
+    if internal != tag:
+        raise _refuse_tag(tag, f"the tag object inside it is named {internal!r}")
+    verified = git.run("verify-tag", "--raw", ref)
+    report = f"{verified.stdout}\n{verified.stderr}"
+    signer = gate.tag_signer(report)
+    if verified.returncode != 0 or signer is None:
+        last_line = (report.strip().splitlines() or ["no output"])[-1]
+        raise _refuse_tag(tag, f"its signature does not verify against the pinned keys (git said: {last_line})")
+    if gate.judge("G", signer, principal) != gate.TRUSTED:
+        raise _refuse_tag(tag, f"it is signed by {signer}, not the pinned principal {principal}")
+    peeled = git.run("rev-parse", "--verify", f"{ref}^{{commit}}")
+    if peeled.returncode != 0:
+        raise _refuse_tag(tag, "it does not point at a commit")
+    commit = peeled.stdout.strip()
+    if not git.is_ancestor(commit, git.out("rev-parse", f"refs/remotes/{remote}/{branch}").strip()):
+        raise _refuse_tag(tag, f"its commit {commit[:12]} is not on {remote}/{branch}")
+    if _verdict(git, commit, principal, stderr) != gate.TRUSTED:
+        raise _refuse_tag(tag, f"its commit {commit[:12]} is not signed by {principal}")
+    return tag, commit
+
+
+def _update_tags(
+    *, git: _Git, remote: str, branch: str, principal: str, os_release: str, dry_run: bool,
+    stdout: TextIO, stderr: TextIO,
+) -> int:
+    major = _release_major(branch)
+    # No `+` on the tag refspec: git then refuses to move a local tag that now points elsewhere,
+    # and that refusal is never retried with force. --prune drops a tag withdrawn upstream.
+    fetched = git.run(
+        "fetch", "--no-tags", "--prune", remote, f"+refs/heads/{branch}:refs/remotes/{remote}/{branch}",
+        f"refs/tags/{major}.*:refs/tags/{major}.*", timeout=_FETCH_TIMEOUT_SECONDS,
+    )
+    if fetched.returncode != 0:
+        detail = fetched.stderr.strip()
+        if "would clobber existing tag" in detail:
+            raise Refusal(EXIT_TAG_MOVED, f"a release tag was moved upstream; refusing to follow it: {detail}")
+        raise Refusal(EXIT_FETCH_FAILED, f"git fetch {remote} {branch} and its release tags failed: {detail}")
+
+    _require_clean_branch(git, branch)
+    head = git.out("rev-parse", "HEAD").strip()
+    tag, target = _newest_release(git, remote=remote, branch=branch, major=major, principal=principal, stderr=stderr)
+    if target == head:
+        stdout.write(f"SELF-UPDATE-NOTHING {head}\nSELF-UPDATE-TAG {tag}\n")
+        return EXIT_OK
+    if not git.is_ancestor(head, target):
+        if git.is_ancestor(target, head):
+            raise Refusal(
+                EXIT_AHEAD,
+                f"the checkout ({head[:12]}) is ahead of the newest release {tag} ({target[:12]}): it holds "
+                "local commits, or that release was withdrawn; nothing downgrades by itself",
+            )
+        raise Refusal(
+            EXIT_DIVERGED,
+            f"the newest release {tag} ({target[:12]}) does not contain the deployed commit ({head[:12]}): "
+            "history was rewritten",
+        )
+    _require_fedora_pin(git, target, os_release)
+    if dry_run:
+        stdout.write(f"SELF-UPDATE-OLD {head}\nSELF-UPDATE-TARGET {target}\nSELF-UPDATE-TAG {tag}\n")
+        return EXIT_OK
+    git.out("merge", "--ff-only", "--quiet", target)
+    now = git.out("rev-parse", "HEAD").strip()
+    if now != target:
+        raise Refusal(EXIT_GIT_FAILED, f"after the fast-forward HEAD is {now[:12]}, not {target[:12]}")
+    stdout.write(f"SELF-UPDATE-OLD {head}\nSELF-UPDATE-NEW {now}\nSELF-UPDATE-TAG {tag}\n")
+    return EXIT_OK
+
+
 def _update(
     *, git: _Git, remote: str, branch: str, principal: str, os_release: str, dry_run: bool,
     stdout: TextIO, stderr: TextIO,
@@ -289,13 +410,7 @@ def _update(
     return EXIT_OK
 
 
-def _anchor(
-    *, git: _Git, branch: str, principal: str, os_release: str, allow_untracked: tuple[str, ...],
-    stdout: TextIO, stderr: TextIO,
-) -> int:
-    _require_clean_branch(git, branch)
-    _require_no_strays(git, allow_untracked)
-    head = git.out("rev-parse", "HEAD").strip()
+def _anchor_target_on_branch(git: _Git, principal: str, stderr: TextIO) -> str:
     history = git.out("rev-list", "--first-parent", f"--max-count={ANCHOR_WALK_LIMIT}", "HEAD").split()
     choice = gate.choose_target((sha, _verdict(git, sha, principal, stderr)) for sha in history)
     if choice.refused is not None:
@@ -310,19 +425,37 @@ def _anchor(
             f"no commit in the last {ANCHOR_WALK_LIMIT} of HEAD's history is signed by {principal}; "
             "push a commit made where that key signs every commit",
         )
-    if choice.target == head:
-        stdout.write(f"SELF-UPDATE-ANCHORED {head}\n")
+    return choice.target
+
+
+def _anchor(
+    *, git: _Git, remote: str, branch: str, channel: str, principal: str, os_release: str,
+    allow_untracked: tuple[str, ...], stdout: TextIO, stderr: TextIO,
+) -> int:
+    _require_clean_branch(git, branch)
+    _require_no_strays(git, allow_untracked)
+    head = git.out("rev-parse", "HEAD").strip()
+    tag_line = ""
+    if channel == CHANNEL_TAGS:
+        tag, target = _newest_release(
+            git, remote=remote, branch=branch, major=_release_major(branch), principal=principal, stderr=stderr,
+        )
+        tag_line = f"SELF-UPDATE-TAG {tag}\n"
+    else:
+        target = _anchor_target_on_branch(git, principal, stderr)
+    if target == head:
+        stdout.write(f"SELF-UPDATE-ANCHORED {head}\n{tag_line}")
         return EXIT_OK
-    _require_fedora_pin(git, choice.target, os_release)
-    git.out("checkout", "--quiet", "-B", branch, choice.target)
+    _require_fedora_pin(git, target, os_release)
+    git.out("checkout", "--quiet", "-B", branch, target)
     now = git.out("rev-parse", "HEAD").strip()
-    if now != choice.target:
-        raise Refusal(EXIT_GIT_FAILED, f"after anchoring HEAD is {now[:12]}, not {choice.target[:12]}")
+    if now != target:
+        raise Refusal(EXIT_GIT_FAILED, f"after anchoring HEAD is {now[:12]}, not {target[:12]}")
     # A checkout removes the files the old commit tracked, but not a directory still holding
     # files it did not track, so the tree is judged again at the commit it now claims to be.
     _require_clean_branch(git, branch)
     _require_no_strays(git, allow_untracked)
-    stdout.write(f"SELF-UPDATE-ANCHORED {now}\nSELF-UPDATE-ANCHOR-MOVED {head}\n")
+    stdout.write(f"SELF-UPDATE-ANCHORED {now}\nSELF-UPDATE-ANCHOR-MOVED {head}\n{tag_line}")
     return EXIT_OK
 
 
@@ -337,24 +470,39 @@ def _guarded(stderr: TextIO, action: Callable[[], int]) -> int:
         return EXIT_GIT_FAILED
 
 
+def _usage_error(principal: str, channel: str, stderr: TextIO) -> int | None:
+    if not principal:
+        stderr.write("self-update: --principal must name the signer to trust\n")
+        return EXIT_USAGE
+    if channel not in CHANNELS:
+        stderr.write(f"self-update: --channel is one of {', '.join(CHANNELS)}, not {channel!r}\n")
+        return EXIT_USAGE
+    return None
+
+
 def anchor(
     *, checkout: str, branch: str, allowed_signers: str, principal: str, os_release: str = "/etc/os-release",
-    allow_untracked: tuple[str, ...] = (), stdout: TextIO, stderr: TextIO, env: Mapping[str, str] | None = None,
+    allow_untracked: tuple[str, ...] = (), channel: str = CHANNEL_TAGS, remote: str = "origin",
+    stdout: TextIO, stderr: TextIO, env: Mapping[str, str] | None = None,
 ) -> int:
-    """Make the checkout's HEAD a trusted commit, moving it back if it is not.
+    """Make the checkout's HEAD a trusted commit.
+
+    The `branch` channel moves HEAD back to the newest signed commit if it is not one. The
+    `tags` channel lands HEAD on the newest valid release tag's commit, wherever HEAD is,
+    from the tags the clone already holds (a fresh clone has them all).
 
     `allow_untracked` names, exactly, the files the caller itself puts in the checkout (the
     play's host_vars copy). Any other file the commit does not track refuses the anchor.
     """
-    if not principal:
-        stderr.write("self-update: --principal must name the signer to trust\n")
-        return EXIT_USAGE
+    usage = _usage_error(principal, channel, stderr)
+    if usage is not None:
+        return usage
 
     def act() -> int:
         _check_signers_file(allowed_signers)
         git = _Git(checkout, allowed_signers, env if env is not None else os.environ)
-        return _anchor(git=git, branch=branch, principal=principal, os_release=os_release,
-                       allow_untracked=allow_untracked, stdout=stdout, stderr=stderr)
+        return _anchor(git=git, remote=remote, branch=branch, channel=channel, principal=principal,
+                       os_release=os_release, allow_untracked=allow_untracked, stdout=stdout, stderr=stderr)
 
     return _guarded(stderr, act)
 
@@ -389,19 +537,21 @@ def run(
     principal: str,
     os_release: str = "/etc/os-release",
     dry_run: bool = False,
+    channel: str = CHANNEL_TAGS,
     stdout: TextIO,
     stderr: TextIO,
     env: Mapping[str, str] | None = None,
 ) -> int:
     """Update the checkout or refuse; the return value is the exit status."""
-    if not principal:
-        stderr.write("self-update: --principal must name the signer to trust\n")
-        return EXIT_USAGE
+    usage = _usage_error(principal, channel, stderr)
+    if usage is not None:
+        return usage
 
     def act() -> int:
         _check_signers_file(allowed_signers)
         git = _Git(checkout, allowed_signers, env if env is not None else os.environ)
-        return _update(
+        step = _update_tags if channel == CHANNEL_TAGS else _update
+        return step(
             git=git, remote=remote, branch=branch, principal=principal, os_release=os_release,
             dry_run=dry_run, stdout=stdout, stderr=stderr,
         )
@@ -417,7 +567,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--allowed-signers", required=True)
     parser.add_argument("--principal", required=True)
     parser.add_argument("--os-release", default="/etc/os-release")
-    mode = parser.add_mutually_exclusive_group()
+    parser.add_argument("--channel", choices=CHANNELS, default=CHANNEL_TAGS,
+                        help="tags (default): the newest signed release tag; branch: the newest signed commit")
+    mode =parser.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--anchor", action="store_true", help="make HEAD a trusted commit (the play, after cloning)")
     parser.add_argument("--allow-untracked", action="append", default=[], metavar="PATH",
@@ -429,14 +581,14 @@ def main(argv: list[str] | None = None) -> int:
         return anchor(
             checkout=args.checkout, branch=args.branch, allowed_signers=args.allowed_signers,
             principal=args.principal, os_release=args.os_release, allow_untracked=tuple(args.allow_untracked),
-            stdout=sys.stdout, stderr=sys.stderr,
+            channel=args.channel, remote=args.remote or "origin", stdout=sys.stdout, stderr=sys.stderr,
         )
     if not args.remote:
         parser.error("--remote is required to update")
     return run(
         checkout=args.checkout, remote=args.remote, branch=args.branch,
         allowed_signers=args.allowed_signers, principal=args.principal, os_release=args.os_release,
-        dry_run=args.dry_run, stdout=sys.stdout, stderr=sys.stderr,
+        dry_run=args.dry_run, channel=args.channel, stdout=sys.stdout, stderr=sys.stderr,
     )
 
 

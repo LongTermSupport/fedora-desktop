@@ -4,7 +4,8 @@ Release tags are `<fedora-major>.<minor>.<patch>` on `F<major>`, signed and anno
 by `scripts/release.bash` (see [docs/releases.md](../docs/releases.md)).
 
 - **Never tag, and never run `scripts/release.bash`, unless the owner explicitly asks.** A release is
-  the owner's call: the unattended self-update deploys the newest tag.
+  the owner's call: the unattended self-update deploys the newest tag (its default channel;
+  `self_update_channel: branch` opts into the tip).
 - Never create, move or delete a tag by hand. A tag that moves is refused by the self-update.
 - Minor is a feature, play or visible behaviour; patch is a fix only; major only at a new Fedora
   branch's first release. Releasable means CI passes and the plans it ships passed host acceptance.

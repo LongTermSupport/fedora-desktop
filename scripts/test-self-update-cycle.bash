@@ -228,7 +228,7 @@ git_work() {
 commit_signed() {
     git_work add -A
     git_work -c user.signingkey="${2:-$SCRATCH/signing-key}" commit -q -S -m "$1"
-    git_work push -q origin HEAD:main
+    git_work push -q origin "HEAD:${PUSH_BRANCH:-main}"
 }
 
 os_version="$(awk -F= '$1 == "VERSION_ID" { gsub(/["'\'']/, "", $2); print $2 }' /etc/os-release)"
@@ -237,21 +237,31 @@ if [[ ! "$os_version" =~ ^[0-9]+ ]]; then
     exit 1
 fi
 
-git init -q --bare -b main "$ORIGIN"
-git init -q -b main "$WORK"
-git_work remote add origin "$ORIGIN"
-mkdir -p "$WORK/helpers/self_update" "$WORK/helpers/play_lock" "$WORK/playbooks/imports" "$WORK/vars"
-cp "$REPO_ROOT"/helpers/self_update/*.py "$REPO_ROOT/helpers/self_update/unattended-plays.json" \
-    "$WORK/helpers/self_update/"
-cp "$REPO_ROOT/helpers/play_lock/lock.py" "$WORK/helpers/play_lock/"
-cp "$REPO_ROOT/.gitignore" "$WORK/"
-printf 'fedora_version: %s\n' "${os_version%%.*}" >"$WORK/vars/fedora-version.yml"
-printf -- '- hosts: localhost\n  tasks: []\n' >"$WORK/$PLAY"
-commit_signed "base"
+# seed_work BRANCH: an empty origin and work tree on BRANCH, holding a copy of the helpers, the
+# Fedora pin and the one play, with the signed commit "base" pushed.
+seed_work() {
+    PUSH_BRANCH="$1"
+    git init -q --bare -b "$1" "$ORIGIN"
+    git init -q -b "$1" "$WORK"
+    git_work remote add origin "$ORIGIN"
+    mkdir -p "$WORK/helpers/self_update" "$WORK/helpers/play_lock" "$WORK/playbooks/imports" "$WORK/vars"
+    cp "$REPO_ROOT"/helpers/self_update/*.py "$REPO_ROOT/helpers/self_update/unattended-plays.json" \
+        "$WORK/helpers/self_update/"
+    cp "$REPO_ROOT/helpers/play_lock/lock.py" "$WORK/helpers/play_lock/"
+    cp "$REPO_ROOT/.gitignore" "$WORK/"
+    printf 'fedora_version: %s\n' "${os_version%%.*}" >"$WORK/vars/fedora-version.yml"
+    printf -- '- hosts: localhost\n  tasks: []\n' >"$WORK/$PLAY"
+    commit_signed "base"
+}
+# fresh_clone BRANCH: the deploy clone, as the play makes it, reaching origin through REMOTE_URL.
+fresh_clone() {
+    git clone -q -b "$1" "$ORIGIN" "$CLONE"
+    git -C "$CLONE" config remote.origin.url "$REMOTE_URL"
+    git -C "$CLONE" config "url.$ORIGIN.insteadOf" "$REMOTE_URL"
+}
 
-git clone -q -b main "$ORIGIN" "$CLONE"
-git -C "$CLONE" config remote.origin.url "$REMOTE_URL"
-git -C "$CLONE" config "url.$ORIGIN.insteadOf" "$REMOTE_URL"
+seed_work main
+fresh_clone main
 BASE="$(git -C "$CLONE" rev-parse HEAD)"
 
 echo "change one" >"$WORK/README"
@@ -278,7 +288,11 @@ says() { if grep -q -- "$1" "$2"; then echo yes; else echo no; fi; }
 result_key() { awk -F= -v key="$1" '$1 == key { print substr($0, length(key) + 2) }' "$STATE/last-result"; }
 published_key() { awk -F= -v key="$1" '$1 == key { print substr($0, length(key) + 2) }' "$PUBLISHED/result"; }
 state_key() { awk -F= -v key="$2" '$1 == key { print substr($0, length(key) + 2) }' "$STATE/$1"; }
-write_owed() { printf 'boot=%s\nnew=%s\nplays=%s\n' "$1" "$FIRST" "$PLAY" >"$STATE/owed-verify"; }
+# write_owed BOOT [TAG]: the marker a rebooting cycle leaves; TAG only when it deployed a release.
+write_owed() {
+    printf 'boot=%s\nnew=%s\nplays=%s\n' "$1" "$FIRST" "$PLAY" >"$STATE/owed-verify"
+    if [ -n "${2:-}" ]; then printf 'tag=%s\n' "$2" >>"$STATE/owed-verify"; fi
+}
 BOOT_ID="$(cat /proc/sys/kernel/random/boot_id)"
 
 # ── usage and refusals ─────────────────────────────────────────────────────────────────
@@ -321,10 +335,11 @@ check "run with no config file is a config error (70)" "70" "$RC"
 cycle status
 check "so is status: nothing is imported from the clone before its HEAD is judged" "70" "$RC"
 
-# write_config SINKS: the config the play would render, with ALERT_SINKS=SINKS.
+# write_config SINKS [CHANNEL [BRANCH]]: the config the play would render, with
+# ALERT_SINKS=SINKS. Until the tags channel's own section, the branch channel on `main`.
 write_config() {
-    printf 'USER=%s\nBRANCH=main\nREMOTE_URL=%s\nPRINCIPAL=%s\nWARN_MINUTES=1\nALERT_SINKS=%s\nANSIBLE_COLLECTIONS_DIR=%s\n' \
-        "$(id -un)" "$REMOTE_URL" "$PRINCIPAL" "$1" "$COLLECTIONS" >"$ETC/self-update.conf"
+    printf 'USER=%s\nBRANCH=%s\nCHANNEL=%s\nREMOTE_URL=%s\nPRINCIPAL=%s\nWARN_MINUTES=1\nALERT_SINKS=%s\nANSIBLE_COLLECTIONS_DIR=%s\n' \
+        "$(id -un)" "${3:-main}" "${2:-branch}" "$REMOTE_URL" "$PRINCIPAL" "$1" "$COLLECTIONS" >"$ETC/self-update.conf"
     chmod 600 "$ETC/self-update.conf"
 }
 write_config ""
@@ -637,7 +652,7 @@ cycle status
 check "status is refused from that clone too (20)" "20" "$RC"
 
 # What the play does after cloning: anchor HEAD on the newest commit a pinned key signed.
-(cd "$REPO_ROOT" && python3 -m helpers.self_update.update --anchor --checkout "$CLONE" --branch main \
+(cd "$REPO_ROOT" && python3 -m helpers.self_update.update --anchor --checkout "$CLONE" --branch main --channel branch \
     --allowed-signers "$ETC/self-update.allowed_signers" --principal "$PRINCIPAL") >"$OUT" 2>"$ERR"
 check "the anchor succeeds" "0" "$?"
 check "and moves the clone back to the newest signed commit" "$PLAY_CHANGE" "$(git -C "$CLONE" rev-parse HEAD)"
@@ -657,7 +672,7 @@ check "and nothing is called" "" "$(calls)"
 check "and it names the file" "yes" "$(says 'helpers/self_update/__pycache__/cycle.cpython-311.pyc' "$ERR")"
 cycle status
 check "status is refused too (20)" "20" "$RC"
-(cd "$REPO_ROOT" && python3 -B -m helpers.self_update.update --anchor --checkout "$CLONE" --branch main \
+(cd "$REPO_ROOT" && python3 -B -m helpers.self_update.update --anchor --checkout "$CLONE" --branch main --channel branch \
     --allowed-signers "$ETC/self-update.allowed_signers" --principal "$PRINCIPAL") >"$OUT" 2>"$ERR"
 check "the anchor refuses it as well (11)" "11" "$?"
 rm -rf "$(dirname "$PLANTED")"
@@ -683,7 +698,7 @@ mkdir -p "$CLONE/environment/localhost/host_vars"
 printf 'user_login: tester\n' >"$CLONE/environment/localhost/host_vars/localhost.yml"
 cycle run --dry-run
 check "the host_vars copy the play installs is allowed" "0" "$RC"
-(cd "$REPO_ROOT" && python3 -B -m helpers.self_update.update --anchor --checkout "$CLONE" --branch main \
+(cd "$REPO_ROOT" && python3 -B -m helpers.self_update.update --anchor --checkout "$CLONE" --branch main --channel branch \
     --allowed-signers "$ETC/self-update.allowed_signers" --principal "$PRINCIPAL" \
     --allow-untracked environment/localhost/host_vars/localhost.yml) >"$OUT" 2>"$ERR"
 check "and the anchor allows it when told to" "0" "$?"
@@ -736,6 +751,151 @@ check "a tampered signed commit refuses the cycle (20)" "20" "$RC"
 check "and nothing is called" "" "$(calls)"
 check "and it is recorded as refused by the gate" "update refused" "$(result_key phase) $(result_key outcome)"
 check "and nothing moved" "$PLAY_CHANGE" "$(git -C "$CLONE" rev-parse HEAD)"
+
+# ── the tags channel (Plan 00153) ──────────────────────────────────────────────────────
+# Everything above ran the branch channel. The default channel deploys the newest signed
+# release tag of the branch's Fedora major, and nothing else: a signed tip above it waits,
+# and an unusable newest tag refuses instead of falling back. A fresh origin and clone, so
+# no history from above is reused.
+echo "the tags channel: the newest signed release tag, never the tip"
+FED="${os_version%%.*}"
+REL_BRANCH="F$FED"
+rm -rf "$CLONE" "$WORK" "$ORIGIN"
+find "$STATE" "$PUBLISHED" -mindepth 1 -delete
+seed_work "$REL_BRANCH"
+fresh_clone "$REL_BRANCH"
+write_config "" tags "$REL_BRANCH"
+START="$(git -C "$CLONE" rev-parse HEAD)"
+
+# tag_signed NAME [COMMIT]: an annotated tag signed by the machine key, pushed.
+tag_signed() {
+    git_work tag -s -m "release $1" "$1" "${2:-HEAD}"
+    git_work push -q origin "refs/tags/$1"
+}
+# release_commit FILE-CONTENT: a signed commit changing README, pushed to the branch.
+release_commit() {
+    echo "$1" >"$WORK/README"
+    commit_signed "change: $1"
+    git -C "$WORK" rev-parse HEAD
+}
+
+cycle run --dry-run
+check "no release tag: a dry run is refused (20)" "20" "$RC"
+check "and says no release tag exists" "yes" "$(says 'no release tag' "$ERR")"
+cycle run
+check "no release tag: the cycle is refused (20), though the branch tip is signed" "20" "$RC"
+check "and nothing is called" "" "$(calls)"
+check "and nothing moved" "$START" "$(git -C "$CLONE" rev-parse HEAD)"
+check "and it is recorded as refused, naming the cause" "refused" "$(result_key outcome)"
+check "and the record says why" "yes" "$(result_key detail | grep -q 'no release tag' && echo yes || echo no)"
+check "and it is alerted" "yes" "$(says 'ALERT refused' "$ERR")"
+
+RELEASE_ONE="$(release_commit one)"
+tag_signed "$FED.0.0" "$RELEASE_ONE"
+TIP_ABOVE="$(release_commit "signed work after the release")"
+cycle run
+check "the first cycle on a tagged branch exits 0" "0" "$RC"
+check "and runs the play, warns, then reboots" "$PLAYED
+ccy-sessions notify going-down --minutes 1
+systemctl reboot" "$(calls)"
+check "the clone is on the release, not on the signed tip above it" "$RELEASE_ONE" "$(git -C "$CLONE" rev-parse HEAD)"
+check "the release is carried into the result record" "$FED.0.0" "$(result_key tag)"
+check "and into the published copy" "$FED.0.0" "$(published_key tag)"
+check "and into the marker owed across the reboot" "$FED.0.0" "$(state_key owed-verify tag)"
+write_owed "an-earlier-boot" "$FED.0.0"
+cycle verify
+check "the post-boot verify passes" "0" "$RC"
+check "and the deployed record names the release" "$FED.0.0" "$(result_key tag)"
+cycle run
+check "a cycle with the release already deployed does nothing" "0" "$RC"
+check "and the tip above it still waits" "$RELEASE_ONE" "$(git -C "$CLONE" rev-parse HEAD)"
+check "and still names the release" "$FED.0.0" "$(result_key tag)"
+cycle status
+check "status names the release" "yes" "$(says "^tag=$FED.0.0\$" "$OUT")"
+
+# The release the owner makes next. 9 and 10 are tagged together: the order is numeric.
+tag_signed "$FED.1.0" "$TIP_ABOVE"
+NINE="$(release_commit nine)"
+tag_signed "$FED.9.0" "$NINE"
+TEN="$(release_commit ten)"
+tag_signed "$FED.10.0" "$TEN"
+git_work tag -a -m "a draft" "$FED.11.0-rc1" HEAD
+git_work push -q origin "refs/tags/$FED.11.0-rc1"
+cycle run
+check "the numerically highest tag is deployed (10 over 9 and 1)" "$TEN" "$(git -C "$CLONE" rev-parse HEAD)"
+check "and named" "$FED.10.0" "$(result_key tag)"
+check "a draft name outside the scheme is passed over" "yes" "$(says "$FED.11.0-rc1" "$ERR")"
+
+# An unusable newest tag refuses, with an older good tag and a signed tip both available.
+ELEVEN="$(release_commit eleven)"
+git_work tag "$FED.11.0" "$ELEVEN"
+git_work push -q origin "refs/tags/$FED.11.0"
+cycle run
+check "a lightweight newest tag refuses the cycle (20)" "20" "$RC"
+check "and nothing is called" "" "$(calls)"
+check "and nothing moved, no older release is tried" "$TEN" "$(git -C "$CLONE" rev-parse HEAD)"
+check "and the record names the cause" "yes" "$(result_key detail | grep -q 'newest release tag' && echo yes || echo no)"
+check "and the journal names the tag" "yes" "$(says "release tag $FED.11.0 is refused" "$ERR")"
+# The owner withdraws the lightweight tag and releases the same commit properly. The clone
+# prunes the withdrawn name, so it is not mistaken for a tag that moved.
+git_work push -q origin ":refs/tags/$FED.11.0"
+git_work tag -d "$FED.11.0" >&2
+tag_signed "$FED.12.0" "$ELEVEN"
+cycle run
+check "the commit, released properly under a new number, is deployed" "$ELEVEN" "$(git -C "$CLONE" rev-parse HEAD)"
+check "and the withdrawn tag is gone from the clone" "" "$(git -C "$CLONE" tag --list "$FED.11.0")"
+
+# A tag moved upstream is never followed, and never forced.
+TWELVE="$(release_commit twelve)"
+git_work tag -f -s -m "moved" "$FED.12.0" "$TWELVE" >&2
+git_work push -q --force origin "refs/tags/$FED.12.0"
+cycle run
+check "a release tag moved upstream refuses the cycle (20)" "20" "$RC"
+check "and nothing moved" "$ELEVEN" "$(git -C "$CLONE" rev-parse HEAD)"
+check "and the local tag was not forced" "$ELEVEN" "$(git -C "$CLONE" rev-parse "$FED.12.0^{commit}")"
+check "and the record says it was moved" "yes" "$(result_key detail | grep -q 'moved upstream' && echo yes || echo no)"
+
+# The branch channel is the explicit opt-in: it follows the tip and names no release.
+write_config "" branch "$REL_BRANCH"
+cycle run
+check "the branch channel deploys the signed tip" "0" "$RC"
+check "and the clone is on it, past every release" "$TWELVE" "$(git -C "$CLONE" rev-parse HEAD)"
+check "and the result names no release" "" "$(result_key tag)"
+
+# Configuration: no F<number> branch means no tag family to follow.
+write_config "" tags main
+cycle run
+check "the tags channel on a branch that is not F<number> is a config error (70)" "70" "$RC"
+check "and nothing is called" "" "$(calls)"
+check "and it says so" "yes" "$(says 'F<number>' "$ERR")"
+write_config "" tags "$REL_BRANCH"
+
+# What the play does after cloning: land on the newest valid release, though the tip is newer
+# and unsigned.
+echo "unsigned tip" >"$WORK/README"
+git_work add -A
+git_work commit -q -m "an unsigned tip above every release"
+git_work push -q origin "HEAD:$REL_BRANCH"
+rm -rf "$CLONE"
+fresh_clone "$REL_BRANCH"
+(cd "$REPO_ROOT" && python3 -B -m helpers.self_update.update --anchor --checkout "$CLONE" --branch "$REL_BRANCH" \
+    --channel tags --allowed-signers "$ETC/self-update.allowed_signers" --principal "$PRINCIPAL") >"$OUT" 2>"$ERR"
+check "the tags anchor succeeds" "0" "$?"
+check "and lands on the newest release, not the unsigned tip above it" "$TWELVE" "$(git -C "$CLONE" rev-parse HEAD)"
+check "and names it" "SELF-UPDATE-TAG $FED.12.0" "$(grep '^SELF-UPDATE-TAG' "$OUT")"
+git_work push -q origin ":refs/tags/$FED.12.0"
+git_work push -q origin ":refs/tags/$FED.10.0"
+git_work push -q origin ":refs/tags/$FED.9.0"
+git_work push -q origin ":refs/tags/$FED.1.0"
+git_work push -q origin ":refs/tags/$FED.0.0"
+git_work push -q origin ":refs/tags/$FED.11.0-rc1"
+rm -rf "$CLONE"
+fresh_clone "$REL_BRANCH"
+START="$(git -C "$CLONE" rev-parse HEAD)"
+(cd "$REPO_ROOT" && python3 -B -m helpers.self_update.update --anchor --checkout "$CLONE" --branch "$REL_BRANCH" \
+    --channel tags --allowed-signers "$ETC/self-update.allowed_signers" --principal "$PRINCIPAL") >"$OUT" 2>"$ERR"
+check "the tags anchor with no release is refused (20)" "20" "$?"
+check "and moves nothing" "$START" "$(git -C "$CLONE" rev-parse HEAD)"
 
 printf 'passed: %d failed: %d\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]

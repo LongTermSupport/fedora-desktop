@@ -90,6 +90,58 @@ def choose_target(candidates: Iterable[tuple[str, str]]) -> Choice:
     return Choice(target=None, refused=None)
 
 
+_RELEASE_RE = re.compile(r"([0-9]+)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
+
+
+def parse_release_tag(name: str, major: int) -> tuple[int, int, int] | None:
+    """`(major, minor, patch)` when `name` is exactly a release tag of `major`, else None.
+
+    Plain decimal with no leading zeros, nothing before or after: `44.1.0-rc1`, `44.01.0`
+    and `v44.1.0` are the owner's drafts or typos, not releases.
+    """
+    match = _RELEASE_RE.fullmatch(name)
+    if match is None or match.group(1) != str(major):
+        return None
+    return int(match.group(1)), int(match.group(2)), int(match.group(3))
+
+
+@dataclass(frozen=True)
+class ReleaseChoice:
+    """The newest release tag (or None), and the names that were passed over as not releases."""
+
+    tag: str | None
+    ignored: tuple[str, ...]
+
+
+def choose_release(names: Iterable[str], major: int) -> ReleaseChoice:
+    """The highest release tag of `major` by NUMERIC version (`44.10.0` beats `44.9.0`)."""
+    best: tuple[tuple[int, int, int], str] | None = None
+    ignored: list[str] = []
+    for name in names:
+        version = parse_release_tag(name, major)
+        if version is None:
+            ignored.append(name)
+        elif best is None or version > best[0]:
+            best = (version, name)
+    return ReleaseChoice(tag=best[1] if best else None, ignored=tuple(ignored))
+
+
+_BRANCH_MAJOR_RE = re.compile(r"F([1-9][0-9]*)")
+_GOOD_TAG_RE = re.compile(r'^Good "git" signature for (\S+) with ', re.MULTILINE)
+
+
+def branch_major(branch: str) -> int | None:
+    """The Fedora major a release branch carries (`F44` gives 44), or None for any other name."""
+    match = _BRANCH_MAJOR_RE.fullmatch(branch)
+    return int(match.group(1)) if match else None
+
+
+def tag_signer(verify_output: str) -> str | None:
+    """The principal in `git verify-tag --raw`'s good-signature line, or None when it names none."""
+    match = _GOOD_TAG_RE.search(verify_output)
+    return match.group(1) if match else None
+
+
 _PIN_RE = re.compile(r"""^fedora_version:\s*["']?(\d+)["']?\s*$""", re.MULTILINE)
 _VERSION_ID_RE = re.compile(r"""^VERSION_ID=["']?(\d+)""", re.MULTILINE)
 

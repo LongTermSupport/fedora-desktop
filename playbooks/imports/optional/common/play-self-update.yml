@@ -3,8 +3,9 @@
 # Unattended server self-update (Plan 00137) — OPT-IN, server profile only.
 #
 # A nightly system timer runs /usr/local/sbin/fedora-desktop-self-update. The cycle
-# fast-forwards a root-owned deploy clone to the newest commit signed by one of the
-# owner's pinned keys, runs the allowlisted plays that commit affects, warns the ccy/cc sessions,
+# fast-forwards a root-owned deploy clone to the newest signed release tag of the branch's
+# Fedora major (Plan 00153; `self_update_channel: branch` opts into the newest commit signed
+# by one of the owner's pinned keys instead), runs the allowlisted plays that commit affects, warns the ccy/cc sessions,
 # and reboots. The sessions come back through Plan 00135's boot-time restore, and a
 # post-boot unit checks they did. The contract between this play and the entry point is
 # CLAUDE/Plan/00137-unattended-server-self-update/DESIGN-cycle.md.
@@ -50,6 +51,10 @@
       - fedora-desktop-self-update.timer
       - fedora-desktop-self-update-verify.service
     self_update_on: "{{ self_update_enabled | default(false) | bool }}"
+    # What the cycle follows. `tags` (the default) deploys the newest signed release tag of
+    # the branch's Fedora major (Plan 00153); `branch` is the explicit opt-in to the newest
+    # owner-signed commit on the branch.
+    self_update_channel_in_use: "{{ self_update_channel | default('tags') }}"
   tasks:
     - name: Scope guard — assert provisioning_profile is recognised
       ansible.builtin.assert:
@@ -81,13 +86,17 @@
           - self_update_signing_principal is defined
           - self_update_signing_principal is match('^[^\s]+$')
           - (self_update_warn_minutes | default(3) | string) is match('^[1-9][0-9]*$')
+          - self_update_channel_in_use in ['tags', 'branch']
+          - self_update_channel_in_use == 'branch' or self_update_branch is match('^F[1-9][0-9]*$')
         fail_msg: >-
           self_update_enabled is true, but its inputs are incomplete or malformed. Declare
           in host_vars: self_update_branch (e.g. F44), self_update_remote_url (HTTPS, e.g.
           the public GitHub URL), self_update_signing_principal and
           self_update_signing_public_keys (the owner's PUBLIC SSH signing keys, one .pub
-          line each). Optional: self_update_warn_minutes (default 3) and
-          self_update_slack_webhook_url (vault-encrypted). See
+          line each). Optional: self_update_warn_minutes (default 3),
+          self_update_channel (tags, the default, or branch) and
+          self_update_slack_webhook_url (vault-encrypted). The default tags channel needs
+          self_update_branch to be a Fedora release branch F<number>. See
           environment/localhost/host_vars/localhost.yml.dist.
         quiet: true
       when: self_update_on
@@ -411,9 +420,12 @@
       when: self_update_on
 
     # A fresh clone sits on the remote's tip, which nobody has vouched for, and the cycle's
-    # gate only judges commits above HEAD. So HEAD is moved back to the newest commit the
-    # pinned keys signed, or the play fails: root must never import or run an unsigned
-    # tree. A HEAD that is already signed is left alone; moving forward is the cycle's job.
+    # gate only judges commits above HEAD. So HEAD is moved to a commit the pinned keys
+    # signed, or the play fails: root must never import or run an unsigned tree. On the
+    # tags channel that is the newest valid release tag's commit, and a branch with no
+    # release tag fails the play loudly (tag the first release before provisioning). On the
+    # branch channel it is the newest signed commit, and a HEAD that is already signed is
+    # left alone; moving forward is the cycle's job.
     # The helper runs from this checkout, the one the owner is deploying from, never from
     # the clone it is judging, and -B leaves no root-owned bytecode in it. The anchor also
     # refuses a clone holding any file its commit does not, ignored ones included, except
@@ -432,6 +444,8 @@
           - "{{ self_update_clone }}"
           - --branch
           - "{{ self_update_branch }}"
+          - --channel
+          - "{{ self_update_channel_in_use }}"
           - --allowed-signers
           - "{{ self_update_etc_dir }}/self-update.allowed_signers"
           - --principal
