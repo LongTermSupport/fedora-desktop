@@ -83,9 +83,21 @@ existing_paths() {
 }
 
 # A real interactive bash, as a terminal gets it, so aliases and functions from the startup
-# files are in force. stdin closed and a time cap, so nothing in the startup can hold the run.
+# files are in force. Three things keep the startup from holding the run:
+#   setsid    no controlling terminal, so nothing in the startup can stop the shell by
+#             reading the terminal (an interactive shell outside the terminal's foreground
+#             group is stopped by the kernel, where the time cap cannot end it cleanly);
+#   a file    the output goes to a file, not a pipe, so a daemon the startup launches and
+#             that inherits stdout cannot keep the caller waiting for end of file;
+#   -k 5      a shell that ignores the TERM at the time cap is killed 5 s later.
 ibash() {
-  timeout 30 bash -ic "$1" </dev/null
+  local out="${PLAN_RUN_DIR}/interactive-shell.out" rc=0
+  timeout -k 5 30 setsid -w bash -ic "$1" </dev/null >"${out}" 2>&1 || rc=$?
+  cat "${out}"
+  if [[ "${rc}" -eq 124 || "${rc}" -eq 137 ]]; then
+    echo "(the interactive shell did not finish within 30 s; its startup files are waiting on something)"
+  fi
+  return "${rc}"
 }
 
 # The claude a terminal would run. Read from a marker line, because the startup files may
@@ -133,7 +145,9 @@ search_claude_binary_for_error() {
   printf 'claude: %s -> %s\n' "${bin}" "${real}"
   # -a: the binary is a bundled executable; -o with a little context shows the message
   # and what surrounds it, without dumping the binary.
-  grep -aoiE ".{0,120}${ERROR_TEXT}.{0,120}" "${real}"
+  # Capped: the context pattern is cheap with no match, but its cost on a 250 MB file
+  # with matches has not been measured.
+  timeout -k 5 60 grep -aoiE ".{0,120}${ERROR_TEXT}.{0,120}" "${real}"
 }
 
 # ── the deployed launcher against this checkout ──────────────────────────────────────────
