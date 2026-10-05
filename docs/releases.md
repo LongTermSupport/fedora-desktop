@@ -26,5 +26,6 @@ tag is pushed, run `tag` again to finish it. Agents never run it.
 The unattended server self-update deploys the newest release tag by default, not the branch tip
 (`self_update_channel: tags`; `branch` is the explicit opt-in to the tip). A branch with no release
 tag, or a newest tag that fails its checks, is refused rather than answered with an older tag, so
-tag `<major>.0.0` before provisioning a server. See
+tag `<major>.0.0` before provisioning a server. Never move a release tag that was already pushed:
+servers refuse it until a person withdraws it and releases under a new number. See
 [configuration.md](configuration.md#unattended-server-self-update).

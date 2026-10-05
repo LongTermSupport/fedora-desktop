@@ -45,6 +45,7 @@ stdout carries only the stable marker lines; every diagnostic goes to stderr:
     SELF-UPDATE-TARGET <sha>   --dry-run: the commit a real run would fast-forward to
     SELF-UPDATE-NOTHING <sha>  no trusted commit above the deployed one
     SELF-UPDATE-TAG <name>     tags channel: the release the line above is (also on --anchor)
+    SELF-UPDATE-REFUSED <why>  tags channel, exit 20/21/22: the tag and the check, for the alert
 
 `--dry-run` runs every step, the fetch included, and stops before the fast-forward.
 
@@ -70,6 +71,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -311,23 +313,46 @@ def _newest_release(git: _Git, *, remote: str, branch: str, major: int, principa
     return tag, commit
 
 
+_CLOBBERED_TAG = re.compile(r"^\s*!\s+\[rejected\]\s+(\S+)\s+->\s+\S+\s+\(would clobber existing tag\)", re.MULTILINE)
+#: How a person clears a moved release tag; it is in the refusal and, through cycle.py, the alert.
+MOVED_TAG_REMEDY = (
+    "withdraw the moved tag upstream so the next fetch prunes it, and release under a new number; or re-clone: "
+    "run the self-update play once with self_update_enabled: false, then once with it true"
+)
+
+
+def _fetch_releases(git: _Git, *, remote: str, branch: str, major: int, stderr: TextIO) -> None:
+    """Fetch the branch and its `<major>.*` tags, or refuse.
+
+    No `+` on the tag refspec: git then refuses to move a local tag that now points elsewhere,
+    and that refusal is never retried with force. --prune drops a tag withdrawn upstream. A
+    moved tag that is not a release name (a draft such as `44.2.0-rc1`) is the owner's own
+    namespace and must not stop the fleet: git has still updated every other ref, so it is
+    reported and passed over. A moved release name refuses.
+    """
+    fetched = git.run(
+        "fetch", "--no-tags", "--prune", remote, f"+refs/heads/{branch}:refs/remotes/{remote}/{branch}",
+        f"refs/tags/{major}.*:refs/tags/{major}.*", timeout=_FETCH_TIMEOUT_SECONDS,
+    )
+    if fetched.returncode == 0:
+        return
+    detail = fetched.stderr.strip()
+    clobbered = _CLOBBERED_TAG.findall(fetched.stderr)
+    if not clobbered or any(line.startswith("fatal:") for line in detail.splitlines()):
+        raise Refusal(EXIT_FETCH_FAILED, f"git fetch {remote} {branch} and its release tags failed: {detail}")
+    moved = [name for name in clobbered if gate.parse_release_tag(name, major) is not None]
+    if moved:
+        raise Refusal(EXIT_TAG_MOVED, f"release tag {', '.join(moved)} was moved upstream and is not followed: {MOVED_TAG_REMEDY}")
+    for name in clobbered:
+        stderr.write(f"self-update: tag {name} is not a release name and was moved upstream; its local copy is kept\n")
+
+
 def _update_tags(
     *, git: _Git, remote: str, branch: str, principal: str, os_release: str, dry_run: bool,
     stdout: TextIO, stderr: TextIO,
 ) -> int:
     major = _release_major(branch)
-    # No `+` on the tag refspec: git then refuses to move a local tag that now points elsewhere,
-    # and that refusal is never retried with force. --prune drops a tag withdrawn upstream.
-    fetched = git.run(
-        "fetch", "--no-tags", "--prune", remote, f"+refs/heads/{branch}:refs/remotes/{remote}/{branch}",
-        f"refs/tags/{major}.*:refs/tags/{major}.*", timeout=_FETCH_TIMEOUT_SECONDS,
-    )
-    if fetched.returncode != 0:
-        detail = fetched.stderr.strip()
-        if "would clobber existing tag" in detail:
-            raise Refusal(EXIT_TAG_MOVED, f"a release tag was moved upstream; refusing to follow it: {detail}")
-        raise Refusal(EXIT_FETCH_FAILED, f"git fetch {remote} {branch} and its release tags failed: {detail}")
-
+    _fetch_releases(git, remote=remote, branch=branch, major=major, stderr=stderr)
     _require_clean_branch(git, branch)
     head = git.out("rev-parse", "HEAD").strip()
     tag, target = _newest_release(git, remote=remote, branch=branch, major=major, principal=principal, stderr=stderr)
@@ -430,17 +455,25 @@ def _anchor_target_on_branch(git: _Git, principal: str, stderr: TextIO) -> str:
 
 def _anchor(
     *, git: _Git, remote: str, branch: str, channel: str, principal: str, os_release: str,
-    allow_untracked: tuple[str, ...], stdout: TextIO, stderr: TextIO,
+    allow_untracked: tuple[str, ...], allow_rewind: bool, stdout: TextIO, stderr: TextIO,
 ) -> int:
     _require_clean_branch(git, branch)
     _require_no_strays(git, allow_untracked)
     head = git.out("rev-parse", "HEAD").strip()
     tag_line = ""
     if channel == CHANNEL_TAGS:
-        tag, target = _newest_release(
-            git, remote=remote, branch=branch, major=_release_major(branch), principal=principal, stderr=stderr,
-        )
+        major = _release_major(branch)
+        _fetch_releases(git, remote=remote, branch=branch, major=major, stderr=stderr)
+        tag, target = _newest_release(git, remote=remote, branch=branch, major=major, principal=principal, stderr=stderr)
         tag_line = f"SELF-UPDATE-TAG {tag}\n"
+        if target != head and not allow_rewind and not git.is_ancestor(head, target):
+            raise Refusal(
+                EXIT_AHEAD if git.is_ancestor(target, head) else EXIT_DIVERGED,
+                f"anchoring on release {tag} ({target[:12]}) would move the clone back from {head[:12]} and discard "
+                "commits the release does not hold (a channel switched from branch, a withdrawn release, or local "
+                "commits); nothing was moved. If that is intended, re-clone: run the self-update play once with "
+                "self_update_enabled: false, then once with it true",
+            )
     else:
         target = _anchor_target_on_branch(git, principal, stderr)
     if target == head:
@@ -459,11 +492,17 @@ def _anchor(
     return EXIT_OK
 
 
-def _guarded(stderr: TextIO, action: Callable[[], int]) -> int:
+#: Refusals the cycle reports to the alert, naming the tag and the check, as one stdout line.
+_REPORTED_REFUSALS = (EXIT_NO_RELEASE, EXIT_TAG_REFUSED, EXIT_TAG_MOVED)
+
+
+def _guarded(stderr: TextIO, action: Callable[[], int], stdout: TextIO | None = None) -> int:
     try:
         return action()
     except Refusal as refusal:
         stderr.write(f"self-update: refused: {refusal}\n")
+        if stdout is not None and refusal.code in _REPORTED_REFUSALS:
+            stdout.write(f"SELF-UPDATE-REFUSED {' '.join(str(refusal).split())}\n")
         return refusal.code
     except subprocess.TimeoutExpired as error:
         stderr.write(f"self-update: refused: git timed out: {' '.join(str(a) for a in error.cmd)}\n")
@@ -483,13 +522,15 @@ def _usage_error(principal: str, channel: str, stderr: TextIO) -> int | None:
 def anchor(
     *, checkout: str, branch: str, allowed_signers: str, principal: str, os_release: str = "/etc/os-release",
     allow_untracked: tuple[str, ...] = (), channel: str = CHANNEL_TAGS, remote: str = "origin",
-    stdout: TextIO, stderr: TextIO, env: Mapping[str, str] | None = None,
+    allow_rewind: bool = False, stdout: TextIO, stderr: TextIO, env: Mapping[str, str] | None = None,
 ) -> int:
     """Make the checkout's HEAD a trusted commit.
 
     The `branch` channel moves HEAD back to the newest signed commit if it is not one. The
-    `tags` channel lands HEAD on the newest valid release tag's commit, wherever HEAD is,
-    from the tags the clone already holds (a fresh clone has them all).
+    `tags` channel first fetches the branch and the release tags (so it judges the real newest
+    release, withdrawn ones pruned), then lands HEAD on the newest valid release's commit. It
+    moves forward freely but refuses to move BACK, which would discard commits the release does
+    not hold, unless `allow_rewind` says the clone is fresh (the play passes it only then).
 
     `allow_untracked` names, exactly, the files the caller itself puts in the checkout (the
     play's host_vars copy). Any other file the commit does not track refuses the anchor.
@@ -502,7 +543,8 @@ def anchor(
         _check_signers_file(allowed_signers)
         git = _Git(checkout, allowed_signers, env if env is not None else os.environ)
         return _anchor(git=git, remote=remote, branch=branch, channel=channel, principal=principal,
-                       os_release=os_release, allow_untracked=allow_untracked, stdout=stdout, stderr=stderr)
+                       os_release=os_release, allow_untracked=allow_untracked, allow_rewind=allow_rewind,
+                       stdout=stdout, stderr=stderr)
 
     return _guarded(stderr, act)
 
@@ -556,7 +598,7 @@ def run(
             dry_run=dry_run, stdout=stdout, stderr=stderr,
         )
 
-    return _guarded(stderr, act)
+    return _guarded(stderr, act, stdout)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -569,19 +611,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--os-release", default="/etc/os-release")
     parser.add_argument("--channel", choices=CHANNELS, default=CHANNEL_TAGS,
                         help="tags (default): the newest signed release tag; branch: the newest signed commit")
-    mode =parser.add_mutually_exclusive_group()
+    mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--anchor", action="store_true", help="make HEAD a trusted commit (the play, after cloning)")
     parser.add_argument("--allow-untracked", action="append", default=[], metavar="PATH",
                         help="with --anchor: an untracked file the caller put there itself (repeatable)")
+    parser.add_argument("--allow-rewind", action="store_true",
+                        help="with --anchor on the tags channel: the clone is fresh, so moving it back loses nothing")
     args = parser.parse_args(argv)
     if args.allow_untracked and not args.anchor:
         parser.error("--allow-untracked only applies with --anchor")
+    if args.allow_rewind and not args.anchor:
+        parser.error("--allow-rewind only applies with --anchor")
     if args.anchor:
         return anchor(
             checkout=args.checkout, branch=args.branch, allowed_signers=args.allowed_signers,
             principal=args.principal, os_release=args.os_release, allow_untracked=tuple(args.allow_untracked),
-            channel=args.channel, remote=args.remote or "origin", stdout=sys.stdout, stderr=sys.stderr,
+            channel=args.channel, remote=args.remote or "origin", allow_rewind=args.allow_rewind,
+            stdout=sys.stdout, stderr=sys.stderr,
         )
     if not args.remote:
         parser.error("--remote is required to update")

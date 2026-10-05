@@ -826,6 +826,14 @@ check "the numerically highest tag is deployed (10 over 9 and 1)" "$TEN" "$(git 
 check "and named" "$FED.10.0" "$(result_key tag)"
 check "a draft name outside the scheme is passed over" "yes" "$(says "$FED.11.0-rc1" "$ERR")"
 
+# Re-creating a draft must not stop the fleet: only a moved release name refuses.
+git_work tag -f -a -m "the draft, moved" "$FED.11.0-rc1" "$NINE" >&2
+git_work push -q --force origin "refs/tags/$FED.11.0-rc1"
+cycle run
+check "a draft tag moved upstream does not stop the cycle (0)" "0" "$RC"
+check "and the journal says it was passed over" "yes" "$(says 'is not a release name and was moved upstream' "$ERR")"
+check "and the release is still the one deployed" "$TEN" "$(git -C "$CLONE" rev-parse HEAD)"
+
 # An unusable newest tag refuses, with an older good tag and a signed tip both available.
 ELEVEN="$(release_commit eleven)"
 git_work tag "$FED.11.0" "$ELEVEN"
@@ -834,7 +842,8 @@ cycle run
 check "a lightweight newest tag refuses the cycle (20)" "20" "$RC"
 check "and nothing is called" "" "$(calls)"
 check "and nothing moved, no older release is tried" "$TEN" "$(git -C "$CLONE" rev-parse HEAD)"
-check "and the record names the cause" "yes" "$(result_key detail | grep -q 'newest release tag' && echo yes || echo no)"
+check "and the record names the tag and the check that failed" "yes" \
+    "$(result_key detail | grep -q "release tag $FED.11.0 is refused: it is a commit reference" && echo yes || echo no)"
 check "and the journal names the tag" "yes" "$(says "release tag $FED.11.0 is refused" "$ERR")"
 # The owner withdraws the lightweight tag and releases the same commit properly. The clone
 # prunes the withdrawn name, so it is not mistaken for a tag that moved.
@@ -878,11 +887,24 @@ git_work commit -q -m "an unsigned tip above every release"
 git_work push -q origin "HEAD:$REL_BRANCH"
 rm -rf "$CLONE"
 fresh_clone "$REL_BRANCH"
-(cd "$REPO_ROOT" && python3 -B -m helpers.self_update.update --anchor --checkout "$CLONE" --branch "$REL_BRANCH" \
-    --channel tags --allowed-signers "$ETC/self-update.allowed_signers" --principal "$PRINCIPAL") >"$OUT" 2>"$ERR"
+(cd "$REPO_ROOT" && python3 -B -m helpers.self_update.update --anchor --allow-rewind --checkout "$CLONE" \
+    --branch "$REL_BRANCH" --channel tags --allowed-signers "$ETC/self-update.allowed_signers" \
+    --principal "$PRINCIPAL") >"$OUT" 2>"$ERR"
 check "the tags anchor succeeds" "0" "$?"
 check "and lands on the newest release, not the unsigned tip above it" "$TWELVE" "$(git -C "$CLONE" rev-parse HEAD)"
 check "and names it" "SELF-UPDATE-TAG $FED.12.0" "$(grep '^SELF-UPDATE-TAG' "$OUT")"
+
+# A play re-run on an existing clone that is ahead of the release must not discard anything:
+# only a clone the run has just made may be moved back.
+git -C "$CLONE" merge -q --ff-only "origin/$REL_BRANCH"
+AHEAD_HEAD="$(git -C "$CLONE" rev-parse HEAD)"
+(cd "$REPO_ROOT" && python3 -B -m helpers.self_update.update --anchor --checkout "$CLONE" \
+    --branch "$REL_BRANCH" --channel tags --allowed-signers "$ETC/self-update.allowed_signers" \
+    --principal "$PRINCIPAL") >"$OUT" 2>"$ERR"
+check "an existing clone ahead of the release is not moved back by the anchor (14)" "14" "$?"
+check "and stays where it was" "$AHEAD_HEAD" "$(git -C "$CLONE" rev-parse HEAD)"
+check "and says how to re-clone" "yes" "$(says 'self_update_enabled' "$ERR")"
+git -C "$CLONE" checkout -q -B "$REL_BRANCH" "$TWELVE"
 git_work push -q origin ":refs/tags/$FED.12.0"
 git_work push -q origin ":refs/tags/$FED.10.0"
 git_work push -q origin ":refs/tags/$FED.9.0"

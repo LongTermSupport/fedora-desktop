@@ -1,6 +1,6 @@
 # Plan 00153: release tags, Fedora major plus semver
 
-**Status**: In Progress (Phases 1 to 3 done; Phase 4, the first release, waits on host acceptance; nothing is tagged)
+**Status**: In Progress (Phases 1 and 2 done; Phase 3 built, its Task 3.3 host-health follow-up open; Phase 4, the first release, waits on host acceptance; nothing is tagged)
 **Created**: 2026-10-03
 **Owner**: joseph
 **Priority**: Medium
@@ -87,10 +87,16 @@ release tag rather than the branch tip.
   `SELF-UPDATE-TAG` marker, the anchor), `cycle.py` (`CHANNEL` config key, `tag` in the result,
   published copy and owed marker). Tests: `test_gate.py`, `test_update.py`, `test_cycle.py`, and
   both channels end to end in `scripts/test-self-update-cycle.bash`.
+
 - [x] ✅ **Task 3.2**: Coordinate with Plan 00137 (unattended server self-update), which is
   waiting on server runs: land this before or as part of its acceptance. Done: the CORRECTION
   note in 00137's `DESIGN-cycle.md`, and 00137's Task 5.3 and acceptance script now say the
   cycle needs a release tag (`44.0.0`, Task 4.1) or `self_update_channel: branch`.
+
+- [ ] ⬜ **Task 3.3**: Follow-up from the Phase 3 review: the host-health report
+  (`helpers/host_health/self_update_check.py`) reads no `tag`, so it cannot yet say which release
+  a healthy host runs. Add an informational line "release 44.2.1" for ok outcomes (tests first,
+  and the panel's `quietWhenOk` stays quiet). Not blocking Phase 4.
 
 ### Phase 4: First release
 

@@ -98,7 +98,7 @@ _REMOTE = "origin"
 _REFUSAL_REASONS = {
     update.EXIT_NO_RELEASE: "no release tag exists for this Fedora major, and the branch tip is never deployed in its place",
     update.EXIT_TAG_REFUSED: "the newest release tag failed its checks, and no older one is tried",
-    update.EXIT_TAG_MOVED: "a release tag was moved upstream, and is not followed",
+    update.EXIT_TAG_MOVED: f"a release tag was moved upstream and is not followed: {update.MOVED_TAG_REMEDY}",
 }
 
 
@@ -274,6 +274,8 @@ class UpdateResult:
     target: str | None
     nothing: str | None
     tag: str | None = None
+    #: update.py's one-line reason for a release refusal (the tag and the check that failed).
+    reason: str | None = None
 
     def head(self) -> str | None:
         return self.new or self.target or self.nothing
@@ -372,7 +374,8 @@ def run_cycle(config: Config, host: Host, state: State, *, dry_run: bool, stdout
     if result.rc != 0 or head is None:
         if dry_run:
             return EXIT_REFUSED
-        reason = _REFUSAL_REASONS.get(result.rc, "the update or trust gate refused")
+        # update.py's own line names the tag and the check; the table is for one that gave none.
+        reason = result.reason or _REFUSAL_REASONS.get(result.rc, "the update or trust gate refused")
         return _finish(state, host, stdout, stderr, code=EXIT_REFUSED, phase="update", outcome="refused",
                        detail=f"{reason} (update exit {result.rc})", announce=True)
 
@@ -766,7 +769,7 @@ class RealHost:
         return UpdateResult(
             rc=rc, old=markers.get("SELF-UPDATE-OLD"), new=markers.get("SELF-UPDATE-NEW"),
             target=markers.get("SELF-UPDATE-TARGET"), nothing=markers.get("SELF-UPDATE-NOTHING"),
-            tag=markers.get("SELF-UPDATE-TAG"),
+            tag=markers.get("SELF-UPDATE-TAG"), reason=markers.get("SELF-UPDATE-REFUSED"),
         )
 
     def changed_plays(self, old: str, new: str) -> affected_plays.Report:

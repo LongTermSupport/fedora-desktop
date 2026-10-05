@@ -1369,8 +1369,11 @@ everything it installed.
   itself puts the clone on that commit (a branch with no release tag fails the play), and the cycle runs nothing from a
   clone whose HEAD is unsigned, whose files differ from it, or that holds any file the
   commit does not (ignored files included), other than the host_vars copy the play puts
-  there. Re-running the play never alters an existing clone, so clearing those last two
-  takes a fresh clone: see [configuration.md](configuration.md#unattended-server-self-update).
+  there. Re-running the play never edits an existing clone's files, and on the tags channel it
+  only moves one forward, to a release fetched since (it fetches the release tags first; it
+  moves a clone back only when it has just made it, and otherwise refuses and says how to
+  re-clone). It prints where the clone was anchored. Clearing a dirty clone takes a fresh
+  clone: see [configuration.md](configuration.md#unattended-server-self-update).
 - It runs the allowlisted plays that commit affects, warns the ccy/cc sessions, and
   reboots. The sessions come back through the boot-time restore, and a post-boot unit
   checks they did.

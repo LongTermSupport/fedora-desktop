@@ -915,6 +915,22 @@ class TestReleaseTag(CycleCase):
                 self.assertIn(words, self.result()["detail"])
                 self.assertIn("ALERT", err)
 
+    def test_the_alert_names_the_tag_and_the_check_that_refused_it(self) -> None:
+        reason = "release tag 44.2.1 is refused: it is signed by a stranger"
+        self.host.update_result = cycle.UpdateResult(
+            rc=update.EXIT_TAG_REFUSED, old=None, new=None, target=None, nothing=None, reason=reason,
+        )
+        self.run_cycle()
+        self.assertIn(reason, self.result()["detail"])
+        self.assertIn(reason, self.host.alerts_sent[-1]["detail"])
+        self.assertNotIn("\n", self.result()["detail"])
+
+    def test_the_moved_tag_alert_says_how_to_clear_it(self) -> None:
+        self.host.update_result = cycle.UpdateResult(rc=update.EXIT_TAG_MOVED, old=None, new=None, target=None,
+                                                     nothing=None)
+        self.run_cycle()
+        self.assertIn("withdraw", self.result()["detail"])
+
     def test_an_owed_record_from_before_tags_still_reads(self) -> None:
         with open(os.path.join(self._tmp.name, "owed-verify"), "w", encoding="utf-8") as handle:
             handle.write(f"boot=boot-0\nnew={NEW}\nplays={PLAY}\n")

@@ -817,6 +817,7 @@ class TestTagsRefused(TagCase):
         self.fx.push_tag("44.0.0")
         err = self.assert_refused_unmoved(update.EXIT_TAG_REFUSED)
         self.assertIn("44.0.0", err)
+        self.assertIn("not an annotated signed tag", err)
 
     def test_an_unsigned_annotated_tag_refuses(self) -> None:
         sha = self.fx.commit("a.txt", "a\n", "signed", sign="owner")
@@ -904,6 +905,74 @@ class TestTagsRefused(TagCase):
         self.assertIn("44.0.0", err)
         self.assertEqual(self.fx.git(self.fx.deploy, "rev-parse", "refs/tags/44.0.0^{commit}"), first)
 
+    def _move_upstream(self, name: str, commit: str) -> None:
+        self.fx.git(self.fx.author, "-c", f"user.signingkey={self.fx.owner_key}", "tag", "-f", "-s", "-m", "moved",
+                    name, commit)
+        self.fx.push_tag(name, "--force")
+
+    def test_a_moved_draft_tag_does_not_stop_the_cycle(self) -> None:
+        """The namespace under 44.* is the owner's: re-creating a release candidate must not
+        stop the fleet, and a real release made in the same fetch is still deployed."""
+        good = self.fx.release("44.0.0")
+        draft = self.fx.commit("b.txt", "b\n", "draft", sign="owner")
+        self.fx.push()
+        self.fx.tag("44.1.0-rc1", draft)
+        self.fx.push_tag("44.1.0-rc1")
+        self.assertEqual(self.run_tags()[0], update.EXIT_OK)
+        self.assertEqual(self.fx.deployed(), good)
+        self._move_upstream("44.1.0-rc1", good)
+        newer = self.fx.release("44.2.0", path="c.txt")
+        code, out, err = self.run_tags()
+        self.assertEqual(code, update.EXIT_OK, err)
+        self.assertIn("44.1.0-rc1", err)
+        self.assertEqual(self.fx.deployed(), newer)
+        self.assertIn("SELF-UPDATE-TAG 44.2.0", out)
+
+    def test_a_moved_release_among_moved_drafts_still_refuses(self) -> None:
+        first = self.fx.release("44.0.0")
+        draft = self.fx.commit("b.txt", "b\n", "draft", sign="owner")
+        self.fx.push()
+        self.fx.tag("44.1.0-rc1", draft)
+        self.fx.push_tag("44.1.0-rc1")
+        self.assertEqual(self.run_tags()[0], update.EXIT_OK)
+        self._move_upstream("44.1.0-rc1", first)
+        self._move_upstream("44.0.0", draft)
+        self.assert_refused_unmoved(update.EXIT_TAG_MOVED, before=first)
+
+    def test_the_refusal_for_a_moved_release_says_how_to_clear_it(self) -> None:
+        first = self.fx.release("44.0.0")
+        self.assertEqual(self.run_tags()[0], update.EXIT_OK)
+        second = self.fx.commit("b.txt", "b\n", "owner", sign="owner")
+        self.fx.push()
+        self._move_upstream("44.0.0", second)
+        err = self.assert_refused_unmoved(update.EXIT_TAG_MOVED, before=first)
+        self.assertIn("withdraw", err)
+        self.assertIn("self_update_enabled", err)
+
+    def test_a_release_refusal_is_reported_on_stdout_for_the_alert(self) -> None:
+        """One line, naming the tag and the check, so the alert says more than 'refused'."""
+        sha = self.fx.commit("a.txt", "a\n", "signed", sign="owner")
+        self.fx.push()
+        self.fx.tag("44.0.0", sha, sign="other")
+        self.fx.push_tag("44.0.0")
+        code, out, _ = self.run_tags()
+        self.assertEqual(code, update.EXIT_TAG_REFUSED)
+        lines = out.splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith("SELF-UPDATE-REFUSED "))
+        self.assertIn("44.0.0", lines[0])
+        self.assertIn("signature", lines[0])
+
+    def test_no_release_and_other_refusals_report_accordingly(self) -> None:
+        code, out, _ = self.run_tags()
+        self.assertEqual(code, update.EXIT_NO_RELEASE)
+        self.assertTrue(out.startswith("SELF-UPDATE-REFUSED no release tag"), out)
+        with open(os.path.join(self.fx.deploy, "planted.yml"), "w", encoding="utf-8") as handle:
+            handle.write("x: 1\n")
+        code, out, _ = self.run_tags()
+        self.assertEqual(code, update.EXIT_DIRTY)
+        self.assertEqual(out, "", "only the release refusals carry the marker")
+
     def test_a_withdrawn_tag_is_pruned_and_the_clone_refuses_as_ahead(self) -> None:
         self.fx.release("44.0.0")
         newest = self.fx.release("44.1.0", path="b.txt")
@@ -971,6 +1040,7 @@ class TestTagsAnchor(UpdateCase):
         args: dict[str, object] = {
             "checkout": checkout, "branch": BRANCH, "allowed_signers": self.fx.allowed,
             "principal": PRINCIPAL, "os_release": self.fx.os_release, "channel": update.CHANNEL_TAGS,
+            "allow_rewind": True,
         }
         args.update(overrides)
         out, err = io.StringIO(), io.StringIO()
@@ -979,6 +1049,64 @@ class TestTagsAnchor(UpdateCase):
 
     def _head(self, checkout: str) -> str:
         return self.fx.git(checkout, "rev-parse", "HEAD")
+
+    def test_it_fetches_first_so_a_release_made_since_the_clone_is_the_one_it_lands_on(self) -> None:
+        self.fx.release("44.0.0")
+        fresh = self._fresh_clone()
+        newest = self.fx.release("44.1.0", path="b.txt")
+        code, out, err = self._anchor(fresh)
+        self.assertEqual(code, update.EXIT_OK, err)
+        self.assertEqual(self._head(fresh), newest)
+        self.assertIn("SELF-UPDATE-TAG 44.1.0", out)
+
+    def test_a_release_withdrawn_since_the_clone_is_not_landed_on(self) -> None:
+        self.fx.release("44.0.0")
+        self.fx.release("44.1.0", path="b.txt")
+        fresh = self._fresh_clone()
+        self.fx.withdraw_tag("44.1.0")
+        code, out, err = self._anchor(fresh)
+        self.assertEqual(code, update.EXIT_OK, err)
+        self.assertIn("SELF-UPDATE-TAG 44.0.0", out)
+
+    def test_an_existing_clone_is_not_moved_backwards_unless_told_to(self) -> None:
+        """A play re-run on a clone that is ahead of the newest release (the channel was
+        switched from branch, or its release was withdrawn) must not silently downgrade it."""
+        self.fx.release("44.0.0")
+        tip = self.fx.commit("b.txt", "b\n", "signed work after the release", sign="owner")
+        self.fx.push()
+        self.fx.git(self.fx.deploy, "pull", "-q", "--ff-only")
+        code, out, err = self._anchor(self.fx.deploy, allow_rewind=False)
+        self.assertEqual(code, update.EXIT_AHEAD, err)
+        self.assertEqual(out, "")
+        self.assertIn("self_update_enabled", err)
+        self.assertEqual(self._head(self.fx.deploy), tip)
+
+    def test_local_commits_in_an_existing_clone_are_never_discarded_by_default(self) -> None:
+        self.fx.release("44.0.0")
+        self.fx.git(self.fx.deploy, "pull", "-q", "--ff-only")
+        with open(os.path.join(self.fx.deploy, "local.txt"), "w", encoding="utf-8") as handle:
+            handle.write("x\n")
+        self.fx.git(self.fx.deploy, "add", "local.txt")
+        self.fx.git(self.fx.deploy, "commit", "-q", "-m", "local")
+        local = self._head(self.fx.deploy)
+        self.assertEqual(self._anchor(self.fx.deploy, allow_rewind=False)[0], update.EXIT_AHEAD)
+        self.assertEqual(self._head(self.fx.deploy), local)
+
+    def test_moving_forward_to_a_newer_release_needs_no_permission(self) -> None:
+        old = self.fx.deployed()
+        newest = self.fx.release("44.0.0")
+        code, out, err = self._anchor(self.fx.deploy, allow_rewind=False)
+        self.assertEqual(code, update.EXIT_OK, err)
+        self.assertEqual(self._head(self.fx.deploy), newest)
+        self.assertIn(f"SELF-UPDATE-ANCHOR-MOVED {old}", out)
+
+    def test_the_permission_to_move_back_is_what_lets_a_fresh_clone_land_on_a_release(self) -> None:
+        self.fx.release("44.0.0")
+        self.fx.commit("b.txt", "b\n", "tip", sign="owner")
+        self.fx.push()
+        fresh = self._fresh_clone()
+        self.assertEqual(self._anchor(fresh, allow_rewind=False)[0], update.EXIT_AHEAD)
+        self.assertEqual(self._anchor(fresh, allow_rewind=True)[0], update.EXIT_OK)
 
     def test_a_fresh_clone_at_the_tip_lands_on_the_newest_valid_tag(self) -> None:
         self.fx.release("44.0.0")
@@ -1086,7 +1214,7 @@ class TestCli(UpdateCase):
             "--os-release", self.fx.os_release,
         )
         self.assertEqual(result.returncode, update.EXIT_NO_RELEASE, result.stderr)
-        self.assertEqual(result.stdout, "")
+        self.assertTrue(result.stdout.startswith("SELF-UPDATE-REFUSED no release tag"), result.stdout)
 
     def test_a_tag_update_runs_as_a_cli(self) -> None:
         commit = self.fx.release("44.0.0")
@@ -1098,6 +1226,13 @@ class TestCli(UpdateCase):
         self.assertEqual(result.returncode, update.EXIT_OK, result.stderr)
         self.assertIn(f"SELF-UPDATE-NEW {commit}", result.stdout)
         self.assertIn("SELF-UPDATE-TAG 44.0.0", result.stdout)
+
+    def test_allow_rewind_is_an_anchor_option_only(self) -> None:
+        result = self._cli(
+            "--checkout", self.fx.deploy, "--remote", "origin", "--branch", BRANCH, "--allow-rewind",
+            "--allowed-signers", self.fx.allowed, "--principal", PRINCIPAL,
+        )
+        self.assertEqual(result.returncode, update.EXIT_USAGE)
 
     def test_an_unknown_channel_is_a_usage_error(self) -> None:
         result = self._cli(
@@ -1127,7 +1262,7 @@ class TestCli(UpdateCase):
         fresh = os.path.join(self.fx.root, "fresh")
         self.fx.git(self.fx.root, "clone", "-q", "-b", BRANCH, self.fx.origin, fresh)
         result = self._cli(
-            "--anchor", "--checkout", fresh, "--branch", BRANCH, "--channel", "tags",
+            "--anchor", "--allow-rewind", "--checkout", fresh, "--branch", BRANCH, "--channel", "tags",
             "--allowed-signers", self.fx.allowed, "--principal", PRINCIPAL,
             "--os-release", self.fx.os_release,
         )

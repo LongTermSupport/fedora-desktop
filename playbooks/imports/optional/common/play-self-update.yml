@@ -417,42 +417,43 @@
         version: "{{ self_update_branch }}"
         update: false
         recursive: false
+      register: self_update_clone_made
       when: self_update_on
 
     # A fresh clone sits on the remote's tip, which nobody has vouched for, and the cycle's
     # gate only judges commits above HEAD. So HEAD is moved to a commit the pinned keys
     # signed, or the play fails: root must never import or run an unsigned tree. On the
     # tags channel that is the newest valid release tag's commit, and a branch with no
-    # release tag fails the play loudly (tag the first release before provisioning). On the
+    # release tag fails the play loudly (tag the first release before provisioning). The
+    # tags anchor fetches the tags first, so it judges the real newest release, and it
+    # moves a clone BACK only when this run just made it (--allow-rewind): on an existing
+    # clone that would discard commits, so it refuses and says how to re-clone. On the
     # branch channel it is the newest signed commit, and a HEAD that is already signed is
     # left alone; moving forward is the cycle's job.
     # The helper runs from this checkout, the one the owner is deploying from, never from
     # the clone it is judging, and -B leaves no root-owned bytecode in it. The anchor also
     # refuses a clone holding any file its commit does not, ignored ones included, except
     # the host_vars copy the task below installs (present from the second run on).
-    - name: Anchor the Deploy Clone on the Newest Signed Commit
+    - name: Anchor the Deploy Clone on the Release or Signed Commit Its Channel Deploys
       ansible.builtin.command:
-        argv:
-          - python3
-          - -B
-          - -m
-          - helpers.self_update.update
-          - --anchor
-          - --allow-untracked
-          - environment/localhost/host_vars/localhost.yml
-          - --checkout
-          - "{{ self_update_clone }}"
-          - --branch
-          - "{{ self_update_branch }}"
-          - --channel
-          - "{{ self_update_channel_in_use }}"
-          - --allowed-signers
-          - "{{ self_update_etc_dir }}/self-update.allowed_signers"
-          - --principal
-          - "{{ self_update_signing_principal }}"
+        argv: >-
+          {{ ['python3', '-B', '-m', 'helpers.self_update.update', '--anchor',
+              '--allow-untracked', 'environment/localhost/host_vars/localhost.yml',
+              '--checkout', self_update_clone, '--branch', self_update_branch,
+              '--channel', self_update_channel_in_use,
+              '--allowed-signers', self_update_etc_dir ~ '/self-update.allowed_signers',
+              '--principal', self_update_signing_principal]
+             + (['--allow-rewind'] if self_update_clone_made is changed else []) }}
         chdir: "{{ root_dir }}"
       register: self_update_anchor
       changed_when: "'SELF-UPDATE-ANCHOR-MOVED' in self_update_anchor.stdout"
+      when: self_update_on
+
+    # What the anchor did, in the play's own output: where the clone was moved from, and the
+    # release it is on. Reporting only; the anchor itself fails the play on any refusal.
+    - name: Report Where the Deploy Clone Is Anchored
+      ansible.builtin.debug:
+        msg: "{{ self_update_anchor.stdout_lines }}"
       when: self_update_on
 
     # Root-owned and world-readable (the plays read it as the user), never user-writable.
