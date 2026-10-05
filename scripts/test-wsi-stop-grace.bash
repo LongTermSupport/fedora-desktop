@@ -227,10 +227,14 @@ check_wsi_exit() {
     fi
 }
 
+# Fails at once if wsi has exited: its stderr, which the callers print, names why.
+# Liveness is read before the log, so a wsi that signalled and then exited still passes.
 wait_for_recording_state() {
-    local _
+    local _ alive
     for _ in $(seq 1 100); do
+        if kill -0 "$WSI_PID" 2>/dev/null; then alive=1; else alive=0; fi
         grep -q "StateChanged RECORDING" "$events/gdbus.log" 2>/dev/null && return 0
+        [ "$alive" -eq 1 ] || return 1
         sleep 0.05
     done
     return 1

@@ -343,6 +343,15 @@ wait_for_container_network() {
     info "Waiting for container network..."
 
     while [ $elapsed -lt $max_wait ]; do
+        # A container that stopped while booting will never get an address: say so
+        # now, with its state, rather than after the whole wait. lxc-info failing to
+        # answer at all is an error too, not "still booting".
+        local state
+        state=$(sudo lxc-info -n "$name" -sH)
+        if [ "$state" != "RUNNING" ] && [ "$state" != "STARTING" ]; then
+            error "Container $name stopped while waiting for its network (state: $state)" \
+                  "Check status: sudo lxc-info -n $name"
+        fi
         # Explicit fallback: lxc-info failing here is EXPECTED while the
         # container is still booting, and the loop is what handles it. Written
         # as a bare `local ip=$(...)` the status was masked by `local` anyway —

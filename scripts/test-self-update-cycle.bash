@@ -445,7 +445,14 @@ EOF
 python3 "$SCRATCH/proxy.py" "$PROXY_LOG" "$PROXY_PORT_FILE" &
 PROXY_PID=$!
 for _ in $(seq 100); do
+    if kill -0 "$PROXY_PID" 2>/dev/null; then alive=1; else alive=0; fi
     if [ -s "$PROXY_PORT_FILE" ]; then break; fi
+    if [ "$alive" -eq 0 ]; then
+        status=0
+        wait "$PROXY_PID" || status=$?
+        echo "FAIL: the stub proxy exited (status $status) before writing its port; its error is above" >&2
+        exit 1
+    fi
     sleep 0.1
 done
 if [ ! -s "$PROXY_PORT_FILE" ]; then

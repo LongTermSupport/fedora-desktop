@@ -107,14 +107,22 @@
     # to answer. Every task below talks to it over D-Bus, and on a first-ever start that interface
     # is not up yet — so without this wait the next task fails with "firewall is not currently
     # running, unable to perform immediate actions", on exactly the freshly-provisioned machine
-    # this play is written for. `--state` is the daemon's own readiness answer.
+    # this play is written for. `--state` is the daemon's own readiness answer. Each try
+    # first asks systemd whether the unit is still active: a firewalld that died after its
+    # start stops the wait at once (rc 3) with the unit status, not after 60 s of retries.
     - name: Wait for firewalld to be ready to answer (not merely active)
-      ansible.builtin.command: firewall-cmd --state
+      ansible.builtin.shell: |
+        set -euo pipefail
+        systemctl is-active --quiet firewalld || { systemctl status firewalld --no-pager --lines=20; exit 3; }
+        firewall-cmd --state
+      args:
+        executable: /bin/bash
       register: lxc_firewalld_state
-      until: lxc_firewalld_state.rc == 0
+      until: lxc_firewalld_state.rc in [0, 3]
       retries: 30
       delay: 2
       changed_when: false
+      failed_when: lxc_firewalld_state.rc != 0
 
     # This is Cloud Base's FIRST-EVER firewalld start (it was simply absent until the
     # package task above installed it). On a remote, headless VM the only access path is

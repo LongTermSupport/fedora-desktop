@@ -94,11 +94,22 @@
         enabled: true
         state: restarted
 
+    # A daemon that dies after its start would leave a bare wait for the socket to time
+    # out with nothing said about why. So each try first asks systemd whether the unit is
+    # still active, and stops at once (rc 3) with the unit status when it is not.
     - name: Wait for ydotool Socket
-      ansible.builtin.wait_for:
-        path: /run/ydotool.socket
-        state: present
-        timeout: 10
+      ansible.builtin.shell: |
+        set -euo pipefail
+        systemctl is-active --quiet ydotool || { systemctl status ydotool --no-pager --lines=20; exit 3; }
+        test -S /run/ydotool.socket
+      args:
+        executable: /bin/bash
+      register: ydotool_socket
+      until: ydotool_socket.rc in [0, 3]
+      retries: 10
+      delay: 1
+      changed_when: false
+      failed_when: ydotool_socket.rc != 0
 
     # =========================================================================
     # faster-whisper with GPU acceleration
@@ -328,6 +339,7 @@
         - extension.js
         - focusOutline.js
         - pasteTarget.js
+        - recorderLaunch.js
         - prefs.js
         - metadata.json
 

@@ -14,12 +14,22 @@ TMATE_PID=$!
 # Wait for tmate to establish the session and generate URLs.
 # Probe-style 2>/dev/null is intentional here: tmate may not have written
 # messages yet during the first few iterations. The loop fails fast below
-# if the read-only URL never appears.
+# if the read-only URL never appears, and at once if tmate itself exits
+# (no network, a bad config): its own error is already on the terminal.
+# Liveness is read before the URL, so a tmate that wrote it and then exited
+# is still reported as ready.
 ready=0
 for _ in $(seq 1 30); do
+    if kill -0 "$TMATE_PID" 2>/dev/null; then alive=1; else alive=0; fi
     if tmate show-messages 2>/dev/null | grep -q "read only"; then
         ready=1
         break
+    fi
+    if [ "$alive" -eq 0 ]; then
+        status=0
+        wait "$TMATE_PID" || status=$?
+        echo "ERROR: tmate exited (status $status) before it produced session URLs; its error is above." >&2
+        exit 1
     fi
     sleep 0.5
 done

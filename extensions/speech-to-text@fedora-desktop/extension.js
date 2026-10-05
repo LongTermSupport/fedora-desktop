@@ -22,6 +22,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import { FocusOutline } from './focusOutline.js';
 import { PasteTargetPin } from './pasteTarget.js';
+import { RecorderLaunch } from './recorderLaunch.js';
 
 // DBus interface for wsi communication
 const DBUS_PATH = '/org/fedoradesktop/SpeechToText';
@@ -68,8 +69,11 @@ export default class SpeechToTextExtension extends Extension {
         this._claudeEnabled = false;  // Enable Claude Code post-processing
         this._claudeModel = 'sonnet';  // Claude model: 'sonnet', 'opus', 'haiku'
         this._currentState = 'IDLE';
-        this._launchPending = false;  // Debounce: a recorder has been spawned but has not yet reported via DBus
-        this._launchPendingTimeoutId = null;
+        // Debounce: a recorder has been spawned but has not yet reported via DBus
+        this._recorderLaunch = new RecorderLaunch({
+            log: message => this._log(message),
+            onExitBeforeReport: how => this._recorderFailedBeforeReport(how),
+        });
         this._updatingToggles = false;  // Guard flag to prevent toggle cascade
         this._settingsChangedId = null;
         this._lastError = null;
@@ -295,7 +299,7 @@ export default class SpeechToTextExtension extends Extension {
         }
 
         // Cancel pending launch-debounce timeout
-        this._clearLaunchDebounce();
+        this._recorderLaunch.settle();
 
         // Stop server status polling
         this._stopServerStatusPolling();
@@ -481,7 +485,7 @@ export default class SpeechToTextExtension extends Extension {
             (connection, sender, path, iface, signal, params) => {
                 const state = params.get_child_value(0).get_string()[0];
                 this._currentState = state;
-                this._clearLaunchDebounce();  // the spawned recorder has now reported
+                this._recorderLaunch.settle();  // the spawned recorder has now reported
                 this._updateIconState(state);
                 this._log(`State: ${state}`);
 
@@ -883,37 +887,21 @@ export default class SpeechToTextExtension extends Extension {
         return value.replace(/[;&|`$(){}'"\\!#~<>]/g, '');
     }
 
-    _beginLaunchDebounce() {
-        // Mark a launch in flight. _currentState only updates when the spawned
-        // recorder emits its first DBus StateChanged signal (hundreds of ms to
-        // seconds away for the streaming path), so without this flag a second
-        // Insert press in that window would spawn a second recorder that clobbers
-        // the shared PID file. Cleared on the first DBus signal or by a safety
-        // timeout (so a recorder that dies before signalling cannot wedge launch).
-        this._launchPending = true;
-        if (this._launchPendingTimeoutId) {
-            GLib.Source.remove(this._launchPendingTimeoutId);
-        }
-        this._launchPendingTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 10000, () => {
-            this._log('Launch debounce expired without a DBus state signal');
-            this._launchPending = false;
-            this._launchPendingTimeoutId = null;
-            return GLib.SOURCE_REMOVE;
-        });
-    }
-
-    _clearLaunchDebounce() {
-        this._launchPending = false;
-        if (this._launchPendingTimeoutId) {
-            GLib.Source.remove(this._launchPendingTimeoutId);
-            this._launchPendingTimeoutId = null;
-        }
+    // A launched recorder failed before its first StateChanged. Its own error went to
+    // the session journal (the recorder's stderr), so the notice says where to look.
+    _recorderFailedBeforeReport(how) {
+        const message = `The recorder ended (${how}) before it started; its error is in the session journal`;
+        this._lastError = message;
+        this._isArticleMode = false;
+        this._log(message);
+        Main.notify('STT Error', message);
+        this._resetToIdle();
     }
 
     _launchWSI() {
         try {
             // Debounce: ignore a repeat press while a spawned recorder has not yet reported
-            if (this._launchPending) {
+            if (this._recorderLaunch.pending) {
                 this._log('Launch already in progress; ignoring repeat press');
                 return;
             }
@@ -976,8 +964,7 @@ export default class SpeechToTextExtension extends Extension {
             }
 
             this._log(`Launching: ${command}`);
-            this._beginLaunchDebounce();
-            GLib.spawn_command_line_async(command);
+            this._recorderLaunch.begin(command);
         } catch (e) {
             this._lastError = e.message;
             this._log(`Launch error: ${e.message}`);
@@ -988,7 +975,7 @@ export default class SpeechToTextExtension extends Extension {
     _launchWSIClaude(style = 'corporate') {
         try {
             // Debounce: ignore a repeat press while a spawned recorder has not yet reported
-            if (this._launchPending) {
+            if (this._recorderLaunch.pending) {
                 this._log('Launch already in progress; ignoring repeat press');
                 return;
             }
@@ -1060,8 +1047,7 @@ export default class SpeechToTextExtension extends Extension {
             }
 
             this._log(`Launching with Claude processing: ${command}`);
-            this._beginLaunchDebounce();
-            GLib.spawn_command_line_async(command);
+            this._recorderLaunch.begin(command);
         } catch (e) {
             this._lastError = e.message;
             this._log(`Launch error: ${e.message}`);
@@ -1072,7 +1058,7 @@ export default class SpeechToTextExtension extends Extension {
     _launchArticleMode() {
         try {
             // Debounce: ignore a repeat press while a spawned recorder has not yet reported
-            if (this._launchPending) {
+            if (this._recorderLaunch.pending) {
                 this._log('Article mode: launch already in progress; ignoring repeat press');
                 return;
             }
@@ -1104,8 +1090,7 @@ export default class SpeechToTextExtension extends Extension {
             const command = scriptPath + debugFlag + noNotifyFlag + langFlag + modelFlag;
 
             this._log(`Launching article mode: ${command}`);
-            this._beginLaunchDebounce();
-            GLib.spawn_command_line_async(command);
+            this._recorderLaunch.begin(command);
 
             // Start elapsed timer immediately for visual feedback
             this._startElapsedTimer();
@@ -1230,7 +1215,7 @@ export default class SpeechToTextExtension extends Extension {
 
     _resetToIdle() {
         this._currentState = 'IDLE';
-        this._clearLaunchDebounce();
+        this._recorderLaunch.settle();
         this._stopCountdown();
         this._updateIconState('IDLE');
     }
