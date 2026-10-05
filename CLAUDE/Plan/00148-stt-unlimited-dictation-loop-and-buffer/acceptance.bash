@@ -123,16 +123,6 @@ for key in continuous-dictation server-start-at-login; do
     fi
 done
 
-printf '=== the auto model is on disk (Plan 00156) ===\n'
-# The weights, not just a snapshot: an interrupted download leaves the snapshot without them
-if autoModel="$("${binDir}/wsi-resolve-model" --mode streaming --language en auto 2>/dev/null)" &&
-    modelDir="$(python3 -c 'import sys; from faster_whisper.utils import download_model; print(download_model(sys.argv[1], local_files_only=True))' "${autoModel}" 2>&1)" &&
-    [[ -f "${modelDir}/model.bin" ]]; then
-    check "the auto model (${autoModel}) has model.bin" yes
-else
-    check "the auto model (${autoModel:-unresolved}) has model.bin (got: ${modelDir:-nothing})" no
-fi
-
 printf '=== model resolver and unit ===\n'
 if value="$("${binDir}/wsi-resolve-model" --gpu-count 2>&1)" && [[ "${value}" =~ ^[0-9]+$ ]]; then
     check "wsi-resolve-model --gpu-count answers (${value})" yes

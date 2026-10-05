@@ -471,41 +471,10 @@
       changed_when: false
       failed_when: auto_model_probe.rc != 0 or (auto_model_probe.stdout | trim | length == 0)
 
-    # auto is the default, so its model must be on disk before the first recording: left
-    # to the warm server, a download of over 1 GB runs inside wsi-stream's 45 s start
-    # wait, and an interrupted one leaves a snapshot with no model.bin. faster-whisper's
-    # own download_model fetches the files WhisperModel loads, resumes a partial
-    # download, and maps a bare name to its repo.
-    #
-    # The time limit is per model. The download can stall with a 0-byte model.bin and no
-    # output, which would hold the whole deploy. 30 minutes is generous for about 1.5 GB
-    # on a slow link; past it the task fails rather than waiting for ever, and a re-run
-    # resumes what did arrive.
-    - name: Download The Auto Model
-      become: true
-      become_user: "{{ user_login }}"
-      timeout: 1800
-      ansible.builtin.command:
-        argv:
-          - python3
-          - -c
-          - |
-            import os, sys
-            from faster_whisper.utils import download_model
-            from huggingface_hub.errors import LocalEntryNotFoundError
-            try:
-                present = os.path.isfile(os.path.join(download_model(sys.argv[1], local_files_only=True), "model.bin"))
-            except LocalEntryNotFoundError:
-                present = False
-            if not present:
-                download_model(sys.argv[1])
-                print("downloaded")
-          - "{{ item }}"
-      environment:
-        HOME: "/home/{{ user_login }}"
-      loop: "{{ auto_model_probe.results | map(attribute='stdout') | map('trim') | unique }}"
-      register: auto_model_download
-      changed_when: "'downloaded' in auto_model_download.stdout"
+    # No model is downloaded here: the model that suits one machine does not suit every
+    # install of this repo. The resolver above is the suggestion, shown in Settings and the
+    # model manager, and the user downloads from the model manager. The recorders refuse to
+    # start without a model on disk and say so.
 
     # =========================================================================
     # Warm Server at Login (Settings: "Start the server at login")

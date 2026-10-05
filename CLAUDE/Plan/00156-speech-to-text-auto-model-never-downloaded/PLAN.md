@@ -92,8 +92,8 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
   right for every machine this repo installs, so the play suggests and never installs, and a
   metered-link check is not trusted. Supersedes Tasks 1.5 and 2.2's download half.
 
-  - The play drops "Download The Auto Model" (keeps "Verify The Auto Model Resolves").
-    Plan 00148's `acceptance.bash` stops requiring `auto`'s `model.bin`.
+  - [x] ✅ The play drops "Download The Auto Model" (keeps "Verify The Auto Model
+    Resolves"). Plan 00148's `acceptance.bash` stops requiring `auto`'s `model.bin`.
   - `wsi` and `wsi-stream` (and the warm server) check, before the microphone opens, that
     the model to be used has `model.bin` on disk, and otherwise fail with: no speech model
     is downloaded (or: `auto` picked X, which is not downloaded); open the model manager
