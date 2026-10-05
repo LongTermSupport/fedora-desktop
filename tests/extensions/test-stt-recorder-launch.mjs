@@ -18,8 +18,9 @@ import test from 'node:test';
 
 register(new URL('./gjs-loader.mjs', import.meta.url).href);
 
-const {RecorderLaunch, LAUNCH_SAFETY_MS} = await import(
+const {RecorderLaunch, LAUNCH_SAFETY_MS, spawnWatched} = await import(
     new URL('../../extensions/speech-to-text@fedora-desktop/recorderLaunch.js', import.meta.url).href);
+const {SPAWNS, SPAWN_OUTCOME} = await import('./gi-stubs.mjs');
 
 /** A launch whose child, timers and reports the test controls. */
 function harness({spawnError = null} = {}) {
@@ -109,4 +110,37 @@ test('a spawn that fails leaves nothing pending and is raised', () => {
     assert.throws(() => launch.begin('/stub/missing'), /Failed to execute child process/);
     assert.equal(launch.pending, false);
     assert.equal(timers.size, 0);
+});
+
+/*
+ * The real spawn, against the gi stubs. No real process runs: the harness is Node, and
+ * GJS (which a real Gio.Subprocess needs) is not installed where these tests run. What is
+ * checked is the argv spawnWatched builds and what it makes of how a child ended.
+ */
+function endedAs(outcome) {
+    Object.assign(SPAWN_OUTCOME, {exitStatus: 0, termSig: null}, outcome);
+    const calls = [];
+    spawnWatched('/bin/bash -c "WHISPER_MODEL=small /stub/wsi --toggle"',
+        (how, failed) => calls.push({how, failed}));
+    Object.assign(SPAWN_OUTCOME, {exitStatus: 0, termSig: null});
+    return calls;
+}
+
+test('spawnWatched spawns the command line as GLib splits it', () => {
+    SPAWNS.length = 0;
+    endedAs({});
+    assert.deepEqual(SPAWNS.at(-1).argv,
+        ['/bin/bash', '-c', 'WHISPER_MODEL=small /stub/wsi --toggle']);
+});
+
+test('spawnWatched reports a clean exit as not failed', () => {
+    assert.deepEqual(endedAs({exitStatus: 0}), [{how: 'exit status 0', failed: false}]);
+});
+
+test('spawnWatched reports a non-zero exit as failed', () => {
+    assert.deepEqual(endedAs({exitStatus: 2}), [{how: 'exit status 2', failed: true}]);
+});
+
+test('spawnWatched reports a killing signal as failed', () => {
+    assert.deepEqual(endedAs({termSig: 9}), [{how: 'signal 9', failed: true}]);
 });

@@ -607,10 +607,12 @@ console_follow_stop() {
 
 # console_unlock <dir> <passphrase-file> — answer the LUKS prompt on this boot and wait for
 # a login prompt; a stall is named (stage: boot) with the console excerpt, never a timeout.
+# The domain is named so a guest that stopped before its port opened is reported at once.
 console_unlock() {
     local dir="${1:?}" passphrase_file="${2:?}" out rc=0
     out="$(helper serial_console --socket "${dir}/serial.sock" --log "${dir}/console.log" \
-        --unlock-with "${passphrase_file}" --until 'login: ' --timeout "${SSH_WAIT_SECONDS}" --connect-wait 60)" || rc=$?
+        --unlock-with "${passphrase_file}" --until 'login: ' --timeout "${SSH_WAIT_SECONDS}" --connect-wait 60 \
+        --domain "${DOMAIN}" --libvirt-uri "${LIBVIRT_URI}")" || rc=$?
     printf '%s\n' "${out}" | grep -E '^VMTEST-CONSOLE ' >&2
     [[ "${rc}" -eq 0 ]] || die "the guest did not reach userspace (stage: boot): $(printf '%s\n' "${out}" | grep -oE 'reason=.*')"
     console_follow "${dir}"

@@ -31,6 +31,21 @@ SERVER_LOG = """\
 [2026-01-01T00:00:06] [SERVER] [ERROR] Failed to load the models - exiting
 """
 
+# What a server that finds the lock held appends to the running server's log
+# (wsi-stream-server claim_pid_file): four ERROR lines, none of them the winner's error.
+GAVE_WAY = """\
+[2026-01-01T00:00:01] [SERVER] [ERROR] ERROR: Server already running (PID 42)
+[2026-01-01T00:00:01] [SERVER] [ERROR] PID file: /run/user/1000/wsi-stream-server.pid
+[2026-01-01T00:00:01] [SERVER] [ERROR] To force restart, kill the existing server first:
+[2026-01-01T00:00:01] [SERVER] [ERROR]   kill 42
+"""
+
+# An earlier session's log, left in place when a server exits before it empties it.
+STALE_RUN = """\
+[2025-12-31T09:00:00] [SERVER] [INFO] === WSI-Stream Server Starting ===
+[2025-12-31T09:00:03] [SERVER] [ERROR] Model load failed: an error from yesterday
+"""
+
 
 class Server:
     """A Popen stand-in: `exit_code` None while the process runs."""
@@ -52,6 +67,7 @@ class StartServerTest(unittest.TestCase):
         self.server = Server(exit_code=1)
         self.answers = iter([])
         self.pid_alive = [False]
+        self.writes = None
         for name, value in {
             "LOG_FILE": tmp / "debug.log",
             "SERVER_SCRIPT": pathlib.Path(__file__),
@@ -74,7 +90,14 @@ class StartServerTest(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     def popen(self, cmd, **kwargs):
+        """The started server writes its log as the real one does: `self.writes` is
+        (mode, text), "w" for a server that empties the log at its start, "a" for one
+        that exits before it gets that far."""
         self.spawned.append(cmd)
+        if self.writes is not None:
+            mode, text = self.writes
+            with self.server_log.open(mode) as log:
+                log.write(text)
         return self.server
 
     def test_a_server_that_comes_up_is_used(self):
@@ -84,7 +107,8 @@ class StartServerTest(unittest.TestCase):
         self.assertEqual(len(self.spawned), 1)
 
     def test_a_server_that_exits_names_its_error_at_once(self):
-        self.server_log.write_text(SERVER_LOG)
+        self.server_log.write_text(STALE_RUN)
+        self.writes = ("w", SERVER_LOG)
         with self.assertRaisesRegex(RuntimeError, "CUDA failed with error out of memory"):
             wsi_stream.start_server("en")
         self.assertEqual(len(self.sleeps), 1, "the client kept waiting for a dead server")
@@ -104,18 +128,28 @@ class StartServerTest(unittest.TestCase):
         self.assertEqual(len(self.spawned), 1)
         self.assertEqual(len(self.sleeps), 2)
 
-    def test_the_line_a_giving_way_server_appends_is_not_the_error(self):
-        self.server_log.write_text(
-            "[2026-01-01T00:00:00] [SERVER] [INFO] === WSI-Stream Server Starting ===\n"
-            "[2026-01-01T00:00:01] [SERVER] [ERROR] ERROR: Server already running (PID 42)\n"
-            + SERVER_LOG.split("\n", 2)[2])
+    def test_the_block_a_giving_way_server_appends_is_not_the_error(self):
+        # The winner's log, with a loser's four lines between its start and its error.
+        start, rest = SERVER_LOG.split("\n", 1)
+        self.server_log.write_text(STALE_RUN)
+        self.writes = ("w", start + "\n" + GAVE_WAY + rest)
         with self.assertRaisesRegex(RuntimeError, "loading: Model load failed: CUDA"):
             wsi_stream.start_server("en")
 
+    def test_a_server_that_exits_before_emptying_its_log_names_its_own_error(self):
+        # Refused before it empties the log, it appends to an earlier session's.
+        self.server_log.write_text(STALE_RUN)
+        self.writes = ("a", "[2026-01-01T00:00:00] [SERVER] [ERROR] ERROR: cannot open the "
+                            "PID file /run/user/1000/wsi-stream-server.pid: Permission denied\n")
+        with self.assertRaisesRegex(RuntimeError, "loading: ERROR: cannot open the PID file"):
+            wsi_stream.start_server("en")
+
     def test_a_loading_server_started_elsewhere_that_exits_names_its_error(self):
-        # Alive when Insert looked (so nothing is spawned), gone at the first try.
+        # Alive when Insert looked (so nothing is spawned), gone at the first try. Its
+        # log holds an earlier session's run and a loser's block before its own error.
         self.pid_alive = [True, False]
-        self.server_log.write_text(SERVER_LOG)
+        start, rest = SERVER_LOG.split("\n", 1)
+        self.server_log.write_text(STALE_RUN + start + "\n" + GAVE_WAY + rest)
         with self.assertRaisesRegex(RuntimeError, "CUDA failed with error out of memory"):
             wsi_stream.start_server("en")
         self.assertEqual(self.spawned, [])

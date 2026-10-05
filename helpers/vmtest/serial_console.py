@@ -1,7 +1,7 @@
 """Read a guest's serial console from a unix socket, answer the LUKS prompt, name a stall (Plan 00110, §5.3a, T5.1b).
 
     python3 -m helpers.vmtest.serial_console --socket PATH --log FILE --until REGEX \\
-        [--unlock-with FILE] [--timeout SECONDS]
+        [--unlock-with FILE] [--timeout SECONDS] [--domain NAME --libvirt-uri URI]
 
 Tees every byte from the socket into --log from the moment it connects. With
 --unlock-with, waits for the `cryptsetup`/`systemd-ask-password` passphrase
@@ -25,6 +25,7 @@ import pathlib
 import re
 import select
 import socket
+import subprocess
 import sys
 import time
 
@@ -34,6 +35,18 @@ import time
 PROMPT_RE = re.compile(r"(Please enter passphrase for disk|Enter passphrase for)[^\n]*:")
 REFUSED_RE = re.compile(r"(Sorry, try again|No key available with this passphrase|Failed to activate with specified passphrase)")
 EXCERPT_LINES = 25
+
+
+DOMAIN_STOPPED = ("shut off", "crashed")
+
+
+def domain_state(uri: str, domain: str) -> tuple[str | None, str | None]:
+    """(`virsh domstate`'s answer, None), or (None, what virsh said) when it could not answer."""
+    result = subprocess.run(["virsh", "-c", uri, "domstate", domain],
+                            capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        return None, (result.stderr.strip() or f"virsh exited {result.returncode}")
+    return result.stdout.strip(), None
 
 
 def excerpt(text: str) -> str:
@@ -57,7 +70,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--follow", action="store_true", help="log until the port closes; a closed port is then the normal end (exit 0)")
     parser.add_argument("--timeout", type=float, default=600.0)
     parser.add_argument("--connect-wait", type=float, default=30.0, help="seconds to wait for the socket to appear")
+    parser.add_argument("--domain", default=None, help="the libvirt domain whose serial port this is; "
+                        "each failed connect asks whether it still runs")
+    parser.add_argument("--libvirt-uri", default=None, help="the libvirt URI of --domain")
     args = parser.parse_args(argv)
+    if args.domain is not None and args.libvirt_uri is None:
+        print("ERROR: --domain needs --libvirt-uri", file=sys.stderr)
+        return 2
 
     passphrase: str | None = None
     if args.unlock_with is not None:
@@ -75,6 +94,16 @@ def main(argv: list[str] | None = None) -> int:
             sock.connect(str(args.socket))
             break
         except OSError as exc:
+            if args.domain is not None:
+                # A guest that is not running will never open this port: say so now,
+                # not after --connect-wait.
+                state, error = domain_state(args.libvirt_uri, args.domain)
+                if error is not None:
+                    print(f"ERROR: cannot read the state of guest {args.domain}: {error}", file=sys.stderr)
+                    return 2
+                if state in DOMAIN_STOPPED:
+                    print(f"ERROR: guest {args.domain} is {state}; its serial console {args.socket} will not open", file=sys.stderr)
+                    return 2
             if time.monotonic() > deadline:
                 print(f"ERROR: could not connect to {args.socket}: {exc}", file=sys.stderr)
                 return 2

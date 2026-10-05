@@ -20,7 +20,7 @@ export const LAUNCH_SAFETY_MS = 10000;
 /** Spawn `command` as GLib.spawn_command_line_async does, and once the child has ended
  * call `onExit(how, failed)`: how is "exit status N" or "signal N", failed is true for
  * anything but exit status 0. */
-function spawnWatched(command, onExit) {
+export function spawnWatched(command, onExit) {
     const [, argv] = GLib.shell_parse_argv(command);
     const proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE);
     proc.wait_async(null, (source, result) => {

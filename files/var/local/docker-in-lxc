@@ -2,9 +2,9 @@
 # Docker-in-LXC Wrapper
 # Creates and manages LXC containers for Docker projects with Claude Code integration
 #
-# Version: 1.2.0
+# Version: 1.3.0
 #
-DIL_VERSION="1.2.0"  # Per-finding remedies; token menu no longer eaten by $()
+DIL_VERSION="1.3.0"  # A container that stops while its network is awaited is named at once
 
 set -e
 

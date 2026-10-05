@@ -95,12 +95,19 @@
         state: restarted
 
     # A daemon that dies after its start would leave a bare wait for the socket to time
-    # out with nothing said about why. So each try first asks systemd whether the unit is
-    # still active, and stops at once (rc 3) with the unit status when it is not.
+    # out with nothing said about why. So each try first asks systemd for the unit state,
+    # and a unit that is failed or inactive stops the wait at once (rc 3) with the unit
+    # status. A unit still activating is retried like a socket not yet there.
     - name: Wait for ydotool Socket
       ansible.builtin.shell: |
         set -euo pipefail
-        systemctl is-active --quiet ydotool || { systemctl status ydotool --no-pager --lines=20; exit 3; }
+        state="$(systemctl show --property=ActiveState --value ydotool)"
+        if [ "$state" = failed ] || [ "$state" = inactive ]; then
+          status_rc=0
+          systemctl status ydotool --no-pager --lines=20 || status_rc=$?
+          echo "ydotool is $state (systemctl status exited $status_rc)" >&2
+          exit 3
+        fi
         test -S /run/ydotool.socket
       args:
         executable: /bin/bash

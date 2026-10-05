@@ -117,6 +117,7 @@ if [[ "${#sh[@]}" -gt 0 ]]; then
 fi
 
 sort -u -o "$work/findings.txt" "$work/findings.txt"
+echo "scanned: ${#py[@]} Python file(s) with semgrep, ${#sh[@]} shell file(s) with the bash rule"
 if [[ -s "$work/findings.txt" ]]; then
     cat "$work/findings.txt"
     files="$(awk -F: '{print $1}' "$work/findings.txt" | sort -u | wc -l)"

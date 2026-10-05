@@ -91,11 +91,20 @@ class SerialCase(unittest.TestCase):
         self.passphrase_file = self.root / "passphrase"
         self.passphrase_file.write_text("correct horse\n")
 
-    def run_reader(self, *extra, timeout="8"):
+    def run_reader(self, *extra, timeout="8", env=None):
         return subprocess.run(
             [sys.executable, "-m", "helpers.vmtest.serial_console", "--socket", str(self.sock), "--log", str(self.log), "--timeout", timeout, *extra],
-            cwd=REPO_ROOT, capture_output=True, text=True, check=False,
+            cwd=REPO_ROOT, capture_output=True, text=True, check=False, env=env,
         )
+
+    def stub_virsh(self, script):
+        """A `virsh` first on PATH, running `script` (bash); returns the environment."""
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        virsh = bin_dir / "virsh"
+        virsh.write_text("#!/usr/bin/env bash\n" + script)
+        virsh.chmod(0o755)
+        return dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}")
 
 
 class TestUnlock(SerialCase):
@@ -172,6 +181,45 @@ class TestLogOnly(SerialCase):
         result = self.run_reader("--until", "x", "--connect-wait", "1", timeout="1")
         self.assertEqual(result.returncode, 2)
         self.assertFalse(os.path.exists(self.log) and self.log.read_text())
+
+
+class TestDomainLiveness(SerialCase):
+    """With --domain, each failed connect asks libvirt whether the guest still runs, so a
+    guest that powered off or crashed is named at once instead of after --connect-wait
+    (CLAUDE/QA.md "ready-wait-ignores-child-exit")."""
+
+    DOMAIN_ARGS = ("--domain", "vmtest-x", "--libvirt-uri", "qemu:///stub")
+
+    def test_a_guest_that_is_shut_off_is_named_at_once(self):
+        env = self.stub_virsh('[ "$3" = domstate ] && [ "$4" = vmtest-x ] && echo "shut off"\n')
+        started = time.monotonic()
+        result = self.run_reader("--until", "x", "--connect-wait", "30", *self.DOMAIN_ARGS, env=env)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("vmtest-x is shut off", result.stderr)
+        self.assertLess(time.monotonic() - started, 10, "it waited out --connect-wait")
+
+    def test_a_crashed_guest_is_named_at_once(self):
+        env = self.stub_virsh('echo crashed\n')
+        result = self.run_reader("--until", "x", "--connect-wait", "30", *self.DOMAIN_ARGS, env=env)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("vmtest-x is crashed", result.stderr)
+
+    def test_a_running_guest_is_waited_for(self):
+        env = self.stub_virsh('echo running\n')
+        result = self.run_reader("--until", "x", "--connect-wait", "1", *self.DOMAIN_ARGS, env=env)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("could not connect", result.stderr)
+
+    def test_a_state_libvirt_cannot_give_is_an_error_not_a_wait(self):
+        env = self.stub_virsh('echo "error: failed to get domain vmtest-x" >&2; exit 1\n')
+        result = self.run_reader("--until", "x", "--connect-wait", "30", *self.DOMAIN_ARGS, env=env)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("failed to get domain vmtest-x", result.stderr)
+
+    def test_a_domain_needs_its_libvirt_uri(self):
+        result = self.run_reader("--until", "x", "--domain", "vmtest-x")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--libvirt-uri", result.stderr)
 
 
 if __name__ == "__main__":

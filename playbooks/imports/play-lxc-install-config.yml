@@ -108,12 +108,19 @@
     # is not up yet — so without this wait the next task fails with "firewall is not currently
     # running, unable to perform immediate actions", on exactly the freshly-provisioned machine
     # this play is written for. `--state` is the daemon's own readiness answer. Each try
-    # first asks systemd whether the unit is still active: a firewalld that died after its
-    # start stops the wait at once (rc 3) with the unit status, not after 60 s of retries.
+    # first asks systemd for the unit state: a firewalld that is failed or inactive (it
+    # died after its start, or is gone) stops the wait at once (rc 3) with the unit status,
+    # not after 60 s of retries. A unit still activating is retried like one not yet ready.
     - name: Wait for firewalld to be ready to answer (not merely active)
       ansible.builtin.shell: |
         set -euo pipefail
-        systemctl is-active --quiet firewalld || { systemctl status firewalld --no-pager --lines=20; exit 3; }
+        state="$(systemctl show --property=ActiveState --value firewalld)"
+        if [ "$state" = failed ] || [ "$state" = inactive ]; then
+          status_rc=0
+          systemctl status firewalld --no-pager --lines=20 || status_rc=$?
+          echo "firewalld is $state (systemctl status exited $status_rc)" >&2
+          exit 3
+        fi
         firewall-cmd --state
       args:
         executable: /bin/bash

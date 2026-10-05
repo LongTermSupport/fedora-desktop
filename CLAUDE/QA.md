@@ -767,9 +767,10 @@ and report its own error: its exit status, the first error in its log, or its st
 server = subprocess.Popen(cmd)
 for _ in range(90):
     time.sleep(0.5)
+    alive = server.poll() is None
     if is_server_running():
         return True
-    if server.poll() is not None:
+    if not alive:
         raise RuntimeError(f"the server exited: {server_failure()}")
 ```
 
@@ -799,11 +800,15 @@ reviewed, not detected:
 - **A start that is not a child.** `lxc-start`, `virsh start` and `virt-install` hand
   the guest to a manager and return; the wait polls the guest, not a pid. Knowing
   that a command daemonizes is knowledge about the tool, not the text. Check the
-  manager's state on each try (`lxc-info -sH`, `virsh domstate`).
+  manager's state on each try (`lxc-info -sH`, `virsh domstate`). **This is the next
+  wider rule, not built yet** (Plan 00156 Task 4.4): the bash rule could take a named
+  list of handing-off starts as arming, as it takes `&`. It was not built because the
+  liveness check for those starts sits in a helper function (`guest_must_be_up`), and
+  the rule reads only the loop's own text, so it would report the fixed waits too.
 - **Ansible.** `wait_for:` and `until:` after a `systemd` start wait for a socket or a
   daemon's own answer; which unit serves that socket is in the unit's configuration,
-  not the task. Probe the unit (`systemctl is-active`) in the same retried command and
-  fail on it.
+  not the task. Read the unit's `ActiveState` in the same retried command, stop on
+  `failed` or `inactive`, and fail on that.
 - **GNOME Shell extensions.** A timer cleared by a D-Bus signal stands in for the wait,
   and a spawn with `GLib.spawn_command_line_async` has no handle at all. Spawn with
   `Gio.Subprocess` and `wait_async`, and end the wait when the child exits first.

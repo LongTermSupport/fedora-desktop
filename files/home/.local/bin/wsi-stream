@@ -780,9 +780,11 @@ def start_server(language="en"):
                              read_server_idle_timeout())
 
     server = None
+    log_before = None  # the server log as it was before this client started a server
     try:
         if cmd:
             log(f"Starting persistent server: {' '.join(cmd)}")
+            log_before = read_server_log()
             server = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL if not debug_mode else None,
@@ -803,12 +805,14 @@ def start_server(language="en"):
                 # won holds the lock, so wait for that one
                 log("The server started here gave way to one already starting - waiting for it")
                 server = None
+                log_before = None
             alive = server.poll() is None if server is not None else server_pid_alive()
             if is_server_running():
                 log(f"Server started successfully (took {(i+1)*0.5:.1f}s)")
                 return True
             if not alive:
-                raise RuntimeError(f"the server exited while loading: {server_failure()}")
+                raise RuntimeError(
+                    f"the server exited while loading: {server_failure(log_before)}")
             # Log progress every 5 seconds so user knows it's working
             if (i + 1) % 10 == 0:
                 log(f"Still waiting for server... ({(i+1)*0.5:.0f}s elapsed)")
@@ -821,17 +825,43 @@ def start_server(language="en"):
         return False
 
 
-def server_failure():
-    """The first ERROR the server logged, which names why it exited (a model that
-    will not load, GPU memory). The server empties its log at each start; a second
-    server that gave way to it appends "Server already running", which is not its
-    error and is skipped."""
+SERVER_START_MARKER = "=== WSI-Stream Server Starting ==="
+# What a server that finds the lock held logs into the running server's log
+# (wsi-stream-server claim_pid_file): none of it is the running server's error
+GAVE_WAY_ERRORS = re.compile(
+    r"^(ERROR: Server already running \(PID .*\)|PID file: .*"
+    r"|To force restart, kill the existing server first:|  kill \S+)$")
+
+
+def read_server_log():
+    """The server log's text; empty if no server has written one yet."""
     try:
-        lines = SERVER_LOG_FILE.read_text().splitlines()
+        return SERVER_LOG_FILE.read_text()
+    except FileNotFoundError:
+        return ""
+
+
+def server_failure(log_before=None):
+    """The first ERROR of the server's own run, which names why it exited (a model
+    that will not load, GPU memory).
+
+    A server empties the log once it holds the lock, so its run starts at the last
+    start marker. One that exits before that (the lock refused, the PID file unusable)
+    appends to an earlier run's log instead: given `log_before`, the log as it was
+    before that server was started, only what was written since is read. Lines that a
+    server which gave way to the running one appended are not the running one's error.
+    """
+    try:
+        text = SERVER_LOG_FILE.read_text()
     except OSError as e:
         return f"its log {SERVER_LOG_FILE} cannot be read: {e}"
-    errors = [line.split("[ERROR] ", 1)[1] for line in lines
-              if "[ERROR] " in line and "Server already running" not in line]
+    if log_before and text.startswith(log_before):
+        text = text[len(log_before):]
+    if SERVER_START_MARKER in text:
+        text = text[text.rindex(SERVER_START_MARKER):]
+    errors = [message for message in
+              (line.split("[ERROR] ", 1)[1] for line in text.splitlines() if "[ERROR] " in line)
+              if not GAVE_WAY_ERRORS.match(message)]
     return errors[0] if errors else f"no error in {SERVER_LOG_FILE}"
 
 

@@ -326,6 +326,12 @@ export const GLib = {
         TIMERS.set(NEXT_SOURCE_ID.value, {priority, seconds, handler});
         return NEXT_SOURCE_ID.value++;
     },
+    /** Whitespace splitting with one level of double quotes: enough for the command
+     * lines the panel builds, which is all a test hands it. */
+    shell_parse_argv(command) {
+        const argv = [...command.matchAll(/"([^"]*)"|(\S+)/g)].map(m => m[1] ?? m[2]);
+        return [true, argv];
+    },
     source_remove(id) {
         TIMERS.delete(id);
     },
@@ -383,7 +389,7 @@ export const SPAWN_FAILURE = {message: null};
 
 /** How a started process ends, for a caller that waits on it. The callback fires
  * synchronously; a test sets this before the spawn and reads the outcome after. */
-export const SPAWN_OUTCOME = {successful: true, exitStatus: 0, stdout: '', stderr: ''};
+export const SPAWN_OUTCOME = {successful: true, exitStatus: 0, stdout: '', stderr: '', termSig: null};
 
 /** GLib's own values (gioenums.h: STDOUT_PIPE 1<<2, STDERR_PIPE 1<<4), so a flag a
  * test asserts on is the number the real shell would receive. */
@@ -458,6 +464,16 @@ export const Gio = {
                         piped(SUBPROCESS_FLAGS.STDERR_PIPE) ? SPAWN_OUTCOME.stderr : null,
                     ];
                 },
+                wait_async(cancellable, callback) {
+                    callback(this, {});
+                },
+                wait_finish() {
+                    return true;
+                },
+                /** termSig set: the process was killed by that signal, as
+                 * g_subprocess_get_if_signaled reports. */
+                get_if_exited: () => SPAWN_OUTCOME.termSig === null,
+                get_term_sig: () => SPAWN_OUTCOME.termSig,
                 get_successful: () => SPAWN_OUTCOME.successful,
                 get_exit_status: () => SPAWN_OUTCOME.exitStatus,
             };
