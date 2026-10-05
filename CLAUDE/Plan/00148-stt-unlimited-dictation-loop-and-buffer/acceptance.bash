@@ -94,7 +94,7 @@ for script in wsi wsi-stream wsi-stream-server wsi-article wsi-article-window \
 done
 
 printf '=== extension files deployed and identical ===\n'
-for file in extension.js focusOutline.js prefs.js metadata.json \
+for file in extension.js focusOutline.js pasteTarget.js prefs.js metadata.json \
     schemas/org.gnome.shell.extensions.speech-to-text.gschema.xml; do
     if [[ ! -f "${extDeployed}/${file}" ]]; then
         check "${file} is deployed" no

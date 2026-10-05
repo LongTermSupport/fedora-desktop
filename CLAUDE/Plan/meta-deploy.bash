@@ -52,10 +52,13 @@ PLAN_ROOT="${scriptDir}"
 # An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
-    00158-ccy-sessions-take-over
-    00148-stt-unlimited-dictation-loop-and-buffer
-    # Next: 00148's triage, once you have dictated with Continuous Dictation on. Plans
-    # 00109 and 00144 after the logout.
+    # Plan 00141 Task 3.2: lists the changed plays and asks before running them
+    00141-run-bash-changed-plays/run-changed.bash
+    # Read-only checks: 00109's timer and status document, 00134's log findings
+    00109-desktop-drift-detection-and-fedora-desktop-panel/acceptance.bash
+    00134-startup-log-triage-and-status-panel-unavailable/triage.bash
+    # Next: after the logout, 00144's acceptance; 00148's triage once you have dictated
+    # with Continuous Dictation on; 00134's triage again after the next boot.
 )
 
 LIST_ONLY=0

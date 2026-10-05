@@ -88,6 +88,9 @@ Deployed by `playbooks/imports/play-claude-yolo.yml`, which installs the launche
   VM: `ccy-sessions`, choose the "open elsewhere" session, Ctrl-T, Yes. Expected: the
   question names the other terminal and its idle time; this terminal shows the session; the
   session did not restart.
+  - [x] ✅ Desktop: meta-deploy `20261005-132157` ran `deploy.bash`, `failed=0`.
+  - [ ] ⬜ The VM: the play there and Ctrl-T on the stuck session, handed to the owner's
+    infrastructure agent.
 
 ## Success Criteria
 
