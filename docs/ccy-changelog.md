@@ -17,6 +17,23 @@ Two version numbers move independently — see
 
 ---
 
+## 3.79.0 — container 2.42
+
+- **`ccy-sessions` can take over a session that is open in another terminal.** A session is
+  attached from one terminal only, so a terminal that dropped without letting go — an SSH
+  connection that died while its tmux client stayed connected — held its session, and every
+  other terminal was refused it with "open elsewhere". Ctrl-T on such a row asks first,
+  naming the other terminal and how long it has been idle (`/dev/pts/3 (idle 3 h)`), then
+  detaches that terminal and attaches this one. Only the other terminal's tmux client is
+  detached: the session and everything in it keep running. If the session ended meanwhile
+  it is reported and nothing is attached; if tmux refuses the detach, or the other terminal
+  has not let go within five seconds, nothing is attached either and the reason is shown.
+  Ctrl-T on a detached row simply attaches it, as Enter does.
+- **Enter on an "open elsewhere" row, and `ccy`/`cc` at launch, point at Ctrl-T.** The
+  launch-time offer still lists only detached sessions — a project open in another terminal
+  on purpose starts a second session without a question — and names `ccy-sessions` Ctrl-T
+  as the way to take one of the others over.
+
 ## 3.78.1 — container 2.42
 
 - **`--until HH:MM` takes "today" from the time it is given.** The parser asked the clock

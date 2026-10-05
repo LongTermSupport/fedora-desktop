@@ -164,7 +164,7 @@ directory. Enter re-attaches, Ctrl-N starts a new session instead, and the last 
 always Exit (Esc or `q` do the same).
 Every key acts on its own; nothing needs Enter after it. A session that is open in
 another terminal is named in the header and is not offered: **a session can be attached
-from one terminal only**. The tmux server enforces it too — a second client attaching to
+from one terminal only** (`ccy-sessions` can take one over, below). The tmux server enforces it too — a second client attaching to
 an open session is detached again at once — so two terminals can never mirror one
 `claude`, whoever wins a race.
 
@@ -185,7 +185,11 @@ Arrow keys choose, Enter attaches a detached one, Ctrl-X ends one (it
 asks first), Ctrl-N starts a new `ccy` session in the current directory, and the last
 row is always Exit (Esc or `q` do the same). Every yes/no question is the same picker,
 starting on Exit so Enter alone is the safe answer. A session that is open in another
-terminal says so and Enter on it is refused. Ctrl-N only
+terminal says so and Enter on it is refused; **Ctrl-T takes it over**. It asks first,
+naming the other terminal and how long it has been idle, then detaches that terminal and
+attaches this one — the way back from an SSH connection that dropped while still holding
+the session. Only the other terminal is detached; the session and everything in it keep
+running. Ctrl-T on a detached session attaches it, as Enter does. Ctrl-N only
 works from a project folder (a git repository) and simply runs `ccy` the normal way, with
 every check and prompt it always has. It is how you get back to work after a crash without
 remembering which projects were open.
@@ -1421,7 +1425,7 @@ absent supervisor and `--no-supervise`; both announce themselves at launch. See
 | Stale/orphaned containers                     | `ccy --top` to list and stop them.                                                                                                                                                                                                                                                                                         |
 | Terminal died; where is my session?           | Still running, detached. `cd` to the project and run `ccy` — it offers to re-attach. `ccy-sessions` lists them all. See [Sessions Survive the Terminal](#sessions-survive-the-terminal).                                                                                                                                   |
 | `ccy` offers a session I do not want          | Answer `n` for a fresh one, or end the old one from `ccy-sessions` (choose it, Ctrl-X).                                                                                                                                                                                                                                    |
-| "open in another terminal" when attaching     | A session can be attached from one terminal only. Detach it there first (F12, Detach), or end it from `ccy-sessions`.                                                                                                                                                                                                      |
+| "open in another terminal" when attaching     | A session can be attached from one terminal only. Detach it there (F12, Detach), or take it over from `ccy-sessions` (choose it, then Ctrl-T).                                                                                                                                                                             |
 | "tmux is not installed"                       | `play-tmux-sessions.yml` has not run on this host. It is part of `playbook-main.yml`.                                                                                                                                                                                                                                      |
 | Sessions did not come back after a reboot     | Restore is opt-in: `ccy_restore_sessions: true` in `host_vars`, then the play. If it is on, `ccy-sessions verify-restore` names each session's state, and `journalctl --user -u ccy-sessions-restore -b --no-pager` shows what the restore did.                                                                            |
 | `ccy-sessions reboot` refuses                 | A live session's project has no hooks-daemon CLI, or its CLI cannot run where it is reached (in the container for ccy, on the host for cc). It is named with the CLI's own error; end it or repair the daemon there. Nothing was signalled or rebooted.                                                                    |

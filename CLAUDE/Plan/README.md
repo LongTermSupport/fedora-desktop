@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00158-ccy-sessions-take-over](00158-ccy-sessions-take-over/) - `ccy-sessions` Ctrl-T takes over a session open in another terminal (a dropped SSH still holding it): asks first naming that terminal and its idle time, detaches it, attaches here; the session keeps running. CCY 3.79.0, deployed by `play-claude-yolo.yml`.
+
 - [00156-speech-to-text-auto-model-never-downloaded](00156-speech-to-text-auto-model-never-downloaded/) - Regression from Plan 00148: the `auto` model was never downloaded, so the warm server would not start after a reboot. Fixed under Defence Before Fix.
 
 - [00155-headset-button-toggles-speech-to-text](00155-headset-button-toggles-speech-to-text/) - Feature: a Bluetooth headset's multifunction button toggles speech-to-text through a TDD'd evdev listener (user service) and a udev access rule in `play-speech-to-text.yml`. Leading candidate: double press toggles, single press stays media play/pause. Triage first, then owner decisions.
