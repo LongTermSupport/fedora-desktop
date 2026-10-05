@@ -1,6 +1,6 @@
 # Plan 00153: release tags, Fedora major plus semver
 
-**Status**: In Progress (Task 1.2 designed; Task 1.1 waits on the owner's decisions; nothing is tagged)
+**Status**: In Progress (Phase 1 decided; Phase 2 release command next; nothing is tagged)
 **Created**: 2026-10-03
 **Owner**: joseph
 **Priority**: Medium
@@ -40,7 +40,10 @@ release tag rather than the branch tip.
 
 ### Phase 1: Decisions and design
 
-- [ ] ⬜ **Task 1.1**: Decide the remaining details with the owner. Proposals:
+- [x] ✅ **Task 1.1**: **Owner accepted all** the proposals below and the design's decisions 1
+  and 3; on decision 2 they chose tags as the default with branch-tip following kept as an
+  explicit opt-in channel (recorded in the design; Task 3.1 builds the switch). Nothing is
+  tagged: `44.0.0` waits for Task 4.1. Proposals:
   - Tag name `44.0.0`, no `v` prefix (as dictated); signed annotated tags (`git tag -s`),
     because self-update already trusts only signed commits.
   - Minor: new features, plays or user-visible behaviour. Patch: fixes only. Major: only
@@ -73,7 +76,8 @@ release tag rather than the branch tip.
 ### Phase 3: Self-update follows tags
 
 - [ ] ⬜ **Task 3.1**: `fedora-desktop-self-update` and its play deploy the newest signed
-  release tag for the host's Fedora major. Tests in `scripts/test-self-update-cycle.bash`.
+  release tag for the host's Fedora major by default; one play variable opts into following the
+  branch tip (owner decision, Task 1.1). Tests in `scripts/test-self-update-cycle.bash`, both channels.
 - [ ] ⬜ **Task 3.2**: Coordinate with Plan 00137 (unattended server self-update), which is
   waiting on server runs: land this before or as part of its acceptance.
 
