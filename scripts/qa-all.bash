@@ -592,6 +592,17 @@ fi
 gitignore_safety_summary=$(qa_gate_case_count "$gitignore_safety_out")
 qa_pass_line ccy-gitignore-safety "$gitignore_safety_summary"
 
+# lib/common.bash's ccy.env.local.dist: ccy writes and refreshes the template, never rewrites a
+# newer one down, never writes ccy.env.local, and warns when ccy.env.local is based on an older one.
+env_local_dist_out=""
+if ! env_local_dist_out="$(bash "$SCRIPT_DIR/test-ccy-env-local-dist.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-env-local-dist \
+        "ccy ccy.env.local.dist tests failed" \
+        "$env_local_dist_out"
+fi
+env_local_dist_summary=$(qa_gate_case_count "$env_local_dist_out")
+qa_pass_line ccy-env-local-dist "$env_local_dist_summary"
+
 # lib/session-lifecycle.bash and the entrypoint's plugin hook-up: --max-age/--run-for/--until
 # are validated strictly, a relaunch keeps the deadline, and with no option the supervisor's
 # wrapper line is byte-identical. The plugin itself is covered by the helper unit suite.

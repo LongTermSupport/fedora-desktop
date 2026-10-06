@@ -36,7 +36,7 @@ Use these Unicode icons in plan documents:
 
 - [00161-agent-team-bus-matrix](00161-agent-team-bus-matrix/) - Implements #59: a private Matrix homeserver per team, the `pingbus` CLI (pings point at committed artefacts, never free text), a warden for human `!` commands, hooks that wake idle sessions, ccy opt-in, Element profiles.
 
-- [00160-ccy-env-local-override](00160-ccy-env-local-override/) - ccy sources an untracked `.claude/ccy/ccy.env.local` after `ccy.env`, so one checkout can override the project's ccy settings without a commit; the tracked `ccy.env.local.dist` template comes from the hooks daemon (its issue #88). CCY 3.81.0, container 2.43.
+- [00160-ccy-env-local-override](00160-ccy-env-local-override/) - ccy sources an untracked `.claude/ccy/ccy.env.local` after `ccy.env`, so one checkout can override the project's ccy settings without a commit; ccy writes the tracked `ccy.env.local.dist` template and warns when a `ccy.env.local` is based on an older one. CCY 3.83.0, container 2.44.
 
 - [00159-speech-to-text-vocabulary](00159-speech-to-text-vocabulary/) - Feature: a personal vocabulary primes Whisper and a "heard => meant" list corrects the text, both kept in `~/.config/fedora-desktop/`, a checkout of the private config repo
 

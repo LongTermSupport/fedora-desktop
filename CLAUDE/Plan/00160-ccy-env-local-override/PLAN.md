@@ -59,38 +59,43 @@ repository the agent can search, so this plan is written from the owner's spoken
 
 ### Phase 3: `ccy.env.local.dist`, the tracked template (owner's request)
 
-The owner asked for a tracked, commented `ccy.env.local.dist`, created automatically and
-refreshed with each new hooks-daemon version. It holds placeholders for overrides specific
-to one install, never secrets, first of all the daemon's host role override
-(`HOOKS_DAEMON_HOSTNAME`). A real `ccy.env.local` says which dist version it was based on,
-so the agent can review it when the dist moves on. Its content is the daemon's settings and
-the daemon already copies files into `.claude/ccy/` on install and upgrade, so the daemon
-owns the template. ccy only has to let it be tracked.
+The owner asked for a tracked, commented `ccy.env.local.dist`, created automatically. It
+holds placeholders for overrides specific to one install, never secrets, first of all the
+hooks daemon's host role override (`HOOKS_DAEMON_HOSTNAME`). A real `ccy.env.local` says
+which dist version it was based on, and is reviewed when the dist moves on. **ccy owns the
+dist** (owner, 2026-10-06): `.claude/ccy/` is ccy's, and not every hooks-daemon project is a
+ccy project. An install's `ccy.env.local` is placed by that install's own IaC, never by ccy,
+the daemon or an agent.
 
 - [x] ✅ **Task 3.1**: ccy's generated `.claude/ccy/.gitignore` lets `ccy.env.local.dist`
   through, an older file is given the exception on launch, and the tracked-files guard
   accepts it; `ccy.env.local` stays ignored and is refused if tracked.
   `scripts/test-ccy-gitignore-safety.bash`, a `qa-all.bash` gate, runs the real check in a
   throwaway repository; it was red on the three dist cases first. CCY 3.81.0.
-- [ ] ⬜ **Task 3.2**: UPSTREAM: the daemon ships the template, rewrites it on install and
-  upgrade with a version marker, and gives a SessionStart advisory when a `ccy.env.local`'s
-  "based on" line is older. Filed as claude-code-hooks-daemon issue #88. When it lands,
-  upgrade the daemon here and commit the template it writes. The owner's direction
-  (2026-10-06, commented on #88): the hooks daemon's own SDLC runner install is the
-  prototype, taking its role through `HOOKS_DAEMON_HOSTNAME` in its `ccy.env.local`.
-  The file is placed by that install's own IaC, never by the daemon or an agent.
+- [x] ✅ **Task 3.2**: ccy writes the dist on every launch (`lib/common.bash`
+  `ccy_env_local_dist_sync`, after the `.gitignore` guard): first line
+  `# ccy.env.local.dist version N` (`CCY_ENV_LOCAL_DIST_VERSION`), comments only, rewritten
+  when its text differs, left alone (with a warning) when a newer ccy wrote it. A
+  `ccy.env.local` whose `# based on ccy.env.local.dist version N` line is older or missing
+  draws a launch warning, judged against the newer of ccy's and the dist's version; ccy
+  never writes it. A failed write stops the launch. `scripts/test-ccy-env-local-dist.bash`,
+  a `qa-all.bash` gate, red first. CCY 3.83.0. `qa-reviewer`: FIX-BEFORE-MERGE, all four
+  fixed ([report](subagent-reports/261006-qa-reviewer-dist-opus-5-5.md)). Upstream issue #88 (daemon-owned) withdrawn
+  and closed. The prototype install is the hooks daemon's own SDLC runner, whose
+  `ccy.env.local` the infra agent places by IaC.
+- [ ] ⬜ **Task 3.4**: Review (`qa-reviewer`), deploy through `deploy.bash`, and commit this
+  repository's own generated dist after the first launch on 3.83.0.
 - [ ] 🧑 **Task 3.3**: OWNER decision (the owner: agents "probably shouldn't even be allowed
   to edit it"): ccy mounts an existing `ccy.env.local` read-only over the workspace, so a
-  session cannot rewrite its own role override. Recommended. Also suggested upstream on #88:
-  a daemon guard that denies agent writes to it.
+  session cannot rewrite its own role override. Recommended.
 
 ## Success Criteria
 
 - [ ] A session in a project with `.claude/ccy/ccy.env.local` prints that it sourced it,
   and its values are set in the session.
 - [ ] `git status` in that project does not list the file.
-- [ ] After a daemon upgrade carrying issue #88, `.claude/ccy/ccy.env.local.dist` exists, is
-  tracked, and names the daemon version that wrote it.
+- [ ] After a launch on CCY 3.83.0, `.claude/ccy/ccy.env.local.dist` exists, is tracked, and
+  names its version; a `ccy.env.local` based on an older one draws the launch warning.
 
 ## Delivery & Milestones
 

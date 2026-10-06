@@ -53,6 +53,7 @@ PLAN_ROOT="${scriptDir}"
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
     00148-stt-unlimited-dictation-loop-and-buffer
+    00160-ccy-env-local-override
 )
 
 LIST_ONLY=0

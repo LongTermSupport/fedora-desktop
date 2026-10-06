@@ -656,6 +656,96 @@ check_ccy_gitignore_safety() {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# ccy_env_local_dist_sync: keep .claude/ccy/ccy.env.local.dist current
+#
+# The dist is ccy's tracked template for the untracked ccy.env.local: commented
+# placeholders for one install's own settings, never secrets, never sourced. ccy
+# rewrites it whenever its text differs from this version's. A real ccy.env.local is
+# placed by the install's own IaC and starts with "# based on ccy.env.local.dist
+# version N"; when N is older than the dist, the launch says so. ccy never writes
+# ccy.env.local. Raise CCY_ENV_LOCAL_DIST_VERSION whenever the template text changes.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+CCY_ENV_LOCAL_DIST_VERSION=1
+
+ccy_env_local_dist_text() {
+    cat <<EOF
+# ccy.env.local.dist version ${CCY_ENV_LOCAL_DIST_VERSION}
+#
+# Written by ccy on every launch: commit it, never edit it (ccy rewrites it).
+#
+# The template for ccy.env.local, this checkout's own settings: the role one install
+# plays, never secrets and never anything every clone should share (that goes in
+# ccy.env). ccy.env.local is never committed. It is placed by the install's own
+# infrastructure-as-code, not by hand and not by an agent working in the checkout.
+# ccy sources it inside the container, after ccy.env, so its values win.
+#
+# To make one: copy this file to ccy.env.local, change the line below to
+# "# based on ccy.env.local.dist version ${CCY_ENV_LOCAL_DIST_VERSION}", and uncomment what this install needs.
+# When this dist's version moves on, ccy says so at launch: compare the two files.
+#
+# based on ccy.env.local.dist version ${CCY_ENV_LOCAL_DIST_VERSION}
+
+# ── Hooks daemon host role ────────────────────────────────────────────────────
+# The name the hooks daemon matches this session's host against: persistent_crons
+# "hosts:" lists and the top-level "hosts:" block in .claude/hooks-daemon.yaml.
+# Order: HOOKS_DAEMON_HOSTNAME, then CCY_HOST_HOSTNAME (ccy sets it to the host
+# machine's name), then the container's hostname. Set it to give this install a
+# role, e.g. the one install that runs a role-scoped cron job. Only matters in a
+# project that uses the hooks daemon.
+#export HOOKS_DAEMON_HOSTNAME=<role-name>
+EOF
+}
+
+ccy_env_local_dist_sync() {
+    local ccy_dir=".claude/ccy"
+    local dist="$ccy_dir/ccy.env.local.dist"
+    local local_file="$ccy_dir/ccy.env.local"
+    local expected
+    expected=$(ccy_env_local_dist_text)
+
+    local dist_version=""
+    if [ -f "$dist" ]; then
+        dist_version=$(awk 'NR == 1 && /^# ccy\.env\.local\.dist version [0-9]+$/ { print $NF }' "$dist")
+    fi
+
+    # The version a local file is judged against: a newer ccy's dist, left in place, counts.
+    local current_version="$CCY_ENV_LOCAL_DIST_VERSION"
+
+    if [ ! -f "$dist" ]; then
+        echo "✓ Writing .claude/ccy/ccy.env.local.dist (version ${CCY_ENV_LOCAL_DIST_VERSION}); commit it" >&2
+        printf '%s\n' "$expected" >"$dist" || {
+            print_error "Could not write $dist"
+            return 1
+        }
+    elif [ -n "$dist_version" ] && [ "$dist_version" -gt "$CCY_ENV_LOCAL_DIST_VERSION" ]; then
+        # Another machine's newer ccy wrote it; rewriting it down would flip it on every launch.
+        echo -e "${COLOR_YELLOW}⚠  .claude/ccy/ccy.env.local.dist (version ${dist_version}) was written by a newer ccy than this one (version ${CCY_ENV_LOCAL_DIST_VERSION}); left as it is. Update ccy here.${COLOR_RESET}" >&2
+        current_version="$dist_version"
+    elif [ "$(cat "$dist")" != "$expected" ]; then
+        echo -e "${COLOR_YELLOW}⚠  Updating .claude/ccy/ccy.env.local.dist to version ${CCY_ENV_LOCAL_DIST_VERSION}; commit it${COLOR_RESET}" >&2
+        printf '%s\n' "$expected" >"$dist" || {
+            print_error "Could not write $dist"
+            return 1
+        }
+    fi
+
+    [ -f "$local_file" ] || return 0
+
+    local based_on
+    based_on=$(awk '/^# based on ccy\.env\.local\.dist version [0-9]+$/ { print $NF; exit }' "$local_file")
+    if [ -z "$based_on" ]; then
+        echo -e "${COLOR_YELLOW}⚠  .claude/ccy/ccy.env.local has no '# based on ccy.env.local.dist version N' line.${COLOR_RESET}" >&2
+        echo "   Compare it with ccy.env.local.dist and add the line where it is placed (its IaC)." >&2
+    elif [ "$based_on" -lt "$current_version" ]; then
+        echo -e "${COLOR_YELLOW}⚠  .claude/ccy/ccy.env.local is based on ccy.env.local.dist version ${based_on}; the dist is now version ${current_version}.${COLOR_RESET}" >&2
+        echo "   Review: diff .claude/ccy/ccy.env.local.dist .claude/ccy/ccy.env.local" >&2
+        echo "   Update it where it is placed (its IaC), not in the checkout." >&2
+    fi
+    return 0
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # check_allowed_hostname: Enforce hostname restrictions for CCY projects
 #
 # If .claude/ccy/allowed-hostnames exists, the current hostname must match

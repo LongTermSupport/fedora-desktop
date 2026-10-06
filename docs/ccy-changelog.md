@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.83.0 — container 2.44
+
+- **ccy writes `.claude/ccy/ccy.env.local.dist` itself.** On every launch ccy writes its
+  tracked template for `ccy.env.local` and keeps it current. The template has commented
+  placeholders for one install's own settings, never secrets, starting with the hooks
+  daemon's host role `HOOKS_DAEMON_HOSTNAME`. Its first line is
+  `# ccy.env.local.dist version N`. A checkout's `ccy.env.local` is placed by that
+  install's IaC and starts with `# based on ccy.env.local.dist version N`. The launch warns
+  when that version is older than the dist's, or missing. ccy never writes
+  `ccy.env.local`. A dist written by a newer ccy elsewhere is left alone, with a warning.
+
 ## 3.82.1 — container 2.44
 
 - **`--max-age`, `--run-for` and `--until` work with the hooks daemon's supervisor

@@ -5,8 +5,8 @@
 # Ansible never runs in the CCY container.
 #
 # THE ONE LEG:
-#   play-claude-yolo.yml — installs the CCY 3.81.0 launcher and its image files. The
-#   entrypoint changed (container 2.43), so the next ccy launch rebuilds the image once.
+#   play-claude-yolo.yml — installs the CCY 3.83.0 launcher, which writes and keeps
+#   .claude/ccy/ccy.env.local.dist. The image is unchanged (container 2.44).
 #
 # There is no acceptance.bash: the check is a ccy session in a project that has a
 # .claude/ccy/ccy.env.local, done by hand and described below.
@@ -37,9 +37,9 @@ PLAN_USAGE="usage: deploy.bash [-h|--help] [--check]
 
 Runs, on the HOST:
 
-  playbooks/imports/play-claude-yolo.yml   (launcher 3.81.0, container 2.43)
+  playbooks/imports/play-claude-yolo.yml   (launcher 3.83.0, container 2.44)
 
---check previews without changing anything. The next ccy launch rebuilds the image once."
+--check previews without changing anything."
 
 plan_mode deploy
 plan_parse_common_flags "$@"
@@ -58,9 +58,11 @@ plan_deploy_leg "play-claude-yolo.yml" \
     plan_ansible_playbook playbooks/imports/play-claude-yolo.yml
 
 printf '\n==> NEXT (by hand; there is no acceptance.bash):\n'
-printf '    1. In a project, put an export line in .claude/ccy/ccy.env.local.\n'
-printf '    2. Start ccy there (the image rebuilds once). The start-up output says\n'
-printf '       "Sourcing project ccy env: /workspace/.claude/ccy/ccy.env.local".\n'
-printf '    3. git status in that project does not list the file.\n\n'
+printf '    1. Start ccy in a project. The launch says it wrote\n'
+printf '       .claude/ccy/ccy.env.local.dist (version 1); git status lists it, to commit.\n'
+printf '    2. Where a project has a .claude/ccy/ccy.env.local, the start-up output says\n'
+printf '       "Sourcing project ccy env: /workspace/.claude/ccy/ccy.env.local", git status\n'
+printf '       does not list it, and with no "# based on ccy.env.local.dist version 1" line\n'
+printf '       the launch warns.\n\n'
 
 plan_finish

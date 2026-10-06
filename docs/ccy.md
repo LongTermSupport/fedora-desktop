@@ -504,7 +504,7 @@ by the symlink.
 │   ├── Dockerfile           # TRACK — project container definition
 │   ├── ccy.env              # TRACK — per-project CCY config (see below)
 │   ├── ccy.env.local        # never tracked — this checkout's own overrides
-│   ├── ccy.env.local.dist   # TRACK — commented template for ccy.env.local
+│   ├── ccy.env.local.dist   # TRACK — written by ccy; template for ccy.env.local
 │   ├── mounts               # TRACK — extra host binds, if used (see Extra Mounts)
 │   ├── claude-supervise.py  # TRACK — vendored supervisor, if deployed
 │   ├── allowed-hostnames    # TRACK — host restrictions, if used
@@ -885,9 +885,18 @@ sourced the same way, right after `ccy.env`, so its values win over the project'
 read them. Put a setting there that belongs to one machine or one person and must not be
 committed. The generated `.gitignore` already ignores it. Use `export`, as in `ccy.env`.
 
-`ccy.env.local.dist` beside it is tracked: a commented template listing what an install
-might set there, such as the hooks daemon's host role. Copy the lines you need into
-`ccy.env.local`. The template is never sourced and never holds secrets.
+An install's `ccy.env.local` is placed by that install's own infrastructure-as-code, not by
+hand and not by an agent working in the checkout. Its first line names the template version
+it was based on: `# based on ccy.env.local.dist version N`.
+
+`ccy.env.local.dist` beside it is ccy's tracked template. ccy writes it on every launch:
+a commented list of what an install might set there, starting with the hooks daemon's host
+role (`HOOKS_DAEMON_HOSTNAME`). Commit it and never edit it, because ccy rewrites it. It is
+never sourced and never holds secrets. Its first line carries its version. When that
+version is newer than the one a checkout's `ccy.env.local` was based on, or the local file
+names no version, the launch prints a warning. Compare the two files and update
+`ccy.env.local` where its IaC places it. A dist written by a newer ccy on another machine is
+left alone, with a warning that this machine's ccy is older.
 
 #### Overriding the auto-compact window
 
