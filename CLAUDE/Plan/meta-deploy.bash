@@ -52,6 +52,8 @@ PLAN_ROOT="${scriptDir}"
 # An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
+    # Speech to text: deploys wsi-model-manager --download-auto (Plan 00156 Task 3.4).
+    00148-stt-unlimited-dictation-loop-and-buffer
     # Next: 00148's triage once you have dictated with Continuous Dictation on.
 )
 

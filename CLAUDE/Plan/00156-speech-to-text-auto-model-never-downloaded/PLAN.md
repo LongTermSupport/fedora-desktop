@@ -136,6 +136,12 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
 - [x] ✅ **Task 3.2**: Plan 00148's `deploy.bash` runs `play-speech-to-text.yml`, which
   carries this plan, and is in `meta-deploy.bash`; no second deploy script is needed.
 - [ ] ⬜ **Task 3.3**: Owner checks: log out and in, open Settings, press Insert in server mode.
+- [ ] 🔄 **Task 3.4**: Owner-requested model download. `wsi-model-manager --download-auto`
+  downloads `auto`'s pick for each mode with no TUI or prompt, then fails unless
+  `wsi-resolve-model` (without `--suggest`) finds `model.bin` on disk. Tests first, red
+  against the old manager: `DownloadAutoTest` in `test_model_manager_installed.py`. The
+  play still downloads nothing. OWNER: after the next speech-to-text deploy, run
+  `wsi-model-manager --download-auto` yourself.
 
 ### Phase 4: Findings not fixed here
 
