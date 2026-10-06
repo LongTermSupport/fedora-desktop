@@ -83,6 +83,9 @@ class SessionCase(unittest.TestCase):
     def tearDown(self):
         if self.session is not None and self.session.busy():
             self.session.abort()
+        # A failed session's microphone stub may still be writing into events/ as it exits.
+        if self.session is not None:
+            self.assertTrue(self.wait_until(self.mic_stopped), "the microphone stub never exited")
         for k, v in self.saved.items():
             setattr(server, k, v)
         self.tmp.cleanup()
