@@ -78,8 +78,10 @@ repository; opt-in per machine and per team.
 
 ### Phase 2: Build, by milestone (units U00–U28 in DESIGN.md §12)
 
-- [ ] ⬜ **M0 probes**: U00 (host, through `meta-deploy.bash`), U01 (a logged-in child
-  `claude`).
+- [ ] 🔄 **M0 probes**: U00 (host, through `meta-deploy.bash`), U01 (a logged-in child
+  `claude`). U00's `triage.bash` is built and in `meta-deploy.bash`; its H4 and H5 already ran
+  against a real Tuwunel in the container (journal 26-10-06, U00 finding: four DESIGN.md
+  corrections); the host run is pending.
 - [ ] ⬜ **M1 host-to-host ping, through the installer**: U02–U11, U13–U17.
 - [ ] ⬜ **M2 ccy members, the idle session woken**: U12, U18–U20 (U19 needs Plan 00160
   Task 3.3).

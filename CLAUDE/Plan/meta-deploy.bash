@@ -54,6 +54,7 @@ PLAN_ROOT="${scriptDir}"
 PLANS=(
     00148-stt-unlimited-dictation-loop-and-buffer
     00160-ccy-env-local-override
+    00161-agent-team-bus-matrix
 )
 
 LIST_ONLY=0
