@@ -17,6 +17,24 @@ Two version numbers move independently — see
 
 ---
 
+## 3.82.0 — container 2.43
+
+- **A restored session no longer stops at the SSH key menu when its key was chosen there.**
+  A session started with `--token`, `--network` or `--no-network` skips Quick Launch, so a
+  key picked at the "Select SSH key" menu was in no argument and its restore after a reboot
+  waited at the same menu with nobody to answer. The launcher now adds `--ssh-key <file>` to
+  the session's restore record once the key is chosen. A session with no launch choice in
+  its arguments is left to Quick Launch, whose saved configuration already holds the key. A
+  forwarded agent, or no key, cannot be replayed: that restore still stops at the menu, and
+  `ccy-sessions verify-restore` reports it as `WAITING-AT-PROMPT ssh-key`.
+- **`ccy-sessions reboot` refuses before warning anyone if it could not reboot.** It asks
+  logind's `CanReboot` first. Any answer but `yes` (`challenge` from a login with no
+  terminal, where polkit refuses `systemctl reboot`) is refused up front, with
+  `sudo reboot-with-update --in N` as the way round it. Every session that cannot be warned
+  is listed in the same refusal, by name, with its options: end it, or install the daemon in
+  its project. A `systemctl reboot` that fails is reported as a failure, not a cancellation;
+  the sessions are still told the warned reboot is not happening.
+
 ## 3.81.0 — container 2.43
 
 - **`.claude/ccy/ccy.env.local.dist` can be tracked.** It is the commented template for the

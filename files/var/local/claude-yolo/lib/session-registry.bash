@@ -355,6 +355,64 @@ ccy_registry_forget_network() {
     [[ "$failures" -eq 0 ]]
 }
 
+# _ccy_registry_args_with_ssh_key <out-array> <key> [args...] — fill the named array with the
+# ccy replay args plus `--ssh-key <key>`, put before any `--`, and return 0. Return 1, the
+# array empty, when the args need no key: they already make the SSH choice (--ssh-key,
+# --no-ssh), or they make no launch choice at all (no --token, --network or --no-network)
+# and so are replayed through Quick Launch, whose saved configuration holds the key. An
+# --ssh-key there would switch Quick Launch off and bring the token and network prompts back.
+# Walked as ccy_registry_replay_args walks: a value-taking flag consumes the next word, and
+# after `--` every word is claude's.
+_ccy_registry_args_with_ssh_key() {
+    local -n _ccy_with_key_out="$1"
+    local key="$2"
+    shift 2
+    local -a args=("$@")
+    local i end=${#args[@]} skips_quick_launch=false
+    _ccy_with_key_out=()
+    for ((i = 0; i < ${#args[@]}; i++)); do
+        case "${args[i]}" in
+        --)
+            end=$i
+            break
+            ;;
+        --ssh-key | --no-ssh) return 1 ;;
+        --token | --network | --no-network) skips_quick_launch=true ;;
+        esac
+        case "$(ccy_registry_flag_class "${args[i]}")" in
+        keep-value | drop-value) i=$((i + 1)) ;;
+        esac
+    done
+    [[ "$skips_quick_launch" == true ]] || return 1
+    _ccy_with_key_out=("${args[@]:0:end}" --ssh-key "$key" "${args[@]:end}")
+}
+
+# ccy_registry_record_ssh_key <name> <key> — add the SSH key chosen at ccy's key prompt to
+# session <name>'s record, so its restore after a reboot starts with --ssh-key and never
+# waits at that prompt with nobody there (fedora-desktop#69). The launcher calls it once the
+# key is chosen. Only a ccy record whose arguments skip Quick Launch takes it; see
+# _ccy_registry_args_with_ssh_key for why the others do not need it. No record (a session ccy
+# did not start under tmux) is nothing to do; a record that cannot be read or rewritten is a
+# failure. The rewrite goes through ccy_registry_write (whole, then moved into place).
+ccy_registry_record_ssh_key() {
+    local name="${1:?ccy_registry_record_ssh_key requires a session name}"
+    local key="${2:?ccy_registry_record_ssh_key requires a key}"
+    local regdir file
+    local -a with_key=()
+    regdir=$(ccy_registry_dir) || return 1
+    file="$regdir/$name"
+    [[ -e "$file" ]] || return 0
+    if ! ccy_registry_read "$file"; then
+        print_error "the restore record of session $name could not be read, so the SSH key chosen for it cannot be recorded."
+        return 1
+    fi
+    [[ "$REC_PREFIX" == "ccy" ]] || return 0
+    _ccy_registry_args_with_ssh_key with_key "$key" "${REC_ARGS[@]}" || return 0
+    ccy_registry_write "$REC_NAME" "$REC_DIR" "$REC_LAUNCHER" "$REC_PREFIX" "$REC_RESTORE" "${with_key[@]}" || return 1
+    printf 'Recorded --ssh-key %s for session %s: a restore after a reboot uses it without asking.\n' \
+        "$key" "$name" >&2
+}
+
 # ccy_registry_remove <name> — delete a session's record. An absent record is not an error:
 # the session may have been started before the registry existed.
 ccy_registry_remove() {

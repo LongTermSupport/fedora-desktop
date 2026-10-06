@@ -157,6 +157,8 @@ attach-session)
     fi
     ;;
 set-hook) ;;
+# The session the asking process runs in, which tmux finds from the TMUX the process carries.
+display-message) printf '%s\n' "$TEST_TMUX_CURRENT" ;;
 *)
     echo "fake tmux: unexpected call: $*" >&2
     exit 97
@@ -335,6 +337,15 @@ check_has "and says so" "was not attached" "$err"
 reset "ccy-a:/dev/pts/3"
 err="$(TEST_TMUX_RACE_ATTACH=1 ccy_tmux_take_over ccy-a 2>&1 >/dev/null)"
 check "a take-over whose attach was kicked returns 3, not 0" "3" "$?"
+
+echo "== which CCY session this process runs in (where a launcher records its SSH key)"
+reset "ccy-a"
+check "inside CCY's server: the session's name" "ccy-a" \
+    "$(TMUX="/tmp/tmux-1000/$CCY_TMUX_SOCKET,123,0" TEST_TMUX_CURRENT=ccy-a ccy_tmux_current_session)"
+reset "ccy-a"
+check "inside a user's own tmux: nothing, and tmux is not asked" ":0" \
+    "$(TMUX="/tmp/tmux-1000/default,123,0" TEST_TMUX_CURRENT=ccy-a ccy_tmux_current_session):$(grep -c '^display-message' "$LOG")"
+check "outside tmux: nothing" "" "$(env -u TMUX TEST_TMUX_CURRENT=ccy-a bash -c "$(printf 'source %q; source %q; ccy_tmux_current_session' "$LIB_DIR/common-pure.bash" "$LIB_DIR/tmux-session.bash")")"
 
 # ── the picker: ccy-sessions under a terminal ─────────────────────────────────────────
 # run_picker <answers...> — run the real ccy-sessions in the scratch directory with the

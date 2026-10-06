@@ -46,7 +46,9 @@
 #   ccy-sessions notify shutdown-warning --minutes N  "shut down; NO restore, leave a handoff"
 #   ccy-sessions notify reboot-cancelled            tell them it is not happening after all
 #   ccy-sessions reboot --in N [--dry-run]          warn, count down, warn again at one
-#                                                   minute, then systemctl reboot
+#                                                   minute, then systemctl reboot; refused
+#                                                   up front unless logind lets this account
+#                                                   reboot with nobody to authenticate
 #   ccy-sessions restore [--dry-run]                start every session recorded as running
 #                                                   at the last shutdown (the boot unit)
 #   ccy-sessions verify-restore [--wait SECONDS]    check every session this boot's restore
@@ -62,9 +64,8 @@
 # (.claude/hooks-daemon/bin/hooks-daemon signal ...), naming only a signal kind and a
 # number of minutes — never a message. It runs inside the container for a project with a
 # ccy session, on the host otherwise (set_route). A live session whose project has no
-# daemon CLI, or one that cannot run, is a refusal: it is named, nothing is signalled, and
-# reboot reboots nothing. Exit 64 for a
-# usage mistake, 1 for a refusal.
+# daemon CLI, or one that cannot run, is a refusal: every such session is named, nothing is
+# signalled, and reboot reboots nothing. Exit 64 for a usage mistake, 1 for a refusal.
 #
 # The daemon's two warning texts differ in what an agent does next — carry on because it
 # will be restored, or wind down and hand off because it will not — so `going-down` (and
@@ -147,17 +148,6 @@ minutes_or_die() {
     fi
 }
 
-# live_projects — the directory of every live session, each once, one per line. A listing
-# failure is a failure (the library has already said why).
-live_projects() {
-    local listing name attached dir
-    listing="$(ccy_tmux_list)" || return 1
-    while read -r name attached dir; do
-        [[ -n "${name}" && -n "${dir}" ]] || continue
-        printf '%s\n' "${dir}"
-    done <<<"${listing}" | awk '!seen[$0]++'
-}
-
 daemon_cli() {
     printf '%s/.claude/hooks-daemon/bin/hooks-daemon' "${1}"
 }
@@ -230,43 +220,38 @@ set_route() {
     fi
 }
 
-# signal_projects <kind> <minutes-or-empty> <dry-run> — invoke each live project's daemon
-# CLI once. Every project is checked for a CLI BEFORE any is signalled, so a refusal leaves
-# no project half-warned about a reboot that is then not going to happen. Prints the count
-# of projects reached to stdout; reports go to stderr.
-signal_projects() {
-    local kind="${1}" minutes="${2}" dry_run="${3}"
-    local -a projects=() missing=() cli_args=()
-    local dir cli listing
-    # The listing's failure must survive into this function: `mapfile` over a process
-    # substitution always exits 0, and would turn "tmux could not list sessions" into
+# PROJECTS — every live session's project directory, each once, as check_projects found it.
+# deliver_signal sends to these; the routes to each are in ROUTE_ENGINE / ROUTE_CONTAINER.
+PROJECTS=()
+
+# check_projects <kind> — find every reason a live session could not be given <kind> BEFORE
+# any is: a session list that cannot be read, a project with no hooks-daemon CLI, and (for a
+# warning) a CLI that cannot run where its session is reached. Every session that cannot be
+# warned is listed, with what to do about it, not just the first one met. Fills PROJECTS and
+# the routes. Reports go to stderr.
+check_projects() {
+    local kind="${1}"
+    local listing name attached dir
+    local -a missing=() broken=()
+    local -A sessions_of=() probe_of=()
+    PROJECTS=()
+    # Read whole first: a listing that failed inside a process substitution would read as
     # "no sessions", after which a reboot would proceed with every session unwarned.
-    if ! listing="$(live_projects)"; then
+    if ! listing="$(ccy_tmux_list)"; then
         print_error "the live session list could not be read, so nothing is signalled and nothing may reboot."
         return 1
     fi
-    if [[ -n "${listing}" ]]; then
-        mapfile -t projects <<<"${listing}"
-    fi
-    if [[ "${#projects[@]}" -eq 0 ]]; then
-        echo "No CCY or cc sessions are running; nothing to signal." >&2
-        printf '0\n'
-        return 0
-    fi
-    for dir in "${projects[@]}"; do
-        cli="$(daemon_cli "${dir}")"
-        if [[ ! -x "${cli}" ]]; then
-            missing+=("${dir}")
+    while read -r name attached dir; do
+        [[ -n "${name}" && -n "${dir}" ]] || continue
+        if [[ -z "${sessions_of[${dir}]+set}" ]]; then
+            PROJECTS+=("${dir}")
+            sessions_of["${dir}"]="${name}"
+        else
+            sessions_of["${dir}"]+=$'\n'"${name}"
         fi
-    done
-    if [[ "${#missing[@]}" -gt 0 ]]; then
-        print_error "a live session's project has no hooks-daemon CLI, so its session cannot be warned. Nothing was signalled."
-        for dir in "${missing[@]}"; do
-            echo "  ${dir}  (expected $(daemon_cli "${dir}"))" >&2
-        done
-        echo "Install the daemon there (the hooks-daemon skill, 'install'), or end that session first." >&2
-        return 1
-    fi
+    done <<<"${listing}"
+    [[ "${#PROJECTS[@]}" -gt 0 ]] || return 0
+
     local routes route_dir route_engine route_container
     if ! routes="$(project_containers)"; then
         print_error "the live sessions could not be matched to their containers, so nothing is signalled and nothing may reboot."
@@ -279,37 +264,68 @@ signal_projects() {
         ROUTE_ENGINE["${route_dir}"]="${route_engine}"
         ROUTE_CONTAINER["${route_dir}"]="${route_container}"
     done <<<"${routes}"
-    # An executable CLI can still be unable to run, as the host's is for a project whose
-    # daemon has no venv there. So a warning first asks each route for `signal --help`,
-    # which changes nothing but must start the daemon's python, and refuses before any
-    # project is warned. A withdrawal skips this: it reaches every project it can.
-    if [[ "${kind}" != reboot-cancelled ]]; then
-        local probe_out
-        local -a broken=()
-        for dir in "${projects[@]}"; do
-            set_route "${dir}"
-            if ! probe_out="$("${ROUTE_CMD[@]}" signal --help 2>&1)"; then
-                broken+=("${dir}")
-                echo "  ${dir}${ROUTE_VIA}: its hooks-daemon CLI cannot run:" >&2
-                printf '%s\n' "${probe_out}" | awk '{ print "      " $0 }' >&2
-            fi
-        done
-        if [[ "${#broken[@]}" -gt 0 ]]; then
-            print_error "a live session's hooks-daemon CLI cannot run, so its session cannot be warned. Nothing was signalled."
-            echo "Repair the daemon in that project (the hooks-daemon skill, 'install'), or end that session first." >&2
-            return 1
+
+    local probe_out
+    for dir in "${PROJECTS[@]}"; do
+        if [[ ! -x "$(daemon_cli "${dir}")" ]]; then
+            missing+=("${dir}")
+            continue
         fi
+        # An executable CLI can still be unable to run, as the host's is for a project whose
+        # daemon has no venv there. So a warning first asks each route for `signal --help`,
+        # which changes nothing but must start the daemon's python. A withdrawal skips this:
+        # it reaches every project it can.
+        [[ "${kind}" != reboot-cancelled ]] || continue
+        set_route "${dir}"
+        if ! probe_out="$("${ROUTE_CMD[@]}" signal --help 2>&1)"; then
+            broken+=("${dir}")
+            probe_of["${dir}"]="${probe_out}"
+        fi
+    done
+    if [[ "${#missing[@]}" -eq 0 && "${#broken[@]}" -eq 0 ]]; then
+        return 0
     fi
-    cli_args=(signal "${kind}")
+
+    if [[ "${#missing[@]}" -gt 0 ]]; then
+        print_error "these live sessions cannot be warned: their project has no hooks-daemon CLI."
+        for dir in "${missing[@]}"; do
+            while read -r name; do
+                echo "  ${name}  in ${dir}  (expected $(daemon_cli "${dir}"))" >&2
+            done <<<"${sessions_of[${dir}]}"
+        done
+    fi
+    if [[ "${#broken[@]}" -gt 0 ]]; then
+        print_error "these live sessions cannot be warned: their project's hooks-daemon CLI cannot run."
+        for dir in "${broken[@]}"; do
+            set_route "${dir}"
+            while read -r name; do
+                echo "  ${name}  in ${dir}${ROUTE_VIA}: its hooks-daemon CLI cannot run:" >&2
+            done <<<"${sessions_of[${dir}]}"
+            printf '%s\n' "${probe_of[${dir}]}" | awk '{ print "      " $0 }' >&2
+        done
+    fi
+    echo "For each session above, either end it (run ccy-sessions and press Ctrl-X on it), or install or repair the daemon in its project (the hooks-daemon skill, 'install'). Nothing was signalled." >&2
+    return 1
+}
+
+# deliver_signal <kind> <minutes-or-empty> <dry-run> — invoke the daemon CLI of each project
+# check_projects found, once. Prints the count of projects reached to stdout; reports go to
+# stderr. A warning stops at the first project that refuses, so the caller can withdraw it. A
+# withdrawal carries on past a refusal: every project it reaches is one fewer left waiting
+# for a reboot that is not coming.
+deliver_signal() {
+    local kind="${1}" minutes="${2}" dry_run="${3}" dir failed=false
+    local -a cli_args=(signal "${kind}")
+    if [[ "${#PROJECTS[@]}" -eq 0 ]]; then
+        echo "No CCY or cc sessions are running; nothing to signal." >&2
+        printf '0\n'
+        return 0
+    fi
     if [[ -n "${minutes}" ]]; then
         cli_args+=(--minutes "${minutes}")
     fi
     cli_args+=(--all-sessions)
-    # A warning stops at the first project that refuses, so the caller can withdraw it. A
-    # withdrawal carries on past a refusal: every project it reaches is one fewer left
-    # waiting for a reboot that is not coming.
-    local failed=false
-    for dir in "${projects[@]}"; do
+    for dir in "${PROJECTS[@]}"; do
         set_route "${dir}"
         if [[ "${dry_run}" == true ]]; then
             echo "would signal ${kind}${minutes:+ --minutes ${minutes}} to ${dir}${ROUTE_VIA}" >&2
@@ -324,7 +340,44 @@ signal_projects() {
         echo "signalled ${kind}${minutes:+ (${minutes} min)} to ${dir}${ROUTE_VIA}" >&2
     done
     [[ "${failed}" == false ]] || return 1
-    printf '%s\n' "${#projects[@]}"
+    printf '%s\n' "${#PROJECTS[@]}"
+}
+
+# signal_projects <kind> <minutes-or-empty> <dry-run> — check every live project, then signal
+# each once. Every project is checked BEFORE any is signalled, so a refusal leaves no project
+# half-warned about a reboot that is then not going to happen. Prints the count of projects
+# reached to stdout.
+signal_projects() {
+    check_projects "${1}" || return 1
+    deliver_signal "$@"
+}
+
+# reboot_permitted — whether logind lets this account reboot with nobody to authenticate.
+# From a login with no terminal polkit refuses `systemctl reboot` ("interactive
+# authentication required"), and asked only at the end that refusal came after every session
+# had been warned twice. So it is asked first. "yes" is the only answer that reboots
+# unattended; anything else is a refusal that names the way round it.
+reboot_permitted() {
+    local answer
+    if ! answer="$(busctl --system call org.freedesktop.login1 /org/freedesktop/login1 \
+        org.freedesktop.login1.Manager CanReboot 2>&1)"; then
+        print_error "could not ask logind whether this account may reboot: ${answer}"
+        return 1
+    fi
+    # busctl prints a string reply as its signature and the quoted value: s "yes".
+    answer="${answer#s \"}"
+    answer="${answer%\"}"
+    case "${answer}" in
+    yes) return 0 ;;
+    challenge)
+        print_error "this account may reboot only after authenticating to polkit (logind CanReboot: challenge). The reboot comes after the countdown, when nobody may be there to answer, and from a login with no terminal polkit refuses it outright."
+        ;;
+    *)
+        print_error "logind does not let this account reboot (logind CanReboot: ${answer}), so the reboot would be refused after every session had been warned."
+        ;;
+    esac
+    echo "Reboot as root instead, which warns the sessions the same way: sudo reboot-with-update --in N (it applies updates first). Or run ccy-sessions reboot from the machine's own desktop session." >&2
+    return 1
 }
 
 # going_down_kind — the warning kind that tells this user's sessions the truth about what
@@ -380,12 +433,18 @@ cmd_notify() {
 # project refusing a warning, systemctl refusing) tells the sessions the reboot is off.
 # Never on a dry run. The same shape as shutdown-with-update's withdraw_unless_down.
 REBOOT_WARNED=false
+REBOOT_FAILED=false
 COUNTDOWN_PID=""
 withdraw_unless_rebooting() {
     local status=$?
     trap - EXIT
     if [[ "${status}" -ne 0 && "${REBOOT_WARNED}" == true ]]; then
-        echo "The machine is staying up; telling the sessions the reboot is off." >&2
+        # The daemon has one withdrawal, reboot-cancelled; what this side says names the cause.
+        if [[ "${REBOOT_FAILED}" == true ]]; then
+            echo "Telling the sessions the warned reboot is not happening." >&2
+        else
+            echo "The machine is staying up; telling the sessions the reboot is off." >&2
+        fi
         if ! signal_projects reboot-cancelled "" false >/dev/null; then
             print_error "the sessions could not all be told; some still expect the reboot."
         fi
@@ -435,6 +494,17 @@ cmd_reboot() {
     [[ -n "${minutes}" ]] || usage_error "'reboot' needs --in N."
     kind="$(going_down_kind)"
 
+    # Everything that would stop the reboot is found before anyone is warned, and all of it
+    # at once: whether this account may reboot unattended, and every session that cannot be
+    # warned. A dry run checks the same, so it never says it would reboot when it would not.
+    local refused=false
+    reboot_permitted || refused=true
+    check_projects "${kind}" || refused=true
+    if [[ "${refused}" == true ]]; then
+        echo "Nothing was signalled and nothing rebooted." >&2
+        return 1
+    fi
+
     # The one-minute warning is the last word before the reboot; with --in 1 it is also the
     # first, so it is not sent twice.
     # Armed BEFORE the first warning goes out, so a failure or interrupt that lands mid-loop
@@ -445,7 +515,7 @@ cmd_reboot() {
         trap withdraw_unless_rebooting EXIT
         trap cancel_reboot INT TERM
     fi
-    reached="$(signal_projects "${kind}" "${minutes}" "${dry_run}")" || return 1
+    reached="$(deliver_signal "${kind}" "${minutes}" "${dry_run}")" || return 1
     echo "Rebooting in ${minutes} minute(s); ${reached} project(s) warned." >&2
     if [[ "${minutes}" -gt 1 ]]; then
         if [[ "${dry_run}" == true ]]; then
@@ -462,9 +532,16 @@ cmd_reboot() {
     fi
     countdown "${MINUTE_SECONDS}"
     # From here a signal is the shutdown reaching this process, not a cancellation, so it
-    # is ignored rather than allowed to withdraw. A refused reboot still exits non-zero.
+    # is ignored rather than allowed to withdraw. A refused reboot is a failure, and is
+    # reported as one: nobody cancelled it.
     trap '' INT TERM
-    systemctl reboot
+    local reboot_rc=0
+    systemctl reboot || reboot_rc=$?
+    if [[ "${reboot_rc}" -ne 0 ]]; then
+        REBOOT_FAILED=true
+        print_error "the reboot failed: systemctl reboot exited ${reboot_rc} (its reason is above). The machine is staying up."
+        return "${reboot_rc}"
+    fi
 }
 
 cmd_restore() {

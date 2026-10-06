@@ -243,6 +243,36 @@ brainstorms are in [`brainstorm-ssh-key-restore/`](brainstorm-ssh-key-restore/BR
     passed. Both write tasks skipped and both "where it does not apply" removals reported
     `ok`, so no passphrase file or drop-in exists there.
 
+### Phase 7: fedora-desktop#69, three restore defects
+
+A planned restart of a host with seven recorded sessions found three defects (issue #69).
+Report: [`subagent-reports/261006-issue69-fixes-opus.md`](subagent-reports/261006-issue69-fixes-opus.md).
+
+- [ ] 🚫 **Task 7.1**: `verify-restore` fails on its first session with
+  `can't find pane: =<session>`. Its `capture-pane -t "=${name}"` needs the pane form
+  `=${name}:`. A sweep found no other pane command with an `=name` target. Blocked: the
+  issue asks for a test against a real tmux server, which fails on the `=name` form, and
+  tmux is not installed in the CCY container. Unblocking it means adding tmux to the image
+  (a Dockerfile change and a container version bump), or running the test on the host. The
+  fake tmux in `test-ccy-sessions-reboot.bash` strips the `=`, which is why the suite passed.
+- [x] ✅ **Task 7.2**: a key chosen at the SSH key menu goes into the session's record as
+  `--ssh-key <file>`, so its restore never shows the menu. Only records that skip Quick
+  Launch (`--token`, `--network`, `--no-network`) take it; Quick Launch holds the key for
+  the rest. An agent or "no key" is not recorded, and `verify-restore` names that session
+  `WAITING-AT-PROMPT ssh-key`. CCY 3.82.0. Tests: `test-ccy-session-registry.bash` ("the SSH
+  key chosen at the prompt goes into the record", "the SSH key menu, as it is printed") and
+  `test-ccy-sessions-take-over.bash` ("which CCY session this process runs in").
+- [x] ✅ **Task 7.3**: `ccy-sessions reboot` asks logind's `CanReboot` before it warns
+  anyone, and refuses on any answer but `yes`, pointing to `sudo reboot-with-update`. Every
+  session that cannot be warned is named in the same refusal, with its options. A failed
+  `systemctl reboot` is reported as a failure. `reboot-with-update` and
+  `shutdown-with-update` run as root and share only the session check, through their
+  `--dry-run` rehearsal. Tests: `test-ccy-sessions-reboot.bash` ("everything that would stop
+  it is found before anyone is warned", and "systemctl refusing the reboot is a failure").
+- [ ] 🧑 **Task 7.4**: HOST: after the owner's meta-deploy run of `play-claude-yolo.yml`, the
+  infra agent repeats the server reboot check and runs `ccy-sessions verify-restore --wait 300`.
+  Needs Task 7.1 first, or `verify-restore` still fails on its first session.
+
 ## Dependencies
 
 - `claude-code-hooks-daemon` ≥ 3.65.0 for `hooks-daemon signal` (their #39, closed).

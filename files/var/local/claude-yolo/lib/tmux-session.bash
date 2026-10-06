@@ -918,13 +918,21 @@ ccy_tmux_start_detached() {
         set-hook -g client-attached "$(ccy_tmux_single_attach_hook)"
 }
 
-# ccy_tmux_banner — inside a CCY session, one line on how to leave and come back. Silent in
-# a user's own tmux, whose sessions ccy does not manage.
-ccy_tmux_banner() {
+# ccy_tmux_current_session — the name of the CCY session this process runs in, printed;
+# nothing when it runs in none (a user's own tmux, or no tmux at all), and tmux is then not
+# asked. tmux finds the session from the TMUX this process inherited from its pane.
+ccy_tmux_current_session() {
     [[ -n "${TMUX:-}" ]] || return 0
     local socket="${TMUX%%,*}"
     [[ "$(basename "$socket")" == "$CCY_TMUX_SOCKET" ]] || return 0
+    tmux display-message -p '#S'
+}
+
+# ccy_tmux_banner — inside a CCY session, one line on how to leave and come back. Silent in
+# a user's own tmux, whose sessions ccy does not manage.
+ccy_tmux_banner() {
     local name
-    name=$(tmux display-message -p '#S') || return 1
+    name=$(ccy_tmux_current_session) || return 1
+    [[ -n "$name" ]] || return 0
     echo "tmux session '$name': F12 then Detach leaves it running; ${CCY_TMUX_SESSION_PREFIX} here or ccy-sessions brings it back." >&2
 }

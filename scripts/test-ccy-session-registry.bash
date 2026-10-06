@@ -456,6 +456,73 @@ check "and it does not claim to have removed anything" "no" \
 rm -rf "$CCY_STATE_DIR"
 
 echo ""
+echo "=== the SSH key chosen at the prompt goes into the record (fedora-desktop#69) ==="
+# A key picked at ccy's "Select SSH key" prompt is in no argument, so a restore of a session
+# whose arguments skip Quick Launch (--token, --network, --no-network) stops at that prompt
+# with nobody there. The launcher hands the choice to its record, which then replays it.
+# rk <name> <restore> [args...] — a fresh ccy record for the case.
+rk() {
+    local name="$1" restore="$2"
+    shift 2
+    ccy_registry_write "$name" "$SCRATCH/proj" /launch/ccy ccy "$restore" "$@"
+}
+rm -rf "$CCY_STATE_DIR"
+rk key_token yes --token work
+ccy_registry_record_ssh_key key_token /k/id_one 2>"$SCRATCH/rk.err"
+check "a --token record takes the key: status" "0" "$?"
+check "  the record now replays --ssh-key" "$(printf '%q ' --token work --ssh-key /k/id_one)" "$(q_args key_token)"
+check "  and says so on stderr" "yes" "$(grep -qF 'key_token' "$SCRATCH/rk.err" && echo yes || echo no)"
+check "  its restore starts with the key, so the prompt never appears" \
+    "--token|work|--ssh-key|/k/id_one|--supervise|--continue" \
+    "$(ccy_registry_read "$CCY_STATE_DIR/sessions/key_token" && joined ccy_registry_restore_args ccy "${REC_ARGS[@]}")"
+
+rk key_network yes --network n -- --model opus
+ccy_registry_record_ssh_key key_network /k/id_one 2>/dev/null
+check "a --network record takes it before claude's --" \
+    "$(printf '%q ' --network n --ssh-key /k/id_one -- --model opus)" "$(q_args key_network)"
+rk key_nonet no --no-network
+ccy_registry_record_ssh_key key_nonet /k/id_one 2>/dev/null
+ccy_registry_read "$CCY_STATE_DIR/sessions/key_nonet"
+check "a --no-network record takes it, and keeps its no-restore mark" \
+    "$(printf '%q ' --no-network --ssh-key /k/id_one):no" "$(printf '%q ' "${REC_ARGS[@]}"):$REC_RESTORE"
+
+# A record with no launch choice is replayed through Quick Launch, whose saved configuration
+# holds the key; an --ssh-key there would switch Quick Launch off and bring the token and
+# network prompts back instead. Left alone.
+rk key_quick yes
+ccy_registry_record_ssh_key key_quick /k/id_one 2>"$SCRATCH/rk.err"
+check "a record Quick Launch replays is left alone: status" "0" "$?"
+check "  and its arguments are unchanged (still none)" "'' " "$(q_args key_quick)"
+check "  and nothing is said" "" "$(cat "$SCRATCH/rk.err")"
+rk key_after_dd yes -- --token claude-word
+ccy_registry_record_ssh_key key_after_dd /k/id_one 2>/dev/null
+check "a --token after -- is claude's word, so Quick Launch still governs" \
+    "$(printf '%q ' -- --token claude-word)" "$(q_args key_after_dd)"
+rk key_named yes --token t --ssh-key /k/other
+ccy_registry_record_ssh_key key_named /k/id_one 2>/dev/null
+check "a record that already names a key keeps its own" "$(printf '%q ' --token t --ssh-key /k/other)" "$(q_args key_named)"
+rk key_nossh yes --token t --no-ssh
+ccy_registry_record_ssh_key key_nossh /k/id_one 2>/dev/null
+check "a --no-ssh record is left alone" "$(printf '%q ' --token t --no-ssh)" "$(q_args key_nossh)"
+ccy_registry_write cc_rec "$SCRATCH/proj" /launch/cc cc yes --token t
+ccy_registry_record_ssh_key cc_rec /k/id_one 2>/dev/null
+check "a cc record is left alone (cc has no SSH key prompt)" "$(printf '%q ' --token t)" "$(q_args cc_rec)"
+
+ccy_registry_record_ssh_key no_such_session /k/id_one 2>/dev/null
+check "no record (a session ccy did not start) is nothing to do: status" "0" "$?"
+check "  and no record is created" "absent" \
+    "$([ -e "$CCY_STATE_DIR/sessions/no_such_session" ] && echo present || echo absent)"
+printf 'not a record\n' >"$CCY_STATE_DIR/sessions/key_broken"
+ccy_registry_record_ssh_key key_broken /k/id_one 2>/dev/null
+check "a record that cannot be read is a failure, not a skip" "1" "$?"
+rm -rf "$CCY_STATE_DIR"
+
+# The launcher is what calls it, once the key is chosen. The launcher cannot be run here, so
+# this reads its source: the call must come after the key menu, and only for a key file.
+check "the launcher records a key chosen at the prompt, after the menu" "yes" \
+    "$(awk '/discover_and_select_ssh_keys "ccy"/ { menu = NR } /ccy_registry_record_ssh_key/ && menu && NR > menu { found = 1 } END { print (found ? "yes" : "no") }' "$LAUNCHER")"
+
+echo ""
 echo "=== restore: records and live sessions in, decisions out ==="
 # The executor asks two questions of the outside world — which sessions are live, and how to
 # start one — and both are stubbed here, so what runs is every decision and nothing else.
@@ -623,6 +690,8 @@ check "the token chooser, with its count after the constant" "WAITING-AT-PROMPT 
     "$(ccy_restore_verdict cc 1 "$CCY_PROMPT_TOKEN_SELECT [0-2]: " -)"
 check "an ssh passphrase prompt, with the key after it" "WAITING-AT-PROMPT ssh-passphrase" \
     "$(ccy_restore_verdict ccy 1 "$CCY_PROMPT_SSH_PASSPHRASE /k/id_ed25519: " -)"
+check "the SSH key menu, as it is printed (a key that could not be recorded)" "WAITING-AT-PROMPT ssh-key" \
+    "$(ccy_restore_verdict ccy 1 $'SSH Key Selection for Claude YOLO\n  1) id_one\n'"$CCY_PROMPT_SSH_KEY [0-1, a] (default: 1): " -)"
 check "the running-container menu" "WAITING-AT-PROMPT existing-containers" \
     "$(ccy_restore_verdict ccy 1 "  $CCY_PROMPT_EXISTING_CONTAINERS " starting)"
 check "a prompt text higher up the screen does not count: only the last line waits" "OK" \

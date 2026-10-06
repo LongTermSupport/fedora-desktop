@@ -138,7 +138,23 @@ cat >"$BIN/pgrep" <<'EOF'
 #!/usr/bin/env bash
 exit 1
 EOF
-chmod 755 "$BIN/tmux" "$BIN/systemctl" "$BIN/pgrep"
+# busctl: logind's CanReboot answer for this account, from TEST_CAN_REBOOT (default yes), or
+# a failure to reach the bus when TEST_BUSCTL_RC is set. Any other question is an error.
+cat >"$BIN/busctl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'busctl %s\n' "$*" >>"$TEST_LOG"
+if [ "$*" != "--system call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager CanReboot" ]; then
+    echo "fake busctl: unexpected call: $*" >&2
+    exit 97
+fi
+if [ -n "${TEST_BUSCTL_RC:-}" ]; then
+    echo "Failed to connect to bus: No such file or directory" >&2
+    exit "$TEST_BUSCTL_RC"
+fi
+printf 's "%s"\n' "${TEST_CAN_REBOOT:-yes}"
+EOF
+chmod 755 "$BIN/tmux" "$BIN/systemctl" "$BIN/pgrep" "$BIN/busctl"
 
 # project <dir> [with-cli|without-cli|broken-cli] — a project directory, optionally holding
 # a daemon CLI that logs its arguments and the directory it was found in. A broken CLI is
@@ -337,8 +353,10 @@ run notify reboot-warning --minutes 5
 check "exit is non-zero" "1" "$rc"
 check "the project is named" "yes" "$([[ "$out" == *"$NOCLI"* ]] && echo yes || echo no)"
 # Checked BEFORE anything is signalled, so a refusal leaves no project half-warned about a
-# reboot that is not going to happen.
-check "and NO project was signalled, not even the one with a CLI" "0" "$(calls | grep -c '^cli')"
+# reboot that is not going to happen. (The one with a CLI is asked `signal --help`, which
+# changes nothing, so that a CLI that cannot run is listed in the same refusal.)
+check "and NO project was signalled, not even the one with a CLI" "0" \
+    "$(calls | grep -c '^cli.* signal [a-z-]*\(warning\|cancelled\)')"
 
 echo ""
 echo "=== reboot --in N: warn, count down, warn at one minute, reboot ==="
@@ -380,7 +398,7 @@ printf '%s\n' "ccy-a 1 $A" "ccy-x 0 $NOCLI" >"$SESSIONS"
 run reboot --in 2
 check "a missing daemon CLI refuses the reboot" "1" "$rc"
 check "and REBOOTS NOTHING" "0" "$(calls | grep -c '^systemctl')"
-check "and signals nothing" "0" "$(calls | grep -c '^cli')"
+check "and signals nothing" "0" "$(calls | grep -c '^cli.* signal [a-z-]*\(warning\|cancelled\)')"
 
 # The CLI is there but cannot run (on the host, a project whose daemon has no venv). Found
 # only when signalling, the first project had already been warned; it must refuse first.
@@ -469,9 +487,60 @@ TEST_SYSTEMCTL_RC=1 run reboot --in 1
 check "systemctl refusing the reboot is a failure" "1" "$rc"
 check "and every warned project is told reboot-cancelled" "2" \
     "$(calls | grep -c 'signal reboot-cancelled --all-sessions --project-root')"
+# It failed; nobody cancelled it. The operator is told which, in those words.
+check "and it says the reboot FAILED" "yes" "$([[ "$out" == *"the reboot failed"* ]] && echo yes || echo "no: $out")"
+check "  not that it was cancelled" "no" "$([[ "$out" == *"Reboot cancelled"* || "$out" == *"reboot is off"* ]] && echo yes || echo no)"
 
 run reboot --in 1
 check "a reboot that went ahead withdraws nothing" "0" "$(calls | grep -c 'reboot-cancelled')"
+
+echo ""
+echo "=== reboot: everything that would stop it is found before anyone is warned (#69) ==="
+# From a login with no terminal polkit refuses `systemctl reboot` ("interactive
+# authentication required"), which used to surface only after both warnings and the
+# countdown, and was then reported to every session as a cancellation.
+printf '%s\n' "ccy-a 1 $A" "cc-b 0 $B" >"$SESSIONS"
+run reboot --in 2
+check "logind is asked whether this account may reboot, once" "1" "$(calls | grep -c '^busctl .*CanReboot$')"
+check "  before the first warning" "busctl" "$(calls | awk 'NR == 1 { print $1 }')"
+for answer in challenge no; do
+    TEST_CAN_REBOOT="$answer" run reboot --in 2
+    check "logind answers '$answer': the reboot is refused" "1" "$rc"
+    check "  before any project is warned, or told anything" "0" \
+        "$(calls | grep -c '^cli.* signal [a-z-]*\(warning\|cancelled\)')"
+    check "  and nothing reboots" "0" "$(calls | grep -c '^systemctl')"
+    check "  naming logind's answer" "yes" "$([[ "$out" == *"CanReboot: $answer"* ]] && echo yes || echo "no: $out")"
+    check "  and the way to reboot instead" "yes" "$([[ "$out" == *"sudo reboot-with-update"* ]] && echo yes || echo no)"
+    check "  and not calling it a cancellation" "no" \
+        "$([[ "$out" == *"staying up"* || "$out" == *"cancelled"* ]] && echo yes || echo no)"
+done
+TEST_CAN_REBOOT=challenge run reboot --in 2 --dry-run
+check "the dry run refuses too, instead of saying it would reboot" "1:no" \
+    "$rc:$([[ "$out" == *"would reboot"* ]] && echo yes || echo no)"
+TEST_BUSCTL_RC=1 run reboot --in 2
+check "logind cannot be asked: refused, not assumed" "1" "$rc"
+check "  warning nobody" "0" "$(calls | grep -c '^cli.* signal [a-z-]*warning')"
+check "  and saying why" "yes" "$([[ "$out" == *"could not ask logind"* && "$out" == *"Failed to connect"* ]] && echo yes || echo no)"
+TEST_CAN_REBOOT=na run reboot --in 2
+check "an answer that is not yes is a refusal" "1:0" "$rc:$(calls | grep -c '^systemctl')"
+
+# Every session that cannot be warned is listed in one go, with what to do about each, and
+# alongside a permission refusal rather than one problem per attempt.
+NOCLI2="$SCRATCH/second-project-without-daemon"
+project "$NOCLI2" without-cli
+printf '%s\n' "ccy-a 1 $A" "ccy-x 0 $NOCLI" "ccy-x-2 0 $NOCLI" "ccy-z 0 $NOCLI2" "ccy-y 0 $BROKEN" >"$SESSIONS"
+TEST_CAN_REBOOT=challenge run reboot --in 2
+check "sessions that cannot be warned, and no permission: refused" "1" "$rc"
+for session in ccy-x ccy-x-2 ccy-z; do
+    check "  $session (its project has no daemon CLI) is named" "1" "$(grep -c "^  $session  in " <<<"$out")"
+done
+check "  with its project" "yes" "$([[ "$out" == *"ccy-z  in $NOCLI2"* ]] && echo yes || echo no)"
+check "  the session whose daemon cannot run is named too" "1" "$(grep -c '^  ccy-y  in ' <<<"$out")"
+check "  the options: end the session, or install the daemon" "yes" \
+    "$([[ "$out" == *"Ctrl-X"* && "$out" == *"'install'"* ]] && echo yes || echo no)"
+check "  and the permission problem in the same run" "yes" "$([[ "$out" == *"CanReboot: challenge"* ]] && echo yes || echo no)"
+check "  and no project is warned or told anything" "0" "$(calls | grep -c '^cli.* signal [a-z-]*\(warning\|cancelled\)')"
+check "  a session in a project that can be warned is not listed" "0" "$(grep -c '^  ccy-a ' <<<"$out")"
 
 echo ""
 echo "=== a session list that cannot be read is not an empty one ==="
