@@ -103,7 +103,7 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
   places, grow the stop-wait budget and move the watchdog in the same commit. Recommendation:
   (a); (b) worsens stop latency, the silent fallback to `tiny` text and server-mode
   truncation, all of which grow with length (research section 2). Blocked on the owner.
-- [ ] 🚫 **Task 1.2**: `triage.bash` (HOST, read-only) for the research's section 3.6
+- [x] ✅ **Task 1.2**: `triage.bash` (HOST, read-only) for the research's section 3.6
   facts. **Run 20261003-223727** got the versions (RealtimeSTT 1.0.0, faster-whisper 1.2.1,
   CTranslate2 4.7.1, Silero VAD v6 loads) and the segmenter's cuts of 90 s of speech (7
   segments, all at pauses, 0 hard cuts). Its real-time-factor and article-mode probes each
@@ -112,8 +112,11 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
   `Dictation stats:` line per finished dictation (RTF mean and worst, worst backlog, cut
   counts; `test_continuous_session.py` `StatsLineTest`), and `probe-dictations.py` reports
   them. The article-mode measurement is dropped: Phase 5 replaces that loop either way.
-  The owner has dictated past 8 minutes with Continuous Dictation on (2026-10-06); the
-  **HOST** triage run is queued in `meta-deploy.bash`.
+  The owner dictated past 8 minutes with Continuous Dictation on (2026-10-06). The
+  triage in meta-deploy `20261006-154921` read 2 later dictations: 2.1 min in 25
+  segments, real-time factor 0.085 (worst segment 0.177), worst backlog 8.6 s, 0 hard
+  cuts. The long dictation's figures were gone: the server empties `server.log` on every
+  start, and the idle timeout and the deploy had both restarted it.
 
 ### Phase 2: Continuous dictation in the server
 
