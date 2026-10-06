@@ -503,6 +503,14 @@ class UnitPropertiesTest(unittest.TestCase):
         for prop in self.props():
             self.assertRegex(prop, r"^[A-Za-z]+=\S")
 
+    def test_exec_argv_names_a_host_path_first(self) -> None:
+        """systemd-run looks argv[0] up on the HOST, before the unit's mounts exist, so the
+        in-namespace /mnt/tuwunel cannot be argv[0] (host run 20261006-162757 failed so).
+        A host shell execs it inside the namespace, keeping the PID for Type=notify."""
+        argv = tp.unit_exec_argv()
+        self.assertEqual(argv, ["/bin/sh", "-c", "exec /mnt/tuwunel"])
+        self.assertFalse(argv[0].startswith(tp.UNIT_INPUT_DIR))
+
 
 class LatestMetaTest(unittest.TestCase):
     def test_none_without_a_meta_directory(self) -> None:

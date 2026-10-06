@@ -328,6 +328,12 @@ def unit_properties(
     ]
 
 
+def unit_exec_argv() -> list[str]:
+    """The probe unit's command. systemd-run resolves argv[0] on the host, before the unit's
+    mounts exist, so a host shell execs the in-namespace binary (same PID, so notify works)."""
+    return ["/bin/sh", "-c", f"exec {UNIT_INPUT_DIR}/tuwunel"]
+
+
 # ── pure: scrubbing and logs ──────────────────────────────────────────────────────────────
 
 
@@ -1394,7 +1400,7 @@ def leg_h3_unit(args: argparse.Namespace, report: Report) -> None:
 
     def start(notify: bool) -> subprocess.CompletedProcess[str]:
         return run(["sudo", "-n", "systemd-run", f"--unit={unit}", "--collect", "--quiet",
-                    *props(notify), "--", f"{UNIT_INPUT_DIR}/tuwunel"], timeout=150)
+                    *props(notify), "--", *unit_exec_argv()], timeout=150)
 
     def stop() -> None:
         result = run(["sudo", "-n", "systemctl", "stop", unit], timeout=360)
