@@ -4,7 +4,7 @@ Spec: docs/agent-bus-protocol.md §12 (the token travels only in the `Authorizat
 header, unredirected, never through a proxy, no redirect followed, and never appears in
 output, errors, URLs or logs), §9 send step 7 (a retry after a timeout reuses the txnId),
 §10 (a server 429 is honoured: `Retry-After`, then `retry_after_ms`, then 5 s, at most 3
-tries) and §14 (exit codes 7, 8, 9, 10). Plan 00161's DESIGN.md unit U09.
+tries, and a wait over 60 s is not slept) and §14 (exit codes 7, 8, 9, 10). Plan 00161's DESIGN.md unit U09.
 
 This module moves JSON and maps failures; it validates nothing it receives beyond "a JSON
 object", because every event is validated by `protocol` before anything acts on it.
@@ -24,7 +24,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 
 from helpers.pingbus import config, limits, protocol
 
@@ -82,7 +82,8 @@ class Forbidden(MatrixError):
 
 
 class RateLimited(MatrixError):
-    """429 on the last of `limits.SERVER_429_MAX_TRIES` tries (exit 9)."""
+    """429 on the last of `limits.SERVER_429_MAX_TRIES` tries, or asking for a wait over
+    `limits.SERVER_429_WAIT_MAX_S` (exit 9)."""
 
     exit_code = 9
 
@@ -105,15 +106,8 @@ def path(*segments: str) -> str:
     return CLIENT_PREFIX + "".join("/" + urllib.parse.quote(s, safe="") for s in segments)
 
 
-def _check_base_url(value: object) -> str:
-    if not config.is_printable_token(value):
-        raise ValueError("base_url must be a URL of printable ASCII")
-    parts = urllib.parse.urlsplit(value)
-    if parts.scheme not in ("http", "https") or not parts.hostname or "@" in parts.netloc:
-        raise ValueError("base_url must be http:// or https:// with a host and no credentials")
-    if parts.path or parts.query or parts.fragment or "?" in value or "#" in value:
-        raise ValueError("base_url must have no path, query or fragment")
-    return value
+def _refuse(key: str, why: str) -> ValueError:
+    return ValueError(f"{key} {why}")
 
 
 def _room(room_id: str) -> str:
@@ -155,26 +149,15 @@ def _errcode(body: dict | None) -> str | None:
     return code if isinstance(code, str) and _ERRCODE_RE.fullmatch(code) else None
 
 
-def _retry_wait(headers: object, body: dict | None) -> float:
-    """§10: `Retry-After` (whole seconds), then the body's `retry_after_ms`, then the default."""
-    header = headers.get("Retry-After") if headers is not None else None
-    if isinstance(header, str) and header.strip().isdigit():
-        return int(header.strip())
-    ms = body.get("retry_after_ms") if body is not None else None
-    if type(ms) is int and ms >= 0:
-        return ms / 1000
-    return limits.SERVER_429_DEFAULT_WAIT_S
-
-
 _STATUS_ERRORS: dict[int, type[MatrixError]] = {401: AuthRefused, 403: Forbidden, 404: NotFound}
 
 
 class Client:
     """One account on one homeserver. The token is held here and sent nowhere else."""
 
-    def __init__(self, base_url: str, token: str, *, opener: object | None = None,
-                 sleep: Callable[[float], object] = time.sleep) -> None:
-        self.base_url = _check_base_url(base_url)
+    def __init__(self, base_url: str, token: str, *, plain_http_hosts: Sequence[str] = (),
+                 opener: object | None = None, sleep: Callable[[float], object] = time.sleep) -> None:
+        self.base_url = config.check_base_url(base_url, plain_http_hosts, _refuse)
         if not config.is_printable_token(token) or len(token) > config.TOKEN_MAX_BYTES:
             raise ValueError("the token must be one line of printable ASCII")
         self._token = token
@@ -184,7 +167,8 @@ class Client:
     @classmethod
     def for_member(cls, member: config.Member, *, uid: int | None = None, **kwargs: object) -> Client:
         """A client for a validated bundle, its token re-read and re-checked (§12)."""
-        return cls(member.base_url, config.read_token(member, uid=uid), **kwargs)
+        return cls(member.base_url, config.read_token(member, uid=uid),
+                   plain_http_hosts=member.plain_http_hosts, **kwargs)
 
     def __repr__(self) -> str:
         return f"matrix.Client({self.base_url!r})"
@@ -221,9 +205,10 @@ class Client:
                 finally:
                     exc.close()
                 if status == 429:
-                    if attempt == limits.SERVER_429_MAX_TRIES:
+                    wait = limits.server_retry_wait_s(headers, answer)
+                    if attempt == limits.SERVER_429_MAX_TRIES or wait > limits.SERVER_429_WAIT_MAX_S:
                         raise RateLimited(where, status, _errcode(answer)) from None
-                    self._sleep(_retry_wait(headers, answer))
+                    self._sleep(wait)
                     continue
                 if 300 <= status < 400:
                     raise MatrixError(where, status, detail="redirect refused") from None

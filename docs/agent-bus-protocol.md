@@ -420,9 +420,10 @@ silently clamped.
 
 Fixed: the duplicate window is 60 s (same verb, ref, re and set of `to` again is refused,
 exit 9); each `/sync` long-poll is 30 s; a server 429 is honoured (`Retry-After`, then
-`retry_after_ms`, then 5 s), at most 3 tries, then exit 9; a forge rate limit (§6) is
-honoured the same way with GitHub's `x-ratelimit-reset` read after `Retry-After`, except
-that a wait over 60 s is not slept and is reported as `forge-rate` at once; a ping's content at most 4096
+`retry_after_ms`, then 5 s), at most 3 tries, then exit 9, and a wait over 60 s is not slept
+and is exit 9 at once; a forge rate limit (§6) is honoured the same way with GitHub's
+`x-ratelimit-reset` read after `Retry-After`, a wait over 60 s reported as `forge-rate` at
+once; a ping's content at most 4096
 bytes; a human message's body at most 16384 bytes; an agent text's `text` at most 4096
 bytes.
 

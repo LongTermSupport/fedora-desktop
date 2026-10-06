@@ -380,7 +380,7 @@ def _parse_member(team: str, bundle_dir: pathlib.Path, data: dict[str, object]) 
         raise refuse("token_file", f'must be "{TOKEN_FILE}", the file inside the bundle')
 
     plain_hosts = _plain_http_hosts(data["plain_http_hosts"], refuse)
-    base_url = _base_url(data["base_url"], plain_hosts, refuse)
+    base_url = check_base_url(data["base_url"], plain_hosts, refuse)
     human_text = data.get("human_text", True)
     if not isinstance(human_text, bool):
         raise refuse("human_text", "must be true or false")
@@ -431,9 +431,11 @@ def _plain_http_hosts(value: object, refuse: Refuse) -> tuple[str, ...]:
     return tuple(hosts)
 
 
-def _base_url(value: object, plain_hosts: tuple[str, ...], refuse: Refuse) -> str:
-    """`https://<host>[:port]`, or `http://<ip>[:port]` with `<ip>` in `plain_hosts`:
-    no credentials, path, query or fragment."""
+def check_base_url(value: object, plain_hosts: Sequence[str],
+                   refuse: Callable[[str, str], Exception]) -> str:
+    """§12: `https://<host>[:port]`, or `http://<ip>[:port]` with `<ip>` in `plain_hosts`:
+    no credentials, path, query or fragment. A refusal raises what `refuse(key, why)` builds,
+    so `matrix.Client` holds a bare URL to the same rule as a bundle."""
     if not isinstance(value, str) or _PRINTABLE_RE.fullmatch(value) is None:
         raise refuse("base_url", "must be a URL of printable ASCII")
     if "?" in value or "#" in value:
