@@ -35,8 +35,9 @@ from collections.abc import Callable, Mapping, Sequence
 
 from helpers.pingbus import config, limits, protocol
 
-REFUSALS = ("not-found", "wrong-kind", "provenance", "forge-unreachable", "forge-auth", "forge-rate")
 RATE_REFUSAL = "forge-rate"
+UNREACHABLE_REFUSAL = "forge-unreachable"
+REFUSALS = ("not-found", "wrong-kind", "provenance", UNREACHABLE_REFUSAL, "forge-auth", RATE_REFUSAL)
 EXIT_UNRESOLVED = 5
 EXIT_RATE = 9
 
@@ -354,27 +355,27 @@ class Forge:
                 if rate_limited:
                     wait = _retry_wait(hdrs, body, self._clock())
                     if attempt == limits.SERVER_429_MAX_TRIES or wait > limits.SERVER_429_WAIT_MAX_S:
-                        raise ForgeError("forge-rate", f"{where}: rate limited by the forge") from None
+                        raise ForgeError(RATE_REFUSAL, f"{where}: rate limited by the forge") from None
                     self._sleep(wait)
                     continue
                 if code in allow:
                     return code, None
                 if code in (401, 403):
                     raise ForgeError("forge-auth", f"{where}: HTTP {code}") from None
-                raise ForgeError("forge-unreachable", f"{where}: HTTP {code}") from None
+                raise ForgeError(UNREACHABLE_REFUSAL, f"{where}: HTTP {code}") from None
             except (urllib.error.URLError, OSError) as exc:
-                raise ForgeError("forge-unreachable", f"{where}: {type(exc).__name__}") from None
+                raise ForgeError(UNREACHABLE_REFUSAL, f"{where}: {type(exc).__name__}") from None
             with response:
                 code = getattr(response, "status", None)
                 raw = _bounded_read(response, where)
             if code != 200:
-                raise ForgeError("forge-unreachable", f"{where}: HTTP {code}")
+                raise ForgeError(UNREACHABLE_REFUSAL, f"{where}: HTTP {code}")
             if raw is None:
-                raise ForgeError("forge-unreachable", f"{where}: response over {MAX_RESPONSE_BYTES} bytes")
+                raise ForgeError(UNREACHABLE_REFUSAL, f"{where}: response over {MAX_RESPONSE_BYTES} bytes")
             try:
                 return 200, json.loads(raw.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError):
-                raise ForgeError("forge-unreachable", f"{where}: the response is not JSON") from None
+                raise ForgeError(UNREACHABLE_REFUSAL, f"{where}: the response is not JSON") from None
         raise AssertionError("the retry loop always returns or raises")
 
 
@@ -384,7 +385,7 @@ def _bounded_read(response: object, where: str) -> bytes | None:
     try:
         raw = response.read(MAX_RESPONSE_BYTES + 1)
     except (OSError, http.client.HTTPException) as exc:
-        raise ForgeError("forge-unreachable", f"{where}: {type(exc).__name__}") from None
+        raise ForgeError(UNREACHABLE_REFUSAL, f"{where}: {type(exc).__name__}") from None
     return None if len(raw) > MAX_RESPONSE_BYTES else raw
 
 
