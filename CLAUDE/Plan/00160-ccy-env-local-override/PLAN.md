@@ -78,6 +78,11 @@ owns the template. ccy only has to let it be tracked.
   upgrade the daemon here and commit the template it writes. The owner's direction
   (2026-10-06, commented on #88): the hooks daemon's own SDLC runner install is the
   prototype, taking its role through `HOOKS_DAEMON_HOSTNAME` in its `ccy.env.local`.
+  The file is placed by that install's own IaC, never by the daemon or an agent.
+- [ ] 🧑 **Task 3.3**: OWNER decision (the owner: agents "probably shouldn't even be allowed
+  to edit it"): ccy mounts an existing `ccy.env.local` read-only over the workspace, so a
+  session cannot rewrite its own role override. Recommended. Also suggested upstream on #88:
+  a daemon guard that denies agent writes to it.
 
 ## Success Criteria
 
