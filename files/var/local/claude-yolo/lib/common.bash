@@ -495,13 +495,15 @@ check_ccy_gitignore_safety() {
 
     # Expected .gitignore content
     local expected_gitignore="# CCY session data - NEVER commit sensitive files
-# Only .gitignore, Dockerfile, allowed-hostnames, ccy.env, mounts and the
-# claude-supervise* supervisor (any extension or none) are safe to track
+# Only .gitignore, Dockerfile, allowed-hostnames, ccy.env, ccy.env.local.dist,
+# mounts and the claude-supervise* supervisor (any extension or none) are safe
+# to track. ccy.env.local is this checkout's own and is never tracked.
 *
 !.gitignore
 !Dockerfile
 !allowed-hostnames
 !ccy.env
+!ccy.env.local.dist
 !mounts
 !claude-supervise*"
 
@@ -535,6 +537,11 @@ check_ccy_gitignore_safety() {
     if ! grep -qx '!mounts' "$ccy_gitignore"; then
         echo "✓ Adding the mounts exception to .claude/ccy/.gitignore"
         echo '!mounts' >> "$ccy_gitignore"
+    fi
+    # Likewise the tracked template for this checkout's untracked ccy.env.local.
+    if ! grep -qx '!ccy.env.local.dist' "$ccy_gitignore"; then
+        echo "✓ Adding the ccy.env.local.dist exception to .claude/ccy/.gitignore"
+        echo '!ccy.env.local.dist' >> "$ccy_gitignore"
     fi
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -573,9 +580,11 @@ check_ccy_gitignore_safety() {
         local basename
         basename=$(basename "$file")
         case "$basename" in
-            .gitignore|Dockerfile|allowed-hostnames|ccy.env|mounts|claude-supervise*|CLAUDE.md|README.md)
+            .gitignore|Dockerfile|allowed-hostnames|ccy.env|ccy.env.local.dist|mounts|claude-supervise*|CLAUDE.md|README.md)
                 # Safe to track. ccy.env is the tracked per-project ccy config
                 # (e.g. CCY_CLAUDE_WRAPPER) sourced in-container by entrypoint.sh;
+                # ccy.env.local.dist is the commented template for the untracked
+                # ccy.env.local (never secrets, never sourced);
                 # mounts declares extra host binds, read on the host and validated
                 # by load_project_mounts before launch; claude-supervise* is the
                 # vendored PTY supervisor that ccy.env's CCY_CLAUDE_WRAPPER points

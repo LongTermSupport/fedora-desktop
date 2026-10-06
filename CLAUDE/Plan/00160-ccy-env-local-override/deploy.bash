@@ -5,7 +5,7 @@
 # Ansible never runs in the CCY container.
 #
 # THE ONE LEG:
-#   play-claude-yolo.yml — installs the CCY 3.80.0 launcher and its image files. The
+#   play-claude-yolo.yml — installs the CCY 3.81.0 launcher and its image files. The
 #   entrypoint changed (container 2.43), so the next ccy launch rebuilds the image once.
 #
 # There is no acceptance.bash: the check is a ccy session in a project that has a
@@ -37,7 +37,7 @@ PLAN_USAGE="usage: deploy.bash [-h|--help] [--check]
 
 Runs, on the HOST:
 
-  playbooks/imports/play-claude-yolo.yml   (launcher 3.80.0, container 2.43)
+  playbooks/imports/play-claude-yolo.yml   (launcher 3.81.0, container 2.43)
 
 --check previews without changing anything. The next ccy launch rebuilds the image once."
 

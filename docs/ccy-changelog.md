@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.81.0 — container 2.43
+
+- **`.claude/ccy/ccy.env.local.dist` can be tracked.** It is the commented template for the
+  untracked `ccy.env.local`: placeholders for settings specific to one install, such as the
+  hooks daemon's host role, and never secrets. The generated `.claude/ccy/.gitignore` lets
+  it through, an older one is given the exception on the next launch, and the tracked-files
+  guard accepts it. `ccy.env.local` itself stays ignored, and the guard still refuses to
+  start if it is tracked. The template's content and its updates come from the hooks daemon.
+
 ## 3.80.0 — container 2.43
 
 - **A project can keep untracked ccy settings in `.claude/ccy/ccy.env.local`.** The

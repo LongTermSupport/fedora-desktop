@@ -479,6 +479,7 @@ by the symlink.
 │   ├── Dockerfile           # TRACK — project container definition
 │   ├── ccy.env              # TRACK — per-project CCY config (see below)
 │   ├── ccy.env.local        # never tracked — this checkout's own overrides
+│   ├── ccy.env.local.dist   # TRACK — commented template for ccy.env.local
 │   ├── mounts               # TRACK — extra host binds, if used (see Extra Mounts)
 │   ├── claude-supervise.py  # TRACK — vendored supervisor, if deployed
 │   ├── allowed-hostnames    # TRACK — host restrictions, if used
@@ -495,8 +496,8 @@ CCY generates `.claude/ccy/.gitignore` so runtime state stays out of git while t
 handful of files that *should* be shared with your team are whitelisted.
 
 It also enforces this: if any file under `.claude/ccy/` **other than** the known-safe
-whitelist (`.gitignore`, `Dockerfile`, `allowed-hostnames`, `ccy.env`, `mounts`,
-`claude-supervise*`) is tracked in git, CCY prints a security alert and **refuses to
+whitelist (`.gitignore`, `Dockerfile`, `allowed-hostnames`, `ccy.env`,
+`ccy.env.local.dist`, `mounts`, `claude-supervise*`) is tracked in git, CCY prints a security alert and **refuses to
 start** until you untrack it. Session history and token metadata committed by accident
 are exactly what this catches.
 
@@ -858,6 +859,10 @@ Two properties matter:
 sourced the same way, right after `ccy.env`, so its values win over the project's and it can
 read them. Put a setting there that belongs to one machine or one person and must not be
 committed. The generated `.gitignore` already ignores it. Use `export`, as in `ccy.env`.
+
+`ccy.env.local.dist` beside it is tracked: a commented template listing what an install
+might set there, such as the hooks daemon's host role. Copy the lines you need into
+`ccy.env.local`. The template is never sourced and never holds secrets.
 
 #### Overriding the auto-compact window
 

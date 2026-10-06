@@ -581,6 +581,17 @@ fi
 project_env_summary=$(qa_gate_case_count "$project_env_out")
 qa_pass_line ccy-project-env "$project_env_summary"
 
+# lib/common.bash's .claude/ccy/.gitignore guard: session data stays ignored, the tracked
+# files (ccy.env.local.dist among them) are let through, ccy.env.local never is.
+gitignore_safety_out=""
+if ! gitignore_safety_out="$(bash "$SCRIPT_DIR/test-ccy-gitignore-safety.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-gitignore-safety \
+        "ccy .gitignore guard tests failed" \
+        "$gitignore_safety_out"
+fi
+gitignore_safety_summary=$(qa_gate_case_count "$gitignore_safety_out")
+qa_pass_line ccy-gitignore-safety "$gitignore_safety_summary"
+
 # lib/session-lifecycle.bash and the entrypoint's plugin hook-up: --max-age/--run-for/--until
 # are validated strictly, a relaunch keeps the deadline, and with no option the supervisor's
 # wrapper line is byte-identical. The plugin itself is covered by the helper unit suite.

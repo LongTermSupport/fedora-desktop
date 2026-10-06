@@ -52,7 +52,7 @@ PLAN_ROOT="${scriptDir}"
 # An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
-    # ccy 3.80.0: sources an untracked .claude/ccy/ccy.env.local (Plan 00160). Image rebuilds once.
+    # ccy 3.81.0: ccy.env.local, and a trackable ccy.env.local.dist (Plan 00160). Image rebuilds once.
     00160-ccy-env-local-override
     # Next: 00148's triage once you have dictated with Continuous Dictation on.
 )

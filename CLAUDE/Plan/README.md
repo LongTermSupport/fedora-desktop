@@ -34,7 +34,7 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00160-ccy-env-local-override](00160-ccy-env-local-override/) - ccy sources an untracked `.claude/ccy/ccy.env.local` after `ccy.env`, so one checkout can override the project's ccy settings without a commit. CCY 3.80.0, container 2.43.
+- [00160-ccy-env-local-override](00160-ccy-env-local-override/) - ccy sources an untracked `.claude/ccy/ccy.env.local` after `ccy.env`, so one checkout can override the project's ccy settings without a commit; the tracked `ccy.env.local.dist` template comes from the hooks daemon (its issue #88). CCY 3.81.0, container 2.43.
 
 - [00159-speech-to-text-vocabulary](00159-speech-to-text-vocabulary/) - Feature: a personal vocabulary primes Whisper and a "heard => meant" list corrects the text, both kept in `~/.config/fedora-desktop/`, a checkout of the private config repo
 
