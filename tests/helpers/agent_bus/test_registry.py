@@ -15,6 +15,7 @@ import json
 import os
 import pathlib
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -225,6 +226,73 @@ class LoadSaveTest(unittest.TestCase):
         self.path.write_text('{"v": 1, "v": 1, "team": "alpha", "counters": {}, "members": {}}', encoding="utf-8")
         with self.assertRaises(registry.RegistryError):
             registry.load_registry(self.path, "alpha")
+
+
+_PROBE_LOCK = """
+import fcntl, sys
+with open(sys.argv[1], "a") as handle:
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("busy")
+    else:
+        print("free")
+"""
+
+
+def _probe_lock(lock_path: pathlib.Path) -> str:
+    """Try the lock from another process, without waiting; `busy` or `free`."""
+    result = subprocess.run(
+        [sys.executable, "-I", "-c", _PROBE_LOCK, str(lock_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return result.stdout.strip()
+
+
+class UpdateRegistryTest(unittest.TestCase):
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.path = pathlib.Path(tmp.name) / "registry.json"
+        self.lock_path = pathlib.Path(tmp.name) / "registry.lock"
+
+    def test_another_process_cannot_take_the_lock_while_it_is_held(self) -> None:
+        seen = []
+
+        def change(reg: registry.Registry) -> tuple[registry.Registry, None]:
+            seen.append(_probe_lock(self.lock_path))
+            return reg, None
+
+        registry.update_registry(self.path, "alpha", change)
+        self.assertEqual(seen, ["busy"])
+        self.assertEqual(_probe_lock(self.lock_path), "free")
+
+    def test_change_is_saved_and_result_returned(self) -> None:
+        def add(reg: registry.Registry) -> tuple[registry.Registry, str]:
+            return reg.add_member("myrepo", "ws", "podman", "worker")
+
+        first = registry.update_registry(self.path, "alpha", add)
+        second = registry.update_registry(self.path, "alpha", add)
+        self.assertEqual((first, second), ("myrepo.1+ws.podman", "myrepo.2+ws.podman"))
+        loaded = registry.load_registry(self.path, "alpha")
+        self.assertEqual(sorted(loaded.members), ["myrepo.1+ws.podman", "myrepo.2+ws.podman"])
+        self.assertEqual(stat.S_IMODE(os.stat(self.lock_path).st_mode), 0o600)
+
+    def test_failed_change_saves_nothing_and_releases_the_lock(self) -> None:
+        def fail(reg: registry.Registry) -> tuple[registry.Registry, None]:
+            raise registry.RegistryError("refused")
+
+        with self.assertRaises(registry.RegistryError):
+            registry.update_registry(self.path, "alpha", fail)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(_probe_lock(self.lock_path), "free")
+
+    def test_unchanged_registry_is_not_written(self) -> None:
+        registry.update_registry(self.path, "alpha", lambda reg: (reg, None))
+        self.assertFalse(self.path.exists())
 
 
 if __name__ == "__main__":

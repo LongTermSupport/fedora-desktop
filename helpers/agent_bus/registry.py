@@ -8,19 +8,23 @@ member's handle is never handed out again.
 `<host>` is the install's role or an explicit `--host`; never a hostname, because handles
 reach public forge text. Callers pass the role in: this module reads no environment.
 
-Pure logic plus `load_registry`/`save_registry`, the only file I/O.
+Pure logic plus `load_registry`/`save_registry`/`update_registry`, the only file I/O.
+Every change goes through `update_registry`, which holds the team's lock across the
+load and the save.
 """
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import pathlib
 import re
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
+from typing import TypeVar
 
 from helpers.agent_bus.teamfile import TEAM_PATTERN, decode_strict_json
 
@@ -46,10 +50,11 @@ REGISTRY_KEYS = frozenset({"v", "team", "counters", "members"})
 _HANDLE_RE = re.compile(HANDLE_PATTERN)
 _SEAT_RE = re.compile(SEAT_PATTERN)
 _TEAM_RE = re.compile(TEAM_PATTERN)
-_REPO_PART_RE = re.compile(REPO_PART_PATTERN)
 _HOST_PART_RE = re.compile(HOST_PART_PATTERN)
 _REPO_UNSAFE_RE = re.compile(r"[^a-z0-9_-]")
 _HOST_UNSAFE_RE = re.compile(r"[^a-z0-9-]")
+
+T = TypeVar("T")
 
 
 class HandleError(ValueError):
@@ -247,3 +252,23 @@ def save_registry(path: pathlib.Path, registry: Registry) -> None:
         os.fsync(dir_fd)
     finally:
         os.close(dir_fd)
+
+
+def update_registry(path: pathlib.Path, team: str, change: Callable[[Registry], tuple[Registry, T]]) -> T:
+    """Load, apply `change`, save if it changed anything; all under an exclusive lock.
+
+    The lock is `flock` on the sibling `registry.lock`, so two concurrent `add-member`
+    runs cannot both read the same counter and hand out the same `<n>`. If `change`
+    raises, nothing is saved. Returns the second element of `change`'s result.
+    """
+    path = pathlib.Path(path)
+    lock_fd = os.open(path.with_suffix(".lock"), os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        current = load_registry(path, team)
+        updated, result = change(current)
+        if updated != current:
+            save_registry(path, updated)
+        return result
+    finally:
+        os.close(lock_fd)

@@ -171,7 +171,8 @@ class RefusedTeamFileTest(unittest.TestCase):
         "forge_api http": (_with(forge_api="http://api.github.com"), "forge_api"),
         "forge_api not url": (_with(forge_api="api.github.com"), "forge_api"),
         "forge_api with credentials": (_with(forge_api="https://user:pw@example.com"), "forge_api"),
-        "forge_api with query": (_with(forge_api="https://api.github.com/?x=1"), "forge_api"),
+        "forge_api with query": (_with(forge_api="https://api.github.com?x=1"), "forge_api"),
+        "forge_api with fragment": (_with(forge_api="https://api.github.com#f"), "forge_api"),
         "forge_api trailing slash": (_with(forge_api="https://api.github.com/"), "forge_api"),
     }
 
@@ -215,9 +216,15 @@ class LoadAndRoundTripTest(unittest.TestCase):
         with self.assertRaises(teamfile.TeamFileError):
             teamfile.load_team_file(self._write("{not json"))
 
-    def test_load_refuses_nan(self) -> None:
+    def test_decode_refuses_nan_and_infinity(self) -> None:
+        for constant in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(constant), self.assertRaises(ValueError):
+                teamfile.decode_strict_json(f'{{"a": {constant}}}')
+
+    def test_load_refuses_nan_in_a_valid_key(self) -> None:
+        text = json.dumps(_with(port=8448)).replace("8448", "NaN")
         with self.assertRaises(teamfile.TeamFileError):
-            teamfile.load_team_file(self._write(json.dumps(VALID)[:-1] + ', "port2": NaN}'))
+            teamfile.load_team_file(self._write(text))
 
     def test_load_missing_file_raises(self) -> None:
         with self.assertRaises(FileNotFoundError):
