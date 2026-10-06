@@ -6,7 +6,7 @@
 # The recorder notes, for each command, the directory it started in and its exit status,
 # NUL-terminated, in ~/.local/state/bash/context. It uses bash builtins only, so a command
 # line never appears in another process's argv. A command bash kept out of history
-# (leading space, HISTIGNORE) is kept out of this file too: a record is written only when
+# (HISTCONTROL, HISTIGNORE) is kept out of this file too: a record is written only when
 # the history number has moved.
 #
 # Ctrl+R: bash-history-rank orders all history — this directory first, then this git
