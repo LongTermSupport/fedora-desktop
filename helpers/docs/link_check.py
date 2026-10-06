@@ -31,6 +31,7 @@ import sys
 _LINK = re.compile(r"(?<!!)\[(?P<text>[^\]]*)\]\((?P<target>[^)\s]+)\)")
 _HEADING = re.compile(r"^(?P<hashes>#{1,6})\s+(?P<text>.*?)\s*#*$")
 _FENCE = re.compile(r"^\s*(?:```|~~~)")
+_CODE_SPAN = re.compile(r"`[^`]*`")
 _SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 _IMPORT = re.compile(r"^\s*-\s*import_playbook:\s*\S*?(?P<name>play-[\w.-]+\.ya?ml)\s*$")
 
@@ -90,7 +91,9 @@ def links(content):
     """Return [(lineno, target)] for every non-external, non-image link."""
     out = []
     for lineno, line in _uncoded_lines(content):
-        for match in _LINK.finditer(line):
+        # A code span is never rendered as a link, but its text can look like one
+        # (a regular expression); emptying the spans keeps [`text`](target) a link.
+        for match in _LINK.finditer(_CODE_SPAN.sub("", line)):
             target = match.group("target")
             if _SCHEME.match(target) or target.startswith("//"):
                 continue
