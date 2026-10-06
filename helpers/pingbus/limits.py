@@ -97,9 +97,9 @@ def parse_limits(value: object) -> Limits:
         return Limits()
     if not isinstance(value, Mapping):
         raise LimitsError("limits must be an object")
-    unknown = sorted(str(key) for key in value if key not in BOUNDS)
-    if unknown:
-        raise LimitsError(f"limits has keys that cannot be overridden: {', '.join(unknown)}")
+    # The given keys are never echoed: one may be a value pasted into the wrong place.
+    if any(key not in BOUNDS for key in value):
+        raise LimitsError(f"limits may hold only these keys: {', '.join(BOUNDS)}")
     return Limits(**{key: _check_bound(key, item) for key, item in value.items()})
 
 

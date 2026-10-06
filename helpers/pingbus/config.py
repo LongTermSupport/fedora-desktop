@@ -1,9 +1,10 @@
 """Member configuration for pingbus: the environment, the bundles, the refusals.
 
-Spec: PROTOCOL.md section 12 (bundle layout, `member.json`, `PINGBUS_HOME`,
-`PINGBUS_TEAMS`, `--team`) and DESIGN.md sections 5.2 (the Python gate) and 8 (no `host`
-member beside an Element profile). The `limits` object is checked for shape only here;
-its keys and bounds (PROTOCOL.md section 10) belong to limits.py.
+Spec: docs/agent-bus-protocol.md §12 (bundle layout, `member.json`, `PINGBUS_HOME`,
+`PINGBUS_TEAMS`, `--team`) and Plan 00161's DESIGN.md sections 5.2 (the Python gate) and 8
+(no `host` member beside an Element profile). The `limits` object is parsed by
+`limits.parse_limits`, which owns its keys and bounds (§10); this module only turns its
+refusal into a `ConfigError`.
 
 Every refusal is a `ConfigError` (exit 78) or, for a bad `--team`, a `UsageError`
 (exit 64); the CLI maps them. Messages name the team, the file and the key at fault and
@@ -26,10 +27,9 @@ import sys
 import urllib.parse
 from collections.abc import Callable, Mapping, Sequence
 
-from helpers.pingbus import protocol
+from helpers.pingbus import limits, protocol
 
 MIN_PYTHON = (3, 11)
-PROTOCOL_VERSION = 1
 ADMIN_LOCALPART = "admin"
 MEMBER_FILE = "member.json"
 TOKEN_FILE = "token"
@@ -51,7 +51,7 @@ REQUIRED_KEYS = (
 )
 OPTIONAL_KEYS = ("human_text", "limits")
 
-#: Commands that run with no active team (PROTOCOL.md section 12).
+#: Commands that run with no active team (agent-bus-protocol.md §12).
 COMMANDS_WITHOUT_CONFIG = frozenset({"version", "validate", "suggest-handle"})
 
 #: Where Element keeps a human's Matrix session, relative to the user's home: the
@@ -70,13 +70,13 @@ Refuse = Callable[[str, str], "ConfigError"]
 
 
 class ConfigError(Exception):
-    """Configuration refused: PROTOCOL.md section 14, exit 78."""
+    """Configuration refused: agent-bus-protocol.md §14, exit 78."""
 
     EXIT_CODE = 78
 
 
 class UsageError(Exception):
-    """A bad `--team` for this command: PROTOCOL.md section 14, exit 64."""
+    """A bad `--team` for this command: agent-bus-protocol.md §14, exit 64."""
 
     EXIT_CODE = 64
 
@@ -95,7 +95,7 @@ class Member:
     admin: str
     room: str
     human_text: bool
-    limits: dict[str, int]
+    limits: limits.Limits
     bundle_dir: pathlib.Path
     token_path: pathlib.Path
 
@@ -332,8 +332,8 @@ def _parse_member(team: str, bundle_dir: pathlib.Path, data: dict[str, object]) 
             raise refuse(key, "is missing")
 
     version = data["protocol"]
-    if type(version) is not int or version != PROTOCOL_VERSION:
-        raise refuse("protocol", f"must be the integer {PROTOCOL_VERSION}")
+    if type(version) is not int or version != protocol.PROTOCOL_VERSION:
+        raise refuse("protocol", f"must be the integer {protocol.PROTOCOL_VERSION}")
     if data["team"] != team:
         raise refuse("team", f"does not equal the bundle directory's name ({team})")
 
@@ -359,7 +359,7 @@ def _parse_member(team: str, bundle_dir: pathlib.Path, data: dict[str, object]) 
     human_text = data.get("human_text", True)
     if not isinstance(human_text, bool):
         raise refuse("human_text", "must be true or false")
-    limits = _limits(data.get("limits", {}), refuse)
+    member_limits = _limits(data, f"team {team}: {bundle_dir / MEMBER_FILE}")
 
     return Member(
         team=team,
@@ -372,7 +372,7 @@ def _parse_member(team: str, bundle_dir: pathlib.Path, data: dict[str, object]) 
         admin=admin,
         room=room,
         human_text=human_text,
-        limits=limits,
+        limits=member_limits,
         bundle_dir=bundle_dir,
         token_path=bundle_dir / TOKEN_FILE,
     )
@@ -447,10 +447,15 @@ def _ip_literal(host: str) -> str | None:
         return None
 
 
-def _limits(value: object, refuse: Refuse) -> dict[str, int]:
-    if not isinstance(value, dict):
-        raise refuse("limits", "must be an object")
-    for key, entry in value.items():
-        if not isinstance(key, str) or type(entry) is not int:
-            raise refuse("limits", "values must be integers")
-    return dict(value)
+def _limits(data: Mapping[str, object], where: str) -> limits.Limits:
+    """`limits` absent gives the defaults; present, it must be an object `limits.py`
+    accepts (an explicit `null` is refused, not read as absent)."""
+    if "limits" not in data:
+        return limits.Limits()
+    value = data["limits"]
+    if value is None:
+        raise ConfigError(f"{where}: limits must be an object")
+    try:
+        return limits.parse_limits(value)
+    except limits.LimitsError as exc:
+        raise ConfigError(f"{where}: {exc}") from None

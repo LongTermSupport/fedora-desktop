@@ -207,7 +207,14 @@ class TestProtocolDoc(unittest.TestCase):
         patterns = fenced(sub, "text")[0].splitlines()
         parsed = tuple(tuple(line.split(None, 1)) for line in patterns if line.strip())
         self.assertEqual(parsed, p.SECRET_PATTERNS)
-        self.assertIn("drop (`text`)", sub)
+        flat = " ".join(sub.split())
+        self.assertIn("ignore (`agent-text`)", flat)
+        self.assertNotIn("drop (`text`)", flat)
+
+    def test_agent_text_is_ignored_on_the_ping_path(self) -> None:
+        flat = " ".join(section(self.text, 9).split())
+        self.assertIn("ignore it (`agent-text`): no `dropped.log` line, no `DROPPED` count", flat)
+        self.assertNotIn("drop (`text`)", flat)
 
     def test_human_path_order(self) -> None:
         """Fallback removal precedes the stale and rate steps, as `validate_event` does it."""

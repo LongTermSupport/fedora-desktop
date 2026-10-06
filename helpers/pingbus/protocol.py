@@ -53,13 +53,16 @@ RESERVED_LOCALPARTS = ("admin", "conduit")
 #: Between `<n>` and `<host>` in a handle. Probe H4 decides whether it stays `+`.
 HANDLE_SEP = "+"
 HANDLE_TYPES = ("podman", "lxc", "docker", "vm", "host")
+#: The handle's `<repo>` and `<host>` parts; the registry's seat key is built from them.
+HANDLE_REPO_PATTERN = r"[a-z0-9][a-z0-9_-]{0,47}"
+HANDLE_HOST_PATTERN = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
 
 
 def handle_pattern(sep: str) -> str:
     """The agent-handle pattern with `sep` as the separator."""
     return (
-        rf"(?P<repo>[a-z0-9][a-z0-9_-]{{0,47}})\.(?P<n>[1-9][0-9]{{0,5}})"
-        rf"{re.escape(sep)}(?P<host>[a-z0-9](?:[a-z0-9-]{{0,61}}[a-z0-9])?)"
+        rf"(?P<repo>{HANDLE_REPO_PATTERN})\.(?P<n>[1-9][0-9]{{0,5}})"
+        rf"{re.escape(sep)}(?P<host>{HANDLE_HOST_PATTERN})"
         rf"\.(?P<type>{'|'.join(HANDLE_TYPES)})"
     )
 
@@ -132,8 +135,11 @@ HUMAN_POWER = 50
 
 DROP_REASONS = (
     "version", "schema", "size", "edit", "sender", "role", "target", "verb", "ref",
-    "allowlist", "re", "body", "text", "stale", "rate", "unresolved", "provenance",
+    "allowlist", "re", "body", "stale", "rate", "unresolved", "provenance",
 )
+#: The ignore reason for an agent's text to humans received by an agent (spec §7, §9):
+#: it is for the humans, so an agent ignores it silently and it is never a drop.
+IGNORE_AGENT_TEXT = "agent-text"
 #: Codes that refuse a send and never name a receive drop.
 SEND_REFUSALS = ("secret",)
 #: Codes this module never produces: limits (`stale`, `rate`) and the forge check.
@@ -366,6 +372,12 @@ def _path_ok(path: str) -> bool:
 
 def _repo_name_ok(repo: str) -> bool:
     return repo not in (".", "..") and not repo.endswith(".git")
+
+
+def is_owner_repo(value: object) -> bool:
+    """A lowercase `OWNER/REPO` as allowlists and references name it (spec §6, §11)."""
+    m = _full(_OWNER_REPO_RE, value)
+    return m is not None and _repo_name_ok(m["repo"])
 
 
 def parse_ref(value: object) -> Ref | None:
@@ -634,7 +646,7 @@ def validate_event(
     if cls == SENDER_HUMAN:
         return _human_outcome(content, event_id, sender, ts, self_user_id, human_text)
     if TEXT_KEY in content:
-        return Outcome(DROP, "text")
+        return Outcome(IGNORE, IGNORE_AGENT_TEXT)
     try:
         ping = validate_content(content, ctx)
         check_role(ping.verb, sender, ctx)
@@ -660,8 +672,7 @@ def _parse_repos(value: object) -> dict[str, tuple[str, ...]]:
         if not isinstance(item, dict) or set(item) != {"repo", "branches"}:
             raise Untrusted("repos entry")
         name = item["repo"]
-        m = _full(_OWNER_REPO_RE, name)
-        if m is None or not _repo_name_ok(m["repo"]) or name in repos:
+        if not is_owner_repo(name) or name in repos:
             raise Untrusted("repos entry")
         branches = _list_of(item["branches"], 1, BRANCHES_MAX)
         if not all(is_branch_name(b) for b in branches):
@@ -806,7 +817,7 @@ def _check_human_targets(to: list[str], ctx: Context) -> tuple[str, ...]:
 
 def validate_text_content(content: object, ctx: Context) -> AgentText:
     """Check an agent's text to humans against spec §7 on send. Returns the parsed text or
-    raises `Refusal` (`secret` among them). Receivers never accept it: see `validate_event`."""
+    raises `Refusal` (`secret` among them). Agents receiving it ignore it: see `validate_event`."""
     if not isinstance(content, dict):
         raise Refusal("schema")
     _check_version_first(content.get(TEXT_KEY))

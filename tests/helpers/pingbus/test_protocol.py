@@ -145,10 +145,15 @@ class TestConstants(unittest.TestCase):
             p.DROP_REASONS,
             (
                 "version", "schema", "size", "edit", "sender", "role", "target", "verb",
-                "ref", "allowlist", "re", "body", "text", "stale", "rate", "unresolved",
+                "ref", "allowlist", "re", "body", "stale", "rate", "unresolved",
                 "provenance",
             ),
         )
+
+    def test_agent_text_is_not_a_drop_reason(self) -> None:
+        self.assertNotIn("text", p.DROP_REASONS)
+        with self.assertRaises(ValueError):
+            p.Refusal("text")
 
     def test_send_only_refusals(self) -> None:
         self.assertEqual(p.SEND_REFUSALS, ("secret",))
@@ -175,6 +180,13 @@ class TestHandleSeparator(unittest.TestCase):
     def test_pattern_follows_the_constant(self) -> None:
         self.assertEqual(p.handle_pattern("="), p.HANDLE_PATTERN.replace("\\+", "="))
         self.assertEqual(p.handle_pattern(p.HANDLE_SEP), p.HANDLE_PATTERN)
+
+    def test_pattern_is_built_from_its_part_patterns(self) -> None:
+        # Other modules (the registry's seat) compose the same parts, so they are public.
+        self.assertIn(p.HANDLE_REPO_PATTERN, p.HANDLE_PATTERN)
+        self.assertIn(p.HANDLE_HOST_PATTERN, p.HANDLE_PATTERN)
+        self.assertEqual(p.HANDLE_REPO_PATTERN, r"[a-z0-9][a-z0-9_-]{0,47}")
+        self.assertEqual(p.HANDLE_HOST_PATTERN, r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 
     def test_format_handle(self) -> None:
         self.assertEqual(p.format_handle("myrepo", 3, "workstation", "lxc"), "myrepo.3+workstation.lxc")
@@ -704,6 +716,14 @@ class TestIdentifiers(unittest.TestCase):
                 with self.subTest(kind=prefix, value=value):
                     self.assertEqual(check(value), valid)
 
+    def test_owner_repo(self) -> None:
+        for value, valid in (("owner/repo", True), ("o-1/r.e_p-o", True), ("owner/.", False),
+                             ("owner/..", False), ("owner/repo.git", False), ("Owner/repo", False),
+                             ("owner/Repo", False), ("-owner/repo", False), ("owner", False),
+                             ("owner/repo/x", False), ("a" * 40 + "/r", False), (None, False)):
+            with self.subTest(value=value):
+                self.assertEqual(p.is_owner_repo(value), valid)
+
     def test_human_localparts(self) -> None:
         for name, valid in (("human1", True), ("a", True), ("a" * 32, True), ("a" * 33, False),
                             ("1abc", False), ("a+b", False), ("a.b", False), ("Abc", False),
@@ -828,7 +848,6 @@ class TestPingEvent(unittest.TestCase):
             "allowlist": (event(ORCH, wrap(dict(ok, ref=f"commit:example-org/other@{SHA}"))), make_ctx()),
             "re": (event(ORCH, wrap(dict(ok, re=EVENT_ID_2))), make_ctx()),
             "body": (event(ORCH, dict(wrap(ok), body="[agent-bus] fetch")), make_ctx()),
-            "text": (event(ORCH, p.build_text([HUMAN], "status: all green")), make_ctx()),
         }
         for reason, (ev, ctx) in producers.items():
             with self.subTest(reason=reason):
@@ -1097,7 +1116,9 @@ class TestAgentText(unittest.TestCase):
                 p.check_text_sender(sender, ctx)
             self.assertEqual(caught.exception.reason, "role")
 
-    def test_every_agent_drops_agent_text_whatever_its_addressing(self) -> None:
+    def test_every_agent_ignores_agent_text_whatever_its_addressing(self) -> None:
+        """Agent text is for humans: an agent receiving it ignores it silently. It is not a
+        drop, so it reaches no `dropped.log`, no `DROPPED` count and no exit status."""
         good = self.good()
         cases = [
             ("to humans", good),
@@ -1111,7 +1132,8 @@ class TestAgentText(unittest.TestCase):
             for sender, me in ((ORCH, WORKER), (ORCH, WORKER2), (WORKER, ORCH)):
                 with self.subTest(case=label, sender=sender, me=me):
                     out = p.validate_event(event(sender, body), make_ctx(), me)
-                    self.assertEqual((out.kind, out.reason), (p.DROP, "text"))
+                    self.assertEqual((out.kind, out.reason), (p.IGNORE, "agent-text"))
+                    self.assertIsNone(out.ping)
 
     def test_a_non_member_sending_text_is_sender(self) -> None:
         out = p.validate_event(event(NO_ROLE, self.good()), make_ctx(), WORKER)

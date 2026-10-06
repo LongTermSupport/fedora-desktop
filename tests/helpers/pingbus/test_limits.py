@@ -132,6 +132,16 @@ class ParseLimitsTest(unittest.TestCase):
         with self.assertRaises(lim.LimitsError):
             lim.parse_limits({"duplicate_window_s": 10})
 
+    def test_unknown_key_never_quoted(self):
+        # A key may be a value pasted into the wrong place (a token), so the message names
+        # the keys that can be overridden instead of the ones it was given.
+        pasted = "syt_bm90YXRva2Vu_notarealtoken"
+        with self.assertRaises(lim.LimitsError) as ctx:
+            lim.parse_limits({pasted: 10})
+        self.assertNotIn(pasted[:8], str(ctx.exception))
+        for key in lim.BOUNDS:
+            self.assertIn(key, str(ctx.exception))
+
     def test_wrong_types_refused(self):
         for bad in (True, False, 20.0, "20", None, [20], {"v": 20}):
             with self.subTest(value=bad):

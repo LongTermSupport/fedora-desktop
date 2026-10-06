@@ -16,7 +16,7 @@ as a closed verb about a file under the team's `path_prefixes`, at a commit reac
 trusted branch of an allowlisted repository (§5, §6); everything else a ping points at is
 data. A **human message** is free text from one of the team's humans, addressed to the
 agent, delivered marked with that human's name (§7). An agent may write free text to the team's
-humans (§7), but no agent ever receives it, whoever it is addressed to. Which accounts are humans and which
+humans (§7), but every agent ignores it, whoever it is addressed to. Which accounts are humans and which
 agents hold roles is read from the team record (§8), which only the team's `admin` account
 can write. Any member can send raw events with its own token, so every receiver re-checks
 everything (§9).
@@ -225,8 +225,10 @@ agent's `ack`, `nack`, `done` or `blocked` addressed to that human.
 
 An agent may write free text to one or more of the team's humans (a coordinator answering
 the owner, say) with `pingbus say` (§13). It is for humans only: it is addressed to listed
-humans and never to an agent, and **every agent drops every agent-sent text on receive,
-whatever its addressing** (§9: drop (`text`)). The humans read it in Element.
+humans and never to an agent, and **every agent ignores every agent-sent text on receive,
+whatever its addressing** (§9: ignore (`agent-text`)). It is not a drop: it is traffic for
+the humans, so it writes no `dropped.log` line, adds to no `DROPPED` count and never sets
+an exit code. The humans read it in Element.
 
 An `m.room.message` whose content has exactly these keys:
 
@@ -369,7 +371,8 @@ a clock and are the caller's, so a reply that is empty after removal is ignored 
 counts as `stale` or towards the flood limit.
 
 **Ping path:** 04p. Content carries the key `agent_bus.text` (an agent's text to humans, §7,
-well formed or not, whoever it addresses): drop (`text`). 05p. Content fails §4-§6 or §11
+well formed or not, whoever it addresses): ignore it (`agent-text`): no `dropped.log`
+line, no `DROPPED` count, no effect on the exit code. 05p. Content fails §4-§6 or §11
 offline (the same function as on send): drop
 with that reason; agent free text, a notice without the ping key, or a `body` that is not the
 rendering all end here (`schema` / `body`). 06p. Verb not permitted for the sender's role:
@@ -386,7 +389,7 @@ code in the checkout could have written). Before printing an item, `recv` and `w
 with `GET /rooms/{room}/event/{event}` and print from the fetched copy.
 
 **Drop reason codes** (closed set): `version`, `schema`, `size`, `edit`, `sender`, `role`,
-`target`, `verb`, `ref`, `allowlist`, `re`, `body`, `text`, `stale`, `rate`, `unresolved`,
+`target`, `verb`, `ref`, `allowlist`, `re`, `body`, `stale`, `rate`, `unresolved`,
 `provenance`.
 
 **Send-only refusals**: `secret` (§7). It refuses a send and never names a receive drop.

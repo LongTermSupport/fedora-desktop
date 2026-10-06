@@ -72,7 +72,7 @@ repository; opt-in per machine and per team.
   wake through the session inbox socket. Units rebuilt as U00–U28; the wave-1 branches'
   code is reused, not merged.
 - [x] ✅ **Task 1.5**: OWNER, answered: (1) an agent may send free text to a human, which
-  every agent still drops, and pingbus refuses secret-shaped text; (2) a homeserver may
+  every agent ignores (not a drop: DESIGN.md D30), and pingbus refuses secret-shaped text; (2) a homeserver may
   listen on any address it is given, and v1 has no TLS (DESIGN.md §3.3 says what that
   costs); (3) Plan 00160 Task 3.3 is done (ccy 3.84.0). Folded into DESIGN.md.
 
@@ -83,7 +83,10 @@ repository; opt-in per machine and per team.
   against a real Tuwunel in the container (journal 26-10-06, U00 finding), and its
   corrections are folded into DESIGN.md §3.6, §3.7, §4 and P7; the review's fixes are in.
   The host run is pending; H1/H2's dummy-address leg needs an `agentbus0` (U16) first.
-- [ ] ⬜ **M1 host-to-host ping, through the installer**: U02–U11, U13–U17.
+- [ ] 🔄 **M1 host-to-host ping, through the installer**: U02–U11, U13–U17. Built and
+  integrated (wave 1): U02 (spec `docs/agent-bus-protocol.md`, `protocol.py`), U03
+  (`limits.py`), U04 (`config.py`, its `limits` parsed by U03) and U14 (`teamfile.py`,
+  `registry.py`, their grammars imported from `protocol.py`).
 - [ ] ⬜ **M2 ccy members, the idle session woken**: U12, U18–U20.
 - [ ] ⬜ **M3 other encapsulations and hosts, the play**: U21–U24.
 - [ ] ⬜ **M4 Element, deploy and acceptance (privacy checks P1–P8)**: U25–U28 (U26, TLS,

@@ -22,6 +22,7 @@ import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
 from helpers.agent_bus import teamfile
+from helpers.pingbus import protocol
 
 VALID = {
     "team": "alpha",
@@ -89,6 +90,44 @@ class ValidTeamFileTest(unittest.TestCase):
     def test_listen_addresses_include_loopback_first(self) -> None:
         tf = teamfile.parse_team_file(VALID)
         self.assertEqual(tf.listen_addresses(), ("127.0.0.1", "192.0.2.10", "198.51.100.1"))
+
+
+class SharedWithTheTeamRecordTest(unittest.TestCase):
+    """The team file feeds the team record, so what one accepts the other must too: the
+    grammars are imported from helpers/pingbus/protocol.py, not copied."""
+
+    def test_no_grammar_is_copied(self) -> None:
+        for name in ("TEAM_PATTERN", "HUMAN_LOCALPART_PATTERN", "RESERVED_LOCALPARTS",
+                     "OWNER_PATTERN", "REPO_PATTERN", "BRANCH_PATTERN", "SEG_PATTERN",
+                     "PATH_MAX_SEGMENTS"):
+            with self.subTest(name=name):
+                self.assertFalse(hasattr(teamfile, name))
+
+    def test_a_valid_team_file_is_a_valid_team_record(self) -> None:
+        tf = teamfile.parse_team_file(_with(path_prefixes=["docs/agent-bus.md", "CLAUDE/Plan/"]))
+        record = {
+            "v": protocol.PROTOCOL_VERSION,
+            "team": tf.team,
+            "humans": [f"@{h}:{tf.server_name}" for h in tf.humans],
+            "roles": {},
+            "repos": [{"repo": r.repo, "branches": list(r.branches)} for r in tf.repos],
+            "path_prefixes": list(tf.path_prefixes),
+            "forge_api": tf.forge_api,
+        }
+        parsed = protocol.parse_team_record(record, tf.server_name, tf.team)
+        self.assertEqual(parsed.path_prefixes, tf.path_prefixes)
+
+    def test_record_refusals_are_team_file_refusals(self) -> None:
+        cases = {
+            "team": "a" * 25,
+            "humans": ["admin"],
+            "repos": [{"repo": "owner/repo.git", "branches": ["main"]}],
+            "path_prefixes": ["a/../b"],
+        }
+        for key, value in cases.items():
+            with self.subTest(key=key):
+                with self.assertRaises(teamfile.TeamFileError):
+                    teamfile.parse_team_file(_with(**{key: value}))
 
 
 class RefusedTeamFileTest(unittest.TestCase):

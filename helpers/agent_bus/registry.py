@@ -1,6 +1,7 @@
 """Member handles and the per-team registry, `/var/lib/agent-bus/<team>/registry.json`.
 
-A handle is `<repo>.<n>+<host>.<type>` (PROTOCOL.md section 3). The registry keeps each
+A handle is `<repo>.<n>+<host>.<type>` (protocol spec, docs/agent-bus-protocol.md §3; its
+grammar is imported from `helpers/pingbus/protocol.py`). The registry keeps each
 current member's handle with its role, and one counter per seat `<repo>+<host>.<type>`;
 `<n>` is one more than the seat's counter and the counter never goes down, so a removed
 member's handle is never handed out again.
@@ -26,31 +27,24 @@ from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import TypeVar
 
-from helpers.agent_bus.teamfile import TEAM_PATTERN, decode_strict_json
+from helpers.agent_bus.teamfile import decode_strict_json
+from helpers.pingbus import protocol
 
 REGISTRY_VERSION = 1
-HANDLE_SEP = "+"
-TYPES = ("podman", "lxc", "docker", "vm", "host")
-ROLES = ("orchestrator", "worker")
+#: The handle grammar is the protocol's (one home, so probe H4 can change the separator).
+HANDLE_SEP = protocol.HANDLE_SEP
+TYPES = protocol.HANDLE_TYPES
+ROLES = protocol.ROLES
 REPO_MAX = 48
 N_MAX = 999_999
-REPO_PART_PATTERN = r"[a-z0-9][a-z0-9_-]{0,47}"
-HOST_PART_PATTERN = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
-TYPE_PATTERN = "|".join(TYPES)
-HANDLE_PATTERN = (
-    rf"(?P<repo>{REPO_PART_PATTERN})\.(?P<n>[1-9][0-9]{{0,5}})"
-    rf"{re.escape(HANDLE_SEP)}(?P<host>{HOST_PART_PATTERN})\.(?P<type>{TYPE_PATTERN})"
-)
 SEAT_PATTERN = (
-    rf"(?P<repo>{REPO_PART_PATTERN}){re.escape(HANDLE_SEP)}"
-    rf"(?P<host>{HOST_PART_PATTERN})\.(?P<type>{TYPE_PATTERN})"
+    rf"(?P<repo>{protocol.HANDLE_REPO_PATTERN}){re.escape(HANDLE_SEP)}"
+    rf"(?P<host>{protocol.HANDLE_HOST_PATTERN})\.(?P<type>{'|'.join(TYPES)})"
 )
 REGISTRY_KEYS = frozenset({"v", "team", "counters", "members"})
 
-_HANDLE_RE = re.compile(HANDLE_PATTERN)
 _SEAT_RE = re.compile(SEAT_PATTERN)
-_TEAM_RE = re.compile(TEAM_PATTERN)
-_HOST_PART_RE = re.compile(HOST_PART_PATTERN)
+_HOST_PART_RE = re.compile(protocol.HANDLE_HOST_PATTERN)
 _REPO_UNSAFE_RE = re.compile(r"[^a-z0-9_-]")
 _HOST_UNSAFE_RE = re.compile(r"[^a-z0-9-]")
 
@@ -89,7 +83,7 @@ def resolve_host(explicit: str | None, role: str | None) -> str:
         raise HandleError("no role is set for this install: pass --host")
     host = _HOST_UNSAFE_RE.sub("-", raw.lower())
     if not _HOST_PART_RE.fullmatch(host):
-        raise HandleError(f"host {raw!r} does not fit {HOST_PART_PATTERN} once normalised")
+        raise HandleError(f"host {raw!r} does not fit {protocol.HANDLE_HOST_PATTERN} once normalised")
     return host
 
 
@@ -103,17 +97,17 @@ def _seat(repo: str, host: str, type_: str) -> str:
 def build_handle(repo: str, n: int, host: str, type_: str) -> str:
     if type(n) is not int or not 1 <= n <= N_MAX:
         raise HandleError(f"handle number must be an integer from 1 to {N_MAX}")
-    handle = f"{repo}.{n}{HANDLE_SEP}{host}.{type_}"
-    if not _HANDLE_RE.fullmatch(handle):
+    handle = protocol.format_handle(repo, n, host, type_)
+    if protocol.parse_handle(handle) is None:
         raise HandleError(f"handle {handle!r} does not fit the handle grammar")
     return handle
 
 
 def seat_of(handle: str) -> str:
-    match = _HANDLE_RE.fullmatch(handle)
-    if match is None:
+    parsed = protocol.parse_handle(handle)
+    if parsed is None:
         raise HandleError(f"{handle!r} is not an agent handle")
-    return f"{match['repo']}{HANDLE_SEP}{match['host']}.{match['type']}"
+    return f"{parsed.repo}{HANDLE_SEP}{parsed.host}.{parsed.type}"
 
 
 def _check_role(role: object) -> str:
@@ -145,8 +139,8 @@ class Registry:
 
     @classmethod
     def empty(cls, team: str) -> Registry:
-        if not _TEAM_RE.fullmatch(team):
-            raise RegistryError(f"team {team!r} must match {TEAM_PATTERN}")
+        if not protocol.is_team_name(team):
+            raise RegistryError(f"team {team!r} must match {protocol.TEAM_NAME_PATTERN}")
         return cls(team)
 
     def add_member(self, repo: str, host: str, type_: str, role: str) -> tuple[Registry, str]:
@@ -189,8 +183,8 @@ def parse_registry(data: object) -> Registry:
     if type(data["v"]) is not int or data["v"] != REGISTRY_VERSION:
         raise RegistryError(f"registry version must be {REGISTRY_VERSION}")
     team = data["team"]
-    if not isinstance(team, str) or not _TEAM_RE.fullmatch(team):
-        raise RegistryError(f"registry team must match {TEAM_PATTERN}")
+    if not protocol.is_team_name(team):
+        raise RegistryError(f"registry team must match {protocol.TEAM_NAME_PATTERN}")
     counters = data["counters"]
     if not isinstance(counters, dict):
         raise RegistryError("registry counters must be an object")
@@ -203,11 +197,11 @@ def parse_registry(data: object) -> Registry:
     if not isinstance(members, dict):
         raise RegistryError("registry members must be an object")
     for handle, role in members.items():
-        match = _HANDLE_RE.fullmatch(handle)
-        if match is None:
+        parsed = protocol.parse_handle(handle)
+        if parsed is None:
             raise RegistryError(f"registry member {handle!r} is not an agent handle")
         _check_role(role)
-        if int(match["n"]) > counters.get(seat_of(handle), 0):
+        if parsed.n > counters.get(seat_of(handle), 0):
             raise RegistryError(f"registry member {handle!r} is beyond its seat's counter")
     return Registry(team, counters, members)
 

@@ -6,7 +6,7 @@ Run from the repo root:
 
 `registry.json` (`/var/lib/agent-bus/<team>/registry.json`) holds each member handle
 with its role and the counter of every `<repo>+<host>.<type>` seat, so a handle's
-`<n>` is never reused (PROTOCOL.md section 3, DESIGN.md section 3.4).
+`<n>` is never reused (docs/agent-bus-protocol.md §3, Plan 00161's DESIGN.md section 3.4).
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
 from helpers.agent_bus import registry
+from helpers.pingbus import protocol
 
 
 class NormaliseRepoTest(unittest.TestCase):
@@ -96,6 +97,18 @@ class BuildHandleTest(unittest.TestCase):
         ):
             with self.subTest(args), self.assertRaises(registry.HandleError):
                 registry.build_handle(*args)
+
+    def test_grammar_is_protocols(self) -> None:
+        # The handle grammar has one home, helpers/pingbus/protocol.py; probe H4 may change
+        # its separator, and the registry must follow without an edit of its own.
+        self.assertIs(registry.HANDLE_SEP, protocol.HANDLE_SEP)
+        self.assertIs(registry.TYPES, protocol.HANDLE_TYPES)
+        self.assertIs(registry.ROLES, protocol.ROLES)
+        self.assertFalse(hasattr(registry, "HANDLE_PATTERN"))
+        for type_ in protocol.HANDLE_TYPES:
+            handle = registry.build_handle("a_b", 999_999, "h-1", type_)
+            parsed = protocol.parse_handle(handle)
+            self.assertEqual((parsed.repo, parsed.n, parsed.host, parsed.type), ("a_b", 999_999, "h-1", type_))
 
     def test_seat_of_handle(self) -> None:
         self.assertEqual(registry.seat_of("myrepo.12+ws.lxc"), "myrepo+ws.lxc")

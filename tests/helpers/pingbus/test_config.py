@@ -4,7 +4,7 @@ Run from the repo root:
 
     python3 -m unittest tests.helpers.pingbus.test_config
 
-Spec: PROTOCOL.md section 12 (bundle, member.json, PINGBUS_HOME, PINGBUS_TEAMS, --team)
+Spec: docs/agent-bus-protocol.md §12 (bundle, member.json, PINGBUS_HOME, PINGBUS_TEAMS, --team)
 and DESIGN.md sections 5.1, 5.2 (Python gate, human_text) and 8 (no `host` member beside
 an Element profile). Every bundle here is built in a temporary directory.
 """
@@ -22,7 +22,7 @@ from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import config
+from helpers.pingbus import config, limits
 
 SN = "team-a.agent-bus.internal"
 HANDLE = "myrepo.1+workstation.podman"
@@ -113,7 +113,7 @@ class TestSchema(BundleCase):
         self.assertEqual(member.room, ROOM)
         self.assertEqual(member.bundle_dir, self.home / "team-a")
         self.assertEqual(member.state_dir, self.home / "team-a" / "state")
-        self.assertEqual(member.limits, {})
+        self.assertEqual(member.limits, limits.Limits())
 
     def test_human_text_defaults_to_true(self) -> None:
         self.write_bundle()
@@ -247,14 +247,31 @@ class TestSchema(BundleCase):
         error = self.assert_refused(contains="unknown key")
         self.assertNotIn(TOKEN[:8], str(error))
 
-    def test_limits_shape(self) -> None:
+    def test_limits_parsed_by_limits_module(self) -> None:
         self.write_bundle(data=member_json(limits={"send_burst": 5}))
-        self.assertEqual(self.load().limits, {"send_burst": 5})
-        for bad in ([], {"send_burst": "5"}, {"send_burst": True}, {"send_burst": 1.5}):
+        self.assertEqual(self.load().limits, limits.Limits(send_burst=5))
+
+    def test_limits_refused(self) -> None:
+        for bad in (
+            [],
+            None,
+            {"send_burst": "5"},
+            {"send_burst": True},
+            {"send_burst": 1.5},
+            {"send_burst": 31},
+            {"send_burst": 0},
+            {"duplicate_window_s": 10},
+        ):
             with self.subTest(bad=bad):
                 self.setUp()
                 self.write_bundle(data=member_json(limits=bad))
-                self.assert_refused(contains="limits")
+                error = self.assert_refused(contains="limits")
+                self.assertIn(str(self.home / "team-a" / "member.json"), str(error))
+
+    def test_limits_unknown_key_never_quoted(self) -> None:
+        self.write_bundle(data=member_json(limits={TOKEN: 1}))
+        error = self.assert_refused(contains="limits")
+        self.assertNotIn(TOKEN[:8], str(error))
 
     def test_member_repr_has_no_token(self) -> None:
         self.write_bundle()
