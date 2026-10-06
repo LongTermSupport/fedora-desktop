@@ -1,0 +1,106 @@
+#!/bin/bash
+# agent-bus — run the agent team bus admin tool as the agent-bus system user.
+#
+# Plan 00161, DESIGN.md sections 3.7 and 5.1. The team's secrets belong to agent-bus, so
+# every command runs as that user (runuser). A bundle cannot be written by agent-bus into
+# a human's 0700 home, so for add-member and rotate-token the tool writes it to stdout as
+# a tar, and this wrapper, as root, unpacks the named files in a private temporary
+# directory and installs them under --out for the user who ran sudo.
+#
+# Usage (see `sudo agent-bus --help`):
+#   sudo agent-bus add-member TEAM --repo=R --host=H --type=T --role=R --address=IP --out=DIR
+#   sudo agent-bus rotate-token TEAM HANDLE --out=DIR
+#   sudo agent-bus human password TEAM NAME
+#
+# Exit codes: the tool's (DESIGN.md section 4), plus 64 for a bad --out or a missing
+# sudo, and 77 when not run as root.
+set -euo pipefail
+
+readonly AGENT_BUS_USER=agent-bus
+readonly AGENT_BUS_PYZ=/usr/local/lib/agent-bus/agent-bus.pyz
+readonly BUNDLE_FILES=(member.json token README)
+readonly TOKEN_FILES=(token)
+readonly EXIT_USAGE=64
+readonly EXIT_NOT_ROOT=77
+# The private directory the bundle is unpacked in; removed on exit.
+WORK_DIR=""
+
+remove_work_dir() {
+    if [[ -n $WORK_DIR ]]; then
+        rm -rf -- "$WORK_DIR"
+    fi
+}
+
+die() {
+    local status=$1
+    shift
+    printf 'agent-bus: %s\n' "$*" >&2
+    exit "$status"
+}
+
+run_admin_tool() {
+    cd /
+    runuser -u "$AGENT_BUS_USER" -- /usr/bin/python3 -I "$AGENT_BUS_PYZ" "$@"
+}
+
+place_bundle() {
+    local command=$1
+    shift
+    local out="" arg
+    local -a args=()
+    for arg in "$@"; do
+        case $arg in
+            --out=*)
+                [[ -z $out ]] || die "$EXIT_USAGE" "--out given twice"
+                out=${arg#--out=}
+                ;;
+            --out)
+                die "$EXIT_USAGE" "use --out=DIR"
+                ;;
+            *)
+                args+=("$arg")
+                ;;
+        esac
+    done
+    [[ -n $out ]] || die "$EXIT_USAGE" "$command needs --out=DIR, the member's bundle directory"
+    [[ $out == /* ]] || die "$EXIT_USAGE" "--out must be an absolute path"
+    [[ ${SUDO_UID:-} =~ ^[0-9]+$ && ${SUDO_GID:-} =~ ^[0-9]+$ ]] \
+        || die "$EXIT_USAGE" "run it through sudo: the bundle is given to the user who ran sudo"
+
+    local -a files
+    if [[ $command == add-member ]]; then
+        files=("${BUNDLE_FILES[@]}")
+        [[ ! -e $out/token ]] || die "$EXIT_USAGE" "$out already holds a bundle; it is not overwritten"
+    else
+        files=("${TOKEN_FILES[@]}")
+        [[ -f $out/member.json ]] || die "$EXIT_USAGE" "$out holds no bundle to rotate the token of"
+    fi
+
+    WORK_DIR=$(mktemp -d)
+    trap remove_work_dir EXIT
+    run_admin_tool "$command" "${args[@]}" >"$WORK_DIR/bundle.tar"
+    mkdir "$WORK_DIR/files"
+    tar -x --no-same-owner --no-same-permissions -f "$WORK_DIR/bundle.tar" -C "$WORK_DIR/files" -- "${files[@]}"
+    install -d -o "$SUDO_UID" -g "$SUDO_GID" -m 0700 -- "$out"
+    local file
+    for file in "${files[@]}"; do
+        install -o "$SUDO_UID" -g "$SUDO_GID" -m 0600 -- "$WORK_DIR/files/$file" "$out/$file"
+    done
+    printf 'agent-bus: wrote %s to %s\n' "${files[*]}" "$out" >&2
+}
+
+main() {
+    [[ $EUID -eq 0 ]] || die "$EXIT_NOT_ROOT" "run it as root: sudo agent-bus ..."
+    case ${1:-} in
+        add-member | rotate-token)
+            place_bundle "$@"
+            ;;
+        *)
+            run_admin_tool "$@"
+            ;;
+    esac
+}
+
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+    main "$@"
+fi
