@@ -15,15 +15,16 @@ stderr (§15), and reflected in the exit code (§14). "Ignore" means skipped sil
 as a closed verb about a file under the team's `path_prefixes`, at a commit reachable from a
 trusted branch of an allowlisted repository (§5, §6); everything else a ping points at is
 data. A **human message** is free text from one of the team's humans, addressed to the
-agent, delivered marked with that human's name (§7). Which accounts are humans and which
+agent, delivered marked with that human's name (§7). An agent may write free text to the team's
+humans (§7), but no agent ever receives it, whoever it is addressed to. Which accounts are humans and which
 agents hold roles is read from the team record (§8), which only the team's `admin` account
 can write. Any member can send raw events with its own token, so every receiver re-checks
 everything (§9).
 
 ## 1. Version and scope
 
-- `PROTOCOL_VERSION = 1`. Every ping carries `"v": 1`; the team record and status carry
-  `"v": 1`. A receiver drops a ping with any other value (`version`).
+- `PROTOCOL_VERSION = 1`. Every ping and every agent text carries `"v": 1`; the team record
+  and status carry `"v": 1`. A receiver drops a ping with any other value (`version`).
 - A change to any table in this file that makes a v1 receiver drop what a sender now sends,
   or accept what it used to drop, is a new version. Version 2 receivers may accept v1; v1
   receivers never accept v2.
@@ -35,10 +36,12 @@ everything (§9).
 | ------------- | ------------------ | ----------------- | ---------------- | ------- | ---------------------------- |
 | ping          | `m.room.message`   | room (`m.notice`) | none             | §4      | an agent holding a role      |
 | human message | `m.room.message`   | room (`m.text`)   | none             | §7      | a listed human               |
+| agent text    | `m.room.message`   | room (`m.notice`) | none             | §7      | an agent holding a role      |
 | team record   | `agent_bus.team`   | state             | `""`             | §8      | `admin` (the room's creator) |
 | status        | `agent_bus.status` | state             | sender's user ID | §8      | the member itself            |
 
-The ping's structured form is the content key `agent_bus.ping` (§4).
+The ping's structured form is the content key `agent_bus.ping` (§4); an agent text's is the
+content key `agent_bus.text` (§7).
 
 **Why `agent_bus`.** The owner asked for a prefix that clearly is not a domain name (the bus
 is private; reverse-domain conventions buy nothing). The Matrix spec says custom event types
@@ -89,7 +92,11 @@ handle through both account-creation calls; if Tuwunel's strict localpart check 
 ## 4. Ping
 
 An `m.room.message` whose content has exactly these keys (any other: drop `schema`); the
-serialised content (UTF-8, as received) is at most 4096 bytes (`size`):
+content's compact UTF-8 JSON serialisation (no whitespace between tokens, non-ASCII not
+escaped, keys in received order) is at most 4096 bytes (`size`). When the content is an
+object whose `agent_bus.ping` is an object and its `v` is an integer other than `1`: drop
+(`version`), before any other check, so a later version's new keys or envelope are never
+reported as `schema`.
 
 | Key              | Value                                                |
 | ---------------- | ---------------------------------------------------- |
@@ -214,6 +221,63 @@ A human message is not validated beyond this: it is the human's instruction, and
 receiving session is told whose (§15 `HUMAN` line). Its event ID may be the `re` of an
 agent's `ack`, `nack`, `done` or `blocked` addressed to that human.
 
+### Agent text to humans
+
+An agent may write free text to one or more of the team's humans (a coordinator answering
+the owner, say) with `pingbus say` (§13). It is for humans only: it is addressed to listed
+humans and never to an agent, and **every agent drops every agent-sent text on receive,
+whatever its addressing** (§9: drop (`text`)). The humans read it in Element.
+
+An `m.room.message` whose content has exactly these keys:
+
+| Key              | Value                                                |
+| ---------------- | ---------------------------------------------------- |
+| `msgtype`        | `"m.notice"`                                         |
+| `body`           | exactly `render_text(text)` below (`body`)           |
+| `m.mentions`     | exactly `{"user_ids": <text.to, sorted>}` (`schema`) |
+| `agent_bus.text` | the text object                                      |
+
+The text object, exactly these keys:
+
+| Key    | Type             | Required | Limits                                                                    |
+| ------ | ---------------- | -------- | ------------------------------------------------------------------------- |
+| `v`    | integer          | always   | `1`                                                                       |
+| `to`   | array of strings | always   | 1 to 16 distinct user IDs, each a listed human, never an agent (`target`) |
+| `text` | string           | always   | not empty; at most 4096 UTF-8 bytes (`size`); no secret shape (`secret`)  |
+
+The send-side checks run in this order, the first failure refusing the send: a `v` that is
+an integer other than `1` (`version`); an edit (`m.relates_to`, `m.new_content`: `edit`);
+the keys and types above (`schema`); the size (`size`); the addressees (`target`); the secret
+shapes (`secret`); the mentions (`schema`); the body (`body`). The sender must hold a role
+(`role`). The text counts against the send limits (§10).
+
+**Rendering** (`render_text`): the tag line, a newline, then the text as written:
+
+```
+[agent-bus] text -> <to[0]> <to[1]> ...\n<text>
+```
+
+**Secret shapes.** `pingbus say` refuses text in which any of these patterns is found
+(Python `re.search`; name, then pattern). The set is deliberately conservative: a false
+positive costs a rephrase, or a reference (§6) in place of the text; a leaked credential
+cannot be withdrawn from room history. It is a backstop, not a scanner: it catches only
+the shapes below.
+
+```text
+private-key  -{5}BEGIN[A-Z0-9 ]*PRIVATE KEY-{5}
+github-token  \bgh[pousr]_[A-Za-z0-9]{30,}
+github-pat  \bgithub_pat_[A-Za-z0-9_]{20,}
+aws-access-key-id  \b(?:AKIA|ASIA)[0-9A-Z]{16}\b
+slack-token  \bxox[abposr]-[A-Za-z0-9-]{10,}
+sk-api-key  \bsk-[A-Za-z0-9_-]{20,}
+google-api-key  \bAIza[0-9A-Za-z_-]{35}
+jwt  \beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}
+bearer  (?i)\bbearer\s+[A-Za-z0-9._~+/=-]{16,}
+ansible-vault  \$ANSIBLE_VAULT;
+url-credentials  [A-Za-z][A-Za-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@
+credential-assignment  (?i)\b(?:password|passwd|pwd|secret|token|access[_-]?token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret)\b[\"']?\s*[:=]\s*[\"']?[^\s\"']{8,}
+```
+
 ## 8. The team room: record, status, power levels
 
 **Team record**: `agent_bus.team`, state key `""`, sent by `admin`:
@@ -226,7 +290,7 @@ agent's `ack`, `nack`, `done` or `blocked` addressed to that human.
 | `roles`         | object           | 0 to 64 entries: agent-handle user ID → `"orchestrator"` or `"worker"` |
 | `repos`         | array of objects | §11                                                                    |
 | `path_prefixes` | array of strings | §11                                                                    |
-| `forge_api`     | string           | `https://` URL                                                         |
+| `forge_api`     | string           | `https://[^\s/]+(/\S*)?`                                               |
 
 Unknown keys, or a record not sent by `admin`, make the room untrusted (exit 10 for every
 command that needs it; `status` says why).
@@ -277,11 +341,16 @@ In order; the first failure refuses the send and nothing reaches the homeserver:
 7. `PUT /rooms/{room}/send/m.room.message/{txnId}` with the content of §4; a retry after a
    timeout reuses the txnId.
 
+`pingbus say` runs steps 1, 2 and 5 as above; in place of 3, 4 and 6, the text builds and
+passes §7's agent-text rules and the sender holds a role (exit 4 with the reason code,
+`secret` included); then step 7 with the content of §7.
+
 ### On receive (`recv`, `wait`, `watch`)
 
 With no stored sync token, the first `/sync` uses `timeline.limit: 0` and only records
 `next_batch`: history is never processed. Only the trusted team room is considered. Timeline
-events of any other type are ignored. For each `m.room.message` timeline event, in order:
+events of any other type are ignored, before anything else of them (their event ID included)
+is read. For each `m.room.message` timeline event, in order:
 
 1. Event ID fails §3: drop (`schema`).
 2. Already seen: ignore. Sender is self: ignore.
@@ -293,11 +362,15 @@ events of any other type are ignored. For each `m.room.message` timeline event, 
 
 **Human path:** 04h. The bundle has `"human_text": false`: drop (`sender`). 05h. `msgtype`
 not `m.text`: drop (`schema`). 06h. Edit: drop (`edit`). 07h. Body over the limit: drop
-(`size`). 08h. Not addressed to this agent (§7): ignore. 09h. Too old: drop (`stale`).
-10h. Sender over the receive flood limit: drop (`rate`). 11h. Reply fallback removed (§7);
-empty: ignore. 12h. Write to the inbox.
+(`size`). 08h. Not addressed to this agent (§7): ignore. 09h. Reply fallback removed (§7);
+empty: ignore. 10h. Too old: drop (`stale`). 11h. Sender over the receive flood limit: drop
+(`rate`). 12h. Write to the inbox. Steps 04h-09h are the pure validator's; 10h and 11h need
+a clock and are the caller's, so a reply that is empty after removal is ignored and never
+counts as `stale` or towards the flood limit.
 
-**Ping path:** 05p. Content fails §4-§6 or §11 offline (the same function as on send): drop
+**Ping path:** 04p. Content carries the key `agent_bus.text` (an agent's text to humans, §7,
+well formed or not, whoever it addresses): drop (`text`). 05p. Content fails §4-§6 or §11
+offline (the same function as on send): drop
 with that reason; agent free text, a notice without the ping key, or a `body` that is not the
 rendering all end here (`schema` / `body`). 06p. Verb not permitted for the sender's role:
 drop (`role`). 07p. `to` does not contain this agent: ignore. 08p. `origin_server_ts` older
@@ -313,8 +386,10 @@ code in the checkout could have written). Before printing an item, `recv` and `w
 with `GET /rooms/{room}/event/{event}` and print from the fetched copy.
 
 **Drop reason codes** (closed set): `version`, `schema`, `size`, `edit`, `sender`, `role`,
-`target`, `verb`, `ref`, `allowlist`, `re`, `body`, `stale`, `rate`, `unresolved`,
+`target`, `verb`, `ref`, `allowlist`, `re`, `body`, `text`, `stale`, `rate`, `unresolved`,
 `provenance`.
+
+**Send-only refusals**: `secret` (§7). It refuses a send and never names a receive drop.
 
 ## 10. Limits
 
@@ -332,10 +407,13 @@ silently clamped.
 | `human_max_age_s`        | 86400                                        | 3600 - 604800 |
 | `wait_timeout_s`         | 1500 (`wait --timeout` default)              | 1 - 1790      |
 
+`send` and `say` draw on the same `send_per_minute` / `send_burst` bucket.
+
 Fixed: the duplicate window is 60 s (same verb, ref, re and set of `to` again is refused,
 exit 9); each `/sync` long-poll is 30 s; a server 429 is honoured (`Retry-After`, then
 `retry_after_ms`, then 5 s), at most 3 tries, then exit 9; a ping's content at most 4096
-bytes; a human message's body at most 16384 bytes.
+bytes; a human message's body at most 16384 bytes; an agent text's `text` at most 4096
+bytes.
 
 An ack-expected ping with no `ack` or `nack` from a target by its deadline produces one
 `TIMEOUT` line per silent target in the sender's next `recv` or `wait` (§15).
@@ -404,6 +482,7 @@ homeserver host.
 | Command                                                                        | Does                                                                                                                                                                                                                                                      | Network |
 | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
 | `send VERB [REF] (--to HANDLE[,HANDLE…] \| --to-orchestrator) [--re EVENT_ID]` | the only way to emit a ping; `--to` takes handles, human localparts, or full user IDs                                                                                                                                                                     | yes     |
+| `say --to HUMAN[,HUMAN…]`                                                      | the only way to emit an agent text (§7); the text is read from stdin; `--to` takes human localparts or full user IDs, never a handle                                                                                                                      | yes     |
 | `recv`                                                                         | sync once if the lock is free, then print and consume every pending item and due `TIMEOUT`                                                                                                                                                                | yes     |
 | `wait [--timeout S]`                                                           | hold the locks, long-poll until at least one item or `TIMEOUT`, print and consume them, exit                                                                                                                                                              | yes     |
 | `watch`                                                                        | started by the SessionStart hook: hold the locks, sync, fill the inbox, notify the session socket (counts and a rising notice number)                                                                                                                     | yes     |
@@ -426,7 +505,7 @@ Invites are accepted by the syncer itself, after the checks in §8. `show`, `pee
 | 1    | never assigned (an uncaught exception)                                               |
 | 2    | never assigned (argparse's default is remapped to 64)                                |
 | 3    | nothing: `recv` found nothing; `wait` reached its timeout                            |
-| 4    | refused by the validator, or by role                                                 |
+| 4    | refused by the validator (`secret` included), or by role                             |
 | 5    | the reference did not resolve at the forge, or failed the provenance check           |
 | 6    | `recv` only: received items were dropped and no valid line was printed               |
 | 7    | homeserver unreachable                                                               |
@@ -451,7 +530,7 @@ only ever appended in later versions, never reordered.
 | `PING`    | stdout | `PING`, `1`, team, event ID, sender, verb, ref, re                                   |
 | `HUMAN`   | stdout | `HUMAN`, `1`, team, event ID, sender, `origin_server_ts` (ms), text as a JSON string |
 | `TIMEOUT` | stdout | `TIMEOUT`, `1`, team, event ID of the unanswered ping, silent target, verb, ref      |
-| `SENT`    | stdout | `SENT`, `1`, team, event ID (from `send`)                                            |
+| `SENT`    | stdout | `SENT`, `1`, team, event ID (from `send` or `say`)                                   |
 | `DROPPED` | stderr | `DROPPED`, `1`, count, `reason=count` pairs joined by `,` (one line per batch)       |
 
 The `HUMAN` text field is `json.dumps(body, ensure_ascii=True)`, so newlines, tabs and

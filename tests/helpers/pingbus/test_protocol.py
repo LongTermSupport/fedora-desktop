@@ -145,9 +145,15 @@ class TestConstants(unittest.TestCase):
             p.DROP_REASONS,
             (
                 "version", "schema", "size", "edit", "sender", "role", "target", "verb",
-                "ref", "allowlist", "re", "body", "stale", "rate", "unresolved", "provenance",
+                "ref", "allowlist", "re", "body", "text", "stale", "rate", "unresolved",
+                "provenance",
             ),
         )
+
+    def test_send_only_refusals(self) -> None:
+        self.assertEqual(p.SEND_REFUSALS, ("secret",))
+        self.assertFalse(set(p.SEND_REFUSALS) & set(p.DROP_REASONS))
+        self.assertEqual(p.Refusal("secret").reason, "secret")
 
     def test_refusal_rejects_a_code_outside_the_set(self) -> None:
         for bad in ("made-up", "note", "behalf"):
@@ -465,6 +471,27 @@ class TestPingObjectSchema(RefusalAssertions):
             with self.subTest(case=label):
                 self.assertRefused(reason, p.validate_content, wrap(obj), make_ctx())
 
+    def test_another_version_is_version_before_any_other_check(self) -> None:
+        """§1/§4: a later version's new keys or envelope are never reported as `schema`."""
+        v2 = ping_obj("fetch", ref=REFS["path"], v=2)
+        cases = [
+            ("new ping key", wrap(dict(v2, extra="x"))),
+            ("required key gone", wrap({k: v for k, v in v2.items() if k != "to"})),
+            ("new verb", wrap(dict(v2, verb="deploy"))),
+            ("new value type", wrap(dict(v2, to=WORKER))),
+            ("new envelope key", dict(wrap(v2), extra=1)),
+            ("envelope key gone", {k: v for k, v in wrap(v2).items() if k != "body"}),
+            ("other msgtype", dict(wrap(v2), msgtype="m.text")),
+            ("other body", dict(wrap(v2), body="x")),
+            ("large", dict(wrap(v2), body="x" * p.MAX_CONTENT_BYTES)),
+        ]
+        for label, body in cases:
+            with self.subTest(case=label):
+                self.assertRefused("version", p.validate_content, body, make_ctx())
+                out = p.validate_event(event(ORCH, body), make_ctx(), WORKER)
+                self.assertEqual((out.kind, out.reason), (p.DROP, "version"))
+        self.assertRefused("schema", p.validate_content, wrap(dict(v2, v=True, extra="x")), make_ctx())
+
 
 class TestRefGrammar(unittest.TestCase):
     OWNER39 = "a" + "b" * 37 + "c"
@@ -728,6 +755,18 @@ class TestPingEvent(unittest.TestCase):
         other_type = dict(good, type="m.room.member")
         self.assertEqual(self.outcome(other_type).kind, p.IGNORE)
 
+    def test_other_types_are_ignored_before_the_event_id_check(self) -> None:
+        for label, ev in (
+            ("bad event id", {"type": "m.room.member", "event_id": "bad"}),
+            ("no event id", {"type": "m.room.member"}),
+            ("state event", {"type": p.EVENT_STATUS, "event_id": 5, "state_key": ""}),
+        ):
+            with self.subTest(case=label):
+                out = self.outcome(ev)
+                self.assertEqual((out.kind, out.reason), (p.IGNORE, "type"))
+        out = self.outcome({"event_id": EVENT_ID})
+        self.assertEqual((out.kind, out.reason), (p.IGNORE, "type"))
+
     def test_event_level_drops(self) -> None:
         good = self.good()
         body = good["content"]
@@ -788,6 +827,7 @@ class TestPingEvent(unittest.TestCase):
             "allowlist": (event(ORCH, wrap(dict(ok, ref=f"commit:example-org/other@{SHA}"))), make_ctx()),
             "re": (event(ORCH, wrap(dict(ok, re=EVENT_ID_2))), make_ctx()),
             "body": (event(ORCH, dict(wrap(ok), body="[agent-bus] fetch")), make_ctx()),
+            "text": (event(ORCH, p.build_text([HUMAN], "status: all green")), make_ctx()),
         }
         for reason, (ev, ctx) in producers.items():
             with self.subTest(reason=reason):
@@ -922,6 +962,161 @@ class TestHumanMessage(unittest.TestCase):
         self.assertEqual(p.strip_reply_fallback(""), "")
 
 
+#: One example per secret pattern, assembled so that no literal credential sits in the file.
+SECRET_EXAMPLES = {
+    "private-key": "here: " + "-" * 5 + "BEGIN OPENSSH PRIVATE KEY" + "-" * 5,
+    "github-token": "use gh" + "p_" + "a1B2" * 9,
+    "github-pat": "github" + "_pat_" + "A1b2" * 6,
+    "aws-access-key-id": "key AK" + "IA" + "ABCDEFGH23456789 ok",
+    "slack-token": "xo" + "xb-" + "1234567890-abcdef",
+    "sk-api-key": "s" + "k-" + "ant-api03-" + "x" * 24,
+    "google-api-key": "AI" + "za" + "B" * 35,
+    "jwt": "ey" + "JhbGciOiJIUzI1NiJ9." + "ey" + "JzdWIiOiIxMjM0In0." + "abcdefghijk",
+    "bearer": "Authorization: Bearer " + "abcdef0123456789xyz",
+    "ansible-vault": "$ANSIBLE" + "_VAULT;1.1;AES256",
+    "url-credentials": "clone https://user:" + "pa55word@example.com/x",
+    "credential-assignment": "pass" + "word = hunter2hunter2",
+}
+
+
+class TestAgentText(unittest.TestCase):
+    """§7: an agent's free text to the team's humans, refused on send unless well formed and
+    clean, and dropped by every agent on receive."""
+
+    def assertRefused(self, reason: str, body: object, ctx: p.Context | None = None) -> None:
+        with self.assertRaises(p.Refusal) as caught:
+            p.validate_text_content(body, ctx or make_ctx())
+        self.assertEqual(caught.exception.reason, reason)
+
+    def good(self) -> dict:
+        return p.build_text([HUMAN2, HUMAN], "review done, see the PR\nthanks")
+
+    def test_constants(self) -> None:
+        self.assertEqual(p.TEXT_KEY, "agent_bus.text")
+        self.assertTrue(p.TEXT_KEY.startswith(p.PREFIX + "."))
+        self.assertEqual(p.TEXT_CONTENT_KEYS, ("msgtype", "body", "m.mentions", "agent_bus.text"))
+        self.assertEqual(p.TEXT_OBJECT_KEYS, ("v", "to", "text"))
+        self.assertEqual(p.MSGTYPE_TEXT, "m.notice")
+        self.assertEqual(p.MAX_AGENT_TEXT_BYTES, 4096)
+
+    def test_build_and_render(self) -> None:
+        body = self.good()
+        self.assertEqual(set(body), set(p.TEXT_CONTENT_KEYS))
+        self.assertEqual(body["msgtype"], "m.notice")
+        self.assertEqual(body["m.mentions"], {"user_ids": [HUMAN, HUMAN2]})
+        self.assertEqual(body[p.TEXT_KEY], {"v": 1, "to": [HUMAN, HUMAN2], "text": "review done, see the PR\nthanks"})
+        self.assertEqual(body["body"], f"[agent-bus] text -> {HUMAN} {HUMAN2}\nreview done, see the PR\nthanks")
+        self.assertEqual(body["body"], p.render_text(body[p.TEXT_KEY]))
+
+    def test_good_text_validates(self) -> None:
+        text = p.validate_text_content(self.good(), make_ctx())
+        self.assertEqual((text.to, text.text), ((HUMAN, HUMAN2), "review done, see the PR\nthanks"))
+        one = p.validate_text_content(p.build_text([HUMAN], "x" * p.MAX_AGENT_TEXT_BYTES), make_ctx())
+        self.assertEqual(one.to, (HUMAN,))
+
+    def test_addressed_to_humans_only(self) -> None:
+        for label, to in (
+            ("an agent", [WORKER]),
+            ("a human and an agent", [HUMAN, ORCH]),
+            ("unlisted human", ["@human9:server.test"]),
+            ("foreign human", [FOREIGN_HUMAN]),
+            ("admin", [ADMIN]),
+            ("conduit", [CONDUIT]),
+            ("nobody", []),
+            ("duplicate", [HUMAN, HUMAN]),
+            ("not a user ID", ["human1"]),
+        ):
+            with self.subTest(case=label):
+                self.assertRefused("target", p.build_text(to, "hello"))
+        humans = [f"@h{i}:server.test" for i in range(p.HUMANS_MAX + 1)]
+        ctx = make_ctx(humans=frozenset(humans))
+        p.validate_text_content(p.build_text(humans[:p.HUMANS_MAX], "hi"), ctx)
+        self.assertRefused("target", p.build_text(humans, "hi"), ctx)
+
+    def test_size(self) -> None:
+        self.assertRefused("size", p.build_text([HUMAN], "x" * (p.MAX_AGENT_TEXT_BYTES + 1)))
+        self.assertRefused("size", p.build_text([HUMAN], "é" * (p.MAX_AGENT_TEXT_BYTES // 2 + 1)))
+
+    def test_shape(self) -> None:
+        good = self.good()
+        obj = good[p.TEXT_KEY]
+        cases = [
+            ("not an object", "x", "schema"),
+            ("msgtype text", dict(good, msgtype="m.text"), "schema"),
+            ("extra content key", dict(good, extra=1), "schema"),
+            ("format", dict(good, format="org.matrix.custom.html", formatted_body="<b>x</b>"), "schema"),
+            ("no body", {k: v for k, v in good.items() if k != "body"}, "schema"),
+            ("object string", dict(good, **{p.TEXT_KEY: "hi"}), "schema"),
+            ("object extra key", dict(good, **{p.TEXT_KEY: dict(obj, re=EVENT_ID)}), "schema"),
+            ("object missing text", dict(good, **{p.TEXT_KEY: {"v": 1, "to": obj["to"]}}), "schema"),
+            ("v bool", dict(good, **{p.TEXT_KEY: dict(obj, v=True)}), "schema"),
+            ("text int", dict(good, **{p.TEXT_KEY: dict(obj, text=5)}), "schema"),
+            ("to string", dict(good, **{p.TEXT_KEY: dict(obj, to=HUMAN)}), "schema"),
+            ("empty text", p.build_text([HUMAN], ""), "schema"),
+            ("v two", dict(good, extra=1, **{p.TEXT_KEY: dict(obj, v=2)}), "version"),
+            ("edit", dict(good, **{"m.relates_to": {"rel_type": "m.replace"}}), "edit"),
+            ("new content", dict(good, **{"m.new_content": {}}), "edit"),
+            ("mentions unsorted", dict(good, **{"m.mentions": {"user_ids": [HUMAN2, HUMAN]}}), "schema"),
+            ("mentions room", dict(good, **{"m.mentions": {"user_ids": [HUMAN, HUMAN2], "room": True}}), "schema"),
+            ("mentions an agent", dict(good, **{"m.mentions": {"user_ids": [HUMAN, HUMAN2, WORKER]}}), "schema"),
+            ("body differs", dict(good, body=good["body"] + " also"), "body"),
+            ("body int", dict(good, body=5), "schema"),
+        ]
+        for label, body, reason in cases:
+            with self.subTest(case=label):
+                self.assertRefused(reason, body)
+
+    def test_secret_shaped_text_is_refused(self) -> None:
+        self.assertEqual([name for name, _ in p.SECRET_PATTERNS], list(SECRET_EXAMPLES))
+        for name, text in SECRET_EXAMPLES.items():
+            with self.subTest(pattern=name):
+                self.assertEqual(p.secret_shaped(text), name)
+                self.assertRefused("secret", p.build_text([HUMAN], text))
+
+    def test_ordinary_text_is_not_secret_shaped(self) -> None:
+        for text in (
+            "status: all green",
+            f"see {REFS['pr']} and commit {SHA}",
+            "the token bucket refills at 20 per minute",
+            "password: see the vault",
+            "https://example.com/a/b?x=1",
+            "Bearer of bad news",
+            "use sk-learn",
+            "ask in #agents",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(p.secret_shaped(text))
+
+    def test_sender_must_hold_a_role(self) -> None:
+        ctx = make_ctx()
+        for sender in (ORCH, WORKER):
+            p.check_text_sender(sender, ctx)
+        for sender in (NO_ROLE, HUMAN, ADMIN, CONDUIT, FOREIGN):
+            with self.subTest(sender=sender), self.assertRaises(p.Refusal) as caught:
+                p.check_text_sender(sender, ctx)
+            self.assertEqual(caught.exception.reason, "role")
+
+    def test_every_agent_drops_agent_text_whatever_its_addressing(self) -> None:
+        good = self.good()
+        cases = [
+            ("to humans", good),
+            ("mentions me", dict(good, **{"m.mentions": {"user_ids": [WORKER]}})),
+            ("room mention", dict(good, **{"m.mentions": {"room": True}})),
+            ("malformed object", dict(good, **{p.TEXT_KEY: "x"})),
+            ("as m.text", dict(good, msgtype="m.text")),
+            ("beside a ping", dict(content("halt"), **{p.TEXT_KEY: good[p.TEXT_KEY]})),
+        ]
+        for label, body in cases:
+            for sender, me in ((ORCH, WORKER), (ORCH, WORKER2), (WORKER, ORCH)):
+                with self.subTest(case=label, sender=sender, me=me):
+                    out = p.validate_event(event(sender, body), make_ctx(), me)
+                    self.assertEqual((out.kind, out.reason), (p.DROP, "text"))
+
+    def test_a_non_member_sending_text_is_sender(self) -> None:
+        out = p.validate_event(event(NO_ROLE, self.good()), make_ctx(), WORKER)
+        self.assertEqual((out.kind, out.reason), (p.DROP, "sender"))
+
+
 class TestTeamRecord(unittest.TestCase):
     def good(self) -> dict:
         return {
@@ -959,6 +1154,9 @@ class TestTeamRecord(unittest.TestCase):
         self.parse(dict(good, repos=[{"repo": f"o/r{i}", "branches": ["main"]} for i in range(32)]))
         self.parse(dict(good, path_prefixes=[f"p{i}/" for i in range(32)]))
         self.parse(dict(good, repos=[{"repo": "o/r", "branches": [f"b{i}" for i in range(8)]}]))
+        for forge in ("https://api.github.com", "https://ghe.example.com/api/v3", "https://h:8443"):
+            with self.subTest(forge=forge):
+                self.assertEqual(self.parse(dict(good, forge_api=forge)).forge_api, forge)
 
     def test_refusals(self) -> None:
         good = self.good()
@@ -998,6 +1196,11 @@ class TestTeamRecord(unittest.TestCase):
             ("forge http", dict(good, forge_api="http://api.github.com")),
             ("forge bare", dict(good, forge_api="https://")),
             ("forge int", dict(good, forge_api=5)),
+            ("forge space in host", dict(good, forge_api="https://a b")),
+            ("forge space in path", dict(good, forge_api="https://a/b c")),
+            ("forge no host", dict(good, forge_api="https:///api")),
+            ("forge newline", dict(good, forge_api="https://a\n")),
+            ("forge tab", dict(good, forge_api="https://a/\tb")),
         ]
         for label, body in cases:
             with self.subTest(case=label), self.assertRaises(p.Untrusted):

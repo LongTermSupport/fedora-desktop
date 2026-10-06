@@ -81,9 +81,12 @@ class TestProtocolDoc(unittest.TestCase):
         self.assertIn(f'`PREFIX = "{p.PREFIX}"`', body)
         self.assertIn(f"content key `{p.PING_KEY}`", body)
         rows = {r[0]: r for r in tables(body)[0]}
-        self.assertEqual(set(rows), {"ping", "human message", "team record", "status"})
+        self.assertEqual(set(rows), {"ping", "human message", "agent text", "team record", "status"})
         self.assertEqual(code(rows["ping"][1]), p.EVENT_MESSAGE)
         self.assertEqual(code(rows["human message"][1]), p.EVENT_MESSAGE)
+        self.assertEqual(code(rows["agent text"][1]), p.EVENT_MESSAGE)
+        self.assertIn(f"`{p.MSGTYPE_TEXT}`", rows["agent text"][2])
+        self.assertIn(f"content key `{p.TEXT_KEY}`", body)
         self.assertEqual(code(rows["team record"][1]), p.EVENT_TEAM)
         self.assertEqual(code(rows["status"][1]), p.EVENT_STATUS)
         self.assertIn(f"`{p.MSGTYPE_PING}`", rows["ping"][2])
@@ -111,6 +114,10 @@ class TestProtocolDoc(unittest.TestCase):
         self.assertEqual(tuple(code(r[0]) for r in envelope), p.CONTENT_KEYS)
         self.assertEqual(code({code(r[0]): r for r in envelope}["msgtype"][1]), f'"{p.MSGTYPE_PING}"')
         self.assertIn(f"at most {p.MAX_CONTENT_BYTES} bytes", body)
+        flat = " ".join(body.split())
+        self.assertIn("compact UTF-8 JSON serialisation", flat)
+        self.assertNotIn("as received", flat)
+        self.assertIn("`v` is an integer other than `1`: drop (`version`), before any other check", flat)
         self.assertEqual(tuple(code(r[0]) for r in obj), p.PING_KEYS)
         rows = {code(r[0]): r for r in obj}
         self.assertEqual(
@@ -183,6 +190,36 @@ class TestProtocolDoc(unittest.TestCase):
         self.assertIn(f"at most {p.MAX_HUMAN_BODY_BYTES} UTF-8 bytes", section(self.text, 7))
         self.assertIn(f"`msgtype` `{p.MSGTYPE_HUMAN}`", section(self.text, 7))
 
+    def test_agent_text(self) -> None:
+        body = section(self.text, 7)
+        sub = re.search(r"^### Agent text to humans$(.*)", body, re.M | re.S)
+        self.assertIsNotNone(sub)
+        sub = sub.group(1)
+        envelope, obj = tables(sub)[:2]
+        self.assertEqual(tuple(code(r[0]) for r in envelope), p.TEXT_CONTENT_KEYS)
+        self.assertEqual(code({code(r[0]): r for r in envelope}["msgtype"][1]), f'"{p.MSGTYPE_TEXT}"')
+        self.assertEqual(tuple(code(r[0]) for r in obj), p.TEXT_OBJECT_KEYS)
+        rows = {code(r[0]): r for r in obj}
+        self.assertIn(f"1 to {p.HUMANS_MAX} distinct", rows["to"][3])
+        self.assertIn(f"at most {p.MAX_AGENT_TEXT_BYTES} UTF-8 bytes", rows["text"][3])
+        template = fenced(sub)[0].strip()
+        self.assertEqual(template, f"{p.RENDER_TAG} text -> <to[0]> <to[1]> ...\\n<text>")
+        patterns = fenced(sub, "text")[0].splitlines()
+        parsed = tuple(tuple(line.split(None, 1)) for line in patterns if line.strip())
+        self.assertEqual(parsed, p.SECRET_PATTERNS)
+        self.assertIn("drop (`text`)", sub)
+
+    def test_human_path_order(self) -> None:
+        """Fallback removal precedes the stale and rate steps, as `validate_event` does it."""
+        body = " ".join(section(self.text, 9).split())
+        path = re.search(r"\*\*Human path:\*\*(.*?)\*\*Ping path:\*\*", body)
+        self.assertIsNotNone(path)
+        self.assertEqual(re.findall(r"(\d\dh)\. ", path.group(1)), [f"{n:02d}h" for n in range(4, 13)])
+        for step in ("08h. Not addressed", "09h. Reply fallback removed", "10h. Too old",
+                     "11h. Sender over the receive flood limit", "12h. Write to the inbox"):
+            with self.subTest(step=step):
+                self.assertIn(step, path.group(1))
+
     def test_team_record_status_and_power_levels(self) -> None:
         body = section(self.text, 8)
         rows = tables(body)[0]
@@ -194,6 +231,7 @@ class TestProtocolDoc(unittest.TestCase):
         self.assertIn(
             f'`{{"v": {p.PROTOCOL_VERSION}, "state": "{p.STATUS_LISTENING}", "until": <int ms>}}`', body
         )
+        self.assertEqual(code(by_key["forge_api"]), p.FORGE_API_PATTERN)
         levels = json.loads(fenced(body, "json")[0])
         self.assertEqual(levels, p.expected_power_levels([HUMAN_PLACEHOLDER]))
 
@@ -202,6 +240,9 @@ class TestProtocolDoc(unittest.TestCase):
         m = re.search(r"\*\*Drop reason codes\*\* \(closed set\):(.*?)\n\n", body, re.S)
         self.assertIsNotNone(m)
         self.assertEqual(tuple(re.findall(r"`([^`]*)`", m.group(1))), p.DROP_REASONS)
+        m = re.search(r"\*\*Send-only refusals\*\*:(.*?)\n\n", body, re.S)
+        self.assertIsNotNone(m)
+        self.assertEqual(tuple(re.findall(r"`([^`]*)`", m.group(1))), p.SEND_REFUSALS)
 
     def test_fixed_sizes_in_limits(self) -> None:
         body = " ".join(section(self.text, 10).split())

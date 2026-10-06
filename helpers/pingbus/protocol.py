@@ -5,8 +5,8 @@ module implements is held equal to the constants below by
 tests/helpers/pingbus/test_protocol_doc.py.
 
 Pure: no I/O, no clock, no network. Callers pass in what the team record and the member
-config say (`Context`) and get back a parsed `Ping` or `HumanMessage`, or a `Refusal`
-carrying one of the closed set of drop reason codes. The same functions run on send
+config say (`Context`) and get back a parsed `Ping`, `HumanMessage` or (on send only)
+`AgentText`, or a `Refusal` carrying one of the closed set of reason codes. The same functions run on send
 (`pingbus send`, `pingbus validate`) and on receive (the syncer, inbox reads), so a sender
 that skips pingbus is still held to them by every receiver.
 
@@ -31,10 +31,12 @@ PREFIX = "agent_bus"
 EVENT_TEAM = f"{PREFIX}.team"
 EVENT_STATUS = f"{PREFIX}.status"
 PING_KEY = f"{PREFIX}.ping"
+TEXT_KEY = f"{PREFIX}.text"
 
 EVENT_MESSAGE = "m.room.message"
 MSGTYPE_PING = "m.notice"
 MSGTYPE_HUMAN = "m.text"
+MSGTYPE_TEXT = "m.notice"
 RENDER_TAG = "[agent-bus]"
 
 ROLE_ORCHESTRATOR = "orchestrator"
@@ -94,7 +96,31 @@ MAX_HUMAN_BODY_BYTES = 16384
 MAX_STATUS_BYTES = 256
 MAX_TO = 32
 
+TEXT_CONTENT_KEYS = ("msgtype", "body", "m.mentions", TEXT_KEY)
+TEXT_OBJECT_KEYS = ("v", "to", "text")
+MAX_AGENT_TEXT_BYTES = 4096
+
+#: Text an agent may not send to a human (spec §7). Conservative: a false positive refuses
+#: the send, and the agent points at a reference instead.
+SECRET_PATTERNS = (
+    ("private-key", r"-{5}BEGIN[A-Z0-9 ]*PRIVATE KEY-{5}"),
+    ("github-token", r"\bgh[pousr]_[A-Za-z0-9]{30,}"),
+    ("github-pat", r"\bgithub_pat_[A-Za-z0-9_]{20,}"),
+    ("aws-access-key-id", r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
+    ("slack-token", r"\bxox[abposr]-[A-Za-z0-9-]{10,}"),
+    ("sk-api-key", r"\bsk-[A-Za-z0-9_-]{20,}"),
+    ("google-api-key", r"\bAIza[0-9A-Za-z_-]{35}"),
+    ("jwt", r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
+    ("bearer", r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{16,}"),
+    ("ansible-vault", r"\$ANSIBLE_VAULT;"),
+    ("url-credentials", r"[A-Za-z][A-Za-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@"),
+    ("credential-assignment",
+     r"(?i)\b(?:password|passwd|pwd|secret|token|access[_-]?token|api[_-]?key|access[_-]?key"
+     r"|private[_-]?key|client[_-]?secret)\b[\"']?\s*[:=]\s*[\"']?[^\s\"']{8,}"),
+)
+
 TEAM_KEYS = ("v", "team", "humans", "roles", "repos", "path_prefixes", "forge_api")
+FORGE_API_PATTERN = r"https://[^\s/]+(/\S*)?"
 HUMANS_MAX = 16
 ROLES_MAX = 64
 REPOS_MAX = 32
@@ -106,8 +132,10 @@ HUMAN_POWER = 50
 
 DROP_REASONS = (
     "version", "schema", "size", "edit", "sender", "role", "target", "verb", "ref",
-    "allowlist", "re", "body", "stale", "rate", "unresolved", "provenance",
+    "allowlist", "re", "body", "text", "stale", "rate", "unresolved", "provenance",
 )
+#: Codes that refuse a send and never name a receive drop.
+SEND_REFUSALS = ("secret",)
 #: Codes this module never produces: limits (`stale`, `rate`) and the forge check.
 REASONS_DECIDED_ELSEWHERE = frozenset({"stale", "rate", "unresolved", "provenance"})
 
@@ -164,13 +192,15 @@ _REF_RES = {
     "issue": re.compile(rf"issue:{_OWNER_REPO}#(?P<num>{NUM_PATTERN})"),
 }
 _REF_REPO_PART_RE = re.compile(r"(path|commit|pr|issue):([^@#]*)(.*)", re.S)
+_FORGE_API_RE = re.compile(FORGE_API_PATTERN)
+_SECRET_RES = tuple((name, re.compile(pattern)) for name, pattern in SECRET_PATTERNS)
 
 
 class Refusal(ValueError):
-    """A validation failure carrying one drop reason code from `DROP_REASONS`."""
+    """A validation failure carrying one code from `DROP_REASONS` or `SEND_REFUSALS`."""
 
     def __init__(self, reason: str) -> None:
-        if reason not in DROP_REASONS:
+        if reason not in DROP_REASONS and reason not in SEND_REFUSALS:
             raise ValueError(f"not a drop reason code: {reason!r}")
         super().__init__(reason)
         self.reason = reason
@@ -240,6 +270,12 @@ class Ping:
     sender: str | None = None
     event_id: str | None = None
     origin_server_ts: int | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class AgentText:
+    to: tuple[str, ...]
+    text: str
 
 
 @dataclasses.dataclass(frozen=True)
@@ -413,6 +449,15 @@ def _check_ping_types(obj: Mapping[str, object]) -> None:
             raise Refusal("schema")
 
 
+def _check_version_first(obj: object) -> None:
+    """§1: an object whose `v` is an integer other than 1 is `version`, before any other
+    check, so a later version's new keys or envelope are never reported as `schema`."""
+    if isinstance(obj, dict):
+        v = obj.get("v")
+        if type(v) is int and v != PROTOCOL_VERSION:
+            raise Refusal("version")
+
+
 def _check_targets(to: list[str], verb: str, ctx: Context) -> tuple[str, ...]:
     if not 1 <= len(to) <= MAX_TO or len(set(to)) != len(to):
         raise Refusal("target")
@@ -457,6 +502,7 @@ def validate_content(content: object, ctx: Context) -> Ping:
     sender's role: see `check_role`). Returns the parsed ping or raises `Refusal`."""
     if not isinstance(content, dict):
         raise Refusal("schema")
+    _check_version_first(content.get(PING_KEY))
     if any(key in content for key in EDIT_KEYS):
         raise Refusal("edit")
     try:
@@ -473,8 +519,6 @@ def validate_content(content: object, ctx: Context) -> Ping:
     if not set(PING_REQUIRED_KEYS) <= set(obj):
         raise Refusal("schema")
     _check_ping_types(obj)
-    if obj["v"] != PROTOCOL_VERSION:
-        raise Refusal("version")
     rule = VERBS.get(obj["verb"])
     if rule is None:
         raise Refusal("verb")
@@ -529,7 +573,7 @@ def _human_outcome(
     content: Mapping[str, object], event_id: str, sender: str, ts: int, self_user_id: str,
     human_text: bool,
 ) -> Outcome:
-    """Spec §9 human path, steps 04h-08h and 11h (`stale` and `rate` are the caller's)."""
+    """Spec §9 human path, steps 04h-09h (10h `stale` and 11h `rate` are the caller's)."""
     if not human_text:
         return Outcome(DROP, "sender")
     if content.get("msgtype") != MSGTYPE_HUMAN:
@@ -563,12 +607,15 @@ def validate_event(
     """The offline receive steps of spec §9 for one timeline event.
 
     `seen` holds event IDs already processed; `human_text` is the bundle's flag. An event
-    that is not `m.room.message` is ignored: only messages are pings or human text.
+    that is not `m.room.message` is ignored before anything else of it is read: only
+    messages are pings or human text.
     """
-    if not isinstance(event, dict) or not is_event_id(event.get("event_id")):
+    if not isinstance(event, dict):
         return Outcome(DROP, "schema")
     if event.get("type") != EVENT_MESSAGE:
         return Outcome(IGNORE, "type")
+    if not is_event_id(event.get("event_id")):
+        return Outcome(DROP, "schema")
     event_id = event["event_id"]
     if event_id in seen:
         return Outcome(IGNORE, "seen")
@@ -586,6 +633,8 @@ def validate_event(
         return Outcome(DROP, "sender")
     if cls == SENDER_HUMAN:
         return _human_outcome(content, event_id, sender, ts, self_user_id, human_text)
+    if TEXT_KEY in content:
+        return Outcome(DROP, "text")
     try:
         ping = validate_content(content, ctx)
         check_role(ping.verb, sender, ctx)
@@ -642,7 +691,7 @@ def parse_team_record(content: object, server_name: str, team_name: str) -> Team
     if not all(is_path_prefix(x) for x in prefixes):
         raise Untrusted("path_prefixes")
     forge = content["forge_api"]
-    if not isinstance(forge, str) or not forge.startswith("https://") or len(forge) <= len("https://"):
+    if _full(_FORGE_API_RE, forge) is None:
         raise Untrusted("forge_api")
     return TeamRecord(
         content["team"], frozenset(humans), dict(roles), _parse_repos(content["repos"]),
@@ -720,3 +769,78 @@ def build_ping(verb: str, to: Sequence[str], ref: str | None = None, re: str | N
         "m.mentions": {"user_ids": list(obj["to"])},
         PING_KEY: obj,
     }
+
+
+def render_text(obj: Mapping[str, object]) -> str:
+    """The canonical `body` of an agent's text to humans (spec §7)."""
+    return f"{RENDER_TAG} text -> {' '.join(sorted(obj['to']))}\n{obj['text']}"
+
+
+def build_text(to: Sequence[str], text: str) -> dict:
+    """An agent's text to humans as full `m.room.message` content, `to` sorted. Validate it
+    before sending."""
+    obj: dict = {"v": PROTOCOL_VERSION, "to": sorted(to), "text": text}
+    return {
+        "msgtype": MSGTYPE_TEXT,
+        "body": render_text(obj),
+        "m.mentions": {"user_ids": list(obj["to"])},
+        TEXT_KEY: obj,
+    }
+
+
+def secret_shaped(text: str) -> str | None:
+    """The name of the first `SECRET_PATTERNS` entry found in `text`, or None."""
+    for name, regex in _SECRET_RES:
+        if regex.search(text):
+            return name
+    return None
+
+
+def _check_human_targets(to: list[str], ctx: Context) -> tuple[str, ...]:
+    if not 1 <= len(to) <= HUMANS_MAX or len(set(to)) != len(to):
+        raise Refusal("target")
+    if not all(user in ctx.humans and is_human_user_id(user, ctx.server_name) for user in to):
+        raise Refusal("target")
+    return tuple(sorted(to))
+
+
+def validate_text_content(content: object, ctx: Context) -> AgentText:
+    """Check an agent's text to humans against spec §7 on send. Returns the parsed text or
+    raises `Refusal` (`secret` among them). Receivers never accept it: see `validate_event`."""
+    if not isinstance(content, dict):
+        raise Refusal("schema")
+    _check_version_first(content.get(TEXT_KEY))
+    if any(key in content for key in EDIT_KEYS):
+        raise Refusal("edit")
+    if set(content) != set(TEXT_CONTENT_KEYS) or content["msgtype"] != MSGTYPE_TEXT:
+        raise Refusal("schema")
+    obj = content[TEXT_KEY]
+    if not isinstance(obj, dict) or set(obj) != set(TEXT_OBJECT_KEYS):
+        raise Refusal("schema")
+    to, text = obj["to"], obj["text"]
+    if (
+        type(obj["v"]) is not int
+        or not isinstance(to, list)
+        or not all(isinstance(x, str) for x in to)
+        or not isinstance(text, str)
+        or text == ""
+    ):
+        raise Refusal("schema")
+    if len(text.encode("utf-8")) > MAX_AGENT_TEXT_BYTES:
+        raise Refusal("size")
+    targets = _check_human_targets(to, ctx)
+    if secret_shaped(text) is not None:
+        raise Refusal("secret")
+    if content["m.mentions"] != {"user_ids": list(targets)}:
+        raise Refusal("schema")
+    if not isinstance(content["body"], str):
+        raise Refusal("schema")
+    if content["body"] != render_text(obj):
+        raise Refusal("body")
+    return AgentText(targets, text)
+
+
+def check_text_sender(sender: str, ctx: Context) -> None:
+    """Raise `Refusal("role")` unless `sender` is an agent holding a role (§7)."""
+    if sender_class(sender, ctx) not in ROLES:
+        raise Refusal("role")
