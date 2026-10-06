@@ -64,6 +64,7 @@ _DNS_LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
 _DNS_NAME_RE = re.compile(rf"{_DNS_LABEL}(?:\.{_DNS_LABEL})*")
 _DNS_NAME_MAX = 253
 _PRINTABLE_RE = re.compile(r"[\x21-\x7e]+")
+_KEY_NAME_RE = re.compile(r"[a-z_]{1,32}")
 
 Refuse = Callable[[str, str], "ConfigError"]
 
@@ -260,9 +261,16 @@ def _refuse_beside_element(team: str, user_home: pathlib.Path) -> None:
         found.append(flatpak)
     native_parent = user_home / ELEMENT_NATIVE_PARENT
     if native_parent.is_dir():
+        try:
+            entries = sorted(native_parent.iterdir())
+        except OSError as exc:
+            raise ConfigError(
+                f"team {team}: {native_parent} cannot be listed to look for an Element "
+                f"profile ({exc.strerror})"
+            ) from None
         found.extend(
             entry
-            for entry in sorted(native_parent.iterdir())
+            for entry in entries
             if entry.name == ELEMENT_NATIVE_NAME
             or entry.name.startswith(f"{ELEMENT_NATIVE_NAME}-")
         )
@@ -274,11 +282,21 @@ def _refuse_beside_element(team: str, user_home: pathlib.Path) -> None:
 
 
 def _read_member_file(team: str, path: pathlib.Path) -> dict[str, object]:
+    """Non-blocking open so a FIFO cannot hang the read; at most one byte past the cap."""
     where = f"team {team}: {path}"
     try:
-        raw = path.read_bytes()
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
     except FileNotFoundError:
         raise ConfigError(f"{where}: no bundle (member.json is missing)") from None
+    except OSError as exc:
+        raise ConfigError(f"{where}: member.json cannot be read ({exc.strerror})") from None
+    try:
+        with os.fdopen(fd, "rb") as handle:
+            if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                raise ConfigError(f"{where}: member.json is not a regular file")
+            raw = handle.read(MEMBER_FILE_MAX_BYTES + 1)
+    except OSError as exc:
+        raise ConfigError(f"{where}: member.json cannot be read ({exc.strerror})") from None
     if len(raw) > MEMBER_FILE_MAX_BYTES:
         raise ConfigError(f"{where}: member.json is larger than {MEMBER_FILE_MAX_BYTES} bytes")
     try:
@@ -307,7 +325,7 @@ def _parse_member(team: str, bundle_dir: pathlib.Path, data: dict[str, object]) 
 
     unknown = sorted(set(data) - set(REQUIRED_KEYS) - set(OPTIONAL_KEYS))
     if unknown:
-        names = ", ".join(repr(key[:40]) for key in unknown[:5])
+        names = ", ".join(_key_label(key) for key in unknown[:5])
         raise refuse("member.json", f"has unknown keys: {names}")
     for key in REQUIRED_KEYS:
         if key not in data:
@@ -323,7 +341,7 @@ def _parse_member(team: str, bundle_dir: pathlib.Path, data: dict[str, object]) 
     if not isinstance(server_name, str) or not _is_dns_name(server_name):
         raise refuse("server_name", "is not a lowercase DNS name")
     user_id = data["user_id"]
-    handle = _localpart_on(user_id, server_name)
+    handle = protocol.parse_user_id(user_id, server_name)
     parsed = protocol.parse_handle(handle)
     if not isinstance(user_id, str) or handle is None or parsed is None:
         raise refuse("user_id", "is not @<handle>:<server_name> for this server_name")
@@ -364,13 +382,9 @@ def _is_dns_name(value: str) -> bool:
     return len(value) <= _DNS_NAME_MAX and _DNS_NAME_RE.fullmatch(value) is not None
 
 
-def _localpart_on(user_id: object, server_name: str) -> str | None:
-    if not isinstance(user_id, str) or not user_id.startswith("@"):
-        return None
-    localpart, sep, server = user_id[1:].partition(":")
-    if not sep or server != server_name:
-        return None
-    return localpart
+def _key_label(key: str) -> str:
+    """A key is echoed only when it looks like a key name, never like a pasted value."""
+    return repr(key) if _KEY_NAME_RE.fullmatch(key) else "a key that is not a name"
 
 
 def _plain_http_hosts(value: object, refuse: Refuse) -> tuple[str, ...]:

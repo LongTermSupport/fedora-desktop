@@ -1,8 +1,10 @@
 """Agent team bus protocol v1: the identifier grammars config.py needs.
 
 Interface stand-in: unit U02 owns this module (the full validator) and replaces this file
-when it merges; it must keep `is_team_name`, `parse_handle` and `is_room_id` with these
-signatures. Grammars: PROTOCOL.md section 3.
+when it merges; it must keep `is_team_name`, `parse_handle`, `parse_user_id` and
+`is_room_id` with these signatures. Here `parse_user_id` knows only handle localparts;
+U02's also returns reserved and human ones, which config.py refuses via `parse_handle`.
+Grammars: PROTOCOL.md section 3.
 """
 
 from __future__ import annotations
@@ -46,6 +48,17 @@ def parse_handle(value: object) -> Handle | None:
     if m is None:
         return None
     return Handle(m["repo"], int(m["n"]), m["host"], m["type"])
+
+
+def parse_user_id(value: object, server_name: str) -> str | None:
+    """The localpart of `@<localpart>:<server_name>` when it is a handle on exactly this
+    server; else None."""
+    if not isinstance(value, str) or not value.startswith("@"):
+        return None
+    localpart, sep, server = value[1:].partition(":")
+    if not sep or server != server_name or parse_handle(localpart) is None:
+        return None
+    return localpart
 
 
 def is_room_id(value: object) -> bool:

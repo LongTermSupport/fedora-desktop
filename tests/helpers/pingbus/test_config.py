@@ -16,7 +16,9 @@ import os
 import pathlib
 import sys
 import tempfile
+import types
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
@@ -207,6 +209,44 @@ class TestSchema(BundleCase):
     def test_missing_bundle_refused(self) -> None:
         self.assert_refused(contains="team-a")
 
+    def test_member_json_that_is_a_directory_refused(self) -> None:
+        bundle = self.write_bundle()
+        (bundle / "member.json").unlink()
+        (bundle / "member.json").mkdir()
+        self.assert_refused(contains="member.json")
+
+    def test_member_json_that_is_a_fifo_refused_without_blocking(self) -> None:
+        bundle = self.write_bundle()
+        (bundle / "member.json").unlink()
+        os.mkfifo(bundle / "member.json")
+        self.assert_refused(contains="regular file")
+
+    def test_member_json_unreadable_refused(self) -> None:
+        self.write_bundle()
+        denied = PermissionError(13, "Permission denied")
+        with mock.patch.object(config.os, "open", side_effect=denied):
+            self.assert_refused(contains="Permission denied")
+
+    def test_member_json_duplicate_key_refused(self) -> None:
+        bundle = self.write_bundle()
+        text = json.dumps(member_json())
+        (bundle / "member.json").write_text('{"protocol":1,' + text[1:], encoding="utf-8")
+        self.assert_refused(contains="member.json")
+
+    def test_member_json_size_limit(self) -> None:
+        text = json.dumps(member_json())
+        at_limit = text + " " * (config.MEMBER_FILE_MAX_BYTES - len(text))
+        bundle = self.write_bundle()
+        (bundle / "member.json").write_text(at_limit, encoding="utf-8")
+        self.load()
+        (bundle / "member.json").write_text(at_limit + " ", encoding="utf-8")
+        self.assert_refused(contains="larger")
+
+    def test_unknown_key_value_is_never_quoted(self) -> None:
+        self.write_bundle(data=member_json(**{TOKEN: 1}))
+        error = self.assert_refused(contains="unknown key")
+        self.assertNotIn(TOKEN[:8], str(error))
+
     def test_limits_shape(self) -> None:
         self.write_bundle(data=member_json(limits={"send_burst": 5}))
         self.assertEqual(self.load().limits, {"send_burst": 5})
@@ -275,6 +315,13 @@ class TestToken(BundleCase):
                 self.setUp()
                 self.write_bundle(token=bad)
                 self.assert_refused(contains="token")
+
+    def test_token_size_limit(self) -> None:
+        self.write_bundle(token="a" * config.TOKEN_MAX_BYTES)
+        self.load()
+        self.setUp()
+        self.write_bundle(token="a" * (config.TOKEN_MAX_BYTES + 1))
+        self.assert_refused(contains="longer")
 
     def test_read_token_rechecks_mode(self) -> None:
         self.write_bundle()
@@ -480,6 +527,13 @@ class TestElementProfile(BundleCase):
         (self.user_home / ".var/app/org.example.App").mkdir(parents=True)
         self.load()
 
+    def test_unreadable_config_dir_refused(self) -> None:
+        self.host_bundle()
+        (self.user_home / ".config").mkdir()
+        denied = PermissionError(13, "Permission denied")
+        with mock.patch.object(pathlib.Path, "iterdir", side_effect=denied):
+            self.assert_refused(contains="Permission denied")
+
 
 class TestLoadActive(BundleCase):
     def env(self, teams: str) -> dict[str, str]:
@@ -528,6 +582,14 @@ class TestLoadActive(BundleCase):
             self.load_active("team-a,team-b")
         self.assertIn("token", str(caught.exception))
         self.assertNotIn(TOKEN, str(caught.exception))
+
+    def test_older_python_refused_before_any_bundle_is_read(self) -> None:
+        self.write_bundle("team-a")
+        old = types.SimpleNamespace(version_info=(3, 10, 0))
+        with mock.patch.object(config, "sys", old), self.assertRaises(config.ConfigError) as caught:
+            self.load_active("team-a")
+        self.assertEqual(caught.exception.EXIT_CODE, 78)
+        self.assertIn("3.11", str(caught.exception))
 
 
 if __name__ == "__main__":

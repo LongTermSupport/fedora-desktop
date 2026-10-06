@@ -4,9 +4,9 @@ Run from the repo root:
 
     python3 -m unittest tests.helpers.pingbus.test_protocol
 
-Unit U02 owns protocol.py and its full test suite; these cases pin only the three names
-config.py imports (`is_team_name`, `parse_handle`, `is_room_id`), with the grammars of
-PROTOCOL.md section 3, so U02's module must keep them.
+Unit U02 owns protocol.py and its full test suite; these cases pin only the names
+config.py imports (`is_team_name`, `parse_handle`, `parse_user_id`, `is_room_id`), with
+the grammars of PROTOCOL.md section 3, so U02's module must keep them.
 """
 
 from __future__ import annotations
@@ -61,6 +61,26 @@ class TestHandle(unittest.TestCase):
         ):
             with self.subTest(value=value):
                 self.assertIsNone(protocol.parse_handle(value))
+
+
+class TestUserId(unittest.TestCase):
+    SN = "team-a.agent-bus.internal"
+
+    def test_handle_on_this_server(self) -> None:
+        handle = "myrepo.1+workstation.podman"
+        self.assertEqual(protocol.parse_user_id(f"@{handle}:{self.SN}", self.SN), handle)
+
+    def test_invalid(self) -> None:
+        handle = "myrepo.1+workstation.podman"
+        for value in (
+            f"@{handle}:other.internal",
+            f"{handle}:{self.SN}",
+            f"@{handle}",
+            f"@not a handle:{self.SN}",
+            None,
+        ):
+            with self.subTest(value=value):
+                self.assertIsNone(protocol.parse_user_id(value, self.SN))
 
 
 class TestRoomId(unittest.TestCase):
