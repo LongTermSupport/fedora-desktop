@@ -40,6 +40,8 @@ from helpers.pingbus import config, forge, hooks, inbox, limits, matrix, notify,
 
 PROG = "pingbus"
 TOOL_VERSION = "0.1.0"
+#: What a forge refusal's stderr message starts with, before `<code>: <detail>`.
+FORGE_REFUSED = "forge check refused"
 
 EXIT_OK = 0
 EXIT_NOTHING = 3
@@ -533,7 +535,7 @@ def failure(exc: BaseException) -> tuple[int, str]:
     if isinstance(exc, limits.RateLimited):
         return EXIT_RATE, f"rate limited: {exc.reason}"
     if isinstance(exc, forge.ForgeError):
-        return exc.exit_code, f"forge check refused: {exc}"
+        return exc.exit_code, f"{FORGE_REFUSED}: {exc}"
     if isinstance(exc, matrix.MatrixError):
         return exc.exit_code, f"homeserver: {exc}"
     if isinstance(exc, inbox.Busy):

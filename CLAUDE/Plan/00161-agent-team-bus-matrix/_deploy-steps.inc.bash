@@ -8,7 +8,8 @@
 # on the first failure, explicitly, since a leg runs in an `if` where errexit is off.
 #
 # Reads deploy.bash's globals: INSTALLER, BUS_ADDRESS, TEAM, TEAM_FILE, PLAY_VARS_PRESENT,
-# PLAY_VARS_ABSENT, and the plan library's PLAN_RUN_DIR and PLAN_REPO_ROOT. Sets TEAM_PRESENT.
+# PLAY_VARS_ABSENT, and the plan library's PLAN_RUN_DIR, PLAN_REPO_ROOT and PLAN_SCRIPT_DIR.
+# Sets TEAM_PRESENT.
 
 # run_installer <label> <args...> — agent-bus-install as root. Its stdout (the CHANGED and
 # CHECK marker lines) is kept in <label>.out in the run directory and shown; its stderr goes
@@ -43,17 +44,19 @@ install_software() {
     run_installer "$1" software --source "${PLAN_REPO_ROOT}" --bus-address "${BUS_ADDRESS}"
 }
 
+# free_loopback_port — a TCP port free on loopback now, for a test team's homeserver.
+free_loopback_port() {
+    python3 -I -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'
+}
+
 # The throwaway team: example values only (CLAUDE/ExampleValues.md), the bus address, and a
-# port free on loopback now.
+# port free on loopback now. The team file's shape is acceptance_check.py's team-file, the
+# one the acceptance team is built from too.
 write_team_file() {
     local port
-    port="$(python3 -I -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')" || return 1
-    cat >"${TEAM_FILE}" <<EOF || return 1
-{"team": "${TEAM}", "port": ${port},
- "listen": ["${BUS_ADDRESS}"], "allow_from": ["192.0.2.0/24"], "humans": ["owner"],
- "repos": [{"repo": "example/project", "branches": ["main"]}],
- "path_prefixes": ["CLAUDE/Plan/"], "forge_api": "https://api.example.com"}
-EOF
+    port="$(free_loopback_port)" || return 1
+    python3 -I "${PLAN_SCRIPT_DIR}/acceptance_check.py" team-file "${TEAM}" "${port}" "${BUS_ADDRESS}" \
+        owner example/project main CLAUDE/Plan/ https://api.example.com >"${TEAM_FILE}" || return 1
     printf '==> team file %s:\n' "${TEAM_FILE}"
     cat -- "${TEAM_FILE}"
 }

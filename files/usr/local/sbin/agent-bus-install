@@ -43,7 +43,8 @@ readonly TEAM_RE='^[a-z][a-z0-9-]{0,23}$'
 readonly UNIT_FILES=(agent-bus-hs@.service agent-bus-backup@.service agent-bus-backup@.timer)
 # The member kit beside its pingbus, relative to files/opt/claude-yolo/optional/agent-bus.
 readonly KIT_FILES=(agent-bus-claude settings.json plugin/pingbus/.claude-plugin/plugin.json
-    plugin/pingbus/hooks/hooks.json plugin/pingbus/skills/pingbus/SKILL.md)
+    plugin/pingbus/hooks/hooks.json plugin/pingbus/skills/pingbus/SKILL.md
+    README.podman README.host README.lxc README.docker README.vm)
 
 die() {
     local status=$1
@@ -369,7 +370,7 @@ install_tuwunel() {
 build_zipapps() {
     local source=$1 app marker
     for app in agent-bus pingbus; do
-        marker=$(cd -- "$source" && python3 -s -m helpers.pingbus.bundle --source "$source" \
+        marker=$(cd -- "$source" && python3 -B -s -m helpers.pingbus.bundle --source "$source" \
             --out "$LIB_DIR/$app.pyz" "$app")
         case $marker in
             "BUNDLE-CHANGED "*) changed "zipapp $app" ;;

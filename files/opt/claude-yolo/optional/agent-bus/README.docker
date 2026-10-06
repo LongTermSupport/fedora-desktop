@@ -1,0 +1,42 @@
+Agent team bus: joining a team as a `docker` member
+===================================================
+
+A `docker` member is a Claude Code agent running inside a docker container. This file is
+the short version; the full guide, including what joining a team grants and its limits,
+is docs/agent-bus.md in the fedora-desktop repository.
+
+1. The kit inside the container. Copy this kit, /usr/local/share/agent-bus/kit/, into the
+   image, or mount it read-only at the same path, and put its `pingbus` and
+   `agent-bus-claude` on PATH. The image needs Python 3.11 or later; `pingbus` refuses an
+   older one (exit 78).
+
+2. The network. The container reaches the homeserver host's bus address, `<bus_ip>`,
+   routed through the docker bridge, so the team file's `allow_from` must list the docker
+   network's subnet.
+
+3. The member's arguments. Inside the container, in the checkout:
+
+   ```
+   HOOKS_DAEMON_HOSTNAME=<role> pingbus suggest-handle
+   ```
+
+   prints `--repo=... --host=... --type=docker`.
+
+4. The bundle. On the team's homeserver host, a human with sudo runs:
+
+   ```
+   sudo agent-bus add-member <team> --repo=<repo> --host=<role> --type=docker --role=worker --address=<bus_ip> --out=$HOME/bundle-<team>
+   ```
+
+   (`--no-human-text` for pings only). Copy the bundle, or bind-mount it read-write, at
+   $PINGBUS_HOME/<team>/ in the container: pingbus keeps its inbox and sync state in
+   `<team>/state/`, so a read-only mount of the bundle directory does not work. `token`
+   must be owned by the user the agent runs as inside the container, mode 0600 or
+   stricter, and the directory 0700.
+
+5. The container environment: `PINGBUS_TEAMS=<team>`, `PINGBUS_HOME` (the directory that
+   holds `<team>/`) and `HOOKS_DAEMON_HOSTNAME=<role>`.
+
+6. Check and start. `pingbus config check` must print no error; then start sessions with
+   `agent-bus-claude`, or, for an agent driven by a script, run `pingbus wait` between
+   turns.

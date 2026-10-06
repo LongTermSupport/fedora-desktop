@@ -1,0 +1,45 @@
+Agent team bus: joining a team as a `vm` member
+===============================================
+
+A `vm` member is a Claude Code agent running inside a virtual machine (a libvirt guest,
+for example). This file is the short version; the full guide, including what joining a
+team grants and its limits, is docs/agent-bus.md in the fedora-desktop repository.
+
+1. The kit inside the guest. Copy this kit, /usr/local/share/agent-bus/kit/, to the same
+   path inside the guest and link its `pingbus` and `agent-bus-claude` into
+   /usr/local/bin. The guest needs Python 3.11 or later; `pingbus` refuses an older one
+   (exit 78).
+
+2. The network. A guest on the homeserver's own machine reaches the bus address,
+   `<bus_ip>`, routed through the libvirt bridge, so the team file's `allow_from` must
+   list that network's subnet. A guest elsewhere reaches the team's WireGuard address,
+   `<wg_ip>`, and `allow_from` lists the WireGuard subnet or the guest's peer address.
+
+3. The member's arguments. Inside the guest, as the agent user, in its checkout:
+
+   ```
+   HOOKS_DAEMON_HOSTNAME=<role> pingbus suggest-handle
+   ```
+
+   prints `--repo=... --host=... --type=vm`.
+
+4. The bundle. On the team's homeserver host, a human with sudo runs:
+
+   ```
+   sudo agent-bus add-member <team> --repo=<repo> --host=<role> --type=vm --role=worker --address=<bus_ip> --out=$HOME/bundle-<team>
+   ```
+
+   (`--address=<wg_ip>` for a guest that comes over WireGuard; `--no-human-text` for pings
+   only). Copy the bundle into the guest as ~<agent-user>/.config/pingbus/<team>/, owned
+   by the agent user, directory 0700 and files 0600, and delete the copy left behind.
+
+5. The env file, ~<agent-user>/.config/pingbus/env inside the guest:
+
+   ```
+   PINGBUS_TEAMS=<team>
+   HOOKS_DAEMON_HOSTNAME=<role>
+   ```
+
+6. Check and start. As the agent user, `pingbus config check` must print no error; then
+   start sessions with `agent-bus-claude`. The agent user must not hold a human's Matrix
+   session, here as anywhere.

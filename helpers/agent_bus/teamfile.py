@@ -112,7 +112,8 @@ def _state(value: object) -> str:
     return value
 
 
-def _server_name(value: object) -> str:
+def check_server_name(value: object) -> str:
+    """The `server_name` rule, shared by team files and callers naming a server outside one."""
     if not isinstance(value, str) or len(value) > 253:
         raise _fail("server_name", "must be a DNS name of at most 253 characters")
     labels = value.split(".")
@@ -251,7 +252,7 @@ def parse_team_file(data: object) -> TeamFile:
     return TeamFile(
         team=team,
         state=_state(data.get("state", DEFAULT_STATE)),
-        server_name=_server_name(data.get("server_name", team + SERVER_NAME_SUFFIX)),
+        server_name=check_server_name(data.get("server_name", team + SERVER_NAME_SUFFIX)),
         port=_port(data["port"]),
         listen=_listen(data),
         allow_from=_allow_from(data),

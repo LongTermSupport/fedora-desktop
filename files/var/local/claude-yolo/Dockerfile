@@ -33,7 +33,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.44"
+LABEL claude-yolo-version="2.45"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -366,8 +366,14 @@ COPY skills/browsing/ /opt/claude-yolo/skills/browsing/
 # CCY_CHILD_CLAUDE=1 in its ccy.env, and actively REMOVED when it does not — the
 # session skills directory is host-persisted, so without the removal the mode could
 # be switched on but never off.
+#
+# optional/agent-bus/ is the agent team bus member kit (Plan 00161): the pingbus zipapp,
+# which play-claude-yolo.yml builds from helpers/ with the same reproducible builder as
+# agent-bus-install, the Claude Code plugin and its settings. The entrypoint links pingbus
+# and loads the plugin only when ccy.env.local sets PINGBUS_TEAMS.
 COPY optional/ /opt/claude-yolo/optional/
-RUN chmod 755 /opt/claude-yolo/optional/child-claude/bin/ccy-claude
+RUN chmod 755 /opt/claude-yolo/optional/child-claude/bin/ccy-claude \
+    && chmod 755 /opt/claude-yolo/optional/agent-bus/pingbus
 
 # Supervisor plugins (hooks-daemon plugin API). Staged here, outside the project bind mount, as
 # root-owned files: the supervisor refuses a plugin file that is group- or world-writable or

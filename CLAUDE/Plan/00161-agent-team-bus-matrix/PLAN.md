@@ -103,7 +103,11 @@ repository; opt-in per machine and per team.
   (which stays installed, with `agentbus0`), a throwaway team, both run twice with no
   `CHANGED`, `check`, `remove --purge`, then `triage.bash --reach-only` for H1/H2's dummy leg.
   Wave 5: U11 (`cli.py` `send`, `say`, `recv`, `wait`, one long-poll thread per team;
-  `test_cli.py` against the fake homeserver) built, reviewed and fixed.
+  `test_cli.py` against the fake homeserver) built, reviewed and fixed. Wave 7: U17
+  (`acceptance.bash`, M1.1–M1.3, its checks in `acceptance_check.py`, the bus address
+  shared with `deploy.bash` through `_bus-address.inc.bash`) built, reviewed and fixed.
+  Its host run is pending: `meta-deploy.bash` runs it after `deploy.bash`; it needs
+  GitHub's API reachable without a credential and a fetched upstream branch.
 - [ ] 🔄 **M2 ccy members, the idle session woken**: U12, U18–U20. U12 built:
   `hooks.py` (the four hooks, offline; the Stop guard), `notify.py` (the inbox socket
   client), `cli.py` `watch`, `hook`, `inbox`, `status`, and the room view (`room.json`)
@@ -112,7 +116,14 @@ repository; opt-in per machine and per team.
   `pingbus` skill, `settings.json`, the `agent-bus-claude` launcher), copied into the kit
   by `agent-bus-install software`; `test_plugin_contract.py`; reviewed and fixed. The host run (U01's legs,
   then U20) must confirm Stop firing and notice batching under real turns, and that the
-  plugin loads from `--plugin-dir <kit>/plugin/pingbus`.
+  plugin loads from `--plugin-dir <kit>/plugin/pingbus`. Wave 7: U19 (the ccy image joins
+  teams listed in `PINGBUS_TEAMS` from `ccy.env.local`; container 2.45, CCY 3.85.0;
+  `scripts/test-ccy-agent-bus.bash`) built, reviewed and fixed. Its host run, the
+  `play-claude-yolo.yml` image rebuild, is the last step of `deploy.bash`; then a ccy
+  session with a real bundle. The ccy address (DESIGN.md §5.3) waits on `deploy.bash`'s
+  H1 dummy leg: the podman README and `docs/ccy.md` say the bus address, which holds only
+  if that leg reaches it; if not, they and §12 move to the `host.containers.internal`
+  exception. `admin.py` no longer accepts the address pasta gives that alias.
 - [ ] 🔄 **M3 other encapsulations and hosts, the play**: U21–U24. U22 built:
   `play-agent-bus.yml` (imported by `playbook-main.yml`) runs `agent-bus-install software`
   on every desktop, then `remove` for each `agent_bus_teams` entry with `state: absent` and
@@ -121,9 +132,15 @@ repository; opt-in per machine and per team.
   `--syntax-check` passes. Its host run is a leg of this plan's `deploy.bash` (pending,
   through `meta-deploy.bash`): after U16's legs, the play with extra vars declaring the
   throwaway team present (the recap counts a change), again (it counts none), then absent
-  with `purge: true` (a change).
-- [ ] ⬜ **M4 Element, deploy and acceptance (privacy checks P1–P8)**: U25–U28 (U26, TLS,
-  only if probe H7 needs it).
+  with `purge: true` (a change). Wave 7: U21 (`docs/agent-bus.md`, the member kit's
+  per-encapsulation READMEs, `test_member_docs.py`) built, reviewed and fixed; its podman
+  README was checked against U19's entrypoint as built: it matches, except the address,
+  which waits on the H1 dummy leg (M2). No host run of its own.
+- [ ] 🔄 **M4 Element, deploy and acceptance (privacy checks P1–P8)**: U25–U28 (U26, TLS,
+  only if probe H7 needs it). Wave 7: U25 (`element.py`, `play-agent-bus-element.yml`,
+  `agent_bus_element_teams` in `localhost.yml.dist`) built, reviewed and fixed. Its host
+  run is pending: the owner sets `agent_bus_element_teams`, then U27's `meta-deploy.bash`
+  entry runs the play and the H6 checks.
 
 ## Success Criteria
 

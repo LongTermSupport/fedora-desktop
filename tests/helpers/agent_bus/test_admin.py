@@ -398,9 +398,10 @@ class AddMemberTest(AdminTestCase):
     def test_addresses(self) -> None:
         member = json.loads(read_member(self.add_member(address="127.0.0.1", type_="host"), "member.json"))
         self.assertEqual(member["base_url"], "http://127.0.0.1:8448")
-        member = json.loads(read_member(self.add_member(address="169.254.1.2"), "member.json"))
-        self.assertEqual(member["plain_http_hosts"], ["169.254.1.2"])
-        for address, type_ in (("203.0.113.5", "podman"), ("169.254.1.2", "lxc"), ("localhost", "host"),
+        # The address pasta gives host.containers.internal is its own choice and may change
+        # (DESIGN.md section 5.3), so a podman member gets no exception for it.
+        for address, type_ in (("203.0.113.5", "podman"), ("169.254.1.2", "podman"),
+                               ("169.254.1.2", "lxc"), ("localhost", "host"),
                                ("192.0.2.010", "podman"), ("0.0.0.0", "podman")):
             with self.subTest(address=address), self.assertRaises(admin.AdminError):
                 self.add_member(address=address, type_=type_)

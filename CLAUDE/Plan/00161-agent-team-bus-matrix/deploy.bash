@@ -9,7 +9,8 @@
 # else agent_bus_address in the untracked host_vars localhost.yml (see localhost.yml.dist).
 # The one prompt is sudo's, before the log opens (R3); every root step after it uses
 # `sudo -n`, so a lapsed timestamp fails that step by name instead of prompting into the log.
-# There is no acceptance.bash yet (U17 writes it), so this does not end by running one.
+# It does not end by running acceptance.bash: see the STANDARD-EXCEPTION(R9) marker after
+# the last leg.
 #
 # IN ORDER, stopping at the first failure (plan_mode deploy):
 #   1. refuse the bus address, changing nothing, if an interface other than agentbus0 holds
@@ -26,7 +27,9 @@
 #   8. U22: play-agent-bus.yml with extra vars declaring only zz-deploy-check (the same team
 #      file) present: the recap must count a change; again: it must count none; then the
 #      team absent with purge: it must count a change. The same plan_on_cleanup applies;
-#   9. `triage.bash --reach-only --bus-address=<ip>`, whose report stays in its run directory.
+#   9. `triage.bash --reach-only --bus-address=<ip>`, whose report stays in its run directory;
+#  10. U19: play-claude-yolo.yml, which installs the ccy launcher and rebuilds the image with
+#      the pingbus zipapp and the agent-bus kit (CCY 3.85.0, container 2.45).
 #
 # WHAT STAYS, deliberately (every desktop carries the homeserver software): the packages of
 # DESIGN.md section 3.2, the agent-bus user, /var/lib/agent-bus{,-install}, the pinned
@@ -61,14 +64,16 @@ plan_init "${BASH_SOURCE[0]}"
 
 # Cannot collide with a real team: teams are named for their purpose, never zz-anything.
 readonly TEAM="zz-deploy-check"
-readonly BUS_ADDRESS_VAR="agent_bus_address"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=_bus-address.inc.bash
+source "${PLAN_SCRIPT_DIR}/_bus-address.inc.bash"
 
 PLAN_USAGE="usage: deploy.bash [--bus-address=<ip>] [-h|--help]
 
 Units U16 and U22's host run for Plan 00161 (agent team bus): installs the agent-bus
 homeserver software and the agentbus0 bus address (both stay), installs, re-runs, checks and
 removes a throwaway team, does the same through play-agent-bus.yml, then runs triage.bash's
-H1 and H2 against the bus address.
+H1 and H2 against the bus address, and rebuilds the ccy image (play-claude-yolo.yml).
   --bus-address=<ip>   the address for agentbus0; without it, ${BUS_ADDRESS_VAR} from the
                        host_vars localhost.yml
 Prompts for sudo once, before the run log opens."
@@ -97,25 +102,8 @@ if [[ "${EUID}" -eq 0 ]]; then
     exit 1
 fi
 
-if [[ -z "${BUS_ADDRESS}" ]]; then
-    # ansible-inventory resolves host_vars exactly as the plays do; run from the repo root
-    # for ansible.cfg's relative inventory path.
-    inventory="$(cd "${PLAN_REPO_ROOT}" && ansible-inventory --host localhost </dev/null)"
-    BUS_ADDRESS="$(python3 -I -c '
-import json, sys
-value = json.load(sys.stdin).get(sys.argv[1], "")
-print(value if isinstance(value, str) else "")
-' "${BUS_ADDRESS_VAR}" <<<"${inventory}")"
-    if [[ -z "${BUS_ADDRESS}" ]]; then
-        printf '[FATAL] no bus address: set %s: <ip> in environment/localhost/host_vars/localhost.yml (an address this host uses nowhere else), or pass --bus-address=<ip>\n' \
-            "${BUS_ADDRESS_VAR}" >&2
-        exit 64
-    fi
-fi
+resolve_bus_address || exit $?
 checker=(python3 -I "${PLAN_SCRIPT_DIR}/deploy_check.py")
-if ! "${checker[@]}" syntax "${BUS_ADDRESS}"; then
-    exit 64
-fi
 
 plan_prime_sudo
 plan_start_log auto
@@ -144,5 +132,9 @@ plan_deploy_leg "play-agent-bus.yml again: no change" play_team_present_again
 plan_deploy_leg "play-agent-bus.yml with ${TEAM} absent, purged: a change" play_team_absent
 plan_deploy_leg "triage H1 and H2 against ${BUS_ADDRESS}" \
     "${PLAN_SCRIPT_DIR}/triage.bash" --reach-only "--bus-address=${BUS_ADDRESS}"
+plan_deploy_leg "play-claude-yolo.yml (U19: the pingbus kit in the ccy image)" \
+    plan_ansible_playbook playbooks/imports/play-claude-yolo.yml
+# STANDARD-EXCEPTION(R9): no acceptance.bash leg here, where R9 puts it. meta-deploy.bash
+# runs acceptance.bash after this script and the second triage, so a leg here would run it twice.
 printf '==> the homeserver software and agentbus0 (%s) stay installed; %s is gone\n' "${BUS_ADDRESS}" "${TEAM}"
 plan_finish

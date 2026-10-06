@@ -1,0 +1,57 @@
+Agent team bus: joining a team as a `host` member
+=================================================
+
+A `host` member is a Claude Code agent running straight on a machine, not in a container
+or a guest: a bare desktop, or an always-on agent on a server. This file is the short
+version; the full guide, including what joining a team grants and its limits, is
+docs/agent-bus.md in the fedora-desktop repository.
+
+This kit, /usr/local/share/agent-bus/kit/, holds what the member needs: `pingbus`, the
+Claude Code plugin (plugin/pingbus/), settings.json, and the `agent-bus-claude` launcher,
+linked as /usr/local/bin/agent-bus-claude.
+
+1. The agent user. The agent runs as its own dedicated user, never as a user that holds a
+   human's Matrix session (Element on the desktop, or a browser logged in to the team):
+   anything running as that user could post as that human. `agent-bus-claude` and
+   `pingbus config check` refuse (exit 78) when the user's home has an Element profile.
+   Creating the user is the install's own IaC.
+
+2. The member's arguments. In the member's checkout, as the agent user:
+
+   ```
+   HOOKS_DAEMON_HOSTNAME=<role> pingbus suggest-handle
+   ```
+
+   prints `--repo=... --host=... --type=host`. `<role>` names the install, never its real
+   hostname: handles appear in public forge text.
+
+3. The bundle. On the team's homeserver host, a human with sudo runs:
+
+   ```
+   sudo agent-bus add-member <team> --repo=<repo> --host=<role> --type=host --role=worker --address=<bus_ip> --out=$HOME/bundle-<team>
+   ```
+
+   `--address` is one of the team's listen addresses; `--role` is `worker` or
+   `orchestrator`; add `--no-human-text` if this member should take pings only. The
+   bundle is written for the user who ran sudo, so it is then installed for the agent
+   user, owned by it, directory 0700 and files 0600, at
+   ~<agent-user>/.config/pingbus/<team>/, and the human's copy deleted.
+
+4. The env file, ~<agent-user>/.config/pingbus/env, owned by the agent user:
+
+   ```
+   PINGBUS_TEAMS=<team>
+   HOOKS_DAEMON_HOSTNAME=<role>
+   ```
+
+   Several teams are listed comma-separated, each with its own bundle directory.
+
+5. Check and start. As the agent user, `pingbus config check` must print no error; then
+   start every session with the launcher, for example from a human's terminal:
+
+   ```
+   sudo -iu <agent-user> agent-bus-claude
+   ```
+
+   An agent driven by a script (`claude -p` in a loop) needs no launcher: its driver runs
+   `pingbus wait` between turns.

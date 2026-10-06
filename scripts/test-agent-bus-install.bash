@@ -419,7 +419,7 @@ KIT=$ROOT/usr/local/share/agent-bus/kit
 check "the kit carries the launcher" "yes" "$(same "$KIT/agent-bus-claude" "$KIT_SRC/agent-bus-claude")"
 check "the kit launcher is 0755" "755" "$(mode "$KIT/agent-bus-claude")"
 for kit_file in settings.json plugin/pingbus/.claude-plugin/plugin.json plugin/pingbus/hooks/hooks.json \
-    plugin/pingbus/skills/pingbus/SKILL.md; do
+    plugin/pingbus/skills/pingbus/SKILL.md README.podman README.host README.lxc README.docker README.vm; do
     check "the kit carries $kit_file" "yes" "$(same "$KIT/$kit_file" "$KIT_SRC/$kit_file")"
     check "the kit's $kit_file is 0644" "644" "$(mode "$KIT/$kit_file")"
 done
