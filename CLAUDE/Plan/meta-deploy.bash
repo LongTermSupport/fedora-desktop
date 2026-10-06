@@ -52,10 +52,8 @@ PLAN_ROOT="${scriptDir}"
 # An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
-    # Read-only checks after the reboot: the single panel icon, speech to text with the
-    # new extension code loaded, and this boot's start-up log.
-    00144-single-fedora-desktop-panel-icon/acceptance.bash
-    00148-stt-unlimited-dictation-loop-and-buffer/acceptance.bash
+    # Read-only: this boot's log again, now saying why a failed user unit failed
+    # (vmtest-nightly) and whether dbus-broker still logs a duplicate (Thunar).
     00134-startup-log-triage-and-status-panel-unavailable/triage.bash
     # Next: 00148's triage once you have dictated with Continuous Dictation on.
 )

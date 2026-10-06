@@ -96,13 +96,13 @@ boot_error_lines_by_unit() {
 }
 
 # The failed list names a unit but not why. Its own journal lines say, and a failed unit
-# keeps that state only for the boot it failed in.
-failed_system_unit_reasons() {
+# keeps that state only for the boot it failed in. Pass --user for the user manager.
+failed_unit_reasons() {
     local unit
-    for unit in $(systemctl --failed --no-pager --no-legend --plain | awk '{print $1}'); do
+    for unit in $(systemctl "$@" --failed --no-pager --no-legend --plain | awk '{print $1}'); do
         echo "--- ${unit}:"
-        systemctl status --no-pager --lines=0 "$unit" | awk 'NR<=6'
-        journalctl --no-pager -b -u "$unit" -o short-iso | awk '{l[NR]=$0} END{for(i=NR-19;i<=NR;i++) if(i>0) print l[i]}'
+        systemctl "$@" status --no-pager --lines=0 "$unit" | awk 'NR<=6'
+        journalctl "$@" --no-pager -b -u "$unit" -o short-iso | awk '{l[NR]=$0} END{for(i=NR-19;i<=NR;i++) if(i>0) print l[i]}'
     done
 }
 
@@ -406,11 +406,12 @@ echo "================================================================"
 echo "### READ THIS FOR: did anything actually crash this boot?"
 probe "coredumps this boot" coredumpctl list --no-pager --since "$(uptime -s)"
 probe "failed system units" systemctl --failed --no-pager --no-legend
-probe "why each failed system unit failed (last 20 journal lines)" failed_system_unit_reasons
+probe "why each failed system unit failed (last 20 journal lines)" failed_unit_reasons
 # logrotate skips a config writable by group or others and exits 1, failing the whole run.
 probe "logrotate configs logrotate will refuse (group/other-writable)" \
     find /etc/logrotate.d -type f -perm /022 -printf '%m %u:%g %p\n'
 probe "failed user units" systemctl --user --failed --no-pager --no-legend
+probe "why each failed user unit failed (last 20 journal lines)" failed_unit_reasons --user
 probe "gnome-shell JS ERROR count" bash -c 'journalctl --no-pager --user -b | grep -c "JS ERROR"'
 probe "enabled extensions and their state" extension_states
 probe "warning+ lines this boot, by unit" boot_error_lines_by_unit
@@ -445,6 +446,9 @@ echo "### READ THIS FOR: F8 — small repo-owned noise"
 probe "autostart entries with exec bit" find "${HOME}/.config/autostart" -maxdepth 1 -name '*.desktop' -perm -u+x
 probe "firewalld docker noise (count, conflicts)" firewalld_docker_noise
 probe "Thunar installed / required by" bash -c 'rpm -q Thunar; rpm -q --whatrequires Thunar'
+# Task 2.6: Thunar's FileManager1 service file made dbus-broker log a duplicate name.
+probe "dbus-broker duplicate service names this boot" bash -c \
+    'journalctl --no-pager -b -u dbus-broker -o short-iso | grep -i "duplicate"'
 
 echo "### READ THIS FOR: Task 3.1 — which containers deny, through which mounts, on which labels"
 echo "###   A workspace bind with no :z/:Z, or security-opt label=disable, explains its session."
