@@ -67,12 +67,18 @@ place_bundle() {
     [[ ${SUDO_UID:-} =~ ^[0-9]+$ && ${SUDO_GID:-} =~ ^[0-9]+$ ]] \
         || die "$EXIT_USAGE" "run it through sudo: the bundle is given to the user who ran sudo"
 
+    # Root never chowns or chmods a directory it did not create: add-member makes a new
+    # one, and rotate-token writes only into the sudo user's own real directory.
     local -a files
     if [[ $command == add-member ]]; then
         files=("${BUNDLE_FILES[@]}")
-        [[ ! -e $out/token ]] || die "$EXIT_USAGE" "$out already holds a bundle; it is not overwritten"
+        [[ ! -e $out && ! -L $out ]] \
+            || die "$EXIT_USAGE" "$out already exists; add-member creates a new bundle directory"
     else
         files=("${TOKEN_FILES[@]}")
+        [[ -d $out && ! -L $out ]] || die "$EXIT_USAGE" "$out is not a directory (a symlink is refused)"
+        [[ $(stat -c %u -- "$out") == "$SUDO_UID" ]] \
+            || die "$EXIT_USAGE" "$out is not owned by the user who ran sudo"
         [[ -f $out/member.json ]] || die "$EXIT_USAGE" "$out holds no bundle to rotate the token of"
     fi
 
@@ -81,7 +87,9 @@ place_bundle() {
     run_admin_tool "$command" "${args[@]}" >"$WORK_DIR/bundle.tar"
     mkdir "$WORK_DIR/files"
     tar -x --no-same-owner --no-same-permissions -f "$WORK_DIR/bundle.tar" -C "$WORK_DIR/files" -- "${files[@]}"
-    install -d -o "$SUDO_UID" -g "$SUDO_GID" -m 0700 -- "$out"
+    if [[ $command == add-member ]]; then
+        install -d -o "$SUDO_UID" -g "$SUDO_GID" -m 0700 -- "$out"
+    fi
     local file
     for file in "${files[@]}"; do
         install -o "$SUDO_UID" -g "$SUDO_GID" -m 0600 -- "$WORK_DIR/files/$file" "$out/$file"

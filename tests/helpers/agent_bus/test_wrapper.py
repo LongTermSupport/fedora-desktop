@@ -116,10 +116,62 @@ class WrapperTest(unittest.TestCase):
         self.assertEqual((self.out / "token").read_text(), "old")
         self.assertFalse(self.args_file.exists())
 
+    def test_add_member_refuses_any_existing_out(self) -> None:
+        # Root would otherwise chown and chmod it, through a symlink too (/etc, say).
+        target = self.tmp / "system-dir"
+        target.mkdir(mode=0o755)
+        link = self.tmp / "link"
+        link.symlink_to(target)
+        dangling = self.tmp / "dangling"
+        dangling.symlink_to(self.tmp / "nowhere")
+        before = target.stat()
+        for out in (target, link, dangling):
+            with self.subTest(out=out):
+                run = self.run_wrapper("add-member", "team-a", f"--out={out}")
+                self.assertEqual(run.returncode, 64)
+                self.assertIn("already exists", run.stderr)
+                self.assertFalse(self.args_file.exists())
+        after = target.stat()
+        self.assertEqual((after.st_uid, after.st_gid, after.st_mode), (before.st_uid, before.st_gid, before.st_mode))
+        self.assertEqual(list(target.iterdir()), [])
+        self.assertFalse((self.tmp / "nowhere").exists())
+
+    def test_rotate_token_refuses_a_symlinked_or_foreign_out(self) -> None:
+        self.out.mkdir(parents=True)
+        (self.out / "member.json").write_text("{}")
+        link = self.tmp / "link"
+        link.symlink_to(self.out)
+        cases = [link]
+        if ROOT:
+            foreign = self.tmp / "foreign"
+            foreign.mkdir()
+            (foreign / "member.json").write_text("{}")
+            os.chown(foreign, OWNER + 1, GROUP)
+            cases.append(foreign)
+        for out in cases:
+            with self.subTest(out=out):
+                run = self.run_wrapper("rotate-token", "team-a", "h.1+x.podman", f"--out={out}")
+                self.assertEqual(run.returncode, 64)
+                self.assertFalse(self.args_file.exists())
+        self.assertFalse((self.out / "token").exists())
+
+    def test_rotate_token_leaves_the_directory_alone(self) -> None:
+        self.out.mkdir(parents=True, mode=0o750)
+        os.chmod(self.out, 0o750)
+        if ROOT:
+            os.chown(self.out, OWNER, GROUP)
+        (self.out / "member.json").write_text("{}")
+        self.tar_file.write_bytes(make_tar({"token": b"syt_new"}))
+        run = self.run_wrapper("rotate-token", "team-a", "h.1+x.podman", f"--out={self.out}")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(stat.S_IMODE(self.out.stat().st_mode), 0o750)
+
     def test_rotate_token_replaces_only_the_token(self) -> None:
         self.out.mkdir(parents=True)
         (self.out / "member.json").write_text("{}")
         (self.out / "token").write_text("old")
+        if ROOT:
+            os.chown(self.out, OWNER, GROUP)
         self.tar_file.write_bytes(make_tar({"token": b"syt_new"}))
         run = self.run_wrapper("rotate-token", "team-a", "h.1+x.podman", f"--out={self.out}")
         self.assertEqual(run.returncode, 0, run.stderr)

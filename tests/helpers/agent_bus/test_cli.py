@@ -70,12 +70,11 @@ class CliTestCase(unittest.TestCase):
         self.urls.append(url)
         return self.transport
 
-    def run_cli(self, argv: list[str], stdin: str = "", environ: dict | None = None,
+    def run_cli(self, argv: list[str], stdin: str = "",
                 stdout: io.BytesIO | None = None) -> Run:
         out = io.BytesIO() if stdout is None else stdout
         err = io.StringIO()
         code = cli.main(argv, root=self.root, transport_factory=self.factory,
-                        environ={} if environ is None else environ,
                         stdin=io.StringIO(stdin), stdout=out, stderr=err)
         run = Run(code, out.getvalue(), err.getvalue())
         self.runs.append((argv, run))
@@ -133,7 +132,7 @@ class BasicsTest(CliTestCase):
 
         out, err = io.BytesIO(), io.StringIO()
         code = cli.main(["bootstrap", "team-a"], root=self.root, transport_factory=unreachable,
-                        environ={}, stdin=io.StringIO(), stdout=out, stderr=err)
+                        stdin=io.StringIO(), stdout=out, stderr=err)
         self.assertEqual(code, 69)
 
 
@@ -161,12 +160,14 @@ class MemberCommandsTest(CliTestCase):
         self.assertEqual(run.out, b"")
         self.assertEqual(self.fake.users.get(f"@{HANDLE}:{self.fake.server_name}"), None)
 
-    def test_host_from_role_or_refused(self) -> None:
+    def test_host_is_required_and_normalised(self) -> None:
+        # sudo's env_reset drops any role variable, so no default could ever apply.
         argv = [a for a in ADD if not a.startswith("--host=")]
         run = self.run_cli(argv)
         self.assertEqual(run.code, 64)
         self.assertIn("--host", run.err)
-        run = self.ok(argv, environ={"HOOKS_DAEMON_HOSTNAME": "Lab_Box"})
+        self.assertEqual(run.out, b"")
+        run = self.ok([*argv, "--host=Lab_Box"])
         member = json.loads(tarfile.open(fileobj=io.BytesIO(run.out)).extractfile("member.json").read())
         self.assertTrue(member["user_id"].startswith("@myrepo.1+lab-box.podman:"))
 
@@ -208,7 +209,7 @@ class HumanCommandsTest(CliTestCase):
 
 
 class SecretHygieneTest(CliTestCase):
-    """No secret on any stream but the two payloads (DESIGN.md section 12, U15)."""
+    """No secret on any stream but the three payloads (DESIGN.md section 12, U15)."""
 
     PAYLOAD_COMMANDS = {("add-member",), ("rotate-token",), ("human", "password")}
 
@@ -258,7 +259,11 @@ class RenderCommandsTest(CliTestCase):
     def test_check_against_the_previous_team_json(self) -> None:
         previous = self.team_dir / "team.json"
         self.ok(["render", "check", f"--previous={previous}"], stdin=self.team_json())
-        self.ok(["render", "check", f"--previous={self.root / 'absent.json'}"], stdin=self.team_json())
+        absent = self.run_cli(["render", "check", f"--previous={self.root / 'absent.json'}"],
+                              stdin=self.team_json())
+        self.assertEqual(absent.code, 78)
+        self.assertEqual(absent.out, b"")
+        self.assertIn("absent.json", absent.err)
         run = self.run_cli(["render", "check", f"--previous={previous}"],
                            stdin=self.team_json(server_name="other.internal"))
         self.assertEqual(run.code, 78)

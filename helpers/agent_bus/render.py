@@ -20,10 +20,10 @@ import re
 from collections.abc import Mapping, Sequence
 
 from helpers.agent_bus import teamfile
+from helpers.pingbus import protocol
 
 STATE_ROOT = pathlib.PurePosixPath("/var/lib/agent-bus")
 BACKUPS_TO_KEEP = 7
-ROOM_VERSION = "12"
 LOOPBACK_ALLOW = ("127.0.0.1/32", "::1/128")
 RESTART_SEC = "5s"
 
@@ -74,7 +74,7 @@ def toml_values(tf: teamfile.TeamFile) -> dict[str, object]:
         "auto_accept_invites": False,
         "new_user_displayname_suffix": "",
         "client_sync_timeout_min": 0,
-        "default_room_version": ROOM_VERSION,
+        "default_room_version": protocol.ROOM_VERSION,
         "sentry": False,
         "log": "warn",
         "admin_signal_execute": ["server backup-database"],

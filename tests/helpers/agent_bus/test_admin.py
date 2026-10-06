@@ -69,6 +69,7 @@ class Stubbed:
         self.kicked: list[tuple[str, str]] = []
         self.deactivated: set[str] = set()
         self.locked: dict[str, bool] = {}
+        self.failing_kicks = 0
 
     def _is_admin(self, token: str | None) -> bool:
         status, who = self.fake.request("GET", "/_matrix/client/v3/account/whoami", token=token)
@@ -82,6 +83,9 @@ class Stubbed:
         if method == "POST" and kick:
             if not self._is_admin(token):
                 return 403, {"errcode": "M_FORBIDDEN", "error": "stub: admin only"}
+            if self.failing_kicks:
+                self.failing_kicks -= 1
+                return 500, {"errcode": "M_UNKNOWN", "error": "stub: injected kick failure"}
             self.kicked.append((kick.group(1), body["user_id"]))
             with self.fake._cond:
                 self.fake._append(self.fake.rooms[kick.group(1)], fake_client_api.MEMBER, ADMIN_ID,
@@ -292,6 +296,21 @@ class BootstrapTest(AdminTestCase):
         self.assertEqual(record.path_prefixes, ("docs/",))
         self.assertEqual(self.transport.deactivated, {ALICE})
         self.assertEqual(self.transport.kicked, [(self.room(), ALICE)])
+        self.assertEqual(self.bootstrap(), [])
+
+    def test_a_failed_removal_is_retried_on_the_next_run(self) -> None:
+        self.bootstrap()
+        self.write_team(team_data(humans=["bob"]))
+        self.transport.failing_kicks = 1
+        with self.assertRaises(admin.AdminError):
+            self.bootstrap()
+        self.assertEqual(self.transport.deactivated, set())
+        self.bootstrap()
+        self.assertEqual(self.transport.kicked, [(self.room(), ALICE)])
+        self.assertEqual(self.transport.deactivated, {ALICE})
+        _, record_event = self.state(protocol.EVENT_TEAM, event=True)
+        record = protocol.parse_team_event(record_event, ADMIN_ID, SN, "team-a")
+        self.assertEqual(record.humans, frozenset({BOB}))
         self.assertEqual(self.bootstrap(), [])
 
     def test_a_deactivated_listed_human_is_refused(self) -> None:

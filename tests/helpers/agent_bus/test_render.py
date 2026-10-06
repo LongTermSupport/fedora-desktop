@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import configparser
 import pathlib
+import re
 import sys
 import tomllib
 import unittest
@@ -22,6 +23,16 @@ import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
 from helpers.agent_bus import render, teamfile
+from helpers.pingbus import protocol
+
+#: Every key name Tuwunel 1.9.3's example config documents (DESIGN.md section 3.6), one per
+#: line, sorted: the names `^#?([a-z0-9_]+) =` matches in EXAMPLE_CONFIG_SOURCE, whose
+#: SHA-256 was EXAMPLE_CONFIG_SHA256. Only the names are vendored: the file's default
+#: values include private address ranges, which this public repository's scanner refuses.
+EXAMPLE_KEYS = pathlib.Path(__file__).resolve().parent / "fixtures" / "tuwunel-1.9.3-example-keys.txt"
+EXAMPLE_CONFIG_SOURCE = ("https://raw.githubusercontent.com/matrix-construct/tuwunel/v1.9.3/"
+                         "tuwunel-example.toml")
+EXAMPLE_CONFIG_SHA256 = "4a8e20619a8989b501adca52219235960418eb648be6b1260b0f9f45d8d8991b"
 
 
 def team_data(**overrides: object) -> dict:
@@ -65,7 +76,7 @@ EXPECTED_TOML = {
     "auto_accept_invites": False,
     "new_user_displayname_suffix": "",
     "client_sync_timeout_min": 0,
-    "default_room_version": "12",
+    "default_room_version": protocol.ROOM_VERSION,
     "sentry": False,
     "log": "warn",
     "admin_signal_execute": ["server backup-database"],
@@ -82,6 +93,12 @@ class TomlTest(unittest.TestCase):
     def test_key_constant_matches_design_table(self) -> None:
         self.assertEqual(set(render.TOML_KEYS), set(EXPECTED_TOML))
         self.assertEqual(len(render.TOML_KEYS), len(set(render.TOML_KEYS)))
+
+    def test_every_key_is_in_tuwunels_example_config(self) -> None:
+        documented = EXAMPLE_KEYS.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(documented, sorted(set(documented)), EXAMPLE_CONFIG_SOURCE)
+        self.assertTrue(all(re.fullmatch(r"[a-z0-9_]+", key) for key in documented))
+        self.assertEqual(set(render.TOML_KEYS) - set(documented), set(), EXAMPLE_CONFIG_SHA256)
 
     def test_no_listen_means_loopback_only(self) -> None:
         parsed = tomllib.loads(render.render_toml(team(listen=[])))

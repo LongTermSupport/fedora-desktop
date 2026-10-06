@@ -58,7 +58,6 @@ LOOPBACK = "127.0.0.1"
 HTTP_TIMEOUT_S = 30
 PASSWORD_LENGTH = 32
 PASSWORD_ALPHABET = string.ascii_letters + string.digits
-ROOM_VERSION = "12"
 ROOM_TOPIC = "Agent team bus: agents' pings and the team's humans' addressed messages"
 REMOVED_REASON = "removed from the team"
 
@@ -507,12 +506,12 @@ def _ensure_room(api: _Api, changes: list[str]) -> str:
         create = api.state(room, "m.room.create", event=True)
         content = create.get("content") if create else None
         if (not isinstance(content, dict) or create.get("sender") != team.admin_id
-                or content.get("room_version") != ROOM_VERSION or "additional_creators" in content):
-            raise AdminError(f"team {team.name}: room {room} was not created by {team.admin_id} as version 12")
+                or content.get("room_version") != protocol.ROOM_VERSION or "additional_creators" in content):
+            raise AdminError(f"team {team.name}: room {room} was not created by {team.admin_id} as version {protocol.ROOM_VERSION}")
         return room
     record = _team_record(team, registry.load_registry(team.registry_path, team.name))
     _, obj = api.call("create the team room", "POST", f"{_CLIENT}/createRoom", body={
-        "preset": "private_chat", "room_version": ROOM_VERSION, "visibility": "private",
+        "preset": "private_chat", "room_version": protocol.ROOM_VERSION, "visibility": "private",
         "name": team.name, "topic": ROOM_TOPIC,
         "power_level_content_override": protocol.expected_power_levels(team.humans()),
         "initial_state": [{"type": protocol.EVENT_TEAM, "state_key": "", "content": record}],
@@ -559,16 +558,18 @@ def bootstrap(team: Team, transport: Transport) -> list[str]:
     _check_single_admin(api)
     _ensure_humans(api, changes)
     room = _ensure_room(api, changes)
+    # Removals run before the record is rewritten: the old record is what names a removed
+    # human, so a failed kick or deactivation leaves it in place for the next run to retry.
     previous = api.state(room, protocol.EVENT_TEAM) or {}
     listed = previous.get("humans") if isinstance(previous.get("humans"), list) else []
+    for user_id in sorted(set(map(str, listed)) - set(team.humans())):
+        if protocol.is_human_user_id(user_id, team.server_name):
+            _remove_account(api, room, user_id, changes)
     _sync_team(api, room, changes)
     for user_id in team.humans():
         if api.membership(room, user_id) not in JOINED:
             api.invite(room, user_id)
             changes.append(f"invited {user_id}")
-    for user_id in sorted(set(map(str, listed)) - set(team.humans())):
-        if protocol.is_human_user_id(user_id, team.server_name):
-            _remove_account(api, room, user_id, changes)
     return changes
 
 

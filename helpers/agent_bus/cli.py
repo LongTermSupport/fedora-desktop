@@ -19,10 +19,9 @@ directory, secret files, registry).
 from __future__ import annotations
 
 import argparse
-import os
 import pathlib
 import sys
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from typing import BinaryIO, TextIO
 
 from helpers.agent_bus import admin, registry, render, teamfile
@@ -31,7 +30,6 @@ from helpers.pingbus import protocol
 PROG = "agent-bus"
 TOOL_VERSION = "0.1.0"
 STATE_ROOT = pathlib.Path(render.STATE_ROOT)
-ROLE_VAR = "HOOKS_DAEMON_HOSTNAME"
 
 EXIT_OK = 0
 EXIT_USAGE = 64
@@ -79,17 +77,15 @@ def _refuse_terminal(io: _Io) -> None:
 # ---------------------------------------------------------------- team commands
 
 
-def cmd_bootstrap(args: argparse.Namespace, team: admin.Team, transport: admin.Transport,
-                  environ: Mapping[str, str], io: _Io) -> int:
+def cmd_bootstrap(args: argparse.Namespace, team: admin.Team, transport: admin.Transport, io: _Io) -> int:
     io.lines(_changed(admin.bootstrap(team, transport)))
     return EXIT_OK
 
 
-def cmd_add_member(args: argparse.Namespace, team: admin.Team, transport: admin.Transport,
-                   environ: Mapping[str, str], io: _Io) -> int:
+def cmd_add_member(args: argparse.Namespace, team: admin.Team, transport: admin.Transport, io: _Io) -> int:
     _refuse_terminal(io)
     try:
-        host = registry.resolve_host(args.host, environ.get(ROLE_VAR) or None)
+        host = registry.resolve_host(args.host, None)
     except registry.HandleError as exc:
         raise UsageError(str(exc)) from None
     bundle = admin.add_member(team, transport, repo=args.repo, host=host, type_=args.type,
@@ -99,34 +95,29 @@ def cmd_add_member(args: argparse.Namespace, team: admin.Team, transport: admin.
     return EXIT_OK
 
 
-def cmd_remove_member(args: argparse.Namespace, team: admin.Team, transport: admin.Transport,
-                      environ: Mapping[str, str], io: _Io) -> int:
+def cmd_remove_member(args: argparse.Namespace, team: admin.Team, transport: admin.Transport, io: _Io) -> int:
     io.lines(_changed(admin.remove_member(team, transport, args.handle)))
     return EXIT_OK
 
 
-def cmd_set_role(args: argparse.Namespace, team: admin.Team, transport: admin.Transport,
-                 environ: Mapping[str, str], io: _Io) -> int:
+def cmd_set_role(args: argparse.Namespace, team: admin.Team, transport: admin.Transport, io: _Io) -> int:
     io.lines(_changed(admin.set_role(team, transport, args.handle, args.role)))
     return EXIT_OK
 
 
-def cmd_rotate_token(args: argparse.Namespace, team: admin.Team, transport: admin.Transport,
-                     environ: Mapping[str, str], io: _Io) -> int:
+def cmd_rotate_token(args: argparse.Namespace, team: admin.Team, transport: admin.Transport, io: _Io) -> int:
     _refuse_terminal(io)
     io.tar(admin.rotate_token(team, transport, args.handle))
     io.say(f"{args.handle}: every device logged out, a new token written")
     return EXIT_OK
 
 
-def cmd_list(args: argparse.Namespace, team: admin.Team, transport: admin.Transport,
-             environ: Mapping[str, str], io: _Io) -> int:
+def cmd_list(args: argparse.Namespace, team: admin.Team, transport: admin.Transport, io: _Io) -> int:
     io.lines(admin.list_members(team, transport))
     return EXIT_OK
 
 
-def cmd_human(args: argparse.Namespace, team: admin.Team, transport: admin.Transport,
-              environ: Mapping[str, str], io: _Io) -> int:
+def cmd_human(args: argparse.Namespace, team: admin.Team, transport: admin.Transport, io: _Io) -> int:
     if args.action == "password":
         io.lines([admin.human_password(team, transport, args.name)])
         io.say(f"{args.name}: new password set and printed once; it is stored nowhere, and "
@@ -153,31 +144,33 @@ def _stdin_team_file(io: _Io) -> teamfile.TeamFile:
     return teamfile.parse_team_file(data)
 
 
-def cmd_render_check(args: argparse.Namespace, environ: Mapping[str, str], io: _Io) -> int:
+def cmd_render_check(args: argparse.Namespace, io: _Io) -> int:
     tf = _stdin_team_file(io)
+    # The installer leaves --previous out on a first install; a named file must exist, or a
+    # wrong path would skip the server-name guard.
     previous = None
     if args.previous is not None:
         try:
             previous = teamfile.load_team_file(pathlib.Path(args.previous))
         except FileNotFoundError:
-            previous = None
+            raise teamfile.TeamFileError(f"--previous {args.previous}: no such file") from None
     render.check_unchanged(tf, previous)
     io.stdout.write(teamfile.dump_team_file(tf).encode())
     return EXIT_OK
 
 
-def cmd_render_toml(args: argparse.Namespace, environ: Mapping[str, str], io: _Io) -> int:
+def cmd_render_toml(args: argparse.Namespace, io: _Io) -> int:
     io.stdout.write(render.render_toml(_stdin_team_file(io)).encode())
     return EXIT_OK
 
 
-def cmd_render_dropin(args: argparse.Namespace, environ: Mapping[str, str], io: _Io) -> int:
+def cmd_render_dropin(args: argparse.Namespace, io: _Io) -> int:
     interfaces = render.parse_interfaces(args.interface or [])
     io.stdout.write(render.render_dropin(_stdin_team_file(io), interfaces).encode())
     return EXIT_OK
 
 
-def cmd_version(args: argparse.Namespace, environ: Mapping[str, str], io: _Io) -> int:
+def cmd_version(args: argparse.Namespace, io: _Io) -> int:
     io.lines([f"{PROG} {TOOL_VERSION} protocol {protocol.PROTOCOL_VERSION}"])
     return EXIT_OK
 
@@ -210,7 +203,7 @@ def build_parser(stdout: BinaryIO) -> argparse.ArgumentParser:
     team_command("bootstrap", cmd_bootstrap, "create or update the team's accounts and room")
     add = team_command("add-member", cmd_add_member, "add an agent; its bundle goes to --out")
     add.add_argument("--repo", required=True)
-    add.add_argument("--host", help=f"the member install's role (default: ${ROLE_VAR})")
+    add.add_argument("--host", required=True, help="the member install's role")
     add.add_argument("--type", required=True, choices=registry.TYPES)
     add.add_argument("--role", required=True, choices=registry.ROLES)
     add.add_argument("--address", required=True, help="the homeserver address the member uses")
@@ -245,11 +238,11 @@ def build_parser(stdout: BinaryIO) -> argparse.ArgumentParser:
 
 
 def _run(args: argparse.Namespace, root: pathlib.Path,
-         transport_factory: Callable[[str], admin.Transport], environ: Mapping[str, str], io: _Io) -> int:
+         transport_factory: Callable[[str], admin.Transport], io: _Io) -> int:
     if hasattr(args, "team_handler"):
         team = admin.load_team(root, args.team)
-        return args.team_handler(args, team, transport_factory(team.base_url()), environ, io)
-    return args.handler(args, environ, io)
+        return args.team_handler(args, team, transport_factory(team.base_url()), io)
+    return args.handler(args, io)
 
 
 def main(
@@ -257,17 +250,15 @@ def main(
     *,
     root: pathlib.Path = STATE_ROOT,
     transport_factory: Callable[[str], admin.Transport] = admin.http_transport,
-    environ: Mapping[str, str] | None = None,
     stdin: TextIO | None = None,
     stdout: BinaryIO | None = None,
     stderr: TextIO | None = None,
 ) -> int:
     io = _Io(sys.stdin if stdin is None else stdin, sys.stdout.buffer if stdout is None else stdout,
              sys.stderr if stderr is None else stderr)
-    env = os.environ if environ is None else environ
     try:
         args = build_parser(io.stdout).parse_args(argv)
-        return _run(args, pathlib.Path(root), transport_factory, env, io)
+        return _run(args, pathlib.Path(root), transport_factory, io)
     except _ParserExit as done:
         return done.status
     except UsageError as exc:
