@@ -83,8 +83,10 @@ the daemon or an agent.
   fixed ([report](subagent-reports/261006-qa-reviewer-dist-opus-5-5.md)). Upstream issue #88 (daemon-owned) withdrawn
   and closed. The prototype install is the hooks daemon's own SDLC runner, whose
   `ccy.env.local` the infra agent places by IaC.
-- [ ] ⬜ **Task 3.4**: Review (`qa-reviewer`), deploy through `deploy.bash`, and commit this
-  repository's own generated dist after the first launch on 3.83.0.
+- [ ] 🔄 **Task 3.4**: Review (`qa-reviewer`), deploy through `deploy.bash`, and commit this
+  repository's own generated dist after the first launch on 3.83.0. Reviewed; CCY 3.84.0
+  deployed (meta-deploy `20261006-162702`, PASS). Left: the dist this repository's next ccy
+  launch writes, committed.
 - [x] ✅ **Task 3.3**: The owner said yes ("Absolutely"): ccy binds an existing
   `ccy.env.local` read-only over the workspace (`ccy_env_local_mount_args`), so a session
   cannot rewrite its own role override. No file, no mount. Tested in the same gate. CCY
