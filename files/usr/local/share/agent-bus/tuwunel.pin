@@ -1,0 +1,11 @@
+# Tuwunel, the agent team bus homeserver (Plan 00161, DESIGN.md section 3.2).
+# @see https://github.com/matrix-construct/tuwunel/releases/tag/v1.9.3
+#
+# agent-bus-install downloads <version>-release-all-<arch>-linux-gnu-tuwunel.zst, the static
+# build (x86_64-v1 on x86_64, aarch64-v8 on aarch64), and refuses it unless its SHA-256 is the
+# one below. The release is unsigned, so these sums are the integrity check: a version bump
+# changes all three lines, each taken from the release API's per-asset `digest`.
+# Tracked by scripts/check-pinned-versions.bash through vars/version-pins.yml.
+tuwunel_version: v1.9.3
+tuwunel_sha256_x86_64: 98c3b0be352cc03b2c6b21d6f2ed60fedc926f4aab61ce37f0b89eed97d5b756
+tuwunel_sha256_aarch64: c1a309fe9dc167a40cefddee999d279f752fb493bb00a52af41584c434ba838f

@@ -958,6 +958,18 @@ fi
 self_update_cycle_summary=$(qa_gate_case_count "$self_update_cycle_out")
 qa_pass_line self-update-cycle "$self_update_cycle_summary"
 
+# The agent team bus installer (Plan 00161 U16), driven against a temporary root with
+# systemctl, firewall-cmd, nmcli, curl and the rest stubbed: refusals, the file layout, the
+# pinned-hash download, restart and CHANGED only on a change, and the readiness step.
+agent_bus_install_out=""
+if ! agent_bus_install_out="$(bash "$SCRIPT_DIR/test-agent-bus-install.bash" 2>&1)"; then
+    qa_hard_gate_failed agent-bus-install \
+        "agent-bus-install tests failed" \
+        "$agent_bus_install_out"
+fi
+agent_bus_install_summary=$(qa_gate_case_count "$agent_bus_install_out")
+qa_pass_line agent-bus-install "$agent_bus_install_summary"
+
 # The release command (Plan 00153): refusals before anything is written, the version following
 # from the last tag, and the signed tag landing on the release commit, driven against a signed
 # git fixture with only `gh` stubbed.

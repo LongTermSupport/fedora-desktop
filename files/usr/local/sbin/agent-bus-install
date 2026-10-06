@@ -1,0 +1,976 @@
+#!/bin/bash
+# agent-bus-install — build an agent team bus homeserver host on Fedora (Plan 00161).
+#
+# DESIGN.md section 3 is the contract: 3.2 `software`, 3.3 addresses and the two
+# enforcement layers, 3.4 `team` and `remove`, 3.5 the hardened unit, 3.7 backup and
+# restore. Usable on any Fedora desktop or server: this repository's play calls it, and
+# other projects run it from a clone at a pinned commit.
+#
+# Bash only moves files and drives dnf, systemd, firewalld and NetworkManager. Validation
+# and rendering (the team file, tuwunel.toml, the unit drop-in) and every account operation
+# are the admin tool's (`agent-bus render ...`, `agent-bus bootstrap`), run through its root
+# wrapper /usr/local/bin/agent-bus, which drops to the agent-bus user.
+#
+# Non-interactive, idempotent, fails fast. stdout carries only marker lines:
+# `CHANGED<TAB><what>` when something on the host changed (the play's changed_when), and
+# for `check` one `CHECK<TAB><fact><TAB>ok|FAIL|info<TAB><value>` line per fact.
+# Diagnostics go to stderr. No secret is ever printed or passed in argv.
+#
+# Exit codes: 0 done; 1 a step failed; 64 usage; 77 not root; 78 configuration (not
+# Fedora, a refused team file, a missing backup).
+#
+# AGENT_BUS_INSTALL_TEST_PREFIX (scripts/test-agent-bus-install.bash only): roots every
+# path under that directory, skips the root check, keeps the caller's PATH so stubs
+# answer for the system tools, and takes the admin tool from PATH.
+set -euo pipefail
+
+readonly PROG=agent-bus-install
+readonly EXIT_FAIL=1
+readonly EXIT_USAGE=64
+readonly EXIT_NOT_ROOT=77
+readonly EXIT_CONFIG=78
+
+readonly SVC_NAME=agent-bus
+readonly PACKAGES=(
+    python3 firewalld NetworkManager zstd curl jq
+    tcpdump # acceptance.bash P1/P2 capture the homeserver's traffic with it; not dead weight.
+)
+readonly BUS_IFACE=agentbus0
+readonly RELEASE_URL=https://github.com/matrix-construct/tuwunel/releases/download
+readonly READY_TRIES=60
+readonly BACKUP_WAIT_TRIES=60
+readonly TEAM_RE='^[a-z][a-z0-9-]{0,23}$'
+readonly UNIT_FILES=(agent-bus-hs@.service agent-bus-backup@.service agent-bus-backup@.timer)
+
+die() {
+    local status=$1
+    shift
+    printf '%s: %s\n' "$PROG" "$*" >&2
+    exit "$status"
+}
+say() {
+    printf '%s: %s\n' "$PROG" "$*" >&2
+}
+
+PREFIX=${AGENT_BUS_INSTALL_TEST_PREFIX:-}
+if [[ -n $PREFIX ]]; then
+    [[ $PREFIX == /* && -d $PREFIX ]] || die "$EXIT_USAGE" "AGENT_BUS_INSTALL_TEST_PREFIX must be an existing absolute directory"
+    ADMIN_TOOL=agent-bus
+    ROOT_OWNER=$(id -un)
+    ROOT_GROUP=$(id -gn)
+    SVC_OWNER=$ROOT_OWNER
+    SVC_GROUP=$ROOT_GROUP
+else
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+    ADMIN_TOOL=/usr/local/bin/agent-bus
+    ROOT_OWNER=root
+    ROOT_GROUP=root
+    SVC_OWNER=$SVC_NAME
+    SVC_GROUP=$SVC_NAME
+fi
+readonly PREFIX ADMIN_TOOL ROOT_OWNER ROOT_GROUP SVC_OWNER SVC_GROUP
+readonly LIB_DIR=$PREFIX/usr/local/lib/agent-bus
+readonly SHARE_DIR=$PREFIX/usr/local/share/agent-bus
+readonly KIT_DIR=$SHARE_DIR/kit
+readonly BIN_DIR=$PREFIX/usr/local/bin
+readonly SBIN_DIR=$PREFIX/usr/local/sbin
+readonly UNIT_DIR=$PREFIX/etc/systemd/system
+readonly STATE_ROOT=$PREFIX/var/lib/agent-bus
+# Root's own record per team (firewalld rules added, binary last started): kept out of the
+# agent-bus user's directory so the homeserver cannot steer what root later removes.
+readonly INSTALL_STATE_ROOT=$PREFIX/var/lib/agent-bus-install
+readonly OS_RELEASE=$PREFIX/etc/os-release
+
+WORK_DIR=""
+remove_work_dir() {
+    if [[ -n $WORK_DIR ]]; then
+        rm -rf -- "$WORK_DIR"
+    fi
+}
+make_work_dir() {
+    WORK_DIR=$(mktemp -d)
+    trap remove_work_dir EXIT
+}
+
+usage() {
+    cat <<'EOF'
+Usage: agent-bus-install COMMAND [OPTIONS]
+
+Build an agent team bus homeserver host (Tuwunel under a hardened systemd unit) on Fedora.
+Run as root. Options take a value as --opt VALUE or --opt=VALUE.
+
+Commands:
+  software --source DIR [--bus-address IP]
+      Packages, the agent-bus user, the pinned Tuwunel binary, the zipapps, the units.
+      --source is a fedora-desktop checkout; --bus-address puts IP/32 (or /128) on a
+      NetworkManager dummy interface agentbus0, the address local guests reach.
+  team --team-file FILE
+      Install or update the team the file declares; restart only on a change.
+  remove --team TEAM [--purge]
+      Stop and disable the team's units, remove its drop-in and firewalld rules;
+      --purge also deletes its data.
+  backup-now --team TEAM
+      Back the homeserver up now (what the daily timer runs).
+  restore --team TEAM --backup ID
+      Restore the database and state from backup ID.
+  check --team TEAM
+      Read-only: print the construction facts the privacy checks rely on.
+
+stdout: CHANGED<TAB>... lines (and CHECK lines for check); diagnostics on stderr.
+Exit: 0 done, 1 failed, 64 usage, 77 not root, 78 configuration.
+EOF
+}
+
+# ---------------------------------------------------------------- argument parsing
+
+declare -A OPT=()
+
+# parse_options "NAME:value NAME:flag ..." ARGS... — fills OPT; refuses anything else.
+parse_options() {
+    local spec=$1
+    shift
+    declare -A kinds=()
+    local item
+    for item in $spec; do
+        kinds[${item%%:*}]=${item#*:}
+    done
+    local arg name value
+    while (($#)); do
+        arg=$1
+        shift
+        [[ $arg == --* ]] || die "$EXIT_USAGE" "unexpected argument '$arg' (see --help)"
+        name=${arg#--}
+        value=""
+        local has_value=0
+        if [[ $name == *=* ]]; then
+            value=${name#*=}
+            name=${name%%=*}
+            has_value=1
+        fi
+        [[ -n ${kinds[$name]:-} ]] || die "$EXIT_USAGE" "unknown option --$name (see --help)"
+        [[ -z ${OPT[$name]+set} ]] || die "$EXIT_USAGE" "--$name given twice"
+        if [[ ${kinds[$name]} == flag ]]; then
+            ((has_value == 0)) || die "$EXIT_USAGE" "--$name takes no value"
+            OPT[$name]=1
+        else
+            if ((has_value == 0)); then
+                (($#)) || die "$EXIT_USAGE" "--$name needs a value"
+                value=$1
+                shift
+            fi
+            [[ -n $value ]] || die "$EXIT_USAGE" "--$name needs a non-empty value"
+            OPT[$name]=$value
+        fi
+    done
+}
+
+require_option() {
+    [[ -n ${OPT[$1]:-} ]] || die "$EXIT_USAGE" "$2 needs --$1"
+}
+
+team_option() {
+    require_option team "$1"
+    [[ ${OPT[team]} =~ $TEAM_RE ]] || die "$EXIT_USAGE" "--team '${OPT[team]}' is not a team name ($TEAM_RE)"
+}
+
+# A concrete, canonical IP literal for agentbus0: never a wildcard, loopback, link-local
+# or multicast address.
+valid_bus_address() {
+    python3 -I -c '
+import ipaddress, sys
+text = sys.argv[1]
+try:
+    address = ipaddress.ip_address(text)
+except ValueError:
+    sys.exit(1)
+bad = address.is_unspecified or address.is_loopback or address.is_link_local or address.is_multicast
+sys.exit(0 if str(address) == text and not bad else 1)
+' "$1"
+}
+
+check_bus_address_option() {
+    if [[ -n ${OPT[bus-address]+set} ]] && ! valid_bus_address "${OPT[bus-address]}"; then
+        die "$EXIT_USAGE" "--bus-address '${OPT[bus-address]}' is not a concrete, canonical IP address"
+    fi
+}
+
+require_root() {
+    if [[ -z $PREFIX && $EUID -ne 0 ]]; then
+        die "$EXIT_NOT_ROOT" "run it as root: sudo $PROG ..."
+    fi
+}
+
+require_fedora() {
+    [[ -r $OS_RELEASE ]] || die "$EXIT_CONFIG" "$OS_RELEASE is missing: only Fedora is supported"
+    local id
+    id=$(awk -F= '$1 == "ID" { gsub(/"/, "", $2); print $2 }' "$OS_RELEASE")
+    [[ $id == fedora ]] || die "$EXIT_CONFIG" "$OS_RELEASE says ID=${id:-<none>}: only Fedora is supported"
+}
+
+# ---------------------------------------------------------------- change tracking
+
+PUT_CHANGED=0
+
+changed() {
+    printf 'CHANGED\t%s\n' "$*"
+}
+
+# ensure_dir PATH MODE OWNER GROUP — create, or correct mode and ownership.
+ensure_dir() {
+    local path=$1 mode=$2 owner=$3 group=$4
+    if [[ -L $path || (-e $path && ! -d $path) ]]; then
+        die "$EXIT_FAIL" "$path exists and is not a directory"
+    fi
+    if [[ ! -d $path ]]; then
+        install -d -m "$mode" -o "$owner" -g "$group" -- "$path"
+        changed "directory ${path#"$PREFIX"}"
+    elif [[ $(stat -c '%a %U %G' -- "$path") != "${mode#0} $owner $group" ]]; then
+        chown -- "$owner:$group" "$path"
+        chmod -- "$mode" "$path"
+        changed "directory ${path#"$PREFIX"} mode and owner"
+    fi
+}
+
+# put_file LABEL SRC DEST MODE OWNER GROUP — install SRC as DEST atomically when its bytes,
+# mode or ownership differ; sets PUT_CHANGED to 1 when it did.
+put_file() {
+    local label=$1 src=$2 dest=$3 mode=$4 owner=$5 group=$6
+    PUT_CHANGED=0
+    [[ ! -L $dest ]] || die "$EXIT_FAIL" "$dest is a symlink; refusing to write through it"
+    if [[ -f $dest ]] && cmp -s -- "$src" "$dest" \
+        && [[ $(stat -c '%a %U %G' -- "$dest") == "${mode#0} $owner $group" ]]; then
+        return 0
+    fi
+    local tmp
+    tmp="$(dirname -- "$dest")/.${dest##*/}.$PROG.$$"
+    install -m "$mode" -o "$owner" -g "$group" -T -- "$src" "$tmp"
+    mv -fT -- "$tmp" "$dest"
+    PUT_CHANGED=1
+    changed "$label"
+}
+
+# put_symlink LABEL TARGET LINK — point LINK at TARGET atomically.
+put_symlink() {
+    local label=$1 target=$2 link=$3
+    PUT_CHANGED=0
+    if [[ -L $link && $(readlink -- "$link") == "$target" ]]; then
+        return 0
+    fi
+    [[ ! -e $link || -L $link ]] || die "$EXIT_FAIL" "$link exists and is not a symlink"
+    local tmp
+    tmp="$(dirname -- "$link")/.${link##*/}.$PROG.$$"
+    ln -sfnT -- "$target" "$tmp"
+    mv -fT -- "$tmp" "$link"
+    PUT_CHANGED=1
+    changed "$label"
+}
+
+# ---------------------------------------------------------------- system probes
+
+# The ActiveState of a unit; `systemctl show` answers for any unit and exits 0.
+unit_state() {
+    systemctl show -P ActiveState "$1"
+}
+
+require_running() {
+    local unit state
+    for unit in "$@"; do
+        state=$(unit_state "$unit")
+        [[ $state == active ]] || die "$EXIT_FAIL" "$unit is $state; the homeserver needs it running"
+    done
+}
+
+admin_tool() {
+    "$ADMIN_TOOL" "$@"
+}
+
+# ---------------------------------------------------------------- software
+
+declare -A PIN=()
+
+read_pin() {
+    local file=$1 key value line
+    [[ -f $file ]] || die "$EXIT_CONFIG" "$file is missing"
+    while IFS= read -r line || [[ -n $line ]]; do
+        [[ -z $line || $line == \#* ]] && continue
+        [[ $line =~ ^([a-z0-9_]+):\ *([^ ]+)\ *$ ]] || die "$EXIT_CONFIG" "$file: unreadable line '$line'"
+        key=${BASH_REMATCH[1]}
+        value=${BASH_REMATCH[2]}
+        case $key in
+            tuwunel_version) [[ $value =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] ;;
+            tuwunel_sha256_x86_64 | tuwunel_sha256_aarch64) [[ $value =~ ^[0-9a-f]{64}$ ]] ;;
+            *) die "$EXIT_CONFIG" "$file: unknown key $key" ;;
+        esac || die "$EXIT_CONFIG" "$file: $key has a malformed value"
+        PIN[$key]=$value
+    done <"$file"
+    for key in tuwunel_version tuwunel_sha256_x86_64 tuwunel_sha256_aarch64; do
+        [[ -n ${PIN[$key]:-} ]] || die "$EXIT_CONFIG" "$file: $key is missing"
+    done
+}
+
+install_packages() {
+    local package
+    local -a missing=()
+    for package in "${PACKAGES[@]}"; do
+        if ! rpm -q --quiet "$package"; then
+            missing+=("$package")
+        fi
+    done
+    if ((${#missing[@]})); then
+        dnf install -y "${missing[@]}" >&2
+        changed "packages ${missing[*]}"
+    fi
+}
+
+ensure_user() {
+    if ! getent passwd "$SVC_NAME" >/dev/null; then
+        useradd --system --user-group --no-create-home --home-dir /var/lib/agent-bus \
+            --shell /usr/sbin/nologin --comment "Agent team bus homeserver" "$SVC_NAME"
+        changed "system user $SVC_NAME"
+    fi
+}
+
+# The pinned Tuwunel for this architecture; downloads only when that version is not
+# installed from an asset with the pinned hash.
+install_tuwunel() {
+    local machine arch sha version
+    machine=$(uname -m)
+    case $machine in
+        x86_64) arch=x86_64-v1 ;;
+        aarch64) arch=aarch64-v8 ;;
+        *) die "$EXIT_CONFIG" "no pinned Tuwunel build for architecture $machine" ;;
+    esac
+    sha=${PIN[tuwunel_sha256_$machine]}
+    version=${PIN[tuwunel_version]}
+    local binary=$LIB_DIR/tuwunel-${version#v}
+    local record=$binary.asset-sha256
+    if [[ -f $binary && -f $record && $(<"$record") == "$sha" ]]; then
+        say "Tuwunel $version is installed from the pinned asset; nothing to download"
+    else
+        local asset=$version-release-all-$arch-linux-gnu-tuwunel.zst
+        say "downloading $asset"
+        curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --max-time 600 -o "$WORK_DIR/$asset" "$RELEASE_URL/$version/$asset"
+        local got
+        got=$(sha256sum -- "$WORK_DIR/$asset")
+        got=${got%% *}
+        [[ $got == "$sha" ]] || die "$EXIT_FAIL" "$asset: sha256 $got is not the pinned $sha; nothing installed"
+        zstd -q -d -f -o "$WORK_DIR/tuwunel" -- "$WORK_DIR/$asset"
+        printf '%s\n' "$sha" >"$WORK_DIR/asset-sha256"
+        put_file "tuwunel ${version#v}" "$WORK_DIR/tuwunel" "$binary" 0755 "$ROOT_OWNER" "$ROOT_GROUP"
+        put_file "tuwunel ${version#v} asset record" "$WORK_DIR/asset-sha256" "$record" 0644 "$ROOT_OWNER" "$ROOT_GROUP"
+    fi
+    put_symlink "tuwunel now ${version#v}" "tuwunel-${version#v}" "$LIB_DIR/tuwunel"
+}
+
+build_zipapps() {
+    local source=$1 app marker
+    for app in agent-bus pingbus; do
+        marker=$(cd -- "$source" && python3 -s -m helpers.pingbus.bundle --source "$source" \
+            --out "$LIB_DIR/$app.pyz" "$app")
+        case $marker in
+            "BUNDLE-CHANGED "*) changed "zipapp $app" ;;
+            "BUNDLE-UNCHANGED "*) ;;
+            *) die "$EXIT_FAIL" "the zipapp builder printed no marker for $app: $marker" ;;
+        esac
+    done
+}
+
+ensure_bus_interface() {
+    local address=$1 v4="" v6="" v4_method=disabled v6_method=disabled
+    if [[ $address == *:* ]]; then
+        v6=$address/128
+        v6_method=manual
+    else
+        v4=$address/32
+        v4_method=manual
+    fi
+    local -a settings=(ipv4.method "$v4_method" ipv4.addresses "$v4" ipv6.method "$v6_method" ipv6.addresses "$v6")
+    local names
+    names=$(nmcli -t -f NAME connection show)
+    if ! grep -qFx -- "$BUS_IFACE" <<<"$names"; then
+        nmcli connection add type dummy ifname "$BUS_IFACE" con-name "$BUS_IFACE" \
+            connection.autoconnect yes "${settings[@]}" >&2
+        changed "$BUS_IFACE dummy connection with $address"
+    else
+        local current want
+        current=$(nmcli -g ipv4.addresses,ipv6.addresses connection show "$BUS_IFACE")
+        # Both through a command substitution, which drops the empty family's trailing line.
+        want=$(printf '%s\n%s\n' "$v4" "$v6")
+        if [[ $current != "$want" ]]; then
+            nmcli connection modify "$BUS_IFACE" "${settings[@]}" >&2
+            nmcli connection up "$BUS_IFACE" >&2
+            changed "$BUS_IFACE address now $address"
+            return 0
+        fi
+    fi
+    local state
+    state=$(nmcli -g GENERAL.STATE connection show "$BUS_IFACE")
+    if [[ $state != activated ]]; then
+        nmcli connection up "$BUS_IFACE" >&2
+        changed "$BUS_IFACE up"
+    fi
+}
+
+cmd_software() {
+    parse_options "source:value bus-address:value" "$@"
+    require_option source software
+    local source=${OPT[source]}
+    # Checked before anything changes; a minimal server without python3 yet has it checked
+    # straight after the packages are installed, before anything else.
+    local bus_checked=0
+    if command -v python3 >/dev/null; then
+        check_bus_address_option
+        bus_checked=1
+    fi
+    require_root
+    require_fedora
+    [[ $source == /* ]] || die "$EXIT_USAGE" "--source must be an absolute path"
+    local files=$source/files
+    local need
+    for need in helpers/pingbus/bundle.py files/usr/local/bin/agent-bus files/usr/local/sbin/agent-bus-install \
+        files/usr/local/share/agent-bus/tuwunel.pin files/usr/local/share/agent-bus/resolv.conf; do
+        [[ -f $source/$need ]] || die "$EXIT_CONFIG" "--source $source holds no $need: not a fedora-desktop checkout"
+    done
+    make_work_dir
+    read_pin "$files/usr/local/share/agent-bus/tuwunel.pin"
+
+    install_packages
+    ((bus_checked)) || check_bus_address_option
+    ensure_user
+    ensure_dir "$STATE_ROOT" 0700 "$SVC_OWNER" "$SVC_GROUP"
+    ensure_dir "$INSTALL_STATE_ROOT" 0700 "$ROOT_OWNER" "$ROOT_GROUP"
+    local dir
+    for dir in "$LIB_DIR" "$SHARE_DIR" "$KIT_DIR" "$BIN_DIR" "$SBIN_DIR" "$UNIT_DIR"; do
+        ensure_dir "$dir" 0755 "$ROOT_OWNER" "$ROOT_GROUP"
+    done
+    put_file "tuwunel.pin" "$files/usr/local/share/agent-bus/tuwunel.pin" "$SHARE_DIR/tuwunel.pin" 0644 "$ROOT_OWNER" "$ROOT_GROUP"
+    put_file "resolver stub" "$files/usr/local/share/agent-bus/resolv.conf" "$SHARE_DIR/resolv.conf" 0644 "$ROOT_OWNER" "$ROOT_GROUP"
+    install_tuwunel
+    build_zipapps "$source"
+    put_symlink "pingbus command" ../lib/agent-bus/pingbus.pyz "$BIN_DIR/pingbus"
+    put_file "agent-bus admin wrapper" "$files/usr/local/bin/agent-bus" "$BIN_DIR/agent-bus" 0755 "$ROOT_OWNER" "$ROOT_GROUP"
+    put_file "agent-bus-install" "$files/usr/local/sbin/agent-bus-install" "$SBIN_DIR/agent-bus-install" 0755 "$ROOT_OWNER" "$ROOT_GROUP"
+    put_file "member kit pingbus" "$LIB_DIR/pingbus.pyz" "$KIT_DIR/pingbus" 0755 "$ROOT_OWNER" "$ROOT_GROUP"
+
+    local unit reload=0
+    for unit in "${UNIT_FILES[@]}"; do
+        put_file "unit $unit" "$files/etc/systemd/system/$unit" "$UNIT_DIR/$unit" 0644 "$ROOT_OWNER" "$ROOT_GROUP"
+        ((PUT_CHANGED == 0)) || reload=1
+    done
+    if ((reload)); then
+        systemctl daemon-reload
+    fi
+    if [[ -n ${OPT[bus-address]:-} ]]; then
+        ensure_bus_interface "${OPT[bus-address]}"
+    fi
+}
+
+# ---------------------------------------------------------------- team
+
+require_software() {
+    local need
+    for need in "$LIB_DIR/tuwunel" "$LIB_DIR/agent-bus.pyz" "$BIN_DIR/agent-bus" "$UNIT_DIR/agent-bus-hs@.service"; do
+        [[ -e $need ]] || die "$EXIT_FAIL" "${need#"$PREFIX"} is missing: run $PROG software first"
+    done
+}
+
+hs_unit() { printf 'agent-bus-hs@%s.service' "$1"; }
+timer_unit() { printf 'agent-bus-backup@%s.timer' "$1"; }
+dropin_dir() { printf '%s/agent-bus-hs@%s.service.d' "$UNIT_DIR" "$1"; }
+
+# The one interface carrying ADDRESS, from `ip -j addr show` JSON.
+interface_of() {
+    local json=$1 address=$2 found
+    found=$(jq -r --arg a "$address" \
+        '[.[] | select(any(.addr_info[]?; .local == $a)) | .ifname] | unique | .[]' <<<"$json")
+    [[ -n $found ]] || die "$EXIT_CONFIG" "listen address $address is on no interface of this host"
+    [[ $found != *$'\n'* ]] || die "$EXIT_CONFIG" "listen address $address is on more than one interface: ${found//$'\n'/, }"
+    printf '%s' "$found"
+}
+
+# The firewalld zone of the interface the kernel routes CIDR through; the default zone
+# when that interface has none.
+zone_of_cidr() {
+    local cidr=$1 dev zone
+    dev=$(ip -j route get "${cidr%/*}" | jq -r '.[0].dev // empty')
+    [[ -n $dev ]] || die "$EXIT_FAIL" "no route to allow_from $cidr"
+    if zone=$(firewall-cmd --get-zone-of-interface="$dev" 2>&1); then
+        printf '%s' "$zone"
+    elif [[ $zone == "no zone" ]]; then
+        firewall-cmd --get-default-zone
+    else
+        die "$EXIT_FAIL" "firewall-cmd --get-zone-of-interface=$dev failed: $zone"
+    fi
+}
+
+rich_rule() {
+    local cidr=$1 port=$2 family=ipv4
+    [[ $cidr != *:* ]] || family=ipv6
+    printf 'rule family="%s" source address="%s" port port="%s" protocol="tcp" accept' "$family" "$cidr" "$port"
+}
+
+# Apply or remove one rich rule in both the permanent and the runtime configuration.
+fw_add() {
+    local zone=$1 rule=$2 store
+    local -a scope
+    for store in permanent runtime; do
+        scope=()
+        [[ $store == runtime ]] || scope=(--permanent)
+        if ! firewall-cmd "${scope[@]}" --zone="$zone" --query-rich-rule="$rule" >/dev/null; then
+            firewall-cmd "${scope[@]}" --zone="$zone" --add-rich-rule="$rule" >&2
+            changed "firewalld $store $zone: $rule"
+        fi
+    done
+}
+fw_remove() {
+    local zone=$1 rule=$2 store
+    local -a scope
+    for store in permanent runtime; do
+        scope=()
+        [[ $store == runtime ]] || scope=(--permanent)
+        if firewall-cmd "${scope[@]}" --zone="$zone" --query-rich-rule="$rule" >/dev/null; then
+            firewall-cmd "${scope[@]}" --zone="$zone" --remove-rich-rule="$rule" >&2
+            changed "firewalld $store $zone: removed $rule"
+        fi
+    done
+}
+
+# sync_firewall TEAM PORT CIDR... — exactly one rule per CIDR; rules this installer added
+# earlier and no longer wants are removed. The record lists zone<TAB>rule.
+sync_firewall() {
+    local team=$1 port=$2
+    shift 2
+    local record=$INSTALL_STATE_ROOT/$team/firewalld.rules
+    local -a wanted=()
+    local cidr zone rule line
+    for cidr in "$@"; do
+        zone=$(zone_of_cidr "$cidr")
+        rule=$(rich_rule "$cidr" "$port")
+        wanted+=("$zone"$'\t'"$rule")
+    done
+    if [[ -f $record ]]; then
+        while IFS=$'\t' read -r zone rule; do
+            line=$zone$'\t'$rule
+            if ! printf '%s\n' "${wanted[@]}" | grep -qFx -- "$line"; then
+                fw_remove "$zone" "$rule"
+            fi
+        done <"$record"
+    fi
+    for line in "${wanted[@]}"; do
+        fw_add "${line%%$'\t'*}" "${line#*$'\t'}"
+    done
+    if ((${#wanted[@]})); then
+        printf '%s\n' "${wanted[@]}" >"$WORK_DIR/firewalld.rules"
+    else
+        : >"$WORK_DIR/firewalld.rules"
+    fi
+    if ! [[ -f $record ]] || ! cmp -s -- "$WORK_DIR/firewalld.rules" "$record"; then
+        install -m 0600 -o "$ROOT_OWNER" -g "$ROOT_GROUP" -T -- "$WORK_DIR/firewalld.rules" "$record"
+    fi
+}
+
+remove_firewall() {
+    local team=$1 zone rule
+    local record=$INSTALL_STATE_ROOT/$team/firewalld.rules
+    [[ -f $record ]] || return 0
+    while IFS=$'\t' read -r zone rule; do
+        fw_remove "$zone" "$rule"
+    done <"$record"
+    rm -f -- "$record"
+}
+
+# Poll the homeserver until it answers; fail as soon as its unit is not active (an unknown
+# tuwunel.toml key makes Tuwunel exit 1, error_on_unknown_config_opts), with no journal scan.
+wait_ready() {
+    local unit=$1 port=$2 try state answer=""
+    local url=http://127.0.0.1:$port/_tuwunel/server_version
+    for ((try = 1; try <= READY_TRIES; try++)); do
+        if answer=$(curl --fail --silent --show-error --noproxy '*' --max-time 2 "$url" 2>&1); then
+            say "$unit answers on 127.0.0.1:$port"
+            return 0
+        fi
+        state=$(unit_state "$unit")
+        if [[ $state != active ]]; then
+            die "$EXIT_FAIL" "readiness: $unit is $state, not active: it did not start (an unknown or" \
+                "malformed tuwunel.toml key is one cause). See: systemctl status --no-pager $unit;" \
+                "journalctl -u $unit --no-pager"
+        fi
+        sleep 1
+    done
+    die "$EXIT_FAIL" "readiness: $unit is active but $url did not answer in $READY_TRIES s: $answer"
+}
+
+# The local addresses listening on TCP port PORT, one per line, sorted and unique.
+bound_addresses() {
+    local listing local_addr
+    listing=$(ss -ltnH "sport = :$1")
+    while read -r _ _ _ local_addr _; do
+        [[ -n $local_addr ]] || continue
+        local_addr=${local_addr%:*}
+        local_addr=${local_addr#[}
+        local_addr=${local_addr%]}
+        local_addr=${local_addr%%\%*}
+        printf '%s\n' "$local_addr"
+    done <<<"$listing" | sort -u
+}
+
+expected_addresses() {
+    printf '%s\n' 127.0.0.1 "$@" | sort -u
+}
+
+# Exactly 127.0.0.1 and the listen addresses are bound on PORT (DESIGN.md section 3.4 step 5).
+assert_listening() {
+    local port=$1 got want
+    shift
+    got=$(bound_addresses "$port")
+    want=$(expected_addresses "$@")
+    [[ $got == "$want" ]] || die "$EXIT_FAIL" "port $port is bound on [${got//$'\n'/ }], not exactly [${want//$'\n'/ }]"
+}
+
+# The port belongs to no other installed team.
+assert_port_free() {
+    local team=$1 port=$2 other_file other
+    for other_file in "$STATE_ROOT"/*/team.json; do
+        [[ -f $other_file ]] || continue
+        other=$(jq -r .team "$other_file")
+        [[ $other != "$team" ]] || continue
+        if [[ $(jq -r .port "$other_file") == "$port" ]]; then
+            die "$EXIT_CONFIG" "port $port is team $other's"
+        fi
+    done
+    if [[ $(unit_state "$(hs_unit "$team")") != active ]]; then
+        local listing
+        listing=$(ss -ltnH "sport = :$port")
+        [[ -z $listing ]] || die "$EXIT_CONFIG" "port $port is already in use on this host"
+    fi
+}
+
+ensure_shared_secret() {
+    local secret_file=$1/secrets/registration_shared_secret
+    [[ ! -e $secret_file ]] || return 0
+    local hex
+    hex=$(od -An -v -N 64 -tx1 /dev/urandom | tr -d ' \n')
+    [[ $hex =~ ^[0-9a-f]{128}$ ]] || die "$EXIT_FAIL" "could not read 64 random bytes"
+    (umask 077 && printf '%s' "$hex" >"$WORK_DIR/secret")
+    install -m 0600 -o "$SVC_OWNER" -g "$SVC_GROUP" -T -- "$WORK_DIR/secret" "$secret_file"
+    rm -f -- "$WORK_DIR/secret"
+    changed "registration shared secret created"
+}
+
+# Start the team's homeserver, or restart it when RESTART is 1; enable both units.
+converge_units() {
+    local team=$1 restart=$2 unit
+    for unit in "$(hs_unit "$team")" "$(timer_unit "$team")"; do
+        if ! systemctl is-enabled --quiet "$unit"; then
+            systemctl enable "$unit" >&2
+            changed "enabled $unit"
+        fi
+    done
+    unit=$(hs_unit "$team")
+    if [[ $(unit_state "$unit") != active ]]; then
+        systemctl start "$unit"
+        changed "started $unit"
+    elif ((restart)); then
+        systemctl restart "$unit"
+        changed "restarted $unit"
+    fi
+    unit=$(timer_unit "$team")
+    if [[ $(unit_state "$unit") != active ]]; then
+        systemctl start "$unit"
+        changed "started $unit"
+    fi
+}
+
+cmd_team() {
+    parse_options "team-file:value" "$@"
+    require_option team-file team
+    local file=${OPT[team-file]}
+    require_root
+    require_fedora
+    [[ -f $file && -r $file ]] || die "$EXIT_USAGE" "--team-file $file is not a readable file"
+    require_software
+    require_running firewalld.service NetworkManager.service
+    make_work_dir
+
+    # The name, only to find the installed copy; render check validates everything.
+    local team
+    if ! team=$(jq -er '.team | strings' <"$file" 2>"$WORK_DIR/jq.err"); then
+        die "$EXIT_CONFIG" "team file $file: no team name: $(<"$WORK_DIR/jq.err")"
+    fi
+    [[ $team =~ $TEAM_RE ]] || die "$EXIT_CONFIG" "team file $file: team '$team' is not a team name"
+    local dir=$STATE_ROOT/$team
+    local -a check_args=(render check)
+    [[ ! -f $dir/team.json ]] || check_args+=("--previous=$dir/team.json")
+    local status=0
+    admin_tool "${check_args[@]}" <"$file" >"$WORK_DIR/team.json" || status=$?
+    ((status == 0)) || die "$status" "team file $file refused (above)"
+
+    local state port
+    state=$(jq -r .state "$WORK_DIR/team.json")
+    port=$(jq -r .port "$WORK_DIR/team.json")
+    [[ $state == present ]] || die "$EXIT_CONFIG" "team $team is state $state: run $PROG remove --team $team"
+    local -a listen allow
+    mapfile -t listen < <(jq -r '.listen[]' "$WORK_DIR/team.json")
+    mapfile -t allow < <(jq -r '.allow_from[]' "$WORK_DIR/team.json")
+    assert_port_free "$team" "$port"
+
+    local ip_json address
+    ip_json=$(ip -j addr show)
+    local -a iface_args=()
+    for address in "${listen[@]}"; do
+        iface_args+=("--interface=$address=$(interface_of "$ip_json" "$address")")
+    done
+    admin_tool render toml <"$WORK_DIR/team.json" >"$WORK_DIR/tuwunel.toml"
+    admin_tool render dropin "${iface_args[@]}" <"$WORK_DIR/team.json" >"$WORK_DIR/network.conf"
+
+    local restart=0 reload=0
+    ensure_dir "$STATE_ROOT" 0700 "$SVC_OWNER" "$SVC_GROUP"
+    ensure_dir "$dir" 0700 "$SVC_OWNER" "$SVC_GROUP"
+    local sub
+    for sub in db backups secrets; do
+        ensure_dir "$dir/$sub" 0700 "$SVC_OWNER" "$SVC_GROUP"
+    done
+    ensure_dir "$INSTALL_STATE_ROOT" 0700 "$ROOT_OWNER" "$ROOT_GROUP"
+    ensure_dir "$INSTALL_STATE_ROOT/$team" 0700 "$ROOT_OWNER" "$ROOT_GROUP"
+    put_file "team $team tuwunel.toml" "$WORK_DIR/tuwunel.toml" "$dir/tuwunel.toml" 0640 "$ROOT_OWNER" "$SVC_GROUP"
+    ((PUT_CHANGED == 0)) || restart=1
+    put_file "team $team team.json" "$WORK_DIR/team.json" "$dir/team.json" 0640 "$ROOT_OWNER" "$SVC_GROUP"
+    ensure_shared_secret "$dir"
+
+    sync_firewall "$team" "$port" "${allow[@]}"
+    ensure_dir "$(dropin_dir "$team")" 0755 "$ROOT_OWNER" "$ROOT_GROUP"
+    put_file "team $team unit drop-in" "$WORK_DIR/network.conf" "$(dropin_dir "$team")/network.conf" 0644 "$ROOT_OWNER" "$ROOT_GROUP"
+    if ((PUT_CHANGED)); then
+        restart=1
+        reload=1
+    fi
+    readlink -f -- "$LIB_DIR/tuwunel" >"$WORK_DIR/binary"
+    put_file "team $team binary $(<"$WORK_DIR/binary")" "$WORK_DIR/binary" "$INSTALL_STATE_ROOT/$team/binary" 0600 "$ROOT_OWNER" "$ROOT_GROUP"
+    ((PUT_CHANGED == 0)) || restart=1
+    if ((reload)); then
+        systemctl daemon-reload
+    fi
+    converge_units "$team" "$restart"
+    wait_ready "$(hs_unit "$team")" "$port"
+    assert_listening "$port" "${listen[@]}"
+    admin_tool bootstrap "$team"
+}
+
+# ---------------------------------------------------------------- remove
+
+cmd_remove() {
+    parse_options "team:value purge:flag" "$@"
+    team_option remove
+    require_root
+    local team=${OPT[team]}
+    local hs timer
+    hs=$(hs_unit "$team")
+    timer=$(timer_unit "$team")
+    local enabled=0
+    if systemctl is-enabled --quiet "$hs" || systemctl is-enabled --quiet "$timer" \
+        || [[ $(unit_state "$hs") == active || $(unit_state "$timer") == active ]]; then
+        enabled=1
+    fi
+    if ((enabled)); then
+        systemctl disable --now "$hs" "$timer" >&2
+        changed "stopped and disabled $hs and $timer"
+    fi
+    remove_firewall "$team"
+    if [[ -d $(dropin_dir "$team") ]]; then
+        rm -rf -- "$(dropin_dir "$team")"
+        systemctl daemon-reload
+        changed "removed the $hs drop-in"
+    fi
+    if [[ -n ${OPT[purge]:-} ]]; then
+        local path
+        for path in "$STATE_ROOT/$team" "$INSTALL_STATE_ROOT/$team"; do
+            if [[ -e $path ]]; then
+                rm -rf -- "$path"
+                changed "purged ${path#"$PREFIX"}"
+            fi
+        done
+    fi
+}
+
+# ---------------------------------------------------------------- backup and restore
+
+# The highest numbered backup in a Tuwunel backup directory's meta/; 0 when there is none.
+latest_backup() {
+    local meta=$1 path name highest=0
+    for path in "$meta"/*; do
+        name=${path##*/}
+        if [[ $name =~ ^[1-9][0-9]*$ ]] && ((name > highest)); then
+            highest=$name
+        fi
+    done
+    printf '%s' "$highest"
+}
+
+require_team_dir() {
+    local dir=$STATE_ROOT/$1
+    [[ -d $dir && -f $dir/team.json ]] || die "$EXIT_CONFIG" "team $1 is not installed here (no ${dir#"$PREFIX"}/team.json)"
+}
+
+cmd_backup_now() {
+    parse_options "team:value" "$@"
+    team_option backup-now
+    require_root
+    local team=${OPT[team]}
+    require_team_dir "$team"
+    local dir=$STATE_ROOT/$team unit
+    unit=$(hs_unit "$team")
+    require_running "$unit"
+    make_work_dir
+    local meta=$dir/backups/meta before latest try
+    before=$(latest_backup "$meta")
+    systemctl kill --kill-whom=main --signal=SIGUSR2 "$unit"
+    latest=$before
+    for ((try = 1; try <= BACKUP_WAIT_TRIES; try++)); do
+        latest=$(latest_backup "$meta")
+        ((latest <= before)) || break
+        sleep 1
+    done
+    ((latest > before)) || die "$EXIT_FAIL" "no new backup in ${meta#"$PREFIX"} after $BACKUP_WAIT_TRIES s (is admin_signal_execute set?)"
+
+    local -a members=(secrets team.json)
+    local optional
+    for optional in registry.json room_id; do
+        [[ ! -e $dir/$optional ]] || members+=("$optional")
+    done
+    tar -C "$dir" -cf "$WORK_DIR/state.tar" -- "${members[@]}"
+    install -m 0600 -o "$ROOT_OWNER" -g "$ROOT_GROUP" -T -- "$WORK_DIR/state.tar" "$dir/backups/agent-bus-state-$latest.tar"
+    # Tuwunel keeps database_backups_to_keep backups; drop the state tars of the ones it pruned.
+    local tar_file id
+    for tar_file in "$dir"/backups/agent-bus-state-*.tar; do
+        [[ -f $tar_file ]] || continue
+        id=${tar_file##*/agent-bus-state-}
+        id=${id%.tar}
+        [[ -e $meta/$id ]] || rm -f -- "$tar_file"
+    done
+    changed "backup $latest of team $team"
+}
+
+cmd_restore() {
+    parse_options "team:value backup:value" "$@"
+    team_option restore
+    require_option backup restore
+    local id=${OPT[backup]}
+    [[ $id =~ ^[1-9][0-9]*$ ]] || die "$EXIT_USAGE" "--backup '$id' is not a backup number"
+    require_root
+    local team=${OPT[team]}
+    require_team_dir "$team"
+    require_software
+    local dir=$STATE_ROOT/$team
+    local state_tar=$dir/backups/agent-bus-state-$id.tar
+    [[ -e $dir/backups/meta/$id ]] || die "$EXIT_CONFIG" "team $team has no database backup $id"
+    [[ -f $state_tar ]] || die "$EXIT_CONFIG" "team $team has no state tar for backup $id"
+    local port hs once
+    port=$(jq -r .port "$dir/team.json")
+    hs=$(hs_unit "$team")
+    once=agent-bus-restore-$team.service
+
+    systemctl stop "$hs"
+    # The state as it was at the backup: files the backup did not hold are removed.
+    local optional
+    for optional in registry.json room_id; do
+        rm -f -- "${dir:?}/$optional"
+    done
+    rm -rf -- "${dir:?}/secrets"
+    tar -C "$dir" -xpf "$state_tar"
+    systemd-run --unit="$once" --uid="$SVC_NAME" --gid="$SVC_NAME" \
+        --setenv="TUWUNEL_CONFIG=/var/lib/agent-bus/$team/tuwunel.toml" \
+        --property=IPAddressDeny=any --property="IPAddressAllow=127.0.0.1/32 ::1/128" \
+        -- /usr/local/lib/agent-bus/tuwunel --restore-backup "$id" >&2
+    wait_ready "$once" "$port"
+    systemctl stop "$once"
+    systemctl start "$hs"
+    changed "restored team $team from backup $id"
+    wait_ready "$hs" "$port"
+    local -a listen
+    mapfile -t listen < <(jq -r '.listen[]' "$dir/team.json")
+    assert_listening "$port" "${listen[@]}"
+    admin_tool bootstrap "$team"
+}
+
+# ---------------------------------------------------------------- check
+
+CHECK_FAILED=0
+fact() {
+    local name=$1 verdict=$2
+    shift 2
+    printf 'CHECK\t%s\t%s\t%s\n' "$name" "$verdict" "$*"
+    [[ $verdict != FAIL ]] || CHECK_FAILED=1
+}
+verdict() {
+    if [[ $1 == "$2" ]]; then echo ok; else echo FAIL; fi
+}
+
+cmd_check() {
+    parse_options "team:value" "$@"
+    team_option check
+    require_root
+    local team=${OPT[team]}
+    require_team_dir "$team"
+    local dir=$STATE_ROOT/$team hs
+    hs=$(hs_unit "$team")
+    local port server_name state
+    port=$(jq -r .port "$dir/team.json")
+    server_name=$(jq -r .server_name "$dir/team.json")
+    state=$(unit_state "$hs")
+    fact ActiveState "$(verdict "$state" active)" "$state"
+    state=$(systemctl show -P UnitFileState "$hs")
+    fact UnitFileState "$(verdict "$state" enabled)" "$state"
+    local property
+    for property in User IPAddressDeny IPAddressAllow RestrictAddressFamilies IPAccounting SocketBindDeny SocketBindAllow; do
+        fact "$property" info "$(systemctl show -P "$property" "$hs")"
+    done
+    local dropin dropin_state=missing
+    dropin=$(dropin_dir "$team")/network.conf
+    [[ ! -f $dropin ]] || dropin_state=present
+    fact drop-in "$(verdict "$dropin_state" present)" "${dropin#"$PREFIX"}"
+    fact server_name "$(verdict "${server_name##*.}" internal)" "$server_name"
+
+    local -a listen
+    mapfile -t listen < <(jq -r '.listen[]' "$dir/team.json")
+    local want got
+    got=$(bound_addresses "$port")
+    want=$(expected_addresses "${listen[@]}")
+    fact listen "$(verdict "$got" "$want")" "port $port bound on: ${got//$'\n'/ }"
+
+    local record=$INSTALL_STATE_ROOT/$team/firewalld.rules zone rule absent=0 rules=0
+    if [[ -f $record ]]; then
+        while IFS=$'\t' read -r zone rule; do
+            rules=$((rules + 1))
+            if ! firewall-cmd --permanent --zone="$zone" --query-rich-rule="$rule" >/dev/null; then
+                absent=$((absent + 1))
+            fi
+        done <"$record"
+    fi
+    fact firewalld "$(verdict "$absent" 0)" "$rules rule(s) recorded, $absent missing from the permanent configuration"
+    fact binary info "$(readlink -f -- "$LIB_DIR/tuwunel")"
+    ((CHECK_FAILED == 0)) || exit "$EXIT_FAIL"
+}
+
+# ---------------------------------------------------------------- dispatch
+
+main() {
+    local command=${1:-}
+    (($#)) || {
+        usage >&2
+        exit "$EXIT_USAGE"
+    }
+    shift
+    case $command in
+        -h | --help | help) usage ;;
+        software) cmd_software "$@" ;;
+        team) cmd_team "$@" ;;
+        remove) cmd_remove "$@" ;;
+        backup-now) cmd_backup_now "$@" ;;
+        restore) cmd_restore "$@" ;;
+        check) cmd_check "$@" ;;
+        *) die "$EXIT_USAGE" "unknown command '$command' (see --help)" ;;
+    esac
+}
+
+main "$@"
