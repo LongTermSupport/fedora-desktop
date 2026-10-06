@@ -322,6 +322,23 @@ class StateKeyAndPowerTest(TeamRoom):
                 self.assertEqual(status, 403)
                 self.assertIn("another user's ID", body["error"])
 
+    def test_power_is_checked_before_the_at_state_key(self) -> None:
+        """Spec rule 9 (power) precedes rule 10 (`@` key equals sender)."""
+        status, body = self.put_state(self.agent, "m.room.name", self.other, {"name": "x"})
+        self.assertEqual(status, 403)
+        self.assertIn("does not have enough power", body["error"])
+
+    def test_redacting_a_state_event_is_unmodelled(self) -> None:
+        """Redaction keeps per-type keys for state events; the fake models messages only."""
+        status, sent = self.put_state(self.admin, "m.room.name", "", {"name": "x"})
+        self.assertEqual(status, 200)
+        with self.assertRaises(fake_client_api.Unmodelled):
+            self.call(self.admin, "PUT", f"/_matrix/client/v3/rooms/{q(self.room)}/redact/"
+                      f"{q(sent['event_id'])}/s1", body={})
+        status, name = self.call(self.agent, "GET", f"/_matrix/client/v3/rooms/{q(self.room)}/state/"
+                                 "m.room.name/")
+        self.assertEqual((status, name), (200, {"name": "x"}))
+
     def test_power_zero_member_writes_status_under_a_non_at_key(self) -> None:
         """The server forces only `@` keys to equal the sender (DESIGN.md section 4), so
         receivers must ignore a status whose key is not its sender's user ID."""
@@ -542,6 +559,19 @@ class HttpTest(unittest.TestCase):
             status, body = self.get(base, "/_matrix/client/v3/account/whoami", self.token)
             self.assertEqual((status, body["retry_after_ms"]), (429, 50))
             self.assertEqual(self.get(base, "/_matrix/client/v3/account/whoami", self.token)[0], 200)
+
+    def test_unmodelled_request_over_http_answers_500_and_fails_serve(self) -> None:
+        body = json.dumps({"type": "m.login.token", "token": "x"}).encode()
+        with self.assertRaises(fake_client_api.Unmodelled):
+            with fake_client_api.serve(self.fake) as base:
+                request = urllib.request.Request(base + "/_matrix/client/v3/login", data=body, method="POST")
+                request.add_header("Content-Type", "application/json")
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    self.opener.open(request, timeout=5)
+                with caught.exception as error:
+                    self.assertEqual(error.code, 500)
+                    self.assertEqual(json.loads(error.read())["errcode"], "M_UNKNOWN")
+        self.assertEqual(len(self.fake.unmodelled), 1)
 
     def test_unknown_route_is_unrecognized(self) -> None:
         status, body = self.fake.request("GET", "/_matrix/client/v3/nonexistent", {}, None, self.token)

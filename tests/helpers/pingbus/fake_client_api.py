@@ -212,6 +212,7 @@ class FakeHomeserver:
         self.users: dict[str, User] = {}
         self.rooms: dict[str, Room] = {}
         self.http_log: list[HttpRecord] = []
+        self.unmodelled: list[Unmodelled] = []
         self._clock = clock
         self._cond = threading.Condition()
         self._tokens: dict[str, tuple[str, str]] = {}
@@ -420,9 +421,6 @@ class FakeHomeserver:
         """The room-version-12 auth rules pingbus relies on, in the spec's order."""
         if room.membership(sender) != "join":
             raise forbidden("Auth check failed: sender is not joined to the room")
-        if state_key is not None and state_key.startswith("@") and state_key != sender:
-            raise forbidden("Auth check failed: sender cannot send event with `state_key` "
-                            "matching another user's ID")
         levels = room.levels()
         default = levels.get("state_default", 50) if state_key is not None else levels.get("events_default", 0)
         required = levels.get("events", {}).get(event_type, default)
@@ -430,6 +428,9 @@ class FakeHomeserver:
         if have < required:
             raise forbidden(f"Auth check failed: sender does not have enough power (Int({have})) "
                             f"for `{event_type}` event type ({required})")
+        if state_key is not None and state_key.startswith("@") and state_key != sender:
+            raise forbidden("Auth check failed: sender cannot send event with `state_key` "
+                            "matching another user's ID")
 
     def _do_invite(self, room: Room, sender: str, target: str) -> None:
         if room.membership(sender) != "join":
@@ -500,6 +501,8 @@ class FakeHomeserver:
             target = self._find_event(room, event_id)
             if target.sender != req.user_id and room.power(req.user_id) < room.levels().get("redact", 50):
                 raise forbidden("Auth check failed: sender does not have enough power to redact")
+            if target.state_key is not None:
+                raise Unmodelled("redacting a state event: the spec keeps per-type content keys")
             target.content = {}
             return self._append(room, "m.room.redaction", req.user_id, {"redacts": event_id}, txn=txn_key)
 
@@ -639,7 +642,11 @@ def _handler_for(fake: FakeHomeserver) -> type[http.server.BaseHTTPRequestHandle
             except ValueError:
                 status, payload = 400, {"errcode": "M_NOT_JSON", "error": "Content not JSON."}
             else:
-                status, payload = fake.request(self.command, parsed.path, query, body, token)
+                try:
+                    status, payload = fake.request(self.command, parsed.path, query, body, token)
+                except Unmodelled as gap:
+                    fake.unmodelled.append(gap)
+                    status, payload = 500, {"errcode": "M_UNKNOWN", "error": f"fake: unmodelled: {gap}"}
             data = json.dumps(payload).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
@@ -657,7 +664,9 @@ def _handler_for(fake: FakeHomeserver) -> type[http.server.BaseHTTPRequestHandle
 
 @contextlib.contextmanager
 def serve(fake: FakeHomeserver) -> Iterator[str]:
-    """Serve `fake` on 127.0.0.1 at a free port; yields the base URL."""
+    """Serve `fake` on 127.0.0.1 at a free port; yields the base URL.
+
+    An unmodelled request is answered 500 and recorded; on exit the first one is raised."""
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _handler_for(fake))
     server.daemon_threads = True
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -668,3 +677,5 @@ def serve(fake: FakeHomeserver) -> Iterator[str]:
         server.shutdown()
         server.server_close()
         thread.join(5)
+    if fake.unmodelled:
+        raise fake.unmodelled[0]
