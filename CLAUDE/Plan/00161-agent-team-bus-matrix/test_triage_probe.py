@@ -661,5 +661,19 @@ class ListenerTagTest(unittest.TestCase):
         self.assertEqual(tp.parse_tag(b""), "<none>")
 
 
+class TableLinesTest(unittest.TestCase):
+    def test_header_rule_and_escaped_cells(self) -> None:
+        self.assertEqual(
+            tp.table_lines(["a", "b"], [["x|y", "one\ntwo"], [1, None]]),
+            ["| a | b |", "|---|---|", "| x\\|y | one two |", "| 1 | None |"],
+        )
+
+    def test_report_table_writes_the_same_lines(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "report.md"
+            tp.Report(path).table(["a"], [["x"]])
+            self.assertIn("\n".join(tp.table_lines(["a"], [["x"]])), path.read_text(encoding="utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()

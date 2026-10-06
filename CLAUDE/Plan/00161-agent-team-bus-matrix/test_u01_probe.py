@@ -14,13 +14,18 @@ Run from anywhere:
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
+import os
 import pathlib
+import shlex
 import socket
 import sys
 import tempfile
 import threading
+import time
 import unittest
+from unittest import mock
 
 _HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
@@ -259,10 +264,6 @@ class StreamTest(unittest.TestCase):
         ]
         self.assertEqual(up.result_times(events), [2.0, 4.0])
 
-    def test_turns_between(self) -> None:
-        self.assertEqual(up.turns_between([2.0, 4.0, 9.0], 3.0, 9.0), 1)
-        self.assertEqual(up.turns_between([2.0, 4.0, 9.0], 3.0, None), 2)
-
     def test_hook_responses(self) -> None:
         events = [
             (1.0, {"type": "system", "subtype": "hook_response", "hook_event": "SessionStart", "exit_code": 0}),
@@ -443,6 +444,186 @@ class SendNoticeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             record = up.send_notice(str(pathlib.Path(tmp) / "absent.sock"), TOKEN, "x", reply_wait_s=0.1)
         self.assertIn("FileNotFoundError", record["error"])
+
+
+REPO_ROOT = _HERE.parents[2]
+
+
+class WorkDirTest(unittest.TestCase):
+    def test_instruction_ancestors_finds_claude_md_and_dot_claude(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "a" / "b" / ".claude").mkdir(parents=True)
+            (root / "a" / "CLAUDE.md").write_text("x", encoding="utf-8")
+            (root / "a" / "b" / "c").mkdir()
+            self.assertEqual(
+                up.instruction_ancestors(root / "a" / "b" / "c"),
+                [root / "a" / "b" / ".claude", root / "a" / "CLAUDE.md"],
+            )
+            self.assertEqual(up.instruction_ancestors(root), [])
+
+    def test_the_work_dir_is_outside_the_checkout_with_no_instructions_above_it(self) -> None:
+        work = up.make_work_dir("main")
+        try:
+            self.assertTrue(work.is_dir())
+            self.assertFalse(work.resolve().is_relative_to(REPO_ROOT.resolve()))
+            self.assertEqual(up.instruction_ancestors(work), [])
+        finally:
+            work.rmdir()
+
+    def test_a_session_refuses_a_work_dir_under_instructions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "CLAUDE.md").write_text("x", encoding="utf-8")
+            session = up.Session("claude", up.VARIANTS["main"], root / "evidence", root / "work")
+            with self.assertRaisesRegex(up.tp.ProbeError, "CLAUDE.md"):
+                session.start()
+            self.assertIsNone(session.proc)
+            self.assertFalse((root / "evidence").exists())
+
+
+class WriterTest(unittest.TestCase):
+    def test_the_writer_exits_once_the_socket_is_gone(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = pathlib.Path(tmp)
+            (evidence / "writer").mkdir()
+            sock = evidence / "inbox.sock"
+            sock.write_text("", encoding="utf-8")
+            env = {up.SOCKET_ENV: str(sock), up.TOKEN_ENV: TOKEN}
+            result: list[int] = []
+            with mock.patch.dict(os.environ, env):
+                thread = threading.Thread(target=lambda: result.append(up.writer_main(evidence)), daemon=True)
+                thread.start()
+                deadline = time.monotonic() + 5
+                while not (evidence / "writer" / "ready.json").exists() and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                sock.unlink()
+                thread.join(timeout=5)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(result, [0])
+            self.assertTrue((evidence / "writer" / "socket-gone.json").exists())
+
+
+class HookMainTest(unittest.TestCase):
+    def test_a_stop_hook_records_its_mark_and_starts_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = pathlib.Path(tmp)
+            (evidence / "marks").mkdir()
+            stdin = io.StringIO('{"hook_event_name": "Stop", "stop_hook_active": false}')
+            with mock.patch.object(sys, "stdin", stdin), mock.patch.dict(os.environ, {up.SOCKET_ENV: "/s"}):
+                self.assertEqual(up.hook_main(evidence, "Stop"), 0)
+            lines = (evidence / "marks" / "Stop.jsonl").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(lines), 1)
+            self.assertEqual(json.loads(lines[0])["input"], {"hook_event_name": "Stop", "stop_hook_active": False})
+            self.assertFalse((evidence / "writer").exists())
+
+    def test_a_second_session_start_keeps_the_first_writer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = pathlib.Path(tmp)
+            (evidence / "marks").mkdir()
+            (evidence / "writer").mkdir()
+            with mock.patch.object(sys, "stdin", io.StringIO("{}")):
+                self.assertEqual(up.hook_main(evidence, "SessionStart"), 0)
+            self.assertFalse((evidence / "writer.stderr").exists())
+            self.assertTrue((evidence / "marks" / "SessionStart.jsonl").exists())
+
+
+def _peer_line(content: str) -> str:
+    return json.dumps(
+        {"type": "user", "message": {"role": "user", "content": content}, "origin": {"kind": "peer", "from": "unknown"}}
+    )
+
+
+class RenderSessionTest(unittest.TestCase):
+    def test_the_report_section_carries_every_fact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            session = up.Session("claude", up.VARIANTS["main"], root / "evidence", root / "work")
+            session.marks.mkdir(parents=True)
+            start = up.mark_record("SessionStart", '{"source": "startup"}', {}, 1.0)
+            (session.marks / "SessionStart.jsonl").write_text(json.dumps(start) + "\n", encoding="utf-8")
+            routed_at = "2026-10-06T15:58:21.100Z"
+            parsed = up.parse_debug_line(routed_at + " [DEBUG] x")
+            assert parsed is not None
+            session.debug_file.write_text(
+                f"{routed_at} [DEBUG] [uds-messaging] Routed user message to queue (priority=next): a\n"
+                f"{routed_at} [DEBUG] attribution header: cc_turn_origin=peer;\n",
+                encoding="utf-8",
+            )
+            session.sends = [(parsed[0] - 0.05, "notice 1 to the idle session")]
+            body = up.notice_body(1, 0, 1, 1)
+            (session.evidence / "transcript.jsonl").write_text(
+                _peer_line("Another Claude session sent:\n" + body + "\nEnd.") + "\n", encoding="utf-8"
+            )
+            facts = {
+                "version": "2.1.291 (Claude Code)",
+                "ready": {"token_present": True},
+                "exit_code": 0,
+                "wake_turn_s": 3.2,
+                "framing_body": body,
+                "batch_bodies": [up.notice_body(2, 0, 2, 2), up.notice_body(3, 0, 3, 3)],
+                "transcript_found": True,
+                "purge": "exit 0",
+                "removed_after_purge": [],
+            }
+            text = up.render_session("main", session, facts, ["the dedupe resend failed"])
+        self.assertIn("## U01 session: main", text)
+        self.assertIn("- Claude Code: 2.1.291 (Claude Code)", text)
+        self.assertIn("<CLAUDE_CODE_MESSAGING_TOKEN>", text)
+        self.assertIn('| SessionStart | 1 | {"source": "startup"} |', text)
+        self.assertIn("| Stop | 0 |  |", text)
+        self.assertIn("| notice 1 to the idle session | routed | next | yes |", text)
+        self.assertIn("turn after notice 1 to the idle session ended after 3.2 s", text)
+        self.assertIn("```\nAnother Claude session sent:\n```", text)
+        self.assertIn("```\n\nEnd.\n```", text)
+        self.assertIn("reached the model as: missing:", text)
+        self.assertIn("Cleanup: claude purge exit 0", text)
+        self.assertIn("**Facts not established:** the dedupe resend failed", text)
+
+
+class RemoveTracesTest(unittest.TestCase):
+    def test_only_the_sessions_own_files_are_removed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            log = root / "claude.log"
+            claude = root / "claude"
+            claude.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> {shlex.quote(str(log))}\n', encoding="utf-8")
+            claude.chmod(0o755)
+            session = up.Session(str(claude), up.VARIANTS["main"], root / "evidence", root / "work")
+            session.evidence.mkdir()
+            session.cwd.mkdir(parents=True)
+            sid, other = session.session_id, "99999999-8888-4777-8666-555555555555"
+            config = root / "config"
+            keep = [
+                config / "projects" / "-p" / f"{other}.jsonl",
+                config / "todos" / f"{other}-agent.json",
+                config / "settings.json",
+            ]
+            gone = [
+                config / "projects" / "-p" / f"{sid}.jsonl",
+                config / "todos" / f"{sid}-agent-{sid}.json",
+                config / "session-env" / sid / "env",
+            ]
+            for path in keep + gone:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(path.name, encoding="utf-8")
+            auth = {"projectsDirectory": str(config / "projects"), "configDirectory": str(config)}
+            facts: dict[str, object] = {}
+            errors = up.remove_traces(str(claude), auth, session, facts)
+            self.assertEqual(errors, [])
+            for path in keep:
+                self.assertTrue(path.exists(), path)
+            for path in gone:
+                self.assertFalse(path.exists(), path)
+            self.assertFalse((config / "session-env" / sid).exists())
+            self.assertFalse(session.work.exists())
+            self.assertEqual((session.evidence / "transcript.jsonl").read_text(encoding="utf-8"), f"{sid}.jsonl")
+            self.assertEqual(facts["purge"], "exit 0")
+            self.assertTrue(facts["transcript_found"])
+            self.assertEqual(
+                log.read_text(encoding="utf-8").splitlines(),
+                [f"purge --dry-run {session.cwd}", f"purge -y {session.cwd}"],
+            )
 
 
 if __name__ == "__main__":

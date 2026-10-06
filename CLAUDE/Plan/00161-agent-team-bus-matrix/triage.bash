@@ -43,7 +43,8 @@
 # directory systemd removes when it stops); creates and removes one rootless podman network
 # (H1); starts throwaway containers with --rm; runs Element for a bounded time with a new
 # profile it removes (H6). It pulls no image and installs nothing. The U01 sessions run in
-# an empty directory under the scratch directory, with this user's own settings, hooks,
+# a fresh directory in the system temp directory (outside this checkout, so its CLAUDE.md
+# and .claude/ are never loaded; each session removes its own), with this user's own settings, hooks,
 # plugins, tools and MCP servers left out, and never see a running session's socket; their
 # transcript is copied into the run directory, then `claude purge` and a sweep of the files
 # named by each session's fresh UUID remove them from the Claude config directory.
@@ -156,10 +157,10 @@ if [[ "${claudeOnly}" -eq 0 ]]; then
 fi
 
 u01=(python3 "${PLAN_SCRIPT_DIR}/u01_probe.py")
-plan_gather_leg "U01 Claude Code version and login" "${u01[@]}" claude-env "${common[@]}"
+plan_gather_leg "U01 Claude Code version and login" "${u01[@]}" claude-env --report "${REPORT}"
 for variant in main bypass-no-accept default-accept default-no-accept; do
     plan_gather_leg "U01 throwaway session: ${variant}" \
-        "${u01[@]}" session --variant "${variant}" --evidence "${PLAN_RUN_DIR}/u01" "${common[@]}"
+        "${u01[@]}" session --variant "${variant}" --evidence "${PLAN_RUN_DIR}/u01" --report "${REPORT}"
 done
 remove_scratch # the same call an interrupted run makes through plan_on_cleanup
 plan_finish

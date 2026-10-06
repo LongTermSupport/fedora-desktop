@@ -28,10 +28,13 @@ Subcommands:
 The child is isolated from everything live: its environment never carries a running
 session's socket or token; it runs in an empty scratch directory with --setting-sources
 project (so the user's own settings, hooks and plugins are not loaded), no tools, no MCP
-servers and the haiku model; the writer sends nothing until the driver has checked that
-the writer's socket is the one the child itself logged. The child uses the user's own login
-(its config directory), so afterwards `claude purge` removes the scratch project's
-transcript and config entry, and any file named by the session's fresh UUID is removed.
+servers and the haiku model. That directory is a fresh one in the system temp directory,
+outside any checkout, and the session refuses to start if a CLAUDE.md or .claude/ sits
+above it, so no project's instructions or hooks reach the child. The writer sends nothing
+until the driver has checked that the writer's socket is the one the child itself logged,
+and it stops by itself once that socket is gone. The child uses the user's own login (its
+config directory), so afterwards `claude purge` removes the scratch project's transcript
+and config entry, and any file named by the session's fresh UUID is removed.
 """
 
 from __future__ import annotations
@@ -48,6 +51,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -73,7 +77,8 @@ LIVE_SESSION_ENV = frozenset(
     }
 )
 KEPT_HOOK_KEYS = ("hook_event_name", "source", "session_id", "stop_hook_active", "reason")
-AUTH_KEYS = ("loggedIn", "authMethod", "apiProvider", "projectsDirectory", "configDirectory")
+INSTRUCTION_FILES = ("CLAUDE.md", "CLAUDE.local.md")
+AUTH_KEYS =("loggedIn", "authMethod", "apiProvider", "projectsDirectory", "configDirectory")
 FIRST_PROMPT = "Reply with the single word OK and nothing else."
 PROBE_ASK = " (Claude Code probe: reply with the single word OK and nothing else.)"
 START_TIMEOUT_S = 60
@@ -212,6 +217,21 @@ def child_env(environ: dict[str, str]) -> dict[str, str]:
     return {key: value for key, value in environ.items() if key not in LIVE_SESSION_ENV}
 
 
+def instruction_ancestors(path: pathlib.Path) -> list[pathlib.Path]:
+    """What Claude Code would load walking up from a working directory: memory files, .claude/."""
+    found = []
+    for directory in (path, *path.parents):
+        found += [directory / name for name in INSTRUCTION_FILES if (directory / name).is_file()]
+        if (directory / ".claude").is_dir():
+            found.append(directory / ".claude")
+    return found
+
+
+def make_work_dir(variant: str) -> pathlib.Path:
+    """The child's directory, in the system temp directory: never under a checkout's CLAUDE.md."""
+    return pathlib.Path(tempfile.mkdtemp(prefix=f"u01-{variant}-")).resolve()
+
+
 # ── pure: reading the child's debug log, stream output and transcript ─────────────────────
 
 
@@ -290,10 +310,6 @@ def _json_or_none(text: str) -> Any:
 
 def result_times(events: list[tuple[float, dict[str, Any]]]) -> list[float]:
     return [t for t, obj in events if obj.get("type") == "result"]
-
-
-def turns_between(times: list[float], start: float, end: float | None) -> int:
-    return sum(1 for t in times if t >= start and (end is None or t < end))
 
 
 def hook_responses(events: list[tuple[float, dict[str, Any]]]) -> list[tuple[str, Any]]:
@@ -449,6 +465,12 @@ def writer_main(evidence: pathlib.Path) -> int:
     while time.monotonic() < deadline:
         cmd_path = wdir / f"cmd-{number}.json"
         if not cmd_path.exists():
+            if not os.path.exists(path):
+                # The session is gone (or a killed driver never said exit): stop, as
+                # `pingbus watch` does (DESIGN.md section 6). The driver's watch-socket
+                # command is written before the session closes, so it is seen first.
+                write_json(wdir / "socket-gone.json", {"t": time.time()})
+                return 0
             time.sleep(0.05)
             continue
         cmd = parse_command(_read_json(cmd_path))
@@ -543,6 +565,12 @@ class Session:
         self.exit_at: float | None = None
 
     def start(self) -> None:
+        loaded = instruction_ancestors(self.cwd.parent)
+        if loaded:
+            raise tp.ProbeError(
+                f"the child's directory {self.cwd} sits below {', '.join(map(str, loaded))}, which Claude Code "
+                "would load into every turn; nothing was started"
+            )
         self.evidence.mkdir(parents=True)
         self.marks.mkdir()
         self.cwd.mkdir(parents=True)
@@ -695,7 +723,9 @@ class Session:
         return errors
 
     def writer_ready(self) -> bool:
-        return (self.writer_dir / "ready.json").exists()
+        """A writer that is still waiting for commands (it stops by itself once its socket is gone)."""
+        ready = _read_json(self.writer_dir / "ready.json")
+        return bool(ready and ready["socket"]) and not (self.writer_dir / "socket-gone.json").exists()
 
 
 def remove_traces(claude: str, auth: dict[str, Any], session: Session, facts: dict[str, Any]) -> list[str]:
@@ -819,15 +849,16 @@ def render_session(name: str, session: Session, facts: dict[str, Any], errors: l
         first = _json_or_none(path.read_text(encoding="utf-8").splitlines()[0]) if counts[event] else None
         rows.append([event, counts[event], json.dumps(first["input"]) if isinstance(first, dict) else ""])
     out += ["Hooks of the --plugin-dir plugin (times fired; first input, selected keys):", ""]
-    out += _table(["event", "fired", "first input"], rows)
+    out += [*tp.table_lines(["event", "fired", "first input"], rows), ""]
 
     debug = _read_text(session.debug_file)
     outcomes = pair_outcomes(session.sends, inbox_events(debug))
     out += ["What the inbox did with each send (from the child's debug log):", ""]
-    out += _table(
+    out += tp.table_lines(
         ["send", "outcome", "detail", "peer turn logged before the next send"],
         [[o["label"], o["outcome"], o["detail"], "yes" if o["peer_turn"] else "no"] for o in outcomes],
     )
+    out.append("")
     for key, text in (
         ("typed_turn_s", "typed turn ended after {} s"),
         ("wake_turn_s", "turn after notice 1 to the idle session ended after {} s (None: no turn)"),
@@ -865,13 +896,6 @@ def render_session(name: str, session: Session, facts: dict[str, Any], errors: l
     return "\n".join(out)
 
 
-def _table(header: list[str], rows: list[list[object]]) -> list[str]:
-    lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
-    for row in rows:
-        lines.append("| " + " | ".join(str(c).replace("|", "\\|").replace("\n", " ") for c in row) + " |")
-    return lines + [""]
-
-
 def leg_claude_env(args: argparse.Namespace, report: tp.Report) -> None:
     version = claude_version(args.claude)
     auth = claude_auth(args.claude)
@@ -890,9 +914,7 @@ def leg_session(args: argparse.Namespace, report: tp.Report) -> None:
     if auth.get("loggedIn") is not True:
         raise tp.ProbeError("this user's claude is not logged in, so no child session can take a turn")
     facts: dict[str, Any] = {"version": claude_version(args.claude)}
-    session = Session(
-        args.claude, variant, pathlib.Path(args.evidence) / args.variant, pathlib.Path(args.scratch) / f"u01-{args.variant}"
-    )
+    session = Session(args.claude, variant, pathlib.Path(args.evidence) / args.variant, make_work_dir(args.variant))
     errors: list[str] = []
     tp.say(f"[U01] session {args.variant}: {variant.about}")
     try:
@@ -917,7 +939,6 @@ def main(argv: list[str]) -> int:
     session = sub.add_parser("session")
     for leg in (env, session):
         leg.add_argument("--report", required=True)
-        leg.add_argument("--scratch", required=True)
         leg.add_argument("--claude", default="claude")
     session.add_argument("--variant", required=True, choices=sorted(VARIANTS))
     session.add_argument("--evidence", required=True)
@@ -933,9 +954,8 @@ def main(argv: list[str]) -> int:
         return writer_main(pathlib.Path(args.evidence))
     if shutil.which(args.claude) is None:
         parser.error(f"{args.claude} is not on PATH")
-    for name in ("scratch", "evidence"):
-        if getattr(args, name, ""):
-            setattr(args, name, str(pathlib.Path(getattr(args, name)).resolve()))
+    if getattr(args, "evidence", ""):
+        args.evidence = str(pathlib.Path(args.evidence).resolve())
     report = tp.Report(pathlib.Path(args.report))
     legs = {"claude-env": leg_claude_env, "session": leg_session}
     try:

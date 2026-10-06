@@ -552,7 +552,10 @@ a Stop hook as the guard on both.**
 - **The socket's cost.** It admits any process of the same user in the container or on the
   host. That crosses no boundary: such a process can already edit the session's settings
   and hooks. It needs `--settings` (a project setting is not honoured [spike]); identical
-  repeats are dropped (hence `S`) and distinct ones batched, which suits a rising count. It is a recent
+  repeats are dropped (hence `S`) and distinct ones batched, which suits a rising count
+  (**pending the U01 host run**: on Claude Code 2.1.291 two distinct notices 50 ms apart
+  arrived as two entries and two turns, not one batch, and the dedupe window is a
+  server-side flag of 0-600 s, 30 s today; see the plan journal). It is a recent
   Claude Code mechanism, so probe U01 pins its behaviour per Claude Code version, and
   `pingbus status` says which wake path is live.
 - **Fallback (`wait`).** Where `CLAUDE_CODE_MESSAGING_SOCKET` is absent (a session started
