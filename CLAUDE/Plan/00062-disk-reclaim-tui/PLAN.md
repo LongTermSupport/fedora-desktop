@@ -304,6 +304,44 @@ is run / the volume is mounted under the new map):**
     `play-docker.yml`'s subuid change migrate old artifacts instead of silently
     orphaning them.
 
+### Phase 5: Whole-stack disk survey (owner, 2026-10-06)
+
+The owner asked for disk hygiene across the whole stack, not only the host: find what
+wastes space, report where problems look likely, and propose cleanups (or run them, with
+a confirm). `reclaim` is the home for it: its `report` gains the stack, and its menu
+gains the actions. The owner's wording "optimised for ageing assistance" is read as
+"optimised for agent assistance": a report an agent can read and act on. To confirm with
+the owner before Task 5.1 (Q1 below).
+
+- [ ] ⬜ **Task 5.0**: Owner questions, asked in one batch:
+  - **Q1**: "ageing assistance": agent assistance (a machine-readable report an agent
+    reads and proposes from), or ageing (flag things by how long since last used)? Both
+    are cheap; the default is both.
+  - **Q2**: may `reclaim` ever delete without a per-action confirm (for example from
+    meta-deploy with a flag), or does every deletion stay confirm-first (the current
+    non-goal)?
+- [ ] ⬜ **Task 5.1**: `triage.bash` probes first, read-only, so the report is built from
+  facts: per area, the size and the age of its oldest and newest item.
+  - **Host:** the biggest trees, `/tmp` and `/var/tmp`, the journal, dnf and flatpak
+    caches, old kernels, the trash.
+  - **CCY and podman:** images, dangling layers, build cache, volumes (named and
+    anonymous, with whether any container mounts them), stopped containers, per-session
+    state under the CCY state directory.
+  - **LXC:** each container's rootfs size and state, and Docker inside it (images,
+    volumes, build cache) through the existing docker-in-lxc access.
+  - **VMs:** the vmtest lab (bases, cached media, kept failed-run overlays) and any other
+    libvirt images.
+  - **Caches the stack fills:** the Hugging Face model cache (models not used by any
+    setting), pip/uv/npm caches, git worktrees left under projects' `untracked/` and
+    `.claude/worktrees/`.
+- [ ] ⬜ **Task 5.2**: `reclaim report --json` (stdout is the payload): one record per
+  finding with area, path or object, size, last-used age, why it looks reclaimable, and
+  the exact command or action that would reclaim it. The human `report` renders the same.
+- [ ] ⬜ **Task 5.3**: Menu actions for the new areas, each confirm-first with a safe
+  default; nothing touches a running container's or VM's storage.
+- [ ] ⬜ **Task 5.4**: A meta-deploy unit that runs `reclaim report` on the host
+  read-only, so the agent reads the findings and proposes.
+
 ## Success Criteria
 
 - [x] `./scripts/qa-all.bash` passes.
