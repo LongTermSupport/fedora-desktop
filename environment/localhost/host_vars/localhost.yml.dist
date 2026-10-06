@@ -66,3 +66,10 @@ user_email: "yourname@example.com"
 # mok_password: !vault |
 #   $ANSIBLE_VAULT;1.2;AES256;localhost
 #   <encrypted-value-goes-here>
+
+# Optional (Plan 00161, agent team bus): the host-wide bus address agent-bus-install puts
+# on the NetworkManager dummy interface agentbus0, as <ip>/32; local containers, LXC,
+# docker and VM guests reach this host's team homeservers on it. Pick an address this host
+# uses nowhere else: on no interface, and under no route but the default (Plan 00161's
+# deploy.bash refuses one that is not).
+# agent_bus_address: <ip>

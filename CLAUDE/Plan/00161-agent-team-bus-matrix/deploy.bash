@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# Plan 00161 — deploy.bash (unit U16, host run): agent-bus-install for real on this desktop,
+# then triage.bash's H1 and H2 against the bus address (DESIGN.md sections 12, 5.3 and 13).
+#
+# RUN ON THE HOST, as the desktop user (not root): through CLAUDE/Plan/meta-deploy.bash, or
+#   ./CLAUDE/Plan/00161-agent-team-bus-matrix/deploy.bash [--bus-address=<ip>]
+# The bus address is install-specific, so it is not in this repository: --bus-address=, or
+# else agent_bus_address in the untracked host_vars localhost.yml (see localhost.yml.dist).
+# The one prompt is sudo's, before the log opens (R3); every root step after it uses
+# `sudo -n`, so a lapsed timestamp fails that step by name instead of prompting into the log.
+# There is no acceptance.bash yet (U17 writes it), so this does not end by running one.
+#
+# IN ORDER, stopping at the first failure (plan_mode deploy):
+#   1. refuse the bus address, changing nothing, if an interface other than agentbus0 holds
+#      it or a route other than a default route covers it (deploy_check.py);
+#   2. remove a throwaway team an interrupted earlier run left (a no-op otherwise);
+#   3. `agent-bus-install software --source <this checkout> --bus-address <ip>`, run from
+#      this checkout, since the installed copy does not exist before the first run;
+#   4. `team` for the throwaway team zz-deploy-check, from a team file of example values in
+#      the run directory: the bus address, a free port, allow_from 192.0.2.0/24, human owner;
+#   5. `software` and `team` again: any CHANGED line fails the run;
+#   6. `check --team`, printed: any FAIL fact fails the run;
+#   7. `remove --team --purge`; after a failure once the team is in, the same removal runs on
+#      the way out (plan_on_cleanup);
+#   8. `triage.bash --reach-only --bus-address=<ip>`, whose report stays in its run directory.
+#
+# WHAT STAYS, deliberately (every desktop carries the homeserver software): the packages of
+# DESIGN.md section 3.2, the agent-bus user, /var/lib/agent-bus{,-install}, the pinned
+# Tuwunel, the zipapps, /usr/local/bin/agent-bus and pingbus, /usr/local/sbin/agent-bus-install,
+# the member kit, the three template units (no instance enabled), and the NetworkManager dummy
+# connection agentbus0 holding <ip>, across reboots. Nothing of zz-deploy-check stays. The
+# log, the team file and each installer run's stdout stay in the untracked run directory.
+#
+# EXIT CODES: 0 every step succeeded; 1 a step failed (it names itself); 64 usage (an unknown
+# argument, --check, no bus address, or one that is not a concrete, canonical IP literal).
+set -euo pipefail
+
+# ── R1 bootstrap: script-relative, filesystem-only, bounded at the repo boundary ──────────
+scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+repoRoot="${scriptDir}"
+while [[ "${repoRoot}" != "/" ]] && [[ ! -e "${repoRoot}/ansible.cfg" ]]; do
+    if [[ -e "${repoRoot}/.git" ]]; then
+        printf '[FATAL] no ansible.cfg between %s and the repo root %s\n' "${scriptDir}" "${repoRoot}" >&2
+        exit 1
+    fi
+    repoRoot="$(dirname "${repoRoot}")"
+done
+[[ -e "${repoRoot}/ansible.cfg" ]] || {
+    printf '[FATAL] no ansible.cfg above %s\n' "${scriptDir}" >&2
+    exit 1
+}
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../_planlib.inc.bash
+source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
+plan_init "${BASH_SOURCE[0]}"
+
+# Cannot collide with a real team: teams are named for their purpose, never zz-anything.
+readonly TEAM="zz-deploy-check"
+readonly BUS_ADDRESS_VAR="agent_bus_address"
+
+PLAN_USAGE="usage: deploy.bash [--bus-address=<ip>] [-h|--help]
+
+Unit U16's host run for Plan 00161 (agent team bus): installs the agent-bus homeserver
+software and the agentbus0 bus address (both stay), installs, re-runs, checks and removes a
+throwaway team, then runs triage.bash's H1 and H2 against the bus address.
+  --bus-address=<ip>   the address for agentbus0; without it, ${BUS_ADDRESS_VAR} from the
+                       host_vars localhost.yml
+Prompts for sudo once, before the run log opens."
+
+plan_mode deploy
+plan_parse_common_flags "$@"
+
+BUS_ADDRESS=""
+for arg in "${PLAN_REMAINING_ARGS[@]+"${PLAN_REMAINING_ARGS[@]}"}"; do
+    case "${arg}" in
+        --bus-address=?*) BUS_ADDRESS="${arg#--bus-address=}" ;;
+        *)
+            printf '[FATAL] unknown argument: %s\n%s\n' "${arg}" "${PLAN_USAGE}" >&2
+            exit 64
+            ;;
+    esac
+done
+if [[ "${PLAN_CHECK}" == "1" ]]; then
+    printf '[FATAL] --check has nothing to rehearse here: no play runs, and agent-bus-install has no dry run\n' >&2
+    exit 64
+fi
+
+plan_require_host "it installs the homeserver software, a NetworkManager interface and systemd units on the host"
+if [[ "${EUID}" -eq 0 ]]; then
+    printf '[FATAL] run this as the desktop user, not root: it uses sudo for the installer, and its triage legs use rootless podman\n' >&2
+    exit 1
+fi
+
+if [[ -z "${BUS_ADDRESS}" ]]; then
+    # ansible-inventory resolves host_vars exactly as the plays do; run from the repo root
+    # for ansible.cfg's relative inventory path.
+    inventory="$(cd "${PLAN_REPO_ROOT}" && ansible-inventory --host localhost </dev/null)"
+    BUS_ADDRESS="$(python3 -I -c '
+import json, sys
+value = json.load(sys.stdin).get(sys.argv[1], "")
+print(value if isinstance(value, str) else "")
+' "${BUS_ADDRESS_VAR}" <<<"${inventory}")"
+    if [[ -z "${BUS_ADDRESS}" ]]; then
+        printf '[FATAL] no bus address: set %s: <ip> in environment/localhost/host_vars/localhost.yml (an address this host uses nowhere else), or pass --bus-address=<ip>\n' \
+            "${BUS_ADDRESS_VAR}" >&2
+        exit 64
+    fi
+fi
+checker=(python3 -I "${PLAN_SCRIPT_DIR}/deploy_check.py")
+if ! "${checker[@]}" syntax "${BUS_ADDRESS}"; then
+    exit 64
+fi
+
+plan_prime_sudo
+plan_start_log auto
+
+INSTALLER="${PLAN_REPO_ROOT}/files/usr/local/sbin/agent-bus-install"
+TEAM_FILE="${PLAN_RUN_DIR}/${TEAM}.team.json"
+TEAM_PRESENT=0
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=_deploy-steps.inc.bash
+source "${PLAN_SCRIPT_DIR}/_deploy-steps.inc.bash"
+plan_on_cleanup remove_team_after_failure
+
+plan_deploy_leg "bus address ${BUS_ADDRESS} is free for agentbus0" "${checker[@]}" free "${BUS_ADDRESS}"
+plan_deploy_leg "remove a ${TEAM} left by an interrupted run" remove_team remove-leftover
+plan_deploy_leg "agent-bus-install software (stays installed)" install_software software
+plan_deploy_leg "write the ${TEAM} team file" write_team_file
+plan_deploy_leg "agent-bus-install team ${TEAM}" install_team team
+plan_deploy_leg "software and team again: nothing may change" second_run
+plan_deploy_leg "agent-bus-install check --team ${TEAM}" check_team
+plan_deploy_leg "agent-bus-install remove --team ${TEAM} --purge" remove_team remove
+plan_deploy_leg "triage H1 and H2 against ${BUS_ADDRESS}" \
+    "${PLAN_SCRIPT_DIR}/triage.bash" --reach-only "--bus-address=${BUS_ADDRESS}"
+printf '==> the homeserver software and agentbus0 (%s) stay installed; %s is gone\n' "${BUS_ADDRESS}" "${TEAM}"
+plan_finish
