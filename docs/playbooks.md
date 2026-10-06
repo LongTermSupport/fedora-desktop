@@ -719,6 +719,19 @@ nmcli connection up vpn-name
 nmcli connection down vpn-name
 ```
 
+### play-agent-bus.yml
+
+**Purpose**: Agent team bus homeserver host (Plan 00161)\
+**Actions**:
+
+- Runs `files/usr/local/sbin/agent-bus-install software` on every run: the pinned Tuwunel
+  homeserver, its system user and units, the `agent-bus` and `pingbus` commands, and the
+  `agentbus0` bus address when `agent_bus_address` is set
+- Installs each team declared in `agent_bus_teams` (host_vars), and removes each one
+  declared `state: absent` (`purge: true` also deletes its data)
+- A thin caller: the installer does the work and decides what changed, so the same host
+  can be built from another project's IaC. Placeholders are in `localhost.yml.dist`.
+
 ### play-gsettings.yml
 
 **Purpose**: Desktop settings configuration\

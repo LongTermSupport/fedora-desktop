@@ -1,0 +1,121 @@
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
+---
+# Agent team bus homeserver host (Plan 00161, DESIGN.md sections 3.1 and 3.4).
+#
+# A thin caller of files/usr/local/sbin/agent-bus-install, which is the single source of
+# truth for what a homeserver host looks like; other projects run the same installer from
+# their own IaC, so nothing here may re-implement a step of it. The play:
+#
+#   1. `software --source <this checkout>` on every run, with `--bus-address` when the
+#      host sets agent_bus_address: packages, the agent-bus user, the pinned Tuwunel, the
+#      zipapps, the units, and the installer itself under /usr/local/sbin. Every desktop
+#      carries the software; an instance exists only where a team is declared.
+#   2. `remove --team` (plus `--purge` when asked) for each agent_bus_teams entry with
+#      state absent, before any team is installed, so a port a removed team held is free.
+#   3. `team --team-file` for each entry with state present (the default), from a team
+#      file rendered into a root-only temporary directory that is deleted afterwards.
+#
+# Each step reports changed only when the installer prints a CHANGED line, so a run with
+# nothing new is all ok. The installer has no dry run, so --check skips the three steps.
+#
+# Teams live in the untracked host_vars localhost.yml (see localhost.yml.dist): each entry
+# is the team file of DESIGN.md section 3.4, validated by the installer, and an absent
+# entry needs only `team`, `state: absent` and optionally `purge: true`.
+- hosts: desktop
+  name: Agent team bus homeserver (agent-bus-install)
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    agent_bus_installer: "{{ root_dir }}/files/usr/local/sbin/agent-bus-install"
+    agent_bus_team_list: "{{ agent_bus_teams | default([]) }}"
+    agent_bus_present: "{{ agent_bus_team_list | rejectattr('state', 'defined') | list
+      + agent_bus_team_list | selectattr('state', 'defined') | selectattr('state', 'eq', 'present') | list }}"
+    agent_bus_absent: "{{ agent_bus_team_list | selectattr('state', 'defined') | selectattr('state', 'eq', 'absent') | list }}"
+    # Matches the installer's CHANGED<TAB><what> marker lines.
+    agent_bus_changed_re: "^CHANGED\t"
+  tasks:
+    # Only the shape this play itself relies on; the installer validates each team file.
+    - name: Check agent_bus_teams declares each team once, with a known state
+      ansible.builtin.assert:
+        that:
+          - agent_bus_team_list is sequence and agent_bus_team_list is not string
+          - agent_bus_team_list | reject('mapping') | list | length == 0
+          - agent_bus_team_list | rejectattr('team', 'defined') | list | length == 0
+          - agent_bus_team_list | map(attribute='team') | unique | list | length == agent_bus_team_list | length
+          - (agent_bus_present | length + agent_bus_absent | length) == agent_bus_team_list | length
+          - agent_bus_present | selectattr('purge', 'defined') | list | length == 0
+          - agent_bus_absent | rejectattr('purge', 'undefined') | rejectattr('purge', 'boolean') | list | length == 0
+        fail_msg: >-
+          agent_bus_teams in environment/localhost/host_vars/localhost.yml must be a list
+          of mappings, each with a unique team, a state of present (the default) or absent,
+          and purge (true or false) only on an absent team. See localhost.yml.dist.
+        quiet: true
+      tags: [agent-bus]
+
+    - name: Install the agent-bus homeserver software
+      ansible.builtin.command:
+        argv: >-
+          {{ [agent_bus_installer, 'software', '--source', root_dir]
+             + (['--bus-address', agent_bus_address] if (agent_bus_address | default('') | length > 0) else []) }}
+      register: agent_bus_software
+      changed_when: agent_bus_software.stdout_lines | select('match', agent_bus_changed_re) | list | length > 0
+      tags: [agent-bus]
+
+    - name: Remove the agent-bus teams declared absent
+      ansible.builtin.command:
+        argv: >-
+          {{ [agent_bus_installer, 'remove', '--team', item.team]
+             + (['--purge'] if (item.purge | default(false)) else []) }}
+      loop: "{{ agent_bus_absent }}"
+      loop_control:
+        label: "{{ item.team }}"
+      register: agent_bus_remove
+      changed_when: agent_bus_remove.stdout_lines | select('match', agent_bus_changed_re) | list | length > 0
+      tags: [agent-bus]
+
+    - name: Install the agent-bus teams declared present
+      # The installer has no dry run, so --check renders nothing either.
+      when: agent_bus_present | length > 0 and not ansible_check_mode
+      tags: [agent-bus]
+      block:
+        # A scratch directory, not a managed file: the installer keeps the validated copy
+        # as /var/lib/agent-bus/<team>/team.json, and the play reports only its changes.
+        - name: Make a root-only directory for the rendered team files
+          ansible.builtin.tempfile:
+            state: directory
+            suffix: .agent-bus-teams
+          register: agent_bus_team_dir
+          changed_when: false
+
+        - name: Render each team file
+          ansible.builtin.copy:
+            content: "{{ item | combine({'state': 'present'}) | to_nice_json }}\n"
+            dest: "{{ agent_bus_team_dir.path }}/{{ item.team }}.json"
+            owner: root
+            group: root
+            mode: "0600"
+          loop: "{{ agent_bus_present }}"
+          loop_control:
+            label: "{{ item.team }}"
+          changed_when: false
+
+        - name: Install or update each team
+          ansible.builtin.command:
+            argv:
+              - "{{ agent_bus_installer }}"
+              - team
+              - --team-file
+              - "{{ agent_bus_team_dir.path }}/{{ item.team }}.json"
+          loop: "{{ agent_bus_present }}"
+          loop_control:
+            label: "{{ item.team }}"
+          register: agent_bus_team
+          changed_when: agent_bus_team.stdout_lines | select('match', agent_bus_changed_re) | list | length > 0
+      always:
+        - name: Delete the rendered team files
+          ansible.builtin.file:
+            path: "{{ agent_bus_team_dir.path }}"
+            state: absent
+          when: agent_bus_team_dir.path is defined
+          changed_when: false
