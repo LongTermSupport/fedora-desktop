@@ -1,0 +1,33 @@
+{
+  "auth": "<token:admin>",
+  "body": null,
+  "elapsed_ms": 0,
+  "method": "GET",
+  "name": "state-power-levels",
+  "path": "/_matrix/client/v3/rooms/%214-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM/state/m.room.power_levels/",
+  "query": {},
+  "response": {
+    "ban": 100,
+    "events": {
+      "agent_bus.status": 0,
+      "m.reaction": 50,
+      "m.room.power_levels": 100,
+      "m.room.redaction": 100,
+      "m.room.tombstone": 150,
+      "m.sticker": 100
+    },
+    "events_default": 0,
+    "invite": 100,
+    "kick": 100,
+    "notifications": {
+      "room": 50
+    },
+    "redact": 100,
+    "state_default": 100,
+    "users": {
+      "@probehuman:probe.agent-bus.internal": 50
+    },
+    "users_default": 0
+  },
+  "status": 200
+}

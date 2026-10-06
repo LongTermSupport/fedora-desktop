@@ -1,0 +1,33 @@
+{
+  "auth": "<token:admin>",
+  "body": null,
+  "elapsed_ms": 0,
+  "method": "GET",
+  "name": "state-team-record",
+  "path": "/_matrix/client/v3/rooms/%214-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM/state/agent_bus.team/",
+  "query": {},
+  "response": {
+    "forge_api": "https://api.github.com",
+    "humans": [
+      "@probehuman:probe.agent-bus.internal"
+    ],
+    "path_prefixes": [
+      "CLAUDE/Plan/"
+    ],
+    "repos": [
+      {
+        "branches": [
+          "main"
+        ],
+        "repo": "example-org/myrepo"
+      }
+    ],
+    "roles": {
+      "@probe.20+triage.podman:probe.agent-bus.internal": "orchestrator",
+      "@probe.21+triage.podman:probe.agent-bus.internal": "worker"
+    },
+    "team": "probe",
+    "v": 1
+  },
+  "status": 200
+}

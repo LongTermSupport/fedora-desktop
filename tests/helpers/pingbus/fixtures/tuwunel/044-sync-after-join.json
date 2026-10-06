@@ -1,0 +1,227 @@
+{
+  "auth": "<token:receiver>",
+  "body": null,
+  "elapsed_ms": 2,
+  "method": "GET",
+  "name": "sync-after-join",
+  "path": "/_matrix/client/v3/sync",
+  "query": {
+    "filter": "{\"presence\":{\"types\":[]},\"account_data\":{\"types\":[]},\"room\":{\"rooms\":[\"!4-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM\"],\"ephemeral\":{\"types\":[]},\"account_data\":{\"types\":[]},\"state\":{\"types\":[\"m.room.create\",\"m.room.power_levels\",\"m.room.member\",\"agent_bus.team\",\"agent_bus.status\"],\"lazy_load_members\":true},\"timeline\":{\"types\":[\"m.room.message\",\"m.room.member\",\"m.room.power_levels\",\"agent_bus.team\",\"agent_bus.status\"],\"limit\":50}}}",
+    "since": "148",
+    "timeout": "0"
+  },
+  "response": {
+    "device_lists": {
+      "changed": [
+        "@probe.20+triage.podman:probe.agent-bus.internal",
+        "@probe.21+triage.podman:probe.agent-bus.internal",
+        "@probehuman:probe.agent-bus.internal"
+      ]
+    },
+    "device_one_time_keys_count": {
+      "signed_curve25519": 0
+    },
+    "device_unused_fallback_key_types": [],
+    "next_batch": "160",
+    "rooms": {
+      "join": {
+        "!4-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM": {
+          "account_data": {
+            "events": []
+          },
+          "ephemeral": {
+            "events": []
+          },
+          "state": {
+            "events": [
+              {
+                "content": {
+                  "room_version": "12"
+                },
+                "event_id": "$4-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM",
+                "origin_server_ts": 1791298025774,
+                "sender": "@admin:probe.agent-bus.internal",
+                "state_key": "",
+                "type": "m.room.create"
+              },
+              {
+                "content": {
+                  "ban": 100,
+                  "events": {
+                    "agent_bus.status": 0,
+                    "m.reaction": 50,
+                    "m.room.power_levels": 100,
+                    "m.room.redaction": 100,
+                    "m.room.tombstone": 150,
+                    "m.sticker": 100
+                  },
+                  "events_default": 0,
+                  "invite": 100,
+                  "kick": 100,
+                  "notifications": {
+                    "room": 50
+                  },
+                  "redact": 100,
+                  "state_default": 100,
+                  "users": {
+                    "@probehuman:probe.agent-bus.internal": 50
+                  },
+                  "users_default": 0
+                },
+                "event_id": "$udf6T3Ei9I-GyH7zxDb91fzHJ6wOjvQzu7Dml5khSNo",
+                "origin_server_ts": 1791298025775,
+                "sender": "@admin:probe.agent-bus.internal",
+                "state_key": "",
+                "type": "m.room.power_levels"
+              },
+              {
+                "content": {
+                  "forge_api": "https://api.github.com",
+                  "humans": [
+                    "@probehuman:probe.agent-bus.internal"
+                  ],
+                  "path_prefixes": [
+                    "CLAUDE/Plan/"
+                  ],
+                  "repos": [
+                    {
+                      "branches": [
+                        "main"
+                      ],
+                      "repo": "example-org/myrepo"
+                    }
+                  ],
+                  "roles": {
+                    "@probe.20+triage.podman:probe.agent-bus.internal": "orchestrator",
+                    "@probe.21+triage.podman:probe.agent-bus.internal": "worker"
+                  },
+                  "team": "probe",
+                  "v": 1
+                },
+                "event_id": "$9HxE0HUkZQr2dXjDZndB7oGHBLZpI68XDMxmQhZZEXo",
+                "origin_server_ts": 1791298025779,
+                "sender": "@admin:probe.agent-bus.internal",
+                "state_key": "",
+                "type": "agent_bus.team"
+              },
+              {
+                "content": {
+                  "displayname": "probe.21+triage.podman",
+                  "membership": "invite"
+                },
+                "event_id": "$4Y5ZAW5N78kSgxiiUUhRtOtSKuTeAHH9y9vVzADTTSM",
+                "origin_server_ts": 1791298025785,
+                "sender": "@admin:probe.agent-bus.internal",
+                "state_key": "@probe.21+triage.podman:probe.agent-bus.internal",
+                "type": "m.room.member",
+                "unsigned": {}
+              },
+              {
+                "content": {
+                  "displayname": "probehuman",
+                  "membership": "invite"
+                },
+                "event_id": "$DEShdE87TMcmO7ADN7CkCG8SobuDgl__d6PhIkgkZnU",
+                "origin_server_ts": 1791298025788,
+                "sender": "@admin:probe.agent-bus.internal",
+                "state_key": "@probehuman:probe.agent-bus.internal",
+                "type": "m.room.member"
+              },
+              {
+                "content": {
+                  "displayname": "probe.20+triage.podman",
+                  "membership": "invite"
+                },
+                "event_id": "$yAaTNT4x3AG3FFw-pr0z4ZI0wai5rOvccmxr7wEojbE",
+                "origin_server_ts": 1791298025784,
+                "sender": "@admin:probe.agent-bus.internal",
+                "state_key": "@probe.20+triage.podman:probe.agent-bus.internal",
+                "type": "m.room.member"
+              }
+            ]
+          },
+          "summary": {
+            "m.heroes": [
+              "@admin:probe.agent-bus.internal",
+              "@probe.20+triage.podman:probe.agent-bus.internal",
+              "@probehuman:probe.agent-bus.internal"
+            ],
+            "m.invited_member_count": 0,
+            "m.joined_member_count": 4
+          },
+          "timeline": {
+            "events": [
+              {
+                "content": {
+                  "displayname": "probe.20+triage.podman",
+                  "membership": "join"
+                },
+                "event_id": "$ZJANA3mYUTbg7eeSwFXTsKFkmeJMg3-HvTD-4HpNWrU",
+                "origin_server_ts": 1791298025792,
+                "sender": "@probe.20+triage.podman:probe.agent-bus.internal",
+                "state_key": "@probe.20+triage.podman:probe.agent-bus.internal",
+                "type": "m.room.member",
+                "unsigned": {
+                  "age": 6,
+                  "prev_content": {
+                    "displayname": "probe.20+triage.podman",
+                    "membership": "invite"
+                  },
+                  "prev_sender": "@admin:probe.agent-bus.internal",
+                  "replaces_state": "$yAaTNT4x3AG3FFw-pr0z4ZI0wai5rOvccmxr7wEojbE"
+                }
+              },
+              {
+                "content": {
+                  "displayname": "probe.21+triage.podman",
+                  "membership": "join"
+                },
+                "event_id": "$F9lklDEjZPqkYoj1lD3IW_ted1il-2fXysZ53GGTWbQ",
+                "origin_server_ts": 1791298025794,
+                "sender": "@probe.21+triage.podman:probe.agent-bus.internal",
+                "state_key": "@probe.21+triage.podman:probe.agent-bus.internal",
+                "type": "m.room.member",
+                "unsigned": {
+                  "age": 4,
+                  "prev_content": {
+                    "displayname": "probe.21+triage.podman",
+                    "membership": "invite"
+                  },
+                  "prev_sender": "@admin:probe.agent-bus.internal",
+                  "replaces_state": "$4Y5ZAW5N78kSgxiiUUhRtOtSKuTeAHH9y9vVzADTTSM"
+                }
+              },
+              {
+                "content": {
+                  "displayname": "probehuman",
+                  "membership": "join"
+                },
+                "event_id": "$leSI4aJIEZlq-BNmQoDkwBhQTtTT1Oj151lqNKVPhCI",
+                "origin_server_ts": 1791298025795,
+                "sender": "@probehuman:probe.agent-bus.internal",
+                "state_key": "@probehuman:probe.agent-bus.internal",
+                "type": "m.room.member",
+                "unsigned": {
+                  "age": 3,
+                  "prev_content": {
+                    "displayname": "probehuman",
+                    "membership": "invite"
+                  },
+                  "prev_sender": "@admin:probe.agent-bus.internal",
+                  "replaces_state": "$DEShdE87TMcmO7ADN7CkCG8SobuDgl__d6PhIkgkZnU"
+                }
+              }
+            ],
+            "limited": true,
+            "prev_batch": "151"
+          },
+          "unread_notifications": {
+            "highlight_count": 0,
+            "notification_count": 0
+          }
+        }
+      }
+    }
+  },
+  "status": 200
+}

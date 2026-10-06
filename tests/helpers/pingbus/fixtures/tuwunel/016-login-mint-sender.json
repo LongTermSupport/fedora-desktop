@@ -1,0 +1,13 @@
+{
+  "auth": "<token:admin>",
+  "body": {},
+  "elapsed_ms": 0,
+  "method": "POST",
+  "name": "login-mint-sender",
+  "path": "/_synapse/admin/v1/users/%40probe.20%2Btriage.podman%3Aprobe.agent-bus.internal/login",
+  "query": {},
+  "response": {
+    "access_token": "<token:sender>"
+  },
+  "status": 200
+}

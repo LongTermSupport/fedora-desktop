@@ -1,0 +1,30 @@
+{
+  "auth": "<token:admin>",
+  "body": null,
+  "elapsed_ms": 0,
+  "method": "GET",
+  "name": "admin-query-admins",
+  "path": "/_synapse/admin/v2/users",
+  "query": {
+    "admins": "true"
+  },
+  "response": {
+    "next_token": null,
+    "total": 1,
+    "users": [
+      {
+        "admin": true,
+        "creation_ts": 0,
+        "deactivated": false,
+        "displayname": "admin",
+        "erased": false,
+        "is_guest": false,
+        "last_seen_ts": 1791298025502,
+        "locked": false,
+        "name": "@admin:probe.agent-bus.internal",
+        "shadow_banned": false
+      }
+    ]
+  },
+  "status": 200
+}

@@ -1,0 +1,13 @@
+{
+  "auth": "<token:human>",
+  "body": {},
+  "elapsed_ms": 2,
+  "method": "POST",
+  "name": "join-human",
+  "path": "/_matrix/client/v3/rooms/%214-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM/join",
+  "query": {},
+  "response": {
+    "room_id": "!4-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM"
+  },
+  "status": 200
+}

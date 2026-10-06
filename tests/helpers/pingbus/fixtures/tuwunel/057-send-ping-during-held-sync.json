@@ -1,0 +1,29 @@
+{
+  "auth": "<token:sender>",
+  "body": {
+    "agent_bus.ping": {
+      "ref": "path:example-org/myrepo@1111111111111111111111111111111111111111:CLAUDE/Plan/x.md",
+      "to": [
+        "@probe.21+triage.podman:probe.agent-bus.internal"
+      ],
+      "v": 1,
+      "verb": "fetch"
+    },
+    "body": "[agent-bus] fetch path:example-org/myrepo@1111111111111111111111111111111111111111:CLAUDE/Plan/x.md -> @probe.21+triage.podman:probe.agent-bus.internal",
+    "m.mentions": {
+      "user_ids": [
+        "@probe.21+triage.podman:probe.agent-bus.internal"
+      ]
+    },
+    "msgtype": "m.notice"
+  },
+  "elapsed_ms": 1,
+  "method": "PUT",
+  "name": "send-ping-during-held-sync",
+  "path": "/_matrix/client/v3/rooms/%214-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM/send/m.room.message/probe-2",
+  "query": {},
+  "response": {
+    "event_id": "$l1dAgPik5rXYS1kT75RO78y7DT277SwwtX1huv93X4U"
+  },
+  "status": 200
+}

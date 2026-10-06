@@ -1,0 +1,14 @@
+{
+  "auth": null,
+  "body": null,
+  "elapsed_ms": 0,
+  "method": "GET",
+  "name": "server-version",
+  "path": "/_tuwunel/server_version",
+  "query": {},
+  "response": {
+    "name": "Tuwunel",
+    "version": "1.9.3"
+  },
+  "status": 200
+}
