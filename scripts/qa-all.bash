@@ -786,6 +786,17 @@ fi
 kernel_selection_summary=$(qa_gate_case_count "$kernel_selection_out")
 qa_pass_line vmtest-kernel-selection "$kernel_selection_summary"
 
+# vmtest's build directories when refresh-base builds several bases in one process: each
+# successful build removes its own, and a failed build's is kept for diagnosis.
+build_dir_out=""
+if ! build_dir_out="$(bash "$SCRIPT_DIR/test-vmtest-build-dir-cleanup.bash" 2>&1)"; then
+    qa_hard_gate_failed vmtest-build-dir-cleanup \
+        "vmtest build directory cleanup tests failed" \
+        "$build_dir_out"
+fi
+build_dir_summary=$(qa_gate_case_count "$build_dir_out")
+qa_pass_line vmtest-build-dir-cleanup "$build_dir_summary"
+
 # The fixture→checker record contract (Plan 00109). One scenario's fixture writes a file
 # the checker sources, and that seam is invisible to every other gate: a value carrying a
 # shell metacharacter aborts the source and unsets every key after it, while the file

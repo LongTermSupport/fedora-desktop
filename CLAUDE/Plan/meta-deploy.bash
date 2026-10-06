@@ -52,8 +52,8 @@ PLAN_ROOT="${scriptDir}"
 # An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
-    # Checks the VM-lab bases after vmtest refresh-base all (Plan 00134 Task 2.7). Read-only.
-    00134-startup-log-triage-and-status-panel-unavailable/triage.bash
+    # Changed plays only: play-vm-test-lab.yml, vmtest's build-directory fix (Plan 00134 Task 2.7).
+    00141-run-bash-changed-plays/run-changed.bash
     # Next: 00148's triage once you have dictated with Continuous Dictation on.
 )
 

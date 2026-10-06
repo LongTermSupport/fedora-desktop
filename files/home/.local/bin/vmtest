@@ -520,10 +520,15 @@ wait_for_shutoff() {
 }
 
 # Teardown is armed for EXIT and the signals, so a failed build never leaves a domain
-# running. The build directory is kept on failure for diagnosis and removed on success.
+# running. A successful build removes its own directory (build_dir_finished) at once,
+# because refresh-base runs several builds in one process and the EXIT trap sees only
+# the last; so a BUILD_DIR still set at teardown is a failed build's, kept for diagnosis.
 DOMAIN=""
 BUILD_DIR=""
-BUILD_OK=0
+build_dir_finished() {
+    rm -rf "${BUILD_DIR}"
+    BUILD_DIR=""
+}
 teardown_build() {
     local rc=$?
     trap - EXIT INT TERM HUP
@@ -534,9 +539,7 @@ teardown_build() {
         fi
         virsh -c "${LIBVIRT_URI}" undefine --nvram "${DOMAIN}" >&2 || log "could not undefine ${DOMAIN}"
     fi
-    if [[ "${BUILD_OK}" -eq 1 && -n "${BUILD_DIR}" ]]; then
-        rm -rf "${BUILD_DIR}"
-    elif [[ -n "${BUILD_DIR}" ]]; then
+    if [[ -n "${BUILD_DIR}" ]]; then
         log "build directory kept for diagnosis: ${BUILD_DIR}"
     fi
     rm -f "${PROBE_FILE:-}"
@@ -818,7 +821,7 @@ cmd_build_base() {
         --base-size "${base_size}" --base-mtime "${base_mtime}" >"${base_dir}/base.json.new"
     mv -f "${base_dir}/base.json.new" "${base_dir}/base.json"
     chmod 0444 "${base_disk}"
-    BUILD_OK=1
+    build_dir_finished
     log "base ${BASE_NAME} built: ${base_disk} (${base_size} bytes, refresh ${refresh_state})"
     printf 'VMTEST-BASE-BUILT %s %s refresh_state=%s\n' "${BASE_NAME}" "${base_disk}" "${refresh_state}"
 }
@@ -1494,4 +1497,7 @@ main() {
     esac
 }
 
-main "$@"
+# Sourced (scripts/test-vmtest-build-dir-cleanup.bash), it only defines its functions.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

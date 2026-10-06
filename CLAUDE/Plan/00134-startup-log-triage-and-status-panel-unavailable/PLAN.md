@@ -136,8 +136,19 @@ containers that needs its own diagnosis (F7).
   only when complete), then `vmtest freshness-status` should read every base `current`.
   - [x] ✅ The owner ran it: `VMTEST-REFRESH-DONE refreshed=3`, each base reported
     `refresh_state=complete`.
-  - [ ] ⬜ HOST: `triage.bash` (in `meta-deploy.bash`) reads every base `current`, no
-    `<base>.build` directory left, and the nightly unit's last result.
+  - [x] ✅ HOST: `triage.bash` (meta-deploy `20261006-125042`) reads all three bases
+    `current`. It also found `desktop-44.build` and `server-fast-44.build` left behind.
+  - [x] ✅ That leftover is fixed: `refresh-base` builds every base in one process, and the
+    build directory was removed only by the EXIT trap, which saw only the last; the success
+    flag was never reset either, so a failed build after a good one would have lost its
+    directory. A successful build now removes its own directory at once, and teardown keeps
+    whatever is left (a failed build's). `scripts/test-vmtest-build-dir-cleanup.bash`, a
+    `qa-all.bash` gate, sources the real `vmtest` (now guarded so it runs `main` only when
+    executed); red first. Deployed by Plan 00141's `run-changed.bash` in `meta-deploy.bash`.
+    The nightly sweep evicts `server-fast-44.build`; it keeps desktop build directories for
+    diagnosis, so `desktop-44.build` (328K) goes at the next desktop base build.
+  - [ ] ⬜ HOST: tonight's `vmtest-nightly` passes (its last run, 10:43, was before the
+    refresh). The next 00134 triage shows `Result=success`.
 
 ### Phase 3: things to diagnose before changing
 
