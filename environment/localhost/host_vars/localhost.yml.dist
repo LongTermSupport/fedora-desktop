@@ -94,3 +94,13 @@ user_email: "yourname@example.com"
 #   - team: <old-team>
 #     state: absent
 #     purge: false
+
+# Optional (Plan 00161): the teams user_login watches in Element Desktop, applied by the
+# optional play playbooks/imports/optional/common/play-agent-bus-element.yml (a profile and
+# a launcher per team; DESIGN.md section 8). A team may be hosted here or elsewhere:
+# base_url is how this desktop reaches it, http:// only to an IP literal (the bus address,
+# or a WireGuard address). server_name defaults to <team>.agent-bus.internal. The play
+# refuses when user_login has ~/.config/pingbus/: agents never run as the human.
+# agent_bus_element_teams:
+#   - team: <team>
+#     base_url: http://<bus_ip>:<port>

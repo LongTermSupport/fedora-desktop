@@ -716,9 +716,12 @@ answer a human's message by `re`).
 
 ## 8. Element
 
-- **Desktop:** `play-agent-bus-element.yml` (optional): Element Desktop Flatpak
-  `im.riot.Riot` (system-wide, the `play-comms.yml` pattern) and, per team the host's humans
-  use, `~/.var/app/im.riot.Riot/config/Element-<team>/config.json` with `base_url` the
+- **Desktop:** `playbooks/imports/optional/common/play-agent-bus-element.yml` (optional, not
+  imported by `playbook-main.yml`): Element Desktop Flatpak
+  `im.riot.Riot` (system-wide, the `play-comms.yml` pattern) and, per team in
+  `agent_bus_element_teams` (`team`, `base_url`, optional `server_name`; written by
+  `helpers/agent_bus/element.py` as `user_login`),
+  `~/.var/app/im.riot.Riot/config/Element-<team>/config.json` with `base_url` the
   team's address (`<bus_ip>` or `<wg_ip>`), the locked-down keys of [clients §1.4]
   (pinned homeserver, `disable_custom_urls`, no well-known lookups, no identity server,
   integrations, Jitsi, Element Call, maps, analytics, sentry, rageshake, URL previews, room
