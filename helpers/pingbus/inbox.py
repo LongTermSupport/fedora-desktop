@@ -19,6 +19,8 @@ Layout under the state directory (created 0700, files 0600, never through a syml
   `recv` and the watcher serialise without a further file.
 - `lock`: held with `flock` by the one process syncing this team, holding its kind.
 - `team.json`: the last verified team record, removed when the room stops being trusted.
+- `room.json`: `{"v": 1, "members": {<user ID>: "join"|"invite"}, "statuses": {<user ID>:
+  <until ms>}}`, the room as the syncer last saw it, for an offline `status`.
 - `dropped.log`: one tab-separated line per drop (team, event ID, sender, reason, ms).
 
 Writes go to a temporary file in the same directory, are fsynced, renamed over the target,
@@ -56,6 +58,12 @@ UNTRUSTED_FILE = "untrusted.json"
 UNTRUSTED_REASON_MAX = 200
 #: One line per drop (§9 "Drop"): team, event ID, sender user ID, reason code, time (ms).
 DROPPED_LOG = "dropped.log"
+#: The room as the syncer last saw it (§12), for an offline `status`: joined and invited
+#: members by user ID, and the `listening` statuses §8 lets it read.
+ROOM_FILE = "room.json"
+ROOM_MEMBERSHIPS = ("join", "invite")
+ROOM_MEMBERS_MAX = 4096
+TEAM_RECORD_MAX_BYTES = 65536
 ABSENT = "-"
 
 #: What a lock holder writes into `lock`. `recv` holds it only while it syncs once.
@@ -199,6 +207,59 @@ def _read_regular(path: pathlib.Path, max_bytes: int) -> bytes:
 
 def _dump(value: object) -> bytes:
     return json.dumps(value, ensure_ascii=True, separators=(",", ":")).encode("ascii")
+
+
+def is_user_id_text(value: object) -> bool:
+    """A user ID that can be printed as one field: printable ASCII with no space or tab,
+    `@`, a localpart, `:`, a server name, at most Matrix's 255 characters."""
+    return isinstance(value, str) and _LOG_USER_RE.fullmatch(value) is not None and ":" in value[2:]
+
+
+def write_json_file(path: pathlib.Path, value: object) -> None:
+    """Replace `path` with `value` as JSON: fsynced temporary file, rename, directory fsync."""
+    _write_atomic(path, _dump(value))
+    _fsync_dir(path.parent)
+
+
+def read_json_file(path: pathlib.Path) -> object | None:
+    """A state file's JSON, None when absent; `StateError` when it is not a regular file
+    (never followed through a symlink), too large, or not JSON."""
+    try:
+        raw = _read_regular(path, MAX_STATE_FILE_BYTES)
+    except FileNotFoundError:
+        return None
+    except _Unusable as exc:
+        raise StateError(f"{path} is {exc}") from None
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise StateError(f"{path} is not valid JSON") from None
+
+
+def load_cached_record(member: config.Member) -> protocol.TeamRecord:
+    """The team record last verified for `member` (§12 `team.json`), re-checked; `Untrusted`
+    (exit 10) when there is none yet, it fails §8, or it gives this member no role."""
+    path = member.state_dir / TEAM_FILE
+    where = f"team {member.team}: {path}"
+    try:
+        raw = _read_regular(path, TEAM_RECORD_MAX_BYTES)
+    except FileNotFoundError:
+        raise protocol.Untrusted(f"{where}: no verified team record yet (not joined)") from None
+    except _Unusable as exc:
+        raise protocol.Untrusted(f"{where}: {exc}") from None
+    except OSError as exc:
+        raise protocol.Untrusted(f"{where}: cannot be read ({exc.strerror})") from None
+    try:
+        content = json.loads(raw)
+    except (UnicodeDecodeError, ValueError):
+        raise protocol.Untrusted(f"{where}: not JSON") from None
+    try:
+        record = protocol.parse_team_record(content, member.server_name, member.team)
+    except protocol.Untrusted as exc:
+        raise protocol.Untrusted(f"{where}: {exc}") from None
+    if record.roles.get(member.user_id) not in protocol.ROLES:
+        raise protocol.Untrusted(f"{where}: the team record gives this member no role")
+    return record
 
 
 class TeamState:
@@ -367,6 +428,23 @@ class TeamState:
             raise StateError(f"{self.path / UNTRUSTED_FILE} is not an untrusted-reason file")
         return data["reason"]
 
+    def save_room_view(self, members: Mapping[str, str], statuses: Mapping[str, int]) -> None:
+        """Replace `room.json`: each joined or invited member's membership, and the
+        `listening` statuses (`until`, Unix ms) the syncer accepted under §8."""
+        view = {"v": STATE_VERSION, "members": dict(members), "statuses": dict(statuses)}
+        _check_room_view(view, self.path / ROOM_FILE)
+        self.ensure_dirs()
+        write_json_file(self.path / ROOM_FILE, view)
+
+    def room_view(self) -> tuple[dict[str, str], dict[str, int]]:
+        """(members, statuses) from `room.json`, both empty before the first save;
+        `StateError` when the file is not what `save_room_view` writes."""
+        data = read_json_file(self.path / ROOM_FILE)
+        if data is None:
+            return {}, {}
+        _check_room_view(data, self.path / ROOM_FILE)
+        return dict(data["members"]), dict(data["statuses"])
+
     def forget_team_record(self) -> bool:
         """Remove `team.json` when the room stops being trusted; False when there was none."""
         try:
@@ -405,6 +483,23 @@ class TeamState:
                 raise StateError(f"{path} is not a regular file")
             handle.write(("\t".join(fields) + "\n").encode("ascii"))
 
+    def drop_count(self) -> int:
+        """How many lines `dropped.log` holds (0 before the first drop)."""
+        path = self.path / DROPPED_LOG
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+        except FileNotFoundError:
+            return 0
+        except OSError as exc:
+            raise StateError(f"{path} cannot be read ({exc.strerror})") from None
+        count = 0
+        with os.fdopen(fd, "rb") as handle:
+            if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                raise StateError(f"{path} is not a regular file")
+            while chunk := handle.read(1 << 16):
+                count += chunk.count(b"\n")
+        return count
+
     # The outbox and the send gate.
 
     @contextlib.contextmanager
@@ -436,16 +531,20 @@ class TeamState:
             box.send_gate(member_limits, now_ms).admit(verb, ref, re_, to, now_ms)
 
     def _load_json(self, path: pathlib.Path) -> object | None:
-        try:
-            raw = _read_regular(path, MAX_STATE_FILE_BYTES)
-        except FileNotFoundError:
-            return None
-        except _Unusable as exc:
-            raise StateError(f"{path} is {exc}") from None
-        try:
-            return json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError):
-            raise StateError(f"{path} is not valid JSON") from None
+        return read_json_file(path)
+
+
+def _check_room_view(data: object, where: pathlib.Path) -> None:
+    if not isinstance(data, dict) or set(data) != {"v", "members", "statuses"} or data["v"] != STATE_VERSION:
+        raise StateError(f"{where} is not a room view file")
+    members, statuses = data["members"], data["statuses"]
+    if (not isinstance(members, dict) or len(members) > ROOM_MEMBERS_MAX
+            or not all(is_user_id_text(uid) and m in ROOM_MEMBERSHIPS for uid, m in members.items())):
+        raise StateError(f"{where} holds a malformed member")
+    if (not isinstance(statuses, dict) or len(statuses) > ROOM_MEMBERS_MAX
+            or not all(is_user_id_text(uid) and _is_int(until) and until >= 0
+                       for uid, until in statuses.items())):
+        raise StateError(f"{where} holds a malformed status")
 
 
 class Outbox:

@@ -104,7 +104,11 @@ repository; opt-in per machine and per team.
   `CHANGED`, `check`, `remove --purge`, then `triage.bash --reach-only` for H1/H2's dummy leg.
   Wave 5: U11 (`cli.py` `send`, `say`, `recv`, `wait`, one long-poll thread per team;
   `test_cli.py` against the fake homeserver) built, reviewed and fixed.
-- [ ] ⬜ **M2 ccy members, the idle session woken**: U12, U18–U20.
+- [ ] 🔄 **M2 ccy members, the idle session woken**: U12, U18–U20. U12 built:
+  `hooks.py` (the four hooks, offline; the Stop guard), `notify.py` (the inbox socket
+  client), `cli.py` `watch`, `hook`, `inbox`, `status`, and the room view (`room.json`)
+  the syncer keeps for `status`; `wait` and `watch` publish `listening`. The host run
+  (U01's legs, then U20) must confirm Stop firing and notice batching under real turns.
 - [ ] 🔄 **M3 other encapsulations and hosts, the play**: U21–U24. U22 built:
   `play-agent-bus.yml` (imported by `playbook-main.yml`) runs `agent-bus-install software`
   on every desktop, then `remove` for each `agent_bus_teams` entry with `state: absent` and
