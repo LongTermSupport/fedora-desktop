@@ -230,8 +230,9 @@ out.
   - [ ] 🚫 **HOST (owner)**: a headless `none` provisioning passes `playbook-main.yml` (the
     `server-fast-provision` VM scenario provisions exactly this path). A VM run, so not
     from the container. The infra agent has no bridge to the desktop's VM lab, so the owner
-    runs `vmtest run server-fast-provision` on the desktop (2026-10-06; the owner started
-    it the same day)
+    runs `vmtest run server-fast-provision` on the desktop (2026-10-06; the owner ran it
+    the same day). Its result stays in the host's vmtest runs directory, so `triage.bash`
+    (new, read-only) prints the latest run's verdict through meta-deploy
 
 ## Success Criteria
 

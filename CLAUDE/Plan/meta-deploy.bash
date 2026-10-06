@@ -52,8 +52,8 @@ PLAN_ROOT="${scriptDir}"
 # An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
-    00148-stt-unlimited-dictation-loop-and-buffer
     00160-ccy-env-local-override
+    00139-commit-signing-everywhere/triage.bash
 )
 
 LIST_ONLY=0
