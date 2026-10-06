@@ -79,12 +79,27 @@ class BuildTests(unittest.TestCase):
 
     def test_every_module_is_included(self) -> None:
         names = set(zipfile.ZipFile(io.BytesIO(bundle.build("pingbus", REPO_ROOT))).namelist())
-        expected = bus_modules(REPO_ROOT)
+        expected = bus_modules(REPO_ROOT) - {"helpers/pingbus/bundle.py"}
         self.assertTrue(expected)
         self.assertLessEqual(expected, names)
         generated = {"__main__.py", "helpers/__init__.py", "helpers/pingbus/__init__.py",
                      "helpers/agent_bus/__init__.py"}
         self.assertEqual(names - expected, generated)
+
+    def test_the_bundler_is_not_shipped(self) -> None:
+        for app in ("pingbus", "agent-bus"):
+            source = copy_source(self.tmp / app)
+            (source / "helpers" / "agent_bus" / "cli.py").write_text("def main():\n    return 0\n")
+            names = zipfile.ZipFile(io.BytesIO(bundle.build(app, source))).namelist()
+            self.assertNotIn("helpers/pingbus/bundle.py", names)
+
+    def test_a_symlinked_module_fails(self) -> None:
+        source = copy_source(self.tmp / "src")
+        outside = self.tmp / "outside.py"
+        outside.write_text("Z = 3\n")
+        (source / "helpers" / "pingbus" / "linked.py").symlink_to(outside)
+        with self.assertRaisesRegex(bundle.BundleError, r"helpers/pingbus/linked\.py"):
+            bundle.build("pingbus", source)
 
     def test_a_module_added_later_is_picked_up(self) -> None:
         source = copy_source(self.tmp / "src")
@@ -155,20 +170,26 @@ class RunTests(unittest.TestCase):
         self.assertEqual(done.stdout, f"pingbus {cli.TOOL_VERSION} protocol {protocol.PROTOCOL_VERSION}\n")
         self.assertEqual(done.stderr, "")
 
-    def test_archive_ignores_a_helpers_tree_beside_it(self) -> None:
+    def test_archive_packages_take_no_modules_from_a_helpers_tree_elsewhere(self) -> None:
         """The archive's packages are regular packages: a `helpers` namespace portion
-        elsewhere on the path cannot contribute modules to them."""
-        shadow = self.tmp / "shadow" / "helpers" / "pingbus"
-        shadow.mkdir(parents=True)
-        (shadow / "cli.py").write_text("raise SystemExit('shadowed')\n")
+        later on the path cannot contribute modules to them."""
+        shadow = self.tmp / "shadow"
+        (shadow / "helpers" / "pingbus").mkdir(parents=True)
+        (shadow / "helpers" / "pingbus" / "only_shadow.py").write_text("")
         archive = self.tmp / "pingbus.pyz"
         archive.write_bytes(bundle.build("pingbus", REPO_ROOT))
-        env = {key: value for key, value in os.environ.items() if not key.startswith("PYTHON")}
-        env["PYTHONPATH"] = str(self.tmp / "shadow")
-        done = subprocess.run([sys.executable, str(archive), "version"], env=env,
-                              capture_output=True, text=True, check=False, timeout=60)
-        self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertTrue(done.stdout.startswith("pingbus "))
+        probe = ("import sys\n"
+                 f"sys.path[:0] = [{str(archive)!r}, {str(shadow)!r}]\n"
+                 "try:\n"
+                 "    import helpers.pingbus.only_shadow\n"
+                 "except ModuleNotFoundError:\n"
+                 "    print('isolated')\n"
+                 "else:\n"
+                 "    print('leaked')\n")
+        with tempfile.TemporaryDirectory() as cwd:
+            done = subprocess.run([sys.executable, "-I", "-c", probe], cwd=cwd,
+                                  capture_output=True, text=True, check=False, timeout=60)
+        self.assertEqual((done.returncode, done.stdout), (0, "isolated\n"), done.stderr)
 
     def test_agent_bus_archive_runs_its_entry_point(self) -> None:
         """Against a stand-in `helpers/agent_bus/cli.py` exposing `main()`, the interface

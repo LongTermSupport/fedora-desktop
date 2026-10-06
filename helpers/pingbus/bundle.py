@@ -4,7 +4,8 @@
 
 Both archives carry every `*.py` file under `helpers/pingbus/` and `helpers/agent_bus/`
 (found by walking the trees, so a module a later unit adds is included with no edit
-here); they differ only in `__main__.py`. The archive's `helpers` packages get empty
+here) except this bundler itself; they differ only in `__main__.py`. A symlinked module
+is refused, since its bytes would come from outside the tree. The archive's `helpers` packages get empty
 `__init__.py` files, making them regular packages: no `helpers` directory elsewhere on
 the path can contribute modules to them.
 
@@ -36,6 +37,8 @@ APPS = {
     "agent-bus": "helpers.agent_bus.cli",
 }
 PACKAGES = ("helpers/pingbus", "helpers/agent_bus")
+#: Build-time only: no app imports it.
+EXCLUDE = frozenset({"helpers/pingbus/bundle.py"})
 SHEBANG = b"#!/usr/bin/env python3\n"
 ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
 ENTRY_MODE = stat.S_IFREG | 0o644
@@ -62,9 +65,13 @@ def collect(source: pathlib.Path) -> dict[str, bytes]:
         files[f"{package}/__init__.py"] = b""
         for path in root.rglob("*.py"):
             relative = path.relative_to(source)
-            if "__pycache__" in relative.parts or not path.is_file():
-                continue
             name = relative.as_posix()
+            if "__pycache__" in relative.parts or name in EXCLUDE:
+                continue
+            if path.is_symlink():
+                raise BundleError(f"{name} is a symlink; bundle only regular files in the tree")
+            if not path.is_file():
+                continue
             if name in files:
                 raise BundleError(f"{name} would replace the archive's generated package marker")
             files[name] = path.read_bytes()
