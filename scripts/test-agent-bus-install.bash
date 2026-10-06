@@ -73,6 +73,8 @@ cp -r "$REPO_ROOT/helpers/pingbus" "$REPO_ROOT/helpers/agent_bus" "$SOURCE/helpe
 cp "$REPO_ROOT"/files/etc/systemd/system/agent-bus-* "$SOURCE/files/etc/systemd/system/"
 cp "$REPO_ROOT/files/usr/local/share/agent-bus/resolv.conf" "$SOURCE/files/usr/local/share/agent-bus/"
 cp "$REPO_ROOT/files/usr/local/bin/agent-bus" "$SOURCE/files/usr/local/bin/"
+mkdir -p "$SOURCE/files/opt/claude-yolo/optional"
+cp -r "$REPO_ROOT/files/opt/claude-yolo/optional/agent-bus" "$SOURCE/files/opt/claude-yolo/optional/"
 cp "$TOOL" "$SOURCE/files/usr/local/sbin/"
 ASSET="$SCRATCH/asset.zst"
 printf 'not really tuwunel, a test fixture\n' >"$ASSET"
@@ -412,6 +414,17 @@ check "/usr/local/bin/pingbus points at the zipapp" "$L/pingbus.pyz" "$(readlink
 check "the admin wrapper is installed" "yes" "$(same "$ROOT/usr/local/bin/agent-bus" "$REPO_ROOT/files/usr/local/bin/agent-bus")"
 check "the installer installs itself" "755" "$(mode "$ROOT/usr/local/sbin/agent-bus-install")"
 check "the kit carries pingbus" "yes" "$(same "$ROOT/usr/local/share/agent-bus/kit/pingbus" "$L/pingbus.pyz")"
+KIT_SRC=$REPO_ROOT/files/opt/claude-yolo/optional/agent-bus
+KIT=$ROOT/usr/local/share/agent-bus/kit
+check "the kit carries the launcher" "yes" "$(same "$KIT/agent-bus-claude" "$KIT_SRC/agent-bus-claude")"
+check "the kit launcher is 0755" "755" "$(mode "$KIT/agent-bus-claude")"
+for kit_file in settings.json plugin/pingbus/.claude-plugin/plugin.json plugin/pingbus/hooks/hooks.json \
+    plugin/pingbus/skills/pingbus/SKILL.md; do
+    check "the kit carries $kit_file" "yes" "$(same "$KIT/$kit_file" "$KIT_SRC/$kit_file")"
+    check "the kit's $kit_file is 0644" "644" "$(mode "$KIT/$kit_file")"
+done
+check "/usr/local/bin/agent-bus-claude points at the kit launcher" "$KIT/agent-bus-claude" \
+    "$(readlink -f "$ROOT/usr/local/bin/agent-bus-claude")"
 for unit in agent-bus-hs@.service agent-bus-backup@.service agent-bus-backup@.timer; do
     check "unit $unit is installed 0644" "644" "$(mode "$ROOT/etc/systemd/system/$unit")"
 done
