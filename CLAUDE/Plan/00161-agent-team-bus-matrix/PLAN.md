@@ -83,6 +83,9 @@ repository; opt-in per machine and per team.
   against a real Tuwunel in the container (journal 26-10-06, U00 finding), and its
   corrections are folded into DESIGN.md §3.6, §3.7, §4 and P7; the review's fixes are in.
   The host run is pending; H1/H2's dummy-address leg needs an `agentbus0` (U16) first.
+  U01 is built as `u01_probe.py` legs of the same `triage.bash` (`--claude-only` runs just
+  them); a container run without a login already gave the socket facts (journal 26-10-06,
+  U01 finding); the host run adds completed turns and the Stop hook.
 - [ ] 🔄 **M1 host-to-host ping, through the installer**: U02–U11, U13–U17. Built and
   integrated (wave 1): U02 (spec `docs/agent-bus-protocol.md`, `protocol.py`), U03
   (`limits.py`), U04 (`config.py`, its `limits` parsed by U03) and U14 (`teamfile.py`,
