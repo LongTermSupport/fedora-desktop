@@ -96,7 +96,9 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
   - [x] ✅ The task has a 30-minute time limit per model (`timeout: 1800`), so a stall
     fails the play instead of holding it.
   - [ ] ⬜ HOST: why the xet download stalls (needs a host run to observe). Moot for the
-    play once Task 2.4 removes its download; still matters for the model manager.
+    play once Task 2.4 removes its download; still matters for the model manager. The
+    same xet download did not stall on a fast link (Task 3.4), so the stall was seen
+    only on the metered 5G link; not reproduced since.
   - [x] ✅ Owner decision: no. See Task 2.4.
 
 - [x] ✅ **Task 2.4**: **Owner's decision: no model downloads by default.** One model is not
@@ -136,12 +138,12 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
 - [x] ✅ **Task 3.2**: Plan 00148's `deploy.bash` runs `play-speech-to-text.yml`, which
   carries this plan, and is in `meta-deploy.bash`; no second deploy script is needed.
 - [ ] ⬜ **Task 3.3**: Owner checks: log out and in, open Settings, press Insert in server mode.
-- [ ] 🔄 **Task 3.4**: Owner-requested model download. `wsi-model-manager --download-auto`
+- [x] ✅ **Task 3.4**: Owner-requested model download. `wsi-model-manager --download-auto`
   downloads `auto`'s pick for each mode with no TUI or prompt, then fails unless
   `wsi-resolve-model` (without `--suggest`) finds `model.bin` on disk. Tests first, red
   against the old manager: `DownloadAutoTest` in `test_model_manager_installed.py`. The
-  play still downloads nothing. OWNER: after the next speech-to-text deploy, run
-  `wsi-model-manager --download-auto` yourself.
+  play still downloads nothing. The owner ran it on the host: `distil-large-v3.5`
+  (1.51 GB) downloaded in 22 s, and batch and streaming both resolve to it on disk.
 
 ### Phase 4: Findings not fixed here
 
