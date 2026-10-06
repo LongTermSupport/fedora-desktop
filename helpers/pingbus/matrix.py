@@ -250,6 +250,10 @@ class Client:
     def join(self, room_id: str) -> dict:
         return self.call("POST", path("rooms", _room(room_id), "join"), body={})
 
+    def leave(self, room_id: str) -> dict:
+        """Leave a room, or reject an invite to it (§8)."""
+        return self.call("POST", path("rooms", _room(room_id), "leave"), body={})
+
     def send(self, room_id: str, event_type: str, content: Mapping[str, object], *,
              txn_id: str | None = None) -> str:
         """Send one event; its event ID. A lost answer is retried with the same txnId."""

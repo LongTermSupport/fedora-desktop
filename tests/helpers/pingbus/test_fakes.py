@@ -445,6 +445,13 @@ class SyncTest(TeamRoom):
         self.assertEqual([e["sender"] for e in create], [self.admin])
         self.assertNotIn("join", body["rooms"])
 
+    def test_leave_rejects_an_invite_and_it_stops_appearing(self) -> None:
+        self.assertEqual(self.invite(self.admin, self.outsider)[0], 200)
+        status, body = self.call(self.outsider, "POST", f"/_matrix/client/v3/rooms/{q(self.room)}/leave", {})
+        self.assertEqual((status, body), (200, {}))
+        self.assertEqual(self.fake.rooms[self.room].membership(self.outsider), "leave")
+        self.assertNotIn("invite", self.sync(self.outsider).get("rooms", {}))
+
 
 class AccountTest(unittest.TestCase):
     def setUp(self) -> None:

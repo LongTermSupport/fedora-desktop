@@ -1,7 +1,7 @@
 """A fake Tuwunel 1.9.3 client-server API, in process, for Plan 00161's container tests.
 
 It models what pingbus and the admin tool use, and nothing else: password login, whoami,
-`createRoom` (room version 12, `private_chat`), invite, join, send, state get/put with
+`createRoom` (room version 12, `private_chat`), invite, join, leave (unrecorded), send, state get/put with
 `format=event`, redact, `GET /event`, `/messages`, and `/sync` with an inline filter,
 `timeout` long-polling and lazy-loaded members. Its answers are checked against Tuwunel's
 recorded ones (fixtures/tuwunel/, probe H4) by test_fakes.py; where it says what Tuwunel
@@ -283,6 +283,7 @@ class FakeHomeserver:
             ("POST", r"/_matrix/client/v3/createRoom", self._create_room, "user"),
             ("POST", _ROOM + r"/invite", self._invite, "user"),
             ("POST", _ROOM + r"/join", self._join, "user"),
+            ("POST", _ROOM + r"/leave", self._leave, "user"),
             ("PUT", _ROOM + r"/send/([^/]+)/([^/]+)", self._send, "user"),
             ("PUT", _ROOM + r"/state/([^/]+)(?:/([^/]*))?", self._put_state, "user"),
             ("GET", _ROOM + r"/state/([^/]+)(?:/([^/]*))?", self._get_state, "user"),
@@ -455,6 +456,16 @@ class FakeHomeserver:
         if membership == "invite":
             self._append(room, MEMBER, req.user_id, self._member_content(req.user_id, "join"), req.user_id)
         return {"room_id": room.room_id}
+
+    def _leave(self, req: Req, room_id: str) -> dict:
+        """The spec's `POST /leave` (`{}`), modelled for rejecting an invite. H4 recorded no
+        answer for it, so leaving a room this account is neither invited to nor joined is
+        `Unmodelled`."""
+        room = self._room(room_id)
+        if room.membership(req.user_id) not in ("invite", "join"):
+            raise Unmodelled("leaving a room the account is neither invited to nor joined")
+        self._append(room, MEMBER, req.user_id, self._member_content(req.user_id, "leave"), req.user_id)
+        return {}
 
     def _txn_event(self, req: Req, room: Room, txn: str,
                    send: Callable[[tuple[str, str, str]], Event]) -> dict:
