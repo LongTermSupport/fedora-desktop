@@ -315,7 +315,9 @@ EOF
 new_root() {
     ROOT="$SCRATCH/root-$1"
     STUB_DIR="$SCRATCH/state-$1"
-    mkdir -p "$ROOT/etc" "$STUB_DIR/units" "$STUB_DIR/fail-start" "$STUB_DIR/zone-of"
+    # The directories the OS owns exist on any Fedora host; the installer never creates them.
+    mkdir -p "$ROOT/etc/systemd/system" "$ROOT/usr/local/bin" "$ROOT/usr/local/sbin" \
+        "$STUB_DIR/units" "$STUB_DIR/fail-start" "$STUB_DIR/zone-of"
     printf 'NAME="Fedora Linux"\nID=fedora\nVERSION_ID=44\n' >"$ROOT/etc/os-release"
     touch "$STUB_DIR/units/firewalld.service.active" "$STUB_DIR/units/NetworkManager.service.active"
     cp "$ASSET" "$STUB_DIR/serve-asset"
@@ -452,6 +454,23 @@ check "a second run leaves the interface alone" "0" "$(count '^nmcli connection 
 run software --source "$SOURCE" --bus-address=192.0.2.11
 check "a new bus address modifies the connection" "yes" "$(says '^nmcli connection modify agentbus0 .*ipv4.addresses 192.0.2.11/32' "$(LOG)")"
 check "and says CHANGED" "yes" "$(says $'^CHANGED\t.*agentbus0' "$OUT")"
+
+echo "== software: the OS's directories"
+# Fedora 42 on merges sbin into bin: /usr/local/sbin is a symlink to bin.
+new_root merged-sbin
+rmdir "$ROOT/usr/local/sbin"
+ln -s bin "$ROOT/usr/local/sbin"
+run software --source "$SOURCE"
+check "software succeeds when /usr/local/sbin is a symlink to bin" "0" "$RC"
+[[ $RC -eq 0 ]] || cat "$ERR" >&2
+check "  and the installer lands through it" "755" "$(mode "$ROOT/usr/local/bin/agent-bus-install")"
+check "  and the symlink is left a symlink" "bin" "$(readlink "$ROOT/usr/local/sbin")"
+new_root no-unit-dir
+rm -r "$ROOT/etc/systemd"
+run software --source "$SOURCE"
+check "a missing system directory fails" "1" "$RC"
+check "  naming it" "yes" "$(says '/etc/systemd/system' "$ERR")"
+check "  and the installer does not create it" "no" "$(exists "$ROOT/etc/systemd")"
 
 echo "== software: a source whose member kit is incomplete"
 new_root nokit

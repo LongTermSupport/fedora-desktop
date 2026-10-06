@@ -235,6 +235,13 @@ ensure_dir() {
     fi
 }
 
+# require_system_dir PATH — a directory the OS owns (/usr/local/bin, /usr/local/sbin,
+# /etc/systemd/system): it must exist, a symlink to a directory counts (Fedora 42 on links
+# /usr/local/sbin to bin), and its mode and ownership are never touched.
+require_system_dir() {
+    [[ -d $1 ]] || die "$EXIT_FAIL" "${1#"$PREFIX"} is not a directory on this host"
+}
+
 # put_file LABEL SRC DEST MODE OWNER GROUP — install SRC as DEST atomically when its bytes,
 # mode or ownership differ; sets PUT_CHANGED to 1 when it did.
 put_file() {
@@ -455,6 +462,10 @@ cmd_software() {
         "${KIT_FILES[@]/#/$kit_rel/}"; do
         [[ -f $source/$need ]] || die "$EXIT_CONFIG" "--source $source holds no $need: not a fedora-desktop checkout"
     done
+    local dir
+    for dir in "$BIN_DIR" "$SBIN_DIR" "$UNIT_DIR"; do
+        require_system_dir "$dir"
+    done
     make_work_dir
     read_pin "$files/usr/local/share/agent-bus/tuwunel.pin"
 
@@ -463,8 +474,7 @@ cmd_software() {
     ensure_user
     ensure_dir "$STATE_ROOT" 0700 "$SVC_OWNER" "$SVC_GROUP"
     ensure_dir "$INSTALL_STATE_ROOT" 0700 "$ROOT_OWNER" "$ROOT_GROUP"
-    local dir
-    for dir in "$LIB_DIR" "$SHARE_DIR" "$KIT_DIR" "$BIN_DIR" "$SBIN_DIR" "$UNIT_DIR"; do
+    for dir in "$LIB_DIR" "$SHARE_DIR" "$KIT_DIR"; do
         ensure_dir "$dir" 0755 "$ROOT_OWNER" "$ROOT_GROUP"
     done
     put_file "tuwunel.pin" "$files/usr/local/share/agent-bus/tuwunel.pin" "$SHARE_DIR/tuwunel.pin" 0644 "$ROOT_OWNER" "$ROOT_GROUP"
