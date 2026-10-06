@@ -1,0 +1,89 @@
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
+---
+# Element Desktop for the agent team bus (Plan 00161, DESIGN.md section 8). Optional: only
+# a desktop whose human watches a team runs it.
+#
+# Installs the Element Desktop Flatpak system-wide, then, as user_login, writes one
+# locked-down profile and launcher per agent_bus_element_teams entry through
+# helpers/agent_bus/element.py, which owns the config.json keys and is tested for each.
+#
+# The Element profile holds the human's Matrix session token, readable by every process of
+# that user, so no agent may run as user_login: the helper refuses (exit 78) a user with
+# ~/.config/pingbus/, before anything is installed, and agent-bus-claude and
+# `pingbus config check` refuse a host member beside the profile this play writes.
+#
+# Teams live in the untracked host_vars localhost.yml (see localhost.yml.dist).
+- hosts: desktop
+  name: Agent team bus Element Desktop profiles
+  become: false
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    agent_bus_element_profiles: "{{ agent_bus_element_teams | default([]) }}"
+    # Matches the helper's CHANGED<TAB><path> marker lines.
+    agent_bus_element_changed_re: "^CHANGED\t"
+  tasks:
+    - name: Scope guard — assert provisioning_profile is recognised
+      ansible.builtin.assert:
+        that:
+          - provisioning_profile in ['desktop', 'server']
+        fail_msg: |
+          provisioning_profile={{ provisioning_profile }} is not recognised.
+          Valid values: desktop, server.
+          Auto-detected from `systemctl get-default`
+          (see environment/localhost/group_vars/desktop.yml) or overridden
+          via -e provisioning_profile=desktop|server.
+
+    - name: Scope guard — end play if provisioning_profile does not match declared scope
+      ansible.builtin.meta: end_play
+      when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
+
+    - name: Check agent_bus_element_teams declares at least one team
+      ansible.builtin.assert:
+        that:
+          - agent_bus_element_profiles is sequence and agent_bus_element_profiles is not string
+          - agent_bus_element_profiles | length > 0
+        fail_msg: >-
+          agent_bus_element_teams in environment/localhost/host_vars/localhost.yml must list
+          the teams user_login watches, each with team and base_url. See localhost.yml.dist.
+        quiet: true
+      tags: [agent-bus-element]
+
+    # Read-only, so it runs in --check too, and before anything is installed.
+    - name: Validate the profiles and refuse a user_login holding pingbus bundles
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv: [python3, -m, helpers.agent_bus.element, check]
+        stdin: "{{ agent_bus_element_profiles | to_json }}"
+        chdir: "{{ root_dir }}"   # repo root on sys.path so the helpers package imports
+      changed_when: false
+      check_mode: false
+      tags: [agent-bus-element]
+
+    - name: Enable Flathub remote
+      become: true
+      community.general.flatpak_remote:
+        name: flathub
+        flatpakrepo_url: https://flathub.org/repo/flathub.flatpakrepo
+        state: present
+      tags: [agent-bus-element]
+
+    - name: Install Element Desktop
+      become: true
+      community.general.flatpak:
+        name: im.riot.Riot
+        remote: flathub
+        state: present
+      tags: [agent-bus-element]
+
+    - name: Write each team's Element profile and launcher
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv: [python3, -m, helpers.agent_bus.element, apply]
+        stdin: "{{ agent_bus_element_profiles | to_json }}"
+        chdir: "{{ root_dir }}"   # repo root on sys.path so the helpers package imports
+      register: agent_bus_element_apply
+      changed_when: agent_bus_element_apply.stdout_lines | select('match', agent_bus_element_changed_re) | list | length > 0
+      tags: [agent-bus-element]
