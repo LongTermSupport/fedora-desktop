@@ -8,7 +8,8 @@ the syncer that owns it.
 
 This module is the one home of §10's values except the two byte limits, which belong to
 `protocol`'s size check. The `/sync` long-poll and server-429 values are not used here:
-the client code that polls and retries imports them from this module.
+the client code that polls and retries imports them, and `server_retry_wait_s`, from
+this module.
 
 Spec: docs/agent-bus-protocol.md §9, §10.
 """
@@ -47,6 +48,9 @@ DUPLICATE_WINDOW_S = 60
 SYNC_LONG_POLL_S = 30
 SERVER_429_MAX_TRIES = 3
 SERVER_429_DEFAULT_WAIT_S = 5
+#: A server asking for a longer wait is reported as rate limited at once rather than
+#: holding a `send`, a `wait` or a long-poll for the length of its window.
+SERVER_429_WAIT_MAX_S = 60
 
 #: `halt` expects an ack like the other requests, but within its own, shorter timeout.
 HALT_VERB = "halt"
@@ -106,6 +110,23 @@ def parse_limits(value: object) -> Limits:
 def check_wait_timeout(value: object) -> int:
     """A `wait --timeout` value, held to the `wait_timeout_s` bounds."""
     return _check_bound("wait_timeout_s", value)
+
+
+def server_retry_wait_s(headers: object, body: object, *, reset_header: str | None = None,
+                        now_s: float = 0) -> float:
+    """§10's wait before retrying a server 429: `Retry-After` (whole seconds), then
+    `reset_header` when named (Unix seconds, against `now_s`), then the parsed body's
+    `retry_after_ms`, then the default. `headers` is anything with `.get`, or None."""
+    header = headers.get("Retry-After") if headers is not None else None
+    if isinstance(header, str) and header.strip().isdigit():
+        return int(header.strip())
+    reset = headers.get(reset_header) if headers is not None and reset_header else None
+    if isinstance(reset, str) and reset.strip().isdigit():
+        return max(0, int(reset.strip()) - int(now_s))
+    ms = body.get("retry_after_ms") if isinstance(body, Mapping) else None
+    if _is_int(ms) and ms >= 0:
+        return ms / 1000
+    return SERVER_429_DEFAULT_WAIT_S
 
 
 def _check_ts(value: object) -> int:

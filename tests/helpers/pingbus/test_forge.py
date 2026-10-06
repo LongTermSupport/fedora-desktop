@@ -24,7 +24,7 @@ import urllib.request
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import config, forge, protocol
+from helpers.pingbus import config, forge, limits, protocol
 
 API = "https://api.github.com"
 GHE_API = "https://forge.example.com/api/v3"
@@ -485,7 +485,7 @@ class TestRateLimit(ForgeCase):
         self.assertEqual(self.slept, [12])
 
     def test_a_reset_beyond_the_cap_is_not_slept(self) -> None:
-        reset = str(int(T0) + forge.RATE_WAIT_MAX_S + 1)
+        reset = str(int(T0) + limits.SERVER_429_WAIT_MAX_S + 1)
         client, opener = self.make({self.URL: [
             http_error(self.URL, 403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": reset}),
         ]})
@@ -525,7 +525,7 @@ class TestRateLimit(ForgeCase):
         self.assertEqual(self.slept, [5, 5])
 
     def test_a_wait_beyond_the_cap_is_not_slept(self) -> None:
-        wait = str(forge.RATE_WAIT_MAX_S + 1)
+        wait = str(limits.SERVER_429_WAIT_MAX_S + 1)
         client, opener = self.make({self.URL: [http_error(self.URL, 429, {"Retry-After": wait})]})
         self.assert_refused("forge-rate", client, COMMIT_REF)
         self.assertEqual(len(opener.requests), 1)

@@ -48,9 +48,6 @@ API_HEADERS = {
 }
 TIMEOUT_S = 15
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
-#: A forge asking for a longer wait than this is reported as `forge-rate` at once rather
-#: than holding a `send` (or a syncer batch) for the length of its rate window.
-RATE_WAIT_MAX_S = 60
 
 #: `compare/BASE...SHA` statuses that put SHA in BASE's history.
 REACHED = ("identical", "behind")
@@ -356,7 +353,7 @@ class Forge:
                     exc.close()
                 if rate_limited:
                     wait = _retry_wait(hdrs, body, self._clock())
-                    if attempt == limits.SERVER_429_MAX_TRIES or wait > RATE_WAIT_MAX_S:
+                    if attempt == limits.SERVER_429_MAX_TRIES or wait > limits.SERVER_429_WAIT_MAX_S:
                         raise ForgeError("forge-rate", f"{where}: rate limited by the forge") from None
                     self._sleep(wait)
                     continue
@@ -398,22 +395,12 @@ def _is_rate_limited(code: int, hdrs: object) -> bool:
 
 
 def _retry_wait(hdrs: object, body: bytes | None, now: float) -> float:
-    """§6/§10: `Retry-After` (seconds), then `x-ratelimit-reset` (Unix seconds, GitHub's
-    primary limit), then the body's `retry_after_ms`, then the default."""
-    header = hdrs.get("Retry-After") if hdrs is not None else None
-    if isinstance(header, str) and header.strip().isdigit():
-        return int(header.strip())
-    reset = hdrs.get("x-ratelimit-reset") if hdrs is not None else None
-    if isinstance(reset, str) and reset.strip().isdigit():
-        return max(0, int(reset.strip()) - int(now))
+    """§6/§10: `limits.server_retry_wait_s`, with GitHub's primary-limit reset header."""
     try:
         data = json.loads(body.decode("utf-8")) if body else None
     except (UnicodeDecodeError, json.JSONDecodeError):
         data = None
-    ms = data.get("retry_after_ms") if isinstance(data, dict) else None
-    if type(ms) is int and ms >= 0:
-        return ms / 1000
-    return limits.SERVER_429_DEFAULT_WAIT_S
+    return limits.server_retry_wait_s(hdrs, data, reset_header="x-ratelimit-reset", now_s=now)
 
 
 def check_ping(ping: protocol.Ping, record: protocol.TeamRecord, client: Forge) -> None:
