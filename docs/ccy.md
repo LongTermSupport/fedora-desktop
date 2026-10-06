@@ -388,19 +388,21 @@ risks are bounded and named below, not eliminated.
 
 ### What the container CAN reach
 
-| Exposed                                 | How                                                                                                                                                                             |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Your project directory                  | Bind-mounted read/write at `/workspace`                                                                                                                                         |
-| One or more SSH private keys            | Mounted **read-only** at `/root/.ssh/key_N` (individual keys, not all of `~/.ssh`)                                                                                              |
-| A Claude OAuth token                    | Environment variable — no credential files are mounted                                                                                                                          |
-| A GitHub token for `gh`                 | Environment variable, from your existing `gh` login                                                                                                                             |
-| Your git identity                       | A read-only copy of `~/.gitconfig`, to set `user.name` / `user.email`                                                                                                           |
-| Commit signing                          | Through an ssh-agent holding the session's SSH key; no key is copied in for it (Plan 00139)                                                                                     |
-| Your Wayland or X11 display socket      | Mounted read-only and auto-detected, so the agent can open browser windows on your desktop and Ctrl+V can paste images ([container clipboard](features/container-clipboard.md)) |
-| The host GPU render device              | `--device /dev/dri` — always attached, for accelerated browser rendering                                                                                                        |
-| The network                             | Normal outbound; optionally a named container network                                                                                                                           |
-| The host machine's name                 | `CCY_HOST_HOSTNAME` — the container's own `HOSTNAME` is its container id, not the machine                                                                                       |
-| Anything you add via `CCY_EXTRA_MOUNTS` | Explicit opt-in — see [debug mounts](ccy-debug-mounts.md)                                                                                                                       |
+| Exposed                                 | How                                                                                                                                                                                                      |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Your project directory                  | Bind-mounted read/write at `/workspace`                                                                                                                                                                  |
+| One or more SSH private keys            | Mounted **read-only** at `/root/.ssh/key_N` (individual keys, not all of `~/.ssh`)                                                                                                                       |
+| A Claude OAuth token                    | Environment variable — no credential files are mounted                                                                                                                                                   |
+| A GitHub token for `gh`                 | Environment variable, from your existing `gh` login                                                                                                                                                      |
+| Your git identity                       | A read-only copy of `~/.gitconfig`, to set `user.name` / `user.email`                                                                                                                                    |
+| Commit signing                          | Through an ssh-agent holding the session's SSH key; no key is copied in for it (Plan 00139)                                                                                                              |
+| Your Wayland or X11 display socket      | Mounted read-only and auto-detected, so the agent can open browser windows on your desktop and Ctrl+V can paste images ([container clipboard](features/container-clipboard.md))                          |
+| The host GPU render device              | `--device /dev/dri` — always attached, for accelerated browser rendering                                                                                                                                 |
+| The network                             | Normal outbound; optionally a named container network                                                                                                                                                    |
+| The host machine's name                 | `CCY_HOST_HOSTNAME` — the container's own `HOSTNAME` is its container id, not the machine                                                                                                                |
+| Anything you add via `CCY_EXTRA_MOUNTS` | Explicit opt-in — see [debug mounts](ccy-debug-mounts.md)                                                                                                                                                |
+| An agent team bus bundle                | Only when `ccy.env.local` sets `PINGBUS_TEAMS`: each team's `member.json` and access token, in `.claude/ccy/pingbus/<team>/` inside the workspace (git-ignored), placed by a human                       |
+| The agent team bus address              | Only with a bundle: the team's homeserver at its `base_url`, through the container's usual route (pasta), either the host's dummy bus address or a WireGuard address ([protocol](agent-bus-protocol.md)) |
 
 ### What it CANNOT reach
 
@@ -917,6 +919,22 @@ The `export` is load-bearing. The entrypoint sources this file and then `exec`s 
 a bare `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000` sets a shell variable that never reaches the
 process that reads it. The project's value wins because the file is sourced after the
 launcher's forwarded environment is already in place.
+
+#### `PINGBUS_TEAMS` — join the agent team bus
+
+Off unless this checkout's `ccy.env.local` asks for it (never `ccy.env`, which a session
+can edit; the launch refuses it there):
+
+```bash
+# .claude/ccy/ccy.env.local
+export PINGBUS_TEAMS=team-a
+```
+
+Each listed team's bundle (`agent-bus add-member` output) goes in
+`.claude/ccy/pingbus/<team>/`, or under `PINGBUS_HOME` if set. The container refuses to
+start when `pingbus config check` rejects one. When it passes, `pingbus` is on `PATH` and
+the session runs with the bus plugin. The protocol is in
+[agent-bus-protocol.md](agent-bus-protocol.md).
 
 #### `CCY_CHILD_CLAUDE` — let a session spawn child `claude` processes
 

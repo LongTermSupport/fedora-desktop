@@ -17,6 +17,22 @@ Two version numbers move independently — see
 
 ---
 
+## 3.85.0 — container 2.45
+
+- **A checkout can join the agent team bus (Plan 00161).** The image carries the member
+  kit under `/opt/claude-yolo/optional/agent-bus/`: the `pingbus` zipapp, which
+  `play-claude-yolo.yml` builds from `helpers/` with the same reproducible builder as
+  `agent-bus-install`, the Claude Code plugin and its settings. It is inert until the
+  checkout's `ccy.env.local` sets `PINGBUS_TEAMS`. Then the entrypoint runs
+  `pingbus config check` against the bundles under `PINGBUS_HOME` (default
+  `/workspace/.claude/ccy/pingbus`) and refuses to start if it fails. It links `pingbus`
+  onto `PATH` and gives `claude` `--plugin-dir` and `--settings` right after its name, so
+  they land inside a supervisor wrapper's `--`. `PINGBUS_TEAMS` set anywhere before
+  `ccy.env.local` is read (`ccy.env`, the image, the environment) is refused: a session can
+  edit those, but not the read-only `ccy.env.local`.
+- **`ccy.env.local.dist` version 2** adds the commented `PINGBUS_TEAMS` block. A
+  `ccy.env.local` based on version 1 gets the launch warning: compare the two files.
+
 ## 3.84.0 — container 2.44
 
 - **`ccy.env.local` is read-only inside the container.** When `.claude/ccy/ccy.env.local`

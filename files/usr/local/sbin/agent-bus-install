@@ -369,7 +369,7 @@ install_tuwunel() {
 build_zipapps() {
     local source=$1 app marker
     for app in agent-bus pingbus; do
-        marker=$(cd -- "$source" && python3 -s -m helpers.pingbus.bundle --source "$source" \
+        marker=$(cd -- "$source" && python3 -B -s -m helpers.pingbus.bundle --source "$source" \
             --out "$LIB_DIR/$app.pyz" "$app")
         case $marker in
             "BUNDLE-CHANGED "*) changed "zipapp $app" ;;
