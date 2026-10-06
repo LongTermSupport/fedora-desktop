@@ -770,6 +770,17 @@ Auto-retain previous minor kernel version:
 
 - Keeps prior kernel available for rollback after upgrades
 
+#### play-agent-bus-element.yml
+
+Element Desktop for watching an agent team bus (Plan 00161):
+
+- Installs the Element Desktop Flatpak and, for each team in `agent_bus_element_teams`
+  (host_vars; placeholder in `localhost.yml.dist`), a locked-down profile pinned to the
+  team's homeserver and an "Element (<team> team bus)" launcher
+  (`flatpak run im.riot.Riot --profile <team>`)
+- Refuses a `user_login` holding pingbus bundles (`~/.config/pingbus/`): the profile
+  holds the human's session, so agents run as a dedicated user, never as the human
+
 #### play-claude-devtools.yml
 
 Claude DevTools (ccdt) — on-demand session viewer:

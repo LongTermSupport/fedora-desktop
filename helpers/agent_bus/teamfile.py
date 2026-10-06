@@ -123,6 +123,11 @@ def _server_name(value: object) -> str:
     return value
 
 
+def check_server_name(value: object) -> str:
+    """The `server_name` rule, for a caller naming a team's server outside a team file."""
+    return _server_name(value)
+
+
 def _port(value: object) -> int:
     if type(value) is not int or not PORT_MIN <= value <= PORT_MAX:
         raise _fail("port", f"must be an integer from {PORT_MIN} to {PORT_MAX}")
