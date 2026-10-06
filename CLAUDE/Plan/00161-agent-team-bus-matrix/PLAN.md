@@ -102,6 +102,8 @@ repository; opt-in per machine and per team.
   needs `agent_bus_address` in the untracked host_vars, or `--bus-address=`): `software`
   (which stays installed, with `agentbus0`), a throwaway team, both run twice with no
   `CHANGED`, `check`, `remove --purge`, then `triage.bash --reach-only` for H1/H2's dummy leg.
+  Wave 5: U11 (`cli.py` `send`, `say`, `recv`, `wait`, one long-poll thread per team;
+  `test_cli.py` against the fake homeserver) built, reviewed and fixed.
 - [ ] ⬜ **M2 ccy members, the idle session woken**: U12, U18–U20.
 - [ ] ⬜ **M3 other encapsulations and hosts, the play**: U21–U24.
 - [ ] ⬜ **M4 Element, deploy and acceptance (privacy checks P1–P8)**: U25–U28 (U26, TLS,
