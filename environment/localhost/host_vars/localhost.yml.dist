@@ -79,6 +79,7 @@ user_email: "yourname@example.com"
 # is the team file of CLAUDE/Plan/00161-agent-team-bus-matrix/DESIGN.md section 3.4; to
 # take a team off this host, set state: absent (purge: true also deletes its data). With
 # no teams declared the play still installs the homeserver software.
+# Deleting an entry does not remove the team: set state: absent first and run the play.
 # agent_bus_teams:
 #   - team: <team>
 #     port: <port>

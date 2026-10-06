@@ -108,8 +108,10 @@ repository; opt-in per machine and per team.
   on every desktop, then `remove` for each `agent_bus_teams` entry with `state: absent` and
   `team` for each present one, changed only on the installer's `CHANGED` lines; the
   `localhost.yml.dist` placeholder and four drift pairs in `qa-deployed-drift.bash`.
-  `--syntax-check` passes. Its host run (a scratch team present, then absent, a second run
-  with no change) is pending.
+  `--syntax-check` passes. Its host run is a leg of this plan's `deploy.bash` (pending,
+  through `meta-deploy.bash`): after U16's legs, the play with extra vars declaring the
+  throwaway team present (the recap counts a change), again (it counts none), then absent
+  with `purge: true` (a change).
 - [ ] ⬜ **M4 Element, deploy and acceptance (privacy checks P1–P8)**: U25–U28 (U26, TLS,
   only if probe H7 needs it).
 
