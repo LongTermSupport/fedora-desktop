@@ -7,8 +7,9 @@ every judgement is a tested function rather than a grep. Commands (stdout is the
 payload; every reason goes to stderr):
 
   github-repo URL                    owner/repo of a GitHub remote, lowercased
-  team-file TEAM PORT BUS_IP HUMAN REPO BRANCH PREFIX
-                                     the acceptance team file (JSON)
+  team-file TEAM PORT BUS_IP HUMAN REPO BRANCH PREFIX FORGE_API
+                                     a test team's team file (JSON): the acceptance team's,
+                                     and deploy.bash's throwaway team's
   set-limit MEMBER_JSON KEY VALUE    add one §10 limit to a bundle's member.json, in place
   member-field MEMBER_JSON KEY       one string field of member.json
   handle MEMBER_JSON                 the member's handle (its user ID's localpart)
@@ -24,11 +25,11 @@ payload; every reason goes to stderr):
   expect-absent OUT EVENT            no line in OUT names EVENT, and none is HUMAN
   send-outcome STATUS ERR            a `pingbus send`'s verdict from its status and stderr
 
-REF and RE are "-" when absent, as on the wire (§15). Exit codes: 0 ok; 1 an expectation
+REF and RE are "-" when absent, as on the wire (§15); FORGE_API "-" is pingbus's GitHub API. Exit codes: 0 ok; 1 an expectation
 failed or input was malformed; 2 (send-outcome only) could not be established; 64 usage.
 
-The line grammar, the limits and the handle grammar are imported from helpers/pingbus,
-never restated: the repo root is found by walking up to ansible.cfg, as the plan scripts do.
+The line grammar, the limits, the handle grammar, and the forge refusal codes and message
+prefix are imported from helpers/pingbus, never restated: the repo root is found by walking up to ansible.cfg, as the plan scripts do.
 """
 
 from __future__ import annotations
@@ -55,6 +56,7 @@ def _repo_root() -> pathlib.Path:
 if str(_repo_root()) not in sys.path:
     sys.path.insert(0, str(_repo_root()))
 cli = importlib.import_module("helpers.pingbus.cli")
+forge = importlib.import_module("helpers.pingbus.forge")
 limits = importlib.import_module("helpers.pingbus.limits")
 protocol = importlib.import_module("helpers.pingbus.protocol")
 
@@ -63,13 +65,12 @@ EXIT_FAIL = 1
 EXIT_UNKNOWN = 2
 EXIT_USAGE = 64
 
-GITHUB_API = "https://api.github.com"
 #: TEST-NET-1 (CLAUDE/ExampleValues.md): no member connects from it; the team file needs
 #: a well-formed allow_from, and every member here reaches the bus address from the host.
 ALLOW_FROM_EXAMPLE = "192.0.2.0/24"
 DEVICE_NAME = "agent-bus acceptance"
 #: §6 send-side refusals that say the forge could not answer, not that the reference is bad.
-FORGE_UNANSWERED = ("forge-unreachable", "forge-rate")
+FORGE_UNANSWERED = (forge.UNREACHABLE_REFUSAL, forge.RATE_REFUSAL)
 
 _GITHUB_REMOTE_RE = re.compile(
     r"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)"
@@ -87,13 +88,14 @@ def github_repo(url: str) -> str:
 
 
 def team_file(team: str, port: int, bus_address: str, human: str, repo: str, branch: str,
-              prefix: str) -> dict:
-    """DESIGN.md section 3.4's team file for the acceptance team: listening on the bus
-    address, one human, one trusted repository and branch, the GitHub API as the forge."""
+              prefix: str, forge_api: str) -> dict:
+    """DESIGN.md section 3.4's team file for a test team: listening on the bus address, one
+    human, one trusted repository and branch, one forge. The only place its shape is
+    written: deploy.bash's throwaway team and the acceptance team both come from here."""
     return {
         "team": team, "port": port, "listen": [bus_address], "allow_from": [ALLOW_FROM_EXAMPLE],
         "humans": [human], "repos": [{"repo": repo, "branches": [branch]}],
-        "path_prefixes": [prefix], "forge_api": GITHUB_API,
+        "path_prefixes": [prefix], "forge_api": forge_api,
     }
 
 
@@ -226,7 +228,7 @@ def send_outcome(status: int, stderr: str) -> int:
     """0 sent; 2 when the forge did not answer (a fact about GitHub, not the bus); 1 else."""
     if status == 0:
         return EXIT_OK
-    if any(f"forge check refused: {code}:" in stderr for code in FORGE_UNANSWERED):
+    if any(f"{cli.FORGE_REFUSED}: {code}:" in stderr for code in FORGE_UNANSWERED):
         return EXIT_UNKNOWN
     return EXIT_FAIL
 
@@ -272,7 +274,8 @@ def _field(path: str, key: str) -> str:
 
 COMMANDS = {
     "github-repo": (1, lambda a: print(github_repo(a[0]))),
-    "team-file": (7, lambda a: _print_json(team_file(a[0], int(a[1]), *a[2:]))),
+    "team-file": (8, lambda a: _print_json(team_file(a[0], int(a[1]), *a[2:7],
+                                                     _absent(a[7]) or forge.GITHUB_API))),
     "set-limit": (3, lambda a: _set_limit(*a)),
     "member-field": (2, lambda a: print(_field(a[0], a[1]))),
     "handle": (1, lambda a: print(handle_of(_field(a[0], "user_id")))),

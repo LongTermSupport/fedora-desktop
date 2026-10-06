@@ -28,6 +28,9 @@
 # DynamicUser=yes and one User= name per member: two UIDs that exist only while a command
 # runs, neither the desktop user (who may hold a human's Element session, section 8). Each
 # member's PINGBUS_HOME is its StateDirectory, /var/lib/private/agent-bus-acceptance-<a|b>.
+# systemd creates /var/lib/private itself on a host that had none; the run removes it again
+# when it was absent at the start and is empty at the end. The one thing that can outlive a
+# run is that empty directory after an interrupted first run: the next run finds it present.
 # The run directory keeps the evidence (each member's stdout and stderr, the team file, the
 # human's message, acceptance-report.md); the tokens leave it once each member holds its own.
 #

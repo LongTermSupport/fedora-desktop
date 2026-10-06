@@ -9,8 +9,8 @@
 # else agent_bus_address in the untracked host_vars localhost.yml (see localhost.yml.dist).
 # The one prompt is sudo's, before the log opens (R3); every root step after it uses
 # `sudo -n`, so a lapsed timestamp fails that step by name instead of prompting into the log.
-# It does not end by running acceptance.bash (STANDARD-EXCEPTION(R9)): meta-deploy.bash runs
-# it after this script and the second triage, so running it here too would run it twice.
+# It does not end by running acceptance.bash: see the STANDARD-EXCEPTION(R9) marker after
+# the last leg.
 #
 # IN ORDER, stopping at the first failure (plan_mode deploy):
 #   1. refuse the bus address, changing nothing, if an interface other than agentbus0 holds
@@ -130,5 +130,7 @@ plan_deploy_leg "play-agent-bus.yml again: no change" play_team_present_again
 plan_deploy_leg "play-agent-bus.yml with ${TEAM} absent, purged: a change" play_team_absent
 plan_deploy_leg "triage H1 and H2 against ${BUS_ADDRESS}" \
     "${PLAN_SCRIPT_DIR}/triage.bash" --reach-only "--bus-address=${BUS_ADDRESS}"
+# STANDARD-EXCEPTION(R9): no acceptance.bash leg here, where R9 puts it. meta-deploy.bash
+# runs acceptance.bash after this script and the second triage, so a leg here would run it twice.
 printf '==> the homeserver software and agentbus0 (%s) stay installed; %s is gone\n' "${BUS_ADDRESS}" "${TEAM}"
 plan_finish

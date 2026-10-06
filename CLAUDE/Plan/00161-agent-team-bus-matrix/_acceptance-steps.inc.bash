@@ -21,6 +21,14 @@
 # Sets TEAM_PRESENT, MEMBERS_PRESENT, the REF_* and member globals below.
 
 readonly UNIT_PREFIX="agent-bus-acceptance"
+#: Where systemd keeps a DynamicUser's StateDirectory; /var/lib/<name> is a symlink into it.
+readonly PRIVATE_STATE_ROOT="/var/lib/private"
+# Whether it was there when this run started; it is only stat'ed here, which needs no root.
+if [[ -d "${PRIVATE_STATE_ROOT}" ]]; then
+    PRIVATE_STATE_ROOT_EXISTED=1
+else
+    PRIVATE_STATE_ROOT_EXISTED=0
+fi
 readonly MEMBER_REPO="acceptance"
 readonly MEMBER_HOST="acceptance"
 #: Member a's ack deadline, the lowest pingbus accepts (§10), so TIMEOUT falls due in a minute.
@@ -112,9 +120,10 @@ resolve_reference() {
 # write_acceptance_team_file — the team on the bus address, on a port free on loopback now.
 write_acceptance_team_file() {
     local port
-    port="$(python3 -I -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')" || return 1
+    port="$(free_loopback_port)" || return 1
+    # FORGE_API "-": pingbus's own GitHub API, where every reference is checked.
     "${CHECK[@]}" team-file "${TEAM}" "${port}" "${BUS_ADDRESS}" "${HUMAN}" "${REF_REPO}" \
-        "${REF_BRANCH}" "${REF_PREFIX}" >"${TEAM_FILE}" || return 1
+        "${REF_BRANCH}" "${REF_PREFIX}" - >"${TEAM_FILE}" || return 1
     printf '==> team file %s:\n' "${TEAM_FILE}"
     cat -- "${TEAM_FILE}"
 }
@@ -176,6 +185,23 @@ place_members() {
 
 # ── teardown ─────────────────────────────────────────────────────────────────────────────
 
+# remove_private_state_root — systemd creates /var/lib/private (0700) for the first
+# DynamicUser StateDirectory on a host. When this run found none, remove it again if the
+# members' directories were all it held; anything else in it is another service's, and stays.
+remove_private_state_root() {
+    local empty
+    if [[ "${PRIVATE_STATE_ROOT_EXISTED}" -eq 1 || ! -d "${PRIVATE_STATE_ROOT}" ]]; then
+        return 0
+    fi
+    empty="$(sudo -n find "${PRIVATE_STATE_ROOT}" -maxdepth 0 -empty)" || return 1
+    if [[ -z "${empty}" ]]; then
+        printf '==> %s, created during this run, now holds another service'\''s state: it stays\n' "${PRIVATE_STATE_ROOT}"
+        return 0
+    fi
+    sudo -n rmdir -- "${PRIVATE_STATE_ROOT}" || return 1
+    printf '==> removed %s, which this run created\n' "${PRIVATE_STATE_ROOT}"
+}
+
 # remove_members — stop every acceptance member unit still running (a waiter of a failed run),
 # remove both members' state directories and the run directory's bundle copies.
 remove_members() {
@@ -190,9 +216,10 @@ remove_members() {
     done <<<"${units}"
     for member in a b; do
         name="$(member_name "${member}")"
-        sudo -n rm -rf -- "/var/lib/private/${name}" "/var/lib/${name}" || return 1
+        sudo -n rm -rf -- "${PRIVATE_STATE_ROOT}/${name}" "/var/lib/${name}" || return 1
         rm -f -- "${MEMBER_DIR}/${member}/bundle.tar" "${MEMBER_DIR}/${member}/${TEAM}/token" || return 1
     done
+    remove_private_state_root || return 1
     MEMBERS_PRESENT=0
     printf '==> no acceptance member units or state directories remain\n'
 }

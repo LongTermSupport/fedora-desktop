@@ -71,7 +71,7 @@ class GithubRepoTest(unittest.TestCase):
 class TeamFileTest(unittest.TestCase):
     def test_the_team_file_names_the_bus_address_the_repo_and_the_human(self) -> None:
         data = ac.team_file(TEAM, 45001, "203.0.113.9", "tester", "example-org/project", "main",
-                            "CLAUDE/Plan/")
+                            "CLAUDE/Plan/", "https://api.github.com")
         self.assertEqual(data, {
             "team": TEAM, "port": 45001, "listen": ["203.0.113.9"], "allow_from": ["192.0.2.0/24"],
             "humans": ["tester"], "repos": [{"repo": "example-org/project", "branches": ["main"]}],
@@ -81,9 +81,18 @@ class TeamFileTest(unittest.TestCase):
     def test_it_passes_the_admin_tool_validator(self) -> None:
         from helpers.agent_bus import teamfile
 
-        data = ac.team_file(TEAM, 45001, "203.0.113.9", "tester", "example-org/project", "F44",
-                            "CLAUDE/Plan/")
-        self.assertEqual(teamfile.parse_team_file(data).team, TEAM)
+        for forge_api in ("https://api.github.com", "https://api.example.com"):
+            with self.subTest(forge_api=forge_api):
+                data = ac.team_file(TEAM, 45001, "203.0.113.9", "tester", "example-org/project", "F44",
+                                    "CLAUDE/Plan/", forge_api)
+                self.assertEqual(teamfile.parse_team_file(data).team, TEAM)
+
+    def test_the_command_takes_dash_as_pingbus_github_api(self) -> None:
+        args = ("team-file", TEAM, "45001", "203.0.113.9", "owner", "example/project", "main", "CLAUDE/Plan/")
+        status, out, _ = run_main(*args, "-")
+        self.assertEqual((status, json.loads(out)["forge_api"]), (0, ac.forge.GITHUB_API))
+        status, out, _ = run_main(*args, "https://api.example.com")
+        self.assertEqual((status, json.loads(out)["forge_api"]), (0, "https://api.example.com"))
 
 
 class MemberTest(unittest.TestCase):
@@ -210,6 +219,14 @@ class SendOutcomeTest(unittest.TestCase):
                           (9, "pingbus: forge check refused: forge-rate: compare: rate limited by the forge\n")):
             with self.subTest(err=err):
                 self.assertEqual(ac.send_outcome(code, err), 2)
+
+    def test_pingbus_own_message_for_an_unanswered_forge_is_recognised(self) -> None:
+        for code in (ac.forge.UNREACHABLE_REFUSAL, ac.forge.RATE_REFUSAL):
+            with self.subTest(code=code):
+                status, message = ac.cli.failure(ac.forge.ForgeError(code, "compare: x"))
+                self.assertEqual(ac.send_outcome(status, f"pingbus: {message}\n"), 2)
+        status, message = ac.cli.failure(ac.forge.ForgeError("provenance", "x"))
+        self.assertEqual(ac.send_outcome(status, f"pingbus: {message}\n"), 1)
 
     def test_every_other_refusal_fails(self) -> None:
         for code, err in ((5, "pingbus: forge check refused: provenance: x\n"), (9, "pingbus: rate limited: duplicate\n"),
