@@ -1,636 +1,849 @@
 # Plan 00161 design: the agent team bus
 
-Design for [fedora-desktop#59](https://github.com/LongTermSupport/fedora-desktop/issues/59).
-The wire rules (verbs, event schema, reference grammar, validation, limits, exit codes,
-output format) are in [PROTOCOL.md](PROTOCOL.md); this file does not repeat them. Evidence
-for every factual claim is in `subagent-reports/261006-research-*.md` (cited below as
-`[ccy]`, `[services]`, `[python]`, `[tuwunel]`, `[clients]`, `[wake]`). The three design
-reviews and what was done with each finding are in
-`subagent-reports/261006-design-revision-opus-5-5.md`.
+Design for [fedora-desktop#59](https://github.com/LongTermSupport/fedora-desktop/issues/59),
+as changed by the owner's answers (journal 26-10-06, the 13:35 and 13:50 entries). The wire
+rules (event types, ping and human-message forms, verbs, reference grammar, validation,
+limits, exit codes, output format) are in [PROTOCOL.md](PROTOCOL.md); this file does not
+repeat them. Evidence for factual claims is in `subagent-reports/261006-research-*.md`
+(cited as `[ccy]`, `[services]`, `[python]`, `[tuwunel]`, `[clients]`, `[wake]`), the U01
+probe result on branch `wf-f0f65b6e-87f-2-30211d13` (cited as `[U01]`), and an external
+spike in another project (cited as `[spike]`, anonymised: Tuwunel 1.9.3 as a plain process,
+the admin API with registration closed, an invite-only room with bots at power level 0, a
+held `/sync` returning about 31 ms after a send, a SIGUSR2 backup and a restore, 100-135 MB
+RSS; and Claude Code's per-session inbox socket). What changed since the reviewed design, and
+why, is in `subagent-reports/261006-design-revision-2-opus-5-5.md`.
 
-Placeholders used throughout: `<team>` (team name), `<port>` (team's host loopback port),
-`<sn>` (team `server_name`), `<handle>` (agent handle), `<hash>` (ccy per-project hash),
-`<ns>` (event namespace, PROTOCOL.md section 2), `<subnet>` and `<hs_ip>` (the team
-network's subnet and the homeserver's fixed address on it).
+Placeholders: `<team>` (team name), `<port>` (the team's homeserver port), `<sn>` (the
+team's `server_name`), `<handle>` (an agent's handle), `<role>` (an install's role, the
+value of `HOOKS_DAEMON_HOSTNAME`), `<bus_ip>` (the host's bus address, section 3.3),
+`<wg_ip>` (an address on a WireGuard interface), `<cidr>` (a source range allowed to connect).
 
 ## 0. Threat model in one paragraph
 
-Every agent holds its own Matrix access token in a container where it, and any code in
-its repository, runs arbitrary commands. So `pingbus` is a convenience, not the boundary:
-anything pingbus declines to print or send, the agent can fetch or send with `curl`. The
-design therefore puts every hard rule where the agent cannot route around it:
-**the homeserver's membership and auth rules** (an agent account is never a member of a
-room a human types in, so human text is never delivered to it), **the receiver's own
-checks** (a ping is shown only if its reference resolves, at the forge, to content on a
-trusted branch of an allowlisted repository), and **host-only credentials** (the team's
-admin, steward and warden secrets live in a tree no container can mount). Free text an
-agent could act on exists nowhere an agent can read it.
+Every agent holds its own Matrix access token where it, and any code in its repository,
+runs arbitrary commands. So `pingbus` is a convenience, not the boundary: whatever pingbus
+declines to send or print, the agent can send or read with `curl`. The hard rules sit where
+an agent cannot route around them: **the homeserver host** (the team's secrets belong to a
+system user no agent runs as, and the kernel lets the homeserver talk only to the sources the
+team allows, and to nothing outside), **the receiver's own checks** (an agent acts only on a
+ping whose sender holds a role, whose verb and reference are valid, and whose reference
+resolves at the forge to content on a trusted branch; and on free text only when its sender
+is one of the team's humans named by the homeserver's team record, which only the team
+admin can write), and **the network** (the homeserver answers only on loopback, the host's
+bus address and WireGuard addresses, so plain HTTP never crosses a network that does not
+encrypt it). Agent free text reaches no agent; human free text reaches the agents it
+addresses, marked as that human's. Two holders can therefore instruct agents on every host
+in a team: **root on the homeserver host** (and whoever holds its backups), because it can
+mint any account; and **anything that can read a human's Matrix session**, because it can
+post as that human. The first is the team's trust root and is stated to every member that
+joins (section 9; a member may opt out of human text, section 5.1); the second is why no
+agent may run as a user that holds a human's session (section 8).
 
 ## 1. Shape in one paragraph
 
-Each team is one Tuwunel container, rootless under podman, managed by a Quadlet unit, on its
-own `--internal` podman network with DNS off and a fixed subnet, published to the host on
-`127.0.0.1` only. Team definitions live in untracked host_vars; the play renders everything
-per team and can remove a team. Accounts are runtime data, created through Tuwunel's
-Synapse-compatible admin API by a host-only `agent-team` command (registration is never
-open). Rooms come in pairs, both created by a host-only **steward** account at a human's
-request: a **bus room** (agents and the warden, no humans) and its **control room** (humans
-and the warden, no agents). Members run `pingbus`, one standard-library zipapp, which
-validates on send and on receive (the forge check runs on both sides) and keeps a durable
-local inbox. A ccy session joins a team with `ccy --team <team>`: the launcher gets the
-handle and a freshly rendered member config from the host, mounts them read-only, and
-attaches the team network as a second network. The image always ships pingbus and a
-Claude Code plugin (skill and hooks), inert until `--team`. An idle session is woken by its
-own background `pingbus wait`; a Stop hook keeps it from going idle with pings pending or no
-waiter armed. Humans use Element (one Flatpak profile per team, locked to the homeserver)
-in control rooms; the warden turns their `!` commands into pings in the paired bus room and
-mirrors bus traffic back as notices.
+A **team** is themed around a project and is set up by humans. Each team has one Tuwunel
+homeserver **instance** and one **team room**. The homeserver is a pinned static binary run
+as the `agent-bus` system user under a hardened systemd unit, installed by
+`agent-bus-install`, a Bash installer for any Fedora desktop or Fedora server; this
+repository's play calls the same installer on every desktop, and other projects call it from
+their own IaC. A **member** is one agent: its primary repository, the host it runs on, and
+its encapsulation (a ccy session, the bare desktop, LXC, docker, a VM, a server). An agent
+may be in several teams: it holds one **member bundle** (config and token) per team.
+Members run `pingbus`, one standard-library zipapp, which validates on send and on receive
+and keeps a local inbox. Agents exchange **pings** (a closed verb plus a reference); humans
+in Element, on a desktop or a phone, write **free text addressed to agents** with a mention.
+An idle session is woken through Claude Code's per-session inbox socket by a watcher the
+session's own hook starts; where the socket is not available, a background `pingbus wait`
+does it. A ccy session opts in through its untracked `.claude/ccy/ccy.env.local`.
 
-## 2. Components and where they live
+## 2. Teams and members
 
-| Component                         | Repo path                                                                                                                                                                        | Runs where                           | Built in unit |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | ------------- |
-| Protocol spec (SSoT)              | `docs/agent-team-bus-protocol.md` (moved from this plan's `PROTOCOL.md` in U02; the plan file then links to it)                                                                  | n/a                                  | U02           |
-| Validator (pure)                  | `helpers/pingbus/protocol.py`                                                                                                                                                    | everywhere (inside the zipapp)       | U02           |
-| Limits arithmetic (pure)          | `helpers/pingbus/limits.py`                                                                                                                                                      | everywhere                           | U03           |
-| Member config                     | `helpers/pingbus/config.py`                                                                                                                                                      | everywhere                           | U04           |
-| CLI front end (dispatch only)     | `helpers/pingbus/cli.py`                                                                                                                                                         | everywhere                           | U05, U11, U19 |
-| Durable inbox, outbox, lock       | `helpers/pingbus/inbox.py`                                                                                                                                                       | everywhere                           | U06           |
-| Forge check and provenance        | `helpers/pingbus/forge.py`                                                                                                                                                       | everywhere (syncer and send)         | U07           |
-| Fake homeserver (tests)           | `tests/helpers/pingbus/fake_client_api.py`, `tests/helpers/pingbus/fake_admin_api.py`, fixtures `tests/helpers/pingbus/fixtures/tuwunel/`                                        | container tests                      | U08           |
-| Matrix client (urllib)            | `helpers/pingbus/matrix.py`                                                                                                                                                      | everywhere                           | U09           |
-| Sync engine and room trust        | `helpers/pingbus/syncer.py`                                                                                                                                                      | everywhere                           | U10           |
-| Hook entry points                 | `helpers/pingbus/hooks.py`                                                                                                                                                       | everywhere (offline)                 | U12           |
-| Zipapp builder                    | `helpers/pingbus/bundle.py`                                                                                                                                                      | host, at play time (both plays)      | U13           |
-| Team registry and handles (pure)  | `helpers/agent_team/registry.py`                                                                                                                                                 | host                                 | U14           |
-| Provisioning executor and CLI     | `helpers/agent_team/provision.py`, `helpers/agent_team/cli.py`, wrapper `files/home/.local/bin/agent-team`                                                                       | host                                 | U15           |
-| Room pairs (steward)              | `helpers/agent_team/rooms.py`                                                                                                                                                    | host                                 | U16           |
-| Homeserver play                   | `playbooks/imports/optional/common/play-agent-team-bus.yml` + templates under `playbooks/imports/optional/common/templates/agent-team/`                                          | host                                 | U17, U26      |
-| Warden logic (pure)               | `helpers/agent_team/commands.py`                                                                                                                                                 | host                                 | U24           |
-| Warden executor                   | `helpers/agent_team/warden.py`, wrapper `files/home/.local/bin/agent-team-warden`, unit `files/home/.config/systemd/user/agent-team-warden@.service`                             | host, `systemd --user`, per team     | U25           |
-| Claude Code plugin (skill, hooks) | `files/opt/claude-yolo/optional/team-bus/plugin/pingbus/` (`.claude-plugin/plugin.json`, `hooks/hooks.json`, `skills/pingbus/SKILL.md`)                                          | ccy image; section 8 members copy it | U20           |
-| ccy opt-in                        | `files/var/local/claude-yolo/claude-yolo`, `lib/common-pure.bash`, `lib/team-bus.bash` (new), `entrypoint.sh`, `Dockerfile`; staging in `playbooks/imports/play-claude-yolo.yml` | host launcher + container            | U21, U22, U23 |
-| Desktop viewing play              | `playbooks/imports/optional/common/play-agent-team-desktop.yml`                                                                                                                  | host                                 | U27           |
-| User docs and member contract     | `docs/agent-team-bus.md` (+ rows in `docs/ccy.md`, index in `docs/README.md`)                                                                                                    | n/a                                  | U28           |
-| Plan scripts                      | this plan's `triage.bash`, `deploy.bash`, `acceptance.bash`                                                                                                                      | host                                 | U00, U18, U29 |
+- **Team.** A name (`[a-z][a-z0-9-]{0,23}`), one homeserver instance with a fixed
+  `server_name`, one team room, a list of humans, the repositories and branches pings may
+  reference, and path prefixes. Teams are declared in a **team file** (JSON, section 3.4)
+  that a human writes and the installer applies. No team detail is ever committed to this
+  repository: on desktops the team files are rendered from untracked host_vars; elsewhere
+  they come from the other project's own IaC.
+- **One instance per team, by convention and by the installer.** The instance name is the
+  team name. A host may run several teams' instances (each its own unit, port, data and
+  secrets). One instance per team keeps each team's accounts, admin, backup and placement
+  separate, so a team can move host without touching another.
+- **Placement convention** (documented in `docs/agent-bus.md`): a team whose members all run
+  on one laptop runs its homeserver on that laptop; a team with a member elsewhere (a
+  data-centre server) runs its homeserver beside that member, reached by the others over
+  WireGuard. The play installs the software on every desktop; an instance exists only where a
+  team file declares it.
+- **Member.** One agent, with one account per team it belongs to. Its handle
+  (PROTOCOL.md §3) encodes repository, `<n>`, host and encapsulation type. `<host>` is the
+  install's role, `HOOKS_DAEMON_HOSTNAME`, or a name the human passes as `--host`; never a
+  real hostname. Handles end up in public forge text (`done` references, journals), so
+  `CCY_HOST_HOSTNAME` and the system hostname, which the hooks daemon falls back to, are
+  never used: with no role set and no `--host`, `suggest-handle` and `add-member` refuse.
+  A handle names a seat (a
+  checkout, or one non-ccy install), not one conversation; `--new-handle` is a remove plus an
+  add (section 4).
+- **Roles.** Each agent member is `orchestrator` or `worker` in its team (PROTOCOL.md §5
+  says which verbs each may send). Roles are runtime data set by `agent-bus add-member` and
+  `agent-bus set-role`, published in the team record.
+- **Humans.** Named in the team file; each gets one account per team, power level 50 in the
+  team room, never server admin. Only these accounts' text reaches agents, and only agents
+  whose bundle accepts human text (section 5.1).
+- **Multi-team.** A member in several teams has several bundles under one directory
+  (`PINGBUS_HOME/<team>/`) and lists the ones it is active in (`PINGBUS_TEAMS`). `recv`,
+  `wait` and the watcher cover every active team; `send` needs `--team` when more than one is
+  active; every output line names its team. A ping's references are checked against its own
+  team's allowlists only. Accounts on different teams never share a token.
 
-Tests mirror the source: `tests/helpers/pingbus/test_<mod>.py`,
-`tests/helpers/agent_team/test_<mod>.py`. The two fake modules are not `test_*`, so the
-runner leaves them alone [python §7]; they replay responses recorded from a real Tuwunel by
-probe H4, and they enforce the two Matrix rules the design leans on (a state event whose
-`state_key` starts with `@` must equal its sender; power levels gate every event type), so
-a container test fails the way the real server would. Bash parts of ccy get
-`scripts/test-ccy-team-bus.bash` (precedent `scripts/test-ccy-host-hostname.bash`).
+## 3. The homeserver installer
 
-### What each play installs, and where
+### 3.1 Two entry points, one implementation
 
-**`play-agent-team-bus.yml`** (optional; not imported by `playbook-main.yml`; depends on the
-core `play-systemd-user-tweaks.yml` for linger and fails if the user manager is unreachable
-[services §1.5]):
+| Entry point                                                                    | Who runs it                            | What it does                                                                                                                                                                                                       |
+| ------------------------------------------------------------------------------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `files/usr/local/sbin/agent-bus-install` (Bash, as root)                       | any Fedora desktop or server's own IaC | `software`, `team`, `remove`, `backup-now`, `restore`, `check` (below). Non-interactive: arguments only, fails fast, idempotent, marker lines on stdout, diagnostics on stderr.                                    |
+| `playbooks/imports/play-agent-bus.yml` (core, imported by `playbook-main.yml`) | this repository, every desktop         | installs dnf dependencies, copies the installer, runs `agent-bus-install software --source <repo>`, then `team` for each `agent_bus_teams` entry with `state: present` and `remove` for each with `state: absent`. |
 
-- Asserts `container_engine == 'podman'` (Quadlet and the rootless model need it) [services §2].
-- dnf: `tcpdump` and `passt` (for `pasta`). Both exist for `acceptance.bash` (P1, P4); a
-  comment in the play says so, so a later YAGNI pass does not remove them (a missing tool
-  is an IaC gap).
-- Helpers, explicit file list, into `/usr/local/lib/ccy-helpers/helpers/pingbus/` and
-  `.../helpers/agent_team/`; wrappers `~/.local/bin/agent-team`, `~/.local/bin/agent-team-warden`.
-- Builds the zipapp with `command: argv: [python3, -m, helpers.pingbus.bundle, --out, …]`
-  (`chdir: root_dir`) and installs it 0755 at `~/.local/bin/pingbus` and at the published
-  artefact path `~/.local/share/pingbus-dist/pingbus`, with the plugin directory beside it
-  (`.../pingbus-dist/plugin/pingbus/`) for section 8 members. The published tree is outside
-  `~/.local/share/agent-teams/` so the ccy deny list (section 5) needs no exception.
-- Image: `tuwunel_version` (with `@see` to the release page and a row in
-  `vars/version-pins.yml` naming `matrix-construct/tuwunel`, so
-  `scripts/check-pinned-versions.bash` and the `update-versions` skill track it) and
-  `tuwunel_image_digest` beside it. Rendered as
-  `ghcr.io/matrix-construct/tuwunel:{{ tuwunel_version }}@{{ tuwunel_image_digest }}`.
-  Pre-pulled by a `command: argv: [podman, pull, <ref>]` task (`changed_when` on its output,
-  the `play-unifi-controller.yml` pattern) before any unit starts.
-- Per team in `agent_teams` with `state: present` (untracked host_vars, section 4):
-  - Fails if the `server_name` recorded in an existing `team.json` differs from the one about
-    to be rendered (Tuwunel cannot change it without wiping the database [tuwunel §2]).
-  - Fails if `<subnet>` overlaps any existing podman network's subnet.
-  - `~/.config/agent-teams/<team>/` 0700: `team.json` (rendered), `tuwunel.toml` (rendered,
-    section 2a), `secrets/registration_shared_secret` (64 random bytes hex, generated once,
-    `creates:`, 0600, `no_log`), `secrets/forge_token` (from the vault variable
-    `agent_team_forge_token`, 0600, `no_log`).
-  - `~/.local/share/agent-teams/<team>/db/` 0700 (Tuwunel's `/var/lib/tuwunel`).
-  - Quadlets in `~/.config/containers/systemd/`:
-    - `agent-team-<team>.network`: `NetworkName=agent-team-<team>`, `Internal=true`,
-      `DisableDNS=true`, `Subnet=<subnet>`, `Options=isolate=true`.
-    - `agent-team-<team>.container`: `Image=` the pinned reference, `Pull=never`,
-      `ContainerName=agent-team-<team>-hs`, `Network=agent-team-<team>.network` only,
-      `IP=<hs_ip>`, `PublishPort=127.0.0.1:<port>:8008`,
-      `Environment=TUWUNEL_CONFIG=/etc/tuwunel/tuwunel.toml`, config and secret mounted
-      `:ro,Z`, data `:Z`, `HealthCmd=["/usr/bin/tuwunel","--health-check"]`,
-      `StopTimeout=300`, `[Service] TimeoutStopSec=330`, `WantedBy=default.target`
-      [tuwunel §2, §4]. `Notify=healthy` replaces the readiness poll if probe H3 shows the
-      installed Quadlet supports it.
-  - daemon-reload (scope user), start, restart on change; otherwise a bounded readiness poll
-    of `/_tuwunel/server_version` that also checks the unit is still active
-    (`ready-wait-ignores-child-exit`).
-  - Asserts with `ss -ltnH` that `<port>` listens on `127.0.0.1` only, never `0.0.0.0`/`::`.
-  - Runs `agent-team bootstrap <team>` (`command: argv:`; idempotent; marker lines): admin,
-    steward, warden and human accounts; asserts `admin` is the only server admin.
-  - Enables `agent-team-warden@<team>.service` (added by U26, after the warden exists, so
-    the homeserver part of the play does not wait for the warden).
-- Per team with `state: absent`: stops and disables the warden instance and the units,
-  removes the Quadlets and daemon-reloads. `~/.config/agent-teams/<team>/` and the data
-  directory are kept unless `purge: true`, which removes both and the team's registry.
-- `scripts/qa-deployed-drift.bash` gets `EXTRA_PAIRS` for both helper trees.
+The installer is the single source of truth for what a homeserver host looks like; the play
+is a thin caller (`command: argv:`, `changed_when` on the installer's `CHANGED` marker), so a
+desktop and a data-centre server are configured identically. Another project runs it from a
+clone of this repository at a pinned commit:
+`sudo <clone>/files/usr/local/sbin/agent-bus-install software --source <clone>`, then
+`team --team-file <file>`. It refuses to run unless `/etc/os-release` says `ID=fedora`.
+Rendering and validation (team file, `tuwunel.toml`, unit drop-ins) are done by the Python
+admin tool (`agent-bus render …`), so Bash only moves files and drives systemd, firewalld
+and NetworkManager.
 
-**`play-agent-team-desktop.yml`** (optional): Element Desktop Flatpak `im.riot.Riot`
-(system-wide, the `play-comms.yml` pattern); per team:
-`~/.var/app/im.riot.Riot/config/Element-<team>/config.json` (section 9),
-`electron-config.json` seeded with `{"spellCheckerEnabled": false}` only when absent, and a
-launcher `~/.local/share/applications/agent-team-<team>-element.desktop` running
-`flatpak run im.riot.Riot --profile <team>`. A terminal Matrix client is deferred (D24).
+**Why not a container.** The homeserver runs as a static binary under a system unit, not in
+rootless podman: a system unit gets the kernel's per-unit IP filter (`IPAddressDeny`/
+`IPAddressAllow`, enforced by cgroup BPF), which the user service manager cannot apply
+(feasibility review S6); it needs no container engine, no linger and no subuid setup on a
+server; and it is the mode the [spike] passed. The Podman-first rule governs choosing an
+engine when one is needed; here none is (D1).
 
-**`play-claude-yolo.yml`** (existing, core): stages `files/opt/claude-yolo/optional/team-bus/`
-and builds the zipapp itself into the build context (`optional/team-bus/bin/pingbus`) with
-the same `helpers.pingbus.bundle` call; removes stale staged files (the warning at
-`play-claude-yolo.yml:293-300`) [ccy §3]. It never reads the optional play's output, so a
-machine that never runs the bus play still builds the image. The build is reproducible
-(D11), so both plays produce identical bytes.
+### 3.2 `agent-bus-install software`
 
-### 2a. `tuwunel.toml`, every key
+Idempotent; run on every play run.
 
-Rendered from the template; the template test (U17) asserts this exact key set and that
-each key appears in Tuwunel's example config for the pinned version.
+- dnf: `python3`, `firewalld`, `NetworkManager`, `zstd`, `curl`, `jq`, `tcpdump` (the last
+  for `acceptance.bash` P1/P2; a comment says so, so a YAGNI pass does not remove it).
+- System user and group `agent-bus` (`useradd --system`, no login shell, home
+  `/var/lib/agent-bus`, mode 0700).
+- Tuwunel: version and per-architecture sha256 from `files/usr/local/share/agent-bus/tuwunel.pin`
+  (`@see` the release page; registered with `scripts/check-pinned-versions.bash` so the
+  `update-versions` skill tracks it). Downloads the static release asset for `uname -m`
+  (`x86_64` uses the x86-64-v1 build), verifies the sha256 before anything else touches it,
+  decompresses to `/usr/local/lib/agent-bus/tuwunel-<version>` (root-owned, 0755), and
+  repoints `/usr/local/lib/agent-bus/tuwunel`. The release is unsigned [tuwunel §1]; the
+  pinned hash is the integrity check. Probe H3 records the asset names and hashes. When the
+  pinned version is already installed and its recorded hash matches, nothing is downloaded.
+- Builds the two zipapps from `--source` (`python3 -m helpers.pingbus.bundle`, reproducible,
+  D9): `/usr/local/lib/agent-bus/agent-bus.pyz` and `pingbus.pyz`; symlinks
+  `/usr/local/bin/agent-bus` (a wrapper that requires root and drops to the `agent-bus`
+  user; for `add-member` it writes the bundle itself, section 5.1) and
+  `/usr/local/bin/pingbus`.
+- The **member kit**, `/usr/local/share/agent-bus/kit/`: `pingbus` (the zipapp), the Claude
+  Code plugin (`plugin/pingbus/`), `settings.json` (`{"crossSessionInbound": "accept"}`),
+  and `agent-bus-claude`, the launcher for non-ccy members (section 5.3).
+- Units, copied from `files/etc/systemd/system/`: `agent-bus-hs@.service`,
+  `agent-bus-backup@.service`, `agent-bus-backup@.timer`; and the resolver stub
+  `/usr/local/share/agent-bus/resolv.conf` (section 3.5).
+- `--bus-address <bus_ip>` (optional, host-wide): a NetworkManager `dummy` connection
+  `agentbus0` holding `<bus_ip>/32`, persistent across boots. This is the address local
+  containers, LXC, docker and VMs use to reach this host's homeservers (section 3.3).
 
-| Key                               | Value                                     | Why                                                                             |
-| --------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------- |
-| `server_name`                     | `<sn>`                                    | Fixed for the team's life (drift check above).                                  |
-| `address`                         | `["0.0.0.0"]`                             | Inside the container; the host bind is `PublishPort=127.0.0.1:…` [tuwunel §2].  |
-| `port`                            | `8008`                                    | Upstream default; mapped, never changed.                                        |
-| `database_path`                   | `/var/lib/tuwunel`                        | The data volume.                                                                |
-| `allow_registration`              | `false`                                   | Closed from first boot (D3).                                                    |
-| `registration_shared_secret_file` | `/run/secrets/registration_shared_secret` | Admin-API account creation; read on every use.                                  |
-| `grant_admin_to_first_user`       | `false`                                   | No account becomes admin by order; a bootstrap retry cannot promote the warden. |
-| `allow_federation`                | `false`                                   | Issue §1.                                                                       |
-| `trusted_servers`                 | `[]`                                      | No key-server queries (default is `matrix.org`).                                |
-| `federate_admin_room`             | `false`                                   | Tidiness; must be set before the admin room exists.                             |
-| `admin_escape_commands`           | `false`                                   | No `\!admin` in ordinary rooms.                                                 |
-| `allow_encryption`                | `false`                                   | The bus is not end-to-end encrypted; the warden must read commands.             |
-| `auto_accept_invites`             | `false`                                   | Members accept invites themselves, after their checks (section 7).              |
-| `new_user_displayname_suffix`     | `""`                                      | Display name is exactly the handle.                                             |
-| `client_sync_timeout_min`         | `0`                                       | Makes `recv`'s `timeout=0` real [tuwunel §5.6]; probe H4.                       |
-| `default_room_version`            | `"12"`                                    | Explicit; room trust depends on v12 creator semantics.                          |
-| `sentry`                          | `false`                                   | Explicit, though it is the default.                                             |
-| `log`                             | `"warn"`                                  | H4 records that no request header (token) is logged at this level.              |
+### 3.3 Addresses, reachability and the TLS stance
 
-`max_request_size` is left at its default (24 MiB; Tuwunel refuses to start below 10 MB).
-URL-preview allowlists are left at their empty defaults, which fetch nothing; P1 proves it.
-`client_sync_timeout_min = 0` lets a member busy-loop `/sync`; on one host that costs only
-local CPU, and the member can be removed.
+- **Listen.** `tuwunel.toml` `address` is `127.0.0.1` (always; the admin tool and backups
+  use it) plus the team file's `listen` list. Each listed address must, at install time, be
+  assigned to `lo`, to `agentbus0`, or to an interface of kind `wireguard`
+  (`ip -d -j addr`); any other (a LAN or Wi-Fi interface, a bridge) is refused. `0.0.0.0`
+  and `::` are refused. Refusing LAN addresses is stricter than the owner's answer 5 ("an
+  address the members can route to"); it follows from having no TLS, and is an owner
+  question (Owner questions, 2).
+- **Allow.** The team file's `allow_from` lists source CIDRs. The installer accepts a CIDR
+  only if it is loopback, one of the host's own listen addresses, a subnet whose route
+  leaves through a `wireguard` interface, or the subnet of a local virtual bridge with no
+  physical port (`/sys/class/net/<br>/brif/*` all `veth`, `tap` or `vnet`): docker, podman,
+  LXC and libvirt networks. Anything else is refused with the reason below.
+- **Enforced twice, independently.** firewalld: one rich rule per CIDR accepting
+  `tcp/<port>`, in the zone firewalld assigns to the interface carrying that CIDR; nothing
+  else is opened. The unit: `IPAddressDeny=any` and `IPAddressAllow=` exactly
+  `127.0.0.1/32 ::1/128`, the listen addresses and `allow_from`, in a rendered drop-in
+  `/etc/systemd/system/agent-bus-hs@<team>.service.d/network.conf`. The second layer holds
+  even where a zone opens a high port range (Fedora Workstation's default zone does). The
+  unit filter works in both directions, so it blocks every connection the homeserver could
+  start towards anything outside those ranges, but **not** towards hosts inside
+  `allow_from` (a WireGuard subnet, a docker bridge). Tuwunel has no reason to connect out
+  with federation off; P1 fails on any Tuwunel socket whose local port is not `<port>`.
+- **Where a private network carries the traffic, it is the access control** (owner, answer
+  5): any WireGuard peer in an allowed CIDR can reach the port; what stops it there is that
+  registration is closed and every account needs a token or a generated password.
+- **TLS stance: none in v1.** Plain HTTP is safe only where the path is inside one kernel
+  (loopback, `agentbus0`, a host-internal bridge) or encrypted by the network (WireGuard).
+  The listen and allow rules above make every other path impossible to configure, rather
+  than unencrypted; a team that needs a LAN or the internet needs TLS, which is out of scope
+  for v1 (a refusal says so). The single exception the design anticipates is the phone
+  client: if probe H7 shows it refuses `http://` even over WireGuard, unit U26 adds TLS. H7
+  also records whether the phone client trusts a user-installed CA (Android apps do not by
+  default); if it does, U26 uses a team-private CA created by the installer, and if not, the
+  route (a public DNS-01 certificate, which publishes a name and so conflicts with P3) is
+  put to the owner. The rest of the design does not change.
+- **Who reaches what.** ccy and other rootless podman containers reach `<bus_ip>` through
+  pasta, which connects from the host's own namespace, so the homeserver sees a host
+  address (probe H1 records which, on ccy's default network, a named project network and
+  `--no-network`; the installer always allows the host's own listen addresses). Docker, LXC and libvirt guests on the same host reach `<bus_ip>` routed
+  through their bridge, so their bridge subnet goes in `allow_from`. Members on other
+  hosts reach `<wg_ip>` through WireGuard, so the WireGuard subnet (or the peer addresses)
+  goes in `allow_from`. A phone reaches `<wg_ip>` the same way.
 
-## 3. Interfaces between components
+### 3.4 The team file and `agent-bus-install team`
 
-```
- host_vars agent_teams ──play──▶ team.json, tuwunel.toml, Quadlets, warden unit
-                                     │
- agent-team (host) ──admin API──▶ Tuwunel ◀──client API── warden (host, 127.0.0.1:<port>)
-   │ writes                          ▲  ▲
-   │ registry.json, tokens           │  └── Element (host, 127.0.0.1:<port>), control rooms only
-   ▼                                 │
- handle + token + member.json ──ro──▶ pingbus in ccy (team network, http://<hs_ip>:8008)
-                                     │
-                     durable inbox ◀─┘──▶ plugin hooks (offline: inbox counts + waiter status)
-```
+The team file (JSON; on desktops rendered by the play from `agent_bus_teams` in untracked
+host_vars, with a commented placeholder in `localhost.yml.dist`), validated by
+`agent-bus render check` before anything else runs:
 
-| Interface                  | Form                                                                                                                                                                                                                                                                                                           |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `team.json` (play → tools) | JSON: `name`, `server_name`, `port`, `network` (`agent-team-<team>`), `subnet`, `hs_ip`, `local_base_url` (`http://127.0.0.1:<port>`), `member_base_url` (`http://<hs_ip>:8008`), `humans` (names), `repos` (objects, section 4), `path_prefixes`, `forge_api`, optional `limits`. Read-only to tools.         |
-| `registry.json`            | JSON, written by `agent-team` only (atomic `O_EXCL` temp + rename): `members` by handle (`user_id`, `state` active/removed, `repo_source` remote/dir), `counters` keyed `<repo>+<host>.<type>` → last `<n>`, `rooms` (bus room ID → control room ID, name). Entries are never deleted.                         |
-| `member.json`              | JSON, what every pingbus reads (PROTOCOL.md §11). Rendered by `agent-team member-config` from the current `team.json` and registry, never stored as the source of truth, so allowlist and human changes reach every member on its next start.                                                                  |
-| token files                | One line, the access token, no trailing newline, mode 0600, created with `O_EXCL` and replaced only by atomic rename.                                                                                                                                                                                          |
-| pingbus state dir          | `PINGBUS_STATE_DIR`, default `~/.local/state/pingbus/<team>/<handle>/`: `inbox/` (one JSON file per event ID, note stripped), `consumed/`, `outbox.json`, `sync.json`, `waiter.json`, `forge-cache.json`, `dropped.log` (event ID, sender user ID, reason code, time; nothing else), `lock`.                   |
-| agent-team → ccy           | `agent-team add-member <team> --remote-url=<url> --dir-name=<dir> --host=<host> --type=podman --out=<dir>` prints one marker line `MEMBER\t<handle>\t<user_id>\t<network>` on stdout; `agent-team member-config <team> <handle> --where=team-network --out=<dir>` writes `member.json`. Diagnostics on stderr. |
-| hooks → pingbus            | `pingbus hook stop`, `pingbus hook prompt`, `pingbus hook session-start`: read the Claude Code hook JSON on stdin, write hook JSON on stdout, never touch the network, print only fixed templates with integers.                                                                                               |
-| warden → agents            | Ordinary pings in the bus room with `on_behalf_of` set (PROTOCOL.md §4). The warden mirrors every **valid** bus-room ping into the paired control room as an `m.notice` (section 8).                                                                                                                           |
-
-## 4. Team definitions and accounts
-
-`environment/localhost/host_vars/localhost.yml` (untracked) holds the list; the tracked
-`localhost.yml.dist` gets a commented placeholder only:
-
-```yaml
-agent_teams:
-  - name: <team>                 # [a-z][a-z0-9-]{0,23}
-    state: present               # or absent; purge: true also deletes data
-    port: <port>                 # host loopback port, unique per team
-    subnet: <subnet>             # a /24 used by no other podman network; hs_ip is .10
-    server_name: <team>.agent-team.internal   # optional; this is the default
-    humans: [<name>]             # [a-z][a-z0-9_-]{0,31}; localpart is the name
-    repos:                       # forge repositories pings may reference; required
-      - repo: <owner>/<repo>
-        branches: [<default-branch>]          # trusted branches; required, non-empty
-    path_prefixes: [CLAUDE/Plan/, docs/]      # required; no default
-    forge_api: https://api.github.com          # optional; this is the default
+```json
+{"team": "<team>", "state": "present",
+ "server_name": "<team>.agent-bus.internal",
+ "port": <port>,
+ "listen": ["<bus_ip>", "<wg_ip>"],
+ "allow_from": ["<cidr>"],
+ "humans": ["<name>"],
+ "repos": [{"repo": "<owner>/<repo>", "branches": ["<default-branch>"]}],
+ "path_prefixes": ["CLAUDE/Plan/", "docs/"],
+ "forge_api": "https://api.github.com"}
 ```
 
-`agent_team_forge_token` (vault-encrypted, shared by the teams) is what the warden and the
-host-side acceptance members use for forge checks.
+`server_name` is optional (that is the default) and never changes for a team: the installer
+fails if the one recorded at first install differs (Tuwunel cannot change it without wiping
+the database [tuwunel §2]). `.internal` is reserved and never delegated. `port` must be free
+and unique on the host. `humans` uses `[a-z][a-z0-9_-]{0,31}`.
 
-Accounts, all created by `agent-team` through the admin API with registration closed from
+`team` then, in order, failing at the first error:
+
+1. Checks listen addresses and `allow_from` (section 3.3) and that `firewalld` and
+   NetworkManager are running.
+2. `/var/lib/agent-bus/<team>/` (0700, `agent-bus`): `tuwunel.toml` (rendered, section
+   3.6), `team.json` (the validated team file), `registry.json` (handles and each
+   `<repo>+<host>.<type>` counter, written by `add-member`), `db/`, `backups/`, `secrets/`
+   (0700): `registration_shared_secret` (64 random bytes hex, created once).
+3. firewalld rules (section 3.3), the unit drop-in, `daemon-reload`, enable
+   `agent-bus-hs@<team>.service` and `agent-bus-backup@<team>.timer`, and start the unit;
+   it is restarted only when a rendered file (`tuwunel.toml`, the drop-in) or the binary
+   changed, and only then does the run print `CHANGED`, so a play run with nothing new
+   leaves the homeserver alone.
+4. A bounded readiness poll of `http://127.0.0.1:<port>/_tuwunel/server_version` that also
+   fails if the unit leaves `active`.
+5. Asserts with `ss -ltnH` that `<port>` listens on exactly `127.0.0.1` and `listen`.
+6. `agent-bus bootstrap <team>` (idempotent): the admin account, the team room, the human
+   accounts, the team record and power levels (section 4); asserts `admin` is the only
+   server admin. A new human's account is created with a random password that is
+   discarded at once (section 4), so nothing a human logs in with ever passes through the
+   installer's or the play's output. Re-running after a team-file change adds new humans,
+   deactivates removed ones, and republishes the team record.
+
+`remove --team <team>` stops and disables both units, removes the drop-in and the firewalld
+rules; data stays unless `--purge`. `check --team <team>` is read-only and prints each
+construction fact P1-P3 check (section 10), for the owner and for other projects' IaC.
+
+### 3.5 The unit, hardened
+
+`agent-bus-hs@.service`: `User=agent-bus`, `Group=agent-bus`,
+`Environment=TUWUNEL_CONFIG=/var/lib/agent-bus/%i/tuwunel.toml`,
+`ExecStart=/usr/local/lib/agent-bus/tuwunel`, `Restart=on-failure`, `RestartSec=5s` and
+`StartLimitIntervalSec=0` (so a WireGuard address that is not up yet at boot is bound once
+it is, instead of the unit hitting the start limit and staying failed),
+`TimeoutStopSec=330`, `After=network-online.target`; the drop-in adds `After=` and
+`Wants=` on `sys-subsystem-net-devices-<if>.device` for every interface carrying a
+`listen` address (`agentbus0`, each WireGuard interface). Sandboxing: `NoNewPrivileges`,
+`ProtectSystem=strict`,
+`ReadWritePaths=/var/lib/agent-bus/%i`, `ProtectHome`, `PrivateTmp`, `PrivateDevices`,
+`ProtectKernelTunables`, `ProtectKernelModules`, `ProtectControlGroups`,
+`RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`, `SocketBindDeny=any` with
+`SocketBindAllow=tcp:<port>` (in the drop-in), `IPAccounting=yes`, and the IP filter.
+**No resolver:** on Fedora `/etc/resolv.conf` is a symlink into `/run/systemd/resolve/`, so
+the unit puts `TemporaryFileSystem=/run/systemd/resolve:ro` over that directory and
+`BindReadOnlyPaths=` the stub `/usr/local/share/agent-bus/resolv.conf` (`nameserver 127.0.0.1`, where nothing listens and which the IP filter allows only on loopback) onto
+`/run/systemd/resolve/stub-resolv.conf` and `/run/systemd/resolve/resolv.conf`, plus
+`InaccessiblePaths=-/run/dbus`, so a lookup fails inside the host. Probe H3 confirms, on
+Fedora Workstation and Fedora Server both, that `/etc/resolv.conf` inside the unit reads the
+stub and that Tuwunel starts with it. `Type=notify` if H3 shows Tuwunel sends readiness;
+otherwise `simple` plus the readiness poll.
+
+### 3.6 `tuwunel.toml`, every key
+
+Rendered by `agent-bus render toml`; a test (U15) asserts this exact key set and that each
+key appears in Tuwunel's example config for the pinned version. Tuwunel only warns about an
+unknown key and carries on, so H4 starts it with the exact rendered file and records the
+warning's wording, and the installer's readiness step (U16) fails on any such line in the
+unit's journal since that start.
+
+| Key                               | Value                                                          | Why                                                                |
+| --------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `server_name`                     | `<sn>`                                                         | Fixed for the team's life.                                         |
+| `address`                         | `["127.0.0.1", <listen>…]`                                     | Section 3.3.                                                       |
+| `port`                            | `<port>`                                                       | The team's port.                                                   |
+| `database_path`                   | `/var/lib/agent-bus/<team>/db`                                 |                                                                    |
+| `database_backup_path`            | `/var/lib/agent-bus/<team>/backups`                            | Section 3.7.                                                       |
+| `database_backups_to_keep`        | `7`                                                            |                                                                    |
+| `allow_registration`              | `false`                                                        | Closed from first boot.                                            |
+| `allow_guest_registration`        | `false`                                                        | Explicit.                                                          |
+| `registration_shared_secret_file` | `/var/lib/agent-bus/<team>/secrets/registration_shared_secret` | Admin-API account creation; read on every use.                     |
+| `grant_admin_to_first_user`       | `false`                                                        | No account becomes admin by order.                                 |
+| `login_via_token`                 | `false`                                                        | No token or QR login: humans log in with their password only.      |
+| `allow_federation`                | `false`                                                        | Issue §1.                                                          |
+| `trusted_servers`                 | `[]`                                                           | No key-server queries (default `matrix.org`).                      |
+| `federate_admin_room`             | `false`                                                        | Must be set before the admin room exists.                          |
+| `admin_escape_commands`           | `false`                                                        | No `\!admin` outside the admin room.                               |
+| `allow_encryption`                | `false`                                                        | The team room is not end-to-end encrypted; receivers read it.      |
+| `auto_accept_invites`             | `false`                                                        | Members accept after their own checks (section 4).                 |
+| `new_user_displayname_suffix`     | `""`                                                           | Display name is exactly the handle.                                |
+| `client_sync_timeout_min`         | `0`                                                            | A non-blocking `recv` [tuwunel §5.6].                              |
+| `default_room_version`            | `"12"`                                                         | Room trust depends on v12 creator semantics.                       |
+| `sentry`                          | `false`                                                        | Explicit.                                                          |
+| `log`                             | `"warn"`                                                       | H4 records that no request header (token) is logged at this level. |
+
+URL-preview allowlists stay at their empty defaults (fetch nothing); `max_request_size`
+stays at its default.
+
+### 3.7 Secrets, the admin token, backup
+
+- Everything secret lives in `/var/lib/agent-bus/<team>/secrets/`, owned by `agent-bus`,
+  0700/0600: `registration_shared_secret`, `admin.token` and `admin.password` (from the
+  shared-secret registration at bootstrap). Never in argv, environment variables, logs or
+  marker output. The shared secret can mint a server admin, so it is the team's root of
+  trust, and the admin token at rest adds no exposure the secret does not already have.
+  **Human passwords are never stored**: `sudo agent-bus human password <team> <name>` sets
+  a new 32-character password, logs out that human's other devices, and prints it once to
+  the terminal that ran it (its stdout is the payload); losing it means running it again.
+- **No agent can read them.** Agents run as the desktop user inside ccy (container root
+  maps to it), as a dedicated user on the bare desktop (section 8), as their own users on
+  servers, or inside guests; none is `agent-bus`. The admin tool
+  reaches them only through `sudo agent-bus …`, which re-executes as `agent-bus`. The admin
+  tool talks to `127.0.0.1:<port>` only and refuses any other base URL. The one place this
+  boundary does not hold is an agent that can `sudo` without a password: on such a host, a
+  bare-host member is trusted like a human (documented).
+- The shared-secret registration also sets a generated admin password, kept as
+  `secrets/admin.password` so that a later admin-token rotation can log in over loopback;
+  the `rotate-admin` command itself is deferred (no success criterion needs it).
+  `rotate-token <team> <handle>` logs a member's devices out and writes a new bundle token.
+- **Backup** (the [spike]'s managed backup): `agent-bus-backup@<team>.timer` daily runs the
+  service, as root, which sends `SIGUSR2` to the unit (`systemctl kill --signal=SIGUSR2`),
+  waits a bounded time for a new backup in `database_backup_path` (fails the unit if none
+  appears), then adds a tar of `secrets/`, `team.json` and `registry.json` beside it (root,
+  0600). A backup holds the team's root of trust (the shared secret and the admin token):
+  whoever holds one can instruct every agent in the team, so `docs/agent-bus.md` says so,
+  and copying backups off the host is the owner's decision and is not built.
+  `agent-bus-install backup-now --team <team>` runs the same once.
+- **Restore:** `agent-bus-install restore --team <team> --backup <name>` stops the unit,
+  restores the database by the procedure probe H5 records from the [spike]'s method, restores
+  the tar, starts the unit and runs the readiness poll and `bootstrap`'s assertions.
+
+## 4. Accounts and the team room
+
+Accounts, all created by `agent-bus` through the admin API with registration closed from
 first boot \[tuwunel §3\]:
 
-| Account           | Localpart  | How created                                                                | Credential kept at                                               |
-| ----------------- | ---------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| team admin        | `admin`    | `POST /_synapse/admin/v1/register` with the shared-secret HMAC, admin=true | `~/.config/agent-teams/<team>/admin.token`                       |
-| steward           | `steward`  | `PUT /_synapse/admin/v2/users/...` then `.../login` mint                   | `~/.config/agent-teams/<team>/steward.token`                     |
-| warden            | `warden`   | same                                                                       | `~/.config/agent-teams/<team>/warden.token`                      |
-| each human        | `<name>`   | same, with a generated password for Element logins                         | `~/.config/agent-teams/<team>/humans/<name>.password` (no token) |
-| each agent member | `<handle>` | `add-member`: same, random password discarded, display name = handle       | ccy: host-side per-project store (section 5); others: `--out`    |
+| Account           | Localpart  | How created                                                                | Credential kept                                     |
+| ----------------- | ---------- | -------------------------------------------------------------------------- | --------------------------------------------------- |
+| team admin        | `admin`    | `POST /_synapse/admin/v1/register` with the shared-secret HMAC, admin=true | `secrets/admin.token`, `secrets/admin.password`     |
+| each human        | `<name>`   | `PUT /_synapse/admin/v2/users/...` with a random password, discarded       | none: `human password` sets one and prints it once  |
+| each agent member | `<handle>` | `add-member`: same, password discarded, then `.../users/{id}/login` mint   | the member's bundle only (`token`), never on the HS |
 
-Agent handles always contain `+`, the reserved and human localparts never do, so they
-cannot collide. `remove-member` deactivates the account and marks the registry entry
-removed; its `<n>` is never reused. `rotate-token` logs out the member's devices through the
-admin API and mints a new token in place (atomic rename); a running ccy session picks it up
-on its next launch [ccy §2]. `rotate-token` is the documented response to a P5 hit.
+Agent handles always contain `+`; `admin`, `conduit` and human localparts never do. Tuwunel
+checks localparts strictly, so H4 creates a real `+` handle through both
+`v1/register` and `PUT v2/users`; the separator is one constant in `protocol.py`, so if H4
+refuses `+`, it becomes `=` (in every Matrix localpart grammar) before U02 is merged. H4
+also records which password-reset call Tuwunel offers (`v1/reset_password` or
+`PUT v2/users` with a new password and `logout_devices`).
 
-**The team's root of trust is the directory `~/.config/agent-teams/<team>/`, not one file
-in it.** The shared secret there can register a new server admin, so the admin token at
-rest adds no exposure the secret does not already have. The protection is that the tree is
-0700, host-only, and on the ccy deny list (section 5), and that `host` members are trusted
-like humans (D7).
+**The team room** (one per team, created by `admin` at bootstrap; room version 12, so
+`admin`, as creator, holds creator power and is the only account that can change state):
+name = the team name, a fixed topic, invite-only, not in the directory. Power levels are in
+PROTOCOL.md §8: humans 50, agents 0; agents and humans can send messages, nobody but
+`admin` can set state, invite, kick or redact. `@room` is not limited by the server
+(`notifications.room` governs push notifications only, so any member can set
+`m.mentions.room`); receivers act on `@room` only from a listed human, because the sender
+check comes first. The **team record**
+(`agent_bus.team`, state key `""`, PROTOCOL.md §8) holds the humans, the agents' roles, the
+repository allowlist and path prefixes. `agent_bus.status` is open to every member at power
+0, and the server forces only `@`-prefixed state keys to equal the sender, so receivers
+ignore any status whose state key is not its sender's user ID.
 
-`agent-team` commands: `bootstrap <team>`, `add-member`, `member-config`,
-`remove-member <team> <handle>`, `rotate-token <team> <handle|steward|warden>`,
-`list <team>` (members, state, where each handle's `<repo>` came from; no tokens),
-`room create`, `room add-worker`, `room list` (section 7). Every command takes arguments
-only (`--opt=value` form for every value that comes from outside, so a value starting with
-`-` cannot be read as an option), validates them before any call, and never prompts.
+**Joining.** pingbus accepts an invite on its own (deterministic, no model involved) only
+when the inviter and the stripped `m.room.create` sender are the bundle's `admin` and the
+room ID is the bundle's `room`. After joining, and on every change to these state events, it
+re-reads `m.room.create?format=event` (sender `admin`, version 12), `m.room.power_levels`
+(exactly PROTOCOL.md §8 for the current humans) and `agent_bus.team` (sender `admin`, lists
+itself with a role); on a mismatch it stops treating the room as trusted (exit 10, `status`
+says why) and receives nothing from it. Joined members who are neither listed humans, role
+holders nor `admin` are reported by `pingbus status` and everything they send is dropped
+(`sender`).
 
-## 5. ccy opt-in
+`agent-bus` commands (all arguments, `--opt=value` for any value from outside, validated
+before any call, never prompting): `bootstrap`, `add-member <team> --repo=… --host=… --type=… --role=… [--no-human-text] --out=<dir>` (creates the account, mints its token,
+invites it, updates the team record, and writes the bundle, section 5.1),
+`remove-member <team> <handle>` (kicks, deactivates, removes the role; `<n>` never reused),
+`set-role`, `rotate-token`, `list` (members, roles, state; no tokens),
+`human password|devices|logout-all|lock|unlock <team> <name>`, and
+`render check|toml|dropin` for the installer. `rotate-admin` is deferred (section 3.7).
 
-- **Setting:** `ccy --team <team>` (persisted) and `ccy --no-team` (clears). The source of
-  truth is the host-only file `~/.claude-tokens/ccy/projects/<hash>/team` holding the team
-  name; restart and reboot-restore read it, so they need no change [ccy §1.3, §2]. It is
-  never in `.claude/ccy/ccy.env` (read too late) or the tracked mounts file.
-- **One team seat per checkout** (D8): at most one running container per checkout may carry
-  `--team`; the launcher refuses a second (labels `ccy-team=<team>`,
-  `ccy-team-project=<hash>`). The seat's handle is created on the first `--team` launch and
-  reused by every later session in that checkout, restarts and restores included. A handle
-  therefore names a checkout's seat on the team, not one conversation (owner question 5).
-  `ccy --team <team> --new-handle` retires the old handle (`remove-member`) and allocates the
-  next `<n>`, for when a new piece of work should not inherit the old identity. Stale
-  replays are cut off by the receive rules (PROTOCOL.md §8, `stale`).
-- **Handle:** built on the host by `agent-team add-member` from the remote URL's repository
-  basename (fallback: the directory name), `CCY_HOST_HOSTNAME`, and `CONTAINER_ENGINE`
-  (PROTOCOL.md §3 gives the grammar and the mapping). The launcher validates both inputs on
-  the host and passes them in `--opt=value` form. The remote URL comes from the checkout's
-  `.git/config`, which the container can write, so `agent-team list` shows each handle's
-  source and `room create` refuses a handle that is not `active`; humans pick handles.
-- **Credential store:** `~/.claude-tokens/ccy/projects/<hash>/team-bus/<team>/` (`handle`,
-  `token`), inside the existing 0700 tree. Only these two persist.
-- **Each launch:** `agent-team member-config` renders a fresh `member.json`; the launcher
-  copies it and the token with `install -m 0600` into
-  `mktemp -d "$XDG_RUNTIME_DIR/ccy-team.<container>.XXXXXX"` and mounts that `:ro,Z` (`:ro`
-  without SELinux) at `/etc/pingbus`. Cleanup removes the copy; each launch also sweeps
-  staging directories whose container no longer exists.
-- **Deny list** (`lib/common-pure.bash`): add `~/.config/agent-teams`,
-  `~/.local/share/agent-teams` and `~/.config/pingbus`. Also refuse any mount source that is
-  an **ancestor** of a denied path (for example `~/.config` or `~/.local`). Today only `/`
-  and the home directory are refused as ancestors, so `~/.config` would expose
-  `~/.config/gh` as well; the ancestor rule closes that for every entry.
-- **Environment** (`-e`, values are paths and names, never the token):
-  `PINGBUS_CONFIG=/etc/pingbus/member.json`,
-  `PINGBUS_STATE_DIR=/workspace/.claude/ccy/pingbus/<handle>` (host-persisted, git-ignored by
-  `.claude/ccy/*`), `PINGBUS_HANDLE=<handle>` (informational; the CLI checks it equals
-  `member.json`). The session's existing `GH_TOKEN`, if any, serves the forge check on
-  github.com; without one, only public repositories resolve.
-- **Network:** the session keeps its primary network (`podman` or the project network);
-  the team network is attached as a second network. Because the team network has DNS off,
-  the container's `resolv.conf` is unchanged (probe H1 confirms) and pingbus reaches the
-  homeserver by `<hs_ip>`, so no name on another network can impersonate it. The team
-  network is kept out of `SELECTED_NETWORK`, the internet preflight, `ensure_network_dns`,
-  `save_network_preference`, `LAST_NETWORK` and `save_launch_config`; `--disconnect` refuses
-  it [ccy §1]. Attach method: a second `--network` at `run` if probe H1 passes, else
-  `network connect` right after start, before the entrypoint reaches `claude` (precedent
-  `network-management.bash:465`).
-- **Image:** `optional/team-bus/` (zipapp + plugin) copied by the existing `optional/` copy;
-  the Dockerfile adds a `chmod 0755` for the bin. The entrypoint, when `PINGBUS_CONFIG` is
-  set: symlinks `/usr/local/bin/pingbus`; installs the plugin by the route probe U01 chose
-  (section 6). When it is not set: removes the plugin copy only if its `plugin.json` `name`
-  is the shipped one, and drops the `enabledPlugins` key (the child-claude lesson) [ccy §4].
-- **Version gate:** the launcher refuses `--team` when the image's `claude-yolo-version`
-  label is older than the version that adds team support.
-- **Engines:** v1 supports `podman` members only. A `docker` ccy session with `--team` is
-  refused at launch with a message (Docker cannot see a rootless podman network) [ccy §1].
-- **Versions:** U21–U23 are stacked on one branch and merged together with one minor
-  `CCY_VERSION` bump, one container version bump (`LABEL` and `REQUIRED_CONTAINER_VERSION`
-  together) and one `docs/ccy-changelog.md` entry; two rows in the "What the container CAN
-  reach" table in `docs/ccy.md` (team credential, team network).
+**The human's account, locked down** (owner, answer 5): never server admin; power 50 in one
+room only; a 32-character generated password, set and printed once by `sudo agent-bus human password` (its output is the payload; nothing is kept); password login only
+(`login_via_token = false`; P7 asserts `GET /login` offers only `m.login.password`), and
+only over the addresses section 3.3 allows; no guest access, no third-party identifiers, no
+identity server; `human devices` lists sessions and `logout-all` ends them; `lock` blocks a
+lost phone's account at once. Tuwunel 1.9.3 has no login rate limit [tuwunel §6]; the
+password length makes guessing infeasible, and the rate limit of the next release is
+switched on when the pin moves. Matrix offers no second factor without an external identity
+provider; that limitation is documented, not engineered around.
 
-## 6. Waking sessions [wake]
+## 5. Joining a team, per encapsulation
 
-- **Primary:** the agent runs `pingbus wait` with `run_in_background` (or under Monitor).
-  `wait` holds the account lock, long-polls `/sync` in chunks of 30 s, writes `waiter.json`
-  (`listening_until`) and the room `<ns>.status` state, and exits on the first batch that
-  yields at least one valid ping or `TIMEOUT` (exit 0, one line each) or at `--timeout`
-  (default 1500 s, exit 3, "re-arm"). A batch of drops alone never ends `wait`: drops go to
-  `dropped.log` and one aggregated stderr line per batch, so a flooding member cannot keep
-  waking its peers. The harness re-invokes the agent on exit; the skill tells it to handle
-  the pings then re-arm.
-- **Guard:** the plugin's Stop hook (`pingbus hook stop`) reads only the local inbox and
-  `waiter.json`. It re-validates every inbox file (PROTOCOL.md §8, offline steps) and
-  ignores any that fail, so a file planted by repository code cannot put text in front of
-  the agent. It blocks the stop once, with a fixed-template reason carrying only a count
-  ("2 pings pending: run `pingbus recv`", "no waiter armed: run `pingbus wait` in the
-  background"), when valid pings are pending or no live waiter is recorded; it never blocks
-  when `stop_hook_active` is true, and blocks for "no waiter" at most once per 600 s, so it
-  cannot loop against the hooks daemon's own Stop handlers. A broken CLI or missing config
-  produces a fixed template naming the failure class (never exception text) under the same
-  once-only rule.
-- **Context:** `pingbus hook prompt` (UserPromptSubmit) adds "N pings pending: run
-  `pingbus recv`"; it never prints ping lines. `pingbus hook session-start` runs
-  `config check` and reminds the agent to arm `wait`, or reports a missing credential.
-- **Install route, decided by probe U01:** U01 runs in a ccy container: copy a minimal
-  plugin with `SessionStart`, `Stop` and `UserPromptSubmit` hooks that touch files, enable it
-  the phpantom-lsp way (copy into `/root/.claude/plugins/` + `enabledPlugins`), run a child
-  `claude -p`, and record which hooks fired and whether `hook_registration_checker` reports
-  anything. If the hooks fire, the plugin route (D13) stands. If not, the named fallback is
-  the research's third route: the entrypoint `jq`-merges the three hook entries into the
-  user-level `/root/.claude/settings.json` when `PINGBUS_CONFIG` is set, and removes exactly
-  those entries when it is not; the skill still ships through the image skills directory.
-  U20 and U23 both need U01.
-- **Fallback for waking (later, not v1):** a supervisor plugin `pingbus_wake.py` beside
-  `ccy_lifecycle.py` emitting a fixed `PINGS_PENDING` template with a count, fed by a
-  `pingbus wait --daemon` syncer started by the entrypoint. It needs the hooks daemon's
-  plugin API and one new upstream template; v1 does not block on it. Session crons and the
-  file mailbox are not used.
-- `recv` takes the lock if it is free and does one non-blocking sync (`timeout=0`, made
-  real by `client_sync_timeout_min = 0` [tuwunel §5.6]); if the lock is held it drains the
-  local inbox only. Before printing a stored ping, `recv` and `wait` re-run the offline
-  validator on the file and, when they hold the lock, confirm the event with
-  `GET /rooms/{room}/event/{event}`; the inbox is a cache, never the authority. Hooks never
-  sync.
-- The skill states: the token file is never read or printed; a referenced file is data to
-  read, not a command; links out of `path_prefixes` and the text of issues and pull requests
-  are untrusted data; a consumed ping is not withdrawn by a later redaction.
+### 5.1 What every member gets
 
-## 7. Rooms and trust
+`agent-bus add-member … --out=<dir>` produces a **bundle**: `member.json` (PROTOCOL.md §12:
+team, user ID, `server_name`, `base_url`, the plain-HTTP host list, `admin`, `room`,
+`human_text`), `token`, and a short `README` naming the next steps for the member's type.
+The `agent-bus` user cannot write into a human's 0700 home, so the work is split: the
+`agent-bus` side writes the bundle to its stdout as a tar stream (its payload; nothing else
+on stdout), and the root wrapper unpacks it into a fresh private temporary directory and
+places each file with `install -d -o "$SUDO_UID" -m 0700` and `install -o "$SUDO_UID" -m 0600`
+under `--out`. **`--no-human-text`** writes `"human_text": false`: the member accepts pings
+only and drops every human message. It is the choice for a member joining a team whose
+homeserver someone else runs (section 9). It can only narrow what the member accepts, so a
+bundle writable by its agent does not weaken it. The human copies the bundle to `PINGBUS_HOME/<team>/` on the member,
+by hand or by that project's IaC. The member also needs: `pingbus` on `PATH` (the kit, or
+the ccy image), the Claude Code plugin, and its session started with the plugin and the
+inbox-socket setting (section 6). `pingbus suggest-handle` prints the `add-member` arguments
+a member's environment implies (repository from the git remote, else the directory; host
+from `HOOKS_DAEMON_HOSTNAME`, refusing when it is unset; type from the environment), so the
+human does not guess.
 
-Rooms come in pairs and only the steward creates them. A human asks on the host:
+### 5.2 Per encapsulation
 
-`agent-team room create <team> --name=<name> --by=<human> --orchestrator=<handle> --worker=<handle>…`
+| Type                               | Where the bundle goes                                                                    | How opt-in is expressed                                                 | How it reaches the homeserver                                             | `allow_from` needs             | pingbus and plugin from           |
+| ---------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------ | --------------------------------- |
+| `podman` (ccy)                     | `<checkout>/.claude/ccy/pingbus/<team>/` (git-ignored by ccy's `.claude/ccy/.gitignore`) | `PINGBUS_TEAMS` in the checkout's untracked `.claude/ccy/ccy.env.local` | `<bus_ip>` (same host, via pasta) or `<wg_ip>` (via the host's WireGuard) | nothing extra (host addresses) | the ccy image                     |
+| `host` (bare desktop)              | a dedicated agent user's `~/.config/pingbus/<team>/` (never the human's user, section 8) | `PINGBUS_TEAMS` in `~/.config/pingbus/env`                              | `<bus_ip>` or `<wg_ip>`                                                   | nothing extra                  | `/usr/local/bin/pingbus`, the kit |
+| `host` (a server, always-on agent) | the agent user's `~/.config/pingbus/<team>/`                                             | the same env file                                                       | `<bus_ip>` beside it (the placement convention) or `<wg_ip>`              | nothing extra                  | the kit (copied by its IaC)       |
+| `lxc`                              | inside the LXC, the agent user's `~/.config/pingbus/<team>/`                             | the same env file                                                       | `<bus_ip>` via the LXC bridge, or its own WireGuard                       | the LXC bridge subnet          | the kit, copied in                |
+| `docker`                           | bind-mounted read-only, or copied, at the path `PINGBUS_HOME` names                      | `PINGBUS_TEAMS` in the container environment                            | `<bus_ip>` via the docker bridge                                          | the docker network subnet      | the kit, copied in or mounted     |
+| `vm`                               | inside the VM, as `lxc`                                                                  | the same env file                                                       | `<bus_ip>` via the libvirt bridge, or `<wg_ip>`                           | the libvirt network subnet     | the kit, copied in                |
 
-`<name>` is `[a-z0-9][a-z0-9-]{0,47}`. The steward account (host-only token) then:
+What differs beyond the table:
 
-- **Bus room** (room version 12; the steward is the creator, so it holds creator power;
-  no `additional_creators`). Members: the listed agents and the warden. No human is ever a
-  member, so the homeserver never delivers human text to an agent account. No name, no
-  topic. Power levels at creation: `users_default` 0, `events_default` 100,
-  `events`: `<ns>.ping` 0, `<ns>.status` 0; `state_default` 100, `invite`/`kick`/`ban`/
-  `redact` 100. So agents can send pings and their own status and nothing else; no
-  `m.room.message`, reaction or sticker can be posted by an agent. Initial state:
-  `<ns>.room` `{"v":1,"control":"<control room ID>"}` and one `<ns>.roles` (state key `""`)
-  mapping each agent's user ID to `orchestrator` or `worker` (a state key starting with `@`
-  must equal its sender, so per-member role events would be rejected; probe H4 confirms
-  the single map is accepted).
-- **Control room** (also v12, steward creator). Members: the team's humans and the warden.
-  No agent is ever invited. Name `<name>`, a fixed topic listing the commands. Power
-  levels: humans 50, warden 50, `events_default` 0, `state_default` 100,
-  `invite`/`kick`/`ban`/`redact` 100. Humans can talk and command but cannot invite anyone
-  or set state, so no human can turn a control room into something an agent would join.
-  Initial state: `<ns>.control` `{"v":1,"bus_room":"<bus room ID>"}`.
-- `agent-team room add-worker <team> --room=<bus room ID> --worker=<handle>` updates
-  `<ns>.roles` and invites; it refuses a handle that is not `active`. `room list` prints
-  pairs from the registry.
+- **Python.** The zipapp needs Python 3.11 or later; pingbus checks at start (exit 78). The
+  installer's hosts and the ccy image have it; a docker or non-Fedora guest image must.
+- **Role variable.** ccy members set `HOOKS_DAEMON_HOSTNAME=<role>` in `ccy.env.local`;
+  other members export it in the env file. It names the handle's `<host>` and the hooks
+  daemon's role from one value. With none set, `--host` is passed explicitly (section 2).
+- **Writable bundle.** Every bundle is writable by code running as its agent. That is no new
+  exposure: the token is the agent's own, the bundle holds no allowlist or human list
+  (those come from the team record, which only `admin` can write), and its one switch,
+  `human_text`, can only be set back to the default; so code in an agent's checkout can at
+  most misdirect that agent, which it can already do by editing files the agent reads.
+- **Never ignored by accident.** A ccy bundle sits under `.claude/ccy/`, which ccy's
+  generated `.gitignore` ignores except for named files; P8 asserts `git check-ignore` for
+  every bundle path the acceptance members use.
+- **One seat per bundle.** Two sessions using one bundle share an account; the sync lock
+  (PROTOCOL.md §12, §14 exit 75) makes the second session's watcher exit busy and its SessionStart hook
+  say that another session holds the seat.
 
-**Joining.** pingbus's syncer accepts a pending invite on its own (no LLM, deterministic)
-only if the invite's sender and the stripped `m.room.create` sender are the configured
-steward. After joining it re-reads `m.room.create?format=event` (sender steward, room
-version 12), `m.room.power_levels` (exactly the levels above), `<ns>.room` and `<ns>.roles`
-(both sent by the steward, and listing itself), and leaves on any mismatch. Any other
-invite is rejected and logged by room ID only. The warden follows the same rule for both
-kinds of room. A room made in Element lacks the markers and a steward creator, so no
-member ever acts in it. `pingbus room list` prints only room IDs, roles and membership,
-never names, topics or reasons; `room leave` is explicit.
+### 5.3 The ccy member
 
-**What agents receive.** The sync filter asks for the bus rooms' `<ns>.ping`,
-`<ns>.roles`, `<ns>.room`, `<ns>.status`, `m.room.create`, `m.room.power_levels` and
-`m.room.member` only, with presence, account data, ephemeral events and to-device messages
-excluded; the syncer ignores those sections even if the server sends them. Display names
-are never read or printed.
+- **Opt-in is `ccy.env.local`** (owner, answer 8): the untracked
+  `.claude/ccy/ccy.env.local` (sourced after `ccy.env` since ccy 3.80.0) carries
+  `export PINGBUS_TEAMS=<team>[,<team>]` and, where the install has a role,
+  `export HOOKS_DAEMON_HOSTNAME=<role>`. `ccy.env.local` is placed by the install's own IaC,
+  never by hand and never by an agent in the checkout.
+- **The template is ccy's.** Since ccy 3.83.0 (Plan 00160 Task 3.2) ccy writes the tracked
+  `.claude/ccy/ccy.env.local.dist` itself from `ccy_env_local_dist_text` in
+  `files/var/local/claude-yolo/lib/common.bash`, versioned by `CCY_ENV_LOCAL_DIST_VERSION`;
+  it already carries the `HOOKS_DAEMON_HOSTNAME` placeholder. U19 adds a commented
+  `#export PINGBUS_TEAMS=<team>[,<team>]` block to that text, raises
+  `CCY_ENV_LOCAL_DIST_VERSION`, bumps `CCY_VERSION`, and extends
+  `scripts/test-ccy-env-local-dist.bash`. Installs whose `ccy.env.local` names the older
+  dist version then get ccy's launch warning, which is the intended prompt to update.
+- **Read-only, or the role is not a role.** A session that can rewrite its own
+  `ccy.env.local` can change its role and its active teams for its next launch. U19 depends
+  on Plan 00160 Task 3.3 (ccy mounts an existing `ccy.env.local` read-only over the
+  workspace), an owner decision still open there.
+- **The entrypoint**, after sourcing `ccy.env` and `ccy.env.local`, when `PINGBUS_TEAMS` is
+  set: exports `PINGBUS_HOME=${PINGBUS_HOME:-/workspace/.claude/ccy/pingbus}`; runs
+  `pingbus config check` for every listed team and **refuses to start** with the reason if
+  one fails (opted in but broken is an error, not a silent no-op); symlinks
+  `/usr/local/bin/pingbus`; and adds `--plugin-dir /opt/claude-yolo/optional/agent-bus/plugin`
+  and `--settings /opt/claude-yolo/optional/agent-bus/settings.json` to the `claude`
+  arguments (inside any supervisor wrapper's `--`). When it is not set, nothing is installed
+  or added: the image's copy is inert.
+- **Nothing else in ccy changes.** No launcher flag, no host-side credential store, no deny
+  list entry (the team's secrets belong to another user), no extra network (the container's
+  usual route reaches `<bus_ip>` and WireGuard addresses through pasta, probe H1).
+- **Image:** `optional/agent-bus/` (zipapp, plugin, settings) staged by
+  `play-claude-yolo.yml`, which builds the zipapp itself from `helpers/` with the same
+  reproducible builder (so the core ccy play never depends on the bus play); the Dockerfile
+  adds `chmod 0755` for the bin. One minor `CCY_VERSION` bump, one container version bump
+  (`LABEL` and `REQUIRED_CONTAINER_VERSION` together), a `docs/ccy-changelog.md` entry, and
+  two rows in `docs/ccy.md`'s "What the container CAN reach" table (the bundle, the bus
+  address).
 
-## 8. The warden
+### 5.4 Non-ccy members
 
-Host Python, `agent-team-warden@<team>.service`, standard library only, token from
-`warden.token`, base URL `local_base_url`. The unit has `Requires=` and `After=` on
-`agent-team-<team>.service` and `Restart=on-failure` with `StartLimitBurst=5` in
-`StartLimitIntervalSec=300`, so a homeserver that stays down leaves a visible failed unit.
-The forge token reaches it as `Environment=PINGBUS_FORGE_TOKEN_FILE=%h/.config/agent-teams/%i/secrets/forge_token`
-(a path, never the token, so `systemctl --user show` reveals nothing). State in
-`~/.local/state/agent-teams/<team>/warden/`, using pingbus's own inbox and outbox code.
+`agent-bus-claude` (from the kit) reads `~/.config/pingbus/env` (or `PINGBUS_ENV`), exports
+`PINGBUS_HOME` and `PINGBUS_TEAMS`, checks every listed team's config, refuses (section 8)
+when the running user has an Element profile, and execs
+`claude --plugin-dir <kit>/plugin --settings <kit>/settings.json "$@"`. On a desktop the
+human starts it as the dedicated agent user (for example `sudo -iu <agent-user> agent-bus-claude`);
+creating that user is the install's IaC, documented in `docs/agent-bus.md`, not built in v1. A headless agent driven by a script (`claude -p` in a
+loop, as a server-side triage agent may be) needs no socket: its driver runs `pingbus wait`
+between turns.
 
-Pure decision function in `commands.py`:
-`(event, control room → bus room, roles, sender) -> Ping | Reply | Ignore`. Rules (all
-tested as a table):
+## 6. Waking sessions
 
-- It reads `m.room.message` (`msgtype` `m.text`) in **control rooms** only, from configured
-  humans only; everything from the server user (`@conduit:<sn>`), the steward and itself is
-  ignored. Edits (`m.relates_to.rel_type == "m.replace"`), redactions and replies with no
-  valid command get the command list.
-- Grammar: PROTOCOL.md §15. Targets are agent handles (or their full user IDs) written in
-  the message, each checked against the handle grammar and against the paired bus room's
-  `<ns>.roles`; any `m.mentions.user_ids` present must equal the parsed targets, else the
-  command list (fail closed). Anything that is not exactly a command: fixed command-list
-  reply, nothing sent.
-- `!halt all` → every worker in the bus room; targets → those accounts, each must hold a
-  role or the reply names the problem and nothing is sent; no target and no `all` → the bus
-  room's orchestrator; `!status` and `!help` are answered by the warden from validated
-  `<ns>.status` fields (state enum and time only; stale "listening" shown as stale).
-- `<ref>` passes the same `protocol.py` validation and the same forge and provenance check
-  (`forge.py`) as a pingbus send; a refusal names the validator's reason code.
-- Each accepted command becomes one ping in the bus room with `on_behalf_of` = the human,
-  then a reply naming the full user IDs it went to ("halt sent to @a…, @b…"). Per-human
-  limit: PROTOCOL.md §9.
-- **Delivery:** warden pings go through the outbox; each `TIMEOUT` becomes a control-room
-  notice naming the silent target's user ID, so a human learns when a halt was not
-  received.
-- **Mirror:** every bus-room ping that passes the full receive validation becomes one
-  control-room notice: sender and target user IDs, verb, ref, `re`, and, if the ping
-  carried a note, the note marked "untrusted agent note". Invalid pings are not mirrored.
-- **Flood alert:** a sender over `recv_per_sender_minute` gets one control-room notice per
-  minute naming its user ID, so a human can `remove-member`.
+**Choice: the inbox socket as the primary path, a background `pingbus wait` as the fallback,
+a Stop hook as the guard on both.**
 
-## 9. Element profiles
+- **Primary (socket).** A session started with `crossSessionInbound: accept` passed through
+  `--settings` (the ccy entrypoint and `agent-bus-claude` both do it) has
+  `CLAUDE_CODE_MESSAGING_SOCKET` and its token. The plugin's SessionStart hook starts
+  `pingbus watch` detached (it inherits those variables). The watcher holds every active
+  team's sync lock and long-polls every team at once, one thread per team (polling them in
+  turn would add up to 30 s per extra team); a team whose lock another process holds is
+  reported busy on its own, and the others carry on. It writes valid items to the inbox
+  and, whenever the pending count rises, writes one fixed-template message to the socket:
+  "agent-bus: N pending (H from humans, P pings), notice S. Run `pingbus recv`." Only
+  counts, never content. `S` is the watcher's own monotonic counter: the socket drops a
+  message identical to an earlier one, and without `S` the sequence "1 pending", `recv`,
+  "1 pending" would lose the second and leave the session asleep. U01 measures how long
+  that dedupe window is. The watcher exits when the session's socket goes away; SessionEnd
+  stops it.
+- **Liveness is a lock, never a PID.** `/workspace` is shared across container namespaces,
+  where a PID in a file means nothing. Each team's `lock` file is held with `flock` by the
+  watcher or a waiter, which writes its kind (`watch` or `wait`) into the file; a waker is
+  live exactly when a non-blocking `flock` on `lock` fails. A dead holder's lock is released
+  by the kernel, so a SessionStart finding the lock free starts a new watcher, and finding
+  it held by another session's watcher reports that the seat is taken.
+- **Why the socket.** It wakes a truly idle session with no discipline from the agent (the
+  main weakness of the waiter [wake §1]); it is available now, unlike the supervisor
+  plugin route, which needs an unreleased upstream template [wake §3]; latency is the sync
+  (about 31 ms after a send [spike]) plus delivery; it works in every encapsulation where
+  `claude` is started by our launchers, not only under ccy's supervisor. Its framing
+  ("Another Claude session sent a message") is not literally true, but the text is a fixed
+  template naming the bus, and the agent then reads validated items through `pingbus recv`.
+- **The socket's cost.** It admits any process of the same user in the container or on the
+  host. That crosses no boundary: such a process can already edit the session's settings
+  and hooks. It needs `--settings` (a project setting is not honoured [spike]); identical
+  repeats are dropped (hence `S`) and distinct ones batched, which suits a rising count. It is a recent
+  Claude Code mechanism, so probe U01 pins its behaviour per Claude Code version, and
+  `pingbus status` says which wake path is live.
+- **Fallback (`wait`).** Where `CLAUDE_CODE_MESSAGING_SOCKET` is absent (a session started
+  by hand, an older Claude Code), the skill tells the agent to run `pingbus wait` with
+  `run_in_background`: it long-polls and exits on the first batch with at least one valid
+  item (or at `--timeout`, default 1500 s, exit 3, "re-arm"). Drops alone never end it. If
+  the watcher holds the lock, `wait` exits busy (75) and is not needed.
+- **Guard (Stop hook).** Reads only the local inbox and probes each active team's `lock`.
+  It re-validates every inbox file offline and ignores failures, blocks once with a
+  fixed-template reason carrying only counts when valid items are pending, or when some
+  active team's lock is free, so no watcher or waiter covers it ("no waker: run `pingbus wait` in the background"),
+  never when `stop_hook_active` is true, and blocks for "no waker" at most once per 600 s so
+  it cannot loop against the hooks daemon's own Stop handlers. A broken CLI or bundle gives
+  a fixed template naming the failure class, under the same once-only rule.
+- **Context.** UserPromptSubmit adds "N pending: run `pingbus recv`"; SessionStart runs
+  `config check` and reports the wake path or a missing bundle.
+- **Delivery to the agent.** `recv` drains the inbox; before printing an item it re-runs
+  the offline validator and re-fetches the event with `GET /rooms/{room}/event/{event}`
+  (no lock needed), printing from the fetched copy: the inbox is a cache, never the
+  authority. Hooks never touch the network.
+- **Install route (from [U01]).** A plugin copied into the config directory the phpantom-lsp
+  way registered no hooks; user-level `settings.json` hooks and `--plugin-dir` both fired
+  SessionStart and UserPromptSubmit. So the plugin is loaded with `--plugin-dir`, which also
+  avoids mutating settings files; the U01 rerun confirms Stop and SessionEnd fire that way.
+- **Dropped:** the supervisor plugin route (superseded by the socket), session crons and
+  the file mailbox [wake §4, §5].
 
-The profile `config.json` is the one in [clients §1.4] with `base_url`
-`http://127.0.0.1:<port>`: pinned homeserver, `disable_custom_urls`,
-`enable_client_well_known_lookups: false`, identity server, integrations, Jitsi (pointed at
-`127.0.0.1` because the object cannot be nulled), Element Call, maps, posthog, sentry,
-rageshake, URL previews, room directory and update URL all switched off explicitly, because
-the bundled element.io config fills any omitted key [clients §1.3]. A container test (U27)
-asserts the rendered file holds every key in [clients §1.4]. The launcher is plain
-`flatpak run`; confinement is not attempted (D25). The Flatpak is not pinned; P4 records
-the installed version with its result.
+## 7. Messages: agent pings and human text
+
+Both travel as `m.room.message` in the team room (PROTOCOL.md §4, §7):
+
+- **A ping** is an `m.notice` whose `body` is a fixed rendering of its fields and whose
+  structured form is under the `agent_bus.ping` key. Humans see every ping as a notice in
+  any Element client, phone included, with the agents it addresses mentioned; no relay is
+  needed. Receivers act only on the structured form, and drop a ping whose `body` is not
+  exactly the rendering of it, so nothing can hide in the text.
+- **Human text** is an ordinary `m.text` written in Element, addressed by mentioning agents
+  (Element's mention pill, which sets `m.mentions`), or `@room` for every agent.
+
+**How an agent tells them apart**, all at the receiver, from data only `admin` controls:
+
+| Sender (by user ID)                                           | Event                                                            | Outcome                                                                                               |
+| ------------------------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| a human listed in the team record                             | `m.text` that mentions this agent or `@room`                     | a `HUMAN` line: team, event ID, the human's localpart, time, text (a reply's quoted fallback removed) |
+| a human listed in the team record                             | anything else, or not addressed                                  | ignored (not addressed) or dropped (`schema`, `edit`)                                                 |
+| a human listed in the team record, bundle `human_text: false` | anything                                                         | dropped (`sender`)                                                                                    |
+| an agent holding a role                                       | `m.notice` with a valid `agent_bus.ping` addressed to this agent | a `PING` line (after the forge check)                                                                 |
+| an agent holding a role                                       | any other message (free text included)                           | dropped (`schema` / `body`): agent text never reaches an agent                                        |
+| anyone else (a non-team account, `admin`, the server user)    | anything                                                         | dropped (`sender`)                                                                                    |
+
+The two line types are different on the wire and in the skill: a `HUMAN` line is a request
+from that named human, to be weighed as the session's own owner would weigh a teammate's
+request; a `PING` is a closed verb about a committed artefact, and the referenced file is a
+document to read, never a command. The server cannot stop an agent account posting free
+text (power levels are per event type, not per `msgtype`), so a misbehaving agent's text is
+visible to humans in Element, under its handle; it reaches no agent. The same holds for an
+agent's `@room` (`m.mentions.room` is not limited by the server, section 4): the sender
+check drops it before addressing is looked at. Every agent account
+receives the room's human text, including text addressed to other agents, so the guarantee
+"reaches only the addressed agent" holds at pingbus, not at the account; human text is
+trusted input, so this is a privacy limit between teammates, not an injection path, and is
+documented. **Quoted agent text.** A human's reply may carry a fallback that quotes the
+event it answers (`> <@agent…> text`), which would deliver an agent's words inside a
+`HUMAN` line; when `m.relates_to.m.in_reply_to` is present the receiver removes the
+leading block of `>`-prefixed lines (and the blank line after it) before delivery.
+Agents answer humans with pings (`ack`, `nack`, `done`, `blocked` may be
+addressed to a human and may answer a human's message by `re`).
+
+## 8. Element
+
+- **Desktop:** `play-agent-bus-element.yml` (optional): Element Desktop Flatpak
+  `im.riot.Riot` (system-wide, the `play-comms.yml` pattern) and, per team the host's humans
+  use, `~/.var/app/im.riot.Riot/config/Element-<team>/config.json` with `base_url` the
+  team's address (`<bus_ip>` or `<wg_ip>`), the locked-down keys of [clients §1.4]
+  (pinned homeserver, `disable_custom_urls`, no well-known lookups, no identity server,
+  integrations, Jitsi, Element Call, maps, analytics, sentry, rageshake, URL previews, room
+  directory or update URL), a spell-check seed when absent, and a launcher running
+  `flatpak run im.riot.Riot --profile <team>`. A container test asserts every key. The
+  Flatpak is not confined (D17); P4 proves its traffic.
+- **The human's session token is the human.** Element keeps its access token in the
+  user's home (`~/.var/app/im.riot.Riot/`), readable by every process of that user, and
+  with it anything can post `@room` text that every agent in the team receives as a
+  `HUMAN` line. So **no agent runs as a user that holds a human's Matrix session**, in any
+  client: bare-desktop (`host`) members run as a dedicated agent user (section 5.2). This is
+  enforced where it can be: `agent-bus-claude` and `pingbus config check` for a `host`
+  member refuse (exit 78) when the running user has an Element profile directory, and
+  `play-agent-bus-element.yml` refuses to configure a profile for a user who has
+  `~/.config/pingbus/`. A ccy member runs as the desktop user but sees only the mounted
+  checkout, not `~/.var`; P8 proves that from inside a session. A browser-based Matrix client
+  cannot be detected and is covered by the documented rule only.
+- **Phone:** the human installs Element (or Element X) and WireGuard; the homeserver is
+  `http://<wg_ip>:<port>`, logging in with the password from `human password`. Probe H7
+  records which phone client accepts plain HTTP over WireGuard, whether it trusts a
+  user-installed CA, the homeserver's sync flavour, and whether its mention pill sets
+  `m.mentions` (if it does not, a phone message reaches no agent, and PROTOCOL §7 gains a
+  leading `<handle>:` addressing form before v1 is frozen); if no client accepts plain
+  HTTP, U26 adds TLS (section 3.3). The phone holds a session token: losing it means
+  `agent-bus human lock` then `logout-all`.
+
+## 9. Security model
+
+| Who                                                                            | Trusted with                                                                                                                                          | Held back by                                                                                                                                         |
+| ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| root on the homeserver host (the operator), or anyone holding its backups      | everything: the team's root of trust, so it can instruct every member's agent on every host (it can mint a human account or post as `admin`'s record) | nothing (this is the trust root); a member that does not trust it joins with `--no-human-text`, and still acts on pings only within the forge checks |
+| a team human                                                                   | free text to agents; reading the room                                                                                                                 | power 50: no state, invites, kicks or redactions; no server admin; account lock-down (section 4)                                                     |
+| anything that can read a human's Matrix session (Element's profile, a browser) | the same as that human                                                                                                                                | no agent runs as that user (section 8); `config check` and `agent-bus-claude` refuse a `host` member beside an Element profile; P8                   |
+| an agent                                                                       | its own token; pings in its role; its own status                                                                                                      | receivers' validation; the forge provenance check; no access to `/var/lib/agent-bus`; cannot change membership, roles or the allowlist               |
+| code in an agent's checkout                                                    | the same as that agent (it runs as it)                                                                                                                | the same; it can misdirect its own agent only, as it already can, because it runs as a user that holds no human's session (section 8)                |
+| another process of the same user                                               | the same as that user's agents (it can edit their settings)                                                                                           | nothing new; the inbox socket adds no boundary                                                                                                       |
+| a peer on the private network (a WireGuard peer in `allow_from`)               | reaching the port                                                                                                                                     | closed registration, tokens, 32-character passwords, the admin endpoints' HMAC and admin token                                                       |
+| anything else on any network                                                   | nothing                                                                                                                                               | listen rules, firewalld, the unit's IP filter                                                                                                        |
+| the homeserver process itself                                                  | its database                                                                                                                                          | the unit sandbox: no connection beyond loopback and `allow_from` (section 3.3), no resolver, writes only its own directory                           |
+| a forge user outside the team                                                  | writing issue and PR text                                                                                                                             | `issue:` is a status pointer only; `pr:` must be same-repo, by an owner, member or collaborator, at its head; content must be on a trusted branch    |
+
+Known limits, documented rather than built around: **joining a team gives the operator of
+its homeserver the power to instruct your agent** (`docs/agent-bus.md` says so where it
+explains joining a team hosted elsewhere, with `--no-human-text` as the narrower choice);
+backups hold the root of trust; every agent account can read the whole
+team room (section 7); a misbehaving agent can show humans free text under its own handle;
+members on one private network or bridge can reach each other, and the homeserver can open
+connections to them; an agent on a host where it can `sudo` without a password reaches the
+root of trust; a human's session in a browser cannot be detected beside a `host` member;
+Matrix has no second factor here.
 
 ## 10. Privacy acceptance checks and how each is proven
 
-All in this plan's `acceptance.bash`, **host only**, against a dedicated acceptance team:
-reserved name `acceptance`, its own `agent_teams` entry with `--type host` members, a fixed
-public reference in this repository on its allowlist, created by `deploy.bash` through the
-play and removed with `state: absent, purge: true` at the end, so no real team gains
-accounts. Each check prints PASS/FAIL with its evidence file under `untracked/plan-runs/`.
+All in this plan's `acceptance.bash`, host only, against a dedicated acceptance team
+(reserved name `acceptance`, created by `deploy.bash` through the play and removed with
+`state: absent` and `purge` at the end). Each check prints PASS/FAIL with its evidence file
+under `untracked/plan-runs/`.
 
-| Id  | Check                                     | Proof                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| --- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| P1  | No outbound traffic from the homeserver   | Construction: `podman network inspect` shows the team network `internal: true`, `dns_enabled: false`, and the container's only network is it. Behaviour: `tcpdump -Z root` in the container's network namespace (`podman unshare nsenter -t <pid> -n`) for a scripted session (bootstrap, room create, join, 20 pings, ack, warden command); FAIL on any packet to an address other than members on the team subnet, and on any DNS query at all.                                                                                                                                                                                                                                       |
-| P2  | Not reachable from the network            | `ss -ltnH`: `<port>` bound on `127.0.0.1` only; `net.ipv4.ip_forward` recorded; `net.ipv4.conf.*.route_localnet` all 0 (FAIL otherwise); `firewall-cmd --get-active-zones` and the zone of every podman bridge interface recorded, FAIL on a zone with `<port>` open; a `--no-network` (pasta) ccy session cannot reach `<port>`. Off-machine: from a vm-test-lab VM, with a route to the host added, `curl` to every host address on `<port>` must fail. If no VM is available the check reports SKIPPED-NEEDS-OWNER and the plan cannot close.                                                                                                                                        |
-| P3  | Names are not published                   | `server_name` ends in `.internal` (reserved, never delegated); `getent ahosts <sn>` fails; a host `tcpdump` on port 53 during the P1 and P4 sessions shows no query for `<sn>` or `<team>`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| P4  | Element team profile talks only to its HS | The scripted Element session (start, log in, open the control room, receive a mirror notice, idle 120 s) runs as `pasta --pcap <file> -T <port> -- flatpak run im.riot.Riot --profile acceptance`, so every packet in the capture came from that profile and nothing else on the desktop. FAIL on any packet other than the forwarded connection to `<port>`. Plus the static key check of section 9.                                                                                                                                                                                                                                                                                   |
-| P5  | Tokens never reach logs                   | For every secret (admin, steward and warden tokens, member tokens, the shared secret, human passwords, the forge token), with trailing newlines stripped into a temporary pattern file, `grep -rqF -f` over: the deploy run logs, `untracked/plan-runs/`, `journalctl --user` for the team units, `podman inspect` and `podman logs` of the homeserver, `systemctl --user show` of the warden, every pingbus stdout/stderr captured during the session, the ccy transcript and state trees of the sessions used in U30, shell history, the Element profile's logs. Report only the file name of a hit, never the line. Also `test_cli.py` asserts tokens on neither stream (container). |
-| P6  | Human text never reaches an agent account | During the scripted session a human posts free text and an invalid command in the control room; then the raw `/sync` of each agent account (not pingbus output) is captured and FAIL on any `m.room.message`, any room the account is joined to that lacks the bus marker, or any human user ID as a member of a bus room.                                                                                                                                                                                                                                                                                                                                                              |
-| P7  | The admin register endpoint holds         | A request to `/_synapse/admin/v1/register` from a member container with a wrong MAC is refused. Member-to-member reachability on the team network is recorded (known limitation, D4).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Id  | Check                                                                                                                                                         | Proof                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1  | No outbound traffic from the homeserver                                                                                                                       | Construction: `systemctl show` of the unit gives exactly the rendered `IPAddressDeny`/`IPAddressAllow`, `RestrictAddressFamilies`, the resolver bind and `IPAccounting`; `allow_federation` false and `trusted_servers` empty in the running config. Enforcement on this kernel: a transient unit with the same IP properties fails to reach a public address. Behaviour: during a scripted session (bootstrap, join, 20 pings, acks, human messages) `ss -tnp` sampled for the Tuwunel PID lists only allowed peers and FAILS on any Tuwunel socket whose local port is not `<port>` (an outbound connection, which the filter would still allow towards `allow_from`), and a host capture on port 53 shows no query from the session.                                                                                         |
+| P2  | Reachable only where the team allows                                                                                                                          | `ss -ltnH`: `<port>` bound on exactly `127.0.0.1` and `listen`; firewalld rich rules only for `allow_from`; from a test VM (owner answer 7: counts as another machine) with a route added to each host address, a connection from a source outside `allow_from` fails on every address, and one from an allowed source succeeds. The VM leg reports SKIPPED-NEEDS-OWNER if no VM is available, and the plan cannot close then.                                                                                                                                                                                                                                                                                                                                                                                                  |
+| P3  | Names are not published                                                                                                                                       | `server_name` ends in `.internal`; `getent ahosts <sn>` fails; the P1 capture shows no query for `<sn>` or `<team>`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| P4  | Element's team profile talks only to its HS                                                                                                                   | The scripted Element session (start, log in, open the team room, receive a ping notice, send an addressed message, idle 120 s) runs as `pasta --pcap <file> -T <port> -- flatpak run im.riot.Riot --profile acceptance`; FAIL on any packet but the forwarded connection to the homeserver. Plus the static key check of section 8.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| P5  | Secrets never reach logs                                                                                                                                      | For every secret (shared secret, admin token and password, member tokens, the human password the script set with `human password`), a `grep -rqF -f` over: the backup tar's member list (no human password file), the deploy and installer logs, `untracked/plan-runs/`, `journalctl` for the units, `systemctl show` output, every pingbus stdout and stderr captured, the transcript and state trees of the sessions used, the socket messages sent, shell history, the Element profile's logs. Reports the file name of a hit only.                                                                                                                                                                                                                                                                                          |
+| P6  | pingbus delivers agent text to no agent, human text only to the agents it addresses, non-team text to none (every account still receives the room: section 7) | During the session: an agent account posts, with raw `curl`, an `m.text`, an `m.text` with `m.mentions.room: true`, a notice whose `body` differs from its ping, and a ping-less notice; the human posts one message addressed to agent A only, one `@room`, a reply to an agent's ping whose fallback quotes that ping, and a forged ping notice; a non-team test account (made by `admin`, invited for the test) posts text; a human removed from the team record posts an addressed message. Member C's bundle has `human_text: false`. Then A's, B's and C's `pingbus recv` output and inbox files: A has the addressed message, the `@room` and the reply with the quote removed; B only the `@room`; C none of them; none has any agent, non-team, removed-human or forged-ping text; each `dropped.log` names the drops. |
+| P7  | Admin endpoints and the human's limits hold                                                                                                                   | `/_synapse/admin/v1/register` with a wrong MAC is refused from a member; a member token on an admin endpoint is refused; the admin tool refuses a non-loopback base URL; `GET /_matrix/client/v3/login` offers only `m.login.password`; the human's token cannot set state, invite or redact in the team room, and cannot join the admin room.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| P8  | Bundles stay private; no agent holds a human's session                                                                                                        | Every bundle path the acceptance members use is `git check-ignore`d in its checkout; from inside a ccy acceptance session the Element profile directory is not reachable; with an Element profile directory planted in a test agent user's home, `pingbus config check` for that user's `host` bundle and `agent-bus-claude` both refuse (78); `play-agent-bus-element.yml` refuses a user with `~/.config/pingbus/`.                                                                                                                                                                                                                                                                                                                                                                                                           |
+
+Every leg of P1-P8 and of U23/U24 that needs something the host lacks (a VM, docker, LXC, a
+WireGuard peer) reports SKIPPED-NEEDS-OWNER, never PASS, and the plan cannot close while
+any leg is skipped.
 
 ## 11. Where each thing can be verified
 
-| Container (this checkout, no podman)                                                                                                                                                                                                                 | Host only                                                                                                                                  |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| U02–U16, U19, U24, U25 entirely, against the fakes built from H4's recorded responses: validator, limits, config, CLI (every exit code), inbox, forge (injected opener), matrix client, syncer, hooks, zipapp, registry, provisioning, rooms, warden | Rootless podman: Quadlet generation (H3), internal network with DNS off, publish on `127.0.0.1` (H2), second network on a ccy session (H1) |
-| `ruff`, `qa-helper-tests.bash`, `qa-python.bash`, `bash -n` and `scripts/test-ccy-team-bus.bash` for pure bash                                                                                                                                       | Tuwunel itself: every admin and client flow the design uses (H4), then M1 for real                                                         |
-| Quadlet and `tuwunel.toml` template render tests (every key in the documented key lists)                                                                                                                                                             | Element: profile path in the Flatpak, plain HTTP to loopback, spell-check seed honoured, pasta capture (H5), P1–P7                         |
-| Plugin hook loading (U01, child `claude -p` in a ccy container); plugin JSON shape test                                                                                                                                                              |                                                                                                                                            |
+| Container (this checkout, no podman, no systemd)                                                                                                                                                                                                                                     | Host only, through `meta-deploy.bash`                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| U02-U15, U18, U19 against fakes built from H4's recorded responses: validator, limits, config, CLI, inbox, forge, Matrix client, syncer, hooks, watcher and socket client (against a fake socket), zipapp, team file, registry, admin tool, renders, plugin contract, ccy entrypoint | The installer for real: user, binary, units, sandbox, firewalld, NetworkManager, readiness (U16), then the play (U22) |
+| `ruff`, `qa-helper-tests.bash`, `qa-python.bash`, `bash -n`, `ansible-playbook --syntax-check` for the plays, `scripts/test-agent-bus-install.bash` (the installer's pure parts against a temporary root), `scripts/test-ccy-agent-bus.bash`, `scripts/test-ccy-env-local-dist.bash` | Tuwunel itself (H3-H5), then M1 for real; reachability from containers, guests and a VM (H1, H2, P2)                  |
+| Claude Code behaviour: plugin loading and the inbox socket (U01, a logged-in child `claude`; on the host if the container cannot give the child a credential)                                                                                                                        | Element desktop (H6, P4); the phone (H7, the owner's phone); a ccy session woken for real (M2)                        |
 
 ## 12. Build order
 
-Each unit is one agent, on its own branch, tests first (the TDD hook enforces it), except
-U21–U23, which stack on one ccy branch (section 5). A unit lists the units it needs; units
-with no path between them run in parallel. "C" = fully verifiable in the container, "H" =
-needs a host run through `meta-deploy.bash`.
+Each unit is one agent, on its own branch, tests first (the TDD hook enforces it). A unit
+lists the units it needs; units with no path between them run in parallel. "C" = fully
+verifiable in the container, "H" = needs a host run through `meta-deploy.bash`.
 
-| Id  | Title                            | Creates / changes                                                                                                                                                        | Tests                                                                                                                                                                                                                                                                                                                                               | Needs              | Where |
-| --- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ----- |
-| U00 | Host probes                      | `triage.bash` (read-only probes H1–H6, section 13); scrubbed Tuwunel responses under the run log for U08                                                                 | the script itself; results journalled                                                                                                                                                                                                                                                                                                               | –                  | H     |
-| U01 | Plugin hook loading probe        | a throwaway plugin under `untracked/`; result journalled; decides the D13 route                                                                                          | child `claude -p` in a ccy container: which hooks fired; checker output                                                                                                                                                                                                                                                                             | –                  | C     |
-| U02 | Protocol spec and pure validator | `docs/agent-team-bus-protocol.md` (from `PROTOCOL.md`), `helpers/pingbus/protocol.py`                                                                                    | `test_protocol.py`: table-driven, every verb × ref form (allowed and refused), ref grammar edges incl. segment limits, note boundaries and every forbidden char, handle grammar, ID grammar, schema, every drop reason code; `test_protocol_doc.py`: doc tables == constants                                                                        | owner Q1           | C     |
-| U03 | Limits                           | `helpers/pingbus/limits.py`                                                                                                                                              | `test_limits.py`: token bucket, duplicate window, receive flood, ack deadlines, stale age, overrides outside bounds refused; injected clock                                                                                                                                                                                                         | U02                | C     |
-| U04 | Member config                    | `helpers/pingbus/config.py`                                                                                                                                              | `test_config.py`: schema, token file mode > 0600 refused, plain HTTP only to loopback or `local_hosts`, empty `repos`/`branches`/`path_prefixes` refused, `PINGBUS_HANDLE` mismatch refused, forge token source rules (fixtures use `192.0.2.1`, `server.test`)                                                                                     | U02                | C     |
-| U05 | CLI offline parts                | `helpers/pingbus/cli.py` (argparse with `SystemExit` remap, `EXIT_*`, line formatter, `validate`, `config check`, `version`)                                             | `test_cli_offline.py`: subprocess runs for 0, 4, 64, 78; stdout/stderr split; exit-code table == doc                                                                                                                                                                                                                                                | U02, U04           | C     |
-| U06 | Inbox, outbox, lock              | `helpers/pingbus/inbox.py`                                                                                                                                               | `test_inbox.py`: event ID validated before it names a file, dedupe, atomic writes, note never stored, consume/peek, re-validation on read, sync token saved only after inbox fsync, second locker gets busy, outbox ack tracking and TIMEOUT emission                                                                                               | U02, U03           | C     |
-| U07 | Forge check and provenance       | `helpers/pingbus/forge.py`                                                                                                                                               | `test_forge.py` with injected opener: each ref form resolves; 404; issue-that-is-a-PR; path is a directory; SHA not reachable from a trusted branch; PR from a fork or with a disallowed author; PR head moved; rate limit → `forge-rate`; credential set unredirected; redirects refused cross-host; GitHub token only for `api.github.com`; cache | U02, U04           | C     |
-| U08 | Fake homeserver                  | `tests/helpers/pingbus/fake_client_api.py`, `fake_admin_api.py`, `fixtures/tuwunel/` (from H4, scrubbed)                                                                 | `test_fakes.py`: replays every recorded flow; rejects an `@` state key not equal to its sender; enforces power levels; full client and admin surface defined here, so later units only consume it                                                                                                                                                   | U00                | C     |
-| U09 | Matrix client                    | `helpers/pingbus/matrix.py`                                                                                                                                              | `test_matrix.py`: bearer header unredirected, no proxy, no redirects followed, txn ID reuse on retry, 401/403/429 (`Retry-After`, `retry_after_ms`) mapping, token absent from every error string                                                                                                                                                   | U04, U08           | C     |
-| U10 | Sync engine and room trust       | `helpers/pingbus/syncer.py`                                                                                                                                              | `test_syncer.py` vs fakes: filter, first sync takes `next_batch` only, limited sync gap fill via `/messages`, invite checks and auto-join, post-join verification and leave, receive pipeline incl. forge and `stale`, drops logged minimally, status state written                                                                                 | U06, U07, U09      | C     |
-| U11 | CLI core: send, recv, wait       | `cli.py`: `send`, `recv`, `wait`                                                                                                                                         | `test_cli.py`: real CLI vs fakes; one test per exit code these commands produce; stdout carries only `PING`/`TIMEOUT`/`SENT` lines; drops only as the aggregate stderr line; `wait` not ended by drops alone; token on neither stream                                                                                                               | U05, U07, U10      | C     |
-| U12 | Hook subcommands                 | `helpers/pingbus/hooks.py`, one dispatch line in `cli.py`                                                                                                                | `test_hooks.py`: block once on pending, no-waiter throttle, `stop_hook_active` never blocks, planted inbox file with free text never printed, fixed templates only, no network access (fakes fail the test if contacted)                                                                                                                            | U06, U11           | C     |
-| U13 | Zipapp                           | `helpers/pingbus/bundle.py`                                                                                                                                              | `test_bundle.py`: byte-identical rebuild, every module in the package included, archive runs `version` and `validate`                                                                                                                                                                                                                               | U05                | C     |
-| U14 | Registry and handles             | `helpers/agent_team/registry.py`                                                                                                                                         | `test_registry.py`: repo name from remote URL forms and fallback, source recorded, lowercasing and mapping, `<n>` never reused after remove, rooms map, round trip                                                                                                                                                                                  | U02                | C     |
-| U15 | Provisioning CLI                 | `helpers/agent_team/provision.py`, `cli.py`, `files/home/.local/bin/agent-team`                                                                                          | `test_provision.py` vs fake admin API: HMAC matches Synapse's construction, bootstrap idempotent and asserts a single server admin, add/remove/rotate, `member-config` reflects a changed `team.json`, `--opt=value` parsing, files 0600 via `O_EXCL`, marker lines, no token on any stream                                                         | U09, U14           | C     |
-| U16 | Room pairs                       | `helpers/agent_team/rooms.py`; `agent-team room create/add-worker/list`; `pingbus room list/leave` in `cli.py`                                                           | `test_rooms.py` vs fakes: both rooms' power levels and initial state exactly as section 7, no human in the bus room, no agent in the control room, refuses non-active handles; `room list` prints IDs only                                                                                                                                          | U10, U15           | C     |
-| U17 | Homeserver play                  | `play-agent-team-bus.yml` (helpers, zipapp, per-team HS, bootstrap, `state: absent`/`purge`), templates, `localhost.yml.dist` placeholder, drift pairs, version pin rows | template render tests (Quadlet key lists, `tuwunel.toml` key set); host: deploy, unit active, `ss` assert, bootstrap markers, removal of a scratch team                                                                                                                                                                                             | U00, U13, U15      | C + H |
-| U18 | M1: host-to-host ping            | `acceptance.bash` first slice                                                                                                                                            | host: two `--type host` members of the acceptance team, `room create`, `review` sent, received by `wait`, `ack` answered, `TIMEOUT` when unanswered                                                                                                                                                                                                 | U11, U16, U17      | H     |
-| U19 | CLI report commands              | `cli.py`: `inbox`, `show`, `status`, `peers`, `tail`                                                                                                                     | `test_cli_reports.py`: every printed field is grammar-validated; no names, topics, display names or notes                                                                                                                                                                                                                                           | U11                | C     |
-| U20 | Plugin and skill                 | `files/opt/claude-yolo/optional/team-bus/plugin/pingbus/**` (or the fallback hook fragment, per U01)                                                                     | `test_plugin_contract.py`: `hooks.json` parses, each command is a real `pingbus hook` subcommand; SKILL.md names only real commands and carries the section 6 rules                                                                                                                                                                                 | U01, U12           | C     |
-| U21 | ccy: opt-in, seat and credential | `claude-yolo`, `lib/team-bus.bash`, `lib/common-pure.bash` (deny list + ancestor rule), version bumps, changelog                                                         | `scripts/test-ccy-team-bus.bash`: flag parse and persistence, one seat per checkout, `--new-handle`, staging argv and sweep, denied paths and ancestors refused, image label gate, docker refusal                                                                                                                                                   | U15                | C     |
-| U22 | ccy: team network                | `lib/team-bus.bash`, `network-management.bash` exclusions                                                                                                                | `test-ccy-team-bus.bash`: team network never in saved prefs, preflight or DNS fix-up, `--disconnect` refuses it; host: H1 shape                                                                                                                                                                                                                     | U00, U21           | C + H |
-| U23 | ccy: image and entrypoint (M2)   | `Dockerfile`, `entrypoint.sh`, `play-claude-yolo.yml` (stages plugin, builds zipapp)                                                                                     | entrypoint gate in `test-ccy-team-bus.bash` (install/remove by name, symlink); host: image build; two ccy sessions in different projects exchange `review` and `ack`, the idle one woken                                                                                                                                                            | U13, U20, U22      | C + H |
-| U24 | Warden logic                     | `helpers/agent_team/commands.py`                                                                                                                                         | `test_commands.py`: every rule in section 8 and PROTOCOL.md §15 as a table, incl. mention mismatch and per-human limit                                                                                                                                                                                                                              | U02, U03           | C     |
-| U25 | Warden executor                  | `helpers/agent_team/warden.py`, wrapper, `agent-team-warden@.service`                                                                                                    | `test_warden.py` vs fakes: human free text never produces a ping; commands do; only valid pings mirrored, IDs only, note marked; TIMEOUT notice; invite rule; flood alert; forge token read from the file path                                                                                                                                      | U06, U07, U10, U24 | C     |
-| U26 | Warden in the play (M3)          | `play-agent-team-bus.yml`: warden unit per team                                                                                                                          | host: warden active; `!halt` from a control room reaches the target as a `halt` ping                                                                                                                                                                                                                                                                | U17, U25           | H     |
-| U27 | Desktop play                     | `play-agent-team-desktop.yml`                                                                                                                                            | `config.json` key test (container); host: profile dir resolves, launcher works                                                                                                                                                                                                                                                                      | U00, U17           | C + H |
-| U28 | Docs and member contract         | `docs/agent-team-bus.md`, `docs/ccy.md` rows, `docs/README.md` index                                                                                                     | `qa-docs.bash`                                                                                                                                                                                                                                                                                                                                      | U23, U26, U27      | C     |
-| U29 | Deploy and acceptance (M4)       | `deploy.bash`, `acceptance.bash` (P1–P7 and success criteria), `meta-deploy.bash` entry                                                                                  | host run                                                                                                                                                                                                                                                                                                                                            | U18, U23, U26, U27 | H     |
-| U30 | Review and end-to-end            | fixes only                                                                                                                                                               | `qa-all.bash` (coordinator), `qa-reviewer`; host: the PLAN.md success criteria                                                                                                                                                                                                                                                                      | all                | H     |
+**Wave-1 branches.** `wf-f0f65b6e-87f-2-30211d13` (U01 plugin probe): reused as U01's base;
+its finding already decides the install route (`--plugin-dir`), and U01 extends it with the
+Stop/SessionEnd and inbox-socket legs; the wave-1 run had no child credential, so Stop
+never fired and the socket's "one turn starts" leg needs a logged-in session.
+`wf-f0f65b6e-87f-3-061c2adc` (U02 protocol and validator): **not merged**. That branch
+turned `PROTOCOL.md` into a stub and wrote its own protocol doc under the old name, so U02
+takes only `helpers/` (`protocol.py`), `tests/` and the `link_check.py` code-span fix from
+it, and writes `docs/agent-bus-protocol.md` afresh from this `PROTOCOL.md`. What stands in
+the taken code: the reference grammar, forge-facing reference forms, handle and ID
+grammars, verb table, `Refusal` and content checks, `test_protocol.py`'s table style and
+`test_protocol_doc.py`'s doc-equals-constants pattern; the namespace, the event shape, the
+room/control/roles markers, the note, `on_behalf_of` and the warden sender class are
+replaced. `wf-f0f65b6e-87f-1-be409213` (U00 test only):
+the shared-secret MAC, scrubber, log-scan and pcap tests are reused in U00; the namespace,
+subnet-picker, room-pair power-level and old `tuwunel.toml` tests are dropped or re-pointed.
 
-Parallel waves: {U00, U01, U02} → {U03, U04, U08, U14} → {U05, U06, U07, U09, U24} →
-{U10, U13, U15} → {U11, U16, U17, U21, U25} → {U12, U18, U19, U22, U26, U27} →
-{U20} → {U23} → {U28, U29} → {U30}.
+| Id  | Title                                | Creates / changes                                                                                                                                                                                                                                                                                  | Tests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Needs                         | Where                              |
+| --- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------- | ---------------------------------- |
+| U00 | Host probes                          | `triage.bash` + `triage_probe.py` (H1-H6, section 13), scrubbed Tuwunel responses for U08                                                                                                                                                                                                          | `test_triage_probe.py` (from the wave-1 branch, re-pointed); results journalled                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | -                             | H                                  |
+| U01 | Claude Code probes                   | the wave-1 probe scripts, extended: Stop and SessionEnd under `--plugin-dir`; a session with `--settings` `crossSessionInbound: accept`, a hook-spawned detached process writing to the socket                                                                                                     | which hooks fired; the socket's wire format; one turn started; framing; identical repeats dropped and the dedupe window's length, distinct ones batched; behaviour without bypass mode; checker table test                                                                                                                                                                                                                                                                                                                                                                           | -                             | C, or H without a child credential |
+| U02 | Protocol spec and pure validator     | `docs/agent-bus-protocol.md` (written from `PROTOCOL.md`), `helpers/pingbus/protocol.py` (taken from the wave-1 branch, not merged)                                                                                                                                                                | `test_protocol.py`: every verb x ref form, grammars, the handle separator as one constant, canonical body, mentions equality, human-message rules (addressing, `@room` only from humans, reply-fallback removal, edits, size), team record and status parsing (state key must equal sender, size cap), power-level equality, every drop reason; `test_protocol_doc.py`                                                                                                                                                                                                               | -                             | C                                  |
+| U03 | Limits                               | `helpers/pingbus/limits.py`                                                                                                                                                                                                                                                                        | `test_limits.py`: token bucket, duplicate window, receive flood, ack deadlines, stale ping and human ages, out-of-bounds overrides refused; injected clock                                                                                                                                                                                                                                                                                                                                                                                                                           | U02                           | C                                  |
+| U04 | Member config and bundles            | `helpers/pingbus/config.py`                                                                                                                                                                                                                                                                        | `test_config.py`: schema incl. `human_text`, token file relative to the bundle and mode > 0600 refused, plain HTTP only to listed IP literals, `PINGBUS_HOME`/`PINGBUS_TEAMS` resolution, multi-team rules, Python version gate, a `host` bundle refused beside an Element profile                                                                                                                                                                                                                                                                                                   | U02                           | C                                  |
+| U05 | CLI offline parts                    | `helpers/pingbus/cli.py` (dispatch, exit codes, line formatter, `validate`, `config check`, `suggest-handle`, `version`)                                                                                                                                                                           | `test_cli_offline.py`: subprocess runs for 0, 4, 64, 78; stdout/stderr split; exit-code table == doc; `suggest-handle` uses `HOOKS_DAEMON_HOSTNAME` only and refuses without it                                                                                                                                                                                                                                                                                                                                                                                                      | U02, U04                      | C                                  |
+| U06 | Inbox, outbox, lock                  | `helpers/pingbus/inbox.py`                                                                                                                                                                                                                                                                         | `test_inbox.py`: event ID validated before it names a file, dedupe, atomic writes, per-team dirs, re-validation on read, sync token saved after inbox fsync, second locker busy, liveness by non-blocking `flock` with the holder's kind in the file, outbox ack tracking and TIMEOUT                                                                                                                                                                                                                                                                                                | U02, U03                      | C                                  |
+| U07 | Forge check and provenance           | `helpers/pingbus/forge.py`                                                                                                                                                                                                                                                                         | `test_forge.py` with an injected opener (as the reviewed design; unchanged rules)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | U02, U04                      | C                                  |
+| U08 | Fake homeserver                      | `tests/helpers/pingbus/fake_client_api.py`, `fake_admin_api.py`, `fixtures/tuwunel/` (from H4)                                                                                                                                                                                                     | `test_fakes.py`: replays every recorded flow; enforces `@` state keys and power levels per event type, and lets a power-0 member write `agent_bus.status` under a non-`@` key (as the server does)                                                                                                                                                                                                                                                                                                                                                                                   | U00                           | C                                  |
+| U09 | Matrix client                        | `helpers/pingbus/matrix.py`                                                                                                                                                                                                                                                                        | `test_matrix.py`: bearer header unredirected, no proxy, no redirects, txn ID reuse, 401/403/429 mapping, token absent from every error                                                                                                                                                                                                                                                                                                                                                                                                                                               | U04, U08                      | C                                  |
+| U10 | Sync engine and room trust           | `helpers/pingbus/syncer.py`                                                                                                                                                                                                                                                                        | `test_syncer.py` vs fakes: filter, first sync takes `next_batch` only, gap fill, invite rule, team-record and power-level verification and loss of trust, both receive pipelines, `human_text: false`, reply fallback removed, an agent's `@room` dropped, a foreign-key status ignored, forge on receive, drops logged, status written                                                                                                                                                                                                                                              | U06, U07, U09                 | C                                  |
+| U11 | CLI core: send, recv, wait           | `cli.py`: `send`, `recv`, `wait`, multi-team (one long-poll thread per team)                                                                                                                                                                                                                       | `test_cli.py`: one test per exit code; only `PING`/`HUMAN`/`TIMEOUT`/`SENT` on stdout; recv re-fetches before printing; `wait` not ended by drops; one busy team does not block the others; token on neither stream                                                                                                                                                                                                                                                                                                                                                                  | U05, U07, U10                 | C                                  |
+| U12 | Hooks, watcher, socket, status       | `helpers/pingbus/hooks.py`, `helpers/pingbus/notify.py` (socket client, wire format from U01), `cli.py`: `watch`, `hook …`, `inbox`, `status` (members and roles from the cached team record, wake path, unexpected members)                                                                       | `test_hooks.py`, `test_notify.py`, `test_cli_status.py`: block-once rules, no-waker throttle, `stop_hook_active`, planted inbox text never printed, counts-only templates with a rising notice number, notify only on a rising count, lock-based liveness (a stale PID file means nothing), exit on socket loss; no network in hooks; every printed status field grammar-validated                                                                                                                                                                                                   | U01, U06, U11                 | C                                  |
+| U13 | Zipapps                              | `helpers/pingbus/bundle.py` (builds `pingbus` and `agent-bus`)                                                                                                                                                                                                                                     | `test_bundle.py`: byte-identical rebuild, every module included, archives run `version`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | U05                           | C                                  |
+| U14 | Team file, registry, handles         | `helpers/agent_bus/teamfile.py`, `registry.py` (`/var/lib/agent-bus/<team>/registry.json`)                                                                                                                                                                                                         | `test_teamfile.py`, `test_registry.py`: schema, address and CIDR shape rules, `<n>` never reused, round trip, `--host` required when no role is given                                                                                                                                                                                                                                                                                                                                                                                                                                | U02                           | C                                  |
+| U15 | Admin tool and renders               | `helpers/agent_bus/admin.py`, `render.py`, `cli.py`; wrapper `files/usr/local/bin/agent-bus`                                                                                                                                                                                                       | vs fake admin API: HMAC, bootstrap idempotent with a single server admin, human accounts created with a discarded password, `human password` sets and prints once and stores nothing, team room levels and record exactly PROTOCOL §8, `add-member` writes the bundle as a tar on stdout and the wrapper places it with `install -o "$SUDO_UID"` (modes asserted), `--no-human-text`, remove/rotate-token/human commands, sync-team on change; `tuwunel.toml` key set; drop-in render (IP filter, restart policy, device dependencies); no secret on any stream but the two payloads | U09, U13, U14                 | C                                  |
+| U16 | Installer                            | `files/usr/local/sbin/agent-bus-install`, `files/etc/systemd/system/agent-bus-*`, `files/usr/local/share/agent-bus/{tuwunel.pin,resolv.conf}`, the version-pin registration                                                                                                                        | `scripts/test-agent-bus-install.bash` (argument parsing, listen/allow refusals from canned `ip -j` output, file layout in a temporary root, no download when the pinned hash matches, no restart and no `CHANGED` when nothing rendered changed, failure on an unknown-key line in a canned journal); host: `software` and `team` on the desktop, a second run reports nothing changed, `check`, `remove`                                                                                                                                                                            | U00, U15                      | C + H                              |
+| U17 | M1: host-to-host                     | `acceptance.bash` first slice, against the installer run directly                                                                                                                                                                                                                                  | host: two `host` members (dedicated test users) of the acceptance team: `review` sent, received by `wait`, `ack`; `TIMEOUT` when unanswered; a human message (as the human account, by `curl`) delivered only by the addressed member's pingbus                                                                                                                                                                                                                                                                                                                                      | U11, U16                      | H                                  |
+| U18 | Plugin, skill, launcher              | `files/opt/claude-yolo/optional/agent-bus/{plugin/pingbus/**,settings.json}`, the kit's `agent-bus-claude`                                                                                                                                                                                         | `test_plugin_contract.py`: `hooks.json` commands are real `pingbus hook` subcommands; SKILL.md names only real commands and carries the HUMAN/PING rules; launcher argv test; launcher refuses beside an Element profile                                                                                                                                                                                                                                                                                                                                                             | U12                           | C                                  |
+| U19 | ccy: image, entrypoint and the dist  | `Dockerfile`, `entrypoint.sh`, `play-claude-yolo.yml` (stages, builds the zipapp); `lib/common.bash` `ccy_env_local_dist_text` gains the commented `PINGBUS_TEAMS` block and `CCY_ENV_LOCAL_DIST_VERSION` goes up; `CCY_VERSION` and container version bumps, changelog, `docs/ccy.md` rows        | `scripts/test-ccy-agent-bus.bash` (a `qa-all.bash` gate): opt-in from `ccy.env.local` only, refusal on a broken bundle, args added inside the wrapper's `--`, inert when unset; `scripts/test-ccy-env-local-dist.bash` extended for the new block and version                                                                                                                                                                                                                                                                                                                        | U13, U18, Plan 00160 Task 3.3 | C                                  |
+| U20 | M2: ccy members, woken               | `acceptance.bash` slice                                                                                                                                                                                                                                                                            | host: two ccy sessions in different projects exchange `review` and `ack`; the idle one woken by the socket, including a second notice with the same count; a session without the socket woken by `wait`; a human message reaches the addressed one                                                                                                                                                                                                                                                                                                                                   | U17, U19                      | H                                  |
+| U21 | Non-ccy members and docs             | kit README per type; `docs/agent-bus.md` (teams, placement convention, installer for other projects, joining per type, the dedicated agent user, what joining a team hosted elsewhere grants and `--no-human-text`, backups as the root of trust, human lock-down, limits), `docs/README.md` index | `qa-docs.bash`; bundle README per type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | U15, U18                      | C                                  |
+| U22 | Play                                 | `playbooks/imports/play-agent-bus.yml` (imported by `playbook-main.yml`), `localhost.yml.dist` placeholder, drift pairs                                                                                                                                                                            | `ansible-playbook --syntax-check` as a gate; host: play run with a scratch team present then absent, a second run reports no change                                                                                                                                                                                                                                                                                                                                                                                                                                                  | U16                           | C + H                              |
+| U23 | M3a: other encapsulations, same host | `acceptance.bash` slice                                                                                                                                                                                                                                                                            | host: an LXC, a docker (docker CLI) and a VM member join the desktop's team and ping; each leg SKIPPED-NEEDS-OWNER when its engine or a VM is missing, which blocks plan close                                                                                                                                                                                                                                                                                                                                                                                                       | U20, U21, U22                 | H                                  |
+| U24 | M3b: another host                    | `acceptance.bash` slice                                                                                                                                                                                                                                                                            | host: the standalone installer run inside a Fedora test VM; a member on the desktop pings that VM's team over a WireGuard link with a fixed test name that the script creates, removes in an `EXIT` trap, and removes at start if a failed run left it; SKIPPED-NEEDS-OWNER without a VM                                                                                                                                                                                                                                                                                             | U23                           | H                                  |
+| U25 | Element desktop                      | `play-agent-bus-element.yml`                                                                                                                                                                                                                                                                       | `config.json` key test; refusal for a user with `~/.config/pingbus/`; `--syntax-check`; host: profile resolves, launcher works                                                                                                                                                                                                                                                                                                                                                                                                                                                       | U00, U22                      | C + H                              |
+| U26 | TLS (only if H7 needs it)            | the installer's TLS: a team-private CA, or the route the owner picks (section 3.3)                                                                                                                                                                                                                 | decided with the unit, if built                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | U16, H7                       | C + H                              |
+| U27 | M4: deploy and acceptance            | `deploy.bash`, `acceptance.bash` (P1-P8, backup and restore round trip), `meta-deploy.bash` entry                                                                                                                                                                                                  | host run                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | U24, U25 (U26 if built)       | H                                  |
+| U28 | Review and end-to-end                | fixes only                                                                                                                                                                                                                                                                                         | `qa-all.bash` (coordinator), `qa-reviewer`; the PLAN.md success criteria                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | all                           | H                                  |
+
+Deferred (no success criterion needs them): `agent-bus rotate-admin`, `pingbus show`,
+`peers` and `tail`.
+
+Parallel waves: {U00, U01, U02} → {U03, U04, U08, U14} → {U05, U06, U07, U09} →
+{U10, U13} → {U11, U15} → {U12, U16} → {U17, U18, U22} → {U19, U21, U25, U26 if needed} →
+{U20} → {U23} → {U24} → {U27} → {U28}. U19 also waits for Plan 00160 Task 3.3.
 
 ### Milestones
 
-| Milestone                  | Units            | Proven by                                                      |
-| -------------------------- | ---------------- | -------------------------------------------------------------- |
-| M0 probes                  | U00, U01         | journalled probe results; fixtures recorded                    |
-| M1 host-to-host ping       | U02–U11, U13–U18 | U18 on the host: a real Tuwunel, two members, `review` + `ack` |
-| M2 ccy-to-ccy ping         | U12, U19–U23     | U23 on the host: two ccy sessions, the idle one woken          |
-| M3 warden and control room | U24–U26          | U26 on the host: `!halt` from Element reaches its target       |
-| M4 desktop and acceptance  | U27–U30          | P1–P7 and the PLAN.md success criteria                         |
+| Milestone                                   | Units            | Proven by                                                                                     |
+| ------------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------- |
+| M0 probes                                   | U00, U01         | journalled probe results; fixtures recorded                                                   |
+| M1 host-to-host ping                        | U02-U11, U13-U17 | U17: a real Tuwunel from the installer, two members, a ping, a human message                  |
+| M2 ccy members, woken                       | U12, U18-U20     | U20: two ccy sessions, the idle one woken by the socket                                       |
+| M3 other encapsulations and hosts, the play | U21-U24          | U23: LXC, docker, VM members; U24: the standalone installer on another machine over WireGuard |
+| M4 Element, deploy and acceptance           | U25-U28          | P1-P8, backup and restore, the PLAN.md success criteria                                       |
 
-PLAN.md's Phase 2–3 tasks are to be replaced by these milestones (each listing its units)
-so plan state can follow merges.
+## 13. Probes
 
-## 13. Probes (U00 host, U01 container; read-only)
-
-- **H1** podman accepts two `--network` flags at `run`; a ccy-image container on `podman`
-  plus a test `--internal` network with DNS off prints its `resolv.conf` (unchanged),
-  resolves and reaches the Claude API host and `api.github.com`, and reaches a peer on the
-  internal network by fixed IP.
-- **H2** a container on an `--internal` network with `PublishPort=127.0.0.1:<p>:8008` is
-  reachable from the host on `127.0.0.1:<p>`. **If not**, the fallback keeps "no route out":
-  the homeserver stays on the internal network only, and a second container
-  `agent-team-<team>-gw` (a socat image pinned by version and digest) sits on the internal
-  network and on a publishing network and forwards `127.0.0.1:<port>` to `<hs_ip>:8008`.
-  Only the forwarder has a publishing network; P1 still runs in the homeserver's namespace.
-- **H3** `quadlet -dryrun -user` on rendered samples accepts every key used:
-  `NetworkName=`, `Internal=`, `DisableDNS=`, `Subnet=`, `Options=`, `IP=`, `Pull=`,
-  `StopTimeout=`, `Environment=`, and whether `Notify=healthy` is supported.
-- **H4** a throwaway Tuwunel at the pinned version with the section 2a config: it starts;
-  then `curl` runs every call the design makes and saves the response bodies (tokens and IDs
-  scrubbed): shared-secret register (and a wrong MAC refused), `PUT v2/users`,
-  `users/{id}/login`, the single-admin query, `createRoom` v12 with the section 7 power
-  levels and `<ns>.roles` initial state (and a per-member `@` key refused), invite and the
-  stripped state the invitee sees, join, send of the ping type, `/sync` with the filter and
-  `timeout=0`, a limited sync and `/messages`, `GET /event`. Records whether any header is
-  logged at `log = "warn"`.
-- **H5** Element under `pasta --pcap <file> -T <port> -- flatpak run im.riot.Riot --profile <x>`:
-  the Flatpak process keeps pasta's network namespace, the capture holds its traffic, and
-  the profile's `config.json` path resolves as section 9 expects.
-- **H6** the homeserver container on a DNS-off internal network has no working resolver
-  (a lookup from inside fails without a packet leaving the namespace).
-- **U01** (container) plugin hook loading, as section 6 describes.
+- **H1** From a ccy-image container on ccy's usual network: reach a test listener on a host
+  `dummy` address and on host loopback via `host.containers.internal`; record which connect
+  and the source address the listener sees. Same from a container on one of ccy's named
+  project networks, and from a `--no-network` (pasta) container.
+- **H2** From a docker container, an LXC guest and a libvirt guest (each where installed):
+  reach the `dummy` address; record source addresses and each bridge's firewalld zone.
+- **H3** The Tuwunel static asset for this architecture: name, sha256, decompression; it
+  starts under the section 3.5 unit with the resolver stub (transient `systemd-run` with the
+  same properties), binds the listed addresses, and whether it sends sd_notify readiness.
+  The resolver leg runs on Fedora Workstation and Fedora Server (a test VM): inside the unit
+  `/etc/resolv.conf` reads the stub and a lookup fails.
+- **H4** A throwaway Tuwunel with the section 3.6 config: `curl` runs every call the design
+  makes and saves the responses (tokens and IDs scrubbed): shared-secret register (a wrong
+  MAC refused), `PUT v2/users`, both with a real `<repo>.<n>+<host>.podman` handle (section
+  4: if `+` is refused, the separator becomes `=`), the password reset and logout of a
+  human's devices, the login mint, the single-admin query, `createRoom` v12 with
+  PROTOCOL §8's power levels and `agent_bus.team` initial state, invite and the stripped
+  state, join, a ping notice with the `agent_bus.ping` key and `m.mentions`, an
+  `agent_bus.status` with the sender's key (another user's `@` key refused, a non-`@` key
+  accepted), `/sync` with the filter and `timeout=0`, a limited sync and `/messages`,
+  `GET /event`, `GET /login`'s flows; the `login_via_token` and backup keys accepted;
+  whether any header is logged at `warn`; and the exact rendered `tuwunel.toml` started
+  with one deliberately unknown key added, to record the unknown-key warning's wording.
+- **H5** Backup by `SIGUSR2` into `database_backup_path` (how completion shows), then the
+  restore procedure on a copy, and the restored server answering.
+- **H6** Element Desktop under `pasta --pcap <file> -T <port> -- flatpak run im.riot.Riot --profile <x>`: the capture holds its traffic; the profile path resolves; plain HTTP to the
+  bus address works.
+- **H7** (owner, with the phone) Element and Element X on the phone over WireGuard to
+  `http://<wg_ip>:<port>`: which log in, sync, show ping notices and offer mention pills;
+  whether a pill sets `m.mentions` (read from the event's source); whether the app trusts a
+  user-installed CA.
+- **U01** Claude Code, with a logged-in child `claude` (in the container if it can be given
+  a credential, else on the host): hooks under `--plugin-dir` (all four events), and the
+  inbox socket as section 6 uses it, including how long identical messages are deduplicated.
 
 ## Decisions
 
-| #   | Decision                                                                                                                                            | Reason                                                                                                                                                                                                                                                                                                                                                 |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| D1  | Teams are declared in untracked host_vars and the play renders, and removes, all per-team system state                                              | IaC rule: system changes go through Ansible; host_vars is already untracked, so nothing team-specific is committed.                                                                                                                                                                                                                                    |
-| D2  | `agent-team` handles accounts and rooms only (runtime data), never units                                                                            | Accounts are application data like ccy's own per-project state; the issue's `create` becomes the play.                                                                                                                                                                                                                                                 |
-| D3  | Registration closed from first boot; accounts via shared-secret register and the admin API; `grant_admin_to_first_user = false`                     | Removes the "first account is admin" race and keeps passwords out of the admin room and logs.                                                                                                                                                                                                                                                          |
-| D4  | One `--internal` podman network per team, DNS off, fixed subnet, homeserver at a fixed IP, published on `127.0.0.1` only                            | No outbound route or resolver by construction; members reach it by IP, so no other network's name can intercept the token. Members on one team network can reach each other, as on today's shared `podman` bridge; per-member isolation is deferred (it needs per-member networks connected at runtime to a Quadlet container, which a restart drops). |
-| D5  | `server_name` defaults to `<team>.agent-team.internal`, and never changes for a team                                                                | `.internal` is reserved and never delegated; Tuwunel cannot change it without wiping data.                                                                                                                                                                                                                                                             |
-| D6  | Plain HTTP only to loopback or the member config's `local_hosts`; HTTPS otherwise                                                                   | The issue's host-local rule without guessing from `is_private`, which would bless LAN addresses.                                                                                                                                                                                                                                                       |
-| D7  | v1 members: rootless podman containers (ccy or not) and the host; a `host` member is trusted like a human; docker, lxc and vm deferred              | A host member can read the team's root of trust; the others cannot join a rootless podman network without a host-address publish.                                                                                                                                                                                                                      |
-| D8  | One team seat per ccy checkout; the handle names the seat; `--new-handle` retires it                                                                | ccy's container slot is the first free name, so keying on it would hand one session's identity to another.                                                                                                                                                                                                                                             |
-| D9  | Opt-in persisted in `~/.claude-tokens/ccy/projects/<hash>/team`, set by `--team`/`--no-team`                                                        | It must be read on the host before the container exists; restart and restore inherit it.                                                                                                                                                                                                                                                               |
-| D10 | Handle built on the host and passed in; the CLI only checks it                                                                                      | The container cannot see the engine; one builder means one grammar.                                                                                                                                                                                                                                                                                    |
-| D11 | pingbus ships as one reproducible zipapp built from `helpers/pingbus/`, by the bus play and by the ccy play independently                           | One validator everywhere; byte-identical builds keep drift checks honest; the core play never depends on the optional one.                                                                                                                                                                                                                             |
-| D12 | Registry and member config are JSON                                                                                                                 | The standard library cannot write TOML.                                                                                                                                                                                                                                                                                                                |
-| D13 | Wake: background `wait` plus a Stop-hook guard, shipped as a Claude Code plugin unless U01 shows plugin hooks do not load, then as user-level hooks | Works in any session with or without the hooks daemon; the route is chosen by a probe before anything depends on it.                                                                                                                                                                                                                                   |
-| D14 | Hooks never sync and print only counts; one syncer per account by `flock`                                                                           | Hooks stay fast and offline and cannot replay planted text; the issue's one-syncer rule holds.                                                                                                                                                                                                                                                         |
-| D15 | The note is stripped before the inbox write; only humans see it, in the control-room mirror, marked untrusted                                       | The issue allows a note; this keeps the only free-form field out of every agent's reach.                                                                                                                                                                                                                                                               |
-| D16 | Rooms are created in pairs by the host-only steward account at a human's request; agents act only in steward-created rooms with the markers         | v12 gives creators the power; a steward that stays a member can add workers later, which a creator who left could not.                                                                                                                                                                                                                                 |
-| D17 | Receive accepts pings only from agent handles holding a role and the warden                                                                         | Humans reach agents only through the warden, even with a custom client.                                                                                                                                                                                                                                                                                |
-| D18 | The forge and provenance check runs on send **and** in the syncer before the inbox write; hooks and inbox reads stay offline                        | A sender can skip pingbus; the receiver is the only check it cannot skip.                                                                                                                                                                                                                                                                              |
-| D19 | References use full 40-hex SHAs and lowercase `owner/repo`; `pr:` carries its head SHA                                                              | Unambiguous; a ping names exactly the content it vouches for.                                                                                                                                                                                                                                                                                          |
-| D20 | One forge per team, GitHub REST API by default (`forge_api` overridable)                                                                            | Smallest design that meets "checked against the forge API".                                                                                                                                                                                                                                                                                            |
-| D21 | The warden mirrors every valid ping into the control room as an `m.notice`                                                                          | Humans are not in bus rooms, so the mirror is how they watch.                                                                                                                                                                                                                                                                                          |
-| D22 | Warden runs as host Python under `systemd --user`, not a container                                                                                  | Standard library only, needs no image, reaches the HS on loopback.                                                                                                                                                                                                                                                                                     |
-| D23 | Protocol spec lives at `docs/agent-team-bus-protocol.md`; a contract test ties it to the constants                                                  | The issue wants a versioned spec in the repo that outlives this plan.                                                                                                                                                                                                                                                                                  |
-| D24 | No terminal Matrix client in v1                                                                                                                     | `pingbus tail` covers the terminal view; a client costs a pinned binary and its own privacy checks.                                                                                                                                                                                                                                                    |
-| D25 | Element is not confined; P4 proves its traffic by a pasta capture of that profile alone                                                             | The user service manager cannot apply cgroup IP filters, and a check is what the issue asks for.                                                                                                                                                                                                                                                       |
-| D26 | `wait` default timeout 1500 s                                                                                                                       | Under the Monitor tool's 30-minute cap, and bounds an orphaned waiter.                                                                                                                                                                                                                                                                                 |
-| D27 | Human commands are typed in a control room with no agent members; targets are handles written in the command                                        | The homeserver delivers every room message to every member, so separation must be by membership, not by filtering.                                                                                                                                                                                                                                     |
-| D28 | The trust root is a file under `path_prefixes` at a commit reachable from a trusted branch of an allowlisted repository                             | A SHA alone can come from a fork network or an unmerged branch.                                                                                                                                                                                                                                                                                        |
-| D29 | Each verb accepts only the reference forms in PROTOCOL.md §5                                                                                        | Issue and PR text is mutable and writable by outsiders; only status verbs may point at an issue.                                                                                                                                                                                                                                                       |
-| D30 | Only the handle and token persist per seat; `member.json` is rendered at every start                                                                | Allowlist and human changes reach existing members without new handles.                                                                                                                                                                                                                                                                                |
+| #   | Decision                                                                                                                                                                                                                                                | Reason                                                                                                                                        |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | The homeserver is a pinned static Tuwunel binary under a hardened system unit as the `agent-bus` user, not a container                                                                                                                                  | The kernel IP filter and resolver lock-out need a system unit; no engine, linger or subuid on servers; the mode the spike proved.             |
+| D2  | One installer (`agent-bus-install`), called by this repository's core play on every desktop and by other projects' IaC                                                                                                                                  | Owner, answer 4; one implementation keeps every homeserver host identical.                                                                    |
+| D3  | One instance and one room per team; instance name = team name                                                                                                                                                                                           | Keeps a team's accounts, admin, backup and placement self-contained.                                                                          |
+| D4  | Listen only on loopback, the host's `agentbus0` bus address and WireGuard addresses; `allow_from` only loopback, own addresses, WireGuard-routed subnets and port-less virtual bridges                                                                  | Owner, answer 5; plain HTTP never crosses a network that does not encrypt it.                                                                 |
+| D5  | Reachability enforced by firewalld and, independently, by the unit's `IPAddressDeny`/`IPAddressAllow`                                                                                                                                                   | Either layer alone holds; the unit layer also stops egress.                                                                                   |
+| D6  | No TLS in v1; TLS only if probe H7 shows the phone client needs it                                                                                                                                                                                      | Every allowed path is in-kernel or WireGuard-encrypted.                                                                                       |
+| D7  | Members of every encapsulation are first-class; one bundle shape for all                                                                                                                                                                                | Owner, answer 2 (reverses the deferral).                                                                                                      |
+| D8  | The team's secrets belong to the `agent-bus` system user; admin commands go through `sudo agent-bus`                                                                                                                                                    | No agent runs as that user, so no host or container member can read the root of trust.                                                        |
+| D9  | pingbus and the admin tool ship as reproducible zipapps built from `helpers/` by the installer and by the ccy play independently                                                                                                                        | One validator everywhere; the core ccy play never depends on the bus.                                                                         |
+| D10 | `admin` creates the team room and is its only state writer; the team record (humans, roles, allowlists) lives in room state                                                                                                                             | One place for humans to change membership; receivers trust only what `admin` wrote, and member bundles carry no allowlist to tamper with.     |
+| D11 | Pings are `m.notice` with a structured `agent_bus.ping` key and a body that must equal its rendering                                                                                                                                                    | Humans see pings in every client, phone included, with no relay; nothing can hide in the text.                                                |
+| D12 | Human free text reaches an agent when its sender is a listed human and it mentions that agent or `@room`                                                                                                                                                | Owner, answer 3 (reverses issue #59's rule and the control-room split).                                                                       |
+| D13 | Agent free text is dropped by every receiver; the server cannot block it                                                                                                                                                                                | Power levels are per event type, not per `msgtype`; agent-to-agent traffic stays pings only.                                                  |
+| D14 | No warden                                                                                                                                                                                                                                               | Humans address agents directly and see pings as notices, so neither translation nor mirroring is left for it to do.                           |
+| D15 | Event prefix `agent_bus.` (PROTOCOL.md §2)                                                                                                                                                                                                              | Owner, answer 6: clearly not a domain name; inside the Matrix identifier grammar.                                                             |
+| D16 | Wake by the inbox socket through a hook-started watcher (counts plus a rising notice number; liveness by `flock`, one thread per team); `pingbus wait` as fallback; a Stop hook as guard; plugin loaded by `--plugin-dir`                               | Section 6 and [U01].                                                                                                                          |
+| D17 | Element is not confined; P4 proves its traffic by a pasta capture of that profile alone                                                                                                                                                                 | The user service manager cannot apply cgroup IP filters to a Flatpak.                                                                         |
+| D18 | ccy opt-in is `PINGBUS_TEAMS` in the untracked `ccy.env.local`, placed by IaC and mounted read-only (Plan 00160 Task 3.3); its placeholder is in ccy's own `ccy_env_local_dist_text`; the bundle lives in the checkout's ignored `.claude/ccy/pingbus/` | Owner, answer 8; no host-side launcher change; the handle names the checkout's seat (owner, answer 7).                                        |
+| D19 | The handle's `<host>` is the install's role (`HOOKS_DAEMON_HOSTNAME`) or an explicit `--host`; never `CCY_HOST_HOSTNAME` or the hostname                                                                                                                | One value names the install for the hooks daemon and the bus; handles reach public forge text, so a real hostname must never be the fallback. |
+| D20 | The forge and provenance check runs on send and before the inbox write; hooks and inbox reads stay offline; `recv` re-fetches before printing                                                                                                           | A sender can skip pingbus; the inbox is a cache.                                                                                              |
+| D21 | References use full 40-hex SHAs and lowercase `owner/repo`; `pr:` carries its head SHA; each verb accepts only PROTOCOL.md §5's forms                                                                                                                   | Unambiguous; issue and PR text is writable by outsiders.                                                                                      |
+| D22 | The protocol spec lives at `docs/agent-bus-protocol.md`, tied to the constants by a contract test                                                                                                                                                       | The issue wants a versioned spec that outlives this plan.                                                                                     |
+| D23 | No terminal Matrix client                                                                                                                                                                                                                               | Element (desktop or phone) is the human's view; a terminal view (`pingbus tail`) is deferred.                                                 |
+| D24 | `wait` default timeout 1500 s                                                                                                                                                                                                                           | Under the Monitor tool's 30-minute cap; bounds an orphaned waiter.                                                                            |
+| D25 | Human passwords are set and printed once by `human password` and never stored; human accounts start with a discarded password                                                                                                                           | Nothing that lets a holder post as a human sits at rest or in a backup; the installer's output never carries one.                             |
+| D26 | No agent runs as a user holding a human's Matrix session; bare-desktop agents use a dedicated user                                                                                                                                                      | Element's token in the home is the human: any same-user process could post `@room` to every agent (security review 2, B1).                    |
+| D27 | A member may join with `human_text: false` (pings only)                                                                                                                                                                                                 | Joining a team gives its homeserver's operator the power to instruct the agent; this narrows it for a team hosted elsewhere.                  |
+| D28 | U23 and U24 split same-host encapsulations from the other host; a leg lacking its engine or VM reports SKIPPED-NEEDS-OWNER and blocks close                                                                                                             | Owner answer 2 makes docker, LXC and VM members first-class, so a silent skip would hide a missing guarantee.                                 |
 
 ## Owner questions
 
-1. Event namespace `io.github.longtermsupport.agentbus` (PROTOCOL.md §2): it is
-   permanent in every room's history once used. Accept, or name another reverse domain the
-   project controls. U02 waits on this.
-2. P2 needs a second machine: is a vm-test-lab VM acceptable as "another machine", or must
-   it be a physical LAN peer? (A VM exercises the libvirt bridge's zone only.)
-3. D7: confirm docker, lxc and vm members can wait for a later version.
-4. D27 departs from issue §4: humans command from a control room that has no agents, so
-   Element cannot offer agents as `@` pills there; targets are typed handles, still
-   checked strictly. Accept, or ask for a probe of whether Element offers invited-but-not-
-   joined members as pills (agents would then be invited to, but never join, the control
-   room).
-5. D8 departs from issue §2's "one handle per agent session": a handle names a checkout's
-   seat, reused by later sessions in that checkout unless `--new-handle` is given. Accept?
-6. `agent_team_forge_token` (vault): which forge account's token should the warden use?
+1. **May an agent answer a human in text?** The owner allowed human-to-agent text and kept
+   agent-to-agent traffic to pings; agent-to-human text was not decided. This design gives
+   agents no text at all: they answer a human with `ack`, `nack`, `done` or `blocked`
+   addressed to that human (`re` = the human's message, `ref` = where the answer is written),
+   which Element shows as a notice. Allowing text addressed only to humans (dropped by every
+   agent, as all agent text already is) would be a small change to PROTOCOL.md §4 and §9.
+   Nothing in M0 or M1 waits on this.
+2. **May a team's homeserver listen on a LAN address?** Answer 5 asks only for an address
+   the members can route to; this design refuses LAN and Wi-Fi addresses (section 3.3, D4)
+   because v1 has no TLS and plain HTTP would cross a network that does not encrypt it.
+   Default: refused; a LAN team uses WireGuard. Allowing it means TLS first (U26's work).
+   Nothing in M0-M2 waits on this.
+3. **Plan 00160 Task 3.3** (ccy mounts an existing `ccy.env.local` read-only). Recommended
+   there; U19 (ccy opt-in, milestone M2) depends on it, because otherwise a session can
+   rewrite its own role and active teams.

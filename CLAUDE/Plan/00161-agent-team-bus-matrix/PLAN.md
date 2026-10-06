@@ -52,9 +52,9 @@ repository; opt-in per machine and per team.
   Element and terminal clients, waking sessions.
 - [x] ✅ **Task 1.2**: [`DESIGN.md`](DESIGN.md) and [`PROTOCOL.md`](PROTOCOL.md), reviewed
   through three lenses (security, feasibility, scope: 9 blockers between them) and revised
-  ([revision](subagent-reports/261006-design-revision-opus-5-5.md)). Main changes: a
-  separate control room so human text never reaches an agent account, room roles that
-  Matrix accepts, probes before building, and a host-to-host ping as the first milestone.
+  ([revision](subagent-reports/261006-design-revision-opus-5-5.md)). Main changes: room
+  roles that Matrix accepts, probes before building, and a host-to-host ping as the first
+  milestone. Its control room was superseded by the owner's answers (Task 1.3).
 - [x] ✅ **Task 1.3**: OWNER: the questions in DESIGN.md "Owner questions", all answered
   (journal 26-10-06, two entries): teams are themed around a project and span repositories,
   hosts and encapsulations; an agent can be in several teams; docker, LXC and VM members are
@@ -63,23 +63,37 @@ repository; opt-in per machine and per team.
   installed on every desktop, used where the team's agents are. Reaching it needs only a
   routable address (a private network such as WireGuard is the access control). The event
   prefix must clearly not be a domain name.
-- [ ] 🔄 **Task 1.4**: Revise DESIGN.md and PROTOCOL.md for those answers, re-review, then
-  rebuild the unit list. Wave-1 branches kept for reuse: U00 (test only), U01, U02.
+- [x] ✅ **Task 1.4**: DESIGN.md and PROTOCOL.md revised for those answers
+  ([revision](subagent-reports/261006-design-revision-2-opus-5-5.md)), reviewed again
+  through security, feasibility and scope, and every finding applied (none rejected). Main
+  changes: one Tuwunel homeserver per team, installed by `agent-bus-install` as a hardened
+  systemd service; members of every encapsulation share one per-team bundle; humans'
+  addressed text reaches the named agent; the warden is gone; event prefix `agent_bus.`;
+  wake through the session inbox socket. Units rebuilt as U00–U28; the wave-1 branches'
+  code is reused, not merged.
+- [ ] 🧑 **Task 1.5**: OWNER: (1) may an agent answer a human in free text (the design says
+  no: it answers with `ack`/`done`/`blocked` pings)? (2) may a homeserver listen on a LAN
+  address (refused by default: v1 has no TLS)? (3) Plan 00160 Task 3.3, the read-only
+  `ccy.env.local` mount, which U19 waits on. M0 and M1 do not wait on these.
 
-### Phase 2: Build, by milestone (units U00–U30 in DESIGN.md §12)
+### Phase 2: Build, by milestone (units U00–U28 in DESIGN.md §12)
 
-- [ ] ⬜ **M0 probes**: U00 (host, through `meta-deploy.bash`), U01 (container).
-- [ ] ⬜ **M1 host-to-host ping**: U02–U11, U13–U18.
-- [ ] ⬜ **M2 ccy-to-ccy ping, the idle session woken**: U12, U19–U23.
-- [ ] ⬜ **M3 warden and control room**: U24–U26.
-- [ ] ⬜ **M4 desktop and acceptance (privacy checks P1–P7)**: U27–U30.
+- [ ] ⬜ **M0 probes**: U00 (host, through `meta-deploy.bash`), U01 (a logged-in child
+  `claude`).
+- [ ] ⬜ **M1 host-to-host ping, through the installer**: U02–U11, U13–U17.
+- [ ] ⬜ **M2 ccy members, the idle session woken**: U12, U18–U20 (U19 needs Plan 00160
+  Task 3.3).
+- [ ] ⬜ **M3 other encapsulations and hosts, the play**: U21–U24.
+- [ ] ⬜ **M4 Element, deploy and acceptance (privacy checks P1–P8)**: U25–U28 (U26, TLS,
+  only if probe H7 needs it).
 
 ## Success Criteria
 
 - [ ] Two ccy sessions in different projects exchange a `review` ping and an `ack`; the
   idle one is woken.
 - [ ] A human's message addressed to one agent in Element reaches that agent, marked as
-  from that human; it reaches no other agent, and no agent can send free text.
+  from that human; no other agent's `pingbus` delivers it, and no agent's free text
+  reaches another agent.
 - [ ] An agent in a different encapsulation on another host (LXC or VM) is in the same team
   and exchanges a ping.
 - [ ] The homeserver makes no outbound connection and answers only on the addresses the
