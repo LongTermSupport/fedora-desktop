@@ -18,6 +18,8 @@ Layout under the state directory (created 0700, files 0600, never through a syml
   read-modify-write holds `flock` on the state directory itself, so concurrent `send`,
   `recv` and the watcher serialise without a further file.
 - `lock`: held with `flock` by the one process syncing this team, holding its kind.
+- `team.json`: the last verified team record, removed when the room stops being trusted.
+- `dropped.log`: one tab-separated line per drop (team, event ID, sender, reason, ms).
 
 Writes go to a temporary file in the same directory, are fsynced, renamed over the target,
 and the directory is fsynced. Errors propagate; the only things skipped are inbox files
@@ -47,6 +49,11 @@ CONSUMED_DIR = "consumed"
 OUTBOX_FILE = "outbox.json"
 SYNC_FILE = "sync.json"
 LOCK_FILE = "lock"
+#: The last verified team record (§12): the `agent_bus.team` content the syncer verified.
+TEAM_FILE = "team.json"
+#: One line per drop (§9 "Drop"): team, event ID, sender user ID, reason code, time (ms).
+DROPPED_LOG = "dropped.log"
+ABSENT = "-"
 
 #: What a lock holder writes into `lock`. `recv` holds it only while it syncs once.
 LOCK_KINDS = ("watch", "wait", "recv")
@@ -68,6 +75,8 @@ MAX_STATE_FILE_BYTES = 1 << 20
 SYNC_TOKEN_MAX = 4096
 
 _TOKEN_RE = re.compile(r"[\x21-\x7e]+")
+#: A sender written to `dropped.log`: printable ASCII, no space or tab, Matrix's 255 limit.
+_LOG_USER_RE = re.compile(r"@[\x21-\x7e]{1,254}")
 _INBOX_NAME_RE = re.compile(rf"({protocol.EVENT_ID_PATTERN})\.json")
 _TMP_NAME_RE = re.compile(r"\..+\.[0-9a-f]{16}\.tmp")
 _PING_ENTRY_KEYS = frozenset({"event_id", "verb", "ref", "to", "sent_ms", "answered", "reported"})
@@ -320,6 +329,52 @@ class TeamState:
         _fsync_dir(self.consumed_dir)
         _fsync_dir(self.inbox_dir)
         return True
+
+    # The verified team record and the drop log.
+
+    def save_team_record(self, content: Mapping[str, object]) -> None:
+        """Replace `team.json` with the team record content the syncer just verified."""
+        self.ensure_dirs()
+        _write_atomic(self.path / TEAM_FILE, _dump(content))
+        _fsync_dir(self.path)
+
+    def forget_team_record(self) -> bool:
+        """Remove `team.json` when the room stops being trusted; False when there was none."""
+        try:
+            os.unlink(self.path / TEAM_FILE)
+        except FileNotFoundError:
+            return False
+        _fsync_dir(self.path)
+        return True
+
+    def log_drop(self, team: str, event_id: object, sender: object, reason: str, now_ms: int) -> None:
+        """Append one `dropped.log` line. An event ID or sender that fails its grammar is
+        written as `-`, so nothing an event chose can add a field or a line."""
+        if not protocol.is_team_name(team):
+            raise ValueError("not a team name")
+        if reason not in protocol.DROP_REASONS:
+            raise ValueError(f"not a drop reason code: {reason!r}")
+        if not _is_int(now_ms):
+            raise ValueError("now_ms must be an integer of milliseconds")
+        fields = (
+            team,
+            event_id if protocol.is_event_id(event_id) else ABSENT,
+            sender if isinstance(sender, str) and _LOG_USER_RE.fullmatch(sender) else ABSENT,
+            reason,
+            str(now_ms),
+        )
+        self.ensure_dirs()
+        path = self.path / DROPPED_LOG
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_CLOEXEC, FILE_MODE)
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                raise StateError(f"{path} is a symlink") from None
+            raise
+        with os.fdopen(fd, "ab") as handle:
+            if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                raise StateError(f"{path} is not a regular file")
+            handle.write(("\t".join(fields) + "\n").encode("ascii"))
 
     # The outbox and the send gate.
 
