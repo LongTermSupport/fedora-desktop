@@ -213,7 +213,7 @@ out.
 - [x] ✅ **HOST (owner, at a desk)**: `./CLAUDE/Plan/meta-deploy.bash`. Every leg passed
   (`failed=0`). Six old signing keys are deleted from GitHub, and their twelve files from
   `~/.ssh`. Acceptance: 14 of 14 (`_meta-deploy/20260925-142901`)
-- [ ] 🚫 **Task 5.5**: A box with no GitHub identity does not sign. Headless
+- [x] ✅ **Task 5.5**: A box with no GitHub identity does not sign. Headless
   `RUN_BASH_GITHUB_ACCOUNTS=none` (Plan 00082) generates no `~/.ssh/id` and writes
   `github_accounts: {}`, and Task 5.1's unconditional key assert fails that whole
   provisioning run. The signing tasks sit in one block gated on `git_signing_declared`
@@ -227,12 +227,11 @@ out.
     fixed, two nits handled, the third answered in the journal
   - [x] ✅ **Owner**: review and merge; decide whether a box with no identity should sign
     at all (the PR's question). Merged as PR #56, so a box with no identity does not sign
-  - [ ] 🚫 **HOST (owner)**: a headless `none` provisioning passes `playbook-main.yml` (the
-    `server-fast-provision` VM scenario provisions exactly this path). A VM run, so not
-    from the container. The infra agent has no bridge to the desktop's VM lab, so the owner
-    runs `vmtest run server-fast-provision` on the desktop (2026-10-06; the owner ran it
-    the same day). Its result stays in the host's vmtest runs directory, so `triage.bash`
-    (new, read-only) prints the latest run's verdict through meta-deploy
+  - [x] ✅ **HOST (owner)**: a headless `none` provisioning passes `playbook-main.yml`.
+    `vmtest run server-fast-provision` at `cd2ef8b9` (PR #56 included), read through
+    `triage.bash` in meta-deploy `20261006-162702`: verdict pass, 13 of 13 checks
+    (`localhost-yml-no-identity`, `git-identity-configured` among them), play recap
+    `failed=0`, `RUN-BASH-EXIT 0`
 
 ## Success Criteria
 
