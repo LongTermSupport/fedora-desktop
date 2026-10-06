@@ -9,7 +9,8 @@
 # else agent_bus_address in the untracked host_vars localhost.yml (see localhost.yml.dist).
 # The one prompt is sudo's, before the log opens (R3); every root step after it uses
 # `sudo -n`, so a lapsed timestamp fails that step by name instead of prompting into the log.
-# There is no acceptance.bash yet (U17 writes it), so this does not end by running one.
+# It does not end by running acceptance.bash (STANDARD-EXCEPTION(R9)): meta-deploy.bash runs
+# it after this script and the second triage, so running it here too would run it twice.
 #
 # IN ORDER, stopping at the first failure (plan_mode deploy):
 #   1. refuse the bus address, changing nothing, if an interface other than agentbus0 holds
@@ -61,7 +62,9 @@ plan_init "${BASH_SOURCE[0]}"
 
 # Cannot collide with a real team: teams are named for their purpose, never zz-anything.
 readonly TEAM="zz-deploy-check"
-readonly BUS_ADDRESS_VAR="agent_bus_address"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=_bus-address.inc.bash
+source "${PLAN_SCRIPT_DIR}/_bus-address.inc.bash"
 
 PLAN_USAGE="usage: deploy.bash [--bus-address=<ip>] [-h|--help]
 
@@ -97,25 +100,8 @@ if [[ "${EUID}" -eq 0 ]]; then
     exit 1
 fi
 
-if [[ -z "${BUS_ADDRESS}" ]]; then
-    # ansible-inventory resolves host_vars exactly as the plays do; run from the repo root
-    # for ansible.cfg's relative inventory path.
-    inventory="$(cd "${PLAN_REPO_ROOT}" && ansible-inventory --host localhost </dev/null)"
-    BUS_ADDRESS="$(python3 -I -c '
-import json, sys
-value = json.load(sys.stdin).get(sys.argv[1], "")
-print(value if isinstance(value, str) else "")
-' "${BUS_ADDRESS_VAR}" <<<"${inventory}")"
-    if [[ -z "${BUS_ADDRESS}" ]]; then
-        printf '[FATAL] no bus address: set %s: <ip> in environment/localhost/host_vars/localhost.yml (an address this host uses nowhere else), or pass --bus-address=<ip>\n' \
-            "${BUS_ADDRESS_VAR}" >&2
-        exit 64
-    fi
-fi
+resolve_bus_address || exit $?
 checker=(python3 -I "${PLAN_SCRIPT_DIR}/deploy_check.py")
-if ! "${checker[@]}" syntax "${BUS_ADDRESS}"; then
-    exit 64
-fi
 
 plan_prime_sudo
 plan_start_log auto
