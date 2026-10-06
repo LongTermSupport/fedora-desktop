@@ -1,0 +1,44 @@
+# The agent team bus homeserver (Tuwunel) of team %i (Plan 00161, DESIGN.md section 3.5).
+# Installed by agent-bus-install software. The per-team drop-in
+# agent-bus-hs@<team>.service.d/network.conf, rendered by `agent-bus render dropin`, adds the
+# IP allow list, the socket-bind allow, the restart policy and the listen interfaces' device
+# dependencies. The deny-all lines below hold even if that drop-in is missing: the unit
+# then reaches nothing and binds nothing.
+[Unit]
+Description=Agent team bus homeserver for team %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=agent-bus
+Group=agent-bus
+Environment=TUWUNEL_CONFIG=/var/lib/agent-bus/%i/tuwunel.toml
+ExecStart=/usr/local/lib/agent-bus/tuwunel
+TimeoutStopSec=330
+UMask=0077
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/agent-bus/%i
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAccounting=yes
+IPAddressDeny=any
+SocketBindDeny=any
+
+# No resolver: /etc/resolv.conf is a symlink into /run/systemd/resolve/ on Fedora, so an
+# empty read-only tmpfs goes over that directory and the stub (nameserver 127.0.0.1, where
+# nothing listens) is bound onto both files a lookup could read. D-Bus is hidden too.
+TemporaryFileSystem=/run/systemd/resolve:ro
+BindReadOnlyPaths=/usr/local/share/agent-bus/resolv.conf:/run/systemd/resolve/stub-resolv.conf
+BindReadOnlyPaths=/usr/local/share/agent-bus/resolv.conf:/run/systemd/resolve/resolv.conf
+InaccessiblePaths=-/run/dbus
+
+[Install]
+WantedBy=multi-user.target

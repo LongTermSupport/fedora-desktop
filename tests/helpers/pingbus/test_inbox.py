@@ -554,5 +554,122 @@ class SendGateTest(StateCase):
             box.send_gate(LIM, T0)
 
 
+TEAM_CONTENT = {
+    "v": 1, "team": "team-a", "humans": [HUMAN], "roles": {ME: "worker", ORCH: "orchestrator"},
+    "repos": [{"repo": "example-org/myrepo", "branches": ["main"]}],
+    "path_prefixes": ["docs/"], "forge_api": "https://api.github.com",
+}
+
+
+class TeamRecordCacheTest(StateCase):
+    """§12 `team.json`: the last verified team record, written by the syncer."""
+
+    def test_name_matches_spec_section_12(self):
+        self.assertEqual(inbox.TEAM_FILE, "team.json")
+
+    def test_saved_privately_and_atomically(self):
+        self.state.save_team_record(TEAM_CONTENT)
+        path = self.state.path / "team.json"
+        self.assertEqual(json.loads(path.read_text()), TEAM_CONTENT)
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        self.assertEqual([p.name for p in self.state.path.iterdir() if p.name.endswith(".tmp")], [])
+
+    def test_forgotten_on_loss_of_trust(self):
+        self.state.save_team_record(TEAM_CONTENT)
+        self.assertTrue(self.state.forget_team_record())
+        self.assertFalse((self.state.path / "team.json").exists())
+        self.assertFalse(self.state.forget_team_record())
+
+    def test_a_symlink_is_never_written_through(self):
+        self.state.ensure_dirs()
+        target = self.root / "elsewhere.json"
+        (self.state.path / "team.json").symlink_to(target)
+        self.state.save_team_record(TEAM_CONTENT)
+        self.assertFalse(target.exists())
+        self.assertFalse((self.state.path / "team.json").is_symlink())
+
+
+class UntrustedReasonTest(StateCase):
+    """§12 `untrusted.json`: why the room stopped being trusted, for an offline `status`."""
+
+    def test_name_matches_spec_section_12(self):
+        self.assertEqual(inbox.UNTRUSTED_FILE, "untrusted.json")
+
+    def test_none_before_any_loss_of_trust(self):
+        self.assertIsNone(self.state.untrusted_reason())
+        self.assertFalse(self.state.path.exists())
+
+    def test_marking_untrusted_saves_the_reason_and_forgets_the_record(self):
+        self.state.save_team_record(TEAM_CONTENT)
+        self.state.mark_untrusted("power levels")
+        self.assertEqual(self.state.untrusted_reason(), "power levels")
+        self.assertFalse((self.state.path / "team.json").exists())
+        path = self.state.path / "untrusted.json"
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+
+    def test_a_trusted_record_clears_the_reason(self):
+        self.state.mark_untrusted("roles")
+        self.state.save_team_record(TEAM_CONTENT)
+        self.assertIsNone(self.state.untrusted_reason())
+        self.assertFalse((self.state.path / "untrusted.json").exists())
+
+    def test_reason_must_be_one_short_printable_line(self):
+        for bad in ("", "two\nlines", "x" * (inbox.UNTRUSTED_REASON_MAX + 1), "café", 7):
+            with self.subTest(repr(bad)[:20]), self.assertRaises(ValueError):
+                self.state.mark_untrusted(bad)
+
+    def test_a_malformed_file_is_a_state_error(self):
+        self.state.ensure_dirs()
+        for content in ('{"v":1}', '{"v":1,"reason":"a\\nb"}', '{"v":2,"reason":"x"}', "[]"):
+            with self.subTest(content):
+                (self.state.path / "untrusted.json").write_text(content, encoding="ascii")
+                with self.assertRaises(inbox.StateError):
+                    self.state.untrusted_reason()
+
+
+class DropLogTest(StateCase):
+    """§9 "Drop": `dropped.log` holds team, event ID, sender user ID, reason code and time."""
+
+    def lines(self) -> list[list[str]]:
+        text = (self.state.path / "dropped.log").read_text(encoding="ascii")
+        return [line.split("\t") for line in text.splitlines()]
+
+    def test_name_matches_spec_section_12(self):
+        self.assertEqual(inbox.DROPPED_LOG, "dropped.log")
+
+    def test_one_line_per_drop_with_exactly_the_five_fields(self):
+        self.state.log_drop("team-a", event_id(1), ORCH, "role", T0)
+        self.state.log_drop("team-a", event_id(2), HUMAN, "stale", T0 + 1)
+        self.assertEqual(self.lines(), [
+            ["team-a", event_id(1), ORCH, "role", str(T0)],
+            ["team-a", event_id(2), HUMAN, "stale", str(T0 + 1)],
+        ])
+        path = self.state.path / "dropped.log"
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+
+    def test_fields_that_fail_their_grammar_are_written_absent(self):
+        self.state.log_drop("team-a", "$bad\tid", "@evil\nINJECTED:x", "schema", T0)
+        self.state.log_drop("team-a", None, 42, "schema", T0)
+        self.assertEqual(self.lines(), [
+            ["team-a", "-", "-", "schema", str(T0)],
+            ["team-a", "-", "-", "schema", str(T0)],
+        ])
+
+    def test_only_drop_reason_codes_are_logged(self):
+        for reason in ("agent-text", "secret", "not-addressed"):
+            with self.assertRaises(ValueError):
+                self.state.log_drop("team-a", event_id(1), ORCH, reason, T0)
+        with self.assertRaises(ValueError):
+            self.state.log_drop("Team A", event_id(1), ORCH, "role", T0)
+        self.assertFalse((self.state.path / "dropped.log").exists())
+
+    def test_a_symlinked_log_is_refused(self):
+        self.state.ensure_dirs()
+        (self.state.path / "dropped.log").symlink_to(self.root / "elsewhere.log")
+        with self.assertRaises(inbox.StateError):
+            self.state.log_drop("team-a", event_id(1), ORCH, "role", T0)
+        self.assertFalse((self.root / "elsewhere.log").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

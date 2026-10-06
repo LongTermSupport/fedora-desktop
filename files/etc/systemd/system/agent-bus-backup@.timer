@@ -1,0 +1,11 @@
+# Daily backup of the agent team bus homeserver of team %i (Plan 00161, DESIGN.md section 3.7).
+[Unit]
+Description=Daily backup of the agent team bus homeserver of team %i
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
