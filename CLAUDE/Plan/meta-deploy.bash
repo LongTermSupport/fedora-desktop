@@ -54,6 +54,7 @@ PLAN_ROOT="${scriptDir}"
 PLANS=(
     00160-ccy-env-local-override
     00139-commit-signing-everywhere/triage.bash
+    00161-agent-team-bus-matrix
 )
 
 LIST_ONLY=0
