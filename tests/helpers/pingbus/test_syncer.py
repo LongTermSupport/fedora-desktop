@@ -225,12 +225,12 @@ class InviteTest(TeamCase):
         self.assertEqual(s.record, protocol.parse_team_record(self.record, SN, TEAM))
         self.assertEqual(json.loads((self.state.path / inbox.TEAM_FILE).read_text()), self.record)
 
-    def test_an_invite_from_anyone_else_is_declined_and_logged_by_room_id_only(self):
+    def test_an_invite_from_anyone_else_is_rejected_and_logged_by_room_id_only(self):
         levels = protocol.expected_power_levels([self.alice])
         other = self.create_room(self.outsider, [self.me], levels)
         with self.assertRaises(syncer.RoomUntrusted):
             self.syncer(room=other).sync_once()
-        self.assertEqual(self.fake.rooms[other].membership(self.me), "invite")
+        self.assertEqual(self.fake.rooms[other].membership(self.me), "leave")
         self.assertIsNone(self.state.sync_token())
         self.assertTrue(any(other in line for line in self.logged), self.logged)
         self.assertFalse(any(self.outsider in line for line in self.logged), self.logged)
@@ -269,6 +269,7 @@ class TrustTest(TeamCase):
         self.assertEqual(self.state.sync_token(), token)
         self.assertEqual(self.stored(), [])
         self.assertTrue(any("not trusted" in line for line in self.logged), self.logged)
+        self.assertEqual(self.state.untrusted_reason(), str(caught.exception))
 
     def test_power_levels_changed_loses_trust_and_receives_nothing(self):
         s = self.ready()
@@ -279,6 +280,31 @@ class TrustTest(TeamCase):
         self.put_state(self.admin, "m.room.power_levels", "", levels)
         self.assert_untrusted_now(s, token)
         self.assert_untrusted_now(s, token)
+        self.assertEqual(self.state.untrusted_reason(), "power levels")
+
+    def test_regaining_trust_clears_the_saved_reason(self):
+        s = self.ready()
+        good = protocol.expected_power_levels([self.alice])
+        bad = protocol.expected_power_levels([self.alice])
+        bad["users"][self.outsider] = 50
+        self.put_state(self.admin, "m.room.power_levels", "", bad)
+        with self.assertRaises(syncer.RoomUntrusted):
+            s.sync_once()
+        self.assertIsNotNone(self.state.untrusted_reason())
+        self.put_state(self.admin, "m.room.power_levels", "", good)
+        s.sync_once()
+        self.assertIsNone(self.state.untrusted_reason())
+        self.assertTrue((self.state.path / inbox.TEAM_FILE).exists())
+
+    def test_a_member_removed_from_roles_loses_its_status(self):
+        until = int(self.now * 1000) + 60_000
+        self.put_state(self.orch, protocol.EVENT_STATUS, self.orch, {"v": 1, "state": "listening", "until": until})
+        s = self.ready()
+        self.assertEqual(s.statuses, {self.orch: until})
+        self.record["roles"].pop(self.orch)
+        self.put_state(self.admin, protocol.EVENT_TEAM, "", self.record)
+        s.sync_once()
+        self.assertEqual(s.statuses, {})
 
     def test_team_record_no_longer_listing_this_member_loses_trust(self):
         s = self.ready()
@@ -304,17 +330,20 @@ class TrustTest(TeamCase):
     def test_verify_checks_the_create_event(self):
         s = self.ready()
         create = self.fake.rooms[self.room].state[("m.room.create", "")]
+        self.assertEqual(create.event_id, "$" + self.room[1:])
         for name, change in {
             "sender": lambda e: setattr(e, "sender", self.outsider),
             "room version": lambda e: e.content.update(room_version="11"),
             "additional creators": lambda e: e.content.update(additional_creators=[self.outsider]),
+            # Room version 12 derives the room ID from the create event's ID (fixture 034).
+            "event ID not the room ID": lambda e: setattr(e, "event_id", "$" + "C" * 43),
         }.items():
             with self.subTest(name):
-                saved = (create.sender, dict(create.content))
+                saved = (create.sender, dict(create.content), create.event_id)
                 change(create)
                 with self.assertRaises(syncer.RoomUntrusted):
                     s.verify_room()
-                create.sender, create.content = saved[0], saved[1]
+                create.sender, create.content, create.event_id = saved
                 s.verify_room()
 
     def test_a_missing_team_record_is_exit_10_not_7(self):
@@ -501,6 +530,22 @@ class GapFillTest(TeamCase):
         gap = [r for r in self.fake.http_log if r.path.endswith("/messages")]
         self.assertTrue(gap)
         self.assertEqual(gap[0].query["dir"], "f")
+
+    def test_the_gap_fill_is_bounded(self):
+        s = self.ready()
+        pages = syncer.GAP_MAX_PAGES
+        for n in range(syncer.TIMELINE_LIMIT + 5):
+            self.human(f"message {n}")
+        for n in range(pages):
+            self.fake.inject("GET", r"/messages$", 200,
+                             {"chunk": [{"type": "m.room.message"}], "start": "s", "end": f"e{n}"})
+        token = self.state.sync_token()
+        with self.assertRaises(matrix.Unreachable):
+            s.sync_once()
+        gap = [r for r in self.fake.http_log if r.path.endswith("/messages")]
+        self.assertEqual(len(gap), pages)
+        self.assertEqual(self.state.sync_token(), token)
+        self.assertEqual(self.stored(), [])
 
 
 class WiringTest(TeamCase):

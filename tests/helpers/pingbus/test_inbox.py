@@ -589,6 +589,44 @@ class TeamRecordCacheTest(StateCase):
         self.assertFalse((self.state.path / "team.json").is_symlink())
 
 
+class UntrustedReasonTest(StateCase):
+    """§12 `untrusted.json`: why the room stopped being trusted, for an offline `status`."""
+
+    def test_name_matches_spec_section_12(self):
+        self.assertEqual(inbox.UNTRUSTED_FILE, "untrusted.json")
+
+    def test_none_before_any_loss_of_trust(self):
+        self.assertIsNone(self.state.untrusted_reason())
+        self.assertFalse(self.state.path.exists())
+
+    def test_marking_untrusted_saves_the_reason_and_forgets_the_record(self):
+        self.state.save_team_record(TEAM_CONTENT)
+        self.state.mark_untrusted("power levels")
+        self.assertEqual(self.state.untrusted_reason(), "power levels")
+        self.assertFalse((self.state.path / "team.json").exists())
+        path = self.state.path / "untrusted.json"
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+
+    def test_a_trusted_record_clears_the_reason(self):
+        self.state.mark_untrusted("roles")
+        self.state.save_team_record(TEAM_CONTENT)
+        self.assertIsNone(self.state.untrusted_reason())
+        self.assertFalse((self.state.path / "untrusted.json").exists())
+
+    def test_reason_must_be_one_short_printable_line(self):
+        for bad in ("", "two\nlines", "x" * (inbox.UNTRUSTED_REASON_MAX + 1), "café", 7):
+            with self.subTest(repr(bad)[:20]), self.assertRaises(ValueError):
+                self.state.mark_untrusted(bad)
+
+    def test_a_malformed_file_is_a_state_error(self):
+        self.state.ensure_dirs()
+        for content in ('{"v":1}', '{"v":1,"reason":"a\\nb"}', '{"v":2,"reason":"x"}', "[]"):
+            with self.subTest(content):
+                (self.state.path / "untrusted.json").write_text(content, encoding="ascii")
+                with self.assertRaises(inbox.StateError):
+                    self.state.untrusted_reason()
+
+
 class DropLogTest(StateCase):
     """§9 "Drop": `dropped.log` holds team, event ID, sender user ID, reason code and time."""
 

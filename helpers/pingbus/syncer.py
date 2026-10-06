@@ -9,7 +9,8 @@ and §14 (exit 10). Plan 00161's DESIGN.md section 4 ("Joining") and section 12 
 One `Syncer` serves one team for one process: the receive flood count lives in it (§10),
 and it re-verifies the room when it starts, after a join, and whenever a batch carries a
 change to `m.room.create`, `m.room.power_levels` or `agent_bus.team`. A room that fails
-verification is not trusted: `team.json` is removed, nothing of that batch is stored, the
+verification is not trusted: `team.json` is replaced by `untrusted.json` holding the
+reason (for `status`), nothing of that batch is stored, the
 sync token stays where it was, and `RoomUntrusted` (exit 10) is raised; a missing room or
 team record, which the client reports as `matrix.NotFound` (exit 7), and a room this
 account has not joined (`matrix.Forbidden`) are the same. Other client errors propagate
@@ -44,6 +45,8 @@ TIMELINE_LIMIT = 50
 #: A limited timeline's gap is read forward with `/messages` (fixture 072).
 GAP_FILTER = {"types": [protocol.EVENT_MESSAGE]}
 GAP_PAGE_LIMIT = 100
+#: A gap longer than this many pages is a misbehaving server, not a backlog: exit 7.
+GAP_MAX_PAGES = 20
 
 
 class RoomUntrusted(protocol.Untrusted):
@@ -201,6 +204,8 @@ class Syncer:
         if self.record is None or self.record.forge_api != record.forge_api:
             self._forge = None
         self.record = record
+        # §8: a status counts only from a role holder, so a member dropped from `roles` loses it.
+        self.statuses = {uid: until for uid, until in self.statuses.items() if uid in record.roles}
         return record
 
     def _read_trusted_state(self) -> tuple[protocol.TeamRecord, dict]:
@@ -227,7 +232,7 @@ class Syncer:
         self.record = None
         self._forge = None
         self.statuses = {}
-        self.state.forget_team_record()
+        self.state.mark_untrusted(reason)
         self._say(f"the team room is not trusted: {reason}")
         return RoomUntrusted(reason)
 
@@ -271,16 +276,17 @@ class Syncer:
         return Batch(True, 0, (), {})
 
     def _take_invites(self, rooms: dict) -> bool:
-        """Join the one acceptable invite; decline every other, logged by room ID only."""
+        """Join the one acceptable invite; reject every other (§8), logged by room ID only."""
         joined = False
         for room_id, invite in _section(rooms, "invite").items():
             if invite_acceptable(room_id, invite, self.member):
                 self.client.join(room_id)
                 joined = True
             elif protocol.is_room_id(room_id):
-                self._say(f"declined an invite to room {room_id}")
+                self.client.leave(room_id)
+                self._say(f"rejected an invite to room {room_id}")
             else:
-                self._say("declined an invite with a malformed room ID")
+                self._say("ignored an invite with a malformed room ID")
         return joined
 
     def _after_join(self, since: str, *, first: bool) -> Batch:
@@ -301,7 +307,7 @@ class Syncer:
             raise _malformed("a limited timeline has no prev_batch")
         found: list = []
         cursor = since
-        while True:
+        for _ in range(GAP_MAX_PAGES):
             page = self.client.messages(self.member.room, from_token=cursor, to_token=prev_batch,
                                         direction="f", limit=GAP_PAGE_LIMIT, filter=GAP_FILTER)
             chunk = page.get("chunk")
@@ -312,6 +318,7 @@ class Syncer:
             if not chunk or not isinstance(end, str) or end == cursor:
                 return found
             cursor = end
+        raise matrix.Unreachable("GET /messages", detail=f"the gap runs past {GAP_MAX_PAGES} pages")
 
     def _read_statuses(self, events: Sequence[object]) -> None:
         """§8: a status counts only under its sender's own user ID, from a role holder, in

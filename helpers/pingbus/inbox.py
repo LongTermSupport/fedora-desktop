@@ -51,6 +51,9 @@ SYNC_FILE = "sync.json"
 LOCK_FILE = "lock"
 #: The last verified team record (§12): the `agent_bus.team` content the syncer verified.
 TEAM_FILE = "team.json"
+#: Why the room is not trusted (§8, §12), for an offline `status`; gone while it is trusted.
+UNTRUSTED_FILE = "untrusted.json"
+UNTRUSTED_REASON_MAX = 200
 #: One line per drop (§9 "Drop"): team, event ID, sender user ID, reason code, time (ms).
 DROPPED_LOG = "dropped.log"
 ABSENT = "-"
@@ -144,6 +147,11 @@ def _check_sync_token(value: object) -> str:
     if not isinstance(value, str) or len(value) > SYNC_TOKEN_MAX or not _TOKEN_RE.fullmatch(value):
         raise ValueError("a sync token is 1 to 4096 printable ASCII characters, no spaces")
     return value
+
+
+def _is_reason(value: object) -> bool:
+    return (isinstance(value, str) and 0 < len(value) <= UNTRUSTED_REASON_MAX
+            and value.isascii() and value.isprintable())
 
 
 def _write_atomic(path: pathlib.Path, data: bytes) -> None:
@@ -333,10 +341,31 @@ class TeamState:
     # The verified team record and the drop log.
 
     def save_team_record(self, content: Mapping[str, object]) -> None:
-        """Replace `team.json` with the team record content the syncer just verified."""
+        """Replace `team.json` with the team record content the syncer just verified; the
+        room is trusted again, so any `untrusted.json` goes."""
         self.ensure_dirs()
         _write_atomic(self.path / TEAM_FILE, _dump(content))
+        (self.path / UNTRUSTED_FILE).unlink(missing_ok=True)
         _fsync_dir(self.path)
+
+    def mark_untrusted(self, reason: str) -> None:
+        """Record why the room stopped being trusted, and remove `team.json`."""
+        if not _is_reason(reason):
+            raise ValueError(f"a reason is one line of 1 to {UNTRUSTED_REASON_MAX} printable ASCII characters")
+        self.ensure_dirs()
+        _write_atomic(self.path / UNTRUSTED_FILE, _dump({"v": STATE_VERSION, "reason": reason}))
+        self.forget_team_record()
+        _fsync_dir(self.path)
+
+    def untrusted_reason(self) -> str | None:
+        """Why the room is not trusted, or None when no loss of trust is recorded."""
+        data = self._load_json(self.path / UNTRUSTED_FILE)
+        if data is None:
+            return None
+        if (not isinstance(data, dict) or set(data) != {"v", "reason"} or data["v"] != STATE_VERSION
+                or not _is_reason(data["reason"])):
+            raise StateError(f"{self.path / UNTRUSTED_FILE} is not an untrusted-reason file")
+        return data["reason"]
 
     def forget_team_record(self) -> bool:
         """Remove `team.json` when the room stops being trusted; False when there was none."""

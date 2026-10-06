@@ -448,6 +448,14 @@ class EndpointsTest(TeamRoom):
         self.client(self.invited).join(self.room)
         self.assertEqual(self.fake.rooms[self.room].membership(self.invited), "join")
 
+    def test_leave_rejects_an_invite(self) -> None:
+        self.client(self.invited).leave(self.room)
+        self.assertEqual(self.fake.rooms[self.room].membership(self.invited), "leave")
+        self.assertEqual(self.fake.http_log[-1].method, "POST")
+        self.assertTrue(self.fake.http_log[-1].path.endswith("/leave"))
+        with self.assertRaises(ValueError):
+            self.client(self.invited).leave("!short")
+
     def test_sync_passes_since_filter_and_timeout(self) -> None:
         client = self.client()
         first = client.sync(timeout_ms=0, filter={"room": {"rooms": [self.room]}})
