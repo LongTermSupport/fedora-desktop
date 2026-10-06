@@ -393,6 +393,29 @@ class TestToken(BundleCase):
         with self.assertRaises(config.ConfigError):
             config.read_token(member, uid=self.uid)
 
+    def test_read_token_file_names_the_caller_and_never_the_token(self) -> None:
+        path = self.root / "a-token"
+        path.write_text(TOKEN, encoding="utf-8")
+        path.chmod(0o600)
+        self.assertEqual(config.read_token_file(path, "SOME_SOURCE", uid=self.uid), TOKEN)
+        path.chmod(0o640)
+        with self.assertRaises(config.ConfigError) as caught:
+            config.read_token_file(path, "SOME_SOURCE", uid=self.uid)
+        self.assertTrue(str(caught.exception).startswith("SOME_SOURCE: "))
+        self.assertNotIn(TOKEN, str(caught.exception))
+
+    def test_directory_token_refused(self) -> None:
+        bundle = self.write_bundle()
+        (bundle / "token").unlink()
+        (bundle / "token").mkdir(mode=0o700)
+        self.assert_refused(contains="regular file")
+
+    def test_is_printable_token(self) -> None:
+        self.assertTrue(config.is_printable_token(TOKEN))
+        for bad in ("", TOKEN + "\n", "two words", "tok\ten", "tést", None, 5):
+            with self.subTest(bad=repr(bad)):
+                self.assertFalse(config.is_printable_token(bad))
+
 
 class TestPlainHttp(BundleCase):
     def test_https_needs_no_listing(self) -> None:

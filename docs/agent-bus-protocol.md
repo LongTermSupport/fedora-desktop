@@ -181,8 +181,13 @@ repository's trusted `branches` (§11); "reachable" means
 | pr     | `GET /repos/OWNER/REPO/pulls/NUM`; `GET /repos/OWNER/REPO/compare/HEADREF...SHA` | 200; `head.repo.full_name` (lowercased) is `OWNER/REPO`; `author_association` is `OWNER`, `MEMBER` or `COLLABORATOR`; SHA is `identical` to or `behind` the PR's head ref `HEADREF` |
 | issue  | `GET /repos/OWNER/REPO/issues/NUM`                                               | 200 and no `pull_request` key                                                                                                                                                       |
 
-Positive results for `path` and `commit` content are cached in `forge-cache.json` (content
-at a SHA is immutable); reachability and `pr` results for 3600 s. A 429, or a 403 with
+A compare answering 422 (no merge base with `BRANCH`) counts as found but not reachable, so
+it ends in `provenance`, not `not-found`.
+
+Positive results only are cached, in `forge-cache.json` in the member's state directory: a
+file's existence at a SHA for 30 days (content at a SHA is immutable; the expiry only bounds
+the file), reachability and `pr` results for 3600 s. A cache file that is not exactly the
+expected shape is a config error (exit 78), not silently discarded. A 429, or a 403 with
 `x-ratelimit-remaining: 0`, is retried per §10 and then reported as `forge-rate`. Send-side
 refusals, on stderr: `not-found`, `wrong-kind`, `provenance`, `forge-unreachable`,
 `forge-auth` (exit 5), `forge-rate` (exit 9). On receive the same failures drop the ping as
@@ -415,7 +420,9 @@ silently clamped.
 
 Fixed: the duplicate window is 60 s (same verb, ref, re and set of `to` again is refused,
 exit 9); each `/sync` long-poll is 30 s; a server 429 is honoured (`Retry-After`, then
-`retry_after_ms`, then 5 s), at most 3 tries, then exit 9; a ping's content at most 4096
+`retry_after_ms`, then 5 s), at most 3 tries, then exit 9; a forge rate limit (§6) is
+honoured the same way with GitHub's `x-ratelimit-reset` read after `Retry-After`, except
+that a wait over 60 s is not slept and is reported as `forge-rate` at once; a ping's content at most 4096
 bytes; a human message's body at most 16384 bytes; an agent text's `text` at most 4096
 bytes.
 

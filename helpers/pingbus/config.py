@@ -219,17 +219,29 @@ def read_token(member: Member, *, uid: int | None = None) -> str:
     """The member's token, after re-checking the file: a regular file (never followed
     through a symlink), owned by `uid`, mode 0600 or stricter, one printable line with no
     trailing newline."""
-    where = f"team {member.team}: the token file {member.token_path}"
-    with open_private_file(member.token_path, where, uid=uid) as handle:
+    return read_token_file(
+        member.token_path, f"team {member.team}: the token file {member.token_path}", uid=uid
+    )
+
+
+def read_token_file(path: str | os.PathLike[str], where: str, *, uid: int | None = None) -> str:
+    """A token from `path` under `read_token`'s rules; a refusal is a `ConfigError`
+    prefixed with `where` and never quotes the file's content."""
+    with open_private_file(path, where, uid=uid) as handle:
         raw = handle.read(TOKEN_MAX_BYTES + 1)
     if len(raw) > TOKEN_MAX_BYTES:
         raise ConfigError(f"{where}: the token is longer than {TOKEN_MAX_BYTES} bytes")
     text = raw.decode("ascii", errors="replace")
-    if _PRINTABLE_RE.fullmatch(text) is None:
+    if not is_printable_token(text):
         raise ConfigError(
             f"{where}: the token must be one line of printable ASCII, no spaces, no newline"
         )
     return text
+
+
+def is_printable_token(value: object) -> bool:
+    """One or more printable ASCII characters: no space, no control character, no newline."""
+    return isinstance(value, str) and _PRINTABLE_RE.fullmatch(value) is not None
 
 
 def load_active(
