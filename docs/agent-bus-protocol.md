@@ -326,11 +326,12 @@ changes; a receiver treats the room as trusted only when they are exactly:
 `admin`, as the room's creator in version 12, holds creator power and is not listed.
 
 **Trusted room** (checked on join and on every change to these events): the room ID equals
-the member config's `room`; `m.room.create` (read with `?format=event`) has sender `admin`
-and room version 12, and no `additional_creators`; the power levels are exactly the above;
+the member config's `room`; `m.room.create` (read with `?format=event`) has sender `admin`,
+room version 12, no `additional_creators`, and an event ID equal to the room ID with `$` in
+place of `!` (version 12 derives the room ID from it; fixture 034); the power levels are exactly the above;
 the team record is valid, sent by `admin`, and lists this agent with a role. An invite is
 accepted only when its sender and its stripped `m.room.create` sender are `admin` and its
-room ID is `room`; every other invite is rejected and logged by room ID only.
+room ID is `room`; every other invite is rejected (`POST /leave`) and logged by room ID only.
 
 ## 9. Validation
 
@@ -453,7 +454,9 @@ and `token` (one line, no trailing newline, owned by the user, mode 0600 or stri
 exit 78), written by `agent-bus add-member`. Pingbus keeps its state in
 `PINGBUS_HOME/<team>/state/`: `inbox/` (one JSON file per event ID), `consumed/`,
 `outbox.json`, `sync.json`, `team.json` (the last verified team record, for `status` and
-the hooks), `forge-cache.json`, `dropped.log`, `lock`. `lock` is held with `flock` by the
+the hooks), `untrusted.json` (why the room stopped being trusted, for `status`; it replaces
+`team.json` on loss of trust and is removed when the room is trusted again),
+`forge-cache.json`, `dropped.log`, `lock`. `lock` is held with `flock` by the
 one process syncing this team, which writes its kind into it: `watch` (a watcher), `wait`
 (a waiter), or `recv` (a `recv` syncing once, for that sync only). A waker is live exactly
 when a non-blocking `flock` on it fails and the kind it holds is `watch` or `wait`; a
