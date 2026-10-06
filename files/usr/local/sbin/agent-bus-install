@@ -549,6 +549,19 @@ sync_firewall() {
         rule=$(rich_rule "$cidr" "$port")
         wanted+=("$zone"$'\t'"$rule")
     done
+    # Recorded before any firewall-cmd call, as the old rules plus the wanted ones, so a
+    # failure part-way leaves every rule this run may have added in the record `remove` reads.
+    local pending
+    pending=$(
+        if [[ -f $record ]]; then cat -- "$record"; fi
+        if ((${#wanted[@]})); then printf '%s\n' "${wanted[@]}"; fi
+    )
+    if [[ -n $pending ]]; then
+        sort -u <<<"$pending" >"$WORK_DIR/firewalld.pending"
+        if ! [[ -f $record ]] || ! cmp -s -- "$WORK_DIR/firewalld.pending" "$record"; then
+            install -m 0600 -o "$ROOT_OWNER" -g "$ROOT_GROUP" -T -- "$WORK_DIR/firewalld.pending" "$record"
+        fi
+    fi
     if [[ -f $record ]]; then
         while IFS=$'\t' read -r zone rule; do
             line=$zone$'\t'$rule
@@ -748,6 +761,11 @@ cmd_team() {
     readlink -f -- "$LIB_DIR/tuwunel" >"$WORK_DIR/binary"
     put_file "team $team binary $(<"$WORK_DIR/binary")" "$WORK_DIR/binary" "$INSTALL_STATE_ROOT/$team/binary" 0600 "$ROOT_OWNER" "$ROOT_GROUP"
     ((PUT_CHANGED == 0)) || restart=1
+    # `software` reloads systemd for a changed base unit; the running homeserver only takes
+    # its new sandbox on a restart, so the unit it last started under is recorded too.
+    sha256sum -- "$UNIT_DIR/agent-bus-hs@.service" | awk '{ print $1 }' >"$WORK_DIR/unit-sha256"
+    put_file "team $team base unit $(<"$WORK_DIR/unit-sha256")" "$WORK_DIR/unit-sha256" "$INSTALL_STATE_ROOT/$team/unit-sha256" 0600 "$ROOT_OWNER" "$ROOT_GROUP"
+    ((PUT_CHANGED == 0)) || restart=1
     if ((reload)); then
         systemctl daemon-reload
     fi
@@ -807,6 +825,57 @@ latest_backup() {
     printf '%s' "$highest"
 }
 
+# The state tars live in root's own directory, not in backups/ beside the database backup:
+# agent-bus can write there, and restore extracts them as root.
+state_tar_dir() { printf '%s/%s/backups' "$INSTALL_STATE_ROOT" "$1"; }
+
+# Refuse a state tar holding anything but secrets/, team.json, registry.json and room_id as
+# plain files and directories with no setuid, setgid or sticky bit.
+check_state_tar() {
+    python3 -I -c '
+import sys, tarfile
+FILES = {"team.json", "registry.json", "room_id"}
+problems, names = [], set()
+with tarfile.open(sys.argv[1], "r:") as archive:
+    for member in archive.getmembers():
+        name = member.name
+        parts = name.split("/")
+        in_secrets = parts[0] == "secrets" and all(p not in ("", ".", "..") for p in parts)
+        names.add(name)
+        if member.isfile() and (name in FILES or (in_secrets and len(parts) > 1)):
+            pass
+        elif member.isdir() and in_secrets:
+            pass
+        else:
+            problems.append(f"{name!r}: not one of the state files")
+        if member.mode & 0o7000:
+            problems.append(f"{name!r}: mode {member.mode:o} carries a setuid, setgid or sticky bit")
+for need in ("team.json", "secrets"):
+    if need not in names:
+        problems.append(f"{need} is missing")
+for problem in problems:
+    print(problem, file=sys.stderr)
+sys.exit(1 if problems else 0)
+' "$1"
+}
+
+# The transient restore unit gets the homeserver unit's whole [Service] sandbox (bar its
+# ExecStart), read from the installed unit so the two cannot drift apart.
+sandbox_properties() {
+    local team=$1 line section=""
+    while IFS= read -r line || [[ -n $line ]]; do
+        [[ -z $line || $line == \#* ]] && continue
+        if [[ $line == \[*\] ]]; then
+            section=$line
+            continue
+        fi
+        [[ $section == "[Service]" && ${line%%=*} != ExecStart ]] || continue
+        line=${line//%i/$team}
+        [[ $line != *%* ]] || die "$EXIT_FAIL" "agent-bus-hs@.service: unsupported specifier in '$line'"
+        printf '%s\n' "$line"
+    done <"$UNIT_DIR/agent-bus-hs@.service"
+}
+
 require_team_dir() {
     local dir=$STATE_ROOT/$1
     [[ -d $dir && -f $dir/team.json ]] || die "$EXIT_CONFIG" "team $1 is not installed here (no ${dir#"$PREFIX"}/team.json)"
@@ -839,10 +908,14 @@ cmd_backup_now() {
         [[ ! -e $dir/$optional ]] || members+=("$optional")
     done
     tar -C "$dir" -cf "$WORK_DIR/state.tar" -- "${members[@]}"
-    install -m 0600 -o "$ROOT_OWNER" -g "$ROOT_GROUP" -T -- "$WORK_DIR/state.tar" "$dir/backups/agent-bus-state-$latest.tar"
+    local tars
+    tars=$(state_tar_dir "$team")
+    ensure_dir "$INSTALL_STATE_ROOT/$team" 0700 "$ROOT_OWNER" "$ROOT_GROUP"
+    ensure_dir "$tars" 0700 "$ROOT_OWNER" "$ROOT_GROUP"
+    install -m 0600 -o "$ROOT_OWNER" -g "$ROOT_GROUP" -T -- "$WORK_DIR/state.tar" "$tars/agent-bus-state-$latest.tar"
     # Tuwunel keeps database_backups_to_keep backups; drop the state tars of the ones it pruned.
     local tar_file id
-    for tar_file in "$dir"/backups/agent-bus-state-*.tar; do
+    for tar_file in "$tars"/agent-bus-state-*.tar; do
         [[ -f $tar_file ]] || continue
         id=${tar_file##*/agent-bus-state-}
         id=${id%.tar}
@@ -862,25 +935,45 @@ cmd_restore() {
     require_team_dir "$team"
     require_software
     local dir=$STATE_ROOT/$team
-    local state_tar=$dir/backups/agent-bus-state-$id.tar
+    local state_tar
+    state_tar=$(state_tar_dir "$team")/agent-bus-state-$id.tar
     [[ -e $dir/backups/meta/$id ]] || die "$EXIT_CONFIG" "team $team has no database backup $id"
     [[ -f $state_tar ]] || die "$EXIT_CONFIG" "team $team has no state tar for backup $id"
+    check_state_tar "$state_tar" || die "$EXIT_CONFIG" "state tar ${state_tar#"$PREFIX"} refused (above); nothing changed"
     local port hs once
     port=$(jq -r .port "$dir/team.json")
     hs=$(hs_unit "$team")
     once=agent-bus-restore-$team.service
+    make_work_dir
+    local stage=$WORK_DIR/state
+    install -d -m 0700 -- "$stage"
+    tar -C "$stage" --no-same-owner --no-same-permissions -xf "$state_tar"
+    find "$stage" -type d -exec chmod 0700 {} +
+    find "$stage" -type f -exec chmod 0600 {} +
+    chown -R -- "$SVC_OWNER:$SVC_GROUP" "$stage"
+    local sandbox
+    sandbox=$(sandbox_properties "$team")
+    local -a properties=()
+    local property
+    while IFS= read -r property; do
+        properties+=("--property=$property")
+    done <<<"$sandbox"
+    properties+=("--property=IPAddressAllow=127.0.0.1/32 ::1/128" "--property=SocketBindAllow=tcp:$port")
 
     systemctl stop "$hs"
     # The state as it was at the backup: files the backup did not hold are removed.
-    local optional
-    for optional in registry.json room_id; do
-        rm -f -- "${dir:?}/$optional"
+    local name
+    for name in team.json registry.json room_id; do
+        rm -f -- "${dir:?}/$name"
     done
     rm -rf -- "${dir:?}/secrets"
-    tar -C "$dir" -xpf "$state_tar"
-    systemd-run --unit="$once" --uid="$SVC_NAME" --gid="$SVC_NAME" \
-        --setenv="TUWUNEL_CONFIG=/var/lib/agent-bus/$team/tuwunel.toml" \
-        --property=IPAddressDeny=any --property="IPAddressAllow=127.0.0.1/32 ::1/128" \
+    mv -T -- "$stage/secrets" "$dir/secrets"
+    for name in registry.json room_id; do
+        [[ ! -e $stage/$name ]] || mv -T -- "$stage/$name" "$dir/$name"
+    done
+    install -m 0640 -o "$ROOT_OWNER" -g "$SVC_GROUP" -T -- "$stage/team.json" "$dir/team.json"
+    # --collect: a failed run leaves no failed unit behind to block the next restore.
+    systemd-run --unit="$once" --collect "${properties[@]}" \
         -- /usr/local/lib/agent-bus/tuwunel --restore-backup "$id" >&2
     wait_ready "$once" "$port"
     systemctl stop "$once"

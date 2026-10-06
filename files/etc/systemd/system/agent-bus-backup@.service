@@ -1,7 +1,7 @@
 # Back up the agent team bus homeserver of team %i (Plan 00161, DESIGN.md section 3.7):
 # SIGUSR2 makes Tuwunel run admin_signal_execute (server backup-database); the installer
-# waits for the new numbered backup and adds a root-only tar of the team's secrets and state
-# beside it. Fails when the homeserver is not running, or when no backup appears.
+# waits for the new numbered backup and adds a tar of the team's secrets and state under the
+# same number in root's own /var/lib/agent-bus-install/<team>/backups/. Fails when the homeserver is not running, or when no backup appears.
 [Unit]
 Description=Back up the agent team bus homeserver of team %i
 Requisite=agent-bus-hs@%i.service

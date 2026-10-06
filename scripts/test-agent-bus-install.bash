@@ -159,7 +159,10 @@ for a in "$@"; do
             if [[ -e $STUB_DIR/zone-of/$iface ]]; then cat "$STUB_DIR/zone-of/$iface"; exit 0; fi
             echo "no zone"; exit 2 ;;
         --query-rich-rule=*) op=query; rule=${a#*=} ;;
-        --add-rich-rule=*) op=add; rule=${a#*=} ;;
+        --add-rich-rule=*) op=add; rule=${a#*=}
+            if [[ -e $STUB_DIR/fw-fail-add ]] && [[ $rule == *"$(cat "$STUB_DIR/fw-fail-add")"* ]]; then
+                echo "Error: COMMAND_FAILED" >&2; exit 1
+            fi ;;
         --remove-rich-rule=*) op=remove; rule=${a#*=} ;;
         *) echo "firewall-cmd stub: unexpected $a" >&2; exit 99 ;;
     esac
@@ -273,11 +276,24 @@ stub uname <<'EOF'
 echo x86_64
 EOF
 
+# A transient unit: a name still loaded (active, or failed and not collected) cannot be
+# reused; a run that fails is left failed unless --collect was given.
 stub systemd-run <<'EOF'
+unit="" collect=0
 for a in "$@"; do
-    [[ $a != --unit=* ]] || touch "$STUB_DIR/units/${a#--unit=}.active"
+    [[ $a != --unit=* ]] || unit=${a#--unit=}
+    [[ $a != --collect ]] || collect=1
 done
-echo "Running as unit: stub"
+if [[ -e $STUB_DIR/units/$unit.active || -e $STUB_DIR/units/$unit.failed ]]; then
+    echo "Failed to start transient service unit: Unit $unit was already loaded" >&2
+    exit 1
+fi
+if [[ -e $STUB_DIR/fail-start/$unit ]]; then
+    ((collect)) || touch "$STUB_DIR/units/$unit.failed"
+else
+    touch "$STUB_DIR/units/$unit.active"
+fi
+echo "Running as unit: $unit"
 EOF
 
 # The admin tool: the real renders from this checkout; the team commands are logged.
@@ -551,6 +567,22 @@ check "the next team run restarts the homeserver" "1" "$(count '^systemctl resta
 check "and says CHANGED" "yes" "$(says $'^CHANGED\t' "$OUT")"
 write_pin 1.9.3 "$ASSET_SHA"
 
+echo "== team: a changed base unit restarts the homeserver"
+HS_SRC="$SOURCE/files/etc/systemd/system/agent-bus-hs@.service"
+cp "$HS_SRC" "$SCRATCH/hs-unit.orig"
+printf '# a hardening fix\n' >>"$HS_SRC"
+run software --source "$SOURCE"
+check "software installs the changed unit and reloads" "yes" "$(says '^systemctl daemon-reload' "$(LOG)")"
+check "  but restarts nothing itself" "0" "$(count '^systemctl restart' "$(LOG)")"
+run team --team-file "$TF"
+check "the next team run succeeds" "0" "$RC"
+check "  and restarts the homeserver" "1" "$(count '^systemctl restart agent-bus-hs@alpha.service' "$(LOG)")"
+run team --team-file "$TF"
+check "the run after that does not restart it" "0" "$(count '^systemctl (start|restart)' "$(LOG)")"
+cp "$SCRATCH/hs-unit.orig" "$HS_SRC"
+run software --source "$SOURCE"
+run team --team-file "$TF"
+
 echo "== team: the server name never changes"
 team_file alpha '["192.0.2.10"]' '["203.0.113.0/24"]' other.agent-bus.internal >"$TF"
 run team --team-file "$TF"
@@ -576,6 +608,22 @@ check "the readiness step fails the run" "1" "$RC"
 check "the failure names the unit and its state" "yes" "$(says 'agent-bus-hs@beta.service is failed' "$ERR")"
 check "it points at the unit's log, without scanning it" "yes" "$(says 'journalctl -u agent-bus-hs@beta.service' "$ERR")"
 check "bootstrap does not run" "0" "$(count '^agent-bus bootstrap' "$(LOG)")"
+
+echo "== team: a firewalld add that fails part-way"
+new_root fwfail
+run software --source "$SOURCE"
+team_file alpha '["192.0.2.10"]' '["198.51.100.0/24", "203.0.113.0/24"]' >"$TF"
+echo '203.0.113.0/24' >"$STUB_DIR/fw-fail-add"
+run team --team-file "$TF"
+check "the failing add fails the run" "1" "$RC"
+check "the first rule is in firewalld" "1" "$(count '198.51.100.0/24' "$STUB_DIR/fw/permanent.public")"
+FW_RECORD=$ROOT/var/lib/agent-bus-install/alpha/firewalld.rules
+check "  and in the record remove reads" "1" "$(count '198.51.100.0/24' "$FW_RECORD")"
+rm -f "$STUB_DIR/fw-fail-add"
+run remove --team alpha
+check "remove then succeeds" "0" "$RC"
+check "  and deletes the rule the failed run added" "0" "$(count . "$STUB_DIR/fw/permanent.public")"
+check "  from the runtime configuration too" "0" "$(count . "$STUB_DIR/fw/runtime.public")"
 
 echo "== team: a port another team holds"
 new_root ports
@@ -629,8 +677,12 @@ run backup-now --team alpha
 check "backup-now succeeds" "0" "$RC"
 [[ $RC -eq 0 ]] || cat "$ERR" >&2
 check "it signals the homeserver" "yes" "$(says '^systemctl kill --kill-whom=main --signal=SIGUSR2 agent-bus-hs@alpha.service' "$(LOG)")"
-TAR=$ROOT/var/lib/agent-bus/alpha/backups/agent-bus-state-1.tar
-check "the state tar sits beside the backup, 0600" "600" "$(mode "$TAR")"
+TARS=$ROOT/var/lib/agent-bus-install/alpha/backups
+TAR=$TARS/agent-bus-state-1.tar
+check "the state tar is in root's own directory, 0600" "600" "$(mode "$TAR")"
+check "  which is 0700" "700" "$(mode "$TARS")"
+check "  and not in the agent-bus user's backups/" "0" \
+    "$(find "$ROOT/var/lib/agent-bus/alpha/backups" -name '*.tar' | wc -l)"
 check "it holds the shared secret" "1" "$(tar -tf "$TAR" | grep -cx 'secrets/registration_shared_secret')"
 check "it holds team.json" "1" "$(tar -tf "$TAR" | grep -cx 'team.json')"
 check "it says which backup" "yes" "$(says $'^CHANGED\tbackup 1 of team alpha' "$OUT")"
@@ -644,11 +696,78 @@ check "restore succeeds" "0" "$RC"
 [[ $RC -eq 0 ]] || cat "$ERR" >&2
 check "the homeserver is stopped first" "yes" "$(says '^systemctl stop agent-bus-hs@alpha.service' "$(LOG)")"
 check "the binary runs once with --restore-backup as agent-bus" "yes" \
-    "$(says '^systemd-run .*--uid=agent-bus .*/tuwunel --restore-backup 1$' "$(LOG)")"
+    "$(says '^systemd-run .*--property=User=agent-bus .*/tuwunel --restore-backup 1$' "$(LOG)")"
+check "  as a collected transient unit" "yes" "$(says '^systemd-run --unit=agent-bus-restore-alpha.service --collect ' "$(LOG)")"
+for property in NoNewPrivileges=yes ProtectSystem=strict ReadWritePaths=/var/lib/agent-bus/alpha \
+    SocketBindDeny=any IPAddressDeny=any 'IPAddressAllow=127.0.0.1/32 ::1/128' SocketBindAllow=tcp:8448 \
+    TemporaryFileSystem=/run/systemd/resolve:ro \
+    BindReadOnlyPaths=/usr/local/share/agent-bus/resolv.conf:/run/systemd/resolve/resolv.conf \
+    Environment=TUWUNEL_CONFIG=/var/lib/agent-bus/alpha/tuwunel.toml; do
+    check "  under the homeserver's sandbox: $property" "1" "$(grep -cF -- "--property=$property " "$(LOG)")"
+done
+check "  with no ExecStart taken from the unit" "0" "$(grep -cF -- '--property=ExecStart' "$(LOG)")"
 check "the one-off run is stopped" "yes" "$(says '^systemctl stop agent-bus-restore-alpha.service' "$(LOG)")"
 check "the homeserver is started again" "yes" "$(says '^systemctl start agent-bus-hs@alpha.service' "$(LOG)")"
 check "and bootstrapped" "yes" "$(says '^agent-bus bootstrap alpha' "$(LOG)")"
 check "state files absent from the backup are removed" "no" "$(exists "$ROOT/var/lib/agent-bus/alpha/registry.json")"
+check "the restored secret is the backed-up one, 0600" "600" "$(mode "$ROOT/var/lib/agent-bus/alpha/secrets/registration_shared_secret")"
+check "the restored secrets/ is 0700" "700" "$(mode "$ROOT/var/lib/agent-bus/alpha/secrets")"
+check "the restored team.json is 0640" "640" "$(mode "$ROOT/var/lib/agent-bus/alpha/team.json")"
+
+echo "== restore: a failed one-off run, then a retry"
+touch "$STUB_DIR/fail-start/agent-bus-restore-alpha.service"
+run restore --team alpha --backup 1
+check "a restore whose one-off run fails fails" "1" "$RC"
+check "  naming the one-off unit" "yes" "$(says 'agent-bus-restore-alpha.service is' "$ERR")"
+rm -f "$STUB_DIR/fail-start/agent-bus-restore-alpha.service"
+run restore --team alpha --backup 1
+check "the retry succeeds (no failed unit left to block the name)" "0" "$RC"
+[[ $RC -eq 0 ]] || cat "$ERR" >&2
+
+echo "== restore: a tampered state tar is refused"
+cp "$TAR" "$SCRATCH/good.tar"
+# make_tar OUT NAME:TYPE:MODE... — TYPE f (file) or d (directory) or l (symlink to /etc).
+make_tar() {
+    python3 -I - "$@" <<'PY'
+import io, sys, tarfile
+with tarfile.open(sys.argv[1], "w") as archive:
+    for spec in sys.argv[2:]:
+        name, kind, mode = spec.split(":")
+        info = tarfile.TarInfo(name)
+        info.mode = int(mode, 8)
+        if kind == "d":
+            info.type = tarfile.DIRTYPE
+            archive.addfile(info)
+        elif kind == "l":
+            info.type = tarfile.SYMTYPE
+            info.linkname = "/etc"
+            archive.addfile(info)
+        else:
+            data = b"x"
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+PY
+}
+GOOD_MEMBERS=(secrets:d:700 secrets/registration_shared_secret:f:600 team.json:f:640)
+refused_tar() {
+    local label=$1
+    shift
+    make_tar "$TAR" "$@"
+    run restore --team alpha --backup 1
+    check "$label is refused (78)" "78" "$RC"
+    check "  and the homeserver is not stopped" "0" "$(count '^systemctl stop' "$(LOG)")"
+    check "  and nothing is run" "0" "$(count '^systemd-run' "$(LOG)")"
+}
+refused_tar "a stray member" "${GOOD_MEMBERS[@]}" etc/passwd:f:644
+check "  and the refusal names it" "yes" "$(says 'etc/passwd' "$ERR")"
+refused_tar "a setuid file" "${GOOD_MEMBERS[@]}" secrets/sh:f:4755
+check "  and the refusal names the mode" "yes" "$(says 'setuid' "$ERR")"
+refused_tar "a member climbing out" "${GOOD_MEMBERS[@]}" secrets/../../x:f:600
+refused_tar "a symlink" "${GOOD_MEMBERS[@]}" registry.json:l:777
+refused_tar "a tar without the secrets" team.json:f:640
+check "the team's secret survived every refusal" "yes" \
+    "$(yes_if test -s "$ROOT/var/lib/agent-bus/alpha/secrets/registration_shared_secret")"
+cp "$SCRATCH/good.tar" "$TAR"
 
 echo "== remove"
 run remove --team alpha
