@@ -144,7 +144,8 @@ containers that needs its own diagnosis (F7).
     directory. A successful build now removes its own directory at once, and teardown keeps
     whatever is left (a failed build's). `scripts/test-vmtest-build-dir-cleanup.bash`, a
     `qa-all.bash` gate, sources the real `vmtest` (now guarded so it runs `main` only when
-    executed); red first. Deployed by Plan 00141's `run-changed.bash` in `meta-deploy.bash`.
+    executed); red first. Deployed: meta-deploy `20261006-134254` (`run.bash --changed`
+    ran `play-vm-test-lab.yml`, failed=0).
     The nightly sweep evicts `server-fast-44.build`; it keeps desktop build directories for
     diagnosis, so `desktop-44.build` (328K) goes at the next desktop base build.
   - [ ] ⬜ HOST: tonight's `vmtest-nightly` passes (its last run, 10:43, was before the

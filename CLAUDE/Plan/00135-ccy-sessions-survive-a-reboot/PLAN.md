@@ -276,7 +276,9 @@ Report: [`subagent-reports/261006-issue69-fixes-opus.md`](subagent-reports/26100
   it is found before anyone is warned", and "systemctl refusing the reboot is a failure").
 - [ ] 🧑 **Task 7.4**: HOST: after the owner's meta-deploy run of `play-claude-yolo.yml`, the
   infra agent repeats the server reboot check and runs `ccy-sessions verify-restore --wait 300`.
-  Task 7.1's fix ships in the same CCY 3.82.0. Expected: a session started with no launch
+  Task 7.1's fix ships in the same CCY 3.82.0. Deployed on the desktop: meta-deploy
+  `20261006-134254` (`run.bash --changed`, `play-claude-yolo.yml` failed=0). The server
+  needs the same play from F44. Expected: a session started with no launch
   flags reads `WAITING-AT-PROMPT` on the first reboot after the deploy (Task 7.5).
 - [ ] 🧑 **Task 7.5**: OWNER decision, found while fixing 7.2: `load_launch_config` deletes
   the saved Quick Launch settings on any ccy version change, so after most deploys the first
