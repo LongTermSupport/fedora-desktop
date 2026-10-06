@@ -417,7 +417,9 @@ silently clamped.
 | `human_max_age_s`        | 86400                                        | 3600 - 604800 |
 | `wait_timeout_s`         | 1500 (`wait --timeout` default)              | 1 - 1790      |
 
-`send` and `say` draw on the same `send_per_minute` / `send_burst` bucket.
+`send` and `say` draw on the same `send_per_minute` / `send_burst` bucket. For `say` the
+duplicate window compares the text and the set of humans it is addressed to; only a
+digest of the text is kept in the member's state.
 
 Fixed: the duplicate window is 60 s (same verb, ref, re and set of `to` again is refused,
 exit 9); each `/sync` long-poll is 30 s; a server 429 is honoured (`Retry-After`, then
@@ -503,7 +505,7 @@ homeserver host.
 | Command                                                                        | Does                                                                                                                                                                                                                                                                                                            | Network |
 | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
 | `send VERB [REF] (--to HANDLE[,HANDLE…] \| --to-orchestrator) [--re EVENT_ID]` | the only way to emit a ping; `--to` takes handles, human localparts, or full user IDs                                                                                                                                                                                                                           | yes     |
-| `say --to HUMAN[,HUMAN…]`                                                      | the only way to emit an agent text (§7); the text is read from stdin; `--to` takes human localparts or full user IDs, never a handle                                                                                                                                                                            | yes     |
+| `say --to HUMAN[,HUMAN…]`                                                      | the only way to emit an agent text (§7); the text is read from stdin as UTF-8, less one trailing newline; `--to` takes human localparts or full user IDs, never a handle                                                                                                                                        | yes     |
 | `recv`                                                                         | sync once if the lock is free, then print and consume every pending item and due `TIMEOUT`                                                                                                                                                                                                                      | yes     |
 | `wait [--timeout S]`                                                           | hold the locks, long-poll until at least one item or `TIMEOUT`, print and consume them, exit                                                                                                                                                                                                                    | yes     |
 | `watch`                                                                        | started by the SessionStart hook: hold the locks, sync, fill the inbox, notify the session socket (counts and a rising notice number)                                                                                                                                                                           | yes     |

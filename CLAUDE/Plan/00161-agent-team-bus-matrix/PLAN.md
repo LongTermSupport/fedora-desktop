@@ -98,7 +98,9 @@ repository; opt-in per machine and per team.
   and the `agent-bus` wrapper). Wave 4: U10 (`syncer.py`, the sync engine and room trust)
   and U16 (`agent-bus-install`, its units, `tuwunel.pin`, the resolver stub), both
   reviewed and fixed; U16 is tested in the container (`scripts/test-agent-bus-install.bash`)
-  and its host run is pending.
+  and its host run is pending. Wave 5: U11 (`cli.py` `send`, `say`, `recv`, `wait`, one
+  long-poll thread per team; `test_cli.py` against the fake homeserver) built, review
+  pending.
 - [ ] ⬜ **M2 ccy members, the idle session woken**: U12, U18–U20.
 - [ ] ⬜ **M3 other encapsulations and hosts, the play**: U21–U24.
 - [ ] ⬜ **M4 Element, deploy and acceptance (privacy checks P1–P8)**: U25–U28 (U26, TLS,
