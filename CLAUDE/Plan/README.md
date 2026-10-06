@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00160-ccy-env-local-override](00160-ccy-env-local-override/) - ccy sources an untracked `.claude/ccy/ccy.env.local` after `ccy.env`, so one checkout can override the project's ccy settings without a commit. CCY 3.80.0, container 2.43.
+
 - [00159-speech-to-text-vocabulary](00159-speech-to-text-vocabulary/) - Feature: a personal vocabulary primes Whisper and a "heard => meant" list corrects the text, both kept in `~/.config/fedora-desktop/`, a checkout of the private config repo
 
 - [00158-ccy-sessions-take-over](00158-ccy-sessions-take-over/) - `ccy-sessions` Ctrl-T takes over a session open in another terminal (a dropped SSH still holding it): asks first naming that terminal and its idle time, detaches it, attaches here; the session keeps running. CCY 3.79.0, deployed by `play-claude-yolo.yml`.

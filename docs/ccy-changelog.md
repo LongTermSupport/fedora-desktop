@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.80.0 — container 2.43
+
+- **A project can keep untracked ccy settings in `.claude/ccy/ccy.env.local`.** The
+  entrypoint sources it inside the container right after `ccy.env`, so its values win over
+  the project's. `.claude/ccy/.gitignore` already ignores it. Use it for a setting that
+  belongs to one checkout and must not be committed.
+
 ## 3.79.1 — container 2.42
 
 - **Attach and take-over count a session's terminals the way the one-terminal rule does.**

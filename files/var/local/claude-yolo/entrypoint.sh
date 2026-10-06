@@ -412,16 +412,23 @@ echo "✓ /workspace marked as trusted (hasTrustDialogAccepted)"
 # declarative and tracked, not ad-hoc host exports. Sourced HERE, inside the
 # container (the same sandbox where claude --dangerously-skip-permissions runs),
 # never on the host — so a project cannot execute code on the host via it.
-_ccy_env_file="/workspace/.claude/ccy/ccy.env"
-if [ -f "$_ccy_env_file" ]; then
-    echo "Sourcing project ccy env: $_ccy_env_file"
-    # shellcheck source=/dev/null
-    . "$_ccy_env_file"
-fi
+# Then the untracked ccy.env.local, if present: per-checkout settings that must not be
+# committed. It is sourced second, so its values win over ccy.env's.
+# Top level, not a function: a `declare` in either file must stay global.
+# scripts/test-ccy-project-env.bash runs the block between the markers.
+# >>> PROJECT-ENV
+for _ccy_env_file in /workspace/.claude/ccy/ccy.env /workspace/.claude/ccy/ccy.env.local; do
+    if [ -f "$_ccy_env_file" ]; then
+        echo "Sourcing project ccy env: $_ccy_env_file"
+        # shellcheck source=/dev/null
+        . "$_ccy_env_file"
+    fi
+done
+# <<< PROJECT-ENV
 
 # ── Optional: child-claude spawn mode (Plan 00092) ────────────────────────────
 #
-# Opt-in per project with CCY_CHILD_CLAUDE=1 in the ccy.env sourced just above.
+# Opt-in per project with CCY_CHILD_CLAUDE=1 in the ccy.env (or ccy.env.local) sourced just above.
 # When on, a session gets `ccy-claude` on PATH and a skill telling the agent the
 # capability exists. When off, it gets neither.
 #
@@ -444,7 +451,7 @@ case "${CCY_CHILD_CLAUDE:-}" in
         # A typo silently disabling a feature the project asked for is a bad
         # failure mode: the session looks fine and the capability is just absent.
         echo "ERROR: CCY_CHILD_CLAUDE must be 1, 0 or unset, got '$CCY_CHILD_CLAUDE'" >&2
-        echo "  Set it in $_ccy_env_file as: export CCY_CHILD_CLAUDE=1" >&2
+        echo "  Set it in .claude/ccy/ccy.env (or ccy.env.local) as: export CCY_CHILD_CLAUDE=1" >&2
         exit 1
         ;;
 esac
@@ -472,7 +479,7 @@ if [ "${CCY_CHILD_CLAUDE:-}" = "1" ]; then
     case "${CCY_CHILD_CLAUDE_MAX_DEPTH:-1}" in
         '' | *[!0-9]*)
             echo "ERROR: CCY_CHILD_CLAUDE_MAX_DEPTH must be a whole number, got '$CCY_CHILD_CLAUDE_MAX_DEPTH'" >&2
-            echo "  Set it in $_ccy_env_file as: export CCY_CHILD_CLAUDE_MAX_DEPTH=1" >&2
+            echo "  Set it in .claude/ccy/ccy.env (or ccy.env.local) as: export CCY_CHILD_CLAUDE_MAX_DEPTH=1" >&2
             exit 1
             ;;
     esac
@@ -513,8 +520,8 @@ fi
 # Precedence, highest first:
 #   1. CCY_CLAUDE_WRAPPER forwarded from the host (`ccy --supervise`, or a host
 #      export) — an explicit operator instruction, always wins.
-#   2. CCY_CLAUDE_WRAPPER set by the project ccy.env sourced just above — the
-#      per-project choice (this is where `--arm` is opted into).
+#   2. CCY_CLAUDE_WRAPPER set by the project ccy.env (or this checkout's ccy.env.local)
+#      sourced just above — the per-project choice (this is where `--arm` is opted into).
 #   3. This default: the project supervisor, unarmed, if it is there.
 #
 # Why default ON (CCY 3.42.0). The supervisor is the ONLY remaining ctrl+z

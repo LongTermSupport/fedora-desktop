@@ -133,7 +133,8 @@ the real order the launcher executes in.
 10. **Launch.** The container starts with your project bind-mounted at `/workspace`.
 11. **Entrypoint.** Inside, the umask is set to `077` so all new session state is
     owner-only, `/root/.claude` is symlinked to `/workspace/.claude/ccy/`,
-    `.claude/ccy/ccy.env` is sourced if present, and `claude` is exec'd — optionally
+    `.claude/ccy/ccy.env` and then `ccy.env.local` are sourced if present, and `claude`
+    is exec'd — optionally
     wrapped by a [supervisor](#the-supervisor).
 
 `<project-name>` is your project directory's name, lowercased with unusual characters
@@ -477,6 +478,7 @@ by the symlink.
 ├── ccy/
 │   ├── Dockerfile           # TRACK — project container definition
 │   ├── ccy.env              # TRACK — per-project CCY config (see below)
+│   ├── ccy.env.local        # never tracked — this checkout's own overrides
 │   ├── mounts               # TRACK — extra host binds, if used (see Extra Mounts)
 │   ├── claude-supervise.py  # TRACK — vendored supervisor, if deployed
 │   ├── allowed-hostnames    # TRACK — host restrictions, if used
@@ -851,6 +853,11 @@ Two properties matter:
 - **Host settings win.** The `${VAR:-default}` idiom means a value set on the host, or by
   `ccy --supervise`, overrides the project default; an empty value falls through to the
   project's.
+
+**`ccy.env.local` — this checkout only.** An untracked `.claude/ccy/ccy.env.local` is
+sourced the same way, right after `ccy.env`, so its values win over the project's and it can
+read them. Put a setting there that belongs to one machine or one person and must not be
+committed. The generated `.gitignore` already ignores it. Use `export`, as in `ccy.env`.
 
 #### Overriding the auto-compact window
 

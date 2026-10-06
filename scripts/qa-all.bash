@@ -571,6 +571,16 @@ fi
 container_hook_summary=$(qa_gate_case_count "$container_hook_out")
 qa_pass_line ccy-container-version-hook "$container_hook_summary"
 
+# entrypoint.sh's project env step: ccy.env, then the untracked ccy.env.local, whose values win.
+project_env_out=""
+if ! project_env_out="$(bash "$SCRIPT_DIR/test-ccy-project-env.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-project-env \
+        "ccy project env tests failed" \
+        "$project_env_out"
+fi
+project_env_summary=$(qa_gate_case_count "$project_env_out")
+qa_pass_line ccy-project-env "$project_env_summary"
+
 # lib/session-lifecycle.bash and the entrypoint's plugin hook-up: --max-age/--run-for/--until
 # are validated strictly, a relaunch keeps the deadline, and with no option the supervisor's
 # wrapper line is byte-identical. The plugin itself is covered by the helper unit suite.

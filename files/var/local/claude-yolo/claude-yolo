@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.79.1"  # attach and take-over count clients as the single-attach hook does. See docs/ccy-changelog.md.
+CCY_VERSION="3.80.0"  # an untracked .claude/ccy/ccy.env.local is sourced after ccy.env. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -74,7 +74,7 @@ source "$SCRIPT_DIR/lib/tmux-session.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.42"
+REQUIRED_CONTAINER_VERSION="2.43"
 
 set -e
 
@@ -260,8 +260,9 @@ Options:
                          deployed by the hooks daemon), because it carries the
                          only ctrl+z guard; this flag adds the compaction.
                          Override the whole wrap by exporting CCY_CLAUDE_WRAPPER,
-                         or per-project via a tracked .claude/ccy/ccy.env, which
-                         entrypoint.sh sources before claude runs.
+                         or per-project via a tracked .claude/ccy/ccy.env (then an
+                         untracked ccy.env.local), which entrypoint.sh sources
+                         before claude runs.
   --no-supervise         Run claude unwrapped. Disables auto-compaction AND the
                          ctrl+z guard, so ctrl+z can freeze the session.
   --max-age DURATION     Restart the session on a fresh container (and so the newest Claude

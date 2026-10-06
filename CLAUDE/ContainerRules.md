@@ -172,7 +172,9 @@ opt-in for one release, and that was wrong the moment 3.42.0 made it the only
 ctrl+z guard: every project without a `ccy.env` was freezable by a keypress.
 
 Precedence, highest first: a host `CCY_CLAUDE_WRAPPER` export or
-`ccy --supervise` → the project's `ccy.env` → this default.
+`ccy --supervise` → the project's `ccy.env` → this default. An untracked
+`ccy.env.local` is sourced after `ccy.env`, so it overrides `ccy.env`, and also
+the host unless it uses the same `${VAR:-default}` idiom.
 
 **The default is UNARMED**, and the split matters. The terminal-key guard is
 pure protection and belongs everywhere. Automatic compaction changes what a
