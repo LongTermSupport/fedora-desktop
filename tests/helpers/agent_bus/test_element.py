@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import io
 import json
-import os
 import pathlib
 import stat
 import sys
@@ -205,14 +204,11 @@ class TestRefusal(HomeCase):
         (self.home / ".config").mkdir()
         element.check_user(self.home)
 
-    @unittest.skipIf(os.geteuid() == 0, "root reads any directory")
     def test_an_unsearchable_config_refuses(self) -> None:
-        cfg = self.home / ".config"
-        cfg.mkdir()
-        cfg.chmod(0)
-        self.addCleanup(cfg.chmod, 0o700)
-        with self.assertRaises(element.ElementError):
-            element.check_user(self.home)
+        denied = PermissionError(13, "Permission denied")
+        with mock.patch.object(element.os, "lstat", side_effect=denied):
+            with self.assertRaisesRegex(element.ElementError, "cannot be checked"):
+                element.check_user(self.home)
 
 
 class TestApply(HomeCase):
