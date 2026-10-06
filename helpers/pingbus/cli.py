@@ -24,7 +24,7 @@ from collections.abc import Mapping, Sequence
 from typing import TextIO
 
 from helpers.agent_bus import registry
-from helpers.pingbus import config, protocol
+from helpers.pingbus import config, inbox, protocol
 
 PROG = "pingbus"
 TOOL_VERSION = "0.1.0"
@@ -74,7 +74,7 @@ LINES = {
 
 #: The last verified team record (spec §12 `state/team.json`): the `agent_bus.team`
 #: content as the syncer verified it. Re-parsed on every read: it is a cache.
-TEAM_RECORD_CACHE = "team.json"
+TEAM_RECORD_CACHE = inbox.TEAM_FILE
 TEAM_RECORD_MAX_BYTES = 65536
 #: Matrix's own limit on a whole event; nothing larger can have come from a homeserver.
 EVENT_FILE_MAX_BYTES = 65536
