@@ -3,20 +3,22 @@
 The clock is always injected: every function takes `now_ms` (wall-clock milliseconds,
 the unit of Matrix `origin_server_ts`), so nothing here sleeps or reads the real time.
 
-Spec: CLAUDE/Plan/00161-agent-team-bus-matrix/PROTOCOL.md §9, §10 (moving to
-docs/agent-bus-protocol.md in U02).
+Spec: docs/agent-bus-protocol.md §9, §10.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 from helpers.pingbus import limits as lim
+from helpers.pingbus import protocol
+from tests.helpers.pingbus import test_protocol_doc as doc
 
 MIN = 60_000
 T0 = 1_791_234_567_890
@@ -61,14 +63,42 @@ class DefaultsAndBoundsTest(unittest.TestCase):
             low, high = lim.BOUNDS[key]
             self.assertTrue(low <= value <= high, key)
 
-    def test_fixed_values(self):
-        self.assertEqual(lim.DUPLICATE_WINDOW_S, 60)
-        self.assertEqual(lim.SYNC_LONG_POLL_S, 30)
-        self.assertEqual(lim.SERVER_429_MAX_TRIES, 3)
-        self.assertEqual(lim.SERVER_429_DEFAULT_WAIT_S, 5)
-        self.assertEqual(lim.PING_CONTENT_MAX_BYTES, 4096)
-        self.assertEqual(lim.HUMAN_BODY_MAX_BYTES, 16384)
-        self.assertEqual(lim.ACK_EXPECTED_VERBS, frozenset({"fetch", "sync", "review", "run-qa", "halt"}))
+    def test_byte_limits_are_not_copied_here(self):
+        # protocol owns the size check and its two limits; a second copy would drift.
+        for name in ("PING_CONTENT_MAX_BYTES", "HUMAN_BODY_MAX_BYTES"):
+            self.assertFalse(hasattr(lim, name), name)
+
+
+class SpecContractTest(unittest.TestCase):
+    """docs/agent-bus-protocol.md §10 and the protocol verb table agree with this module."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.body = doc.section(doc.read_doc(), 10)
+
+    def test_table_matches_defaults_and_bounds(self):
+        rows = doc.tables(self.body)[0]
+        defaults = {doc.code(r[0]): int(re.match(r"\d+", r[1]).group(0)) for r in rows}
+        bounds = {doc.code(r[0]): tuple(int(n) for n in r[2].split(" - ")) for r in rows}
+        self.assertEqual(defaults, lim.DEFAULTS)
+        self.assertEqual(bounds, lim.BOUNDS)
+
+    def test_fixed_values_match_spec(self):
+        text = " ".join(self.body.split())
+        self.assertIn(f"the duplicate window is {lim.DUPLICATE_WINDOW_S} s", text)
+        self.assertIn(f"each `/sync` long-poll is {lim.SYNC_LONG_POLL_S} s", text)
+        self.assertIn(f"then {lim.SERVER_429_DEFAULT_WAIT_S} s), at most {lim.SERVER_429_MAX_TRIES} tries", text)
+
+    def test_spent_send_credit_is_stated(self):
+        text = " ".join(self.body.split())
+        self.assertIn("a send refused after step 5 still counts", text)
+
+    def test_ack_expectation_follows_the_verb_table(self):
+        limits = lim.Limits()
+        for verb, rule in protocol.VERBS.items():
+            with self.subTest(verb=verb):
+                self.assertEqual(lim.ack_timeout_s(verb, limits) is not None, rule.ack_expected)
+        self.assertIn(lim.HALT_VERB, protocol.VERBS)
 
 
 class ParseLimitsTest(unittest.TestCase):
@@ -191,6 +221,20 @@ class StaleTest(unittest.TestCase):
                     lim.ping_stale(bad, "review", T0, self.limits)
                 with self.assertRaises(ValueError):
                     lim.human_stale(bad, T0, self.limits)
+                with self.assertRaises(ValueError):
+                    lim.ack_overdue(bad, "review", T0, self.limits)
+
+    def test_now_must_be_an_integer(self):
+        for bad in (True, 1.5, "1", None):
+            with self.subTest(value=bad):
+                with self.assertRaises(ValueError):
+                    lim.ping_stale(T0, "review", bad, self.limits)
+                with self.assertRaises(ValueError):
+                    lim.human_stale(T0, bad, self.limits)
+                with self.assertRaises(ValueError):
+                    lim.ack_overdue(T0, "review", bad, self.limits)
+                with self.assertRaises(ValueError):
+                    lim.ack_overdue(T0, "done", bad, self.limits)
 
 
 class TokenBucketTest(unittest.TestCase):

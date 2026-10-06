@@ -6,7 +6,11 @@ process (the token bucket, the duplicate window) is a plain object with `to_dict
 `from_dict`, for the outbox to persist; the receive flood counter lives only as long as
 the syncer that owns it.
 
-Spec: docs/agent-bus-protocol.md §9 and §10.
+This module is the one home of §10's values except the two byte limits, which belong to
+`protocol`'s size check. The `/sync` long-poll and server-429 values are not used here:
+the client code that polls and retries imports them from this module.
+
+Spec: docs/agent-bus-protocol.md §9, §10.
 """
 
 from __future__ import annotations
@@ -15,6 +19,8 @@ import collections
 import dataclasses
 import json
 from collections.abc import Iterable, Mapping
+
+from helpers.pingbus import protocol
 
 DEFAULTS = {
     "send_per_minute": 20,
@@ -41,12 +47,8 @@ DUPLICATE_WINDOW_S = 60
 SYNC_LONG_POLL_S = 30
 SERVER_429_MAX_TRIES = 3
 SERVER_429_DEFAULT_WAIT_S = 5
-PING_CONTENT_MAX_BYTES = 4096
-HUMAN_BODY_MAX_BYTES = 16384
 
-#: The §5 "Ack expected" column; `halt` has its own, shorter timeout.
-ACK_EXPECTED_VERBS = frozenset({"fetch", "sync", "review", "run-qa", "halt"})
-NO_ACK_VERBS = frozenset({"ack", "nack", "done", "blocked"})
+#: `halt` expects an ack like the other requests, but within its own, shorter timeout.
 HALT_VERB = "halt"
 
 _MS_PER_MINUTE = 60_000
@@ -114,13 +116,12 @@ def _check_ts(value: object) -> int:
 
 def ack_timeout_s(verb: str, limits: Limits) -> int | None:
     """Seconds a target has to `ack` or `nack` `verb`; None when no ack is expected."""
-    if verb == HALT_VERB:
-        return limits.halt_ack_timeout_s
-    if verb in ACK_EXPECTED_VERBS:
-        return limits.ack_timeout_s
-    if verb in NO_ACK_VERBS:
+    rule = protocol.VERBS.get(verb)
+    if rule is None:
+        raise ValueError(f"unknown verb: {verb!r}")
+    if not rule.ack_expected:
         return None
-    raise ValueError(f"unknown verb: {verb!r}")
+    return limits.halt_ack_timeout_s if verb == HALT_VERB else limits.ack_timeout_s
 
 
 def ack_deadline_ms(sent_ms: int, verb: str, limits: Limits) -> int | None:
@@ -130,23 +131,24 @@ def ack_deadline_ms(sent_ms: int, verb: str, limits: Limits) -> int | None:
     return _check_ts(sent_ms) + timeout * 1000
 
 
-def ack_overdue(sent_ms: int, verb: str, now_ms: int, limits: Limits) -> bool:
+def ack_overdue(sent_ms: object, verb: str, now_ms: object, limits: Limits) -> bool:
     """True once a silent target of an ack-expected ping is owed a `TIMEOUT` line."""
+    now = _check_ts(now_ms)
     deadline = ack_deadline_ms(sent_ms, verb, limits)
-    return deadline is not None and now_ms > deadline
+    return deadline is not None and now > deadline
 
 
-def ping_stale(origin_ms: object, verb: str, now_ms: int, limits: Limits) -> bool:
+def ping_stale(origin_ms: object, verb: str, now_ms: object, limits: Limits) -> bool:
     """§9 step 08p: older than the verb's ack timeout (`ack_timeout_s` if none expected)."""
     timeout = ack_timeout_s(verb, limits)
     if timeout is None:
         timeout = limits.ack_timeout_s
-    return now_ms - _check_ts(origin_ms) > timeout * 1000
+    return _check_ts(now_ms) - _check_ts(origin_ms) > timeout * 1000
 
 
-def human_stale(origin_ms: object, now_ms: int, limits: Limits) -> bool:
+def human_stale(origin_ms: object, now_ms: object, limits: Limits) -> bool:
     """§7: a human message older than `human_max_age_s` when first seen."""
-    return now_ms - _check_ts(origin_ms) > limits.human_max_age_s * 1000
+    return _check_ts(now_ms) - _check_ts(origin_ms) > limits.human_max_age_s * 1000
 
 
 @dataclasses.dataclass

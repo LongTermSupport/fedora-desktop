@@ -337,6 +337,10 @@ exit 9); each `/sync` long-poll is 30 s; a server 429 is honoured (`Retry-After`
 `retry_after_ms`, then 5 s), at most 3 tries, then exit 9; a ping's content at most 4096
 bytes; a human message's body at most 16384 bytes.
 
+The send limits are checked at §9 send step 5, so a send refused after step 5 still counts:
+it has spent a token and is in the duplicate window. The receive flood count is held by the
+process that receives, so each `recv` without a running watcher starts from zero.
+
 An ack-expected ping with no `ack` or `nack` from a target by its deadline produces one
 `TIMEOUT` line per silent target in the sender's next `recv` or `wait` (§15).
 
