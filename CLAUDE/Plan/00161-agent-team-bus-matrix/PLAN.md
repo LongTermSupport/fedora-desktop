@@ -85,13 +85,17 @@ repository; opt-in per machine and per team.
   The host run is pending; H1/H2's dummy-address leg needs an `agentbus0` (U16) first.
   U01 is built as `u01_probe.py` legs of the same `triage.bash` (`--claude-only` runs just
   them); a container run without a login already gave the socket facts (journal 26-10-06,
-  U01 finding); the host run adds completed turns and the Stop hook.
+  U01 finding); its review's fixes are in (wave 3: each child session runs in a fresh
+  directory outside the checkout). The host run, which needs a logged-in `claude`, adds
+  completed turns and the Stop hook.
 - [ ] 🔄 **M1 host-to-host ping, through the installer**: U02–U11, U13–U17. Built and
   integrated (wave 1): U02 (spec `docs/agent-bus-protocol.md`, `protocol.py`), U03
   (`limits.py`), U04 (`config.py`, its `limits` parsed by U03) and U14 (`teamfile.py`,
   `registry.py`, their grammars imported from `protocol.py`). Wave 2: U05 (`cli.py`, the
   offline commands), U06 (`inbox.py`), U07 (`forge.py`) and U08 (the fake client and
-  admin APIs, from recorded Tuwunel fixtures).
+  admin APIs, from recorded Tuwunel fixtures). Wave 3: U09 (`matrix.py`, the client),
+  U13 (`bundle.py`, the zipapp builder) and U15 (`helpers/agent_bus/` admin tool, renders
+  and the `agent-bus` wrapper).
 - [ ] ⬜ **M2 ccy members, the idle session woken**: U12, U18–U20.
 - [ ] ⬜ **M3 other encapsulations and hosts, the play**: U21–U24.
 - [ ] ⬜ **M4 Element, deploy and acceptance (privacy checks P1–P8)**: U25–U28 (U26, TLS,
