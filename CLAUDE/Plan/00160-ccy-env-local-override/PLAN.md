@@ -54,8 +54,8 @@ repository the agent can search, so this plan is written from the owner's spoken
   a `declare` test case
   ([report](subagent-reports/261006-qa-reviewer-opus-5-5.md)).
 - [ ] 🔄 **Task 2.2**: `deploy.bash` runs `play-claude-yolo.yml` (now CCY 3.81.0, Task
-  3.1 included), and is in `meta-deploy.bash`. The next ccy session rebuilds the image once. OWNER: run meta-deploy,
-  then the check `deploy.bash` prints at its end.
+  3.1 included). Deployed: meta-deploy `20261006-124250`, failed=0, the image rebuilt.
+  OWNER: the check `deploy.bash` prints at its end (a project with a `ccy.env.local`).
 
 ### Phase 3: `ccy.env.local.dist`, the tracked template (owner's request)
 
