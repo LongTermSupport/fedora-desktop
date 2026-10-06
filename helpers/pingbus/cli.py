@@ -1,30 +1,39 @@
-"""The `pingbus` command line: dispatch, exit codes, output lines and the offline commands.
+"""The `pingbus` command line: dispatch, exit codes, output lines and the commands.
 
 Spec: docs/agent-bus-protocol.md §13 (commands), §14 (exit codes), §15 (output lines),
-§3 (`suggest-handle`), §1 (`version`). This module holds the offline commands
-(`version`, `validate`, `config check`, `suggest-handle`); the network commands are added
-beside them by later units and use the same dispatch, exit codes and line formatter.
+§9 (on send; on receive; reading the inbox), §7 (agent text to humans), §10 (the send
+bucket, TIMEOUT), §12 (multi-team, the lock), §3 (`suggest-handle`), §1 (`version`).
+The offline commands are `version`, `validate`, `config check` and `suggest-handle`; the
+network commands are `send`, `say`, `recv` and `wait` (Plan 00161 U11), built on
+`syncer` for room trust and receiving.
 
 Streams: stdout carries only a command's payload (the §15 stdout lines, `validate`'s
 verdict, and the report commands' text); every diagnostic goes to stderr. Nothing read
 from an event or a bundle is ever echoed: refusals print a reason code, and the config
-errors name keys and files, never values.
+errors name keys and files, never values. `recv` and `wait` print an item only from the
+copy they re-fetch from the homeserver, after re-validating it: the inbox is a cache.
 """
 
 from __future__ import annotations
 
 import argparse
+import collections
+import dataclasses
+import hashlib
 import json
 import os
+import queue
 import re
 import stat
 import subprocess
 import sys
-from collections.abc import Mapping, Sequence
-from typing import TextIO
+import threading
+import time
+from collections.abc import Callable, Mapping, Sequence
+from typing import BinaryIO, TextIO
 
 from helpers.agent_bus import registry
-from helpers.pingbus import config, inbox, protocol
+from helpers.pingbus import config, forge, inbox, limits, matrix, protocol, syncer
 
 PROG = "pingbus"
 TOOL_VERSION = "0.1.0"
@@ -468,7 +477,387 @@ def cmd_suggest_handle(args: argparse.Namespace, environ: Mapping[str, str], out
     return EXIT_OK
 
 
-# ---------------------------------------------------------------- dispatch
+# ---------------------------------------------------------------- the network commands
+
+#: How long `wait` lets a `recv` that holds the lock for its one sync finish, before it
+#: calls the team busy: a `recv` holder is not a waker (§12).
+RECV_HOLD_WAIT_S = 5.0
+RECV_HOLD_RETRY_S = 0.05
+#: `say` reads at most the §7 limit, one trailing newline and one byte more: anything
+#: longer is refused (`size`) without reading the rest.
+SAY_READ_MAX = protocol.MAX_AGENT_TEXT_BYTES + 2
+#: The send gate (§10) keys a send by verb, ref, re and targets. An agent text has no verb
+#: or ref, so it is keyed by this pseudo-verb and a digest of the text: the same text to the
+#: same humans within the window is a duplicate, and the text itself is never kept at rest.
+SAY_GATE_VERB = "text"
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+@dataclasses.dataclass
+class Runtime:
+    """What the network commands take from their surroundings; tests replace the parts.
+
+    `forge_for(member, environ)` gives the per-record forge factory (`syncer.forge_factory`);
+    `clock_ms` is wall-clock milliseconds for limits and ack deadlines; `sleep` serves the
+    client's 429 retries; `long_poll_ms` caps each `/sync` of `wait`; `tick_s` is how often
+    `wait` looks for a TIMEOUT falling due while nothing arrives; `threads` collects
+    `wait`'s long-poll threads."""
+
+    forge_for: Callable[
+        [config.Member, Mapping[str, str]], Callable[[protocol.TeamRecord], forge.Forge]
+    ] = syncer.forge_factory
+    clock_ms: Callable[[], int] = _now_ms
+    sleep: Callable[[float], object] = time.sleep
+    long_poll_ms: int = limits.SYNC_LONG_POLL_S * 1000
+    tick_s: float = 1.0
+    threads: list[threading.Thread] = dataclasses.field(default_factory=list)
+
+
+class _LockedStream:
+    """A text stream several threads write whole lines to."""
+
+    def __init__(self, stream: TextIO) -> None:
+        self._stream = stream
+        self._lock = threading.Lock()
+
+    def write(self, text: str) -> None:
+        with self._lock:
+            self._stream.write(text)
+
+
+#: Failures a command reports with their §14 exit code; anything else is a bug (exit 1).
+FAILURES = (
+    config.UsageError, config.ConfigError, inbox.StateError, protocol.Untrusted,
+    protocol.Refusal, limits.RateLimited, forge.ForgeError, matrix.MatrixError, inbox.Busy,
+)
+
+
+def failure(exc: BaseException) -> tuple[int, str]:
+    """The exit code and the one-line message for a `FAILURES` exception. No message
+    carries anything an event, a stdin text or a token held: refusals name a reason code."""
+    if isinstance(exc, config.UsageError):
+        return EXIT_USAGE, str(exc)
+    if isinstance(exc, (config.ConfigError, inbox.StateError)):
+        return EXIT_CONFIG, str(exc)
+    if isinstance(exc, protocol.Untrusted):
+        return EXIT_UNTRUSTED, f"the team room is not trusted: {exc}"
+    if isinstance(exc, protocol.Refusal):
+        return EXIT_REFUSED, f"refused: {exc.reason}"
+    if isinstance(exc, limits.RateLimited):
+        return EXIT_RATE, f"rate limited: {exc.reason}"
+    if isinstance(exc, forge.ForgeError):
+        return exc.exit_code, f"forge check refused: {exc}"
+    if isinstance(exc, matrix.MatrixError):
+        return exc.exit_code, f"homeserver: {exc}"
+    if isinstance(exc, inbox.Busy):
+        return EXIT_BUSY, str(exc)
+    raise TypeError(f"not a reported failure: {type(exc).__name__}")
+
+
+@dataclasses.dataclass
+class _Seat:
+    """One active team's member with its clients, state and sync engine. `fetcher` is a
+    second client, so `wait`'s main thread re-fetches while a long-poll thread syncs."""
+
+    member: config.Member
+    client: matrix.Client
+    fetcher: matrix.Client
+    state: inbox.TeamState
+    syncer: syncer.Syncer
+
+
+def _seat(member: config.Member, environ: Mapping[str, str], rt: Runtime, err: TextIO) -> _Seat:
+    client = matrix.Client.for_member(member, sleep=rt.sleep)
+    state = inbox.TeamState.for_member(member)
+    engine = syncer.Syncer(member, client, state, forge_for=rt.forge_for(member, environ),
+                           clock_ms=rt.clock_ms, log=lambda text: err.write(f"{PROG}: {text}\n"))
+    return _Seat(member, client, matrix.Client.for_member(member, sleep=rt.sleep), state, engine)
+
+
+def _user_ids(names: str, server_name: str) -> list[str]:
+    """`--to`'s comma-separated handles, human localparts or full user IDs, as user IDs.
+    Nothing is judged here: the validator refuses whatever is not allowed (`target`)."""
+    return [name if name.startswith("@") else f"@{name}:{server_name}" for name in names.split(",")]
+
+
+def _orchestrators(record: protocol.TeamRecord, self_user_id: str) -> list[str]:
+    found = sorted(user for user, role in record.roles.items()
+                   if role == protocol.ROLE_ORCHESTRATOR and user != self_user_id)
+    if not found:
+        raise protocol.Refusal("target")
+    return found
+
+
+def cmd_send(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
+    """§9 on send, steps 1-7, in order; the first failure sends nothing."""
+    rt: Runtime = args.runtime
+    member = _one_member(environ, args.team)
+    seat = _seat(member, environ, rt, err)
+    record = seat.syncer.verify_room()
+    ctx = record.context(member.server_name)
+    to = (_orchestrators(record, member.user_id) if args.to_orchestrator
+          else _user_ids(args.to, member.server_name))
+    ref = None if args.ref is None else protocol.lowercase_ref_repo(args.ref)
+    content = protocol.build_ping(args.verb, to, ref, args.re)
+    ping = protocol.validate_content(content, ctx)
+    protocol.check_role(args.verb, member.user_id, ctx)
+    now = rt.clock_ms()
+    seat.state.admit_send(member.limits, args.verb, ref, args.re, ping.to, now)
+    if ping.ref is not None:
+        forge.check_ping(ping, record, rt.forge_for(member, environ)(record))
+    event_id = seat.client.send_message(member.room, content)
+    with seat.state.outbox() as box:
+        box.record_sent(event_id, args.verb, ref, ping.to, now)
+    emit(sent_line(member.team, event_id), out, err)
+    return EXIT_OK
+
+
+def _read_text(stdin: BinaryIO) -> str:
+    """`say`'s text: stdin as UTF-8, less one trailing newline (what `echo` adds)."""
+    raw = stdin.read(SAY_READ_MAX)
+    if raw.endswith(b"\n"):
+        raw = raw[:-1]
+    if len(raw) > protocol.MAX_AGENT_TEXT_BYTES:
+        raise protocol.Refusal("size")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise protocol.Refusal("schema") from None
+
+
+def cmd_say(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
+    """§9 on send for an agent text: steps 1 and 2, §7's rules and the role in place of
+    3, 4 and 6, the member's own token refused as `secret`, then 5 and 7."""
+    rt: Runtime = args.runtime
+    member = _one_member(environ, args.team)
+    text = _read_text(args.stdin)
+    seat = _seat(member, environ, rt, err)
+    ctx = seat.syncer.verify_room().context(member.server_name)
+    content = protocol.build_text(_user_ids(args.to, member.server_name), text)
+    said = protocol.validate_text_content(content, ctx)
+    if config.read_token(member) in text:
+        raise protocol.Refusal("secret")
+    protocol.check_text_sender(member.user_id, ctx)
+    digest = "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+    seat.state.admit_send(member.limits, SAY_GATE_VERB, digest, None, said.to, rt.clock_ms())
+    event_id = seat.client.send_message(member.room, content)
+    emit(sent_line(member.team, event_id), out, err)
+    return EXIT_OK
+
+
+def _refetch(seat: _Seat, ctx: protocol.Context, event_id: str) -> tuple[protocol.Outcome, object]:
+    """§9 reading the inbox: the item as the homeserver serves it, re-validated; and
+    its sender, for a drop line. A copy the server no longer has is a `schema` drop."""
+    member = seat.member
+    try:
+        event = seat.fetcher.get_event(member.room, event_id)
+    except matrix.NotFound:
+        return protocol.Outcome(protocol.DROP, "schema"), None
+    if event.get("event_id") != event_id:
+        return protocol.Outcome(protocol.DROP, "schema"), None
+    outcome = protocol.validate_event(event, ctx, member.user_id, human_text=member.human_text)
+    return outcome, event.get("sender")
+
+
+def _deliver(seat: _Seat, record: protocol.TeamRecord, rt: Runtime, out: TextIO,
+             err: TextIO) -> tuple[int, int]:
+    """Print and consume every pending item from its re-fetched copy, then every TIMEOUT
+    due; one DROPPED line on stderr for what failed on re-fetch. (lines, drops)"""
+    member, state = seat.member, seat.state
+    ctx = record.context(member.server_name)
+    now = rt.clock_ms()
+    printed = 0
+    drops: collections.Counter[str] = collections.Counter()
+    for item in state.pending(ctx, member.user_id, human_text=member.human_text).items:
+        outcome, sender = _refetch(seat, ctx, item.event_id)
+        if outcome.kind == protocol.ACCEPT:
+            if outcome.ping is not None:
+                line = ping_line(member.team, member.server_name, outcome.ping)
+            else:
+                line = human_line(member.team, member.server_name, outcome.human)
+            emit(line, out, err)
+            printed += 1
+        elif outcome.kind == protocol.DROP:
+            state.log_drop(member.team, item.event_id, sender, outcome.reason, now)
+            drops[outcome.reason] += 1
+        state.consume(item.event_id)
+    with state.outbox() as box:
+        due = box.due_timeouts(now, member.limits)
+        for timeout in due:
+            emit(timeout_line(member.team, member.server_name, timeout.event_id, timeout.target,
+                              timeout.verb, timeout.ref), out, err)
+        box.mark_reported(due)
+    if drops:
+        emit(dropped_line(drops), out, err)
+    return printed + len(due), sum(drops.values())
+
+
+def _recv_team(member: config.Member, environ: Mapping[str, str], rt: Runtime,
+               out: TextIO, err: TextIO) -> tuple[int, int]:
+    """One team's `recv`: sync once when the lock is free, then deliver. (lines, drops)"""
+    seat = _seat(member, environ, rt, err)
+    try:
+        lock = inbox.acquire_lock(seat.state, "recv", sleep=rt.sleep)
+    except inbox.Busy as busy:
+        err.write(f"{PROG}: team {member.team}: not syncing: a {busy.holder} process holds "
+                  "the sync lock; reading the inbox\n")
+        record = load_cached_record(member)
+        drops = 0
+    else:
+        with lock:
+            batch = seat.syncer.sync_once(0)
+        record = seat.syncer.record
+        if batch.drops:
+            emit(dropped_line(batch.drops), out, err)
+        drops = sum(batch.drops.values())
+    printed, refetch_drops = _deliver(seat, record, rt, out, err)
+    return printed, drops + refetch_drops
+
+
+def cmd_recv(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
+    """Every active team (or `--team`), in `PINGBUS_TEAMS` order. A team that fails is
+    reported and the others still run; the exit code is then the first failure's."""
+    rt: Runtime = args.runtime
+    printed = dropped = 0
+    first_failure: int | None = None
+    for member in config.load_active(environ, team=args.team):
+        try:
+            lines, drops = _recv_team(member, environ, rt, out, err)
+        except FAILURES as exc:
+            code, message = failure(exc)
+            err.write(f"{PROG}: team {member.team}: {message}\n")
+            if first_failure is None:
+                first_failure = code
+            continue
+        printed += lines
+        dropped += drops
+    if first_failure is not None:
+        return first_failure
+    if printed:
+        return EXIT_OK
+    return EXIT_DROPPED if dropped else EXIT_NOTHING
+
+
+def _take_waiter_lock(state: inbox.TeamState, rt: Runtime) -> inbox.Lock:
+    """The team's sync lock as a waiter. A `recv` holds it only for one sync, so that
+    holder is waited for (up to `RECV_HOLD_WAIT_S`); a watcher or waiter is `Busy`."""
+    give_up = time.monotonic() + RECV_HOLD_WAIT_S
+    while True:
+        try:
+            return inbox.acquire_lock(state, "wait", sleep=rt.sleep)
+        except inbox.Busy as busy:
+            if busy.holder != "recv" or time.monotonic() >= give_up:
+                raise
+        time.sleep(RECV_HOLD_RETRY_S)
+
+
+@dataclasses.dataclass
+class _Waiting:
+    """What `wait`'s long-poll threads hand to its main thread."""
+
+    deadline: float
+    woke: threading.Event = dataclasses.field(default_factory=threading.Event)
+    stop: threading.Event = dataclasses.field(default_factory=threading.Event)
+    drops: queue.SimpleQueue = dataclasses.field(default_factory=queue.SimpleQueue)
+    failures: list[tuple[str, Exception]] = dataclasses.field(default_factory=list)
+
+
+def _long_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting) -> None:
+    """One team's thread: long-poll until stopped or the deadline, waking the main thread
+    on every batch that stored an item. It owns `lock` and releases it when it ends. A
+    failure is handed to the main thread, which reports it and exits with its code."""
+    try:
+        while not waiting.stop.is_set():
+            remaining_ms = int((waiting.deadline - time.monotonic()) * 1000)
+            if remaining_ms <= 0:
+                return
+            batch = seat.syncer.sync_once(min(rt.long_poll_ms, remaining_ms))
+            if batch.drops:
+                waiting.drops.put(batch.drops)
+            if batch.accepted:
+                waiting.woke.set()
+    except Exception as exc:
+        waiting.failures.append((seat.member.team, exc))
+        waiting.woke.set()
+    finally:
+        lock.release()
+
+
+def _flush_drops(waiting: _Waiting, out: TextIO, err: TextIO) -> None:
+    while not waiting.drops.empty():
+        emit(dropped_line(waiting.drops.get()), out, err)
+
+
+def cmd_wait(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
+    """Hold every active team's lock as a waiter (a busy team is reported and skipped;
+    exit 75 only when every team is busy), long-poll them all at once, one thread per
+    team, and exit on the first batch that prints a line, or at the timeout (exit 3).
+    Drops are reported on stderr and never end the wait."""
+    rt: Runtime = args.runtime
+    err = _LockedStream(err)
+    members = config.load_active(environ, team=args.team)
+    if args.timeout is None:
+        timeout = min(member.limits.wait_timeout_s for member in members)
+    else:
+        try:
+            timeout = limits.check_wait_timeout(args.timeout)
+        except limits.LimitsError as exc:
+            raise config.UsageError(f"wait --timeout: {exc}") from None
+    waiting = _Waiting(time.monotonic() + timeout)
+    held: list[tuple[_Seat, inbox.Lock]] = []
+    handed_over: set[str] = set()
+    try:
+        for member in members:
+            seat = _seat(member, environ, rt, err)
+            try:
+                held.append((seat, _take_waiter_lock(seat.state, rt)))
+            except inbox.Busy as busy:
+                err.write(f"{PROG}: team {member.team}: busy: a {busy.holder} process holds the "
+                          "sync lock\n")
+        if not held:
+            err.write(f"{PROG}: every active team is busy: another process is already waiting\n")
+            return EXIT_BUSY
+        for seat, _ in held:
+            batch = seat.syncer.sync_once(0)
+            if batch.drops:
+                emit(dropped_line(batch.drops), out, err)
+
+        def deliver_all() -> int:
+            return sum(_deliver(seat, seat.syncer.record, rt, out, err)[0]
+                       for seat, _ in held if seat.syncer.record is not None)
+
+        if deliver_all():
+            return EXIT_OK
+        for seat, lock in held:
+            thread = threading.Thread(target=_long_poll, args=(seat, lock, rt, waiting), daemon=True,
+                                      name=f"pingbus-wait-{seat.member.team}")
+            rt.threads.append(thread)
+            handed_over.add(seat.member.team)
+            thread.start()
+        while True:
+            waiting.woke.wait(max(0.0, min(waiting.deadline - time.monotonic(), rt.tick_s)))
+            waiting.woke.clear()
+            _flush_drops(waiting, out, err)
+            if waiting.failures:
+                team, exc = waiting.failures[0]
+                if not isinstance(exc, FAILURES):
+                    raise exc
+                code, message = failure(exc)
+                err.write(f"{PROG}: team {team}: {message}\n")
+                return code
+            if deliver_all():
+                return EXIT_OK
+            if time.monotonic() >= waiting.deadline:
+                err.write(f"{PROG}: nothing within {timeout} s: run wait again to re-arm\n")
+                return EXIT_NOTHING
+    finally:
+        waiting.stop.set()
+        for seat, lock in held:
+            if seat.member.team not in handed_over:
+                lock.release()
 
 
 def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
@@ -516,6 +905,22 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     check.set_defaults(handler=cmd_config_check)
     command("suggest-handle", cmd_suggest_handle,
             "print the agent-bus add-member arguments this environment implies")
+    send = command("send", cmd_send, "send a ping (the only way to emit one)")
+    send.add_argument("verb", metavar="VERB")
+    send.add_argument("ref", nargs="?", metavar="REF")
+    targets = send.add_mutually_exclusive_group(required=True)
+    targets.add_argument("--to", metavar="HANDLE[,HANDLE...]",
+                         help="handles, human localparts or full user IDs")
+    targets.add_argument("--to-orchestrator", action="store_true",
+                         help="every orchestrator in the team record")
+    send.add_argument("--re", metavar="EVENT_ID")
+    say = command("say", cmd_say, "send text from stdin to the team's humans")
+    say.add_argument("--to", required=True, metavar="HUMAN[,HUMAN...]",
+                     help="human localparts or full user IDs, never a handle")
+    command("recv", cmd_recv, "sync once if the lock is free, then print every pending item")
+    wait = command("wait", cmd_wait, "long-poll every active team until an item arrives")
+    wait.add_argument("--timeout", type=int, metavar="S",
+                      help="seconds (default: the member's wait_timeout_s)")
     return parser
 
 
@@ -525,6 +930,8 @@ def main(
     environ: Mapping[str, str] | None = None,
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
+    stdin: BinaryIO | None = None,
+    runtime: Runtime | None = None,
 ) -> int:
     env = os.environ if environ is None else environ
     out = sys.stdout if stdout is None else stdout
@@ -532,18 +939,15 @@ def main(
     try:
         config.check_python(sys.version_info)
         args = build_parser(out).parse_args(argv)
+        args.stdin = sys.stdin.buffer if stdin is None else stdin
+        args.runtime = Runtime() if runtime is None else runtime
         return args.handler(args, env, out, err)
     except _ParserExit as done:
         return done.status
-    except config.UsageError as exc:
-        err.write(f"{PROG}: {exc}\n")
-        return EXIT_USAGE
-    except config.ConfigError as exc:
-        err.write(f"{PROG}: {exc}\n")
-        return EXIT_CONFIG
-    except protocol.Untrusted as exc:
-        err.write(f"{PROG}: the team room is not trusted: {exc}\n")
-        return EXIT_UNTRUSTED
+    except FAILURES as exc:
+        code, message = failure(exc)
+        err.write(f"{PROG}: {message}\n")
+        return code
 
 
 if __name__ == "__main__":
