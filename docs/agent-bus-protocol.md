@@ -181,8 +181,13 @@ repository's trusted `branches` (§11); "reachable" means
 | pr     | `GET /repos/OWNER/REPO/pulls/NUM`; `GET /repos/OWNER/REPO/compare/HEADREF...SHA` | 200; `head.repo.full_name` (lowercased) is `OWNER/REPO`; `author_association` is `OWNER`, `MEMBER` or `COLLABORATOR`; SHA is `identical` to or `behind` the PR's head ref `HEADREF` |
 | issue  | `GET /repos/OWNER/REPO/issues/NUM`                                               | 200 and no `pull_request` key                                                                                                                                                       |
 
-Positive results for `path` and `commit` content are cached in `forge-cache.json` (content
-at a SHA is immutable); reachability and `pr` results for 3600 s. A 429, or a 403 with
+A compare answering 422 (no merge base with `BRANCH`) counts as found but not reachable, so
+it ends in `provenance`, not `not-found`.
+
+Positive results only are cached, in `forge-cache.json` in the member's state directory: a
+file's existence at a SHA for 30 days (content at a SHA is immutable; the expiry only bounds
+the file), reachability and `pr` results for 3600 s. A cache file that is not exactly the
+expected shape is a config error (exit 78), not silently discarded. A 429, or a 403 with
 `x-ratelimit-remaining: 0`, is retried per §10 and then reported as `forge-rate`. Send-side
 refusals, on stderr: `not-found`, `wrong-kind`, `provenance`, `forge-unreachable`,
 `forge-auth` (exit 5), `forge-rate` (exit 9). On receive the same failures drop the ping as
@@ -415,7 +420,9 @@ silently clamped.
 
 Fixed: the duplicate window is 60 s (same verb, ref, re and set of `to` again is refused,
 exit 9); each `/sync` long-poll is 30 s; a server 429 is honoured (`Retry-After`, then
-`retry_after_ms`, then 5 s), at most 3 tries, then exit 9; a ping's content at most 4096
+`retry_after_ms`, then 5 s), at most 3 tries, then exit 9; a forge rate limit (§6) is
+honoured the same way with GitHub's `x-ratelimit-reset` read after `Retry-After`, except
+that a wait over 60 s is not slept and is reported as `forge-rate` at once; a ping's content at most 4096
 bytes; a human message's body at most 16384 bytes; an agent text's `text` at most 4096
 bytes.
 
@@ -446,8 +453,10 @@ exit 78), written by `agent-bus add-member`. Pingbus keeps its state in
 `PINGBUS_HOME/<team>/state/`: `inbox/` (one JSON file per event ID), `consumed/`,
 `outbox.json`, `sync.json`, `team.json` (the last verified team record, for `status` and
 the hooks), `forge-cache.json`, `dropped.log`, `lock`. `lock` is held with `flock` by the
-one process syncing this team (a watcher or a waiter), which writes its kind (`watch` or
-`wait`) into it; a waker is live exactly when a non-blocking `flock` on it fails. No PID is
+one process syncing this team, which writes its kind into it: `watch` (a watcher), `wait`
+(a waiter), or `recv` (a `recv` syncing once, for that sync only). A waker is live exactly
+when a non-blocking `flock` on it fails and the kind it holds is `watch` or `wait`; a
+`recv` holder is not a waker. No PID is
 ever recorded: `/workspace` is shared across container namespaces, where a PID means
 nothing.
 
@@ -487,20 +496,20 @@ Global options: `--team NAME`. Every command reads arguments only and never prom
 Account and room administration is not a pingbus command: it is `agent-bus` on the
 homeserver host.
 
-| Command                                                                        | Does                                                                                                                                                                                                                                                      | Network |
-| ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| `send VERB [REF] (--to HANDLE[,HANDLE…] \| --to-orchestrator) [--re EVENT_ID]` | the only way to emit a ping; `--to` takes handles, human localparts, or full user IDs                                                                                                                                                                     | yes     |
-| `say --to HUMAN[,HUMAN…]`                                                      | the only way to emit an agent text (§7); the text is read from stdin; `--to` takes human localparts or full user IDs, never a handle                                                                                                                      | yes     |
-| `recv`                                                                         | sync once if the lock is free, then print and consume every pending item and due `TIMEOUT`                                                                                                                                                                | yes     |
-| `wait [--timeout S]`                                                           | hold the locks, long-poll until at least one item or `TIMEOUT`, print and consume them, exit                                                                                                                                                              | yes     |
-| `watch`                                                                        | started by the SessionStart hook: hold the locks, sync, fill the inbox, notify the session socket (counts and a rising notice number)                                                                                                                     | yes     |
-| `inbox`                                                                        | print pending items without consuming                                                                                                                                                                                                                     | no      |
-| `status`                                                                       | per team: handle, room trust, wake path (from the lock: watcher, waiter, none), pending count, overdue acks, drops, unexpected members; members' user IDs with their role or `human`, and their status (stale marked), from the last verified team record | no      |
-| `validate VERB [REF] [--re EVENT_ID]` / `validate --event FILE`                | run the offline send-side or receive-side validator; prints `OK` or the reason code                                                                                                                                                                       | no      |
-| `config check`                                                                 | validate every active team's bundle and the forge credential source                                                                                                                                                                                       | no      |
-| `suggest-handle`                                                               | print the `agent-bus add-member` arguments this environment implies (§3)                                                                                                                                                                                  | no      |
-| `hook session-start` / `hook prompt` / `hook stop` / `hook session-end`        | Claude Code hook entry points: stdin hook JSON, stdout hook JSON; always exit 0; fixed templates only                                                                                                                                                     | no      |
-| `version`                                                                      | §1                                                                                                                                                                                                                                                        | no      |
+| Command                                                                        | Does                                                                                                                                                                                                                                                                                                            | Network |
+| ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `send VERB [REF] (--to HANDLE[,HANDLE…] \| --to-orchestrator) [--re EVENT_ID]` | the only way to emit a ping; `--to` takes handles, human localparts, or full user IDs                                                                                                                                                                                                                           | yes     |
+| `say --to HUMAN[,HUMAN…]`                                                      | the only way to emit an agent text (§7); the text is read from stdin; `--to` takes human localparts or full user IDs, never a handle                                                                                                                                                                            | yes     |
+| `recv`                                                                         | sync once if the lock is free, then print and consume every pending item and due `TIMEOUT`                                                                                                                                                                                                                      | yes     |
+| `wait [--timeout S]`                                                           | hold the locks, long-poll until at least one item or `TIMEOUT`, print and consume them, exit                                                                                                                                                                                                                    | yes     |
+| `watch`                                                                        | started by the SessionStart hook: hold the locks, sync, fill the inbox, notify the session socket (counts and a rising notice number)                                                                                                                                                                           | yes     |
+| `inbox`                                                                        | print pending items without consuming                                                                                                                                                                                                                                                                           | no      |
+| `status`                                                                       | per team: handle, room trust, wake path (from the lock: watcher, waiter, none), pending count, overdue acks, drops, unexpected members; members' user IDs with their role or `human`, and their status (stale marked), from the last verified team record                                                       | no      |
+| `validate VERB [REF] [--re EVENT_ID]` / `validate --event FILE`                | run the offline send-side or receive-side validator against the active team's last verified record (`--event` needs one; with no active team, `VERB` is checked for grammar only); prints `OK`, the reason code (exit 4), or `ignore <reason>` for an event a receiver skips silently (`agent-text` among them) | no      |
+| `config check`                                                                 | validate every active team's bundle and the forge credential source                                                                                                                                                                                                                                             | no      |
+| `suggest-handle`                                                               | print the `agent-bus add-member` arguments this environment implies (§3)                                                                                                                                                                                                                                        | no      |
+| `hook session-start` / `hook prompt` / `hook stop` / `hook session-end`        | Claude Code hook entry points: stdin hook JSON, stdout hook JSON; always exit 0; fixed templates only                                                                                                                                                                                                           | no      |
+| `version`                                                                      | §1                                                                                                                                                                                                                                                                                                              | no      |
 
 Invites are accepted by the syncer itself, after the checks in §8. `show`, `peers` and
 `tail` are deferred: no success criterion needs them, and `status` lists the members.

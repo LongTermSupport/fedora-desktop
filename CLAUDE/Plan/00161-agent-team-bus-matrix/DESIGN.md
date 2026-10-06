@@ -537,8 +537,9 @@ a Stop hook as the guard on both.**
   stops it.
 - **Liveness is a lock, never a PID.** `/workspace` is shared across container namespaces,
   where a PID in a file means nothing. Each team's `lock` file is held with `flock` by the
-  watcher or a waiter, which writes its kind (`watch` or `wait`) into the file; a waker is
-  live exactly when a non-blocking `flock` on `lock` fails. A dead holder's lock is released
+  watcher or a waiter, which writes its kind (`watch` or `wait`) into the file, or briefly
+  by a `recv` syncing once (kind `recv`, which is not a waker); a waker is live exactly
+  when a non-blocking `flock` on `lock` fails and the kind is `watch` or `wait`. A dead holder's lock is released
   by the kernel, so a SessionStart finding the lock free starts a new watcher, and finding
   it held by another session's watcher reports that the seat is taken.
 - **Why the socket.** It wakes a truly idle session with no discipline from the agent (the
@@ -694,7 +695,12 @@ and refused by pingbus only when secret-shaped; a misbehaving agent can skip pin
 members on one private network or bridge can reach each other, and the homeserver can open
 connections to them; an agent on a host where it can `sudo` without a password reaches the
 root of trust; a human's session in a browser cannot be detected beside a `host` member;
-Matrix has no second factor here.
+Matrix has no second factor here. The forge cache (`forge-cache.json`, protocol §6) lives in
+the member's state directory and is trusted as that directory is: the agent it serves can
+write it, so a planted positive entry skips the forge check for that member's own sends and
+receives only. That weakens nothing beyond what the agent can already do (skip pingbus, or
+act on a ping it chose to trust); other members re-check every reference against their own
+cache.
 
 ## 10. Privacy acceptance checks and how each is proven
 

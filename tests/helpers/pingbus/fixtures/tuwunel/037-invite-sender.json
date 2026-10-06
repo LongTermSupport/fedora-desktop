@@ -1,0 +1,13 @@
+{
+  "auth": "<token:admin>",
+  "body": {
+    "user_id": "@probe.20+triage.podman:probe.agent-bus.internal"
+  },
+  "elapsed_ms": 1,
+  "method": "POST",
+  "name": "invite-sender",
+  "path": "/_matrix/client/v3/rooms/%214-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM/invite",
+  "query": {},
+  "response": {},
+  "status": 200
+}

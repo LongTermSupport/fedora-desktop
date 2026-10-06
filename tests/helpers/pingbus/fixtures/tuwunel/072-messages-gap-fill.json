@@ -1,0 +1,211 @@
+{
+  "auth": "<token:receiver>",
+  "body": null,
+  "elapsed_ms": 0,
+  "method": "GET",
+  "name": "messages-gap-fill",
+  "path": "/_matrix/client/v3/rooms/%214-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM/messages",
+  "query": {
+    "dir": "f",
+    "filter": "{\"types\": [\"m.room.message\"]}",
+    "from": "179",
+    "limit": "100",
+    "to": "202"
+  },
+  "response": {
+    "chunk": [
+      {
+        "content": {
+          "agent_bus.ping": {
+            "ref": "commit:example-org/myrepo@0000000000000000000000000000000000000000",
+            "to": [
+              "@probe.21+triage.podman:probe.agent-bus.internal"
+            ],
+            "v": 1,
+            "verb": "run-qa"
+          },
+          "body": "[agent-bus] run-qa commit:example-org/myrepo@0000000000000000000000000000000000000000 -> @probe.21+triage.podman:probe.agent-bus.internal",
+          "m.mentions": {
+            "user_ids": [
+              "@probe.21+triage.podman:probe.agent-bus.internal"
+            ]
+          },
+          "msgtype": "m.notice"
+        },
+        "event_id": "$xbY0hNQKVzp6R_JOYL03o7snk0zx4AQ9827Tsep9l84",
+        "origin_server_ts": 1791298027819,
+        "room_id": "!4-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM",
+        "sender": "@probe.20+triage.podman:probe.agent-bus.internal",
+        "type": "m.room.message",
+        "unsigned": {
+          "age": 14
+        }
+      },
+      {
+        "content": {
+          "agent_bus.ping": {
+            "ref": "commit:example-org/myrepo@0000000000000000000000000000000000000001",
+            "to": [
+              "@probe.21+triage.podman:probe.agent-bus.internal"
+            ],
+            "v": 1,
+            "verb": "run-qa"
+          },
+          "body": "[agent-bus] run-qa commit:example-org/myrepo@0000000000000000000000000000000000000001 -> @probe.21+triage.podman:probe.agent-bus.internal",
+          "m.mentions": {
+            "user_ids": [
+              "@probe.21+triage.podman:probe.agent-bus.internal"
+            ]
+          },
+          "msgtype": "m.notice"
+        },
+        "event_id": "$G3aGFeeZ8BmBm6CNQY4c2QnaymBJ3MKU6YztR7bxMoY",
+        "origin_server_ts": 1791298027821,
+        "room_id": "!4-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM",
+        "sender": "@probe.20+triage.podman:probe.agent-bus.internal",
+        "type": "m.room.message",
+        "unsigned": {
+          "age": 12
+        }
+      },
+      {
+        "content": {
+          "agent_bus.ping": {
+            "ref": "commit:example-org/myrepo@0000000000000000000000000000000000000002",
+            "to": [
+              "@probe.21+triage.podman:probe.agent-bus.internal"
+            ],
+            "v": 1,
+            "verb": "run-qa"
+          },
+          "body": "[agent-bus] run-qa commit:example-org/myrepo@0000000000000000000000000000000000000002 -> @probe.21+triage.podman:probe.agent-bus.internal",
+          "m.mentions": {
+            "user_ids": [
+              "@probe.21+triage.podman:probe.agent-bus.internal"
+            ]
+          },
+          "msgtype": "m.notice"
+        },
+        "event_id": "$5bAkw-phzrPLZQ_ctn29povV7jqn607wq4d2dw7OqoI",
+        "origin_server_ts": 1791298027822,
+        "room_id": "!4-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM",
+        "sender": "@probe.20+triage.podman:probe.agent-bus.internal",
+        "type": "m.room.message",
+        "unsigned": {
+          "age": 11
+        }
+      },
+      {
+        "content": {
+          "agent_bus.ping": {
+            "ref": "commit:example-org/myrepo@0000000000000000000000000000000000000003",
+            "to": [
+              "@probe.21+triage.podman:probe.agent-bus.internal"
+            ],
+            "v": 1,
+            "verb": "run-qa"
+          },
+          "body": "[agent-bus] run-qa commit:example-org/myrepo@0000000000000000000000000000000000000003 -> @probe.21+triage.podman:probe.agent-bus.internal",
+          "m.mentions": {
+            "user_ids": [
+              "@probe.21+triage.podman:probe.agent-bus.internal"
+            ]
+          },
+          "msgtype": "m.notice"
+        },
+        "event_id": "$AnY7tgSLNfbh2aqmlGtN2K9Z08O4fhMro57ezohxKo4",
+        "origin_server_ts": 1791298027823,
+        "room_id": "!4-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM",
+        "sender": "@probe.20+triage.podman:probe.agent-bus.internal",
+        "type": "m.room.message",
+        "unsigned": {
+          "age": 10
+        }
+      },
+      {
+        "content": {
+          "agent_bus.ping": {
+            "ref": "commit:example-org/myrepo@0000000000000000000000000000000000000004",
+            "to": [
+              "@probe.21+triage.podman:probe.agent-bus.internal"
+            ],
+            "v": 1,
+            "verb": "run-qa"
+          },
+          "body": "[agent-bus] run-qa commit:example-org/myrepo@0000000000000000000000000000000000000004 -> @probe.21+triage.podman:probe.agent-bus.internal",
+          "m.mentions": {
+            "user_ids": [
+              "@probe.21+triage.podman:probe.agent-bus.internal"
+            ]
+          },
+          "msgtype": "m.notice"
+        },
+        "event_id": "$toZXaSpQPoIdAAW2iMVzIi-0xXyOR1uwj1nGUhv-6BQ",
+        "origin_server_ts": 1791298027824,
+        "room_id": "!4-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM",
+        "sender": "@probe.20+triage.podman:probe.agent-bus.internal",
+        "type": "m.room.message",
+        "unsigned": {
+          "age": 9
+        }
+      },
+      {
+        "content": {
+          "agent_bus.ping": {
+            "ref": "commit:example-org/myrepo@0000000000000000000000000000000000000005",
+            "to": [
+              "@probe.21+triage.podman:probe.agent-bus.internal"
+            ],
+            "v": 1,
+            "verb": "run-qa"
+          },
+          "body": "[agent-bus] run-qa commit:example-org/myrepo@0000000000000000000000000000000000000005 -> @probe.21+triage.podman:probe.agent-bus.internal",
+          "m.mentions": {
+            "user_ids": [
+              "@probe.21+triage.podman:probe.agent-bus.internal"
+            ]
+          },
+          "msgtype": "m.notice"
+        },
+        "event_id": "$hShIEhqWsAC5adAJOE4FS0FNjtC9ZOjwGJgB4R6DhO4",
+        "origin_server_ts": 1791298027825,
+        "room_id": "!4-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM",
+        "sender": "@probe.20+triage.podman:probe.agent-bus.internal",
+        "type": "m.room.message",
+        "unsigned": {
+          "age": 8
+        }
+      },
+      {
+        "content": {
+          "agent_bus.ping": {
+            "ref": "commit:example-org/myrepo@0000000000000000000000000000000000000006",
+            "to": [
+              "@probe.21+triage.podman:probe.agent-bus.internal"
+            ],
+            "v": 1,
+            "verb": "run-qa"
+          },
+          "body": "[agent-bus] run-qa commit:example-org/myrepo@0000000000000000000000000000000000000006 -> @probe.21+triage.podman:probe.agent-bus.internal",
+          "m.mentions": {
+            "user_ids": [
+              "@probe.21+triage.podman:probe.agent-bus.internal"
+            ]
+          },
+          "msgtype": "m.notice"
+        },
+        "event_id": "$yBKj53h7t--72VpUHHIxZaJUy-cjI_0amA8uw2HLd9E",
+        "origin_server_ts": 1791298027825,
+        "room_id": "!4-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM",
+        "sender": "@probe.20+triage.podman:probe.agent-bus.internal",
+        "type": "m.room.message",
+        "unsigned": {
+          "age": 8
+        }
+      }
+    ],
+    "end": "199",
+    "start": "179"
+  },
+  "status": 200
+}

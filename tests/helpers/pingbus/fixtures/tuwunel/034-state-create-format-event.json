@@ -1,0 +1,24 @@
+{
+  "auth": "<token:admin>",
+  "body": null,
+  "elapsed_ms": 0,
+  "method": "GET",
+  "name": "state-create-format-event",
+  "path": "/_matrix/client/v3/rooms/%214-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM/state/m.room.create/",
+  "query": {
+    "format": "event"
+  },
+  "response": {
+    "content": {
+      "room_version": "12"
+    },
+    "event_id": "$4-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM",
+    "origin_server_ts": 1791298025774,
+    "room_id": "!4-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM",
+    "sender": "@admin:probe.agent-bus.internal",
+    "state_key": "",
+    "type": "m.room.create",
+    "unsigned": {}
+  },
+  "status": 200
+}

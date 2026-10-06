@@ -652,6 +652,30 @@ class TestAllowlist(RefusalAssertions):
                 self.assertEqual(p.is_branch_name(name), valid)
 
 
+class TestGrammarChecks(RefusalAssertions):
+    """The record-free halves of the ref and re checks, shared with `pingbus validate`."""
+
+    def test_check_ref_form(self) -> None:
+        review, halt, nack = p.VERBS["review"], p.VERBS["halt"], p.VERBS["nack"]
+        self.assertEqual(p.check_ref_form(REFS["path"], review), p.parse_ref(REFS["path"]))
+        self.assertIsNone(p.check_ref_form(None, nack))
+        # Outside any allowlist: the form check alone passes it.
+        other = f"commit:example-org/other@{SHA}"
+        self.assertEqual(p.check_ref_form(other, review).repo_full, "example-org/other")
+        for value, rule in ((None, review), (REFS["path"], halt), (REFS["issue"], review),
+                            ("garbage", review), (5, nack)):
+            with self.subTest(value=value):
+                self.assertRefused("ref", p.check_ref_form, value, rule)
+
+    def test_check_re(self) -> None:
+        ack, done, review = p.VERBS["ack"], p.VERBS["done"], p.VERBS["review"]
+        self.assertEqual(p.check_re(EVENT_ID, ack), EVENT_ID)
+        self.assertIsNone(p.check_re(None, done))
+        for value, rule in ((None, ack), (EVENT_ID, review), ("not-an-id", done), (5, done)):
+            with self.subTest(value=value):
+                self.assertRefused("re", p.check_re, value, rule)
+
+
 class TestIdentifiers(unittest.TestCase):
     def test_handles(self) -> None:
         cases = [

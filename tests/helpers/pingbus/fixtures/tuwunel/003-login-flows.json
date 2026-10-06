@@ -1,0 +1,24 @@
+{
+  "auth": null,
+  "body": null,
+  "elapsed_ms": 0,
+  "method": "GET",
+  "name": "login-flows",
+  "path": "/_matrix/client/v3/login",
+  "query": {},
+  "response": {
+    "flows": [
+      {
+        "type": "m.login.application_service"
+      },
+      {
+        "get_login_token": true,
+        "type": "m.login.token"
+      },
+      {
+        "type": "m.login.password"
+      }
+    ]
+  },
+  "status": 200
+}

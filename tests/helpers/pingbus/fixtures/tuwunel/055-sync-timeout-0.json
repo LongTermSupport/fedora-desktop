@@ -1,0 +1,157 @@
+{
+  "auth": "<token:receiver>",
+  "body": null,
+  "elapsed_ms": 1,
+  "method": "GET",
+  "name": "sync-timeout-0",
+  "path": "/_matrix/client/v3/sync",
+  "query": {
+    "filter": "{\"presence\":{\"types\":[]},\"account_data\":{\"types\":[]},\"room\":{\"rooms\":[\"!4-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM\"],\"ephemeral\":{\"types\":[]},\"account_data\":{\"types\":[]},\"state\":{\"types\":[\"m.room.create\",\"m.room.power_levels\",\"m.room.member\",\"agent_bus.team\",\"agent_bus.status\"],\"lazy_load_members\":true},\"timeline\":{\"types\":[\"m.room.message\",\"m.room.member\",\"m.room.power_levels\",\"agent_bus.team\",\"agent_bus.status\"],\"limit\":50}}}",
+    "since": "160",
+    "timeout": "0"
+  },
+  "response": {
+    "device_one_time_keys_count": {
+      "signed_curve25519": 0
+    },
+    "device_unused_fallback_key_types": [],
+    "next_batch": "176",
+    "rooms": {
+      "join": {
+        "!4-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM": {
+          "account_data": {
+            "events": []
+          },
+          "ephemeral": {
+            "events": []
+          },
+          "state": {
+            "events": [
+              {
+                "content": {
+                  "displayname": "probe.20+triage.podman",
+                  "membership": "join"
+                },
+                "event_id": "$ZJANA3mYUTbg7eeSwFXTsKFkmeJMg3-HvTD-4HpNWrU",
+                "origin_server_ts": 1791298025792,
+                "sender": "@probe.20+triage.podman:probe.agent-bus.internal",
+                "state_key": "@probe.20+triage.podman:probe.agent-bus.internal",
+                "type": "m.room.member",
+                "unsigned": {
+                  "replaces_state": "$yAaTNT4x3AG3FFw-pr0z4ZI0wai5rOvccmxr7wEojbE"
+                }
+              },
+              {
+                "content": {
+                  "displayname": "probehuman",
+                  "membership": "join"
+                },
+                "event_id": "$leSI4aJIEZlq-BNmQoDkwBhQTtTT1Oj151lqNKVPhCI",
+                "origin_server_ts": 1791298025795,
+                "sender": "@probehuman:probe.agent-bus.internal",
+                "state_key": "@probehuman:probe.agent-bus.internal",
+                "type": "m.room.member",
+                "unsigned": {
+                  "replaces_state": "$DEShdE87TMcmO7ADN7CkCG8SobuDgl__d6PhIkgkZnU"
+                }
+              }
+            ]
+          },
+          "summary": {
+            "m.heroes": [
+              "@admin:probe.agent-bus.internal",
+              "@probe.20+triage.podman:probe.agent-bus.internal",
+              "@probehuman:probe.agent-bus.internal"
+            ],
+            "m.invited_member_count": 0,
+            "m.joined_member_count": 4
+          },
+          "timeline": {
+            "events": [
+              {
+                "content": {
+                  "agent_bus.ping": {
+                    "ref": "commit:example-org/myrepo@0000000000000000000000000000000000000000",
+                    "to": [
+                      "@probe.21+triage.podman:probe.agent-bus.internal"
+                    ],
+                    "v": 1,
+                    "verb": "review"
+                  },
+                  "body": "[agent-bus] review commit:example-org/myrepo@0000000000000000000000000000000000000000 -> @probe.21+triage.podman:probe.agent-bus.internal",
+                  "m.mentions": {
+                    "user_ids": [
+                      "@probe.21+triage.podman:probe.agent-bus.internal"
+                    ]
+                  },
+                  "msgtype": "m.notice"
+                },
+                "event_id": "$v4L_lyiAqI_cqdjfZLPis07GaQGHYxNA_H5fBYtEh_U",
+                "origin_server_ts": 1791298025800,
+                "sender": "@probe.20+triage.podman:probe.agent-bus.internal",
+                "type": "m.room.message",
+                "unsigned": {
+                  "age": 12
+                }
+              },
+              {
+                "content": {
+                  "body": "please review",
+                  "m.mentions": {
+                    "user_ids": [
+                      "@probe.21+triage.podman:probe.agent-bus.internal"
+                    ]
+                  },
+                  "msgtype": "m.text"
+                },
+                "event_id": "$DAMYJ9_y-CgV3Bzn4Jo1-efZfkMO2NsmeTHPBaAr4-s",
+                "origin_server_ts": 1791298025802,
+                "sender": "@probehuman:probe.agent-bus.internal",
+                "type": "m.room.message",
+                "unsigned": {
+                  "age": 9
+                }
+              },
+              {
+                "content": {
+                  "state": "listening",
+                  "until": 1791298625802,
+                  "v": 1
+                },
+                "event_id": "$MLDyAONgaD6YZcygnpZPoAzBFJjRHM4XuxVFswkyFwE",
+                "origin_server_ts": 1791298025802,
+                "sender": "@probe.20+triage.podman:probe.agent-bus.internal",
+                "state_key": "@probe.20+triage.podman:probe.agent-bus.internal",
+                "type": "agent_bus.status",
+                "unsigned": {
+                  "age": 9
+                }
+              },
+              {
+                "content": {
+                  "state": "listening",
+                  "until": 1791298625802,
+                  "v": 1
+                },
+                "event_id": "$QNsmVSWn-mVlUf2t6S-hNXygUkkYmUn-RwauhY2qF4M",
+                "origin_server_ts": 1791298025805,
+                "sender": "@probe.20+triage.podman:probe.agent-bus.internal",
+                "state_key": "probe",
+                "type": "agent_bus.status",
+                "unsigned": {
+                  "age": 6
+                }
+              }
+            ],
+            "prev_batch": "162"
+          },
+          "unread_notifications": {
+            "highlight_count": 1,
+            "notification_count": 1
+          }
+        }
+      }
+    }
+  },
+  "status": 200
+}

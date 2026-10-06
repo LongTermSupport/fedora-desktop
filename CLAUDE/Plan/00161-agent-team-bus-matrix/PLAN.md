@@ -86,7 +86,9 @@ repository; opt-in per machine and per team.
 - [ ] 🔄 **M1 host-to-host ping, through the installer**: U02–U11, U13–U17. Built and
   integrated (wave 1): U02 (spec `docs/agent-bus-protocol.md`, `protocol.py`), U03
   (`limits.py`), U04 (`config.py`, its `limits` parsed by U03) and U14 (`teamfile.py`,
-  `registry.py`, their grammars imported from `protocol.py`).
+  `registry.py`, their grammars imported from `protocol.py`). Wave 2: U05 (`cli.py`, the
+  offline commands), U06 (`inbox.py`), U07 (`forge.py`) and U08 (the fake client and
+  admin APIs, from recorded Tuwunel fixtures).
 - [ ] ⬜ **M2 ccy members, the idle session woken**: U12, U18–U20.
 - [ ] ⬜ **M3 other encapsulations and hosts, the play**: U21–U24.
 - [ ] ⬜ **M4 Element, deploy and acceptance (privacy checks P1–P8)**: U25–U28 (U26, TLS,

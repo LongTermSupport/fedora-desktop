@@ -278,6 +278,52 @@ class TestSchema(BundleCase):
         self.assertNotIn(TOKEN, repr(self.load()))
 
 
+class TestOpenPrivateFile(unittest.TestCase):
+    """The one owner-and-mode check every secret file passes (bundle and forge tokens)."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self._tmp.name)
+        self.uid = os.getuid()
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def secret(self, name: str = "secret", mode: int = 0o600) -> pathlib.Path:
+        path = self.root / name
+        path.write_text("abc", encoding="utf-8")
+        path.chmod(mode)
+        return path
+
+    def refused(self, path: pathlib.Path, contains: str, uid: int | None = None) -> None:
+        with self.assertRaises(config.ConfigError) as caught:
+            config.open_private_file(path, "WHERE", uid=self.uid if uid is None else uid)
+        self.assertIn("WHERE", str(caught.exception))
+        self.assertIn(contains, str(caught.exception))
+
+    def test_private_file_opens(self) -> None:
+        for mode in (0o600, 0o400):
+            with self.subTest(mode=oct(mode)):
+                path = self.secret(f"s{mode:o}", mode)
+                with config.open_private_file(path, "WHERE", uid=self.uid) as handle:
+                    self.assertEqual(handle.read(), b"abc")
+
+    def test_refusals(self) -> None:
+        loose = self.secret("loose", 0o644)
+        self.refused(loose, "looser")
+        self.refused(self.root / "absent", "no such file")
+        link = self.root / "link"
+        link.symlink_to(self.secret())
+        self.refused(link, "regular file")
+        self.refused(self.root, "regular file")
+        self.refused(self.secret("other"), "owned", uid=self.uid + 1)
+
+    def test_fifo_refused_without_blocking(self) -> None:
+        fifo = self.root / "fifo"
+        os.mkfifo(fifo, 0o600)
+        self.refused(fifo, "regular file")
+
+
 class TestToken(BundleCase):
     def test_token_read_from_the_bundle(self) -> None:
         self.write_bundle()
@@ -346,6 +392,29 @@ class TestToken(BundleCase):
         member.token_path.chmod(0o644)
         with self.assertRaises(config.ConfigError):
             config.read_token(member, uid=self.uid)
+
+    def test_read_token_file_names_the_caller_and_never_the_token(self) -> None:
+        path = self.root / "a-token"
+        path.write_text(TOKEN, encoding="utf-8")
+        path.chmod(0o600)
+        self.assertEqual(config.read_token_file(path, "SOME_SOURCE", uid=self.uid), TOKEN)
+        path.chmod(0o640)
+        with self.assertRaises(config.ConfigError) as caught:
+            config.read_token_file(path, "SOME_SOURCE", uid=self.uid)
+        self.assertTrue(str(caught.exception).startswith("SOME_SOURCE: "))
+        self.assertNotIn(TOKEN, str(caught.exception))
+
+    def test_directory_token_refused(self) -> None:
+        bundle = self.write_bundle()
+        (bundle / "token").unlink()
+        (bundle / "token").mkdir(mode=0o700)
+        self.assert_refused(contains="regular file")
+
+    def test_is_printable_token(self) -> None:
+        self.assertTrue(config.is_printable_token(TOKEN))
+        for bad in ("", TOKEN + "\n", "two words", "tok\ten", "tést", None, 5):
+            with self.subTest(bad=repr(bad)):
+                self.assertFalse(config.is_printable_token(bad))
 
 
 class TestPlainHttp(BundleCase):

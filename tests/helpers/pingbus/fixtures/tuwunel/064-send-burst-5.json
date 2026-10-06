@@ -1,0 +1,29 @@
+{
+  "auth": "<token:sender>",
+  "body": {
+    "agent_bus.ping": {
+      "ref": "commit:example-org/myrepo@0000000000000000000000000000000000000005",
+      "to": [
+        "@probe.21+triage.podman:probe.agent-bus.internal"
+      ],
+      "v": 1,
+      "verb": "run-qa"
+    },
+    "body": "[agent-bus] run-qa commit:example-org/myrepo@0000000000000000000000000000000000000005 -> @probe.21+triage.podman:probe.agent-bus.internal",
+    "m.mentions": {
+      "user_ids": [
+        "@probe.21+triage.podman:probe.agent-bus.internal"
+      ]
+    },
+    "msgtype": "m.notice"
+  },
+  "elapsed_ms": 0,
+  "method": "PUT",
+  "name": "send-burst-5",
+  "path": "/_matrix/client/v3/rooms/%214-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM/send/m.room.message/probe-b5",
+  "query": {},
+  "response": {
+    "event_id": "$hShIEhqWsAC5adAJOE4FS0FNjtC9ZOjwGJgB4R6DhO4"
+  },
+  "status": 200
+}

@@ -1,0 +1,18 @@
+{
+  "auth": "<token:sender>",
+  "body": {
+    "state": "listening",
+    "until": 1791298625802,
+    "v": 1
+  },
+  "elapsed_ms": 0,
+  "method": "PUT",
+  "name": "status-other-at-key",
+  "path": "/_matrix/client/v3/rooms/%214-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM/state/agent_bus.status/%40probe.21%2Btriage.podman%3Aprobe.agent-bus.internal",
+  "query": {},
+  "response": {
+    "errcode": "M_FORBIDDEN",
+    "error": "Auth check failed: sender cannot send event with `state_key` matching another user's ID"
+  },
+  "status": 403
+}

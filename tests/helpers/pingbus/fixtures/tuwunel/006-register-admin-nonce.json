@@ -1,0 +1,13 @@
+{
+  "auth": null,
+  "body": null,
+  "elapsed_ms": 0,
+  "method": "GET",
+  "name": "register-admin-nonce",
+  "path": "/_synapse/admin/v1/register",
+  "query": {},
+  "response": {
+    "nonce": "BCqxdUJa0k2ohXu9ulyDxWklrOmpRgW9"
+  },
+  "status": 200
+}

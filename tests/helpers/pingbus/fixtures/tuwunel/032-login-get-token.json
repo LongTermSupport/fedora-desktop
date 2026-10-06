@@ -1,0 +1,14 @@
+{
+  "auth": "<token:human>",
+  "body": {},
+  "elapsed_ms": 0,
+  "method": "POST",
+  "name": "login-get-token",
+  "path": "/_matrix/client/v1/login/get_token",
+  "query": {},
+  "response": {
+    "errcode": "M_FORBIDDEN",
+    "error": "M_FORBIDDEN: Login via an existing session is not enabled"
+  },
+  "status": 403
+}
