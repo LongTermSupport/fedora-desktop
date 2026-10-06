@@ -368,6 +368,7 @@
       ansible.builtin.command:
         argv:
           - python3
+          - -B
           - -s
           - -m
           - helpers.pingbus.bundle
