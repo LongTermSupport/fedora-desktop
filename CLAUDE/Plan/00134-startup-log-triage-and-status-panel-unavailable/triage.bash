@@ -450,6 +450,22 @@ probe "Thunar installed / required by" bash -c 'rpm -q Thunar; rpm -q --whatrequ
 probe "dbus-broker duplicate service names this boot" bash -c \
     'journalctl --no-pager -b -u dbus-broker -o short-iso | grep -i "duplicate"'
 
+echo "### READ THIS FOR: Task 2.7 — VM-lab bases after vmtest refresh-base all"
+echo "###   Every base should read decision=current; no <base>.build directory should be left"
+echo "###   (a known refresh-base leftover when several bases are rebuilt in one run)."
+vmtestBases="${VMTEST_HOME:-${HOME}/.local/share/vmtest}/bases"
+probe "vmtest freshness-status (every base)" vmtest freshness-status
+probe "leftover .build directories under the bases" \
+    find "$vmtestBases" -maxdepth 1 -name '*.build'
+vmtest_base_space() {
+    du -sh "$vmtestBases"/*/
+    df -h "$vmtestBases"
+}
+probe "base sizes and free space" vmtest_base_space
+probe "vmtest-nightly.service: last result" \
+    systemctl --user show vmtest-nightly.service -p Result -p ExecMainStatus -p ExecMainExitTimestamp
+probe "vmtest-nightly.timer: next run" systemctl --user list-timers vmtest-nightly.timer --no-pager
+
 echo "### READ THIS FOR: Task 3.1 — which containers deny, through which mounts, on which labels"
 echo "###   A workspace bind with no :z/:Z, or security-opt label=disable, explains its session."
 echo "###   A path whose 'now' label is user_home_t under a :z-relabelled source was created or"

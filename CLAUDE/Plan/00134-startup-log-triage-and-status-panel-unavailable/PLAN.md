@@ -131,9 +131,13 @@ containers that needs its own diagnosis (F7).
   `vmtest-nightly.service` exits 1 by design when a VM-lab base needs rebuilding (the unit
   file says so; Completed Plan 00110). Every step ran; the desktop base reported
   `reinstall` and the server bases `refresh`. Rebuilding them is the owner's call.
-- [ ] ⬜ **Task 2.7**: OWNER: rebuild the VM-lab bases the nightly flagged, when you choose,
+- [ ] 🔄 **Task 2.7**: OWNER: rebuild the VM-lab bases the nightly flagged, when you choose,
   with `vmtest refresh-base all` (each base is built beside the old one, which it replaces
   only when complete), then `vmtest freshness-status` should read every base `current`.
+  - [x] ✅ The owner ran it: `VMTEST-REFRESH-DONE refreshed=3`, each base reported
+    `refresh_state=complete`.
+  - [ ] ⬜ HOST: `triage.bash` (in `meta-deploy.bash`) reads every base `current`, no
+    `<base>.build` directory left, and the nightly unit's last result.
 
 ### Phase 3: things to diagnose before changing
 
