@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.81.0"  # .claude/ccy/.gitignore lets the tracked ccy.env.local.dist through. See docs/ccy-changelog.md.
+CCY_VERSION="3.82.0"  # A key chosen at the SSH key menu goes into the session's restore record. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1118,6 +1118,18 @@ if [ "$NO_SSH_MODE" = false ] && [ ${#SSH_KEYS[@]} -eq 0 ]; then
     # Non-zero only when the remote names a GitHub alias whose key is missing:
     # a provisioning fault this box cannot work around, so it stops here.
     discover_and_select_ssh_keys "ccy" || exit 1
+    # A key chosen here is in no argument, so a restore of this session after a reboot
+    # would stop at the same menu with nobody to answer it. Its record takes the key file
+    # (lib/session-registry.bash). A forwarded agent, or no key, cannot be replayed: such a
+    # restore still stops at the menu, and verify-restore reports it there. A session with
+    # no launch flags is left to Quick Launch, whose saved settings do not survive a
+    # CCY_VERSION change (load_launch_config), so its first restore after an upgrade prompts.
+    if [ ${#SSH_KEYS[@]} -eq 1 ] && [ "${SSH_KEYS[0]}" != "$SSH_AGENT_SENTINEL" ]; then
+        ccy_session_name=$(ccy_tmux_current_session) || exit 1
+        if [ -n "$ccy_session_name" ]; then
+            ccy_registry_record_ssh_key "$ccy_session_name" "${SSH_KEYS[0]}" || exit 1
+        fi
+    fi
 fi
 
 # Will SELinux confine this container's reads of what we bind? Decided once, from

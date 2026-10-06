@@ -858,8 +858,9 @@ ccy_tmux_insulate() {
     name=$(ccy_tmux_next_name "$project") || return 1
     echo "Starting session '$name' under tmux. If this terminal dies, run ${CCY_TMUX_SESSION_PREFIX} here again to re-attach." >&2
 
-    # THE registry write, and the only one: this is the single place a session is created
-    # from a terminal, so the record cannot drift from the session. `--no-restore` is the
+    # THE registry write that creates a record: this is the single place a session is
+    # created from a terminal, so the record cannot drift from the session. (The launcher
+    # later adds a chosen --ssh-key to the same record through lib/session-registry.bash.) `--no-restore` is the
     # registry's opt-out and never reaches the launcher; what is recorded for replay is the
     # launch argv with the one-shot arguments removed (see lib/session-registry.bash).
     local launcher="$1" restore=yes
@@ -918,13 +919,21 @@ ccy_tmux_start_detached() {
         set-hook -g client-attached "$(ccy_tmux_single_attach_hook)"
 }
 
-# ccy_tmux_banner — inside a CCY session, one line on how to leave and come back. Silent in
-# a user's own tmux, whose sessions ccy does not manage.
-ccy_tmux_banner() {
+# ccy_tmux_current_session — the name of the CCY session this process runs in, printed;
+# nothing when it runs in none (a user's own tmux, or no tmux at all), and tmux is then not
+# asked. tmux finds the session from the TMUX this process inherited from its pane.
+ccy_tmux_current_session() {
     [[ -n "${TMUX:-}" ]] || return 0
     local socket="${TMUX%%,*}"
     [[ "$(basename "$socket")" == "$CCY_TMUX_SOCKET" ]] || return 0
+    tmux display-message -p '#S'
+}
+
+# ccy_tmux_banner — inside a CCY session, one line on how to leave and come back. Silent in
+# a user's own tmux, whose sessions ccy does not manage.
+ccy_tmux_banner() {
     local name
-    name=$(tmux display-message -p '#S') || return 1
+    name=$(ccy_tmux_current_session) || return 1
+    [[ -n "$name" ]] || return 0
     echo "tmux session '$name': F12 then Detach leaves it running; ${CCY_TMUX_SESSION_PREFIX} here or ccy-sessions brings it back." >&2
 }
