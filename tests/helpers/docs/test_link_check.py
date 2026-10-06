@@ -119,6 +119,16 @@ class TestLinks(unittest.TestCase):
         content = "```\n[a](nope.md)\n```\n[b](yes.md)\n"
         self.assertEqual(link_check.links(content), [(4, "yes.md")])
 
+    def test_ignores_link_shapes_inside_inline_code(self):
+        """GitHub renders nothing inside a code span as a link, so a regular
+        expression such as `[a-z](?:x)` in a table cell is not a link target."""
+        content = "| `[a-z0-9](?:[a-z]{0,3})` | [b](yes.md) |"
+        self.assertEqual(link_check.links(content), [(1, "yes.md")])
+
+    def test_still_finds_a_link_whose_text_is_inline_code(self):
+        self.assertEqual(link_check.links("see [`a.md`](docs/a.md)"),
+                         [(1, "docs/a.md")])
+
     def test_handles_two_links_on_one_line(self):
         self.assertEqual(
             link_check.links("[a](one.md) and [b](two.md)"),
