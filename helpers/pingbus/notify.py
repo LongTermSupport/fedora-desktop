@@ -3,7 +3,8 @@
 Spec: docs/agent-bus-protocol.md §15 (the notification is a fixed template of counts and
 the watcher's notice number). Plan 00161's DESIGN.md section 6 (wake by the inbox socket;
 `S` rises with every notice because the socket drops a body identical to the sender's
-previous one; notify only when the pending count rises).
+previous one; notify only when a pending item appears that was not pending at the last
+look, so a reply that lands just after a `recv` emptied the inbox still notifies).
 
 The wire format is what the U01 probe measured (plan journal, 26-10-06 16:12): one
 connection per notice, carrying newline-delimited JSON, an `auth` line with the session's
@@ -20,7 +21,7 @@ import json
 import os
 import socket
 import stat
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 
 SOCKET_ENV = "CLAUDE_CODE_MESSAGING_SOCKET"
 TOKEN_ENV = "CLAUDE_CODE_MESSAGING_TOKEN"
@@ -107,11 +108,12 @@ def send_notice(path: str, token: str, text: str, *, timeout_s: float = SEND_TIM
 
 
 class Notifier:
-    """Decides when to notify: whenever the pending total rises above the last total seen,
-    with the counts current at the send, at most once per `min_interval_s`. A rise inside
-    the interval is owed and sent by a later `observe` or `flush`; it is forgotten if
-    nothing is pending by then. Every notice takes the next number, starting at
-    `first_number`, so no two notices of one watcher are identical."""
+    """Decides when to notify: whenever a pending event ID appears that was not pending at
+    the last look (a total that merely holds steady can hide a consumed item and a new
+    one), with the counts current at the send, at most once per `min_interval_s`. A new
+    item inside the interval is owed and sent by a later `observe` or `flush`; it is
+    forgotten if nothing is pending by then. Every notice takes the next number, starting
+    at `first_number`, so no two notices of one watcher are identical."""
 
     def __init__(self, send: Callable[[str], object], *, first_number: int,
                  clock: Callable[[], float], min_interval_s: float = NOTICE_MIN_INTERVAL_S) -> None:
@@ -121,18 +123,20 @@ class Notifier:
         self._clock = clock
         self._interval = min_interval_s
         self.number = first_number
-        self._last_total = 0
+        self._last_ids: frozenset[str] = frozenset()
         self._last_sent: float | None = None
         self._owed: tuple[int, int, int] | None = None
 
-    def observe(self, counts: tuple[int, int, int]) -> bool:
-        """Take the current (total, humans, pings); True when a notice was sent."""
+    def observe(self, counts: tuple[int, int, int], ids: Iterable[str]) -> bool:
+        """Take the current (total, humans, pings) and the pending event IDs; True when a
+        notice was sent."""
+        current = frozenset(ids)
         total = counts[0]
-        if total > self._last_total:
+        if total > 0 and not current <= self._last_ids:
             self._owed = counts
         elif self._owed is not None:
             self._owed = counts if total > 0 else None
-        self._last_total = total
+        self._last_ids = current
         return self.flush()
 
     def flush(self) -> bool:

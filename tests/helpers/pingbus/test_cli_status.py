@@ -189,6 +189,17 @@ class StatusTest(StatusCase):
         self.assertEqual((code, out), (cli.EXIT_CONFIG, ""))
         self.assertIn(inbox.ROOM_FILE, err)
 
+    def test_one_bad_team_does_not_hide_the_others(self):
+        """Team A's state is unreadable: it is reported on stderr, team B is still printed,
+        and the exit is the first failure's code."""
+        self.add_team()
+        self.joined()
+        (self.a.state.path / inbox.ROOM_FILE).write_text("not json", encoding="ascii")
+        code, rows, err = self.report()
+        self.assertEqual(code, cli.EXIT_CONFIG)
+        self.assertEqual([r[1] for r in rows if r[0] == "TEAM"], [bus.TEAM_B])
+        self.assertIn(f"team {bus.TEAM_A}", err)
+
     def test_a_planted_status_for_a_non_member_is_not_printed(self):
         self.joined()
         path = self.a.state.path / inbox.ROOM_FILE

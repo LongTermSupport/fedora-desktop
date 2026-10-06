@@ -184,58 +184,72 @@ class NotifierTest(unittest.TestCase):
     def numbers(self) -> list[int]:
         return [int(NOTICE_RE.fullmatch(text)[4]) for text in self.sent]
 
-    def test_only_a_rising_count_notifies(self):
-        self.n.observe((1, 0, 1))
+    def test_only_a_new_item_notifies(self):
+        self.n.observe((1, 0, 1), {"$a"})
         self.clock[0] += 5
-        self.n.observe((1, 0, 1))
-        self.n.observe((1, 0, 1))
+        self.n.observe((1, 0, 1), {"$a"})
+        self.n.observe((1, 0, 1), {"$a"})
         self.assertEqual(len(self.sent), 1)
-        self.n.observe((0, 0, 0))
+        self.n.observe((0, 0, 0), set())
         self.clock[0] += 5
-        self.n.observe((1, 1, 0))
+        self.n.observe((1, 1, 0), {"$b"})
         self.assertEqual(len(self.sent), 2, "1 pending, recv, 1 pending again: a second notice")
         self.clock[0] += 5
-        self.n.observe((3, 1, 2))
+        self.n.observe((3, 1, 2), {"$b", "$c", "$d"})
         self.assertEqual(len(self.sent), 3)
 
     def test_nothing_pending_never_notifies(self):
-        self.n.observe((0, 0, 0))
+        self.n.observe((0, 0, 0), set())
         self.assertEqual(self.sent, [])
 
     def test_the_notice_number_rises_with_every_notice(self):
-        for total in (1, 0, 1, 0, 1):
+        for n, total in enumerate((1, 0, 1, 0, 1)):
             self.clock[0] += 5
-            self.n.observe((total, 0, total))
+            self.n.observe((total, 0, total), {f"${n}"} if total else set())
         self.assertEqual(self.numbers(), [41, 42, 43])
         self.assertEqual(len(set(self.sent)), 3, "no two notices are identical")
 
-    def test_a_rise_within_the_interval_is_sent_once_the_interval_passes(self):
-        self.n.observe((1, 0, 1))
+    def test_a_new_item_within_the_interval_is_sent_once_the_interval_passes(self):
+        self.n.observe((1, 0, 1), {"$a"})
         self.clock[0] += 0.5
-        self.n.observe((2, 0, 2))
+        self.n.observe((2, 0, 2), {"$a", "$b"})
         self.assertEqual(len(self.sent), 1)
         self.clock[0] += 1.0
-        self.n.observe((3, 0, 3))
+        self.n.observe((3, 0, 3), {"$a", "$b", "$c"})
         self.assertEqual(len(self.sent), 1)
         self.clock[0] += 1.0
         self.assertTrue(self.n.flush())
         self.assertEqual(self.sent[-1], notify.notice_text(3, 0, 3, 42), "the latest counts")
 
     def test_an_owed_notice_is_forgotten_once_nothing_is_pending(self):
-        self.n.observe((1, 0, 1))
-        self.n.observe((2, 0, 2))
-        self.n.observe((0, 0, 0))
+        self.n.observe((1, 0, 1), {"$a"})
+        self.n.observe((2, 0, 2), {"$a", "$b"})
+        self.n.observe((0, 0, 0), set())
         self.clock[0] += 5
         self.assertFalse(self.n.flush())
         self.assertEqual(len(self.sent), 1)
 
     def test_an_owed_notice_carries_the_counts_of_its_send(self):
-        self.n.observe((1, 0, 1))
-        self.n.observe((3, 1, 2))
-        self.n.observe((2, 1, 1))
+        self.n.observe((1, 0, 1), {"$a"})
+        self.n.observe((3, 1, 2), {"$a", "$b", "$c"})
+        self.n.observe((2, 1, 1), {"$b", "$c"})
         self.clock[0] += 5
         self.n.flush()
         self.assertEqual(self.sent[-1], notify.notice_text(2, 1, 1, 42))
+
+    def test_a_new_item_at_the_same_count_notifies(self):
+        """recv empties the inbox (1 to 0) and a new item lands before the next look: the
+        total reads 1 then 1, but the item is new, so it gets a notice."""
+        self.n.observe((1, 0, 1), {"$a"})
+        self.clock[0] += 5
+        self.n.observe((1, 0, 1), {"$b"})
+        self.assertEqual(self.numbers(), [41, 42])
+
+    def test_an_item_already_seen_never_notifies_again(self):
+        self.n.observe((2, 0, 2), {"$a", "$b"})
+        self.clock[0] += 5
+        self.n.observe((1, 0, 1), {"$b"})
+        self.assertEqual(len(self.sent), 1, "a falling set is no news")
 
     def test_first_number_must_be_positive(self):
         with self.assertRaises(ValueError):
@@ -433,6 +447,27 @@ class WatchRefusalTest(WatchCase):
         self.a.set_record(dict(self.a.record, roles={self.a.orch: "orchestrator"}))
         self.watcher.join(10)
         self.assertEqual(self.result[0][0], cli.EXIT_UNTRUSTED)
+
+    def test_one_failing_team_does_not_stop_the_others(self):
+        """Team A loses trust: it is reported and dropped, and team B still wakes the
+        session. The watcher exits with A's code only once no team is left."""
+        b = self.add_team()
+        self.joined()
+        self.start_watch()
+        self.until(lambda: inbox.probe_lock(b.state) == "watch", "team B never held")
+        self.a.set_record(dict(self.a.record, roles={self.a.orch: "orchestrator"}))
+        self.until(lambda: inbox.probe_lock(self.a.state) is None, "team A was never let go")
+        self.assertTrue(self.watcher.is_alive(), f"one team's failure ended the watcher: {self.result}")
+        b.human("for b")
+        (text,) = self.sock.wait_for(1)
+        self.assertEqual(NOTICE_RE.fullmatch(text).groups()[:3], ("1", "1", "0"))
+        self.assertEqual(inbox.probe_lock(b.state), "watch")
+        b.set_record(dict(b.record, roles={b.orch: "orchestrator"}))
+        self.watcher.join(10)
+        self.assertFalse(self.watcher.is_alive(), "the watcher outlived its last team")
+        code, _, err = self.result[0]
+        self.assertEqual(code, cli.EXIT_UNTRUSTED)
+        self.assertIn(f"team {bus.TEAM_A}", err)
 
     def test_a_stale_lock_file_is_not_a_watcher(self):
         """Liveness is the lock, never what a file says: `watch` written into an unheld lock

@@ -21,6 +21,7 @@ import argparse
 import collections
 import dataclasses
 import hashlib
+import io
 import json
 import os
 import pathlib
@@ -887,18 +888,22 @@ WATCH_STATUS_TTL_MS = 600_000
 WATCH_STATUS_REFRESH_MS = 300_000
 
 
-def _pending_counts(seats: Sequence[_Seat]) -> tuple[int, int, int]:
-    """(total, from humans, pings) pending over every trusted team, re-validated offline."""
+def _pending_view(seats: Sequence[_Seat]) -> tuple[tuple[int, int, int], set[str]]:
+    """(total, from humans, pings) pending over every trusted team, re-validated offline,
+    and the pending items' `team:event ID` names (what the notifier compares)."""
     total = humans = pings = 0
+    ids: set[str] = set()
     for seat in seats:
         record = seat.syncer.record
         if record is None:
             continue
         member = seat.member
-        t, h, p = seat.state.pending(record.context(member.server_name), member.user_id,
-                                     human_text=member.human_text).counts()
+        pending = seat.state.pending(record.context(member.server_name), member.user_id,
+                                     human_text=member.human_text)
+        t, h, p = pending.counts()
         total, humans, pings = total + t, humans + h, pings + p
-    return total, humans, pings
+        ids.update(f"{member.team}:{item.event_id}" for item in pending.items)
+    return (total, humans, pings), ids
 
 
 def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, status_ms: int) -> None:
@@ -939,8 +944,9 @@ def _session_socket(environ: Mapping[str, str]) -> tuple[str, str]:
 def cmd_watch(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
     """Hold every active team's lock as a watcher (a busy team is reported and skipped;
     exit 75 only when every team is busy), keep the inbox filled, and write a counts-only
-    notice to the session's socket whenever the pending count rises. Exits 0 when the
-    socket goes (the session ended); a team's failure ends it with that failure's code."""
+    notice to the session's socket whenever a new item is pending. Exits 0 when the socket
+    goes (the session ended). A team that fails is reported and dropped, and the others go
+    on; once no team is left, it exits with the first failure's code."""
     rt: Runtime = args.runtime
     err = _LockedStream(err)
     path, token = _session_socket(environ)
@@ -981,12 +987,14 @@ def cmd_watch(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO,
             rt.threads.append(thread)
             handed_over.add(seat.member.team)
             thread.start()
+        reported = 0
+        first_failure: int | None = None
         while True:
             if not notify.socket_present(path):
                 err.write(f"{PROG}: the session socket is gone: the watcher exits\n")
                 return EXIT_OK
             try:
-                notifier.observe(_pending_counts(seats))
+                notifier.observe(*_pending_view(seats))
             except notify.SocketGone as gone:
                 err.write(f"{PROG}: {gone}: the watcher exits\n")
                 return EXIT_OK
@@ -994,13 +1002,18 @@ def cmd_watch(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO,
             waiting.woke.clear()
             _collect_drops(waiting, pending)
             _emit_drops(pending, out, err)
-            if waiting.failures:
-                team, exc = waiting.failures[0]
+            while len(waiting.failures) > reported:
+                team, exc = waiting.failures[reported]
+                reported += 1
                 if not isinstance(exc, FAILURES):
                     raise exc
                 code, message = failure(exc)
-                err.write(f"{PROG}: team {team}: {message}\n")
-                return code
+                err.write(f"{PROG}: team {team}: {message}: this team is no longer watched\n")
+                first_failure = first_failure or code
+                seats = [seat for seat in seats if seat.member.team != team]
+            if not seats:
+                err.write(f"{PROG}: no team is left to watch: the watcher exits\n")
+                return first_failure
     finally:
         waiting.stop.set()
         for seat, lock in held:
@@ -1125,12 +1138,22 @@ def _status_team(member: config.Member, now_ms: int, out: TextIO) -> None:
 def cmd_status(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
     """Per active team, offline: the handle, room trust (and why not), the wake path from
     the lock, pending, overdue and dropped counts, unexpected members; then each member of
-    the last verified team record with its role or `human` and its status."""
+    the last verified team record with its role or `human` and its status. A team that
+    fails is reported and prints nothing; the others still run."""
     rt: Runtime = args.runtime
     now = rt.clock_ms()
+    first_failure: int | None = None
     for member in config.load_active(environ, team=args.team):
-        _status_team(member, now, out)
-    return EXIT_OK
+        lines = io.StringIO()
+        try:
+            _status_team(member, now, lines)
+        except FAILURES as exc:
+            code, message = failure(exc)
+            err.write(f"{PROG}: team {member.team}: {message}\n")
+            first_failure = first_failure or code
+            continue
+        out.write(lines.getvalue())
+    return EXIT_OK if first_failure is None else first_failure
 
 
 def build_parser(stdout: TextIO) -> argparse.ArgumentParser:

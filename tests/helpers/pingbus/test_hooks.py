@@ -366,6 +366,32 @@ class NoWakerTest(HookCase):
         json.loads(guard.read_text(encoding="ascii"))
 
 
+class UnwritableGuardTest(HookCase):
+    """A guard that cannot remember must not block: it would block every turn for ever.
+    A directory planted at `stop-guard.json` makes every save fail."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        (self.home / hooks.GUARD_FILE).mkdir()
+
+    def test_no_waker_does_not_block_and_exits_0(self):
+        self.assertEqual(self.stop(), {})
+
+    def test_pending_does_not_block_and_exits_0(self):
+        self.hold("watch")
+        self.plant_human(1)
+        self.assertEqual(self.stop(), {})
+
+    def test_a_failure_does_not_block_and_exits_0(self):
+        (self.home / TEAM / "token").chmod(0o644)
+        self.assertEqual(self.stop(), {})
+
+    def test_an_internal_error_whose_report_fails_still_answers(self):
+        with mock.patch.object(hooks, "survey", side_effect=RuntimeError("boom")), \
+                mock.patch.object(hooks._Hook, "stop_failure", side_effect=OSError("disk")):
+            self.assertEqual(self.stop(), {})
+
+
 class StopFailureTest(HookCase):
     def test_a_broken_bundle_blocks_once_per_window_naming_the_class(self):
         (self.home / TEAM / "token").chmod(0o644)

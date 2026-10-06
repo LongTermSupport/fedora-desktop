@@ -186,31 +186,37 @@ def spawn_watcher(environ: Mapping[str, str], log_path: pathlib.Path) -> None:
 class _Guard:
     """`stop-guard.json` in PINGBUS_HOME: the pending set last blocked for, and when the
     guard last blocked for a failure and for no waker. A throttle, never an authority: a
-    malformed file is reported and replaced. Without a home, nothing is remembered."""
+    malformed file is reported and replaced. Without a home, nothing is remembered. A
+    file that cannot be written is reported and the guard does not block: a guard that
+    cannot remember would block every turn."""
 
     KEYS = ("pending", "no_waker_ms", "failure_ms")
 
-    def __init__(self, path: pathlib.Path | None, values: dict[str, object]) -> None:
+    def __init__(self, path: pathlib.Path | None, values: dict[str, object], err: TextIO) -> None:
         self.path = path
         self.values = values
+        self.err = err
 
     @classmethod
     def load(cls, environ: Mapping[str, str], err: TextIO) -> _Guard:
         try:
             home = config.resolve_home(environ)
         except config.ConfigError:
-            return cls(None, dict.fromkeys(cls.KEYS))
+            return cls(None, dict.fromkeys(cls.KEYS), err)
         path = home / GUARD_FILE
         try:
             data = inbox.read_json_file(path)
         except inbox.StateError as exc:
             err.write(f"pingbus: hook stop: replacing the guard file: {exc}\n")
             data = None
+        except OSError as exc:
+            err.write(f"pingbus: hook stop: the guard file is unreadable: {exc.strerror or exc}\n")
+            data = None
         if data is not None and not cls._valid(data):
             err.write(f"pingbus: hook stop: replacing the guard file: {path} is malformed\n")
             data = None
         values = dict.fromkeys(cls.KEYS) if data is None else {k: data[k] for k in cls.KEYS}
-        return cls(path, values)
+        return cls(path, values, err)
 
     @classmethod
     def _valid(cls, data: object) -> bool:
@@ -222,19 +228,25 @@ class _Guard:
         return all(data[k] is None or (type(data[k]) is int and data[k] >= 0)
                    for k in ("no_waker_ms", "failure_ms"))
 
-    def save(self) -> None:
+    def save(self) -> bool:
+        """False when the file could not be written: the caller must not block."""
         if self.path is None or not self.path.parent.is_dir():
-            return
-        inbox.write_json_file(self.path, {"v": 1, **self.values})
+            return True
+        try:
+            inbox.write_json_file(self.path, {"v": 1, **self.values})
+        except OSError as exc:
+            self.err.write(f"pingbus: hook stop: the guard file cannot be written, so the guard "
+                           f"does not block: {exc.strerror or exc}\n")
+            return False
+        return True
 
     def allow(self, key: str, now_ms: int, every_s: int) -> bool:
-        """Whether the window for `key` has passed; if so, it starts again now."""
+        """Whether the window for `key` has passed and its new start is remembered."""
         last = self.values[key]
         if last is not None and 0 <= now_ms - last < every_s * 1000:
             return False
         self.values[key] = now_ms
-        self.save()
-        return True
+        return self.save()
 
 
 # ── the hooks ────────────────────────────────────────────────────────────────────────────
@@ -321,11 +333,13 @@ class _Hook:
             digest = surveyed.digest()
             if guard.values["pending"] != digest:
                 guard.values["pending"] = digest
-                guard.save()
+                if not guard.save():
+                    return {}
                 return _block(TEMPLATES["stop_pending"].format(total=total, humans=humans, pings=pings))
         elif guard.values["pending"] is not None:
             guard.values["pending"] = None
-            guard.save()
+            if not guard.save():
+                return {}
         failure = surveyed.failure()
         if failure is not None:
             return self.stop_failure(failure, guard)
@@ -365,7 +379,12 @@ def run(event: str, raw: bytes, environ: Mapping[str, str], *, now_ms: int,
             return hook.prompt()
         return hook.stop()
     except _Failure as failure:
-        return hook.failed(failure.cls)
+        cls = failure.cls
     except Exception as exc:  # every hook must answer: an unexpected error is the `internal` template
         err.write(f"pingbus: hook {event}: internal error ({type(exc).__name__})\n")
-        return hook.failed("internal")
+        cls = "internal"
+    try:
+        return hook.failed(cls)
+    except Exception as exc:  # reporting the failure failed too: the hook still answers, empty
+        err.write(f"pingbus: hook {event}: the failure could not be reported ({type(exc).__name__})\n")
+        return {}
