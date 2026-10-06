@@ -1,0 +1,14 @@
+{
+  "auth": "<token:human>",
+  "body": {},
+  "elapsed_ms": 0,
+  "method": "PUT",
+  "name": "human-redacts",
+  "path": "/_matrix/client/v3/rooms/%214-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM/redact/%24v4L_lyiAqI_cqdjfZLPis07GaQGHYxNA_H5fBYtEh_U/probe-r1",
+  "query": {},
+  "response": {
+    "errcode": "M_FORBIDDEN",
+    "error": "Auth check failed: sender does not have enough power (Int(50)) for `m.room.redaction` event type (100)"
+  },
+  "status": 403
+}

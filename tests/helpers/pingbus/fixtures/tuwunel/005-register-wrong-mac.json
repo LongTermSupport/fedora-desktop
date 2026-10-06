@@ -1,0 +1,20 @@
+{
+  "auth": null,
+  "body": {
+    "admin": false,
+    "mac": "0000000000000000000000000000000000000000",
+    "nonce": "0p0pKbMoAPBcQUichPrFnhTqdIKV6Pif",
+    "password": "xxxxxxxxxxxxxxxxxxxxxxxx",
+    "username": "wrongmac"
+  },
+  "elapsed_ms": 0,
+  "method": "POST",
+  "name": "register-wrong-mac",
+  "path": "/_synapse/admin/v1/register",
+  "query": {},
+  "response": {
+    "errcode": "M_FORBIDDEN",
+    "error": "M_FORBIDDEN: HMAC check failed"
+  },
+  "status": 403
+}

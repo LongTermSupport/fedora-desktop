@@ -1,0 +1,24 @@
+{
+  "auth": "<token:admin>",
+  "body": null,
+  "elapsed_ms": 0,
+  "method": "GET",
+  "name": "admin-query-sender",
+  "path": "/_synapse/admin/v2/users/%40probe.20%2Btriage.podman%3Aprobe.agent-bus.internal",
+  "query": {},
+  "response": {
+    "admin": false,
+    "consent_ts": null,
+    "creation_ts": 0,
+    "deactivated": false,
+    "displayname": "probe.20+triage.podman",
+    "erased": false,
+    "is_guest": false,
+    "last_seen_ts": 1791298025627,
+    "locked": false,
+    "name": "@probe.20+triage.podman:probe.agent-bus.internal",
+    "shadow_banned": false,
+    "suspended": false
+  },
+  "status": 200
+}

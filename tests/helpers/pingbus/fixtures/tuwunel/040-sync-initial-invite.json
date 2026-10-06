@@ -1,0 +1,93 @@
+{
+  "auth": "<token:receiver>",
+  "body": null,
+  "elapsed_ms": 1,
+  "method": "GET",
+  "name": "sync-initial-invite",
+  "path": "/_matrix/client/v3/sync",
+  "query": {
+    "filter": "{\"presence\":{\"types\":[]},\"account_data\":{\"types\":[]},\"room\":{\"rooms\":[\"!4-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM\"],\"ephemeral\":{\"types\":[]},\"account_data\":{\"types\":[]},\"state\":{\"types\":[\"m.room.create\",\"m.room.power_levels\",\"m.room.member\",\"agent_bus.team\",\"agent_bus.status\"],\"lazy_load_members\":true},\"timeline\":{\"types\":[\"m.room.message\",\"m.room.member\",\"m.room.power_levels\",\"agent_bus.team\",\"agent_bus.status\"],\"limit\":0}}}",
+    "timeout": "0"
+  },
+  "response": {
+    "device_lists": {
+      "changed": [
+        "@probe.21+triage.podman:probe.agent-bus.internal"
+      ]
+    },
+    "device_one_time_keys_count": {
+      "signed_curve25519": 0
+    },
+    "device_unused_fallback_key_types": [],
+    "next_batch": "148",
+    "rooms": {
+      "invite": {
+        "!4-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM": {
+          "invite_state": {
+            "events": [
+              {
+                "content": {
+                  "room_version": "12"
+                },
+                "origin_server_ts": 1791298025774,
+                "sender": "@admin:probe.agent-bus.internal",
+                "state_key": "",
+                "type": "m.room.create"
+              },
+              {
+                "content": {
+                  "join_rule": "invite"
+                },
+                "sender": "@admin:probe.agent-bus.internal",
+                "state_key": "",
+                "type": "m.room.join_rules"
+              },
+              {
+                "content": {
+                  "name": "probe"
+                },
+                "sender": "@admin:probe.agent-bus.internal",
+                "state_key": "",
+                "type": "m.room.name"
+              },
+              {
+                "content": {
+                  "displayname": "admin",
+                  "membership": "join"
+                },
+                "sender": "@admin:probe.agent-bus.internal",
+                "state_key": "@admin:probe.agent-bus.internal",
+                "type": "m.room.member"
+              },
+              {
+                "content": {
+                  "m.topic": {
+                    "m.text": [
+                      {
+                        "body": "agent bus probe"
+                      }
+                    ]
+                  },
+                  "topic": "agent bus probe"
+                },
+                "sender": "@admin:probe.agent-bus.internal",
+                "state_key": "",
+                "type": "m.room.topic"
+              },
+              {
+                "content": {
+                  "displayname": "probe.21+triage.podman",
+                  "membership": "invite"
+                },
+                "sender": "@admin:probe.agent-bus.internal",
+                "state_key": "@probe.21+triage.podman:probe.agent-bus.internal",
+                "type": "m.room.member"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "status": 200
+}

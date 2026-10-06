@@ -1,0 +1,13 @@
+{
+  "auth": null,
+  "body": null,
+  "elapsed_ms": 0,
+  "method": "GET",
+  "name": "register-wrong-mac-nonce",
+  "path": "/_synapse/admin/v1/register",
+  "query": {},
+  "response": {
+    "nonce": "0p0pKbMoAPBcQUichPrFnhTqdIKV6Pif"
+  },
+  "status": 200
+}

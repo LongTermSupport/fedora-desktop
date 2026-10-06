@@ -1,0 +1,16 @@
+{
+  "auth": "<token:human>",
+  "body": {
+    "topic": "x"
+  },
+  "elapsed_ms": 0,
+  "method": "PUT",
+  "name": "human-sets-topic",
+  "path": "/_matrix/client/v3/rooms/%214-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM/state/m.room.topic/",
+  "query": {},
+  "response": {
+    "errcode": "M_FORBIDDEN",
+    "error": "Auth check failed: sender does not have enough power (Int(50)) for `m.room.topic` event type (100)"
+  },
+  "status": 403
+}

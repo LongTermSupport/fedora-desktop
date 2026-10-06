@@ -1,0 +1,22 @@
+{
+  "auth": null,
+  "body": {
+    "admin": true,
+    "mac": "<mac:admin>",
+    "nonce": "BCqxdUJa0k2ohXu9ulyDxWklrOmpRgW9",
+    "password": "<password:admin>",
+    "username": "admin"
+  },
+  "elapsed_ms": 28,
+  "method": "POST",
+  "name": "register-admin",
+  "path": "/_synapse/admin/v1/register",
+  "query": {},
+  "response": {
+    "access_token": "<token:admin>",
+    "device_id": "dRvYadqN8k",
+    "home_server": "probe.agent-bus.internal",
+    "user_id": "@admin:probe.agent-bus.internal"
+  },
+  "status": 200
+}

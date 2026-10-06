@@ -1,0 +1,22 @@
+{
+  "auth": null,
+  "body": {
+    "admin": false,
+    "mac": "<mac:handle-1>",
+    "nonce": "ZuUrxnU6PEAHWqM6QVgAK8WoSbLkVfEa",
+    "password": "<password:handle-1>",
+    "username": "probe.1+triage.podman"
+  },
+  "elapsed_ms": 20,
+  "method": "POST",
+  "name": "register-handle-1",
+  "path": "/_synapse/admin/v1/register",
+  "query": {},
+  "response": {
+    "access_token": "<token:handle-1>",
+    "device_id": "mPpo42TMpA",
+    "home_server": "probe.agent-bus.internal",
+    "user_id": "@probe.1+triage.podman:probe.agent-bus.internal"
+  },
+  "status": 200
+}

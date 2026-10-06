@@ -1,0 +1,14 @@
+{
+  "auth": "<token:sender>",
+  "body": null,
+  "elapsed_ms": 0,
+  "method": "GET",
+  "name": "member-token-on-admin-api",
+  "path": "/_synapse/admin/v2/users/%40probe.20%2Btriage.podman%3Aprobe.agent-bus.internal",
+  "query": {},
+  "response": {
+    "errcode": "M_FORBIDDEN",
+    "error": "M_FORBIDDEN: Only server administrators can use this endpoint"
+  },
+  "status": 403
+}

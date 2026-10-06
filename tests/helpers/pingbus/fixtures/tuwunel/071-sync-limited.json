@@ -1,0 +1,200 @@
+{
+  "auth": "<token:receiver>",
+  "body": null,
+  "elapsed_ms": 1,
+  "method": "GET",
+  "name": "sync-limited",
+  "path": "/_matrix/client/v3/sync",
+  "query": {
+    "filter": "{\"presence\":{\"types\":[]},\"account_data\":{\"types\":[]},\"room\":{\"rooms\":[\"!4-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM\"],\"ephemeral\":{\"types\":[]},\"account_data\":{\"types\":[]},\"state\":{\"types\":[\"m.room.create\",\"m.room.power_levels\",\"m.room.member\",\"agent_bus.team\",\"agent_bus.status\"],\"lazy_load_members\":true},\"timeline\":{\"types\":[\"m.room.message\",\"m.room.member\",\"m.room.power_levels\",\"agent_bus.team\",\"agent_bus.status\"],\"limit\":5}}}",
+    "since": "179",
+    "timeout": "0"
+  },
+  "response": {
+    "device_one_time_keys_count": {
+      "signed_curve25519": 0
+    },
+    "device_unused_fallback_key_types": [],
+    "next_batch": "215",
+    "rooms": {
+      "join": {
+        "!4-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM": {
+          "account_data": {
+            "events": []
+          },
+          "ephemeral": {
+            "events": []
+          },
+          "state": {
+            "events": [
+              {
+                "content": {
+                  "displayname": "probe.20+triage.podman",
+                  "membership": "join"
+                },
+                "event_id": "$ZJANA3mYUTbg7eeSwFXTsKFkmeJMg3-HvTD-4HpNWrU",
+                "origin_server_ts": 1791298025792,
+                "sender": "@probe.20+triage.podman:probe.agent-bus.internal",
+                "state_key": "@probe.20+triage.podman:probe.agent-bus.internal",
+                "type": "m.room.member",
+                "unsigned": {
+                  "replaces_state": "$yAaTNT4x3AG3FFw-pr0z4ZI0wai5rOvccmxr7wEojbE"
+                }
+              }
+            ]
+          },
+          "summary": {
+            "m.heroes": [
+              "@admin:probe.agent-bus.internal",
+              "@probe.20+triage.podman:probe.agent-bus.internal",
+              "@probehuman:probe.agent-bus.internal"
+            ],
+            "m.invited_member_count": 0,
+            "m.joined_member_count": 4
+          },
+          "timeline": {
+            "events": [
+              {
+                "content": {
+                  "agent_bus.ping": {
+                    "ref": "commit:example-org/myrepo@0000000000000000000000000000000000000007",
+                    "to": [
+                      "@probe.21+triage.podman:probe.agent-bus.internal"
+                    ],
+                    "v": 1,
+                    "verb": "run-qa"
+                  },
+                  "body": "[agent-bus] run-qa commit:example-org/myrepo@0000000000000000000000000000000000000007 -> @probe.21+triage.podman:probe.agent-bus.internal",
+                  "m.mentions": {
+                    "user_ids": [
+                      "@probe.21+triage.podman:probe.agent-bus.internal"
+                    ]
+                  },
+                  "msgtype": "m.notice"
+                },
+                "event_id": "$z5whpmx2nquYKOfCEoQrFvOrST_7ub8jKMhWYs5lRho",
+                "origin_server_ts": 1791298027827,
+                "sender": "@probe.20+triage.podman:probe.agent-bus.internal",
+                "type": "m.room.message",
+                "unsigned": {
+                  "age": 4
+                }
+              },
+              {
+                "content": {
+                  "agent_bus.ping": {
+                    "ref": "commit:example-org/myrepo@0000000000000000000000000000000000000008",
+                    "to": [
+                      "@probe.21+triage.podman:probe.agent-bus.internal"
+                    ],
+                    "v": 1,
+                    "verb": "run-qa"
+                  },
+                  "body": "[agent-bus] run-qa commit:example-org/myrepo@0000000000000000000000000000000000000008 -> @probe.21+triage.podman:probe.agent-bus.internal",
+                  "m.mentions": {
+                    "user_ids": [
+                      "@probe.21+triage.podman:probe.agent-bus.internal"
+                    ]
+                  },
+                  "msgtype": "m.notice"
+                },
+                "event_id": "$bb5lloJPh-oJL4z5jdxg7ragOIG8CtEUzWmLodeQLa0",
+                "origin_server_ts": 1791298027828,
+                "sender": "@probe.20+triage.podman:probe.agent-bus.internal",
+                "type": "m.room.message",
+                "unsigned": {
+                  "age": 3
+                }
+              },
+              {
+                "content": {
+                  "agent_bus.ping": {
+                    "ref": "commit:example-org/myrepo@0000000000000000000000000000000000000009",
+                    "to": [
+                      "@probe.21+triage.podman:probe.agent-bus.internal"
+                    ],
+                    "v": 1,
+                    "verb": "run-qa"
+                  },
+                  "body": "[agent-bus] run-qa commit:example-org/myrepo@0000000000000000000000000000000000000009 -> @probe.21+triage.podman:probe.agent-bus.internal",
+                  "m.mentions": {
+                    "user_ids": [
+                      "@probe.21+triage.podman:probe.agent-bus.internal"
+                    ]
+                  },
+                  "msgtype": "m.notice"
+                },
+                "event_id": "$DPtArLc4ANDOYN-MKsQ1FA7vR_V6Q7eMDCzE9-yaus8",
+                "origin_server_ts": 1791298027829,
+                "sender": "@probe.20+triage.podman:probe.agent-bus.internal",
+                "type": "m.room.message",
+                "unsigned": {
+                  "age": 2
+                }
+              },
+              {
+                "content": {
+                  "agent_bus.ping": {
+                    "ref": "commit:example-org/myrepo@000000000000000000000000000000000000000a",
+                    "to": [
+                      "@probe.21+triage.podman:probe.agent-bus.internal"
+                    ],
+                    "v": 1,
+                    "verb": "run-qa"
+                  },
+                  "body": "[agent-bus] run-qa commit:example-org/myrepo@000000000000000000000000000000000000000a -> @probe.21+triage.podman:probe.agent-bus.internal",
+                  "m.mentions": {
+                    "user_ids": [
+                      "@probe.21+triage.podman:probe.agent-bus.internal"
+                    ]
+                  },
+                  "msgtype": "m.notice"
+                },
+                "event_id": "$frKYxIu3zzAd_93apIIn20A4vnEV1PJ7GWvE-TB7Coo",
+                "origin_server_ts": 1791298027829,
+                "sender": "@probe.20+triage.podman:probe.agent-bus.internal",
+                "type": "m.room.message",
+                "unsigned": {
+                  "age": 2
+                }
+              },
+              {
+                "content": {
+                  "agent_bus.ping": {
+                    "ref": "commit:example-org/myrepo@000000000000000000000000000000000000000b",
+                    "to": [
+                      "@probe.21+triage.podman:probe.agent-bus.internal"
+                    ],
+                    "v": 1,
+                    "verb": "run-qa"
+                  },
+                  "body": "[agent-bus] run-qa commit:example-org/myrepo@000000000000000000000000000000000000000b -> @probe.21+triage.podman:probe.agent-bus.internal",
+                  "m.mentions": {
+                    "user_ids": [
+                      "@probe.21+triage.podman:probe.agent-bus.internal"
+                    ]
+                  },
+                  "msgtype": "m.notice"
+                },
+                "event_id": "$G1JnjPY3cl6Ch4wjw_1W7zMd_bnHT94CPVjrJr4agEg",
+                "origin_server_ts": 1791298027830,
+                "sender": "@probe.20+triage.podman:probe.agent-bus.internal",
+                "type": "m.room.message",
+                "unsigned": {
+                  "age": 1
+                }
+              }
+            ],
+            "limited": true,
+            "prev_batch": "202"
+          },
+          "unread_notifications": {
+            "highlight_count": 1,
+            "notification_count": 1
+          }
+        }
+      }
+    }
+  },
+  "status": 200
+}
