@@ -167,7 +167,8 @@ Facts, with file and line citations, are in
   backend's `scan --inject` seam and see the icon and notification; copy a hint.
   Progress: `deploy.bash` ran (both plays rc 0, panel play changed=3); a second run
   changed nothing in either play (idempotent); `acceptance.bash` passed, COVERAGE 8 of 8.
-  Open: the logout and the visual pass, which only a human can do.
+  The owner rebooted on 2026-10-06 (the logout), and `acceptance.bash` passed again
+  after it, 8 of 8 (meta-deploy `20261006-104928`). Open: the visual pass.
 - [x] ✅ **Task 7.4** (follow-up): a contract check that the `containerReport.js` constants
   (schema version, report path, DBus names) match the producer in `helpers/containerwatch/`.
   `check_panel_contract` now compares `SCHEMA_VERSION`, `DBUS_PATH`, `DBUS_INTERFACE` and
@@ -213,8 +214,9 @@ Full options and reasoning in [DECISIONS.md](DECISIONS.md).
 
 - [ ] On a host with both plays deployed and after a logout: one fedora-desktop icon.
 - [ ] An injected container finding changes that icon per D1 and raises one notification.
-- [ ] `container-watch@fedora-desktop` is in neither `enabled-extensions` nor the extensions
-  directory, and re-running both plays reports no change.
+- [x] `container-watch@fedora-desktop` is in neither `enabled-extensions` nor the extensions
+  directory, and re-running both plays reports no change (acceptance after the reboot;
+  the second deploy run changed nothing).
 - [x] `./scripts/test-panel-sections.bash`, ESLint and `./scripts/qa-all.bash` pass; the
   no-kill gate reports a non-zero count of JavaScript files scanned. In the QA run on F44
   after `a8480fec`: panel-sections 126 passed, js 19 files OK, nokill-containerwatch
