@@ -96,6 +96,8 @@ repository; opt-in per machine and per team.
   admin APIs, from recorded Tuwunel fixtures). Wave 3: U09 (`matrix.py`, the client),
   U13 (`bundle.py`, the zipapp builder) and U15 (`helpers/agent_bus/` admin tool, renders
   and the `agent-bus` wrapper).
+  U16 (`agent-bus-install`, its units, `tuwunel.pin`, the resolver stub) is built and
+  tested in the container (`scripts/test-agent-bus-install.bash`); its host run is pending.
 - [ ] ⬜ **M2 ccy members, the idle session woken**: U12, U18–U20.
 - [ ] ⬜ **M3 other encapsulations and hosts, the play**: U21–U24.
 - [ ] ⬜ **M4 Element, deploy and acceptance (privacy checks P1–P8)**: U25–U28 (U26, TLS,

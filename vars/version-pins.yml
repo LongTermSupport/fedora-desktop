@@ -119,3 +119,17 @@ version_pins:
       why: >-
         Not yet established. Needs a host to determine how the installed version is
         resolved; declared rather than omitted so the gap is counted, not invisible.
+
+  # Not a playbook: agent-bus-install reads its Tuwunel pin from this file (Plan 00161,
+  # DESIGN.md section 3.2), written in the same `var: value` line form. Its two
+  # per-architecture sha256 lines change with every bump.
+  - playbook: files/usr/local/share/agent-bus/tuwunel.pin
+    var: tuwunel_version
+    github: matrix-construct/tuwunel
+    installed:
+      kind: untracked
+      why: >-
+        `/usr/local/lib/agent-bus/tuwunel --version` would resolve it, but a tracked
+        non-DKMS pin is compared on every host, servers included, and only hosts that ran
+        agent-bus-install have the binary; whether to hold every host to it is a
+        decision for the play (U22), not taken here.
