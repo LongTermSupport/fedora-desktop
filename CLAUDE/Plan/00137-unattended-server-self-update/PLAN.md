@@ -241,6 +241,14 @@ D1–D4 are the owner's choices, made 2026-09-23.
   a real commit that touches `lib/`. Plan 00153 Phase 3 changed the default channel: the server
   now follows the newest signed release tag, so this cycle needs a release tag (`44.0.0`, Plan
   00153 Task 4.1) on that commit, or the server declared with `self_update_channel: branch`.
+  - Infra agent (2026-10-06): will use the branch channel once the server's
+    `self_update_*` settings are in place. The answers sent: a headless run keeps every
+    line of an existing `localhost.yml` except its GitHub half, so writing the settings
+    there after provisioning (vaulted with that box's vault password) survives later
+    runs; the IaC route is the box's host file in the private config repo
+    (`RUN_BASH_CONFIG_SOURCE`). `self_update_slack_webhook_url: ""` is the explicit
+    no-Slack setting and never prompts. The keys are the ones Plan 00139's `deploy.bash`
+    prints for each account that pushes the server's repository.
 
 ## Success Criteria
 
