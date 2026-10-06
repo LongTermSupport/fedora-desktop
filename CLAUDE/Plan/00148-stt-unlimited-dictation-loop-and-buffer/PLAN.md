@@ -112,7 +112,8 @@ stops. It lives in the recorders' TERM handlers, so it needs no logout.
   `Dictation stats:` line per finished dictation (RTF mean and worst, worst backlog, cut
   counts; `test_continuous_session.py` `StatsLineTest`), and `probe-dictations.py` reports
   them. The article-mode measurement is dropped: Phase 5 replaces that loop either way.
-  Blocked on the owner: dictate with Continuous Dictation on, then a **HOST** triage run.
+  The owner has dictated past 8 minutes with Continuous Dictation on (2026-10-06); the
+  **HOST** triage run is queued in `meta-deploy.bash`.
 
 ### Phase 2: Continuous dictation in the server
 
