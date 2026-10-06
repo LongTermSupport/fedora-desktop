@@ -110,7 +110,7 @@ repository; opt-in per machine and per team.
   the syncer keeps for `status`; `wait` and `watch` publish `listening`. U18 built:
   `files/opt/claude-yolo/optional/agent-bus/` (the plugin with its three hooks and the
   `pingbus` skill, `settings.json`, the `agent-bus-claude` launcher), copied into the kit
-  by `agent-bus-install software`; `test_plugin_contract.py`. The host run (U01's legs,
+  by `agent-bus-install software`; `test_plugin_contract.py`; reviewed and fixed. The host run (U01's legs,
   then U20) must confirm Stop firing and notice batching under real turns, and that the
   plugin loads from `--plugin-dir <kit>/plugin/pingbus`.
 - [ ] 🔄 **M3 other encapsulations and hosts, the play**: U21–U24. U22 built:

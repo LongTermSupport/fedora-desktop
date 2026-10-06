@@ -453,6 +453,17 @@ run software --source "$SOURCE" --bus-address=192.0.2.11
 check "a new bus address modifies the connection" "yes" "$(says '^nmcli connection modify agentbus0 .*ipv4.addresses 192.0.2.11/32' "$(LOG)")"
 check "and says CHANGED" "yes" "$(says $'^CHANGED\t.*agentbus0' "$OUT")"
 
+echo "== software: a source whose member kit is incomplete"
+new_root nokit
+SKILL_SRC=$SOURCE/files/opt/claude-yolo/optional/agent-bus/plugin/pingbus/skills/pingbus/SKILL.md
+mv "$SKILL_SRC" "$SKILL_SRC.away"
+run software --source "$SOURCE"
+mv "$SKILL_SRC.away" "$SKILL_SRC"
+check "a source without a kit file is refused (78)" "78" "$RC"
+check "the refusal names the missing file" "yes" "$(says 'holds no .*plugin/pingbus/skills/pingbus/SKILL.md' "$ERR")"
+check "it is refused before anything is installed" "no" "$(exists "$ROOT/usr/local/share/agent-bus")"
+check "  and before any package is installed" "0" "$(count '^dnf ' "$(LOG)")"
+
 echo "== software: a download that does not match the pinned hash"
 new_root badhash
 write_pin 1.9.4 "$(printf '%064d' 1)"

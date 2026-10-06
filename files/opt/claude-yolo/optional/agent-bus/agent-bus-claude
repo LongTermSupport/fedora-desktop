@@ -44,7 +44,14 @@ done
 
 [[ ${HOME:-} == /* ]] || die "HOME is not an absolute path"
 
-# Dangling symlinks count as a profile: something put them there.
+# Dangling symlinks count as a profile: something put them there. A directory on the way
+# that cannot be listed and searched would hide a profile from the tests below, so it
+# refuses instead, as pingbus's own check does for the native parent.
+for parent in "$HOME/${ELEMENT_FLATPAK_DIR%%/*}" "$HOME/${ELEMENT_FLATPAK_DIR%/*}" "$HOME/$ELEMENT_NATIVE_PARENT"; do
+    if [[ -d $parent && ! (-r $parent && -x $parent) ]]; then
+        die "$parent cannot be listed to look for an Element profile"
+    fi
+done
 element=""
 if [[ -e $HOME/$ELEMENT_FLATPAK_DIR || -L $HOME/$ELEMENT_FLATPAK_DIR ]]; then
     element=$HOME/$ELEMENT_FLATPAK_DIR

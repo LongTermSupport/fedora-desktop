@@ -30,7 +30,7 @@ import unittest
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
-from helpers.pingbus import cli, config, hooks, protocol
+from helpers.pingbus import cli, config, hooks, limits, notify, protocol
 
 KIT = REPO_ROOT / "files" / "opt" / "claude-yolo" / "optional" / "agent-bus"
 PLUGIN = KIT / "plugin" / "pingbus"
@@ -188,6 +188,55 @@ class SkillTest(unittest.TestCase):
     def test_wake_rules(self) -> None:
         self.assertIn("`pingbus wait` with `run_in_background`", self.flat)
         self.assertIn("agent-bus: N pending", self.flat)
+
+    def test_the_quoted_notice_is_the_watchers_own_template(self) -> None:
+        notice = notify.NOTICE_TEMPLATE.format(total="N", humans="H", pings="P", number="S")
+        self.assertIn(f"  {notice}\n", self.text)
+
+    def test_the_quoted_hook_phrases_are_the_hooks_own_templates(self) -> None:
+        for template, phrase in (
+            ("no_socket", "this session has no inbox socket"),
+            ("no_waker", "nothing will wake this session"),
+            ("stop_pending", "Run `pingbus recv` before stopping"),
+        ):
+            with self.subTest(template=template):
+                self.assertIn(phrase, self.flat)
+                self.assertIn(phrase, " ".join(hooks.TEMPLATES[template].split()))
+
+    def exit_table(self) -> dict[int, str]:
+        section = self.text.split("\n## Exit codes\n", 1)[1]
+        rows = re.findall(r"^\| ([0-9][0-9, ]*) \| (.+?) +\|$", section, flags=re.M)
+        return {int(code): meaning for codes, meaning in rows for code in codes.split(", ")}
+
+    def test_the_exit_code_table_is_the_clis_own(self) -> None:
+        table = self.exit_table()
+        assigned = {code for code, meaning in cli.EXIT_CODES.items() if not meaning.startswith("never assigned")}
+        self.assertEqual(set(table), assigned)
+        for code, word in (
+            (cli.EXIT_OK, "success"),
+            (cli.EXIT_NOTHING, "nothing pending"),
+            (cli.EXIT_REFUSED, "refused by the validator"),
+            (cli.EXIT_FORGE, "forge"),
+            (cli.EXIT_DROPPED, "dropped"),
+            (cli.EXIT_UNREACHABLE, "unreachable"),
+            (cli.EXIT_AUTH, "token was refused"),
+            (cli.EXIT_RATE, "rate limited"),
+            (cli.EXIT_UNTRUSTED, "not trusted"),
+            (cli.EXIT_USAGE, "usage error"),
+            (cli.EXIT_BUSY, "busy"),
+            (cli.EXIT_CONFIG, "configuration refused"),
+        ):
+            with self.subTest(code=code):
+                self.assertIn(word, table[code])
+        self.assertIn(f"within {limits.DUPLICATE_WINDOW_S} s", table[cli.EXIT_RATE])
+
+    def test_the_exit_codes_in_the_prose_are_the_clis_own(self) -> None:
+        for phrase in (
+            f"Exit {cli.EXIT_NOTHING} means it timed out",
+            f"Exit {cli.EXIT_BUSY} means a watcher or another waiter already holds the team",
+            f"secret (exit {cli.EXIT_REFUSED})",
+        ):
+            self.assertIn(phrase, self.flat)
 
     def test_no_install_specific_text(self) -> None:
         self.assertNotRegex(self.text, r"/workspace/|/home/|@[a-z0-9.-]+\.(com|org|net)\b")
@@ -359,6 +408,38 @@ class LauncherTest(unittest.TestCase):
     def test_an_element_lookalike_is_not_a_profile(self) -> None:
         (self.home / config.ELEMENT_NATIVE_PARENT / "Elementary").mkdir()
         self.assertEqual(self.run_launcher().returncode, 0)
+
+    def run_launcher_unprivileged(self) -> subprocess.CompletedProcess[str]:
+        """Root reads every directory whatever its mode, so as root the launcher runs as
+        `nobody` (with the scratch tree opened up to it) for the permission cases."""
+        if os.geteuid() != 0:
+            return self.run_launcher()
+        setpriv = shutil.which("setpriv")
+        self.assertIsNotNone(setpriv, "setpriv is needed to drop root for this case")
+        for directory in (self.root, self.bin, self.root / "tools", self.home):
+            directory.chmod(0o755)
+        for path in (self.kit, *self.kit.rglob("*")):
+            path.chmod(0o755 if path.is_dir() or path.name == "agent-bus-claude" else 0o644)
+        return subprocess.run(
+            [setpriv, "--reuid=65534", "--regid=65534", "--clear-groups",
+             str(self.kit / "agent-bus-claude")],
+            env=self.environ, capture_output=True, text=True, check=False, timeout=30,
+        )
+
+    def test_refuses_when_a_profile_parent_cannot_be_listed_and_searched(self) -> None:
+        flatpak = pathlib.PurePath(config.ELEMENT_FLATPAK_DIR)
+        parents = (config.ELEMENT_NATIVE_PARENT, str(flatpak.parent.parent), str(flatpak.parent))
+        for parent in parents:
+            for mode in (0o000, 0o100, 0o400):
+                with self.subTest(parent=parent, mode=oct(mode)):
+                    path = self.home / parent
+                    path.mkdir(parents=True, exist_ok=True)
+                    path.chmod(mode)
+                    try:
+                        result = self.run_launcher_unprivileged()
+                    finally:
+                        path.chmod(0o755)
+                    self.assert_refused(result, EX_CONFIG, f"{path} cannot be listed")
 
     def test_refuses_beside_element_even_with_no_env_file(self) -> None:
         self.env_file.unlink()
