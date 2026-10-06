@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# agent-bus-claude: start Claude Code as a member of the agent team bus.
+#
+# For members that are not ccy sessions (a dedicated agent user on a desktop or server, an
+# LXC, docker or VM guest); a ccy session gets the same arguments from its entrypoint.
+# Plan 00161 DESIGN.md section 5.4.
+#
+#   1. Refuses (78) when this user has an Element profile: a human's Matrix session in the
+#      same home lets anything running as this user post as that human (DESIGN.md
+#      section 8). The paths are pingbus's own (helpers/pingbus/config.py ELEMENT_*).
+#   2. Reads the env file, ${PINGBUS_ENV:-${XDG_CONFIG_HOME:-$HOME/.config}/pingbus/env},
+#      which must set PINGBUS_TEAMS and may set PINGBUS_HOME and HOOKS_DAEMON_HOSTNAME.
+#      Every assignment in it is exported. It is this user's own file, so sourcing it
+#      gives nothing to anyone who could not already run code as this user.
+#   3. Puts the kit's own pingbus first on PATH (the hooks run `pingbus`), then runs
+#      `pingbus config check`, whose refusal ends the launch with its exit code.
+#   4. Execs `claude --plugin-dir <kit>/plugin/pingbus --settings <kit>/settings.json "$@"`.
+#      The settings carry crossSessionInbound: accept, without which a bypass-mode session
+#      holds the watcher's wake notice instead of starting a turn.
+#
+# The kit is the directory this file resolves into, so a symlink on PATH works.
+# Stdout is claude's: everything this script says goes to stderr.
+set -euo pipefail
+
+readonly PROG=agent-bus-claude
+readonly EX_CONFIG=78
+readonly ELEMENT_FLATPAK_DIR=.var/app/im.riot.Riot
+readonly ELEMENT_NATIVE_PARENT=.config
+readonly ELEMENT_NATIVE_NAME=Element
+
+die() {
+    printf '%s: %s\n' "$PROG" "$1" >&2
+    exit "${2:-$EX_CONFIG}"
+}
+
+self=$(readlink -f -- "${BASH_SOURCE[0]}")
+readonly KIT=${self%/*}
+readonly PLUGIN=$KIT/plugin/pingbus
+readonly SETTINGS=$KIT/settings.json
+
+for need in "$SETTINGS" "$PLUGIN/.claude-plugin/plugin.json" "$PLUGIN/hooks/hooks.json"; do
+    [[ -f $need ]] || die "the kit at $KIT is incomplete: ${need#"$KIT/"} is missing"
+done
+
+[[ ${HOME:-} == /* ]] || die "HOME is not an absolute path"
+
+# Dangling symlinks count as a profile: something put them there.
+element=""
+if [[ -e $HOME/$ELEMENT_FLATPAK_DIR || -L $HOME/$ELEMENT_FLATPAK_DIR ]]; then
+    element=$HOME/$ELEMENT_FLATPAK_DIR
+else
+    for entry in "$HOME/$ELEMENT_NATIVE_PARENT/$ELEMENT_NATIVE_NAME" "$HOME/$ELEMENT_NATIVE_PARENT/$ELEMENT_NATIVE_NAME"-*; do
+        if [[ -e $entry || -L $entry ]]; then
+            element=$entry
+            break
+        fi
+    done
+fi
+if [[ -n $element ]]; then
+    die "this user has an Element profile ($element); an agent must never run as a user that holds a human's Matrix session. Run it as a dedicated agent user."
+fi
+
+config_home=$HOME/.config
+if [[ ${XDG_CONFIG_HOME:-} == /* ]]; then
+    config_home=$XDG_CONFIG_HOME
+fi
+env_file=${PINGBUS_ENV:-$config_home/pingbus/env}
+[[ -f $env_file ]] || die "no env file at $env_file: it must set PINGBUS_TEAMS (set PINGBUS_ENV to use another file)"
+set -a
+# shellcheck source=/dev/null
+. "$env_file"
+set +a
+[[ -n ${PINGBUS_TEAMS:-} ]] || die "$env_file does not set PINGBUS_TEAMS: no team is active"
+export PINGBUS_TEAMS
+export PINGBUS_HOME=${PINGBUS_HOME:-$config_home/pingbus}
+
+if [[ -x $KIT/pingbus ]]; then
+    export PATH=$KIT:$PATH
+fi
+command -v pingbus >/dev/null || die "pingbus is neither in the kit at $KIT nor on PATH"
+command -v claude >/dev/null || die "claude is not on PATH"
+
+status=0
+pingbus config check >&2 || status=$?
+((status == 0)) || die "pingbus config check refused the configuration (exit $status)" "$status"
+
+exec claude --plugin-dir "$PLUGIN" --settings "$SETTINGS" "$@"
