@@ -816,7 +816,7 @@ any leg is skipped.
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
 | U02-U15, U18, U19 against fakes built from H4's recorded responses: validator, limits, config, CLI, inbox, forge, Matrix client, syncer, hooks, watcher and socket client (against a fake socket), zipapp, team file, registry, admin tool, renders, plugin contract, ccy entrypoint | The installer for real: user, binary, units, sandbox, firewalld, NetworkManager, readiness (U16), then the play (U22) |
 | `ruff`, `qa-helper-tests.bash`, `qa-python.bash`, `bash -n`, `ansible-playbook --syntax-check` for the plays, `scripts/test-agent-bus-install.bash` (the installer's pure parts against a temporary root), `scripts/test-ccy-agent-bus.bash`, `scripts/test-ccy-env-local-dist.bash` | Tuwunel itself (H3-H5), then M1 for real; reachability from containers, guests and a VM (H1, H2, P2)                  |
-| Claude Code behaviour: plugin loading and the inbox socket (U01, a logged-in child `claude`; on the host if the container cannot give the child a credential)                                                                                                                        | Element desktop (H6, P4); the phone (H7, the owner's phone); a ccy session woken for real (M2)                        |
+| Claude Code behaviour: plugin loading and the inbox socket (U01, a child `claude` on the ccy token, as `CLAUDE_CODE_OAUTH_TOKEN`; on the host)                                                                                                                                       | Element desktop (H6, P4); the phone (H7, the owner's phone); a ccy session woken for real (M2)                        |
 
 ## 12. Build order
 
@@ -938,8 +938,8 @@ Parallel waves: {U00, U01, U02} → {U03, U04, U08, U14} → {U05, U06, U07, U09
   `http://<wg_ip>:<port>`: which log in, sync, show ping notices and offer mention pills;
   whether a pill sets `m.mentions` (read from the event's source); whether the app trusts a
   user-installed CA.
-- **U01** Claude Code, with a logged-in child `claude` (in the container if it can be given
-  a credential, else on the host): hooks under `--plugin-dir` (all four events), and the
+- **U01** Claude Code, with a child `claude` authenticated as ccy does (on the host, with the
+  ccy token ccy last launched the checkout with, as `CLAUDE_CODE_OAUTH_TOKEN`): hooks under `--plugin-dir` (all four events), and the
   inbox socket as section 6 uses it, including how long identical messages are deduplicated.
 
 ## Decisions

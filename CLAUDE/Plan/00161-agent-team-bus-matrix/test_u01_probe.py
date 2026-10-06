@@ -3,9 +3,10 @@
 Only the pure parts and the socket writer are tested here: the inbox socket's frames, the
 notice text, the throwaway plugin and settings, the child's argv and environment, the
 readers of the child's debug log, stream output and transcript, the pairing of each send
-with what the inbox did with it, the hook marks, the writer's commands, and one send
-against a fake inbox socket. A real child `claude` runs only on the host, through
-triage.bash.
+with what the inbox did with it, the hook marks, the writer's commands, ccy's token rules,
+one send against a fake inbox socket, and one whole session leg against a fake `claude`
+whose every artefact is scanned for the token. A real child `claude` runs only on the
+host, through triage.bash.
 
 Run from anywhere:
     python3 CLAUDE/Plan/00161-agent-team-bus-matrix/test_u01_probe.py
@@ -13,6 +14,8 @@ Run from anywhere:
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -153,6 +156,9 @@ class ArgvTest(unittest.TestCase):
         self.assertEqual([a for a in with_bypass if a not in ("--permission-mode", "bypassPermissions")], without)
 
 
+OAUTH = "fake-oauth-value-for-tests-only-0123456789"
+
+
 class ChildEnvTest(unittest.TestCase):
     def test_a_live_sessions_socket_never_reaches_the_child(self) -> None:
         env = up.child_env(
@@ -163,9 +169,154 @@ class ChildEnvTest(unittest.TestCase):
                 "CLAUDE_CODE_MESSAGING_TOKEN": TOKEN,
                 "CLAUDECODE": "1",
                 "CLAUDE_CODE_SESSION_ID": "x",
-            }
+            },
+            OAUTH,
         )
-        self.assertEqual(env, {"PATH": "/usr/bin", "HOME": "/home/u"})
+        self.assertEqual(env, {"PATH": "/usr/bin", "HOME": "/home/u", "CLAUDE_CODE_OAUTH_TOKEN": OAUTH})
+
+    def test_the_ccy_token_replaces_any_inherited_one(self) -> None:
+        env = up.child_env({"CLAUDE_CODE_OAUTH_TOKEN": "stale"}, OAUTH)
+        self.assertEqual(env, {"CLAUDE_CODE_OAUTH_TOKEN": OAUTH})
+
+    def test_an_empty_token_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            up.child_env({}, "")
+
+
+CONF = pathlib.Path("/c/.claude/ccy/.last-launch.conf")
+CONF_TEXT = (
+    "# CCY Launch Configuration\n"
+    "SAVED_CONFIG_VERSION=3\n"
+    'SAVED_CCY_VERSION="9.9.9"\n'
+    'LAST_TOKEN="work_2"\n'
+    'LAST_SSH_KEYS=""\n'
+)
+
+
+class CcyTokenTest(unittest.TestCase):
+    """The ccy rules: LAST_TOKEN per checkout, <name>.<YYYY-MM-DD>.token, today counts as expired."""
+
+    def test_paths_follow_ccy(self) -> None:
+        self.assertEqual(up.ccy_launch_conf(pathlib.Path("/c")), CONF)
+        self.assertEqual(up.ccy_tokens_dir(pathlib.Path("/h")), pathlib.Path("/h/.claude-tokens/ccy/tokens"))
+
+    def test_last_token_is_parsed_not_sourced(self) -> None:
+        self.assertEqual(up.last_token_name(CONF_TEXT, CONF), "work_2")
+        self.assertEqual(up.last_token_name("LAST_TOKEN=plain-name\n", CONF), "plain-name")
+        self.assertEqual(up.last_token_name('LAST_TOKEN="a"\nLAST_TOKEN="b"\n', CONF), "b")
+
+    def test_no_token_named_says_where_and_what_to_do(self) -> None:
+        for text in ("", "LAST_TOKEN=\n", 'LAST_TOKEN=""\n', "# LAST_TOKEN=x\n"):
+            with self.subTest(text=text), self.assertRaisesRegex(up.tp.ProbeError, "launch ccy in this checkout once"):
+                up.last_token_name(text, CONF)
+        with self.assertRaisesRegex(up.tp.ProbeError, str(CONF)):
+            up.last_token_name("", CONF)
+
+    def test_a_name_that_is_not_a_plain_token_name_is_refused(self) -> None:
+        for bad in ('"$(touch x)"', '"../x"', '"a b"', '"a.b"', "x;y", '"a\'b"'):
+            with self.subTest(bad=bad), self.assertRaisesRegex(up.tp.ProbeError, "not a plain token name"):
+                up.last_token_name(f"LAST_TOKEN={bad}\n", CONF)
+
+    def test_the_token_file_is_the_first_with_that_name(self) -> None:
+        names = ["work_2.2099-01-01.token", "work.2098-01-01.token", "work_2.2098-06-01.token", "work_2.txt"]
+        self.assertEqual(up.pick_token_file("work_2", names), "work_2.2098-06-01.token")
+        self.assertEqual(up.pick_token_file("work", names), "work.2098-01-01.token")
+        self.assertIsNone(up.pick_token_file("other", names))
+
+    def test_expiry_comes_from_the_file_name(self) -> None:
+        self.assertEqual(up.token_expiry("work.2099-01-31.token"), "2099-01-31")
+        self.assertIsNone(up.token_expiry("work.token"))
+
+    def test_a_token_expiring_today_is_expired_as_ccy_treats_it(self) -> None:
+        today = up.datetime.date(2026, 10, 6)
+        self.assertTrue(up.token_usable("2026-10-07", today))
+        self.assertFalse(up.token_usable("2026-10-06", today))
+        self.assertFalse(up.token_usable("2026-10-05", today))
+
+    def test_the_value_is_the_file_content_less_trailing_newlines(self) -> None:
+        self.assertEqual(up.token_value(OAUTH + "\n\n"), OAUTH)
+        self.assertEqual(up.token_value(""), "")
+
+    def test_the_token_never_shows_in_its_repr(self) -> None:
+        token = up.CcyToken("work", "2099-01-01", OAUTH)
+        self.assertNotIn(OAUTH, repr(token))
+        self.assertEqual(token.label(), "ccy token work (expires 2099-01-01)")
+
+
+class LoadCcyTokenTest(unittest.TestCase):
+    TODAY = up.datetime.date(2026, 10, 6)
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self.tmp.name)
+        self.checkout = self.root / "checkout"
+        self.home = self.root / "home"
+        self.tokens = up.ccy_tokens_dir(self.home)
+        self.tokens.mkdir(parents=True)
+        up.ccy_launch_conf(self.checkout).parent.mkdir(parents=True)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def conf(self, text: str) -> None:
+        up.ccy_launch_conf(self.checkout).write_text(text, encoding="utf-8")
+
+    def load(self) -> up.CcyToken:
+        return up.load_ccy_token(self.checkout, self.home, self.TODAY)
+
+    def assert_refused(self, pattern: str) -> str:
+        with self.assertRaisesRegex(up.tp.ProbeError, pattern) as caught:
+            self.load()
+        message = str(caught.exception)
+        self.assertNotIn(OAUTH, message)
+        return message
+
+    def test_a_valid_token(self) -> None:
+        self.conf(CONF_TEXT)
+        (self.tokens / "work_2.2026-12-01.token").write_text(OAUTH + "\n", encoding="utf-8")
+        token = self.load()
+        self.assertEqual((token.name, token.expires, token.value), ("work_2", "2026-12-01", OAUTH))
+
+    def test_no_launch_record(self) -> None:
+        message = self.assert_refused("launch ccy in this checkout once")
+        self.assertIn(str(up.ccy_launch_conf(self.checkout)), message)
+
+    def test_no_token_file(self) -> None:
+        self.conf(CONF_TEXT)
+        self.assertIn("work_2", self.assert_refused(r"ccy --update-token=work_2"))
+
+    def test_expired_and_expiring_today(self) -> None:
+        self.conf(CONF_TEXT)
+        for day in ("2026-10-06", "2026-01-01"):
+            path = self.tokens / f"work_2.{day}.token"
+            path.write_text(OAUTH, encoding="utf-8")
+            with self.subTest(day=day):
+                self.assert_refused(rf"expired.*{day}.*ccy --update-token=work_2")
+            path.unlink()
+
+    def test_no_expiry_in_the_name(self) -> None:
+        self.conf(CONF_TEXT)
+        (self.tokens / "work_2.old.token").write_text(OAUTH, encoding="utf-8")
+        self.assert_refused("no expiry date.*ccy --update-token=work_2")
+
+    def test_an_empty_token_file(self) -> None:
+        self.conf(CONF_TEXT)
+        (self.tokens / "work_2.2099-01-01.token").write_text("\n", encoding="utf-8")
+        self.assert_refused("is empty.*ccy --update-token=work_2")
+
+
+class RedactTest(unittest.TestCase):
+    def test_a_file_holding_the_secret_is_named_and_redacted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "sub").mkdir()
+            (root / "sub" / "debug.log").write_text(f"Bearer {OAUTH}\n", encoding="utf-8")
+            (root / "clean.txt").write_text("nothing\n", encoding="utf-8")
+            self.assertEqual(up.redact_secret(root, OAUTH), ["sub/debug.log"])
+            self.assertEqual(
+                (root / "sub" / "debug.log").read_text(encoding="utf-8"), "Bearer <CLAUDE_CODE_OAUTH_TOKEN>\n"
+            )
+            self.assertEqual(up.redact_secret(root, OAUTH), [])
 
 
 class DebugLogTest(unittest.TestCase):
@@ -366,6 +517,10 @@ class CommandTest(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 up.parse_command(bad)
 
+    def test_exit_is_sent_only_to_a_writer_still_waiting(self) -> None:
+        self.assertFalse(up.writer_needs_exit({"gone": True, "t": 1.0}))
+        self.assertTrue(up.writer_needs_exit({"gone": False, "t": 1.0}))
+
 
 class AuthStatusTest(unittest.TestCase):
     def test_only_the_fields_the_probe_needs(self) -> None:
@@ -475,7 +630,7 @@ class WorkDirTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             (root / "CLAUDE.md").write_text("x", encoding="utf-8")
-            session = up.Session("claude", up.VARIANTS["main"], root / "evidence", root / "work")
+            session = up.Session("claude", up.VARIANTS["main"], root / "evidence", root / "work", OAUTH)
             with self.assertRaisesRegex(up.tp.ProbeError, "CLAUDE.md"):
                 session.start()
             self.assertIsNone(session.proc)
@@ -538,7 +693,7 @@ class RenderSessionTest(unittest.TestCase):
     def test_the_report_section_carries_every_fact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
-            session = up.Session("claude", up.VARIANTS["main"], root / "evidence", root / "work")
+            session = up.Session("claude", up.VARIANTS["main"], root / "evidence", root / "work", OAUTH)
             session.marks.mkdir(parents=True)
             start = up.mark_record("SessionStart", '{"source": "startup"}', {}, 1.0)
             (session.marks / "SessionStart.jsonl").write_text(json.dumps(start) + "\n", encoding="utf-8")
@@ -557,6 +712,7 @@ class RenderSessionTest(unittest.TestCase):
             )
             facts = {
                 "version": "2.1.291 (Claude Code)",
+                "auth": "ccy token work (expires 2099-01-01)",
                 "ready": {"token_present": True},
                 "exit_code": 0,
                 "wake_turn_s": 3.2,
@@ -569,6 +725,7 @@ class RenderSessionTest(unittest.TestCase):
             text = up.render_session("main", session, facts, ["the dedupe resend failed"])
         self.assertIn("## U01 session: main", text)
         self.assertIn("- Claude Code: 2.1.291 (Claude Code)", text)
+        self.assertIn("- auth: ccy token work (expires 2099-01-01), as CLAUDE_CODE_OAUTH_TOKEN", text)
         self.assertIn("<CLAUDE_CODE_MESSAGING_TOKEN>", text)
         self.assertIn('| SessionStart | 1 | {"source": "startup"} |', text)
         self.assertIn("| Stop | 0 |  |", text)
@@ -589,7 +746,7 @@ class RemoveTracesTest(unittest.TestCase):
             claude = root / "claude"
             claude.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> {shlex.quote(str(log))}\n', encoding="utf-8")
             claude.chmod(0o755)
-            session = up.Session(str(claude), up.VARIANTS["main"], root / "evidence", root / "work")
+            session = up.Session(str(claude), up.VARIANTS["main"], root / "evidence", root / "work", OAUTH)
             session.evidence.mkdir()
             session.cwd.mkdir(parents=True)
             sid, other = session.session_id, "99999999-8888-4777-8666-555555555555"
@@ -624,6 +781,134 @@ class RemoveTracesTest(unittest.TestCase):
                 log.read_text(encoding="utf-8").splitlines(),
                 [f"purge --dry-run {session.cwd}", f"purge -y {session.cwd}"],
             )
+
+
+# A stand-in `claude`: answers --version, auth status and purge, and as a session it logs the
+# inbox socket, runs the plugin's hooks with the messaging variables, ends a turn per prompt
+# and removes its socket on exit. It records a digest of the OAuth token it was handed in a
+# side directory outside the run directory, never the value.
+FAKE_CLAUDE = r'''
+import hashlib, json, os, pathlib, socket, subprocess, sys, threading, time
+
+side = pathlib.Path(os.environ["FAKE_SIDE"])
+
+
+def digest(name):
+    oauth = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "")
+    (side / name).write_text(hashlib.sha256(oauth.encode()).hexdigest(), encoding="utf-8")
+
+
+def stamp():
+    now = time.time()
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(now)) + ".%03dZ" % int(now % 1 * 1000)
+
+
+def session(argv):
+    digest("session.sha256")
+    flag = lambda name: argv[argv.index(name) + 1]
+    debug = pathlib.Path(flag("--debug-file"))
+    hooks = json.loads((pathlib.Path(flag("--plugin-dir")) / "hooks" / "hooks.json").read_text())["hooks"]
+    path = os.path.join(os.getcwd(), "s.sock")
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(path)
+    server.listen()
+
+    def log(text):
+        with debug.open("a", encoding="utf-8") as out:
+            out.write(stamp() + " [DEBUG] " + text + "\n")
+
+    def serve():
+        while True:
+            try:
+                conn, _ = server.accept()
+            except OSError:
+                return
+            with conn:
+                while conn.recv(4096):
+                    pass
+            log("[uds-messaging] Routed user message to queue (priority=next): x")
+
+    threading.Thread(target=serve, daemon=True).start()
+    log("[uds-messaging] Listening: " + path)
+    env = dict(os.environ, CLAUDE_CODE_MESSAGING_SOCKET=path, CLAUDE_CODE_MESSAGING_TOKEN="messaging-token")
+
+    def hook(event):
+        for group in hooks[event]:
+            for spec in group["hooks"]:
+                payload = json.dumps({"hook_event_name": event})
+                subprocess.run(["/bin/sh", "-c", spec["command"]], input=payload, text=True, env=env, check=True)
+
+    hook("SessionStart")
+    for _line in sys.stdin:
+        hook("UserPromptSubmit")
+        print(json.dumps({"type": "result", "subtype": "success"}), flush=True)
+        hook("Stop")
+    hook("SessionEnd")
+    server.close()
+    os.unlink(path)
+    return 0
+
+
+def main(argv):
+    if argv[:1] == ["--version"]:
+        print("9.9.9 (Claude Code)")
+        return 0
+    if argv[:2] == ["auth", "status"]:
+        digest("auth.sha256")
+        config = side / "config"
+        print(json.dumps({"loggedIn": True, "authMethod": "oauth_token", "apiProvider": "firstParty",
+                          "projectsDirectory": str(config / "projects"), "configDirectory": str(config)}))
+        return 0
+    if argv[:1] == ["purge"]:
+        print("No project state found")
+        return 1
+    return session(argv)
+
+
+sys.exit(main(sys.argv[1:]))
+'''
+
+
+class TokenNeverLeaksTest(unittest.TestCase):
+    """A whole session leg against a fake claude: the ccy token reaches the child and nothing else."""
+
+    def test_no_artefact_of_a_fake_session_holds_the_token(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            side, home, checkout, run = root / "side", root / "home", root / "checkout", root / "run"
+            for directory in (side, run):
+                directory.mkdir()
+            claude = root / "claude"
+            claude.write_text(f"#!{sys.executable}\n" + FAKE_CLAUDE, encoding="utf-8")
+            claude.chmod(0o755)
+            up.ccy_tokens_dir(home).mkdir(parents=True)
+            (up.ccy_tokens_dir(home) / "work.2099-01-01.token").write_text(OAUTH + "\n", encoding="utf-8")
+            up.ccy_launch_conf(checkout).parent.mkdir(parents=True)
+            up.ccy_launch_conf(checkout).write_text('LAST_TOKEN="work"\n', encoding="utf-8")
+            report = run / "report.md"
+            argv = ["session", "--variant", "default-no-accept", "--evidence", str(run / "u01"),
+                    "--report", str(report), "--claude", str(claude), "--checkout", str(checkout)]
+            out, err = io.StringIO(), io.StringIO()
+            with (
+                mock.patch.dict(os.environ, {"HOME": str(home), "FAKE_SIDE": str(side)}),
+                mock.patch.object(up, "QUIET_S", 0),
+                contextlib.redirect_stdout(out),
+                contextlib.redirect_stderr(err),
+            ):
+                code = up.main(argv)
+            text = report.read_text(encoding="utf-8")
+            self.assertEqual(code, 0, text)
+            self.assertIn("- auth: ccy token work (expires 2099-01-01), as CLAUDE_CODE_OAUTH_TOKEN", text)
+            want = hashlib.sha256(OAUTH.encode()).hexdigest()
+            self.assertEqual((side / "session.sha256").read_text(encoding="utf-8"), want)
+            self.assertEqual((side / "auth.sha256").read_text(encoding="utf-8"), want)
+            artefacts = [path for path in run.rglob("*") if path.is_file()]
+            self.assertIn(run / "u01" / "default-no-accept" / "argv.json", artefacts)
+            self.assertIn(run / "u01" / "default-no-accept" / "debug.log", artefacts)
+            for path in artefacts:
+                with self.subTest(path=path.relative_to(run)):
+                    self.assertNotIn(OAUTH.encode(), path.read_bytes())
+            self.assertNotIn(OAUTH, out.getvalue() + err.getvalue())
 
 
 if __name__ == "__main__":

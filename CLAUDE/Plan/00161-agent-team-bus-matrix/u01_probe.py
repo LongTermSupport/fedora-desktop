@@ -6,8 +6,8 @@ section to the report and renders no verdict (PlanScriptStandards R9). A leg exi
 when it could not establish its facts. Progress goes to stderr; the report is the payload.
 
 Subcommands:
-  claude-env  the Claude Code version and whether this user is logged in (no account
-              details are recorded)
+  claude-env  the Claude Code version, the ccy token the child sessions use and the auth
+              method Claude Code reports with it (no account details are recorded)
   session     one throwaway child session (`claude -p` with stream-json input, so it sits
               idle between turns), started with a throwaway plugin through --plugin-dir and
               a variant's --settings. The plugin's four hooks (SessionStart,
@@ -32,9 +32,17 @@ servers and the haiku model. That directory is a fresh one in the system temp di
 outside any checkout, and the session refuses to start if a CLAUDE.md or .claude/ sits
 above it, so no project's instructions or hooks reach the child. The writer sends nothing
 until the driver has checked that the writer's socket is the one the child itself logged,
-and it stops by itself once that socket is gone. The child uses the user's own login (its
-config directory), so afterwards `claude purge` removes the scratch project's transcript
-and config entry, and any file named by the session's fresh UUID is removed.
+and it stops by itself once that socket is gone, so the driver sends it an exit only if the
+socket outlived the session.
+
+The child authenticates as the owner's ccy sessions do: CLAUDE_CODE_OAUTH_TOKEN carries the
+long-lived token that ccy last launched --checkout with (LAST_TOKEN in its
+.claude/ccy/.last-launch.conf, the file ~/.claude-tokens/ccy/tokens/<name>.<expiry>.token),
+refused when ccy would refuse it. The value only ever travels in the child's environment;
+after each session every file in its run directory is checked for it, and any copy Claude
+Code wrote is replaced with a placeholder and reported. The child still uses this user's
+config directory, so afterwards `claude purge` removes the scratch project's transcript and
+config entry, and any file named by the session's fresh UUID is removed.
 """
 
 from __future__ import annotations
@@ -42,6 +50,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import datetime
+import fnmatch
 import json
 import os
 import pathlib
@@ -76,7 +85,14 @@ LIVE_SESSION_ENV = frozenset(
         "CLAUDE_CODE_CHILD_SESSION",
     }
 )
-KEPT_HOOK_KEYS = ("hook_event_name", "source", "session_id", "stop_hook_active", "reason")
+OAUTH_ENV = "CLAUDE_CODE_OAUTH_TOKEN"
+OAUTH_PLACEHOLDER = f"<{OAUTH_ENV}>"
+# ccy's own rules (claude-yolo, lib/token-management.bash, lib/common-pure.bash).
+_TOKEN_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_TOKEN_EXPIRY_RE = re.compile(r"(\d{4}-\d{2}-\d{2})\.token$")
+_LAST_TOKEN_RE = re.compile(r"""^LAST_TOKEN=(["']?)(.*)\1$""")
+LAUNCH_HINT = "launch ccy in this checkout once (it records the token it used there)"
+KEPT_HOOK_KEYS =("hook_event_name", "source", "session_id", "stop_hook_active", "reason")
 INSTRUCTION_FILES = ("CLAUDE.md", "CLAUDE.local.md")
 AUTH_KEYS =("loggedIn", "authMethod", "apiProvider", "projectsDirectory", "configDirectory")
 FIRST_PROMPT = "Reply with the single word OK and nothing else."
@@ -213,8 +229,13 @@ def build_argv(
     return argv
 
 
-def child_env(environ: dict[str, str]) -> dict[str, str]:
-    return {key: value for key, value in environ.items() if key not in LIVE_SESSION_ENV}
+def child_env(environ: dict[str, str], oauth_token: str) -> dict[str, str]:
+    """The child's environment: no live session's variables, and ccy's token as ccy passes it."""
+    if not oauth_token:
+        raise ValueError("the child needs the ccy token")
+    env = {key: value for key, value in environ.items() if key not in LIVE_SESSION_ENV}
+    env[OAUTH_ENV] = oauth_token
+    return env
 
 
 def instruction_ancestors(path: pathlib.Path) -> list[pathlib.Path]:
@@ -230,6 +251,96 @@ def instruction_ancestors(path: pathlib.Path) -> list[pathlib.Path]:
 def make_work_dir(variant: str) -> pathlib.Path:
     """The child's directory, in the system temp directory: never under a checkout's CLAUDE.md."""
     return pathlib.Path(tempfile.mkdtemp(prefix=f"u01-{variant}-")).resolve()
+
+
+# ── pure: the ccy token the owner's sessions run on ───────────────────────────────────────
+
+
+@dataclasses.dataclass(frozen=True)
+class CcyToken:
+    name: str
+    expires: str
+    value: str = dataclasses.field(repr=False)
+
+    def label(self) -> str:
+        return f"ccy token {self.name} (expires {self.expires})"
+
+
+def ccy_launch_conf(checkout: pathlib.Path) -> pathlib.Path:
+    return checkout / ".claude" / "ccy" / ".last-launch.conf"
+
+
+def ccy_tokens_dir(home: pathlib.Path) -> pathlib.Path:
+    return home / ".claude-tokens" / "ccy" / "tokens"
+
+
+def last_token_name(conf_text: str, conf: pathlib.Path) -> str:
+    """LAST_TOKEN from ccy's launch record, parsed (never sourced); the last line wins, as in bash."""
+    found = None
+    for line in conf_text.splitlines():
+        match = _LAST_TOKEN_RE.match(line.strip())
+        if match is not None:
+            found = match.group(2)
+    if not found:
+        raise tp.ProbeError(f"{conf} names no token (no LAST_TOKEN value): {LAUNCH_HINT}")
+    if not _TOKEN_NAME_RE.match(found):
+        raise tp.ProbeError(f"{conf} has a LAST_TOKEN that is not a plain token name: {LAUNCH_HINT}")
+    return found
+
+
+def pick_token_file(name: str, file_names: list[str]) -> str | None:
+    """The file `ccy --token NAME` takes: the first match of <name>.*.token."""
+    matches = sorted(n for n in file_names if fnmatch.fnmatchcase(n, f"{name}.*.token"))
+    return matches[0] if matches else None
+
+
+def token_expiry(file_name: str) -> str | None:
+    match = _TOKEN_EXPIRY_RE.search(file_name)
+    return None if match is None else match.group(1)
+
+
+def token_usable(expiry: str, today: datetime.date) -> bool:
+    """ccy's is_token_valid: a token expiring today is already expired."""
+    return expiry > today.isoformat()
+
+
+def token_value(content: str) -> str:
+    """What ccy's `$(cat file)` yields: the content less its trailing newlines."""
+    return content.rstrip("\n")
+
+
+def redact_secret(root: pathlib.Path, secret: str) -> list[str]:
+    """Every file under root that holds the secret, rewritten with a placeholder in its place."""
+    needle, held = secret.encode("utf-8"), []
+    for path in sorted(p for p in root.rglob("*") if p.is_file() and not p.is_symlink()):
+        data = path.read_bytes()
+        if needle in data:
+            path.write_bytes(data.replace(needle, OAUTH_PLACEHOLDER.encode("utf-8")))
+            held.append(str(path.relative_to(root)))
+    return held
+
+
+def load_ccy_token(checkout: pathlib.Path, home: pathlib.Path, today: datetime.date) -> CcyToken:
+    """The token ccy last launched this checkout with, refused when ccy would refuse it."""
+    conf = ccy_launch_conf(checkout)
+    if not conf.is_file():
+        raise tp.ProbeError(f"no ccy launch record at {conf}: {LAUNCH_HINT}")
+    name = last_token_name(conf.read_text(encoding="utf-8"), conf)
+    renew = f"run ccy --update-token={name}"
+    tokens = ccy_tokens_dir(home)
+    names = [p.name for p in tokens.iterdir()] if tokens.is_dir() else []
+    file_name = pick_token_file(name, names)
+    if file_name is None:
+        raise tp.ProbeError(f"no file for ccy token {name} in {tokens}: {renew}")
+    expiry = token_expiry(file_name)
+    if expiry is None:
+        raise tp.ProbeError(f"ccy token {name} ({file_name}) has no expiry date in its name, so ccy treats it as expired: {renew}")
+    if not token_usable(expiry, today):
+        raise tp.ProbeError(f"ccy token {name} expired {expiry} (ccy counts a token expiring today as expired): {renew}")
+    value = token_value((tokens / file_name).read_text(encoding="utf-8"))
+    if not value:
+        raise tp.ProbeError(f"ccy token file {tokens / file_name} is empty: {renew}")
+    return CcyToken(name, expiry, value)
 
 
 # ── pure: reading the child's debug log, stream output and transcript ─────────────────────
@@ -454,6 +565,11 @@ def _read_json(path: pathlib.Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
 
+def writer_needs_exit(watch_result: dict[str, Any]) -> bool:
+    """Whether the writer still waits for an exit: once its socket is gone it stops by itself."""
+    return not watch_result["gone"]
+
+
 def writer_main(evidence: pathlib.Path) -> int:
     """The hook-spawned stand-in for `pingbus watch`: sends only what the driver asks."""
     wdir = evidence / "writer"
@@ -530,9 +646,14 @@ def claude_version(claude: str) -> str:
     return tp.run_ok([claude, "--version"], timeout=60).strip()
 
 
-def claude_auth(claude: str) -> dict[str, Any]:
-    """`claude auth status` exits 1 when logged out; its JSON is the fact either way."""
-    result = tp.run([claude, "auth", "status", "--json"], timeout=60)
+def claude_auth(claude: str, env: dict[str, str]) -> dict[str, Any]:
+    """`claude auth status` as the child would see it: where its config lives, how it authenticates.
+
+    It exits 1 when logged out; its JSON is the fact either way.
+    """
+    result = subprocess.run(
+        [claude, "auth", "status", "--json"], check=False, capture_output=True, text=True, timeout=60, env=env
+    )
     try:
         return parse_auth_status(result.stdout)
     except ValueError as error:
@@ -542,8 +663,11 @@ def claude_auth(claude: str) -> dict[str, Any]:
 class Session:
     """One throwaway child session and its hook-spawned writer."""
 
-    def __init__(self, claude: str, variant: Variant, evidence: pathlib.Path, work: pathlib.Path) -> None:
+    def __init__(
+        self, claude: str, variant: Variant, evidence: pathlib.Path, work: pathlib.Path, oauth_token: str
+    ) -> None:
         self.variant = variant
+        self.oauth_token = oauth_token
         self.evidence = evidence
         self.work = work
         self.session_id = str(uuid.uuid4())
@@ -584,7 +708,7 @@ class Session:
         self.proc = subprocess.Popen(
             self.argv,
             cwd=str(self.cwd),
-            env=child_env(dict(os.environ)),
+            env=child_env(dict(os.environ), self.oauth_token),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=self.stderr,
@@ -715,7 +839,8 @@ class Session:
         if watch is not None:
             try:
                 facts["socket_after_exit"] = self.await_done(watch, SOCKET_GONE_TIMEOUT_S + 10)
-                self.await_done(self.issue({"op": "exit"}), 10)
+                if writer_needs_exit(facts["socket_after_exit"]):
+                    self.await_done(self.issue({"op": "exit"}), 10)
             except tp.ProbeError as error:
                 errors.append(str(error))
         if self.stderr is not None:
@@ -825,6 +950,7 @@ def render_session(name: str, session: Session, facts: dict[str, Any], errors: l
     variant = session.variant
     out = [f"## U01 session: {name}", "", variant.about, ""]
     out.append(f"- Claude Code: {facts.get('version', 'unknown')}")
+    out.append(f"- auth: {facts.get('auth', 'unknown')}, as {OAUTH_ENV}")
     out.append(f"- permission mode: {'bypassPermissions' if variant.bypass else 'default'}; settings: "
                f"`{json.dumps(build_settings(variant.accept))}` through --settings; plugin through --plugin-dir")
     ready = facts.get("ready")
@@ -896,25 +1022,29 @@ def render_session(name: str, session: Session, facts: dict[str, Any], errors: l
     return "\n".join(out)
 
 
+def ccy_token_for(args: argparse.Namespace) -> CcyToken:
+    return load_ccy_token(pathlib.Path(args.checkout), pathlib.Path.home(), datetime.date.today())
+
+
 def leg_claude_env(args: argparse.Namespace, report: tp.Report) -> None:
     version = claude_version(args.claude)
-    auth = claude_auth(args.claude)
+    token = ccy_token_for(args)
+    auth = claude_auth(args.claude, child_env(dict(os.environ), token.value))
     report.table(
         ["fact", "value"],
-        [["Claude Code", version], ["logged in", auth.get("loggedIn")], ["auth method", auth.get("authMethod")],
+        [["Claude Code", version], ["auth the child sessions use", f"{token.label()}, as {OAUTH_ENV}"],
+         ["auth method Claude Code reports with it", auth.get("authMethod")],
          ["API provider", auth.get("apiProvider")]],
     )
-    if auth.get("loggedIn") is not True:
-        raise tp.ProbeError("this user's claude is not logged in, so no child session can take a turn")
 
 
 def leg_session(args: argparse.Namespace, report: tp.Report) -> None:
     variant = VARIANTS[args.variant]
-    auth = claude_auth(args.claude)
-    if auth.get("loggedIn") is not True:
-        raise tp.ProbeError("this user's claude is not logged in, so no child session can take a turn")
-    facts: dict[str, Any] = {"version": claude_version(args.claude)}
-    session = Session(args.claude, variant, pathlib.Path(args.evidence) / args.variant, make_work_dir(args.variant))
+    token = ccy_token_for(args)
+    auth = claude_auth(args.claude, child_env(dict(os.environ), token.value))
+    facts: dict[str, Any] = {"version": claude_version(args.claude), "auth": token.label()}
+    evidence = pathlib.Path(args.evidence) / args.variant
+    session = Session(args.claude, variant, evidence, make_work_dir(args.variant), token.value)
     errors: list[str] = []
     tp.say(f"[U01] session {args.variant}: {variant.about}")
     try:
@@ -927,6 +1057,11 @@ def leg_session(args: argparse.Namespace, report: tp.Report) -> None:
     finally:
         errors += session.stop(facts)
         errors += remove_traces(args.claude, auth, session, facts)
+        if evidence.is_dir():
+            held = redact_secret(evidence, token.value)
+            if held:
+                errors.append(f"Claude Code wrote the ccy token's value into {', '.join(held)}; "
+                              f"it was replaced there with {OAUTH_PLACEHOLDER}")
         report.write(render_session(args.variant, session, facts, errors))
     if errors:
         raise tp.ProbeError("; ".join(errors))
@@ -940,6 +1075,7 @@ def main(argv: list[str]) -> int:
     for leg in (env, session):
         leg.add_argument("--report", required=True)
         leg.add_argument("--claude", default="claude")
+        leg.add_argument("--checkout", required=True, help="the checkout whose ccy launch record names the token")
     session.add_argument("--variant", required=True, choices=sorted(VARIANTS))
     session.add_argument("--evidence", required=True)
     hook = sub.add_parser("hook")
