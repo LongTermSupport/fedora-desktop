@@ -20,9 +20,11 @@
 #   H6  Element Desktop under pasta with a packet capture.
 # H7 (the phone) and the login legs are the owner's; the report lists them.
 # Unit U01, the Claude Code probes (DESIGN.md sections 6 and 13), run as the last legs, on
-# the host because a child claude needs this user's login: four throwaway `claude -p`
-# sessions, each loading a probe plugin with --plugin-dir, record which hooks fire
-# (SessionStart, UserPromptSubmit, Stop, SessionEnd) and, through a detached process that
+# the host because a child claude authenticates as ccy does: with the unexpired ccy token
+# that ccy last launched this checkout with (LAST_TOKEN in .claude/ccy/.last-launch.conf),
+# passed as CLAUDE_CODE_OAUTH_TOKEN, so ccy must have been launched here once (an expired
+# token is renewed with `ccy --update-token=<name>`). Four throwaway `claude -p` sessions,
+# each loading a probe plugin with --plugin-dir, record which hooks fire (SessionStart, UserPromptSubmit, Stop, SessionEnd) and, through a detached process that
 # the SessionStart hook starts, what the session inbox socket does with a notice: its wire
 # format, whether it starts a turn in an idle session, how the model sees it, identical
 # repeats and the dedupe window, back-to-back notices, and the same without bypass mode or
@@ -182,10 +184,12 @@ if [[ "${claudeOnly}" -eq 0 ]]; then
 fi
 
 u01=(python3 "${PLAN_SCRIPT_DIR}/u01_probe.py")
-plan_gather_leg "U01 Claude Code version and login" "${u01[@]}" claude-env --report "${REPORT}"
+plan_gather_leg "U01 Claude Code version and ccy token" \
+    "${u01[@]}" claude-env --report "${REPORT}" --checkout "${PLAN_REPO_ROOT}"
 for variant in main bypass-no-accept default-accept default-no-accept; do
     plan_gather_leg "U01 throwaway session: ${variant}" \
-        "${u01[@]}" session --variant "${variant}" --evidence "${PLAN_RUN_DIR}/u01" --report "${REPORT}"
+        "${u01[@]}" session --variant "${variant}" --evidence "${PLAN_RUN_DIR}/u01" --report "${REPORT}" \
+        --checkout "${PLAN_REPO_ROOT}"
 done
 remove_scratch # the same call an interrupted run makes through plan_on_cleanup
 plan_finish
