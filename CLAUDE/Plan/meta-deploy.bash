@@ -55,6 +55,7 @@ PLANS=(
     00160-ccy-env-local-override
     00139-commit-signing-everywhere/triage.bash
     00161-agent-team-bus-matrix
+    playbooks/imports/play-basic-configs.yml
 )
 
 LIST_ONLY=0

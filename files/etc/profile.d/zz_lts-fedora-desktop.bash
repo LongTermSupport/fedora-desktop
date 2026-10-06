@@ -26,8 +26,11 @@ export LESSCHARSET=utf-8
 # history-search.bash may start a shell with HISTFILE at /dev/null, so that up-arrow holds
 # only this terminal's commands, and leave the real file in __history_shared_file. The first
 # prompt points HISTFILE back at it, before anything is appended.
+#
+# ignoredups, not ignoreboth: ignorespace drops any line starting with a space, and a
+# command pasted from a web page or a chat reply usually carries leading indentation.
 shopt -s histappend cmdhist lithist histverify
-HISTCONTROL=ignoreboth
+HISTCONTROL=ignoredups
 export HISTFILESIZE=-1
 export HISTSIZE=-1
 export HISTIGNORE="ls:[bf]g:exit"
