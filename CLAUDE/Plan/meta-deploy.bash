@@ -52,8 +52,8 @@ PLAN_ROOT="${scriptDir}"
 # An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
-    # Changed plays only: play-vm-test-lab.yml (vmtest's build-directory fix, Plan 00134 Task 2.7)
-    # and play-claude-yolo.yml (ccy 3.82.0, the issue #69 restore fixes, Plan 00135 Phase 7).
+    # Changed plays only: play-claude-yolo.yml, ccy 3.82.1 (session limits accept the hooks
+    # daemon's claude-supervise launcher, #61). The image rebuilds once (container 2.44).
     00141-run-bash-changed-plays/run-changed.bash
     # Next: 00148's triage once you have dictated with Continuous Dictation on.
 )

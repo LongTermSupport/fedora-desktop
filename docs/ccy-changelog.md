@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.82.1 — container 2.44
+
+- **`--max-age`, `--run-for` and `--until` work with the hooks daemon's supervisor
+  launcher.** From its release after 3.68.0, the daemon's deployed `ccy.env` arms the
+  supervisor through its own launcher, `.claude/ccy/claude-supervise --arm --`, which execs
+  its sibling `claude-supervise.py`. The entrypoint accepted only a wrapper naming
+  `claude-supervise.py` itself, so in a project armed that way a session limit passed the
+  host's checks and every prompt, then refused inside the container. It now finds the supervisor through either form and reads the plugin API from the
+  `.py` beside the launcher. `ccy --supervise` was the way round it until this release.
+
 ## 3.82.0 — container 2.43
 
 - **A restored session no longer stops at the SSH key menu when its key was chosen there.**

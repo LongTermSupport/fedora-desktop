@@ -1030,8 +1030,9 @@ From that position it does two useful things:
    [ctrl+z and the supervisor](#ctrlz-and-the-supervisor).
 
 It is deliberately dependency-free — it imports nothing from the hooks daemon and runs
-under the container's system `python3` — so a broken hooks-daemon venv cannot break every
-`ccy` launch.
+under the container's system `python3` (or, through the daemon's newer `claude-supervise`
+launcher, the first Python 3.11+ it finds) — so a broken hooks-daemon venv cannot break
+every `ccy` launch.
 
 ### Turning it on
 
@@ -1071,6 +1072,9 @@ outranks the in-container default:
 ```bash
 export CCY_CLAUDE_WRAPPER="/workspace/.claude/ccy/claude-supervise.py --arm --"
 ```
+
+Daemon releases after 3.68.0 write `/workspace/.claude/ccy/claude-supervise --arm --`
+instead: a shell launcher that picks a Python 3.11+ and execs the `.py` beside it.
 
 **Opting out.**
 
@@ -1421,7 +1425,9 @@ export CCY_RESTART_WARN_MINUTES=20   # warning lead for --max-age, default 10
   `--no-supervise` with any of them, and a project with no supervisor or with one older than
   the supervisor plugin API (upgrade the hooks daemon there). The host only reads the
   supervisor file, never runs it. A wrapper set by `CCY_CLAUDE_WRAPPER` or the project's
-  `ccy.env` is checked the same way by the entrypoint, at container start.
+  `ccy.env` is checked the same way by the entrypoint, at container start. Either wrapper
+  form is accepted: `claude-supervise.py` itself, or the daemon's `claude-supervise`
+  launcher, judged by the `claude-supervise.py` beside it.
 
 ### ctrl+z and the supervisor
 
