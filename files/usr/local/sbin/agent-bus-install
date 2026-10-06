@@ -41,6 +41,9 @@ readonly READY_TRIES=60
 readonly BACKUP_WAIT_TRIES=60
 readonly TEAM_RE='^[a-z][a-z0-9-]{0,23}$'
 readonly UNIT_FILES=(agent-bus-hs@.service agent-bus-backup@.service agent-bus-backup@.timer)
+# The member kit beside its pingbus, relative to files/opt/claude-yolo/optional/agent-bus.
+readonly KIT_FILES=(agent-bus-claude settings.json plugin/pingbus/.claude-plugin/plugin.json
+    plugin/pingbus/hooks/hooks.json plugin/pingbus/skills/pingbus/SKILL.md)
 
 die() {
     local status=$1
@@ -412,6 +415,23 @@ ensure_bus_interface() {
     fi
 }
 
+# install_kit SRC — the rest of the member kit beside its pingbus: the launcher for non-ccy
+# members, its settings and the Claude Code plugin (the ccy image stages the same SRC).
+# cmd_software checks that SRC holds every one of KIT_FILES before anything changes.
+install_kit() {
+    local src=$1 dir file file_mode
+    for dir in plugin plugin/pingbus plugin/pingbus/.claude-plugin plugin/pingbus/hooks \
+        plugin/pingbus/skills plugin/pingbus/skills/pingbus; do
+        ensure_dir "$KIT_DIR/$dir" 0755 "$ROOT_OWNER" "$ROOT_GROUP"
+    done
+    for file in "${KIT_FILES[@]}"; do
+        file_mode=0644
+        [[ $file != agent-bus-claude ]] || file_mode=0755
+        put_file "member kit $file" "$src/$file" "$KIT_DIR/$file" "$file_mode" "$ROOT_OWNER" "$ROOT_GROUP"
+    done
+    put_symlink "agent-bus-claude command" ../share/agent-bus/kit/agent-bus-claude "$BIN_DIR/agent-bus-claude"
+}
+
 cmd_software() {
     parse_options "source:value bus-address:value" "$@"
     require_option source software
@@ -427,9 +447,11 @@ cmd_software() {
     require_fedora
     [[ $source == /* ]] || die "$EXIT_USAGE" "--source must be an absolute path"
     local files=$source/files
-    local need
+    local kit_src=$files/opt/claude-yolo/optional/agent-bus
+    local need kit_rel=${kit_src#"$source/"}
     for need in helpers/pingbus/bundle.py files/usr/local/bin/agent-bus files/usr/local/sbin/agent-bus-install \
-        files/usr/local/share/agent-bus/tuwunel.pin files/usr/local/share/agent-bus/resolv.conf; do
+        files/usr/local/share/agent-bus/tuwunel.pin files/usr/local/share/agent-bus/resolv.conf \
+        "${KIT_FILES[@]/#/$kit_rel/}"; do
         [[ -f $source/$need ]] || die "$EXIT_CONFIG" "--source $source holds no $need: not a fedora-desktop checkout"
     done
     make_work_dir
@@ -452,6 +474,7 @@ cmd_software() {
     put_file "agent-bus admin wrapper" "$files/usr/local/bin/agent-bus" "$BIN_DIR/agent-bus" 0755 "$ROOT_OWNER" "$ROOT_GROUP"
     put_file "agent-bus-install" "$files/usr/local/sbin/agent-bus-install" "$SBIN_DIR/agent-bus-install" 0755 "$ROOT_OWNER" "$ROOT_GROUP"
     put_file "member kit pingbus" "$LIB_DIR/pingbus.pyz" "$KIT_DIR/pingbus" 0755 "$ROOT_OWNER" "$ROOT_GROUP"
+    install_kit "$kit_src"
 
     local unit reload=0
     for unit in "${UNIT_FILES[@]}"; do

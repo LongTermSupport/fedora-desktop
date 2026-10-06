@@ -3,9 +3,10 @@
 Spec: docs/agent-bus-protocol.md §13 (commands), §14 (exit codes), §15 (output lines),
 §9 (on send; on receive; reading the inbox), §7 (agent text to humans), §10 (the send
 bucket, TIMEOUT), §12 (multi-team, the lock), §3 (`suggest-handle`), §1 (`version`).
-The offline commands are `version`, `validate`, `config check` and `suggest-handle`; the
-network commands are `send`, `say`, `recv` and `wait` (Plan 00161 U11), built on
-`syncer` for room trust and receiving.
+The offline commands are `version`, `validate`, `config check`, `suggest-handle`,
+`inbox`, `status` and `hook …` (the hooks are `hooks`'s); the network commands are `send`,
+`say`, `recv`, `wait` (Plan 00161 U11) and `watch` (U12), built on `syncer` for room trust
+and receiving; `watch` wakes the session through `notify`.
 
 Streams: stdout carries only a command's payload (the §15 stdout lines, `validate`'s
 verdict, and the report commands' text); every diagnostic goes to stderr. Nothing read
@@ -20,8 +21,10 @@ import argparse
 import collections
 import dataclasses
 import hashlib
+import io
 import json
 import os
+import pathlib
 import queue
 import re
 import stat
@@ -33,7 +36,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import BinaryIO, TextIO
 
 from helpers.agent_bus import registry
-from helpers.pingbus import config, forge, inbox, limits, matrix, protocol, syncer
+from helpers.pingbus import config, forge, hooks, inbox, limits, matrix, notify, protocol, syncer
 
 PROG = "pingbus"
 TOOL_VERSION = "0.1.0"
@@ -84,7 +87,7 @@ LINES = {
 #: The last verified team record (spec §12 `state/team.json`): the `agent_bus.team`
 #: content as the syncer verified it. Re-parsed on every read: it is a cache.
 TEAM_RECORD_CACHE = inbox.TEAM_FILE
-TEAM_RECORD_MAX_BYTES = 65536
+TEAM_RECORD_MAX_BYTES = inbox.TEAM_RECORD_MAX_BYTES
 #: Matrix's own limit on a whole event; nothing larger can have come from a homeserver.
 EVENT_FILE_MAX_BYTES = 65536
 
@@ -223,31 +226,7 @@ def dropped_line(counts: Mapping[str, int]) -> str:
 def load_cached_record(member: config.Member) -> protocol.TeamRecord:
     """The team record last verified for `member`, re-checked; `Untrusted` (exit 10) when
     there is none yet, it fails §8, or it gives this member no role."""
-    path = member.state_dir / TEAM_RECORD_CACHE
-    where = f"team {member.team}: {path}"
-    try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
-    except FileNotFoundError:
-        raise protocol.Untrusted(f"{where}: no verified team record yet (not joined)") from None
-    except OSError as exc:
-        raise protocol.Untrusted(f"{where}: cannot be read ({exc.strerror})") from None
-    with os.fdopen(fd, "rb") as handle:
-        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
-            raise protocol.Untrusted(f"{where}: not a regular file")
-        raw = handle.read(TEAM_RECORD_MAX_BYTES + 1)
-    if len(raw) > TEAM_RECORD_MAX_BYTES:
-        raise protocol.Untrusted(f"{where}: larger than {TEAM_RECORD_MAX_BYTES} bytes")
-    try:
-        content = json.loads(raw)
-    except (UnicodeDecodeError, ValueError):
-        raise protocol.Untrusted(f"{where}: not JSON") from None
-    try:
-        record = protocol.parse_team_record(content, member.server_name, member.team)
-    except protocol.Untrusted as exc:
-        raise protocol.Untrusted(f"{where}: {exc}") from None
-    if record.roles.get(member.user_id) not in protocol.ROLES:
-        raise protocol.Untrusted(f"{where}: the team record gives this member no role")
-    return record
+    return inbox.load_cached_record(member)
 
 
 def _one_member(environ: Mapping[str, str], team: str | None) -> config.Member:
@@ -505,7 +484,8 @@ class Runtime:
     client's 429 retries and the lock retries; `monotonic` times `wait`'s deadline and its
     wait for a `recv` lock holder; `long_poll_ms` caps each `/sync` of `wait`; `tick_s` is how often
     `wait` looks for a TIMEOUT falling due while nothing arrives; `threads` collects
-    `wait`'s long-poll threads."""
+    `wait`'s and `watch`'s long-poll threads; `notice_interval_s` spaces the watcher's
+    notices; `spawn` starts the watcher from the SessionStart hook."""
 
     forge_for: Callable[
         [config.Member, Mapping[str, str]], Callable[[protocol.TeamRecord], forge.Forge]
@@ -516,6 +496,8 @@ class Runtime:
     long_poll_ms: int = limits.SYNC_LONG_POLL_S * 1000
     tick_s: float = 1.0
     threads: list[threading.Thread] = dataclasses.field(default_factory=list)
+    notice_interval_s: float = notify.NOTICE_MIN_INTERVAL_S
+    spawn: Callable[[Mapping[str, str], pathlib.Path], object] = hooks.spawn_watcher
 
 
 class _LockedStream:
@@ -749,13 +731,13 @@ def cmd_recv(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
     return EXIT_DROPPED if dropped else EXIT_NOTHING
 
 
-def _take_waiter_lock(state: inbox.TeamState, rt: Runtime) -> inbox.Lock:
-    """The team's sync lock as a waiter. A `recv` holds it only for one sync, so that
-    holder is waited for (up to `RECV_HOLD_WAIT_S`); a watcher or waiter is `Busy`."""
+def _take_waiter_lock(state: inbox.TeamState, rt: Runtime, kind: str = "wait") -> inbox.Lock:
+    """The team's sync lock as a waker (`wait` or `watch`). A `recv` holds it only for one
+    sync, so that holder is waited for (up to `RECV_HOLD_WAIT_S`); a waker is `Busy`."""
     give_up = rt.monotonic() + RECV_HOLD_WAIT_S
     while True:
         try:
-            return inbox.acquire_lock(state, "wait", sleep=rt.sleep)
+            return inbox.acquire_lock(state, kind, sleep=rt.sleep)
         except inbox.Busy as busy:
             if busy.holder != "recv" or rt.monotonic() >= give_up:
                 raise
@@ -866,6 +848,9 @@ def cmd_wait(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
                 pending.setdefault(seat.member.team, collections.Counter()).update(batch.drops)
         if _deliver_all(seats, pending, rt, out, err):
             return EXIT_OK
+        until = rt.clock_ms() + timeout * 1000
+        for seat in seats:
+            seat.syncer.publish_status(until)
         for seat, lock in held:
             thread = threading.Thread(target=_long_poll, args=(seat, lock, rt, waiting), daemon=True,
                                       name=f"pingbus-wait-{seat.member.team}")
@@ -894,6 +879,281 @@ def cmd_wait(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
         for seat, lock in held:
             if seat.member.team not in handed_over:
                 lock.release()
+
+
+# ---------------------------------------------------------------- watch
+
+#: How long the watcher's `listening` status (§8) runs, and how often it renews it.
+WATCH_STATUS_TTL_MS = 600_000
+WATCH_STATUS_REFRESH_MS = 300_000
+
+
+def _pending_view(seats: Sequence[_Seat]) -> tuple[tuple[int, int, int], set[str]]:
+    """(total, from humans, pings) pending over every trusted team, re-validated offline,
+    and the pending items' `team:event ID` names (what the notifier compares)."""
+    total = humans = pings = 0
+    ids: set[str] = set()
+    for seat in seats:
+        record = seat.syncer.record
+        if record is None:
+            continue
+        member = seat.member
+        pending = seat.state.pending(record.context(member.server_name), member.user_id,
+                                     human_text=member.human_text)
+        t, h, p = pending.counts()
+        total, humans, pings = total + t, humans + h, pings + p
+        ids.update(f"{member.team}:{item.event_id}" for item in pending.items)
+    return (total, humans, pings), ids
+
+
+def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, status_ms: int) -> None:
+    """One team's watcher thread: long-poll until stopped, waking the main thread on every
+    batch that stored an item, and renewing the `listening` status. It owns `lock` and
+    releases it when it ends; a failure is handed to the main thread."""
+    try:
+        while not waiting.stop.is_set():
+            batch = seat.syncer.sync_once(rt.long_poll_ms)
+            if batch.drops:
+                waiting.drops.put((seat.member.team, batch.drops))
+            if batch.accepted:
+                waiting.woke.set()
+            now = rt.clock_ms()
+            if now - status_ms >= WATCH_STATUS_REFRESH_MS:
+                seat.syncer.publish_status(now + WATCH_STATUS_TTL_MS)
+                status_ms = now
+    except Exception as exc:
+        waiting.failures.append((seat.member.team, exc))
+        waiting.woke.set()
+    finally:
+        lock.release()
+
+
+def _session_socket(environ: Mapping[str, str]) -> tuple[str, str]:
+    try:
+        session = notify.session_socket(environ)
+    except ValueError as exc:
+        raise config.ConfigError(str(exc)) from None
+    if session is None:
+        raise config.ConfigError(
+            f"watch needs the session's inbox socket ({notify.SOCKET_ENV}): the SessionStart "
+            "hook starts it; without the socket, run `pingbus wait` in the background"
+        )
+    return session
+
+
+def cmd_watch(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
+    """Hold every active team's lock as a watcher (a busy team is reported and skipped;
+    exit 75 only when every team is busy), keep the inbox filled, and write a counts-only
+    notice to the session's socket whenever a new item is pending. Exits 0 when the socket
+    goes (the session ended). A team that fails is reported and dropped, and the others go
+    on; once no team is left, it exits with the first failure's code."""
+    rt: Runtime = args.runtime
+    err = _LockedStream(err)
+    path, token = _session_socket(environ)
+    members = config.load_active(environ, team=args.team)
+    if not notify.socket_present(path):
+        err.write(f"{PROG}: the session socket is gone: nothing to wake\n")
+        return EXIT_OK
+    waiting = _Waiting(float("inf"))
+    held: list[tuple[_Seat, inbox.Lock]] = []
+    pending: _Drops = {}
+    handed_over: set[str] = set()
+    try:
+        for member in members:
+            seat = _seat(member, environ, rt, err)
+            try:
+                held.append((seat, _take_waiter_lock(seat.state, rt, "watch")))
+            except inbox.Busy as busy:
+                err.write(f"{PROG}: team {member.team}: busy: a {busy.holder} process holds the "
+                          "sync lock\n")
+        if not held:
+            err.write(f"{PROG}: every active team is busy: another watcher or waiter holds the seat\n")
+            return EXIT_BUSY
+        seats = [seat for seat, _ in held]
+        for seat in seats:
+            batch = seat.syncer.sync_once(0)
+            if batch.drops:
+                pending.setdefault(seat.member.team, collections.Counter()).update(batch.drops)
+        _emit_drops(pending, out, err)
+        status_ms = rt.clock_ms()
+        for seat in seats:
+            seat.syncer.publish_status(status_ms + WATCH_STATUS_TTL_MS)
+        notifier = notify.Notifier(lambda text: notify.send_notice(path, token, text),
+                                   first_number=max(1, rt.clock_ms()), clock=rt.monotonic,
+                                   min_interval_s=rt.notice_interval_s)
+        for seat, lock in held:
+            thread = threading.Thread(target=_watch_poll, args=(seat, lock, rt, waiting, status_ms),
+                                      daemon=True, name=f"pingbus-watch-{seat.member.team}")
+            rt.threads.append(thread)
+            handed_over.add(seat.member.team)
+            thread.start()
+        reported = 0
+        first_failure: int | None = None
+        while True:
+            if not notify.socket_present(path):
+                err.write(f"{PROG}: the session socket is gone: the watcher exits\n")
+                return EXIT_OK
+            try:
+                notifier.observe(*_pending_view(seats))
+            except notify.SocketGone as gone:
+                err.write(f"{PROG}: {gone}: the watcher exits\n")
+                return EXIT_OK
+            waiting.woke.wait(rt.tick_s)
+            waiting.woke.clear()
+            _collect_drops(waiting, pending)
+            _emit_drops(pending, out, err)
+            while len(waiting.failures) > reported:
+                team, exc = waiting.failures[reported]
+                reported += 1
+                if not isinstance(exc, FAILURES):
+                    raise exc
+                code, message = failure(exc)
+                err.write(f"{PROG}: team {team}: {message}: this team is no longer watched\n")
+                first_failure = first_failure or code
+                seats = [seat for seat in seats if seat.member.team != team]
+            if not seats:
+                err.write(f"{PROG}: no team is left to watch: the watcher exits\n")
+                return first_failure
+    finally:
+        waiting.stop.set()
+        for seat, lock in held:
+            if seat.member.team not in handed_over:
+                lock.release()
+
+
+# ---------------------------------------------------------------- hooks
+
+HOOK_INPUT_MAX = hooks.INPUT_MAX_BYTES
+
+
+def cmd_hook(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
+    """A Claude Code hook: stdin hook JSON, stdout hook JSON, always exit 0 (§13)."""
+    rt: Runtime = args.runtime
+    raw = args.stdin.read(HOOK_INPUT_MAX + 1)
+    result = hooks.run(args.event, raw, environ, now_ms=rt.clock_ms(), spawn=rt.spawn, err=err)
+    out.write(json.dumps(result, ensure_ascii=True) + "\n")
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------- inbox and status (offline)
+
+_REPORT_FIELD_RE = re.compile(r"[\x21-\x7e]{1,255}|[\x20-\x7e]{1,200}")
+
+
+def report_line(kind: str, *fields: str) -> str:
+    """One report line: `kind` and its fields, tab-separated. Each field has passed its own
+    grammar already; this refuses anything that could add a field or a line."""
+    for value in fields:
+        if not isinstance(value, str) or not _REPORT_FIELD_RE.fullmatch(value):
+            raise ValueError(f"{kind}: a field is not printable")
+    return "\t".join((kind, *fields))
+
+
+def _sender_localpart(outcome: protocol.Outcome, server_name: str) -> str:
+    item = outcome.ping or outcome.human
+    return _localpart(item.sender, server_name)
+
+
+def cmd_inbox(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
+    """Every pending item, oldest first, without consuming it: team, event ID, sender,
+    time, and the verb or `human`. Never the text: only `recv` prints that, from the copy it
+    re-fetches. A team that fails is reported and the others still run."""
+    first_failure: int | None = None
+    for member in config.load_active(environ, team=args.team):
+        try:
+            record = load_cached_record(member)
+            state = inbox.TeamState.for_member(member)
+            items = state.pending(record.context(member.server_name), member.user_id,
+                                  human_text=member.human_text).items
+        except FAILURES as exc:
+            code, message = failure(exc)
+            err.write(f"{PROG}: team {member.team}: {message}\n")
+            first_failure = first_failure or code
+            continue
+        for item in items:
+            kind = _verb(item.outcome.ping.verb) if item.outcome.ping else "human"
+            out.write(report_line(
+                "PENDING", _team(member.team), _event_id(item.event_id),
+                _sender_localpart(item.outcome, member.server_name), str(int(item.origin_server_ts)),
+                kind) + "\n")
+    return EXIT_OK if first_failure is None else first_failure
+
+
+WAKE_NAMES = {"watch": "watcher", "wait": "waiter"}
+
+
+def _member_status(user_id: str, statuses: Mapping[str, int], now_ms: int) -> str:
+    until = statuses.get(user_id)
+    if until is None:
+        return ABSENT
+    return protocol.STATUS_LISTENING if until > now_ms else "stale"
+
+
+def _overdue(state: inbox.TeamState, member: config.Member, now_ms: int) -> int:
+    """TIMEOUTs owed and not yet reported, read without taking the outbox lock (it is
+    replaced atomically) and without creating anything."""
+    path = state.path / inbox.OUTBOX_FILE
+    box = inbox.Outbox.from_state(inbox.read_json_file(path), path)
+    return len(box.due_timeouts(now_ms, member.limits))
+
+
+def _status_team(member: config.Member, now_ms: int, out: TextIO) -> None:
+    state = inbox.TeamState.for_member(member)
+    wake = WAKE_NAMES.get(inbox.probe_lock(state) or "", "none")
+    members, statuses = state.room_view()
+    overdue, dropped = _overdue(state, member, now_ms), state.drop_count()
+    try:
+        record: protocol.TeamRecord | None = load_cached_record(member)
+    except protocol.Untrusted:
+        record = None
+    fields = [f"wake={wake}"]
+    if record is None:
+        fields += ["pending=-", "humans=-", "pings=-"]
+        unexpected: list[str] = []
+    else:
+        total, humans, pings = state.pending(record.context(member.server_name), member.user_id,
+                                             human_text=member.human_text).counts()
+        fields += [f"pending={total}", f"humans={humans}", f"pings={pings}"]
+        known = set(record.humans) | set(record.roles) | {member.admin}
+        unexpected = sorted(uid for uid in members if uid not in known)
+    fields += [f"overdue={overdue}", f"dropped={dropped}",
+               "unexpected=-" if record is None else f"unexpected={len(unexpected)}"]
+    trust = "trust=trusted" if record is not None else "trust=untrusted"
+    out.write(report_line("TEAM", _team(member.team), member.handle, trust, *fields) + "\n")
+    if record is None:
+        reason = state.untrusted_reason()
+        if reason is not None:
+            out.write(report_line("UNTRUSTED", member.team, reason) + "\n")
+        return
+    sn = member.server_name
+    for uid in sorted(record.humans):
+        out.write(report_line("MEMBER", member.team, _localpart(uid, sn), "human", ABSENT) + "\n")
+    for uid in sorted(record.roles):
+        out.write(report_line("MEMBER", member.team, _localpart(uid, sn), record.roles[uid],
+                              _member_status(uid, statuses, now_ms)) + "\n")
+    for uid in unexpected:  # room_view() checked each against inbox.is_user_id_text
+        out.write(report_line("UNEXPECTED", member.team, uid, members[uid]) + "\n")
+
+
+def cmd_status(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
+    """Per active team, offline: the handle, room trust (and why not), the wake path from
+    the lock, pending, overdue and dropped counts, unexpected members; then each member of
+    the last verified team record with its role or `human` and its status. A team that
+    fails is reported and prints nothing; the others still run."""
+    rt: Runtime = args.runtime
+    now = rt.clock_ms()
+    first_failure: int | None = None
+    for member in config.load_active(environ, team=args.team):
+        lines = io.StringIO()
+        try:
+            _status_team(member, now, lines)
+        except FAILURES as exc:
+            code, message = failure(exc)
+            err.write(f"{PROG}: team {member.team}: {message}\n")
+            first_failure = first_failure or code
+            continue
+        out.write(lines.getvalue())
+    return EXIT_OK if first_failure is None else first_failure
 
 
 def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
@@ -957,6 +1217,12 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     wait = command("wait", cmd_wait, "long-poll every active team until an item arrives")
     wait.add_argument("--timeout", type=int, metavar="S",
                       help="seconds (default: the member's wait_timeout_s)")
+    command("watch", cmd_watch, "fill the inbox and notify the session socket (SessionStart starts it)")
+    command("inbox", cmd_inbox, "list pending items without consuming them (offline)")
+    command("status", cmd_status, "per team: trust, wake path, counts and members (offline)")
+    hook = command("hook", cmd_hook, "a Claude Code hook: stdin hook JSON, stdout hook JSON")
+    hook.add_argument("event", choices=hooks.EVENTS, metavar="EVENT",
+                      help=" | ".join(hooks.EVENTS))
     return parser
 
 

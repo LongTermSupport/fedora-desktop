@@ -218,7 +218,8 @@ done
 # that loop only walks .local/bin.
 #
 # THE AGENT BUS (Plan 00161). agent-bus-install copies itself, the admin wrapper, its
-# units, the Tuwunel pin and the resolver stub out of the checkout; a repo change to any
+# units, the Tuwunel pin, the resolver stub and the member kit (launcher, settings,
+# plugin; from files/opt/claude-yolo/optional/agent-bus/) out of the checkout; a repo change to any
 # of them is not live until play-agent-bus.yml runs the installer again.
 #
 # Each entry is "repo glob | deployed directory | the play that deploys it". As
@@ -233,6 +234,10 @@ EXTRA_PAIRS=(
     "files/usr/local/bin/agent-bus|/usr/local/bin|playbooks/imports/play-agent-bus.yml"
     "files/usr/local/share/agent-bus/*|/usr/local/share/agent-bus|playbooks/imports/play-agent-bus.yml"
     "files/etc/systemd/system/agent-bus-*|/etc/systemd/system|playbooks/imports/play-agent-bus.yml"
+    "files/opt/claude-yolo/optional/agent-bus/*|/usr/local/share/agent-bus/kit|playbooks/imports/play-agent-bus.yml"
+    "files/opt/claude-yolo/optional/agent-bus/plugin/pingbus/.claude-plugin/*|/usr/local/share/agent-bus/kit/plugin/pingbus/.claude-plugin|playbooks/imports/play-agent-bus.yml"
+    "files/opt/claude-yolo/optional/agent-bus/plugin/pingbus/hooks/*|/usr/local/share/agent-bus/kit/plugin/pingbus/hooks|playbooks/imports/play-agent-bus.yml"
+    "files/opt/claude-yolo/optional/agent-bus/plugin/pingbus/skills/pingbus/*|/usr/local/share/agent-bus/kit/plugin/pingbus/skills/pingbus|playbooks/imports/play-agent-bus.yml"
 )
 for pair in "${EXTRA_PAIRS[@]}"; do
     glob="${pair%%|*}"
