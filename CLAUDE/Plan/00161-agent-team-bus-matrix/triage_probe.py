@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import dataclasses
 import hashlib
 import hmac
@@ -50,6 +51,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import Counter
+from collections.abc import Callable, Iterator
 from typing import Any
 
 PREFIX = "agent_bus"
@@ -57,9 +59,8 @@ PROBE_SERVER_NAME = "probe.agent-bus.internal"
 TUWUNEL_VERSION = "v1.9.3"
 RELEASE_API = "https://api.github.com/repos/matrix-construct/tuwunel/releases/tags/{version}"
 UNKNOWN_KEY = "agent_bus_probe_unknown_key"
-# Tuwunel runs these admin commands on SIGUSR2 and nothing by default (example config,
-# `admin_signal_execute`), so a SIGUSR2 backup needs this key, which DESIGN.md 3.6 lacks.
-SIGNAL_BACKUP: dict[str, object] = {"admin_signal_execute": ["server backup-database"]}
+# Response fields that carry a credential; every value found must be a registered secret.
+TOKEN_FIELDS = frozenset({"access_token", "login_token", "refresh_token"})
 CCY_IMAGE = "claude-yolo:latest"
 # Inside the transient unit, a tmpfs over an existing empty directory carries the read-only
 # inputs, so nothing is created on the host's own filesystem.
@@ -149,12 +150,17 @@ def render_tuwunel_toml(
         ("default_room_version", "12"),
         ("sentry", False),
         ("log", "warn"),
+        ("login_via_existing_session", False),
+        ("admin_signal_execute", ["server backup-database"]),
+        ("error_on_unknown_config_opts", True),
+        ("rocksdb_allow_fallocate", False),
     ]
+    rendered = dict(keys)
     for key, value in (extra or {}).items():
         if not _TOML_KEY_RE.fullmatch(key):
             raise ValueError(f"bad extra key: {key!r}")
-        keys.append((key, value))
-    return "".join(f"{key} = {_toml_value(value)}\n" for key, value in keys)
+        rendered[key] = value  # a probe may override a section 3.6 key; it stays one line
+    return "".join(f"{key} = {_toml_value(value)}\n" for key, value in rendered.items())
 
 
 def registration_mac(secret: str, nonce: str, user: str, password: str, admin: bool) -> str:
@@ -374,6 +380,36 @@ class Scrubber:
 
 def scrub_json(obj: Any, scrubber: Scrubber) -> Any:
     return json.loads(scrubber.scrub(json.dumps(obj)))
+
+
+def unregistered_tokens(obj: Any, known: list[str], path: str = "") -> list[str]:
+    """Paths of TOKEN_FIELDS values not in known: a credential the scrubber was never told of."""
+    found: list[str] = []
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            where = f"{path}.{key}" if path else str(key)
+            if key in TOKEN_FIELDS and isinstance(value, str) and value not in known:
+                found.append(where)
+            found += unregistered_tokens(value, known, where)
+    elif isinstance(obj, list):
+        for index, item in enumerate(obj):
+            found += unregistered_tokens(item, known, f"{path}[{index}]")
+    return found
+
+
+@contextlib.contextmanager
+def stopping(stop: Callable[[], Any]) -> Iterator[dict[str, Any]]:
+    """Run stop after the block; a failing stop never hides the block's own error."""
+    stopped: dict[str, Any] = {}
+    try:
+        yield stopped
+    except BaseException:
+        try:
+            stop()
+        except Exception as error:  # the block's error is the one to report
+            say(f"  stopping also failed: {type(error).__name__}: {error}")
+        raise
+    stopped["exit"] = stop()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1165,6 +1201,11 @@ class _Flows:
 def _write_fixtures(http: Http, scrubber: Scrubber, out_dir: pathlib.Path) -> int:
     records = [dataclasses.asdict(exchange) for exchange in http.exchanges]
     scrubber.discover_ids([json.dumps(record) for record in records])
+    known = scrubber.secret_values()
+    for record in records:
+        unknown = unregistered_tokens(record, known)
+        if unknown:
+            raise ProbeError(f"fixture {record['name']} holds unregistered credentials at {unknown}")
     out_dir.mkdir(parents=True, exist_ok=True)
     names = []
     for index, record in enumerate(records, start=1):
@@ -1188,10 +1229,9 @@ def leg_h4(args: argparse.Namespace, report: Report) -> None:
     http = Http(server.base_url)
     flows = _Flows(http, server, scrubber)
     server.start()
-    try:
+    with stopping(server.stop) as stopped:
         flows.run()
-    finally:
-        flows.fact("exit code after SIGTERM", server.stop())
+    flows.fact("exit code after SIGTERM", stopped["exit"])
     log = server.log_text()
     scan = scan_log(log, scrubber.secret_values())
     flows.fact("log at `warn`: lines / secret occurrences / header-like lines",
@@ -1200,7 +1240,8 @@ def leg_h4(args: argparse.Namespace, report: Report) -> None:
                 "allow_guest_registration"):
         flows.fact(f"log lines naming `{key}`", len(lines_naming(log, key)))
 
-    unknown = Tuwunel(binary, scratch / "h4-unknown", free_port(), extra={UNKNOWN_KEY: True})
+    unknown = Tuwunel(binary, scratch / "h4-unknown", free_port(),
+                      extra={UNKNOWN_KEY: True, "error_on_unknown_config_opts": False})
     started = True
     try:
         unknown.start()
@@ -1211,16 +1252,15 @@ def leg_h4(args: argparse.Namespace, report: Report) -> None:
         unknown.stop()
     unknown_log = _ANSI_RE.sub("", scan_log(unknown.log_text(), [unknown.secret]).scrubbed)
     warning = lines_naming(unknown_log, UNKNOWN_KEY)
-    flows.fact("starts with an unknown key", started)
-    strict = Tuwunel(binary, scratch / "h4-strict", free_port(),
-                     extra={UNKNOWN_KEY: True, "error_on_unknown_config_opts": True})
+    flows.fact("starts with an unknown key and `error_on_unknown_config_opts = false`", started)
+    strict = Tuwunel(binary, scratch / "h4-strict", free_port(), extra={UNKNOWN_KEY: True})
     strict_started = True
     try:
         strict.start()
     except ProbeError:
         strict_started = False
     finally:
-        flows.fact("starts with an unknown key and `error_on_unknown_config_opts = true`",
+        flows.fact("starts with an unknown key and section 3.6's `error_on_unknown_config_opts = true`",
                    f"{strict_started} (exit {strict.stop()})")
     strict_log = _ANSI_RE.sub("", scan_log(strict.log_text(), [strict.secret]).scrubbed)
     warning += lines_naming(strict_log, UNKNOWN_KEY)
@@ -1248,11 +1288,11 @@ def leg_h5(args: argparse.Namespace, report: Report) -> None:
     scratch = pathlib.Path(args.scratch)
     binary = binary_path(scratch)
     data = scratch / "h5"
-    server = Tuwunel(binary, data, free_port(), extra=SIGNAL_BACKUP)
+    server = Tuwunel(binary, data, free_port())
     http = Http(server.base_url)
     facts: list[list[object]] = []
     server.start()
-    try:
+    with stopping(server.stop):
         status, body = shared_secret_register(
             http, server, Scrubber(), "register-admin", "admin", True, "admin"
         )
@@ -1288,17 +1328,15 @@ def leg_h5(args: argparse.Namespace, report: Report) -> None:
         event_after = str(sent["event_id"])
         findings = log_findings(server.log_text()[log_mark:])
         facts.append(["WARN/ERROR after SIGUSR2", " / ".join(findings) or "(none)"])
-    finally:
-        server.stop()
     backups = data / "backups"
     layout = Counter(p.relative_to(backups).parts[0] for p in backups.rglob("*") if p.is_file())
     copy = scratch / "h5-copy"
     shutil.copytree(data, copy)
-    restored = Tuwunel(binary, copy, free_port(), extra=SIGNAL_BACKUP)
+    restored = Tuwunel(binary, copy, free_port())
     http2 = Http(restored.base_url)
     log_mark = len(restored.log_text())
     restored.start(["--restore-backup"])
-    try:
+    with stopping(restored.stop) as stopped:
         status, _ = http2.call("whoami-admin-restored", "GET", "/_matrix/client/v3/account/whoami",
                                token=admin)
         facts.append(["restored copy: the admin token, whoami", status])
@@ -1311,14 +1349,13 @@ def leg_h5(args: argparse.Namespace, report: Report) -> None:
         status, _ = http2.call("get-event-after", "GET", f"{event_path}/{q(event_after)}",
                                token=admin)
         facts.append(["restored copy: the event sent after the backup (gone if restored)", status])
-    finally:
-        facts.append(["restored copy: exit code after SIGTERM", restored.stop()])
+    facts.append(["restored copy: exit code after SIGTERM", stopped["exit"]])
     findings = log_findings(restored.log_text()[log_mark:])
     facts.append(["restored copy: WARN/ERROR", " / ".join(findings) or "(none)"])
     report.write("## H5 backup by SIGUSR2 and restore onto a copy")
     report.table(["Fact", "Value"], facts)
     report.write(
-        "Backup trigger: `admin_signal_execute = [\"server backup-database\"]` in the config, then "
+        "Backup trigger: section 3.6's `admin_signal_execute = [\"server backup-database\"]`, then "
         "SIGUSR2. Restore: the stopped data directory copied whole, then started with "
         "`--restore-backup` (latest backup).\n\nBackup directory, files per top-level entry: "
         + ", ".join(f"`{name}` {count}" for name, count in sorted(layout.items()))
@@ -1364,7 +1401,7 @@ def leg_h3_unit(args: argparse.Namespace, report: Report) -> None:
         if result.returncode not in (0, 5):  # 5: not loaded, already gone
             raise ProbeError(f"could not stop {unit}: {result.stderr.strip()}")
 
-    try:
+    with stopping(stop):
         started = start(True)
         facts.append(["starts as `Type=notify` (sends READY=1)",
                       f"{started.returncode == 0} {started.stderr.strip()[:300]}"])
@@ -1387,8 +1424,6 @@ def leg_h3_unit(args: argparse.Namespace, report: Report) -> None:
         facts.append(["`ss -ltnH` on the port", listening.strip().replace("\n", "; ") or "(nothing)"])
         journal = run(["sudo", "-n", "journalctl", "-u", unit, "--no-pager", "-o", "cat"], timeout=60)
         facts.append(["unit journal (last lines)", " / ".join(journal.stdout.splitlines()[-6:])])
-    finally:
-        stop()
     resolver = run(
         ["sudo", "-n", "systemd-run", "--wait", "--pipe", "--collect", "--quiet",
          *props(False, skip_type=True), "-p", "Type=exec", "--", "/bin/sh", "-c",
@@ -1456,6 +1491,16 @@ def _host_addresses(bus_address: str) -> dict[str, str]:
     return targets
 
 
+BUS_UNTESTED = (
+    "dummy/bus address not tested: no --bus-address was given, so only the primary address "
+    "was tried, and its firewalld zone and routing can differ from a dummy's"
+)
+
+
+def _bus_gap(bus_address: str) -> list[str]:
+    return [] if bus_address else [BUS_UNTESTED]
+
+
 def _client_script(port: int, tag_prefix: str, targets: dict[str, str]) -> str:
     lines = []
     for name, host in targets.items():
@@ -1495,6 +1540,10 @@ def leg_h1(args: argparse.Namespace, report: Report) -> None:
     report.table(["Listener address", "Source seen", "Tag"], [list(r) for r in listener.records])
     if removed.returncode != 0:
         raise ProbeError(f"podman network {network} was left behind: {removed.stderr.strip()}")
+    gap = _bus_gap(args.bus_address)
+    if gap:
+        report.write("Not established here:\n\n" + "\n".join(f"- {item}" for item in gap))
+        raise ProbeError("; ".join(gap))
 
 
 def _bridges() -> list[list[object]]:
@@ -1514,7 +1563,7 @@ def leg_h2(args: argparse.Namespace, report: Report) -> None:
     hosts = _host_addresses(args.bus_address)
     listener = Listener(list(hosts.values()))
     rows: list[list[object]] = []
-    owner_needed: list[str] = []
+    owner_needed = _bus_gap(args.bus_address)
     try:
         if not shutil.which("docker"):
             rows.append(["docker", "-", "-", "not installed"])
@@ -1542,7 +1591,8 @@ def leg_h2(args: argparse.Namespace, report: Report) -> None:
         else:
             nets = run(["sudo", "-n", "virsh", "-c", "qemu:///system", "net-list", "--all"])
             rows.append(["libvirt", "networks", nets.returncode, nets.stdout.strip().replace("\n", "; ")])
-            owner_needed.append("libvirt: reaching the host from a guest needs a guest shell (owner section)")
+            rows.append(["libvirt", "guest", "-", "needs a guest shell: the owner step "
+                         "\"H2 libvirt guest\" in this report"])
         time.sleep(1)
     finally:
         listener.close()

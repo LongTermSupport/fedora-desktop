@@ -9,7 +9,12 @@
 #       the unknown-key warning;
 #   H5  a backup on SIGUSR2 and a restore onto a copy;
 #   H1  which host addresses ccy-image containers reach, and the source address seen;
-#   H2  the same from docker, LXC and libvirt guests, where installed;
+#   H2  the same from docker, LXC and libvirt guests, where installed (a libvirt guest's own
+#       connection needs a guest shell, so it is an owner step, listed, not a failure);
+#   H1 and H2 never create the dummy bus address (nothing persistent): they test the host's
+#   primary address and, with --bus-address=, an address already assigned. Without it they
+#   report the dummy address as not tested and fail, since a dummy's firewalld zone and
+#   routing can differ from the primary address's.
 #   H6  Element Desktop under pasta with a packet capture.
 # H7 (the phone) and the login legs are the owner's; the report lists them.
 # Fact-finding only: it renders no verdict (PlanScriptStandards R9). The probes themselves
@@ -30,7 +35,8 @@
 # profile it removes (H6). It pulls no image and installs nothing.
 #
 # EXIT CODES: 0 every leg established its facts; 1 at least one leg did not (the failing leg
-# names itself; the fact-finding is incomplete, the system is not judged); 64 usage.
+# names itself; the fact-finding is incomplete, the system is not judged; H1 and H2 always
+# give 1 without --bus-address); 64 usage.
 set -euo pipefail
 
 # ── R1 bootstrap: script-relative, filesystem-only, bounded at the repo boundary ──────────

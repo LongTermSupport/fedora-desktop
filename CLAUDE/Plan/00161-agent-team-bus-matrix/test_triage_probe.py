@@ -3,8 +3,9 @@
 Only the pure parts are tested here: the Tuwunel config render (DESIGN.md section 3.6), the
 team room's power levels (PROTOCOL.md section 8), the shared-secret MAC, the scrubber that
 keeps tokens and IDs out of the recorded fixtures, the log scan, the pcap reader, the release
-asset picker, the transient unit's properties, the backup-meta reader and restore plan. The
-network flows run only on the host, against a real Tuwunel.
+asset picker, the transient unit's properties, the backup-meta reader, the fixture writer's
+token-field check, the stop-on-failure guard, and the H1/H2 legs' gap reporting (with the
+host calls replaced). The network flows run only on the host, against a real Tuwunel.
 
 Run from anywhere:
     python3 CLAUDE/Plan/00161-agent-team-bus-matrix/test_triage_probe.py
@@ -12,15 +13,19 @@ Run from anywhere:
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import ipaddress
 import json
 import pathlib
 import re
 import struct
+import subprocess
 import sys
+import tempfile
 import tomllib
 import unittest
+from unittest import mock
 
 _MODULE_PATH = pathlib.Path(__file__).resolve().parent / "triage_probe.py"
 _SPEC = importlib.util.spec_from_file_location("triage_probe", _MODULE_PATH)
@@ -74,6 +79,7 @@ class TuwunelTomlTest(unittest.TestCase):
                 "registration_shared_secret_file",
                 "grant_admin_to_first_user",
                 "login_via_token",
+                "login_via_existing_session",
                 "allow_federation",
                 "trusted_servers",
                 "federate_admin_room",
@@ -85,6 +91,9 @@ class TuwunelTomlTest(unittest.TestCase):
                 "default_room_version",
                 "sentry",
                 "log",
+                "admin_signal_execute",
+                "error_on_unknown_config_opts",
+                "rocksdb_allow_fallocate",
             },
         )
 
@@ -105,8 +114,10 @@ class TuwunelTomlTest(unittest.TestCase):
             "allow_guest_registration",
             "grant_admin_to_first_user",
             "login_via_token",
+            "login_via_existing_session",
             "allow_federation",
             "federate_admin_room",
+            "rocksdb_allow_fallocate",
             "admin_escape_commands",
             "allow_encryption",
             "auto_accept_invites",
@@ -118,10 +129,20 @@ class TuwunelTomlTest(unittest.TestCase):
         self.assertEqual(parsed["client_sync_timeout_min"], 0)
         self.assertEqual(parsed["default_room_version"], "12")
         self.assertEqual(parsed["log"], "warn")
+        self.assertEqual(parsed["admin_signal_execute"], ["server backup-database"])
+        self.assertIs(parsed["error_on_unknown_config_opts"], True)
 
     def test_extra_key_appended(self) -> None:
         parsed = self.render(extra={"agent_bus_probe_unknown_key": True})
         self.assertIs(parsed["agent_bus_probe_unknown_key"], True)
+
+    def test_extra_overrides_a_section_3_6_key_in_place(self) -> None:
+        text = tp.render_tuwunel_toml(
+            "probe.agent-bus.internal", ["127.0.0.1"], 18008, "/srv/probe",
+            extra={"error_on_unknown_config_opts": False},
+        )
+        self.assertEqual(text.count("error_on_unknown_config_opts"), 1)
+        self.assertIs(tomllib.loads(text)["error_on_unknown_config_opts"], False)
 
     def test_loopback_must_come_first(self) -> None:
         with self.assertRaises(ValueError):
@@ -483,15 +504,145 @@ class UnitPropertiesTest(unittest.TestCase):
             self.assertRegex(prop, r"^[A-Za-z]+=\S")
 
 
-class BackupConfigTest(unittest.TestCase):
-    def test_signal_backup_extra_renders_as_a_list(self) -> None:
-        parsed = tomllib.loads(
-            tp.render_tuwunel_toml(
-                "probe.agent-bus.internal", ["127.0.0.1"], 18008, "/srv/probe",
-                extra=tp.SIGNAL_BACKUP,
-            )
+class LatestMetaTest(unittest.TestCase):
+    def test_none_without_a_meta_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(tp._latest_meta(pathlib.Path(tmp)))
+
+    def test_none_when_only_non_numeric_names(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            meta = pathlib.Path(tmp) / "meta"
+            meta.mkdir()
+            (meta / "LOCK").write_text("")
+            (meta / "1a").write_text("")
+            self.assertIsNone(tp._latest_meta(pathlib.Path(tmp)))
+
+    def test_highest_number_not_highest_string(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            meta = pathlib.Path(tmp) / "meta"
+            meta.mkdir()
+            for name in ("2", "10", "9", "LOCK"):
+                (meta / name).write_text("")
+            self.assertEqual(tp._latest_meta(pathlib.Path(tmp)), meta / "10")
+
+
+class UnregisteredTokensTest(unittest.TestCase):
+    def test_every_token_field_found_at_any_depth(self) -> None:
+        record = {
+            "response": {
+                "access_token": "known-1",
+                "nested": [{"refresh_token": "unknown-2"}, {"login_token": "unknown-3"}],
+            },
+            "body": {"login_token": "known-1"},
+        }
+        self.assertEqual(
+            tp.unregistered_tokens(record, ["known-1"]),
+            ["response.nested[0].refresh_token", "response.nested[1].login_token"],
         )
-        self.assertEqual(parsed["admin_signal_execute"], ["server backup-database"])
+
+    def test_clean_record(self) -> None:
+        self.assertEqual(tp.unregistered_tokens({"access_token": "a", "x": "b"}, ["a"]), [])
+
+
+class WriteFixturesTest(unittest.TestCase):
+    def exchange(self, response: object) -> tp.Exchange:
+        return tp.Exchange(
+            name="login-get-token", method="POST", path="/_matrix/client/v1/login/get_token",
+            query={}, auth="token:human", body={}, status=200, response=response, elapsed_ms=3,
+        )
+
+    def write(self, response: object) -> int:
+        http = tp.Http("http://127.0.0.1:1")
+        http.exchanges.append(self.exchange(response))
+        scrubber = tp.Scrubber()
+        scrubber.add_secret("registered-token", "token:human")
+        with tempfile.TemporaryDirectory() as tmp:
+            return tp._write_fixtures(http, scrubber, pathlib.Path(tmp) / "out")
+
+    def test_unregistered_login_token_refused(self) -> None:
+        with self.assertRaisesRegex(tp.ProbeError, "login_token"):
+            self.write({"login_token": "never-registered", "expires_in_ms": 120000})
+
+    def test_registered_token_written(self) -> None:
+        self.assertEqual(self.write({"access_token": "registered-token"}), 1)
+
+
+class StoppingTest(unittest.TestCase):
+    def test_exit_status_kept_on_success(self) -> None:
+        with tp.stopping(lambda: 0) as stopped:
+            pass
+        self.assertEqual(stopped["exit"], 0)
+
+    def test_first_error_survives_a_failing_stop(self) -> None:
+        def failing_stop() -> int:
+            raise tp.ProbeError("stop failed")
+
+        with self.assertRaisesRegex(RuntimeError, "flow failed"), tp.stopping(failing_stop):
+            raise RuntimeError("flow failed")
+
+    def test_stop_runs_when_the_body_fails(self) -> None:
+        calls: list[str] = []
+        with self.assertRaises(RuntimeError), tp.stopping(lambda: calls.append("stop")):
+            raise RuntimeError("flow failed")
+        self.assertEqual(calls, ["stop"])
+
+
+def _done(stdout: str = "", returncode: int = 0) -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess([], returncode, stdout, "")
+
+
+class _FakeListener:
+    port = 40000
+
+    def __init__(self, addresses: list[str]) -> None:
+        self.records: list[tuple[str, str, str]] = []
+
+    def close(self) -> None:
+        pass
+
+
+class AddressLegsTest(unittest.TestCase):
+    """H1 and H2 with every host call replaced: only their gap reporting is under test."""
+
+    def leg(self, name: str, bus_address: str, which: dict[str, str]) -> str:
+        hosts = {"primary": "198.51.100.20"}
+        if bus_address:
+            hosts["bus"] = bus_address
+        with tempfile.TemporaryDirectory() as tmp:
+            report_path = pathlib.Path(tmp) / "report.md"
+            args = argparse.Namespace(bus_address=bus_address, docker_image="busybox")
+            with (
+                mock.patch.object(tp, "_host_addresses", return_value=hosts),
+                mock.patch.object(tp, "Listener", _FakeListener),
+                mock.patch.object(tp, "_bridges", return_value=[]),
+                mock.patch.object(tp, "run", return_value=_done("net-a active")),
+                mock.patch.object(tp, "run_ok", return_value=""),
+                mock.patch.object(tp.shutil, "which", side_effect=which.get),
+                mock.patch.object(tp.time, "sleep"),
+            ):
+                try:
+                    tp.LEGS[name](args, tp.Report(report_path))
+                finally:
+                    self.text = report_path.read_text()
+        return self.text
+
+    def test_h1_without_a_bus_address_says_so_and_fails(self) -> None:
+        with self.assertRaisesRegex(tp.ProbeError, "not tested"):
+            self.leg("h1", "", {})
+        self.assertIn("dummy/bus address not tested", self.text)
+
+    def test_h1_with_a_bus_address_passes(self) -> None:
+        self.assertNotIn("not tested", self.leg("h1", "192.0.2.7", {}))
+
+    def test_h2_without_a_bus_address_says_so_and_fails(self) -> None:
+        with self.assertRaisesRegex(tp.ProbeError, "not tested"):
+            self.leg("h2", "", {})
+        self.assertIn("dummy/bus address not tested", self.text)
+
+    def test_h2_on_a_libvirt_host_points_at_the_owner_step_and_passes(self) -> None:
+        text = self.leg("h2", "192.0.2.7", {"virsh": "/usr/bin/virsh"})
+        self.assertIn("owner step", text)
+        self.assertNotIn("Not established here", text)
 
 
 class ListenerTagTest(unittest.TestCase):
