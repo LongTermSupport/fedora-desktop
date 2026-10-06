@@ -121,13 +121,16 @@ containers that needs its own diagnosis (F7).
   Desktop profile only, and the block installs `abrt` + `abrt-tui` itself (PR #50; journal
   16:40). The triage in meta-deploy `20261005-140009`, on a later boot: no ABRT record and
   no applet assertion this boot.
-- [ ] 🚫 **Task 2.6**: Thunar — no play installed it and no package needed it; the owner
+- [x] ✅ **Task 2.6**: Thunar — no play installed it and no package needed it; the owner
   does not use it, so `play-basic-configs.yml` removes it (`c4b55c97`), and its
   `org.freedesktop.FileManager1` service file goes with the package. The play ran on
   2026-09-24 in this plan's deploy, and the removal task reported `changed`. The triage in
-  meta-deploy `20261005-140009` finds Thunar not installed. HOST verify pending: the
-  triage does not yet print `journalctl -b -u dbus-broker`'s duplicate line, so add that
-  probe and read it.
+  meta-deploy `20261005-140009` finds Thunar not installed, and the triage's new
+  dbus-broker probe in `20261006-110523` finds no duplicate line this boot.
+  The same run explains the failed user unit the triage has named on the last two boots:
+  `vmtest-nightly.service` exits 1 by design when a VM-lab base needs rebuilding (the unit
+  file says so; Completed Plan 00110). Every step ran; the desktop base reported
+  `reinstall` and the server bases `refresh`. Rebuilding them is the owner's call.
 
 ### Phase 3: things to diagnose before changing
 
@@ -184,9 +187,10 @@ containers that needs its own diagnosis (F7).
   `unavailable`, and any finding shown can be copied from the panel menu.
 - [ ] `journalctl --user -b` has no `Lua configuration files are NOT supported` line and
   `wpctl` shows the configured ALSA/Bluetooth properties.
-- [ ] `journalctl -b` has no `Id is present more than once` line, and no
+- [x] `journalctl -b` has no `Id is present more than once` line, and no
   `RuntimeMaxSec= has no effect` line from a unit this repo deploys. A unit deployed by
-  another project is out of scope (owner, 2026-09-24).
+  another project is out of scope (owner, 2026-09-24). Triage on the 2026-10-05 and
+  2026-10-06 boots: neither line, bar one unit another project deploys.
 - [ ] `ausearch -m avc -ts boot` count for `container_t` is explained and bounded.
 
 ## Delivery & Milestones
