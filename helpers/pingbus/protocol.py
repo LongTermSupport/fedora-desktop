@@ -646,6 +646,9 @@ def validate_event(
     if cls == SENDER_HUMAN:
         return _human_outcome(content, event_id, sender, ts, self_user_id, human_text)
     if TEXT_KEY in content:
+        # Agent text is for humans; beside a ping it is neither, and the sender is at fault.
+        if PING_KEY in content:
+            return Outcome(DROP, "schema")
         return Outcome(IGNORE, IGNORE_AGENT_TEXT)
     try:
         ping = validate_content(content, ctx)

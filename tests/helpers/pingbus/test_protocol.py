@@ -1126,7 +1126,6 @@ class TestAgentText(unittest.TestCase):
             ("room mention", dict(good, **{"m.mentions": {"room": True}})),
             ("malformed object", dict(good, **{p.TEXT_KEY: "x"})),
             ("as m.text", dict(good, msgtype="m.text")),
-            ("beside a ping", dict(content("halt"), **{p.TEXT_KEY: good[p.TEXT_KEY]})),
         ]
         for label, body in cases:
             for sender, me in ((ORCH, WORKER), (ORCH, WORKER2), (WORKER, ORCH)):
@@ -1134,6 +1133,14 @@ class TestAgentText(unittest.TestCase):
                     out = p.validate_event(event(sender, body), make_ctx(), me)
                     self.assertEqual((out.kind, out.reason), (p.IGNORE, "agent-text"))
                     self.assertIsNone(out.ping)
+
+    def test_text_beside_a_ping_is_a_schema_drop(self) -> None:
+        """One event carrying both a ping and agent text is neither: a sender that mixes them
+        is breaking the protocol, so it is dropped (and counted), not silently ignored."""
+        body = dict(content("halt"), **{p.TEXT_KEY: self.good()[p.TEXT_KEY]})
+        out = p.validate_event(event(ORCH, body), make_ctx(), WORKER)
+        self.assertEqual((out.kind, out.reason), (p.DROP, "schema"))
+        self.assertIsNone(out.ping)
 
     def test_a_non_member_sending_text_is_sender(self) -> None:
         out = p.validate_event(event(NO_ROLE, self.good()), make_ctx(), WORKER)

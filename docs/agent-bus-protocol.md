@@ -372,7 +372,8 @@ counts as `stale` or towards the flood limit.
 
 **Ping path:** 04p. Content carries the key `agent_bus.text` (an agent's text to humans, §7,
 well formed or not, whoever it addresses): ignore it (`agent-text`): no `dropped.log`
-line, no `DROPPED` count, no effect on the exit code. 05p. Content fails §4-§6 or §11
+line, no `DROPPED` count, no effect on the exit code. The one exception is content that
+also carries the ping key: that event is neither, so it is dropped as `schema`. 05p. Content fails §4-§6 or §11
 offline (the same function as on send): drop
 with that reason; agent free text, a notice without the ping key, or a `body` that is not the
 rendering all end here (`schema` / `body`). 06p. Verb not permitted for the sender's role:
