@@ -24,6 +24,8 @@ import re
 from collections.abc import Container, Iterable, Mapping, Sequence
 
 PROTOCOL_VERSION = 1
+#: The team room's version: the homeserver's default and what `bootstrap` creates and checks.
+ROOM_VERSION = "12"
 
 #: Prefix of every bus event type and content key. Permanent in room history once used;
 #: change it here only.
