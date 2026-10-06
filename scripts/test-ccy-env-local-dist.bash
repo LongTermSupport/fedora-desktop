@@ -68,6 +68,12 @@ check "the dist's first line names its version" \
     "# ccy.env.local.dist version ${version}" "$(awk 'NR==1' "$dist")"
 check "the dist documents the hooks daemon role override" "yes" \
     "$(grep -q 'HOOKS_DAEMON_HOSTNAME' "$dist" && echo yes || echo no)"
+check "the dist is at least version 2, the one that added the agent team bus" "yes" \
+    "$([ "$version" -ge 2 ] && echo yes || echo no)"
+check "the dist documents joining the agent team bus" "yes" \
+    "$(grep -qx '#export PINGBUS_TEAMS=<team>\[,<team>\]' "$dist" && echo yes || echo no)"
+check "the dist says where a ccy member's bundles go" "yes" \
+    "$(grep -qF '.claude/ccy/pingbus/<team>/' "$dist" && echo yes || echo no)"
 check "the dist sets nothing: every non-blank line is a comment" "0" \
     "$(grep -cv '^[[:space:]]*\(#\|$\)' "$dist")"
 check "the dist is valid bash" "0" "$(bash -n "$dist" >"$work/sync.log" 2>&1; echo $?)"

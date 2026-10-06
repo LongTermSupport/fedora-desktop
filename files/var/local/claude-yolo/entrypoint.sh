@@ -418,6 +418,10 @@ echo "✓ /workspace marked as trusted (hasTrustDialogAccepted)"
 # scripts/test-ccy-project-env.bash runs the block between the markers.
 # >>> PROJECT-ENV
 for _ccy_env_file in /workspace/.claude/ccy/ccy.env /workspace/.claude/ccy/ccy.env.local; do
+    if [ "$_ccy_env_file" = /workspace/.claude/ccy/ccy.env.local ]; then
+        # The agent team bus is joined from ccy.env.local only; AGENT-BUS below reads this.
+        _ccy_pingbus_teams_before_local=${PINGBUS_TEAMS+set}
+    fi
     if [ -f "$_ccy_env_file" ]; then
         echo "Sourcing project ccy env: $_ccy_env_file"
         # shellcheck source=/dev/null
@@ -514,6 +518,52 @@ else
         fi
     fi
 fi
+
+# ── Optional: the agent team bus (Plan 00161) ─────────────────────────────────
+#
+# Opt-in is PINGBUS_TEAMS in this checkout's ccy.env.local, which the launcher binds
+# read-only, so a session cannot choose its own teams. Set before that file is read (by
+# ccy.env, the image or the container environment) it is refused. Opted in, `pingbus config
+# check` must accept every listed team's bundle under PINGBUS_HOME or the container does not
+# start: opted in but broken is an error, not a silent no-op. Then pingbus goes on PATH (the
+# plugin's hooks run it by name) and claude gets the plugin and the settings that let the
+# watcher's wake notice start a turn. They go right after `claude`, so they land inside a
+# supervisor wrapper's `--`. Unset, nothing is linked or added and the image's copy is inert.
+# scripts/test-ccy-agent-bus.bash runs this block and the rest of the file after it.
+# >>> AGENT-BUS
+_ccy_agent_bus=/opt/claude-yolo/optional/agent-bus
+if [ -n "${PINGBUS_TEAMS:-}" ]; then
+    if [ "${_ccy_pingbus_teams_before_local:-}" = set ]; then
+        echo "✗ CCY: PINGBUS_TEAMS was set before .claude/ccy/ccy.env.local was read (by ccy.env, the image or the container environment)." >&2
+        echo "  A checkout joins the agent team bus only from ccy.env.local, which its install's IaC places and a session cannot edit." >&2
+        exit 1
+    fi
+    for _ccy_need in pingbus settings.json plugin/pingbus/.claude-plugin/plugin.json plugin/pingbus/hooks/hooks.json; do
+        if [ ! -f "$_ccy_agent_bus/$_ccy_need" ]; then
+            echo "✗ CCY: this checkout joins the agent team bus (PINGBUS_TEAMS=$PINGBUS_TEAMS), but the image has no $_ccy_agent_bus/$_ccy_need." >&2
+            echo "  The image predates the feature. Rebuild it: ccy --rebuild" >&2
+            exit 1
+        fi
+    done
+    if [ "${1:-}" != claude ]; then
+        echo "✗ CCY: this checkout joins the agent team bus, but the command is '${1:-}', not claude, so the bus plugin cannot be added." >&2
+        exit 1
+    fi
+    export PINGBUS_TEAMS
+    export PINGBUS_HOME="${PINGBUS_HOME:-/workspace/.claude/ccy/pingbus}"
+    _ccy_bus_rc=0
+    "$_ccy_agent_bus/pingbus" config check >&2 || _ccy_bus_rc=$?
+    if [ "$_ccy_bus_rc" -ne 0 ]; then
+        echo "✗ CCY: pingbus config check refused this checkout's agent team bus setup (exit $_ccy_bus_rc)." >&2
+        echo "  Teams: $PINGBUS_TEAMS; bundles under $PINGBUS_HOME/<team>/. Fix the bundle, or take PINGBUS_TEAMS out of ccy.env.local." >&2
+        exit 1
+    fi
+    ln -sf "$_ccy_agent_bus/pingbus" /usr/local/bin/pingbus
+    set -- "$1" --plugin-dir "$_ccy_agent_bus/plugin/pingbus" --settings "$_ccy_agent_bus/settings.json" "${@:2}"
+    echo "✓ agent team bus: $PINGBUS_TEAMS (bundles in $PINGBUS_HOME)" >&2
+fi
+unset _ccy_pingbus_teams_before_local
+# <<< AGENT-BUS
 
 # ── Supervisor wrap: DEFAULT ON when the project ships a supervisor ───────────
 #
