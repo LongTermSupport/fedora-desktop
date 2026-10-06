@@ -721,6 +721,7 @@ class TestIdentifiers(unittest.TestCase):
         self.assertEqual(p.parse_user_id(HUMAN, SN), "human1")
         self.assertIsNone(p.parse_user_id(FOREIGN, SN))
         self.assertIsNone(p.parse_user_id("myrepo.1+host.podman:server.test", SN))
+        self.assertIsNone(p.parse_user_id("@myrepo.1+host.podman", SN))
         self.assertIsNone(p.parse_user_id("@:server.test", SN))
         self.assertIsNone(p.parse_user_id("@a b:server.test", SN))
         self.assertIsNone(p.parse_user_id(None, SN))
