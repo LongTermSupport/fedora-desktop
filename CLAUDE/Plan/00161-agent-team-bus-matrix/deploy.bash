@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Plan 00161 — deploy.bash (unit U16, host run): agent-bus-install for real on this desktop,
-# then triage.bash's H1 and H2 against the bus address (DESIGN.md sections 12, 5.3 and 13).
+# Plan 00161 — deploy.bash (units U16 and U22, host run): agent-bus-install for real on this
+# desktop, then play-agent-bus.yml with a throwaway team, then triage.bash's H1 and H2
+# against the bus address (DESIGN.md sections 12, 5.3 and 13).
 #
 # RUN ON THE HOST, as the desktop user (not root): through CLAUDE/Plan/meta-deploy.bash, or
 #   ./CLAUDE/Plan/00161-agent-team-bus-matrix/deploy.bash [--bus-address=<ip>]
@@ -22,14 +23,18 @@
 #   6. `check --team`, printed: any FAIL fact fails the run;
 #   7. `remove --team --purge`; after a failure once the team is in, the same removal runs on
 #      the way out (plan_on_cleanup);
-#   8. `triage.bash --reach-only --bus-address=<ip>`, whose report stays in its run directory.
+#   8. U22: play-agent-bus.yml with extra vars declaring only zz-deploy-check (the same team
+#      file) present: the recap must count a change; again: it must count none; then the
+#      team absent with purge: it must count a change. The same plan_on_cleanup applies;
+#   9. `triage.bash --reach-only --bus-address=<ip>`, whose report stays in its run directory.
 #
 # WHAT STAYS, deliberately (every desktop carries the homeserver software): the packages of
 # DESIGN.md section 3.2, the agent-bus user, /var/lib/agent-bus{,-install}, the pinned
 # Tuwunel, the zipapps, /usr/local/bin/agent-bus and pingbus, /usr/local/sbin/agent-bus-install,
 # the member kit, the three template units (no instance enabled), and the NetworkManager dummy
 # connection agentbus0 holding <ip>, across reboots. Nothing of zz-deploy-check stays. The
-# log, the team file and each installer run's stdout stay in the untracked run directory.
+# log, the team file, the play vars and each installer and play run's stdout stay in the
+# untracked run directory.
 #
 # EXIT CODES: 0 every step succeeded; 1 a step failed (it names itself); 64 usage (an unknown
 # argument, --check, no bus address, or one that is not a concrete, canonical IP literal).
@@ -60,9 +65,10 @@ readonly BUS_ADDRESS_VAR="agent_bus_address"
 
 PLAN_USAGE="usage: deploy.bash [--bus-address=<ip>] [-h|--help]
 
-Unit U16's host run for Plan 00161 (agent team bus): installs the agent-bus homeserver
-software and the agentbus0 bus address (both stay), installs, re-runs, checks and removes a
-throwaway team, then runs triage.bash's H1 and H2 against the bus address.
+Units U16 and U22's host run for Plan 00161 (agent team bus): installs the agent-bus
+homeserver software and the agentbus0 bus address (both stay), installs, re-runs, checks and
+removes a throwaway team, does the same through play-agent-bus.yml, then runs triage.bash's
+H1 and H2 against the bus address.
   --bus-address=<ip>   the address for agentbus0; without it, ${BUS_ADDRESS_VAR} from the
                        host_vars localhost.yml
 Prompts for sudo once, before the run log opens."
@@ -81,7 +87,7 @@ for arg in "${PLAN_REMAINING_ARGS[@]+"${PLAN_REMAINING_ARGS[@]}"}"; do
     esac
 done
 if [[ "${PLAN_CHECK}" == "1" ]]; then
-    printf '[FATAL] --check has nothing to rehearse here: no play runs, and agent-bus-install has no dry run\n' >&2
+    printf '[FATAL] --check has nothing to rehearse here: agent-bus-install has no dry run, so the play skips every step under --check too\n' >&2
     exit 64
 fi
 
@@ -116,6 +122,8 @@ plan_start_log auto
 
 INSTALLER="${PLAN_REPO_ROOT}/files/usr/local/sbin/agent-bus-install"
 TEAM_FILE="${PLAN_RUN_DIR}/${TEAM}.team.json"
+PLAY_VARS_PRESENT="${PLAN_RUN_DIR}/play-vars-present.json"
+PLAY_VARS_ABSENT="${PLAN_RUN_DIR}/play-vars-absent.json"
 TEAM_PRESENT=0
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=_deploy-steps.inc.bash
@@ -130,6 +138,10 @@ plan_deploy_leg "agent-bus-install team ${TEAM}" install_team team
 plan_deploy_leg "software and team again: nothing may change" second_run
 plan_deploy_leg "agent-bus-install check --team ${TEAM}" check_team
 plan_deploy_leg "agent-bus-install remove --team ${TEAM} --purge" remove_team remove
+plan_deploy_leg "write the play vars for ${TEAM} present and absent" write_play_vars
+plan_deploy_leg "play-agent-bus.yml with ${TEAM} present: a change" play_team_present
+plan_deploy_leg "play-agent-bus.yml again: no change" play_team_present_again
+plan_deploy_leg "play-agent-bus.yml with ${TEAM} absent, purged: a change" play_team_absent
 plan_deploy_leg "triage H1 and H2 against ${BUS_ADDRESS}" \
     "${PLAN_SCRIPT_DIR}/triage.bash" --reach-only "--bus-address=${BUS_ADDRESS}"
 printf '==> the homeserver software and agentbus0 (%s) stay installed; %s is gone\n' "${BUS_ADDRESS}" "${TEAM}"

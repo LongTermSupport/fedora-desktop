@@ -614,7 +614,8 @@ nagged.
 
 **Scope is wider than `files/home/.local/bin/`.** Beyond the user scripts it also
 compares the pairs listed in the script's own `EXTRA_PAIRS` — currently the VM
-acceptance lab and the freeze library (Plans 00110, 00122). The script's header
+acceptance lab, the freeze library and the agent bus installer's files (Plans 00110,
+00122, 00161). The script's header
 comment is the authority on the current set.
 
 **It self-skips in three situations, and says so with `⚠`, not `✓`:**

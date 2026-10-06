@@ -105,7 +105,15 @@ repository; opt-in per machine and per team.
   Wave 5: U11 (`cli.py` `send`, `say`, `recv`, `wait`, one long-poll thread per team;
   `test_cli.py` against the fake homeserver) built, reviewed and fixed.
 - [ ] ⬜ **M2 ccy members, the idle session woken**: U12, U18–U20.
-- [ ] ⬜ **M3 other encapsulations and hosts, the play**: U21–U24.
+- [ ] 🔄 **M3 other encapsulations and hosts, the play**: U21–U24. U22 built:
+  `play-agent-bus.yml` (imported by `playbook-main.yml`) runs `agent-bus-install software`
+  on every desktop, then `remove` for each `agent_bus_teams` entry with `state: absent` and
+  `team` for each present one, changed only on the installer's `CHANGED` lines; the
+  `localhost.yml.dist` placeholder and four drift pairs in `qa-deployed-drift.bash`.
+  `--syntax-check` passes. Its host run is a leg of this plan's `deploy.bash` (pending,
+  through `meta-deploy.bash`): after U16's legs, the play with extra vars declaring the
+  throwaway team present (the recap counts a change), again (it counts none), then absent
+  with `purge: true` (a change).
 - [ ] ⬜ **M4 Element, deploy and acceptance (privacy checks P1–P8)**: U25–U28 (U26, TLS,
   only if probe H7 needs it).
 

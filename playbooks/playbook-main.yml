@@ -42,5 +42,7 @@
 - import_playbook: imports/play-tmux-sessions.yml
 - import_playbook: imports/play-vscode.yml
 - import_playbook: imports/play-vpn.yml
+# After play-vpn.yml: a team may listen on a WireGuard address.
+- import_playbook: imports/play-agent-bus.yml
 - import_playbook: imports/play-gsettings.yml
 - import_playbook: imports/play-ZZ-repo-cleanup.yml

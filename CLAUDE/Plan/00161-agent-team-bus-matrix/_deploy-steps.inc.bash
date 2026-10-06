@@ -7,8 +7,8 @@
 # do. Sourced, never executed: no shell options, no `exit`. Every function returns non-zero
 # on the first failure, explicitly, since a leg runs in an `if` where errexit is off.
 #
-# Reads deploy.bash's globals: INSTALLER, BUS_ADDRESS, TEAM, TEAM_FILE, and the plan
-# library's PLAN_RUN_DIR and PLAN_REPO_ROOT. Sets TEAM_PRESENT.
+# Reads deploy.bash's globals: INSTALLER, BUS_ADDRESS, TEAM, TEAM_FILE, PLAY_VARS_PRESENT,
+# PLAY_VARS_ABSENT, and the plan library's PLAN_RUN_DIR and PLAN_REPO_ROOT. Sets TEAM_PRESENT.
 
 # run_installer <label> <args...> — agent-bus-install as root. Its stdout (the CHANGED and
 # CHECK marker lines) is kept in <label>.out in the run directory and shown; its stderr goes
@@ -89,6 +89,68 @@ check_team() {
 
 remove_team() {
     run_installer "$1" remove --team "${TEAM}" --purge || return 1
+    TEAM_PRESENT=0
+}
+
+# ── U22: play-agent-bus.yml with the throwaway team ──────────────────────────────────────
+
+# write_play_vars — two extra-vars files for the play from the team file: the team present,
+# and the team absent with purge. Extra vars override the host_vars agent_bus_teams, so a
+# run declares only the throwaway team; the play removes only teams declared absent, so an
+# owner-declared team is left alone.
+write_play_vars() {
+    python3 -I -c '
+import json, sys
+team_file, bus_address, present_out, absent_out = sys.argv[1:5]
+with open(team_file, encoding="utf-8") as handle:
+    team = json.load(handle)
+for path, teams in ((present_out, [team]), (absent_out, [{"team": team["team"], "state": "absent", "purge": True}])):
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump({"agent_bus_address": bus_address, "agent_bus_teams": teams}, handle, indent=1)
+' "${TEAM_FILE}" "${BUS_ADDRESS}" "${PLAY_VARS_PRESENT}" "${PLAY_VARS_ABSENT}" || return 1
+    printf '==> play vars %s and %s written\n' "${PLAY_VARS_PRESENT}" "${PLAY_VARS_ABSENT}"
+}
+
+# run_play <label> <vars-file> <expect> — the play with <vars-file>; its output is kept in
+# <label>.out in the run directory. <expect> is "changed" (the recap must count at least
+# one changed task) or "unchanged" (it must count none), which checks that the play
+# reports changed exactly when the installer prints CHANGED lines.
+run_play() {
+    local label="$1" varsFile="$2" expect="$3" changed
+    plan_ansible_playbook playbooks/imports/play-agent-bus.yml -e "@${varsFile}" \
+        | tee "${PLAN_RUN_DIR}/${label}.out"
+    if [[ "${PIPESTATUS[0]}" -ne 0 ]]; then
+        printf '[FAIL] play-agent-bus.yml (%s) failed\n' "${label}" >&2
+        return 1
+    fi
+    changed="$(awk 'match($0, /changed=[0-9]+/) { print substr($0, RSTART + 8, RLENGTH - 8) }' \
+        "${PLAN_RUN_DIR}/${label}.out")" || return 1
+    if [[ ! "${changed}" =~ ^[0-9]+$ ]]; then
+        printf '[FAIL] no single changed= count in the play recap of %s: %s\n' "${label}" "${changed}" >&2
+        return 1
+    fi
+    if [[ "${expect}" == "unchanged" && "${changed}" -ne 0 ]]; then
+        printf '[FAIL] the play changed %s task(s) on a run that should change nothing\n' "${changed}" >&2
+        return 1
+    fi
+    if [[ "${expect}" == "changed" && "${changed}" -eq 0 ]]; then
+        printf '[FAIL] the play reported no change, but the installer had work to do\n' >&2
+        return 1
+    fi
+    printf '==> play recap changed=%s, as expected (%s)\n' "${changed}" "${expect}"
+}
+
+play_team_present() {
+    TEAM_PRESENT=1 # before the call: a half-installed team still needs removing
+    run_play play-present "${PLAY_VARS_PRESENT}" changed
+}
+
+play_team_present_again() {
+    run_play play-present-again "${PLAY_VARS_PRESENT}" unchanged
+}
+
+play_team_absent() {
+    run_play play-absent "${PLAY_VARS_ABSENT}" changed || return 1
     TEAM_PRESENT=0
 }
 
