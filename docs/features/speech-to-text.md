@@ -146,7 +146,8 @@ Whisper Models...** downloads them). **No model is downloaded for you**: the mod
 suits one machine does not suit every machine, so download at least one with **Manage
 Whisper Models...** before the first recording. The default, `auto`, is decided at each
 recording by `~/.local/bin/wsi-resolve-model`, and is the one to download unless you
-want another:
+want another. `wsi-model-manager --download-auto` downloads `auto`'s pick for each mode
+without the TUI or any prompt, and fails unless the weights are then on disk:
 
 | Machine      | English                         | Other languages or detection    |
 | ------------ | ------------------------------- | ------------------------------- |

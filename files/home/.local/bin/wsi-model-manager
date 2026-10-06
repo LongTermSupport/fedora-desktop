@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 """Whisper Model Manager — browse and download faster-whisper models.
 
-Usage: wsi-model-manager
+Usage: wsi-model-manager [--download-auto]
+
+--download-auto downloads the model `auto` picks on this machine for each recorder
+mode, with no TUI and no prompt, then checks with wsi-resolve-model that its weights
+are on disk. Progress goes to stderr; stdout carries one line per model,
+`WSI-MODEL-DOWNLOADED <model_id> <repo>`, written only once every pick is verified.
+Exit 0 when all are downloaded, 1 when the resolver cannot choose, a download fails or
+the weights are still missing, 2 on a usage error.
 
 Keys:
   d / Enter  Download selected model
@@ -480,6 +487,64 @@ class ModelManagerApp(App):
 # Entry point
 # ---------------------------------------------------------------------------
 
+def download_auto() -> int:
+    """Download each model `auto` picks here, then verify its weights are on disk."""
+    repo_for = {model_id: repo for model_id, _label, repo, *_ in MODELS}
+    size_for = {model_id: size for model_id, _label, _repo, size, *_ in MODELS}
+    try:
+        language = session_language()
+        picks = auto_suggestions(language)
+    except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:
+        print(f'wsi-model-manager: auto cannot choose a model here: {e}', file=sys.stderr)
+        return 1
+    unknown = [model_id for model_id in picks if model_id not in repo_for]
+    if unknown:
+        print(f'wsi-model-manager: auto picked {", ".join(unknown)}, which this manager '
+              'has no download for', file=sys.stderr)
+        return 1
+
+    for model_id, modes in picks.items():
+        repo = repo_for[model_id]
+        print(f'wsi-model-manager: downloading {model_id} ({repo}, {size_for[model_id]}) '
+              f'for {" and ".join(modes)}, language {language}', file=sys.stderr)
+        try:
+            # token=False: the models are public; avoids system keyring password prompts
+            snapshot_download(repo_id=repo, local_files_only=False, token=False)
+        except Exception as e:
+            print(f'wsi-model-manager: download of {repo} failed: {e}', file=sys.stderr)
+            return 1
+        print(f'wsi-model-manager: downloaded {model_id}', file=sys.stderr)
+
+    for mode in AUTO_MODES:
+        result = subprocess.run(
+            [str(RESOLVER), '--mode', mode, '--language', language, 'auto'],
+            capture_output=True, text=True, timeout=30, check=False)
+        if result.returncode != 0:
+            reason = result.stderr.strip() or f'{RESOLVER} exited {result.returncode}'
+            print(f'wsi-model-manager: after the download, auto still cannot load a model '
+                  f'for {mode}: {reason}', file=sys.stderr)
+            return 1
+        print(f'wsi-model-manager: {mode} resolves to {result.stdout.strip()}, on disk',
+              file=sys.stderr)
+
+    for model_id in picks:
+        print(f'WSI-MODEL-DOWNLOADED {model_id} {repo_for[model_id]}')
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    if argv == ['--download-auto']:
+        return download_auto()
+    if argv in (['-h'], ['--help']):
+        print(__doc__)
+        return 0
+    if argv:
+        print(f'usage: wsi-model-manager [--download-auto] (got: {" ".join(argv)})',
+              file=sys.stderr)
+        return 2
+    ModelManagerApp().run()
+    return 0
+
+
 if __name__ == '__main__':
-    app = ModelManagerApp()
-    app.run()
+    sys.exit(main(sys.argv[1:]))

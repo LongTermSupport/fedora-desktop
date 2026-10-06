@@ -11,7 +11,9 @@ the test runs wherever qa-all.bash does, the CCY container included. Run by
 scripts/test-wsi-stop-grace.bash.
 """
 
+import contextlib
 import importlib.util
+import io
 import pathlib
 import re
 import sys
@@ -171,6 +173,129 @@ class AutoSuggestionTest(unittest.TestCase):
             self.assertEqual(manager.session_language(), "fr")
             (self.dir / "language").write_text("system\n")
             self.assertEqual(manager.session_language(), "de")
+
+
+class DownloadAutoTest(unittest.TestCase):
+    """`wsi-model-manager --download-auto` downloads what `auto` picks on this machine,
+    with no TUI and no prompt, for an owner-requested unattended run (Plan 00156 Phase 4).
+    It then asks the resolver WITHOUT --suggest, which exits 3 when model.bin is not on
+    disk, so a download that returned without the weights still fails."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.dir = pathlib.Path(self._tmp.name)
+        self.calls = self.dir / "calls"
+        self.downloads = []
+        for name, value in (("session_language", lambda: "en"),
+                            ("snapshot_download", self.fake_download)):
+            patcher = mock.patch.object(manager, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        app = mock.patch.object(manager, "ModelManagerApp",
+                                mock.Mock(side_effect=AssertionError("the TUI was started")))
+        self.app = app.start()
+        self.addCleanup(app.stop)
+
+    def fake_download(self, **kwargs):
+        self.downloads.append(kwargs)
+
+    def resolver(self, batch, streaming, suggest_rc=0, check_rc=0):
+        script = self.dir / "wsi-resolve-model"
+        script.write_text(
+            "#!/bin/sh\n"
+            f'echo "$*" >> "{self.calls}"\n'
+            'case "$*" in\n'
+            f'  *--suggest*) [ {suggest_rc} -eq 0 ] || '
+            f'{{ echo "wsi-resolve-model: no GPU answer" >&2; exit {suggest_rc}; }}\n'
+            f'    case "$*" in *"--mode batch"*) echo "{batch}" ;; *) echo "{streaming}" ;; esac ;;\n'
+            f'  *) [ {check_rc} -eq 0 ] || '
+            f'{{ echo "wsi-resolve-model: auto picked x, which is not downloaded" >&2; '
+            f'exit {check_rc}; }}\n'
+            '    echo resolved ;;\n'
+            'esac\n')
+        script.chmod(0o755)
+        patcher = mock.patch.object(manager, "RESOLVER", script)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def run_flag(self):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = manager.main(["--download-auto"])
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_downloads_each_of_autos_picks_exactly_once(self):
+        self.resolver("distil-whisper/distil-large-v3.5-ct2",
+                      "distil-whisper/distil-large-v3.5-ct2")
+        rc, out, _err = self.run_flag()
+        self.assertEqual(rc, 0)
+        self.assertEqual([d["repo_id"] for d in self.downloads],
+                         ["distil-whisper/distil-large-v3.5-ct2"])
+        self.assertEqual(out.splitlines(), [
+            "WSI-MODEL-DOWNLOADED distil-large-v3.5 distil-whisper/distil-large-v3.5-ct2"])
+
+    def test_two_picks_are_both_downloaded(self):
+        self.resolver("small", "base")
+        rc, out, _err = self.run_flag()
+        self.assertEqual(rc, 0)
+        self.assertEqual(sorted(d["repo_id"] for d in self.downloads),
+                         ["Systran/faster-whisper-base", "Systran/faster-whisper-small"])
+        self.assertEqual(len(out.splitlines()), 2)
+
+    def test_the_download_is_anonymous_and_may_use_the_network(self):
+        self.resolver("small", "small")
+        self.run_flag()
+        self.assertEqual(self.downloads, [{"repo_id": "Systran/faster-whisper-small",
+                                           "local_files_only": False, "token": False}])
+
+    def test_the_tui_is_never_constructed(self):
+        self.resolver("small", "base")
+        rc, _out, _err = self.run_flag()
+        self.assertEqual(rc, 0)
+        self.app.assert_not_called()
+
+    def test_each_mode_is_checked_on_disk_without_suggest_after_downloading(self):
+        self.resolver("small", "base")
+        self.run_flag()
+        checks = [c for c in self.calls.read_text().splitlines() if "--suggest" not in c]
+        self.assertEqual(sorted(checks), ["--mode batch --language en auto",
+                                          "--mode streaming --language en auto"])
+
+    def test_a_download_error_fails_naming_the_repo(self):
+        self.resolver("small", "base")
+
+        def broken(**kwargs):
+            raise OSError("connection reset")
+
+        with mock.patch.object(manager, "snapshot_download", broken):
+            rc, out, err = self.run_flag()
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(out, "")
+        self.assertIn("connection reset", err)
+        self.assertIn("Systran/faster-whisper-", err)
+
+    def test_weights_still_missing_after_the_download_fails(self):
+        self.resolver("small", "base", check_rc=3)
+        rc, out, err = self.run_flag()
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(out, "")
+        self.assertIn("not downloaded", err)
+
+    def test_a_resolver_that_cannot_choose_fails_before_any_download(self):
+        self.resolver("small", "base", suggest_rc=1)
+        rc, out, err = self.run_flag()
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(self.downloads, [])
+        self.assertEqual(out, "")
+        self.assertIn("no GPU answer", err)
+
+    def test_an_unknown_argument_is_a_usage_error_not_the_tui(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc = manager.main(["--bogus"])
+        self.assertEqual(rc, 2)
+        self.app.assert_not_called()
 
 
 if __name__ == "__main__":
