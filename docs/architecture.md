@@ -129,8 +129,10 @@ The bootstrap script:
 27. **play-tmux-sessions.yml**: Detachable tmux sessions behind a single-key menu
 28. **play-vscode.yml**: Visual Studio Code
 29. **play-vpn.yml**: VPN configuration
-30. **play-gsettings.yml**: GNOME settings
-31. **play-ZZ-repo-cleanup.yml**: Post-run repository cleanup
+30. **play-agent-bus.yml**: Agent team bus homeserver software, and the teams host_vars declare
+    - Calls `agent-bus-install`; after the VPN play because a team may listen on a WireGuard address.
+31. **play-gsettings.yml**: GNOME settings
+32. **play-ZZ-repo-cleanup.yml**: Post-run repository cleanup
 
 ### Desktop or server — the `provisioning_profile` / `scope` pair
 

@@ -14,8 +14,9 @@
 # subject is the host rather than the source tree.
 #
 # SCOPE: files/home/.local/bin/ — the user-facing tools — plus the other trees
-# whose deployed copies are authoritative (the VM acceptance lab, and the freeze
-# library the two freeze tools source; see EXTRA_PAIRS below). A file is checked
+# whose deployed copies are authoritative (the VM acceptance lab, the freeze
+# library the two freeze tools source, and the agent bus installer's files; see
+# EXTRA_PAIRS below). A file is checked
 # only when a deployed copy already EXISTS, so a machine that never installed a
 # feature is never nagged about it.
 #
@@ -216,6 +217,10 @@ done
 # invisible drift this gate exists for — and the loop above cannot see it, because
 # that loop only walks .local/bin.
 #
+# THE AGENT BUS (Plan 00161). agent-bus-install copies itself, the admin wrapper, its
+# units, the Tuwunel pin and the resolver stub out of the checkout; a repo change to any
+# of them is not live until play-agent-bus.yml runs the installer again.
+#
 # Each entry is "repo glob | deployed directory | the play that deploys it". As
 # above, a file is compared only when its deployed copy exists.
 EXTRA_PAIRS=(
@@ -224,6 +229,10 @@ EXTRA_PAIRS=(
     "files/home/.config/systemd/user/vmtest-*|$HOME/.config/systemd/user|playbooks/imports/optional/common/play-vm-test-lab.yml"
     "helpers/vmtest/*.py|/usr/local/lib/ccy-helpers/helpers/vmtest|playbooks/imports/optional/common/play-vm-test-lab.yml"
     "files/home/.local/lib/freeze/*|$HOME/.local/lib/freeze|playbooks/imports/optional/common/play-podfreeze.yml"
+    "files/usr/local/sbin/agent-bus-install|/usr/local/sbin|playbooks/imports/play-agent-bus.yml"
+    "files/usr/local/bin/agent-bus|/usr/local/bin|playbooks/imports/play-agent-bus.yml"
+    "files/usr/local/share/agent-bus/*|/usr/local/share/agent-bus|playbooks/imports/play-agent-bus.yml"
+    "files/etc/systemd/system/agent-bus-*|/etc/systemd/system|playbooks/imports/play-agent-bus.yml"
 )
 for pair in "${EXTRA_PAIRS[@]}"; do
     glob="${pair%%|*}"

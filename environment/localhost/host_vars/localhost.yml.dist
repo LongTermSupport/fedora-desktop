@@ -73,3 +73,23 @@ user_email: "yourname@example.com"
 # uses nowhere else: on no interface, and under no route but the default (Plan 00161's
 # deploy.bash refuses one that is not).
 # agent_bus_address: <ip>
+
+# Optional (Plan 00161): the agent teams whose homeservers run on this host, applied by
+# play-agent-bus.yml through agent-bus-install. A present entry (state defaults to present)
+# is the team file of CLAUDE/Plan/00161-agent-team-bus-matrix/DESIGN.md section 3.4; to
+# take a team off this host, set state: absent (purge: true also deletes its data). With
+# no teams declared the play still installs the homeserver software.
+# agent_bus_teams:
+#   - team: <team>
+#     port: <port>
+#     listen: ["<bus_ip>"]
+#     allow_from: ["<cidr>"]
+#     humans: ["<name>"]
+#     repos:
+#       - repo: <owner>/<repo>
+#         branches: ["<default-branch>"]
+#     path_prefixes: ["CLAUDE/Plan/", "docs/"]
+#     forge_api: https://api.github.com
+#   - team: <old-team>
+#     state: absent
+#     purge: false

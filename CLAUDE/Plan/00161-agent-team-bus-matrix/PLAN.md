@@ -103,7 +103,13 @@ repository; opt-in per machine and per team.
   (which stays installed, with `agentbus0`), a throwaway team, both run twice with no
   `CHANGED`, `check`, `remove --purge`, then `triage.bash --reach-only` for H1/H2's dummy leg.
 - [ ] ⬜ **M2 ccy members, the idle session woken**: U12, U18–U20.
-- [ ] ⬜ **M3 other encapsulations and hosts, the play**: U21–U24.
+- [ ] 🔄 **M3 other encapsulations and hosts, the play**: U21–U24. U22 built:
+  `play-agent-bus.yml` (imported by `playbook-main.yml`) runs `agent-bus-install software`
+  on every desktop, then `remove` for each `agent_bus_teams` entry with `state: absent` and
+  `team` for each present one, changed only on the installer's `CHANGED` lines; the
+  `localhost.yml.dist` placeholder and four drift pairs in `qa-deployed-drift.bash`.
+  `--syntax-check` passes. Its host run (a scratch team present, then absent, a second run
+  with no change) is pending.
 - [ ] ⬜ **M4 Element, deploy and acceptance (privacy checks P1–P8)**: U25–U28 (U26, TLS,
   only if probe H7 needs it).
 
