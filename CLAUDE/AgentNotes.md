@@ -85,6 +85,12 @@ STUFF". Its `PLANS` list is, at every commit, exactly what needs running **now**
 - **Then ask the owner to run it.** Say "run `./CLAUDE/Plan/meta-deploy.bash`", with what it
   will do and anything it will ask of them (a browser authorisation, say). Ask whenever the
   list holds something; do not route the run through another agent instead.
+- **Meta-deploy runs plan scripts, never a tool's routine job.** Owner: "meta deploy is
+  only a convenience for running plan level deploy/triage scripts". Downloading models,
+  rebuilding VM bases or cleaning disk is the owner running the deployed tool
+  (`wsi-model-manager`, `vmtest`, `reclaim`) whenever they choose. A plan may deploy,
+  test or triage such a tool through meta-deploy, but never runs the job itself there,
+  and a repeatable job is not a plan task.
 - **Never hand over a second command.** A step a plan's run needs, even an interactive one
   such as a GitHub scope refresh, belongs in that plan's `deploy.bash`, not in a message
   telling the owner to type it before or after meta.
