@@ -152,6 +152,14 @@ class KitReadmeTest(unittest.TestCase):
         for member_type in protocol.HANDLE_TYPES:
             self.assertIn(f"README.{member_type}", kit_files)
 
+    def test_the_installer_kit_dir_is_the_one_bundles_name(self) -> None:
+        source = INSTALLER.read_text(encoding="utf-8")
+        share = re.search(r"^readonly SHARE_DIR=\$PREFIX(\S+)$", source, flags=re.M)
+        kit = re.search(r"^readonly KIT_DIR=\$SHARE_DIR(\S+)$", source, flags=re.M)
+        self.assertIsNotNone(share)
+        self.assertIsNotNone(kit)
+        self.assertEqual(share.group(1) + kit.group(1), admin.KIT_DIR)
+
 
 class BundleReadmeTest(unittest.TestCase):
     def test_every_type_has_next_steps(self) -> None:
