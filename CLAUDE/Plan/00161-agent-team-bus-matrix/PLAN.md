@@ -43,32 +43,24 @@ is committed to this repository; opt-in per machine and per team.
 
 ### Phase 1: Understand and design
 
-- [ ] 🔄 **Task 1.1**: Map what the bus builds on: ccy networking, mounts and `ccy.env`
-  opt-in; how plays run rootless podman services under `systemd --user` (Quadlet); how
-  hooks reach a ccy session; Python CLI conventions and tests here; Tuwunel's image and
-  config; Element Desktop's per-profile config inside the Flatpak.
-- [ ] ⬜ **Task 1.2**: `DESIGN.md` (components, file layout, interfaces, what each play
-  installs) and `PROTOCOL.md` (versioned: verbs, event schema, reference forms, validation
-  rules, rate limits, exit codes), reviewed before any code.
+- [x] ✅ **Task 1.1**: Six research reports (`subagent-reports/261006-research-*.md`): ccy
+  integration, rootless podman services, Python conventions, Tuwunel and the Matrix API,
+  Element and terminal clients, waking sessions.
+- [x] ✅ **Task 1.2**: [`DESIGN.md`](DESIGN.md) and [`PROTOCOL.md`](PROTOCOL.md), reviewed
+  through three lenses (security, feasibility, scope: 9 blockers between them) and revised
+  ([revision](subagent-reports/261006-design-revision-opus-5-5.md)). Main changes: a
+  separate control room so human text never reaches an agent account, room roles that
+  Matrix accepts, probes before building, and a host-to-host ping as the first milestone.
+- [ ] 🧑 **Task 1.3**: OWNER: the questions in DESIGN.md "Owner questions" (the event
+  namespace blocks U02, the root of the build).
 
-### Phase 2: Build (tests first, each component on its own branch)
+### Phase 2: Build, by milestone (units U00–U30 in DESIGN.md §12)
 
-- [ ] ⬜ **Task 2.1**: The protocol validator and `pingbus` CLI (standard library only).
-- [ ] ⬜ **Task 2.2**: `agent-team` provisioning and the homeserver play (Tuwunel under
-  Quadlet, one per team).
-- [ ] ⬜ **Task 2.3**: The warden.
-- [ ] ⬜ **Task 2.4**: Waking sessions (skill, Stop and UserPromptSubmit hooks) and the ccy
-  opt-in.
-- [ ] ⬜ **Task 2.5**: Desktop viewing play (Element Desktop profile per team, terminal
-  client).
-
-### Phase 3: Review and deploy
-
-- [ ] ⬜ **Task 3.1**: `qa-all.bash` green; `qa-reviewer` over the full diff; findings fixed.
-- [ ] ⬜ **Task 3.2**: `deploy.bash` and `acceptance.bash` (including the privacy checks),
-  in `meta-deploy.bash`.
-- [ ] ⬜ **Task 3.3**: HOST: create a team, join two ccy sessions, ping between them, and
-  command one from Element.
+- [ ] ⬜ **M0 probes**: U00 (host, through `meta-deploy.bash`), U01 (container).
+- [ ] ⬜ **M1 host-to-host ping**: U02–U11, U13–U18.
+- [ ] ⬜ **M2 ccy-to-ccy ping, the idle session woken**: U12, U19–U23.
+- [ ] ⬜ **M3 warden and control room**: U24–U26.
+- [ ] ⬜ **M4 desktop and acceptance (privacy checks P1–P7)**: U27–U30.
 
 ## Success Criteria
 
