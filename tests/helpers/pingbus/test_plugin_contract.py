@@ -82,6 +82,7 @@ class PluginLayoutTest(unittest.TestCase):
             "plugin/pingbus/.claude-plugin/plugin.json",
             "plugin/pingbus/hooks/hooks.json",
             "plugin/pingbus/skills/pingbus/SKILL.md",
+            *(f"README.{member_type}" for member_type in protocol.HANDLE_TYPES),
         ]))
 
     def test_the_launcher_is_executable(self) -> None:

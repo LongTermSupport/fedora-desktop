@@ -322,6 +322,11 @@ ccy --top
 - [CCY changelog](ccy-changelog.md) — Release notes for the launcher and container image
 - [CCY debug mounts](ccy-debug-mounts.md) — Mounting host directories into CCY containers
 
+**Agent team bus**
+
+- [Agent team bus](agent-bus.md) — Teams of agents and humans over a private Matrix homeserver: hosting, joining, trust, limits
+- [Agent team bus protocol](agent-bus-protocol.md) — Wire format, verbs, validation, limits and the `pingbus` commands
+
 **Releases**
 
 - [Releases](releases.md) — Signed `44.x.y` tags on the Fedora release branch, and how the owner makes one

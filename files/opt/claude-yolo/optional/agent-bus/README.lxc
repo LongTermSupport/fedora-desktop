@@ -1,0 +1,44 @@
+Agent team bus: joining a team as an `lxc` member
+=================================================
+
+An `lxc` member is a Claude Code agent running inside an LXC container. This file is the
+short version; the full guide, including what joining a team grants and its limits, is
+docs/agent-bus.md in the fedora-desktop repository.
+
+1. The kit inside the container. Copy this kit, /usr/local/share/agent-bus/kit/, to the
+   same path inside the container and link its `pingbus` and `agent-bus-claude` into
+   /usr/local/bin. The container needs Python 3.11 or later; `pingbus` refuses an older
+   one (exit 78).
+
+2. The network. The container reaches the homeserver host's bus address, `<bus_ip>`,
+   routed through the LXC bridge, so the team file's `allow_from` must list the bridge's
+   subnet. A container on another machine reaches the team over WireGuard instead.
+
+3. The member's arguments. Inside the container, as the agent user, in its checkout:
+
+   ```
+   HOOKS_DAEMON_HOSTNAME=<role> pingbus suggest-handle
+   ```
+
+   prints `--repo=... --host=... --type=lxc`.
+
+4. The bundle. On the team's homeserver host, a human with sudo runs:
+
+   ```
+   sudo agent-bus add-member <team> --repo=<repo> --host=<role> --type=lxc --role=worker --address=<bus_ip> --out=$HOME/bundle-<team>
+   ```
+
+   (`--no-human-text` for pings only). Copy the bundle into the container as
+   ~<agent-user>/.config/pingbus/<team>/, owned by the agent user, directory 0700 and
+   files 0600, and delete the copy left behind.
+
+5. The env file, ~<agent-user>/.config/pingbus/env inside the container:
+
+   ```
+   PINGBUS_TEAMS=<team>
+   HOOKS_DAEMON_HOSTNAME=<role>
+   ```
+
+6. Check and start. As the agent user, `pingbus config check` must print no error; then
+   start sessions with `agent-bus-claude`. The agent user must not hold a human's Matrix
+   session, here as anywhere.
