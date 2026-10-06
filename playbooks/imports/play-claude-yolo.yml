@@ -324,6 +324,69 @@
         - scripts
         - skills
 
+    # The agent team bus member kit (Plan 00161 DESIGN.md section 5.3): the plugin, its
+    # settings and the pingbus zipapp. Inert in the image until a checkout's ccy.env.local sets
+    # PINGBUS_TEAMS. The non-ccy launcher agent-bus-claude is not staged: the entrypoint does
+    # its job here. Add-only like the child-claude copies above.
+    - name: Create Optional Agent-Bus Directories in Docker Build Context
+      become: true
+      ansible.builtin.file:
+        path: "/opt/claude-yolo/optional/agent-bus/{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - plugin/pingbus/.claude-plugin
+        - plugin/pingbus/hooks
+        - plugin/pingbus/skills/pingbus
+      tags:
+        - scripts
+        - skills
+
+    - name: Copy Optional Agent-Bus Plugin and Settings into Docker Build Context
+      become: true
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/{{ item }}"
+        dest: "/opt/claude-yolo/{{ item | regex_replace('^files/opt/claude-yolo/', '') }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - files/opt/claude-yolo/optional/agent-bus/settings.json
+        - files/opt/claude-yolo/optional/agent-bus/plugin/pingbus/.claude-plugin/plugin.json
+        - files/opt/claude-yolo/optional/agent-bus/plugin/pingbus/hooks/hooks.json
+        - files/opt/claude-yolo/optional/agent-bus/plugin/pingbus/skills/pingbus/SKILL.md
+      tags:
+        - scripts
+        - skills
+
+    # Built here from helpers/ with the builder agent-bus-install uses, so the core ccy play
+    # never depends on the bus play, and the same source gives the same bytes in both places.
+    - name: Build the pingbus Zipapp into Docker Build Context
+      become: true
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -s
+          - -m
+          - helpers.pingbus.bundle
+          - --source
+          - "{{ root_dir }}"
+          - --out
+          - /opt/claude-yolo/optional/agent-bus/pingbus
+          - pingbus
+        chdir: "{{ root_dir }}"
+      register: ccy_pingbus_bundle
+      changed_when: ccy_pingbus_bundle.stdout.startswith('BUNDLE-CHANGED ')
+      failed_when: >-
+        ccy_pingbus_bundle.rc != 0
+        or not (ccy_pingbus_bundle.stdout.startswith('BUNDLE-CHANGED ')
+                or ccy_pingbus_bundle.stdout.startswith('BUNDLE-UNCHANGED '))
+      tags:
+        - scripts
+        - skills
+
     - name: Remove Obsolete Browsing Skill Files from Docker Build Context
       become: true
       ansible.builtin.file:
