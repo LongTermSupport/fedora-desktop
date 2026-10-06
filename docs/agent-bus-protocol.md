@@ -446,8 +446,10 @@ exit 78), written by `agent-bus add-member`. Pingbus keeps its state in
 `PINGBUS_HOME/<team>/state/`: `inbox/` (one JSON file per event ID), `consumed/`,
 `outbox.json`, `sync.json`, `team.json` (the last verified team record, for `status` and
 the hooks), `forge-cache.json`, `dropped.log`, `lock`. `lock` is held with `flock` by the
-one process syncing this team (a watcher or a waiter), which writes its kind (`watch` or
-`wait`) into it; a waker is live exactly when a non-blocking `flock` on it fails. No PID is
+one process syncing this team, which writes its kind into it: `watch` (a watcher), `wait`
+(a waiter), or `recv` (a `recv` syncing once, for that sync only). A waker is live exactly
+when a non-blocking `flock` on it fails and the kind it holds is `watch` or `wait`; a
+`recv` holder is not a waker. No PID is
 ever recorded: `/workspace` is shared across container namespaces, where a PID means
 nothing.
 

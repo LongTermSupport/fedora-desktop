@@ -537,8 +537,9 @@ a Stop hook as the guard on both.**
   stops it.
 - **Liveness is a lock, never a PID.** `/workspace` is shared across container namespaces,
   where a PID in a file means nothing. Each team's `lock` file is held with `flock` by the
-  watcher or a waiter, which writes its kind (`watch` or `wait`) into the file; a waker is
-  live exactly when a non-blocking `flock` on `lock` fails. A dead holder's lock is released
+  watcher or a waiter, which writes its kind (`watch` or `wait`) into the file, or briefly
+  by a `recv` syncing once (kind `recv`, which is not a waker); a waker is live exactly
+  when a non-blocking `flock` on `lock` fails and the kind is `watch` or `wait`. A dead holder's lock is released
   by the kernel, so a SessionStart finding the lock free starts a new watcher, and finding
   it held by another session's watcher reports that the seat is taken.
 - **Why the socket.** It wakes a truly idle session with no discipline from the agent (the
