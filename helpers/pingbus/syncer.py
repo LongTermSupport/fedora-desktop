@@ -16,6 +16,9 @@ team record, which the client reports as `matrix.NotFound` (exit 7), and a room 
 account has not joined (`matrix.Forbidden`) are the same. Other client errors propagate
 with their own exit codes.
 
+Memberships and the statuses §8 lets it read are kept in `room.json` (`inbox`), so an
+offline `status` can list unexpected members and stale statuses (Plan 00161 U12).
+
 Validation is `protocol`'s; storage is `inbox`'s; the forge check is `forge`'s. Diagnostics
 go to `log` (stderr by default) and name a room by its ID only, never anything an event
 carried.
@@ -66,9 +69,11 @@ class Batch:
     drops: Mapping[str, int]
 
 
-def sync_filter(room_id: str, timeline_limit: int) -> dict:
+def sync_filter(room_id: str, timeline_limit: int, *, lazy_members: bool = True) -> dict:
     """The inline `/sync` filter: the team room only, the state and timeline types the
-    syncer reads, nothing else (no presence, account data or ephemeral events)."""
+    syncer reads, nothing else (no presence, account data or ephemeral events). The first
+    sync and the one after a join load every member (`lazy_members=False`), so `status`
+    knows who had joined before this member; later syncs see joins in the timeline."""
     return {
         "presence": {"types": []},
         "account_data": {"types": []},
@@ -76,7 +81,7 @@ def sync_filter(room_id: str, timeline_limit: int) -> dict:
             "rooms": [room_id],
             "ephemeral": {"types": []},
             "account_data": {"types": []},
-            "state": {"types": list(STATE_TYPES), "lazy_load_members": True},
+            "state": {"types": list(STATE_TYPES), "lazy_load_members": lazy_members},
             "timeline": {"types": list(TIMELINE_TYPES), "limit": timeline_limit},
         },
     }
@@ -184,8 +189,9 @@ class Syncer:
         self._forge: forge.Forge | None = None
         #: The verified team record; None until verified, and again once trust is lost.
         self.record: protocol.TeamRecord | None = None
-        #: Members' `listening` statuses (`until`, Unix ms), as §8 allows them to be read.
-        self.statuses: dict[str, int] = {}
+        #: Joined and invited members, and members' `listening` statuses (`until`, Unix
+        #: ms) as §8 allows them to be read; kept in `room.json` for an offline `status`.
+        self.members, self.statuses = state.room_view()
 
     def _say(self, text: str) -> None:
         self._log(f"team {self.member.team}: {text}")
@@ -205,7 +211,10 @@ class Syncer:
             self._forge = None
         self.record = record
         # §8: a status counts only from a role holder, so a member dropped from `roles` loses it.
-        self.statuses = {uid: until for uid, until in self.statuses.items() if uid in record.roles}
+        kept = {uid: until for uid, until in self.statuses.items() if uid in record.roles}
+        if kept != self.statuses:
+            self.statuses = kept
+            self._save_room_view()
         return record
 
     def _read_trusted_state(self) -> tuple[protocol.TeamRecord, dict]:
@@ -231,7 +240,9 @@ class Syncer:
     def _lose_trust(self, reason: str) -> RoomUntrusted:
         self.record = None
         self._forge = None
-        self.statuses = {}
+        if self.statuses:
+            self.statuses = {}
+            self._save_room_view()
         self.state.mark_untrusted(reason)
         self._say(f"the team room is not trusted: {reason}")
         return RoomUntrusted(reason)
@@ -260,18 +271,19 @@ class Syncer:
             self.verify_room()
         if limited:
             events = self._fill_gap(since, timeline.get("prev_batch")) + events
-        self._read_statuses(state_events + events)
+        self._read_room_state(state_events + events)
         return self._receive(events, next_batch)
 
     def _first_sync(self) -> Batch:
         """§9: no stored token, so `timeline.limit: 0` and only `next_batch` is kept."""
-        response = self.client.sync(filter=sync_filter(self.member.room, 0), timeout_ms=0)
+        response = self.client.sync(filter=sync_filter(self.member.room, 0, lazy_members=False),
+                                    timeout_ms=0)
         next_batch = _next_batch(response)
         rooms = _section(response, "rooms")
         if self._take_invites(rooms):
             return self._after_join(next_batch, first=True)
         self.verify_room()
-        self._read_statuses(_events(_section(_section(rooms, "join"), self.member.room), "state"))
+        self._read_room_state(_events(_section(_section(rooms, "join"), self.member.room), "state"))
         self.state.commit_batch([], next_batch)
         return Batch(True, 0, (), {})
 
@@ -293,10 +305,11 @@ class Syncer:
         """Verify the room just joined, then move the token past the join with a
         `limit: 0` sync, so the room's history is never processed."""
         self.verify_room()
-        response = self.client.sync(since=since, filter=sync_filter(self.member.room, 0), timeout_ms=0)
+        response = self.client.sync(since=since, filter=sync_filter(self.member.room, 0, lazy_members=False),
+                                    timeout_ms=0)
         next_batch = _next_batch(response)
         entry = _section(_section(_section(response, "rooms"), "join"), self.member.room)
-        self._read_statuses(_events(entry, "state"))
+        self._read_room_state(_events(entry, "state"))
         self.state.commit_batch([], next_batch)
         return Batch(first, 0, (), {})
 
@@ -320,19 +333,38 @@ class Syncer:
             cursor = end
         raise matrix.Unreachable("GET /messages", detail=f"the gap runs past {GAP_MAX_PAGES} pages")
 
-    def _read_statuses(self, events: Sequence[object]) -> None:
-        """§8: a status counts only under its sender's own user ID, from a role holder, in
-        the exact shape; a member's own key holding anything else clears its status."""
+    def _read_room_state(self, events: Sequence[object]) -> None:
+        """Memberships and statuses, saved to `room.json` when either changed. §8: a status
+        counts only under its sender's own user ID, from a role holder, in the exact shape;
+        a member's own key holding anything else clears its status."""
         ctx = self.record.context(self.member.server_name)
+        before = (dict(self.members), dict(self.statuses))
         for event in events:
-            if _type_of(event) != protocol.EVENT_STATUS:
-                continue
-            until = protocol.read_status(event, ctx)
-            sender = event.get("sender")
-            if until is not None:
-                self.statuses[sender] = until
-            elif isinstance(sender, str) and event.get("state_key") == sender:
-                self.statuses.pop(sender, None)
+            kind = _type_of(event)
+            if kind == MEMBER:
+                self._read_membership(event)
+            elif kind == protocol.EVENT_STATUS:
+                until = protocol.read_status(event, ctx)
+                sender = event.get("sender")
+                if until is not None:
+                    self.statuses[sender] = until
+                elif isinstance(sender, str) and event.get("state_key") == sender:
+                    self.statuses.pop(sender, None)
+        if (self.members, self.statuses) != before:
+            self._save_room_view()
+
+    def _read_membership(self, event: dict) -> None:
+        user_id, content = event.get("state_key"), event.get("content")
+        if not inbox.is_user_id_text(user_id) or not isinstance(content, dict):
+            self._say("ignored a membership event with a malformed user ID")
+            return
+        if content.get("membership") in inbox.ROOM_MEMBERSHIPS:
+            self.members[user_id] = content["membership"]
+        else:
+            self.members.pop(user_id, None)
+
+    def _save_room_view(self) -> None:
+        self.state.save_room_view(self.members, self.statuses)
 
     # ── the receive pipelines ────────────────────────────────────────────────────────────
 
