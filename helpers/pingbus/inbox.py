@@ -39,7 +39,7 @@ import stat
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 
-from helpers.pingbus import limits, protocol
+from helpers.pingbus import config, limits, protocol
 
 STATE_VERSION = 1
 INBOX_DIR = "inbox"
@@ -50,6 +50,8 @@ LOCK_FILE = "lock"
 
 #: What a lock holder writes into `lock`. `recv` holds it only while it syncs once.
 LOCK_KINDS = ("watch", "wait", "recv")
+#: The holders that wake a session (spec §12); a `recv` holder is not one.
+WAKER_KINDS = ("watch", "wait")
 #: A held lock whose file does not (yet) name a kind.
 KIND_UNKNOWN = "unknown"
 #: A probe holds a shared lock for an instant; a few tries keep it from making a starting
@@ -190,7 +192,7 @@ class TeamState:
         self.path = pathlib.Path(path)
 
     @classmethod
-    def for_member(cls, member: object) -> TeamState:
+    def for_member(cls, member: config.Member) -> TeamState:
         """The state of a `config.Member`'s bundle."""
         return cls(member.state_dir)
 
@@ -324,7 +326,9 @@ class TeamState:
     @contextlib.contextmanager
     def outbox(self) -> Iterator[Outbox]:
         """A read-modify-write of `outbox.json` under `flock` on the state directory.
-        Saved when the block ends normally and something changed; never on an exception."""
+        Saved when the block ends normally and something changed; never on an exception.
+        Do no network work inside it: the lock is held throughout, and a later failure
+        would undo the send gate's charge, which spec §10 keeps. Use `admit_send`."""
         self.ensure_dirs()
         fd = os.open(self.path, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
         try:
@@ -336,6 +340,16 @@ class TeamState:
                 _fsync_dir(self.path)
         finally:
             os.close(fd)
+
+    def admit_send(
+        self, member_limits: limits.Limits, verb: str, ref: str | None, re_: str | None,
+        to: Iterable[str], now_ms: int,
+    ) -> None:
+        """§9 send step 5 in its own transaction, saved before returning, so a send refused
+        or failing later has still spent its token and entered the duplicate window (§10).
+        `RateLimited` propagates having recorded nothing."""
+        with self.outbox() as box:
+            box.send_gate(member_limits, now_ms).admit(verb, ref, re_, to, now_ms)
 
     def _load_json(self, path: pathlib.Path) -> object | None:
         try:
@@ -385,7 +399,8 @@ class Outbox:
 
     def send_gate(self, member_limits: limits.Limits, now_ms: int) -> limits.SendGate:
         """The send gate saved by earlier `send`/`say` runs (fresh on the first); what
-        `admit` records on it is saved when the transaction ends normally."""
+        `admit` records on it is saved when the transaction ends normally. `send` and `say`
+        go through `TeamState.admit_send`; no network work belongs inside `outbox()`."""
         if self._gate is None:
             if self._gate_state is None:
                 self._gate = limits.SendGate.fresh(member_limits, now_ms)
@@ -547,9 +562,16 @@ def acquire_lock(state: TeamState, kind: str, *, sleep: Callable[[float], None] 
     return Lock(fd, kind)
 
 
+def is_waker(kind: str | None) -> bool:
+    """Whether a `probe_lock` result is a watcher or a waiter (the `status` wake path and
+    the Stop guard's "no waker" test)."""
+    return kind in WAKER_KINDS
+
+
 def probe_lock(state: TeamState) -> str | None:
     """The kind of the process holding this team's sync lock, or None when no process
-    does (a waker is live exactly when this is not None). Never creates the file."""
+    does. A held lock is not always a waker: pass the result to `is_waker`. Never
+    creates the file."""
     try:
         fd = _open_lock(state, os.O_RDONLY)
     except FileNotFoundError:

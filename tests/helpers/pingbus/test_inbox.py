@@ -93,6 +93,7 @@ class LayoutTest(StateCase):
         self.assertEqual(inbox.SYNC_FILE, "sync.json")
         self.assertEqual(inbox.LOCK_FILE, "lock")
         self.assertEqual(inbox.LOCK_KINDS, ("watch", "wait", "recv"))
+        self.assertEqual(inbox.WAKER_KINDS, ("watch", "wait"))
 
     def test_for_member_uses_the_bundles_state_dir(self):
         member = mock.Mock(state_dir=self.root / "team-b" / "state")
@@ -328,6 +329,17 @@ class LockTest(StateCase):
         with inbox.acquire_lock(self.state, "watch"):
             pass
 
+    def test_a_lock_held_by_recv_is_not_a_waker(self):
+        with inbox.acquire_lock(self.state, "recv"):
+            holder = inbox.probe_lock(self.state)
+            self.assertEqual(holder, "recv")
+            self.assertFalse(inbox.is_waker(holder))
+        for kind in ("watch", "wait"):
+            with self.subTest(kind=kind), inbox.acquire_lock(self.state, kind):
+                self.assertTrue(inbox.is_waker(inbox.probe_lock(self.state)))
+        self.assertFalse(inbox.is_waker(None))
+        self.assertFalse(inbox.is_waker(inbox.KIND_UNKNOWN))
+
     def test_unknown_kind_refused(self):
         with self.assertRaises(ValueError):
             inbox.acquire_lock(self.state, "pid 1234")
@@ -461,7 +473,6 @@ class OutboxTest(StateCase):
 
     def test_transactions_are_serialised(self):
         entered = threading.Event()
-        released = threading.Event()
 
         def other() -> None:
             with inbox.TeamState(self.state.path).outbox() as box:
@@ -473,7 +484,6 @@ class OutboxTest(StateCase):
             thread = threading.Thread(target=other)
             thread.start()
             self.assertFalse(entered.wait(0.2))
-            released.set()
         thread.join(5)
         self.assertTrue(entered.is_set())
         with self.state.outbox() as box:
@@ -511,6 +521,28 @@ class SendGateTest(StateCase):
         state = json.loads((self.state.path / "outbox.json").read_text())["gate"]
         with self.assertRaises(limits.RateLimited):
             self.admit(99, T0)
+        self.assertEqual(json.loads((self.state.path / "outbox.json").read_text())["gate"], state)
+
+    def test_admit_send_stays_spent_when_a_later_step_fails(self):
+        """Spec §10: a send refused after step 5 has spent its token and is in the window."""
+        for n in range(1, LIM.send_burst):
+            self.admit(n, T0)
+        with self.assertRaises(RuntimeError):
+            self.state.admit_send(LIM, "review", REF, None, [PEER], T0)
+            raise RuntimeError("forge check or Matrix send failed")
+        with self.assertRaises(limits.RateLimited) as caught:
+            self.state.admit_send(LIM, "review", REF, None, [PEER], T0 + 1)
+        self.assertEqual(caught.exception.reason, "duplicate")
+        with self.assertRaises(limits.RateLimited) as caught:
+            self.admit(99, T0 + 1)
+        self.assertEqual(caught.exception.reason, "rate")
+
+    def test_admit_send_refusal_spends_nothing(self):
+        for n in range(1, LIM.send_burst + 1):
+            self.admit(n, T0)
+        state = json.loads((self.state.path / "outbox.json").read_text())["gate"]
+        with self.assertRaises(limits.RateLimited):
+            self.state.admit_send(LIM, "review", REF, None, [PEER], T0)
         self.assertEqual(json.loads((self.state.path / "outbox.json").read_text())["gate"], state)
 
     def test_saved_gate_is_validated(self):
