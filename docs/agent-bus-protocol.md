@@ -393,7 +393,10 @@ After the batch's inbox writes are durable, the sync token is saved.
 **Reading the inbox.** `recv`, `wait`, `inbox` and the hooks re-run the
 offline steps on every stored file and ignore any that fail (an inbox file is a cache that
 code in the checkout could have written). Before printing an item, `recv` and `wait` fetch it
-with `GET /rooms/{room}/event/{event}` and print from the fetched copy.
+with `GET /rooms/{room}/event/{event}` and print from the fetched copy. An item the server
+no longer has, or whose fetched copy fails the offline steps, is dropped (`schema` when the
+server has no copy), logged and consumed. A sync's drops and its re-fetch's drops are one
+batch: one `DROPPED` line per team per pass (§15).
 
 **Drop reason codes** (closed set): `version`, `schema`, `size`, `edit`, `sender`, `role`,
 `target`, `verb`, `ref`, `allowlist`, `re`, `body`, `stale`, `rate`, `unresolved`,
@@ -475,7 +478,10 @@ nothing.
   (exit 64 otherwise). `recv`, `wait`, `watch`, `inbox` and `status` cover every active
   team unless `--team` is given; `wait` and `watch` long-poll every team at once, one
   thread per team, and a team whose lock another process holds is reported busy on its own
-  (exit 75 only when every team is busy).
+  (exit 75 only when every team is busy). `wait` gives a `recv` holder up to 5 s to finish
+  its one sync before calling that team busy. A team that fails in `recv` is reported and
+  the other teams still run; in `wait`, any team's failure ends the command with its code.
+  `wait`'s default timeout is the smallest `wait_timeout_s` among the active teams.
 
 `member.json`, read-only to pingbus; unknown keys are a config error:
 
@@ -504,7 +510,7 @@ homeserver host.
 
 | Command                                                                        | Does                                                                                                                                                                                                                                                                                                            | Network |
 | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| `send VERB [REF] (--to HANDLE[,HANDLE…] \| --to-orchestrator) [--re EVENT_ID]` | the only way to emit a ping; `--to` takes handles, human localparts, or full user IDs                                                                                                                                                                                                                           | yes     |
+| `send VERB [REF] (--to HANDLE[,HANDLE…] \| --to-orchestrator) [--re EVENT_ID]` | the only way to emit a ping; `--to` takes handles, human localparts, or full user IDs; `--to-orchestrator` means every orchestrator in the team record but the sender, refused (`target`) when there is none                                                                                                    | yes     |
 | `say --to HUMAN[,HUMAN…]`                                                      | the only way to emit an agent text (§7); the text is read from stdin as UTF-8, less one trailing newline; `--to` takes human localparts or full user IDs, never a handle                                                                                                                                        | yes     |
 | `recv`                                                                         | sync once if the lock is free, then print and consume every pending item and due `TIMEOUT`                                                                                                                                                                                                                      | yes     |
 | `wait [--timeout S]`                                                           | hold the locks, long-poll until at least one item or `TIMEOUT`, print and consume them, exit                                                                                                                                                                                                                    | yes     |
@@ -522,22 +528,22 @@ Invites are accepted by the syncer itself, after the checks in §8. `show`, `pee
 
 ## 14. Exit codes (stable)
 
-| Code | Meaning                                                                              |
-| ---- | ------------------------------------------------------------------------------------ |
-| 0    | success; `recv`/`wait` printed at least one line (drops, if any, are on stderr)      |
-| 1    | never assigned (an uncaught exception)                                               |
-| 2    | never assigned (argparse's default is remapped to 64)                                |
-| 3    | nothing: `recv` found nothing; `wait` reached its timeout                            |
-| 4    | refused by the validator (`secret` included), or by role                             |
-| 5    | the reference did not resolve at the forge, or failed the provenance check           |
-| 6    | `recv` only: received items were dropped and no valid line was printed               |
-| 7    | homeserver unreachable                                                               |
-| 8    | authentication refused (token rejected)                                              |
-| 9    | rate limited (local limit, duplicate, server 429 after retries, or forge rate limit) |
-| 10   | the team room is not trusted (§8), or not joined                                     |
-| 64   | usage error                                                                          |
-| 75   | busy: another process holds this account's sync lock (`wait`, `watch`)               |
-| 78   | configuration refused (§12, §10 bounds, Python older than 3.11)                      |
+| Code | Meaning                                                                                                   |
+| ---- | --------------------------------------------------------------------------------------------------------- |
+| 0    | success; `recv`/`wait` printed at least one line (drops and other teams' failures, if any, are on stderr) |
+| 1    | never assigned (an uncaught exception)                                                                    |
+| 2    | never assigned (argparse's default is remapped to 64)                                                     |
+| 3    | nothing: `recv` found nothing; `wait` reached its timeout                                                 |
+| 4    | refused by the validator (`secret` included), or by role                                                  |
+| 5    | the reference did not resolve at the forge, or failed the provenance check                                |
+| 6    | `recv` only: received items were dropped and no valid line was printed                                    |
+| 7    | homeserver unreachable                                                                                    |
+| 8    | authentication refused (token rejected)                                                                   |
+| 9    | rate limited (local limit, duplicate, server 429 after retries, or forge rate limit)                      |
+| 10   | the team room is not trusted (§8), or not joined                                                          |
+| 64   | usage error                                                                                               |
+| 75   | busy: another process holds this account's sync lock (`wait`, `watch`)                                    |
+| 78   | configuration refused (§12, §10 bounds, Python older than 3.11)                                           |
 
 `wait` never exits because of drops alone.
 
@@ -548,13 +554,13 @@ absent fields are `-`. Every field is printed only after it passed its grammar. 
 targets are printed as localparts (a team's accounts share its `server_name`). Fields are
 only ever appended in later versions, never reordered.
 
-| Line      | Stream | Fields                                                                               |
-| --------- | ------ | ------------------------------------------------------------------------------------ |
-| `PING`    | stdout | `PING`, `1`, team, event ID, sender, verb, ref, re                                   |
-| `HUMAN`   | stdout | `HUMAN`, `1`, team, event ID, sender, `origin_server_ts` (ms), text as a JSON string |
-| `TIMEOUT` | stdout | `TIMEOUT`, `1`, team, event ID of the unanswered ping, silent target, verb, ref      |
-| `SENT`    | stdout | `SENT`, `1`, team, event ID (from `send` or `say`)                                   |
-| `DROPPED` | stderr | `DROPPED`, `1`, count, `reason=count` pairs joined by `,` (one line per batch)       |
+| Line      | Stream | Fields                                                                                                                     |
+| --------- | ------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `PING`    | stdout | `PING`, `1`, team, event ID, sender, verb, ref, re                                                                         |
+| `HUMAN`   | stdout | `HUMAN`, `1`, team, event ID, sender, `origin_server_ts` (ms), text as a JSON string                                       |
+| `TIMEOUT` | stdout | `TIMEOUT`, `1`, team, event ID of the unanswered ping, silent target, verb, ref                                            |
+| `SENT`    | stdout | `SENT`, `1`, team, event ID (from `send` or `say`)                                                                         |
+| `DROPPED` | stderr | `DROPPED`, `1`, count, `reason=count` pairs joined by `,` (one line per batch: per team per pass, re-fetch drops included) |
 
 The `HUMAN` text field is `json.dumps(body, ensure_ascii=True)`, so newlines, tabs and
 control characters arrive escaped, and the line stays one line. Examples:

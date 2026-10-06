@@ -45,6 +45,7 @@ T0 = 1_791_000_000.0
 STDOUT_KINDS = ("PING", "HUMAN", "TIMEOUT", "SENT")
 #: Long enough that the fake's long-poll is really held, short enough to end with a test.
 LONG_POLL_MS = 400
+UNKNOWN_EVENT = "$" + "Q" * 43
 
 
 def q(value: str) -> str:
@@ -193,22 +194,25 @@ class BusCase(unittest.TestCase):
         self.env["PINGBUS_TEAMS"] = f"{TEAM_A},{TEAM_B}"
         return self.b
 
-    def runtime(self, long_poll_ms: int = LONG_POLL_MS) -> cli.Runtime:
+    def runtime(self, long_poll_ms: int = LONG_POLL_MS, sleep=None, monotonic=None) -> cli.Runtime:
         return cli.Runtime(
             forge_for=lambda member, environ: (lambda record: self.forge),
             clock_ms=lambda: int(self.now * 1000),
-            sleep=lambda seconds: None,
+            sleep=sleep or (lambda seconds: None),
+            monotonic=monotonic or time.monotonic,
             long_poll_ms=long_poll_ms,
             tick_s=0.05,
             threads=self.threads,
         )
 
     def run_cli(self, *argv: str, stdin: str | bytes = b"", long_poll_ms: int = LONG_POLL_MS,
-                env: dict[str, str] | None = None) -> tuple[int, str, str]:
+                env: dict[str, str] | None = None, sleep=None,
+                monotonic=None) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
         data = stdin.encode("utf-8") if isinstance(stdin, str) else stdin
         code = cli.main(list(argv), environ=env or self.env, stdout=out, stderr=err,
-                        stdin=io.BytesIO(data), runtime=self.runtime(long_poll_ms))
+                        stdin=io.BytesIO(data),
+                        runtime=self.runtime(long_poll_ms, sleep=sleep, monotonic=monotonic))
         self.outputs += [out.getvalue(), err.getvalue()]
         return code, out.getvalue(), err.getvalue()
 
@@ -229,6 +233,17 @@ class BusCase(unittest.TestCase):
         timer.daemon = True
         timer.start()
         self.addCleanup(timer.join, 10)
+
+    def stored_human(self, event_id: str, body: str) -> dict:
+        """An inbox entry for a human message, as a syncer (or anything else) could write it."""
+        return {"type": "m.room.message", "event_id": event_id, "sender": self.a.alice,
+                "origin_server_ts": int(T0 * 1000),
+                "content": {"msgtype": "m.text", "body": body, "m.mentions": {"user_ids": [self.a.me]}}}
+
+    def plant_unknown_item(self) -> None:
+        """An inbox item the homeserver does not have (re-fetch drops it as `schema`)."""
+        self.a.state.commit_batch([self.stored_human(UNKNOWN_EVENT, "planted")],
+                                  self.a.state.sync_token())
 
     def assert_stdout_kinds(self, out: str) -> None:
         for line in out.splitlines():
@@ -469,12 +484,6 @@ class SayTest(BusCase):
 
 
 class RecvTest(BusCase):
-    def stored_human(self, event_id: str, body: str) -> dict:
-        """An inbox entry for a human message, as a syncer (or anything else) could write it."""
-        return {"type": "m.room.message", "event_id": event_id, "sender": self.a.alice,
-                "origin_server_ts": int(T0 * 1000),
-                "content": {"msgtype": "m.text", "body": body, "m.mentions": {"user_ids": [self.a.me]}}}
-
     def test_recv_prints_pings_and_human_messages_and_consumes_them(self):
         self.joined()
         ping = self.a.ping(self.a.orch, "review", ref=PATH_REF)
@@ -533,6 +542,33 @@ class RecvTest(BusCase):
         self.assertEqual(self.lines(out, "HUMAN")[0][3], human)
         self.assertIn("DROPPED\t1\t1\tschema=1", err)
         self.assertEqual([row[3] for row in self.a.drop_log()], ["schema"])
+
+    def test_recv_prints_one_dropped_line_for_sync_and_refetch_drops(self):
+        self.joined()
+        self.plant_unknown_item()
+        self.a.send(self.a.peer, {"msgtype": "m.text", "body": "free text"})
+        code, out, err = self.run_cli("recv")
+        self.assertEqual((code, out), (cli.EXIT_DROPPED, ""))
+        self.assertEqual([line for line in err.splitlines() if line.startswith("DROPPED")],
+                         ["DROPPED\t1\t2\tschema=2"])
+
+    def test_printed_lines_make_exit_0_when_another_team_fails(self):
+        b = self.add_team()
+        self.joined()
+        event = self.a.human("for a")
+        b.write_bundle(token="syt_not_this_servers_token_0123")
+        code, out, err = self.run_cli("recv")
+        self.assertEqual(code, cli.EXIT_OK, "the printed lines are consumed, so recv succeeded")
+        self.assertEqual([line[3] for line in self.lines(out, "HUMAN")], [event])
+        self.assertIn(f"team {TEAM_B}", err)
+
+    def test_with_nothing_printed_the_first_failure_is_the_exit_code(self):
+        b = self.add_team()
+        self.joined()
+        b.write_bundle(token="syt_not_this_servers_token_0123")
+        code, out, err = self.run_cli("recv")
+        self.assertEqual((code, out), (cli.EXIT_AUTH, ""))
+        self.assertIn(f"team {TEAM_B}", err)
 
     def test_recv_reads_the_inbox_without_syncing_when_a_waker_holds_the_lock(self):
         self.joined()
@@ -627,11 +663,79 @@ class WaitTest(BusCase):
         self.assertIsNone(inbox.probe_lock(self.a.state))
 
     def test_a_brief_recv_holder_does_not_make_wait_busy(self):
+        self.assertNotEqual(cli.RECV_HOLD_RETRY_S, inbox.LOCK_RETRY_S, "the test tells them apart")
         self.joined()
         lock = inbox.acquire_lock(self.a.state, "recv")
-        self.later(0.3, lock.release)
-        code, _, err = self.run_cli("wait", "--timeout", "1")
+        slept: list[float] = []
+
+        def sleep(seconds: float) -> None:
+            slept.append(seconds)
+            if seconds == cli.RECV_HOLD_RETRY_S:
+                lock.release()
+
+        code, _, err = self.run_cli("wait", "--timeout", "1", sleep=sleep)
         self.assertEqual(code, cli.EXIT_NOTHING, err)
+        self.assertEqual(slept.count(cli.RECV_HOLD_RETRY_S), 1, "the waiter retried once")
+
+    def test_a_recv_holder_that_never_lets_go_makes_wait_busy(self):
+        self.joined()
+        clock = [100.0]
+
+        def sleep(seconds: float) -> None:
+            clock[0] += seconds
+
+        start = time.monotonic()
+        with inbox.acquire_lock(self.a.state, "recv"):
+            code, out, err = self.run_cli("wait", "--timeout", "20", sleep=sleep,
+                                          monotonic=lambda: clock[0])
+        self.assertEqual((code, out), (cli.EXIT_BUSY, ""))
+        self.assertIn("recv", err)
+        self.assertGreaterEqual(clock[0] - 100.0, cli.RECV_HOLD_WAIT_S)
+        self.assertLess(time.monotonic() - start, 3, "the give-up ran on the injected clock")
+
+    def test_losing_trust_in_the_middle_of_a_wait_is_exit_10(self):
+        self.joined()
+        self.later(0.3, lambda: self.a.set_record(dict(self.a.record, roles={self.a.orch: "orchestrator"})))
+        code, out, err = self.run_cli("wait", "--timeout", "20")
+        self.assertEqual((code, out), (cli.EXIT_UNTRUSTED, ""), err)
+
+    def test_a_record_lost_between_reads_is_never_delivered_against(self):
+        """A long-poll thread can lose trust (record None) while the main thread delivers:
+        the main thread reads each seat's record once."""
+        self.joined()
+        (member,) = cli.config.load_active(self.env)
+        seat = cli._seat(member, self.env, self.runtime(), io.StringIO(), reads=True)
+        record = cli.load_cached_record(member)
+
+        class Flipping:
+            reads = 0
+
+            @property
+            def record(self):
+                Flipping.reads += 1
+                return record if Flipping.reads == 1 else None
+
+        seat.syncer = Flipping()
+        out, err = io.StringIO(), io.StringIO()
+        self.assertEqual(cli._deliver_all([seat], {}, self.runtime(), out, err), 0)
+        self.assertEqual(Flipping.reads, 1)
+
+    def test_only_the_reading_commands_build_a_second_client(self):
+        self.joined()
+        (member,) = cli.config.load_active(self.env)
+        self.assertIsNone(cli._seat(member, self.env, self.runtime(), io.StringIO()).fetcher)
+        self.assertIsNotNone(cli._seat(member, self.env, self.runtime(), io.StringIO(),
+                                       reads=True).fetcher)
+
+    def test_one_dropped_line_per_team_per_pass(self):
+        """The sync's drops and the re-fetch's drops are one batch: one DROPPED line."""
+        self.joined()
+        self.plant_unknown_item()
+        self.a.send(self.a.peer, {"msgtype": "m.text", "body": "free text"})
+        code, out, err = self.run_cli("wait", "--timeout", "1")
+        self.assertEqual((code, out), (cli.EXIT_NOTHING, ""))
+        self.assertEqual([line for line in err.splitlines() if line.startswith("DROPPED")],
+                         ["DROPPED\t1\t2\tschema=2"])
 
     def test_one_busy_team_does_not_block_the_others(self):
         b = self.add_team()

@@ -482,7 +482,7 @@ def cmd_suggest_handle(args: argparse.Namespace, environ: Mapping[str, str], out
 #: How long `wait` lets a `recv` that holds the lock for its one sync finish, before it
 #: calls the team busy: a `recv` holder is not a waker (§12).
 RECV_HOLD_WAIT_S = 5.0
-RECV_HOLD_RETRY_S = 0.05
+RECV_HOLD_RETRY_S = 0.1
 #: `say` reads at most the §7 limit, one trailing newline and one byte more: anything
 #: longer is refused (`size`) without reading the rest.
 SAY_READ_MAX = protocol.MAX_AGENT_TEXT_BYTES + 2
@@ -502,7 +502,8 @@ class Runtime:
 
     `forge_for(member, environ)` gives the per-record forge factory (`syncer.forge_factory`);
     `clock_ms` is wall-clock milliseconds for limits and ack deadlines; `sleep` serves the
-    client's 429 retries; `long_poll_ms` caps each `/sync` of `wait`; `tick_s` is how often
+    client's 429 retries and the lock retries; `monotonic` times `wait`'s deadline and its
+    wait for a `recv` lock holder; `long_poll_ms` caps each `/sync` of `wait`; `tick_s` is how often
     `wait` looks for a TIMEOUT falling due while nothing arrives; `threads` collects
     `wait`'s long-poll threads."""
 
@@ -511,6 +512,7 @@ class Runtime:
     ] = syncer.forge_factory
     clock_ms: Callable[[], int] = _now_ms
     sleep: Callable[[float], object] = time.sleep
+    monotonic: Callable[[], float] = time.monotonic
     long_poll_ms: int = limits.SYNC_LONG_POLL_S * 1000
     tick_s: float = 1.0
     threads: list[threading.Thread] = dataclasses.field(default_factory=list)
@@ -559,22 +561,25 @@ def failure(exc: BaseException) -> tuple[int, str]:
 
 @dataclasses.dataclass
 class _Seat:
-    """One active team's member with its clients, state and sync engine. `fetcher` is a
-    second client, so `wait`'s main thread re-fetches while a long-poll thread syncs."""
+    """One active team's member with its clients, state and sync engine. `fetcher`, for
+    the commands that read the inbox (`reads`), is a second client, so `wait`'s main
+    thread re-fetches while a long-poll thread syncs."""
 
     member: config.Member
     client: matrix.Client
-    fetcher: matrix.Client
+    fetcher: matrix.Client | None
     state: inbox.TeamState
     syncer: syncer.Syncer
 
 
-def _seat(member: config.Member, environ: Mapping[str, str], rt: Runtime, err: TextIO) -> _Seat:
+def _seat(member: config.Member, environ: Mapping[str, str], rt: Runtime, err: TextIO,
+          *, reads: bool = False) -> _Seat:
     client = matrix.Client.for_member(member, sleep=rt.sleep)
+    fetcher = matrix.Client.for_member(member, sleep=rt.sleep) if reads else None
     state = inbox.TeamState.for_member(member)
     engine = syncer.Syncer(member, client, state, forge_for=rt.forge_for(member, environ),
                            clock_ms=rt.clock_ms, log=lambda text: err.write(f"{PROG}: {text}\n"))
-    return _Seat(member, client, matrix.Client.for_member(member, sleep=rt.sleep), state, engine)
+    return _Seat(member, client, fetcher, state, engine)
 
 
 def _user_ids(names: str, server_name: str) -> list[str]:
@@ -652,6 +657,8 @@ def _refetch(seat: _Seat, ctx: protocol.Context, event_id: str) -> tuple[protoco
     """§9 reading the inbox: the item as the homeserver serves it, re-validated; and
     its sender, for a drop line. A copy the server no longer has is a `schema` drop."""
     member = seat.member
+    if seat.fetcher is None:
+        raise TypeError("a seat that reads the inbox is built with reads=True")
     try:
         event = seat.fetcher.get_event(member.room, event_id)
     except matrix.NotFound:
@@ -663,9 +670,9 @@ def _refetch(seat: _Seat, ctx: protocol.Context, event_id: str) -> tuple[protoco
 
 
 def _deliver(seat: _Seat, record: protocol.TeamRecord, rt: Runtime, out: TextIO,
-             err: TextIO) -> tuple[int, int]:
+             err: TextIO) -> tuple[int, collections.Counter[str]]:
     """Print and consume every pending item from its re-fetched copy, then every TIMEOUT
-    due; one DROPPED line on stderr for what failed on re-fetch. (lines, drops)"""
+    due. (lines, what failed on re-fetch: the caller adds it to the batch's DROPPED line)"""
     member, state = seat.member, seat.state
     ctx = record.context(member.server_name)
     now = rt.clock_ms()
@@ -690,36 +697,37 @@ def _deliver(seat: _Seat, record: protocol.TeamRecord, rt: Runtime, out: TextIO,
             emit(timeout_line(member.team, member.server_name, timeout.event_id, timeout.target,
                               timeout.verb, timeout.ref), out, err)
         box.mark_reported(due)
-    if drops:
-        emit(dropped_line(drops), out, err)
-    return printed + len(due), sum(drops.values())
+    return printed + len(due), drops
 
 
 def _recv_team(member: config.Member, environ: Mapping[str, str], rt: Runtime,
                out: TextIO, err: TextIO) -> tuple[int, int]:
-    """One team's `recv`: sync once when the lock is free, then deliver. (lines, drops)"""
-    seat = _seat(member, environ, rt, err)
+    """One team's `recv`: sync once when the lock is free, then deliver; one DROPPED line
+    for the sync's and the re-fetch's drops together. (lines, drops)"""
+    seat = _seat(member, environ, rt, err, reads=True)
+    drops: collections.Counter[str] = collections.Counter()
     try:
         lock = inbox.acquire_lock(seat.state, "recv", sleep=rt.sleep)
     except inbox.Busy as busy:
         err.write(f"{PROG}: team {member.team}: not syncing: a {busy.holder} process holds "
                   "the sync lock; reading the inbox\n")
         record = load_cached_record(member)
-        drops = 0
     else:
         with lock:
             batch = seat.syncer.sync_once(0)
         record = seat.syncer.record
-        if batch.drops:
-            emit(dropped_line(batch.drops), out, err)
-        drops = sum(batch.drops.values())
-    printed, refetch_drops = _deliver(seat, record, rt, out, err)
-    return printed, drops + refetch_drops
+        drops.update(batch.drops)
+    printed, refetched = _deliver(seat, record, rt, out, err)
+    drops.update(refetched)
+    if drops:
+        emit(dropped_line(drops), out, err)
+    return printed, sum(drops.values())
 
 
 def cmd_recv(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
     """Every active team (or `--team`), in `PINGBUS_TEAMS` order. A team that fails is
-    reported and the others still run; the exit code is then the first failure's."""
+    reported and the others still run. Lines printed are consumed, so they make exit 0
+    whatever else failed; with none, the exit code is the first failure's."""
     rt: Runtime = args.runtime
     printed = dropped = 0
     first_failure: int | None = None
@@ -734,24 +742,24 @@ def cmd_recv(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
             continue
         printed += lines
         dropped += drops
-    if first_failure is not None:
-        return first_failure
     if printed:
         return EXIT_OK
+    if first_failure is not None:
+        return first_failure
     return EXIT_DROPPED if dropped else EXIT_NOTHING
 
 
 def _take_waiter_lock(state: inbox.TeamState, rt: Runtime) -> inbox.Lock:
     """The team's sync lock as a waiter. A `recv` holds it only for one sync, so that
     holder is waited for (up to `RECV_HOLD_WAIT_S`); a watcher or waiter is `Busy`."""
-    give_up = time.monotonic() + RECV_HOLD_WAIT_S
+    give_up = rt.monotonic() + RECV_HOLD_WAIT_S
     while True:
         try:
             return inbox.acquire_lock(state, "wait", sleep=rt.sleep)
         except inbox.Busy as busy:
-            if busy.holder != "recv" or time.monotonic() >= give_up:
+            if busy.holder != "recv" or rt.monotonic() >= give_up:
                 raise
-        time.sleep(RECV_HOLD_RETRY_S)
+        rt.sleep(RECV_HOLD_RETRY_S)
 
 
 @dataclasses.dataclass
@@ -771,12 +779,12 @@ def _long_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting) ->
     failure is handed to the main thread, which reports it and exits with its code."""
     try:
         while not waiting.stop.is_set():
-            remaining_ms = int((waiting.deadline - time.monotonic()) * 1000)
+            remaining_ms = int((waiting.deadline - rt.monotonic()) * 1000)
             if remaining_ms <= 0:
                 return
             batch = seat.syncer.sync_once(min(rt.long_poll_ms, remaining_ms))
             if batch.drops:
-                waiting.drops.put(batch.drops)
+                waiting.drops.put((seat.member.team, batch.drops))
             if batch.accepted:
                 waiting.woke.set()
     except Exception as exc:
@@ -786,9 +794,39 @@ def _long_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting) ->
         lock.release()
 
 
-def _flush_drops(waiting: _Waiting, out: TextIO, err: TextIO) -> None:
+_Drops = dict[str, collections.Counter[str]]
+
+
+def _collect_drops(waiting: _Waiting, pending: _Drops) -> None:
+    """Move the long-poll threads' drop counts into `pending`, by team."""
     while not waiting.drops.empty():
-        emit(dropped_line(waiting.drops.get()), out, err)
+        team, counts = waiting.drops.get()
+        pending.setdefault(team, collections.Counter()).update(counts)
+
+
+def _emit_drops(pending: _Drops, out: TextIO, err: TextIO) -> None:
+    for counts in pending.values():
+        if counts:
+            emit(dropped_line(counts), out, err)
+    pending.clear()
+
+
+def _deliver_all(seats: Sequence[_Seat], pending: _Drops, rt: Runtime, out: TextIO,
+                 err: TextIO) -> int:
+    """One pass of `wait` over its teams: deliver each trusted team's items, then one
+    DROPPED line per team for its synced and re-fetched drops together. Each record is
+    read once: a long-poll thread may lose trust (record None) at any moment. (lines)"""
+    printed = 0
+    for seat in seats:
+        record = seat.syncer.record
+        if record is None:
+            continue
+        lines, refetched = _deliver(seat, record, rt, out, err)
+        printed += lines
+        if refetched:
+            pending.setdefault(seat.member.team, collections.Counter()).update(refetched)
+    _emit_drops(pending, out, err)
+    return printed
 
 
 def cmd_wait(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
@@ -806,12 +844,13 @@ def cmd_wait(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
             timeout = limits.check_wait_timeout(args.timeout)
         except limits.LimitsError as exc:
             raise config.UsageError(f"wait --timeout: {exc}") from None
-    waiting = _Waiting(time.monotonic() + timeout)
+    waiting = _Waiting(rt.monotonic() + timeout)
     held: list[tuple[_Seat, inbox.Lock]] = []
+    pending: _Drops = {}
     handed_over: set[str] = set()
     try:
         for member in members:
-            seat = _seat(member, environ, rt, err)
+            seat = _seat(member, environ, rt, err, reads=True)
             try:
                 held.append((seat, _take_waiter_lock(seat.state, rt)))
             except inbox.Busy as busy:
@@ -820,16 +859,12 @@ def cmd_wait(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
         if not held:
             err.write(f"{PROG}: every active team is busy: another process is already waiting\n")
             return EXIT_BUSY
-        for seat, _ in held:
+        seats = [seat for seat, _ in held]
+        for seat in seats:
             batch = seat.syncer.sync_once(0)
             if batch.drops:
-                emit(dropped_line(batch.drops), out, err)
-
-        def deliver_all() -> int:
-            return sum(_deliver(seat, seat.syncer.record, rt, out, err)[0]
-                       for seat, _ in held if seat.syncer.record is not None)
-
-        if deliver_all():
+                pending.setdefault(seat.member.team, collections.Counter()).update(batch.drops)
+        if _deliver_all(seats, pending, rt, out, err):
             return EXIT_OK
         for seat, lock in held:
             thread = threading.Thread(target=_long_poll, args=(seat, lock, rt, waiting), daemon=True,
@@ -838,19 +873,20 @@ def cmd_wait(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
             handed_over.add(seat.member.team)
             thread.start()
         while True:
-            waiting.woke.wait(max(0.0, min(waiting.deadline - time.monotonic(), rt.tick_s)))
+            waiting.woke.wait(max(0.0, min(waiting.deadline - rt.monotonic(), rt.tick_s)))
             waiting.woke.clear()
-            _flush_drops(waiting, out, err)
+            _collect_drops(waiting, pending)
             if waiting.failures:
+                _emit_drops(pending, out, err)
                 team, exc = waiting.failures[0]
                 if not isinstance(exc, FAILURES):
                     raise exc
                 code, message = failure(exc)
                 err.write(f"{PROG}: team {team}: {message}\n")
                 return code
-            if deliver_all():
+            if _deliver_all(seats, pending, rt, out, err):
                 return EXIT_OK
-            if time.monotonic() >= waiting.deadline:
+            if rt.monotonic() >= waiting.deadline:
                 err.write(f"{PROG}: nothing within {timeout} s: run wait again to re-arm\n")
                 return EXIT_NOTHING
     finally:
