@@ -78,10 +78,13 @@ _ERRCODE_RE = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
 _DEVICE_ID_RE = re.compile(r"[A-Za-z0-9_.=+/-]{1,128}")
 _ERROR_TEXT_MAX = 200
 
+#: The member kit `agent-bus-install software` installs; it holds a README per member type.
+KIT_DIR = "/usr/local/share/agent-bus/kit"
+
 #: What a member does with its bundle, per type (DESIGN.md section 5.2).
 NEXT_STEPS = {
-    "podman": "A ccy (podman) member: copy this directory to <checkout>/.claude/ccy/pingbus/{team}/,\n"
-              "which ccy's .gitignore ignores, and add `export PINGBUS_TEAMS={team}` to the\n"
+    "podman": "A ccy (podman) member: this directory belongs at <checkout>/.claude/ccy/pingbus/{team}/,\n"
+              "where ccy's .gitignore ignores it; add `export PINGBUS_TEAMS={team}` to the\n"
               "checkout's untracked .claude/ccy/ccy.env.local (placed by that install's IaC).",
     "host": "A bare-host member: copy this directory to ~/.config/pingbus/{team}/ of the dedicated\n"
             "agent user (never a user that holds a human's Matrix session), list {team} in\n"
@@ -90,8 +93,9 @@ NEXT_STEPS = {
            "~/.config/pingbus/{team}/ and list {team} in PINGBUS_TEAMS in ~/.config/pingbus/env.",
     "vm": "A VM member: inside the guest, copy this directory to the agent user's\n"
           "~/.config/pingbus/{team}/ and list {team} in PINGBUS_TEAMS in ~/.config/pingbus/env.",
-    "docker": "A docker member: bind-mount this directory read-only, or copy it, at\n"
-              "$PINGBUS_HOME/{team}/ in the container, and set PINGBUS_TEAMS={team} in its environment.",
+    "docker": "A docker member: copy this directory, or bind-mount it read-write (pingbus keeps\n"
+              "its state in it), at $PINGBUS_HOME/{team}/ in the container, and set\n"
+              "PINGBUS_TEAMS={team} in its environment.",
 }
 
 
@@ -620,12 +624,19 @@ def _bundle(team: Team, room: str, handle: str, type_: str, token: str, address:
         "room": room,
         "human_text": human_text,
     }
-    readme = (f"Agent team bus bundle: member {handle} of team {team.name}.\n\n"
-              f"{NEXT_STEPS[type_].format(team=team.name)}\n\n"
-              "Then run `pingbus config check`. `token` is this member's credential: keep it\n"
-              "mode 0600, never commit it, and ask the team's admin for `rotate-token` if it leaks.\n")
+    readme = bundle_readme(handle, team.name, type_)
     return _tar({config.MEMBER_FILE: (json.dumps(member, indent=2) + "\n").encode(),
                  config.TOKEN_FILE: token.encode(), README_FILE: readme.encode()})
+
+
+def bundle_readme(handle: str, team: str, type_: str) -> str:
+    """The bundle's README: the member type's next steps and where its full guide is."""
+    return (f"Agent team bus bundle: member {handle} of team {team}.\n\n"
+            f"{NEXT_STEPS[type_].format(team=team)}\n\n"
+            "Then run `pingbus config check`. `token` is this member's credential: keep it\n"
+            "mode 0600, never commit it, and ask the team's admin for `rotate-token` if it leaks.\n\n"
+            f"The full steps for this type are in {KIT_DIR}/README.{type_} on any host where\n"
+            "agent-bus-install software has run, and in fedora-desktop's docs/agent-bus.md.\n")
 
 
 def _registry_change(team: Team, change: Callable[[registry.Registry], tuple[registry.Registry, object]]) -> object:
