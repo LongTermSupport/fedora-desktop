@@ -351,13 +351,19 @@ stays at its default.
   service, as root, which sends `SIGUSR2` to the unit (`systemctl kill --signal=SIGUSR2`;
   Tuwunel runs `admin_signal_execute`, section 3.6, and does nothing on the signal without
   it), waits a bounded time for a new numbered file in `database_backup_path/meta/` (H5: it
-  appears within about a second; fails the unit if none appears), then adds a tar of `secrets/`, `team.json`, `registry.json` and `room_id` beside it (root,
-  0600). A backup holds the team's root of trust (the shared secret and the admin token):
+  appears within about a second; fails the unit if none appears), then adds a tar of `secrets/`, `team.json`, `registry.json` and `room_id`, numbered as
+  the backup (root, 0600). The tar is kept in root's own `/var/lib/agent-bus-install/<team>/backups/` (0700), not
+  beside the database backup: `agent-bus` can write there, and restore extracts the tar as root, so a tar a
+  compromised homeserver could swap would plant files with owners and modes of its choosing. A backup holds the team's root of trust (the shared secret and the admin token):
   whoever holds one can instruct every agent in the team, so `docs/agent-bus.md` says so,
   and copying backups off the host is the owner's decision and is not built.
   `agent-bus-install backup-now --team <team>` runs the same once.
 - **Restore:** `agent-bus-install restore --team <team> --backup <id>` stops the unit,
-  restores the tar, starts the binary once as `agent-bus` with `--restore-backup <id>`
+  restores the tar (refused unless it holds only those members as plain files and directories with no
+  setuid, setgid or sticky bit; extracted without its owners and modes, then given to `agent-bus`),
+  starts the binary once with `--restore-backup <id>` as a collected transient unit carrying the
+  homeserver unit's whole section 3.5 sandbox (read from the installed unit) with loopback-only
+  `IPAddressAllow` and the team's `SocketBindAllow`
   (built into Tuwunel: it restores, then serves; H5 confirmed, with the latest backup, that
   an event sent before it is present and one sent after it is gone), stops it once it
   answers, then starts the unit and runs the readiness
