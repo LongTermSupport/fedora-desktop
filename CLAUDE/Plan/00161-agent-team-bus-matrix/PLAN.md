@@ -51,8 +51,13 @@ is committed to this repository; opt-in per machine and per team.
   ([revision](subagent-reports/261006-design-revision-opus-5-5.md)). Main changes: a
   separate control room so human text never reaches an agent account, room roles that
   Matrix accepts, probes before building, and a host-to-host ping as the first milestone.
-- [ ] 🧑 **Task 1.3**: OWNER: the questions in DESIGN.md "Owner questions" (the event
-  namespace blocks U02, the root of the build).
+- [ ] 🔄 **Task 1.3**: OWNER: the questions in DESIGN.md "Owner questions". Answered
+  (journal 26-10-06): teams are themed around a project and span repositories, hosts and
+  encapsulations; an agent can be in several teams; docker, LXC and VM members are
+  first-class in v1; humans may send free text aimed at specific agents. Still open: where
+  a team's homeserver runs and over which private network, and the event namespace.
+- [ ] ⬜ **Task 1.4**: Revise DESIGN.md and PROTOCOL.md for those answers, then rebuild
+  the unit list.
 
 ### Phase 2: Build, by milestone (units U00–U30 in DESIGN.md §12)
 
