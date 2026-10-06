@@ -230,7 +230,8 @@ out.
   - [ ] 🚫 **HOST (owner)**: a headless `none` provisioning passes `playbook-main.yml` (the
     `server-fast-provision` VM scenario provisions exactly this path). A VM run, so not
     from the container. The infra agent has no bridge to the desktop's VM lab, so the owner
-    runs `vmtest run server-fast-provision` on the desktop (2026-10-06)
+    runs `vmtest run server-fast-provision` on the desktop (2026-10-06; the owner started
+    it the same day)
 
 ## Success Criteria
 

@@ -75,7 +75,9 @@ owns the template. ccy only has to let it be tracked.
 - [ ] ⬜ **Task 3.2**: UPSTREAM: the daemon ships the template, rewrites it on install and
   upgrade with a version marker, and gives a SessionStart advisory when a `ccy.env.local`'s
   "based on" line is older. Filed as claude-code-hooks-daemon issue #88. When it lands,
-  upgrade the daemon here and commit the template it writes.
+  upgrade the daemon here and commit the template it writes. The owner's direction
+  (2026-10-06, commented on #88): the hooks daemon's own SDLC runner install is the
+  prototype, taking its role through `HOOKS_DAEMON_HOSTNAME` in its `ccy.env.local`.
 
 ## Success Criteria
 

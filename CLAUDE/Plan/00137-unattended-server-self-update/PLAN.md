@@ -249,6 +249,9 @@ D1–D4 are the owner's choices, made 2026-09-23.
     (`RUN_BASH_CONFIG_SOURCE`). `self_update_slack_webhook_url: ""` is the explicit
     no-Slack setting and never prompts. The keys are the ones Plan 00139's `deploy.bash`
     prints for each account that pushes the server's repository.
+  - Owner approved (2026-10-06): the infra agent was given the four public keys that sign
+    F44 (each read from a commit signature, with its fingerprint), on that project's
+    tracker. GitHub web-flow merges are GPG-signed, skipped as untrusted, and need no key.
 
 ## Success Criteria
 
