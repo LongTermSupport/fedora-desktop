@@ -421,7 +421,20 @@ check "a deadline alone adds the plugin too" \
 check "an armed wrapper keeps --arm and gains the plugin" \
     "python3|$SUP|--arm|--plugin|$PLUG|--|claude" \
     "$(wrapper_case "python3 $SUP --arm --" 7200 '' claude)"
+# The hooks daemon arms every project through its own launcher, not the .py: its deployed ccy.env
+# sets CCY_CLAUDE_WRAPPER to "<.claude/ccy>/claude-supervise --arm --", and that launcher execs its
+# sibling claude-supervise.py with every argument unchanged.
+DAEMON_LAUNCHER="$work/project/.claude/ccy/claude-supervise"
+check "no option: the daemon's launcher line is byte-identical" \
+    "$DAEMON_LAUNCHER|--arm|--|claude" \
+    "$(wrapper_case "$DAEMON_LAUNCHER --arm --" '' '' claude)"
+check "the daemon's launcher keeps --arm and gains the plugin" \
+    "$DAEMON_LAUNCHER|--arm|--plugin|$PLUG|--|claude" \
+    "$(wrapper_case "$DAEMON_LAUNCHER --arm --" 7200 '' claude)"
 printf 'import argparse\n' >"$work/old-supervise/claude-supervise.py"
+check "the daemon's launcher is judged by its sibling claude-supervise.py" "rc=1" \
+    "$(wrapper_case "$work/old-supervise/claude-supervise --arm --" 7200 '' claude)"
+check "…and says to upgrade the hooks daemon" "yes" "$(has 'upgrade the hooks daemon' "$work/wrapper.err")"
 check "a supervisor without the plugin API is refused, not handed --plugin" "rc=1" \
     "$(wrapper_case "python3 $work/old-supervise/claude-supervise.py --" 7200 '' claude)"
 check "…and says to upgrade the hooks daemon" "yes" "$(has 'upgrade the hooks daemon' "$work/wrapper.err")"
