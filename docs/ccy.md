@@ -886,7 +886,8 @@ read them. Put a setting there that belongs to one machine or one person and mus
 committed. The generated `.gitignore` already ignores it. Use `export`, as in `ccy.env`.
 
 An install's `ccy.env.local` is placed by that install's own infrastructure-as-code, not by
-hand and not by an agent working in the checkout. Its first line names the template version
+hand and not by an agent working in the checkout. Inside the container it is mounted
+read-only, so a session cannot change it. Its first line names the template version
 it was based on: `# based on ccy.env.local.dist version N`.
 
 `ccy.env.local.dist` beside it is ccy's tracked template. ccy writes it on every launch:

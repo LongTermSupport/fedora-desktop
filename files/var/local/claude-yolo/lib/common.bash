@@ -697,6 +697,21 @@ ccy_env_local_dist_text() {
 EOF
 }
 
+# ccy_env_local_mount_args: fills CCY_ENV_LOCAL_MOUNT with the -v tokens that bind an
+# existing .claude/ccy/ccy.env.local read-only over the writable workspace, so a session
+# cannot rewrite the install's own settings (its role among them). Empty when there is no
+# file: a bind needs a source, and an empty stand-in would be left behind on the host.
+ccy_env_local_mount_args() {
+    CCY_ENV_LOCAL_MOUNT=()
+    local local_file=".claude/ccy/ccy.env.local"
+    [ -e "$local_file" ] || return 0
+    if [ ! -f "$local_file" ]; then
+        print_error "$local_file exists but is not a regular file"
+        return 1
+    fi
+    CCY_ENV_LOCAL_MOUNT+=(-v "$PWD/$local_file:/workspace/$local_file:ro${CCY_MOUNT_RELABEL:+,$CCY_MOUNT_RELABEL}")
+}
+
 ccy_env_local_dist_sync() {
     local ccy_dir=".claude/ccy"
     local dist="$ccy_dir/ccy.env.local.dist"

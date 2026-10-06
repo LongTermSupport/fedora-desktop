@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.83.0"  # ccy writes and keeps .claude/ccy/ccy.env.local.dist itself. See docs/ccy-changelog.md.
+CCY_VERSION="3.84.0"  # ccy.env.local is mounted read-only inside the container. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -2265,6 +2265,10 @@ if [ "${#PROJECT_MOUNTS[@]}" -gt 0 ]; then
     DOCKER_MOUNTS+=("${PROJECT_MOUNTS[@]}")
     debug "Added ${#PROJECT_MOUNTS[@]} project mount token(s) to DOCKER_MOUNTS"
 fi
+
+# This checkout's ccy.env.local is the install's own (placed by its IaC): read-only inside.
+ccy_env_local_mount_args || exit 1
+DOCKER_MOUNTS+=("${CCY_ENV_LOCAL_MOUNT[@]}")
 
 # Note: Session state (history, databases, todos) will be stored in /workspace/.claude/ccy/
 # This keeps everything project-local and gitignored, while maintaining ephe meral containers

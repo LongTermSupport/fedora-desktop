@@ -122,6 +122,29 @@ check "a local file based on the current dist: nothing is said" "" "$(cat "$work
 check "the local file is never written by ccy" \
     "# based on ccy.env.local.dist version ${version}" "$(awk 'NR==1' "$local_file")"
 
+# mount_args <dir> [relabel]: the tokens ccy_env_local_mount_args builds there, one per
+# line, or "exit N" when it fails.
+mount_args() {
+    # The library resets CCY_MOUNT_RELABEL when sourced, so it is set after.
+    (cd "$1" && bash -c '
+        . "$1"
+        CCY_MOUNT_RELABEL="$2"
+        ccy_env_local_mount_args || { echo "exit $?"; exit 0; }
+        printf "%s\n" "${CCY_ENV_LOCAL_MOUNT[@]}"' _ "$LIB" "${2:-}" 2>"$work/sync.log")
+}
+
+check "the read-only mount binds an existing ccy.env.local" \
+    "-v
+$proj/.claude/ccy/ccy.env.local:/workspace/.claude/ccy/ccy.env.local:ro" "$(mount_args "$proj")"
+check "the read-only mount carries the SELinux relabel when there is one" \
+    "-v
+$proj/.claude/ccy/ccy.env.local:/workspace/.claude/ccy/ccy.env.local:ro,z" "$(mount_args "$proj" z)"
+rm "$local_file"
+check "no ccy.env.local: no mount" "" "$(mount_args "$proj")"
+mkdir "$local_file"
+check "a ccy.env.local that is not a file stops the launch" "exit 1" "$(mount_args "$proj")"
+rmdir "$local_file"
+
 echo
 printf 'passed: %s  failed: %s\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]

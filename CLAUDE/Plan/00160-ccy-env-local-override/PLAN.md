@@ -85,9 +85,11 @@ the daemon or an agent.
   `ccy.env.local` the infra agent places by IaC.
 - [ ] ⬜ **Task 3.4**: Review (`qa-reviewer`), deploy through `deploy.bash`, and commit this
   repository's own generated dist after the first launch on 3.83.0.
-- [ ] 🧑 **Task 3.3**: OWNER decision (the owner: agents "probably shouldn't even be allowed
-  to edit it"): ccy mounts an existing `ccy.env.local` read-only over the workspace, so a
-  session cannot rewrite its own role override. Recommended.
+- [x] ✅ **Task 3.3**: The owner said yes ("Absolutely"): ccy binds an existing
+  `ccy.env.local` read-only over the workspace (`ccy_env_local_mount_args`), so a session
+  cannot rewrite its own role override. No file, no mount. Tested in the same gate. CCY
+  3.84.0. Read-only paths in general, listed in `ccy.env`/`ccy.env.local`, are a separate
+  issue (the owner's suggestion).
 
 ## Success Criteria
 

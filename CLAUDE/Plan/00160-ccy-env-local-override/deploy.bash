@@ -5,8 +5,9 @@
 # Ansible never runs in the CCY container.
 #
 # THE ONE LEG:
-#   play-claude-yolo.yml — installs the CCY 3.83.0 launcher, which writes and keeps
-#   .claude/ccy/ccy.env.local.dist. The image is unchanged (container 2.44).
+#   play-claude-yolo.yml — installs the CCY 3.84.0 launcher, which writes and keeps
+#   .claude/ccy/ccy.env.local.dist and mounts ccy.env.local read-only. The image is
+#   unchanged (container 2.44).
 #
 # There is no acceptance.bash: the check is a ccy session in a project that has a
 # .claude/ccy/ccy.env.local, done by hand and described below.
@@ -37,7 +38,7 @@ PLAN_USAGE="usage: deploy.bash [-h|--help] [--check]
 
 Runs, on the HOST:
 
-  playbooks/imports/play-claude-yolo.yml   (launcher 3.83.0, container 2.44)
+  playbooks/imports/play-claude-yolo.yml   (launcher 3.84.0, container 2.44)
 
 --check previews without changing anything."
 

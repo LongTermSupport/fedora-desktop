@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.84.0 — container 2.44
+
+- **`ccy.env.local` is read-only inside the container.** When `.claude/ccy/ccy.env.local`
+  exists, ccy binds it read-only over the writable workspace. A session can no longer
+  rewrite the install's own settings, such as the role the hooks daemon matches. Change it
+  where the install's IaC places it, on the host. With no file there is no mount, so the
+  guard covers only a file that exists. A `ccy.env.local` that is not a regular file stops
+  the launch.
+
 ## 3.83.0 — container 2.44
 
 - **ccy writes `.claude/ccy/ccy.env.local.dist` itself.** On every launch ccy writes its
