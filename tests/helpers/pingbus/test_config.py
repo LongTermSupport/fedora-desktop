@@ -443,6 +443,15 @@ class TestPlainHttp(BundleCase):
                 self.write_bundle(data=member_json(base_url=url, plain_http_hosts=hosts))
                 self.assert_refused(contains="base_url")
 
+    def test_check_base_url_is_public_and_raises_what_refuse_builds(self) -> None:
+        def refuse(key: str, why: str) -> ValueError:
+            return ValueError(f"{key} {why}")
+
+        self.assertEqual(config.check_base_url("http://192.0.2.10:8448", ("192.0.2.10",), refuse),
+                         "http://192.0.2.10:8448")
+        with self.assertRaisesRegex(ValueError, "base_url may use http:// only"):
+            config.check_base_url("http://example.invalid", ("192.0.2.10",), refuse)
+
     def test_base_url_shape(self) -> None:
         for bad in (
             "ftp://192.0.2.10",

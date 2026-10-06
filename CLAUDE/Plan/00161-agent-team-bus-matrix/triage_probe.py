@@ -529,11 +529,16 @@ class Report:
             handle.write(text.rstrip("\n") + "\n\n")
 
     def table(self, header: list[str], rows: list[list[object]]) -> None:
-        out = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
-        for row in rows:
-            cells = [str(cell).replace("|", "\\|").replace("\n", " ") for cell in row]
-            out.append("| " + " | ".join(cells) + " |")
-        self.write("\n".join(out))
+        self.write("\n".join(table_lines(header, rows)))
+
+
+def table_lines(header: list[str], rows: list[list[object]]) -> list[str]:
+    """A Markdown table, cells escaped so a `|` or a newline cannot break a row."""
+    out = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
+    for row in rows:
+        cells = [str(cell).replace("|", "\\|").replace("\n", " ") for cell in row]
+        out.append("| " + " | ".join(cells) + " |")
+    return out
 
 
 def run(argv: list[str], timeout: float = 120) -> subprocess.CompletedProcess[str]:

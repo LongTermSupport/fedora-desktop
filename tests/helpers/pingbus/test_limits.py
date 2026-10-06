@@ -434,5 +434,42 @@ class ReceiveFloodTest(unittest.TestCase):
         self.assertEqual(sum(flood.admit(A, T0) for _ in range(70)), 60)
 
 
+class ServerRetryWaitTest(unittest.TestCase):
+    """§10's wait order for a server 429, shared by the Matrix and forge clients."""
+
+    def test_retry_after_outranks_everything(self):
+        headers = {"Retry-After": " 7 ", "x-ratelimit-reset": "1012"}
+        self.assertEqual(lim.server_retry_wait_s(headers, {"retry_after_ms": 1000},
+                                                 reset_header="x-ratelimit-reset", now_s=1000.5), 7)
+
+    def test_reset_header_is_second_and_only_when_named(self):
+        headers = {"x-ratelimit-reset": "1012"}
+        self.assertEqual(lim.server_retry_wait_s(headers, None, reset_header="x-ratelimit-reset",
+                                                 now_s=1000.5), 12)
+        self.assertEqual(lim.server_retry_wait_s(headers, None), lim.SERVER_429_DEFAULT_WAIT_S)
+
+    def test_a_reset_already_past_is_zero(self):
+        self.assertEqual(lim.server_retry_wait_s({"x-ratelimit-reset": "900"}, None,
+                                                 reset_header="x-ratelimit-reset", now_s=1000), 0)
+
+    def test_retry_after_ms_in_the_body_is_next(self):
+        self.assertEqual(lim.server_retry_wait_s({}, {"retry_after_ms": 1500}), 1.5)
+
+    def test_unusable_hints_fall_back_to_the_default(self):
+        for headers, body in (
+            (None, None),
+            ({"Retry-After": "Wed, 21 Oct 2015 07:28:00 GMT"}, {"retry_after_ms": "1000"}),
+            ({"Retry-After": "-3"}, {"retry_after_ms": -1}),
+            ({}, {"retry_after_ms": True}),
+            ({}, [1500]),
+        ):
+            with self.subTest(headers=headers, body=body):
+                self.assertEqual(lim.server_retry_wait_s(headers, body), lim.SERVER_429_DEFAULT_WAIT_S)
+
+    def test_cap_is_stated_in_the_spec(self):
+        text = " ".join(doc.section(doc.read_doc(), 10).split())
+        self.assertIn(f"a wait over {lim.SERVER_429_WAIT_MAX_S} s is not slept", text)
+
+
 if __name__ == "__main__":
     unittest.main()
