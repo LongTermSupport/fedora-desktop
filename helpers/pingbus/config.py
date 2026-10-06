@@ -192,19 +192,25 @@ def read_token(member: Member, *, uid: int | None = None) -> str:
     through a symlink), owned by `uid`, mode 0600 or stricter, one printable line with no
     trailing newline."""
     owner = os.getuid() if uid is None else uid
-    where = f"team {member.team}: {member.token_path}"
+    return read_token_file(member.token_path, f"team {member.team}: {member.token_path}", uid=owner)
+
+
+def read_token_file(path: str | os.PathLike[str], where: str, *, uid: int) -> str:
+    """A token from `path` under `read_token`'s rules; a refusal is a `ConfigError`
+    prefixed with `where` and never quotes the file's content."""
     try:
-        fd = os.open(member.token_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
     except FileNotFoundError:
         raise ConfigError(f"{where}: the token file is missing") from None
     except OSError as exc:
         raise ConfigError(f"{where}: the token is not a regular file ({exc.strerror})") from None
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        os.close(fd)
+        raise ConfigError(f"{where}: the token is not a regular file")
     with os.fdopen(fd, "rb") as handle:
         info = os.fstat(handle.fileno())
-        if not stat.S_ISREG(info.st_mode):
-            raise ConfigError(f"{where}: the token is not a regular file")
-        if info.st_uid != owner:
-            raise ConfigError(f"{where}: the token is owned by uid {info.st_uid}, not {owner}")
+        if info.st_uid != uid:
+            raise ConfigError(f"{where}: the token is owned by uid {info.st_uid}, not {uid}")
         mode = stat.S_IMODE(info.st_mode)
         if mode & ~TOKEN_MODE_ALLOWED:
             raise ConfigError(f"{where}: the token's mode {mode:04o} is looser than 0600")
@@ -212,11 +218,16 @@ def read_token(member: Member, *, uid: int | None = None) -> str:
     if len(raw) > TOKEN_MAX_BYTES:
         raise ConfigError(f"{where}: the token is longer than {TOKEN_MAX_BYTES} bytes")
     text = raw.decode("ascii", errors="replace")
-    if _PRINTABLE_RE.fullmatch(text) is None:
+    if not is_printable_token(text):
         raise ConfigError(
             f"{where}: the token must be one line of printable ASCII, no spaces, no newline"
         )
     return text
+
+
+def is_printable_token(value: object) -> bool:
+    """One or more printable ASCII characters: no space, no control character, no newline."""
+    return isinstance(value, str) and _PRINTABLE_RE.fullmatch(value) is not None
 
 
 def load_active(

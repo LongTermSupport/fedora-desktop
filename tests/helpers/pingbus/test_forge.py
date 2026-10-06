@@ -11,6 +11,7 @@ touches the network; the clock and the sleep are injected too.
 from __future__ import annotations
 
 import email.message
+import http.client
 import io
 import json
 import os
@@ -81,6 +82,28 @@ class FakeResponse:
 
     def __exit__(self, *exc: object) -> None:
         self.close()
+
+
+class FailingBody:
+    """A body whose read fails part-way, as a dropped connection does."""
+
+    def __init__(self, exc: BaseException) -> None:
+        self.exc = exc
+
+    def read(self, size: int = -1) -> bytes:
+        raise self.exc
+
+    def close(self) -> None:
+        """Nothing to release."""
+
+
+class FailingResponse(FakeResponse):
+    def __init__(self, exc: BaseException) -> None:
+        super().__init__(None, raw=b"")
+        self.exc = exc
+
+    def read(self, size: int = -1) -> bytes:
+        raise self.exc
 
 
 class FakeHTTPError:
@@ -403,6 +426,19 @@ class TestFailures(ForgeCase):
             client, _ = self.make({compare_url("main"): [exc]})
             self.assert_refused("forge-unreachable", client, COMMIT_REF)
 
+    def test_failure_while_reading_the_body_is_unreachable(self) -> None:
+        for exc in (TimeoutError("slow"), ConnectionResetError("reset"), http.client.IncompleteRead(b"")):
+            with self.subTest(exc=type(exc).__name__):
+                client, _ = self.make({compare_url("main"): [FailingResponse(exc)]})
+                self.assert_refused("forge-unreachable", client, COMMIT_REF)
+
+    def test_failure_while_reading_a_rate_limit_body_is_unreachable(self) -> None:
+        url = compare_url("main")
+        error = urllib.error.HTTPError(url, 429, "error", headers(), FailingBody(TimeoutError("slow")))
+        client, _ = self.make({url: [error]})
+        self.assert_refused("forge-unreachable", client, COMMIT_REF)
+        self.assertEqual(self.slept, [])
+
     def test_non_json_is_unreachable(self) -> None:
         client, _ = self.make({compare_url("main"): [FakeResponse(None, raw=b"<html>")]})
         self.assert_refused("forge-unreachable", client, COMMIT_REF)
@@ -438,6 +474,43 @@ class TestRateLimit(ForgeCase):
         ]})
         client.check(COMMIT_REF, BRANCHES)
         self.assertEqual(self.slept, [5])
+
+    def test_403_primary_limit_waits_until_the_reset(self) -> None:
+        reset = str(int(T0) + 12)
+        client, _ = self.make({self.URL: [
+            http_error(self.URL, 403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": reset}),
+            status("identical"),
+        ]})
+        client.check(COMMIT_REF, BRANCHES)
+        self.assertEqual(self.slept, [12])
+
+    def test_a_reset_beyond_the_cap_is_not_slept(self) -> None:
+        reset = str(int(T0) + forge.RATE_WAIT_MAX_S + 1)
+        client, opener = self.make({self.URL: [
+            http_error(self.URL, 403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": reset}),
+        ]})
+        self.assert_refused("forge-rate", client, COMMIT_REF)
+        self.assertEqual(len(opener.requests), 1)
+        self.assertEqual(self.slept, [])
+
+    def test_a_reset_already_past_retries_at_once(self) -> None:
+        reset = str(int(T0) - 30)
+        client, _ = self.make({self.URL: [
+            http_error(self.URL, 403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": reset}),
+            status("identical"),
+        ]})
+        client.check(COMMIT_REF, BRANCHES)
+        self.assertEqual(self.slept, [0])
+
+    def test_retry_after_outranks_the_reset(self) -> None:
+        reset = str(int(T0) + 40)
+        client, _ = self.make({self.URL: [
+            http_error(self.URL, 403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": reset,
+                                       "Retry-After": "3"}),
+            status("identical"),
+        ]})
+        client.check(COMMIT_REF, BRANCHES)
+        self.assertEqual(self.slept, [3])
 
     def test_retry_after_ms_in_the_body_is_second_choice(self) -> None:
         body = json.dumps({"retry_after_ms": 1500}).encode()

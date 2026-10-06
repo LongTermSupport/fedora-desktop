@@ -19,6 +19,7 @@ A bad credential source or cache file is a `config.ConfigError` (exit 78).
 from __future__ import annotations
 
 import dataclasses
+import http.client
 import io
 import json
 import os
@@ -67,7 +68,6 @@ CREDENTIAL_SOURCES = ("PINGBUS_FORGE_TOKEN_FILE", "PINGBUS_FORGE_TOKEN", "GH_TOK
 #: Read only when `forge_api` is exactly GITHUB_API: a GitHub token is never sent elsewhere.
 GITHUB_ONLY_SOURCES = ("GH_TOKEN", "GITHUB_TOKEN")
 NO_CREDENTIAL = "none"
-_TOKEN_RE = re.compile(r"[\x21-\x7e]+")
 
 _FORGE_API_RE = re.compile(protocol.FORGE_API_PATTERN)
 
@@ -109,37 +109,15 @@ def resolve_credential(
         if not value or (source in GITHUB_ONLY_SOURCES and forge_api != GITHUB_API):
             continue
         if source == "PINGBUS_FORGE_TOKEN_FILE":
-            return Credential(source, _read_token_file(value, os.getuid() if uid is None else uid))
-        if _TOKEN_RE.fullmatch(value) is None or len(value) > config.TOKEN_MAX_BYTES:
+            where = f"PINGBUS_FORGE_TOKEN_FILE={value}"
+            if not os.path.isabs(value):
+                raise config.ConfigError(f"{where}: must be an absolute path")
+            owner = os.getuid() if uid is None else uid
+            return Credential(source, config.read_token_file(value, where, uid=owner))
+        if not config.is_printable_token(value) or len(value) > config.TOKEN_MAX_BYTES:
             raise config.ConfigError(f"{source}: the forge token must be one line of printable ASCII")
         return Credential(source, value)
     return Credential(NO_CREDENTIAL)
-
-
-def _read_token_file(value: str, uid: int) -> str:
-    where = f"PINGBUS_FORGE_TOKEN_FILE={value}"
-    if not os.path.isabs(value):
-        raise config.ConfigError(f"{where}: must be an absolute path")
-    try:
-        fd = os.open(value, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
-    except FileNotFoundError:
-        raise config.ConfigError(f"{where}: the file is missing") from None
-    except OSError as exc:
-        raise config.ConfigError(f"{where}: not a regular file ({exc.strerror})") from None
-    with _open_regular(fd, where) as handle:
-        info = os.fstat(handle.fileno())
-        if info.st_uid != uid:
-            raise config.ConfigError(f"{where}: owned by uid {info.st_uid}, not {uid}")
-        mode = stat.S_IMODE(info.st_mode)
-        if mode & ~config.TOKEN_MODE_ALLOWED:
-            raise config.ConfigError(f"{where}: mode {mode:04o} is looser than 0600")
-        raw = handle.read(config.TOKEN_MAX_BYTES + 1)
-    text = raw.decode("ascii", errors="replace")
-    if len(raw) > config.TOKEN_MAX_BYTES or _TOKEN_RE.fullmatch(text) is None:
-        raise config.ConfigError(
-            f"{where}: the token must be one line of printable ASCII, no spaces, no newline"
-        )
-    return text
 
 
 def _open_regular(fd: int, where: str) -> io.BufferedReader:
@@ -373,10 +351,12 @@ class Forge:
             except urllib.error.HTTPError as exc:
                 code, hdrs = exc.code, exc.headers
                 rate_limited = _is_rate_limited(code, hdrs)
-                body = _bounded_read(exc) if rate_limited else b""
-                exc.close()
+                try:
+                    body = _bounded_read(exc, where) if rate_limited else b""
+                finally:
+                    exc.close()
                 if rate_limited:
-                    wait = _retry_wait(hdrs, body)
+                    wait = _retry_wait(hdrs, body, self._clock())
                     if attempt == limits.SERVER_429_MAX_TRIES or wait > RATE_WAIT_MAX_S:
                         raise ForgeError("forge-rate", f"{where}: rate limited by the forge") from None
                     self._sleep(wait)
@@ -390,7 +370,7 @@ class Forge:
                 raise ForgeError("forge-unreachable", f"{where}: {type(exc).__name__}") from None
             with response:
                 code = getattr(response, "status", None)
-                raw = _bounded_read(response)
+                raw = _bounded_read(response, where)
             if code != 200:
                 raise ForgeError("forge-unreachable", f"{where}: HTTP {code}")
             if raw is None:
@@ -402,8 +382,13 @@ class Forge:
         raise AssertionError("the retry loop always returns or raises")
 
 
-def _bounded_read(response: object) -> bytes | None:
-    raw = response.read(MAX_RESPONSE_BYTES + 1)
+def _bounded_read(response: object, where: str) -> bytes | None:
+    """The body, or None when over `MAX_RESPONSE_BYTES`; a connection lost part-way through
+    is `forge-unreachable`, as one lost before the headers is."""
+    try:
+        raw = response.read(MAX_RESPONSE_BYTES + 1)
+    except (OSError, http.client.HTTPException) as exc:
+        raise ForgeError("forge-unreachable", f"{where}: {type(exc).__name__}") from None
     return None if len(raw) > MAX_RESPONSE_BYTES else raw
 
 
@@ -413,11 +398,15 @@ def _is_rate_limited(code: int, hdrs: object) -> bool:
     return code == 403 and hdrs is not None and hdrs.get("x-ratelimit-remaining") == "0"
 
 
-def _retry_wait(hdrs: object, body: bytes | None) -> float:
-    """§10: `Retry-After` (seconds), then the body's `retry_after_ms`, then the default."""
+def _retry_wait(hdrs: object, body: bytes | None, now: float) -> float:
+    """§6/§10: `Retry-After` (seconds), then `x-ratelimit-reset` (Unix seconds, GitHub's
+    primary limit), then the body's `retry_after_ms`, then the default."""
     header = hdrs.get("Retry-After") if hdrs is not None else None
     if isinstance(header, str) and header.strip().isdigit():
         return int(header.strip())
+    reset = hdrs.get("x-ratelimit-reset") if hdrs is not None else None
+    if isinstance(reset, str) and reset.strip().isdigit():
+        return max(0, int(reset.strip()) - int(now))
     try:
         data = json.loads(body.decode("utf-8")) if body else None
     except (UnicodeDecodeError, json.JSONDecodeError):
