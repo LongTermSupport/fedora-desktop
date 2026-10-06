@@ -236,7 +236,11 @@ out.
 ## Success Criteria
 
 - [ ] A commit made by the owner, a host `cc` agent and a ccy agent each shows
-  `git log --format=%G?` = `G` and is Verified on GitHub.
+  `git log --format=%G?` = `G` and is Verified on GitHub. Checked 2026-10-06: the last 40
+  commits on F44 are all Verified on GitHub, ccy agents' among them, signed by two keys
+  (the login key, 38; an account key, 2). A commit does not record whether a person, a
+  host agent or a ccy agent made it, so the owner confirms one of their own and one from a
+  host `cc` session.
 - [x] The self-update gate still refuses an unsigned HEAD, and accepts a HEAD the machine
   key signed. `test-self-update-cycle.bash`, a hard gate in `qa-all.bash`, 163 checks: an
   unsigned tip is not taken, a first cycle from an unsigned HEAD is refused (20) saying
