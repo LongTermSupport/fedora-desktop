@@ -14,7 +14,9 @@
 #   H1 and H2 never create the dummy bus address (nothing persistent): they test the host's
 #   primary address and, with --bus-address=, an address already assigned. Without it they
 #   report the dummy address as not tested and fail, since a dummy's firewalld zone and
-#   routing can differ from the primary address's.
+#   routing can differ from the primary address's. --reach-only runs just H1 and H2 against
+#   the agentbus0 address, which is how deploy.bash settles the dummy leg once U16 has
+#   created the interface.
 #   H6  Element Desktop under pasta with a packet capture.
 # H7 (the phone) and the login legs are the owner's; the report lists them.
 # Unit U01, the Claude Code probes (DESIGN.md sections 6 and 13), run as the last legs, on
@@ -31,10 +33,10 @@
 #
 # RUN ON THE HOST, as the desktop user (not root): through CLAUDE/Plan/meta-deploy.bash, or
 #   ./CLAUDE/Plan/00161-agent-team-bus-matrix/triage.bash [--bus-address=<ip>] \
-#       [--docker-image=<ref>] [--element-seconds=<n>] [--claude-only]
+#       [--docker-image=<ref>] [--element-seconds=<n>] [--claude-only | --reach-only]
 # It never prompts. sudo is primed before the log opens (R3); the H3 unit, LXC and
 # firewalld legs need it, and fail by name without it. --claude-only runs just the U01
-# legs, which need no sudo.
+# legs, which need no sudo. --reach-only runs just H1 and H2 and needs --bus-address=.
 #
 # EFFECT ON THE HOST: nothing persistent. It downloads the pinned Tuwunel release into a
 # scratch directory under this run's directory and removes it on the way out (the scrubbed
@@ -51,7 +53,8 @@
 #
 # EXIT CODES: 0 every leg established its facts; 1 at least one leg did not (the failing leg
 # names itself; the fact-finding is incomplete, the system is not judged; H1 and H2 always
-# give 1 without --bus-address); 64 usage.
+# give 1 without --bus-address); 64 usage (including --reach-only without --bus-address=,
+# or with --claude-only).
 set -euo pipefail
 
 # ── R1 bootstrap: script-relative, filesystem-only, bounded at the repo boundary ──────────
@@ -73,7 +76,7 @@ done
 source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
 
-PLAN_USAGE="usage: triage.bash [--bus-address=<ip>] [--docker-image=<ref>] [--element-seconds=<n>] [--claude-only] [-h|--help]
+PLAN_USAGE="usage: triage.bash [--bus-address=<ip>] [--docker-image=<ref>] [--element-seconds=<n>] [--claude-only | --reach-only] [-h|--help]
 
 Host probes H1-H6 and the Claude Code probes (U01) for Plan 00161 (agent team bus).
 Host-only, read-only, never prompts.
@@ -83,6 +86,7 @@ Host-only, read-only, never prompts.
                          (default docker.io/library/busybox:latest; nothing is pulled)
   --element-seconds=<n>  how long H6 runs Element under pasta (default 60)
   --claude-only          only the U01 Claude Code legs (no sudo)
+  --reach-only           only H1 and H2, against --bus-address (which it needs)
 Writes triage-report.md, fixtures/tuwunel/ and u01/ (each session's evidence) into its run
 directory and names them."
 
@@ -93,9 +97,11 @@ busAddress=""
 dockerImage="docker.io/library/busybox:latest"
 elementSeconds="60"
 claudeOnly=0
+reachOnly=0
 for arg in "${PLAN_REMAINING_ARGS[@]+"${PLAN_REMAINING_ARGS[@]}"}"; do
     case "${arg}" in
         --claude-only) claudeOnly=1 ;;
+        --reach-only) reachOnly=1 ;;
         --bus-address=?*) busAddress="${arg#--bus-address=}" ;;
         --docker-image=?*) dockerImage="${arg#--docker-image=}" ;;
         --element-seconds=?*) elementSeconds="${arg#--element-seconds=}" ;;
@@ -108,6 +114,16 @@ done
 if [[ ! "${elementSeconds}" =~ ^[1-9][0-9]{0,3}$ ]]; then
     printf '[FATAL] --element-seconds must be 1-9999, got %s\n' "${elementSeconds}" >&2
     exit 64
+fi
+if [[ "${reachOnly}" -eq 1 ]]; then
+    if [[ "${claudeOnly}" -eq 1 ]]; then
+        printf '[FATAL] --reach-only and --claude-only select different legs; give one\n' >&2
+        exit 64
+    fi
+    if [[ -z "${busAddress}" ]]; then
+        printf '[FATAL] --reach-only tests the bus address, so it needs --bus-address=<ip>\n' >&2
+        exit 64
+    fi
 fi
 
 plan_require_host "it probes the host's systemd, podman, bridges and firewalld, and runs Tuwunel and Element on the host"
@@ -137,6 +153,15 @@ common=(--report "${REPORT}" --scratch "${SCRATCH}")
 busArgs=()
 if [[ -n "${busAddress}" ]]; then
     busArgs=(--bus-address "${busAddress}")
+fi
+
+if [[ "${reachOnly}" -eq 1 ]]; then
+    plan_gather_leg "H1 ccy-image containers" \
+        "${probe[@]}" h1 "${common[@]}" "${busArgs[@]}"
+    plan_gather_leg "H2 docker, LXC and libvirt guests" \
+        "${probe[@]}" h2 "${common[@]}" --docker-image "${dockerImage}" "${busArgs[@]}"
+    remove_scratch
+    plan_finish
 fi
 
 if [[ "${claudeOnly}" -eq 0 ]]; then

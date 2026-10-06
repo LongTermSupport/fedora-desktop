@@ -97,8 +97,11 @@ repository; opt-in per machine and per team.
   U13 (`bundle.py`, the zipapp builder) and U15 (`helpers/agent_bus/` admin tool, renders
   and the `agent-bus` wrapper). Wave 4: U10 (`syncer.py`, the sync engine and room trust)
   and U16 (`agent-bus-install`, its units, `tuwunel.pin`, the resolver stub), both
-  reviewed and fixed; U16 is tested in the container (`scripts/test-agent-bus-install.bash`)
-  and its host run is pending.
+  reviewed and fixed; U16 is tested in the container (`scripts/test-agent-bus-install.bash`).
+  U16's host run is this plan's `deploy.bash`, run through `meta-deploy.bash` (pending; it
+  needs `agent_bus_address` in the untracked host_vars, or `--bus-address=`): `software`
+  (which stays installed, with `agentbus0`), a throwaway team, both run twice with no
+  `CHANGED`, `check`, `remove --purge`, then `triage.bash --reach-only` for H1/H2's dummy leg.
 - [ ] ⬜ **M2 ccy members, the idle session woken**: U12, U18–U20.
 - [ ] ⬜ **M3 other encapsulations and hosts, the play**: U21–U24.
 - [ ] ⬜ **M4 Element, deploy and acceptance (privacy checks P1–P8)**: U25–U28 (U26, TLS,
