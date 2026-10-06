@@ -26,6 +26,7 @@ import stat
 import sys
 import urllib.parse
 from collections.abc import Callable, Mapping, Sequence
+from typing import BinaryIO
 
 from helpers.pingbus import limits, protocol
 
@@ -187,27 +188,39 @@ def load_bundle(
     return member
 
 
+def open_private_file(path: str | os.PathLike[str], where: str, *, uid: int | None = None) -> BinaryIO:
+    """Open a secret file for reading, refusing unless it is a regular file (never
+    followed through a symlink, never a FIFO to block on), owned by `uid`, and mode 0600
+    or stricter. The checks run on the open descriptor, so the caller reads what was
+    checked. `where` prefixes every refusal; the caller closes the handle."""
+    owner = os.getuid() if uid is None else uid
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except FileNotFoundError:
+        raise ConfigError(f"{where}: no such file") from None
+    except OSError as exc:
+        raise ConfigError(f"{where}: not a regular file ({exc.strerror})") from None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise ConfigError(f"{where}: not a regular file")
+        if info.st_uid != owner:
+            raise ConfigError(f"{where}: owned by uid {info.st_uid}, not {owner}")
+        mode = stat.S_IMODE(info.st_mode)
+        if mode & ~TOKEN_MODE_ALLOWED:
+            raise ConfigError(f"{where}: mode {mode:04o} is looser than 0600")
+    except BaseException:
+        os.close(fd)
+        raise
+    return os.fdopen(fd, "rb")
+
+
 def read_token(member: Member, *, uid: int | None = None) -> str:
     """The member's token, after re-checking the file: a regular file (never followed
     through a symlink), owned by `uid`, mode 0600 or stricter, one printable line with no
     trailing newline."""
-    owner = os.getuid() if uid is None else uid
-    where = f"team {member.team}: {member.token_path}"
-    try:
-        fd = os.open(member.token_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
-    except FileNotFoundError:
-        raise ConfigError(f"{where}: the token file is missing") from None
-    except OSError as exc:
-        raise ConfigError(f"{where}: the token is not a regular file ({exc.strerror})") from None
-    with os.fdopen(fd, "rb") as handle:
-        info = os.fstat(handle.fileno())
-        if not stat.S_ISREG(info.st_mode):
-            raise ConfigError(f"{where}: the token is not a regular file")
-        if info.st_uid != owner:
-            raise ConfigError(f"{where}: the token is owned by uid {info.st_uid}, not {owner}")
-        mode = stat.S_IMODE(info.st_mode)
-        if mode & ~TOKEN_MODE_ALLOWED:
-            raise ConfigError(f"{where}: the token's mode {mode:04o} is looser than 0600")
+    where = f"team {member.team}: the token file {member.token_path}"
+    with open_private_file(member.token_path, where, uid=uid) as handle:
         raw = handle.read(TOKEN_MAX_BYTES + 1)
     if len(raw) > TOKEN_MAX_BYTES:
         raise ConfigError(f"{where}: the token is longer than {TOKEN_MAX_BYTES} bytes")

@@ -191,6 +191,14 @@ class TestSubprocess(TempCase):
         self.assertEqual(proc.stdout, "")
         self.assertIn("PINGBUS_TEAMS", proc.stderr)
 
+    def test_validate_event_without_team_exit_78_stderr_only(self) -> None:
+        path = self.tmp / "event.json"
+        path.write_text(json.dumps(message_event(ORCH, {})), encoding="utf-8")
+        proc = run_process(["validate", "--event", str(path)], self.env)
+        self.assertEqual(proc.returncode, 78)
+        self.assertEqual(proc.stdout, "")
+        self.assertIn("--event", proc.stderr)
+
     def test_suggest_handle_without_role_exit_78(self) -> None:
         env = dict(self.env, CCY_HOST_HOSTNAME="realhostname", HOSTNAME="realhostname", container="docker")
         proc = run_process(["suggest-handle"], env, cwd=self.tmp)
@@ -550,10 +558,20 @@ class TestSuggestHandle(TempCase):
 
 
 class TestDetectMemberType(unittest.TestCase):
-    def detect(self, environ: dict[str, str], files: set[str], vm: int) -> str:
+    NONE = (1, "none\n")
+
+    def detect(
+        self, environ: dict[str, str], files: set[str], vm: int,
+        container: tuple[int, str] = NONE,
+    ) -> str:
+        """`container` is `systemd-detect-virt --container`'s (status, stdout)."""
+
         def fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
             self.assertEqual(argv[0], "systemd-detect-virt")
             self.assertIn("check", kwargs)
+            if "--container" in argv:
+                return subprocess.CompletedProcess(argv, container[0], container[1], "")
+            self.assertIn("--vm", argv)
             return subprocess.CompletedProcess(argv, vm)
 
         with mock.patch.object(cli.os.path, "exists", side_effect=lambda f: f in files), \
@@ -567,12 +585,57 @@ class TestDetectMemberType(unittest.TestCase):
         self.assertEqual(self.detect({}, set(), 0), "vm")
         self.assertEqual(self.detect({}, set(), 1), "host")
 
+    def test_lxc_from_the_detector_when_the_session_lacks_the_variable(self) -> None:
+        # LXC sets `container` only in PID 1's environment and writes no marker file.
+        for printed, want in (("lxc\n", "lxc"), ("lxc-libvirt\n", "lxc"),
+                              ("podman\n", "podman"), ("docker\n", "docker")):
+            with self.subTest(printed=printed):
+                self.assertEqual(self.detect({}, set(), 0, (0, printed)), want)
+
+    def test_container_detector_outranks_vm(self) -> None:
+        self.assertEqual(self.detect({}, set(), 0, (0, "lxc\n")), "lxc")
+
+    def test_unrecognised_container_is_78_not_host(self) -> None:
+        for printed in ("systemd-nspawn\n", "wsl\n", "openvz\n"):
+            with self.subTest(printed=printed), self.assertRaises(config.ConfigError) as caught:
+                self.detect({}, set(), 1, (0, printed))
+            self.assertIn("--type", str(caught.exception))
+
     def test_unknown_container_value_is_not_trusted_as_a_type(self) -> None:
         self.assertEqual(self.detect({"container": "systemd-nspawn"}, set(), 1), "host")
 
     def test_detector_failure_is_78(self) -> None:
         with self.assertRaises(config.ConfigError):
             self.detect({}, set(), 2)
+        with self.assertRaises(config.ConfigError):
+            self.detect({}, set(), 1, (2, ""))
+
+
+class TestCheckoutOrigin(unittest.TestCase):
+    def test_git_runs_in_the_c_locale(self) -> None:
+        """"Not a repository" is read from git's message, so git must speak English."""
+        calls: list[dict[str, str]] = []
+
+        def fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+            calls.append(kwargs["env"])
+            if "rev-parse" in argv:
+                return subprocess.CompletedProcess(argv, 0, "/x/repo\n", "")
+            return subprocess.CompletedProcess(argv, 0, "https://example.com/o/r.git\n", "")
+
+        with mock.patch.dict(cli.os.environ, {"LANG": "de_DE.UTF-8", "LC_ALL": "de_DE.UTF-8"}), \
+             mock.patch.object(cli.subprocess, "run", side_effect=fake_run):
+            self.assertEqual(cli.checkout_origin("/x/repo/sub"),
+                             ("/x/repo", "https://example.com/o/r.git"))
+        self.assertEqual(len(calls), 2)
+        for env in calls:
+            self.assertEqual(env["LC_ALL"], "C")
+
+    def test_outside_a_checkout_falls_back_to_the_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.dict(cli.os.environ, {"LC_ALL": "de_DE.UTF-8", "GIT_CEILING_DIRECTORIES": tmp,
+                                              "GIT_CONFIG_GLOBAL": os.devnull,
+                                              "GIT_CONFIG_NOSYSTEM": "1"}):
+            self.assertEqual(cli.checkout_origin(tmp), (tmp, None))
 
 
 class TestDocMentionsOfflineCommands(unittest.TestCase):

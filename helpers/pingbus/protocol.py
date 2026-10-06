@@ -482,7 +482,9 @@ def _check_targets(to: list[str], verb: str, ctx: Context) -> tuple[str, ...]:
     return tuple(sorted(to))
 
 
-def _check_ref(value: object, rule: VerbRule, ctx: Context) -> Ref | None:
+def check_ref_form(value: object, rule: VerbRule) -> Ref | None:
+    """The part of the `ref` check that needs no team record: present when the verb
+    requires it, absent when it forbids it, and of a form the verb allows."""
     if value is None:
         if rule.ref == REQUIRED:
             raise Refusal("ref")
@@ -492,6 +494,13 @@ def _check_ref(value: object, rule: VerbRule, ctx: Context) -> Ref | None:
     ref = parse_ref(value)
     if ref is None or ref.form not in rule.ref_forms:
         raise Refusal("ref")
+    return ref
+
+
+def _check_ref(value: object, rule: VerbRule, ctx: Context) -> Ref | None:
+    ref = check_ref_form(value, rule)
+    if ref is None:
+        return None
     if ref.repo_full not in ctx.repos:
         raise Refusal("allowlist")
     if ref.form == "path" and not path_allowed(ref.path, ctx.path_prefixes):
@@ -499,7 +508,7 @@ def _check_ref(value: object, rule: VerbRule, ctx: Context) -> Ref | None:
     return ref
 
 
-def _check_re(value: object, rule: VerbRule) -> str | None:
+def check_re(value: object, rule: VerbRule) -> str | None:
     if value is None:
         if rule.re == REQUIRED:
             raise Refusal("re")
@@ -536,7 +545,7 @@ def validate_content(content: object, ctx: Context) -> Ping:
         raise Refusal("verb")
     to = _check_targets(obj["to"], obj["verb"], ctx)
     ref = _check_ref(obj.get("ref"), rule, ctx)
-    re_ = _check_re(obj.get("re"), rule)
+    re_ = check_re(obj.get("re"), rule)
     if content["m.mentions"] != {"user_ids": list(to)}:
         raise Refusal("schema")
     if not isinstance(content["body"], str):

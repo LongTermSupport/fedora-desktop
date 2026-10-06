@@ -88,6 +88,8 @@ FORGE_NONE = "none"
 ROLE_VAR = "HOOKS_DAEMON_HOSTNAME"
 #: Values of the `container` variable podman, docker and LXC set, taken as the type.
 CONTAINER_ENV_TYPES = ("podman", "docker", "lxc")
+#: `systemd-detect-virt --container` names that map to a §3 type.
+DETECT_VIRT_CONTAINER_TYPES = {"lxc": "lxc", "lxc-libvirt": "lxc", "podman": "podman", "docker": "docker"}
 PODMAN_MARKER = "/run/.containerenv"
 DOCKER_MARKER = "/.dockerenv"
 
@@ -265,18 +267,8 @@ def check_request_grammar(verb: str, ref: str | None, re_: str | None) -> None:
     rule = protocol.VERBS.get(verb)
     if rule is None:
         raise protocol.Refusal("verb")
-    if ref is None:
-        if rule.ref == protocol.REQUIRED:
-            raise protocol.Refusal("ref")
-    else:
-        parsed = protocol.parse_ref(ref)
-        if rule.ref == protocol.FORBIDDEN or parsed is None or parsed.form not in rule.ref_forms:
-            raise protocol.Refusal("ref")
-    if re_ is None:
-        if rule.re == protocol.REQUIRED:
-            raise protocol.Refusal("re")
-    elif rule.re == protocol.FORBIDDEN or not protocol.is_event_id(re_):
-        raise protocol.Refusal("re")
+    protocol.check_ref_form(ref, rule)
+    protocol.check_re(re_, rule)
 
 
 def _validate_request(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
@@ -354,22 +346,9 @@ def _check_forge_token_file(path: str) -> None:
     where = f"{FORGE_TOKEN_FILE_VAR} ({path})"
     if not os.path.isabs(path):
         raise config.ConfigError(f"{where} must be an absolute path")
-    try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
-    except FileNotFoundError:
-        raise config.ConfigError(f"{where}: no such file") from None
-    except OSError as exc:
-        raise config.ConfigError(f"{where}: not a regular file ({exc.strerror})") from None
-    with os.fdopen(fd, "rb") as handle:
-        info = os.fstat(handle.fileno())
-    if not stat.S_ISREG(info.st_mode):
-        raise config.ConfigError(f"{where}: not a regular file")
-    if info.st_uid != os.getuid():
-        raise config.ConfigError(f"{where}: owned by uid {info.st_uid}, not {os.getuid()}")
-    mode = stat.S_IMODE(info.st_mode)
-    if mode & ~config.TOKEN_MODE_ALLOWED:
-        raise config.ConfigError(f"{where}: mode {mode:04o} is looser than 0600")
-    if info.st_size == 0:
+    with config.open_private_file(path, where) as handle:
+        size = os.fstat(handle.fileno()).st_size
+    if size == 0:
         raise config.ConfigError(f"{where}: empty")
 
 
@@ -400,11 +379,13 @@ def cmd_config_check(args: argparse.Namespace, environ: Mapping[str, str], out: 
 
 
 def checkout_origin(cwd: str) -> tuple[str, str | None]:
-    """The checkout's top directory (or `cwd` outside one) and its `origin` URL, if any."""
+    """The checkout's top directory (or `cwd` outside one) and its `origin` URL, if any.
+    Git runs in the C locale: "not a repository" is recognised by its English message."""
+    git_env = {**os.environ, "LC_ALL": "C"}
     try:
         top = subprocess.run(
             ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=False,
+            capture_output=True, text=True, check=False, env=git_env,
         )
     except FileNotFoundError:
         raise config.ConfigError("suggest-handle needs git to read the checkout's remote") from None
@@ -415,7 +396,7 @@ def checkout_origin(cwd: str) -> tuple[str, str | None]:
     top_dir = top.stdout.strip()
     remote = subprocess.run(
         ["git", "-C", top_dir, "remote", "get-url", "origin"],
-        capture_output=True, text=True, check=False,
+        capture_output=True, text=True, check=False, env=git_env,
     )
     if remote.returncode == 0:
         return top_dir, remote.stdout.strip()
@@ -424,8 +405,21 @@ def checkout_origin(cwd: str) -> tuple[str, str | None]:
     raise config.ConfigError(f"git remote get-url origin failed: {remote.stderr.strip()}")
 
 
+def _detect_virt(*flags: str) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(
+            ["systemd-detect-virt", *flags], capture_output=True, text=True, check=False
+        )
+    except FileNotFoundError:
+        raise config.ConfigError(
+            "suggest-handle needs systemd-detect-virt to tell a container or VM from a host"
+        ) from None
+
+
 def detect_member_type(environ: Mapping[str, str]) -> str:
-    """Where this session runs (§3 `<type>`): a container's own markers first, then a VM."""
+    """Where this session runs (§3 `<type>`): a container's own markers, then
+    systemd-detect-virt's container check (LXC sets `container` only for PID 1 and writes
+    no marker), then its VM check. A container of no §3 type is refused, never `host`."""
     value = environ.get("container", "")
     if value in CONTAINER_ENV_TYPES:
         return value
@@ -433,12 +427,21 @@ def detect_member_type(environ: Mapping[str, str]) -> str:
         return "podman"
     if os.path.exists(DOCKER_MARKER):
         return "docker"
-    try:
-        probe = subprocess.run(["systemd-detect-virt", "--vm", "--quiet"], check=False)
-    except FileNotFoundError:
+    container = _detect_virt("--container")
+    if container.returncode == 0:
+        name = container.stdout.strip()
+        member_type = DETECT_VIRT_CONTAINER_TYPES.get(name)
+        if member_type is None:
+            raise config.ConfigError(
+                f"systemd-detect-virt reports a {name!r} container, which has no handle type; "
+                "pass --type to agent-bus add-member"
+            )
+        return member_type
+    if container.returncode != 1:
         raise config.ConfigError(
-            "suggest-handle needs systemd-detect-virt to tell a VM from a host"
-        ) from None
+            f"systemd-detect-virt --container failed with status {container.returncode}"
+        )
+    probe = _detect_virt("--vm", "--quiet")
     if probe.returncode == 0:
         return "vm"
     if probe.returncode == 1:
