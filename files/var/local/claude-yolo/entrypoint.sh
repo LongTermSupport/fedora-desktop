@@ -589,10 +589,27 @@ ccy_lifecycle_wanted() {
 ccy_lifecycle_extend_wrapper() {
     local plugin="/opt/claude-yolo/supervisor-plugins/ccy_lifecycle.py"
     local last=$((${#_ccy_wrapper[@]} - 1))
-    if [[ "$CCY_CLAUDE_WRAPPER" != *claude-supervise.py* ]] || ((last < 1)) || [[ "${_ccy_wrapper[$last]}" != "--" ]]; then
+    # The supervisor is named directly, or through the hooks daemon's own launcher
+    # (.claude/ccy/claude-supervise, what the daemon's deployed ccy.env arms every project with),
+    # which execs its sibling claude-supervise.py with every argument unchanged.
+    local supervisor="" word want have
+    for word in "${_ccy_wrapper[@]}"; do
+        case "$word" in
+        *claude-supervise.py)
+            supervisor="$word"
+            break
+            ;;
+        */claude-supervise)
+            supervisor="$word.py"
+            break
+            ;;
+        esac
+    done
+    if [[ -z "$supervisor" ]] || ((last < 1)) || [[ "${_ccy_wrapper[$last]}" != "--" ]]; then
         echo "✗ CCY: --max-age/--run-for/--until need the hooks-daemon supervisor as the claude wrapper, but the wrapper is:" >&2
         echo "    $CCY_CLAUDE_WRAPPER" >&2
-        echo "  It must be the supervisor's own command line ending in --. Fix CCY_CLAUDE_WRAPPER, or drop the option." >&2
+        echo "  It must run the supervisor (claude-supervise.py, or the daemon's claude-supervise launcher) and end in --." >&2
+        echo "  Fix CCY_CLAUDE_WRAPPER, or drop the option." >&2
         return 1
     fi
     if [[ ! -f "$plugin" ]]; then
@@ -602,15 +619,8 @@ ccy_lifecycle_extend_wrapper() {
     fi
     # A supervisor older than the plugin API rejects --plugin as an unknown argument and the
     # container exits with an argparse error, so read its declared API major first.
-    local supervisor="" word want have
-    for word in "${_ccy_wrapper[@]}"; do
-        if [[ "$word" == *claude-supervise.py ]]; then
-            supervisor="$word"
-            break
-        fi
-    done
     if [[ ! -f "$supervisor" ]]; then
-        echo "✗ CCY: the supervisor the wrapper names is not there: ${supervisor:-(none)}" >&2
+        echo "✗ CCY: the supervisor the wrapper names is not there: $supervisor" >&2
         return 1
     fi
     if ! want=$(awk '/^PLUGIN_API = [0-9]+$/ {print $3; exit}' "$plugin") || [[ -z "$want" ]]; then
