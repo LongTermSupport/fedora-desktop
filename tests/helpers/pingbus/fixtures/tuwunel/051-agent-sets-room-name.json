@@ -1,0 +1,16 @@
+{
+  "auth": "<token:sender>",
+  "body": {
+    "name": "x"
+  },
+  "elapsed_ms": 1,
+  "method": "PUT",
+  "name": "agent-sets-room-name",
+  "path": "/_matrix/client/v3/rooms/%214-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM/state/m.room.name/",
+  "query": {},
+  "response": {
+    "errcode": "M_FORBIDDEN",
+    "error": "Auth check failed: sender does not have enough power (Int(0)) for `m.room.name` event type (100)"
+  },
+  "status": 403
+}

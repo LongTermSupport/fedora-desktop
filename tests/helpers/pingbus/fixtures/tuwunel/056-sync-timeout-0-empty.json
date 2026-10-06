@@ -1,0 +1,21 @@
+{
+  "auth": "<token:receiver>",
+  "body": null,
+  "elapsed_ms": 0,
+  "method": "GET",
+  "name": "sync-timeout-0-empty",
+  "path": "/_matrix/client/v3/sync",
+  "query": {
+    "filter": "{\"presence\":{\"types\":[]},\"account_data\":{\"types\":[]},\"room\":{\"rooms\":[\"!4-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM\"],\"ephemeral\":{\"types\":[]},\"account_data\":{\"types\":[]},\"state\":{\"types\":[\"m.room.create\",\"m.room.power_levels\",\"m.room.member\",\"agent_bus.team\",\"agent_bus.status\"],\"lazy_load_members\":true},\"timeline\":{\"types\":[\"m.room.message\",\"m.room.member\",\"m.room.power_levels\",\"agent_bus.team\",\"agent_bus.status\"],\"limit\":50}}}",
+    "since": "176",
+    "timeout": "0"
+  },
+  "response": {
+    "device_one_time_keys_count": {
+      "signed_curve25519": 0
+    },
+    "device_unused_fallback_key_types": [],
+    "next_batch": "176"
+  },
+  "status": 200
+}

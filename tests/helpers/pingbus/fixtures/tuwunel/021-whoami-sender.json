@@ -1,0 +1,14 @@
+{
+  "auth": "<token:sender>",
+  "body": null,
+  "elapsed_ms": 0,
+  "method": "GET",
+  "name": "whoami-sender",
+  "path": "/_matrix/client/v3/account/whoami",
+  "query": {},
+  "response": {
+    "device_id": "wbZSQmNjU8",
+    "user_id": "@probe.20+triage.podman:probe.agent-bus.internal"
+  },
+  "status": 200
+}

@@ -1,0 +1,14 @@
+{
+  "auth": "<token:human>",
+  "body": null,
+  "elapsed_ms": 0,
+  "method": "GET",
+  "name": "whoami-human-after-v1-reset",
+  "path": "/_matrix/client/v3/account/whoami",
+  "query": {},
+  "response": {
+    "errcode": "M_UNKNOWN_TOKEN",
+    "error": "M_UNKNOWN_TOKEN: Unknown access token."
+  },
+  "status": 401
+}

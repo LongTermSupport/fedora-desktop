@@ -1,0 +1,17 @@
+{
+  "auth": "<token:sender>",
+  "body": {
+    "state": "listening",
+    "until": 1791298625802,
+    "v": 1
+  },
+  "elapsed_ms": 0,
+  "method": "PUT",
+  "name": "status-own-key",
+  "path": "/_matrix/client/v3/rooms/%214-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM/state/agent_bus.status/%40probe.20%2Btriage.podman%3Aprobe.agent-bus.internal",
+  "query": {},
+  "response": {
+    "event_id": "$MLDyAONgaD6YZcygnpZPoAzBFJjRHM4XuxVFswkyFwE"
+  },
+  "status": 200
+}

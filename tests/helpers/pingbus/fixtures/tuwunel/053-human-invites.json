@@ -1,0 +1,16 @@
+{
+  "auth": "<token:human>",
+  "body": {
+    "user_id": "@admin:probe.agent-bus.internal"
+  },
+  "elapsed_ms": 1,
+  "method": "POST",
+  "name": "human-invites",
+  "path": "/_matrix/client/v3/rooms/%214-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM/invite",
+  "query": {},
+  "response": {
+    "errcode": "M_FORBIDDEN",
+    "error": "Auth check failed: cannot invite user that is joined or banned"
+  },
+  "status": 403
+}

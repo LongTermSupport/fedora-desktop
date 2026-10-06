@@ -1,0 +1,17 @@
+{
+  "auth": "<token:admin>",
+  "body": {
+    "admin": false,
+    "password": "<password:explicit>"
+  },
+  "elapsed_ms": 19,
+  "method": "PUT",
+  "name": "put-user-admin-false",
+  "path": "/_synapse/admin/v2/users/%40explicitnonadmin%3Aprobe.agent-bus.internal",
+  "query": {},
+  "response": {
+    "errcode": "M_UNKNOWN",
+    "error": "@explicitnonadmin:probe.agent-bus.internal was never an admin."
+  },
+  "status": 500
+}

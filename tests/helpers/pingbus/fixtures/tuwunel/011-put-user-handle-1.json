@@ -1,0 +1,27 @@
+{
+  "auth": "<token:admin>",
+  "body": {
+    "displayname": "probe.11+triage.podman",
+    "password": "<password:put-1>"
+  },
+  "elapsed_ms": 20,
+  "method": "PUT",
+  "name": "put-user-handle-1",
+  "path": "/_synapse/admin/v2/users/%40probe.11%2Btriage.podman%3Aprobe.agent-bus.internal",
+  "query": {},
+  "response": {
+    "admin": false,
+    "consent_ts": null,
+    "creation_ts": 0,
+    "deactivated": false,
+    "displayname": "probe.11+triage.podman",
+    "erased": false,
+    "is_guest": false,
+    "last_seen_ts": null,
+    "locked": false,
+    "name": "@probe.11+triage.podman:probe.agent-bus.internal",
+    "shadow_banned": false,
+    "suspended": false
+  },
+  "status": 200
+}

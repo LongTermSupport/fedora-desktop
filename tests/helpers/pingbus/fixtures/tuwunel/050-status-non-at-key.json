@@ -1,0 +1,17 @@
+{
+  "auth": "<token:sender>",
+  "body": {
+    "state": "listening",
+    "until": 1791298625802,
+    "v": 1
+  },
+  "elapsed_ms": 2,
+  "method": "PUT",
+  "name": "status-non-at-key",
+  "path": "/_matrix/client/v3/rooms/%214-KNafUJNwdeVS84nj6lST9GnscdJLa2T01JR9OqiTM/state/agent_bus.status/probe",
+  "query": {},
+  "response": {
+    "event_id": "$QNsmVSWn-mVlUf2t6S-hNXygUkkYmUn-RwauhY2qF4M"
+  },
+  "status": 200
+}
