@@ -233,7 +233,43 @@ out.
     (`localhost-yml-no-identity`, `git-identity-configured` among them), play recap
     `failed=0`, `RUN-BASH-EXIT 0`
 
+### Phase 6: Signatures GitHub verifies (G1, folded in from a sense check, 2026-10-07)
+
+The owner asked that every ccy session sign its commits. A sense check
+([report](subagent-reports/261007-signing-sense-check-opus.md)) found that already true on
+the default path (Phase 2, D5), with one gap: the key picked at launch signs every commit
+whatever the repository, so a key whose account does not have the commit email verified,
+an arbitrary `--ssh-key` or a deploy key produces Unverified commits without a word. The
+owner chose to fold the fix in here (2026-10-07).
+
+
+- [ ] ⬜ **Task 6.1**: Write the test first: new cases in `scripts/test-ccy-git-signing.bash`
+  with `gh` stubbed on `PATH`. A registered key with the commit email verified passes. A key
+  on the wrong account, an unregistered key, an unverified email, and a deploy key each
+  refuse and name the remedy. Red against the current launcher.
+- [ ] ⬜ **Task 6.2**: In `configure_git_signing`, for a key-file identity with signing on,
+  check with the session's account token that the key is in `user/ssh_signing_keys` and
+  that the commit email (the project's local, else the copy's) is in that account's
+  verified `user/emails` or is its noreply address. Reuse the noreply rule from
+  `helpers/github_signing`. Refuse with the remedy: the matching account's key,
+  `gh-switch <alias> --update-git`, or re-run `play-github-cli-multi.yml`.
+- [ ] ⬜ **Task 6.3**: Picker: among keys that can push, rank first the one whose account
+  owns the commit email.
+- [ ] ⬜ **Task 6.4**: Owner decisions, recorded in this plan's journal: (a) a deploy-key session
+  with signing on, which can never be Verified: refuse, or accept with an explicit
+  acknowledgement (no warn-and-continue); (b) an allowed-signers file in the container so
+  `%G?` works there (optional); (c) signed-commit rulesets for other repositories.
+- [ ] ⬜ **Task 6.5**: Bump the CCY version, add a `docs/ccy-changelog.md` entry, and
+  describe the check in `docs/ccy.md` and `docs/configuration.md` "Commit Signing".
+  Run `qa-all.bash`, then the `qa-reviewer` agent.
+- [ ] ⬜ **Task 6.6**: **HOST (owner)**: `./CLAUDE/Plan/meta-deploy.bash` installs the
+  launcher. Then, in a repository where a second account can push, accept the default key,
+  commit, push to a scratch branch, and confirm GitHub reports `verified: true`.
+
 ## Success Criteria
+
+- [ ] A ccy launch whose signature GitHub would not verify is refused, naming the remedy
+  (Phase 6), and a commit from a session on the picker's default key is Verified (Task 6.6).
 
 - [ ] A commit made by the owner, a host `cc` agent and a ccy agent each shows
   `git log --format=%G?` = `G` and is Verified on GitHub. Checked 2026-10-06: the last 40
