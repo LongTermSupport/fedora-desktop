@@ -1108,6 +1108,18 @@ fi
 history_session_summary=$(qa_gate_case_count "$history_session_out")
 qa_pass_line bash-history-session "$history_session_summary"
 
+# The prompt hook that switches stray terminal modes off writes escape sequences at every
+# prompt, so one wrong byte clears the scrollback or corrupts a captured stdout. Driven on a
+# real pseudo-terminal, since it only prints to one.
+terminal_modes_out=""
+if ! terminal_modes_out="$(bash "$SCRIPT_DIR/test-terminal-modes.bash" 2>&1)"; then
+    qa_hard_gate_failed terminal-modes \
+        "terminal modes prompt hook unit tests failed" \
+        "$terminal_modes_out"
+fi
+terminal_modes_summary=$(qa_gate_case_count "$terminal_modes_out")
+qa_pass_line terminal-modes "$terminal_modes_summary"
+
 # The on-demand report command (Plan 00136). The login snippet's reminder and the panel's
 # terminal row both hand a person to it and walk away, so it has to answer on its own: a
 # sentence on a clean host, `--hold` released by Enter or EOF, and a missing checkout named

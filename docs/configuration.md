@@ -99,6 +99,11 @@ User-specific includes in `~/.bashrc-includes/`:
   away. The directory each command ran in is kept in `~/.local/state/bash/context`, which is
   private to the user like the history file. A command removed from history with
   `history -d` stays in that file until it is edited out.
+- `terminal-modes.bash` (desktop user only): at every prompt, switches off the mouse
+  reporting, focus events and keyboard modes a full-screen program left on, as when an SSH
+  session drops because the server went away. Without it, moving the mouse prints escape
+  garbage at the prompt until `reset`. It writes nothing visible and never clears the
+  screen or scrollback.
 
 ### SSH Configuration
 
