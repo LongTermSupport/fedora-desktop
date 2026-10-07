@@ -138,7 +138,11 @@ repository; opt-in per machine and per team.
   opted in through `ccy.env.local`, logged in with the ccy token by name: M2.1 an idle one
   woken by its socket acks a review from another, M2.2 a second same-count notice wakes it
   again, M2.3 one without the socket is woken by `pingbus wait`, M2.4 a human message reaches
-  only the one it mentions. `meta-deploy.bash` already runs `acceptance.bash`.
+  only the one it mentions. `meta-deploy.bash` already runs `acceptance.bash`. Its first
+  host run stopped at launch: ccy refused signing on with no SSH identity, reading only
+  `~/.gitconfig`. CCY 3.85.2 takes the checkout's own signing setting first, and U20's
+  checkouts turn signing off ([report](subagent-reports/261007-ccy-signing-local-opus.md)).
+  Host rerun pending.
 - [ ] 🔄 **M3 other encapsulations and hosts, the play**: U21–U24. U22 built:
   `play-agent-bus.yml` (imported by `playbook-main.yml`) runs `agent-bus-install software`
   on every desktop, then `remove` for each `agent_bus_teams` entry with `state: absent` and

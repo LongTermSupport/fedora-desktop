@@ -2,7 +2,9 @@
 # SSH Handling Library
 # Shared SSH key operations for claude-yolo (ccy)
 #
-# Version: 1.7.0 - configure_git_signing signs through an agent; no private key is staged
+# Version: 1.7.1 - configure_git_signing takes commit/tag signing on or off from the
+#                  project's local config first (Plan 00161).
+#          1.7.0 - configure_git_signing signs through an agent; no private key is staged
 #                  (Plan 00139).
 #          1.4.0 - Two identities a box may hold besides a github_<alias> key:
 #                  the project remote's own key, reached through an ssh-config
@@ -1566,10 +1568,11 @@ _host_signing_key_for() {
     printf '%s' "$key"
 }
 
-# The refusal for signing that is on but cannot work in the container.
+# The refusal for signing that is on but cannot work in the container. It names where
+# signing is on from configure_git_signing's signing_on_in, which it is only called from.
 #   $1 what is wrong   $2 the remedy
 _git_signing_refusal() {
-    print_error "Commit signing is on in ~/.gitconfig, but $1."
+    print_error "Commit signing is on ${signing_on_in:-in ~/.gitconfig}, but $1."
     echo "  Every commit in the container would fail. $2" >&2
     return 1
 }
@@ -1600,6 +1603,10 @@ _signing_key_name() {
 # over the host's key and every account include, whose host paths the container cannot
 # read. Signing that is on with no key the container can use would fail every commit made
 # in it, so that refuses the launch. Signing that is off leaves the copy as it is.
+# Whether commits and tags are signed is read from the project's local config first, as git
+# in the container reads it, and from the copy where the project does not set it: a
+# repository that turns signing off makes no signed commits, so needs no key, and one that
+# turns it on needs one even when ~/.gitconfig does not.
 #   $1 the gitconfig copy   $2 the project directory
 #   $3 the primary SSH identity: a host key path, $SSH_AGENT_SENTINEL, or empty
 #   $4 where a key-file identity is mounted in the container
@@ -1607,12 +1614,34 @@ _signing_key_name() {
 configure_git_signing() {
     local gitconfig="$1" project="$2" primary="$3" in_container="$4" forwarded="$5"
     local name value rc format key signingkey label public="" signing=false
+    local in_repo=false probe signing_on_in="in ~/.gitconfig"
+
+    # A directory outside any repository has no local config. Any other failure is not that.
+    if probe=$(LC_ALL=C git -C "$project" rev-parse --git-dir 2>&1); then
+        in_repo=true
+    elif [[ "$probe" != *"not a git repository"* ]]; then
+        print_error "Could not tell whether $project is a git repository: $probe"
+        return 1
+    fi
 
     for name in commit.gpgsign tag.gpgsign; do
-        value=$(git config --file "$gitconfig" --type=bool --get "$name") && rc=0 || rc=$?
-        if [ "$rc" -gt 1 ]; then
-            print_error "Could not read $name from $gitconfig (git config exit $rc)"
-            return 1
+        rc=1
+        if [ "$in_repo" = true ]; then
+            value=$(git -C "$project" config --local --type=bool --get "$name" 2>&1) && rc=0 || rc=$?
+            if [ "$rc" -gt 1 ]; then
+                print_error "Could not read $name from the git config of $project (git config exit $rc): $value"
+                return 1
+            fi
+            if [ "$rc" -eq 0 ] && [ "$value" = "true" ]; then
+                signing_on_in="in this project's git config"
+            fi
+        fi
+        if [ "$rc" -eq 1 ]; then
+            value=$(git config --file "$gitconfig" --type=bool --get "$name") && rc=0 || rc=$?
+            if [ "$rc" -gt 1 ]; then
+                print_error "Could not read $name from $gitconfig (git config exit $rc)"
+                return 1
+            fi
         fi
         if [ "$value" = "true" ]; then
             signing=true

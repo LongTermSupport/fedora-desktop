@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.85.2 — container 2.45
+
+- **A checkout's own signing setting decides whether a signing key is needed.** ccy read
+  `commit.gpgsign` and `tag.gpgsign` only from `~/.gitconfig`, so a repository whose
+  local config turns signing off was refused a launch without an SSH identity ("every
+  commit would fail"), though git in it makes no signed commits. Each setting is now
+  taken from the project's local config when set there, else from `~/.gitconfig`; a
+  project that turns signing on needs a key even when `~/.gitconfig` does not. Gated by
+  `scripts/test-ccy-git-signing.bash`.
+
 ## 3.85.1 — container 2.45
 
 - **The informational options work from any directory.** `ccy --version` (`-v`),
