@@ -50,11 +50,13 @@ repository; opt-in per machine and per team.
 - [x] ✅ **Task 1.1**: Six research reports (`subagent-reports/261006-research-*.md`): ccy
   integration, rootless podman services, Python conventions, Tuwunel and the Matrix API,
   Element and terminal clients, waking sessions.
+
 - [x] ✅ **Task 1.2**: [`DESIGN.md`](DESIGN.md) and [`PROTOCOL.md`](PROTOCOL.md), reviewed
   through three lenses (security, feasibility, scope: 9 blockers between them) and revised
   ([revision](subagent-reports/261006-design-revision-opus-5-5.md)). Main changes: room
   roles that Matrix accepts, probes before building, and a host-to-host ping as the first
   milestone. Its control room was superseded by the owner's answers (Task 1.3).
+
 - [x] ✅ **Task 1.3**: OWNER: the questions in DESIGN.md "Owner questions", all answered
   (journal 26-10-06, two entries): teams are themed around a project and span repositories,
   hosts and encapsulations; an agent can be in several teams; docker, LXC and VM members are
@@ -63,6 +65,7 @@ repository; opt-in per machine and per team.
   installed on every desktop, used where the team's agents are. Reaching it needs only a
   routable address (a private network such as WireGuard is the access control). The event
   prefix must clearly not be a domain name.
+
 - [x] ✅ **Task 1.4**: DESIGN.md and PROTOCOL.md revised for those answers
   ([revision](subagent-reports/261006-design-revision-2-opus-5-5.md)), reviewed again
   through security, feasibility and scope, and every finding applied (none rejected). Main
@@ -71,12 +74,20 @@ repository; opt-in per machine and per team.
   addressed text reaches the named agent; the warden is gone; event prefix `agent_bus.`;
   wake through the session inbox socket. Units rebuilt as U00–U28; the wave-1 branches'
   code is reused, not merged.
+
 - [x] ✅ **Task 1.5**: OWNER, answered: (1) an agent may send free text to a human, which
   every agent ignores (not a drop: DESIGN.md D30), and pingbus refuses secret-shaped text; (2) a homeserver may
   listen on any address it is given, and v1 has no TLS (DESIGN.md §3.3 says what that
   costs); (3) Plan 00160 Task 3.3 is done (ccy 3.84.0). Folded into DESIGN.md.
 
-### Phase 2: Build, by milestone (units U00–U28 in DESIGN.md §12)
+- [x] ✅ **Task 1.6**: OWNER decisions 2026-10-07 folded into DESIGN.md (§5.5, §5.6, §12
+  "U20", D32–D39; [report](subagent-reports/261007-seats-design-opus.md)): one seat per ccy
+  session, seats numeric or role-named (`<repo>.dev+<host>.podman`); a checkout opted in
+  by IaC only (`agent_bus_ccy_checkouts`, `agent-bus-install seats`); U20 in this
+  repository's own checkout, several sessions at once. Five owner questions open (DESIGN.md
+  "Owner questions"), each with the answer the design assumes.
+
+### Phase 2: Build, by milestone (units U00–U32 in DESIGN.md §12)
 
 - [ ] 🔄 **M0 probes**: U00 (host, through `meta-deploy.bash`), U01 (a logged-in child
   `claude`). U00's `triage.bash` is built and in `meta-deploy.bash`; its H4 and H5 already ran
@@ -117,7 +128,15 @@ repository; opt-in per machine and per team.
   expansion, now off. Run of 26-10-07 (meta-deploy `20261007-142049`): `deploy.bash` and
   `acceptance.bash` PASS, M1.1 (review, wait, ack), M1.2 (a human message reaches only the
   member it mentions) and M1.3 (TIMEOUT for the unanswered review only) all PASS.
-- [ ] 🔄 **M2 ccy members, the idle session woken**: U12, U18–U20. U12 built:
+- [ ] 🔄 **M2 ccy members, the idle session woken**: U12, U18–U20, U29–U32. Seats
+  revision (Task 1.6), designed, not built: **U29** seat handles and registry v2
+  (`add-member --seat`); **U30** the seat claim (`pingbus seat exec`, `seat list`), `SEAT`
+  lines in `status`, the seat at SessionStart; **U31** ccy `--seat`, `--no-bus`, the
+  `ccy-seat` label, headless Quick Launch, the entrypoint's seats block; **U32** the IaC,
+  `agent-bus-install seats` called by `play-agent-bus.yml` from `agent_bus_ccy_checkouts`.
+  **U20 is to be reworked** to run in this checkout on three seats provisioned and removed
+  by the play (DESIGN.md §12 "U20"); its throwaway-checkout build below is superseded and
+  its host run waits for U29–U32. U12 built:
   `hooks.py` (the four hooks, offline; the Stop guard), `notify.py` (the inbox socket
   client), `cli.py` `watch`, `hook`, `inbox`, `status`, and the room view (`room.json`)
   the syncer keeps for `status`; `wait` and `watch` publish `listening`. U18 built:
@@ -172,8 +191,9 @@ repository; opt-in per machine and per team.
 
 ## Success Criteria
 
-- [ ] Two ccy sessions in different projects exchange a `review` ping and an `ack`; the
-  idle one is woken.
+- [ ] Several ccy sessions in one checkout, each on its own seat provisioned by the play,
+  exchange a `review` ping and an `ack`; the idle one is woken (reworded for the owner's
+  2026-10-07 decisions: DESIGN.md D34, owner question 4).
 - [ ] A human's message addressed to one agent in Element reaches that agent, marked as
   from that human; no other agent's `pingbus` delivers it, and no agent's free text
   reaches another agent.
