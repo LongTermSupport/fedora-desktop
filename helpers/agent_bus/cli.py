@@ -88,10 +88,21 @@ def cmd_add_member(args: argparse.Namespace, team: admin.Team, transport: admin.
         host = registry.resolve_host(args.host, None)
     except registry.HandleError as exc:
         raise UsageError(str(exc)) from None
+    if args.seat is not None and not protocol.is_seat_name(args.seat):
+        raise UsageError(f"--seat {args.seat!r} must match {protocol.HANDLE_SEAT_PATTERN}")
     bundle = admin.add_member(team, transport, repo=args.repo, host=host, type_=args.type,
-                              role=args.role, address=args.address, human_text=args.human_text)
+                              role=args.role, address=args.address, human_text=args.human_text,
+                              seat=args.seat)
     io.tar(bundle.tar)
-    io.say(f"added {bundle.handle} to team {team.name} as {args.role}")
+    if bundle.returned:
+        io.say(f"returned {bundle.handle} to team {team.name} as {bundle.role}, with a new token")
+    else:
+        io.say(f"added {bundle.handle} to team {team.name} as {bundle.role}")
+    return EXIT_OK
+
+
+def cmd_park_member(args: argparse.Namespace, team: admin.Team, transport: admin.Transport, io: _Io) -> int:
+    io.lines(_changed(admin.park_member(team, transport, args.handle)))
     return EXIT_OK
 
 
@@ -203,13 +214,17 @@ def build_parser(stdout: BinaryIO) -> argparse.ArgumentParser:
     team_command("bootstrap", cmd_bootstrap, "create or update the team's accounts and room")
     add = team_command("add-member", cmd_add_member, "add an agent; its bundle goes to --out")
     add.add_argument("--repo", required=True)
+    add.add_argument("--seat", help="the handle's seat (a number or a name); a parked one returns")
     add.add_argument("--host", required=True, help="the member install's role")
     add.add_argument("--type", required=True, choices=registry.TYPES)
     add.add_argument("--role", required=True, choices=registry.ROLES)
     add.add_argument("--address", required=True, help="the homeserver address the member uses")
     add.add_argument("--no-human-text", dest="human_text", action="store_false",
                      help="the member accepts pings only")
-    remove = team_command("remove-member", cmd_remove_member, "remove an agent")
+    park = team_command("park-member", cmd_park_member,
+                        "revoke an agent's token, keeping its account, role and room; add-member --seat returns it")
+    park.add_argument("handle", metavar="HANDLE")
+    remove = team_command("remove-member", cmd_remove_member, "remove an agent for good")
     remove.add_argument("handle", metavar="HANDLE")
     role = team_command("set-role", cmd_set_role, "change an agent's role")
     role.add_argument("handle", metavar="HANDLE")

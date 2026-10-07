@@ -160,9 +160,10 @@ repository; opt-in per machine and per team.
   `acceptance.bash` PASS, M1.1 (review, wait, ack), M1.2 (a human message reaches only the
   member it mentions) and M1.3 (TIMEOUT for the unanswered review only) all PASS.
 - [ ] 🔄 **M2 ccy members, the idle session woken**: U12, U18–U20, U29–U33. Seats
-  (Tasks 1.6–1.10), designed, not built: **U29** seat handles, registry v2, park and
-  return (`add-member --seat`, `park-member`), `local` named in the protocol's handle
-  rules; **U30** the `<seat>@<team>` list parser, the claim of every listed seat
+  (Tasks 1.6–1.10), designed; **U29 built** (seat handles in `protocol.py`, registry v2,
+  `add-member --seat` with park and return, `park-member`, `local` named in the
+  protocol's handle rules; D51; no host run of its own, exercised by U20); the rest not
+  built: **U30** the `<seat>@<team>` list parser, the claim of every listed seat
   (`pingbus seat exec`, a lock per seat, the session home of links), `SEAT` lines in
   `status`, the seats at SessionStart; **U31** ccy `--teams <seat>@<team>[,…]` (malformed
   lists and a second seat of one team refused, 64); the launcher creates any missing seat

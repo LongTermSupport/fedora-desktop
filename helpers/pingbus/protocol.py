@@ -52,18 +52,21 @@ STATUS_LISTENING = "listening"
 
 RESERVED_LOCALPARTS = ("admin", "conduit")
 
-#: Between `<n>` and `<host>` in a handle. Probe H4 decides whether it stays `+`.
+#: Between `<seat>` and `<host>` in a handle. Probe H4 decides whether it stays `+`.
 HANDLE_SEP = "+"
 HANDLE_TYPES = ("podman", "lxc", "docker", "vm", "host")
-#: The handle's `<repo>` and `<host>` parts; the registry's seat key is built from them.
+#: The handle's `<repo>` and `<host>` parts; the registry's counter prefix is built from them.
 HANDLE_REPO_PATTERN = r"[a-z0-9][a-z0-9_-]{0,47}"
 HANDLE_HOST_PATTERN = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+#: A seat is a number (the registry's counter issues these) or a name; never `-`, `_`,
+#: `.` or `@`, which separate it from its neighbours in a handle and from its team.
+HANDLE_SEAT_PATTERN = r"[1-9][0-9]{0,5}|[a-z][a-z0-9]{0,11}"
 
 
 def handle_pattern(sep: str) -> str:
     """The agent-handle pattern with `sep` as the separator."""
     return (
-        rf"(?P<repo>{HANDLE_REPO_PATTERN})\.(?P<n>[1-9][0-9]{{0,5}})"
+        rf"(?P<repo>{HANDLE_REPO_PATTERN})\.(?P<seat>{HANDLE_SEAT_PATTERN})"
         rf"{re.escape(sep)}(?P<host>{HANDLE_HOST_PATTERN})"
         rf"\.(?P<type>{'|'.join(HANDLE_TYPES)})"
     )
@@ -184,6 +187,7 @@ VERBS: dict[str, VerbRule] = {
 VERBS_TO_HUMANS = frozenset({"ack", "nack", "done", "blocked"})
 
 _HANDLE_RE = re.compile(HANDLE_PATTERN)
+_SEAT_RE = re.compile(HANDLE_SEAT_PATTERN)
 _TEAM_RE = re.compile(TEAM_NAME_PATTERN)
 _HUMAN_RE = re.compile(HUMAN_LOCALPART_PATTERN)
 _ROOM_ID_RE = re.compile(ROOM_ID_PATTERN)
@@ -221,9 +225,14 @@ class Untrusted(ValueError):
 @dataclasses.dataclass(frozen=True)
 class Handle:
     repo: str
-    n: int
+    seat: str
     host: str
     type: str
+
+    @property
+    def n(self) -> int | None:
+        """The seat's number when it is a numbered seat, else None."""
+        return int(self.seat) if self.seat.isdigit() else None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -318,11 +327,16 @@ def parse_handle(value: object) -> Handle | None:
     m = _full(_HANDLE_RE, value)
     if m is None:
         return None
-    return Handle(m["repo"], int(m["n"]), m["host"], m["type"])
+    return Handle(m["repo"], m["seat"], m["host"], m["type"])
 
 
-def format_handle(repo: str, n: int, host: str, type_: str) -> str:
-    return f"{repo}.{n}{HANDLE_SEP}{host}.{type_}"
+def format_handle(repo: str, seat: str | int, host: str, type_: str) -> str:
+    """`<repo>.<seat>+<host>.<type>`; a counter-issued number is a numbered seat."""
+    return f"{repo}.{seat}{HANDLE_SEP}{host}.{type_}"
+
+
+def is_seat_name(value: object) -> bool:
+    return _full(_SEAT_RE, value) is not None
 
 
 def is_team_name(value: object) -> bool:

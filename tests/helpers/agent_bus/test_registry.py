@@ -5,8 +5,9 @@ Run from the repo root:
     python3 -m unittest tests.helpers.agent_bus.test_registry
 
 `registry.json` (`/var/lib/agent-bus/<team>/registry.json`) holds each member handle
-with its role and the counter of every `<repo>+<host>.<type>` seat, so a handle's
-`<n>` is never reused (docs/agent-bus-protocol.md §3, Plan 00161's DESIGN.md section 3.4).
+with its role, the parked handles, and the counter of every `<repo>+<host>.<type>`
+prefix, so a counter-issued seat number is never reused (docs/agent-bus-protocol.md §3,
+Plan 00161's DESIGN.md sections 3.4 and 5.5).
 """
 
 from __future__ import annotations
@@ -86,6 +87,10 @@ class BuildHandleTest(unittest.TestCase):
     def test_build(self) -> None:
         self.assertEqual(registry.build_handle("myrepo", 3, "workstation", "podman"), "myrepo.3+workstation.podman")
 
+    def test_build_with_a_seat(self) -> None:
+        self.assertEqual(registry.build_handle("myrepo", "dev1", "local", "podman"), "myrepo.dev1+local.podman")
+        self.assertEqual(registry.build_handle("myrepo", "4", "local", "podman"), "myrepo.4+local.podman")
+
     def test_build_refuses_bad_parts(self) -> None:
         for args in (
             ("MyRepo", 1, "ws", "podman"),
@@ -94,6 +99,14 @@ class BuildHandleTest(unittest.TestCase):
             ("myrepo", 1, "ws", "kvm"),
             ("myrepo", 1, "Ws", "podman"),
             ("myrepo", True, "ws", "podman"),
+            ("myrepo", "0", "ws", "podman"),
+            ("myrepo", "01", "ws", "podman"),
+            ("myrepo", "dev-1", "ws", "podman"),
+            ("myrepo", "dev_1", "ws", "podman"),
+            ("myrepo", "dev.1", "ws", "podman"),
+            ("myrepo", "Dev", "ws", "podman"),
+            ("myrepo", "", "ws", "podman"),
+            ("myrepo", None, "ws", "podman"),
         ):
             with self.subTest(args), self.assertRaises(registry.HandleError):
                 registry.build_handle(*args)
@@ -110,16 +123,77 @@ class BuildHandleTest(unittest.TestCase):
             parsed = protocol.parse_handle(handle)
             self.assertEqual((parsed.repo, parsed.n, parsed.host, parsed.type), ("a_b", 999_999, "h-1", type_))
 
-    def test_seat_of_handle(self) -> None:
-        self.assertEqual(registry.seat_of("myrepo.12+ws.lxc"), "myrepo+ws.lxc")
+    def test_prefix_of_handle(self) -> None:
+        # The counter key: "seat" now means only `<seat>` (DESIGN.md section 5.5).
+        self.assertEqual(registry.prefix_of("myrepo.12+ws.lxc"), "myrepo+ws.lxc")
+        self.assertEqual(registry.prefix_of("myrepo.dev+local.podman"), "myrepo+local.podman")
         with self.assertRaises(registry.HandleError):
-            registry.seat_of("alice")
+            registry.prefix_of("alice")
+        self.assertFalse(hasattr(registry, "seat_of"))
+        self.assertFalse(hasattr(registry, "SEAT_PATTERN"))
 
 
 class RegistryLogicTest(unittest.TestCase):
     def test_empty(self) -> None:
         reg = registry.Registry.empty("alpha")
-        self.assertEqual((reg.team, dict(reg.counters), dict(reg.members)), ("alpha", {}, {}))
+        self.assertEqual((reg.team, dict(reg.counters), dict(reg.members), reg.parked),
+                         ("alpha", {}, {}, frozenset()))
+
+    def test_add_member_with_a_named_seat(self) -> None:
+        reg, handle = registry.Registry.empty("alpha").add_member("myrepo", "local", "podman", "worker", seat="dev1")
+        self.assertEqual(handle, "myrepo.dev1+local.podman")
+        self.assertEqual(dict(reg.members), {handle: "worker"})
+        self.assertEqual(dict(reg.counters), {})
+
+    def test_counter_skips_a_number_issued_with_seat(self) -> None:
+        reg = registry.Registry.empty("alpha")
+        reg, h1 = reg.add_member("myrepo", "ws", "podman", "worker")
+        reg, h3 = reg.add_member("myrepo", "ws", "podman", "worker", seat="3")
+        reg, h4 = reg.add_member("myrepo", "ws", "podman", "worker")
+        self.assertEqual((h1, h3, h4), ("myrepo.1+ws.podman", "myrepo.3+ws.podman", "myrepo.4+ws.podman"))
+        self.assertEqual(dict(reg.counters), {"myrepo+ws.podman": 4})
+        # A number below the counter, never issued, may still be named; the counter stays.
+        reg, h2 = reg.add_member("myrepo", "ws", "podman", "worker", seat="2")
+        self.assertEqual(h2, "myrepo.2+ws.podman")
+        self.assertEqual(dict(reg.counters), {"myrepo+ws.podman": 4})
+
+    def test_add_member_refuses_a_current_or_parked_handle(self) -> None:
+        reg, handle = registry.Registry.empty("alpha").add_member("myrepo", "local", "podman", "worker", seat="dev")
+        with self.assertRaisesRegex(registry.RegistryError, "current member"):
+            reg.add_member("myrepo", "local", "podman", "worker", seat="dev")
+        parked = reg.park(handle)
+        with self.assertRaisesRegex(registry.RegistryError, "parked"):
+            parked.add_member("myrepo", "local", "podman", "worker", seat="dev")
+
+    def test_add_member_refuses_a_bad_seat(self) -> None:
+        for seat in ("dev-1", "0", "Dev", ""):
+            with self.subTest(seat), self.assertRaises(registry.HandleError):
+                registry.Registry.empty("alpha").add_member("myrepo", "local", "podman", "worker", seat=seat)
+
+    def test_park_then_return(self) -> None:
+        reg, handle = registry.Registry.empty("alpha").add_member("myrepo", "local", "podman", "worker", seat="dev")
+        reg = reg.set_role(handle, "orchestrator")
+        parked = reg.park(handle)
+        self.assertEqual(parked.parked, frozenset({handle}))
+        self.assertEqual(dict(parked.members), {handle: "orchestrator"})
+        self.assertTrue(parked.is_parked(handle))
+        returned = parked.unpark(handle)
+        self.assertEqual(returned.parked, frozenset())
+        self.assertEqual(dict(returned.members), {handle: "orchestrator"})
+        self.assertEqual(returned, reg)
+
+    def test_park_and_unpark_refusals(self) -> None:
+        reg, handle = registry.Registry.empty("alpha").add_member("myrepo", "local", "podman", "worker", seat="dev")
+        with self.assertRaises(registry.RegistryError):
+            reg.park("myrepo.qa+local.podman")
+        with self.assertRaises(registry.RegistryError):
+            reg.unpark(handle)
+        self.assertEqual(reg.park(handle).park(handle), reg.park(handle))
+
+    def test_remove_a_parked_member(self) -> None:
+        reg, handle = registry.Registry.empty("alpha").add_member("myrepo", "local", "podman", "worker", seat="dev")
+        removed = reg.park(handle).remove_member(handle)
+        self.assertEqual((dict(removed.members), removed.parked), ({}, frozenset()))
 
     def test_add_member_numbers_per_seat(self) -> None:
         reg = registry.Registry.empty("alpha")
@@ -167,6 +241,13 @@ class RegistryLogicTest(unittest.TestCase):
 
 class ParseRegistryTest(unittest.TestCase):
     GOOD = {
+        "v": 2,
+        "team": "alpha",
+        "counters": {"myrepo+ws.podman": 2},
+        "members": {"myrepo.2+ws.podman": "worker", "myrepo.dev+local.podman": "orchestrator"},
+        "parked": ["myrepo.dev+local.podman"],
+    }
+    V1 = {
         "v": 1,
         "team": "alpha",
         "counters": {"myrepo+ws.podman": 2},
@@ -180,15 +261,34 @@ class ParseRegistryTest(unittest.TestCase):
 
     def test_good(self) -> None:
         reg = registry.parse_registry(self.GOOD)
+        self.assertEqual(dict(reg.members), {"myrepo.2+ws.podman": "worker", "myrepo.dev+local.podman": "orchestrator"})
+        self.assertEqual(reg.parked, frozenset({"myrepo.dev+local.podman"}))
+        self.assertEqual(reg.as_dict(), self.GOOD)
+
+    def test_v1_loads_as_v2_with_nothing_parked(self) -> None:
+        reg = registry.parse_registry(self.V1)
         self.assertEqual(dict(reg.members), {"myrepo.2+ws.podman": "worker"})
+        self.assertEqual(reg.parked, frozenset())
+        self.assertEqual(reg.as_dict(), {**self.V1, "v": 2, "parked": []})
+
+    def test_v1_refusals(self) -> None:
+        for name, data in {"v1 with parked": {**self.V1, "parked": []},
+                           "v1 missing members": {k: v for k, v in self.V1.items() if k != "members"}}.items():
+            with self.subTest(name), self.assertRaises(registry.RegistryError):
+                registry.parse_registry(data)
 
     def test_refusals(self) -> None:
         cases = {
             "not an object": [],
             "unknown key": self._bad(extra=1),
             "missing members": {k: v for k, v in self.GOOD.items() if k != "members"},
-            "version": self._bad(v=2),
+            "missing parked": {k: v for k, v in self.GOOD.items() if k != "parked"},
+            "version": self._bad(v=3),
             "version bool": self._bad(v=True),
+            "parked not a list": self._bad(parked={}),
+            "parked not a member": self._bad(parked=["myrepo.qa+local.podman"]),
+            "parked twice": self._bad(parked=["myrepo.dev+local.podman", "myrepo.dev+local.podman"]),
+            "parked not a handle": self._bad(parked=[7]),
             "team": self._bad(team="Alpha"),
             "counter key": self._bad(counters={"myrepo.ws.podman": 2}),
             "counter zero": self._bad(counters={"myrepo+ws.podman": 0}),
@@ -212,9 +312,16 @@ class LoadSaveTest(unittest.TestCase):
     def test_missing_file_gives_empty_registry(self) -> None:
         self.assertEqual(registry.load_registry(self.path, "alpha"), registry.Registry.empty("alpha"))
 
+    def test_v1_file_loads(self) -> None:
+        self.path.write_text(json.dumps(ParseRegistryTest.V1), encoding="utf-8")
+        reg = registry.load_registry(self.path, "alpha")
+        self.assertEqual((dict(reg.members), reg.parked), ({"myrepo.2+ws.podman": "worker"}, frozenset()))
+
     def test_round_trip(self) -> None:
         reg, _ = registry.Registry.empty("alpha").add_member("myrepo", "ws", "podman", "worker")
         reg, _ = reg.add_member("other", "ws", "host", "orchestrator")
+        reg, dev = reg.add_member("myrepo", "local", "podman", "worker", seat="dev")
+        reg = reg.park(dev)
         registry.save_registry(self.path, reg)
         loaded = registry.load_registry(self.path, "alpha")
         self.assertEqual(loaded, reg)

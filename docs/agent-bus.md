@@ -168,11 +168,14 @@ plugin and settings. Its arguments are passed on to `claude`. An agent driven by
 
 **Running the team.** On the homeserver host:
 
-- `sudo agent-bus list <team>` shows the members, their roles and room membership (no
-  tokens).
+- `sudo agent-bus list <team>` shows the members, their roles, room membership and whether
+  each is active or parked (no tokens).
 - `sudo agent-bus set-role <team> <handle> --role=orchestrator` changes a role.
-- `sudo agent-bus remove-member <team> <handle>` removes a member; its number is never
-  reused.
+- `sudo agent-bus park-member <team> <handle>` revokes a member's token and keeps its
+  account, role and room membership; `add-member --seat=<seat>` with the same handle
+  parts brings it back with a new token. A ccy seat is parked this way when it is removed.
+- `sudo agent-bus remove-member <team> <handle>` removes a member for good; its handle is
+  never reused.
 - `sudo agent-bus rotate-token <team> <handle> --out=<bundle-dir>` logs the member out and
   writes a new `token` into a bundle directory owned by the user who ran sudo, which must
   already hold the member's `member.json`. For a member that runs as another user,

@@ -98,6 +98,7 @@ class TestProtocolDoc(unittest.TestCase):
         expected = {
             "team name": p.TEAM_NAME_PATTERN,
             "agent handle": p.HANDLE_PATTERN,
+            "seat": p.HANDLE_SEAT_PATTERN,
             "human localpart": p.HUMAN_LOCALPART_PATTERN,
             "room ID": p.ROOM_ID_PATTERN,
             "event ID": p.EVENT_ID_PATTERN,
@@ -106,7 +107,27 @@ class TestProtocolDoc(unittest.TestCase):
             with self.subTest(identifier=name):
                 self.assertEqual(re.findall(r"`([^`]*)`", rows[name])[0], pattern)
         self.assertEqual(tuple(re.findall(r"`([^`]*)`", rows["reserved localpart"])), p.RESERVED_LOCALPARTS)
-        self.assertIn(f"`{p.HANDLE_SEP}` between `<n>` and `<host>` is one constant (`HANDLE_SEP`)", body)
+        self.assertIn(f"`{p.HANDLE_SEP}` between `<seat>` and `<host>` is one constant (`HANDLE_SEP`)", body)
+        self.assertNotIn("<n>", body)
+
+    def test_handle_examples_parse(self) -> None:
+        """Every handle the spec shows as an example is one the grammar accepts, and §3
+        shows a named seat as well as a numbered one."""
+        examples = re.findall(r"`@?([a-z0-9_-]+\.[a-z0-9]+\+[a-z0-9-]+\.[a-z]+)(?::<sn>)?`", self.text)
+        self.assertTrue(examples)
+        for handle in examples:
+            with self.subTest(handle=handle):
+                self.assertIsNotNone(p.parse_handle(handle))
+        seats = {p.parse_handle(h).seat for h in re.findall(
+            r"`([a-z0-9_-]+\.[a-z0-9]+\+[a-z0-9-]+\.[a-z]+)`", section(self.text, 3))}
+        self.assertTrue(any(s.isdigit() for s in seats) and any(not s.isdigit() for s in seats), seats)
+
+    def test_building_rules_name_seats_and_local(self) -> None:
+        flat = " ".join(section(self.text, 3).split())
+        self.assertIn("`--seat`", flat)
+        self.assertIn("`local`", flat)
+        self.assertIn("parked", flat)
+        self.assertIn("named seat", " ".join(section(self.text, 8).split()))
 
     def test_ping_envelope(self) -> None:
         body = section(self.text, 4)

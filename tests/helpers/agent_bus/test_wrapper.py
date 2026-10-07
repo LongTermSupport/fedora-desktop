@@ -203,6 +203,22 @@ class WrapperTest(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertEqual(run.stdout, "list\nteam-a\n")
 
+    def test_park_member_passes_through_and_places_nothing(self) -> None:
+        run = self.run_wrapper("park-member", "team-a", "myrepo.dev+local.podman",
+                               stub='run_admin_tool() { printf "%s\\n" "$@"; }')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(run.stdout, "park-member\nteam-a\nmyrepo.dev+local.podman\n")
+
+    def test_add_member_passes_the_seat_to_the_tool(self) -> None:
+        run = self.run_wrapper("add-member", "team-a", "--seat=dev", f"--out={self.out}")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.tool_args(), ["add-member", "team-a", "--seat=dev"])
+
+    def test_usage_lines_name_the_seat_commands(self) -> None:
+        usage = [line for line in WRAPPER.read_text().splitlines() if line.startswith("#   sudo agent-bus ")]
+        self.assertTrue(any("add-member TEAM" in line and "[--seat=S]" in line for line in usage), usage)
+        self.assertIn("#   sudo agent-bus park-member TEAM HANDLE", usage)
+
     def test_refuses_without_root(self) -> None:
         script = 'source "$1"; shift; main "$@"'
         wrapper, drop = WRAPPER, []

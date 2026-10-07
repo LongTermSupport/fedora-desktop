@@ -487,8 +487,133 @@ class MemberCommandsTest(AdminTestCase):
         lines = admin.list_members(self.ctx(), self.transport)
         self.assertEqual(lines, [
             "HUMAN\talice\tinvite",
-            f"MEMBER\t{self.handle}\tworker\tinvite",
+            f"MEMBER\t{self.handle}\tworker\tinvite\tactive",
         ])
+
+    def test_rotate_refuses_a_parked_member(self) -> None:
+        admin.park_member(self.ctx(), self.transport, self.handle)
+        with self.assertRaisesRegex(admin.AdminError, "parked"):
+            admin.rotate_token(self.ctx(), self.transport, self.handle)
+
+
+class SeatTest(AdminTestCase):
+    """`add-member --seat` and `park-member` (DESIGN.md section 5.5, "Reuse")."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.bootstrap()
+        self.handle = "myrepo.dev+local.podman"
+        self.user_id = f"@{self.handle}:{SN}"
+
+    def seat(self, seat: str = "dev", **kwargs: object) -> admin.Bundle:
+        args = {"repo": "myrepo", "host": "local", "type_": "podman", "role": "worker",
+                "address": "192.0.2.10", "human_text": True, "seat": seat}
+        args.update(kwargs)
+        return admin.add_member(self.ctx(), self.transport, **args)
+
+    def token(self, bundle: admin.Bundle) -> str:
+        return read_member(tarfile.open(fileobj=io.BytesIO(bundle.tar)), "token").decode()
+
+    def registry(self) -> registry.Registry:
+        return registry.load_registry(self.team_dir / "registry.json", "team-a")
+
+    def record(self) -> protocol.TeamRecord:
+        _, record_event = self.state(protocol.EVENT_TEAM, event=True)
+        return protocol.parse_team_event(record_event, ADMIN_ID, SN, "team-a")
+
+    def account_creations(self) -> list:
+        return [c for c in self.transport.calls if c[0] == "PUT" and "password" in (c[3] or {})
+                and "logout_devices" not in c[3]]
+
+    def test_seat_builds_the_handle(self) -> None:
+        bundle = self.seat("dev1")
+        self.assertEqual((bundle.handle, bundle.role, bundle.returned), ("myrepo.dev1+local.podman", "worker", False))
+        member = json.loads(read_member(tarfile.open(fileobj=io.BytesIO(bundle.tar)), "member.json"))
+        self.assertEqual(member["user_id"], f"@myrepo.dev1+local.podman:{SN}")
+        self.assertEqual(self.whoami(self.token(bundle))[1]["user_id"], member["user_id"])
+        self.assertEqual(dict(self.registry().counters), {})
+        self.assertEqual(self.record().roles, {member["user_id"]: "worker"})
+
+    def test_a_numbered_seat_moves_the_counter(self) -> None:
+        self.assertEqual(self.seat("3", host="workstation").handle, "myrepo.3+workstation.podman")
+        member = json.loads(read_member(self.add_member(), "member.json"))
+        self.assertEqual(member["user_id"], f"@myrepo.4+workstation.podman:{SN}")
+
+    def test_park_revokes_the_token_and_keeps_role_and_room(self) -> None:
+        bundle = self.seat()
+        admin.set_role(self.ctx(), self.transport, self.handle, "orchestrator")
+        changes = admin.park_member(self.ctx(), self.transport, self.handle)
+        self.assertIn(f"parked {self.handle}", changes)
+        self.assertEqual(self.whoami(self.token(bundle))[0], 401)
+        self.assertEqual(self.registry().parked, frozenset({self.handle}))
+        self.assertEqual(self.record().roles, {self.user_id: "orchestrator"})
+        self.assertEqual(self.membership(self.user_id), "invite")
+        self.assertEqual(self.transport.kicked, [])
+        self.assertEqual(self.transport.deactivated, set())
+        self.assertNotIn(self.fake.users[self.user_id].password, self.team_files_text())
+        lines = admin.list_members(self.ctx(), self.transport)
+        self.assertIn(f"MEMBER\t{self.handle}\torchestrator\tinvite\tparked", lines)
+        # Parking again revokes again and changes nothing in the registry.
+        self.assertNotIn(f"parked {self.handle}", admin.park_member(self.ctx(), self.transport, self.handle))
+
+    def test_parked_seat_returns_with_the_same_account_and_role_and_a_new_token(self) -> None:
+        old = self.token(self.seat())
+        admin.set_role(self.ctx(), self.transport, self.handle, "orchestrator")
+        admin.park_member(self.ctx(), self.transport, self.handle)
+        creations = len(self.account_creations())
+        bundle = self.seat(role="worker")
+        self.assertEqual((bundle.handle, bundle.role, bundle.returned), (self.handle, "orchestrator", True))
+        new = self.token(bundle)
+        self.assertNotEqual(new, old)
+        self.assertEqual(self.whoami(new)[1]["user_id"], self.user_id)
+        self.assertEqual(self.whoami(old)[0], 401)
+        self.assertEqual(len(self.account_creations()), creations)
+        self.assertEqual(self.registry().parked, frozenset())
+        self.assertEqual(dict(self.registry().members), {self.handle: "orchestrator"})
+        self.assertEqual(self.record().roles, {self.user_id: "orchestrator"})
+        self.assertEqual(self.membership(self.user_id), "invite")
+        self.assertNotIn(new, self.team_files_text())
+
+    def test_a_current_unparked_seat_is_refused_and_no_account_is_created(self) -> None:
+        token = self.token(self.seat())
+        calls = len(self.transport.calls)
+        with self.assertRaisesRegex(admin.AdminError, "current member"):
+            self.seat()
+        self.assertEqual([c for c in self.transport.calls[calls:] if c[0] != "GET"], [])
+        self.assertEqual(self.whoami(token)[1]["user_id"], self.user_id)
+
+    def test_a_deactivated_seat_is_refused_and_no_account_is_created(self) -> None:
+        self.seat()
+        admin.remove_member(self.ctx(), self.transport, self.handle)
+        creations = len(self.account_creations())
+        with self.assertRaisesRegex(admin.AdminError, "already has an account"):
+            self.seat()
+        self.assertEqual(len(self.account_creations()), creations)
+        self.assertEqual(dict(self.registry().members), {})
+
+    def test_a_returning_seat_with_a_deactivated_account_is_refused_and_stays_parked(self) -> None:
+        self.seat()
+        admin.park_member(self.ctx(), self.transport, self.handle)
+        self.transport.deactivated.add(self.user_id)
+        with self.assertRaisesRegex(admin.AdminError, "no active account"):
+            self.seat()
+        self.assertEqual(self.registry().parked, frozenset({self.handle}))
+
+    def test_a_failed_mint_on_return_leaves_the_seat_parked(self) -> None:
+        self.seat()
+        admin.park_member(self.ctx(), self.transport, self.handle)
+        self.fake.inject("POST", r"/_synapse/admin/v1/users/.*/login", 500, {"errcode": "M_UNKNOWN", "error": "boom"})
+        with self.assertRaises(admin.AdminError):
+            self.seat()
+        self.assertEqual(self.registry().parked, frozenset({self.handle}))
+
+    def test_park_refusals(self) -> None:
+        with self.assertRaisesRegex(admin.AdminError, "not a member"):
+            admin.park_member(self.ctx(), self.transport, self.handle)
+        self.seat()
+        admin.remove_member(self.ctx(), self.transport, self.handle)
+        with self.assertRaises(admin.AdminError):
+            admin.park_member(self.ctx(), self.transport, self.handle)
 
 
 class HumanCommandsTest(AdminTestCase):
