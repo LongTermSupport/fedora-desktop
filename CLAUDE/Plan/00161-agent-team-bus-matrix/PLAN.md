@@ -144,6 +144,15 @@ repository; opt-in per machine and per team.
   per-encapsulation READMEs, `test_member_docs.py`) built, reviewed and fixed; its podman
   README was checked against U19's entrypoint as built: it matches, the address included
   (settled by H1's dummy leg, M2). No host run of its own.
+  U23 built, host run pending: `acceptance.bash` slice (`_acceptance-u23.inc.bash`), after
+  M1 in the same acceptance team. A throwaway LXC container (Fedora from the download
+  template) and a throwaway docker container (a digest-pinned python image) each join by
+  their README's steps (the kit, `suggest-handle`, `add-member`, the bundle, `config check`),
+  their bridge networks added to `allow_from` as found at run time, and exchange a review and
+  an ack with M1's member a. The VM member is a libvirt guest the owner names
+  (`--vm-ssh=` or `agent_bus_acceptance_vm` in the untracked host_vars); without LXC,
+  rootful Docker or that guest, the leg reports SKIPPED-NEEDS-OWNER and the run exits 3,
+  NOT ACCEPTED, naming what the owner must provide.
 - [ ] 🔄 **M4 Element, deploy and acceptance (privacy checks P1–P8)**: U25–U28 (U26, TLS,
   only if probe H7 needs it). Wave 7: U25 (`element.py`, `play-agent-bus-element.yml`,
   `agent_bus_element_teams` in `localhost.yml.dist`) built, reviewed and fixed. Its host

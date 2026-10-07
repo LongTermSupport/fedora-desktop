@@ -235,6 +235,124 @@ class SendOutcomeTest(unittest.TestCase):
                 self.assertEqual(ac.send_outcome(code, err), 1)
 
 
+#: `ip -j -4 addr show` as the host prints it (trimmed to the keys read): loopback, an uplink,
+#: the bus address on its dummy, and two bridges. Example ranges only (CLAUDE/ExampleValues.md).
+IP_ADDR = [
+    {"ifname": "lo", "addr_info": [{"family": "inet", "local": "127.0.0.1", "prefixlen": 8}]},
+    {"ifname": "uplink0", "addr_info": [{"family": "inet", "local": "192.0.2.10", "prefixlen": 24}]},
+    {"ifname": "agentbus0", "addr_info": [{"family": "inet", "local": "203.0.113.9", "prefixlen": 32}]},
+    {"ifname": "bridge0", "addr_info": [{"family": "inet", "local": "198.51.100.1", "prefixlen": 25}]},
+    {"ifname": "bridge1", "addr_info": [{"family": "inet", "local": "198.51.100.129", "prefixlen": 26}]},
+    {"ifname": "down0", "addr_info": []},
+]
+
+
+class U23HostSubnetTest(unittest.TestCase):
+    def test_the_interface_whose_network_holds_the_source_is_named_with_that_network(self) -> None:
+        self.assertEqual(ac.host_subnet(IP_ADDR, "198.51.100.77"), ("bridge0", "198.51.100.0/25"))
+        self.assertEqual(ac.host_subnet(IP_ADDR, "198.51.100.130"), ("bridge1", "198.51.100.128/26"))
+
+    def test_a_source_that_is_a_host_address_names_its_own_interface(self) -> None:
+        # A guest whose traffic leaves from the host's own address (passt) is not routed
+        # through a bridge; the caller refuses it once it sees the interface.
+        self.assertEqual(ac.host_subnet(IP_ADDR, "203.0.113.9"), ("agentbus0", "203.0.113.9/32"))
+
+    def test_a_source_on_no_host_network_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            ac.host_subnet(IP_ADDR, "198.51.100.200")
+
+    def test_a_source_on_two_host_networks_is_refused(self) -> None:
+        twice = [*IP_ADDR, {"ifname": "bridge2",
+                            "addr_info": [{"family": "inet", "local": "198.51.100.2", "prefixlen": 24}]}]
+        with self.assertRaises(ValueError):
+            ac.host_subnet(twice, "198.51.100.77")
+
+    def test_a_malformed_source_or_listing_is_refused(self) -> None:
+        for addrs, src in ((IP_ADDR, "not-an-ip"), (IP_ADDR, "2001:db8::1"), ({}, "198.51.100.77"),
+                           ([{"ifname": "x"}], "198.51.100.77")):
+            with self.subTest(src=src, addrs=addrs), self.assertRaises(ValueError):
+                ac.host_subnet(addrs, src)
+
+    def test_the_command_reads_the_listing_on_stdin_and_prints_name_tab_network(self) -> None:
+        status, out, _ = run_main("host-subnet", "198.51.100.77", stdin=json.dumps(IP_ADDR))
+        self.assertEqual((status, out), (0, "bridge0\t198.51.100.0/25\n"))
+        status, out, err = run_main("host-subnet", "198.51.100.200", stdin=json.dumps(IP_ADDR))
+        self.assertEqual((status, out), (1, ""))
+        self.assertIn("198.51.100.200", err)
+
+
+class U23AllowFromTest(unittest.TestCase):
+    def team(self) -> dict:
+        return ac.team_file(TEAM, 45001, "203.0.113.9", "tester", "example-org/project", "main",
+                            "CLAUDE/Plan/", "https://api.github.com")
+
+    def test_the_networks_are_added_after_the_existing_ones_once_each(self) -> None:
+        team = self.team()
+        widened = ac.with_allow_from(team, ["198.51.100.0/25", "198.51.100.128/26", "198.51.100.0/25"])
+        self.assertEqual(widened["allow_from"], ["192.0.2.0/24", "198.51.100.0/25", "198.51.100.128/26"])
+        self.assertEqual(team["allow_from"], ["192.0.2.0/24"])
+        self.assertEqual({k: v for k, v in widened.items() if k != "allow_from"},
+                         {k: v for k, v in team.items() if k != "allow_from"})
+
+    def test_a_network_already_listed_is_not_repeated(self) -> None:
+        self.assertEqual(ac.with_allow_from(self.team(), ["192.0.2.0/24"])["allow_from"], ["192.0.2.0/24"])
+
+    def test_the_widened_file_passes_the_admin_tool_validator(self) -> None:
+        from helpers.agent_bus import teamfile
+
+        widened = ac.with_allow_from(self.team(), ["198.51.100.0/25"])
+        self.assertEqual(teamfile.parse_team_file(widened).team, TEAM)
+
+    def test_a_malformed_or_host_bits_network_is_refused(self) -> None:
+        for cidr in ("198.51.100.1/25", "198.51.100.0", "nope", "198.51.100.0/33", ""):
+            with self.subTest(cidr=cidr), self.assertRaises(ValueError):
+                ac.with_allow_from(self.team(), [cidr])
+
+    def test_the_command_rewrites_the_team_file_in_place(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "team.json"
+            path.write_text(json.dumps(self.team()), encoding="utf-8")
+            status, out, _ = run_main("allow-from", str(path), "198.51.100.0/25", "198.51.100.128/26")
+            self.assertEqual((status, out), (0, ""))
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["allow_from"],
+                             ["192.0.2.0/24", "198.51.100.0/25", "198.51.100.128/26"])
+
+    def test_the_command_needs_a_network(self) -> None:
+        self.assertEqual(run_main("allow-from", "team.json")[0], 64)
+
+
+class U23SuggestedArgsTest(unittest.TestCase):
+    def test_the_three_arguments_are_returned_when_the_type_is_the_one_expected(self) -> None:
+        for member_type in ("lxc", "docker", "vm"):
+            text = f"--repo=acceptance --host=acceptance --type={member_type}\n"
+            with self.subTest(member_type=member_type):
+                self.assertEqual(ac.suggested_args(text, member_type),
+                                 ["--repo=acceptance", "--host=acceptance", f"--type={member_type}"])
+
+    def test_another_type_is_refused(self) -> None:
+        for got in ("host", "podman", "docker"):
+            with self.subTest(got=got), self.assertRaises(ValueError):
+                ac.suggested_args(f"--repo=acceptance --host=acceptance --type={got}\n", "lxc")
+
+    def test_anything_but_exactly_that_one_line_is_refused(self) -> None:
+        for text in ("", "--repo=acceptance --host=acceptance\n",
+                     "--host=acceptance --repo=acceptance --type=lxc\n",
+                     "--repo=acceptance --host=acceptance --type=lxc\n--repo=x --host=y --type=lxc\n",
+                     "--repo=acceptance --host=acceptance --type=lxc --extra\n",
+                     "--repo= --host=acceptance --type=lxc\n",
+                     "--repo=acceptance --host=acceptance --type=lxc"):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                ac.suggested_args(text, "lxc")
+
+    def test_the_command_prints_one_argument_per_line(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "suggest.out"
+            path.write_text("--repo=acceptance --host=acceptance --type=vm\n", encoding="utf-8")
+            status, out, _ = run_main("suggested-args", str(path), "vm")
+            self.assertEqual((status, out), (0, "--repo=acceptance\n--host=acceptance\n--type=vm\n"))
+            self.assertEqual(run_main("suggested-args", str(path), "lxc")[0], 1)
+
+
 class MainTest(unittest.TestCase):
     def test_login_body_reads_the_password_from_stdin_only(self) -> None:
         status, out, err = run_main("login-body", "tester", stdin="pw-from-stdin\n")
