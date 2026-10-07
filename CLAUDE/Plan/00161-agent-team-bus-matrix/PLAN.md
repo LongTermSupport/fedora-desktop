@@ -81,13 +81,24 @@ repository; opt-in per machine and per team.
   costs); (3) Plan 00160 Task 3.3 is done (ccy 3.84.0). Folded into DESIGN.md.
 
 - [x] ✅ **Task 1.6**: OWNER decisions 2026-10-07 folded into DESIGN.md (§5.5, §5.6, §12
-  "U20", D32–D39; [report](subagent-reports/261007-seats-design-opus.md)): one seat per ccy
-  session, seats numeric or role-named (`<repo>.dev+<host>.podman`); a checkout opted in
-  by IaC only (`agent_bus_ccy_checkouts`, `agent-bus-install seats`); U20 in this
-  repository's own checkout, several sessions at once. Five owner questions open (DESIGN.md
-  "Owner questions"), each with the answer the design assumes.
+  "U20"; [report](subagent-reports/261007-seats-design-opus.md)): one seat per ccy session,
+  seats numeric or role-named (`<repo>.dev+<host>.podman`); U20 in this repository's own
+  checkout, several sessions at once.
 
-### Phase 2: Build, by milestone (units U00–U32 in DESIGN.md §12)
+- [x] ✅ **Task 1.7**: OWNER answers to the seats questions (2026-10-07, journal) folded into
+  DESIGN.md (§5.5, §5.6, §12 "U20", D33–D43;
+  [report](subagent-reports/261007-seats-design-rework-opus.md)): a seat is a durable role
+  identity whose name is reused (parked on removal, returned with the same account and
+  history; `pingbus history`); provisioning is organic: `agent-bus join <team>` in the
+  checkout, and `ccy --seat <name>` creates a seat on first use (IaC optional, none built);
+  v1 seats join only teams on this host; the grammar widens inside protocol v1.
+
+- [ ] **Task 1.8**: OWNER: three questions from the rework (DESIGN.md "Owner questions"),
+  each with the answer the design assumes: an unnamed `ccy` creates the next numbered seat
+  when all are held; every seat is in every team its checkout joined (so U20 needs this
+  checkout joined to no other team); U24 and success criterion 3 stay in v1.
+
+### Phase 2: Build, by milestone (units U00–U33 in DESIGN.md §12)
 
 - [ ] 🔄 **M0 probes**: U00 (host, through `meta-deploy.bash`), U01 (a logged-in child
   `claude`). U00's `triage.bash` is built and in `meta-deploy.bash`; its H4 and H5 already ran
@@ -128,15 +139,14 @@ repository; opt-in per machine and per team.
   expansion, now off. Run of 26-10-07 (meta-deploy `20261007-142049`): `deploy.bash` and
   `acceptance.bash` PASS, M1.1 (review, wait, ack), M1.2 (a human message reaches only the
   member it mentions) and M1.3 (TIMEOUT for the unanswered review only) all PASS.
-- [ ] 🔄 **M2 ccy members, the idle session woken**: U12, U18–U20, U29–U32. Seats
-  revision (Task 1.6), designed, not built: **U29** seat handles and registry v2
-  (`add-member --seat`); **U30** the seat claim (`pingbus seat exec`, `seat list`), `SEAT`
-  lines in `status`, the seat at SessionStart; **U31** ccy `--seat`, `--no-bus`, the
-  `ccy-seat` label, headless Quick Launch, the entrypoint's seats block; **U32** the IaC,
-  `agent-bus-install seats` called by `play-agent-bus.yml` from `agent_bus_ccy_checkouts`.
-  **U20 is to be reworked** to run in this checkout on three seats provisioned and removed
-  by the play (DESIGN.md §12 "U20"); its throwaway-checkout build below is superseded and
-  its host run waits for U29–U32. U12 built:
+- [ ] 🔄 **M2 ccy members, the idle session woken**: U12, U18–U20, U29–U33. Seats
+  (Tasks 1.6, 1.7), designed, not built: **U29** seat handles, registry v2, park and
+  return (`add-member --seat`, `park-member`); **U30** the seat claim (`pingbus seat exec`), `SEAT` lines in `status`, the seat at SessionStart; **U31** ccy picks and creates
+  the seat on the host (`--seat`, unnamed launches on the lowest free number), `--no-bus`,
+  the `ccy-seat` label, headless Quick Launch, the entrypoint's seats block; **U32** the
+  host commands `agent-bus join`, `leave` and `seat list|add|take|remove`; **U33**
+  `pingbus history`. **U20 is to be reworked** to run in this checkout through `agent-bus join` and `ccy --seat` (DESIGN.md §12 "U20"); its throwaway-checkout build below is
+  superseded and its host run waits for U29–U33. U12 built:
   `hooks.py` (the four hooks, offline; the Stop guard), `notify.py` (the inbox socket
   client), `cli.py` `watch`, `hook`, `inbox`, `status`, and the room view (`room.json`)
   the syncer keeps for `status`; `wait` and `watch` publish `listening`. U18 built:
@@ -191,9 +201,9 @@ repository; opt-in per machine and per team.
 
 ## Success Criteria
 
-- [ ] Several ccy sessions in one checkout, each on its own seat provisioned by the play,
-  exchange a `review` ping and an `ack`; the idle one is woken (reworded for the owner's
-  2026-10-07 decisions: DESIGN.md D34, owner question 4).
+- [ ] Several ccy sessions in one checkout, each on its own seat, exchange a `review` ping
+  and an `ack`; the idle one is woken; a later session in a seat continues as its member and
+  reads its history (owner, 2026-10-07: DESIGN.md D34, D40).
 - [ ] A human's message addressed to one agent in Element reaches that agent, marked as
   from that human; no other agent's `pingbus` delivers it, and no agent's free text
   reaches another agent.
