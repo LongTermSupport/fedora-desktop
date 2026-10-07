@@ -630,6 +630,91 @@ class TestElementProfile(BundleCase):
             self.assert_refused(contains="Permission denied")
 
 
+class TestSymlinkedTeamEntry(BundleCase):
+    """§12 / DESIGN.md D50: a `PINGBUS_HOME` team entry may be a symlink (a ccy session's
+    home links each team to its seat's directory), accepted only onto a real directory,
+    not itself a link, owned by the user, mode 0700. A plain directory is accepted as
+    before."""
+
+    def seat_dir(self, mode: int = 0o700) -> pathlib.Path:
+        seat = self.root / "seats" / "team-a" / "dev1"
+        seat.mkdir(parents=True)
+        (seat / "member.json").write_text(json.dumps(member_json()), encoding="utf-8")
+        (seat / "token").write_text(TOKEN, encoding="utf-8")
+        (seat / "token").chmod(0o600)
+        seat.chmod(mode)
+        self.addCleanup(seat.chmod, 0o700)
+        self.home.mkdir(mode=0o700)
+        return seat
+
+    def test_a_link_onto_a_private_directory_of_the_user_is_accepted(self) -> None:
+        seat = self.seat_dir()
+        (self.home / "team-a").symlink_to(seat)
+        member = self.load()
+        self.assertEqual(member.handle, HANDLE)
+        self.assertEqual(member.bundle_dir, self.home / "team-a")
+
+    def test_a_relative_link_is_resolved_from_the_home(self) -> None:
+        seat = self.seat_dir()
+        (self.home / "team-a").symlink_to(os.path.relpath(seat, self.home))
+        self.assertEqual(self.load().handle, HANDLE)
+
+    def test_a_link_onto_a_link_is_refused(self) -> None:
+        seat = self.seat_dir()
+        hop = self.root / "hop"
+        hop.symlink_to(seat)
+        (self.home / "team-a").symlink_to(hop)
+        self.assert_refused(contains="a link onto a link")
+
+    def test_a_link_onto_a_foreign_owned_directory_is_refused(self) -> None:
+        seat = self.seat_dir()
+        (self.home / "team-a").symlink_to(seat)
+        with self.assertRaises(config.ConfigError) as caught:
+            self.load(uid=self.uid + 1)
+        self.assertIn("owned by uid", str(caught.exception))
+        self.assertIn("team-a", str(caught.exception))
+
+    def test_a_link_onto_a_group_or_world_readable_directory_is_refused(self) -> None:
+        for mode in (0o750, 0o705, 0o755):
+            with self.subTest(mode=f"{mode:o}"):
+                self.setUp()
+                seat = self.seat_dir(mode)
+                (self.home / "team-a").symlink_to(seat)
+                self.assert_refused(contains="mode")
+
+    def test_a_link_onto_a_file_or_nothing_is_refused(self) -> None:
+        self.home.mkdir(mode=0o700)
+        target = self.root / "file"
+        target.write_text("x", encoding="utf-8")
+        (self.home / "team-a").symlink_to(target)
+        self.assert_refused(contains="not a directory")
+        (self.home / "team-a").unlink()
+        (self.home / "team-a").symlink_to(self.root / "gone")
+        self.assert_refused(contains="no such directory")
+
+    def test_a_plain_bundle_directory_is_not_held_to_the_link_rule(self) -> None:
+        bundle = self.write_bundle()
+        bundle.chmod(0o755)
+        self.assertEqual(self.load().handle, HANDLE)
+
+
+class TestReadMember(BundleCase):
+    """`read_member`: a bundle directory's `member.json` parsed and validated, the token
+    not read (the seat listing reads a seat's handle offline)."""
+
+    def test_the_member_is_parsed_without_the_token(self) -> None:
+        bundle = self.write_bundle()
+        (bundle / "token").chmod(0o644)
+        member = config.read_member("team-a", bundle)
+        self.assertEqual(member.handle, HANDLE)
+        self.assertEqual(member.bundle_dir, bundle)
+
+    def test_a_bad_member_file_is_refused(self) -> None:
+        bundle = self.write_bundle(data=member_json(team="team-b"))
+        with self.assertRaises(config.ConfigError):
+            config.read_member("team-a", bundle)
+
+
 class TestLoadActive(BundleCase):
     def env(self, teams: str) -> dict[str, str]:
         return {"PINGBUS_HOME": str(self.home), "PINGBUS_TEAMS": teams, "HOME": "/nonexistent"}

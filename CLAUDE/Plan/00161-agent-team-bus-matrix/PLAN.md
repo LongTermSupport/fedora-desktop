@@ -162,10 +162,13 @@ repository; opt-in per machine and per team.
 - [ ] 🔄 **M2 ccy members, the idle session woken**: U12, U18–U20, U29–U33. Seats
   (Tasks 1.6–1.10), designed; **U29 built** (seat handles in `protocol.py`, registry v2,
   `add-member --seat` with park and return, `park-member`, `local` named in the
-  protocol's handle rules; D51; no host run of its own, exercised by U20); the rest not
-  built: **U30** the `<seat>@<team>` list parser, the claim of every listed seat
-  (`pingbus seat exec`, a lock per seat, the session home of links), `SEAT` lines in
-  `status`, the seats at SessionStart; **U31** ccy `--teams <seat>@<team>[,…]` (malformed
+  protocol's handle rules; D51; no host run of its own, exercised by U20); **U30 built**
+  (`seat.py`: the `<seat>@<team>` list parser and canonical form, the claim of every
+  listed seat by `pingbus seat exec` with a `seat.lock` per seat on `inbox.py`'s one lock
+  primitive, the session home of links, `SEAT` lines in `status`; `config.py` accepts a
+  linked team entry only onto a user-owned 0700 directory; the seats at SessionStart; the
+  skill's seats section; protocol §12-§15; D52-D54; no host run of its own, reaches the
+  image with U31 and is exercised by U20); the rest not built: **U31** ccy `--teams <seat>@<team>[,…]` (malformed
   lists and a second seat of one team refused, 64); the launcher creates any missing seat
   on the host, passes `PINGBUS_SEATS` into the container, labels it `ccy-seats`; a plain
   `ccy` passes nothing; the entrypoint refuses bus variables from

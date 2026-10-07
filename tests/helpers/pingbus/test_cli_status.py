@@ -46,6 +46,9 @@ LINE_RES = {
     "PENDING": re.compile(
         rf"PENDING\t{TEAM_RE}\t{protocol.EVENT_ID_PATTERN}\t{LOCALPART_RE}\t\d+"
         rf"\t(?:human|{'|'.join(protocol.VERBS)})"),
+    "SEAT": re.compile(
+        rf"SEAT\t{TEAM_RE}\t(?:{protocol.HANDLE_SEAT_PATTERN})\t(?:held|free)\t(?:self|-)"
+        rf"\t{protocol.HANDLE_PATTERN}"),
 }
 
 
@@ -254,6 +257,59 @@ class InboxTest(StatusCase):
         self.joined()
         code, rows, _ = self.report("inbox")
         self.assertEqual((code, rows), (cli.EXIT_OK, []))
+
+
+class SeatStatusTest(StatusCase):
+    """DESIGN.md section 5.5 "Status": one `SEAT` line per seat of the checkout (team, seat,
+    `held`/`free`, `self`/`-`, handle), offline, after the teams."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.root = self.tmp / "checkout" / "seats"
+        own = self.root / bus.TEAM_A / "dev1"
+        own.parent.mkdir(parents=True)
+        os.rename(self.home / bus.TEAM_A, own)
+        own.chmod(0o700)
+        (self.home / bus.TEAM_A).symlink_to(own)
+        self.sibling = self.root / bus.TEAM_A / "dev2"
+        self.sibling.mkdir(mode=0o700)
+        member = json.loads((own / "member.json").read_text(encoding="utf-8"))
+        member["user_id"] = f"@myrepo.dev2+local.podman:{bus.SN_A}"
+        (self.sibling / "member.json").write_text(json.dumps(member), encoding="utf-8")
+
+    def seat_rows(self, rows: list[list[str]]) -> list[list[str]]:
+        return [r[1:] for r in rows if r[0] == "SEAT"]
+
+    def test_every_seat_with_its_lock_and_self(self):
+        self.joined()
+        code, rows, err = self.report()
+        self.assertEqual(code, cli.EXIT_OK, err)
+        self.assertEqual(self.seat_rows(rows), [
+            [bus.TEAM_A, "dev1", "free", "self", bus.ME_LP],
+            [bus.TEAM_A, "dev2", "free", "-", "myrepo.dev2+local.podman"],
+        ])
+        self.assertEqual(rows[-1][0], "SEAT", "the SEAT lines follow the teams")
+        with inbox.acquire_lock_at(self.sibling / "seat.lock", inbox.SEAT_KIND, claimed_ms=1):
+            self.assertEqual(self.seat_rows(self.report()[1])[1][2], "held")
+
+    def test_a_seat_with_a_broken_bundle_is_reported_and_the_rest_still_print(self):
+        self.joined()
+        (self.sibling / "member.json").write_text("{", encoding="utf-8")
+        code, rows, err = self.report()
+        self.assertEqual(code, cli.EXIT_CONFIG)
+        self.assertEqual([r[1] for r in self.seat_rows(rows)], ["dev1"])
+        self.assertIn("seat dev2@team-a", err)
+
+    def test_no_seats_directory_prints_no_seat_line(self):
+        (self.home / bus.TEAM_A).unlink()
+        os.rename(self.root / bus.TEAM_A / "dev1", self.home / bus.TEAM_A)
+        for path in (self.sibling / "member.json",):
+            path.unlink()
+        self.sibling.rmdir()
+        (self.root / bus.TEAM_A).rmdir()
+        self.root.rmdir()
+        self.joined()
+        self.assertEqual(self.seat_rows(self.report()[1]), [])
 
 
 class WakerStatusTest(StatusCase):

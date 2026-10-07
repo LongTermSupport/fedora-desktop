@@ -18,6 +18,8 @@ Layout under the state directory (created 0700, files 0600, never through a syml
   read-modify-write holds `flock` on the state directory itself, so concurrent `send`,
   `recv` and the watcher serialise without a further file.
 - `lock`: held with `flock` by the one process syncing this team, holding its kind.
+  `acquire_lock_at` and `probe_lock_at` are the one lock primitive on a path, which a ccy
+  seat's `seat.lock` (kind `seat` and the claim time) shares with it.
 - `team.json`: the last verified team record, removed when the room stops being trusted.
 - `room.json`: `{"v": 1, "members": {<user ID>: "join"|"invite"}, "statuses": {<user ID>:
   <until ms>}}`, the room as the syncer last saw it, for an offline `status`.
@@ -70,6 +72,13 @@ ABSENT = "-"
 LOCK_KINDS = ("watch", "wait", "recv")
 #: The holders that wake a session (spec §12); a `recv` holder is not one.
 WAKER_KINDS = ("watch", "wait")
+#: What a session writes into each `seat.lock` it claims, followed by the claim time in
+#: milliseconds (DESIGN.md section 5.5); never a sync lock's kind.
+SEAT_KIND = "seat"
+#: Every kind the one lock primitive writes.
+PATH_LOCK_KINDS = (*LOCK_KINDS, SEAT_KIND)
+#: Enough for a kind, a space and a claim time.
+KIND_READ_MAX = 64
 #: A held lock whose file does not (yet) name a kind.
 KIND_UNKNOWN = "unknown"
 #: A probe holds a shared lock for an instant; a few tries keep it from making a starting
@@ -677,16 +686,26 @@ def _settled(entry: Mapping[str, object]) -> bool:
     return set(entry["to"]) <= set(entry["answered"]) | set(entry["reported"])
 
 
-# The sync lock.
+# The locks: one primitive on a path, for the sync lock and the seat lock alike.
 
 
 class Lock:
-    """A held sync lock. Released by `release`, by the context manager, or by the kernel
-    when the process dies."""
+    """A held lock. Released by `release`, by the context manager, or by the kernel when
+    the last process holding its open file description exits."""
 
     def __init__(self, fd: int, kind: str) -> None:
         self._fd: int | None = fd
         self.kind = kind
+
+    def fileno(self) -> int:
+        if self._fd is None:
+            raise ValueError("the lock was released")
+        return self._fd
+
+    def set_inheritable(self) -> None:
+        """Keep the descriptor across `exec`, so the program exec'd holds the lock (and
+        every process it starts, until the last of them exits)."""
+        os.set_inheritable(self.fileno(), True)
 
     def release(self) -> None:
         if self._fd is None:
@@ -704,8 +723,7 @@ class Lock:
         self.release()
 
 
-def _open_lock(state: TeamState, flags: int) -> int:
-    path = state.path / LOCK_FILE
+def _open_lock(path: pathlib.Path, flags: int) -> int:
     try:
         fd = os.open(path, flags | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, FILE_MODE)
     except OSError as exc:
@@ -719,17 +737,23 @@ def _open_lock(state: TeamState, flags: int) -> int:
 
 
 def _read_kind(fd: int) -> str:
-    kind = os.pread(fd, 16, 0).decode("ascii", errors="replace")
-    return kind if kind in LOCK_KINDS else KIND_UNKNOWN
+    """The holder's kind: the file's first word (a seat lock follows it with the claim
+    time), `unknown` when that is not a kind this module writes."""
+    kind = os.pread(fd, KIND_READ_MAX, 0).decode("ascii", errors="replace").partition(" ")[0]
+    return kind if kind in PATH_LOCK_KINDS else KIND_UNKNOWN
 
 
-def acquire_lock(state: TeamState, kind: str, *, sleep: Callable[[float], None] = time.sleep) -> Lock:
-    """Take this team's sync lock without waiting on its holder, and write `kind` into
-    it; raise `Busy` naming the holder's kind when another process has it."""
-    if kind not in LOCK_KINDS:
-        raise ValueError(f"a lock kind is one of {', '.join(LOCK_KINDS)}")
-    state.ensure_dirs()
-    fd = _open_lock(state, os.O_RDWR | os.O_CREAT)
+def acquire_lock_at(path: pathlib.Path, kind: str, *, claimed_ms: int | None = None,
+                    sleep: Callable[[float], None] = time.sleep) -> Lock:
+    """Take the lock at `path` (created 0600 when missing, never through a symlink)
+    without waiting on its holder, and write `kind` into it, followed by `claimed_ms` when
+    given; raise `Busy` naming the holder's kind when another open file description has
+    it. The descriptor is close-on-exec until `Lock.set_inheritable`."""
+    if kind not in PATH_LOCK_KINDS:
+        raise ValueError(f"a lock kind is one of {', '.join(PATH_LOCK_KINDS)}")
+    if claimed_ms is not None and (type(claimed_ms) is not int or claimed_ms < 0):
+        raise ValueError("a claim time is a non-negative integer of milliseconds")
+    fd = _open_lock(path, os.O_RDWR | os.O_CREAT)
     for attempt in range(1, LOCK_ATTEMPTS + 1):
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -740,9 +764,19 @@ def acquire_lock(state: TeamState, kind: str, *, sleep: Callable[[float], None] 
                 os.close(fd)
                 raise Busy(holder) from None
             sleep(LOCK_RETRY_S)
+    text = kind if claimed_ms is None else f"{kind} {claimed_ms}"
     os.ftruncate(fd, 0)
-    os.pwrite(fd, kind.encode("ascii"), 0)
+    os.pwrite(fd, text.encode("ascii"), 0)
     return Lock(fd, kind)
+
+
+def acquire_lock(state: TeamState, kind: str, *, sleep: Callable[[float], None] = time.sleep) -> Lock:
+    """Take this team's sync lock without waiting on its holder, and write `kind` into
+    it; raise `Busy` naming the holder's kind when another process has it."""
+    if kind not in LOCK_KINDS:
+        raise ValueError(f"a sync lock kind is one of {', '.join(LOCK_KINDS)}")
+    state.ensure_dirs()
+    return acquire_lock_at(state.path / LOCK_FILE, kind, sleep=sleep)
 
 
 def is_waker(kind: str | None) -> bool:
@@ -755,8 +789,14 @@ def probe_lock(state: TeamState) -> str | None:
     """The kind of the process holding this team's sync lock, or None when no process
     does. A held lock is not always a waker: pass the result to `is_waker`. Never
     creates the file."""
+    return probe_lock_at(state.path / LOCK_FILE)
+
+
+def probe_lock_at(path: pathlib.Path) -> str | None:
+    """The kind of the process holding the lock at `path`, or None when no process does.
+    Never creates the file."""
     try:
-        fd = _open_lock(state, os.O_RDONLY)
+        fd = _open_lock(path, os.O_RDONLY)
     except FileNotFoundError:
         return None
     try:

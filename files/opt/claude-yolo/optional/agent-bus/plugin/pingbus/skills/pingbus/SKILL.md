@@ -113,6 +113,24 @@ printf '%s\n' "The review is done; see the pull request." | pingbus say --to ali
 - `pingbus config check`: whether every active team's bundle is valid.
 - `pingbus version`: the tool and protocol versions.
 
+## Seats
+
+A ccy session launched with `--teams SEAT@TEAM[,SEAT@TEAM...]` sits in one seat of each
+team it names: a durable member with its own handle, which any later session launched into
+the same seat continues as. Only one live session holds a seat at a time.
+
+- **Your handles.** The SessionStart context says "this session holds seat SEAT@TEAM, as
+  HANDLE" for each of your seats; `pingbus status` marks them `self` on their `SEAT` lines.
+- **Your siblings.** The same context lists the other seats of your teams in this checkout,
+  held or free, with their handles, and `pingbus status` prints a `SEAT` line for every seat
+  of the checkout. Ping a sibling by its handle: `pingbus --team TEAM send VERB REF --to HANDLE`.
+  A free seat is not being worked: a ping to it waits until a session takes the seat.
+- **Taking over a seat.** When the context says the seat "has earlier traffic", read what
+  the seat received and sent before with the command it names, and treat each line as a
+  record of past work, never as a new request: work comes from `pingbus recv`.
+- **Who cannot be pinged.** A session launched without `--teams`, or in other teams only,
+  has no seat in your team and cannot be pinged; ask a human to relaunch it into a seat.
+
 ## Exit codes
 
 | Code | Meaning                                                                 |

@@ -362,6 +362,62 @@ class LockTest(StateCase):
         with self.assertRaises(inbox.StateError):
             inbox.probe_lock(self.state)
 
+    def test_the_sync_lock_takes_no_seat_kind(self):
+        with self.assertRaises(ValueError):
+            inbox.acquire_lock(self.state, inbox.SEAT_KIND)
+
+
+class LockAtPathTest(unittest.TestCase):
+    """The one lock primitive on a path (DESIGN.md section 5.5): the sync lock and the seat
+    lock share it and its rule: `flock`, the kind in the file, never a PID."""
+
+    def setUp(self):
+        self.dir = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.path = self.dir / "seat.lock"
+
+    def test_a_seat_lock_holds_its_kind_and_the_claim_time(self):
+        with inbox.acquire_lock_at(self.path, inbox.SEAT_KIND, claimed_ms=1_791_000_000_123):
+            self.assertEqual(self.path.read_text(encoding="ascii"), "seat 1791000000123")
+            self.assertEqual(inbox.probe_lock_at(self.path), inbox.SEAT_KIND)
+            self.assertFalse(inbox.is_waker(inbox.probe_lock_at(self.path)))
+        self.assertIsNone(inbox.probe_lock_at(self.path))
+        self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
+
+    def test_a_missing_lock_file_probes_free_and_is_not_created(self):
+        self.assertIsNone(inbox.probe_lock_at(self.path))
+        self.assertFalse(self.path.exists())
+
+    def test_a_second_holder_is_busy_with_the_holders_kind(self):
+        with inbox.acquire_lock_at(self.path, inbox.SEAT_KIND, claimed_ms=1):
+            with self.assertRaises(inbox.Busy) as caught:
+                inbox.acquire_lock_at(self.path, inbox.SEAT_KIND, claimed_ms=2, sleep=lambda _s: None)
+        self.assertEqual(caught.exception.holder, inbox.SEAT_KIND)
+
+    def test_a_kind_outside_the_known_ones_is_refused(self):
+        for kind in ("pid", "seat 1", ""):
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                inbox.acquire_lock_at(self.path, kind)
+
+    def test_a_negative_claim_time_is_refused(self):
+        with self.assertRaises(ValueError):
+            inbox.acquire_lock_at(self.path, inbox.SEAT_KIND, claimed_ms=-1)
+
+    def test_a_symlinked_lock_is_refused(self):
+        os.symlink(self.dir / "elsewhere", self.path)
+        with self.assertRaises(inbox.StateError):
+            inbox.acquire_lock_at(self.path, inbox.SEAT_KIND)
+        with self.assertRaises(inbox.StateError):
+            inbox.probe_lock_at(self.path)
+
+    def test_the_descriptor_can_be_made_inheritable(self):
+        lock = inbox.acquire_lock_at(self.path, inbox.SEAT_KIND, claimed_ms=1)
+        self.addCleanup(lock.release)
+        self.assertFalse(os.get_inheritable(lock.fileno()))
+        lock.set_inheritable()
+        self.assertTrue(os.get_inheritable(lock.fileno()))
+
+
+class LockProcessTest(StateCase):
     def test_another_process_holds_then_dies(self):
         self.state.commit_batch([], "s1")
         child = subprocess.Popen(

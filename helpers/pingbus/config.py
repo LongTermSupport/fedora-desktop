@@ -38,6 +38,8 @@ STATE_DIR = "state"
 MEMBER_FILE_MAX_BYTES = 65536
 TOKEN_MAX_BYTES = 4096
 TOKEN_MODE_ALLOWED = 0o600
+#: The only mode a symlinked team entry's target directory may have (§12).
+LINKED_BUNDLE_MODE = 0o700
 
 REQUIRED_KEYS = (
     "protocol",
@@ -180,12 +182,41 @@ def load_bundle(
         raise ConfigError("not a team name")
     owner = os.getuid() if uid is None else uid
     bundle_dir = home / team
-    data = _read_member_file(team, bundle_dir / MEMBER_FILE)
-    member = _parse_member(team, bundle_dir, data)
+    if bundle_dir.is_symlink():
+        _check_linked_bundle(team, bundle_dir, owner)
+    member = read_member(team, bundle_dir)
     read_token(member, uid=owner)
     if member.member_type == "host":
         _refuse_beside_element(team, _home_of(owner) if user_home is None else user_home)
     return member
+
+
+def read_member(team: str, bundle_dir: pathlib.Path) -> Member:
+    """`bundle_dir/member.json` validated for `team`, without reading the token: what an
+    offline listing needs (a seat's handle). `load_bundle` adds the token and the rest."""
+    return _parse_member(team, bundle_dir, _read_member_file(team, bundle_dir / MEMBER_FILE))
+
+
+def _check_linked_bundle(team: str, link: pathlib.Path, owner: int) -> None:
+    """§12: a team entry that is a symlink (a ccy session's home links each team to its
+    seat) must point at a real directory, not another link, owned by `owner`, mode 0700."""
+    target = link.parent / os.readlink(link)
+    where = f"team {team}: {link} links to {target}"
+    try:
+        info = os.lstat(target)
+    except FileNotFoundError:
+        raise ConfigError(f"{where}: no such directory") from None
+    except OSError as exc:
+        raise ConfigError(f"{where}: cannot be read ({exc.strerror})") from None
+    if stat.S_ISLNK(info.st_mode):
+        raise ConfigError(f"{where}: a link onto a link is refused")
+    if not stat.S_ISDIR(info.st_mode):
+        raise ConfigError(f"{where}: not a directory")
+    if info.st_uid != owner:
+        raise ConfigError(f"{where}: owned by uid {info.st_uid}, not {owner}")
+    mode = stat.S_IMODE(info.st_mode)
+    if mode != LINKED_BUNDLE_MODE:
+        raise ConfigError(f"{where}: mode {mode:04o}, not {LINKED_BUNDLE_MODE:04o}")
 
 
 def open_private_file(path: str | os.PathLike[str], where: str, *, uid: int | None = None) -> BinaryIO:
