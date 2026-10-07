@@ -174,7 +174,9 @@ repository; opt-in per machine and per team.
   `ccy` passes nothing; the entrypoint refuses bus variables from
   `ccy.env`/`ccy.env.local`; U19's `ccy.env.local` block removed; headless Quick Launch;
   **U32** the host commands `agent-bus seat check|take|list|remove` (a new seat's `<host>`
-  the checkout's role, else `local`); **U33** `pingbus history`. **U20 is to be reworked**
+  the checkout's role, else `local`); **U33 built** (`pingbus history`, read backwards
+  from the room through the receive checks, `HISTORY` lines, the skill's section; D55; no
+  host run of its own, exercised by U20). **U20 is to be reworked**
   to run in this checkout with sessions launched by `ccy --teams <seat>@acceptance` and no
   checkout or owner setup step (DESIGN.md §12 "U20"); its throwaway-checkout build below
   is superseded and its host run waits for U29–U33. U12 built:
