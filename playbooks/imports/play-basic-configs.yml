@@ -289,6 +289,16 @@
         group: "{{ user_login }}"
         mode: "0644"
 
+    # The desktop user only: that is the shell a dropped SSH session falls back to. A root
+    # shell gets the same clean-up from the user prompt it returns to.
+    - name: Deploy the prompt hook that switches stray terminal modes off
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/bashrc-includes/terminal-modes.bash"
+        dest: "/home/{{ user_login }}/.bashrc-includes/terminal-modes.bash"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+
     - name: Add bashrc includes sourcing
       ansible.builtin.blockinfile:
         marker: "# {mark} ANSIBLE MANAGED: Source bashrc includes"
