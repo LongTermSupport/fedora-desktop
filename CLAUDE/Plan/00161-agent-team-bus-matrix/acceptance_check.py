@@ -24,6 +24,11 @@ payload; every reason goes to stderr):
   expect-timeout OUT TEAM EVENT TARGET VERB REF     OUT is exactly that TIMEOUT line
   expect-absent OUT EVENT            no line in OUT names EVENT, and none is HUMAN
   send-outcome STATUS ERR            a `pingbus send`'s verdict from its status and stderr
+  host-subnet SOURCE                 (U23) "<ifname>\\t<cidr>": the host network holding a
+                                     member's SOURCE address; `ip -j -4 addr show` on stdin
+  allow-from TEAM_FILE CIDR...       (U23) add each CIDR to the team file's allow_from, in place
+  suggested-args OUT TYPE            (U23) `pingbus suggest-handle`'s line in OUT, one argument
+                                     per line, when it names TYPE
 
 REF and RE are "-" when absent, as on the wire (§15); FORGE_API "-" is pingbus's GitHub API. Exit codes: 0 ok; 1 an expectation
 failed or input was malformed; 2 (send-outcome only) could not be established; 64 usage.
@@ -35,6 +40,7 @@ prefix are imported from helpers/pingbus, never restated: the repo root is found
 from __future__ import annotations
 
 import importlib
+import ipaddress
 import json
 import pathlib
 import re
@@ -233,6 +239,62 @@ def send_outcome(status: int, stderr: str) -> int:
     return EXIT_FAIL
 
 
+# ---------------------------------------------------------------- U23: other encapsulations
+
+
+def host_subnet(addrs: object, source: str) -> tuple[str, str]:
+    """The host interface whose IPv4 network holds `source` (an LXC, docker or VM member's
+    own address towards the bus), and that network as a CIDR. `addrs` is `ip -j -4 addr
+    show`. The caller requires the interface to be a bridge: that is the route the READMEs
+    give, and that network is what the team's allow_from must list."""
+    address = ipaddress.ip_address(source)
+    if address.version != 4:
+        raise ValueError(f"{source} is not an IPv4 address")
+    if not isinstance(addrs, list):
+        raise ValueError("the address listing is not a list of interfaces")
+    found = []
+    for link in addrs:
+        if not isinstance(link, dict) or not isinstance(link.get("ifname"), str) \
+                or not isinstance(link.get("addr_info"), list):
+            raise ValueError("an interface in the address listing has no ifname or addr_info")
+        for info in link["addr_info"]:
+            if not isinstance(info, dict) or "local" not in info or "prefixlen" not in info:
+                raise ValueError(f"an address of {link['ifname']} has no local or prefixlen")
+            network = ipaddress.ip_interface(f"{info['local']}/{info['prefixlen']}").network
+            if address in network:
+                found.append((link["ifname"], str(network)))
+    if len(found) != 1:
+        raise ValueError(f"{source} is on {len(found)} host networks, not exactly one: {found}")
+    return found[0]
+
+
+def with_allow_from(team: dict, cidrs: Sequence[str]) -> dict:
+    """The team file with each network in `cidrs` added to `allow_from` once, after the
+    networks already there. A malformed network, or one with host bits set, is refused."""
+    wanted = list(team["allow_from"])
+    for cidr in cidrs:
+        network = str(ipaddress.ip_network(cidr, strict=True))
+        if "/" not in cidr:
+            raise ValueError(f"{cidr!r} is an address, not a network")
+        if network not in wanted:
+            wanted.append(network)
+    return {**team, "allow_from": wanted}
+
+
+_SUGGESTED_RE = re.compile(r"--repo=(?P<repo>\S+) --host=(?P<host>\S+) --type=(?P<type>\S+)\n")
+
+
+def suggested_args(text: str, member_type: str) -> list[str]:
+    """`pingbus suggest-handle`'s one line, as add-member arguments, when it names the
+    encapsulation the member really is in (its READMEs' step 3)."""
+    match = _SUGGESTED_RE.fullmatch(text)
+    if match is None:
+        raise ValueError(f"suggest-handle printed {text!r}, not one --repo --host --type line")
+    if match["type"] != member_type:
+        raise ValueError(f"suggest-handle says type {match['type']!r}, the member is {member_type!r}")
+    return [f"--repo={match['repo']}", f"--host={match['host']}", f"--type={member_type}"]
+
+
 # ---------------------------------------------------------------- command line
 
 
@@ -290,15 +352,29 @@ COMMANDS = {
     "expect-timeout": (6, lambda a: _verdict(expect_timeout(_read(a[0]), *a[1:]))),
     "expect-absent": (2, lambda a: _verdict(expect_absent(_read(a[0]), a[1]))),
     "send-outcome": (2, lambda a: send_outcome(int(a[0]), _read(a[1]))),
+    "host-subnet": (1, lambda a: print("\t".join(host_subnet(_json_stdin(), a[0])))),
+    "suggested-args": (2, lambda a: print("\n".join(suggested_args(_read(a[0]), a[1])))),
 }
 
 
+def _allow_from(path: str, cidrs: Sequence[str]) -> int:
+    target = pathlib.Path(path)
+    team = json.loads(target.read_text(encoding="utf-8"))
+    target.write_text(json.dumps(with_allow_from(team, cidrs), indent=1) + "\n", encoding="utf-8")
+    return EXIT_OK
+
+
 def main(argv: Sequence[str]) -> int:
-    if not argv or (argv[0] not in COMMANDS and argv[0] != "human-message"):
+    if not argv or (argv[0] not in COMMANDS and argv[0] not in ("human-message", "allow-from")):
         print(__doc__, file=sys.stderr)
         return EXIT_USAGE
     command, args = argv[0], list(argv[1:])
     try:
+        if command == "allow-from":
+            if len(args) < 2:
+                print(f"{command}: TEAM_FILE and at least one CIDR", file=sys.stderr)
+                return EXIT_USAGE
+            return _allow_from(args[0], args[1:])
         if command == "human-message":
             if len(args) < 2:
                 print(f"{command}: BODY and at least one USER_ID", file=sys.stderr)
